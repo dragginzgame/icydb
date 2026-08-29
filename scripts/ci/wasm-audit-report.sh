@@ -183,7 +183,7 @@ write_summary_report() {
             and .measurement_profile.identity == "icydb-wasm-footprint/0.220/v1"
             and .pipeline.build_profile == "production"
             and .pipeline.candid_metadata == "enabled"
-            and .pipeline.post_link_transform == "binaryen-108-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v2"
+            and .pipeline.post_link_transform == "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1"
             and .pipeline.final_deployable_stage == "binaryen_oz_wasm"
             and .pipeline.path_remapping == "workspace=/w;cargo-registry=/c;rust-library=/r"
             and (.tools.ic_wasm_sha256 | length) == 64

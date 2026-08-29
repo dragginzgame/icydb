@@ -1,7 +1,7 @@
 use crate::{
     db::schema::ScalarCodec,
     error::InternalError,
-    types::{Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid},
+    types::{Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256, Ulid},
     value::Value,
 };
 use std::str;
@@ -38,6 +38,7 @@ pub(crate) enum ScalarValueRef<'a> {
     Nat(u64),
     Ulid(Ulid),
     Unit,
+    U256(U256),
 }
 
 impl ScalarValueRef<'_> {
@@ -59,6 +60,7 @@ impl ScalarValueRef<'_> {
             Self::Nat(value) => Value::Nat64(value),
             Self::Ulid(value) => Value::Ulid(value),
             Self::Unit => Value::Unit,
+            Self::U256(value) => Value::U256(value),
         }
     }
 }
@@ -171,6 +173,7 @@ const fn scalar_value_payload_len(value: ScalarValueRef<'_>) -> usize {
         ScalarValueRef::Text(value) => value.len(),
         ScalarValueRef::Ulid(_) => 16,
         ScalarValueRef::Unit => 0,
+        ScalarValueRef::U256(_) => 32,
     }
 }
 
@@ -209,6 +212,9 @@ pub(in crate::db::data::persisted_row) fn encode_scalar_slot_value(
                 ScalarValueRef::Nat(value) => encoded.extend_from_slice(&value.to_le_bytes()),
                 ScalarValueRef::Ulid(value) => encoded.extend_from_slice(&value.to_bytes()),
                 ScalarValueRef::Unit => {}
+                ScalarValueRef::U256(value) => {
+                    encoded.extend_from_slice(&value.to_be_bytes());
+                }
             }
 
             encoded
@@ -319,6 +325,9 @@ pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
             decode_unit_scalar_payload(payload, field_name)?;
             ScalarValueRef::Unit
         }
+        ScalarCodec::U256 => {
+            ScalarValueRef::U256(U256::from_be_bytes(decode_fixed(payload, field_name)?))
+        }
     };
 
     Ok(ScalarSlotValueRef::Value(value))
@@ -344,5 +353,31 @@ mod tests {
             Ok(ScalarSlotValueRef::Value(ScalarValueRef::Date(Date::MAX))),
         ));
         assert!(decode_scalar_slot_value(&invalid, ScalarCodec::Date, "created_on").is_err());
+    }
+
+    #[test]
+    fn u256_scalar_slot_roundtrips_exact_fixed_width_payload() {
+        for value in [U256::ZERO, U256::ONE, U256::MAX] {
+            let encoded =
+                encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::U256(value)));
+
+            assert_eq!(encoded.len(), 34);
+            assert_eq!(&encoded[..2], &[SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_VALUE]);
+            assert_eq!(&encoded[2..], value.to_be_bytes());
+            assert!(matches!(
+                decode_scalar_slot_value(&encoded, ScalarCodec::U256, "amount"),
+                Ok(ScalarSlotValueRef::Value(ScalarValueRef::U256(decoded))) if decoded == value,
+            ));
+        }
+    }
+
+    #[test]
+    fn u256_scalar_slot_rejects_non_exact_payload_lengths() {
+        for payload_len in [31, 33] {
+            let mut encoded = vec![SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_VALUE];
+            encoded.resize(2 + payload_len, 0);
+
+            assert!(decode_scalar_slot_value(&encoded, ScalarCodec::U256, "amount").is_err());
+        }
     }
 }

@@ -40,7 +40,8 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
         | AcceptedFieldKind::Principal
         | AcceptedFieldKind::Subaccount
         | AcceptedFieldKind::Timestamp
-        | AcceptedFieldKind::Unit => {
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::U256 => {
             let Some(value) = decode_primary_key_component_binary_value_bytes(raw_bytes, kind)?
             else {
                 return Err(FieldDecodeError::new());
@@ -97,7 +98,8 @@ pub(super) fn encode_leaf_field_binary_bytes(
         | AcceptedFieldKind::Principal
         | AcceptedFieldKind::Subaccount
         | AcceptedFieldKind::Timestamp
-        | AcceptedFieldKind::Unit => {
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::U256 => {
             encode_primary_key_component_binary_value_bytes(kind, value, field_name)?
         }
         AcceptedFieldKind::Date => Some(encode_date_value_bytes(value, field_name)?),

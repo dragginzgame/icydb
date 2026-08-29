@@ -78,7 +78,8 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
         | AcceptedFieldKind::Nat128
         | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit => Err(FieldDecodeError::new()),
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::U256 => Err(FieldDecodeError::new()),
     }
 }
 
@@ -161,7 +162,8 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
         | AcceptedFieldKind::Nat128
         | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit => Err(FieldDecodeError::new()),
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::U256 => Err(FieldDecodeError::new()),
     }
 }
 
@@ -231,7 +233,8 @@ fn encode_accepted_binary_field_into(
         | AcceptedFieldKind::Nat128
         | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit => Err(InternalError::persisted_row_field_encode_internal(
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::U256 => Err(InternalError::persisted_row_field_encode_internal(
             field_name,
         )),
     }

@@ -33,6 +33,7 @@ impl PartialOrd for Value {
             (Self::Nat128(a), Self::Nat128(b)) => a.partial_cmp(b),
             (Self::NatBig(a), Self::NatBig(b)) => a.partial_cmp(b),
             (Self::Ulid(a), Self::Ulid(b)) => a.partial_cmp(b),
+            (Self::U256(a), Self::U256(b)) => a.partial_cmp(b),
             (Self::Map(a), Self::Map(b)) => partial_cmp_map(a.as_slice(), b.as_slice()),
 
             // Cross-type comparisons: no ordering

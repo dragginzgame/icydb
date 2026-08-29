@@ -38,6 +38,7 @@ pub(in crate::db::data::persisted_row) enum ValidatedScalarSlotValue {
     Nat(u64),
     Ulid(crate::types::Ulid),
     Unit,
+    U256(crate::types::U256),
 }
 
 ///
@@ -109,6 +110,7 @@ pub(super) const fn validated_scalar_slot_value(
             ScalarValueRef::Nat(value) => ValidatedScalarSlotValue::Nat(value),
             ScalarValueRef::Ulid(value) => ValidatedScalarSlotValue::Ulid(value),
             ScalarValueRef::Unit => ValidatedScalarSlotValue::Unit,
+            ScalarValueRef::U256(value) => ValidatedScalarSlotValue::U256(value),
         },
     }
 }
@@ -164,6 +166,9 @@ pub(super) fn scalar_slot_value_ref_from_validated<'a>(
             Ok(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(value)))
         }
         ValidatedScalarSlotValue::Unit => Ok(ScalarSlotValueRef::Value(ScalarValueRef::Unit)),
+        ValidatedScalarSlotValue::U256(value) => {
+            Ok(ScalarSlotValueRef::Value(ScalarValueRef::U256(value)))
+        }
     }
 }
 

@@ -966,6 +966,7 @@ fn typed_item_field_type_tokens(item: &Item) -> TokenStream {
             quote!(::icydb::__macro::ScalarType::Text { max_len: #max_len })
         }
         Primitive::Timestamp => quote!(::icydb::__macro::ScalarType::Timestamp),
+        Primitive::U256 => quote!(::icydb::__macro::ScalarType::U256),
         Primitive::Ulid => quote!(::icydb::__macro::ScalarType::Ulid),
         Primitive::Unit => quote!(::icydb::__macro::ScalarType::Unit),
     };

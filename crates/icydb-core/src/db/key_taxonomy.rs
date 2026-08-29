@@ -17,7 +17,9 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::index::IndexId,
     traits::Repr,
-    types::{Account, AccountStorageCodec, EntityTag, Principal, Subaccount, Timestamp, Ulid},
+    types::{
+        Account, AccountStorageCodec, EntityTag, Principal, Subaccount, Timestamp, U256, Ulid,
+    },
     value::Value,
 };
 use std::{cmp::Ordering, fmt};
@@ -36,6 +38,7 @@ const INT128_SIZE: usize = 16;
 const TIMESTAMP_SIZE: usize = 8;
 const ULID_SIZE: usize = 16;
 const SUBACCOUNT_SIZE: usize = 32;
+const U256_SIZE: usize = 32;
 const ACCOUNT_SIZE: usize = Account::STORED_SIZE as usize;
 const LENGTH_PREFIX_SIZE: usize = size_of::<u16>();
 const INDEX_COMPONENT_MAX_SIZE: usize = 4 * 1024;
@@ -68,6 +71,7 @@ pub(in crate::db) enum PrimaryKeyKind {
     Composite = 0x09,
     Int128 = 0x0A,
     Nat128 = 0x0B,
+    U256 = 0x0C,
 }
 
 impl PrimaryKeyKind {
@@ -89,6 +93,7 @@ impl PrimaryKeyKind {
             0x09 => Some(Self::Composite),
             0x0A => Some(Self::Int128),
             0x0B => Some(Self::Nat128),
+            0x0C => Some(Self::U256),
             _ => None,
         }
     }
@@ -105,6 +110,7 @@ impl PrimaryKeyKind {
             Self::Subaccount => Some(SUBACCOUNT_SIZE),
             Self::Account => Some(ACCOUNT_SIZE),
             Self::Unit => Some(0),
+            Self::U256 => Some(U256_SIZE),
         }
     }
 }
@@ -126,6 +132,7 @@ pub enum PrimaryKeyComponent {
     Subaccount(Subaccount),
     Account(Account),
     Unit,
+    U256(U256),
 }
 
 impl PrimaryKeyComponent {
@@ -142,6 +149,7 @@ impl PrimaryKeyComponent {
             Self::Subaccount(_) => PrimaryKeyKind::Subaccount,
             Self::Account(_) => PrimaryKeyKind::Account,
             Self::Unit => PrimaryKeyKind::Unit,
+            Self::U256(_) => PrimaryKeyKind::U256,
         }
     }
 
@@ -158,6 +166,7 @@ impl PrimaryKeyComponent {
             Self::Subaccount(value) => Value::Subaccount(value),
             Self::Account(value) => Value::Account(value),
             Self::Unit => Value::Unit,
+            Self::U256(value) => Value::U256(value),
         }
     }
 
@@ -176,6 +185,7 @@ impl PrimaryKeyComponent {
             Value::Timestamp(value) => Some(Self::Timestamp(*value)),
             Value::Ulid(value) => Some(Self::Ulid(*value)),
             Value::Unit => Some(Self::Unit),
+            Value::U256(value) => Some(Self::U256(*value)),
             _ => None,
         }
     }
@@ -194,6 +204,7 @@ impl Ord for PrimaryKeyComponent {
             (Self::Subaccount(a), Self::Subaccount(b)) => a.cmp(&b),
             (Self::Account(a), Self::Account(b)) => a.cmp(&b),
             (Self::Unit, Self::Unit) => Ordering::Equal,
+            (Self::U256(a), Self::U256(b)) => a.cmp(&b),
             _ => self.kind().cmp(&other.kind()),
         }
     }
@@ -1114,6 +1125,7 @@ fn encode_primary_key_payload(
             out.extend_from_slice(&bytes);
         }
         PrimaryKeyComponent::Unit => {}
+        PrimaryKeyComponent::U256(value) => out.extend_from_slice(&value.to_be_bytes()),
     }
 
     Ok(())
@@ -1149,6 +1161,11 @@ fn decode_primary_key_component(
             let mut buf = [0u8; NAT128_SIZE];
             buf.copy_from_slice(payload);
             Ok(PrimaryKeyComponent::Nat128(u128::from_be_bytes(buf)))
+        }
+        PrimaryKeyKind::U256 => {
+            let mut buf = [0u8; U256_SIZE];
+            buf.copy_from_slice(payload);
+            Ok(PrimaryKeyComponent::U256(U256::from_be_bytes(buf)))
         }
         PrimaryKeyKind::Int128 => {
             let mut buf = [0u8; INT128_SIZE];
@@ -1432,6 +1449,7 @@ const fn max_encoded_primary_key_len(kind: PrimaryKeyKind) -> usize {
             PrimaryKeyKind::Principal => TAG_SIZE + Principal::MAX_LENGTH_IN_BYTES as usize,
             PrimaryKeyKind::Nat64 | PrimaryKeyKind::Int64 | PrimaryKeyKind::Timestamp => NAT64_SIZE,
             PrimaryKeyKind::Nat128 | PrimaryKeyKind::Int128 => NAT128_SIZE,
+            PrimaryKeyKind::U256 => U256_SIZE,
             PrimaryKeyKind::Ulid => ULID_SIZE,
             PrimaryKeyKind::Subaccount => SUBACCOUNT_SIZE,
             PrimaryKeyKind::Account => ACCOUNT_SIZE,

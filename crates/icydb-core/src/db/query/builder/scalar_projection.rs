@@ -247,6 +247,7 @@ fn render_scalar_projection_literal(value: &Value) -> String {
         Value::Nat64(value) => value.to_string(),
         Value::Nat128(value) => value.to_string(),
         Value::NatBig(value) => value.to_string(),
+        Value::U256(value) => value.to_string(),
         Value::Decimal(value) => value.to_string(),
         Value::Float32(value) => value.to_string(),
         Value::Float64(value) => value.to_string(),

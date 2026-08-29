@@ -933,7 +933,8 @@ fn accepted_kind_matches_catalog(
         | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
-        | AcceptedFieldKind::Composite { .. } => true,
+        | AcceptedFieldKind::Composite { .. }
+        | AcceptedFieldKind::U256 => true,
     }
 }
 
@@ -1017,6 +1018,7 @@ fn accepted_kind_composites_are_resolved(
         | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
-        | AcceptedFieldKind::Enum { .. } => true,
+        | AcceptedFieldKind::Enum { .. }
+        | AcceptedFieldKind::U256 => true,
     }
 }

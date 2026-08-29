@@ -374,6 +374,7 @@ pub(in crate::db::schema) fn source_literal_input(
         ScalarLiteral::Timestamp(value) => InputValue::Timestamp(*value),
         ScalarLiteral::Ulid(value) => InputValue::Ulid(*value),
         ScalarLiteral::Unit(_) => InputValue::Unit,
+        ScalarLiteral::U256(value) => InputValue::U256(*value),
     };
     Ok(value)
 }

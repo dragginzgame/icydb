@@ -265,7 +265,7 @@ mod tests {
     use darling::{FromMeta, ast::NestedMeta};
     use quote::quote;
 
-    const ALL_PRIMITIVES: [Primitive; 26] = [
+    const ALL_PRIMITIVES: [Primitive; 27] = [
         Primitive::Account,
         Primitive::Blob,
         Primitive::Bool,
@@ -290,6 +290,7 @@ mod tests {
         Primitive::Subaccount,
         Primitive::Text,
         Primitive::Timestamp,
+        Primitive::U256,
         Primitive::Ulid,
         Primitive::Unit,
     ];

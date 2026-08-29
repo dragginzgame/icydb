@@ -2,7 +2,7 @@ use crate::{
     db::EntityKey,
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, Id, IntBig, NatBig, Principal,
-        Subaccount, Timestamp, Ulid, Unit,
+        Subaccount, Timestamp, U256, Ulid, Unit,
     },
     value::Value,
 };
@@ -45,6 +45,7 @@ pub enum InputValue {
     NatBig(NatBig),
     Ulid(Ulid),
     Unit,
+    U256(U256),
 }
 
 //
@@ -160,6 +161,7 @@ impl InputValue {
             Self::NatBig(value) => Value::NatBig(value),
             Self::Ulid(value) => Value::Ulid(value),
             Self::Unit => Value::Unit,
+            Self::U256(value) => Value::U256(value),
         })
     }
 
@@ -205,6 +207,7 @@ impl InputValue {
             Value::NatBig(value) => Self::NatBig(value.clone()),
             Value::Ulid(value) => Self::Ulid(*value),
             Value::Unit => Self::Unit,
+            Value::U256(value) => Self::U256(*value),
         })
     }
 }
@@ -336,6 +339,12 @@ impl From<Timestamp> for InputValue {
 impl From<Ulid> for InputValue {
     fn from(value: Ulid) -> Self {
         Self::Ulid(value)
+    }
+}
+
+impl From<U256> for InputValue {
+    fn from(value: U256) -> Self {
+        Self::U256(value)
     }
 }
 

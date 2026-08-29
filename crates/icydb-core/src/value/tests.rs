@@ -6,11 +6,11 @@ use crate::types::GenerateKey;
 use crate::{
     types::{
         Account, Date, Decimal, Duration, Float32 as F32, Float64 as F64, IntBig, NatBig,
-        Principal, Subaccount, Timestamp, Ulid,
+        Principal, Subaccount, Timestamp, U256, Ulid,
     },
     value::{
-        CoercionFamily, SchemaInvariantError, TextMode, Value, ValueEnum, canonicalize_value_set,
-        hash_value,
+        CoercionFamily, InputValue, OutputValue, SchemaInvariantError, TextMode, Value, ValueEnum,
+        canonicalize_value_set, hash_value,
     },
 };
 use std::{cmp::Ordering, collections::BTreeSet};
@@ -34,6 +34,27 @@ fn v_d_i(x: i64) -> Value {
 }
 fn v_txt(s: &str) -> Value {
     Value::Text(s.to_string())
+}
+
+#[test]
+fn u256_public_value_carriers_roundtrip_candid_nat_boundaries() {
+    for value in [U256::MIN, U256::ONE, U256::MAX] {
+        let input = InputValue::U256(value);
+        let input_bytes = candid::encode_one(&input).expect("U256 input should Candid-encode");
+        assert_eq!(
+            candid::decode_one::<InputValue>(&input_bytes)
+                .expect("U256 input should Candid-decode"),
+            input,
+        );
+
+        let output = OutputValue::U256(value);
+        let output_bytes = candid::encode_one(&output).expect("U256 output should Candid-encode");
+        assert_eq!(
+            candid::decode_one::<OutputValue>(&output_bytes)
+                .expect("U256 output should Candid-decode"),
+            output,
+        );
+    }
 }
 
 macro_rules! sample_value_for_scalar {
@@ -96,6 +117,9 @@ macro_rules! sample_value_for_scalar {
     };
     (NatBig) => {
         Value::NatBig(NatBig::from(11u64))
+    };
+    (U256) => {
+        Value::U256(U256::from(13u64))
     };
     (Ulid) => {
         Value::Ulid(Ulid::from_u128(42))
@@ -198,6 +222,7 @@ fn canonical_tag_and_rank_are_stable() {
         (Value::NatBig(NatBig::from(11u64)), 22),
         (Value::Ulid(Ulid::from_u128(42)), 23),
         (Value::Unit, 24),
+        (Value::U256(U256::from(13u64)), 25),
     ];
 
     for (value, expected_tag) in cases {
@@ -242,6 +267,7 @@ fn canonical_ranks_are_unique_across_value_variants() {
         Value::NatBig(NatBig::from(11u64)),
         Value::Ulid(Ulid::from_u128(42)),
         Value::Unit,
+        Value::U256(U256::from(13u64)),
     ];
 
     let mut ranks = BTreeSet::new();

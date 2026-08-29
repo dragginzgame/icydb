@@ -226,6 +226,7 @@ pub(in crate::db::schema) fn accepted_rule_target_is_reachable(
             | AcceptedFieldKind::NatBig { .. }
             | AcceptedFieldKind::Ulid
             | AcceptedFieldKind::Unit
+            | AcceptedFieldKind::U256
             | AcceptedFieldKind::Relation { .. } => {}
         }
     }
@@ -346,6 +347,7 @@ pub(in crate::db::schema) const fn accepted_rule_numeric_kind_is_supported(
             | AcceptedFieldKind::Nat64
             | AcceptedFieldKind::Nat128
             | AcceptedFieldKind::NatBig { .. }
+            | AcceptedFieldKind::U256
     )
 }
 

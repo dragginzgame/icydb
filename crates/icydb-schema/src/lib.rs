@@ -28,6 +28,7 @@ mod scalar;
 mod source_digest;
 mod subaccount;
 mod time_atoms;
+mod u256;
 mod unit;
 
 pub use account::*;
@@ -51,6 +52,7 @@ pub use rule::*;
 pub use scalar::*;
 pub use subaccount::*;
 pub use time_atoms::*;
+pub use u256::*;
 pub use unit::*;
 
 #[cfg(test)]

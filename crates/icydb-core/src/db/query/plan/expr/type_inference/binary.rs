@@ -88,6 +88,7 @@ const fn binary_equality_comparable(left: &ExprType, right: &ExprType) -> bool {
             | (ExprType::Collection, ExprType::Collection)
             | (ExprType::Structured, ExprType::Structured)
             | (ExprType::Opaque, ExprType::Opaque)
+            | (ExprType::U256, ExprType::U256)
     )
 }
 
@@ -96,5 +97,29 @@ const fn binary_order_comparable(left: &ExprType, right: &ExprType) -> bool {
         return true;
     }
 
-    matches!((left, right), (ExprType::Text, ExprType::Text))
+    matches!(
+        (left, right),
+        (ExprType::Text, ExprType::Text) | (ExprType::U256, ExprType::U256)
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn u256_planner_type_is_comparable_but_not_arithmetic_numeric() {
+        assert!(binary_equality_comparable(&ExprType::U256, &ExprType::U256));
+        assert!(binary_order_comparable(&ExprType::U256, &ExprType::U256));
+        assert!(!ExprType::U256.is_numeric_eligible());
+    }
+
+    #[test]
+    fn u256_planner_type_does_not_widen_opaque_ordering() {
+        assert!(!binary_order_comparable(
+            &ExprType::Opaque,
+            &ExprType::Opaque,
+        ));
+        assert!(!binary_order_comparable(&ExprType::U256, &ExprType::Opaque,));
+    }
 }

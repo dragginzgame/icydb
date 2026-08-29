@@ -64,6 +64,7 @@ const KIND_LIST: u8 = 28;
 const KIND_SET: u8 = 29;
 const KIND_MAP: u8 = 30;
 const KIND_COMPOSITE: u8 = 31;
+const KIND_U256: u8 = 32;
 
 /// Encode one canonical accepted enum catalog into its current durable codec.
 pub(in crate::db::schema) fn encode_accepted_enum_catalog(
@@ -309,6 +310,7 @@ pub(in crate::db::schema) fn encode_value_kind(
             writer.push_u8(KIND_COMPOSITE);
             writer.push_u32(type_id.get());
         }
+        AcceptedFieldKind::U256 => writer.push_u8(KIND_U256),
     }
     Ok(())
 }
@@ -379,6 +381,7 @@ pub(in crate::db::schema) fn decode_value_kind(
             type_id: CompositeTypeId::new(reader.read_u32()?)
                 .ok_or_else(InternalError::store_corruption)?,
         },
+        KIND_U256 => AcceptedFieldKind::U256,
         _ => return Err(InternalError::store_corruption()),
     })
 }

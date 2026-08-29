@@ -69,6 +69,7 @@ pub(super) fn estimate_value_payload_bytes(value: &Value) -> u32 {
         Value::Principal(value) => byte_len_u32(value.as_slice().len()),
         Value::Subaccount(_) => 32,
         Value::Text(value) => byte_len_u32(value.len()),
+        Value::U256(_) => 32,
     }
 }
 

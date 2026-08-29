@@ -114,6 +114,7 @@ impl_primitive_visitable!(
     crate::schema::Principal,
     crate::schema::Subaccount,
     crate::schema::Timestamp,
+    crate::schema::U256,
     crate::schema::Ulid,
     crate::schema::Unit,
 );

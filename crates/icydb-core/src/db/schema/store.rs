@@ -4469,6 +4469,7 @@ fn hash_accepted_field_kind(hasher: &mut sha2::Sha256, kind: &AcceptedFieldKind)
             write_hash_tag_u8(hasher, ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_COMPOSITE);
             write_hash_u32(hasher, type_id.get());
         }
+        AcceptedFieldKind::U256 => write_hash_tag_u8(hasher, 33),
     }
 }
 

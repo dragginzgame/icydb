@@ -28,6 +28,7 @@ const fn primary_key_component_from_scalar_ref(
         ScalarValueRef::Nat(value) => Some(PrimaryKeyComponent::Nat64(value)),
         ScalarValueRef::Ulid(value) => Some(PrimaryKeyComponent::Ulid(value)),
         ScalarValueRef::Unit => Some(PrimaryKeyComponent::Unit),
+        ScalarValueRef::U256(value) => Some(PrimaryKeyComponent::U256(value)),
         _ => None,
     }
 }
@@ -217,6 +218,7 @@ fn materialize_primary_key_value_from_persisted_kind(
         (AcceptedFieldKind::Nat128, PrimaryKeyComponent::Nat128(value)) => Ok(Value::Nat128(value)),
         (AcceptedFieldKind::Ulid, PrimaryKeyComponent::Ulid(value)) => Ok(Value::Ulid(value)),
         (AcceptedFieldKind::Unit, PrimaryKeyComponent::Unit) => Ok(Value::Unit),
+        (AcceptedFieldKind::U256, PrimaryKeyComponent::U256(value)) => Ok(Value::U256(value)),
         (_, _) => Err(InternalError::persisted_row_decode_corruption()),
     }
 }

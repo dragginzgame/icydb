@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_version="wasm-opt version 108 (version_108)"
-expected_sha256="36f78112c8d629e27f8c68be89bee47c245cbde8794e1ff56c03212c02dc8484"
+expected_version="wasm-opt version 132 (version_132)"
+expected_sha256="1014958e6f20d412f1542320b43970214b0fb1ed780595e8f7c0d8761ed53725"
 
 if ! command -v wasm-opt >/dev/null 2>&1; then
-    echo "missing pinned wasm optimizer; run 'canic toolchain install'" >&2
+    echo "missing pinned wasm optimizer; run 'bash scripts/ci/install-wasm-optimizer.sh'" >&2
     exit 1
 fi
 

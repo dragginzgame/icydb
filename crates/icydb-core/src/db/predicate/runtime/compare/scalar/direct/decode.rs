@@ -107,3 +107,12 @@ pub(in crate::db::predicate::runtime::compare::scalar) const fn scalar_unit_from
         _ => None,
     }
 }
+
+pub(in crate::db::predicate::runtime::compare::scalar) const fn scalar_u256_from_value(
+    value: &Value,
+) -> Option<crate::types::U256> {
+    match value {
+        Value::U256(value) => Some(*value),
+        _ => None,
+    }
+}

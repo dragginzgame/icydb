@@ -27,7 +27,7 @@ pub fn migration_literal_from_text(
 ) -> Result<icydb_schema::ScalarLiteral, icydb_schema::SchemaContractError> {
     use icydb_schema::{
         Account, Blob, Date, Decimal, Duration, IntBig, NatBig, Principal, ScalarLiteral,
-        Subaccount, Timestamp, Ulid,
+        Subaccount, Timestamp, U256, Ulid,
     };
 
     let invalid = || icydb_schema::SchemaContractError::InvalidLiteral;
@@ -63,6 +63,9 @@ pub fn migration_literal_from_text(
         }
         "timestamp" => Timestamp::parse_flexible(value)
             .map(ScalarLiteral::Timestamp)
+            .map_err(|_| invalid()),
+        "u256" => U256::from_str(value)
+            .map(ScalarLiteral::U256)
             .map_err(|_| invalid()),
         "ulid" => Ulid::from_str(value)
             .map(ScalarLiteral::Ulid)

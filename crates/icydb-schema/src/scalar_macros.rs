@@ -222,6 +222,17 @@ macro_rules! scalar_kind_registry_entries {
                 is_primary_key_component_encodable = false
             ),
             (
+                U256,
+                Numeric,
+                is_numeric_value = false,
+                supports_numeric_coercion = false,
+                supports_arithmetic = false,
+                supports_equality = true,
+                supports_ordering = true,
+                is_keyable = true,
+                is_primary_key_component_encodable = true
+            ),
+            (
                 Ulid,
                 Identifier,
                 is_numeric_value = false,
@@ -293,6 +304,7 @@ macro_rules! authoring_primitive_registry {
             (Subaccount, Subaccount),
             (Text, Text),
             (Timestamp, Timestamp),
+            (U256, U256),
             (Ulid, Ulid),
             (Unit, Unit),
         }

@@ -72,6 +72,7 @@ const VALUE_WIRE_VARIANT_LABELS: &[&str] = &[
     "NatBig",
     "Ulid",
     "Unit",
+    "U256",
 ];
 
 // Name and discriminant owner for the stable `Value` serde wire shape.
@@ -101,6 +102,7 @@ enum ValueWireVariant {
     NatBig,
     Ulid,
     Unit,
+    U256,
 }
 
 impl ValueWireVariant {
@@ -131,6 +133,7 @@ impl ValueWireVariant {
             "NatBig" => Some(Self::NatBig),
             "Ulid" => Some(Self::Ulid),
             "Unit" => Some(Self::Unit),
+            "U256" => Some(Self::U256),
             _ => None,
         }
     }
@@ -194,6 +197,7 @@ pub enum Value {
     NatBig(NatBig),
     Ulid(Ulid),
     Unit,
+    U256(U256),
 }
 
 impl fmt::Debug for Value {
@@ -223,6 +227,7 @@ impl fmt::Debug for Value {
             Self::NatBig(value) => f.debug_tuple("NatBig").field(value).finish(),
             Self::Ulid(value) => f.debug_tuple("Ulid").field(value).finish(),
             Self::Unit => f.write_str("Unit"),
+            Self::U256(value) => f.debug_tuple("U256").field(value).finish(),
         }
     }
 }
@@ -389,6 +394,7 @@ impl_from_for! {
     u128       => Nat128,
     NatBig     => NatBig,
     Ulid       => Ulid,
+    U256       => U256,
 }
 
 impl From<Vec<Self>> for Value {

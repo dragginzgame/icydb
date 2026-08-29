@@ -1,7 +1,7 @@
 use super::canonical_group_key_equals;
 use crate::{
     db::executor::group::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError},
-    types::Decimal,
+    types::{Decimal, U256},
     value::{MapValueError, Value, with_test_hash_override},
 };
 
@@ -78,6 +78,32 @@ fn group_key_set_deduplicates_canonical_equivalents() {
         )
         .expect("second set insert"),
         "second insert should be deduplicated by canonical key equality"
+    );
+}
+
+#[test]
+fn group_key_set_preserves_u256_identity() {
+    let mut set = GroupKeySet::default();
+    let maximum = Value::U256(U256::MAX);
+
+    assert!(
+        set.insert_key(maximum.canonical_key().expect("maximum U256 key"))
+            .expect("maximum U256 insert"),
+        "first U256 insert should be new",
+    );
+    assert!(
+        !set.insert_key(maximum.canonical_key().expect("duplicate U256 key"))
+            .expect("duplicate U256 insert"),
+        "equal U256 values should deduplicate",
+    );
+    assert!(
+        set.insert_key(
+            Value::U256(U256::from_words(u128::MAX, u128::MAX - 1))
+                .canonical_key()
+                .expect("distinct U256 key"),
+        )
+        .expect("distinct U256 insert"),
+        "adjacent U256 values should remain distinct",
     );
 }
 

@@ -3237,6 +3237,7 @@ pub(in crate::db) const fn lower_scalar_type(scalar: &ScalarType) -> AcceptedFie
         },
         ScalarType::Ulid => AcceptedFieldKind::Ulid,
         ScalarType::Unit => AcceptedFieldKind::Unit,
+        ScalarType::U256 => AcceptedFieldKind::U256,
     }
 }
 

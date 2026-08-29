@@ -306,6 +306,9 @@ pub(in crate::db) const fn classify_accepted_field_kind(
         AcceptedFieldKind::Unit => {
             AcceptedFieldKindSemantics::new(AcceptedFieldKindCategory::Scalar(ScalarKind::Unit))
         }
+        AcceptedFieldKind::U256 => {
+            AcceptedFieldKindSemantics::new(AcceptedFieldKindCategory::Scalar(ScalarKind::U256))
+        }
         AcceptedFieldKind::Relation { key_kind, .. } => AcceptedFieldKindSemantics::new(
             AcceptedFieldKindCategory::Relation(classify_relation_scalar_kind(key_kind)),
         ),

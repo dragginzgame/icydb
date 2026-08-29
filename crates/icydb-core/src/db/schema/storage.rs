@@ -41,6 +41,7 @@ pub(in crate::db) enum ScalarCodec {
     Nat64,
     Ulid,
     Unit,
+    U256,
 }
 
 ///

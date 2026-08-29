@@ -15,7 +15,7 @@ use crate::{
     },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, Ulid,
+        Timestamp, U256, Ulid,
     },
     value::{CoercionFamily, Value},
 };
@@ -223,6 +223,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
 
             canonicalize_nat_big_persisted_literal(value, *max_bytes)
         }
+        AcceptedFieldKindCategory::Scalar(ScalarKind::U256) => canonicalize_u256_literal(value),
         AcceptedFieldKindCategory::Scalar(ScalarKind::Ulid) => match value {
             Value::Text(inner) => inner.parse::<Ulid>().ok().map(Value::Ulid),
             _ => None,
@@ -340,6 +341,7 @@ fn canonicalize_filter_scalar_literal(kind: &AcceptedFieldKind, value: &Value) -
             Value::Null | Value::Unit => Some(Value::Unit),
             _ => None,
         },
+        AcceptedFieldKind::U256 => canonicalize_u256_literal(value),
         AcceptedFieldKind::Int8
         | AcceptedFieldKind::Int16
         | AcceptedFieldKind::Int32
@@ -491,11 +493,22 @@ fn canonicalize_filter_numeric_literal(kind: &AcceptedFieldKind, value: &Value) 
         | AcceptedFieldKind::Timestamp
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::U256
         | AcceptedFieldKind::Relation { .. }
         | AcceptedFieldKind::List(_)
         | AcceptedFieldKind::Set(_)
         | AcceptedFieldKind::Map { .. }
         | AcceptedFieldKind::Composite { .. } => None,
+    }
+}
+
+fn canonicalize_u256_literal(value: &Value) -> Option<Value> {
+    match value {
+        Value::U256(value) => Some(Value::U256(*value)),
+        Value::Nat64(value) => Some(Value::U256(U256::from(*value))),
+        Value::Nat128(value) => Some(Value::U256(U256::from(*value))),
+        Value::Text(value) => value.parse().ok().map(Value::U256),
+        _ => None,
     }
 }
 
@@ -636,7 +649,8 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &AcceptedFieldKind) ->
         | AcceptedFieldKind::Nat128
         | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit => scalar_field_type_from_persisted_kind(kind),
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::U256 => scalar_field_type_from_persisted_kind(kind),
     }
 }
 

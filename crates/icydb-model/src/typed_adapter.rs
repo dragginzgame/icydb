@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use icydb_schema::{
     Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
-    Subaccount, Timestamp, Ulid, Unit,
+    Subaccount, Timestamp, U256, Ulid, Unit,
 };
 
 /// A scalar value crossing the model-owned typed-adapter boundary.
@@ -34,6 +34,7 @@ pub enum TypedScalarValue {
     Subaccount(Subaccount),
     Text(String),
     Timestamp(Timestamp),
+    U256(U256),
     Ulid(Ulid),
     Unit,
 }
@@ -186,6 +187,7 @@ impl_typed_scalar_value!(
     u32 => Nat64,
     u64 => Nat64,
     u128 => Nat128,
+    U256 => U256,
     Ulid => Ulid,
 );
 

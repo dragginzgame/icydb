@@ -238,3 +238,159 @@ mod tests {
         });
     }
 }
+
+#[cfg(all(test, feature = "u256-audit"))]
+mod u256_tests {
+    use crate::db;
+    use icydb::{
+        U256,
+        db::{
+            DynamicQuery, StructuralPatch, WriteCell,
+            query::{FieldRef, asc, count, max_by, min_by},
+        },
+        traits::EntitySource,
+        types::Id,
+        value::{InputValue, OutputValue},
+    };
+    use icydb_testing_audit_one_simple_fixtures::one_simple::U256AuditEntity;
+
+    fn u256_patch(
+        id: U256,
+        amount: U256,
+        optional_amount: Option<U256>,
+        bucket: u64,
+        label: &str,
+    ) -> StructuralPatch {
+        StructuralPatch::new()
+            .field("id", WriteCell::Value(InputValue::U256(id)))
+            .field("amount", WriteCell::Value(InputValue::U256(amount)))
+            .field(
+                "optional_amount",
+                optional_amount.map_or(WriteCell::Null, |value| {
+                    WriteCell::Value(InputValue::U256(value))
+                }),
+            )
+            .field("bucket", WriteCell::Value(InputValue::Nat64(bucket)))
+            .field(
+                "label",
+                WriteCell::Value(InputValue::Text(label.to_string())),
+            )
+    }
+
+    fn output_u256(output: &icydb::db::LiveQueryPageOutput, row: usize, field: &str) -> U256 {
+        let column = output
+            .columns
+            .iter()
+            .position(|column| column == field)
+            .expect("U256 query output should retain the requested field");
+        match output.rows.get(row).and_then(|row| row.get(column)) {
+            Some(OutputValue::U256(value)) => *value,
+            _ => panic!("U256 query output should retain its exact value kind"),
+        }
+    }
+
+    #[test]
+    fn native_u256_storage_indexes_queries_grouping_extrema_and_cursor_converge() {
+        crate::__icydb_generated::__initialize_native_database_for_tests()
+            .expect("fresh native database startup should complete");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("native database should initialize");
+            database
+                .execute_trusted_structural_insert_batch(
+                    U256AuditEntity::ENTITY,
+                    vec![
+                        u256_patch(U256::MIN, U256::MAX, None, 1, "maximum"),
+                        u256_patch(U256::ONE, U256::ONE, Some(U256::MAX), 1, "one"),
+                        u256_patch(
+                            U256::from(2_u64),
+                            U256::from(7_u64),
+                            Some(U256::MIN),
+                            2,
+                            "seven",
+                        ),
+                    ],
+                )
+                .expect("U256 rows should persist and index");
+
+            let exact = database
+                .get::<U256AuditEntity>(Id::from_key(U256::MIN))
+                .expect("U256 exact primary-key lookup should execute")
+                .expect("U256 exact primary-key lookup should find the row");
+            assert_eq!(exact.amount, U256::MAX);
+
+            let ordered = DynamicQuery::new(U256AuditEntity::ENTITY)
+                .filter(FieldRef::new("amount").gte(U256::ONE))
+                .order_by(asc("amount"))
+                .order_by(asc("id"))
+                .limit(1);
+            let first = database
+                .execute_live_page(&ordered, None)
+                .expect("indexed U256 range page should execute");
+            assert_eq!(output_u256(&first, 0, "amount"), U256::ONE);
+
+            let first_group_page = database
+                .query::<U256AuditEntity>()
+                .expect("generated U256 adapter should bind")
+                .group_by("amount")
+                .aggregate(count())
+                .order_by(asc("amount"))
+                .grouped_limits(4, 16 * 1024)
+                .limit(1)
+                .execute_grouped()
+                .expect("first U256 grouped page should execute");
+            assert_eq!(
+                first_group_page.rows[0].group_key(),
+                &[OutputValue::U256(U256::ONE)],
+            );
+            let cursor = first_group_page
+                .next_cursor
+                .expect("bounded U256 grouping should return a cursor");
+            let second_group_page = database
+                .query::<U256AuditEntity>()
+                .expect("generated U256 adapter should bind")
+                .group_by("amount")
+                .aggregate(count())
+                .order_by(asc("amount"))
+                .grouped_limits(4, 16 * 1024)
+                .limit(1)
+                .cursor(cursor)
+                .execute_grouped()
+                .expect("U256 grouped cursor continuation should execute");
+            assert_eq!(
+                second_group_page.rows[0].group_key(),
+                &[OutputValue::U256(U256::from(7_u64))],
+            );
+
+            let grouped = database
+                .query::<U256AuditEntity>()
+                .expect("generated U256 adapter should bind")
+                .filter(FieldRef::new("amount").gte(U256::ONE))
+                .group_by("bucket")
+                .aggregate(min_by("amount"))
+                .aggregate(max_by("amount"))
+                .grouped_limits(4, 16 * 1024)
+                .limit(4)
+                .execute_grouped()
+                .expect("U256 grouped extrema should execute");
+            assert_eq!(grouped.row_count, 2);
+            assert!(grouped.rows.iter().any(|row| {
+                row.group_key() == [OutputValue::Nat64(1)]
+                    && row.aggregate_values()
+                        == [OutputValue::U256(U256::ONE), OutputValue::U256(U256::MAX)]
+            }));
+
+            database
+                .execute_trusted_structural_insert_batch(
+                    U256AuditEntity::ENTITY,
+                    vec![u256_patch(
+                        U256::from(3_u64),
+                        U256::ONE,
+                        None,
+                        3,
+                        "duplicate",
+                    )],
+                )
+                .expect_err("unique U256 index should reject a duplicate value");
+        });
+    }
+}

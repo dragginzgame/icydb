@@ -103,6 +103,7 @@ fn record_output_value_blob_attribution(
         | OutputValue::Nat128(_)
         | OutputValue::NatBig(_)
         | OutputValue::Ulid(_)
-        | OutputValue::Unit => {}
+        | OutputValue::Unit
+        | OutputValue::U256(_) => {}
     }
 }

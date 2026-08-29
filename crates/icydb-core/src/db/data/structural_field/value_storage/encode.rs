@@ -22,13 +22,13 @@ use crate::{
             VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_FLOAT32, VALUE_BINARY_TAG_FLOAT64,
             VALUE_BINARY_TAG_INT_BIG, VALUE_BINARY_TAG_INT128, VALUE_BINARY_TAG_NAT_BIG,
             VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL, VALUE_BINARY_TAG_SUBACCOUNT,
-            VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_ULID,
+            VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_U256, VALUE_BINARY_TAG_ULID,
         },
     },
     error::InternalError,
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, Ulid,
+        Timestamp, U256, Ulid,
     },
 };
 
@@ -140,6 +140,13 @@ pub(in crate::db) fn encode_nat(value: &NatBig) -> Vec<u8> {
     let mut encoded = Vec::new();
     push_nat_big_payload(&mut encoded, value);
 
+    encoded
+}
+
+/// Encode one canonical structural value-storage `Value::U256` payload.
+pub(in crate::db) fn encode_u256(value: U256) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_tagged_binary_payload(&mut encoded, VALUE_BINARY_TAG_U256, &value.to_be_bytes());
     encoded
 }
 

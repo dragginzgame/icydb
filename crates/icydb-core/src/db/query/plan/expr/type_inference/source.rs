@@ -84,6 +84,7 @@ pub(super) const fn infer_literal_type(value: &Value) -> ExprType {
                 ExprType::Unknown
             }
         }
+        Value::U256(_) => ExprType::U256,
         Value::Account(_)
         | Value::Date(_)
         | Value::Principal(_)
@@ -111,6 +112,7 @@ pub(super) const fn expr_type_from_field_type(field_type: &FieldType) -> ExprTyp
             ExprType::Numeric(NumericSubtype::Float)
         }
         FieldType::Scalar(ScalarKind::Decimal) => ExprType::Numeric(NumericSubtype::Decimal),
+        FieldType::Scalar(ScalarKind::U256) => ExprType::U256,
         FieldType::Scalar(ScalarKind::Enum | ScalarKind::Text) => ExprType::Text,
         FieldType::List(_) | FieldType::Set(_) | FieldType::Map { .. } => ExprType::Collection,
         FieldType::Composite => ExprType::Structured,

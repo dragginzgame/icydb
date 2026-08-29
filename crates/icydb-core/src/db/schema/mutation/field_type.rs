@@ -111,6 +111,11 @@ pub(in crate::db) fn resolve_sql_ddl_field_type_contract(
             FieldStorageDecode::ByKind,
             LeafCodec::Structural,
         )),
+        "u256" => Some(SchemaDdlFieldTypeContract::new(
+            AcceptedFieldKind::U256,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::U256),
+        )),
         "text" | "string" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Text { max_len: None },
             FieldStorageDecode::ByKind,

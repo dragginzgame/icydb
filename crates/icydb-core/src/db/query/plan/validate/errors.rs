@@ -786,6 +786,7 @@ impl ExprPlanTypeClass {
             ExprType::Null => Self::Null,
             ExprType::Numeric(_) => Self::Numeric,
             ExprType::Opaque => Self::Opaque,
+            ExprType::U256 => Self::Opaque,
             ExprType::Structured => Self::Structured,
             ExprType::Text => Self::Text,
             ExprType::Unknown => Self::Unknown,

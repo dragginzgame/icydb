@@ -703,7 +703,8 @@ pub(in crate::db) fn identity_kind_maximum(kind: &AcceptedFieldKind) -> Option<u
         | AcceptedFieldKind::Text { .. }
         | AcceptedFieldKind::Timestamp
         | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit => None,
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::U256 => None,
     }
 }
 

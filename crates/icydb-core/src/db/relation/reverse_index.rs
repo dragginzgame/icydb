@@ -1497,6 +1497,7 @@ fn relation_scalar_slot_fast_path_key_kind_supported(kind: &AcceptedFieldKind) -
             | AcceptedFieldKind::Nat64
             | AcceptedFieldKind::Ulid
             | AcceptedFieldKind::Unit
+            | AcceptedFieldKind::U256
     )
 }
 
@@ -1513,6 +1514,7 @@ const fn primary_key_value_from_relation_scalar(
         ScalarValueRef::Nat(value) => Some(PrimaryKeyComponent::Nat64(value)),
         ScalarValueRef::Ulid(value) => Some(PrimaryKeyComponent::Ulid(value)),
         ScalarValueRef::Unit => Some(PrimaryKeyComponent::Unit),
+        ScalarValueRef::U256(value) => Some(PrimaryKeyComponent::U256(value)),
         ScalarValueRef::Blob(_)
         | ScalarValueRef::Bool(_)
         | ScalarValueRef::Date(_)

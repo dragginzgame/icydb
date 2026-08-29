@@ -40,7 +40,8 @@ pub(in crate::db) fn supports_primary_key_component_binary_kind(kind: &AcceptedF
         | AcceptedFieldKind::Nat64
         | AcceptedFieldKind::Nat128
         | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit => true,
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::U256 => true,
         AcceptedFieldKind::Relation { key_kind, .. } => {
             supports_primary_key_component_binary_kind(key_kind)
         }

@@ -16,7 +16,7 @@ use crate::{
     },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, Ulid,
+        Timestamp, U256, Ulid,
     },
     value::Value,
 };
@@ -174,6 +174,7 @@ fn primary_key_value_encoder_matches_value_encoder_for_all_primary_key_variants(
         PrimaryKeyComponent::Nat64(7),
         PrimaryKeyComponent::Ulid(Ulid::from_u128(7)),
         PrimaryKeyComponent::Unit,
+        PrimaryKeyComponent::U256(U256::MAX),
     ];
 
     for sample in samples {
@@ -213,6 +214,11 @@ fn canonical_encoder_respects_numeric_order_for_scalars() {
     assert_encoded_order(
         Value::IntBig(IntBig::from(0i32)),
         Value::IntBig(IntBig::from(1i32)),
+        Ordering::Less,
+    );
+    assert_encoded_order(
+        Value::U256(U256::ZERO),
+        Value::U256(U256::MAX),
         Ordering::Less,
     );
 }
@@ -775,6 +781,14 @@ fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
                 Value::Ulid(Ulid::from_u128(3)),
             ],
         ),
+        (
+            "U256",
+            vec![
+                Value::U256(U256::ZERO),
+                Value::U256(U256::ONE),
+                Value::U256(U256::MAX),
+            ],
+        ),
         ("Unit", vec![Value::Unit, Value::Unit]),
     ];
 
@@ -939,6 +953,19 @@ proptest! {
         let rhs_bytes = encode_canonical_index_component(&rhs_value).expect("rhs should encode");
 
         prop_assert_eq!(lhs.cmp(&rhs), lhs_bytes.cmp(&rhs_bytes));
+    }
+
+    #[test]
+    fn u256_ordered_encoding_matches_numeric_order_property(
+        lhs_bytes in any::<[u8; 32]>(),
+        rhs_bytes in any::<[u8; 32]>(),
+    ) {
+        let lhs = U256::from_be_bytes(lhs_bytes);
+        let rhs = U256::from_be_bytes(rhs_bytes);
+        let lhs_key = encode_canonical_index_component(&Value::U256(lhs)).expect("lhs should encode");
+        let rhs_key = encode_canonical_index_component(&Value::U256(rhs)).expect("rhs should encode");
+
+        prop_assert_eq!(lhs.cmp(&rhs), lhs_key.cmp(&rhs_key));
     }
 
     #[test]

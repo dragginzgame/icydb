@@ -474,6 +474,7 @@ fn normalize_value_for_accepted_kind(
         | AcceptedFieldKind::Timestamp
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::U256
         | AcceptedFieldKind::Composite { .. } => Ok(value.clone()),
     }
 }

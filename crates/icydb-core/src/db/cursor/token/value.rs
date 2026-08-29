@@ -14,7 +14,7 @@ use crate::{
     },
     types::{
         Account, AccountStorageCodec, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig,
-        Principal, Subaccount, Timestamp, Ulid,
+        Principal, Subaccount, Timestamp, U256, Ulid,
     },
     value::{CanonicalEnumBody, EnumTypeId, EnumVariantId, Value, ValueEnum},
 };
@@ -44,6 +44,7 @@ const VALUE_NAT128: u8 = 20;
 const VALUE_NAT_BIG: u8 = 21;
 const VALUE_ULID: u8 = 22;
 const VALUE_UNIT: u8 = 23;
+const VALUE_U256: u8 = 24;
 
 /// Encode one runtime value through the current bounded binary value wire.
 ///
@@ -213,6 +214,11 @@ pub(in crate::db::cursor::token) fn write_value(
             out.push(VALUE_UNIT);
             Ok(())
         }
+        Value::U256(value) => {
+            out.push(VALUE_U256);
+            out.extend_from_slice(&value.to_be_bytes());
+            Ok(())
+        }
     }
 }
 
@@ -297,6 +303,7 @@ pub(in crate::db::cursor::token) fn read_value(
         VALUE_NAT_BIG => Ok(Value::NatBig(read_big_nat(cursor)?)),
         VALUE_ULID => Ok(Value::Ulid(Ulid::from_bytes(cursor.read_array()?))),
         VALUE_UNIT => Ok(Value::Unit),
+        VALUE_U256 => Ok(Value::U256(U256::from_be_bytes(cursor.read_array()?))),
         _ => Err(TokenWireError::decode()),
     }
 }
@@ -380,6 +387,29 @@ mod tests {
     fn cursor_value_decode_rejects_days_outside_bounded_calendar() {
         let mut encoded = vec![VALUE_DATE];
         encoded.extend_from_slice(&(Date::MIN.as_days_since_epoch() - 1).to_be_bytes());
+
+        assert!(read_value(&mut ByteCursor::new(encoded.as_slice())).is_err());
+    }
+
+    #[test]
+    fn cursor_value_u256_roundtrips_fixed_width_boundaries() {
+        for value in [U256::ZERO, U256::ONE, U256::MAX] {
+            let mut encoded = Vec::new();
+            write_value(&mut encoded, &Value::U256(value)).expect("U256 should encode");
+
+            assert_eq!(encoded.len(), 33);
+            assert_eq!(encoded[0], VALUE_U256);
+            assert_eq!(
+                read_value(&mut ByteCursor::new(encoded.as_slice())).expect("U256 should decode"),
+                Value::U256(value),
+            );
+        }
+    }
+
+    #[test]
+    fn cursor_value_u256_rejects_truncated_payload() {
+        let mut encoded = vec![VALUE_U256];
+        encoded.extend_from_slice(&[0; 31]);
 
         assert!(read_value(&mut ByteCursor::new(encoded.as_slice())).is_err());
     }

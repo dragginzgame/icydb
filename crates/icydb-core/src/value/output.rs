@@ -1,6 +1,6 @@
 use crate::types::{
     Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-    Timestamp, Ulid,
+    Timestamp, U256, Ulid,
 };
 use candid::CandidType;
 use serde::Deserialize;
@@ -45,6 +45,7 @@ pub enum OutputValue {
     NatBig(NatBig),
     Ulid(Ulid),
     Unit,
+    U256(U256),
 }
 
 //
@@ -143,6 +144,7 @@ fn output_value_from_non_enum_test_value(value: &Value) -> OutputValue {
         Value::NatBig(value) => OutputValue::NatBig(value.clone()),
         Value::Ulid(value) => OutputValue::Ulid(*value),
         Value::Unit => OutputValue::Unit,
+        Value::U256(value) => OutputValue::U256(*value),
     }
 }
 
@@ -174,6 +176,7 @@ pub fn render_output_value_text(value: &OutputValue) -> String {
         OutputValue::NatBig(v) => v.to_string(),
         OutputValue::Ulid(v) => v.to_string(),
         OutputValue::Unit => "()".to_string(),
+        OutputValue::U256(v) => v.to_string(),
     }
 }
 

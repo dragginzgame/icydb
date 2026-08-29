@@ -28,3 +28,21 @@ define_simple_audit_entities!(
     "OneSimpleStore";
     OneSimpleEntity01
 );
+
+#[cfg(feature = "u256-audit")]
+#[entity(
+    store = "OneSimpleStore",
+    version = 1,
+    pk(field = "id"),
+    index(field = "amount", unique),
+    index(field = "optional_amount"),
+    index(fields = ["bucket", "amount"]),
+    fields(
+        field(name = "id", value(item(prim = "U256"))),
+        field(name = "amount", value(item(prim = "U256"))),
+        field(name = "optional_amount", value(opt, item(prim = "U256"))),
+        field(name = "bucket", value(item(prim = "Nat64"))),
+        field(name = "label", value(item(prim = "Text", max_len = 64)))
+    )
+)]
+pub struct U256AuditEntity {}

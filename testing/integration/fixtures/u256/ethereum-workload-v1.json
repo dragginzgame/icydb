@@ -1,0 +1,82 @@
+{
+  "format_version": 1,
+  "profile": "icydb-u256-ethereum/0.248/v1",
+  "row_count": 2048,
+  "controls": {
+    "nat_big_max_bytes": 37,
+    "nat_big_adapter_max_bytes": 37,
+    "native_u256_bits": 256
+  },
+  "entity": {
+    "name": "EthereumPosition",
+    "primary_key": { "name": "id", "type": "Ulid" },
+    "control_fields": [
+      { "name": "owner", "type": "Principal", "round_robin_cardinality": 64 }
+    ]
+  },
+  "samples": [
+    { "id": "zero", "decimal": "0" },
+    { "id": "one", "decimal": "1" },
+    { "id": "balance_64", "decimal": "1000000000000000000" },
+    { "id": "value_128", "decimal": "340282366920938463463374607431768211455" },
+    { "id": "token_id_full_width", "decimal": "57896044618658097711785492504343953926634992332820282019728792003956564819968" },
+    { "id": "u256_max", "decimal": "115792089237316195423570985008687907853269984665640564039457584007913129639935" }
+  ],
+  "fields": [
+    {
+      "name": "token_id",
+      "type": "U256",
+      "indexed": true,
+      "unique": true,
+      "distribution": [
+        { "sample": "token_id_full_width", "count": 2048, "sequence_step": "1" }
+      ]
+    },
+    {
+      "name": "balance",
+      "type": "U256",
+      "indexed": true,
+      "unique": false,
+      "distribution": [
+        { "sample": "zero", "count": 410 },
+        { "sample": "one", "count": 205 },
+        { "sample": "balance_64", "count": 819 },
+        { "sample": "value_128", "count": 410 },
+        { "sample": "token_id_full_width", "count": 184 },
+        { "sample": "u256_max", "count": 20 }
+      ]
+    },
+    {
+      "name": "allowance",
+      "type": "U256",
+      "indexed": false,
+      "unique": false,
+      "distribution": [
+        { "sample": "zero", "count": 1024 },
+        { "sample": "one", "count": 512 },
+        { "sample": "balance_64", "count": 384 },
+        { "sample": "value_128", "count": 112 },
+        { "sample": "u256_max", "count": 16 }
+      ]
+    },
+    {
+      "name": "total_supply",
+      "type": "U256",
+      "indexed": false,
+      "unique": false,
+      "distribution": [
+        { "sample": "value_128", "count": 2048 }
+      ]
+    }
+  ],
+  "queries": [
+    { "id": "unique_token_equality", "sql": "SELECT owner, token_id, balance FROM EthereumPosition WHERE token_id = ? LIMIT 1" },
+    { "id": "indexed_balance_range", "sql": "SELECT owner, token_id, balance FROM EthereumPosition WHERE balance >= ? AND balance <= ? ORDER BY balance ASC, id ASC LIMIT 64" },
+    { "id": "descending_balance_page", "sql": "SELECT owner, token_id, balance FROM EthereumPosition ORDER BY balance DESC, id ASC LIMIT 64" },
+    { "id": "checked_projection_arithmetic", "sql": "SELECT token_id, balance + allowance AS spendable FROM EthereumPosition WHERE token_id = ? LIMIT 1" },
+    { "id": "tuple_distinct", "sql": "SELECT DISTINCT owner, token_id FROM EthereumPosition ORDER BY owner ASC, token_id ASC LIMIT 64" },
+    { "id": "grouped_checked_sum", "sql": "SELECT owner, SUM(balance) AS owner_balance FROM EthereumPosition GROUP BY owner ORDER BY owner ASC LIMIT 64" },
+    { "id": "global_extrema", "sql": "SELECT MIN(balance), MAX(balance) FROM EthereumPosition" },
+    { "id": "global_checked_sum", "sql": "SELECT SUM(balance) FROM EthereumPosition" }
+  ]
+}

@@ -472,6 +472,10 @@ fn normalize_kind(
             budget.consume(1)?;
             Ok(CanonicalValue::Unit)
         }
+        (AcceptedFieldKind::U256, InputValue::U256(value)) => {
+            budget.consume(33)?;
+            Ok(CanonicalValue::U256(value))
+        }
         (AcceptedFieldKind::Relation { key_kind, .. }, input) => {
             normalize_kind(catalogs, key_kind, input, depth.saturating_add(1), budget)
         }
@@ -774,6 +778,7 @@ fn validate_kind(
             budget.consume(5_usize.saturating_add(bytes))
         }
         (AcceptedFieldKind::Unit, CanonicalValue::Unit) => budget.consume(1),
+        (AcceptedFieldKind::U256, CanonicalValue::U256(_)) => budget.consume(33),
         (AcceptedFieldKind::Relation { key_kind, .. }, value) => {
             validate_kind(catalogs, key_kind, value, depth.saturating_add(1), budget)
         }

@@ -6,6 +6,10 @@ version = { workspace = true }
 publish = false
 description = "One-entity simple schema fixture crate for wasm SQL auditing"
 
+[features]
+default = []
+u256-audit = []
+
 [package.metadata.cargo-machete]
 ignored = ["candid", "icydb"]
 

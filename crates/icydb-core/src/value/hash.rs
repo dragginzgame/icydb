@@ -167,6 +167,7 @@ pub(crate) fn hash_single_list_identity_canonical_value(
             feed_bytes(&mut hasher, &bytes);
         }
         Value::Ulid(value) => feed_bytes(&mut hasher, &value.to_bytes()),
+        Value::U256(value) => feed_bytes(&mut hasher, &value.to_be_bytes()),
         _ => return Ok(None),
     }
 
@@ -328,6 +329,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
         Value::Ulid(u) => {
             feed_bytes(h, &u.to_bytes());
         }
+        Value::U256(value) => feed_bytes(h, &value.to_be_bytes()),
         Value::Null | Value::Unit => {
             // No additional payload beyond canonical tag.
         }

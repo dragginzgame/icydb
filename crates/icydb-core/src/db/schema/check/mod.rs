@@ -710,6 +710,7 @@ fn write_kind_key(bytes: &mut Vec<u8>, kind: &AcceptedFieldKind) {
             write_kind_key(bytes, value);
         }
         K::Composite { type_id } => write_tag_u32(bytes, 31, type_id.get()),
+        K::U256 => bytes.push(32),
     }
 }
 
@@ -747,6 +748,7 @@ const fn scalar_codec_tag(codec: crate::db::schema::ScalarCodec) -> u8 {
         C::Nat64 => 11,
         C::Ulid => 12,
         C::Unit => 13,
+        C::U256 => 14,
     }
 }
 

@@ -43,6 +43,7 @@ pub(in crate::db) enum ExprType {
     Collection,
     Structured,
     Opaque,
+    U256,
     Unknown,
 }
 

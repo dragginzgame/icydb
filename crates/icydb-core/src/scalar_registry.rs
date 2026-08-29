@@ -96,6 +96,9 @@ macro_rules! scalar_registry_value_pat {
     (NatBig) => {
         $crate::value::Value::NatBig(_)
     };
+    (U256) => {
+        $crate::value::Value::U256(_)
+    };
     (Ulid) => {
         $crate::value::Value::Ulid(_)
     };

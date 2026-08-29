@@ -20,6 +20,7 @@ use super::{
 };
 #[cfg(feature = "sql")]
 use super::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
+use crate::types::U256;
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
     db::sql_shared::{
@@ -2183,6 +2184,56 @@ fn parse_alter_table_add_column_statement_keeps_default_and_nullability_intent()
                 schema_version_contract: SqlDdlSchemaVersionContract::default(),
             },
         )),
+    );
+}
+
+#[test]
+fn parse_u256_typed_literal_preserves_full_width_default() {
+    let sql = format!(
+        "ALTER TABLE balances ADD COLUMN amount u256 DEFAULT U256 '{}' NOT NULL",
+        U256::MAX,
+    );
+    let statement = parse_sql(&sql).expect("full-width U256 default should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Ddl(SqlDdlStatement::AlterTableAddColumn(
+            SqlAlterTableAddColumnStatement {
+                entity: "balances".to_string(),
+                column_name: "amount".to_string(),
+                column_type: "u256".to_string(),
+                nullable: false,
+                default: Some(Value::U256(U256::MAX)),
+                schema_version_contract: SqlDdlSchemaVersionContract::default(),
+            },
+        )),
+    );
+}
+
+#[test]
+fn parse_u256_typed_literal_rejects_malformed_and_out_of_range_values() {
+    for literal in [
+        "U256 ''",
+        "U256 '-1'",
+        "U256 'xyz'",
+        "U256 '115792089237316195423570985008687907853269984665640564039457584007913129639936'",
+    ] {
+        let sql = format!("SELECT * FROM balances WHERE amount = {literal}");
+        assert!(parse_sql(&sql).is_err(), "literal should reject: {literal}");
+    }
+}
+
+#[test]
+fn parse_u256_identifier_without_string_remains_a_field() {
+    let SqlStatement::Select(statement) =
+        parse_sql("SELECT u256 FROM balances").expect("u256 field should remain unambiguous")
+    else {
+        panic!("SELECT should retain its statement kind")
+    };
+
+    assert_eq!(
+        statement.projection,
+        SqlProjection::Items(vec![SqlSelectItem::Field("u256".to_string())]),
     );
 }
 

@@ -776,7 +776,8 @@ impl CompiledAcceptedTargetedRules {
             | AcceptedFieldKind::Nat128
             | AcceptedFieldKind::NatBig { .. }
             | AcceptedFieldKind::Ulid
-            | AcceptedFieldKind::Unit => {}
+            | AcceptedFieldKind::Unit
+            | AcceptedFieldKind::U256 => {}
         }
         Ok(())
     }

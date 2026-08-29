@@ -41,6 +41,20 @@ impl SqlTokenCursor {
         if matches!(self.peek_kind(), Some(TokenKind::BlobLiteral(_))) {
             return self.take_blob_literal();
         }
+        if self.peek_u256_literal() {
+            self.advance();
+            let Value::Text(value) = self.take_string_literal()? else {
+                return Err(SqlParseError::invalid_numeric_literal());
+            };
+            if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(SqlParseError::invalid_numeric_literal());
+            }
+
+            return value
+                .parse()
+                .map(Value::U256)
+                .map_err(|_| SqlParseError::invalid_numeric_literal());
+        }
         if matches!(self.peek_kind(), Some(TokenKind::StringLiteral(_))) {
             return self.take_string_literal();
         }
@@ -61,6 +75,14 @@ impl SqlTokenCursor {
         self.advance();
 
         Ok(literal)
+    }
+
+    /// Return whether the current tokens begin the closed `U256 'decimal'`
+    /// literal form. Requiring the following string keeps a field named
+    /// `u256` unambiguous.
+    pub(in crate::db) fn peek_u256_literal(&self) -> bool {
+        self.peek_identifier_keyword("U256")
+            && matches!(self.peek_next_kind(), Some(TokenKind::StringLiteral(_)))
     }
 
     // Move text literal payloads out of the token buffer just like blob

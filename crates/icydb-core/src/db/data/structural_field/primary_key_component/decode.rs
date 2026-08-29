@@ -19,6 +19,7 @@ use crate::{
                 decode_principal_primary_key_component_binary_bytes,
                 decode_subaccount_primary_key_component_binary_bytes,
                 decode_timestamp_primary_key_component_binary_bytes,
+                decode_u256_primary_key_component_binary_bytes,
                 decode_ulid_primary_key_component_binary_bytes,
                 decode_unit_primary_key_component_binary_bytes,
             },
@@ -80,6 +81,7 @@ pub(in crate::db) fn decode_primary_key_component_field_binary_bytes(
         }
         AcceptedFieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
         AcceptedFieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::U256 => decode_u256_primary_key_component_binary_bytes(raw_bytes),
         _ => Err(FieldDecodeError::new()),
     }
 }

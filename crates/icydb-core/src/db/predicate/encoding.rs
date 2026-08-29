@@ -190,6 +190,7 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
         Value::Nat128(v) => out.extend_from_slice(&v.to_be_bytes()),
         Value::NatBig(v) => push_bytes_u64(out, &v.to_leb128()),
         Value::Ulid(v) => out.extend_from_slice(&v.to_bytes()),
+        Value::U256(v) => out.extend_from_slice(&v.to_be_bytes()),
     }
 }
 

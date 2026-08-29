@@ -18,6 +18,7 @@ pub(super) const VALUE_BINARY_TAG_TIMESTAMP: u8 = 0x8B;
 pub(super) const VALUE_BINARY_TAG_NAT128: u8 = 0x8C;
 pub(super) const VALUE_BINARY_TAG_NAT_BIG: u8 = 0x8D;
 pub(super) const VALUE_BINARY_TAG_ULID: u8 = 0x8E;
+pub(super) const VALUE_BINARY_TAG_U256: u8 = 0x8F;
 
 // Keep the locally owned extension tag set explicit. These tags all carry one
 // nested structural value-storage payload immediately after the tag byte.
@@ -39,5 +40,6 @@ pub(super) const fn is_local_value_storage_tag(tag: u8) -> bool {
             | VALUE_BINARY_TAG_NAT128
             | VALUE_BINARY_TAG_NAT_BIG
             | VALUE_BINARY_TAG_ULID
+            | VALUE_BINARY_TAG_U256
     )
 }

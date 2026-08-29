@@ -11,6 +11,7 @@ authors = { workspace = true }
 [dependencies]
 candid = { workspace = true }
 derive_more = { workspace = true }
+ethnum = { workspace = true }
 icrc-ledger-types = { workspace = true }
 num-bigint = { workspace = true }
 serde = { workspace = true }

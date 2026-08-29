@@ -24,9 +24,9 @@ use crate::{
                 encode_structural_value_storage_timestamp_bytes,
                 encode_structural_value_storage_u64_bytes,
                 encode_structural_value_storage_ulid_bytes,
-                encode_structural_value_storage_unit_bytes, encode_value_storage_owned_list_items,
-                encode_value_storage_owned_map_entries, encode_value_storage_text,
-                skip::skip_value_storage_binary_value,
+                encode_structural_value_storage_unit_bytes, encode_u256,
+                encode_value_storage_owned_list_items, encode_value_storage_owned_map_entries,
+                encode_value_storage_text, skip::skip_value_storage_binary_value,
             },
         },
         schema::{
@@ -107,6 +107,7 @@ fn encode_canonical_value_storage(
         CanonicalValue::NatBig(value) => Ok(encode_nat(value)),
         CanonicalValue::Ulid(value) => Ok(encode_structural_value_storage_ulid_bytes(*value)),
         CanonicalValue::Unit => Ok(encode_structural_value_storage_unit_bytes()),
+        CanonicalValue::U256(value) => Ok(encode_u256(*value)),
     }
 }
 
@@ -336,6 +337,7 @@ fn runtime_scalar_to_canonical(value: Value) -> Result<CanonicalValue, FieldDeco
         Value::NatBig(value) => Ok(CanonicalValue::NatBig(value)),
         Value::Ulid(value) => Ok(CanonicalValue::Ulid(value)),
         Value::Unit => Ok(CanonicalValue::Unit),
+        Value::U256(value) => Ok(CanonicalValue::U256(value)),
         Value::Enum(_) | Value::List(_) | Value::Map(_) => Err(FieldDecodeError::new()),
     }
 }
@@ -402,5 +404,21 @@ mod tests {
                 .expect("canonical value storage should decode"),
             value,
         );
+    }
+
+    #[test]
+    fn canonical_value_storage_round_trips_u256_as_fixed_width_bytes() {
+        for value in [crate::types::U256::ZERO, crate::types::U256::MAX] {
+            let canonical = CanonicalValue::U256(value);
+            let encoded = encode_canonical_value_storage_bytes(&canonical)
+                .expect("canonical U256 should encode");
+
+            assert_eq!(encoded.len(), 38);
+            assert_eq!(
+                decode_canonical_value_storage_bytes(&encoded)
+                    .expect("canonical U256 should decode"),
+                canonical,
+            );
+        }
     }
 }

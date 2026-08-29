@@ -20,7 +20,7 @@ use icydb_schema::{
     RecordTypeFragment, RelationDeleteAction, RelationFragment, RuleSourceKey, ScalarLiteral,
     ScalarType, SchemaContractError, SchemaFragment, SchemaName,
     SourceRuleOperation as ProposalSourceRuleOperation, Subaccount, TargetedRuleFragment,
-    Timestamp, TupleElementFragment, TypeSourceKey, Ulid, Unit,
+    Timestamp, TupleElementFragment, TypeSourceKey, U256, Ulid, Unit,
 };
 use thiserror::Error;
 
@@ -584,6 +584,9 @@ fn lower_rule_numeric_literal(
         Primitive::NatBig => rule_integer_text(value)
             .and_then(|value| NatBig::from_str(value).ok())
             .map(ScalarLiteral::NatBig),
+        Primitive::U256 => rule_integer_text(value)
+            .and_then(|value| U256::from_str(value).ok())
+            .map(ScalarLiteral::U256),
         Primitive::Account
         | Primitive::Blob
         | Primitive::Bool
@@ -954,6 +957,7 @@ fn lower_scalar_type(primitive: Primitive, item: &Item) -> ScalarType {
         Primitive::NatBig => ScalarType::NatBig {
             max_bytes: item.max_bytes().unwrap_or(DEFAULT_BIG_INT_MAX_BYTES),
         },
+        Primitive::U256 => ScalarType::U256,
         Primitive::Principal => ScalarType::Principal,
         Primitive::Subaccount => ScalarType::Subaccount,
         Primitive::Text => ScalarType::Text {
@@ -1059,6 +1063,12 @@ fn lower_scalar_default(primitive: Primitive, item: &Item, default: &Arg) -> Opt
         (Primitive::NatBig, Arg::String(value)) => {
             NatBig::from_str(value).ok().map(ScalarLiteral::NatBig)
         }
+        (Primitive::U256, Arg::Number(value)) => {
+            arg_u128(value).map(U256::from).map(ScalarLiteral::U256)
+        }
+        (Primitive::U256, Arg::String(value)) => {
+            U256::from_str(value).ok().map(ScalarLiteral::U256)
+        }
         (Primitive::Principal, Arg::String(value)) => Principal::from_str(value)
             .ok()
             .map(ScalarLiteral::Principal),
@@ -1115,6 +1125,7 @@ fn zero_scalar_literal(primitive: Primitive, item: &Item) -> Option<ScalarLitera
         | Primitive::Nat64
         | Primitive::Nat128 => Some(ScalarLiteral::Nat(0)),
         Primitive::NatBig => NatBig::from_str("0").ok().map(ScalarLiteral::NatBig),
+        Primitive::U256 => Some(ScalarLiteral::U256(U256::ZERO)),
         Primitive::Text => Some(ScalarLiteral::Text(String::new())),
         Primitive::Timestamp => Some(ScalarLiteral::Timestamp(Timestamp::EPOCH)),
         Primitive::Ulid => Some(ScalarLiteral::Ulid(Ulid::nil())),

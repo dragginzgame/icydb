@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use crate::{
     Account, Blob, Date, Decimal, Duration, FieldSourceKey, Float32, Float64, IntBig,
     MAX_PROPOSAL_LITERAL_BYTES, MAX_SOURCE_CHECK_INSTRUCTIONS, NatBig, Principal, ScalarKind,
-    SchemaContractError, Subaccount, Timestamp, TypeSourceKey, Ulid, Unit,
+    SchemaContractError, Subaccount, Timestamp, TypeSourceKey, U256, Ulid, Unit,
 };
 
 /// One canonical scalar literal carried by a schema proposal.
@@ -42,6 +42,8 @@ pub enum ScalarLiteral {
     Nat(u128),
     /// Bounded canonical unsigned big-endian integer bytes.
     NatBig(NatBig),
+    /// Fixed-width unsigned 256-bit integer.
+    U256(U256),
     /// Principal value.
     Principal(Principal),
     /// Fixed-width subaccount.
@@ -74,6 +76,7 @@ impl ScalarLiteral {
             Self::IntBig(_) => ScalarKind::IntBig,
             Self::Nat(_) => ScalarKind::Nat128,
             Self::NatBig(_) => ScalarKind::NatBig,
+            Self::U256(_) => ScalarKind::U256,
             Self::Principal(_) => ScalarKind::Principal,
             Self::Subaccount(_) => ScalarKind::Subaccount,
             Self::Text(_) => ScalarKind::Text,

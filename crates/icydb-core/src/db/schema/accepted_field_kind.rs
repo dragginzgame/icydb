@@ -51,6 +51,7 @@ pub(in crate::db) enum AcceptedFieldKind {
     NatBig {
         max_bytes: u32,
     },
+    U256,
     Ulid,
     Unit,
     Relation {
@@ -121,6 +122,7 @@ impl AcceptedFieldKind {
             | Self::Nat32
             | Self::Nat64
             | Self::Nat128
+            | Self::U256
             | Self::Ulid
             | Self::Unit => true,
         }
@@ -159,6 +161,7 @@ impl AcceptedFieldKind {
             Self::Relation { key_kind, .. } => key_kind.leaf_codec_for_storage(storage_decode),
             Self::Ulid => LeafCodec::Scalar(ScalarCodec::Ulid),
             Self::Unit => LeafCodec::Scalar(ScalarCodec::Unit),
+            Self::U256 => LeafCodec::Scalar(ScalarCodec::U256),
             Self::Account
             | Self::Composite { .. }
             | Self::Decimal { .. }
@@ -216,6 +219,7 @@ impl AcceptedFieldKind {
             | Self::Nat64
             | Self::Nat128
             | Self::NatBig { .. }
+            | Self::U256
             | Self::Ulid
             | Self::Unit => false,
         }
@@ -254,6 +258,7 @@ impl AcceptedFieldKind {
             | Self::Nat64
             | Self::Nat128
             | Self::NatBig { .. }
+            | Self::U256
             | Self::Ulid
             | Self::Unit => false,
         }
@@ -294,6 +299,7 @@ impl AcceptedFieldKind {
             | Self::Nat64
             | Self::Nat128
             | Self::NatBig { .. }
+            | Self::U256
             | Self::Ulid
             | Self::Unit => false,
         }

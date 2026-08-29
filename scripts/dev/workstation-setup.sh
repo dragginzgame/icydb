@@ -145,7 +145,11 @@ install_tooling() {
   fi
 
   npm install -g --prefix "$HOME/.local" "${NPM_WORKSTATION_TOOLS[@]}"
-  bash "$ROOT/scripts/ci/install-wasm-optimizer.sh"
+  if [[ "$MODE" == "update" ]]; then
+    bash "$ROOT/scripts/ci/install-wasm-optimizer.sh" --check-latest
+  else
+    bash "$ROOT/scripts/ci/install-wasm-optimizer.sh"
+  fi
   icp --version
   ic-wasm --version
 }

@@ -68,6 +68,9 @@ impl Parser {
                 index: self.take_param_index(),
             });
         }
+        if self.cursor.peek_u256_literal() {
+            return self.parse_literal().map(SqlExpr::Literal);
+        }
         if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
             let field = self.expect_identifier()?;
             if self.peek_lparen() {

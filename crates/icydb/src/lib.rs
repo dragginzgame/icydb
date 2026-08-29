@@ -59,6 +59,7 @@
 // Generated actor glue resolves this package through its canonical crate name.
 extern crate self as icydb;
 
+pub use icydb_core::types::{ParseU256Error, U256};
 pub use icydb_model_macros::{request_execution, test};
 
 // core modules

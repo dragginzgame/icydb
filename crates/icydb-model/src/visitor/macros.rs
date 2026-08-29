@@ -36,6 +36,7 @@ macro_rules! impl_primitive {
         impl $trait for crate::schema::Principal {}
         impl $trait for crate::schema::Subaccount {}
         impl $trait for crate::schema::Timestamp {}
+        impl $trait for crate::schema::U256 {}
         impl $trait for crate::schema::Ulid {}
         impl $trait for crate::schema::Unit {}
     };

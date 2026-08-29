@@ -21,5 +21,5 @@ pub(in crate::db::data::structural_field::primary_key_component) use primitive::
     decode_nat_primary_key_component_binary_bytes,
     decode_nat128_primary_key_component_binary_bytes,
     decode_timestamp_primary_key_component_binary_bytes,
-    decode_unit_primary_key_component_binary_bytes,
+    decode_u256_primary_key_component_binary_bytes, decode_unit_primary_key_component_binary_bytes,
 };

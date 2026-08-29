@@ -81,6 +81,10 @@ name = "canister_artifact_contract"
 path = "tests/canister_artifact_contract.rs"
 
 [[test]]
+name = "u256_measurement_contract"
+path = "tests/u256_measurement_contract.rs"
+
+[[test]]
 name = "endpoint_cost_closeout"
 path = "tests/endpoint_cost_closeout.rs"
 

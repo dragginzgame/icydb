@@ -33,7 +33,7 @@ use crate::{
                 VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_FLOAT32, VALUE_BINARY_TAG_FLOAT64,
                 VALUE_BINARY_TAG_INT_BIG, VALUE_BINARY_TAG_INT128, VALUE_BINARY_TAG_NAT_BIG,
                 VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL, VALUE_BINARY_TAG_SUBACCOUNT,
-                VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_ULID,
+                VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_U256, VALUE_BINARY_TAG_ULID,
             },
             walk::{
                 decode_value_storage_binary_list_items_single_pass,
@@ -43,7 +43,7 @@ use crate::{
     },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, Ulid,
+        Timestamp, U256, Ulid,
     },
     value::Value,
 };
@@ -176,6 +176,15 @@ pub(in crate::db) fn decode_nat(raw_bytes: &[u8]) -> Result<NatBig, FieldDecodeE
     let digits = decode_binary_big_integer_magnitude_digits(payload)?;
 
     Ok(NatBig::from_biguint(digits))
+}
+
+/// Decode one canonical structural value-storage `Value::U256` payload.
+pub(in crate::db) fn decode_u256(raw_bytes: &[u8]) -> Result<U256, FieldDecodeError> {
+    let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_U256)?;
+    let bytes = decode_binary_required_bytes(payload)?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new())?;
+    Ok(U256::from_be_bytes(bytes))
 }
 
 /// Decode one canonical structural value-storage bytes payload without
@@ -347,6 +356,7 @@ pub(super) fn decode_value_storage_slice_at_depth(
         VALUE_BINARY_TAG_ULID => {
             decode_structural_value_storage_ulid_bytes(raw_bytes).map(Value::Ulid)
         }
+        VALUE_BINARY_TAG_U256 => decode_u256(raw_bytes).map(Value::U256),
         _ => Err(FieldDecodeError::new()),
     }
 }

@@ -304,6 +304,23 @@ fn persisted_schema_snapshot_rejects_invalid_local_field_contracts() {
 }
 
 #[test]
+fn persisted_schema_snapshot_round_trips_u256_current_v1_contract() {
+    let snapshot = single_field_contract_snapshot(
+        AcceptedFieldKind::U256,
+        FieldStorageDecode::ByKind,
+        LeafCodec::Scalar(ScalarCodec::U256),
+    );
+    let encoded = encode_persisted_schema_snapshot(&snapshot)
+        .expect("current U256 schema snapshot should encode");
+
+    assert_eq!(
+        decode_persisted_schema_snapshot(&encoded)
+            .expect("current U256 schema snapshot should decode"),
+        snapshot,
+    );
+}
+
+#[test]
 fn persisted_schema_snapshot_rejects_noncanonical_check_literal_contract() {
     let snapshot = snapshot_with_true_check();
     let mut constraints = snapshot.constraints().to_vec();

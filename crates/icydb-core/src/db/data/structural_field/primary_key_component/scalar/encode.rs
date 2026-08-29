@@ -106,6 +106,10 @@ pub(in crate::db::data::structural_field::primary_key_component) fn encode_scala
             push_binary_unit(out);
             Ok(())
         }
+        (AcceptedFieldKind::U256, PrimaryKeyComponent::U256(value)) => {
+            push_binary_bytes(out, &value.to_be_bytes());
+            Ok(())
+        }
         (_, _) => Err(InternalError::persisted_row_field_encode_internal(
             field_name,
         )),

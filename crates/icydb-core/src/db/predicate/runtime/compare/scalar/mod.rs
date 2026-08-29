@@ -16,7 +16,8 @@ use crate::db::predicate::runtime::compare::scalar::{
             scalar_bool_from_value, scalar_date_from_value, scalar_duration_from_value,
             scalar_float32_from_value, scalar_float64_from_value, scalar_int_from_value,
             scalar_nat_from_value, scalar_principal_from_value, scalar_subaccount_from_value,
-            scalar_timestamp_from_value, scalar_ulid_from_value, scalar_unit_from_value,
+            scalar_timestamp_from_value, scalar_u256_from_value, scalar_ulid_from_value,
+            scalar_unit_from_value,
         },
     },
     text::eval_text_scalar_compare,
@@ -72,6 +73,9 @@ pub(in crate::db::predicate::runtime) fn eval_compare_scalar_slot(
         }
         ScalarSlotValueRef::Value(ScalarValueRef::Unit) => {
             eval_direct_scalar_compare((), op, value, coercion, scalar_unit_from_value)
+        }
+        ScalarSlotValueRef::Value(ScalarValueRef::U256(actual)) => {
+            eval_direct_scalar_compare(actual, op, value, coercion, scalar_u256_from_value)
         }
     }
 }

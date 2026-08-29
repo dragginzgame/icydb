@@ -1219,6 +1219,7 @@ pub(super) fn exact_numeric_is_zero(value: &Value) -> Option<bool> {
         | Value::Timestamp(_)
         | Value::Ulid(_)
         | Value::Unit => None,
+        Value::U256(value) => Some(*value == crate::types::U256::ZERO),
     }
 }
 

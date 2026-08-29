@@ -154,6 +154,7 @@ impl<'de> Visitor<'de> for ValueWireVisitor {
                 payload.unit_variant()?;
                 Ok(Value::Unit)
             }
+            ValueWireVariant::U256 => Ok(Value::U256(payload.newtype_variant()?)),
         }
     }
 }

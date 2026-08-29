@@ -281,16 +281,18 @@ impl Parser {
                 index: self.take_param_index(),
             });
         }
-        if matches!(
-            self.peek_kind(),
-            Some(
-                TokenKind::StringLiteral(_)
-                    | TokenKind::BlobLiteral(_)
-                    | TokenKind::Number(_)
-                    | TokenKind::Keyword(Keyword::Null | Keyword::True | Keyword::False)
-                    | TokenKind::Minus
+        if self.cursor.peek_u256_literal()
+            || matches!(
+                self.peek_kind(),
+                Some(
+                    TokenKind::StringLiteral(_)
+                        | TokenKind::BlobLiteral(_)
+                        | TokenKind::Number(_)
+                        | TokenKind::Keyword(Keyword::Null | Keyword::True | Keyword::False)
+                        | TokenKind::Minus
+                )
             )
-        ) {
+        {
             return self.parse_literal().map(SqlExpr::Literal);
         }
         if surface.allows_aggregates()

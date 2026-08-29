@@ -175,6 +175,7 @@ const fn scalar_slot_value_ref_from_accepted_value(
         (ScalarCodec::Nat64, Value::Nat64(value)) => ScalarValueRef::Nat(*value),
         (ScalarCodec::Ulid, Value::Ulid(value)) => ScalarValueRef::Ulid(*value),
         (ScalarCodec::Unit, Value::Unit) => ScalarValueRef::Unit,
+        (ScalarCodec::U256, Value::U256(value)) => ScalarValueRef::U256(*value),
         _ => return None,
     };
 
@@ -314,5 +315,6 @@ fn canonical_value_from_scalar_slot(value: ScalarSlotValueRef<'_>) -> CanonicalV
         ScalarSlotValueRef::Value(ScalarValueRef::Nat(value)) => CanonicalValue::Nat64(value),
         ScalarSlotValueRef::Value(ScalarValueRef::Ulid(value)) => CanonicalValue::Ulid(value),
         ScalarSlotValueRef::Value(ScalarValueRef::Unit) => CanonicalValue::Unit,
+        ScalarSlotValueRef::Value(ScalarValueRef::U256(value)) => CanonicalValue::U256(value),
     }
 }

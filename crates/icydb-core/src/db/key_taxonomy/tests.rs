@@ -18,7 +18,7 @@ use crate::{
     traits::Repr,
     types::{
         Account, AccountStorageCodec, EntityTag, IntBig, NatBig, Principal, Subaccount, Timestamp,
-        Ulid,
+        U256, Ulid,
     },
     value::Value,
 };
@@ -84,6 +84,7 @@ fn runtime_values_convert_directly_to_primary_key_components() {
             PrimaryKeyComponent::Account(account),
         ),
         (Value::Unit, PrimaryKeyComponent::Unit),
+        (Value::U256(U256::MAX), PrimaryKeyComponent::U256(U256::MAX)),
     ];
 
     for (value, expected) in cases {
@@ -146,6 +147,7 @@ fn composite_primary_key_value_rejects_unit_components() {
     let err = CompositePrimaryKeyValue::try_from_components(&[
         PrimaryKeyComponent::Nat64(1),
         PrimaryKeyComponent::Unit,
+        PrimaryKeyComponent::U256(U256::MAX),
     ])
     .expect_err("unit is scalar-only and should reject in composite keys");
 
@@ -374,6 +376,23 @@ fn compact_primary_key_roundtrip_per_key_type() {
 }
 
 #[test]
+fn compact_u256_primary_key_roundtrips_fixed_width_boundaries() {
+    for value in [U256::ZERO, U256::ONE, U256::MAX] {
+        let encoded = EncodedPrimaryKey::encode(PrimaryKeyComponent::U256(value))
+            .expect("U256 primary key should encode");
+
+        assert_eq!(encoded.as_bytes().len(), 33);
+        assert_eq!(encoded.as_bytes()[0], PrimaryKeyKind::U256.tag());
+        assert_eq!(
+            encoded
+                .decode_component()
+                .expect("U256 primary key should decode"),
+            PrimaryKeyComponent::U256(value),
+        );
+    }
+}
+
+#[test]
 fn compact_primary_key_rejects_malformed_kind_tag() {
     let err = EncodedPrimaryKey::try_from(&[0xFF][..])
         .expect_err("unknown primary-key kind tag should reject");
@@ -393,6 +412,7 @@ fn compact_primary_key_rejects_malformed_lengths() {
         PrimaryKeyKind::Subaccount,
         PrimaryKeyKind::Account,
         PrimaryKeyKind::Unit,
+        PrimaryKeyKind::U256,
     ];
 
     for kind in fixed_cases {

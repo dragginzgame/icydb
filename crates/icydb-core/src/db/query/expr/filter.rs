@@ -67,6 +67,7 @@ impl FilterValue {
             InputValue::Nat128(value) => Self::String(value.to_string()),
             InputValue::NatBig(value) => Self::String(value.to_string()),
             InputValue::Ulid(value) => Self::String(value.to_string()),
+            InputValue::U256(value) => Self::String(value.to_string()),
         }
     }
 }

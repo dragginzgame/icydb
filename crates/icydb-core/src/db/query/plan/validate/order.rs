@@ -67,7 +67,7 @@ fn validate_field_path_order_term(
 
     if matches!(
         inferred,
-        ExprType::Bool | ExprType::Text | ExprType::Numeric(_) | ExprType::Unknown
+        ExprType::Bool | ExprType::Text | ExprType::Numeric(_) | ExprType::U256 | ExprType::Unknown
     ) {
         return Ok(());
     }
@@ -87,7 +87,7 @@ fn validate_expression_order_term(
 
     if !matches!(
         inferred,
-        ExprType::Bool | ExprType::Text | ExprType::Numeric(_)
+        ExprType::Bool | ExprType::Text | ExprType::Numeric(_) | ExprType::U256
     ) {
         return Err(PlanError::from(OrderPlanError::unorderable_field(
             term_index,

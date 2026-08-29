@@ -193,6 +193,7 @@ pub(super) fn encode_kind(
             writer.push_u8(32);
             writer.push_u32(type_id.get());
         }
+        AcceptedFieldKind::U256 => writer.push_u8(33),
     }
     Ok(())
 }
@@ -267,6 +268,7 @@ pub(super) fn decode_kind(
             type_id: CompositeTypeId::new(reader.read_u32()?)
                 .ok_or_else(InternalError::store_corruption)?,
         }),
+        33 => Ok(AcceptedFieldKind::U256),
         _ => Err(InternalError::store_corruption()),
     }
 }
@@ -425,6 +427,7 @@ direct_unit_enum_codec! {
         12 => ScalarCodec::Nat64,
         13 => ScalarCodec::Ulid,
         14 => ScalarCodec::Unit,
+        15 => ScalarCodec::U256,
     }
 }
 

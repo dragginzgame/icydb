@@ -346,6 +346,7 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
             icydb_model::TypedScalarValue::Timestamp(value) => InputValue::Timestamp(value),
             icydb_model::TypedScalarValue::Ulid(value) => InputValue::Ulid(value),
             icydb_model::TypedScalarValue::Unit => InputValue::Unit,
+            icydb_model::TypedScalarValue::U256(value) => InputValue::U256(value),
         }
     }
 
@@ -421,6 +422,7 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
             OutputValue::Timestamp(value) => icydb_model::TypedScalarValue::Timestamp(*value),
             OutputValue::Ulid(value) => icydb_model::TypedScalarValue::Ulid(*value),
             OutputValue::Unit => icydb_model::TypedScalarValue::Unit,
+            OutputValue::U256(value) => icydb_model::TypedScalarValue::U256(*value),
             OutputValue::Enum(_)
             | OutputValue::List(_)
             | OutputValue::Map(_)

@@ -56,6 +56,7 @@ pub(super) fn strict_order_cmp(left: &Value, right: &Value) -> Option<Ordering> 
         (Value::NatBig(a), Value::NatBig(b)) => a.partial_cmp(b),
         (Value::Ulid(a), Value::Ulid(b)) => a.partial_cmp(b),
         (Value::Unit, Value::Unit) => Some(Ordering::Equal),
+        (Value::U256(a), Value::U256(b)) => Some(a.cmp(b)),
         _ => None,
     }
 }
@@ -85,6 +86,7 @@ fn canonical_cmp_same_rank(left: &Value, right: &Value) -> Ordering {
         (Value::NatBig(a), Value::NatBig(b)) => a.cmp(b),
         (Value::Ulid(a), Value::Ulid(b)) => a.cmp(b),
         (Value::Null, Value::Null) | (Value::Unit, Value::Unit) => Ordering::Equal,
+        (Value::U256(a), Value::U256(b)) => a.cmp(b),
         _ => {
             debug_assert_ne!(
                 left.canonical_rank(),

@@ -180,6 +180,10 @@ pub(crate) fn encode_canonical_index_component_from_primary_key_value(
             Ok(out)
         }
         PrimaryKeyComponent::Unit => Ok(out),
+        PrimaryKeyComponent::U256(value) => {
+            out.extend_from_slice(&value.to_be_bytes());
+            Ok(out)
+        }
     }
 }
 
@@ -241,5 +245,9 @@ fn encode_component_payload(
         }
         // Unit intentionally has no payload; tag-only encoding is canonical.
         Value::Unit => Ok(()),
+        Value::U256(v) => {
+            out.extend_from_slice(&v.to_be_bytes());
+            Ok(())
+        }
     }
 }

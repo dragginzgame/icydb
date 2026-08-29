@@ -38,6 +38,7 @@ where
         (ExprType::Collection, ExprType::Collection) => Ok(ExprType::Collection),
         (ExprType::Structured, ExprType::Structured) => Ok(ExprType::Structured),
         (ExprType::Opaque, ExprType::Opaque) => Ok(ExprType::Opaque),
+        (ExprType::U256, ExprType::U256) => Ok(ExprType::U256),
         (ExprType::Blob, ExprType::Opaque) | (ExprType::Opaque, ExprType::Blob) => {
             Ok(ExprType::Opaque)
         }

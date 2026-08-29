@@ -12,13 +12,13 @@ use sha2::{Digest, Sha256};
 /// Environment variable that may point at the pinned `wasm-opt` executable.
 pub const WASM_OPT_BIN_ENV: &str = "ICYDB_WASM_OPT_BIN";
 /// Exact Binaryen CLI version accepted by the deployable-Wasm pipeline.
-pub const WASM_OPT_VERSION: &str = "wasm-opt version 108 (version_108)";
-/// SHA-256 of Canic's official Binaryen 108 Linux x86-64 `wasm-opt` executable.
+pub const WASM_OPT_VERSION: &str = "wasm-opt version 132 (version_132)";
+/// SHA-256 of the official Binaryen 132 Linux x86-64 `wasm-opt` executable.
 pub const WASM_OPT_SHA256: &str =
-    "36f78112c8d629e27f8c68be89bee47c245cbde8794e1ff56c03212c02dc8484";
+    "1014958e6f20d412f1542320b43970214b0fb1ed780595e8f7c0d8761ed53725";
 /// Stable identity of the only deployable post-link pipeline.
 pub const POST_LINK_PIPELINE_IDENTITY: &str =
-    "binaryen-108-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v2";
+    "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1";
 /// Exact ordered optimizer arguments after the compiler-emitted input path.
 pub const WASM_OPT_FLAGS: [&str; 5] = [
     "-Oz",
@@ -153,7 +153,7 @@ fn resolve_executable(requested: &Path) -> Result<PathBuf, String> {
         .and_then(|candidate| candidate.canonicalize().ok())
         .ok_or_else(|| {
             format!(
-                "missing pinned wasm optimizer '{}'; run `canic toolchain install` or set {WASM_OPT_BIN_ENV}",
+                "missing pinned wasm optimizer '{}'; run `bash scripts/ci/install-wasm-optimizer.sh` or set {WASM_OPT_BIN_ENV}",
                 requested.display()
             )
         })
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn post_link_optimizer_contract_is_exact_and_available() {
-        assert_eq!(WASM_OPT_VERSION, "wasm-opt version 108 (version_108)");
+        assert_eq!(WASM_OPT_VERSION, "wasm-opt version 132 (version_132)");
         assert_eq!(WASM_OPT_SHA256.len(), 64);
         assert_eq!(
             WASM_OPT_FLAGS,
@@ -218,7 +218,7 @@ mod tests {
         );
         assert_eq!(
             POST_LINK_PIPELINE_IDENTITY,
-            "binaryen-108-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v2"
+            "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1"
         );
         assert!(pinned_wasm_optimizer().is_ok());
     }

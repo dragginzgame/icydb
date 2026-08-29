@@ -68,5 +68,6 @@ fn output_value_from_canonical(
         CanonicalValue::NatBig(value) => OutputValue::NatBig(value.clone()),
         CanonicalValue::Ulid(value) => OutputValue::Ulid(*value),
         CanonicalValue::Unit => OutputValue::Unit,
+        CanonicalValue::U256(value) => OutputValue::U256(*value),
     })
 }

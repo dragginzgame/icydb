@@ -10,7 +10,7 @@ use crate::{
     SchemaMigrationRename, SchemaName, SchemaProposal, SchemaRemoval, SchemaSubmissionKey,
     SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation, Subaccount,
     TargetDatabaseIdentity, TargetStoreIdentity, TargetedRuleFragment, Timestamp,
-    TupleElementFragment, TypeSourceKey, Ulid, Unit, decode_schema_fragment,
+    TupleElementFragment, TypeSourceKey, U256, Ulid, Unit, decode_schema_fragment,
     decode_schema_proposal, encode_schema_fragment, encode_schema_proposal,
 };
 
@@ -610,6 +610,7 @@ fn exact_scalar_field_types_roundtrip_without_width_or_bound_loss() {
         ScalarType::NatBig { max_bytes: 263 },
         ScalarType::Ulid,
         ScalarType::Unit,
+        ScalarType::U256,
     ];
     let fragment = SchemaFragment::try_new(
         Vec::new(),
@@ -1154,6 +1155,7 @@ fn proposal_literals_preserve_every_canonical_scalar_atom() {
         ScalarLiteral::Timestamp(Timestamp::from_millis(13)),
         ScalarLiteral::Ulid(Ulid::from_u128(14)),
         ScalarLiteral::Unit(Unit),
+        ScalarLiteral::U256(U256::MAX),
     ];
     let id = FieldFragment::new(
         SchemaName::try_new("id").expect("name should admit"),

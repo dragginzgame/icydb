@@ -565,6 +565,7 @@ fn validate_database_default_shape(default: &Arg, value: &Value) -> Result<(), S
             | Primitive::Duration
             | Primitive::IntBig
             | Primitive::NatBig
+            | Primitive::U256
             | Primitive::Timestamp,
             Arg::Number(_) | Arg::String(_),
         ) => true,
@@ -698,6 +699,7 @@ const fn primitive_default_type_names(primitive: Primitive) -> &'static [&'stati
         Primitive::Subaccount => &["Subaccount"],
         Primitive::Text => &["Text", "String"],
         Primitive::Timestamp => &["Timestamp", "u64"],
+        Primitive::U256 => &["U256"],
         Primitive::Ulid => &["Ulid"],
         Primitive::Unit => &["Unit"],
     }
@@ -723,6 +725,7 @@ const fn primitive_supports_zero_literal(primitive: Primitive) -> bool {
             | Primitive::Nat32
             | Primitive::Nat64
             | Primitive::Nat128
+            | Primitive::U256
             | Primitive::Timestamp
     )
 }

@@ -38,6 +38,7 @@ pub enum ScalarKind {
     Nat,
     Nat128,
     NatBig,
+    U256,
     Ulid,
     Unit,
 }
@@ -185,14 +186,14 @@ pub enum ScalarCoercionFamily {
 }
 
 /// Ordered list of all scalar kinds in registry order.
-pub const ALL_SCALAR_KINDS: [ScalarKind; 21] = scalar_kind_registry!(all_kinds_from_registry);
+pub const ALL_SCALAR_KINDS: [ScalarKind; 22] = scalar_kind_registry!(all_kinds_from_registry);
 
 #[cfg(test)]
 mod tests {
     use super::{ALL_SCALAR_KINDS, ScalarKind};
     use std::collections::HashSet;
 
-    const EXPECTED_SCALAR_KINDS: [ScalarKind; 21] = [
+    const EXPECTED_SCALAR_KINDS: [ScalarKind; 22] = [
         ScalarKind::Account,
         ScalarKind::Blob,
         ScalarKind::Bool,
@@ -212,6 +213,7 @@ mod tests {
         ScalarKind::Nat,
         ScalarKind::Nat128,
         ScalarKind::NatBig,
+        ScalarKind::U256,
         ScalarKind::Ulid,
         ScalarKind::Unit,
     ];
@@ -297,6 +299,7 @@ mod tests {
             | ScalarKind::Nat
             | ScalarKind::Nat128
             | ScalarKind::NatBig
+            | ScalarKind::U256
             | ScalarKind::Ulid
             | ScalarKind::Unit => {}
         }

@@ -1038,6 +1038,7 @@ pub(in crate::db::executor) fn runtime_value_work(value: &Value) -> (u64, u64) {
         | Value::Nat128(_)
         | Value::Ulid(_)
         | Value::Unit => (VALUE_OVERHEAD, 1),
+        Value::U256(_) => (VALUE_OVERHEAD, 32),
     }
 }
 

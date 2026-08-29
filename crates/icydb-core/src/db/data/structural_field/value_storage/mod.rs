@@ -44,6 +44,6 @@ pub(in crate::db) use encode::{
     encode_structural_value_storage_subaccount_bytes,
     encode_structural_value_storage_timestamp_bytes, encode_structural_value_storage_u64_bytes,
     encode_structural_value_storage_ulid_bytes, encode_structural_value_storage_unit_bytes,
-    encode_value_storage_owned_list_items, encode_value_storage_owned_map_entries,
+    encode_u256, encode_value_storage_owned_list_items, encode_value_storage_owned_map_entries,
     encode_value_storage_text,
 };

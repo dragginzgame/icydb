@@ -560,6 +560,7 @@ mod tests {
             AcceptedFieldKind::Principal,
             AcceptedFieldKind::Subaccount,
             AcceptedFieldKind::Timestamp,
+            AcceptedFieldKind::U256,
             AcceptedFieldKind::Ulid,
             AcceptedFieldKind::Unit,
         ] {

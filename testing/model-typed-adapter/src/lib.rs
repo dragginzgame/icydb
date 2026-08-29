@@ -37,7 +37,7 @@ mod tests {
         AdapterChoice, AdapterList, AdapterMap, AdapterRecord, AdapterSet, AdapterTuple,
         RecursiveRecord, TypedAdapterEntity, TypedAdapterEntityInsert, TypedAdapterEntityPatch,
         TypedAdapterEntityReplace, TypedIdentityCounter, TypedIdentityOwnerInsert,
-        TypedIdentityUser, TypedIdentityUserInsert, TypedIdentityUserPatch, X, XEntity,
+        TypedIdentityUser, TypedIdentityUserInsert, TypedIdentityUserPatch, U256Word, X, XEntity,
     };
 
     #[expect(
@@ -68,6 +68,7 @@ mod tests {
     fn renamed_dependencies_compile_default_adapters() {
         let insert_without_database_owned_id = TypedAdapterEntityInsert {
             name: WriteCell::Omitted,
+            amount: WriteCell::Omitted,
             nickname: WriteCell::Omitted,
             profile: WriteCell::Omitted,
             list: WriteCell::Omitted,
@@ -93,6 +94,7 @@ mod tests {
         assert_write_adapter::<TypedIdentityOwnerInsert>();
         assert_named_adapter::<X>();
         assert_named_adapter::<XEntity>();
+        assert_named_adapter::<U256Word>();
         assert_named_adapter::<AdapterChoice>();
         assert_named_adapter::<AdapterRecord>();
         assert_named_adapter::<AdapterList>();
@@ -151,6 +153,7 @@ mod tests {
         assert_eq!(AdapterRecord::LABEL.as_str(), "label");
 
         let _predicate = TypedAdapterEntity::NAME.eq("Ada");
+        let _u256_predicate = TypedAdapterEntity::AMOUNT.eq(U256::MAX);
         let _ordering = asc(TypedAdapterEntity::ID);
         let patch = StructuralPatch::new().field(
             TypedAdapterEntity::NAME.as_str(),

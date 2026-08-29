@@ -987,6 +987,7 @@ const fn numeric_scalar(scalar: ScalarType) -> bool {
             | ScalarType::Nat64
             | ScalarType::Nat128
             | ScalarType::NatBig { .. }
+            | ScalarType::U256
     )
 }
 
@@ -1018,6 +1019,30 @@ fn collect_named_type_references(r#type: &NamedTypeFragment, references: &mut Pr
                 collect_field_type_reference(member.field_type(), references);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod u256_tests {
+    use super::*;
+    use crate::{ScalarLiteral, U256};
+
+    #[test]
+    fn u256_targeted_ranges_admit_while_multiple_of_remains_deferred() {
+        let shape = RuleTargetShape::Scalar(ScalarType::U256);
+        assert!(operation_matches_target(
+            &SourceRuleOperation::NumericRangeInclusive {
+                min: ScalarLiteral::U256(U256::ZERO),
+                max: ScalarLiteral::U256(U256::MAX),
+            },
+            shape,
+        ));
+        assert!(!operation_matches_target(
+            &SourceRuleOperation::MultipleOf {
+                divisor: ScalarLiteral::U256(U256::ONE),
+            },
+            shape,
+        ));
     }
 }
 

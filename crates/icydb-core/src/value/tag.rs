@@ -41,6 +41,7 @@ pub enum ValueTag {
     NatBig = 22,
     Ulid = 23,
     Unit = 24,
+    U256 = 25,
 }
 
 impl ValueTag {
@@ -78,6 +79,7 @@ impl ValueTag {
             Self::NatBig => "NatBig",
             Self::Ulid => "Ulid",
             Self::Unit => "Unit",
+            Self::U256 => "U256",
         }
     }
 }
@@ -110,5 +112,6 @@ pub(super) const fn canonical_tag(value: &Value) -> ValueTag {
         Value::NatBig(_) => ValueTag::NatBig,
         Value::Ulid(_) => ValueTag::Ulid,
         Value::Unit => ValueTag::Unit,
+        Value::U256(_) => ValueTag::U256,
     }
 }

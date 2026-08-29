@@ -22,7 +22,8 @@ pub use account::*;
 pub use duration::*;
 pub use icydb_schema::{
     Blob, Date, Decimal, DecimalParts, Float32, Float32DecodeError, Float64, Float64DecodeError,
-    IntBig, NatBig, NumericValue, ParseDecimalError, ParseDecimalErrorReason, TypeParseError,
+    IntBig, NatBig, NumericValue, ParseDecimalError, ParseDecimalErrorReason, ParseU256Error,
+    TypeParseError, U256,
 };
 pub use identity::*;
 pub use principal::*;
@@ -70,6 +71,7 @@ mod ownership_tests {
         let _: Float64 = icydb_schema::Float64::default();
         let _: IntBig = icydb_schema::IntBig::default();
         let _: NatBig = icydb_schema::NatBig::default();
+        let _: U256 = icydb_schema::U256::ZERO;
         let _: Principal = icydb_schema::Principal::anonymous();
         let _: Subaccount = icydb_schema::Subaccount::MIN;
         let _: Timestamp = icydb_schema::Timestamp::EPOCH;

@@ -92,6 +92,7 @@ const fn numeric_literal(literal: &ScalarLiteral) -> bool {
             | ScalarKind::IntBig
             | ScalarKind::Nat128
             | ScalarKind::NatBig
+            | ScalarKind::U256
     )
 }
 
@@ -104,6 +105,7 @@ fn scalar_literal_le(left: &ScalarLiteral, right: &ScalarLiteral) -> bool {
         (ScalarLiteral::IntBig(left), ScalarLiteral::IntBig(right)) => left <= right,
         (ScalarLiteral::Nat(left), ScalarLiteral::Nat(right)) => left <= right,
         (ScalarLiteral::NatBig(left), ScalarLiteral::NatBig(right)) => left <= right,
+        (ScalarLiteral::U256(left), ScalarLiteral::U256(right)) => left <= right,
         _ => false,
     }
 }
@@ -115,6 +117,7 @@ fn scalar_literal_is_zero(literal: &ScalarLiteral) -> bool {
         ScalarLiteral::IntBig(value) => value == &crate::IntBig::default(),
         ScalarLiteral::Nat(value) => *value == 0,
         ScalarLiteral::NatBig(value) => value == &crate::NatBig::default(),
+        ScalarLiteral::U256(value) => *value == crate::U256::ZERO,
         ScalarLiteral::Account(_)
         | ScalarLiteral::Blob(_)
         | ScalarLiteral::Bool(_)

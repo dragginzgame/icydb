@@ -90,6 +90,7 @@ impl AggregateFieldKindCode {
     pub(in crate::db::executor) const SET: Self = Self(29);
     pub(in crate::db::executor) const MAP: Self = Self(30);
     pub(in crate::db::executor) const STRUCTURED: Self = Self(31);
+    pub(in crate::db::executor) const U256: Self = Self(32);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -120,6 +121,7 @@ impl AggregateValueKindCode {
     pub(in crate::db::executor) const NAT_BIG: Self = Self(21);
     pub(in crate::db::executor) const ULID: Self = Self(22);
     pub(in crate::db::executor) const UNIT: Self = Self(23);
+    pub(in crate::db::executor) const U256: Self = Self(24);
     const fn from_value(value: &Value) -> Self {
         match value {
             Value::Account(_) => Self::ACCOUNT,
@@ -146,6 +148,7 @@ impl AggregateValueKindCode {
             Value::NatBig(_) => Self::NAT_BIG,
             Value::Ulid(_) => Self::ULID,
             Value::Unit => Self::UNIT,
+            Value::U256(_) => Self::U256,
         }
     }
 }
@@ -206,6 +209,9 @@ impl AggregateRuntimeValueShape {
                 Value::Nat128(left),
                 Value::Nat128(right),
             ) => Some(left.cmp(right)),
+            (Self::Exact(AggregateValueKindCode::U256), Value::U256(left), Value::U256(right)) => {
+                Some(left.cmp(right))
+            }
             _ => None,
         }
     }
@@ -264,6 +270,7 @@ impl AggregateFieldValueContract {
             Accepted::NatBig { .. } => Self::exact(Field::NAT_BIG, Runtime::NAT_BIG),
             Accepted::Ulid => Self::exact(Field::ULID, Runtime::ULID),
             Accepted::Unit => Self::exact(Field::UNIT, Runtime::UNIT),
+            Accepted::U256 => Self::exact(Field::U256, Runtime::U256),
             Accepted::Relation { key_kind, .. } => {
                 let key_contract = Self::from_accepted_field_kind(key_kind);
                 Self {

@@ -5,10 +5,23 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.247.x] 📊 - 2026-08-28 - Measured Wasm Footprint Reduction
+## [0.248.x] 🧪 - 2026-08-29 - Native U256 Admission
+
+Detailed notes: [docs/changelog/0.248.md](docs/changelog/0.248.md)
+
+- `0.248.0` freezes a 2,048-row Ethereum numeric workload and records the
+  allocation, instruction, storage, index, Candid and Wasm evidence for a
+  native fixed-width `U256`. The measurement-only patch recommends building
+  `U256` with a Candid `nat` carrier while retaining no production type, tag,
+  codec or runtime behavior.
+
+## [0.247.x] 📊 - 2026-08-29 - Measured Wasm Footprint Reduction
 
 Detailed notes: [docs/changelog/0.247.md](docs/changelog/0.247.md)
 
+- `0.247.1` makes IcyDB directly own a checksum-pinned Binaryen 132 post-link
+  toolchain whose developer update path installs the pin and reports upstream
+  drift; representative final raw Wasm shrinks 5.3–6.5 KiB with exact Candid.
 - `0.247.0` replaces repeated compact-sort, retained-scan and ordered-map build
   bodies with measured canonical owners, rejects non-saving cold and
   pre-lowered-schema candidates, and cuts exact Toko Miner release code by

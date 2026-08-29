@@ -19,6 +19,7 @@ use crate::{
         },
     },
     db::key_taxonomy::PrimaryKeyComponent,
+    types::U256,
 };
 
 // Decode one timestamp relation-key payload from Structural Binary v1.
@@ -140,4 +141,21 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_nat12
     Ok(PrimaryKeyComponent::Nat128(decode_nat128_payload_bytes(
         binary_payload_bytes(raw_bytes, len, payload_start)?,
     )?))
+}
+
+// Decode one unsigned 256-bit primary-key component from fixed bytes.
+pub(in crate::db::data::structural_field::primary_key_component) fn decode_u256_primary_key_component_binary_bytes(
+    raw_bytes: &[u8],
+) -> Result<PrimaryKeyComponent, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new());
+    };
+    let end = skip_structural_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() || tag != TAG_BYTES || len != 32 {
+        return Err(FieldDecodeError::new());
+    }
+    let bytes = binary_payload_bytes(raw_bytes, len, payload_start)?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new())?;
+    Ok(PrimaryKeyComponent::U256(U256::from_be_bytes(bytes)))
 }

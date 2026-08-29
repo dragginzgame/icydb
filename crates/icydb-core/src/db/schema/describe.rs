@@ -2113,6 +2113,7 @@ const fn output_value_kind_label(value: &OutputValue) -> &'static str {
         OutputValue::NatBig(_) => "nat_big",
         OutputValue::Ulid(_) => "ulid",
         OutputValue::Unit => "unit",
+        OutputValue::U256(_) => "u256",
     }
 }
 
@@ -2234,7 +2235,8 @@ fn write_persisted_field_kind_summary(
         | AcceptedFieldKind::Nat64
         | AcceptedFieldKind::Nat128
         | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit => return Err(InternalError::store_invariant()),
+        | AcceptedFieldKind::Unit
+        | AcceptedFieldKind::U256 => return Err(InternalError::store_invariant()),
         AcceptedFieldKind::NatBig { max_bytes } => {
             write_byte_bounded_field_kind_summary(out, "nat_big", *max_bytes);
         }
@@ -2266,6 +2268,7 @@ const fn describe_kind_name(kind: &AcceptedFieldKind) -> Option<&'static str> {
         AcceptedFieldKind::Nat128 => "nat128",
         AcceptedFieldKind::Ulid => "ulid",
         AcceptedFieldKind::Unit => "unit",
+        AcceptedFieldKind::U256 => "u256",
         AcceptedFieldKind::Blob { .. }
         | AcceptedFieldKind::Decimal { .. }
         | AcceptedFieldKind::Enum { .. }

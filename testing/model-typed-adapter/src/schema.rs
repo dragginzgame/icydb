@@ -18,6 +18,9 @@ pub struct X {}
 #[newtype(item(prim = "Nat64"))]
 pub struct XEntity {}
 
+#[newtype(item(prim = "U256"))]
+pub struct U256Word {}
+
 #[enum_(
     variant(name = "Empty"),
     variant(name = "Count", value(item(is = "X")))
@@ -59,6 +62,7 @@ pub struct RecursiveRecord {}
             name = "name",
             value(item(prim = "Text", max_len = 64))
         ),
+        field(name = "amount", value(item(prim = "U256"))),
         field(
             name = "nickname",
             value(opt, item(prim = "Text", max_len = 64))

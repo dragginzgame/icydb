@@ -87,6 +87,8 @@ pub enum ScalarType {
         /// Maximum canonical encoded bytes.
         max_bytes: u32,
     },
+    /// Fixed-width unsigned 256-bit integer.
+    U256,
     /// ULID.
     Ulid,
     /// Unit.
@@ -116,6 +118,7 @@ impl ScalarType {
             Self::Nat8 | Self::Nat16 | Self::Nat32 | Self::Nat64 => ScalarKind::Nat,
             Self::Nat128 => ScalarKind::Nat128,
             Self::NatBig { .. } => ScalarKind::NatBig,
+            Self::U256 => ScalarKind::U256,
             Self::Ulid => ScalarKind::Ulid,
             Self::Unit => ScalarKind::Unit,
         }
@@ -146,6 +149,7 @@ impl ScalarType {
             | (Self::Subaccount, ScalarLiteral::Subaccount(_))
             | (Self::Timestamp, ScalarLiteral::Timestamp(_))
             | (Self::Nat128, ScalarLiteral::Nat(_))
+            | (Self::U256, ScalarLiteral::U256(_))
             | (Self::Ulid, ScalarLiteral::Ulid(_))
             | (Self::Unit, ScalarLiteral::Unit(_)) => true,
             (Self::Blob { max_len }, ScalarLiteral::Blob(value)) => {

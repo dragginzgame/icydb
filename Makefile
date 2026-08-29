@@ -96,7 +96,7 @@ help:
 	@echo "Setup / Installation:"
 	@echo "  install          Install the local icydb CLI binary"
 	@echo "  install-dev      Install developer dependencies, GitHub CLI, actionlint, and the formatting hook"
-	@echo "  update-dev       Update developer tooling and ensure GitHub CLI and the formatting hook are installed"
+	@echo "  update-dev       Update developer tooling and the pinned Binaryen optimizer"
 	@echo "  install-gh       Ensure the GitHub CLI is installed"
 	@echo "  install-hooks    Configure the formatting-only pre-commit hook"
 	@echo ""

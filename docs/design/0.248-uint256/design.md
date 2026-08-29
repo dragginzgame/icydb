@@ -1,6 +1,6 @@
 # IcyDB 0.248 — Native Fixed-Width `U256`
 
-- **Status:** Patch 1 measurement authorized; production implementation not authorized
+- **Status:** Patch 1 complete; native U256 build recommended; production implementation not authorized
 - **Date:** 2026-08-28
 - **Target line:** 0.248 after accepted 0.247 closeout
 - **Audience:** Ethereum developers building native IC actors with IcyDB
@@ -113,8 +113,10 @@ Production implementation requires all of the following:
    released production source.
 2. The representative Ethereum schema and exact queries are checked in as a
    bounded measurement fixture.
-3. Constrained `NatBig`, constrained `NatBig` plus only Ethereum conversion
-   adapters, and native `U256` are captured as three complete controls.
+3. `NatBig(max_bytes = 37)`, that same constrained `NatBig` plus only Ethereum
+   conversion adapters, and native `U256` are captured as three complete
+   controls. Thirty-seven is the smallest unsigned-LEB128 byte bound that
+   admits every 256-bit value.
 4. Clean empty, typed, SQL, one-entity and ten-entity actor baselines are
    captured before adding the dependency.
 5. A real IcyDB integration spike measures `ethnum` representation, comparison,
@@ -342,6 +344,10 @@ For each distribution, the report includes encoded row bytes, total stable
 bytes, encoded index-key bytes, entries per index page and pages touched—not
 only encoding instructions. Native `U256` must earn any density loss through a
 meaningful execution or semantic benefit.
+
+The checked-in measurement fixture freezes field-specific value frequencies
+for the bounded 2,048-row workload. Point samples alone are not accepted as a
+claim about total row or index density.
 
 ## 11. Index Encoding
 
@@ -667,12 +673,19 @@ If admission, correctness, compatibility, footprint or performance fails:
 
 ## 21. Tentative Verdict
 
-Patch 1's measurement-only integrated spike is authorized after the accepted
-0.247 predecessor closes. Production implementation remains unauthorized.
+Patch 1 is complete against the released `v0.247.0` predecessor. Its retained
+evidence is recorded in `patch-1-measurement.md`; no production type, tag,
+codec or runtime behavior remains. Production implementation remains
+unauthorized pending review of the build recommendation.
 
-The strongest successful result is that IcyDB can execute the common Ethereum
-numeric domain using one inline, allocation-free, fixed-cost value
-representation while retaining its existing planner, persistence and query
-authorities. Until Patch 1 proves that result materially better than both
-constrained `NatBig` controls, constrained `NatBig` plus application/generated
-conversion remains the simpler authority.
+The evidence recommends building native `U256` with Candid `nat`. Fixed-width
+kernels are allocation-free and materially faster, hot enum and reducer sizes
+do not grow, the full-width-heavy frozen workload uses fewer numeric payload
+bytes, and the disposable carrier-plus-kernel mirror stays well below the
+representative-actor Wasm rejection gate. The result is deliberately narrower
+than a universal performance claim: small values use more row and index bytes,
+and the fixed-degree stable B-tree gains no fan-out or page-touch reduction.
+
+Patch 2 must integrate the type through the existing authorities and repeat the
+actor, exact IC-instruction, service and unrelated-query gates before the
+candidate is retained. `I256` remains deferred completely.

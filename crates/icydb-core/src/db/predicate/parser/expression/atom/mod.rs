@@ -33,7 +33,7 @@ pub(in crate::db::predicate::parser::expression) fn parse_predicate_primary(
         return parse_starts_with_predicate(cursor).map(|predicate| (predicate, 1));
     }
 
-    if predicate_literal_starts(cursor.peek_kind()) {
+    if cursor.peek_u256_literal() || predicate_literal_starts(cursor.peek_kind()) {
         return parse_literal_leading_predicate(cursor).map(|predicate| (predicate, 1));
     }
 

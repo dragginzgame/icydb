@@ -26,7 +26,8 @@ use crate::{
                 VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_ENUM, VALUE_BINARY_TAG_FLOAT32,
                 VALUE_BINARY_TAG_FLOAT64, VALUE_BINARY_TAG_INT_BIG, VALUE_BINARY_TAG_INT128,
                 VALUE_BINARY_TAG_NAT_BIG, VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL,
-                VALUE_BINARY_TAG_SUBACCOUNT, VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_ULID,
+                VALUE_BINARY_TAG_SUBACCOUNT, VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_U256,
+                VALUE_BINARY_TAG_ULID,
             },
             walk::{
                 decode_value_storage_binary_list_items_single_pass,
@@ -97,7 +98,8 @@ pub(super) fn decode_value_storage_binary_value_at(
         | VALUE_BINARY_TAG_TIMESTAMP
         | VALUE_BINARY_TAG_NAT128
         | VALUE_BINARY_TAG_NAT_BIG
-        | VALUE_BINARY_TAG_ULID => {
+        | VALUE_BINARY_TAG_ULID
+        | VALUE_BINARY_TAG_U256 => {
             let cursor = skip_value_storage_binary_value_at_depth(raw_bytes, offset, depth)?;
             let slice = ValueStorageSlice::from_skip_bounded_unchecked(&raw_bytes[offset..cursor]);
             let value = decode_value_storage_slice_at_depth(slice, depth)?;

@@ -549,6 +549,7 @@ fn validate_literal_for_field(
         | Primitive::Principal
         | Primitive::Subaccount
         | Primitive::Timestamp
+        | Primitive::U256
         | Primitive::Ulid
         | Primitive::Unit => false,
     };

@@ -89,6 +89,17 @@ macro_rules! impl_entity_key_bytes_numeric {
 
 impl_entity_key_bytes_numeric!(i8, i16, i32, i64, i128, u8, u16, u32, u64, u128);
 
+impl EntityKeyBytes for crate::types::U256 {
+    const BYTE_LEN: usize = 32;
+
+    fn write_bytes(&self, out: &mut [u8]) -> Result<(), EntityKeyBytesError> {
+        validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
+        out.copy_from_slice(&self.to_be_bytes());
+
+        Ok(())
+    }
+}
+
 impl EntityKeyBytes for () {
     const BYTE_LEN: usize = 0;
 
@@ -122,6 +133,7 @@ macro_rules! maintained_scalar_key_types {
                 crate::types::Principal => Principal,
                 crate::types::Subaccount => Subaccount,
                 crate::types::Timestamp => Timestamp,
+                crate::types::U256 => U256,
                 crate::types::Ulid => Ulid,
             }
             unit {
@@ -339,6 +351,12 @@ impl PrimaryKeyEncode for u128 {
     }
 }
 
+impl PrimaryKeyEncode for crate::types::U256 {
+    fn to_primary_key_value(&self) -> Result<PrimaryKeyValue, PrimaryKeyEncodeError> {
+        Ok(PrimaryKeyValue::Scalar(PrimaryKeyComponent::U256(*self)))
+    }
+}
+
 macro_rules! impl_primary_key_decode_signed {
     ($($ty:ty),* $(,)?) => {
         $(
@@ -407,6 +425,19 @@ impl PrimaryKeyDecode for u128 {
                 ::std::any::type_name::<Self>(),
                 key,
                 "PrimaryKeyComponent::Nat128",
+            )),
+        }
+    }
+}
+
+impl PrimaryKeyDecode for crate::types::U256 {
+    fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
+        match *key {
+            PrimaryKeyValue::Scalar(PrimaryKeyComponent::U256(value)) => Ok(value),
+            _ => Err(primary_key_variant_decode_failed(
+                ::std::any::type_name::<Self>(),
+                key,
+                "PrimaryKeyComponent::U256",
             )),
         }
     }

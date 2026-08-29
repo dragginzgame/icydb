@@ -72,7 +72,7 @@ require_text \
     'release packaging must consume the verified canonical post-link artifact.'
 require_text \
     testing/integration/src/wasm_optimizer.rs \
-    'binaryen-108-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v2' \
+    'binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1' \
     'the post-link pipeline identity must remain explicit.'
 require_text \
     testing/integration/src/wasm_optimizer.rs \
@@ -80,25 +80,40 @@ require_text \
     'the post-link pipeline must prevent unbounded one-caller inlining.'
 require_text \
     scripts/ci/install-wasm-optimizer.sh \
-    'canic toolchain install' \
-    'Canic must remain the sole Binaryen installation owner.'
+    'WebAssembly/binaryen/releases/download' \
+    'the optimizer installer must use the checksum-pinned official Binaryen release.'
+require_text \
+    scripts/ci/install-wasm-optimizer.sh \
+    'BINARYEN_VERSION="version_132"' \
+    'the optimizer installer must retain the qualified Binaryen release.'
 require_text \
     scripts/dev/workstation-setup.sh \
     "bash \"\$ROOT/scripts/ci/install-wasm-optimizer.sh\"" \
-    'workstation setup must install the Canic-owned Binaryen executable.'
+    'workstation setup must install the repository-owned Binaryen executable.'
+require_text \
+    scripts/dev/workstation-setup.sh \
+    "bash \"\$ROOT/scripts/ci/install-wasm-optimizer.sh\" --check-latest" \
+    'workstation updates must report whether the Binaryen pin matches the latest release.'
 require_text \
     .github/workflows/ci.yml \
     'bash scripts/ci/install-wasm-optimizer.sh' \
-    'CI must install the Canic-owned Binaryen executable.'
+    'CI must install the repository-owned Binaryen executable.'
 require_text \
     .github/workflows/sql-performance.yml \
     'bash scripts/ci/install-wasm-optimizer.sh' \
-    'SQL performance CI must install the Canic-owned Binaryen executable.'
+    'SQL performance CI must install the repository-owned Binaryen executable.'
+if rg -Fiq -- 'canic' \
+    "$ROOT/scripts/ci/install-wasm-optimizer.sh" \
+    "$ROOT/scripts/ci/verify-wasm-optimizer.sh" \
+    "$ROOT/testing/integration/src/wasm_optimizer.rs"; then
+    echo '[ERROR] the IcyDB optimizer contract must not depend on Canic.' >&2
+    failures=1
+fi
 if rg -Fq -- 'binaryen' \
     "$ROOT/scripts/dev/workstation-setup.sh" \
     "$ROOT/.github/workflows/ci.yml" \
     "$ROOT/.github/workflows/sql-performance.yml"; then
-    echo '[ERROR] maintained setup paths must not install a second Binaryen authority.' >&2
+    echo '[ERROR] maintained setup paths must delegate Binaryen installation to the canonical script.' >&2
     failures=1
 fi
 

@@ -4,7 +4,7 @@ use crate::{
     MAX_SCHEMA_FIELD_TYPE_DEPTH, MAX_SCHEMA_NAME_BYTES, MAX_SOURCE_CHECK_INSTRUCTIONS,
     MAX_SOURCE_KEY_BYTES, NatBig, Principal, RelationSourceKey, RuleSourceKey, ScalarLiteral,
     ScalarType, SchemaContractError, SchemaName, SourceCheckExpr, SourceCheckInstruction,
-    SourceRuleOperation, Subaccount, Timestamp, TypeSourceKey, Ulid, Unit,
+    SourceRuleOperation, Subaccount, Timestamp, TypeSourceKey, U256, Ulid, Unit,
 };
 
 use super::wire::{WireReader, WireWriter};
@@ -162,6 +162,7 @@ pub(super) fn encode_scalar_type(
             ScalarType::Nat128 => 22,
             ScalarType::Ulid => 24,
             ScalarType::Unit => 25,
+            ScalarType::U256 => 26,
             ScalarType::Blob { .. }
             | ScalarType::Decimal { .. }
             | ScalarType::IntBig { .. }
@@ -212,6 +213,7 @@ pub(super) fn decode_scalar_type(
         },
         24 => ScalarType::Ulid,
         25 => ScalarType::Unit,
+        26 => ScalarType::U256,
         _ => return Err(SchemaContractError::Decode),
     };
     value.validate()?;
@@ -320,6 +322,10 @@ pub(super) fn encode_literal(
             writer.push_raw(&value.to_bytes())?;
         }
         ScalarLiteral::Unit(_) => writer.push_u8(18)?,
+        ScalarLiteral::U256(value) => {
+            writer.push_u8(19)?;
+            writer.push_raw(&value.to_be_bytes())?;
+        }
     }
     Ok(())
 }
@@ -380,6 +386,7 @@ pub(super) fn decode_literal(
                 .map_err(|_| SchemaContractError::Decode)?,
         ),
         18 => ScalarLiteral::Unit(Unit),
+        19 => ScalarLiteral::U256(U256::from_be_bytes(reader.read_array()?)),
         _ => return Err(SchemaContractError::Decode),
     };
     value.validate()?;
