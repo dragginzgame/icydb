@@ -671,6 +671,7 @@ type OutputValue = variant {
   List : Vec;
   Null;
   Text : text;
+  U256 : nat;
   Ulid : text;
   Unit;
   Subaccount : blob;
@@ -870,6 +871,7 @@ type Vec = vec variant {
   List : Vec;
   Null;
   Text : text;
+  U256 : nat;
   Ulid : text;
   Unit;
   Subaccount : blob;
