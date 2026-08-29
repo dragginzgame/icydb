@@ -155,6 +155,21 @@ places `NULL` before present values and `DESC` reverses that comparator, so
 `NULL` sorts after present values. Later `ORDER BY` terms remain tie-breakers
 inside equal nullable groups.
 
+#### Fixed-width `U256`
+
+The `u256` schema type represents exactly `0..=2^256-1`. SQL decimal literals
+use `U256 'value'`; malformed, negative, or out-of-range literals fail closed.
+The type remains distinct from every other numeric domain and does not gain an
+implicit mixed-width coercion.
+
+`U256` supports equality, ordering, indexed ranges, projection arithmetic,
+searched `CASE`, grouping, scalar and aggregate `DISTINCT`, `MIN`, `MAX`, and
+`SUM`. Addition, subtraction, multiplication, division, remainder, and
+`SUM(U256)` are checked: overflow, underflow, and a zero divisor return the
+existing typed numeric execution error rather than wrapping modulo `2^256`.
+`AVG(U256)`, bitwise operators, shifts, and bit tests are outside the current
+SQL subset.
+
 #### Exact Primary-Key Reads
 
 Strict scalar primary-key equality in SQL is an exact-key read when the accepted

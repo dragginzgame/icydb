@@ -155,3 +155,107 @@ fn infer_expr_type_impl(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, Pl
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ExprType, infer_expr_type};
+    use crate::{
+        db::{
+            query::{
+                builder::aggregate::{avg, sum},
+                plan::{
+                    AggregateKind,
+                    expr::{BinaryOp, Expr, FieldId, Function},
+                },
+            },
+            schema::{
+                AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
+                AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId as SchemaFieldId,
+                FieldStorageDecode, LeafCodec, PersistedFieldSnapshot, PersistedSchemaSnapshot,
+                ScalarCodec, SchemaFieldSlot, SchemaInfo, SchemaInsertDefault, SchemaRowLayout,
+                SchemaVersion, empty_accepted_enum_catalog_for_tests,
+            },
+        },
+        types::U256,
+        value::Value,
+    };
+
+    fn u256_schema() -> SchemaInfo {
+        let field_id = SchemaFieldId::new(1);
+        let slot = SchemaFieldSlot::new(0);
+        let snapshot = AcceptedSchemaSnapshot::try_new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "type_inference::U256Entity".to_string(),
+            "U256Entity".to_string(),
+            field_id,
+            SchemaRowLayout::initial(vec![(field_id, slot)]),
+            vec![PersistedFieldSnapshot::new_initial(
+                field_id,
+                "balance".to_string(),
+                slot,
+                AcceptedFieldKind::U256,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::U256),
+            )],
+        ))
+        .expect("U256 planner fixture should validate");
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
+            empty_accepted_enum_catalog_for_tests(),
+            AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
+
+        SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog, true)
+    }
+
+    #[test]
+    fn planner_admits_strict_u256_arithmetic_and_sum_but_not_average_or_mixed_width() {
+        let schema = u256_schema();
+        let balance = || Expr::Field(FieldId::new("balance"));
+        let add = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(balance()),
+            right: Box::new(balance()),
+        };
+        let modulo = Expr::FunctionCall {
+            function: Function::Mod,
+            args: vec![balance(), Expr::Literal(Value::U256(U256::from(3_u64)))],
+        };
+        let mixed = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(balance()),
+            right: Box::new(Expr::Literal(Value::Nat64(1))),
+        };
+        let sum = Expr::Aggregate(sum("balance"));
+        let average = Expr::Aggregate(avg("balance"));
+
+        assert_eq!(
+            infer_expr_type(&add, &schema).expect("U256 addition should plan"),
+            ExprType::U256,
+        );
+        assert_eq!(
+            infer_expr_type(&modulo, &schema).expect("U256 MOD should plan"),
+            ExprType::U256,
+        );
+        assert_eq!(
+            infer_expr_type(&sum, &schema).expect("U256 SUM should plan"),
+            ExprType::U256,
+        );
+        assert!(infer_expr_type(&average, &schema).is_err());
+        assert!(infer_expr_type(&mixed, &schema).is_err());
+
+        let expression_sum =
+            crate::db::query::builder::aggregate::AggregateExpr::from_expression_input(
+                AggregateKind::Sum,
+                add,
+            );
+        assert_eq!(
+            infer_expr_type(&Expr::Aggregate(expression_sum), &schema)
+                .expect("U256 expression SUM should plan"),
+            ExprType::U256,
+        );
+    }
+}

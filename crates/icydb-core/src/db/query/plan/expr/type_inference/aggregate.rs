@@ -45,28 +45,21 @@ fn infer_sum_aggregate_type(
 
     let inferred = infer_expr_type(input_expr, schema)?;
 
-    match (input_expr, &inferred) {
-        (Expr::Field(_), ExprType::Numeric(_)) => {}
-        (Expr::Field(_), _) => {
-            return Err(PlanError::from(
-                ExprPlanError::non_numeric_aggregate_target(
-                    kind,
-                    ExprPlanTypeClass::from_expr_type(&inferred),
-                ),
-            ));
-        }
-        (_, ExprType::Numeric(_)) => {}
-        _ => {
-            return Err(PlanError::from(
-                ExprPlanError::non_numeric_aggregate_target(
-                    kind,
-                    ExprPlanTypeClass::from_expr_type(&inferred),
-                ),
-            ));
-        }
+    if !sum_like_input_type_supported(kind, &inferred) {
+        return Err(PlanError::from(
+            ExprPlanError::non_numeric_aggregate_target(
+                kind,
+                ExprPlanTypeClass::from_expr_type(&inferred),
+            ),
+        ));
     }
 
     Ok(inferred)
+}
+
+const fn sum_like_input_type_supported(kind: AggregateKind, inferred: &ExprType) -> bool {
+    matches!(inferred, ExprType::Numeric(_))
+        || matches!((kind, inferred), (AggregateKind::Sum, ExprType::U256))
 }
 
 fn infer_target_field_aggregate_type(
@@ -79,4 +72,22 @@ fn infer_target_field_aggregate_type(
     };
 
     infer_expr_type(input_expr, schema)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sum_like_input_type_supported;
+    use crate::db::query::plan::{AggregateKind, expr::type_inference::ExprType};
+
+    #[test]
+    fn u256_is_admitted_only_by_sum() {
+        assert!(sum_like_input_type_supported(
+            AggregateKind::Sum,
+            &ExprType::U256,
+        ));
+        assert!(!sum_like_input_type_supported(
+            AggregateKind::Avg,
+            &ExprType::U256,
+        ));
+    }
 }

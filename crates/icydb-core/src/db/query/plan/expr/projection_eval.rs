@@ -20,7 +20,7 @@ use crate::{
     db::{
         QueryError,
         numeric::{
-            NumericArithmeticOp, NumericEvalError, apply_numeric_arithmetic_checked,
+            NumericArithmeticOp, NumericEvalError, apply_value_arithmetic_checked,
             coerce_numeric_decimal, compare_numeric_eq, compare_numeric_or_strict_order,
         },
         query::plan::expr::{
@@ -369,22 +369,17 @@ fn eval_binary_numeric_function_call(
     match (left, right) {
         (Value::Null, _) | (_, Value::Null) => Ok(Value::Null),
         (left, right) => {
-            let Some(left) = coerce_numeric_decimal(left) else {
-                return Err(projection_unsupported(
-                    QueryProjectionCode::NumericInputRequired,
-                ));
-            };
-            let Some(right) = coerce_numeric_decimal(right) else {
-                return Err(projection_unsupported(
-                    QueryProjectionCode::NumericInputRequired,
-                ));
-            };
             let kind = function
                 .binary_numeric_function_kind()
                 .ok_or_else(QueryError::invariant)?;
-            let value = kind
-                .eval_decimal(left, right)
-                .map_err(ProjectionFunctionEvalError::from)?;
+            let Some(value) = kind
+                .eval_values(left, right)
+                .map_err(ProjectionFunctionEvalError::from)?
+            else {
+                return Err(projection_unsupported(
+                    QueryProjectionCode::NumericInputRequired,
+                ));
+            };
 
             Ok(value)
         }
@@ -626,13 +621,13 @@ fn eval_preview_numeric_binary_expr(
     left: &Value,
     right: &Value,
 ) -> Result<Value, QueryError> {
-    let Some(result) = apply_numeric_arithmetic_checked(numeric_arithmetic_op(op), left, right)
+    let Some(result) = apply_value_arithmetic_checked(numeric_arithmetic_op(op), left, right)
         .map_err(QueryError::from_numeric_eval_error)?
     else {
         return Err(invalid_binary_operands(op, left, right));
     };
 
-    Ok(Value::Decimal(result))
+    Ok(result)
 }
 
 fn eval_preview_compare_binary_expr(

@@ -85,13 +85,6 @@ impl GroupError {
         }
     }
 
-    /// Construct one grouped runtime invariant for missing numeric ingest
-    /// payloads in grouped global DISTINCT SUM/AVG reduction.
-    #[must_use]
-    pub(in crate::db::executor) fn numeric_ingest_payload_required() -> Self {
-        Self::from(InternalError::query_executor_invariant())
-    }
-
     /// Convert grouped execution failures into executor-owned internal errors.
     #[must_use]
     pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {

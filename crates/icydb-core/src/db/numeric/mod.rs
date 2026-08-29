@@ -9,7 +9,10 @@
 mod tests;
 
 use crate::error::InternalError;
-use crate::{types::Decimal, value::Value};
+use crate::{
+    types::{Decimal, U256},
+    value::Value,
+};
 use std::cmp::Ordering;
 
 ///
@@ -282,6 +285,52 @@ pub(in crate::db) fn apply_numeric_arithmetic_checked(
     };
 
     apply_decimal_arithmetic_checked(op, left, right).map(Some)
+}
+
+/// Apply one arithmetic operation to exact compatible runtime value domains.
+///
+/// Broad numeric values retain decimal widening. Two `U256` values instead
+/// remain in their fixed-width domain. `Ok(None)` rejects mixed `U256` and
+/// broad-numeric operands rather than introducing an implicit coercion.
+pub(in crate::db) fn apply_value_arithmetic_checked(
+    op: NumericArithmeticOp,
+    left: &Value,
+    right: &Value,
+) -> Result<Option<Value>, NumericEvalError> {
+    match (left, right) {
+        (Value::U256(left), Value::U256(right)) => apply_u256_arithmetic_checked(op, *left, *right)
+            .map(Value::U256)
+            .map(Some),
+        (Value::U256(_), _) | (_, Value::U256(_)) => Ok(None),
+        _ => apply_numeric_arithmetic_checked(op, left, right)
+            .map(|result| result.map(Value::Decimal)),
+    }
+}
+
+/// Add two U256 terms under checked query arithmetic semantics.
+pub(in crate::db) fn add_u256_terms_checked(
+    left: U256,
+    right: U256,
+) -> Result<U256, NumericEvalError> {
+    apply_u256_arithmetic_checked(NumericArithmeticOp::Add, left, right)
+}
+
+fn apply_u256_arithmetic_checked(
+    op: NumericArithmeticOp,
+    left: U256,
+    right: U256,
+) -> Result<U256, NumericEvalError> {
+    match op {
+        NumericArithmeticOp::Add => left.checked_add(right).ok_or(NumericEvalError::Overflow),
+        NumericArithmeticOp::Sub => left.checked_sub(right).ok_or(NumericEvalError::Overflow),
+        NumericArithmeticOp::Mul => left.checked_mul(right).ok_or(NumericEvalError::Overflow),
+        NumericArithmeticOp::Div => left
+            .checked_div(right)
+            .ok_or(NumericEvalError::NotRepresentable),
+        NumericArithmeticOp::Rem => left
+            .checked_rem(right)
+            .ok_or(NumericEvalError::NotRepresentable),
+    }
 }
 
 /// Compare two values under numeric-widen coercion semantics.

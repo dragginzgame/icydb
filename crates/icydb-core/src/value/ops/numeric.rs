@@ -30,20 +30,6 @@ enum NumericRepr {
     None,
 }
 
-///
-/// NumericArithmeticError
-///
-/// Reports checked numeric arithmetic failures from value-local arithmetic
-/// helpers. The grouped executor maps these variants into its SQL-facing
-/// projection error taxonomy without duplicating arithmetic rules.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum NumericArithmeticError {
-    Overflow,
-    NotRepresentable,
-}
-
 fn numeric_repr(value: &Value) -> NumericRepr {
     // Numeric comparison eligibility is registry-authoritative.
     if !semantics::supports_numeric_coercion(value) {
@@ -139,51 +125,6 @@ pub(crate) fn compare_decimal_order(left: &Value, right: &Value) -> Option<Order
     let right = to_decimal(right)?;
 
     left.partial_cmp(&right)
-}
-
-/// Add two numeric values under checked decimal arithmetic semantics.
-pub(crate) fn add(left: &Value, right: &Value) -> Result<Option<Decimal>, NumericArithmeticError> {
-    apply_decimal_arithmetic(left, right, Decimal::checked_add, false)
-}
-
-/// Subtract two numeric values under checked decimal arithmetic semantics.
-pub(crate) fn sub(left: &Value, right: &Value) -> Result<Option<Decimal>, NumericArithmeticError> {
-    apply_decimal_arithmetic(left, right, Decimal::checked_sub, false)
-}
-
-/// Multiply two numeric values under checked decimal arithmetic semantics.
-pub(crate) fn mul(left: &Value, right: &Value) -> Result<Option<Decimal>, NumericArithmeticError> {
-    apply_decimal_arithmetic(left, right, Decimal::checked_mul, false)
-}
-
-/// Divide two numeric values under checked decimal arithmetic semantics.
-pub(crate) fn div(left: &Value, right: &Value) -> Result<Option<Decimal>, NumericArithmeticError> {
-    apply_decimal_arithmetic(left, right, Decimal::checked_div, true)
-}
-
-fn apply_decimal_arithmetic(
-    left: &Value,
-    right: &Value,
-    apply: impl FnOnce(Decimal, Decimal) -> Option<Decimal>,
-    division: bool,
-) -> Result<Option<Decimal>, NumericArithmeticError> {
-    if !semantics::supports_numeric_coercion(left) || !semantics::supports_numeric_coercion(right) {
-        return Ok(None);
-    }
-
-    let Some(left) = to_decimal(left) else {
-        return Ok(None);
-    };
-    let Some(right) = to_decimal(right) else {
-        return Ok(None);
-    };
-    if division && right.is_zero() {
-        return Err(NumericArithmeticError::NotRepresentable);
-    }
-
-    apply(left, right)
-        .map(Some)
-        .ok_or(NumericArithmeticError::Overflow)
 }
 
 impl Value {

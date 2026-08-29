@@ -27,6 +27,19 @@ pub const WASM_OPT_FLAGS: [&str; 5] = [
     "--enable-nontrapping-float-to-int",
     "--one-caller-inline-max-function-size=0",
 ];
+/// Exact effective feature set reported for canonical Binaryen 132 output.
+///
+/// Binaryen reports the explicit proposal flags together with features it
+/// detects in the input module. `bulk-memory-opt` covers the emitted
+/// `memory.copy`/`memory.fill` operations; `mutable-globals` covers the
+/// module's mutable global.
+pub const WASM_OPT_OUTPUT_FEATURES: [&str; 5] = [
+    "--enable-bulk-memory",
+    "--enable-bulk-memory-opt",
+    "--enable-mutable-globals",
+    "--enable-nontrapping-float-to-int",
+    "--enable-sign-ext",
+];
 
 static TEMPORARY_OUTPUT_ORDINAL: AtomicU64 = AtomicU64::new(0);
 const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -198,8 +211,8 @@ fn format_process_failure(context: &str, output: &std::process::Output) -> Strin
 #[cfg(test)]
 mod tests {
     use super::{
-        POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_SHA256, WASM_OPT_VERSION,
-        pinned_wasm_optimizer,
+        POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES, WASM_OPT_SHA256,
+        WASM_OPT_VERSION, pinned_wasm_optimizer,
     };
 
     #[test]
@@ -214,6 +227,16 @@ mod tests {
                 "--enable-sign-ext",
                 "--enable-nontrapping-float-to-int",
                 "--one-caller-inline-max-function-size=0",
+            ]
+        );
+        assert_eq!(
+            WASM_OPT_OUTPUT_FEATURES,
+            [
+                "--enable-bulk-memory",
+                "--enable-bulk-memory-opt",
+                "--enable-mutable-globals",
+                "--enable-nontrapping-float-to-int",
+                "--enable-sign-ext",
             ]
         );
         assert_eq!(

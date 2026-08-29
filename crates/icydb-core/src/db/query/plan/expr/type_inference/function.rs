@@ -83,6 +83,11 @@ impl FunctionTypeInferenceShape {
                 Ok(ExprType::Text)
             }
             Self::NumericResult { subtype, .. } => {
+                if matches!(function, Function::Mod)
+                    && matches!(args, [ExprType::U256, ExprType::U256])
+                {
+                    return Ok(ExprType::U256);
+                }
                 validate_function_arg_families(function, args, self)?;
 
                 Ok(ExprType::Numeric(subtype))
@@ -324,4 +329,33 @@ fn invalid_function_argument(
         argument_index,
         ExprPlanTypeClass::from_expr_type(found),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExprType;
+    use crate::db::query::plan::expr::Function;
+
+    #[test]
+    fn mod_admits_only_exact_u256_operands() {
+        let shape = Function::Mod.type_inference_shape();
+
+        assert!(matches!(
+            shape
+                .infer_function_result_type(Function::Mod, &[ExprType::U256, ExprType::U256])
+                .expect("MOD should admit exact U256 operands"),
+            ExprType::U256,
+        ));
+        assert!(
+            shape
+                .infer_function_result_type(
+                    Function::Mod,
+                    &[
+                        ExprType::U256,
+                        ExprType::Numeric(super::NumericSubtype::Integer),
+                    ],
+                )
+                .is_err()
+        );
+    }
 }

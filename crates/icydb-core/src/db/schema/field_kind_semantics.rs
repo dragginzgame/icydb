@@ -42,18 +42,7 @@ const fn scalar_kind_is_unsigned_numeric(kind: ScalarKind) -> bool {
 
 /// Return true when arithmetic numeric aggregates may consume this kind.
 const fn scalar_kind_supports_arithmetic_numeric(kind: ScalarKind) -> bool {
-    matches!(
-        kind,
-        ScalarKind::Decimal
-            | ScalarKind::Float32
-            | ScalarKind::Float64
-            | ScalarKind::Int
-            | ScalarKind::Int128
-            | ScalarKind::IntBig
-            | ScalarKind::Nat
-            | ScalarKind::Nat128
-            | ScalarKind::NatBig
-    )
+    kind.supports_arithmetic()
 }
 
 /// Return true when SQL equality predicates may compare this kind.
@@ -366,6 +355,18 @@ mod tests {
         assert!(semantics.is_orderable());
         assert!(semantics.is_sql_comparable());
         assert!(semantics.is_relation_key_eligible());
+    }
+
+    #[test]
+    fn classify_u256_keeps_checked_arithmetic_outside_numeric_widening() {
+        let semantics = classify_accepted_field_kind(&AcceptedFieldKind::U256);
+
+        assert!(!semantics.is_numeric());
+        assert!(!semantics.is_signed_numeric());
+        assert!(!semantics.is_unsigned_numeric());
+        assert!(semantics.supports_arithmetic_numeric());
+        assert!(!semantics.supports_predicate_numeric_widen());
+        assert!(semantics.is_orderable());
     }
 
     #[test]

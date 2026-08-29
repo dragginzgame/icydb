@@ -31,11 +31,11 @@ use crate::{
             },
         },
         sql::parser::{reset_sql_parse_calls_for_tests, sql_parse_calls_for_tests},
-        sql_statement_dispatch,
+        sql_statement_dispatch, sum,
     },
     error::ErrorOrigin,
     traits::{CanisterKind, Path},
-    types::EntityTag,
+    types::{EntityTag, U256},
     value::{InputValue, OutputValue, Value},
 };
 use ic_stable_structures::Storable;
@@ -48,6 +48,7 @@ const ENTITY_SOURCE: &str = "db::session::tests::unit_ordering::Singleton";
 const ENTITY_NAME: &str = "Singleton";
 const ID_SOURCE: &str = "db::session::tests::unit_ordering::Singleton::id";
 const LABEL_SOURCE: &str = "db::session::tests::unit_ordering::Singleton::label";
+const AMOUNT_SOURCE: &str = "db::session::tests::unit_ordering::Singleton::amount";
 const ENTITY_TAG: EntityTag = EntityTag::new(220);
 
 const PARSE_ONCE_QUERY: &str =
@@ -335,6 +336,91 @@ fn global_aggregate_command_cache_retains_one_fingerprint_bound_preparation() {
         .expect("ordinary aggregate should retain its selected preparation");
     assert!(prepared_entry.exact_cardinality_target().is_none());
     assert!(prepared_entry.prepared_plan().is_some());
+}
+
+#[test]
+fn u256_arithmetic_and_sum_converge_across_sql_prepared_and_fluent_paths() {
+    let session = initialize();
+    seed_singleton(&session);
+    let arithmetic_sql = "SELECT amount + U256 '3', amount - U256 '1', \
+        amount * U256 '4', amount / U256 '2', MOD(amount, U256 '3') FROM Singleton";
+    let expected_arithmetic = vec![vec![
+        OutputValue::U256(U256::from(5_u64)),
+        OutputValue::U256(U256::ONE),
+        OutputValue::U256(U256::from(8_u64)),
+        OutputValue::U256(U256::ONE),
+        OutputValue::U256(U256::from(2_u64)),
+    ]];
+
+    let direct = session
+        .execute_trusted_sql_query(arithmetic_sql)
+        .expect("direct U256 arithmetic SQL should execute");
+    let SqlStatementResult::Projection { rows, .. } = &direct else {
+        panic!("U256 arithmetic SQL should return a projection");
+    };
+    assert_eq!(rows, &expected_arithmetic);
+
+    let (prepared, _, _, _) = session
+        .compile_sql_query_with_execution_context(arithmetic_sql)
+        .expect("U256 arithmetic SQL should compile once");
+    let (prepared_result, _) = session
+        .execute_compiled_sql_query_context_with_cache_attribution(&prepared)
+        .expect("prepared U256 arithmetic SQL should execute");
+    let SqlStatementResult::Projection {
+        rows: prepared_rows,
+        ..
+    } = prepared_result
+    else {
+        panic!("prepared U256 arithmetic SQL should return a projection");
+    };
+    assert_eq!(prepared_rows, expected_arithmetic);
+
+    assert_eq!(
+        sql_rows(
+            &session,
+            "SELECT SUM(amount), SUM(amount + U256 '3') FROM Singleton",
+        ),
+        vec![vec![
+            OutputValue::U256(U256::from(2_u64)),
+            OutputValue::U256(U256::from(5_u64)),
+        ]],
+    );
+
+    let fluent = session
+        .execute_trusted_dynamic_grouped_query(
+            &DynamicQuery::new(ENTITY_NAME)
+                .group_by("label")
+                .aggregate(sum("amount"))
+                .grouped_limits(1, 4 * 1024)
+                .limit(1),
+        )
+        .expect("fluent U256 SUM should execute through the shared reducer");
+    assert_eq!(fluent.row_count, 1);
+    assert_eq!(
+        fluent.rows[0].aggregate_values(),
+        &[OutputValue::U256(U256::from(2_u64))],
+    );
+
+    for rejected in [
+        "SELECT amount + 1 FROM Singleton",
+        "SELECT AVG(amount) FROM Singleton",
+    ] {
+        session
+            .execute_trusted_sql_query(rejected)
+            .expect_err("mixed U256 arithmetic and AVG(U256) should remain rejected");
+    }
+
+    let overflow_sql = format!("SELECT amount + U256 '{}' FROM Singleton", U256::MAX);
+    let (prepared_overflow, _, _, _) = session
+        .compile_sql_query_with_execution_context(&overflow_sql)
+        .expect("U256 overflow expression should compile before execution");
+    let direct_error = session
+        .execute_trusted_sql_query(&overflow_sql)
+        .expect_err("direct U256 overflow should fail");
+    let prepared_error = session
+        .execute_compiled_sql_query_context_with_cache_attribution(&prepared_overflow)
+        .expect_err("prepared U256 overflow should fail");
+    assert_eq!(direct_error.diagnostic(), prepared_error.diagnostic());
 }
 
 #[test]
@@ -665,7 +751,7 @@ fn assert_unit_exact_key_batch(
         .expect("typed Unit exact-key batch should execute")
         .expect("typed binding should remain current");
     assert_eq!(exact.positions, vec![0, 0]);
-    assert_eq!(exact.distinct_rows, vec![Some(singleton_row())]);
+    assert_eq!(exact.distinct_rows, vec![Some(singleton_stored_row())]);
     assert_eq!(
         DataStore::current_get_call_count().saturating_sub(gets_before),
         1,
@@ -1089,6 +1175,7 @@ fn publish_schema(
     let fields = vec![
         field(1, "id", 0, AcceptedFieldKind::Unit),
         field(2, "label", 1, AcceptedFieldKind::Text { max_len: None }),
+        field(3, "amount", 2, AcceptedFieldKind::U256),
     ];
     let snapshot = PersistedSchemaSnapshot::new_with_indexes(
         SchemaVersion::initial(),
@@ -1121,6 +1208,7 @@ fn publish_schema(
     let field_bindings = BTreeMap::from([
         ((ENTITY_TAG, field_source(ID_SOURCE)), FieldId::new(1)),
         ((ENTITY_TAG, field_source(LABEL_SOURCE)), FieldId::new(2)),
+        ((ENTITY_TAG, field_source(AMOUNT_SOURCE)), FieldId::new(3)),
     ]);
     let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
         STORE_PATH,
@@ -1170,6 +1258,10 @@ fn seed_singleton(session: &DbSession<TestCanister>) {
                     "label".to_string(),
                     DynamicWriteCell::Value(InputValue::Text("singleton".to_string())),
                 ),
+                (
+                    "amount".to_string(),
+                    DynamicWriteCell::Value(InputValue::U256(U256::from(2_u64))),
+                ),
             ])],
         )
         .expect("singleton row should insert through accepted write authority");
@@ -1190,4 +1282,10 @@ fn singleton_row() -> Vec<OutputValue> {
         OutputValue::Unit,
         OutputValue::Text("singleton".to_string()),
     ]
+}
+
+fn singleton_stored_row() -> Vec<OutputValue> {
+    let mut row = singleton_row();
+    row.push(OutputValue::U256(U256::from(2_u64)));
+    row
 }

@@ -7,8 +7,8 @@ use super::contracts::{AggregateKind, FieldSlot as PlannedFieldSlot};
 use crate::{
     db::{
         executor::aggregate::capability::{
-            accepted_field_kind_supports_aggregate_ordering,
-            accepted_field_kind_supports_numeric_aggregation,
+            accepted_field_kind_supports_aggregate_ordering, accepted_field_kind_supports_average,
+            accepted_field_kind_supports_sum,
         },
         numeric::compare_numeric_or_strict_order,
         schema::AcceptedFieldKind,
@@ -412,8 +412,8 @@ pub(in crate::db::executor) fn resolve_any_aggregate_target_slot_from_planner_sl
     resolve_aggregate_target_slot(field_slot.index(), accepted_kind, None)
 }
 
-/// Resolve one planner field slot into one numeric aggregate projection slot using planner-frozen field metadata.
-pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_planner_slot(
+/// Resolve one planner field slot into one SUM projection slot using planner-frozen field metadata.
+pub(in crate::db::executor) fn resolve_sum_aggregate_target_slot_from_planner_slot(
     field_slot: &PlannedFieldSlot,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     let accepted_kind = accepted_kind_from_planner_slot(field_slot)?;
@@ -421,7 +421,20 @@ pub(in crate::db::executor) fn resolve_numeric_aggregate_target_slot_from_planne
     resolve_aggregate_target_slot(
         field_slot.index(),
         accepted_kind,
-        Some(accepted_field_kind_supports_numeric_aggregation),
+        Some(accepted_field_kind_supports_sum),
+    )
+}
+
+/// Resolve one planner field slot into one AVG projection slot using planner-frozen field metadata.
+pub(in crate::db::executor) fn resolve_average_aggregate_target_slot_from_planner_slot(
+    field_slot: &PlannedFieldSlot,
+) -> Result<FieldSlot, AggregateFieldValueError> {
+    let accepted_kind = accepted_kind_from_planner_slot(field_slot)?;
+
+    resolve_aggregate_target_slot(
+        field_slot.index(),
+        accepted_kind,
+        Some(accepted_field_kind_supports_average),
     )
 }
 
@@ -432,9 +445,8 @@ pub(in crate::db::executor) fn resolve_aggregate_target_slot_from_planner_slot(
     field_slot: &PlannedFieldSlot,
 ) -> Result<FieldSlot, AggregateFieldValueError> {
     match kind {
-        AggregateKind::Sum | AggregateKind::Avg => {
-            resolve_numeric_aggregate_target_slot_from_planner_slot(field_slot)
-        }
+        AggregateKind::Sum => resolve_sum_aggregate_target_slot_from_planner_slot(field_slot),
+        AggregateKind::Avg => resolve_average_aggregate_target_slot_from_planner_slot(field_slot),
         AggregateKind::Min | AggregateKind::Max => {
             resolve_orderable_aggregate_target_slot_from_planner_slot(field_slot)
         }

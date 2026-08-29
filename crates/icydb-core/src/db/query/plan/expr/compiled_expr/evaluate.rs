@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        numeric::NumericEvalError,
+        numeric::{NumericArithmeticOp, apply_value_arithmetic_checked},
         query::plan::expr::{
             BinaryOp, CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, Function,
             ProjectionEvalError, ProjectionFunctionEvalError, UnaryOp,
@@ -13,10 +13,7 @@ use crate::{
             compiled_expr::missing_field_value, eval_projection_function_call_checked,
         },
     },
-    value::{
-        Value,
-        ops::{numeric as value_numeric, ordering as value_ordering},
-    },
+    value::{Value, ops::ordering as value_ordering},
 };
 use std::borrow::Cow;
 
@@ -571,11 +568,11 @@ fn evaluate_numeric_binary_expr(
         return Ok(Value::Null);
     }
 
-    let result = match op {
-        BinaryOp::Add => value_numeric::add(left, right),
-        BinaryOp::Sub => value_numeric::sub(left, right),
-        BinaryOp::Mul => value_numeric::mul(left, right),
-        BinaryOp::Div => value_numeric::div(left, right),
+    let arithmetic_op = match op {
+        BinaryOp::Add => NumericArithmeticOp::Add,
+        BinaryOp::Sub => NumericArithmeticOp::Sub,
+        BinaryOp::Mul => NumericArithmeticOp::Mul,
+        BinaryOp::Div => NumericArithmeticOp::Div,
         BinaryOp::Or
         | BinaryOp::And
         | BinaryOp::Eq
@@ -584,13 +581,12 @@ fn evaluate_numeric_binary_expr(
         | BinaryOp::Lte
         | BinaryOp::Gt
         | BinaryOp::Gte => return Err(invalid_binary_operands(op, left, right)),
-    }
-    .map_err(map_numeric_arithmetic_error)?;
-    let Some(result) = result else {
+    };
+    let Some(result) = apply_value_arithmetic_checked(arithmetic_op, left, right)? else {
         return Err(invalid_binary_operands(op, left, right));
     };
 
-    Ok(Value::Decimal(result))
+    Ok(result)
 }
 
 fn evaluate_compare_binary_expr(
@@ -651,16 +647,6 @@ fn evaluate_compare_binary_condition(
     };
 
     Ok(result)
-}
-
-fn map_numeric_arithmetic_error(err: value_numeric::NumericArithmeticError) -> ProjectionEvalError {
-    match err {
-        value_numeric::NumericArithmeticError::Overflow => NumericEvalError::Overflow,
-        value_numeric::NumericArithmeticError::NotRepresentable => {
-            NumericEvalError::NotRepresentable
-        }
-    }
-    .into()
 }
 
 const fn invalid_binary_operands(op: BinaryOp, left: &Value, right: &Value) -> ProjectionEvalError {

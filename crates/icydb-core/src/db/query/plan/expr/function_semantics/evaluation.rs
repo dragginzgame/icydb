@@ -2,9 +2,10 @@ use crate::{
     db::{
         numeric::{
             NumericArithmeticOp, NumericEvalError, apply_decimal_arithmetic_checked,
-            coerce_numeric_decimal, decimal_cbrt_checked, decimal_exp_checked, decimal_ln_checked,
-            decimal_log_base_checked, decimal_log2_checked, decimal_log10_checked,
-            decimal_power_checked, decimal_sign, decimal_sqrt_checked,
+            apply_value_arithmetic_checked, coerce_numeric_decimal, decimal_cbrt_checked,
+            decimal_exp_checked, decimal_ln_checked, decimal_log_base_checked,
+            decimal_log2_checked, decimal_log10_checked, decimal_power_checked, decimal_sign,
+            decimal_sqrt_checked,
         },
         query::plan::expr::{
             Function,
@@ -57,6 +58,29 @@ impl UnaryNumericFunctionKind {
 }
 
 impl BinaryNumericFunctionKind {
+    /// Evaluate one admitted binary transform against compatible value domains.
+    ///
+    /// `MOD(U256, U256)` remains fixed-width. Other binary numeric functions
+    /// retain the existing decimal coercion contract.
+    pub(in crate::db::query::plan::expr) fn eval_values(
+        self,
+        left: &Value,
+        right: &Value,
+    ) -> Result<Option<Value>, NumericEvalError> {
+        if matches!(self, Self::Mod) {
+            return apply_value_arithmetic_checked(NumericArithmeticOp::Rem, left, right);
+        }
+
+        let Some(left) = coerce_numeric_decimal(left) else {
+            return Ok(None);
+        };
+        let Some(right) = coerce_numeric_decimal(right) else {
+            return Ok(None);
+        };
+
+        self.eval_decimal(left, right).map(Some)
+    }
+
     /// Evaluate one admitted binary numeric transform against decimal inputs.
     pub(in crate::db::query::plan::expr) fn eval_decimal(
         self,

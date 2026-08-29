@@ -11,10 +11,10 @@
 
 use crate::{
     db::numeric::{
-        NumericEvalError, add_decimal_terms_checked, average_decimal_terms_checked,
-        coerce_numeric_decimal,
+        NumericEvalError, add_decimal_terms_checked, add_u256_terms_checked,
+        average_decimal_terms_checked, coerce_numeric_decimal,
     },
-    types::Decimal,
+    types::{Decimal, U256},
 };
 use crate::{
     db::numeric::{canonical_value_compare, compare_numeric_or_strict_order},
@@ -32,10 +32,45 @@ use crate::{
 ///
 pub(in crate::db::executor::aggregate) enum ValueReducerState {
     Count { count: u64 },
-    Sum { sum: Option<Decimal>, count: u64 },
+    Sum { sum: Option<SumAccumulator> },
     Avg { sum: Decimal, count: u64 },
     Min { selected: Option<Value> },
     Max { selected: Option<Value> },
+}
+
+pub(in crate::db::executor::aggregate) enum SumAccumulator {
+    Decimal(Decimal),
+    U256(U256),
+}
+
+impl SumAccumulator {
+    fn from_value(value: &Value) -> Option<Self> {
+        match value {
+            Value::U256(value) => Some(Self::U256(*value)),
+            value => coerce_numeric_decimal(value).map(Self::Decimal),
+        }
+    }
+
+    fn checked_add(self, rhs: Self) -> Result<Self, NumericEvalError> {
+        match (self, rhs) {
+            (Self::Decimal(left), Self::Decimal(right)) => {
+                add_decimal_terms_checked(left, right).map(Self::Decimal)
+            }
+            (Self::U256(left), Self::U256(right)) => {
+                add_u256_terms_checked(left, right).map(Self::U256)
+            }
+            (Self::Decimal(_), Self::U256(_)) | (Self::U256(_), Self::Decimal(_)) => {
+                Err(NumericEvalError::NotRepresentable)
+            }
+        }
+    }
+
+    const fn into_value(self) -> Value {
+        match self {
+            Self::Decimal(value) => Value::Decimal(value),
+            Self::U256(value) => Value::U256(value),
+        }
+    }
 }
 
 impl ValueReducerState {
@@ -46,10 +81,7 @@ impl ValueReducerState {
 
     #[must_use]
     pub(in crate::db::executor::aggregate) const fn sum() -> Self {
-        Self::Sum {
-            sum: None,
-            count: 0,
-        }
+        Self::Sum { sum: None }
     }
 
     #[must_use]
@@ -85,7 +117,8 @@ impl ValueReducerState {
 
         match self {
             Self::Count { .. } => self.increment_count(),
-            Self::Sum { .. } | Self::Avg { .. } => {
+            Self::Sum { .. } => self.ingest_sum_value(value),
+            Self::Avg { .. } => {
                 let decimal = coerce_numeric_decimal(value)
                     .ok_or_else(InternalError::query_executor_invariant)?;
 
@@ -119,7 +152,8 @@ impl ValueReducerState {
 
         match self {
             Self::Count { .. } => self.increment_count(),
-            Self::Sum { .. } | Self::Avg { .. } => {
+            Self::Sum { .. } => self.ingest_sum_value(&value),
+            Self::Avg { .. } => {
                 let decimal = coerce_numeric_decimal(&value)
                     .ok_or_else(InternalError::query_executor_invariant)?;
 
@@ -161,15 +195,7 @@ impl ValueReducerState {
         value: Decimal,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Sum { sum, count } => {
-                *sum = Some(match sum {
-                    Some(current) => add_decimal_terms_checked(*current, value)
-                        .map_err(NumericEvalError::into_internal_error)?,
-                    None => value,
-                });
-                *count = count.saturating_add(1);
-                Ok(())
-            }
+            Self::Sum { .. } => self.ingest_sum_accumulator(SumAccumulator::Decimal(value)),
             Self::Avg { sum, count } => {
                 *sum = add_decimal_terms_checked(*sum, value)
                     .map_err(NumericEvalError::into_internal_error)?;
@@ -180,6 +206,30 @@ impl ValueReducerState {
                 Err(reducer_state_mismatch("SUM/AVG"))
             }
         }
+    }
+
+    /// Ingest one SUM value without widening fixed-width domains.
+    pub(in crate::db::executor::aggregate) fn ingest_sum_value(
+        &mut self,
+        value: &Value,
+    ) -> Result<(), InternalError> {
+        let value = SumAccumulator::from_value(value)
+            .ok_or_else(InternalError::query_executor_invariant)?;
+        self.ingest_sum_accumulator(value)
+    }
+
+    fn ingest_sum_accumulator(&mut self, value: SumAccumulator) -> Result<(), InternalError> {
+        let Self::Sum { sum } = self else {
+            return Err(reducer_state_mismatch("SUM"));
+        };
+        *sum = Some(match sum.take() {
+            Some(current) => current
+                .checked_add(value)
+                .map_err(NumericEvalError::into_internal_error)?,
+            None => value,
+        });
+
+        Ok(())
     }
 
     pub(in crate::db::executor::aggregate) fn ingest_canonical_ordered_owned(
@@ -248,7 +298,7 @@ impl ValueReducerState {
     ) -> Result<Value, InternalError> {
         match self {
             Self::Count { count } => Ok(finalize_count(count)),
-            Self::Sum { sum, .. } => Ok(sum.map_or(Value::Null, Value::Decimal)),
+            Self::Sum { sum } => Ok(sum.map_or(Value::Null, SumAccumulator::into_value)),
             Self::Avg { sum, count } => {
                 if count == 0 {
                     return Ok(Value::Null);
@@ -303,4 +353,48 @@ fn selected_value_should_replace(
 
 fn reducer_state_mismatch(_kind: &'static str) -> InternalError {
     InternalError::query_executor_invariant()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ValueReducerState;
+    use crate::{types::U256, value::Value};
+    use icydb_diagnostic_code::DiagnosticCode;
+
+    #[test]
+    fn u256_sum_stays_inline_and_returns_u256() {
+        let mut reducer = ValueReducerState::sum();
+
+        reducer
+            .ingest_sum_value(&Value::U256(U256::from(2_u64)))
+            .expect("first U256 SUM value should ingest");
+        reducer
+            .ingest_sum_value(&Value::U256(U256::from(3_u64)))
+            .expect("second U256 SUM value should ingest");
+
+        assert_eq!(
+            reducer
+                .into_final_value()
+                .expect("U256 SUM should finalize"),
+            Value::U256(U256::from(5_u64)),
+        );
+        assert_eq!(std::mem::size_of::<ValueReducerState>(), 80);
+        assert_eq!(std::mem::align_of::<ValueReducerState>(), 16);
+    }
+
+    #[test]
+    fn u256_sum_reports_typed_overflow() {
+        let mut reducer = ValueReducerState::sum();
+        reducer
+            .ingest_sum_value(&Value::U256(U256::MAX))
+            .expect("first U256 SUM value should ingest");
+        let err = reducer
+            .ingest_sum_value(&Value::U256(U256::ONE))
+            .expect_err("U256 SUM should reject overflow");
+
+        assert_eq!(
+            err.diagnostic().code(),
+            DiagnosticCode::QueryNumericOverflow
+        );
+    }
 }

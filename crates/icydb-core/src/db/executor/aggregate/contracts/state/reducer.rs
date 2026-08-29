@@ -65,13 +65,13 @@ impl GroupedAggregateReducerState {
         }
     }
 
-    // Apply one SUM reducer update.
+    // Apply one SUM reducer update without widening fixed-width domains.
     pub(in crate::db::executor::aggregate::contracts::state) fn add_sum_value(
         &mut self,
-        value: Decimal,
+        value: &Value,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Sum(reducer) => reducer.ingest_decimal(value),
+            Self::Sum(reducer) => reducer.ingest_sum_value(value),
             _ => Err(Self::state_mismatch("SUM")),
         }
     }
@@ -234,7 +234,7 @@ impl GroupedAggregateReducerState {
 mod tests {
     use crate::{
         db::executor::aggregate::{AggregateKind, contracts::state::GroupedAggregateReducerState},
-        types::Decimal,
+        types::{Decimal, U256},
         value::Value,
     };
 
@@ -249,11 +249,24 @@ mod tests {
         assert_eq!(count.into_value().expect("count finalize"), Value::Nat64(2));
 
         let mut sum = GroupedAggregateReducerState::for_kind(AggregateKind::Sum);
-        sum.add_sum_value(one).expect("sum ingest");
-        sum.add_sum_value(three).expect("sum ingest");
+        sum.add_sum_value(&Value::Decimal(one)).expect("sum ingest");
+        sum.add_sum_value(&Value::Decimal(three))
+            .expect("sum ingest");
         assert_eq!(
             sum.into_value().expect("sum finalize"),
             Value::Decimal(Decimal::from_i64(4).expect("decimal four")),
+        );
+
+        let mut u256_sum = GroupedAggregateReducerState::for_kind(AggregateKind::Sum);
+        u256_sum
+            .add_sum_value(&Value::U256(U256::from(2_u64)))
+            .expect("U256 sum ingest");
+        u256_sum
+            .add_sum_value(&Value::U256(U256::from(3_u64)))
+            .expect("U256 sum ingest");
+        assert_eq!(
+            u256_sum.into_value().expect("U256 sum finalize"),
+            Value::U256(U256::from(5_u64)),
         );
 
         let mut avg = GroupedAggregateReducerState::for_kind(AggregateKind::Avg);

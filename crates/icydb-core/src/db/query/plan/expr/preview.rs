@@ -1,7 +1,7 @@
 use crate::{
     db::{
         numeric::{
-            NumericArithmeticOp, apply_numeric_arithmetic_checked, coerce_numeric_decimal,
+            NumericArithmeticOp, apply_value_arithmetic_checked, coerce_numeric_decimal,
             compare_numeric_eq, compare_numeric_or_strict_order,
         },
         query::plan::expr::{
@@ -179,10 +179,9 @@ fn eval_literal_only_binary_expr(op: BinaryOp, left: &Value, right: &Value) -> O
                 _ => return None,
             };
 
-            apply_numeric_arithmetic_checked(arithmetic_op, left, right)
+            apply_value_arithmetic_checked(arithmetic_op, left, right)
                 .ok()
                 .flatten()
-                .map(Value::Decimal)
         }
     }
 }
@@ -316,15 +315,11 @@ fn eval_binary_numeric_function_call(function: Function, args: &[Value]) -> Opti
 
     match (left, right) {
         (Value::Null, _) | (_, Value::Null) => Some(Value::Null),
-        (left, right) => {
-            let left = coerce_numeric_decimal(left)?;
-            let right = coerce_numeric_decimal(right)?;
-
-            function
-                .binary_numeric_function_kind()?
-                .eval_decimal(left, right)
-                .ok()
-        }
+        (left, right) => function
+            .binary_numeric_function_kind()?
+            .eval_values(left, right)
+            .ok()
+            .flatten(),
     }
 }
 

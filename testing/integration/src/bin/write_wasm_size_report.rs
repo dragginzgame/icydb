@@ -13,7 +13,8 @@ use icydb_testing_integration::{
         WasmComparison, WasmLineBudget, WasmPatchBudget, validate_wasm_measurement_contract,
     },
     wasm_optimizer::{
-        POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_SHA256, WASM_OPT_VERSION,
+        POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES, WASM_OPT_SHA256,
+        WASM_OPT_VERSION,
     },
 };
 use serde::Serialize;
@@ -470,12 +471,10 @@ fn validate_final_wasm_features(
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
     features.sort();
-    let mut expected = WASM_OPT_FLAGS[1..]
+    let expected = WASM_OPT_OUTPUT_FEATURES
         .iter()
-        .filter(|feature| feature.starts_with("--enable-"))
-        .map(|feature| (*feature).to_string())
+        .map(|feature| (*feature).to_owned())
         .collect::<Vec<_>>();
-    expected.sort();
     if features != expected {
         return Err(format!(
             "final Wasm feature set drifted: expected {expected:?}, observed {features:?}"

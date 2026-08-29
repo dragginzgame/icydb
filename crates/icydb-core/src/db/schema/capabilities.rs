@@ -15,6 +15,10 @@ use crate::db::schema::{
 const SQL_CAPABILITY_SELECTABLE: u8 = 1 << 0;
 const SQL_CAPABILITY_ORDERABLE: u8 = 1 << 2;
 const SQL_CAPABILITY_GROUPABLE: u8 = 1 << 3;
+const SQL_AGGREGATE_INPUT_COUNT: u8 = 1 << 0;
+const SQL_AGGREGATE_INPUT_SUM: u8 = 1 << 1;
+const SQL_AGGREGATE_INPUT_AVERAGE: u8 = 1 << 2;
+const SQL_AGGREGATE_INPUT_EXTREMA: u8 = 1 << 3;
 
 ///
 /// SqlAggregateInputCapabilities
@@ -26,38 +30,38 @@ const SQL_CAPABILITY_GROUPABLE: u8 = 1 << 3;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct SqlAggregateInputCapabilities {
-    count: bool,
-    numeric: bool,
-    extrema: bool,
+    flags: u8,
 }
 
 impl SqlAggregateInputCapabilities {
     /// Build one aggregate input capability set from explicit facts.
     #[must_use]
-    const fn new(count: bool, numeric: bool, extrema: bool) -> Self {
-        Self {
-            count,
-            numeric,
-            extrema,
-        }
+    const fn new(flags: u8) -> Self {
+        Self { flags }
     }
 
     /// Return true when `COUNT(field)` may consume this field.
     #[must_use]
     pub(in crate::db) const fn count(self) -> bool {
-        self.count
+        self.flags & SQL_AGGREGATE_INPUT_COUNT != 0
     }
 
-    /// Return true when numeric aggregates such as `SUM`/`AVG` may consume this field.
+    /// Return true when `SUM(field)` may consume this field.
     #[must_use]
-    pub(in crate::db) const fn numeric(self) -> bool {
-        self.numeric
+    pub(in crate::db) const fn sum(self) -> bool {
+        self.flags & SQL_AGGREGATE_INPUT_SUM != 0
+    }
+
+    /// Return true when `AVG(field)` may consume this field.
+    #[must_use]
+    pub(in crate::db) const fn average(self) -> bool {
+        self.flags & SQL_AGGREGATE_INPUT_AVERAGE != 0
     }
 
     /// Return true when extrema aggregates such as `MIN`/`MAX` may consume this field.
     #[must_use]
     pub(in crate::db) const fn extrema(self) -> bool {
-        self.extrema
+        self.flags & SQL_AGGREGATE_INPUT_EXTREMA != 0
     }
 }
 
@@ -141,7 +145,7 @@ pub(in crate::db) const fn sql_capabilities(kind: &AcceptedFieldKind) -> SqlCapa
         | AcceptedFieldKindCategory::Collection
         | AcceptedFieldKindCategory::Composite => SqlCapabilities::new(
             SQL_CAPABILITY_SELECTABLE,
-            SqlAggregateInputCapabilities::new(false, false, false),
+            SqlAggregateInputCapabilities::new(0),
         ),
     }
 }
@@ -169,7 +173,8 @@ const fn sql_capabilities_for_scalar_semantics(
     let comparable = semantics.is_sql_comparable();
     let orderable = semantics.is_orderable();
     let groupable = comparable && semantics.supports_stable_group_key();
-    let numeric = semantics.is_numeric() && semantics.supports_arithmetic_numeric();
+    let sum = semantics.supports_arithmetic_numeric();
+    let average = semantics.is_numeric() && sum;
     let mut flags = SQL_CAPABILITY_SELECTABLE;
     if orderable {
         flags |= SQL_CAPABILITY_ORDERABLE;
@@ -177,11 +182,21 @@ const fn sql_capabilities_for_scalar_semantics(
     if groupable {
         flags |= SQL_CAPABILITY_GROUPABLE;
     }
+    let mut aggregate_flags = 0;
+    if comparable {
+        aggregate_flags |= SQL_AGGREGATE_INPUT_COUNT;
+    }
+    if sum {
+        aggregate_flags |= SQL_AGGREGATE_INPUT_SUM;
+    }
+    if average {
+        aggregate_flags |= SQL_AGGREGATE_INPUT_AVERAGE;
+    }
+    if orderable {
+        aggregate_flags |= SQL_AGGREGATE_INPUT_EXTREMA;
+    }
 
-    SqlCapabilities::new(
-        flags,
-        SqlAggregateInputCapabilities::new(comparable, numeric, orderable),
-    )
+    SqlCapabilities::new(flags, SqlAggregateInputCapabilities::new(aggregate_flags))
 }
 
 ///
@@ -212,7 +227,8 @@ mod tests {
         assert!(!capabilities.orderable());
         assert!(capabilities.groupable());
         assert!(capabilities.aggregate_input().count());
-        assert!(!capabilities.aggregate_input().numeric());
+        assert!(!capabilities.aggregate_input().sum());
+        assert!(!capabilities.aggregate_input().average());
         assert!(!capabilities.aggregate_input().extrema());
     }
 
@@ -221,9 +237,11 @@ mod tests {
         let amount = sql_capabilities(&AcceptedFieldKind::Decimal { scale: 3 });
         let timestamp = sql_capabilities(&AcceptedFieldKind::Timestamp);
 
-        assert!(amount.aggregate_input().numeric());
+        assert!(amount.aggregate_input().sum());
+        assert!(amount.aggregate_input().average());
         assert!(amount.aggregate_input().extrema());
-        assert!(!timestamp.aggregate_input().numeric());
+        assert!(!timestamp.aggregate_input().sum());
+        assert!(!timestamp.aggregate_input().average());
         assert!(timestamp.aggregate_input().extrema());
     }
 
@@ -239,7 +257,8 @@ mod tests {
         #[cfg(feature = "sql")]
         assert_eq!(capabilities.enum_equality(), None);
         assert!(capabilities.aggregate_input().count());
-        assert!(!capabilities.aggregate_input().numeric());
+        assert!(!capabilities.aggregate_input().sum());
+        assert!(!capabilities.aggregate_input().average());
         assert!(!capabilities.aggregate_input().extrema());
     }
 
@@ -251,7 +270,8 @@ mod tests {
         assert!(capabilities.orderable());
         assert!(!capabilities.groupable());
         assert!(!capabilities.aggregate_input().count());
-        assert!(!capabilities.aggregate_input().numeric());
+        assert!(!capabilities.aggregate_input().sum());
+        assert!(!capabilities.aggregate_input().average());
         assert!(capabilities.aggregate_input().extrema());
     }
 
@@ -277,7 +297,20 @@ mod tests {
 
         assert!(relation.selectable());
         assert!(relation.orderable());
-        assert!(relation.aggregate_input().numeric());
+        assert!(relation.aggregate_input().sum());
+        assert!(relation.aggregate_input().average());
+    }
+
+    #[test]
+    fn sql_capabilities_admit_u256_sum_without_numeric_widening_or_average() {
+        let capabilities = sql_capabilities(&AcceptedFieldKind::U256);
+
+        assert!(capabilities.selectable());
+        assert!(capabilities.orderable());
+        assert!(capabilities.groupable());
+        assert!(capabilities.aggregate_input().sum());
+        assert!(!capabilities.aggregate_input().average());
+        assert!(capabilities.aggregate_input().extrema());
     }
 
     #[test]

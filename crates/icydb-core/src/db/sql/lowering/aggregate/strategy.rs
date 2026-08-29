@@ -249,7 +249,8 @@ fn validate_field_target_sql_aggregate_capabilities(
     let aggregate_input = capabilities.aggregate_input();
     let supported = match kind {
         AggregateKind::Count => aggregate_input.count(),
-        AggregateKind::Sum | AggregateKind::Avg => aggregate_input.numeric(),
+        AggregateKind::Sum => aggregate_input.sum(),
+        AggregateKind::Avg => aggregate_input.average(),
         AggregateKind::Min | AggregateKind::Max => aggregate_input.extrema(),
         AggregateKind::Exists | AggregateKind::First | AggregateKind::Last => false,
     };

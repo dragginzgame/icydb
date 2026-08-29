@@ -41,6 +41,19 @@ fn verify_profile(build_profile: CanisterBuildProfile, artifacts: Vec<(&'static 
             panic!("{canister} artifacts should agree for {build_profile:?}: {error}")
         });
 
+        if canister == "sql" {
+            assert_eq!(
+                manifest.candid.matches("U256 : nat;").count(),
+                2,
+                "the recursive public value contract should expose U256 only as Candid nat for {build_profile:?}",
+            );
+            assert!(
+                !manifest.candid.contains("U256 : blob;")
+                    && !manifest.candid.contains("U256 : record"),
+                "generated clients must not receive a blob or limb-record U256 carrier for {build_profile:?}",
+            );
+        }
+
         assert_eq!(
             manifest.icydb_methods(),
             owned_methods(expected),

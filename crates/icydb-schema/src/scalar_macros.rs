@@ -226,7 +226,7 @@ macro_rules! scalar_kind_registry_entries {
                 Numeric,
                 is_numeric_value = false,
                 supports_numeric_coercion = false,
-                supports_arithmetic = false,
+                supports_arithmetic = true,
                 supports_equality = true,
                 supports_ordering = true,
                 is_keyable = true,

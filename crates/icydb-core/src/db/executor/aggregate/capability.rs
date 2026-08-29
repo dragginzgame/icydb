@@ -23,12 +23,21 @@ pub(in crate::db::executor) const fn accepted_field_kind_supports_aggregate_orde
     classify_accepted_field_kind(kind).is_orderable()
 }
 
-/// Return true when an accepted field kind permits numeric aggregate arithmetic.
+/// Return true when an accepted field kind permits checked SUM arithmetic.
 #[must_use]
-pub(in crate::db::executor) const fn accepted_field_kind_supports_numeric_aggregation(
+pub(in crate::db::executor) const fn accepted_field_kind_supports_sum(
     kind: &AcceptedFieldKind,
 ) -> bool {
     classify_accepted_field_kind(kind).supports_arithmetic_numeric()
+}
+
+/// Return true when an accepted field kind permits decimal AVG arithmetic.
+#[must_use]
+pub(in crate::db::executor) const fn accepted_field_kind_supports_average(
+    kind: &AcceptedFieldKind,
+) -> bool {
+    let semantics = classify_accepted_field_kind(kind);
+    semantics.is_numeric() && semantics.supports_arithmetic_numeric()
 }
 
 /// Return true when one accepted grouped field already arrives in canonical

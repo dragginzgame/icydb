@@ -29,9 +29,9 @@ use crate::{
             projection::ProjectionEvalError,
         },
         key_taxonomy::PrimaryKeyValue,
+        numeric::coerce_numeric_decimal,
     },
     error::InternalError,
-    types::Decimal,
     value::Value,
 };
 use std::borrow::Cow;
@@ -90,16 +90,20 @@ impl SumLikeKind {
         }
     }
 
-    // Apply one grouped numeric decimal payload through the SUM/AVG reducer
-    // family.
-    fn apply_decimal(
+    // Apply one grouped value through the SUM/AVG reducer family while keeping
+    // the fixed-width U256 SUM lane distinct from decimal AVG.
+    fn apply_value(
         self,
         reducer: &mut GroupedAggregateReducerState,
-        decimal: Decimal,
+        value: &Value,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Sum => reducer.add_sum_value(decimal),
-            Self::Avg => reducer.add_average_value(decimal),
+            Self::Sum => reducer.add_sum_value(value),
+            Self::Avg => {
+                let decimal = coerce_numeric_decimal(value)
+                    .ok_or_else(InternalError::query_executor_invariant)?;
+                reducer.add_average_value(decimal)
+            }
         }
     }
 }
@@ -137,16 +141,6 @@ impl GroupedTerminalAggregateState {
 
     // Build the canonical grouped terminal invariant for primary-key-value-required updates.
     fn primary_key_value_required(_kind: &'static str) -> InternalError {
-        InternalError::query_executor_invariant()
-    }
-
-    // Build the canonical grouped terminal invariant for one non-numeric
-    // SUM/AVG(field) payload that planner semantics should already have
-    // rejected.
-    fn sum_like_field_requires_numeric_value(
-        _label: &'static str,
-        _value: &Value,
-    ) -> InternalError {
         InternalError::query_executor_invariant()
     }
 
@@ -250,50 +244,6 @@ impl GroupedTerminalAggregateState {
         } else {
             AggregateInputValue::Value(value)
         })
-    }
-
-    // Coerce one already-resolved SUM/AVG input through the shared Value
-    // numeric operation boundary. This keeps grouped reducers from reopening
-    // Value-level arithmetic while preserving the global numeric admission
-    // contract for values that cannot be represented as Decimal.
-    fn coerce_sum_like_decimal(value: &Value) -> Option<Decimal> {
-        if value.supports_numeric_coercion() {
-            return value.to_numeric_decimal();
-        }
-
-        None
-    }
-
-    // Resolve one SUM/AVG input as an optional Decimal without cloning direct
-    // field-target slots. Compiled expression inputs still own their temporary
-    // result because the expression evaluator may synthesize a value.
-    fn resolve_sum_like_decimal_input(
-        &self,
-        row_view: Option<&RowView>,
-        label: &'static str,
-    ) -> Result<Option<Decimal>, InternalError> {
-        if self.grouped_input_expr.is_some() {
-            let value = self.evaluate_compiled_input_value(row_view)?;
-            if matches!(value, Value::Null) {
-                return Ok(None);
-            }
-
-            return Self::coerce_sum_like_decimal(&value)
-                .map(Some)
-                .ok_or_else(InternalError::query_executor_invariant);
-        }
-
-        let Some(_target_field) = self.target_field.as_ref() else {
-            return Err(Self::field_target_execution_required("SUM/AVG(input)"));
-        };
-        let value = self.target_field_value(row_view, label)?;
-        if matches!(value.as_ref(), Value::Null) {
-            return Ok(None);
-        }
-
-        Self::coerce_sum_like_decimal(value.as_ref())
-            .map(Some)
-            .ok_or_else(|| Self::sum_like_field_requires_numeric_value(label, value.as_ref()))
     }
 
     // Evaluate one grouped aggregate filter expression through the same compiled
@@ -450,10 +400,11 @@ impl GroupedTerminalAggregateState {
         };
         let kind_label = sum_like_kind.input_label();
 
-        let Some(decimal) = self.resolve_sum_like_decimal_input(row_view, kind_label)? else {
+        let AggregateInputValue::Value(value) = self.resolve_input_value(row_view, kind_label)?
+        else {
             return Ok(FoldControl::Continue);
         };
-        sum_like_kind.apply_decimal(&mut self.reducer, decimal)?;
+        sum_like_kind.apply_value(&mut self.reducer, &value)?;
 
         Ok(FoldControl::Continue)
     }

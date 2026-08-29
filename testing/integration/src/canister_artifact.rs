@@ -301,6 +301,8 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
 /// Candid and raw-Wasm method manifests for one built actor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CanisterArtifactManifest {
+    /// Generated Candid carried by the exact inspected Wasm artifact.
+    pub candid: String,
     /// Methods registered in generated Candid.
     pub candid_methods: BTreeSet<CanisterMethod>,
     /// IC query/update exports present in raw Wasm, including reserved runtime
@@ -360,6 +362,7 @@ pub fn inspect_canister_artifacts(wasm_path: &Path) -> Result<CanisterArtifactMa
     }
 
     Ok(CanisterArtifactManifest {
+        candid: candid.to_string(),
         candid_methods,
         wasm_methods,
     })

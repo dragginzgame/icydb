@@ -9,6 +9,8 @@ use serde::{
 };
 use std::{fmt, str::FromStr};
 
+use crate::{Decimal, NumericValue};
+
 const MAX_DECIMAL_DIGITS: usize = 78;
 const DECIMAL_CHUNK_BASE: u64 = 100_000_000;
 const DECIMAL_CHUNK_WIDTH: usize = 8;
@@ -79,6 +81,36 @@ impl U256 {
     pub const fn to_u128(self) -> Option<u128> {
         let (high, low) = self.into_words();
         if high == 0 { Some(low) } else { None }
+    }
+
+    /// Add two values, returning `None` on unsigned 256-bit overflow.
+    #[must_use]
+    pub fn checked_add(self, rhs: Self) -> Option<Self> {
+        self.0.checked_add(rhs.0).map(Self)
+    }
+
+    /// Subtract two values, returning `None` on unsigned 256-bit underflow.
+    #[must_use]
+    pub fn checked_sub(self, rhs: Self) -> Option<Self> {
+        self.0.checked_sub(rhs.0).map(Self)
+    }
+
+    /// Multiply two values, returning `None` on unsigned 256-bit overflow.
+    #[must_use]
+    pub fn checked_mul(self, rhs: Self) -> Option<Self> {
+        self.0.checked_mul(rhs.0).map(Self)
+    }
+
+    /// Divide two values, returning `None` when the divisor is zero.
+    #[must_use]
+    pub fn checked_div(self, rhs: Self) -> Option<Self> {
+        self.0.checked_div(rhs.0).map(Self)
+    }
+
+    /// Return the remainder, or `None` when the divisor is zero.
+    #[must_use]
+    pub fn checked_rem(self, rhs: Self) -> Option<Self> {
+        self.0.checked_rem(rhs.0).map(Self)
     }
 
     fn from_little_endian_magnitude(bytes: &[u8]) -> Result<Self, ParseU256Error> {
@@ -212,6 +244,16 @@ impl FromStr for U256 {
     }
 }
 
+impl NumericValue for U256 {
+    fn try_to_decimal(&self) -> Option<Decimal> {
+        self.to_u128().and_then(Decimal::from_u128)
+    }
+
+    fn try_from_decimal(value: Decimal) -> Option<Self> {
+        value.to_u128().map(Self::from)
+    }
+}
+
 impl<'de> Deserialize<'de> for U256 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -267,6 +309,7 @@ impl Serialize for U256 {
 #[cfg(test)]
 mod tests {
     use super::U256;
+    use crate::{Decimal, NumericValue};
     use candid::{decode_one, encode_one};
     use num_bigint::BigUint;
 
@@ -297,6 +340,35 @@ mod tests {
         assert_eq!(U256::ZERO.to_string(), "0");
         assert_eq!(U256::ONE.to_string(), "1");
         assert_eq!(U256::MAX.to_string(), u256_max_decimal());
+    }
+
+    #[test]
+    fn checked_arithmetic_enforces_the_u256_domain() {
+        let two = U256::from(2_u64);
+        let three = U256::from(3_u64);
+
+        assert_eq!(two.checked_add(three), Some(U256::from(5_u64)));
+        assert_eq!(three.checked_sub(two), Some(U256::ONE));
+        assert_eq!(two.checked_mul(three), Some(U256::from(6_u64)));
+        assert_eq!(U256::from(7_u64).checked_div(two), Some(three));
+        assert_eq!(U256::from(7_u64).checked_rem(two), Some(U256::ONE));
+        assert_eq!(U256::MAX.checked_add(U256::ONE), None);
+        assert_eq!(U256::ZERO.checked_sub(U256::ONE), None);
+        assert_eq!(U256::MAX.checked_mul(two), None);
+        assert_eq!(U256::ONE.checked_div(U256::ZERO), None);
+        assert_eq!(U256::ONE.checked_rem(U256::ZERO), None);
+    }
+
+    #[test]
+    fn generic_numeric_conversion_is_fallible_without_widening_the_u256_domain() {
+        let value = U256::from(u128::try_from(i128::MAX).expect("i128::MAX should fit u128"));
+        assert_eq!(
+            value.try_to_decimal().and_then(U256::try_from_decimal),
+            Some(value),
+        );
+        assert_eq!(U256::MAX.try_to_decimal(), None);
+        let negative_one = Decimal::from_i128(-1).expect("-1 should be a valid Decimal");
+        assert_eq!(U256::try_from_decimal(negative_one), None);
     }
 
     fn u256_max_decimal() -> &'static str {

@@ -34,7 +34,7 @@ use icydb::{
     },
     diagnostic::{DiagnosticCode, RuntimeBoundaryCode},
     metrics::CompactMetricsReport,
-    types::Decimal,
+    types::{Decimal, U256},
     value::OutputValue,
 };
 use icydb_testing_integration::{
@@ -3512,6 +3512,308 @@ fn sql_canister_query_endpoint_executes_global_post_aggregate_value_queries() {
         &[&["32.67", "4", "19"]],
         1,
         "query(sql) should preserve the real reduced values for global post-aggregate projection expressions at the live canister boundary",
+    );
+}
+
+#[test]
+fn u256_arithmetic_and_sum_clear_the_exact_canister_instruction_gate() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+    DdlSchemaVersion::initial()
+        .publish(
+            &fixture,
+            "ALTER TABLE SqlTestUser ADD COLUMN amount u256 DEFAULT U256 '2' NOT NULL",
+        )
+        .expect("U256 measurement field should publish through accepted DDL authority");
+
+    let u256_projection = measure_query_sql(
+        &fixture,
+        "SELECT amount + U256 '3' FROM SqlTestUser ORDER BY id ASC LIMIT 3",
+    );
+    let u256_projection_instructions = u256_projection.local_instructions;
+    let u256_projection = expect_projection(
+        u256_projection
+            .result
+            .expect("measured U256 projection should execute"),
+    );
+    assert_eq!(
+        u256_projection.rows,
+        vec![
+            vec![OutputValue::U256(U256::from(5_u64))],
+            vec![OutputValue::U256(U256::from(5_u64))],
+            vec![OutputValue::U256(U256::from(5_u64))],
+        ],
+    );
+
+    let nat64_projection = measure_query_sql(
+        &fixture,
+        "SELECT age + 3 FROM SqlTestUser ORDER BY id ASC LIMIT 3",
+    );
+    let nat64_projection_instructions = nat64_projection.local_instructions;
+    nat64_projection
+        .result
+        .expect("measured Nat64 projection control should execute");
+
+    let u256_sum = measure_query_sql(&fixture, "SELECT SUM(amount) FROM SqlTestUser");
+    let u256_sum_instructions = u256_sum.local_instructions;
+    let u256_sum = expect_projection(u256_sum.result.expect("measured U256 SUM should execute"));
+    assert_eq!(
+        u256_sum.rows,
+        vec![vec![OutputValue::U256(U256::from(6_u64))]],
+    );
+
+    let nat64_sum = measure_query_sql(&fixture, "SELECT SUM(age) FROM SqlTestUser");
+    let nat64_sum_instructions = nat64_sum.local_instructions;
+    nat64_sum
+        .result
+        .expect("measured Nat64 SUM control should execute");
+
+    assert_instruction_delta_gate(
+        "U256 projection arithmetic",
+        nat64_projection_instructions,
+        u256_projection_instructions,
+    );
+    assert_instruction_delta_gate("SUM(U256)", nat64_sum_instructions, u256_sum_instructions);
+
+    println!(
+        "0.248 U256 exact canister instructions: projection_u256={u256_projection_instructions} projection_nat64={nat64_projection_instructions} sum_u256={u256_sum_instructions} sum_nat64={nat64_sum_instructions}",
+    );
+}
+
+fn prepare_u256_closeout_rows(fixture: &StandaloneCanisterFixture) -> DdlSchemaVersion {
+    let mut schema_version = DdlSchemaVersion::initial();
+
+    schema_version
+        .publish(
+            fixture,
+            "ALTER TABLE SqlTestUser ADD COLUMN amount u256 DEFAULT U256 '2' NOT NULL",
+        )
+        .expect("U256 defaulted field should publish through accepted DDL authority");
+    schema_version
+        .publish(
+            fixture,
+            "ALTER TABLE SqlTestUser ADD COLUMN optional_amount u256",
+        )
+        .expect("nullable U256 field should publish through accepted DDL authority");
+
+    let defaults = expect_projection(
+        query_sql(
+            fixture,
+            "SELECT amount, optional_amount FROM SqlTestUser ORDER BY id ASC LIMIT 3",
+        )
+        .expect("U256 defaults should query through the live actor"),
+    );
+    assert_eq!(
+        defaults.rows,
+        vec![
+            vec![OutputValue::U256(U256::from(2_u64)), OutputValue::Null],
+            vec![OutputValue::U256(U256::from(2_u64)), OutputValue::Null],
+            vec![OutputValue::U256(U256::from(2_u64)), OutputValue::Null],
+        ],
+    );
+
+    for (name, amount, optional_amount) in [
+        ("alice", U256::ZERO, None),
+        ("bob", U256::ONE, Some(U256::ONE)),
+        ("charlie", U256::from(7_u64), Some(U256::MAX)),
+    ] {
+        let id = sql_test_user_id_by_name(fixture, name);
+        let optional_amount =
+            optional_amount.map_or_else(|| "NULL".to_string(), |value| format!("U256 '{value}'"));
+        update_sql(
+            fixture,
+            format!(
+                "UPDATE SqlTestUser SET amount = U256 '{amount}', optional_amount = {optional_amount} WHERE id = '{id}'"
+            )
+            .as_str(),
+        )
+        .unwrap_or_else(|error| panic!("U256 primary-key update should succeed: {error:?}"));
+    }
+
+    schema_version
+}
+
+fn publish_u256_closeout_constraints_and_indexes(
+    fixture: &StandaloneCanisterFixture,
+    schema_version: &mut DdlSchemaVersion,
+) {
+    schema_version
+        .publish(
+            fixture,
+            "ALTER TABLE SqlTestUser ADD CONSTRAINT amount_u256_bound CHECK (amount <= U256 '7')",
+        )
+        .expect("U256 check constraint should validate and publish in one bounded call");
+    schema_version
+        .publish(
+            fixture,
+            "CREATE INDEX sql_test_user_optional_amount_idx ON SqlTestUser (optional_amount)",
+        )
+        .expect("nullable U256 index should publish");
+    schema_version
+        .publish(
+            fixture,
+            "CREATE INDEX sql_test_user_amount_age_idx ON SqlTestUser (amount, age)",
+        )
+        .expect("composite U256 index should publish");
+    schema_version
+        .publish(
+            fixture,
+            "CREATE UNIQUE INDEX sql_test_user_amount_unique_idx ON SqlTestUser (amount)",
+        )
+        .expect("unique U256 index should enter validation");
+    schema_version
+        .validate_constraint_to_completion(
+            fixture,
+            "SqlTestUser",
+            "sql_test_user_amount_unique_idx",
+        )
+        .expect("unique U256 index should validate and publish");
+}
+
+fn expected_u256_closeout_rows() -> Vec<Vec<OutputValue>> {
+    vec![
+        vec![
+            OutputValue::Text("alice".to_string()),
+            OutputValue::U256(U256::ZERO),
+            OutputValue::Null,
+        ],
+        vec![
+            OutputValue::Text("bob".to_string()),
+            OutputValue::U256(U256::ONE),
+            OutputValue::U256(U256::ONE),
+        ],
+        vec![
+            OutputValue::Text("charlie".to_string()),
+            OutputValue::U256(U256::from(7_u64)),
+            OutputValue::U256(U256::MAX),
+        ],
+    ]
+}
+
+fn assert_u256_closeout_queries(fixture: &StandaloneCanisterFixture) -> RowProjectionOutput {
+    let ordered = expect_projection(
+        query_sql(
+            fixture,
+            "SELECT name, amount, optional_amount FROM SqlTestUser ORDER BY amount ASC LIMIT 3",
+        )
+        .expect("ascending U256 ordering should execute"),
+    );
+    assert_eq!(ordered.rows, expected_u256_closeout_rows());
+
+    let descending = expect_projection(
+        query_sql(
+            fixture,
+            "SELECT amount FROM SqlTestUser ORDER BY amount DESC LIMIT 2",
+        )
+        .expect("descending U256 ordering should execute"),
+    );
+    assert_eq!(
+        descending.rows,
+        vec![
+            vec![OutputValue::U256(U256::from(7_u64))],
+            vec![OutputValue::U256(U256::ONE)],
+        ],
+    );
+
+    let case_projection = expect_projection(
+        query_sql(
+            fixture,
+            "SELECT CASE WHEN amount = U256 '0' THEN U256 '7' ELSE amount END AS normalized_amount FROM SqlTestUser ORDER BY amount ASC LIMIT 3",
+        )
+        .expect("CASE should retain the exact U256 domain"),
+    );
+    assert_eq!(
+        case_projection.rows,
+        vec![
+            vec![OutputValue::U256(U256::from(7_u64))],
+            vec![OutputValue::U256(U256::ONE)],
+            vec![OutputValue::U256(U256::from(7_u64))],
+        ],
+    );
+
+    let distinct = expect_projection(
+        query_sql(
+            fixture,
+            "SELECT DISTINCT amount, optional_amount FROM SqlTestUser ORDER BY amount ASC LIMIT 3",
+        )
+        .expect("tuple DISTINCT should retain U256 and nullable U256 values"),
+    );
+    assert_eq!(
+        distinct.rows,
+        ordered
+            .rows
+            .iter()
+            .map(|row| row[1..].to_vec())
+            .collect::<Vec<_>>()
+    );
+
+    let sum = expect_projection(
+        query_sql(fixture, "SELECT SUM(amount) FROM SqlTestUser")
+            .expect("global checked U256 SUM should execute"),
+    );
+    assert_eq!(sum.rows, vec![vec![OutputValue::U256(U256::from(8_u64))]],);
+
+    let indexed = query_sql(
+        fixture,
+        "SELECT name, amount FROM SqlTestUser WHERE amount >= U256 '1' ORDER BY amount DESC LIMIT 3",
+    )
+    .expect("indexed U256 range should execute");
+    let forced_full_scan = query_sql(
+        fixture,
+        "SELECT name, amount FROM SqlTestUser WHERE amount >= U256 '1' OR name = '__no_such_user__' ORDER BY amount DESC LIMIT 3",
+    )
+    .expect("equivalent conservative U256 range should execute");
+    assert_eq!(
+        indexed, forced_full_scan,
+        "indexed and independently forced full-scan U256 results must agree",
+    );
+
+    ordered
+}
+
+fn assert_u256_closeout_write_rejections(fixture: &StandaloneCanisterFixture) {
+    let alice_id = sql_test_user_id_by_name(fixture, "alice");
+    update_sql(
+        fixture,
+        format!("UPDATE SqlTestUser SET amount = U256 '8' WHERE id = '{alice_id}'").as_str(),
+    )
+    .expect_err("validated U256 check constraint should reject an out-of-range update");
+    let charlie_id = sql_test_user_id_by_name(fixture, "charlie");
+    update_sql(
+        fixture,
+        format!("UPDATE SqlTestUser SET amount = U256 '1' WHERE id = '{charlie_id}'").as_str(),
+    )
+    .expect_err("validated unique U256 index should reject a duplicate update");
+}
+
+#[test]
+fn u256_closeout_matrix_survives_catalog_reopen_and_upgrade() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+    let mut schema_version = prepare_u256_closeout_rows(&fixture);
+    publish_u256_closeout_constraints_and_indexes(&fixture, &mut schema_version);
+    let ordered = assert_u256_closeout_queries(&fixture);
+    assert_u256_closeout_write_rejections(&fixture);
+
+    upgrade_fixture_canister(&fixture, "sql");
+    deliver_fixture_startup_watchdog(&fixture);
+    deliver_fixture_startup_watchdog(&fixture);
+    let reopened = expect_projection(
+        query_sql(
+            &fixture,
+            "SELECT name, amount, optional_amount FROM SqlTestUser ORDER BY amount ASC LIMIT 3",
+        )
+        .expect("U256 rows and accepted indexes should reopen after upgrade"),
+    );
+    assert_eq!(reopened, ordered);
+}
+
+fn assert_instruction_delta_gate(label: &str, control: u64, candidate: u64) {
+    let absolute_delta = candidate.saturating_sub(control);
+    let relative_ceiling = control.saturating_mul(103) / 100;
+    assert!(
+        absolute_delta <= 250_000 || candidate <= relative_ceiling,
+        "{label} added both more than 250k instructions and more than 3%: control={control}, candidate={candidate}",
     );
 }
 

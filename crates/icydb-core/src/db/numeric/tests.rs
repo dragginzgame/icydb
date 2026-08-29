@@ -6,11 +6,12 @@
 use crate::{
     db::numeric::{
         NumericArithmeticOp, NumericEvalError, add_decimal_terms_checked,
-        apply_numeric_arithmetic_checked, average_decimal_terms_checked, canonical_value_compare,
-        coerce_numeric_decimal, compare_numeric_eq, compare_numeric_or_strict_order,
-        compare_numeric_order, divide_decimal_terms_checked,
+        apply_numeric_arithmetic_checked, apply_value_arithmetic_checked,
+        average_decimal_terms_checked, canonical_value_compare, coerce_numeric_decimal,
+        compare_numeric_eq, compare_numeric_or_strict_order, compare_numeric_order,
+        divide_decimal_terms_checked,
     },
-    types::{Decimal, Float64 as F64, IntBig},
+    types::{Decimal, Float64 as F64, IntBig, U256},
     value::Value,
 };
 use std::cmp::Ordering;
@@ -169,6 +170,45 @@ fn numeric_arithmetic_addition_reports_overflow() {
         .expect_err("checked numeric addition should reject overflow");
 
     assert_eq!(err, NumericEvalError::Overflow);
+}
+
+#[test]
+fn u256_arithmetic_stays_fixed_width_and_checked() {
+    let two = Value::U256(U256::from(2_u64));
+    let three = Value::U256(U256::from(3_u64));
+
+    assert_eq!(
+        apply_value_arithmetic_checked(NumericArithmeticOp::Add, &two, &three),
+        Ok(Some(Value::U256(U256::from(5_u64))))
+    );
+    assert_eq!(
+        apply_value_arithmetic_checked(
+            NumericArithmeticOp::Add,
+            &Value::U256(U256::MAX),
+            &Value::U256(U256::ONE),
+        ),
+        Err(NumericEvalError::Overflow)
+    );
+    assert_eq!(
+        apply_value_arithmetic_checked(
+            NumericArithmeticOp::Sub,
+            &Value::U256(U256::ZERO),
+            &Value::U256(U256::ONE),
+        ),
+        Err(NumericEvalError::Overflow)
+    );
+    assert_eq!(
+        apply_value_arithmetic_checked(
+            NumericArithmeticOp::Div,
+            &Value::U256(U256::ONE),
+            &Value::U256(U256::ZERO),
+        ),
+        Err(NumericEvalError::NotRepresentable)
+    );
+    assert_eq!(
+        apply_value_arithmetic_checked(NumericArithmeticOp::Mul, &two, &Value::Nat64(3)),
+        Ok(None)
+    );
 }
 
 #[test]

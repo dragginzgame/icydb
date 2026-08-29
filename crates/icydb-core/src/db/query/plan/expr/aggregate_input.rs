@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        numeric::{NumericArithmeticOp, apply_numeric_arithmetic_checked, coerce_numeric_decimal},
+        numeric::{NumericArithmeticOp, apply_value_arithmetic_checked, coerce_numeric_decimal},
         query::plan::{
             AggregateKind,
             expr::{AggregateInputConstantFoldShape, BinaryOp, Expr, Function},
@@ -121,11 +121,11 @@ fn fold_aggregate_input_constant_binary(op: BinaryOp, left: &Expr, right: &Expr)
         BinaryOp::Mul => NumericArithmeticOp::Mul,
         BinaryOp::Div => NumericArithmeticOp::Div,
     };
-    let result = apply_numeric_arithmetic_checked(arithmetic_op, left, right)
+    let result = apply_value_arithmetic_checked(arithmetic_op, left, right)
         .ok()
         .flatten()?;
 
-    Some(Expr::Literal(Value::Decimal(result)))
+    Some(Expr::Literal(result))
 }
 
 // Fold one admitted literal-only aggregate-input function call when the
@@ -182,12 +182,11 @@ fn fold_aggregate_input_constant_binary_numeric(function: Function, args: &[Expr
         return Some(Expr::Literal(Value::Null));
     }
 
-    let left = coerce_numeric_decimal(left)?;
-    let right = coerce_numeric_decimal(right)?;
     let result = function
         .binary_numeric_function_kind()?
-        .eval_decimal(left, right)
-        .ok()?;
+        .eval_values(left, right)
+        .ok()
+        .flatten()?;
 
     Some(Expr::Literal(result))
 }

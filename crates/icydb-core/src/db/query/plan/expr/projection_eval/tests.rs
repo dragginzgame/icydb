@@ -7,6 +7,7 @@ use crate::{
             Expr, FieldId, FieldPath, Function, UnaryOp,
         },
     },
+    types::U256,
     value::Value,
 };
 use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, QueryProjectionCode};
@@ -283,4 +284,94 @@ fn preview_allows_valid_binary_projection_after_compact_error_split() {
     .expect("valid numeric projection should still evaluate");
 
     assert_eq!(value, Value::Decimal(5.into()));
+}
+
+#[test]
+fn preview_and_compiled_execution_share_checked_u256_arithmetic() {
+    for (op, left, right, expected) in [
+        (BinaryOp::Add, 7_u64, 5_u64, 12_u64),
+        (BinaryOp::Sub, 7, 5, 2),
+        (BinaryOp::Mul, 7, 5, 35),
+        (BinaryOp::Div, 7, 5, 1),
+    ] {
+        let expr = Expr::Binary {
+            op,
+            left: Box::new(Expr::Literal(Value::U256(U256::from(left)))),
+            right: Box::new(Expr::Literal(Value::U256(U256::from(right)))),
+        };
+        let compiled = CompiledExpr::Binary {
+            op,
+            left: Box::new(CompiledExpr::Literal(Value::U256(U256::from(left)))),
+            right: Box::new(CompiledExpr::Literal(Value::U256(U256::from(right)))),
+        };
+
+        assert_preview_matches_compiled(
+            &expr,
+            &compiled,
+            "balance",
+            Value::U256(U256::ZERO),
+            Value::U256(U256::from(expected)),
+        );
+    }
+
+    assert_eq!(
+        eval_projection_function_call(
+            Function::Mod,
+            &[
+                Value::U256(U256::from(7_u64)),
+                Value::U256(U256::from(5_u64)),
+            ],
+        )
+        .expect("MOD(U256, U256) should evaluate"),
+        Value::U256(U256::from(2_u64)),
+    );
+}
+
+#[test]
+fn u256_arithmetic_reports_existing_typed_numeric_errors() {
+    let overflow = eval_builder_expr_for_value_preview(
+        &Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Literal(Value::U256(U256::MAX))),
+            right: Box::new(Expr::Literal(Value::U256(U256::ONE))),
+        },
+        "balance",
+        &Value::U256(U256::ZERO),
+    )
+    .expect_err("U256 addition overflow should fail");
+    assert_eq!(
+        overflow.diagnostic().code(),
+        DiagnosticCode::QueryNumericOverflow,
+    );
+
+    let division_by_zero = eval_builder_expr_for_value_preview(
+        &Expr::Binary {
+            op: BinaryOp::Div,
+            left: Box::new(Expr::Literal(Value::U256(U256::ONE))),
+            right: Box::new(Expr::Literal(Value::U256(U256::ZERO))),
+        },
+        "balance",
+        &Value::U256(U256::ZERO),
+    )
+    .expect_err("U256 division by zero should fail");
+    assert_eq!(
+        division_by_zero.diagnostic().code(),
+        DiagnosticCode::QueryNumericNotRepresentable,
+    );
+}
+
+#[test]
+fn u256_arithmetic_rejects_implicit_mixed_width_coercion() {
+    let err = eval_builder_expr_for_value_preview(
+        &Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Literal(Value::U256(U256::ONE))),
+            right: Box::new(Expr::Literal(Value::Nat64(1))),
+        },
+        "balance",
+        &Value::U256(U256::ZERO),
+    )
+    .expect_err("mixed U256 arithmetic should reject");
+
+    assert_projection_reason(err, QueryProjectionCode::BinaryOperandsIncompatible);
 }

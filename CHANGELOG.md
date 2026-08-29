@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.248.md](docs/changelog/0.248.md)
 
+- `0.248.1` adds checked fixed-width `U256` arithmetic and `SUM(U256)` through
+  the shared expression and reducer pipeline, then qualifies the cumulative
+  Candid, upgrade, query, footprint, instruction and downstream contracts.
 - `0.248.0` adds native fixed-width `U256` storage and queries with bounded
   Candid `nat` ingress and exact IcyDB-owned row, key, index and cursor
   encodings after the frozen Ethereum workload cleared its allocation,

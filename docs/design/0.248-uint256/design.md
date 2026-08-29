@@ -1,6 +1,6 @@
 # IcyDB 0.248 — Native Fixed-Width `U256`
 
-- **Status:** Patch 1 complete; native U256 build recommended; production implementation not authorized
+- **Status:** Complete; native U256 retained through all four patches, pending user-owned release validation
 - **Date:** 2026-08-28
 - **Target line:** 0.248 after accepted 0.247 closeout
 - **Audience:** Ethereum developers building native IC actors with IcyDB
@@ -41,12 +41,11 @@ The candidate uses `ethnum` only as arithmetic machinery. IcyDB continues to
 own scalar semantics, schema identities, persisted and index encodings, query
 typing, errors, Candid representation and upgrade policy.
 
-This document remains under `docs/design/` so the candidate stays visible. It
-is not an implementation commitment. Patch 1 is authorized only to compare
-native `U256` against constrained `NatBig`, constrained `NatBig` plus
-application/generated Ethereum adapters, and the smallest real IcyDB-integrated
-native candidate. It also compares three Candid carriers rather than assuming
-that `nat` or `blob` wins.
+This document remains under `docs/design/` as the retained decision record.
+Patch 1 compared native `U256` against constrained `NatBig`, constrained
+`NatBig` plus application/generated Ethereum adapters, and the smallest real
+IcyDB-integrated native candidate. It also compared three Candid carriers
+rather than assuming that `nat` or `blob` wins.
 
 The fact that constrained `NatBig` can express the workload is not itself a
 no-build verdict. The line closes only when measurement shows no meaningful
@@ -472,12 +471,12 @@ hash, ABI and authentication work remains independently scoped.
 
 ## 15. Landing Plan
 
-The tentative line contains four substantive patches. Patch 1 measurement is
-authorized after the accepted 0.247 predecessor closes. Patches 2–4 remain
-unauthorized until Patch 1 records an explicit build decision and the user
-accepts it.
+The line contains four substantive patches. Patch 1 measured the candidate
+after the accepted 0.247 predecessor closed. Patches 2–4 proceeded only after
+that evidence recorded an explicit build decision and the user accepted each
+bounded outcome.
 
-### Patch 1 — Authorized existing-authority, integration and carrier spike
+### Patch 1 — Existing-authority, integration and carrier spike
 
 - Check in the bounded Ethereum workload and exact queries.
 - Compare constrained `NatBig`, constrained `NatBig` plus only Ethereum
@@ -497,7 +496,7 @@ The spike may use a disposable experimental integration to measure real hot
 containers. Patch 1 does not retain public tags, variants or production
 behavior at handoff.
 
-### Patch 2 — Complete `U256` storage and query contract (not authorized)
+### Patch 2 — Complete `U256` storage and query contract
 
 - Add facade, schema, input/output and runtime identities.
 - Add exact row, schema and index encodings.
@@ -509,14 +508,14 @@ behavior at handoff.
 This patch is a coherent fixed-width storage/query outcome even if later
 arithmetic work is rejected.
 
-### Patch 3 — Checked `U256` arithmetic and `SUM` (not authorized)
+### Patch 3 — Checked `U256` arithmetic and `SUM`
 
 - Add checked expression operators.
 - Extend the shared reducer with one fixed-width accumulator payload.
 - Add SQL/fluent/prepared result and error equivalence.
 - Retain only if the footprint and instruction gates pass.
 
-### Patch 4 — Downstream qualification and closeout (not authorized)
+### Patch 4 — Downstream qualification and closeout
 
 - Run the complete correctness, persistence, footprint and instruction
   matrices.
@@ -671,21 +670,17 @@ If admission, correctness, compatibility, footprint or performance fails:
 5. Does the existing primary-key component budget admit a 32-byte value without
    another key encoding path?
 
-## 21. Tentative Verdict
+## 21. Final Verdict
 
-Patch 1 is complete against the released `v0.247.0` predecessor. Its retained
-evidence is recorded in `patch-1-measurement.md`; no production type, tag,
-codec or runtime behavior remains. Production implementation remains
-unauthorized pending review of the build recommendation.
+All four patches are complete. IcyDB retains native `U256` with Candid `nat`
+through its existing schema, value, persistence, planner, executor, index and
+reducer authorities. Fixed-width kernels are allocation-free and materially
+faster, hot enum and reducer sizes do not grow, the representative actor and
+unrelated actor remain inside their Wasm gates, and exact live-actor arithmetic
+stays inside the instruction gate.
 
-The evidence recommends building native `U256` with Candid `nat`. Fixed-width
-kernels are allocation-free and materially faster, hot enum and reducer sizes
-do not grow, the full-width-heavy frozen workload uses fewer numeric payload
-bytes, and the disposable carrier-plus-kernel mirror stays well below the
-representative-actor Wasm rejection gate. The result is deliberately narrower
-than a universal performance claim: small values use more row and index bytes,
-and the fixed-degree stable B-tree gains no fan-out or page-touch reduction.
-
-Patch 2 must integrate the type through the existing authorities and repeat the
-actor, exact IC-instruction, service and unrelated-query gates before the
-candidate is retained. `I256` remains deferred completely.
+The conclusion remains deliberately narrower than a universal performance
+claim: small values use more row and index bytes, and the fixed-degree stable
+B-tree gains no fan-out or page-touch reduction. `I256`, `AVG(U256)`, bitwise
+SQL, Ethereum SDK dependencies and compatibility paths remain deferred. Full
+repository release validation remains user-owned.

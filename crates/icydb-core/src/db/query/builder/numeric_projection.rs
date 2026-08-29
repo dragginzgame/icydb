@@ -53,6 +53,7 @@ impl NumericProjectionExpr {
                 | Value::Nat64(_)
                 | Value::Nat128(_)
                 | Value::NatBig(_)
+                | Value::U256(_)
                 | Value::Decimal(_)
                 | Value::Float32(_)
                 | Value::Float64(_)
@@ -345,12 +346,13 @@ pub fn round_expr(projection: &NumericProjectionExpr, scale: u32) -> RoundProjec
 
 #[cfg(test)]
 mod tests {
-    use super::{NumericProjectionExpr, RoundProjectionExpr};
+    use super::{NumericProjectionExpr, RoundProjectionExpr, add};
     use crate::{
         db::{
             QueryError,
             query::plan::expr::{BinaryOp, Expr, FieldId},
         },
+        types::U256,
         value::Value,
     };
     use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail, QueryProjectionCode};
@@ -374,6 +376,20 @@ mod tests {
             .expect_err("non-numeric projection literal should fail closed");
 
         assert_query_projection_error(err, QueryProjectionCode::NumericLiteralRequired);
+    }
+
+    #[test]
+    fn fluent_numeric_projection_accepts_constructed_u256_literals() {
+        let projection = add("amount", U256::from(3_u64));
+
+        assert_eq!(
+            projection.expr(),
+            &Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Field(FieldId::new("amount"))),
+                right: Box::new(Expr::Literal(Value::U256(U256::from(3_u64)))),
+            },
+        );
     }
 
     #[test]

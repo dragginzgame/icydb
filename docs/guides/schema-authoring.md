@@ -27,6 +27,13 @@ This list is derived from the canonical scalar registry's
 value has a canonical storage-key encoding; it does not make every compatible
 primitive a good domain identity.
 
+`U256` is an inline, fixed-width unsigned domain for values from zero through
+`2^256-1`. Its public Candid carrier is `nat`, so generated JavaScript and
+TypeScript clients use `bigint`; IcyDB rejects an admitted value above the
+fixed-width maximum during ingress. Persistence and index keys use IcyDB-owned
+32-byte encodings rather than Candid's variable-length wire representation.
+Database arithmetic is checked, not Ethereum-style wrapping arithmetic.
+
 `Text` is deliberately not a primary-key domain. For a human-readable slug,
 keep a durable generated identity such as `Ulid` or `Identity::next` as the
 primary key and put the slug in an ordinary indexed field. The slug can change
