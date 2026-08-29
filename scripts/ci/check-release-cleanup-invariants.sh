@@ -154,8 +154,11 @@ if [[ -e "$ROOT/scripts/ci/release-version-transition.sh" ]] ||
 fi
 
 if ! grep -Eq 'cargo set-version .*--offline' "$ROOT/scripts/ci/bump-version.sh" ||
-   ! grep -Eq 'cargo generate-lockfile --offline' "$ROOT/scripts/ci/bump-version.sh"; then
-  echo "release version mutation must preserve the tested dependency graph offline" >&2
+   ! grep -Fq 'cp "$LOCKFILE_SNAPSHOT" Cargo.lock' "$ROOT/scripts/ci/bump-version.sh" ||
+   ! grep -Eq 'sed -i .*version = ' "$ROOT/scripts/ci/bump-version.sh" ||
+   ! grep -Eq 'cargo metadata --locked --offline --no-deps' "$ROOT/scripts/ci/bump-version.sh" ||
+   grep -Eq 'cargo (generate-lockfile|update)' "$ROOT/scripts/ci/bump-version.sh"; then
+  echo "release version mutation must preserve the tested lockfile dependency graph offline" >&2
   exit 1
 fi
 

@@ -9,6 +9,17 @@ cd "$ROOT"
 
 BUMP_TYPE=${1:-patch}
 
+LOCKFILE_SNAPSHOT_DIR=""
+LOCKFILE_SNAPSHOT=""
+
+cleanup_lockfile_snapshot() {
+  if [[ -n "$LOCKFILE_SNAPSHOT_DIR" && -d "$LOCKFILE_SNAPSHOT_DIR" ]]; then
+    find "$LOCKFILE_SNAPSHOT_DIR" -depth -delete
+  fi
+}
+
+trap cleanup_lockfile_snapshot EXIT
+
 if ! cargo set-version --help >/dev/null 2>&1; then
   echo "❌ cargo set-version not available. Install cargo-edit or upgrade Rust." >&2
   exit 1
@@ -18,8 +29,15 @@ fi
 PREV=$(cargo get workspace.package.version)
 
 # Keep the tested dependency graph fixed while changing workspace versions.
-# Registry updates belong in an ordinary reviewed code commit, not in the
-# mechanical release transition after the full gate has passed.
+# cargo-edit may re-resolve registry or target-specific edges while updating
+# the lockfile, so retain the validated lock and change only exact workspace
+# package version declarations after the manifests have moved.
+if [[ -f Cargo.lock ]]; then
+  LOCKFILE_SNAPSHOT_DIR="$(mktemp -d)"
+  LOCKFILE_SNAPSHOT="$LOCKFILE_SNAPSHOT_DIR/Cargo.lock"
+  cp Cargo.lock "$LOCKFILE_SNAPSHOT"
+fi
+
 cargo set-version --workspace --bump "$BUMP_TYPE" --offline >/dev/null
 
 # New version
@@ -30,7 +48,12 @@ if [[ "$PREV" == "$NEW" ]]; then
   exit 0
 fi
 
-[[ -f Cargo.lock ]] && cargo generate-lockfile --offline >/dev/null
+if [[ -n "$LOCKFILE_SNAPSHOT" ]]; then
+  cp "$LOCKFILE_SNAPSHOT" Cargo.lock
+  escaped_prev="${PREV//./\.}"
+  sed -i "s/^version = \"$escaped_prev\"$/version = \"$NEW\"/" Cargo.lock
+  cargo metadata --locked --offline --no-deps --format-version 1 >/dev/null
+fi
 
 scripts/ci/sync-release-surface-version.sh "$NEW"
 
