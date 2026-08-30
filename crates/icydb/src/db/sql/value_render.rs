@@ -4,7 +4,7 @@
 //! Does not own: SQL parsing, lowering, planning, or execution.
 //! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
 
-use crate::value::OutputValue;
+use crate::value::{OutputValue, PublicValue};
 use icydb_core::value::render_output_value_text;
 
 use icydb_core::types::Decimal;
@@ -36,12 +36,11 @@ fn sql_projection_output_value(fixed_scale: Option<u32>, value: OutputValue) -> 
         return value;
     };
 
-    match value {
-        OutputValue::Decimal(decimal) => {
-            OutputValue::Text(render_decimal_with_fixed_scale(&decimal, scale))
-        }
-        other => other,
+    if let PublicValue::Decimal(decimal) = value.as_public() {
+        return OutputValue::text(render_decimal_with_fixed_scale(decimal, scale));
     }
+
+    value
 }
 
 pub(in crate::db::sql) fn render_projection_value_text(
@@ -52,8 +51,8 @@ pub(in crate::db::sql) fn render_projection_value_text(
         return render_output_value_text(value);
     };
 
-    match value {
-        OutputValue::Decimal(decimal) => render_decimal_with_fixed_scale(decimal, scale),
+    match value.as_public() {
+        PublicValue::Decimal(decimal) => render_decimal_with_fixed_scale(decimal, scale),
         _ => render_output_value_text(value),
     }
 }
@@ -110,7 +109,7 @@ mod tests {
     #[test]
     fn exact_fixed_scale_metadata_clamps_zero_scale_width() {
         let rendered =
-            render_projection_value_text(Some(4_000_000_000), &OutputValue::Decimal(Decimal::ZERO));
+            render_projection_value_text(Some(4_000_000_000), &OutputValue::decimal(Decimal::ZERO));
 
         assert_eq!(rendered, "0.0000000000000000000000000000");
     }

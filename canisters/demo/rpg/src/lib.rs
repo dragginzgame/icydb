@@ -84,21 +84,21 @@ fn character_patch(character: Character) -> StructuralPatch {
         .field("mentor", authored(mentor_input(character.mentor)))
         .field(
             "resistances",
-            authored(InputValue::List(
+            authored(InputValue::list(
                 character
                     .resistances
                     .into_iter()
-                    .map(InputValue::from)
+                    .map(|value| InputValue::from(value).into_public())
                     .collect(),
             )),
         )
         .field(
             "inventory_weights",
-            authored(InputValue::List(
+            authored(InputValue::list(
                 character
                     .inventory_weights
                     .into_iter()
-                    .map(InputValue::from)
+                    .map(|value| InputValue::from(value).into_public())
                     .collect(),
             )),
         )
@@ -109,10 +109,19 @@ fn character_patch(character: Character) -> StructuralPatch {
 
 #[cfg(feature = "test-admin-api")]
 fn mentor_input(mentor: CharacterMentor) -> InputValue {
-    InputValue::Map(vec![
-        ("name".into(), mentor.name.into()),
-        ("level".into(), mentor.level.into()),
-        ("pid".into(), mentor.pid.into()),
+    InputValue::map(vec![
+        (
+            InputValue::from("name").into_public(),
+            InputValue::from(mentor.name).into_public(),
+        ),
+        (
+            InputValue::from("level").into_public(),
+            InputValue::from(mentor.level).into_public(),
+        ),
+        (
+            InputValue::from("pid").into_public(),
+            InputValue::from(mentor.pid).into_public(),
+        ),
     ])
 }
 

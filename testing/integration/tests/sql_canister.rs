@@ -1317,22 +1317,24 @@ fn normalize_live_projection_value(
     kind: SqliteReferenceColumnKind,
     value: OutputValue,
 ) -> Result<NormalizedCell, String> {
-    let value = match (kind, value) {
-        (_, OutputValue::Null) => NormalizedCell::Null,
-        (SqliteReferenceColumnKind::Blob, OutputValue::Blob(value)) => NormalizedCell::Bytes(value),
-        (SqliteReferenceColumnKind::Boolean, OutputValue::Bool(value)) => {
+    let value = match (kind, value.into_public()) {
+        (_, icydb::value::PublicValue::Null) => NormalizedCell::Null,
+        (SqliteReferenceColumnKind::Blob, icydb::value::PublicValue::Blob(value)) => {
+            NormalizedCell::Bytes(value)
+        }
+        (SqliteReferenceColumnKind::Boolean, icydb::value::PublicValue::Bool(value)) => {
             NormalizedCell::Bool(value)
         }
-        (SqliteReferenceColumnKind::Decimal, OutputValue::Decimal(value)) => {
+        (SqliteReferenceColumnKind::Decimal, icydb::value::PublicValue::Decimal(value)) => {
             NormalizedCell::Decimal {
                 coefficient: value.mantissa(),
                 scale: value.scale(),
             }
         }
-        (SqliteReferenceColumnKind::Integer, OutputValue::Int64(value)) => {
+        (SqliteReferenceColumnKind::Integer, icydb::value::PublicValue::Int64(value)) => {
             NormalizedCell::Int(i128::from(value))
         }
-        (SqliteReferenceColumnKind::Integer, OutputValue::Int128(value)) => {
+        (SqliteReferenceColumnKind::Integer, icydb::value::PublicValue::Int128(value)) => {
             let value = i64::try_from(value).map_err(|_| {
                 format!(
                     "scenario {:?} column {column} returned non-SQLite Int128 {value}",
@@ -1341,7 +1343,7 @@ fn normalize_live_projection_value(
             })?;
             NormalizedCell::Int(i128::from(value))
         }
-        (SqliteReferenceColumnKind::Integer, OutputValue::Nat64(value)) => {
+        (SqliteReferenceColumnKind::Integer, icydb::value::PublicValue::Nat64(value)) => {
             let value = i64::try_from(value).map_err(|_| {
                 format!(
                     "scenario {:?} column {column} returned non-SQLite Nat64 {value}",
@@ -1350,7 +1352,7 @@ fn normalize_live_projection_value(
             })?;
             NormalizedCell::Int(i128::from(value))
         }
-        (SqliteReferenceColumnKind::Integer, OutputValue::Nat128(value)) => {
+        (SqliteReferenceColumnKind::Integer, icydb::value::PublicValue::Nat128(value)) => {
             let value = i64::try_from(value).map_err(|_| {
                 format!(
                     "scenario {:?} column {column} returned non-SQLite Nat128 {value}",
@@ -1359,7 +1361,9 @@ fn normalize_live_projection_value(
             })?;
             NormalizedCell::Int(i128::from(value))
         }
-        (SqliteReferenceColumnKind::Text, OutputValue::Text(value)) => NormalizedCell::Text(value),
+        (SqliteReferenceColumnKind::Text, icydb::value::PublicValue::Text(value)) => {
+            NormalizedCell::Text(value)
+        }
         (kind, value) => {
             return Err(format!(
                 "scenario {:?} column {column} returned {value:?} for {kind:?}",
@@ -1435,7 +1439,7 @@ fn sql_canister_sqlite_normalization_preserves_exact_decimal_identity() {
         scenario,
         0,
         SqliteReferenceColumnKind::Decimal,
-        OutputValue::Decimal(Decimal::new(123, 2)),
+        OutputValue::decimal(Decimal::new(123, 2)),
     )
     .expect("exact decimal output should normalize without coercion");
     assert_eq!(actual, expected);
@@ -3539,9 +3543,9 @@ fn u256_arithmetic_and_sum_clear_the_exact_canister_instruction_gate() {
     assert_eq!(
         u256_projection.rows,
         vec![
-            vec![OutputValue::U256(U256::from(5_u64))],
-            vec![OutputValue::U256(U256::from(5_u64))],
-            vec![OutputValue::U256(U256::from(5_u64))],
+            vec![OutputValue::u256(U256::from(5_u64))],
+            vec![OutputValue::u256(U256::from(5_u64))],
+            vec![OutputValue::u256(U256::from(5_u64))],
         ],
     );
 
@@ -3559,7 +3563,7 @@ fn u256_arithmetic_and_sum_clear_the_exact_canister_instruction_gate() {
     let u256_sum = expect_projection(u256_sum.result.expect("measured U256 SUM should execute"));
     assert_eq!(
         u256_sum.rows,
-        vec![vec![OutputValue::U256(U256::from(6_u64))]],
+        vec![vec![OutputValue::u256(U256::from(6_u64))]],
     );
 
     let nat64_sum = measure_query_sql(&fixture, "SELECT SUM(age) FROM SqlTestUser");
@@ -3606,9 +3610,9 @@ fn prepare_u256_closeout_rows(fixture: &StandaloneCanisterFixture) -> DdlSchemaV
     assert_eq!(
         defaults.rows,
         vec![
-            vec![OutputValue::U256(U256::from(2_u64)), OutputValue::Null],
-            vec![OutputValue::U256(U256::from(2_u64)), OutputValue::Null],
-            vec![OutputValue::U256(U256::from(2_u64)), OutputValue::Null],
+            vec![OutputValue::u256(U256::from(2_u64)), OutputValue::null()],
+            vec![OutputValue::u256(U256::from(2_u64)), OutputValue::null()],
+            vec![OutputValue::u256(U256::from(2_u64)), OutputValue::null()],
         ],
     );
 
@@ -3673,19 +3677,19 @@ fn publish_u256_closeout_constraints_and_indexes(
 fn expected_u256_closeout_rows() -> Vec<Vec<OutputValue>> {
     vec![
         vec![
-            OutputValue::Text("alice".to_string()),
-            OutputValue::U256(U256::ZERO),
-            OutputValue::Null,
+            OutputValue::text("alice".to_string()),
+            OutputValue::u256(U256::ZERO),
+            OutputValue::null(),
         ],
         vec![
-            OutputValue::Text("bob".to_string()),
-            OutputValue::U256(U256::ONE),
-            OutputValue::U256(U256::ONE),
+            OutputValue::text("bob".to_string()),
+            OutputValue::u256(U256::ONE),
+            OutputValue::u256(U256::ONE),
         ],
         vec![
-            OutputValue::Text("charlie".to_string()),
-            OutputValue::U256(U256::from(7_u64)),
-            OutputValue::U256(U256::MAX),
+            OutputValue::text("charlie".to_string()),
+            OutputValue::u256(U256::from(7_u64)),
+            OutputValue::u256(U256::MAX),
         ],
     ]
 }
@@ -3710,8 +3714,8 @@ fn assert_u256_closeout_queries(fixture: &StandaloneCanisterFixture) -> RowProje
     assert_eq!(
         descending.rows,
         vec![
-            vec![OutputValue::U256(U256::from(7_u64))],
-            vec![OutputValue::U256(U256::ONE)],
+            vec![OutputValue::u256(U256::from(7_u64))],
+            vec![OutputValue::u256(U256::ONE)],
         ],
     );
 
@@ -3725,9 +3729,9 @@ fn assert_u256_closeout_queries(fixture: &StandaloneCanisterFixture) -> RowProje
     assert_eq!(
         case_projection.rows,
         vec![
-            vec![OutputValue::U256(U256::from(7_u64))],
-            vec![OutputValue::U256(U256::ONE)],
-            vec![OutputValue::U256(U256::from(7_u64))],
+            vec![OutputValue::u256(U256::from(7_u64))],
+            vec![OutputValue::u256(U256::ONE)],
+            vec![OutputValue::u256(U256::from(7_u64))],
         ],
     );
 
@@ -3751,7 +3755,7 @@ fn assert_u256_closeout_queries(fixture: &StandaloneCanisterFixture) -> RowProje
         query_sql(fixture, "SELECT SUM(amount) FROM SqlTestUser")
             .expect("global checked U256 SUM should execute"),
     );
-    assert_eq!(sum.rows, vec![vec![OutputValue::U256(U256::from(8_u64))]],);
+    assert_eq!(sum.rows, vec![vec![OutputValue::u256(U256::from(8_u64))]],);
 
     let indexed = query_sql(
         fixture,

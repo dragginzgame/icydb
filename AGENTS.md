@@ -68,9 +68,10 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Make the smallest safe patch that satisfies the request.
 - Do not perform opportunistic refactors; list them as follow-up instead.
 - Before implementing a minor-version line, ensure its design/status tracker
-  groups the whole line into 1-12 meaningful landing patches. Use the number
-  justified by the work; there is no preferred target within that range.
-  Multiple design documents in the same minor share the same 12-patch maximum.
+  groups the then-intended line into a practical set of meaningful landing
+  patches, normally 1-12. This is an initial planning range, not a lifetime cap:
+  new evidence and explicit authorization may extend the tracker without
+  widening, renumbering, or combining otherwise independent landing patches.
 - Make each landing patch substantive and end-to-end: one bounded outcome plus
   its direct tests, diagnostics, docs, fixtures, and mechanical propagation.
   Do not create micro-patches for fallout from the same change, and do not

@@ -329,7 +329,10 @@ fn traverse_exhaustive_continuation_fixture(fixture: &StandaloneCanisterFixture)
 
 fn append_dense_page_ids(ids: &mut Vec<i64>, rows: &[Vec<OutputValue>]) {
     for row in rows {
-        let [OutputValue::Int64(id)] = row.as_slice() else {
+        let [id] = row.as_slice() else {
+            panic!("continuation fixture must return one Int64 id column");
+        };
+        let icydb::value::PublicValue::Int64(id) = id.as_public() else {
             panic!("continuation fixture must return one Int64 id column");
         };
         let expected = i64::try_from(ids.len()).expect("fixture row count fits i64") + 1;

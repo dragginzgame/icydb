@@ -16,7 +16,7 @@ fn structural_mutation_batch_compiles_without_sql<C>(
     let patch = StructuralPatch::new()
         .field(
             "name",
-            WriteCell::Value(InputValue::Text("Ada".to_string())),
+            WriteCell::Value(InputValue::text("Ada".to_string())),
         )
         .field("score", WriteCell::Default)
         .field("nickname", WriteCell::Null);
@@ -30,7 +30,7 @@ fn structural_mutation_batch_compiles_without_sql<C>(
         mutation,
         StructuralMutation::Delete {
             entity: "User".to_string(),
-            key: InputValue::Nat64(1),
+            key: InputValue::nat64(1),
         },
     ];
 

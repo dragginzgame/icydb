@@ -133,7 +133,7 @@ mod tests {
         let current = LiveQueryPageOutput {
             entity: "example".to_string(),
             columns: vec!["id".to_string()],
-            rows: vec![vec![OutputValue::Nat64(7)]],
+            rows: vec![vec![OutputValue::nat64(7)]],
             row_count: 1,
             continuation: Some("opaque".to_string()),
             work: ScalarPageWork {
@@ -178,7 +178,7 @@ mod tests {
         let current = ExhaustiveQueryPageOutput {
             entity: "example".to_string(),
             columns: vec!["id".to_string()],
-            rows: vec![vec![OutputValue::Nat64(7)]],
+            rows: vec![vec![OutputValue::nat64(7)]],
             row_count: 1,
             continuation: Some("opaque".to_string()),
             work: ScalarPageWork {

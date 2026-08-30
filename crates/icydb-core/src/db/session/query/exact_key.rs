@@ -528,7 +528,7 @@ mod tests {
 
     #[test]
     fn exact_key_result_bytes_charge_original_duplicate_positions() {
-        let row = Some(vec![OutputValue::Text(
+        let row = Some(vec![OutputValue::text(
             "x".repeat(MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES / 2),
         )]);
         let rows = vec![row];

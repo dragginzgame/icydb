@@ -3344,7 +3344,7 @@ mod tests {
             },
         },
     };
-    use crate::value::{EnumTypeId, InputValue, InputValueEnum, Value};
+    use crate::value::{EnumTypeId, InputValue, PublicEnumValue, PublicValue, Value};
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, DeclaredEntityVersion, EntityFragment,
         EntitySourceKey, EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment,
@@ -5501,47 +5501,52 @@ mod tests {
             policy_field.storage_decode(),
             policy_field.leaf_codec(),
         );
-        let finite_value = InputValue::Map(vec![
+        let finite_value = InputValue::from_public(PublicValue::Map(vec![
             (
-                InputValue::Text("claim_cost_tiers".to_string()),
-                InputValue::Map(vec![
+                PublicValue::Text("claim_cost_tiers".to_string()),
+                PublicValue::Map(vec![
                     (
-                        InputValue::Text("free".to_string()),
-                        InputValue::Enum(InputValueEnum::loose("Free")),
+                        PublicValue::Text("free".to_string()),
+                        PublicValue::Enum(PublicEnumValue::loose("Free")),
                     ),
                     (
-                        InputValue::Text("gold".to_string()),
-                        InputValue::Enum(
-                            InputValueEnum::loose("Icp").with_payload(InputValue::Nat64(10)),
+                        PublicValue::Text("gold".to_string()),
+                        PublicValue::Enum(
+                            PublicEnumValue::loose("Icp").with_payload(PublicValue::Nat64(10)),
                         ),
                     ),
                     (
-                        InputValue::Text("silver".to_string()),
-                        InputValue::Enum(
-                            InputValueEnum::loose("Icrc1").with_payload(InputValue::Nat64(20)),
+                        PublicValue::Text("silver".to_string()),
+                        PublicValue::Enum(
+                            PublicEnumValue::loose("Icrc1").with_payload(PublicValue::Nat64(20)),
                         ),
                     ),
                 ]),
             ),
-            (InputValue::Text("fallback".to_string()), InputValue::Null),
+            (PublicValue::Text("fallback".to_string()), PublicValue::Null),
             (
-                InputValue::Text("values".to_string()),
-                InputValue::Map(vec![(
-                    InputValue::Text("root".to_string()),
-                    InputValue::Enum(InputValueEnum::loose("One").with_payload(InputValue::Enum(
-                        InputValueEnum::loose("Record").with_payload(InputValue::Map(vec![(
-                            InputValue::Text("nested".to_string()),
-                            InputValue::Enum(InputValueEnum::loose("Many").with_payload(
-                                InputValue::List(vec![InputValue::Enum(
-                                        InputValueEnum::loose("Text")
-                                            .with_payload(InputValue::Text("leaf".to_string())),
-                                    )]),
-                            )),
-                        )])),
-                    ))),
+                PublicValue::Text("values".to_string()),
+                PublicValue::Map(vec![(
+                    PublicValue::Text("root".to_string()),
+                    PublicValue::Enum(PublicEnumValue::loose("One").with_payload(
+                        PublicValue::Enum(PublicEnumValue::loose("Record").with_payload(
+                            PublicValue::Map(vec![(
+                                PublicValue::Text("nested".to_string()),
+                                PublicValue::Enum(PublicEnumValue::loose("Many").with_payload(
+                                    PublicValue::List(vec![
+                                        PublicValue::Enum(
+                                            PublicEnumValue::loose("Text").with_payload(
+                                                PublicValue::Text("leaf".to_string()),
+                                            ),
+                                        ),
+                                    ]),
+                                )),
+                            )]),
+                        )),
+                    )),
                 )]),
             ),
-        ]);
+        ]));
         let mut budget = ValueAdmissionBudget::standard();
         let encoded = encode_input_value_for_candidate_field_contract(
             bundle.enum_catalog(),
@@ -5573,14 +5578,14 @@ mod tests {
             super::FieldStorageDecode::CatalogValue,
         )
         .expect("Values contract should resolve");
-        let mut nested = InputValue::Enum(
-            InputValueEnum::loose("Text").with_payload(InputValue::Text("leaf".to_string())),
+        let mut nested = PublicValue::Enum(
+            PublicEnumValue::loose("Text").with_payload(PublicValue::Text("leaf".to_string())),
         );
         for level in 0..=super::MAX_ACCEPTED_RECURSIVE_DEPTH {
-            nested = InputValue::Enum(InputValueEnum::loose("Record").with_payload(
-                InputValue::Map(vec![(
-                    InputValue::Text(format!("level-{level}")),
-                    InputValue::Enum(InputValueEnum::loose("One").with_payload(nested)),
+            nested = PublicValue::Enum(PublicEnumValue::loose("Record").with_payload(
+                PublicValue::Map(vec![(
+                    PublicValue::Text(format!("level-{level}")),
+                    PublicValue::Enum(PublicEnumValue::loose("One").with_payload(nested)),
                 )]),
             ));
         }
@@ -5589,10 +5594,10 @@ mod tests {
             bundle.enum_catalog(),
             bundle.composite_catalog(),
             &values_contract,
-            InputValue::Map(vec![(
-                InputValue::Text("root".to_string()),
-                InputValue::Enum(InputValueEnum::loose("One").with_payload(nested)),
-            )]),
+            InputValue::from_public(PublicValue::Map(vec![(
+                PublicValue::Text("root".to_string()),
+                PublicValue::Enum(PublicEnumValue::loose("One").with_payload(nested)),
+            )])),
             &mut budget,
         )
         .expect_err("an excessive runtime value depth should reject");

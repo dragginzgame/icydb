@@ -13,7 +13,7 @@ use crate::{
         },
     },
     types::Decimal,
-    value::{CanonicalEnumBody, InputValue, InputValueEnum, Value, ValueEnum},
+    value::{CanonicalEnumBody, InputValue, PublicEnumValue, PublicValue, Value, ValueEnum},
 };
 use std::cmp::Ordering;
 
@@ -152,7 +152,7 @@ pub(in crate::db::schema) fn normalize_and_admit_nullable_value(
     input: InputValue,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<AdmittedOwnedValue, ValueAdmissionError> {
-    if !matches!(&input, InputValue::Null) {
+    if !matches!(input.as_public(), PublicValue::Null) {
         return normalize_and_admit_value(catalog, contract, input, budget);
     }
 
@@ -198,7 +198,7 @@ pub(in crate::db) fn normalize_candidate_value(
             composites: composite_catalog,
         },
         contract.kind(),
-        input,
+        input.into_public(),
         0,
         budget,
     )
@@ -214,7 +214,8 @@ fn normalize_nullable_value(
     if catalog.revision() == AcceptedSchemaRevision::NONE {
         return Err(ValueAdmissionError::MissingSchemaRevision);
     }
-    if matches!(&input, InputValue::Null) {
+    let input = input.into_public();
+    if matches!(&input, PublicValue::Null) {
         if !nullable {
             return Err(ValueAdmissionError::TypeMismatch);
         }
@@ -339,7 +340,7 @@ pub(in crate::db::schema) fn validate_nullable_canonical_value<'a>(
 fn normalize_contract(
     catalogs: AdmissionCatalogs<'_>,
     contract: &AcceptedValueContract,
-    input: InputValue,
+    input: PublicValue,
     depth: u16,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<CanonicalValue, ValueAdmissionError> {
@@ -353,141 +354,141 @@ fn normalize_contract(
 fn normalize_kind(
     catalogs: AdmissionCatalogs<'_>,
     kind: &AcceptedFieldKind,
-    input: InputValue,
+    input: PublicValue,
     depth: u16,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<CanonicalValue, ValueAdmissionError> {
     budget.enter(depth)?;
     match (kind, input) {
-        (AcceptedFieldKind::Account, InputValue::Account(value)) => {
+        (AcceptedFieldKind::Account, PublicValue::Account(value)) => {
             budget.consume(64)?;
             Ok(CanonicalValue::Account(value))
         }
-        (AcceptedFieldKind::Blob { max_len }, InputValue::Blob(value)) => {
+        (AcceptedFieldKind::Blob { max_len }, PublicValue::Blob(value)) => {
             ensure_max_len(value.len(), *max_len)?;
             budget.consume(5_usize.saturating_add(value.len()))?;
             Ok(CanonicalValue::Blob(value))
         }
-        (AcceptedFieldKind::Bool, InputValue::Bool(value)) => {
+        (AcceptedFieldKind::Bool, PublicValue::Bool(value)) => {
             budget.consume(2)?;
             Ok(CanonicalValue::Bool(value))
         }
-        (AcceptedFieldKind::Date, InputValue::Date(value)) => {
+        (AcceptedFieldKind::Date, PublicValue::Date(value)) => {
             budget.consume(9)?;
             Ok(CanonicalValue::Date(value))
         }
-        (AcceptedFieldKind::Decimal { scale }, InputValue::Decimal(value)) => {
+        (AcceptedFieldKind::Decimal { scale }, PublicValue::Decimal(value)) => {
             budget.consume(21)?;
             normalize_decimal(value, *scale).map(CanonicalValue::Decimal)
         }
-        (AcceptedFieldKind::Duration, InputValue::Duration(value)) => {
+        (AcceptedFieldKind::Duration, PublicValue::Duration(value)) => {
             budget.consume(9)?;
             Ok(CanonicalValue::Duration(value))
         }
-        (AcceptedFieldKind::Enum { type_id }, InputValue::Enum(value)) => {
+        (AcceptedFieldKind::Enum { type_id }, PublicValue::Enum(value)) => {
             normalize_enum(catalogs, *type_id, value, depth, budget).map(CanonicalValue::Enum)
         }
-        (AcceptedFieldKind::Float32, InputValue::Float32(value)) => {
+        (AcceptedFieldKind::Float32, PublicValue::Float32(value)) => {
             budget.consume(5)?;
             Ok(CanonicalValue::Float32(value))
         }
-        (AcceptedFieldKind::Float64, InputValue::Float64(value)) => {
+        (AcceptedFieldKind::Float64, PublicValue::Float64(value)) => {
             budget.consume(9)?;
             Ok(CanonicalValue::Float64(value))
         }
-        (AcceptedFieldKind::Int8, InputValue::Int64(value)) if i8::try_from(value).is_ok() => {
+        (AcceptedFieldKind::Int8, PublicValue::Int64(value)) if i8::try_from(value).is_ok() => {
             budget.consume(2)?;
             Ok(CanonicalValue::Int64(value))
         }
-        (AcceptedFieldKind::Int16, InputValue::Int64(value)) if i16::try_from(value).is_ok() => {
+        (AcceptedFieldKind::Int16, PublicValue::Int64(value)) if i16::try_from(value).is_ok() => {
             budget.consume(3)?;
             Ok(CanonicalValue::Int64(value))
         }
-        (AcceptedFieldKind::Int32, InputValue::Int64(value)) if i32::try_from(value).is_ok() => {
+        (AcceptedFieldKind::Int32, PublicValue::Int64(value)) if i32::try_from(value).is_ok() => {
             budget.consume(5)?;
             Ok(CanonicalValue::Int64(value))
         }
-        (AcceptedFieldKind::Int64, InputValue::Int64(value)) => {
+        (AcceptedFieldKind::Int64, PublicValue::Int64(value)) => {
             budget.consume(9)?;
             Ok(CanonicalValue::Int64(value))
         }
-        (AcceptedFieldKind::Int128, InputValue::Int128(value)) => {
+        (AcceptedFieldKind::Int128, PublicValue::Int128(value)) => {
             budget.consume(17)?;
             Ok(CanonicalValue::Int128(value))
         }
-        (AcceptedFieldKind::IntBig { max_bytes }, InputValue::IntBig(value)) => {
+        (AcceptedFieldKind::IntBig { max_bytes }, PublicValue::IntBig(value)) => {
             let bytes = value.to_leb128().len();
             ensure_max_len(bytes, Some(*max_bytes))?;
             budget.consume(5_usize.saturating_add(bytes))?;
             Ok(CanonicalValue::IntBig(value))
         }
-        (AcceptedFieldKind::Principal, InputValue::Principal(value)) => {
+        (AcceptedFieldKind::Principal, PublicValue::Principal(value)) => {
             budget.consume(32)?;
             Ok(CanonicalValue::Principal(value))
         }
-        (AcceptedFieldKind::Subaccount, InputValue::Subaccount(value)) => {
+        (AcceptedFieldKind::Subaccount, PublicValue::Subaccount(value)) => {
             budget.consume(33)?;
             Ok(CanonicalValue::Subaccount(value))
         }
-        (AcceptedFieldKind::Text { max_len }, InputValue::Text(value)) => {
+        (AcceptedFieldKind::Text { max_len }, PublicValue::Text(value)) => {
             ensure_text_max_len(value.as_str(), *max_len)?;
             budget.consume(5_usize.saturating_add(value.len()))?;
             Ok(CanonicalValue::Text(value))
         }
-        (AcceptedFieldKind::Timestamp, InputValue::Timestamp(value)) => {
+        (AcceptedFieldKind::Timestamp, PublicValue::Timestamp(value)) => {
             budget.consume(9)?;
             Ok(CanonicalValue::Timestamp(value))
         }
-        (AcceptedFieldKind::Nat8, InputValue::Nat64(value)) if u8::try_from(value).is_ok() => {
+        (AcceptedFieldKind::Nat8, PublicValue::Nat64(value)) if u8::try_from(value).is_ok() => {
             budget.consume(2)?;
             Ok(CanonicalValue::Nat64(value))
         }
-        (AcceptedFieldKind::Nat16, InputValue::Nat64(value)) if u16::try_from(value).is_ok() => {
+        (AcceptedFieldKind::Nat16, PublicValue::Nat64(value)) if u16::try_from(value).is_ok() => {
             budget.consume(3)?;
             Ok(CanonicalValue::Nat64(value))
         }
-        (AcceptedFieldKind::Nat32, InputValue::Nat64(value)) if u32::try_from(value).is_ok() => {
+        (AcceptedFieldKind::Nat32, PublicValue::Nat64(value)) if u32::try_from(value).is_ok() => {
             budget.consume(5)?;
             Ok(CanonicalValue::Nat64(value))
         }
-        (AcceptedFieldKind::Nat64, InputValue::Nat64(value)) => {
+        (AcceptedFieldKind::Nat64, PublicValue::Nat64(value)) => {
             budget.consume(9)?;
             Ok(CanonicalValue::Nat64(value))
         }
-        (AcceptedFieldKind::Nat128, InputValue::Nat128(value)) => {
+        (AcceptedFieldKind::Nat128, PublicValue::Nat128(value)) => {
             budget.consume(17)?;
             Ok(CanonicalValue::Nat128(value))
         }
-        (AcceptedFieldKind::NatBig { max_bytes }, InputValue::NatBig(value)) => {
+        (AcceptedFieldKind::NatBig { max_bytes }, PublicValue::NatBig(value)) => {
             let bytes = value.to_leb128().len();
             ensure_max_len(bytes, Some(*max_bytes))?;
             budget.consume(5_usize.saturating_add(bytes))?;
             Ok(CanonicalValue::NatBig(value))
         }
-        (AcceptedFieldKind::Ulid, InputValue::Ulid(value)) => {
+        (AcceptedFieldKind::Ulid, PublicValue::Ulid(value)) => {
             budget.consume(17)?;
             Ok(CanonicalValue::Ulid(value))
         }
-        (AcceptedFieldKind::Unit, InputValue::Unit) => {
+        (AcceptedFieldKind::Unit, PublicValue::Unit) => {
             budget.consume(1)?;
             Ok(CanonicalValue::Unit)
         }
-        (AcceptedFieldKind::U256, InputValue::U256(value)) => {
+        (AcceptedFieldKind::U256, PublicValue::U256(value)) => {
             budget.consume(33)?;
             Ok(CanonicalValue::U256(value))
         }
         (AcceptedFieldKind::Relation { key_kind, .. }, input) => {
             normalize_kind(catalogs, key_kind, input, depth.saturating_add(1), budget)
         }
-        (AcceptedFieldKind::List(inner), InputValue::List(items)) => {
+        (AcceptedFieldKind::List(inner), PublicValue::List(items)) => {
             budget.consume(5)?;
             normalize_list(catalogs, inner, items, depth, budget, false)
         }
-        (AcceptedFieldKind::Set(inner), InputValue::List(items)) => {
+        (AcceptedFieldKind::Set(inner), PublicValue::List(items)) => {
             budget.consume(5)?;
             normalize_list(catalogs, inner, items, depth, budget, true)
         }
-        (AcceptedFieldKind::Map { key, value }, InputValue::Map(entries)) => {
+        (AcceptedFieldKind::Map { key, value }, PublicValue::Map(entries)) => {
             budget.consume(5)?;
             normalize_map(catalogs, key, value, entries, depth, budget)
         }
@@ -501,7 +502,7 @@ fn normalize_kind(
 fn normalize_list(
     catalogs: AdmissionCatalogs<'_>,
     kind: &AcceptedFieldKind,
-    items: Vec<InputValue>,
+    items: Vec<PublicValue>,
     depth: u16,
     budget: &mut ValueAdmissionBudget,
     is_set: bool,
@@ -530,7 +531,7 @@ fn normalize_map(
     catalogs: AdmissionCatalogs<'_>,
     key_kind: &AcceptedFieldKind,
     value_kind: &AcceptedFieldKind,
-    entries: Vec<(InputValue, InputValue)>,
+    entries: Vec<(PublicValue, PublicValue)>,
     depth: u16,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<CanonicalValue, ValueAdmissionError> {
@@ -555,7 +556,7 @@ fn normalize_map(
 fn normalize_enum(
     catalogs: AdmissionCatalogs<'_>,
     expected_type_id: EnumTypeId,
-    input: InputValueEnum,
+    input: PublicEnumValue,
     depth: u16,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<AdmittedEnumValue, ValueAdmissionError> {
@@ -599,7 +600,7 @@ fn normalize_enum(
 fn normalize_composite(
     catalogs: AdmissionCatalogs<'_>,
     type_id: CompositeTypeId,
-    input: InputValue,
+    input: PublicValue,
     depth: u16,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<CanonicalValue, ValueAdmissionError> {
@@ -608,7 +609,7 @@ fn normalize_composite(
         .composite_type(type_id)
         .ok_or(ValueAdmissionError::UnknownCompositeType)?;
     match (definition.shape(), input) {
-        (AcceptedCompositeShape::Record(fields), InputValue::Map(entries)) => {
+        (AcceptedCompositeShape::Record(fields), PublicValue::Map(entries)) => {
             budget.consume(5)?;
             budget.consume(entries.len().saturating_mul(2))?;
             if entries.len() != fields.len() {
@@ -616,7 +617,7 @@ fn normalize_composite(
             }
             let mut authored = Vec::with_capacity(entries.len());
             for (key, value) in entries {
-                let InputValue::Text(name) = key else {
+                let PublicValue::Text(name) = key else {
                     return Err(ValueAdmissionError::CompositeFieldMismatch);
                 };
                 budget.consume(5_usize.saturating_add(name.len()))?;
@@ -645,7 +646,7 @@ fn normalize_composite(
             }
             Ok(CanonicalValue::Map(values))
         }
-        (AcceptedCompositeShape::Tuple(elements), InputValue::List(values)) => {
+        (AcceptedCompositeShape::Tuple(elements), PublicValue::List(values)) => {
             budget.consume(5)?;
             budget.consume(values.len())?;
             if values.len() != elements.len() {
@@ -676,11 +677,11 @@ fn normalize_composite(
 fn normalize_composite_element(
     catalogs: AdmissionCatalogs<'_>,
     element: &AcceptedCompositeElement,
-    input: InputValue,
+    input: PublicValue,
     depth: u16,
     budget: &mut ValueAdmissionBudget,
 ) -> Result<CanonicalValue, ValueAdmissionError> {
-    if matches!(input, InputValue::Null) {
+    if matches!(input, PublicValue::Null) {
         if !element.nullable() {
             return Err(ValueAdmissionError::TypeMismatch);
         }

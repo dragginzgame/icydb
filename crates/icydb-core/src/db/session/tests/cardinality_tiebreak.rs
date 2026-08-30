@@ -483,8 +483,8 @@ fn unavailable_fallback_refreshes_only_on_lifecycle_change_and_keeps_cursor_rout
 fn selective_dynamic_query() -> DynamicQuery {
     DynamicQuery::new(ENTITY_NAME)
         .filter(FilterExpr::and(vec![
-            FieldRef::new("common").eq(InputValue::Text("everyone".to_string())),
-            FieldRef::new("rare").eq(InputValue::Text("group-a".to_string())),
+            FieldRef::new("common").eq(InputValue::text("everyone".to_string())),
+            FieldRef::new("rare").eq(InputValue::text("group-a".to_string())),
         ]))
         .select(["id"])
         .order_by(asc("id"))
@@ -700,31 +700,31 @@ fn row(id: u64, common: &str, rare: &str) -> DynamicStructuralPatch {
     DynamicStructuralPatch::new(vec![
         (
             "id".to_string(),
-            DynamicWriteCell::Value(InputValue::Nat64(id)),
+            DynamicWriteCell::Value(InputValue::nat64(id)),
         ),
         (
             "common".to_string(),
-            DynamicWriteCell::Value(InputValue::Text(common.to_string())),
+            DynamicWriteCell::Value(InputValue::text(common.to_string())),
         ),
         (
             "rare".to_string(),
-            DynamicWriteCell::Value(InputValue::Text(rare.to_string())),
+            DynamicWriteCell::Value(InputValue::text(rare.to_string())),
         ),
         (
             "wide_fixed".to_string(),
-            DynamicWriteCell::Value(InputValue::Text("all".to_string())),
+            DynamicWriteCell::Value(InputValue::text("all".to_string())),
         ),
         (
             "wide_branch".to_string(),
-            DynamicWriteCell::Value(InputValue::Text(branch.to_string())),
+            DynamicWriteCell::Value(InputValue::text(branch.to_string())),
         ),
         (
             "selective_fixed".to_string(),
-            DynamicWriteCell::Value(InputValue::Text(selective_fixed.to_string())),
+            DynamicWriteCell::Value(InputValue::text(selective_fixed.to_string())),
         ),
         (
             "selective_branch".to_string(),
-            DynamicWriteCell::Value(InputValue::Text(branch.to_string())),
+            DynamicWriteCell::Value(InputValue::text(branch.to_string())),
         ),
     ])
 }

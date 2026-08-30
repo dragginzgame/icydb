@@ -42,10 +42,13 @@ These rules are intended to guide automated agents and code review.
 # 2. Minor-Line Patch Contract
 
 Before implementation begins, the design/status tracker for a minor-version
-line must group the whole intended line into 1-12 ordered landing patches.
-There is no preferred count within that range: use the number justified by the
-actual dependency and review boundaries. Multiple design documents in the same
-minor line share the same 12-patch maximum.
+line must group the then-intended work into an ordered set of landing patches.
+Normally plan 1-12: there is no preferred count within that range, so use the
+number justified by the actual dependency and review boundaries. This is an
+initial planning guideline, not a hard lifetime cap. New evidence and explicit
+authorization may extend the tracker beyond 12; record why the additional
+patches were not part of the earlier plan instead of widening, renumbering, or
+combining independent outcomes.
 
 The range prevents both dozens of tiny pushes and an unreviewable multi-hour
 mega-slice. It is not a reason to split one coherent outcome or combine
@@ -97,9 +100,11 @@ Do not infer that authorization from a roadmap, an existing next design, an
 empty tracker, a clean worktree, a successful push, or status questions such
 as `what is next?`, `are we done?`, or `push?`.
 
-If the line needs more than 12 honest patches, re-scope it and explain the new
-boundary in the tracker. Do not make each patch wider to preserve an oversized
-plan, and do not manufacture micro-patches solely to hit a number.
+If the initial line appears to need more than 12 honest patches, review its
+scope and explain the chosen boundary in the tracker. Do not make each patch
+wider to hit a planning range, and do not manufacture micro-patches solely to
+hit a number. Later evidence-backed extensions remain in the same explicitly
+authorized minor when that produces the clearest release history.
 
 A completed landing patch is normally handed back as a candidate push for the
 next patch release in the minor line. Agents must not invent release numbers;

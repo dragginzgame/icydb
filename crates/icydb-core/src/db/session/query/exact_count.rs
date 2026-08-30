@@ -14,7 +14,11 @@ use crate::{
             EntityAuthority, ExactCardinalityTarget, execute_exact_cardinality_for_canister,
         },
         index::UserIndexPrefixCardinalityKey,
-        query::{expr::FilterExpr, intent::StructuralQuery, plan::VisibleIndexes},
+        query::{
+            expr::{CompareOperator, FilterExpr, SetOperator},
+            intent::StructuralQuery,
+            plan::VisibleIndexes,
+        },
         schema::SchemaInfo,
         session::AcceptedSchemaCatalogContext,
     },
@@ -77,9 +81,15 @@ impl<C: CanisterKind> DbSession<C> {
         }
         match request.filter_expr() {
             None => return Ok(ExactCountPlan::Entity),
-            Some(FilterExpr::Eq { .. }) => {}
-            Some(FilterExpr::In { values, .. })
-                if !values.is_empty() && values.len() <= MAX_INDEX_BRANCH_SET_VALUES => {}
+            Some(FilterExpr::Compare {
+                operator: CompareOperator::Eq,
+                ..
+            }) => {}
+            Some(FilterExpr::Set {
+                operator: SetOperator::In,
+                values,
+                ..
+            }) if !values.is_empty() && values.len() <= MAX_INDEX_BRANCH_SET_VALUES => {}
             Some(_) => return Err(QueryError::unsupported_query()),
         }
 

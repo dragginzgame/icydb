@@ -64,10 +64,7 @@ let pred = FieldRef::new("age").gt(5u64);
 // Facade API (FilterExpr): ordering uses NumericWiden.
 // Runtime field value: Value::Int64(10), predicate: age > Value::Nat64(5)
 // returns true after numeric widen.
-let pred = FilterExpr::Gt {
-    field: "age".to_string(),
-    value: Value::Nat64(5),
-};
+let pred = FilterExpr::gt("age", 5_u64);
 ```
 
 ### Core Data Model

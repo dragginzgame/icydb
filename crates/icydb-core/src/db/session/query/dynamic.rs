@@ -24,7 +24,7 @@ use crate::{
         },
         query::{
             admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
-            expr::{FilterExpr, OrderTerm as FluentOrderTerm},
+            expr::{CompareOperator, FilterExpr, OrderTerm as FluentOrderTerm, SetOperator},
             intent::{IntentError, StructuralQuery},
             plan::CardinalityTiebreakRoutePin,
         },
@@ -89,7 +89,17 @@ impl<C: CanisterKind> DbSession<C> {
         };
         matches!(
             request.filter_expr(),
-            Some(FilterExpr::Eq { field, .. } | FilterExpr::In { field, .. })
+            Some(
+                FilterExpr::Compare {
+                    operator: CompareOperator::Eq,
+                    field,
+                    ..
+                } | FilterExpr::Set {
+                    operator: SetOperator::In,
+                    field,
+                    ..
+                }
+            )
                 if field.eq_ignore_ascii_case(primary_key)
         )
     }

@@ -110,7 +110,7 @@ pub(super) fn sql_write_input_for_accepted_field(
         return accepted_field
             .decode_contract()
             .nullable()
-            .then_some(InputValue::Null)
+            .then_some(InputValue::null())
             .ok_or_else(invalid_sql_write_field_literal);
     }
 
@@ -228,10 +228,7 @@ mod tests {
             sql_write_input_for_accepted_kind(&enum_kind(), &Value::Text("Active".to_string()))
                 .expect("target-typed enum string should become authored input");
 
-        assert_eq!(
-            input,
-            InputValue::Enum(crate::value::InputValueEnum::loose("Active"))
-        );
+        assert_eq!(input, InputValue::loose_enum("Active"));
     }
 
     #[test]
@@ -249,10 +246,7 @@ mod tests {
                 sql_write_input_for_accepted_kind(&enum_kind(), &Value::Text(variant.to_string()))
                     .expect("enum text should remain unresolved until catalog admission");
 
-            assert_eq!(
-                input,
-                InputValue::Enum(crate::value::InputValueEnum::loose(variant))
-            );
+            assert_eq!(input, InputValue::loose_enum(variant));
         }
     }
 }

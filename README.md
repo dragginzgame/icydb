@@ -291,12 +291,12 @@ pub fn rename_user(
     let session = db!()?;
     let patch = session.structural_patch([(
         User::NAME.as_str(),
-        icydb::db::WriteCell::Value(InputValue::Text(name)),
+        icydb::db::WriteCell::Value(InputValue::text(name)),
     )]);
     let result = session.execute_trusted_structural_mutation(
         icydb::db::StructuralMutation::Update {
             entity: <User as icydb::traits::EntitySource>::ENTITY.to_string(),
-            key: InputValue::Ulid(id),
+            key: InputValue::ulid(id),
             patch,
         },
     )?;

@@ -388,7 +388,7 @@ fn encode_authored_value_for_accepted_field_contract(
     encoding: AcceptedFieldPersistenceContract<'_>,
     input: InputValue,
 ) -> Result<Vec<u8>, InternalError> {
-    if matches!(input, InputValue::Null) {
+    if input.is_null() {
         constraint_context
             .constraints
             .evaluate_accepted_not_null_before_encoding(constraint_context.fingerprint, slot)
@@ -1136,7 +1136,7 @@ mod tests {
             .expect("accepted row layout should build");
         let patch = AcceptedMutationIntentPatch::new().set_authored(
             crate::db::data::FieldSlot::from_validated_index(0),
-            InputValue::Null,
+            InputValue::null(),
         );
         let Err(error) = resolve_insert_structural_patch_with_accepted_contract(
             accepted.entity_path(),

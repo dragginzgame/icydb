@@ -21,7 +21,7 @@ use crate::{
         },
     },
     types::{IntBig, NatBig, NumericValue},
-    value::{InputValue, InputValueEnum, canonicalize_value_set},
+    value::{InputValue, canonicalize_value_set},
 };
 
 /// Normalize a predicate into a canonical, deterministic form.
@@ -271,7 +271,7 @@ fn normalize_accepted_predicate_value(
     }
     let input = match (query_kind, value) {
         (AcceptedFieldKind::Enum { .. }, Value::Text(variant)) => {
-            InputValue::Enum(InputValueEnum::loose(variant.clone()))
+            InputValue::loose_enum(variant.clone())
         }
         _ => InputValue::try_from_runtime_non_enum(value).ok_or_else(|| {
             ValidateError::invalid_literal(

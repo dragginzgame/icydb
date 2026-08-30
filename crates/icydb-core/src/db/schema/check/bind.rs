@@ -14,7 +14,7 @@ use crate::{
         },
     },
     types::EntityTag,
-    value::{InputValue, InputValueEnum},
+    value::{InputValue, PublicEnumValue, PublicValue},
 };
 use icydb_schema::{ScalarLiteral, SourceCheckExpr, SourceCheckInstruction};
 
@@ -312,12 +312,12 @@ pub(in crate::db::schema) fn source_literal_input(
     enum_catalog: &AcceptedEnumCatalog,
 ) -> Result<InputValue, AcceptedCheckExprV1Error> {
     let value = match literal {
-        ScalarLiteral::Account(value) => InputValue::Account(*value),
-        ScalarLiteral::Blob(value) => InputValue::Blob(value.to_vec()),
-        ScalarLiteral::Bool(value) => InputValue::Bool(*value),
-        ScalarLiteral::Date(value) => InputValue::Date(*value),
-        ScalarLiteral::Decimal(value) => InputValue::Decimal(*value),
-        ScalarLiteral::Duration(value) => InputValue::Duration(*value),
+        ScalarLiteral::Account(value) => PublicValue::Account(*value),
+        ScalarLiteral::Blob(value) => PublicValue::Blob(value.to_vec()),
+        ScalarLiteral::Bool(value) => PublicValue::Bool(*value),
+        ScalarLiteral::Date(value) => PublicValue::Date(*value),
+        ScalarLiteral::Decimal(value) => PublicValue::Decimal(*value),
+        ScalarLiteral::Duration(value) => PublicValue::Duration(*value),
         ScalarLiteral::EnumUnit { enum_type, variant } => {
             let Some(crate::db::schema::AcceptedNamedTypeIdentity::Enum(type_id)) =
                 bindings.named_type(enum_type)
@@ -337,46 +337,46 @@ pub(in crate::db::schema) fn source_literal_input(
             {
                 return Err(AcceptedCheckExprV1Error::LiteralAdmissionRejected);
             }
-            InputValue::Enum(InputValueEnum::new(
+            PublicValue::Enum(PublicEnumValue::new(
                 accepted_variant.name(),
                 Some(definition.path()),
             ))
         }
-        ScalarLiteral::Float32(value) => InputValue::Float32(*value),
-        ScalarLiteral::Float64(value) => InputValue::Float64(*value),
+        ScalarLiteral::Float32(value) => PublicValue::Float32(*value),
+        ScalarLiteral::Float64(value) => PublicValue::Float64(*value),
         ScalarLiteral::Int(value) => match expected {
             AcceptedFieldKind::Int8
             | AcceptedFieldKind::Int16
             | AcceptedFieldKind::Int32
-            | AcceptedFieldKind::Int64 => InputValue::Int64(
+            | AcceptedFieldKind::Int64 => PublicValue::Int64(
                 i64::try_from(*value)
                     .map_err(|_| AcceptedCheckExprV1Error::LiteralAdmissionRejected)?,
             ),
-            AcceptedFieldKind::Int128 => InputValue::Int128(*value),
+            AcceptedFieldKind::Int128 => PublicValue::Int128(*value),
             _ => return Err(AcceptedCheckExprV1Error::LiteralAdmissionRejected),
         },
-        ScalarLiteral::IntBig(value) => InputValue::IntBig(value.clone()),
+        ScalarLiteral::IntBig(value) => PublicValue::IntBig(value.clone()),
         ScalarLiteral::Nat(value) => match expected {
             AcceptedFieldKind::Nat8
             | AcceptedFieldKind::Nat16
             | AcceptedFieldKind::Nat32
-            | AcceptedFieldKind::Nat64 => InputValue::Nat64(
+            | AcceptedFieldKind::Nat64 => PublicValue::Nat64(
                 u64::try_from(*value)
                     .map_err(|_| AcceptedCheckExprV1Error::LiteralAdmissionRejected)?,
             ),
-            AcceptedFieldKind::Nat128 => InputValue::Nat128(*value),
+            AcceptedFieldKind::Nat128 => PublicValue::Nat128(*value),
             _ => return Err(AcceptedCheckExprV1Error::LiteralAdmissionRejected),
         },
-        ScalarLiteral::NatBig(value) => InputValue::NatBig(value.clone()),
-        ScalarLiteral::Principal(value) => InputValue::Principal(*value),
-        ScalarLiteral::Subaccount(value) => InputValue::Subaccount(*value),
-        ScalarLiteral::Text(value) => InputValue::Text(value.clone()),
-        ScalarLiteral::Timestamp(value) => InputValue::Timestamp(*value),
-        ScalarLiteral::Ulid(value) => InputValue::Ulid(*value),
-        ScalarLiteral::Unit(_) => InputValue::Unit,
-        ScalarLiteral::U256(value) => InputValue::U256(*value),
+        ScalarLiteral::NatBig(value) => PublicValue::NatBig(value.clone()),
+        ScalarLiteral::Principal(value) => PublicValue::Principal(*value),
+        ScalarLiteral::Subaccount(value) => PublicValue::Subaccount(*value),
+        ScalarLiteral::Text(value) => PublicValue::Text(value.clone()),
+        ScalarLiteral::Timestamp(value) => PublicValue::Timestamp(*value),
+        ScalarLiteral::Ulid(value) => PublicValue::Ulid(*value),
+        ScalarLiteral::Unit(_) => PublicValue::Unit,
+        ScalarLiteral::U256(value) => PublicValue::U256(*value),
     };
-    Ok(value)
+    Ok(InputValue::from_public(value))
 }
 
 /// Bind one source numeric operand to the canonical accepted literal payload
@@ -784,7 +784,7 @@ fn bind_literal(
     enum_catalog: &AcceptedEnumCatalog,
     composite_catalog: &AcceptedCompositeCatalog,
 ) -> Result<AcceptedCheckLiteralV1, AcceptedCheckExprV1Error> {
-    if matches!(input, InputValue::Null) {
+    if input.is_null() {
         return Err(AcceptedCheckExprV1Error::NullLiteralUnsupported);
     }
     let field = AcceptedFieldDecodeContract::new(

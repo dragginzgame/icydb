@@ -66,44 +66,43 @@ pub enum TypedValueError {
 /// bindings. Authored names are never runtime authority.
 #[doc(hidden)]
 pub trait TypedAdapterContext {
-    type InputValue;
-    type OutputValue;
+    type PublicValue;
 
-    fn input_scalar(&self, value: TypedScalarValue) -> Self::InputValue;
-    fn input_list(&self, values: Vec<Self::InputValue>) -> Self::InputValue;
-    fn input_map(&self, entries: Vec<(Self::InputValue, Self::InputValue)>) -> Self::InputValue;
-    fn input_null(&self) -> Self::InputValue;
+    fn input_scalar(&self, value: TypedScalarValue) -> Self::PublicValue;
+    fn input_list(&self, values: Vec<Self::PublicValue>) -> Self::PublicValue;
+    fn input_map(&self, entries: Vec<(Self::PublicValue, Self::PublicValue)>) -> Self::PublicValue;
+    fn input_null(&self) -> Self::PublicValue;
     fn input_enum(
         &self,
         type_source_key: &'static str,
         variant_source_key: &'static str,
-        payload: Option<Self::InputValue>,
-    ) -> Result<Self::InputValue, TypedValueError>;
+        payload: Option<Self::PublicValue>,
+    ) -> Result<Self::PublicValue, TypedValueError>;
     fn input_record(
         &self,
         type_source_key: &'static str,
-        fields: Vec<(&'static str, Self::InputValue)>,
-    ) -> Result<Self::InputValue, TypedValueError>;
+        fields: Vec<(&'static str, Self::PublicValue)>,
+    ) -> Result<Self::PublicValue, TypedValueError>;
 
-    fn output_scalar(&self, value: &Self::OutputValue) -> Option<TypedScalarValue>;
-    fn output_list<'a>(&self, value: &'a Self::OutputValue) -> Option<&'a [Self::OutputValue]>;
+    fn output_scalar(&self, value: &Self::PublicValue) -> Option<TypedScalarValue>;
+    fn output_list<'a>(&self, value: &'a Self::PublicValue) -> Option<&'a [Self::PublicValue]>;
     fn output_map<'a>(
         &self,
-        value: &'a Self::OutputValue,
-    ) -> Option<&'a [(Self::OutputValue, Self::OutputValue)]>;
-    fn output_is_null(&self, value: &Self::OutputValue) -> bool;
+        value: &'a Self::PublicValue,
+    ) -> Option<&'a [(Self::PublicValue, Self::PublicValue)]>;
+    fn output_is_null(&self, value: &Self::PublicValue) -> bool;
     fn output_enum_variant<'a>(
         &self,
         type_source_key: &'static str,
         variant_source_key: &'static str,
-        value: &'a Self::OutputValue,
-    ) -> Result<Option<TypedEnumOutput<'a, Self::OutputValue>>, TypedValueError>;
+        value: &'a Self::PublicValue,
+    ) -> Result<Option<TypedEnumOutput<'a, Self::PublicValue>>, TypedValueError>;
     fn output_record<'a>(
         &self,
         type_source_key: &'static str,
         member_source_keys: &[&'static str],
-        value: &'a Self::OutputValue,
-    ) -> Result<Vec<&'a Self::OutputValue>, TypedValueError>;
+        value: &'a Self::PublicValue,
+    ) -> Result<Vec<&'a Self::PublicValue>, TypedValueError>;
 }
 
 /// Immutable source identity emitted for every authored named type.
@@ -116,7 +115,7 @@ pub trait TypedNamedType {
 /// public input value.
 #[doc(hidden)]
 pub trait TypedInputValue: Sized {
-    fn encode_typed_input<C>(self, context: &C) -> Result<C::InputValue, TypedValueError>
+    fn encode_typed_input<C>(self, context: &C) -> Result<C::PublicValue, TypedValueError>
     where
         C: TypedAdapterContext;
 }
@@ -125,7 +124,7 @@ pub trait TypedInputValue: Sized {
 /// authored Rust value.
 #[doc(hidden)]
 pub trait TypedOutputValue: Sized {
-    fn decode_typed_output<C>(context: &C, value: &C::OutputValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext;
 }
@@ -137,7 +136,7 @@ macro_rules! impl_typed_scalar_value {
                 fn encode_typed_input<C>(
                     self,
                     context: &C,
-                ) -> Result<C::InputValue, TypedValueError>
+                ) -> Result<C::PublicValue, TypedValueError>
                 where
                     C: TypedAdapterContext,
                 {
@@ -148,7 +147,7 @@ macro_rules! impl_typed_scalar_value {
             impl TypedOutputValue for $ty {
                 fn decode_typed_output<C>(
                     context: &C,
-                    value: &C::OutputValue,
+                    value: &C::PublicValue,
                 ) -> Result<Self, TypedValueError>
                 where
                     C: TypedAdapterContext,
@@ -195,7 +194,7 @@ impl_typed_scalar_value!(
 );
 
 impl TypedInputValue for Unit {
-    fn encode_typed_input<C>(self, context: &C) -> Result<C::InputValue, TypedValueError>
+    fn encode_typed_input<C>(self, context: &C) -> Result<C::PublicValue, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -204,7 +203,7 @@ impl TypedInputValue for Unit {
 }
 
 impl TypedOutputValue for Unit {
-    fn decode_typed_output<C>(context: &C, value: &C::OutputValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -219,7 +218,7 @@ impl<T> TypedInputValue for Box<T>
 where
     T: TypedInputValue,
 {
-    fn encode_typed_input<C>(self, context: &C) -> Result<C::InputValue, TypedValueError>
+    fn encode_typed_input<C>(self, context: &C) -> Result<C::PublicValue, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -231,7 +230,7 @@ impl<T> TypedOutputValue for Box<T>
 where
     T: TypedOutputValue,
 {
-    fn decode_typed_output<C>(context: &C, value: &C::OutputValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -243,7 +242,7 @@ impl<T> TypedInputValue for Option<T>
 where
     T: TypedInputValue,
 {
-    fn encode_typed_input<C>(self, context: &C) -> Result<C::InputValue, TypedValueError>
+    fn encode_typed_input<C>(self, context: &C) -> Result<C::PublicValue, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -258,7 +257,7 @@ impl<T> TypedOutputValue for Option<T>
 where
     T: TypedOutputValue,
 {
-    fn decode_typed_output<C>(context: &C, value: &C::OutputValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -274,7 +273,7 @@ impl<T> TypedInputValue for Vec<T>
 where
     T: TypedInputValue,
 {
-    fn encode_typed_input<C>(self, context: &C) -> Result<C::InputValue, TypedValueError>
+    fn encode_typed_input<C>(self, context: &C) -> Result<C::PublicValue, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -290,7 +289,7 @@ impl<T> TypedOutputValue for Vec<T>
 where
     T: TypedOutputValue,
 {
-    fn decode_typed_output<C>(context: &C, value: &C::OutputValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -310,7 +309,7 @@ where
     K: TypedInputValue,
     V: TypedInputValue,
 {
-    fn encode_typed_input<C>(self, context: &C) -> Result<C::InputValue, TypedValueError>
+    fn encode_typed_input<C>(self, context: &C) -> Result<C::PublicValue, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -330,7 +329,7 @@ where
     K: Ord + TypedOutputValue,
     V: TypedOutputValue,
 {
-    fn decode_typed_output<C>(context: &C, value: &C::OutputValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -353,7 +352,7 @@ impl<T> TypedInputValue for BTreeSet<T>
 where
     T: TypedInputValue,
 {
-    fn encode_typed_input<C>(self, context: &C) -> Result<C::InputValue, TypedValueError>
+    fn encode_typed_input<C>(self, context: &C) -> Result<C::PublicValue, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -369,7 +368,7 @@ impl<T> TypedOutputValue for BTreeSet<T>
 where
     T: Ord + TypedOutputValue,
 {
-    fn decode_typed_output<C>(context: &C, value: &C::OutputValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext,
     {

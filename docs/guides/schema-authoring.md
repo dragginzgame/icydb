@@ -88,7 +88,7 @@ let query = DynamicQuery::new(<User as icydb::traits::EntitySource>::ENTITY)
 
 let patch = StructuralPatch::new().field(
     User::DISPLAY_NAME.as_str(),
-    WriteCell::Value(InputValue::Text("Ada".to_string())),
+    WriteCell::Value(InputValue::text("Ada".to_string())),
 );
 ```
 

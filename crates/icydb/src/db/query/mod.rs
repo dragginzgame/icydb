@@ -16,12 +16,13 @@ pub use typed::{
 };
 
 pub use icydb_core::db::{
-    AggregateExpr, CompareOp, ExplainAccessCandidate, ExplainAccessDecision,
-    ExplainAccessDecisionKind, ExplainEligibleAlternative, ExplainPlan, ExplainRejectedIndex,
-    ExplainResidualSummary, ExplainSelectedAccess, FieldRef, FilterExpr, FilterValue,
-    MissingRowPolicy, NumericProjectionExpr, OrderDirection, OrderExpr, OrderTerm,
-    RoundProjectionExpr, TextProjectionExpr, TraceReuseEvent, ValueProjectionExpr, add, asc, avg,
-    contains, count, count_by, desc, div, ends_with, exists, field, first, last, left, length,
-    lower, ltrim, max, max_by, min, min_by, mul, position, replace, right, round, round_expr,
-    rtrim, starts_with, sub, substring, substring_with_length, sum, trim, upper,
+    AggregateExpr, CollectionOperator, CompareOp, CompareOperator, ExplainAccessCandidate,
+    ExplainAccessDecision, ExplainAccessDecisionKind, ExplainEligibleAlternative, ExplainPlan,
+    ExplainRejectedIndex, ExplainResidualSummary, ExplainSelectedAccess, FieldCompareOperator,
+    FieldRef, FilterExpr, FilterValue, JunctionOperator, MissingRowPolicy, NumericProjectionExpr,
+    OrderDirection, OrderExpr, OrderTerm, RoundProjectionExpr, SetOperator, StateOperator,
+    TextProjectionExpr, TraceReuseEvent, ValueProjectionExpr, add, asc, avg, contains, count,
+    count_by, desc, div, ends_with, exists, field, first, last, left, length, lower, ltrim, max,
+    max_by, min, min_by, mul, position, replace, right, round, round_expr, rtrim, starts_with, sub,
+    substring, substring_with_length, sum, trim, upper,
 };

@@ -89,8 +89,8 @@ mod tests {
         let current = GroupedQueryOutput {
             entity: "Example".to_string(),
             rows: vec![GroupedRow::new(
-                [OutputValue::Nat64(7)],
-                [OutputValue::Nat64(1)],
+                [OutputValue::nat64(7)],
+                [OutputValue::nat64(1)],
             )],
             row_count: 1,
             next_cursor: Some("abcd".to_string()),
@@ -98,8 +98,8 @@ mod tests {
         let frozen = FrozenGroupedQueryOutputWire {
             entity: current.entity.clone(),
             rows: vec![FrozenGroupedRowWire {
-                group_key: vec![OutputValue::Nat64(7)],
-                aggregate_values: vec![OutputValue::Nat64(1)],
+                group_key: vec![OutputValue::nat64(7)],
+                aggregate_values: vec![OutputValue::nat64(1)],
             }],
             row_count: current.row_count,
             next_cursor: current.next_cursor.clone(),

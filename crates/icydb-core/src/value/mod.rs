@@ -17,6 +17,7 @@ mod input;
 mod map;
 pub(crate) mod ops;
 mod output;
+mod public;
 mod rank;
 mod semantics;
 mod tag;
@@ -36,10 +37,11 @@ pub use coercion::CoercionFamily;
 #[cfg(test)]
 pub(crate) use hash::with_test_hash_override;
 pub(crate) use hash::{ValueHashWriter, hash_single_list_identity_canonical_value, hash_value};
-pub use input::{InputValue, InputValueEnum};
+pub use input::InputValue;
 pub use map::{MapValueError, SchemaInvariantError};
 pub(crate) use ops::{casefold_text, lower_text, upper_text};
-pub use output::{OutputValue, OutputValueEnum, render_output_value_text};
+pub use output::{OutputValue, render_output_value_text};
+pub use public::{PublicEnumValue, PublicValue};
 pub use tag::ValueTag;
 
 //

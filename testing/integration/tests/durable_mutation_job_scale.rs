@@ -8,7 +8,6 @@ use icydb::{
         MutationJobState, MutationJobStatus, sql::SqlQueryResult,
     },
     diagnostic::{DiagnosticDetail, SqlWriteBoundaryCode},
-    value::OutputValue,
 };
 use icydb_testing_integration::{
     deliver_startup_watchdog_message,
@@ -341,7 +340,10 @@ fn query_count(fixture: &ic_testkit::pic::StandaloneCanisterFixture, sql: &str) 
     let [row] = projection.rows.as_slice() else {
         panic!("scale SQL count should return one row");
     };
-    let [OutputValue::Nat64(count)] = row.as_slice() else {
+    let [count] = row.as_slice() else {
+        panic!("scale SQL count should return one Nat64 cell");
+    };
+    let icydb::value::PublicValue::Nat64(count) = count.as_public() else {
         panic!("scale SQL count should return one Nat64 cell");
     };
     *count

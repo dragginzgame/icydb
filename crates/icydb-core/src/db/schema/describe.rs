@@ -2071,8 +2071,8 @@ fn accepted_payload_facts(
 }
 
 fn bounded_schema_value_rendering(value: &OutputValue, payload: &[u8], hash: &str) -> String {
-    let rendered = match value {
-        OutputValue::Text(value) => format!("'{}'", value.escape_default()),
+    let rendered = match value.as_public() {
+        crate::value::PublicValue::Text(value) => format!("'{}'", value.escape_default()),
         _ => render_output_value_text(value),
     };
     if rendered.len() <= MAX_SCHEMA_VALUE_RENDER_CHARS {
@@ -2088,32 +2088,32 @@ fn bounded_schema_value_rendering(value: &OutputValue, payload: &[u8], hash: &st
 }
 
 const fn output_value_kind_label(value: &OutputValue) -> &'static str {
-    match value {
-        OutputValue::Account(_) => "account",
-        OutputValue::Blob(_) => "blob",
-        OutputValue::Bool(_) => "bool",
-        OutputValue::Date(_) => "date",
-        OutputValue::Decimal(_) => "decimal",
-        OutputValue::Duration(_) => "duration",
-        OutputValue::Enum(_) => "enum",
-        OutputValue::Float32(_) => "float32",
-        OutputValue::Float64(_) => "float64",
-        OutputValue::Int64(_) => "int64",
-        OutputValue::Int128(_) => "int128",
-        OutputValue::IntBig(_) => "int_big",
-        OutputValue::List(_) => "list",
-        OutputValue::Map(_) => "map",
-        OutputValue::Null => "null",
-        OutputValue::Principal(_) => "principal",
-        OutputValue::Subaccount(_) => "subaccount",
-        OutputValue::Text(_) => "text",
-        OutputValue::Timestamp(_) => "timestamp",
-        OutputValue::Nat64(_) => "nat64",
-        OutputValue::Nat128(_) => "nat128",
-        OutputValue::NatBig(_) => "nat_big",
-        OutputValue::Ulid(_) => "ulid",
-        OutputValue::Unit => "unit",
-        OutputValue::U256(_) => "u256",
+    match value.as_public() {
+        crate::value::PublicValue::Account(_) => "account",
+        crate::value::PublicValue::Blob(_) => "blob",
+        crate::value::PublicValue::Bool(_) => "bool",
+        crate::value::PublicValue::Date(_) => "date",
+        crate::value::PublicValue::Decimal(_) => "decimal",
+        crate::value::PublicValue::Duration(_) => "duration",
+        crate::value::PublicValue::Enum(_) => "enum",
+        crate::value::PublicValue::Float32(_) => "float32",
+        crate::value::PublicValue::Float64(_) => "float64",
+        crate::value::PublicValue::Int64(_) => "int64",
+        crate::value::PublicValue::Int128(_) => "int128",
+        crate::value::PublicValue::IntBig(_) => "int_big",
+        crate::value::PublicValue::List(_) => "list",
+        crate::value::PublicValue::Map(_) => "map",
+        crate::value::PublicValue::Null => "null",
+        crate::value::PublicValue::Principal(_) => "principal",
+        crate::value::PublicValue::Subaccount(_) => "subaccount",
+        crate::value::PublicValue::Text(_) => "text",
+        crate::value::PublicValue::Timestamp(_) => "timestamp",
+        crate::value::PublicValue::Nat64(_) => "nat64",
+        crate::value::PublicValue::Nat128(_) => "nat128",
+        crate::value::PublicValue::NatBig(_) => "nat_big",
+        crate::value::PublicValue::Ulid(_) => "ulid",
+        crate::value::PublicValue::Unit => "unit",
+        crate::value::PublicValue::U256(_) => "u256",
     }
 }
 

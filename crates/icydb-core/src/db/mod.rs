@@ -150,7 +150,10 @@ pub use query::{
         ExplainEligibleAlternative, ExplainPlan, ExplainRejectedIndex, ExplainResidualSummary,
         ExplainSelectedAccess,
     },
-    expr::{FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, desc, field},
+    expr::{
+        CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, FilterValue,
+        JunctionOperator, OrderExpr, OrderTerm, SetOperator, StateOperator, asc, desc, field,
+    },
     intent::{IntentError, QueryError, QueryExecutionError},
     plan::{DeleteSpec, LoadSpec, OrderDirection, QueryMode},
     read_intent::ReadIntentKind,

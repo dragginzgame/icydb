@@ -4452,11 +4452,11 @@ mod tests {
                 patch: DynamicStructuralPatch::new(vec![
                     (
                         "id".to_string(),
-                        DynamicWriteCell::Value(InputValue::Nat64(id)),
+                        DynamicWriteCell::Value(InputValue::nat64(id)),
                     ),
                     (
                         "score".to_string(),
-                        DynamicWriteCell::Value(InputValue::Int64(if id == 257 { -1 } else { 1 })),
+                        DynamicWriteCell::Value(InputValue::int64(if id == 257 { -1 } else { 1 })),
                     ),
                 ]),
             })
@@ -4893,11 +4893,11 @@ mod tests {
                     patch: DynamicStructuralPatch::new(vec![
                         (
                             "id".to_string(),
-                            DynamicWriteCell::Value(InputValue::Nat64(id)),
+                            DynamicWriteCell::Value(InputValue::nat64(id)),
                         ),
                         (
                             "old_value".to_string(),
-                            DynamicWriteCell::Value(InputValue::Int64(value)),
+                            DynamicWriteCell::Value(InputValue::int64(value)),
                         ),
                     ]),
                 })
@@ -5078,11 +5078,11 @@ mod tests {
                     patch: DynamicStructuralPatch::new(vec![
                         (
                             "id".to_string(),
-                            DynamicWriteCell::Value(InputValue::Nat64(id)),
+                            DynamicWriteCell::Value(InputValue::nat64(id)),
                         ),
                         (
                             "old_value".to_string(),
-                            DynamicWriteCell::Value(InputValue::Int64(value)),
+                            DynamicWriteCell::Value(InputValue::int64(value)),
                         ),
                     ]),
                 })
@@ -5301,7 +5301,7 @@ mod tests {
                 entity: "MigrationTarget".to_string(),
                 patch: DynamicStructuralPatch::new(vec![(
                     "id".to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(7)),
+                    DynamicWriteCell::Value(InputValue::nat64(7)),
                 )]),
             })
             .expect("relation target should insert");
@@ -5312,11 +5312,11 @@ mod tests {
                     patch: DynamicStructuralPatch::new(vec![
                         (
                             "id".to_string(),
-                            DynamicWriteCell::Value(InputValue::Nat64(id)),
+                            DynamicWriteCell::Value(InputValue::nat64(id)),
                         ),
                         (
                             "old_value".to_string(),
-                            DynamicWriteCell::Value(InputValue::Int64(value)),
+                            DynamicWriteCell::Value(InputValue::int64(value)),
                         ),
                     ]),
                 })

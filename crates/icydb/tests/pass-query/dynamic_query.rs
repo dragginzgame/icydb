@@ -1,7 +1,10 @@
 use icydb::{
     db::{
         DbSession, DynamicQuery, TypedEntityAdapter,
-        query::{Query, count},
+        query::{
+            CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, FilterValue,
+            JunctionOperator, Query, SetOperator, StateOperator, count,
+        },
     },
     traits::CanisterKind,
 };
@@ -11,7 +14,21 @@ fn dynamic_queries_compile_without_sql<C>(db: &DbSession<C>)
 where
     C: CanisterKind,
 {
+    let grouped_filter = FilterExpr::Compare {
+        operator: CompareOperator::Eq,
+        field: "age".to_string(),
+        value: FilterValue::from(42_u64),
+    };
+    let operator_surface = (
+        JunctionOperator::And,
+        FieldCompareOperator::Eq,
+        SetOperator::In,
+        CollectionOperator::Contains,
+        StateOperator::IsNull,
+    );
+    std::hint::black_box(operator_surface);
     let request = DynamicQuery::new("app::User")
+        .filter(grouped_filter)
         .select(["name", "age"])
         .limit(25);
     let _ = db.execute_live_page(&request, None);

@@ -739,14 +739,16 @@ fn composite_primary_key_value_codec_tokens(
                     #primary_key_field: <#field_ty as ::icydb::__macro::KeyValueCodec>::from_key_value(&values[#index])?
                 }
             });
-    let input_value_components = key_field_specs.iter().map(
-        |(primary_key_field, _)| quote!(::icydb::value::InputValue::from(value.#primary_key_field)),
-    );
+    let input_value_components = key_field_specs.iter().map(|(primary_key_field, _)| {
+        quote!(::icydb::value::InputValue::from(value.#primary_key_field).into_public())
+    });
 
     quote! {
         impl From<#key_ident> for ::icydb::value::InputValue {
             fn from(value: #key_ident) -> Self {
-                Self::List(::std::vec![#(#input_value_components),*])
+                Self::from_public(::icydb::value::PublicValue::List(::std::vec![
+                    #(#input_value_components),*
+                ]))
             }
         }
 
@@ -1010,12 +1012,12 @@ fn typed_write_value_input_expr(entity: &Entity, field: &Field, value: TokenStre
     if field.value.item.relation.is_some() {
         return match field.value.cardinality() {
             Cardinality::Many => quote! {
-                ::icydb::value::InputValue::List(
+                ::icydb::value::InputValue::from_public(::icydb::value::PublicValue::List(
                     #value
                         .into_iter()
-                        .map(::icydb::value::InputValue::from)
+                        .map(|value| ::icydb::value::InputValue::from(value).into_public())
                         .collect()
-                )
+                ))
             },
             Cardinality::One | Cardinality::Opt => {
                 quote!(::icydb::value::InputValue::from(#value))
@@ -1024,10 +1026,12 @@ fn typed_write_value_input_expr(entity: &Entity, field: &Field, value: TokenStre
     }
     let ty = typed_write_value_type(entity, field);
     quote! {
-        <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
+        ::icydb::value::InputValue::from_public(
+            <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
             #value,
             binding,
-        )?
+            )?
+        )
     }
 }
 
@@ -1121,8 +1125,8 @@ fn typed_primary_key_input_expr(entity: &Entity) -> TokenStream {
             )?
         )
     });
-    quote!(::icydb::value::InputValue::List(
-        ::std::vec![#(#components),*]
+    quote!(::icydb::value::InputValue::from_public(
+        ::icydb::value::PublicValue::List(::std::vec![#(#components),*])
     ))
 }
 
@@ -1219,7 +1223,7 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
         quote! {
             #ident: <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
                 binding,
-                binding.row_value(#name, &row)?
+                binding.row_value(#name, &row)?.as_public()
             )?
         }
     });

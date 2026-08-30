@@ -4,7 +4,7 @@
 //! Boundary: defines scalar/field type compatibility surfaces used by predicate validation.
 
 #[cfg(any(test, feature = "sql"))]
-use crate::value::{InputValue, InputValueEnum};
+use crate::value::InputValue;
 use crate::{
     db::{
         codec::hex::decode_hex_bounded,
@@ -563,9 +563,7 @@ pub(in crate::db) fn input_value_from_strict_sql_literal_for_persisted_kind(
         let Value::Text(variant_name) = value else {
             return None;
         };
-        return Some(InputValue::Enum(InputValueEnum::loose(
-            variant_name.clone(),
-        )));
+        return Some(InputValue::loose_enum(variant_name.clone()));
     }
 
     let normalized = canonicalize_strict_sql_literal_for_persisted_kind(kind, value)
@@ -901,7 +899,7 @@ mod tests {
                 &enum_kind(),
                 &Value::Text("Active".to_string()),
             ),
-            Some(InputValue::Enum(InputValueEnum::loose("Active"))),
+            Some(InputValue::loose_enum("Active")),
         );
     }
 
@@ -917,7 +915,7 @@ mod tests {
                     &enum_kind(),
                     &Value::Text(variant.to_string()),
                 ),
-                Some(InputValue::Enum(InputValueEnum::loose(variant))),
+                Some(InputValue::loose_enum(variant)),
             );
         }
     }

@@ -1,7 +1,10 @@
 //! SQL output payload attribution DTOs and builders.
 //! Does not own: SQL response shaping or public row rendering.
 
-use crate::{db::session::sql::result::SqlStatementResult, value::OutputValue};
+use crate::{
+    db::session::sql::result::SqlStatementResult,
+    value::{OutputValue, PublicValue},
+};
 use candid::CandidType;
 use serde::Deserialize;
 
@@ -59,8 +62,15 @@ fn record_output_value_blob_attribution(
     value: &OutputValue,
     attribution: &mut SqlOutputBlobAttribution,
 ) {
+    record_public_value_blob_attribution(value.as_public(), attribution);
+}
+
+fn record_public_value_blob_attribution(
+    value: &PublicValue,
+    attribution: &mut SqlOutputBlobAttribution,
+) {
     match value {
-        OutputValue::Blob(bytes) => {
+        PublicValue::Blob(bytes) => {
             let byte_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
             attribution.projected_values = attribution.projected_values.saturating_add(1);
             attribution.projected_bytes = attribution.projected_bytes.saturating_add(byte_len);
@@ -68,42 +78,42 @@ fn record_output_value_blob_attribution(
                 .rendered_hex_bytes
                 .saturating_add(byte_len.saturating_mul(2).saturating_add(2));
         }
-        OutputValue::Enum(value) => {
+        PublicValue::Enum(value) => {
             if let Some(payload) = value.payload() {
-                record_output_value_blob_attribution(payload, attribution);
+                record_public_value_blob_attribution(payload, attribution);
             }
         }
-        OutputValue::List(items) => {
+        PublicValue::List(items) => {
             for item in items {
-                record_output_value_blob_attribution(item, attribution);
+                record_public_value_blob_attribution(item, attribution);
             }
         }
-        OutputValue::Map(entries) => {
+        PublicValue::Map(entries) => {
             for (key, value) in entries {
-                record_output_value_blob_attribution(key, attribution);
-                record_output_value_blob_attribution(value, attribution);
+                record_public_value_blob_attribution(key, attribution);
+                record_public_value_blob_attribution(value, attribution);
             }
         }
-        OutputValue::Account(_)
-        | OutputValue::Bool(_)
-        | OutputValue::Date(_)
-        | OutputValue::Decimal(_)
-        | OutputValue::Duration(_)
-        | OutputValue::Float32(_)
-        | OutputValue::Float64(_)
-        | OutputValue::Int64(_)
-        | OutputValue::Int128(_)
-        | OutputValue::IntBig(_)
-        | OutputValue::Null
-        | OutputValue::Principal(_)
-        | OutputValue::Subaccount(_)
-        | OutputValue::Text(_)
-        | OutputValue::Timestamp(_)
-        | OutputValue::Nat64(_)
-        | OutputValue::Nat128(_)
-        | OutputValue::NatBig(_)
-        | OutputValue::Ulid(_)
-        | OutputValue::Unit
-        | OutputValue::U256(_) => {}
+        PublicValue::Account(_)
+        | PublicValue::Bool(_)
+        | PublicValue::Date(_)
+        | PublicValue::Decimal(_)
+        | PublicValue::Duration(_)
+        | PublicValue::Float32(_)
+        | PublicValue::Float64(_)
+        | PublicValue::Int64(_)
+        | PublicValue::Int128(_)
+        | PublicValue::IntBig(_)
+        | PublicValue::Null
+        | PublicValue::Principal(_)
+        | PublicValue::Subaccount(_)
+        | PublicValue::Text(_)
+        | PublicValue::Timestamp(_)
+        | PublicValue::Nat64(_)
+        | PublicValue::Nat128(_)
+        | PublicValue::NatBig(_)
+        | PublicValue::Ulid(_)
+        | PublicValue::Unit
+        | PublicValue::U256(_) => {}
     }
 }

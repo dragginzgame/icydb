@@ -256,14 +256,14 @@ fn lifecycle_insert_probe_row() -> Result<Ulid, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let patch = StructuralPatch::new().field(
             "name",
-            WriteCell::Value(InputValue::Text("lifecycle-probe".to_string())),
+            WriteCell::Value(InputValue::text("lifecycle-probe".to_string())),
         );
         let output =
             db()?.execute_trusted_structural_insert_batch("OneSimpleEntity01", vec![patch])?;
         let Some(id_slot) = output.columns.iter().position(|column| column == "id") else {
             ic_cdk::trap("lifecycle probe insert omitted its identity column");
         };
-        let Some(OutputValue::Ulid(id)) = output.rows.first().and_then(|row| row.get(id_slot))
+        let Some(OutputValue::ulid(id)) = output.rows.first().and_then(|row| row.get(id_slot))
         else {
             ic_cdk::trap("lifecycle probe insert omitted its generated identity");
         };

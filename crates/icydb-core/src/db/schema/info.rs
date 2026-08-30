@@ -21,7 +21,7 @@ use crate::{
         canonicalize_filter_collection_element_for_persisted_kind,
         canonicalize_filter_literal_for_persisted_kind, enum_catalog::ValueAdmissionBudget,
     },
-    value::{InputValue, InputValueEnum, Value},
+    value::{InputValue, Value},
 };
 type SchemaFieldEntry = (String, SchemaFieldInfo);
 
@@ -607,9 +607,7 @@ impl SchemaInfo {
                 return None;
             };
             let contract = self.accepted_field_contract(field_name)?;
-            let input = crate::value::InputValue::Enum(crate::value::InputValueEnum::loose(
-                variant.clone(),
-            ));
+            let input = InputValue::loose_enum(variant.clone());
             return contract
                 .normalize_input_to_runtime(input, &mut ValueAdmissionBudget::standard())
                 .ok();
@@ -633,9 +631,7 @@ impl SchemaInfo {
                 return None;
             };
             let contract = self.accepted_field_contract(field_name)?;
-            let input = crate::value::InputValue::Enum(crate::value::InputValueEnum::loose(
-                variant.clone(),
-            ));
+            let input = InputValue::loose_enum(variant.clone());
             return contract
                 .normalize_input_to_runtime(input, &mut ValueAdmissionBudget::standard())
                 .ok();
@@ -778,7 +774,7 @@ impl SchemaInfo {
 fn loose_enum_filter_input(kind: &AcceptedFieldKind, value: &Value) -> Option<InputValue> {
     match kind {
         AcceptedFieldKind::Enum { .. } => match value {
-            Value::Text(variant) => Some(InputValue::Enum(InputValueEnum::loose(variant.clone()))),
+            Value::Text(variant) => Some(InputValue::loose_enum(variant.clone())),
             _ => None,
         },
         AcceptedFieldKind::Relation { key_kind, .. } => loose_enum_filter_input(key_kind, value),

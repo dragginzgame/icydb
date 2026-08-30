@@ -3855,7 +3855,7 @@ fn assert_empty_exact_distinct_count(fixture: &StandaloneCanisterFixture) {
     };
 
     assert_eq!(empty_rows.columns, vec!["ages"]);
-    assert_eq!(empty_rows.rows, vec![vec![OutputValue::Nat64(0)]]);
+    assert_eq!(empty_rows.rows, vec![vec![OutputValue::nat64(0)]]);
     assert_eq!(empty_rows.rendered_rows(), vec![vec!["0".to_string()]]);
     assert_eq!(empty.attribution.store_get_calls, 0);
     assert_eq!(empty.attribution.index_store_entry_reads, 0);

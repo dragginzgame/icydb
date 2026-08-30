@@ -583,8 +583,8 @@ The intake's original multi-document grouping and dependency sketch are
 retired. The exact candidate dispositions, Candidate 5 split, 0.231–0.242
 order, dependencies, and promotion questions now live only in the
 [query-capability roadmap](query-capability-roadmap.md). Every promoted minor
-still requires its own 1-12-patch tracker; this intake cannot satisfy that
-requirement.
+still requires its own substantive landing-patch tracker; this intake cannot
+satisfy that requirement.
 
 ## Cross-Cutting Invariants
 

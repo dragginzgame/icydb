@@ -1,269 +1,231 @@
-use crate::types::{
-    Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-    Timestamp, U256, Ulid,
+use crate::{
+    types::{
+        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
+        Timestamp, U256, Ulid,
+    },
+    value::PublicValue,
 };
-use candid::CandidType;
-use serde::Deserialize;
+use candid::{CandidType, types::Serializer};
+use serde::{Deserialize, Deserializer};
 
 #[cfg(test)]
 use crate::value::Value;
 
-//
-// OutputValue
-//
-// Public output-side value boundary used by API and wire surfaces.
-// This stays separate from runtime `Value` so public result payloads can move
-// off the internal execution representation without forcing a storage or
-// planner rewrite in the same slice.
-//
+/// Public output-side root value boundary.
+///
+/// Recursive data is owned by `PublicValue`; this sealed wrapper keeps
+/// accepted output distinct from caller-authored `InputValue`.
+#[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OutputValue(PublicValue);
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub enum OutputValue {
-    Account(Account),
-    Blob(Vec<u8>),
-    Bool(bool),
-    Date(Date),
-    Decimal(Decimal),
-    Duration(Duration),
-    Enum(OutputValueEnum),
-    Float32(Float32),
-    Float64(Float64),
-    #[serde(rename = "Int")]
-    Int64(i64),
-    Int128(i128),
-    IntBig(IntBig),
-    List(Vec<Self>),
-    Map(Vec<(Self, Self)>),
-    Null,
-    Principal(Principal),
-    Subaccount(Subaccount),
-    Text(String),
-    Timestamp(Timestamp),
-    #[serde(rename = "Nat")]
-    Nat64(u64),
-    Nat128(u128),
-    NatBig(NatBig),
-    Ulid(Ulid),
-    Unit,
-    U256(U256),
+impl OutputValue {
+    /// Borrow the canonical recursive public value.
+    #[must_use]
+    pub const fn as_public(&self) -> &PublicValue {
+        &self.0
+    }
+
+    /// Consume this boundary wrapper without conversion.
+    #[must_use]
+    pub fn into_public(self) -> PublicValue {
+        self.0
+    }
+
+    pub(crate) const fn from_public(value: PublicValue) -> Self {
+        Self(value)
+    }
+
+    /// Build an account output value.
+    #[must_use]
+    pub const fn account(value: Account) -> Self {
+        Self(PublicValue::Account(value))
+    }
+
+    /// Build a blob output value.
+    #[must_use]
+    pub const fn blob(value: Vec<u8>) -> Self {
+        Self(PublicValue::Blob(value))
+    }
+
+    /// Build a boolean output value.
+    #[must_use]
+    pub const fn boolean(value: bool) -> Self {
+        Self(PublicValue::Bool(value))
+    }
+
+    /// Build a date output value.
+    #[must_use]
+    pub const fn date(value: Date) -> Self {
+        Self(PublicValue::Date(value))
+    }
+
+    /// Build a decimal output value.
+    #[must_use]
+    pub const fn decimal(value: Decimal) -> Self {
+        Self(PublicValue::Decimal(value))
+    }
+
+    /// Build a duration output value.
+    #[must_use]
+    pub const fn duration(value: Duration) -> Self {
+        Self(PublicValue::Duration(value))
+    }
+
+    /// Build a finite 32-bit floating-point output value.
+    #[must_use]
+    pub const fn float32(value: Float32) -> Self {
+        Self(PublicValue::Float32(value))
+    }
+
+    /// Build a finite 64-bit floating-point output value.
+    #[must_use]
+    pub const fn float64(value: Float64) -> Self {
+        Self(PublicValue::Float64(value))
+    }
+
+    /// Build a 64-bit signed integer output value.
+    #[must_use]
+    pub const fn int64(value: i64) -> Self {
+        Self(PublicValue::Int64(value))
+    }
+
+    /// Build a 128-bit signed integer output value.
+    #[must_use]
+    pub const fn int128(value: i128) -> Self {
+        Self(PublicValue::Int128(value))
+    }
+
+    /// Build an unbounded signed integer output value.
+    #[must_use]
+    pub const fn int_big(value: IntBig) -> Self {
+        Self(PublicValue::IntBig(value))
+    }
+
+    /// Build a recursive list output value.
+    #[must_use]
+    pub const fn list(values: Vec<PublicValue>) -> Self {
+        Self(PublicValue::List(values))
+    }
+
+    /// Build a recursive map output value.
+    #[must_use]
+    pub const fn map(entries: Vec<(PublicValue, PublicValue)>) -> Self {
+        Self(PublicValue::Map(entries))
+    }
+
+    /// Build a null output value.
+    #[must_use]
+    pub const fn null() -> Self {
+        Self(PublicValue::Null)
+    }
+
+    /// Build a principal output value.
+    #[must_use]
+    pub const fn principal(value: Principal) -> Self {
+        Self(PublicValue::Principal(value))
+    }
+
+    /// Build a fixed subaccount output value.
+    #[must_use]
+    pub const fn subaccount(value: Subaccount) -> Self {
+        Self(PublicValue::Subaccount(value))
+    }
+
+    /// Build a text output value.
+    #[must_use]
+    pub const fn text(value: String) -> Self {
+        Self(PublicValue::Text(value))
+    }
+
+    /// Build a timestamp output value.
+    #[must_use]
+    pub const fn timestamp(value: Timestamp) -> Self {
+        Self(PublicValue::Timestamp(value))
+    }
+
+    /// Build a 64-bit natural output value.
+    #[must_use]
+    pub const fn nat64(value: u64) -> Self {
+        Self(PublicValue::Nat64(value))
+    }
+
+    /// Build a 128-bit natural output value.
+    #[must_use]
+    pub const fn nat128(value: u128) -> Self {
+        Self(PublicValue::Nat128(value))
+    }
+
+    /// Build an unbounded natural output value.
+    #[must_use]
+    pub const fn nat_big(value: NatBig) -> Self {
+        Self(PublicValue::NatBig(value))
+    }
+
+    /// Build a ULID output value.
+    #[must_use]
+    pub const fn ulid(value: Ulid) -> Self {
+        Self(PublicValue::Ulid(value))
+    }
+
+    /// Build a unit output value.
+    #[must_use]
+    pub const fn unit() -> Self {
+        Self(PublicValue::Unit)
+    }
+
+    /// Build a fixed-width unsigned integer output value.
+    #[must_use]
+    pub const fn u256(value: U256) -> Self {
+        Self(PublicValue::U256(value))
+    }
 }
 
-//
-// OutputValueEnum
-//
-// Output-side enum payload contract paired with `OutputValue`.
-// Payload stays recursive through `OutputValue` so public boundary conversion
-// remains total for data-carrying enum values already representable by
-// runtime `Value`.
-//
+impl CandidType for OutputValue {
+    fn ty() -> candid::types::Type {
+        PublicValue::ty()
+    }
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct OutputValueEnum {
-    variant: String,
-    path: Option<String>,
-    payload: Option<Box<OutputValue>>,
+    fn _ty() -> candid::types::Type {
+        PublicValue::_ty()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where
+        S: Serializer,
+    {
+        self.0.idl_serialize(serializer)
+    }
 }
 
-impl OutputValueEnum {
-    /// Build output enum metadata resolved from one accepted catalog revision.
-    #[must_use]
-    pub(crate) fn from_catalog_parts(
-        variant: &str,
-        path: &str,
-        payload: Option<OutputValue>,
-    ) -> Self {
-        Self {
-            variant: variant.to_string(),
-            path: Some(path.to_string()),
-            payload: payload.map(Box::new),
-        }
-    }
-
-    #[must_use]
-    pub const fn variant(&self) -> &str {
-        self.variant.as_str()
-    }
-
-    #[must_use]
-    pub fn path(&self) -> Option<&str> {
-        self.path.as_deref()
-    }
-
-    #[must_use]
-    pub fn payload(&self) -> Option<&OutputValue> {
-        self.payload.as_deref()
+impl<'de> Deserialize<'de> for OutputValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        PublicValue::deserialize(deserializer).map(Self)
     }
 }
 
 #[cfg(test)]
 impl From<Value> for OutputValue {
     fn from(value: Value) -> Self {
-        output_value_from_non_enum_test_value(&value)
+        Self(
+            PublicValue::try_from_runtime_non_enum(&value)
+                .expect("test output conversion requires accepted enum catalog"),
+        )
     }
 }
 
-#[cfg(test)]
-fn output_value_from_non_enum_test_value(value: &Value) -> OutputValue {
-    match value {
-        Value::Account(value) => OutputValue::Account(*value),
-        Value::Blob(value) => OutputValue::Blob(value.clone()),
-        Value::Bool(value) => OutputValue::Bool(*value),
-        Value::Date(value) => OutputValue::Date(*value),
-        Value::Decimal(value) => OutputValue::Decimal(*value),
-        Value::Duration(value) => OutputValue::Duration(*value),
-        Value::Enum(_) => panic!("test output conversion requires accepted enum catalog"),
-        Value::Float32(value) => OutputValue::Float32(*value),
-        Value::Float64(value) => OutputValue::Float64(*value),
-        Value::Int64(value) => OutputValue::Int64(*value),
-        Value::Int128(value) => OutputValue::Int128(*value),
-        Value::IntBig(value) => OutputValue::IntBig(value.clone()),
-        Value::List(values) => OutputValue::List(
-            values
-                .iter()
-                .map(output_value_from_non_enum_test_value)
-                .collect(),
-        ),
-        Value::Map(entries) => OutputValue::Map(
-            entries
-                .iter()
-                .map(|(key, value)| {
-                    (
-                        output_value_from_non_enum_test_value(key),
-                        output_value_from_non_enum_test_value(value),
-                    )
-                })
-                .collect(),
-        ),
-        Value::Null => OutputValue::Null,
-        Value::Principal(value) => OutputValue::Principal(*value),
-        Value::Subaccount(value) => OutputValue::Subaccount(*value),
-        Value::Text(value) => OutputValue::Text(value.clone()),
-        Value::Timestamp(value) => OutputValue::Timestamp(*value),
-        Value::Nat64(value) => OutputValue::Nat64(*value),
-        Value::Nat128(value) => OutputValue::Nat128(*value),
-        Value::NatBig(value) => OutputValue::NatBig(value.clone()),
-        Value::Ulid(value) => OutputValue::Ulid(*value),
-        Value::Unit => OutputValue::Unit,
-        Value::U256(value) => OutputValue::U256(*value),
-    }
-}
-
-/// Render one output value into a stable text form for row projection payloads.
+/// Render one accepted output value into the stable row-projection text form.
 #[must_use]
 pub fn render_output_value_text(value: &OutputValue) -> String {
-    match value {
-        OutputValue::Account(v) => v.to_string(),
-        OutputValue::Blob(v) => render_blob_value(v),
-        OutputValue::Bool(v) => v.to_string(),
-        OutputValue::Date(v) => v.to_string(),
-        OutputValue::Decimal(v) => v.to_string(),
-        OutputValue::Duration(v) => render_duration_value(v.as_millis()),
-        OutputValue::Enum(v) => render_enum(v),
-        OutputValue::Float32(v) => v.to_string(),
-        OutputValue::Float64(v) => v.to_string(),
-        OutputValue::Int64(v) => v.to_string(),
-        OutputValue::Int128(v) => v.to_string(),
-        OutputValue::IntBig(v) => v.to_string(),
-        OutputValue::List(items) => render_list_value(items.as_slice()),
-        OutputValue::Map(entries) => render_map_value(entries.as_slice()),
-        OutputValue::Null => "null".to_string(),
-        OutputValue::Principal(v) => v.to_string(),
-        OutputValue::Subaccount(v) => v.to_string(),
-        OutputValue::Text(v) => v.clone(),
-        OutputValue::Timestamp(v) => v.as_millis().to_string(),
-        OutputValue::Nat64(v) => v.to_string(),
-        OutputValue::Nat128(v) => v.to_string(),
-        OutputValue::NatBig(v) => v.to_string(),
-        OutputValue::Ulid(v) => v.to_string(),
-        OutputValue::Unit => "()".to_string(),
-        OutputValue::U256(v) => v.to_string(),
-    }
+    value.as_public().render_text()
 }
-
-fn render_blob_value(bytes: &[u8]) -> String {
-    let mut rendered = String::from("0x");
-    rendered.push_str(encode_hex_lower_output_value(bytes).as_str());
-
-    rendered
-}
-
-fn encode_hex_lower_output_value(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-
-    let mut rendered = String::with_capacity(bytes.len().saturating_mul(2));
-    for byte in bytes {
-        let byte = *byte;
-        rendered.push(char::from(HEX[usize::from(byte >> 4)]));
-        rendered.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-
-    rendered
-}
-
-fn render_duration_value(millis: u64) -> String {
-    let mut rendered = millis.to_string();
-    rendered.push_str("ms");
-
-    rendered
-}
-
-fn render_list_value(items: &[OutputValue]) -> String {
-    let mut rendered = String::from("[");
-
-    for (index, item) in items.iter().enumerate() {
-        if index != 0 {
-            rendered.push_str(", ");
-        }
-
-        rendered.push_str(render_output_value_text(item).as_str());
-    }
-
-    rendered.push(']');
-
-    rendered
-}
-
-fn render_map_value(entries: &[(OutputValue, OutputValue)]) -> String {
-    let mut rendered = String::from("{");
-
-    for (index, (key, value)) in entries.iter().enumerate() {
-        if index != 0 {
-            rendered.push_str(", ");
-        }
-
-        rendered.push_str(render_output_value_text(key).as_str());
-        rendered.push_str(": ");
-        rendered.push_str(render_output_value_text(value).as_str());
-    }
-
-    rendered.push('}');
-
-    rendered
-}
-
-fn render_enum(value: &OutputValueEnum) -> String {
-    let mut rendered = String::new();
-    if let Some(path) = value.path() {
-        rendered.push_str(path);
-        rendered.push_str("::");
-    }
-    rendered.push_str(value.variant());
-    if let Some(payload) = value.payload() {
-        rendered.push('(');
-        rendered.push_str(render_output_value_text(payload).as_str());
-        rendered.push(')');
-    }
-
-    rendered
-}
-
-///
-/// TESTS
-///
 
 #[cfg(test)]
 mod tests {
-    use crate::value::{OutputValue, Value};
+    use crate::value::{OutputValue, PublicValue, Value};
 
     #[test]
     fn output_value_from_runtime_value_keeps_recursive_collection_shape() {
@@ -274,11 +236,11 @@ mod tests {
 
         assert_eq!(
             OutputValue::from(runtime),
-            OutputValue::List(vec![
-                OutputValue::Nat64(7),
-                OutputValue::Map(vec![(
-                    OutputValue::Text("x".to_string()),
-                    OutputValue::Bool(true),
+            OutputValue::list(vec![
+                PublicValue::Nat64(7),
+                PublicValue::Map(vec![(
+                    PublicValue::Text("x".to_string()),
+                    PublicValue::Bool(true),
                 )]),
             ]),
         );

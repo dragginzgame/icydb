@@ -9,10 +9,11 @@ use crate::{
         Principal, Subaccount, Timestamp, U256, Ulid,
     },
     value::{
-        CoercionFamily, InputValue, OutputValue, SchemaInvariantError, TextMode, Value, ValueEnum,
-        canonicalize_value_set, hash_value,
+        CoercionFamily, InputValue, OutputValue, PublicEnumValue, PublicValue,
+        SchemaInvariantError, TextMode, Value, ValueEnum, canonicalize_value_set, hash_value,
     },
 };
+use candid::CandidType;
 use std::{cmp::Ordering, collections::BTreeSet};
 
 // ---- helpers -----------------------------------------------------------
@@ -39,7 +40,7 @@ fn v_txt(s: &str) -> Value {
 #[test]
 fn u256_public_value_carriers_roundtrip_candid_nat_boundaries() {
     for value in [U256::MIN, U256::ONE, U256::MAX] {
-        let input = InputValue::U256(value);
+        let input = InputValue::u256(value);
         let input_bytes = candid::encode_one(&input).expect("U256 input should Candid-encode");
         assert_eq!(
             candid::decode_one::<InputValue>(&input_bytes)
@@ -47,7 +48,7 @@ fn u256_public_value_carriers_roundtrip_candid_nat_boundaries() {
             input,
         );
 
-        let output = OutputValue::U256(value);
+        let output = OutputValue::u256(value);
         let output_bytes = candid::encode_one(&output).expect("U256 output should Candid-encode");
         assert_eq!(
             candid::decode_one::<OutputValue>(&output_bytes)
@@ -55,6 +56,79 @@ fn u256_public_value_carriers_roundtrip_candid_nat_boundaries() {
             output,
         );
     }
+}
+
+#[test]
+fn public_value_root_wrappers_share_one_candid_shape() {
+    let value = PublicValue::Map(vec![
+        (
+            PublicValue::Text("state".to_string()),
+            PublicValue::Enum(
+                PublicEnumValue::new("Ready", Some("workflow::State"))
+                    .with_payload(PublicValue::List(vec![PublicValue::Nat64(7)])),
+            ),
+        ),
+        (PublicValue::Text("missing".to_string()), PublicValue::Null),
+    ]);
+    let input = InputValue::from_public(value.clone());
+    let output = OutputValue::from_public(value.clone());
+
+    assert_eq!(InputValue::ty(), PublicValue::ty());
+    assert_eq!(OutputValue::ty(), PublicValue::ty());
+    assert_eq!(
+        candid::encode_one(&input).expect("input wrapper should encode"),
+        candid::encode_one(&value).expect("public kernel should encode"),
+    );
+    assert_eq!(
+        candid::encode_one(&output).expect("output wrapper should encode"),
+        candid::encode_one(&value).expect("public kernel should encode"),
+    );
+
+    let encoded = candid::encode_one(&value).expect("public kernel should encode");
+    assert_eq!(
+        candid::decode_one::<InputValue>(&encoded).expect("input wrapper should decode"),
+        input,
+    );
+    assert_eq!(
+        candid::decode_one::<OutputValue>(&encoded).expect("output wrapper should decode"),
+        output,
+    );
+}
+
+#[test]
+fn public_value_root_wrappers_are_layout_neutral_and_move_without_reallocation() {
+    assert_eq!(
+        std::mem::size_of::<InputValue>(),
+        std::mem::size_of::<PublicValue>(),
+    );
+    assert_eq!(
+        std::mem::size_of::<OutputValue>(),
+        std::mem::size_of::<PublicValue>(),
+    );
+    assert_eq!(
+        std::mem::align_of::<InputValue>(),
+        std::mem::align_of::<PublicValue>(),
+    );
+    assert_eq!(
+        std::mem::align_of::<OutputValue>(),
+        std::mem::align_of::<PublicValue>(),
+    );
+
+    let input_blob = vec![1_u8, 2, 3, 4];
+    let input_pointer = input_blob.as_ptr();
+    let input = InputValue::from_public(PublicValue::Blob(input_blob));
+    let PublicValue::Blob(input_blob) = input.into_public() else {
+        panic!("input wrapper should retain its blob");
+    };
+    assert_eq!(input_blob.as_ptr(), input_pointer);
+
+    let output_items = vec![PublicValue::Nat64(1), PublicValue::Nat64(2)];
+    let output_pointer = output_items.as_ptr();
+    let output = OutputValue::from_public(PublicValue::List(output_items));
+    let PublicValue::List(output_items) = output.into_public() else {
+        panic!("output wrapper should retain its list");
+    };
+    assert_eq!(output_items.as_ptr(), output_pointer);
 }
 
 macro_rules! sample_value_for_scalar {

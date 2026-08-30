@@ -9,7 +9,7 @@ use crate::{
         query::plan::expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
         schema::SchemaInfo,
     },
-    value::{InputValue, Value},
+    value::{InputValue, PublicValue, Value},
 };
 use candid::CandidType;
 use serde::Deserialize;
@@ -41,34 +41,38 @@ impl FilterValue {
     }
 
     fn from_input_value(value: InputValue) -> Self {
-        match value {
-            InputValue::Bool(value) => Self::Bool(value),
-            InputValue::List(values) => {
-                Self::List(values.into_iter().map(Self::from_input_value).collect())
+        fn from_public_value(value: PublicValue) -> FilterValue {
+            match value {
+                PublicValue::Bool(value) => FilterValue::Bool(value),
+                PublicValue::List(values) => {
+                    FilterValue::List(values.into_iter().map(from_public_value).collect())
+                }
+                PublicValue::Null | PublicValue::Unit => FilterValue::Null,
+                PublicValue::Text(value) => FilterValue::String(value),
+                PublicValue::Enum(value) => FilterValue::String(value.variant().to_string()),
+                PublicValue::Account(value) => FilterValue::String(value.to_string()),
+                PublicValue::Blob(value) => FilterValue::String(encode_hex_lower(value.as_slice())),
+                PublicValue::Date(value) => FilterValue::String(value.to_string()),
+                PublicValue::Decimal(value) => FilterValue::String(value.to_string()),
+                PublicValue::Duration(value) => FilterValue::String(value.as_millis().to_string()),
+                PublicValue::Float32(value) => FilterValue::String(value.to_string()),
+                PublicValue::Float64(value) => FilterValue::String(value.to_string()),
+                PublicValue::Int64(value) => FilterValue::String(value.to_string()),
+                PublicValue::Int128(value) => FilterValue::String(value.to_string()),
+                PublicValue::IntBig(value) => FilterValue::String(value.to_string()),
+                PublicValue::Map(value) => FilterValue::String(format!("{value:?}")),
+                PublicValue::Principal(value) => FilterValue::String(value.to_string()),
+                PublicValue::Subaccount(value) => FilterValue::String(value.to_string()),
+                PublicValue::Timestamp(value) => FilterValue::String(value.to_string()),
+                PublicValue::Nat64(value) => FilterValue::String(value.to_string()),
+                PublicValue::Nat128(value) => FilterValue::String(value.to_string()),
+                PublicValue::NatBig(value) => FilterValue::String(value.to_string()),
+                PublicValue::Ulid(value) => FilterValue::String(value.to_string()),
+                PublicValue::U256(value) => FilterValue::String(value.to_string()),
             }
-            InputValue::Null | InputValue::Unit => Self::Null,
-            InputValue::Text(value) => Self::String(value),
-            InputValue::Enum(value) => Self::String(value.variant().to_string()),
-            InputValue::Account(value) => Self::String(value.to_string()),
-            InputValue::Blob(value) => Self::String(encode_hex_lower(value.as_slice())),
-            InputValue::Date(value) => Self::String(value.to_string()),
-            InputValue::Decimal(value) => Self::String(value.to_string()),
-            InputValue::Duration(value) => Self::String(value.as_millis().to_string()),
-            InputValue::Float32(value) => Self::String(value.to_string()),
-            InputValue::Float64(value) => Self::String(value.to_string()),
-            InputValue::Int64(value) => Self::String(value.to_string()),
-            InputValue::Int128(value) => Self::String(value.to_string()),
-            InputValue::IntBig(value) => Self::String(value.to_string()),
-            InputValue::Map(value) => Self::String(format!("{value:?}")),
-            InputValue::Principal(value) => Self::String(value.to_string()),
-            InputValue::Subaccount(value) => Self::String(value.to_string()),
-            InputValue::Timestamp(value) => Self::String(value.to_string()),
-            InputValue::Nat64(value) => Self::String(value.to_string()),
-            InputValue::Nat128(value) => Self::String(value.to_string()),
-            InputValue::NatBig(value) => Self::String(value.to_string()),
-            InputValue::Ulid(value) => Self::String(value.to_string()),
-            InputValue::U256(value) => Self::String(value.to_string()),
         }
+
+        from_public_value(value.into_public())
     }
 }
 
@@ -81,119 +85,205 @@ where
     }
 }
 
+/// Boolean junction applied to a group of filter expressions.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum JunctionOperator {
+    /// Every child expression must match.
+    And,
+    /// At least one child expression must match.
+    Or,
+}
+
+impl JunctionOperator {
+    const fn binary_op(self) -> BinaryOp {
+        match self {
+            Self::And => BinaryOp::And,
+            Self::Or => BinaryOp::Or,
+        }
+    }
+}
+
+/// Comparison between one field and one literal value.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum CompareOperator {
+    /// Exact equality.
+    Eq,
+    /// Case-insensitive text equality.
+    EqCi,
+    /// Inequality.
+    Ne,
+    /// Strictly less than.
+    Lt,
+    /// Less than or equal.
+    Lte,
+    /// Strictly greater than.
+    Gt,
+    /// Greater than or equal.
+    Gte,
+}
+
+impl CompareOperator {
+    const fn binary_op(self) -> BinaryOp {
+        match self {
+            Self::Eq | Self::EqCi => BinaryOp::Eq,
+            Self::Ne => BinaryOp::Ne,
+            Self::Lt => BinaryOp::Lt,
+            Self::Lte => BinaryOp::Lte,
+            Self::Gt => BinaryOp::Gt,
+            Self::Gte => BinaryOp::Gte,
+        }
+    }
+}
+
+/// Comparison between two fields.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum FieldCompareOperator {
+    /// Exact equality.
+    Eq,
+    /// Inequality.
+    Ne,
+    /// Strictly less than.
+    Lt,
+    /// Less than or equal.
+    Lte,
+    /// Strictly greater than.
+    Gt,
+    /// Greater than or equal.
+    Gte,
+}
+
+impl FieldCompareOperator {
+    const fn binary_op(self) -> BinaryOp {
+        match self {
+            Self::Eq => BinaryOp::Eq,
+            Self::Ne => BinaryOp::Ne,
+            Self::Lt => BinaryOp::Lt,
+            Self::Lte => BinaryOp::Lte,
+            Self::Gt => BinaryOp::Gt,
+            Self::Gte => BinaryOp::Gte,
+        }
+    }
+}
+
+/// Membership operation applied to one field and a set of literal values.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum SetOperator {
+    /// Match any listed value.
+    In,
+    /// Reject every listed value.
+    NotIn,
+}
+
+impl SetOperator {
+    const fn is_negated(self) -> bool {
+        matches!(self, Self::NotIn)
+    }
+}
+
+/// Collection or text-matching operation applied to one field and literal.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum CollectionOperator {
+    /// Match a collection containing the literal value.
+    Contains,
+    /// Match a case-sensitive text substring.
+    TextContains,
+    /// Match a case-insensitive text substring.
+    TextContainsCi,
+    /// Match a case-sensitive text prefix.
+    StartsWith,
+    /// Match a case-insensitive text prefix.
+    StartsWithCi,
+    /// Match a case-sensitive text suffix.
+    EndsWith,
+    /// Match a case-insensitive text suffix.
+    EndsWithCi,
+}
+
+/// Presence or emptiness operation applied to one field.
+#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub enum StateOperator {
+    /// Match a present null value.
+    IsNull,
+    /// Match a present non-null value.
+    IsNotNull,
+    /// Match an absent field.
+    IsMissing,
+    /// Match a present empty value.
+    IsEmpty,
+    /// Match a present non-empty value.
+    IsNotEmpty,
+}
+
+impl StateOperator {
+    const fn function(self) -> Function {
+        match self {
+            Self::IsNull => Function::IsNull,
+            Self::IsNotNull => Function::IsNotNull,
+            Self::IsMissing => Function::IsMissing,
+            Self::IsEmpty => Function::IsEmpty,
+            Self::IsNotEmpty => Function::IsNotEmpty,
+        }
+    }
+}
+
 /// Serialized, planner-agnostic filter language.
 ///
 /// This is the shared frontend-facing filter input model for fluent callers
 /// and lowers onto planner-owned boolean expressions at the intent boundary.
-
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum FilterExpr {
-    True,
-    False,
-    And(Vec<Self>),
-    Or(Vec<Self>),
+    /// A constant boolean predicate.
+    Constant(bool),
+    /// A conjunction or disjunction of child predicates.
+    Junction {
+        /// Boolean operator joining the children.
+        operator: JunctionOperator,
+        /// Child predicates in caller-provided order.
+        filters: Vec<Self>,
+    },
+    /// Negation of one child predicate.
     Not(Box<Self>),
-    Eq {
+    /// Comparison between one field and one literal value.
+    Compare {
+        /// Comparison operation.
+        operator: CompareOperator,
+        /// Field name.
         field: String,
+        /// Literal value.
         value: FilterValue,
     },
-    EqCi {
-        field: String,
-        value: FilterValue,
-    },
-    Ne {
-        field: String,
-        value: FilterValue,
-    },
-    Lt {
-        field: String,
-        value: FilterValue,
-    },
-    Lte {
-        field: String,
-        value: FilterValue,
-    },
-    Gt {
-        field: String,
-        value: FilterValue,
-    },
-    Gte {
-        field: String,
-        value: FilterValue,
-    },
-    EqField {
+    /// Comparison between two fields.
+    CompareFields {
+        /// Comparison operation.
+        operator: FieldCompareOperator,
+        /// Left-hand field name.
         left_field: String,
+        /// Right-hand field name.
         right_field: String,
     },
-    NeField {
-        left_field: String,
-        right_field: String,
-    },
-    LtField {
-        left_field: String,
-        right_field: String,
-    },
-    LteField {
-        left_field: String,
-        right_field: String,
-    },
-    GtField {
-        left_field: String,
-        right_field: String,
-    },
-    GteField {
-        left_field: String,
-        right_field: String,
-    },
-    In {
+    /// Set-membership comparison.
+    Set {
+        /// Membership operation.
+        operator: SetOperator,
+        /// Field name.
         field: String,
+        /// Candidate literal values.
         values: Vec<FilterValue>,
     },
-    NotIn {
+    /// Collection containment or text matching.
+    Collection {
+        /// Collection or text operation.
+        operator: CollectionOperator,
+        /// Field name.
         field: String,
-        values: Vec<FilterValue>,
-    },
-    Contains {
-        field: String,
+        /// Literal operand.
         value: FilterValue,
     },
-    TextContains {
-        field: String,
-        value: FilterValue,
-    },
-    TextContainsCi {
-        field: String,
-        value: FilterValue,
-    },
-    StartsWith {
-        field: String,
-        value: FilterValue,
-    },
-    StartsWithCi {
-        field: String,
-        value: FilterValue,
-    },
-    EndsWith {
-        field: String,
-        value: FilterValue,
-    },
-    EndsWithCi {
-        field: String,
-        value: FilterValue,
-    },
-    IsNull {
-        field: String,
-    },
-    IsNotNull {
-        field: String,
-    },
-    IsMissing {
-        field: String,
-    },
-    IsEmpty {
-        field: String,
-    },
-    IsNotEmpty {
+    /// Presence or emptiness predicate.
+    State {
+        /// State operation.
+        operator: StateOperator,
+        /// Field name.
         field: String,
     },
 }
@@ -205,129 +295,60 @@ impl FilterExpr {
         self.lower_bool_expr_with_schema(schema)
     }
 
-    #[expect(clippy::too_many_lines)]
     fn lower_bool_expr_with_schema(&self, schema: &SchemaInfo) -> Expr {
         match self {
-            Self::True => Expr::Literal(Value::Bool(true)),
-            Self::False => Expr::Literal(Value::Bool(false)),
-            Self::And(xs) => fold_filter_bool_chain(BinaryOp::And, xs, schema),
-            Self::Or(xs) => fold_filter_bool_chain(BinaryOp::Or, xs, schema),
-            Self::Not(x) => Expr::Unary {
+            Self::Constant(value) => Expr::Literal(Value::Bool(*value)),
+            Self::Junction { operator, filters } => {
+                fold_filter_bool_chain(operator.binary_op(), filters, schema)
+            }
+            Self::Not(filter) => Expr::Unary {
                 op: UnaryOp::Not,
-                expr: Box::new(x.lower_bool_expr_with_schema(schema)),
+                expr: Box::new(filter.lower_bool_expr_with_schema(schema)),
             },
-            Self::Eq { field, value } => {
-                field_compare_expr(BinaryOp::Eq, field, lower_compare(schema, field, value))
-            }
-            Self::EqCi { field, value } => Expr::Binary {
-                op: BinaryOp::Eq,
-                left: Box::new(casefold_field_expr(field)),
-                right: Box::new(Expr::Literal(value.lower_value())),
-            },
-            Self::Ne { field, value } => {
-                field_compare_expr(BinaryOp::Ne, field, lower_compare(schema, field, value))
-            }
-            Self::Lt { field, value } => {
-                field_compare_expr(BinaryOp::Lt, field, lower_compare(schema, field, value))
-            }
-            Self::Lte { field, value } => {
-                field_compare_expr(BinaryOp::Lte, field, lower_compare(schema, field, value))
-            }
-            Self::Gt { field, value } => {
-                field_compare_expr(BinaryOp::Gt, field, lower_compare(schema, field, value))
-            }
-            Self::Gte { field, value } => {
-                field_compare_expr(BinaryOp::Gte, field, lower_compare(schema, field, value))
-            }
-            Self::EqField {
+            Self::Compare {
+                operator,
+                field,
+                value,
+            } => lower_field_value_compare(*operator, schema, field, value),
+            Self::CompareFields {
+                operator,
                 left_field,
                 right_field,
-            } => field_compare_field_expr(BinaryOp::Eq, left_field, right_field),
-            Self::NeField {
-                left_field,
-                right_field,
-            } => field_compare_field_expr(BinaryOp::Ne, left_field, right_field),
-            Self::LtField {
-                left_field,
-                right_field,
-            } => field_compare_field_expr(BinaryOp::Lt, left_field, right_field),
-            Self::LteField {
-                left_field,
-                right_field,
-            } => field_compare_field_expr(BinaryOp::Lte, left_field, right_field),
-            Self::GtField {
-                left_field,
-                right_field,
-            } => field_compare_field_expr(BinaryOp::Gt, left_field, right_field),
-            Self::GteField {
-                left_field,
-                right_field,
-            } => field_compare_field_expr(BinaryOp::Gte, left_field, right_field),
-            Self::In { field, values } => membership_expr(
+            } => field_compare_field_expr(operator.binary_op(), left_field, right_field),
+            Self::Set {
+                operator,
+                field,
+                values,
+            } => membership_expr(
                 field,
                 lower_membership(schema, field, values).as_slice(),
-                false,
+                operator.is_negated(),
             ),
-            Self::NotIn { field, values } => membership_expr(
+            Self::Collection {
+                operator,
                 field,
-                lower_membership(schema, field, values).as_slice(),
-                true,
-            ),
-            Self::Contains { field, value } => Expr::FunctionCall {
-                function: Function::CollectionContains,
-                args: vec![
-                    Expr::Field(FieldId::new(field.clone())),
-                    Expr::Literal(lower_collection_element(schema, field, value)),
-                ],
-            },
-            Self::TextContains { field, value } => text_function_expr(
-                Function::Contains,
-                Expr::Field(FieldId::new(field.clone())),
-                value.lower_value(),
-            ),
-            Self::TextContainsCi { field, value } => text_function_expr(
-                Function::Contains,
-                casefold_field_expr(field),
-                value.lower_value(),
-            ),
-            Self::StartsWith { field, value } => text_function_expr(
-                Function::StartsWith,
-                Expr::Field(FieldId::new(field.clone())),
-                value.lower_value(),
-            ),
-            Self::StartsWithCi { field, value } => text_function_expr(
-                Function::StartsWith,
-                casefold_field_expr(field),
-                value.lower_value(),
-            ),
-            Self::EndsWith { field, value } => text_function_expr(
-                Function::EndsWith,
-                Expr::Field(FieldId::new(field.clone())),
-                value.lower_value(),
-            ),
-            Self::EndsWithCi { field, value } => text_function_expr(
-                Function::EndsWith,
-                casefold_field_expr(field),
-                value.lower_value(),
-            ),
-            Self::IsNull { field } => field_function_expr(Function::IsNull, field),
-            Self::IsNotNull { field } => field_function_expr(Function::IsNotNull, field),
-            Self::IsMissing { field } => field_function_expr(Function::IsMissing, field),
-            Self::IsEmpty { field } => field_function_expr(Function::IsEmpty, field),
-            Self::IsNotEmpty { field } => field_function_expr(Function::IsNotEmpty, field),
+                value,
+            } => lower_collection_compare(*operator, schema, field, value),
+            Self::State { operator, field } => field_function_expr(operator.function(), field),
         }
     }
 
     /// Build an `And` expression from a list of child expressions.
     #[must_use]
     pub const fn and(exprs: Vec<Self>) -> Self {
-        Self::And(exprs)
+        Self::Junction {
+            operator: JunctionOperator::And,
+            filters: exprs,
+        }
     }
 
     /// Build an `Or` expression from a list of child expressions.
     #[must_use]
     pub const fn or(exprs: Vec<Self>) -> Self {
-        Self::Or(exprs)
+        Self::Junction {
+            operator: JunctionOperator::Or,
+            filters: exprs,
+        }
     }
 
     /// Negate one child expression.
@@ -340,7 +361,8 @@ impl FilterExpr {
     /// Compare `field == value`.
     #[must_use]
     pub fn eq(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::Eq {
+        Self::Compare {
+            operator: CompareOperator::Eq,
             field: field.into(),
             value: value.into(),
         }
@@ -349,7 +371,8 @@ impl FilterExpr {
     /// Compare `field != value`.
     #[must_use]
     pub fn ne(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::Ne {
+        Self::Compare {
+            operator: CompareOperator::Ne,
             field: field.into(),
             value: value.into(),
         }
@@ -358,7 +381,8 @@ impl FilterExpr {
     /// Compare `field < value`.
     #[must_use]
     pub fn lt(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::Lt {
+        Self::Compare {
+            operator: CompareOperator::Lt,
             field: field.into(),
             value: value.into(),
         }
@@ -367,7 +391,8 @@ impl FilterExpr {
     /// Compare `field <= value`.
     #[must_use]
     pub fn lte(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::Lte {
+        Self::Compare {
+            operator: CompareOperator::Lte,
             field: field.into(),
             value: value.into(),
         }
@@ -376,7 +401,8 @@ impl FilterExpr {
     /// Compare `field > value`.
     #[must_use]
     pub fn gt(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::Gt {
+        Self::Compare {
+            operator: CompareOperator::Gt,
             field: field.into(),
             value: value.into(),
         }
@@ -385,7 +411,8 @@ impl FilterExpr {
     /// Compare `field >= value`.
     #[must_use]
     pub fn gte(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::Gte {
+        Self::Compare {
+            operator: CompareOperator::Gte,
             field: field.into(),
             value: value.into(),
         }
@@ -394,7 +421,8 @@ impl FilterExpr {
     /// Compare `field == value` with casefolded text equality.
     #[must_use]
     pub fn eq_ci(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::EqCi {
+        Self::Compare {
+            operator: CompareOperator::EqCi,
             field: field.into(),
             value: value.into(),
         }
@@ -403,7 +431,8 @@ impl FilterExpr {
     /// Compare `left_field == right_field`.
     #[must_use]
     pub fn eq_field(left_field: impl Into<String>, right_field: impl Into<String>) -> Self {
-        Self::EqField {
+        Self::CompareFields {
+            operator: FieldCompareOperator::Eq,
             left_field: left_field.into(),
             right_field: right_field.into(),
         }
@@ -412,7 +441,8 @@ impl FilterExpr {
     /// Compare `left_field != right_field`.
     #[must_use]
     pub fn ne_field(left_field: impl Into<String>, right_field: impl Into<String>) -> Self {
-        Self::NeField {
+        Self::CompareFields {
+            operator: FieldCompareOperator::Ne,
             left_field: left_field.into(),
             right_field: right_field.into(),
         }
@@ -421,7 +451,8 @@ impl FilterExpr {
     /// Compare `left_field < right_field`.
     #[must_use]
     pub fn lt_field(left_field: impl Into<String>, right_field: impl Into<String>) -> Self {
-        Self::LtField {
+        Self::CompareFields {
+            operator: FieldCompareOperator::Lt,
             left_field: left_field.into(),
             right_field: right_field.into(),
         }
@@ -430,7 +461,8 @@ impl FilterExpr {
     /// Compare `left_field <= right_field`.
     #[must_use]
     pub fn lte_field(left_field: impl Into<String>, right_field: impl Into<String>) -> Self {
-        Self::LteField {
+        Self::CompareFields {
+            operator: FieldCompareOperator::Lte,
             left_field: left_field.into(),
             right_field: right_field.into(),
         }
@@ -439,7 +471,8 @@ impl FilterExpr {
     /// Compare `left_field > right_field`.
     #[must_use]
     pub fn gt_field(left_field: impl Into<String>, right_field: impl Into<String>) -> Self {
-        Self::GtField {
+        Self::CompareFields {
+            operator: FieldCompareOperator::Gt,
             left_field: left_field.into(),
             right_field: right_field.into(),
         }
@@ -448,7 +481,8 @@ impl FilterExpr {
     /// Compare `left_field >= right_field`.
     #[must_use]
     pub fn gte_field(left_field: impl Into<String>, right_field: impl Into<String>) -> Self {
-        Self::GteField {
+        Self::CompareFields {
+            operator: FieldCompareOperator::Gte,
             left_field: left_field.into(),
             right_field: right_field.into(),
         }
@@ -460,7 +494,8 @@ impl FilterExpr {
         field: impl Into<String>,
         values: impl IntoIterator<Item = impl Into<FilterValue>>,
     ) -> Self {
-        Self::In {
+        Self::Set {
+            operator: SetOperator::In,
             field: field.into(),
             values: values.into_iter().map(Into::into).collect(),
         }
@@ -472,7 +507,8 @@ impl FilterExpr {
         field: impl Into<String>,
         values: impl IntoIterator<Item = impl Into<FilterValue>>,
     ) -> Self {
-        Self::NotIn {
+        Self::Set {
+            operator: SetOperator::NotIn,
             field: field.into(),
             values: values.into_iter().map(Into::into).collect(),
         }
@@ -481,7 +517,8 @@ impl FilterExpr {
     /// Compare collection `field CONTAINS value`.
     #[must_use]
     pub fn contains(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::Contains {
+        Self::Collection {
+            operator: CollectionOperator::Contains,
             field: field.into(),
             value: value.into(),
         }
@@ -490,7 +527,8 @@ impl FilterExpr {
     /// Compare case-sensitive substring containment.
     #[must_use]
     pub fn text_contains(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::TextContains {
+        Self::Collection {
+            operator: CollectionOperator::TextContains,
             field: field.into(),
             value: value.into(),
         }
@@ -499,7 +537,8 @@ impl FilterExpr {
     /// Compare case-insensitive substring containment.
     #[must_use]
     pub fn text_contains_ci(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::TextContainsCi {
+        Self::Collection {
+            operator: CollectionOperator::TextContainsCi,
             field: field.into(),
             value: value.into(),
         }
@@ -508,7 +547,8 @@ impl FilterExpr {
     /// Compare case-sensitive prefix match.
     #[must_use]
     pub fn starts_with(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::StartsWith {
+        Self::Collection {
+            operator: CollectionOperator::StartsWith,
             field: field.into(),
             value: value.into(),
         }
@@ -517,7 +557,8 @@ impl FilterExpr {
     /// Compare case-insensitive prefix match.
     #[must_use]
     pub fn starts_with_ci(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::StartsWithCi {
+        Self::Collection {
+            operator: CollectionOperator::StartsWithCi,
             field: field.into(),
             value: value.into(),
         }
@@ -526,7 +567,8 @@ impl FilterExpr {
     /// Compare case-sensitive suffix match.
     #[must_use]
     pub fn ends_with(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::EndsWith {
+        Self::Collection {
+            operator: CollectionOperator::EndsWith,
             field: field.into(),
             value: value.into(),
         }
@@ -535,7 +577,8 @@ impl FilterExpr {
     /// Compare case-insensitive suffix match.
     #[must_use]
     pub fn ends_with_ci(field: impl Into<String>, value: impl Into<FilterValue>) -> Self {
-        Self::EndsWithCi {
+        Self::Collection {
+            operator: CollectionOperator::EndsWithCi,
             field: field.into(),
             value: value.into(),
         }
@@ -544,7 +587,8 @@ impl FilterExpr {
     /// Match rows where `field` is present and null.
     #[must_use]
     pub fn is_null(field: impl Into<String>) -> Self {
-        Self::IsNull {
+        Self::State {
+            operator: StateOperator::IsNull,
             field: field.into(),
         }
     }
@@ -552,7 +596,8 @@ impl FilterExpr {
     /// Match rows where `field` is present and non-null.
     #[must_use]
     pub fn is_not_null(field: impl Into<String>) -> Self {
-        Self::IsNotNull {
+        Self::State {
+            operator: StateOperator::IsNotNull,
             field: field.into(),
         }
     }
@@ -560,7 +605,8 @@ impl FilterExpr {
     /// Match rows where `field` is absent.
     #[must_use]
     pub fn is_missing(field: impl Into<String>) -> Self {
-        Self::IsMissing {
+        Self::State {
+            operator: StateOperator::IsMissing,
             field: field.into(),
         }
     }
@@ -568,7 +614,8 @@ impl FilterExpr {
     /// Match rows where `field` is present and empty.
     #[must_use]
     pub fn is_empty(field: impl Into<String>) -> Self {
-        Self::IsEmpty {
+        Self::State {
+            operator: StateOperator::IsEmpty,
             field: field.into(),
         }
     }
@@ -576,9 +623,78 @@ impl FilterExpr {
     /// Match rows where `field` is present and non-empty.
     #[must_use]
     pub fn is_not_empty(field: impl Into<String>) -> Self {
-        Self::IsNotEmpty {
+        Self::State {
+            operator: StateOperator::IsNotEmpty,
             field: field.into(),
         }
+    }
+}
+
+fn lower_field_value_compare(
+    operator: CompareOperator,
+    schema: &SchemaInfo,
+    field: &str,
+    value: &FilterValue,
+) -> Expr {
+    if operator == CompareOperator::EqCi {
+        return Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(casefold_field_expr(field)),
+            right: Box::new(Expr::Literal(value.lower_value())),
+        };
+    }
+
+    field_compare_expr(
+        operator.binary_op(),
+        field,
+        lower_compare(schema, field, value),
+    )
+}
+
+fn lower_collection_compare(
+    operator: CollectionOperator,
+    schema: &SchemaInfo,
+    field: &str,
+    value: &FilterValue,
+) -> Expr {
+    match operator {
+        CollectionOperator::Contains => Expr::FunctionCall {
+            function: Function::CollectionContains,
+            args: vec![
+                Expr::Field(FieldId::new(field.to_string())),
+                Expr::Literal(lower_collection_element(schema, field, value)),
+            ],
+        },
+        CollectionOperator::TextContains => text_function_expr(
+            Function::Contains,
+            Expr::Field(FieldId::new(field.to_string())),
+            value.lower_value(),
+        ),
+        CollectionOperator::TextContainsCi => text_function_expr(
+            Function::Contains,
+            casefold_field_expr(field),
+            value.lower_value(),
+        ),
+        CollectionOperator::StartsWith => text_function_expr(
+            Function::StartsWith,
+            Expr::Field(FieldId::new(field.to_string())),
+            value.lower_value(),
+        ),
+        CollectionOperator::StartsWithCi => text_function_expr(
+            Function::StartsWith,
+            casefold_field_expr(field),
+            value.lower_value(),
+        ),
+        CollectionOperator::EndsWith => text_function_expr(
+            Function::EndsWith,
+            Expr::Field(FieldId::new(field.to_string())),
+            value.lower_value(),
+        ),
+        CollectionOperator::EndsWithCi => text_function_expr(
+            Function::EndsWith,
+            casefold_field_expr(field),
+            value.lower_value(),
+        ),
     }
 }
 
@@ -687,7 +803,11 @@ fn casefold_field_expr(field: &str) -> Expr {
 
 #[cfg(test)]
 mod tests {
-    use super::FilterValue;
+    use super::{
+        CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, FilterValue,
+        JunctionOperator, SetOperator, StateOperator,
+    };
+    use crate::db::query::plan::expr::{BinaryOp, Function};
     use crate::types::{Date, Duration, Subaccount, Timestamp};
 
     #[test]
@@ -712,5 +832,163 @@ mod tests {
             FilterValue::from(Timestamp::from_millis(-42)),
             FilterValue::String("-42".to_string()),
         );
+    }
+
+    #[test]
+    fn grouped_filter_candid_round_trips_every_supported_operation() {
+        let value = FilterValue::String("value".to_string());
+        let comparisons = [
+            CompareOperator::Eq,
+            CompareOperator::EqCi,
+            CompareOperator::Ne,
+            CompareOperator::Lt,
+            CompareOperator::Lte,
+            CompareOperator::Gt,
+            CompareOperator::Gte,
+        ]
+        .map(|operator| FilterExpr::Compare {
+            operator,
+            field: "left".to_string(),
+            value: value.clone(),
+        });
+        let field_comparisons = [
+            FieldCompareOperator::Eq,
+            FieldCompareOperator::Ne,
+            FieldCompareOperator::Lt,
+            FieldCompareOperator::Lte,
+            FieldCompareOperator::Gt,
+            FieldCompareOperator::Gte,
+        ]
+        .map(|operator| FilterExpr::CompareFields {
+            operator,
+            left_field: "left".to_string(),
+            right_field: "right".to_string(),
+        });
+        let sets = [SetOperator::In, SetOperator::NotIn].map(|operator| FilterExpr::Set {
+            operator,
+            field: "set".to_string(),
+            values: vec![value.clone()],
+        });
+        let collections = [
+            CollectionOperator::Contains,
+            CollectionOperator::TextContains,
+            CollectionOperator::TextContainsCi,
+            CollectionOperator::StartsWith,
+            CollectionOperator::StartsWithCi,
+            CollectionOperator::EndsWith,
+            CollectionOperator::EndsWithCi,
+        ]
+        .map(|operator| FilterExpr::Collection {
+            operator,
+            field: "collection".to_string(),
+            value: value.clone(),
+        });
+        let states = [
+            StateOperator::IsNull,
+            StateOperator::IsNotNull,
+            StateOperator::IsMissing,
+            StateOperator::IsEmpty,
+            StateOperator::IsNotEmpty,
+        ]
+        .map(|operator| FilterExpr::State {
+            operator,
+            field: "state".to_string(),
+        });
+        let mut filters = vec![
+            FilterExpr::Constant(true),
+            FilterExpr::Constant(false),
+            FilterExpr::Junction {
+                operator: JunctionOperator::And,
+                filters: Vec::new(),
+            },
+            FilterExpr::Junction {
+                operator: JunctionOperator::Or,
+                filters: Vec::new(),
+            },
+            FilterExpr::Not(Box::new(FilterExpr::Constant(true))),
+        ];
+        filters.extend(comparisons);
+        filters.extend(field_comparisons);
+        filters.extend(sets);
+        filters.extend(collections);
+        filters.extend(states);
+
+        for filter in filters {
+            let encoded = candid::encode_one(&filter).expect("filter should encode");
+            let decoded = candid::decode_one::<FilterExpr>(&encoded).expect("filter should decode");
+            assert_eq!(decoded, filter);
+        }
+    }
+
+    #[test]
+    fn constructors_build_the_grouped_filter_families_directly() {
+        assert!(matches!(
+            FilterExpr::and(vec![FilterExpr::Constant(true)]),
+            FilterExpr::Junction {
+                operator: JunctionOperator::And,
+                ..
+            }
+        ));
+        assert!(matches!(
+            FilterExpr::eq("field", 1_u64),
+            FilterExpr::Compare {
+                operator: CompareOperator::Eq,
+                ..
+            }
+        ));
+        assert!(matches!(
+            FilterExpr::eq_field("left", "right"),
+            FilterExpr::CompareFields {
+                operator: FieldCompareOperator::Eq,
+                ..
+            }
+        ));
+        assert!(matches!(
+            FilterExpr::not_in("field", [1_u64]),
+            FilterExpr::Set {
+                operator: SetOperator::NotIn,
+                ..
+            }
+        ));
+        assert!(matches!(
+            FilterExpr::contains("field", 1_u64),
+            FilterExpr::Collection {
+                operator: CollectionOperator::Contains,
+                ..
+            }
+        ));
+        assert!(matches!(
+            FilterExpr::is_missing("field"),
+            FilterExpr::State {
+                operator: StateOperator::IsMissing,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn grouped_operator_lowering_retains_the_existing_planner_operations() {
+        assert_eq!(JunctionOperator::And.binary_op(), BinaryOp::And);
+        assert_eq!(JunctionOperator::Or.binary_op(), BinaryOp::Or);
+        assert_eq!(CompareOperator::Eq.binary_op(), BinaryOp::Eq);
+        assert_eq!(CompareOperator::EqCi.binary_op(), BinaryOp::Eq);
+        assert_eq!(CompareOperator::Ne.binary_op(), BinaryOp::Ne);
+        assert_eq!(CompareOperator::Lt.binary_op(), BinaryOp::Lt);
+        assert_eq!(CompareOperator::Lte.binary_op(), BinaryOp::Lte);
+        assert_eq!(CompareOperator::Gt.binary_op(), BinaryOp::Gt);
+        assert_eq!(CompareOperator::Gte.binary_op(), BinaryOp::Gte);
+        assert_eq!(FieldCompareOperator::Eq.binary_op(), BinaryOp::Eq);
+        assert_eq!(FieldCompareOperator::Ne.binary_op(), BinaryOp::Ne);
+        assert_eq!(FieldCompareOperator::Lt.binary_op(), BinaryOp::Lt);
+        assert_eq!(FieldCompareOperator::Lte.binary_op(), BinaryOp::Lte);
+        assert_eq!(FieldCompareOperator::Gt.binary_op(), BinaryOp::Gt);
+        assert_eq!(FieldCompareOperator::Gte.binary_op(), BinaryOp::Gte);
+        assert!(!SetOperator::In.is_negated());
+        assert!(SetOperator::NotIn.is_negated());
+        assert_eq!(StateOperator::IsNull.function(), Function::IsNull);
+        assert_eq!(StateOperator::IsNotNull.function(), Function::IsNotNull);
+        assert_eq!(StateOperator::IsMissing.function(), Function::IsMissing);
+        assert_eq!(StateOperator::IsEmpty.function(), Function::IsEmpty);
+        assert_eq!(StateOperator::IsNotEmpty.function(), Function::IsNotEmpty);
     }
 }

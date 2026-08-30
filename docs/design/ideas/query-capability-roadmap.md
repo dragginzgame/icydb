@@ -217,6 +217,6 @@ historical roadmap. Promotion of any intake candidate requires:
    explicitly names the next minor;
 2. maintained code/contracts/tests prove a concrete remaining gap;
 3. rejected and already-supported behavior is removed from proposed scope;
-4. one canonical owner, hard cuts, invariants, measurements, and 1-12 landing
-   patches are fully designed; and
+4. one canonical owner, hard cuts, invariants, measurements, and a practical
+   initial set of landing patches are fully designed; and
 5. the user reviews that design and explicitly authorizes that minor.

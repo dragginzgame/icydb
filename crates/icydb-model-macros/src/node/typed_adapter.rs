@@ -23,7 +23,7 @@ fn named_adapter_impl_tokens(
             fn encode_typed_input<C>(
                 self,
                 context: &C,
-            ) -> Result<C::InputValue, ::icydb_model::TypedValueError>
+            ) -> Result<C::PublicValue, ::icydb_model::TypedValueError>
             where
                 C: ::icydb_model::TypedAdapterContext,
             {
@@ -34,7 +34,7 @@ fn named_adapter_impl_tokens(
         impl ::icydb_model::TypedOutputValue for #ident {
             fn decode_typed_output<C>(
                 context: &C,
-                value: &C::OutputValue,
+                value: &C::PublicValue,
             ) -> Result<Self, ::icydb_model::TypedValueError>
             where
                 C: ::icydb_model::TypedAdapterContext,

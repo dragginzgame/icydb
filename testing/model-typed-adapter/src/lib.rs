@@ -159,12 +159,15 @@ mod tests {
             TypedAdapterEntity::NAME.as_str(),
             WriteCell::Value(InputValue::from("Ada")),
         );
-        let embedded = InputValue::Map(vec![(
-            InputValue::from(AdapterRecord::LABEL.as_str()),
-            InputValue::from("Ada"),
+        let embedded = InputValue::map(vec![(
+            InputValue::from(AdapterRecord::LABEL.as_str()).into_public(),
+            InputValue::from("Ada").into_public(),
         )]);
 
-        assert!(matches!(embedded, InputValue::Map(values) if values.len() == 1));
+        assert!(matches!(
+            embedded.as_public(),
+            runtime_api::value::PublicValue::Map(values) if values.len() == 1
+        ));
         assert_ne!(patch, StructuralPatch::new());
     }
 

@@ -11,7 +11,7 @@ use crate::{
     db::{DynamicMutationResult, session::DbSession},
     error::Error,
     traits::CanisterKind,
-    value::{InputValue, InputValueEnum, OutputValue},
+    value::{InputValue, OutputValue, PublicEnumValue, PublicValue},
 };
 use candid::CandidType;
 use icydb_core as core;
@@ -342,8 +342,8 @@ impl TypedEntityBinding {
         &self,
         type_source_key: &str,
         member_source_keys: &[&str],
-        value: &'value OutputValue,
-    ) -> Result<Vec<&'value OutputValue>, TypedAdapterError> {
+        value: &'value PublicValue,
+    ) -> Result<Vec<&'value PublicValue>, TypedAdapterError> {
         let mut accepted_names = Vec::with_capacity(member_source_keys.len());
         for source_key in member_source_keys {
             let name = self
@@ -357,61 +357,60 @@ impl TypedEntityBinding {
 }
 
 impl icydb_model::TypedAdapterContext for TypedEntityBinding {
-    type InputValue = InputValue;
-    type OutputValue = OutputValue;
+    type PublicValue = PublicValue;
 
-    fn input_scalar(&self, value: icydb_model::TypedScalarValue) -> Self::InputValue {
+    fn input_scalar(&self, value: icydb_model::TypedScalarValue) -> Self::PublicValue {
         match value {
-            icydb_model::TypedScalarValue::Account(value) => InputValue::Account(value),
-            icydb_model::TypedScalarValue::Blob(value) => InputValue::Blob(value.to_vec()),
-            icydb_model::TypedScalarValue::Bool(value) => InputValue::Bool(value),
-            icydb_model::TypedScalarValue::Date(value) => InputValue::Date(value),
-            icydb_model::TypedScalarValue::Decimal(value) => InputValue::Decimal(value),
-            icydb_model::TypedScalarValue::Duration(value) => InputValue::Duration(value),
-            icydb_model::TypedScalarValue::Float32(value) => InputValue::Float32(value),
-            icydb_model::TypedScalarValue::Float64(value) => InputValue::Float64(value),
-            icydb_model::TypedScalarValue::Int64(value) => InputValue::Int64(value),
-            icydb_model::TypedScalarValue::Int128(value) => InputValue::Int128(value),
-            icydb_model::TypedScalarValue::IntBig(value) => InputValue::IntBig(value),
-            icydb_model::TypedScalarValue::Nat64(value) => InputValue::Nat64(value),
-            icydb_model::TypedScalarValue::Nat128(value) => InputValue::Nat128(value),
-            icydb_model::TypedScalarValue::NatBig(value) => InputValue::NatBig(value),
-            icydb_model::TypedScalarValue::Principal(value) => InputValue::Principal(value),
-            icydb_model::TypedScalarValue::Subaccount(value) => InputValue::Subaccount(value),
-            icydb_model::TypedScalarValue::Text(value) => InputValue::Text(value),
-            icydb_model::TypedScalarValue::Timestamp(value) => InputValue::Timestamp(value),
-            icydb_model::TypedScalarValue::Ulid(value) => InputValue::Ulid(value),
-            icydb_model::TypedScalarValue::Unit => InputValue::Unit,
-            icydb_model::TypedScalarValue::U256(value) => InputValue::U256(value),
+            icydb_model::TypedScalarValue::Account(value) => PublicValue::Account(value),
+            icydb_model::TypedScalarValue::Blob(value) => PublicValue::Blob(value.to_vec()),
+            icydb_model::TypedScalarValue::Bool(value) => PublicValue::Bool(value),
+            icydb_model::TypedScalarValue::Date(value) => PublicValue::Date(value),
+            icydb_model::TypedScalarValue::Decimal(value) => PublicValue::Decimal(value),
+            icydb_model::TypedScalarValue::Duration(value) => PublicValue::Duration(value),
+            icydb_model::TypedScalarValue::Float32(value) => PublicValue::Float32(value),
+            icydb_model::TypedScalarValue::Float64(value) => PublicValue::Float64(value),
+            icydb_model::TypedScalarValue::Int64(value) => PublicValue::Int64(value),
+            icydb_model::TypedScalarValue::Int128(value) => PublicValue::Int128(value),
+            icydb_model::TypedScalarValue::IntBig(value) => PublicValue::IntBig(value),
+            icydb_model::TypedScalarValue::Nat64(value) => PublicValue::Nat64(value),
+            icydb_model::TypedScalarValue::Nat128(value) => PublicValue::Nat128(value),
+            icydb_model::TypedScalarValue::NatBig(value) => PublicValue::NatBig(value),
+            icydb_model::TypedScalarValue::Principal(value) => PublicValue::Principal(value),
+            icydb_model::TypedScalarValue::Subaccount(value) => PublicValue::Subaccount(value),
+            icydb_model::TypedScalarValue::Text(value) => PublicValue::Text(value),
+            icydb_model::TypedScalarValue::Timestamp(value) => PublicValue::Timestamp(value),
+            icydb_model::TypedScalarValue::Ulid(value) => PublicValue::Ulid(value),
+            icydb_model::TypedScalarValue::Unit => PublicValue::Unit,
+            icydb_model::TypedScalarValue::U256(value) => PublicValue::U256(value),
         }
     }
 
-    fn input_list(&self, values: Vec<Self::InputValue>) -> Self::InputValue {
-        InputValue::List(values)
+    fn input_list(&self, values: Vec<Self::PublicValue>) -> Self::PublicValue {
+        PublicValue::List(values)
     }
 
-    fn input_map(&self, entries: Vec<(Self::InputValue, Self::InputValue)>) -> Self::InputValue {
-        InputValue::Map(entries)
+    fn input_map(&self, entries: Vec<(Self::PublicValue, Self::PublicValue)>) -> Self::PublicValue {
+        PublicValue::Map(entries)
     }
 
-    fn input_null(&self) -> Self::InputValue {
-        InputValue::Null
+    fn input_null(&self) -> Self::PublicValue {
+        PublicValue::Null
     }
 
     fn input_enum(
         &self,
         type_source_key: &'static str,
         variant_source_key: &'static str,
-        payload: Option<Self::InputValue>,
-    ) -> Result<Self::InputValue, icydb_model::TypedValueError> {
+        payload: Option<Self::PublicValue>,
+    ) -> Result<Self::PublicValue, icydb_model::TypedValueError> {
         let type_name = self
             .named_type_name(type_source_key)
             .ok_or(icydb_model::TypedValueError::SourceUnavailable)?;
         let variant_name = self
             .enum_variant_name(type_source_key, variant_source_key)
             .ok_or(icydb_model::TypedValueError::SourceUnavailable)?;
-        let value = InputValueEnum::new(variant_name, Some(type_name));
-        Ok(InputValue::Enum(match payload {
+        let value = PublicEnumValue::new(variant_name, Some(type_name));
+        Ok(PublicValue::Enum(match payload {
             Some(payload) => value.with_payload(payload),
             None => value,
         }))
@@ -420,85 +419,85 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
     fn input_record(
         &self,
         type_source_key: &'static str,
-        fields: Vec<(&'static str, Self::InputValue)>,
-    ) -> Result<Self::InputValue, icydb_model::TypedValueError> {
+        fields: Vec<(&'static str, Self::PublicValue)>,
+    ) -> Result<Self::PublicValue, icydb_model::TypedValueError> {
         fields
             .into_iter()
             .map(|(source_key, value)| {
                 let name = self
                     .composite_field_name(type_source_key, source_key)
                     .ok_or(icydb_model::TypedValueError::SourceUnavailable)?;
-                Ok((InputValue::Text(name.to_string()), value))
+                Ok((PublicValue::Text(name.to_string()), value))
             })
             .collect::<Result<Vec<_>, _>>()
-            .map(InputValue::Map)
+            .map(PublicValue::Map)
     }
 
-    fn output_scalar(&self, value: &Self::OutputValue) -> Option<icydb_model::TypedScalarValue> {
+    fn output_scalar(&self, value: &Self::PublicValue) -> Option<icydb_model::TypedScalarValue> {
         Some(match value {
-            OutputValue::Account(value) => icydb_model::TypedScalarValue::Account(*value),
-            OutputValue::Blob(value) => {
+            PublicValue::Account(value) => icydb_model::TypedScalarValue::Account(*value),
+            PublicValue::Blob(value) => {
                 icydb_model::TypedScalarValue::Blob(icydb_schema::Blob::from(value.as_slice()))
             }
-            OutputValue::Bool(value) => icydb_model::TypedScalarValue::Bool(*value),
-            OutputValue::Date(value) => icydb_model::TypedScalarValue::Date(*value),
-            OutputValue::Decimal(value) => icydb_model::TypedScalarValue::Decimal(*value),
-            OutputValue::Duration(value) => icydb_model::TypedScalarValue::Duration(*value),
-            OutputValue::Float32(value) => icydb_model::TypedScalarValue::Float32(*value),
-            OutputValue::Float64(value) => icydb_model::TypedScalarValue::Float64(*value),
-            OutputValue::Int64(value) => icydb_model::TypedScalarValue::Int64(*value),
-            OutputValue::Int128(value) => icydb_model::TypedScalarValue::Int128(*value),
-            OutputValue::IntBig(value) => icydb_model::TypedScalarValue::IntBig(value.clone()),
-            OutputValue::Nat64(value) => icydb_model::TypedScalarValue::Nat64(*value),
-            OutputValue::Nat128(value) => icydb_model::TypedScalarValue::Nat128(*value),
-            OutputValue::NatBig(value) => icydb_model::TypedScalarValue::NatBig(value.clone()),
-            OutputValue::Principal(value) => icydb_model::TypedScalarValue::Principal(*value),
-            OutputValue::Subaccount(value) => icydb_model::TypedScalarValue::Subaccount(*value),
-            OutputValue::Text(value) => icydb_model::TypedScalarValue::Text(value.clone()),
-            OutputValue::Timestamp(value) => icydb_model::TypedScalarValue::Timestamp(*value),
-            OutputValue::Ulid(value) => icydb_model::TypedScalarValue::Ulid(*value),
-            OutputValue::Unit => icydb_model::TypedScalarValue::Unit,
-            OutputValue::U256(value) => icydb_model::TypedScalarValue::U256(*value),
-            OutputValue::Enum(_)
-            | OutputValue::List(_)
-            | OutputValue::Map(_)
-            | OutputValue::Null => {
+            PublicValue::Bool(value) => icydb_model::TypedScalarValue::Bool(*value),
+            PublicValue::Date(value) => icydb_model::TypedScalarValue::Date(*value),
+            PublicValue::Decimal(value) => icydb_model::TypedScalarValue::Decimal(*value),
+            PublicValue::Duration(value) => icydb_model::TypedScalarValue::Duration(*value),
+            PublicValue::Float32(value) => icydb_model::TypedScalarValue::Float32(*value),
+            PublicValue::Float64(value) => icydb_model::TypedScalarValue::Float64(*value),
+            PublicValue::Int64(value) => icydb_model::TypedScalarValue::Int64(*value),
+            PublicValue::Int128(value) => icydb_model::TypedScalarValue::Int128(*value),
+            PublicValue::IntBig(value) => icydb_model::TypedScalarValue::IntBig(value.clone()),
+            PublicValue::Nat64(value) => icydb_model::TypedScalarValue::Nat64(*value),
+            PublicValue::Nat128(value) => icydb_model::TypedScalarValue::Nat128(*value),
+            PublicValue::NatBig(value) => icydb_model::TypedScalarValue::NatBig(value.clone()),
+            PublicValue::Principal(value) => icydb_model::TypedScalarValue::Principal(*value),
+            PublicValue::Subaccount(value) => icydb_model::TypedScalarValue::Subaccount(*value),
+            PublicValue::Text(value) => icydb_model::TypedScalarValue::Text(value.clone()),
+            PublicValue::Timestamp(value) => icydb_model::TypedScalarValue::Timestamp(*value),
+            PublicValue::Ulid(value) => icydb_model::TypedScalarValue::Ulid(*value),
+            PublicValue::Unit => icydb_model::TypedScalarValue::Unit,
+            PublicValue::U256(value) => icydb_model::TypedScalarValue::U256(*value),
+            PublicValue::Enum(_)
+            | PublicValue::List(_)
+            | PublicValue::Map(_)
+            | PublicValue::Null => {
                 return None;
             }
         })
     }
 
-    fn output_list<'a>(&self, value: &'a Self::OutputValue) -> Option<&'a [Self::OutputValue]> {
+    fn output_list<'a>(&self, value: &'a Self::PublicValue) -> Option<&'a [Self::PublicValue]> {
         match value {
-            OutputValue::List(values) => Some(values.as_slice()),
+            PublicValue::List(values) => Some(values.as_slice()),
             _ => None,
         }
     }
 
     fn output_map<'a>(
         &self,
-        value: &'a Self::OutputValue,
-    ) -> Option<&'a [(Self::OutputValue, Self::OutputValue)]> {
+        value: &'a Self::PublicValue,
+    ) -> Option<&'a [(Self::PublicValue, Self::PublicValue)]> {
         match value {
-            OutputValue::Map(entries) => Some(entries.as_slice()),
+            PublicValue::Map(entries) => Some(entries.as_slice()),
             _ => None,
         }
     }
 
-    fn output_is_null(&self, value: &Self::OutputValue) -> bool {
-        matches!(value, OutputValue::Null)
+    fn output_is_null(&self, value: &Self::PublicValue) -> bool {
+        matches!(value, PublicValue::Null)
     }
 
     fn output_enum_variant<'a>(
         &self,
         type_source_key: &'static str,
         variant_source_key: &'static str,
-        value: &'a Self::OutputValue,
+        value: &'a Self::PublicValue,
     ) -> Result<
-        Option<icydb_model::TypedEnumOutput<'a, Self::OutputValue>>,
+        Option<icydb_model::TypedEnumOutput<'a, Self::PublicValue>>,
         icydb_model::TypedValueError,
     > {
-        let OutputValue::Enum(value) = value else {
+        let PublicValue::Enum(value) = value else {
             return Err(icydb_model::TypedValueError::ShapeMismatch);
         };
         let type_name = self
@@ -523,8 +522,8 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
         &self,
         type_source_key: &'static str,
         member_source_keys: &[&'static str],
-        value: &'a Self::OutputValue,
-    ) -> Result<Vec<&'a Self::OutputValue>, icydb_model::TypedValueError> {
+        value: &'a Self::PublicValue,
+    ) -> Result<Vec<&'a Self::PublicValue>, icydb_model::TypedValueError> {
         self.record_output_values(type_source_key, member_source_keys, value)
             .map_err(|error| match error {
                 TypedAdapterError::FieldUnavailable => {
@@ -537,9 +536,9 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
 
 fn exact_record_output_values<'value>(
     accepted_names: &[&str],
-    value: &'value OutputValue,
-) -> Result<Vec<&'value OutputValue>, TypedAdapterError> {
-    let OutputValue::Map(entries) = value else {
+    value: &'value PublicValue,
+) -> Result<Vec<&'value PublicValue>, TypedAdapterError> {
+    let PublicValue::Map(entries) = value else {
         return Err(TypedAdapterError::ValueShapeMismatch);
     };
     if entries.len() != accepted_names.len()
@@ -555,7 +554,7 @@ fn exact_record_output_values<'value>(
 
     let mut values = vec![None; accepted_names.len()];
     for (key, value) in entries {
-        let OutputValue::Text(name) = key else {
+        let PublicValue::Text(name) = key else {
             return Err(TypedAdapterError::ValueShapeMismatch);
         };
         let Some(index) = accepted_names.iter().position(|accepted| *accepted == name) else {
@@ -575,43 +574,43 @@ fn exact_record_output_values<'value>(
 #[cfg(test)]
 mod typed_record_output_tests {
     use super::{TypedAdapterError, exact_record_output_values};
-    use crate::value::OutputValue;
+    use crate::value::PublicValue;
 
-    fn text(value: &str) -> OutputValue {
-        OutputValue::Text(value.to_string())
+    fn text(value: &str) -> PublicValue {
+        PublicValue::Text(value.to_string())
     }
 
     #[test]
     fn exact_record_output_reorders_accepted_members() {
-        let value = OutputValue::Map(vec![
-            (text("count"), OutputValue::Nat64(7)),
+        let value = PublicValue::Map(vec![
+            (text("count"), PublicValue::Nat64(7)),
             (text("label"), text("Ada")),
         ]);
 
         let values = exact_record_output_values(&["label", "count"], &value)
             .expect("exact accepted record output should decode");
 
-        assert!(matches!(values[0], OutputValue::Text(value) if value == "Ada"));
-        assert_eq!(values[1], &OutputValue::Nat64(7));
+        assert!(matches!(values[0], PublicValue::Text(value) if value == "Ada"));
+        assert_eq!(values[1], &PublicValue::Nat64(7));
     }
 
     #[test]
     fn exact_record_output_rejects_duplicate_missing_and_unknown_members() {
         let malformed = [
-            OutputValue::Map(vec![
+            PublicValue::Map(vec![
                 (text("label"), text("Ada")),
                 (text("label"), text("Grace")),
             ]),
-            OutputValue::Map(vec![(text("label"), text("Ada"))]),
-            OutputValue::Map(vec![
+            PublicValue::Map(vec![(text("label"), text("Ada"))]),
+            PublicValue::Map(vec![
                 (text("label"), text("Ada")),
-                (text("other"), OutputValue::Nat64(7)),
+                (text("other"), PublicValue::Nat64(7)),
             ]),
-            OutputValue::Map(vec![
-                (OutputValue::Nat64(1), text("Ada")),
-                (text("count"), OutputValue::Nat64(7)),
+            PublicValue::Map(vec![
+                (PublicValue::Nat64(1), text("Ada")),
+                (text("count"), PublicValue::Nat64(7)),
             ]),
-            OutputValue::List(Vec::new()),
+            PublicValue::List(Vec::new()),
         ];
 
         for value in &malformed {

@@ -1940,8 +1940,14 @@ fn streaming_execution_continuation_query() -> DynamicQuery {
 fn streaming_execution_page_bounds(page: &LiveQueryPageOutput) -> Result<(i64, i64), icydb::Error> {
     let first = page.rows.first().and_then(|row| row.first());
     let last = page.rows.last().and_then(|row| row.first());
-    match (first, last) {
-        (Some(OutputValue::Int64(first)), Some(OutputValue::Int64(last))) => Ok((*first, *last)),
+    match (
+        first.map(OutputValue::as_public),
+        last.map(OutputValue::as_public),
+    ) {
+        (
+            Some(icydb::value::PublicValue::Int64(first)),
+            Some(icydb::value::PublicValue::Int64(last)),
+        ) => Ok((*first, *last)),
         _ => Err(query_validate_error()),
     }
 }
@@ -3195,7 +3201,10 @@ fn mutation_scale_count(sql: &str) -> Result<u32, icydb::Error> {
     let [row] = projection.rows.as_slice() else {
         return Err(query_validate_error());
     };
-    let [OutputValue::Nat64(count)] = row.as_slice() else {
+    let [count] = row.as_slice() else {
+        return Err(query_validate_error());
+    };
+    let icydb::value::PublicValue::Nat64(count) = count.as_public() else {
         return Err(query_validate_error());
     };
 

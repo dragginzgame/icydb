@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.249.md](docs/changelog/0.249.md)
 
+- `0.249.4` hard-cuts filters to eight canonical expression families and
+  converges duplicate public input/output recursion onto one value kernel,
+  preserving the maintained semantics while retaining about 30 KiB of
+  measured project-instance code headroom.
 - `0.249.3` removes typed-collection and Candid wrapper specialization while
   keeping canonical ABI and storage shapes; the supplied cumulative Toko safe
   set now clears the IC code-section limit by 15,428 bytes.

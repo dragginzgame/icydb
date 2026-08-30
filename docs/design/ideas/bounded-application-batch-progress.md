@@ -192,6 +192,6 @@ note remains non-authoritative until the remaining gates are satisfied:
 1. a current-surface audit reproduces the gap and identifies the exhausted
    E273 resource from typed facts;
 2. the no-build alternatives above are measured against the real workload;
-3. one focused numbered design and status tracker define 1-12 substantive
-   landing patches; and
+3. one focused numbered design and status tracker define a practical initial
+   set of substantive landing patches; and
 4. the user explicitly authorizes that minor-version line.

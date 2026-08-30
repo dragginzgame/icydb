@@ -410,7 +410,7 @@ fn lower_dynamic_patch(
                 }
                 MutationMode::Update => lowered.set_explicit_update_default(slot),
             },
-            DynamicWriteCell::Null => lowered.set_authored(slot, InputValue::Null),
+            DynamicWriteCell::Null => lowered.set_authored(slot, InputValue::null()),
             DynamicWriteCell::Value(value) => lowered.set_authored(slot, value.clone()),
         };
     }
@@ -506,7 +506,7 @@ fn lower_typed_patch(
                 }
                 MutationMode::Update => lowered.set_explicit_update_default(slot),
             },
-            DynamicWriteCell::Null => lowered.set_authored(slot, InputValue::Null),
+            DynamicWriteCell::Null => lowered.set_authored(slot, InputValue::null()),
             DynamicWriteCell::Value(value) => lowered.set_authored(slot, value.clone()),
         };
     }
@@ -2334,11 +2334,11 @@ mod typed_adapter_tests {
             .bind_write_fields(vec![
                 (
                     ID_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(id)),
+                    DynamicWriteCell::Value(InputValue::nat64(id)),
                 ),
                 (
                     VALUE_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(value)),
+                    DynamicWriteCell::Value(InputValue::nat64(value)),
                 ),
             ])
             .expect("typed insert patch should bind");
@@ -2349,7 +2349,7 @@ mod typed_adapter_tests {
         let patch = binding
             .bind_write_fields(vec![(
                 OTHER_ID_SOURCE.to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(id)),
+                DynamicWriteCell::Value(InputValue::nat64(id)),
             )])
             .expect("other typed insert patch should bind");
         DynamicTypedMutation::Insert { patch }
@@ -2362,7 +2362,7 @@ mod typed_adapter_tests {
         binding
             .bind_write_fields(vec![(
                 VALUE_SOURCE.to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(value)),
+                DynamicWriteCell::Value(InputValue::nat64(value)),
             )])
             .expect("typed value patch should bind")
     }
@@ -2461,12 +2461,12 @@ mod typed_adapter_tests {
                 .collect::<Vec<_>>(),
             vec![
                 vec![
-                    crate::value::OutputValue::Nat64(1),
-                    crate::value::OutputValue::Nat64(10),
+                    crate::value::OutputValue::nat64(1),
+                    crate::value::OutputValue::nat64(10),
                 ],
                 vec![
-                    crate::value::OutputValue::Nat64(2),
-                    crate::value::OutputValue::Nat64(20),
+                    crate::value::OutputValue::nat64(2),
+                    crate::value::OutputValue::nat64(20),
                 ],
             ]
         );
@@ -2523,14 +2523,14 @@ mod typed_adapter_tests {
         assert_eq!(results[0].entity, "OtherEntity");
         assert_eq!(
             results[0].rows,
-            vec![vec![crate::value::OutputValue::Nat64(2)]]
+            vec![vec![crate::value::OutputValue::nat64(2)]]
         );
         assert_eq!(results[1].entity, "Entity");
         assert_eq!(
             results[1].rows,
             vec![vec![
-                crate::value::OutputValue::Nat64(3),
-                crate::value::OutputValue::Nat64(30),
+                crate::value::OutputValue::nat64(3),
+                crate::value::OutputValue::nat64(30),
             ]],
         );
     }
@@ -2584,14 +2584,14 @@ mod typed_adapter_tests {
                 (
                     binding.clone(),
                     DynamicTypedMutation::Update {
-                        key: InputValue::Nat64(1),
+                        key: InputValue::nat64(1),
                         patch: typed_value_patch(&binding, 11),
                     },
                 ),
                 (
                     binding.clone(),
                     DynamicTypedMutation::Replace {
-                        key: InputValue::Nat64(2),
+                        key: InputValue::nat64(2),
                         patch: typed_value_patch(&binding, 22),
                     },
                 ),
@@ -2608,16 +2608,16 @@ mod typed_adapter_tests {
                 .collect::<Vec<_>>(),
             vec![
                 vec![
-                    crate::value::OutputValue::Nat64(1),
-                    crate::value::OutputValue::Nat64(11),
+                    crate::value::OutputValue::nat64(1),
+                    crate::value::OutputValue::nat64(11),
                 ],
                 vec![
-                    crate::value::OutputValue::Nat64(2),
-                    crate::value::OutputValue::Nat64(22),
+                    crate::value::OutputValue::nat64(2),
+                    crate::value::OutputValue::nat64(22),
                 ],
                 vec![
-                    crate::value::OutputValue::Nat64(3),
-                    crate::value::OutputValue::Nat64(30),
+                    crate::value::OutputValue::nat64(3),
+                    crate::value::OutputValue::nat64(30),
                 ],
             ],
         );
@@ -2680,12 +2680,12 @@ mod typed_adapter_tests {
         let initial_patch = initial
             .bind_write_fields(vec![(
                 VALUE_SOURCE.to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(7)),
+                DynamicWriteCell::Value(InputValue::nat64(7)),
             )])
             .expect("source-bound patch should lower");
         assert_eq!(
             initial_patch.fields(),
-            &[(2, 1, DynamicWriteCell::Value(InputValue::Nat64(7)))]
+            &[(2, 1, DynamicWriteCell::Value(InputValue::nat64(7)))]
         );
 
         publish(
@@ -2822,11 +2822,11 @@ mod typed_adapter_tests {
             .bind_write_fields(vec![
                 (
                     ID_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(1)),
+                    DynamicWriteCell::Value(InputValue::nat64(1)),
                 ),
                 (
                     REPLACEMENT_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(9)),
+                    DynamicWriteCell::Value(InputValue::nat64(9)),
                 ),
             ])
             .expect("replacement source write should bind by accepted IDs and slots");
@@ -2839,8 +2839,8 @@ mod typed_adapter_tests {
         assert_eq!(
             result.rows,
             vec![vec![
-                crate::value::OutputValue::Nat64(1),
-                crate::value::OutputValue::Nat64(9)
+                crate::value::OutputValue::nat64(1),
+                crate::value::OutputValue::nat64(9)
             ]]
         );
         assert_eq!(result.affected_rows, 1);
@@ -2849,11 +2849,11 @@ mod typed_adapter_tests {
             .bind_write_fields(vec![
                 (
                     ID_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(2)),
+                    DynamicWriteCell::Value(InputValue::nat64(2)),
                 ),
                 (
                     REPLACEMENT_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(10)),
+                    DynamicWriteCell::Value(InputValue::nat64(10)),
                 ),
             ])
             .expect("second source-bound patch should lower");
@@ -2880,8 +2880,8 @@ mod typed_adapter_tests {
             assert_eq!(
                 result.rows,
                 vec![vec![
-                    crate::value::OutputValue::Nat64(1),
-                    crate::value::OutputValue::Nat64(9)
+                    crate::value::OutputValue::nat64(1),
+                    crate::value::OutputValue::nat64(9)
                 ]]
             );
             assert_eq!(result.row_count, 1);
@@ -2940,11 +2940,11 @@ mod typed_adapter_tests {
             assert_eq!(grouped.rows.len(), 1);
             assert_eq!(
                 grouped.rows[0].group_key(),
-                &[crate::value::OutputValue::Nat64(9)]
+                &[crate::value::OutputValue::nat64(9)]
             );
             assert_eq!(
                 grouped.rows[0].aggregate_values(),
-                &[crate::value::OutputValue::Nat64(1)]
+                &[crate::value::OutputValue::nat64(1)]
             );
             assert_eq!(grouped.next_cursor, None);
 
@@ -3040,7 +3040,7 @@ mod typed_adapter_tests {
             assert_eq!(first_page.row_count, 1);
             assert_eq!(
                 first_page.rows[0].group_key(),
-                &[crate::value::OutputValue::Nat64(9)]
+                &[crate::value::OutputValue::nat64(9)]
             );
             let cursor = first_page
                 .next_cursor
@@ -3063,7 +3063,7 @@ mod typed_adapter_tests {
             assert_eq!(second_page.row_count, 1);
             assert_eq!(
                 second_page.rows[0].group_key(),
-                &[crate::value::OutputValue::Nat64(10)]
+                &[crate::value::OutputValue::nat64(10)]
             );
             assert_eq!(second_page.next_cursor, None);
         }
@@ -3498,19 +3498,19 @@ mod mixed_relation_batch_tests {
         if let Some(id) = id {
             fields.push((
                 "id".to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(id)),
+                DynamicWriteCell::Value(InputValue::nat64(id)),
             ));
         }
         fields.push((
             "parent_id".to_string(),
             parent.map_or(DynamicWriteCell::Null, |parent| {
-                DynamicWriteCell::Value(InputValue::Nat64(parent))
+                DynamicWriteCell::Value(InputValue::nat64(parent))
             }),
         ));
         if let Some(code) = code {
             fields.push((
                 "code".to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(code)),
+                DynamicWriteCell::Value(InputValue::nat64(code)),
             ));
         }
         DynamicStructuralPatch::new(fields)
@@ -3530,7 +3530,7 @@ mod mixed_relation_batch_tests {
     fn update_parent(id: u64, parent: Option<u64>) -> DynamicMutation {
         DynamicMutation::Update {
             entity: ENTITY_NAME.to_string(),
-            key: InputValue::Nat64(id),
+            key: InputValue::nat64(id),
             patch: patch(None, parent, None),
         }
     }
@@ -3538,10 +3538,10 @@ mod mixed_relation_batch_tests {
     fn update_code(id: u64, code: u64) -> DynamicMutation {
         DynamicMutation::Update {
             entity: ENTITY_NAME.to_string(),
-            key: InputValue::Nat64(id),
+            key: InputValue::nat64(id),
             patch: DynamicStructuralPatch::new(vec![(
                 "code".to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(code)),
+                DynamicWriteCell::Value(InputValue::nat64(code)),
             )]),
         }
     }
@@ -3549,7 +3549,7 @@ mod mixed_relation_batch_tests {
     fn delete(id: u64) -> DynamicMutation {
         DynamicMutation::Delete {
             entity: ENTITY_NAME.to_string(),
-            key: InputValue::Nat64(id),
+            key: InputValue::nat64(id),
         }
     }
 
@@ -3559,9 +3559,9 @@ mod mixed_relation_batch_tests {
 
     fn expected_row_with_code(id: u64, parent: Option<u64>, code: u64) -> Vec<OutputValue> {
         vec![
-            OutputValue::Nat64(id),
-            parent.map_or(OutputValue::Null, OutputValue::Nat64),
-            OutputValue::Nat64(code),
+            OutputValue::nat64(id),
+            parent.map_or_else(OutputValue::null, OutputValue::nat64),
+            OutputValue::nat64(code),
         ]
     }
 
@@ -3578,17 +3578,17 @@ mod mixed_relation_batch_tests {
         if let Some(id) = id {
             fields.push((
                 "id".to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(id)),
+                DynamicWriteCell::Value(InputValue::nat64(id)),
             ));
         }
         fields.push((
             "value".to_string(),
-            DynamicWriteCell::Value(InputValue::Nat64(value)),
+            DynamicWriteCell::Value(InputValue::nat64(value)),
         ));
         fields.push((
             "node_id".to_string(),
             node_id.map_or(DynamicWriteCell::Null, |node_id| {
-                DynamicWriteCell::Value(InputValue::Nat64(node_id))
+                DynamicWriteCell::Value(InputValue::nat64(node_id))
             }),
         ));
         DynamicStructuralPatch::new(fields)
@@ -3620,7 +3620,7 @@ mod mixed_relation_batch_tests {
             .expect("initial live page should execute");
         assert_eq!(
             first.rows,
-            vec![vec![OutputValue::Nat64(3)], vec![OutputValue::Nat64(2)]]
+            vec![vec![OutputValue::nat64(3)], vec![OutputValue::nat64(2)]]
         );
         let cursor = first
             .continuation
@@ -3629,7 +3629,7 @@ mod mixed_relation_batch_tests {
         let second = session
             .execute_public_live_page(&query, Some(cursor))
             .expect("authenticated live continuation should resume");
-        assert_eq!(second.rows, vec![vec![OutputValue::Nat64(1)]]);
+        assert_eq!(second.rows, vec![vec![OutputValue::nat64(1)]]);
         assert_eq!(second.continuation, None);
 
         let total_limit = session
@@ -3637,7 +3637,7 @@ mod mixed_relation_batch_tests {
             .expect("total live-page limit should execute");
         assert_eq!(
             total_limit.rows,
-            vec![vec![OutputValue::Nat64(3)], vec![OutputValue::Nat64(2)]],
+            vec![vec![OutputValue::nat64(3)], vec![OutputValue::nat64(2)]],
         );
         assert_eq!(
             total_limit.continuation, None,
@@ -3655,7 +3655,7 @@ mod mixed_relation_batch_tests {
         let limited_second = session
             .execute_public_live_page(&three_row_window, Some(limited_cursor))
             .expect("remaining total window should preserve the plan signature");
-        assert_eq!(limited_second.rows, vec![vec![OutputValue::Nat64(1)]]);
+        assert_eq!(limited_second.rows, vec![vec![OutputValue::nat64(1)]]);
         assert_eq!(limited_second.continuation, None);
 
         let mixed_order = DynamicQuery::new(ENTITY_NAME)
@@ -3667,7 +3667,7 @@ mod mixed_relation_batch_tests {
             .expect("mixed-direction nullable order should execute");
         assert_eq!(
             mixed_first.rows,
-            vec![vec![OutputValue::Nat64(2)], vec![OutputValue::Nat64(1)]],
+            vec![vec![OutputValue::nat64(2)], vec![OutputValue::nat64(1)]],
         );
         let mixed_cursor = mixed_first
             .continuation
@@ -3676,7 +3676,7 @@ mod mixed_relation_batch_tests {
         let mixed_second = session
             .execute_trusted_live_page(&mixed_order, Some(mixed_cursor))
             .expect("mixed-direction nullable order should resume");
-        assert_eq!(mixed_second.rows, vec![vec![OutputValue::Nat64(3)]]);
+        assert_eq!(mixed_second.rows, vec![vec![OutputValue::nat64(3)]]);
         assert_eq!(mixed_second.continuation, None);
 
         let mismatched_window = session
@@ -3803,7 +3803,7 @@ mod mixed_relation_batch_tests {
         let first = session
             .execute_trusted_live_page_with_result_bytes_limit_for_tests(&query, None, 32)
             .expect("small output envelope should publish the first bounded page");
-        assert_eq!(first.rows, vec![vec![OutputValue::Nat64(3)]]);
+        assert_eq!(first.rows, vec![vec![OutputValue::nat64(3)]]);
         let continuation = first
             .continuation
             .expect("small output envelope should leave authenticated progress");
@@ -3822,7 +3822,7 @@ mod mixed_relation_batch_tests {
             });
         assert_eq!(
             second.rows,
-            vec![vec![OutputValue::Nat64(2)], vec![OutputValue::Nat64(1)]]
+            vec![vec![OutputValue::nat64(2)], vec![OutputValue::nat64(1)]]
         );
         let second_continuation = second
             .continuation
@@ -3847,9 +3847,9 @@ mod mixed_relation_batch_tests {
         assert_eq!(
             [first.rows, second.rows, terminal.rows].concat(),
             vec![
-                vec![OutputValue::Nat64(3)],
-                vec![OutputValue::Nat64(2)],
-                vec![OutputValue::Nat64(1)],
+                vec![OutputValue::nat64(3)],
+                vec![OutputValue::nat64(2)],
+                vec![OutputValue::nat64(1)],
             ]
         );
     }
@@ -3911,10 +3911,10 @@ mod mixed_relation_batch_tests {
         };
 
         let expected = vec![
-            vec![OutputValue::Null],
-            vec![OutputValue::Nat64(1)],
-            vec![OutputValue::Nat64(2)],
-            vec![OutputValue::Nat64(3)],
+            vec![OutputValue::null()],
+            vec![OutputValue::nat64(1)],
+            vec![OutputValue::nat64(2)],
+            vec![OutputValue::nat64(3)],
         ];
         let (adjacent_rows, adjacent_pages, adjacent_entries) = traverse(&adjacent, "adjacent");
         let (global_rows, global_pages, global_entries) = traverse(&global, "global");
@@ -3972,7 +3972,7 @@ mod mixed_relation_batch_tests {
         let third = session
             .execute_trusted_live_page(&query, Some(second_cursor.as_str()))
             .expect("final selective page should return the late match");
-        assert_eq!(third.rows, vec![vec![OutputValue::Nat64(9)]]);
+        assert_eq!(third.rows, vec![vec![OutputValue::nat64(9)]]);
         assert_eq!(third.work.entries_visited, 1);
         assert_eq!(third.continuation, None);
 
@@ -3999,7 +3999,7 @@ mod mixed_relation_batch_tests {
         let descending_third = session
             .execute_trusted_live_page(&descending, Some(descending_second_cursor.as_str()))
             .expect("descending final page should return the late match");
-        assert_eq!(descending_third.rows, vec![vec![OutputValue::Nat64(1)]]);
+        assert_eq!(descending_third.rows, vec![vec![OutputValue::nat64(1)]]);
         assert_eq!(descending_third.continuation, None);
     }
 
@@ -4119,7 +4119,7 @@ mod mixed_relation_batch_tests {
                 update_code(1, 11),
                 DynamicMutation::Update {
                     entity: OTHER_ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: other_patch(None, 11),
                 },
             ])
@@ -4129,9 +4129,9 @@ mod mixed_relation_batch_tests {
             vec![
                 expected_row_with_code(1, None, 11),
                 vec![
-                    OutputValue::Nat64(1),
-                    OutputValue::Nat64(11),
-                    OutputValue::Null,
+                    OutputValue::nat64(1),
+                    OutputValue::nat64(11),
+                    OutputValue::null(),
                 ],
             ],
         );
@@ -4158,7 +4158,7 @@ mod mixed_relation_batch_tests {
                 update_code(1, 14),
                 DynamicMutation::Replace {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(99),
+                    key: InputValue::nat64(99),
                     patch: patch(None, None, Some(99)),
                 },
             ])
@@ -4178,7 +4178,7 @@ mod mixed_relation_batch_tests {
         let other_unchanged = session
             .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
                 entity: OTHER_ENTITY_NAME.to_string(),
-                key: InputValue::Nat64(1),
+                key: InputValue::nat64(1),
                 patch: other_patch(None, 11),
             })
             .expect("the cross-entity commit must publish the secondary row");
@@ -4204,7 +4204,7 @@ mod mixed_relation_batch_tests {
                 delete(42),
                 DynamicMutation::Delete {
                     entity: OTHER_ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(20),
+                    key: InputValue::nat64(20),
                 },
             ])
             .expect("a target and cross-entity source may delete in either request order");
@@ -4232,7 +4232,7 @@ mod mixed_relation_batch_tests {
                 entity: format!("MixedBounded{index}"),
                 patch: DynamicStructuralPatch::new(vec![(
                     "id".to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(1)),
+                    DynamicWriteCell::Value(InputValue::nat64(1)),
                 )]),
             })
             .collect();
@@ -4257,7 +4257,7 @@ mod mixed_relation_batch_tests {
                 entity: format!("MixedBounded{index}"),
                 patch: DynamicStructuralPatch::new(vec![(
                     "id".to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(2)),
+                    DynamicWriteCell::Value(InputValue::nat64(2)),
                 )]),
             })
             .collect();
@@ -4284,7 +4284,7 @@ mod mixed_relation_batch_tests {
                     entity: CROSS_ENTITY_NAME.to_string(),
                     patch: DynamicStructuralPatch::new(vec![(
                         "id".to_string(),
-                        DynamicWriteCell::Value(InputValue::Nat64(70)),
+                        DynamicWriteCell::Value(InputValue::nat64(70)),
                     )]),
                 },
             ])
@@ -5017,13 +5017,13 @@ mod identity_pre_key_tests {
 
     fn payload_patch(value: u64) -> AcceptedMutationIntentPatch {
         AcceptedMutationIntentPatch::new()
-            .set_authored(FieldSlot::from_validated_index(1), InputValue::Nat64(value))
+            .set_authored(FieldSlot::from_validated_index(1), InputValue::nat64(value))
     }
 
     fn dynamic_payload_patch(value: u64) -> DynamicStructuralPatch {
         DynamicStructuralPatch::new(vec![(
             "payload".to_string(),
-            DynamicWriteCell::Value(InputValue::Nat64(value)),
+            DynamicWriteCell::Value(InputValue::nat64(value)),
         )])
     }
 
@@ -5031,17 +5031,17 @@ mod identity_pre_key_tests {
         DynamicStructuralPatch::new(vec![
             (
                 "payload".to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(value)),
+                DynamicWriteCell::Value(InputValue::nat64(value)),
             ),
             (
                 "target_id".to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(target_id)),
+                DynamicWriteCell::Value(InputValue::nat64(target_id)),
             ),
         ])
     }
 
     fn expected_dynamic_row(id: u64, payload: u64) -> Vec<OutputValue> {
-        vec![OutputValue::Nat64(id), OutputValue::Nat64(payload)]
+        vec![OutputValue::nat64(id), OutputValue::nat64(payload)]
     }
 
     fn exact_key_binding<C: CanisterKind>(session: &DbSession<C>) -> DynamicTypedEntityBinding {
@@ -5071,7 +5071,7 @@ mod identity_pre_key_tests {
         let patch = binding
             .bind_write_fields(vec![(
                 PAYLOAD_SOURCE.to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(payload)),
+                DynamicWriteCell::Value(InputValue::nat64(payload)),
             )])
             .expect("typed payload patch should bind");
         DynamicTypedMutation::Insert { patch }
@@ -5086,9 +5086,11 @@ mod identity_pre_key_tests {
             .expect("exact-key fixture insert should commit");
         match output.rows.as_slice() {
             [row] => match row.as_slice() {
-                [OutputValue::Nat64(id), OutputValue::Nat64(actual_payload)]
-                    if *actual_payload == payload =>
+                [id, actual_payload] if matches!(actual_payload.as_public(), crate::value::PublicValue::Nat64(value) if *value == payload) =>
                 {
+                    let crate::value::PublicValue::Nat64(id) = id.as_public() else {
+                        panic!("exact-key fixture should return a natural identity");
+                    };
                     *id
                 }
                 _ => panic!("exact-key fixture should return its identity and payload"),
@@ -5122,7 +5124,7 @@ mod identity_pre_key_tests {
                 &session,
                 "SELECT payload FROM IdentityRow ORDER BY payload ASC, id ASC LIMIT 1",
             ),
-            vec![vec![OutputValue::Nat64(10)]],
+            vec![vec![OutputValue::nat64(10)]],
         );
         #[cfg(feature = "diagnostics")]
         assert_sql_query_fits_resource_limit(
@@ -5137,7 +5139,7 @@ mod identity_pre_key_tests {
                 &session,
                 "SELECT payload FROM IdentityRow ORDER BY payload DESC, id DESC LIMIT 1",
             ),
-            vec![vec![OutputValue::Nat64(40)]],
+            vec![vec![OutputValue::nat64(40)]],
         );
         #[cfg(feature = "diagnostics")]
         assert_sql_query_fits_resource_limit(
@@ -5154,8 +5156,8 @@ mod identity_pre_key_tests {
                  ORDER BY payload ASC, id ASC LIMIT 2 OFFSET 1",
             ),
             vec![
-                vec![OutputValue::Nat64(3), OutputValue::Nat64(20)],
-                vec![OutputValue::Nat64(4), OutputValue::Nat64(20)],
+                vec![OutputValue::nat64(3), OutputValue::nat64(20)],
+                vec![OutputValue::nat64(4), OutputValue::nat64(20)],
             ],
         );
         #[cfg(feature = "diagnostics")]
@@ -5174,7 +5176,7 @@ mod identity_pre_key_tests {
             ),
             [10, 20, 20, 30, 40]
                 .into_iter()
-                .map(|payload| vec![OutputValue::Nat64(payload)])
+                .map(|payload| vec![OutputValue::nat64(payload)])
                 .collect::<Vec<_>>(),
         );
     }
@@ -5224,7 +5226,7 @@ mod identity_pre_key_tests {
         let index_reads_before = IndexStore::current_entry_read_count();
         assert_eq!(
             sql_projection_rows(&session, sql),
-            vec![vec![OutputValue::Nat64(40)]],
+            vec![vec![OutputValue::nat64(40)]],
         );
         assert_eq!(DataStore::current_get_call_count() - data_reads_before, 1);
         assert!(IndexStore::current_entry_read_count() - index_reads_before <= 1);
@@ -5234,7 +5236,7 @@ mod identity_pre_key_tests {
         let index_reads_before = IndexStore::current_entry_read_count();
         assert_eq!(
             sql_projection_rows(&session, range_sql),
-            vec![vec![OutputValue::Nat64(30)]],
+            vec![vec![OutputValue::nat64(30)]],
         );
         assert_eq!(DataStore::current_get_call_count() - data_reads_before, 1);
         assert!(IndexStore::current_entry_read_count() - index_reads_before <= 1);
@@ -5371,7 +5373,7 @@ mod identity_pre_key_tests {
         else {
             panic!("empty SQL direct count should return one projection row")
         };
-        assert_eq!(rows, vec![vec![OutputValue::Nat64(0)]]);
+        assert_eq!(rows, vec![vec![OutputValue::nat64(0)]]);
         assert_eq!(DataStore::current_get_call_count(), data_reads_before);
 
         for payload in [10, 10, 20] {
@@ -5393,7 +5395,7 @@ mod identity_pre_key_tests {
             else {
                 panic!("SQL direct count should return one projection row")
             };
-            assert_eq!(rows, vec![vec![OutputValue::Nat64(3)]], "{sql}");
+            assert_eq!(rows, vec![vec![OutputValue::nat64(3)]], "{sql}");
         }
         assert_eq!(DataStore::current_get_call_count(), data_reads_before);
         assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
@@ -5404,7 +5406,7 @@ mod identity_pre_key_tests {
         else {
             panic!("nontrivial exact-prefix count should return one projection row")
         };
-        assert_eq!(rows, vec![vec![OutputValue::Nat64(2)]]);
+        assert_eq!(rows, vec![vec![OutputValue::nat64(2)]]);
         assert_eq!(DataStore::current_get_call_count(), data_reads_before);
         assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
 
@@ -5419,7 +5421,7 @@ mod identity_pre_key_tests {
             else {
                 panic!("non-entity count control should return one projection row")
             };
-            assert_eq!(rows, vec![vec![OutputValue::Nat64(expected)]], "{sql}");
+            assert_eq!(rows, vec![vec![OutputValue::nat64(expected)]], "{sql}");
         }
         assert!(DataStore::current_get_call_count() > data_reads_before);
 
@@ -5434,7 +5436,7 @@ mod identity_pre_key_tests {
         else {
             panic!("distinct count should return one projection row")
         };
-        assert_eq!(rows, vec![vec![OutputValue::Nat64(2)]]);
+        assert_eq!(rows, vec![vec![OutputValue::nat64(2)]]);
         assert_eq!(DataStore::current_get_call_count(), data_reads_before);
     }
 
@@ -5456,7 +5458,7 @@ mod identity_pre_key_tests {
         let index_reads_before = IndexStore::current_entry_read_count();
         assert_eq!(
             sql_projection_rows(&session, at_count_cap_sql.as_str()),
-            vec![vec![OutputValue::Nat64(2)]],
+            vec![vec![OutputValue::nat64(2)]],
         );
         assert_eq!(DataStore::current_get_call_count(), data_reads_before);
         assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
@@ -5466,7 +5468,7 @@ mod identity_pre_key_tests {
         );
         assert_eq!(
             sql_projection_rows(&session, authored_duplicate_sql.as_str()),
-            vec![vec![OutputValue::Nat64(2)]],
+            vec![vec![OutputValue::nat64(2)]],
         );
         assert_eq!(DataStore::current_get_call_count(), data_reads_before);
         assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
@@ -5477,7 +5479,7 @@ mod identity_pre_key_tests {
         );
         assert_eq!(
             sql_projection_rows(&session, over_count_cap_sql.as_str()),
-            vec![vec![OutputValue::Nat64(2)]],
+            vec![vec![OutputValue::nat64(2)]],
         );
         assert!(DataStore::current_get_call_count() > data_reads_before);
     }
@@ -5503,7 +5505,7 @@ mod identity_pre_key_tests {
         else {
             panic!("nullable count should return one projection row")
         };
-        assert_eq!(rows, vec![vec![OutputValue::Nat64(1)]]);
+        assert_eq!(rows, vec![vec![OutputValue::nat64(1)]]);
         assert_eq!(DataStore::current_get_call_count(), data_reads_before);
     }
 
@@ -5529,7 +5531,7 @@ mod identity_pre_key_tests {
             else {
                 panic!("all-null extrema should return one projection row")
             };
-            assert_eq!(rows, vec![vec![OutputValue::Null]], "{sql}");
+            assert_eq!(rows, vec![vec![OutputValue::null()]], "{sql}");
             assert_eq!(DataStore::current_get_call_count(), data_reads_before);
         }
 
@@ -5548,7 +5550,7 @@ mod identity_pre_key_tests {
             else {
                 panic!("mixed nullable extrema should return one projection row")
             };
-            assert_eq!(rows, vec![vec![OutputValue::Nat64(10)]], "{sql}");
+            assert_eq!(rows, vec![vec![OutputValue::nat64(10)]], "{sql}");
             assert_eq!(DataStore::current_get_call_count(), data_reads_before);
         }
     }
@@ -5844,10 +5846,10 @@ mod identity_pre_key_tests {
             let [row] = page.rows.as_slice() else {
                 panic!("ordered grouped page must contain exactly one closed group")
             };
-            assert_eq!(row.group_key(), &[OutputValue::Nat64(group_key)]);
+            assert_eq!(row.group_key(), &[OutputValue::nat64(group_key)]);
             assert_eq!(
                 row.aggregate_values(),
-                &[OutputValue::Nat64(row_count), OutputValue::Decimal(id_sum),],
+                &[OutputValue::nat64(row_count), OutputValue::decimal(id_sum),],
             );
             if page_index == 0 {
                 assert!(
@@ -6553,7 +6555,7 @@ mod identity_pre_key_tests {
         let unchanged = session
             .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
                 entity: ENTITY_NAME.to_string(),
-                key: InputValue::Nat64(key),
+                key: InputValue::nat64(key),
                 patch: dynamic_payload_patch(expected_payload),
             })
             .expect("the expected row should remain readable through a no-op update");
@@ -6697,7 +6699,7 @@ mod identity_pre_key_tests {
             .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: dynamic_payload_patch(60),
                 },
                 DynamicMutation::Insert {
@@ -6720,7 +6722,7 @@ mod identity_pre_key_tests {
             .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: dynamic_payload_patch(50),
                 },
                 DynamicMutation::Insert {
@@ -6753,12 +6755,12 @@ mod identity_pre_key_tests {
             .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: dynamic_payload_patch(70),
                 },
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(2),
+                    key: InputValue::nat64(2),
                     patch: dynamic_payload_patch(30),
                 },
             ])
@@ -6773,11 +6775,11 @@ mod identity_pre_key_tests {
             .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Delete {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(2),
+                    key: InputValue::nat64(2),
                 },
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: dynamic_payload_patch(100),
                 },
             ])
@@ -6792,7 +6794,7 @@ mod identity_pre_key_tests {
             .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: dynamic_payload_patch(60),
                 },
                 DynamicMutation::Insert {
@@ -6810,11 +6812,11 @@ mod identity_pre_key_tests {
             .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Delete {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(3),
+                    key: InputValue::nat64(3),
                 },
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(99),
+                    key: InputValue::nat64(99),
                     patch: dynamic_payload_patch(100),
                 },
             ])
@@ -6849,12 +6851,12 @@ mod identity_pre_key_tests {
             .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: dynamic_payload_patch(60),
                 },
                 DynamicMutation::Delete {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                 },
             ])
             .expect_err("duplicate targets across operation kinds must reject");
@@ -6904,7 +6906,7 @@ mod identity_pre_key_tests {
         let requests = (0..=MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS)
             .map(|_| DynamicMutation::Delete {
                 entity: ENTITY_NAME.to_string(),
-                key: InputValue::Nat64(1),
+                key: InputValue::nat64(1),
             })
             .collect();
         let over_bound = session
@@ -7105,7 +7107,7 @@ mod identity_pre_key_tests {
                 entity: ENTITY_NAME.to_string(),
                 patch: DynamicStructuralPatch::new(vec![(
                     "payload".to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(40)),
+                    DynamicWriteCell::Value(InputValue::nat64(40)),
                 )]),
             })
             .expect("dynamic omission should commit through shared Identity generation");
@@ -7118,11 +7120,11 @@ mod identity_pre_key_tests {
                     patch: DynamicStructuralPatch::new(vec![
                         (
                             "id".to_string(),
-                            DynamicWriteCell::Value(InputValue::Nat64(41)),
+                            DynamicWriteCell::Value(InputValue::nat64(41)),
                         ),
                         (
                             "payload".to_string(),
-                            DynamicWriteCell::Value(InputValue::Nat64(42)),
+                            DynamicWriteCell::Value(InputValue::nat64(42)),
                         ),
                     ]),
                 },
@@ -7131,7 +7133,7 @@ mod identity_pre_key_tests {
             (
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: DynamicStructuralPatch::new(vec![(
                         "id".to_string(),
                         DynamicWriteCell::Default,
@@ -7182,7 +7184,7 @@ mod identity_pre_key_tests {
         let typed_patch = binding
             .bind_write_fields(vec![(
                 PAYLOAD_SOURCE.to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(50)),
+                DynamicWriteCell::Value(InputValue::nat64(50)),
             )])
             .expect("typed payload should lower");
         let typed = session
@@ -7201,11 +7203,11 @@ mod identity_pre_key_tests {
             .bind_write_fields(vec![
                 (
                     ID_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(51)),
+                    DynamicWriteCell::Value(InputValue::nat64(51)),
                 ),
                 (
                     PAYLOAD_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(52)),
+                    DynamicWriteCell::Value(InputValue::nat64(52)),
                 ),
             ])
             .expect("the low-level binding should retain exact authored intent");
@@ -7238,10 +7240,10 @@ mod identity_pre_key_tests {
         let replace_error = session
             .execute_trusted_dynamic_mutation(&DynamicMutation::Replace {
                 entity: ENTITY_NAME.to_string(),
-                key: InputValue::Nat64(99),
+                key: InputValue::nat64(99),
                 patch: DynamicStructuralPatch::new(vec![(
                     "payload".to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(60)),
+                    DynamicWriteCell::Value(InputValue::nat64(60)),
                 )]),
             })
             .expect_err("save-as-insert with a chosen Identity must reject");
@@ -7498,7 +7500,7 @@ mod identity_pre_key_tests {
         let retained_relation = session
             .execute_trusted_dynamic_mutation_batch(vec![DynamicMutation::Delete {
                 entity: ENTITY_NAME.to_string(),
-                key: InputValue::Nat64(1),
+                key: InputValue::nat64(1),
             }])
             .expect_err("the recovered reverse relation must protect its target");
         assert!(retained_relation.diagnostic_facts().contains(&(
@@ -7848,12 +7850,12 @@ mod identity_pre_key_tests {
             let interrupted = session.execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: dynamic_payload_patch(expected_payload),
                 },
                 DynamicMutation::Delete {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(deleted_key),
+                    key: InputValue::nat64(deleted_key),
                 },
             ]);
             assert!(
@@ -7863,7 +7865,7 @@ mod identity_pre_key_tests {
             let pending = session
                 .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: dynamic_payload_patch(expected_payload),
                 })
                 .expect_err("ordinary update must not drive retained-marker recovery");
@@ -7875,7 +7877,7 @@ mod identity_pre_key_tests {
             let recovered_update = session
                 .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: dynamic_payload_patch(expected_payload),
                 })
                 .expect("guarded reentry should complete the marker-authorized mixed batch");
@@ -7886,7 +7888,7 @@ mod identity_pre_key_tests {
             let recovered_delete = session
                 .execute_trusted_dynamic_mutation(&DynamicMutation::Delete {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(deleted_key),
+                    key: InputValue::nat64(deleted_key),
                 })
                 .expect_err("the recovered delete must already be materialized");
             assert_eq!(recovered_delete.class(), ErrorClass::NotFound);
@@ -8094,7 +8096,7 @@ mod identity_pre_key_tests {
             session
                 .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: dynamic_payload_patch(payload),
                 })
                 .unwrap_or_else(|error| {
@@ -8164,7 +8166,7 @@ mod identity_pre_key_tests {
             session
                 .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(2),
+                    key: InputValue::nat64(2),
                     patch: dynamic_payload_patch(payload),
                 })
                 .expect("same-key post-Ready overlay should commit");
@@ -8182,7 +8184,7 @@ mod identity_pre_key_tests {
         session
             .execute_trusted_dynamic_mutation(&DynamicMutation::Delete {
                 entity: ENTITY_NAME.to_string(),
-                key: InputValue::Nat64(2),
+                key: InputValue::nat64(2),
             })
             .expect("post-Ready delete should commit into the live overlay");
         assert_journaled_cardinality(handle, index_id, prefix_components.as_slice(), 1);
@@ -8208,7 +8210,7 @@ mod identity_pre_key_tests {
             else {
                 panic!("fallback count should return one projection row")
             };
-            assert_eq!(rows, vec![vec![OutputValue::Nat64(1)]]);
+            assert_eq!(rows, vec![vec![OutputValue::nat64(1)]]);
             assert_eq!(DataStore::current_get_call_count(), data_reads_before);
         }
     }
@@ -8336,12 +8338,12 @@ mod identity_pre_key_tests {
             .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                     patch: dynamic_payload_patch(20),
                 },
                 DynamicMutation::Update {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(2),
+                    key: InputValue::nat64(2),
                     patch: dynamic_payload_patch(10),
                 },
             ])
@@ -8361,7 +8363,7 @@ mod identity_pre_key_tests {
             .execute_trusted_dynamic_mutation_batch(vec![
                 DynamicMutation::Delete {
                     entity: ENTITY_NAME.to_string(),
-                    key: InputValue::Nat64(1),
+                    key: InputValue::nat64(1),
                 },
                 DynamicMutation::Insert {
                     entity: ENTITY_NAME.to_string(),
@@ -8740,9 +8742,9 @@ mod targeted_rule_mutation_tests {
     }
 
     fn profile_input(degree: u64) -> InputValue {
-        InputValue::Map(vec![(
-            InputValue::Text("degree".to_string()),
-            InputValue::Nat64(degree),
+        InputValue::map(vec![(
+            crate::value::PublicValue::Text("degree".to_string()),
+            crate::value::PublicValue::Nat64(degree),
         )])
     }
 
@@ -8750,7 +8752,7 @@ mod targeted_rule_mutation_tests {
         DynamicStructuralPatch::new(vec![
             (
                 "id".to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(id)),
+                DynamicWriteCell::Value(InputValue::nat64(id)),
             ),
             (
                 "profile".to_string(),
@@ -8796,7 +8798,7 @@ mod targeted_rule_mutation_tests {
                 &kind,
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Nat64),
-                InputValue::Nat64(value),
+                InputValue::nat64(value),
             ),
         )
     }
@@ -9051,7 +9053,7 @@ mod targeted_rule_mutation_tests {
             .bind_write_fields(vec![
                 (
                     ID_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(2)),
+                    DynamicWriteCell::Value(InputValue::nat64(2)),
                 ),
                 (
                     PROFILE_SOURCE.to_string(),
@@ -9122,8 +9124,8 @@ mod targeted_rule_mutation_tests {
             .get(2)
             .expect("the first mixed row should contain its managed timestamp");
         assert!(matches!(
-            first_timestamp,
-            crate::value::OutputValue::Timestamp(_)
+            first_timestamp.as_public(),
+            crate::value::PublicValue::Timestamp(_)
         ));
         assert_eq!(
             second.get(2),

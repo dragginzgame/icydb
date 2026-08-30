@@ -16,25 +16,24 @@ enum TestValue {
 struct TestContext;
 
 impl TypedAdapterContext for TestContext {
-    type InputValue = TestValue;
-    type OutputValue = TestValue;
+    type PublicValue = TestValue;
 
-    fn input_scalar(&self, value: TypedScalarValue) -> Self::InputValue {
+    fn input_scalar(&self, value: TypedScalarValue) -> Self::PublicValue {
         match value {
             TypedScalarValue::Int64(value) => TestValue::Int64(value),
             _ => unreachable!("test context admits only i64 scalars"),
         }
     }
 
-    fn input_list(&self, values: Vec<Self::InputValue>) -> Self::InputValue {
+    fn input_list(&self, values: Vec<Self::PublicValue>) -> Self::PublicValue {
         TestValue::List(values)
     }
 
-    fn input_map(&self, entries: Vec<(Self::InputValue, Self::InputValue)>) -> Self::InputValue {
+    fn input_map(&self, entries: Vec<(Self::PublicValue, Self::PublicValue)>) -> Self::PublicValue {
         TestValue::Map(entries)
     }
 
-    fn input_null(&self) -> Self::InputValue {
+    fn input_null(&self) -> Self::PublicValue {
         TestValue::Null
     }
 
@@ -42,27 +41,27 @@ impl TypedAdapterContext for TestContext {
         &self,
         _type_source_key: &'static str,
         _variant_source_key: &'static str,
-        _payload: Option<Self::InputValue>,
-    ) -> Result<Self::InputValue, TypedValueError> {
+        _payload: Option<Self::PublicValue>,
+    ) -> Result<Self::PublicValue, TypedValueError> {
         Err(TypedValueError::ShapeMismatch)
     }
 
     fn input_record(
         &self,
         _type_source_key: &'static str,
-        _fields: Vec<(&'static str, Self::InputValue)>,
-    ) -> Result<Self::InputValue, TypedValueError> {
+        _fields: Vec<(&'static str, Self::PublicValue)>,
+    ) -> Result<Self::PublicValue, TypedValueError> {
         Err(TypedValueError::ShapeMismatch)
     }
 
-    fn output_scalar(&self, value: &Self::OutputValue) -> Option<TypedScalarValue> {
+    fn output_scalar(&self, value: &Self::PublicValue) -> Option<TypedScalarValue> {
         match value {
             TestValue::Int64(value) => Some(TypedScalarValue::Int64(*value)),
             _ => None,
         }
     }
 
-    fn output_list<'a>(&self, value: &'a Self::OutputValue) -> Option<&'a [Self::OutputValue]> {
+    fn output_list<'a>(&self, value: &'a Self::PublicValue) -> Option<&'a [Self::PublicValue]> {
         match value {
             TestValue::List(values) => Some(values),
             _ => None,
@@ -71,15 +70,15 @@ impl TypedAdapterContext for TestContext {
 
     fn output_map<'a>(
         &self,
-        value: &'a Self::OutputValue,
-    ) -> Option<&'a [(Self::OutputValue, Self::OutputValue)]> {
+        value: &'a Self::PublicValue,
+    ) -> Option<&'a [(Self::PublicValue, Self::PublicValue)]> {
         match value {
             TestValue::Map(entries) => Some(entries),
             _ => None,
         }
     }
 
-    fn output_is_null(&self, value: &Self::OutputValue) -> bool {
+    fn output_is_null(&self, value: &Self::PublicValue) -> bool {
         matches!(value, TestValue::Null)
     }
 
@@ -87,8 +86,8 @@ impl TypedAdapterContext for TestContext {
         &self,
         _type_source_key: &'static str,
         _variant_source_key: &'static str,
-        _value: &'a Self::OutputValue,
-    ) -> Result<Option<TypedEnumOutput<'a, Self::OutputValue>>, TypedValueError> {
+        _value: &'a Self::PublicValue,
+    ) -> Result<Option<TypedEnumOutput<'a, Self::PublicValue>>, TypedValueError> {
         Err(TypedValueError::ShapeMismatch)
     }
 
@@ -96,8 +95,8 @@ impl TypedAdapterContext for TestContext {
         &self,
         _type_source_key: &'static str,
         _member_source_keys: &[&'static str],
-        _value: &'a Self::OutputValue,
-    ) -> Result<Vec<&'a Self::OutputValue>, TypedValueError> {
+        _value: &'a Self::PublicValue,
+    ) -> Result<Vec<&'a Self::PublicValue>, TypedValueError> {
         Err(TypedValueError::ShapeMismatch)
     }
 }

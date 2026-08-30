@@ -162,7 +162,7 @@ struct SqlShowRelationsOutputContract {
 }
 
 fn text(value: &str) -> OutputValue {
-    OutputValue::Text(value.to_string())
+    OutputValue::text(value.to_string())
 }
 
 fn required_field(name: &str, slot: u16, kind: &str, primary_key: bool) -> EntityFieldDescription {
@@ -1107,7 +1107,7 @@ fn sql_query_result_from_statement_keeps_blob_projection_typed_until_rendering()
         SqlStatementResult::Projection {
             columns: vec!["thumbnail".to_string()],
             fixed_scales: vec![None],
-            rows: vec![vec![OutputValue::Blob(vec![0xab, 0xcd])]],
+            rows: vec![vec![OutputValue::blob(vec![0xab, 0xcd])]],
             row_count: 1,
         },
         "Blob".to_string(),
@@ -1118,7 +1118,7 @@ fn sql_query_result_from_statement_keeps_blob_projection_typed_until_rendering()
     };
     assert_eq!(
         rows.rows,
-        vec![vec![OutputValue::Blob(vec![0xab, 0xcd])]],
+        vec![vec![OutputValue::blob(vec![0xab, 0xcd])]],
         "SQL projection packaging should not pre-render blob payloads as hex text",
     );
     assert_eq!(
@@ -1134,7 +1134,7 @@ fn sql_query_result_blob_projection_candid_payload_stays_binary_not_hex() {
     let typed = SqlQueryResult::Projection(RowProjectionOutput {
         entity: "Blob".to_string(),
         columns: vec!["thumbnail".to_string()],
-        rows: vec![vec![OutputValue::Blob(blob.clone())]],
+        rows: vec![vec![OutputValue::blob(blob.clone())]],
         row_count: 1,
     });
     let rendered = SqlQueryResult::Projection(RowProjectionOutput {
@@ -1176,12 +1176,12 @@ fn sql_query_result_from_statement_preserves_semantic_projection_value_variants(
             ],
             fixed_scales: vec![None, None, None, None, None, None],
             rows: vec![vec![
-                OutputValue::Nat64(7),
-                OutputValue::Int64(-3),
-                OutputValue::Decimal(decimal),
-                OutputValue::Float32(float32),
-                OutputValue::Float64(float64),
-                OutputValue::Null,
+                OutputValue::nat64(7),
+                OutputValue::int64(-3),
+                OutputValue::decimal(decimal),
+                OutputValue::float32(float32),
+                OutputValue::float64(float64),
+                OutputValue::null(),
             ]],
             row_count: 1,
         },
@@ -1201,12 +1201,12 @@ fn sql_query_result_from_statement_preserves_semantic_projection_value_variants(
                 "optional_value".to_string(),
             ],
             rows: vec![vec![
-                OutputValue::Nat64(7),
-                OutputValue::Int64(-3),
-                OutputValue::Decimal(decimal),
-                OutputValue::Float32(float32),
-                OutputValue::Float64(float64),
-                OutputValue::Null,
+                OutputValue::nat64(7),
+                OutputValue::int64(-3),
+                OutputValue::decimal(decimal),
+                OutputValue::float32(float32),
+                OutputValue::float64(float64),
+                OutputValue::null(),
             ]],
             row_count: 1,
         }),
@@ -1222,12 +1222,12 @@ fn sql_query_result_from_statement_preserves_scalar_arithmetic_and_round_project
             fixed_scales: vec![None, Some(2)],
             rows: vec![
                 vec![
-                    OutputValue::Decimal(Decimal::from_i128(23).expect("23 decimal")),
-                    OutputValue::Decimal(Decimal::new(800, 2)),
+                    OutputValue::decimal(Decimal::from_i128(23).expect("23 decimal")),
+                    OutputValue::decimal(Decimal::new(800, 2)),
                 ],
                 vec![
-                    OutputValue::Decimal(Decimal::from_i128(30).expect("30 decimal")),
-                    OutputValue::Decimal(Decimal::new(1033, 2)),
+                    OutputValue::decimal(Decimal::from_i128(30).expect("30 decimal")),
+                    OutputValue::decimal(Decimal::new(1033, 2)),
                 ],
             ],
             row_count: 2,
@@ -1242,11 +1242,11 @@ fn sql_query_result_from_statement_preserves_scalar_arithmetic_and_round_project
             columns: vec!["age - 1".to_string(), "ROUND(age / 3, 2)".to_string()],
             rows: vec![
                 vec![
-                    OutputValue::Decimal(Decimal::from_i128(23).expect("23 decimal")),
+                    OutputValue::decimal(Decimal::from_i128(23).expect("23 decimal")),
                     text("8.00"),
                 ],
                 vec![
-                    OutputValue::Decimal(Decimal::from_i128(30).expect("30 decimal")),
+                    OutputValue::decimal(Decimal::from_i128(30).expect("30 decimal")),
                     text("10.33"),
                 ],
             ],
@@ -1262,7 +1262,7 @@ fn sql_query_result_from_statement_preserves_fixed_scale_for_zero_round_projecti
         SqlStatementResult::Projection {
             columns: vec!["ROUND(age / 10, 3)".to_string()],
             fixed_scales: vec![Some(3)],
-            rows: vec![vec![OutputValue::Decimal(Decimal::ZERO)]],
+            rows: vec![vec![OutputValue::decimal(Decimal::ZERO)]],
             row_count: 1,
         },
         "User".to_string(),
@@ -1286,7 +1286,7 @@ fn sql_query_result_from_statement_preserves_fixed_scale_for_aliased_round_proje
         SqlStatementResult::Projection {
             columns: vec!["dextrisma".to_string()],
             fixed_scales: vec![Some(3)],
-            rows: vec![vec![OutputValue::Decimal(
+            rows: vec![vec![OutputValue::decimal(
                 Decimal::from_i128(16).expect("16 decimal"),
             )]],
             row_count: 1,
@@ -1314,14 +1314,14 @@ fn sql_query_result_from_statement_preserves_fixed_scale_for_grouped_round_rows(
             fixed_scales: vec![None, Some(4)],
             rows: vec![
                 GroupedRow::new(
-                    vec![OutputValue::Nat64(12)],
-                    vec![OutputValue::Decimal(
+                    vec![OutputValue::nat64(12)],
+                    vec![OutputValue::decimal(
                         Decimal::from_i128(12).expect("12 decimal"),
                     )],
                 ),
                 GroupedRow::new(
-                    vec![OutputValue::Nat64(14)],
-                    vec![OutputValue::Decimal(Decimal::new(142_000, 4))],
+                    vec![OutputValue::nat64(14)],
+                    vec![OutputValue::decimal(Decimal::new(142_000, 4))],
                 ),
             ],
             row_count: 2,
@@ -1353,8 +1353,8 @@ fn sql_query_result_from_statement_preserves_grouped_rows_and_cursor() {
             columns: vec!["age".to_string(), "count(*)".to_string()],
             fixed_scales: vec![None, None],
             rows: vec![
-                GroupedRow::new(vec![OutputValue::Nat64(24)], vec![OutputValue::Nat64(1)]),
-                GroupedRow::new(vec![OutputValue::Nat64(31)], vec![OutputValue::Nat64(2)]),
+                GroupedRow::new(vec![OutputValue::nat64(24)], vec![OutputValue::nat64(1)]),
+                GroupedRow::new(vec![OutputValue::nat64(31)], vec![OutputValue::nat64(2)]),
             ],
             row_count: 2,
             next_cursor: Some("cursor:age:31".to_string()),

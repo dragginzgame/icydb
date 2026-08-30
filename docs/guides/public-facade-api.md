@@ -199,13 +199,13 @@ named at the boundary and resolved once against accepted schema:
 ```rust
 let patch = StructuralPatch::new().field(
     User::NAME.as_str(),
-    WriteCell::Value(InputValue::Text("Ada".to_string())),
+    WriteCell::Value(InputValue::text("Ada".to_string())),
 );
 
 let result = db!()?.execute_trusted_structural_mutation(
     StructuralMutation::Update {
         entity: <User as icydb::traits::EntitySource>::ENTITY.to_string(),
-        key: InputValue::Ulid(user_id),
+        key: InputValue::ulid(user_id),
         patch,
     },
 )?;
@@ -291,17 +291,17 @@ insert/update/replace/delete set through
 ```rust
 let source = StructuralPatch::new().field(
     TokenHolding::QUANTITY.as_str(),
-    WriteCell::Value(InputValue::Nat64(60)),
+    WriteCell::Value(InputValue::nat64(60)),
 );
 let output = StructuralPatch::new().field(
     TokenHolding::QUANTITY.as_str(),
-    WriteCell::Value(InputValue::Nat64(40)),
+    WriteCell::Value(InputValue::nat64(40)),
 );
 
 let results = db!()?.execute_trusted_structural_mutation_batch(vec![
     StructuralMutation::Update {
         entity: <TokenHolding as icydb::traits::EntitySource>::ENTITY.to_string(),
-        key: InputValue::Ulid(source_id),
+        key: InputValue::ulid(source_id),
         patch: source,
     },
     StructuralMutation::Insert {

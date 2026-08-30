@@ -1232,14 +1232,14 @@ fn binder_lowers_ranges_and_canonicalizes_commutative_children() {
     let score_nonnegative = CheckExprV1Input::Compare {
         left: CheckValueExprV1Input::Field("score".to_string()),
         op: AcceptedCheckCompareOpV1::Gte,
-        right: CheckValueExprV1Input::Literal(InputValue::Int64(0)),
+        right: CheckValueExprV1Input::Literal(InputValue::int64(0)),
     };
     let expression = bind_check_expr_v1(
         CheckExprV1Input::And(vec![
             CheckExprV1Input::Between {
                 value: CheckValueExprV1Input::Field("score".to_string()),
-                lower: InputValue::Int64(0),
-                upper: InputValue::Int64(100),
+                lower: InputValue::int64(0),
+                upper: InputValue::int64(100),
             },
             score_nonnegative.clone(),
             score_nonnegative,
@@ -1271,7 +1271,7 @@ fn binder_covers_boolean_null_and_octet_length_nodes() {
             CheckExprV1Input::Compare {
                 left: CheckValueExprV1Input::OctetLength("payload".to_string()),
                 op: AcceptedCheckCompareOpV1::Lte,
-                right: CheckValueExprV1Input::Literal(InputValue::Nat64(64)),
+                right: CheckValueExprV1Input::Literal(InputValue::nat64(64)),
             },
         ]),
         &snapshot,
@@ -1294,7 +1294,7 @@ fn accepted_check_renderer_uses_current_field_names_and_canonical_literals() {
         CheckExprV1Input::Compare {
             left: CheckValueExprV1Input::Field("score".to_string()),
             op: AcceptedCheckCompareOpV1::Gte,
-            right: CheckValueExprV1Input::Literal(InputValue::Int64(0)),
+            right: CheckValueExprV1Input::Literal(InputValue::int64(0)),
         },
         &snapshot,
         catalog.enum_catalog(),
@@ -1305,7 +1305,7 @@ fn accepted_check_renderer_uses_current_field_names_and_canonical_literals() {
         CheckExprV1Input::Compare {
             left: CheckValueExprV1Input::Field("nickname".to_string()),
             op: AcceptedCheckCompareOpV1::Ne,
-            right: CheckValueExprV1Input::Literal(InputValue::Text("O'Reilly".to_string())),
+            right: CheckValueExprV1Input::Literal(InputValue::text("O'Reilly".to_string())),
         },
         &snapshot,
         catalog.enum_catalog(),
@@ -1331,12 +1331,12 @@ fn compiled_checks_apply_sql_three_valued_semantics_and_stable_violation_identit
         CheckExprV1Input::Compare {
             left: CheckValueExprV1Input::Field("score".to_string()),
             op: AcceptedCheckCompareOpV1::Gte,
-            right: CheckValueExprV1Input::Literal(InputValue::Int64(0)),
+            right: CheckValueExprV1Input::Literal(InputValue::int64(0)),
         },
         CheckExprV1Input::Compare {
             left: CheckValueExprV1Input::Field("nickname".to_string()),
             op: AcceptedCheckCompareOpV1::Ne,
-            right: CheckValueExprV1Input::Literal(InputValue::Text("blocked".to_string())),
+            right: CheckValueExprV1Input::Literal(InputValue::text("blocked".to_string())),
         },
     ]));
     let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
@@ -1368,7 +1368,7 @@ fn compiled_checks_include_pending_check_activation_gates() {
         CheckExprV1Input::Compare {
             left: CheckValueExprV1Input::Field("score".to_string()),
             op: AcceptedCheckCompareOpV1::Gte,
-            right: CheckValueExprV1Input::Literal(InputValue::Int64(0)),
+            right: CheckValueExprV1Input::Literal(InputValue::int64(0)),
         },
         &snapshot,
         catalog.enum_catalog(),
@@ -1410,7 +1410,7 @@ fn integrity_check_program_excludes_pending_activation_semantics() {
         CheckExprV1Input::Compare {
             left: CheckValueExprV1Input::Field("score".to_string()),
             op: AcceptedCheckCompareOpV1::Gte,
-            right: CheckValueExprV1Input::Literal(InputValue::Int64(0)),
+            right: CheckValueExprV1Input::Literal(InputValue::int64(0)),
         },
         &snapshot,
         catalog.enum_catalog(),
@@ -1445,7 +1445,7 @@ fn integrity_check_program_evaluates_each_validated_check_by_stable_ordinal() {
         CheckExprV1Input::Compare {
             left: CheckValueExprV1Input::Field("score".to_string()),
             op: AcceptedCheckCompareOpV1::Gte,
-            right: CheckValueExprV1Input::Literal(InputValue::Int64(0)),
+            right: CheckValueExprV1Input::Literal(InputValue::int64(0)),
         },
         &snapshot,
         catalog.enum_catalog(),
@@ -1456,7 +1456,7 @@ fn integrity_check_program_evaluates_each_validated_check_by_stable_ordinal() {
         CheckExprV1Input::Compare {
             left: CheckValueExprV1Input::Field("nickname".to_string()),
             op: AcceptedCheckCompareOpV1::Ne,
-            right: CheckValueExprV1Input::Literal(InputValue::Text("blocked".to_string())),
+            right: CheckValueExprV1Input::Literal(InputValue::text("blocked".to_string())),
         },
         &snapshot,
         catalog.enum_catalog(),
@@ -1640,12 +1640,12 @@ fn length_and_cardinality_use_one_prebound_slot_set() {
         CheckExprV1Input::Compare {
             left: CheckValueExprV1Input::CharLength("nickname".to_string()),
             op: AcceptedCheckCompareOpV1::Lte,
-            right: CheckValueExprV1Input::Literal(InputValue::Nat64(4)),
+            right: CheckValueExprV1Input::Literal(InputValue::nat64(4)),
         },
         CheckExprV1Input::Compare {
             left: CheckValueExprV1Input::Cardinality("tags".to_string()),
             op: AcceptedCheckCompareOpV1::Lte,
-            right: CheckValueExprV1Input::Literal(InputValue::Nat64(2)),
+            right: CheckValueExprV1Input::Literal(InputValue::nat64(2)),
         },
     ]));
     let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
@@ -1669,7 +1669,7 @@ fn compiled_checks_reject_stale_fingerprint_and_missing_required_slot() {
     let (accepted, catalog, _) = accepted_with_check(CheckExprV1Input::Compare {
         left: CheckValueExprV1Input::Field("score".to_string()),
         op: AcceptedCheckCompareOpV1::Gte,
-        right: CheckValueExprV1Input::Literal(InputValue::Int64(0)),
+        right: CheckValueExprV1Input::Literal(InputValue::int64(0)),
     });
     let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
         .expect("accepted checks should compile");
@@ -1704,7 +1704,7 @@ fn binder_rejects_empty_or_oversized_membership() {
         bind_check_expr_v1(
             CheckExprV1Input::EnumIn {
                 field: "score".to_string(),
-                members: vec![InputValue::Int64(1); MAX_CHECK_EXPR_V1_MEMBERSHIP_ITEMS + 1],
+                members: vec![InputValue::int64(1); MAX_CHECK_EXPR_V1_MEMBERSHIP_ITEMS + 1],
             },
             &snapshot,
             catalog.enum_catalog(),
@@ -1870,17 +1870,17 @@ fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
             CheckExprV1Input::Compare {
                 left: CheckValueExprV1Input::Field("degrees".to_string()),
                 op: AcceptedCheckCompareOpV1::Lte,
-                right: CheckValueExprV1Input::Literal(InputValue::Nat64(360)),
+                right: CheckValueExprV1Input::Literal(InputValue::nat64(360)),
             },
             CheckExprV1Input::Compare {
                 left: CheckValueExprV1Input::CharLength("label".to_string()),
                 op: AcceptedCheckCompareOpV1::Gte,
-                right: CheckValueExprV1Input::Literal(InputValue::Nat64(2)),
+                right: CheckValueExprV1Input::Literal(InputValue::nat64(2)),
             },
             CheckExprV1Input::Compare {
                 left: CheckValueExprV1Input::Field("amount".to_string()),
                 op: AcceptedCheckCompareOpV1::Gte,
-                right: CheckValueExprV1Input::Literal(InputValue::Decimal(
+                right: CheckValueExprV1Input::Literal(InputValue::decimal(
                     Decimal::from_i128_with_scale(0, 8),
                 )),
             },

@@ -637,8 +637,8 @@ fn mutation_default(
     };
     let input = match default {
         MutationDefaultValue::NullText => return SchemaInsertDefault::None,
-        MutationDefaultValue::Text(value) => InputValue::Text(value.clone()),
-        MutationDefaultValue::UnsignedInteger(value) => InputValue::Nat64(*value),
+        MutationDefaultValue::Text(value) => InputValue::text(value.clone()),
+        MutationDefaultValue::UnsignedInteger(value) => InputValue::nat64(*value),
     };
     let payload = encode_input_value_for_candidate_field_contract(
         enum_catalog,
@@ -716,13 +716,13 @@ fn replace_select_fixture(session: &DbSession<TestCanister>, case: &GeneratedSel
                             .expect("fixture should populate every authored scalar field")
                         {
                             GeneratedValue::Boolean(value) => {
-                                DynamicWriteCell::Value(InputValue::Bool(*value))
+                                DynamicWriteCell::Value(InputValue::boolean(*value))
                             }
                             GeneratedValue::Integer(value) => {
-                                DynamicWriteCell::Value(InputValue::Int64(*value))
+                                DynamicWriteCell::Value(InputValue::int64(*value))
                             }
                             GeneratedValue::Text(value) => {
-                                DynamicWriteCell::Value(InputValue::Text(value.clone()))
+                                DynamicWriteCell::Value(InputValue::text(value.clone()))
                             }
                             GeneratedValue::Null(_) => DynamicWriteCell::Null,
                         };
@@ -759,17 +759,17 @@ fn replace_mutation_fixture(
 fn mutation_patch(row: &MutationRow) -> DynamicStructuralPatch {
     let mut fields = vec![(
         "id".to_string(),
-        DynamicWriteCell::Value(InputValue::Nat64(row.key())),
+        DynamicWriteCell::Value(InputValue::nat64(row.key())),
     )];
     match row.payload() {
         MutationRowPayload::AuthoredScalar { text, number } => {
             fields.push((
                 "name".to_string(),
-                DynamicWriteCell::Value(InputValue::Text(text.clone())),
+                DynamicWriteCell::Value(InputValue::text(text.clone())),
             ));
             fields.push((
                 "age".to_string(),
-                DynamicWriteCell::Value(InputValue::Nat64(*number)),
+                DynamicWriteCell::Value(InputValue::nat64(*number)),
             ));
         }
         MutationRowPayload::AcceptedDefault {
@@ -781,20 +781,20 @@ fn mutation_patch(row: &MutationRow) -> DynamicStructuralPatch {
             fields.extend([
                 (
                     "name".to_string(),
-                    DynamicWriteCell::Value(InputValue::Text(name.clone())),
+                    DynamicWriteCell::Value(InputValue::text(name.clone())),
                 ),
                 (
                     "tier".to_string(),
-                    DynamicWriteCell::Value(InputValue::Text(tier.clone())),
+                    DynamicWriteCell::Value(InputValue::text(tier.clone())),
                 ),
                 (
                     "score".to_string(),
-                    DynamicWriteCell::Value(InputValue::Nat64(*score)),
+                    DynamicWriteCell::Value(InputValue::nat64(*score)),
                 ),
                 (
                     "note".to_string(),
                     note.as_ref().map_or(DynamicWriteCell::Null, |note| {
-                        DynamicWriteCell::Value(InputValue::Text(note.clone()))
+                        DynamicWriteCell::Value(InputValue::text(note.clone()))
                     }),
                 ),
             ]);
@@ -827,34 +827,39 @@ fn mutation_rows(
     };
     rows.into_iter()
         .map(|row| match (profile, row.as_slice()) {
-            (
-                MutationSchemaProfile::AuthoredScalar,
-                [
-                    OutputValue::Nat64(key),
-                    OutputValue::Text(text),
-                    OutputValue::Nat64(number),
-                ],
-            ) => MutationRow::authored_scalar(*key, text.clone(), *number),
-            (
-                MutationSchemaProfile::AcceptedDefault,
-                [
-                    OutputValue::Nat64(key),
-                    OutputValue::Text(name),
-                    OutputValue::Text(tier),
-                    OutputValue::Nat64(score),
-                    note,
-                ],
-            ) => MutationRow::accepted_default(
-                *key,
-                name.clone(),
-                tier.clone(),
-                *score,
-                match note {
-                    OutputValue::Null => None,
-                    OutputValue::Text(note) => Some(note.clone()),
+            (MutationSchemaProfile::AuthoredScalar, [key, text, number]) => {
+                let (
+                    crate::value::PublicValue::Nat64(key),
+                    crate::value::PublicValue::Text(text),
+                    crate::value::PublicValue::Nat64(number),
+                ) = (key.as_public(), text.as_public(), number.as_public())
+                else {
+                    panic!("authored scalar row should retain its accepted shape");
+                };
+                MutationRow::authored_scalar(*key, text.clone(), *number)
+            }
+            (MutationSchemaProfile::AcceptedDefault, [key, name, tier, score, note]) => {
+                let (
+                    crate::value::PublicValue::Nat64(key),
+                    crate::value::PublicValue::Text(name),
+                    crate::value::PublicValue::Text(tier),
+                    crate::value::PublicValue::Nat64(score),
+                ) = (
+                    key.as_public(),
+                    name.as_public(),
+                    tier.as_public(),
+                    score.as_public(),
+                )
+                else {
+                    panic!("accepted-default row should retain its accepted shape");
+                };
+                let note = match note.as_public() {
+                    crate::value::PublicValue::Null => None,
+                    crate::value::PublicValue::Text(note) => Some(note.clone()),
                     _ => panic!("default mutation note should be text or null"),
-                },
-            ),
+                };
+                MutationRow::accepted_default(*key, name.clone(), tier.clone(), *score, note)
+            }
             _ => panic!("mutation state row disagreed with its accepted profile"),
         })
         .collect()
@@ -900,18 +905,18 @@ fn sqlite_result_from_icydb(
 }
 
 fn sqlite_value_from_output(value: OutputValue) -> Result<SqliteReferenceValue, ()> {
-    match value {
-        OutputValue::Bool(value) => Ok(SqliteReferenceValue::Boolean(value)),
-        OutputValue::Decimal(value) => Ok(SqliteReferenceValue::Decimal {
+    match value.into_public() {
+        crate::value::PublicValue::Bool(value) => Ok(SqliteReferenceValue::Boolean(value)),
+        crate::value::PublicValue::Decimal(value) => Ok(SqliteReferenceValue::Decimal {
             mantissa: value.mantissa(),
             scale: value.scale(),
         }),
-        OutputValue::Int64(value) => Ok(SqliteReferenceValue::Integer(value)),
-        OutputValue::Nat64(value) => i64::try_from(value)
+        crate::value::PublicValue::Int64(value) => Ok(SqliteReferenceValue::Integer(value)),
+        crate::value::PublicValue::Nat64(value) => i64::try_from(value)
             .map(SqliteReferenceValue::Integer)
             .map_err(|_| ()),
-        OutputValue::Null => Ok(SqliteReferenceValue::Null),
-        OutputValue::Text(value) => Ok(SqliteReferenceValue::Text(value)),
+        crate::value::PublicValue::Null => Ok(SqliteReferenceValue::Null),
+        crate::value::PublicValue::Text(value) => Ok(SqliteReferenceValue::Text(value)),
         _ => Err(()),
     }
 }

@@ -402,7 +402,7 @@ fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
         RowProjectionOutput {
             entity: "Character".to_string(),
             columns: vec!["name".to_string()],
-            rows: vec![vec![OutputValue::Text("alice".to_string())]],
+            rows: vec![vec![OutputValue::text("alice".to_string())]],
             row_count: 1,
         },
         None,
@@ -420,7 +420,7 @@ fn projection_shell_text_renders_null_cells_as_sql_null() {
         RowProjectionOutput {
             entity: "Character".to_string(),
             columns: vec!["nickname".to_string()],
-            rows: vec![vec![OutputValue::Null]],
+            rows: vec![vec![OutputValue::null()]],
             row_count: 1,
         },
         None,

@@ -345,11 +345,11 @@ fn u256_arithmetic_and_sum_converge_across_sql_prepared_and_fluent_paths() {
     let arithmetic_sql = "SELECT amount + U256 '3', amount - U256 '1', \
         amount * U256 '4', amount / U256 '2', MOD(amount, U256 '3') FROM Singleton";
     let expected_arithmetic = vec![vec![
-        OutputValue::U256(U256::from(5_u64)),
-        OutputValue::U256(U256::ONE),
-        OutputValue::U256(U256::from(8_u64)),
-        OutputValue::U256(U256::ONE),
-        OutputValue::U256(U256::from(2_u64)),
+        OutputValue::u256(U256::from(5_u64)),
+        OutputValue::u256(U256::ONE),
+        OutputValue::u256(U256::from(8_u64)),
+        OutputValue::u256(U256::ONE),
+        OutputValue::u256(U256::from(2_u64)),
     ]];
 
     let direct = session
@@ -381,8 +381,8 @@ fn u256_arithmetic_and_sum_converge_across_sql_prepared_and_fluent_paths() {
             "SELECT SUM(amount), SUM(amount + U256 '3') FROM Singleton",
         ),
         vec![vec![
-            OutputValue::U256(U256::from(2_u64)),
-            OutputValue::U256(U256::from(5_u64)),
+            OutputValue::u256(U256::from(2_u64)),
+            OutputValue::u256(U256::from(5_u64)),
         ]],
     );
 
@@ -398,7 +398,7 @@ fn u256_arithmetic_and_sum_converge_across_sql_prepared_and_fluent_paths() {
     assert_eq!(fluent.row_count, 1);
     assert_eq!(
         fluent.rows[0].aggregate_values(),
-        &[OutputValue::U256(U256::from(2_u64))],
+        &[OutputValue::u256(U256::from(2_u64))],
     );
 
     for rejected in [
@@ -428,7 +428,7 @@ fn rejected_dynamic_fields_keep_exact_role() {
     let session = initialize();
 
     let dynamic_predicate = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("missing").eq(InputValue::Text("x".to_string())))
+        .filter(FieldRef::new("missing").eq(InputValue::text("x".to_string())))
         .select(["id"])
         .order_by(asc("id"))
         .limit(1);
@@ -498,7 +498,7 @@ fn unit_primary_key_ordering_is_consistent_across_query_surfaces() {
     assert_eq!(dynamic.rows, vec![singleton_row()]);
 
     let primary_key_query = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("id").eq(InputValue::Unit))
+        .filter(FieldRef::new("id").eq(InputValue::unit()))
         .select(["id", "label"])
         .order_by(asc("id"))
         .limit(100);
@@ -528,11 +528,11 @@ fn unit_primary_key_ordering_is_consistent_across_query_surfaces() {
     assert_unit_exact_key_batch(&session, &binding);
 
     for (filter, expected_rows) in [
-        (FieldRef::new("id").eq(InputValue::Unit), 1),
-        (FieldRef::new("id").lt(InputValue::Unit), 0),
-        (FieldRef::new("id").lte(InputValue::Unit), 1),
-        (FieldRef::new("id").gt(InputValue::Unit), 0),
-        (FieldRef::new("id").gte(InputValue::Unit), 1),
+        (FieldRef::new("id").eq(InputValue::unit()), 1),
+        (FieldRef::new("id").lt(InputValue::unit()), 0),
+        (FieldRef::new("id").lte(InputValue::unit()), 1),
+        (FieldRef::new("id").gt(InputValue::unit()), 0),
+        (FieldRef::new("id").gte(InputValue::unit()), 1),
     ] {
         let query = DynamicQuery::new(ENTITY_NAME)
             .filter(filter)
@@ -557,7 +557,7 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
                 &session,
                 &format!("SELECT DISTINCT label FROM Singleton ORDER BY label {direction} LIMIT 1"),
             ),
-            vec![vec![OutputValue::Text("singleton".to_string())]],
+            vec![vec![OutputValue::text("singleton".to_string())]],
         );
     }
     let raw_key = DecodedDataStoreKey::try_from_structural_key(ENTITY_TAG, &Value::Unit)
@@ -574,7 +574,7 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
     );
 
     let primary_lookup = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("id").eq(InputValue::Unit))
+        .filter(FieldRef::new("id").eq(InputValue::unit()))
         .select(["id"]);
     assert!(
         session
@@ -586,8 +586,8 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
 
     let mixed_union = DynamicQuery::new(ENTITY_NAME)
         .filter(FilterExpr::or(vec![
-            FieldRef::new("id").eq(InputValue::Unit),
-            FieldRef::new("label").eq(InputValue::Text("other".to_string())),
+            FieldRef::new("id").eq(InputValue::unit()),
+            FieldRef::new("label").eq(InputValue::text("other".to_string())),
         ]))
         .select(["id"]);
     assert!(
@@ -599,7 +599,7 @@ fn accepted_index_missing_row_is_typed_store_corruption() {
     );
 
     let query = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
+        .filter(FieldRef::new("label").eq(InputValue::text("singleton".to_string())))
         .select(["id", "label"])
         .order_by(asc("label"));
     let error = session
@@ -793,7 +793,7 @@ fn accepted_runtime_root_is_reused_across_one_thousand_queries() {
     let session = initialize();
     seed_singleton(&session);
     let query = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("id").eq(InputValue::Unit))
+        .filter(FieldRef::new("id").eq(InputValue::unit()))
         .select(["id"])
         .limit(1);
 
@@ -823,7 +823,7 @@ fn parameterized_plan_cache_binds_current_values_across_dynamic_and_sql_surfaces
     let session = initialize();
     seed_singleton(&session);
     let matching = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
+        .filter(FieldRef::new("label").eq(InputValue::text("singleton".to_string())))
         .select(["id", "label"])
         .order_by(asc("id"));
 
@@ -885,7 +885,7 @@ fn request_diagnostics_share_one_root_and_expose_repeated_point_lookups() {
     );
 
     let query = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("id").eq(InputValue::Unit))
+        .filter(FieldRef::new("id").eq(InputValue::unit()))
         .select(["id"])
         .limit(1);
     for session in [
@@ -941,12 +941,12 @@ fn parameterized_in_list_cache_identity_is_independent_of_nonempty_arity() {
     let session = initialize();
     seed_singleton(&session);
     let one = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("label").in_list([InputValue::Text("missing".to_string())]))
+        .filter(FieldRef::new("label").in_list([InputValue::text("missing".to_string())]))
         .select(["id", "label"]);
     let two = DynamicQuery::new(ENTITY_NAME)
         .filter(FieldRef::new("label").in_list([
-            InputValue::Text("missing".to_string()),
-            InputValue::Text("singleton".to_string()),
+            InputValue::text("missing".to_string()),
+            InputValue::text("singleton".to_string()),
         ]))
         .select(["id", "label"]);
 
@@ -972,10 +972,10 @@ fn parameterized_range_rebinds_bounds_and_rejects_wrong_types_before_reuse() {
     let session = initialize();
     seed_singleton(&session);
     let above = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("label").gte(InputValue::Text("z".to_string())))
+        .filter(FieldRef::new("label").gte(InputValue::text("z".to_string())))
         .select(["id", "label"]);
     let below = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("label").gte(InputValue::Text("a".to_string())))
+        .filter(FieldRef::new("label").gte(InputValue::text("a".to_string())))
         .select(["id", "label"]);
 
     assert!(
@@ -999,7 +999,7 @@ fn parameterized_range_rebinds_bounds_and_rejects_wrong_types_before_reuse() {
     );
 
     let wrong_type = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("label").gte(InputValue::Bool(true)))
+        .filter(FieldRef::new("label").gte(InputValue::boolean(true)))
         .select(["id", "label"]);
     assert!(
         session
@@ -1018,7 +1018,7 @@ fn parameterized_cache_keeps_projection_and_order_topology_distinct() {
     let session = initialize();
     seed_singleton(&session);
     let base = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
+        .filter(FieldRef::new("label").eq(InputValue::text("singleton".to_string())))
         .select(["id"]);
     session
         .execute_trusted_live_page(&base, None)
@@ -1026,7 +1026,7 @@ fn parameterized_cache_keeps_projection_and_order_topology_distinct() {
     let after_base = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
 
     let projection = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
+        .filter(FieldRef::new("label").eq(InputValue::text("singleton".to_string())))
         .select(["id", "label"]);
     session
         .execute_trusted_live_page(&projection, None)
@@ -1035,7 +1035,7 @@ fn parameterized_cache_keeps_projection_and_order_topology_distinct() {
     assert_eq!(after_projection, after_base.saturating_add(1));
 
     let ordered = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("label").eq(InputValue::Text("singleton".to_string())))
+        .filter(FieldRef::new("label").eq(InputValue::text("singleton".to_string())))
         .select(["id", "label"])
         .order_by(asc("label"));
     session
@@ -1253,14 +1253,17 @@ fn seed_singleton(session: &DbSession<TestCanister>) {
         .execute_trusted_dynamic_insert_batch(
             ENTITY_NAME,
             vec![DynamicStructuralPatch::new(vec![
-                ("id".to_string(), DynamicWriteCell::Value(InputValue::Unit)),
+                (
+                    "id".to_string(),
+                    DynamicWriteCell::Value(InputValue::unit()),
+                ),
                 (
                     "label".to_string(),
-                    DynamicWriteCell::Value(InputValue::Text("singleton".to_string())),
+                    DynamicWriteCell::Value(InputValue::text("singleton".to_string())),
                 ),
                 (
                     "amount".to_string(),
-                    DynamicWriteCell::Value(InputValue::U256(U256::from(2_u64))),
+                    DynamicWriteCell::Value(InputValue::u256(U256::from(2_u64))),
                 ),
             ])],
         )
@@ -1279,13 +1282,13 @@ fn sql_rows(session: &DbSession<TestCanister>, sql: &str) -> Vec<Vec<OutputValue
 
 fn singleton_row() -> Vec<OutputValue> {
     vec![
-        OutputValue::Unit,
-        OutputValue::Text("singleton".to_string()),
+        OutputValue::unit(),
+        OutputValue::text("singleton".to_string()),
     ]
 }
 
 fn singleton_stored_row() -> Vec<OutputValue> {
     let mut row = singleton_row();
-    row.push(OutputValue::U256(U256::from(2_u64)));
+    row.push(OutputValue::u256(U256::from(2_u64)));
     row
 }

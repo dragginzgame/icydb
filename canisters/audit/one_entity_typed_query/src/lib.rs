@@ -136,7 +136,7 @@ mod tests {
             .expect("fresh native database startup should complete");
         icydb::db::with_request_execution(|| {
             let patch = StructuralPatch::new()
-                .field("name", WriteCell::Value(InputValue::Text(name.to_string())));
+                .field("name", WriteCell::Value(InputValue::text(name.to_string())));
             let result = db()
                 .expect("native database should initialize")
                 .execute_trusted_structural_insert_batch("OneSimpleEntity01", vec![patch])
@@ -146,8 +146,13 @@ mod tests {
                 .iter()
                 .position(|column| column == "id")
                 .expect("insert result should include the accepted identity field");
-            match result.rows.first().and_then(|row| row.get(id_slot)) {
-                Some(OutputValue::Ulid(id)) => *id,
+            match result
+                .rows
+                .first()
+                .and_then(|row| row.get(id_slot))
+                .map(OutputValue::as_public)
+            {
+                Some(icydb::value::PublicValue::Ulid(id)) => *id,
                 _ => panic!("generated identity should be returned as an Ulid"),
             }
         })
@@ -182,9 +187,9 @@ mod tests {
             assert_eq!(grouped.row_count, 1);
             assert_eq!(
                 grouped.rows[0].group_key(),
-                &[OutputValue::Text("grouped".to_string())]
+                &[OutputValue::text("grouped".to_string())]
             );
-            assert_eq!(grouped.rows[0].aggregate_values(), &[OutputValue::Nat64(1)]);
+            assert_eq!(grouped.rows[0].aggregate_values(), &[OutputValue::nat64(1)]);
             assert_eq!(grouped.next_cursor, None);
 
             let error = db()
@@ -268,7 +273,7 @@ mod tests {
                 .map(|name| StructuralMutation::Insert {
                     entity: OneSimpleEntity01::ENTITY.to_string(),
                     patch: StructuralPatch::new()
-                        .field("name", WriteCell::Value(InputValue::Text(name.to_string()))),
+                        .field("name", WriteCell::Value(InputValue::text(name.to_string()))),
                 })
                 .collect();
             let inserted = database
@@ -330,18 +335,18 @@ mod u256_tests {
         label: &str,
     ) -> StructuralPatch {
         StructuralPatch::new()
-            .field("id", WriteCell::Value(InputValue::U256(id)))
-            .field("amount", WriteCell::Value(InputValue::U256(amount)))
+            .field("id", WriteCell::Value(InputValue::u256(id)))
+            .field("amount", WriteCell::Value(InputValue::u256(amount)))
             .field(
                 "optional_amount",
                 optional_amount.map_or(WriteCell::Null, |value| {
-                    WriteCell::Value(InputValue::U256(value))
+                    WriteCell::Value(InputValue::u256(value))
                 }),
             )
-            .field("bucket", WriteCell::Value(InputValue::Nat64(bucket)))
+            .field("bucket", WriteCell::Value(InputValue::nat64(bucket)))
             .field(
                 "label",
-                WriteCell::Value(InputValue::Text(label.to_string())),
+                WriteCell::Value(InputValue::text(label.to_string())),
             )
     }
 
@@ -352,7 +357,7 @@ mod u256_tests {
             .position(|column| column == field)
             .expect("U256 query output should retain the requested field");
         match output.rows.get(row).and_then(|row| row.get(column)) {
-            Some(OutputValue::U256(value)) => *value,
+            Some(OutputValue::u256(value)) => *value,
             _ => panic!("U256 query output should retain its exact value kind"),
         }
     }
@@ -408,7 +413,7 @@ mod u256_tests {
                 .expect("first U256 grouped page should execute");
             assert_eq!(
                 first_group_page.rows[0].group_key(),
-                &[OutputValue::U256(U256::ONE)],
+                &[OutputValue::u256(U256::ONE)],
             );
             let cursor = first_group_page
                 .next_cursor
@@ -426,7 +431,7 @@ mod u256_tests {
                 .expect("U256 grouped cursor continuation should execute");
             assert_eq!(
                 second_group_page.rows[0].group_key(),
-                &[OutputValue::U256(U256::from(7_u64))],
+                &[OutputValue::u256(U256::from(7_u64))],
             );
 
             let grouped = database
@@ -442,9 +447,9 @@ mod u256_tests {
                 .expect("U256 grouped extrema should execute");
             assert_eq!(grouped.row_count, 2);
             assert!(grouped.rows.iter().any(|row| {
-                row.group_key() == [OutputValue::Nat64(1)]
+                row.group_key() == [OutputValue::nat64(1)]
                     && row.aggregate_values()
-                        == [OutputValue::U256(U256::ONE), OutputValue::U256(U256::MAX)]
+                        == [OutputValue::u256(U256::ONE), OutputValue::u256(U256::MAX)]
             }));
 
             database

@@ -67,9 +67,7 @@ pub use icydb_model_macros::{request_execution, test};
 pub use icydb_core::types;
 
 pub mod value {
-    pub use icydb_core::value::{
-        InputValue, InputValueEnum, OutputValue, OutputValueEnum, ValueTag,
-    };
+    pub use icydb_core::value::{InputValue, OutputValue, PublicEnumValue, PublicValue, ValueTag};
 }
 
 #[doc(hidden)]
@@ -194,8 +192,9 @@ pub mod prelude {
     pub use crate::db::{
         query,
         query::{
-            FieldRef, FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, count, count_by, desc,
-            exists, field, first, last, max, max_by, min, min_by, sum,
+            CollectionOperator, CompareOperator, FieldCompareOperator, FieldRef, FilterExpr,
+            FilterValue, JunctionOperator, OrderExpr, OrderTerm, SetOperator, StateOperator, asc,
+            count, count_by, desc, exists, field, first, last, max, max_by, min, min_by, sum,
         },
     };
     pub use crate::{
