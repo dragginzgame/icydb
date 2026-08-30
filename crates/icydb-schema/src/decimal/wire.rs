@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 
 impl CandidType for Decimal {
+    fn ty() -> candid::types::Type {
+        <String as CandidType>::ty()
+    }
+
     fn _ty() -> candid::types::Type {
         candid::types::TypeInner::Text.into()
     }

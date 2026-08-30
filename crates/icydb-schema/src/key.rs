@@ -68,6 +68,10 @@ macro_rules! source_key {
         }
 
         impl CandidType for $name {
+            fn ty() -> candid::types::Type {
+                <String as CandidType>::ty()
+            }
+
             fn _ty() -> candid::types::Type {
                 <String as CandidType>::_ty()
             }
@@ -172,6 +176,10 @@ impl<'de> Deserialize<'de> for SchemaName {
 }
 
 impl CandidType for SchemaName {
+    fn ty() -> candid::types::Type {
+        <String as CandidType>::ty()
+    }
+
     fn _ty() -> candid::types::Type {
         <String as CandidType>::_ty()
     }
@@ -217,6 +225,10 @@ impl<'de> Deserialize<'de> for SchemaSubmissionKey {
 }
 
 impl CandidType for SchemaSubmissionKey {
+    fn ty() -> candid::types::Type {
+        <String as CandidType>::ty()
+    }
+
     fn _ty() -> candid::types::Type {
         <String as CandidType>::_ty()
     }
@@ -288,3 +300,28 @@ opaque_token!(
     EntitySourceDigest,
     "Canonical generated-source meaning digest for one current entity."
 );
+
+#[cfg(test)]
+mod tests {
+    use candid::CandidType;
+
+    use super::{
+        ConstraintSourceKey, EntitySourceKey, FieldSourceKey, IndexSourceKey, RelationSourceKey,
+        RuleSourceKey, SchemaName, SchemaSubmissionKey, TypeSourceKey,
+    };
+
+    #[test]
+    fn text_backed_keys_delegate_their_candid_type() {
+        let text = String::ty();
+
+        assert_eq!(EntitySourceKey::ty(), text);
+        assert_eq!(FieldSourceKey::ty(), text);
+        assert_eq!(TypeSourceKey::ty(), text);
+        assert_eq!(ConstraintSourceKey::ty(), text);
+        assert_eq!(IndexSourceKey::ty(), text);
+        assert_eq!(RelationSourceKey::ty(), text);
+        assert_eq!(RuleSourceKey::ty(), text);
+        assert_eq!(SchemaName::ty(), text);
+        assert_eq!(SchemaSubmissionKey::ty(), text);
+    }
+}

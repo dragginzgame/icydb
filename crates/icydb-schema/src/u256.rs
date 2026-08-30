@@ -190,6 +190,10 @@ impl DecimalText {
 }
 
 impl CandidType for U256 {
+    fn ty() -> Type {
+        TypeInner::Nat.into()
+    }
+
     fn _ty() -> Type {
         TypeInner::Nat.into()
     }
@@ -310,11 +314,13 @@ impl Serialize for U256 {
 mod tests {
     use super::U256;
     use crate::{Decimal, NumericValue};
-    use candid::{decode_one, encode_one};
+    use candid::{CandidType, decode_one, encode_one};
     use num_bigint::BigUint;
 
     #[test]
     fn candid_uses_nat_and_rejects_values_above_maximum() {
+        assert_eq!(U256::ty(), candid::Nat::ty());
+
         let encoded = encode_one(U256::MAX).expect("U256 should encode");
         assert_eq!(
             decode_one::<U256>(&encoded).expect("U256 should decode"),

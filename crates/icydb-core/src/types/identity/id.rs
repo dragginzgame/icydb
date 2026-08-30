@@ -178,6 +178,10 @@ where
     E: EntityKey,
     E::Key: CandidType,
 {
+    fn ty() -> candid::types::Type {
+        <E::Key as CandidType>::ty()
+    }
+
     fn _ty() -> candid::types::Type {
         <E::Key as CandidType>::_ty()
     }
@@ -316,6 +320,7 @@ mod tests {
         db::{EntityKey, PrimaryKeyEncode},
         value::Value,
     };
+    use candid::CandidType;
 
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     struct TestEntity;
@@ -345,6 +350,16 @@ mod tests {
             42_u64
                 .to_primary_key_value()
                 .expect("raw entity key should encode"),
+        );
+    }
+
+    #[test]
+    fn candid_type_is_owned_by_the_wrapped_entity_key() {
+        assert_eq!(Id::<TestEntity>::ty(), u64::ty());
+        assert_eq!(
+            candid::encode_one(Id::<TestEntity>::from_key(42))
+                .expect("typed identity should encode"),
+            candid::encode_one(42_u64).expect("raw entity key should encode"),
         );
     }
 

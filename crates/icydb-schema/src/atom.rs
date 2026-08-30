@@ -250,6 +250,10 @@ impl<'de> Deserialize<'de> for Blob {
 }
 
 impl CandidType for Blob {
+    fn ty() -> candid::types::Type {
+        <Vec<u8> as CandidType>::ty()
+    }
+
     fn _ty() -> candid::types::Type {
         <Vec<u8> as CandidType>::_ty()
     }
@@ -366,6 +370,10 @@ impl FromStr for Ulid {
 }
 
 impl CandidType for Ulid {
+    fn ty() -> candid::types::Type {
+        <String as CandidType>::ty()
+    }
+
     fn _ty() -> candid::types::Type {
         <String as CandidType>::_ty()
     }

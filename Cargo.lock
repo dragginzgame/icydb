@@ -1514,6 +1514,7 @@ name = "icydb-schema"
 version = "0.249.2"
 dependencies = [
  "candid",
+ "ciborium",
  "derive_more",
  "ethnum",
  "icrc-ledger-types",
@@ -1521,6 +1522,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_bytes",
+ "serde_json",
  "sha2",
  "thiserror 2.0.20",
  "time",

@@ -1,6 +1,6 @@
 use crate::Decimal;
 use crate::decimal::{DEFAULT_DIVISION_SCALE, MAX_SUPPORTED_SCALE, ParseDecimalErrorReason};
-use candid::{decode_one, encode_one};
+use candid::{CandidType, decode_one, encode_one};
 use proptest::prelude::*;
 use std::str::FromStr;
 
@@ -13,6 +13,8 @@ fn assert_decimal_parse_reason(input: &str, reason: ParseDecimalErrorReason) {
 
 #[test]
 fn decimal_candid_roundtrip() {
+    assert_eq!(Decimal::ty(), String::ty());
+
     let cases = [
         "0",
         "1",

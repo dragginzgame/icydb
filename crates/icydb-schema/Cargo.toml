@@ -22,7 +22,9 @@ time = { workspace = true }
 ulid = { workspace = true }
 
 [dev-dependencies]
+ciborium = { workspace = true }
 proptest = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

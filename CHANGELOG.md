@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.249.md](docs/changelog/0.249.md)
 
+- `0.249.3` removes typed-collection and Candid wrapper specialization while
+  keeping canonical ABI and storage shapes; the supplied cumulative Toko safe
+  set now clears the IC code-section limit by 15,428 bytes.
 - `0.249.2` type-erases the already-boxed async request child so endpoint
   future types share one poll owner; a compile contract fixes the hard-cut
   future shape and a 64-endpoint actor brings specialization into Wasm reports.

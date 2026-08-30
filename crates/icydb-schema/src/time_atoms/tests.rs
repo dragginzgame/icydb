@@ -1,6 +1,68 @@
+use candid::CandidType;
+use serde::{Serialize, de::DeserializeOwned};
+
 use crate::TypeParseError;
 
 use super::{Duration, Timestamp};
+
+fn cbor_bytes<T: Serialize>(value: &T) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes).expect("value should CBOR-encode");
+    bytes
+}
+
+fn cbor_round_trip<T>(value: &T) -> T
+where
+    T: DeserializeOwned + Serialize,
+{
+    ciborium::from_reader(cbor_bytes(value).as_slice()).expect("value should CBOR-decode")
+}
+
+#[test]
+fn time_atoms_keep_primitive_candid_wires() {
+    let duration = Duration::from_millis(12_345);
+    let timestamp = Timestamp::from_millis(-12_345);
+    let candid = candid::encode_args((duration, timestamp)).expect("time atoms should encode");
+    let primitive = candid::encode_args((duration.as_millis(), timestamp.as_millis()))
+        .expect("primitive time wires should encode");
+    let decoded: (Duration, Timestamp) =
+        candid::decode_args(&candid).expect("time atoms should decode");
+
+    assert_eq!(Duration::ty(), u64::ty());
+    assert_eq!(Timestamp::ty(), i64::ty());
+    assert_eq!(candid, primitive);
+    assert_eq!(decoded, (duration, timestamp));
+}
+
+#[test]
+fn time_atoms_keep_primitive_cbor_payloads() {
+    let duration = Duration::from_millis(12_345);
+    let timestamp = Timestamp::from_millis(-12_345);
+
+    assert_eq!(cbor_bytes(&duration), cbor_bytes(&duration.as_millis()));
+    assert_eq!(cbor_bytes(&timestamp), cbor_bytes(&timestamp.as_millis()));
+    assert_eq!(cbor_round_trip(&duration), duration);
+    assert_eq!(cbor_round_trip(&timestamp), timestamp);
+}
+
+#[test]
+fn binary_time_atoms_reject_human_readable_text_forms() {
+    let duration = cbor_bytes(&"2s");
+    let timestamp = cbor_bytes(&"1969-12-31T23:59:59.999Z");
+
+    assert!(ciborium::from_reader::<Duration, _>(duration.as_slice()).is_err());
+    assert!(ciborium::from_reader::<Timestamp, _>(timestamp.as_slice()).is_err());
+}
+
+#[test]
+fn human_readable_time_atoms_retain_flexible_text_input() {
+    let duration: Duration = serde_json::from_str("\"2s\"").expect("duration text should decode");
+    let timestamp: Timestamp = serde_json::from_str("\"1969-12-31T23:59:59.999Z\"")
+        .expect("RFC3339 timestamp should decode");
+
+    assert_eq!(duration, Duration::from_millis(2_000));
+    assert_eq!(timestamp, Timestamp::from_millis(-1));
+}
 
 #[test]
 fn duration_units_and_saturating_arithmetic_are_millisecond_native() {

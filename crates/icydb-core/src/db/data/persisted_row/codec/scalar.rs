@@ -355,6 +355,32 @@ mod tests {
     }
 
     #[test]
+    fn time_scalar_slots_roundtrip_exact_primitive_payloads() {
+        let duration = Duration::from_millis(u64::MAX);
+        let encoded_duration = encode_scalar_slot_value(ScalarSlotValueRef::Value(
+            ScalarValueRef::Duration(duration),
+        ));
+        assert_eq!(&encoded_duration[2..], &duration.as_millis().to_le_bytes());
+        assert!(matches!(
+            decode_scalar_slot_value(&encoded_duration, ScalarCodec::Duration, "elapsed"),
+            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Duration(decoded))) if decoded == duration,
+        ));
+
+        let timestamp = Timestamp::from_millis(i64::MIN);
+        let encoded_timestamp = encode_scalar_slot_value(ScalarSlotValueRef::Value(
+            ScalarValueRef::Timestamp(timestamp),
+        ));
+        assert_eq!(
+            &encoded_timestamp[2..],
+            &timestamp.as_millis().to_le_bytes()
+        );
+        assert!(matches!(
+            decode_scalar_slot_value(&encoded_timestamp, ScalarCodec::Timestamp, "created_at"),
+            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Timestamp(decoded))) if decoded == timestamp,
+        ));
+    }
+
+    #[test]
     fn u256_scalar_slot_roundtrips_exact_fixed_width_payload() {
         for value in [U256::ZERO, U256::ONE, U256::MAX] {
             let encoded =

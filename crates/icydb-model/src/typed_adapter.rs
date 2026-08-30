@@ -12,6 +12,9 @@ use icydb_schema::{
     Subaccount, Timestamp, U256, Ulid, Unit,
 };
 
+#[cfg(test)]
+mod tests;
+
 /// A scalar value crossing the model-owned typed-adapter boundary.
 #[doc(hidden)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -275,10 +278,11 @@ where
     where
         C: TypedAdapterContext,
     {
-        self.into_iter()
-            .map(|value| value.encode_typed_input(context))
-            .collect::<Result<Vec<_>, _>>()
-            .map(|values| context.input_list(values))
+        let mut values = Vec::with_capacity(self.len());
+        for value in self {
+            values.push(value.encode_typed_input(context)?);
+        }
+        Ok(context.input_list(values))
     }
 }
 
@@ -290,12 +294,14 @@ where
     where
         C: TypedAdapterContext,
     {
-        context
+        let source = context
             .output_list(value)
-            .ok_or(TypedValueError::ShapeMismatch)?
-            .iter()
-            .map(|value| T::decode_typed_output(context, value))
-            .collect()
+            .ok_or(TypedValueError::ShapeMismatch)?;
+        let mut values = Self::with_capacity(source.len());
+        for value in source {
+            values.push(T::decode_typed_output(context, value)?);
+        }
+        Ok(values)
     }
 }
 
@@ -308,15 +314,14 @@ where
     where
         C: TypedAdapterContext,
     {
-        self.into_iter()
-            .map(|(key, value)| {
-                Ok((
-                    key.encode_typed_input(context)?,
-                    value.encode_typed_input(context)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(|entries| context.input_map(entries))
+        let mut entries = Vec::with_capacity(self.len());
+        for (key, value) in self {
+            entries.push((
+                key.encode_typed_input(context)?,
+                value.encode_typed_input(context)?,
+            ));
+        }
+        Ok(context.input_map(entries))
     }
 }
 
@@ -352,10 +357,11 @@ where
     where
         C: TypedAdapterContext,
     {
-        self.into_iter()
-            .map(|value| value.encode_typed_input(context))
-            .collect::<Result<Vec<_>, _>>()
-            .map(|values| context.input_list(values))
+        let mut values = Vec::with_capacity(self.len());
+        for value in self {
+            values.push(value.encode_typed_input(context)?);
+        }
+        Ok(context.input_list(values))
     }
 }
 

@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::TypeParseError;
-use candid::CandidType;
+use candid::{CandidType, types::Serializer as CandidSerializer, types::Type};
 use serde::{Deserialize, Deserializer, Serialize};
 use time::{Date as TimeDate, Month, PrimitiveDateTime, Time as TimeOfDay, UtcOffset};
 
@@ -14,7 +14,7 @@ use time::{Date as TimeDate, Month, PrimitiveDateTime, Time as TimeOfDay, UtcOff
 mod tests;
 
 /// Canonical millisecond duration.
-#[derive(CandidType, Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Duration(u64);
 
@@ -205,6 +205,23 @@ impl AddAssign for Duration {
     }
 }
 
+impl CandidType for Duration {
+    fn ty() -> Type {
+        <u64 as CandidType>::ty()
+    }
+
+    fn _ty() -> Type {
+        <u64 as CandidType>::_ty()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where
+        S: CandidSerializer,
+    {
+        serializer.serialize_nat64(self.0)
+    }
+}
+
 impl<'de> Deserialize<'de> for Duration {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -237,6 +254,10 @@ impl<'de> Deserialize<'de> for Duration {
             {
                 Duration::parse_flexible(value).map_err(E::custom)
             }
+        }
+
+        if !deserializer.is_human_readable() {
+            return u64::deserialize(deserializer).map(Self);
         }
 
         deserializer.deserialize_any(DurationVisitor)
@@ -273,7 +294,7 @@ impl SubAssign for Duration {
 }
 
 /// Canonical Unix-millisecond timestamp.
-#[derive(CandidType, Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Timestamp(i64);
 
@@ -429,6 +450,23 @@ impl AddAssign<Duration> for Timestamp {
     }
 }
 
+impl CandidType for Timestamp {
+    fn ty() -> Type {
+        <i64 as CandidType>::ty()
+    }
+
+    fn _ty() -> Type {
+        <i64 as CandidType>::_ty()
+    }
+
+    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
+    where
+        S: CandidSerializer,
+    {
+        serializer.serialize_int64(self.0)
+    }
+}
+
 impl<'de> Deserialize<'de> for Timestamp {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -461,6 +499,10 @@ impl<'de> Deserialize<'de> for Timestamp {
             {
                 Timestamp::parse_flexible(value).map_err(E::custom)
             }
+        }
+
+        if !deserializer.is_human_readable() {
+            return i64::deserialize(deserializer).map(Self);
         }
 
         deserializer.deserialize_any(TimestampVisitor)
