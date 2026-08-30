@@ -33,7 +33,7 @@ pub(in crate::db) use facade::StructuralProjectionScanBudget;
 pub(in crate::db) use facade::execute_structural_projection_rows;
 pub(in crate::db) use facade::{
     StructuralProjectionExecutionRoute, StructuralProjectionRequest,
-    execute_structural_projection_page,
+    execute_structural_projection_page, execute_structural_projection_page_with_route,
 };
 pub(in crate::db::executor) use grouped::*;
 pub(in crate::db::executor) use grouped::{

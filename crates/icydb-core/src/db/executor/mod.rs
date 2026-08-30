@@ -137,7 +137,7 @@ pub(in crate::db) use projection::DistinctProjectionMetricsRecorder;
 pub(in crate::db) use projection::ProjectionMaterializationMetricsRecorder;
 pub(in crate::db) use projection::{
     StructuralProjectionExecutionRoute, StructuralProjectionRequest,
-    execute_structural_projection_page,
+    execute_structural_projection_page, execute_structural_projection_page_with_route,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::{

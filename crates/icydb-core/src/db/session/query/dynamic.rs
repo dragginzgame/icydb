@@ -20,6 +20,7 @@ use crate::{
             CoveringProjectionMetricsRecorder, PageWorkEnvelope,
             ProjectionMaterializationMetricsRecorder, ScalarContinuationContext,
             StructuralProjectionRequest, execute_structural_projection_page,
+            execute_structural_projection_page_with_route,
         },
         query::{
             admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
@@ -518,11 +519,25 @@ impl<C: CanisterKind> DbSession<C> {
                 .with_continuation(continuation_context)
                 .with_cursor_emission(page_output_limit)
         };
-        let page = execute_structural_projection_page(&self.db, projection_request)
-            .map_err(QueryError::execute)?;
+        let (page, execution_route) = if operation_attribution.is_some() {
+            let (page, execution_route) =
+                execute_structural_projection_page_with_route(&self.db, projection_request)
+                    .map_err(QueryError::execute)?;
+            (page, Some(execution_route))
+        } else {
+            (
+                execute_structural_projection_page(&self.db, projection_request)
+                    .map_err(QueryError::execute)?,
+                None,
+            )
+        };
         let row_count = page.rows.row_count();
         if let Some(attribution) = operation_attribution {
-            attribution.record_execution(page.execution_route, page.scanned_keys, row_count);
+            attribution.record_execution(
+                execution_route.ok_or_else(QueryError::invariant)?,
+                page.scanned_keys,
+                row_count,
+            );
         }
         let rows = page
             .rows

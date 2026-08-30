@@ -13,9 +13,9 @@ pub(in crate::db) enum OrderedOverlayEntry<Canonical, Live> {
 }
 
 enum MergeStep {
-    Canonical { visible: bool },
-    Live { visible: bool },
-    Both { live_is_visible: bool },
+    Canonical,
+    Live,
+    Both,
     Done,
 }
 
@@ -53,50 +53,39 @@ where
                 let live_entry = self.live_iter.peek();
                 match (canonical_entry, live_entry) {
                     (None, None) => MergeStep::Done,
-                    (Some(canonical_entry), None) => MergeStep::Canonical {
-                        visible: !self
-                            .tombstones
-                            .contains((self.canonical_key)(canonical_entry)),
-                    },
-                    (None, Some(live_entry)) => MergeStep::Live {
-                        visible: !self.tombstones.contains((self.live_key)(live_entry)),
-                    },
+                    (Some(_), None) => MergeStep::Canonical,
+                    (None, Some(_)) => MergeStep::Live,
                     (Some(canonical_entry), Some(live_entry)) => {
                         let canonical_key = (self.canonical_key)(canonical_entry);
                         let live_key = (self.live_key)(live_entry);
-                        let live_is_visible = !self.tombstones.contains(live_key);
                         match (self.direction, canonical_key.cmp(live_key)) {
-                            (_, Ordering::Equal) => MergeStep::Both { live_is_visible },
+                            (_, Ordering::Equal) => MergeStep::Both,
                             (Direction::Asc, Ordering::Less)
-                            | (Direction::Desc, Ordering::Greater) => MergeStep::Canonical {
-                                visible: !self.tombstones.contains(canonical_key),
-                            },
+                            | (Direction::Desc, Ordering::Greater) => MergeStep::Canonical,
                             (Direction::Asc, Ordering::Greater)
-                            | (Direction::Desc, Ordering::Less) => MergeStep::Live {
-                                visible: live_is_visible,
-                            },
+                            | (Direction::Desc, Ordering::Less) => MergeStep::Live,
                         }
                     }
                 }
             };
 
             match step {
-                MergeStep::Canonical { visible } => {
+                MergeStep::Canonical => {
                     let entry = self.canonical_iter.next()?;
-                    if visible {
+                    if !self.tombstones.contains((self.canonical_key)(&entry)) {
                         return Some(OrderedOverlayEntry::Canonical(entry));
                     }
                 }
-                MergeStep::Live { visible } => {
+                MergeStep::Live => {
                     let entry = self.live_iter.next()?;
-                    if visible {
+                    if !self.tombstones.contains((self.live_key)(&entry)) {
                         return Some(OrderedOverlayEntry::Live(entry));
                     }
                 }
-                MergeStep::Both { live_is_visible } => {
+                MergeStep::Both => {
                     self.canonical_iter.next()?;
                     let live_entry = self.live_iter.next()?;
-                    if live_is_visible {
+                    if !self.tombstones.contains((self.live_key)(&live_entry)) {
                         return Some(OrderedOverlayEntry::Live(live_entry));
                     }
                 }

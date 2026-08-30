@@ -3762,7 +3762,29 @@ mod mixed_relation_batch_tests {
         assert_eq!(attributed.attribution.engine_local_instructions, 0);
         assert_eq!(attributed.attribution.response_decode_local_instructions, 0,);
         assert_eq!(proof_after, proof_before);
-        assert_eq!(metrics_after, metrics_before);
+        assert_eq!(
+            metrics_after.requested_window_start_ms(),
+            metrics_before.requested_window_start_ms(),
+        );
+        assert_eq!(
+            metrics_after.active_window_start_ms(),
+            metrics_before.active_window_start_ms(),
+        );
+        assert_eq!(
+            metrics_after.entity_counters(),
+            metrics_before.entity_counters(),
+        );
+        let counters_before = metrics_before
+            .counters()
+            .expect("reset compact metrics should report the active window");
+        let counters_after = metrics_after
+            .counters()
+            .expect("attributed reads should preserve the active metrics window");
+        assert_eq!(counters_after.metrics(), counters_before.metrics());
+        assert_eq!(
+            counters_after.window_start_ms(),
+            counters_before.window_start_ms(),
+        );
     }
 
     #[test]

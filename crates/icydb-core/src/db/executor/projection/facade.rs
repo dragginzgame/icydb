@@ -173,7 +173,6 @@ impl StructuralProjectionRequest {
 pub(in crate::db) struct StructuralProjectionPage {
     pub(in crate::db) rows: MaterializedProjectionRows,
     pub(in crate::db) scanned_keys: usize,
-    pub(in crate::db) execution_route: StructuralProjectionExecutionRoute,
     pub(in crate::db) last_emitted_logical: Option<crate::db::cursor::CursorBoundary>,
     pub(in crate::db) last_consumed_physical: Option<Vec<u8>>,
     pub(in crate::db) has_more: bool,
@@ -207,7 +206,7 @@ where
 {
     let context = prepared_read_execution_context(&request.prepared_plan, request.execution_lane);
     with_read_execution_budget(db.request_execution_scope(), context, || {
-        execute_structural_projection_rows_inner(db, request).map(|page| page.rows)
+        execute_structural_projection_rows_inner(db, request, None).map(|page| page.rows)
     })
 }
 
@@ -221,7 +220,29 @@ where
 {
     let context = prepared_read_execution_context(&request.prepared_plan, request.execution_lane);
     with_read_execution_budget(db.request_execution_scope(), context, || {
-        execute_structural_projection_rows_inner(db, request)
+        execute_structural_projection_rows_inner(db, request, None)
+    })
+}
+
+/// Execute one bounded scalar projection page and capture its physical route.
+///
+/// Route capture is an explicitly selected attribution path. Ordinary
+/// projections retain their route-free result contract.
+pub(in crate::db) fn execute_structural_projection_page_with_route<C>(
+    db: &Db<C>,
+    request: StructuralProjectionRequest,
+) -> Result<(StructuralProjectionPage, StructuralProjectionExecutionRoute), InternalError>
+where
+    C: CanisterKind,
+{
+    let context = prepared_read_execution_context(&request.prepared_plan, request.execution_lane);
+    with_read_execution_budget(db.request_execution_scope(), context, || {
+        let mut execution_route = None;
+        let page =
+            execute_structural_projection_rows_inner(db, request, Some(&mut execution_route))?;
+        let execution_route =
+            execution_route.ok_or_else(InternalError::query_executor_invariant)?;
+        Ok((page, execution_route))
     })
 }
 
@@ -232,6 +253,7 @@ where
 fn execute_structural_projection_rows_inner<C>(
     db: &Db<C>,
     request: StructuralProjectionRequest,
+    mut execution_route: Option<&mut Option<StructuralProjectionExecutionRoute>>,
 ) -> Result<StructuralProjectionPage, InternalError>
 where
     C: CanisterKind,
@@ -315,10 +337,12 @@ where
         )? {
             charge_runtime_value_rows(projected.value_rows())?;
             let scanned_keys = usize::try_from(projected.row_count()).unwrap_or(usize::MAX);
+            if let Some(execution_route) = execution_route.as_deref_mut() {
+                *execution_route = Some(StructuralProjectionExecutionRoute::Covering);
+            }
             return Ok(StructuralProjectionPage {
                 rows: projected,
                 scanned_keys,
-                execution_route: StructuralProjectionExecutionRoute::Covering,
                 last_emitted_logical: None,
                 last_consumed_physical: None,
                 has_more: false,
@@ -447,7 +471,6 @@ where
             Ok::<_, InternalError>((
                 StructuralCursorPage::new_with_slot_rows(slot_rows),
                 scanned_keys,
-                crate::db::RouteExecutionMode::Materialized,
             ))
         })
         .transpose()?;
@@ -455,7 +478,10 @@ where
     // Phase 2: execute the canonical scalar retained-slot path and let the
     // projection materializer choose slot-row, data-row, or scalar fallback
     // shaping behind the executor boundary.
+    let capture_execution_route = execution_route.is_some();
+    let mut scalar_route_mode = crate::db::RouteExecutionMode::Materialized;
     let execute_scalar_page = || {
+        let execution_mode = capture_execution_route.then_some(&mut scalar_route_mode);
         if execution_continuation.has_progress() {
             execute_resumed_scalar_retained_slot_page_from_runtime_handoff_for_canister(
                 db,
@@ -464,6 +490,7 @@ where
                 execution_continuation,
                 emit_cursor,
                 page_entry_limit,
+                execution_mode,
             )
         } else {
             execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister(
@@ -476,10 +503,12 @@ where
                     scan_budget.map(StructuralProjectionScanBudget::probe_limit),
                     page_entry_limit,
                 ),
+                execution_mode,
             )
         }
     };
-    let ((page, scanned_keys, scalar_route_mode), production_page_work_exhausted, scan_receipt) =
+    let group_seek_selected = group_seek_page.is_some();
+    let ((page, scanned_keys), production_page_work_exhausted, scan_receipt) =
         if let Some(page) = group_seek_page {
             (page, false, None)
         } else if let Some(envelope) = page_work_envelope.filter(|_| page_entry_limit.is_some()) {
@@ -593,12 +622,20 @@ where
         scanned_physical_anchor
     };
     let has_more = has_more || scan_page_work_exhausted || output_page_work_exhausted;
-    let execution_route = StructuralProjectionExecutionRoute::from_scalar_mode(scalar_route_mode);
+    if let Some(execution_route) = execution_route {
+        let scalar_route_mode = if group_seek_selected {
+            crate::db::RouteExecutionMode::Materialized
+        } else {
+            scalar_route_mode
+        };
+        *execution_route = Some(StructuralProjectionExecutionRoute::from_scalar_mode(
+            scalar_route_mode,
+        ));
+    }
 
     Ok(StructuralProjectionPage {
         rows,
         scanned_keys,
-        execution_route,
         last_emitted_logical,
         last_consumed_physical,
         has_more,
