@@ -90,6 +90,18 @@ struct OperationReadAttributionProbe {
     typed_attribution: OperationReadAttribution,
 }
 
+/// Engine-level page-driver facts after accepting or rejecting one decoded page.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct LivePageDriverProbe {
+    first_id: i64,
+    last_id: i64,
+    row_count: u32,
+    page_has_continuation: bool,
+    continuation_after: Option<String>,
+    exhausted: bool,
+}
+
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "test-admin-api")]
 struct SqlBudgetFallbackPerfResult {
@@ -1728,10 +1740,77 @@ fn query_streaming_execution_live_page(
     continuation: Option<String>,
 ) -> Result<LiveQueryPageOutput, icydb::Error> {
     icydb::db::with_request_execution(|| {
-        db()?.execute_trusted_live_page(
+        db()?
+            .advance_trusted_live_page(
+                &streaming_execution_continuation_query(),
+                continuation.as_deref(),
+            )
+            .map(icydb::db::LivePageStep::into_page)
+    })
+}
+
+/// Exercise one trusted page-driver step and commit only an accepted decode.
+#[cfg(feature = "sql")]
+#[query]
+fn query_streaming_execution_live_page_driver_probe(
+    continuation: Option<String>,
+    accept_page: bool,
+) -> Result<LivePageDriverProbe, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let step = db()?.advance_trusted_live_page(
             &streaming_execution_continuation_query(),
             continuation.as_deref(),
-        )
+        )?;
+        let (first_id, last_id) = streaming_execution_page_bounds(step.page())?;
+        let row_count = step.page().row_count;
+        let page_has_continuation = step.page().continuation.is_some();
+        let exhausted = step.is_exhausted();
+        let mut continuation_after = continuation;
+
+        if accept_page && step.commit(&mut continuation_after) != exhausted {
+            return Err(query_validate_error());
+        }
+
+        Ok(LivePageDriverProbe {
+            first_id,
+            last_id,
+            row_count,
+            page_has_continuation,
+            continuation_after,
+            exhausted,
+        })
+    })
+}
+
+/// Exercise the public page-driver lane through one admitted exact-key page.
+#[cfg(feature = "sql")]
+#[query]
+fn query_streaming_execution_public_live_page_driver_probe()
+-> Result<LivePageDriverProbe, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let request = DynamicQuery::new("PerfAuditStreamingRow")
+            .filter(FieldRef::new("id").eq(1_i32))
+            .select(["id"])
+            .limit(1);
+        let step = db()?.advance_live_page(&request, None)?;
+        let (first_id, last_id) = streaming_execution_page_bounds(step.page())?;
+        let row_count = step.page().row_count;
+        let page_has_continuation = step.page().continuation.is_some();
+        let exhausted = step.is_exhausted();
+        let mut continuation_after = None;
+
+        if step.commit(&mut continuation_after) != exhausted {
+            return Err(query_validate_error());
+        }
+
+        Ok(LivePageDriverProbe {
+            first_id,
+            last_id,
+            row_count,
+            page_has_continuation,
+            continuation_after,
+            exhausted,
+        })
     })
 }
 
@@ -1855,6 +1934,16 @@ fn streaming_execution_continuation_query() -> DynamicQuery {
         .filter(FieldRef::new("lane_a").gte(0_i32))
         .order_by(asc("id"))
         .select(["id"])
+}
+
+#[cfg(feature = "sql")]
+fn streaming_execution_page_bounds(page: &LiveQueryPageOutput) -> Result<(i64, i64), icydb::Error> {
+    let first = page.rows.first().and_then(|row| row.first());
+    let last = page.rows.last().and_then(|row| row.first());
+    match (first, last) {
+        (Some(OutputValue::Int64(first)), Some(OutputValue::Int64(last))) => Ok((*first, *last)),
+        _ => Err(query_validate_error()),
+    }
 }
 
 /// Load only the deterministic user scale surface at one reviewed cardinality.

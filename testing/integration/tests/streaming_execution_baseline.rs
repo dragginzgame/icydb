@@ -52,6 +52,16 @@ struct OperationReadAttributionProbe {
     typed_attribution: OperationReadAttribution,
 }
 
+#[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
+struct LivePageDriverProbe {
+    first_id: i64,
+    last_id: i64,
+    row_count: u32,
+    page_has_continuation: bool,
+    continuation_after: Option<String>,
+    exhausted: bool,
+}
+
 // The physical prefix-merge gate remains unchanged at fewer than 68 entries.
 // The final 0.246 bounded-sort hard cut measures 5,317,622 instructions with
 // the same 65-entry work, so retain less than 0.2% measurement headroom without
@@ -102,12 +112,73 @@ fn live_and_exhaustive_pages_traverse_the_frozen_ten_thousand_row_fixture() {
         STREAMING_EXECUTION_CONTINUATION_ROWS,
     );
 
+    assert_live_page_driver_commit_contract(&fixture);
     let live_ids = traverse_live_continuation_fixture(&fixture);
     let exhaustive_ids = traverse_exhaustive_continuation_fixture(&fixture);
     let expected_ids = (1..=i64::from(STREAMING_EXECUTION_CONTINUATION_ROWS)).collect::<Vec<_>>();
 
     assert_eq!(live_ids, expected_ids);
     assert_eq!(exhaustive_ids, expected_ids);
+}
+
+fn assert_live_page_driver_commit_contract(fixture: &StandaloneCanisterFixture) {
+    let rejected: Result<LivePageDriverProbe, Error> = fixture
+        .query_candid(
+            "query_streaming_execution_live_page_driver_probe",
+            (None::<String>, false),
+        )
+        .expect("rejected driver page probe should decode");
+    let rejected = rejected.expect("rejected driver page probe should execute");
+    assert_eq!(rejected.first_id, 1);
+    assert_eq!(rejected.last_id, 1_024);
+    assert_eq!(rejected.row_count, 1_024);
+    assert!(rejected.page_has_continuation);
+    assert!(!rejected.exhausted);
+    assert!(rejected.continuation_after.is_none());
+
+    let accepted: Result<LivePageDriverProbe, Error> = fixture
+        .query_candid(
+            "query_streaming_execution_live_page_driver_probe",
+            (None::<String>, true),
+        )
+        .expect("accepted driver page probe should decode");
+    let accepted = accepted.expect("accepted driver page probe should execute");
+    assert_eq!(accepted.first_id, rejected.first_id);
+    assert_eq!(accepted.last_id, rejected.last_id);
+    assert_eq!(accepted.row_count, rejected.row_count);
+    assert!(accepted.page_has_continuation);
+    assert!(!accepted.exhausted);
+    let committed = accepted
+        .continuation_after
+        .expect("accepted nonterminal page should commit its continuation");
+
+    let next: Result<LivePageDriverProbe, Error> = fixture
+        .query_candid(
+            "query_streaming_execution_live_page_driver_probe",
+            (Some(committed), true),
+        )
+        .expect("next driver page probe should decode");
+    let next = next.expect("next driver page probe should execute");
+    assert_eq!(next.first_id, 1_025);
+    assert_eq!(next.last_id, 2_048);
+    assert_eq!(next.row_count, 1_024);
+    assert!(next.page_has_continuation);
+    assert!(!next.exhausted);
+    assert!(next.continuation_after.is_some());
+
+    let public: Result<LivePageDriverProbe, Error> = fixture
+        .query_candid(
+            "query_streaming_execution_public_live_page_driver_probe",
+            (),
+        )
+        .expect("public driver page probe should decode");
+    let public = public.expect("public driver page probe should execute");
+    assert_eq!(public.first_id, 1);
+    assert_eq!(public.last_id, 1);
+    assert_eq!(public.row_count, 1);
+    assert!(!public.page_has_continuation);
+    assert!(public.exhausted);
+    assert!(public.continuation_after.is_none());
 }
 
 #[test]

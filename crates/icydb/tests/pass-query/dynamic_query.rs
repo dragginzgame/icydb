@@ -19,12 +19,15 @@ where
     let _ = db.execute_trusted_live_page(&request, None);
     let mut public_continuation = None;
     let _ = db
-        .advance_live_page(&request, &mut public_continuation)
-        .map(|step| (step.is_exhausted(), step.into_page()));
+        .advance_live_page(&request, public_continuation.as_deref())
+        .map(|step| (step.is_exhausted(), step.commit(&mut public_continuation)));
+    let _ = db
+        .advance_live_page(&request, public_continuation.as_deref())
+        .map(|step| step.into_page());
     let mut trusted_continuation = None;
     let _ = db
-        .advance_trusted_live_page(&request, &mut trusted_continuation)
-        .map(|step| (step.is_exhausted(), step.into_page()));
+        .advance_trusted_live_page(&request, trusted_continuation.as_deref())
+        .map(|step| (step.is_exhausted(), step.commit(&mut trusted_continuation)));
     let _ = db.execute_exhaustive_page(&request, None, None);
     let _ = db.execute_trusted_exhaustive_page(&request, None, None);
     let _ = db.capture_read_set_revision_proof(&["app::User"]);

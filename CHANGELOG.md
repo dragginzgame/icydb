@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.249.md](docs/changelog/0.249.md)
 
+- `0.249.1` makes shared live-page advancement retry-safe through a potentially
+  breaking hard cut that commits continuation state only after page processing
+  succeeds.
 - `0.249.0` cuts the measured Toko actor through shared traversal, pagination
   and typed mutation projection, adds bounded per-call read attribution, and
   preserves the established ordered-query instruction ceilings.
