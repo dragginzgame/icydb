@@ -44,8 +44,8 @@ fn verify_profile(build_profile: CanisterBuildProfile, artifacts: Vec<(&'static 
         if canister == "sql" {
             assert_eq!(
                 manifest.candid.matches("U256 : nat;").count(),
-                2,
-                "the recursive public value contract should expose U256 only as Candid nat for {build_profile:?}",
+                1,
+                "the shared recursive public value contract should expose U256 once and only as Candid nat for {build_profile:?}",
             );
             assert!(
                 !manifest.candid.contains("U256 : blob;")
