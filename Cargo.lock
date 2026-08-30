@@ -200,7 +200,7 @@ dependencies = [
  "hex",
  "ic_principal",
  "leb128",
- "num-bigint",
+ "num-bigint 0.4.8",
  "num-traits",
  "paste",
  "pretty",
@@ -1300,7 +1300,7 @@ checksum = "90569d2894d9536c5416943556ac6339df249f06611b3c41029196b39e0dd119"
 dependencies = [
  "candid",
  "minicbor",
- "num-bigint",
+ "num-bigint 0.4.8",
  "num-traits",
 ]
 
@@ -1316,7 +1316,7 @@ dependencies = [
  "hex",
  "icrc-cbor",
  "minicbor",
- "num-bigint",
+ "num-bigint 0.4.8",
  "num-traits",
  "serde",
  "serde_bytes",
@@ -1452,7 +1452,7 @@ dependencies = [
  "icydb-schema",
  "icydb-testing-sql-generator",
  "icydb-testing-sqlite-reference",
- "num-bigint",
+ "num-bigint 0.5.1",
  "proptest",
  "rand_chacha 0.10.0",
  "remain",
@@ -1518,7 +1518,7 @@ dependencies = [
  "derive_more",
  "ethnum",
  "icrc-ledger-types",
- "num-bigint",
+ "num-bigint 0.5.1",
  "proptest",
  "serde",
  "serde_bytes",
@@ -1920,6 +1920,16 @@ dependencies = [
  "num-integer",
  "num-traits",
  "serde",
+]
+
+[[package]]
+name = "num-bigint"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93e7820bc0a80a0238e650327316f929ba18d5be054b647490a3a6a339f3e7c0"
+dependencies = [
+ "num-integer",
+ "num-traits",
 ]
 
 [[package]]
