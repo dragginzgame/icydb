@@ -23,7 +23,7 @@ where
         .map(|step| (step.is_exhausted(), step.commit(&mut public_continuation)));
     let _ = db
         .advance_live_page(&request, public_continuation.as_deref())
-        .map(|step| step.into_page());
+        .map(icydb::db::LivePageStep::into_page);
     let mut trusted_continuation = None;
     let _ = db
         .advance_trusted_live_page(&request, trusted_continuation.as_deref())
