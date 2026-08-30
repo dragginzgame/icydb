@@ -173,9 +173,27 @@ impl StructuralProjectionRequest {
 pub(in crate::db) struct StructuralProjectionPage {
     pub(in crate::db) rows: MaterializedProjectionRows,
     pub(in crate::db) scanned_keys: usize,
+    pub(in crate::db) execution_route: StructuralProjectionExecutionRoute,
     pub(in crate::db) last_emitted_logical: Option<crate::db::cursor::CursorBoundary>,
     pub(in crate::db) last_consumed_physical: Option<Vec<u8>>,
     pub(in crate::db) has_more: bool,
+}
+
+/// Fixed executor-owned route fact projected into operation-local attribution.
+#[derive(Clone, Copy)]
+pub(in crate::db) enum StructuralProjectionExecutionRoute {
+    Covering,
+    Streaming,
+    Materialized,
+}
+
+impl StructuralProjectionExecutionRoute {
+    const fn from_scalar_mode(mode: crate::db::RouteExecutionMode) -> Self {
+        match mode {
+            crate::db::RouteExecutionMode::Streaming => Self::Streaming,
+            crate::db::RouteExecutionMode::Materialized => Self::Materialized,
+        }
+    }
 }
 
 /// Execute one prepared structural projection request through the executor-owned
@@ -300,6 +318,7 @@ where
             return Ok(StructuralProjectionPage {
                 rows: projected,
                 scanned_keys,
+                execution_route: StructuralProjectionExecutionRoute::Covering,
                 last_emitted_logical: None,
                 last_consumed_physical: None,
                 has_more: false,
@@ -399,7 +418,6 @@ where
     } else {
         scalar_runtime
     };
-
     let group_seek_page = group_seek
         .map(|(representatives, covering)| {
             let contract = covering
@@ -429,6 +447,7 @@ where
             Ok::<_, InternalError>((
                 StructuralCursorPage::new_with_slot_rows(slot_rows),
                 scanned_keys,
+                crate::db::RouteExecutionMode::Materialized,
             ))
         })
         .transpose()?;
@@ -460,7 +479,7 @@ where
             )
         }
     };
-    let ((page, scanned_keys), production_page_work_exhausted, scan_receipt) =
+    let ((page, scanned_keys, scalar_route_mode), production_page_work_exhausted, scan_receipt) =
         if let Some(page) = group_seek_page {
             (page, false, None)
         } else if let Some(envelope) = page_work_envelope.filter(|_| page_entry_limit.is_some()) {
@@ -574,10 +593,12 @@ where
         scanned_physical_anchor
     };
     let has_more = has_more || scan_page_work_exhausted || output_page_work_exhausted;
+    let execution_route = StructuralProjectionExecutionRoute::from_scalar_mode(scalar_route_mode);
 
     Ok(StructuralProjectionPage {
         rows,
         scanned_keys,
+        execution_route,
         last_emitted_logical,
         last_consumed_physical,
         has_more,

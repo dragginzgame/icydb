@@ -141,6 +141,21 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(Into::into)
     }
 
+    /// Execute one bounded dynamic page with operation-local cost attribution.
+    ///
+    /// The fixed attribution envelope is returned beside the unchanged page.
+    /// It does not mutate retained metrics and carries no query text, predicate,
+    /// literal, entity/index name or caller identity.
+    pub fn execute_live_page_with_attribution(
+        &self,
+        request: &crate::db::DynamicQuery,
+        continuation: Option<&str>,
+    ) -> Result<crate::db::AttributedRead<crate::db::LiveQueryPageOutput>, crate::Error> {
+        self.inner
+            .execute_public_live_page_with_attribution(request, continuation)
+            .map_err(Into::into)
+    }
+
     /// Return exact visible cardinality without scanning rows.
     ///
     /// The request must contain only an optional strict equality or bounded
@@ -331,6 +346,22 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<Option<crate::db::LiveQueryPageOutput>, crate::Error> {
         self.inner
             .execute_public_live_page_for_typed_binding(binding.inner(), request, continuation)
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn execute_public_typed_live_page_with_attribution(
+        &self,
+        binding: &TypedEntityBinding,
+        request: &crate::db::DynamicQuery,
+        continuation: Option<&str>,
+    ) -> Result<Option<crate::db::AttributedRead<crate::db::LiveQueryPageOutput>>, crate::Error>
+    {
+        self.inner
+            .execute_public_live_page_with_attribution_for_typed_binding(
+                binding.inner(),
+                request,
+                continuation,
+            )
             .map_err(Into::into)
     }
 

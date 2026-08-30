@@ -30,7 +30,7 @@ use crate::{
         direction::Direction,
         integrity::DatabaseIncarnationId,
         journal::{JournalBatch, JournalRecord},
-        ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
+        ordered_overlay::{OrderedOverlayEntry, ordered_overlay_entries},
         positioned_overlay::{
             JournalOverlayPosition, PositionedOverlayMetadata, PositionedOverlayRetirement,
         },
@@ -4154,49 +4154,49 @@ impl SchemaStore {
         mut visitor: impl FnMut(&RawSchemaKey, &RawSchemaSnapshot) -> Result<SchemaStoreVisit, E>,
     ) -> Result<(), E> {
         match direction {
-            Direction::Asc => visit_ordered_overlay(
-                canonical.range((bounds.0, bounds.1)),
-                live.range((bounds.0, bounds.1)),
-                Direction::Asc,
-                |canonical_entry, live_entry| canonical_entry.key().cmp(live_entry.0),
-                |canonical_entry| !tombstones.contains(canonical_entry.key()),
-                |live_entry| !tombstones.contains(live_entry.0),
-                |entry| {
+            Direction::Asc => {
+                for entry in ordered_overlay_entries(
+                    canonical.range((bounds.0, bounds.1)),
+                    live.range((bounds.0, bounds.1)),
+                    Direction::Asc,
+                    |entry| entry.key(),
+                    |entry| entry.0,
+                    tombstones,
+                ) {
                     let visit = match entry {
                         OrderedOverlayEntry::Canonical(canonical_entry) => {
                             visitor(canonical_entry.key(), &canonical_entry.value())?
                         }
                         OrderedOverlayEntry::Live((key, snapshot)) => visitor(key, snapshot)?,
                     };
-                    Ok(if visit.should_stop() {
-                        OrderedOverlayVisit::Stop
-                    } else {
-                        OrderedOverlayVisit::Continue
-                    })
-                },
-            ),
-            Direction::Desc => visit_ordered_overlay(
-                canonical.range((bounds.0, bounds.1)).rev(),
-                live.range((bounds.0, bounds.1)).rev(),
-                Direction::Desc,
-                |canonical_entry, live_entry| canonical_entry.key().cmp(live_entry.0),
-                |canonical_entry| !tombstones.contains(canonical_entry.key()),
-                |live_entry| !tombstones.contains(live_entry.0),
-                |entry| {
+                    if visit.should_stop() {
+                        return Ok(());
+                    }
+                }
+            }
+            Direction::Desc => {
+                for entry in ordered_overlay_entries(
+                    canonical.range((bounds.0, bounds.1)).rev(),
+                    live.range((bounds.0, bounds.1)).rev(),
+                    Direction::Desc,
+                    |entry| entry.key(),
+                    |entry| entry.0,
+                    tombstones,
+                ) {
                     let visit = match entry {
                         OrderedOverlayEntry::Canonical(canonical_entry) => {
                             visitor(canonical_entry.key(), &canonical_entry.value())?
                         }
                         OrderedOverlayEntry::Live((key, snapshot)) => visitor(key, snapshot)?,
                     };
-                    Ok(if visit.should_stop() {
-                        OrderedOverlayVisit::Stop
-                    } else {
-                        OrderedOverlayVisit::Continue
-                    })
-                },
-            ),
+                    if visit.should_stop() {
+                        return Ok(());
+                    }
+                }
+            }
         }
+
+        Ok(())
     }
 }
 

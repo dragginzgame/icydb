@@ -237,8 +237,12 @@ exact accepted context and one complete entity-qualified final overlay. Public
 result conversion completes before the marker and returns one ordered result
 per request. If any item fails pre-commit validation, no row or Identity range
 from the batch is persisted. `execute_trusted_structural_insert_batch` remains
-the same-entity insert-only convenience shape. This is not cross-store or
-database-session transaction support.
+the same-entity insert-only convenience shape.
+`execute_trusted_structural_mutation_batch_rows` is a same-entity typed
+projection over this exact lane: it validates the binding and targets before
+dispatch, then requires one projected row per ordered result. It does not add
+another commit path. This is not cross-store or database-session transaction
+support.
 
 Detailed batch behavior and edge cases are defined in
 `docs/contracts/TRANSACTION_SEMANTICS.md`; per-item row strictness remains

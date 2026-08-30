@@ -34,6 +34,10 @@ pub(in crate::db) use accepted_schema::{
     AcceptedSchemaRuntimeBuildCounts, accepted_schema_runtime_build_counts_for_tests,
     reset_accepted_schema_runtime_build_counts_for_tests,
 };
+pub use query::{
+    AttributedRead, OperationReadAttribution, ReadAccessRoute, ReadExecutionRoute,
+    ReadPlanCacheOutcome,
+};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use query::{
     DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,

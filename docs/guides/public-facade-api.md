@@ -208,8 +208,12 @@ values distinct until accepted write admission.
 Generated `Insert`, `Patch`, and `Replace` input types implement
 `TypedWriteAdapter` whenever the declaring crate includes the runtime facade.
 Bind the generated entity to the current session, encode the input, then call
-`execute_trusted_typed_write`. This is an ergonomic projection over the same
-structural mutation authority.
+`execute_trusted_typed_write_row` when the application needs the saved row.
+That terminal executes the existing structural mutation authority, validates
+its required single result and projects it to `OutputRow`; only the generated
+entity's final `TypedRowAdapter::decode_row` remains generic. Use
+`execute_trusted_typed_write` only when the caller specifically needs the raw
+`DynamicMutationResult` envelope.
 
 Generated authored scalar primary keys and direct scalar relations retain
 their entity identity as `Id<E>` in write inputs. Optional and many direct
@@ -300,6 +304,13 @@ none. `results` contains one single-row `DynamicMutationResult` per request in
 request order.
 Split, merge, and transfer logic must not replace this call with sequential
 writes or compensation.
+
+When every mutation targets the same generated entity and the caller needs
+decoded before/after images, use
+`execute_trusted_structural_mutation_batch_rows(&binding, mutations)`. It
+checks the binding and every target before execution, preserves this exact
+atomic batch owner, requires one returned row per mutation, and returns ordered
+`OutputRow` values for final generated decoding.
 
 In a canister application, authorize first and perform the final
 read/calculate/batch sequence synchronously, without an `await` or another

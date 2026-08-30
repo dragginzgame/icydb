@@ -4,6 +4,7 @@
 //! Does not own: query intent construction or executor runtime semantics.
 //! Boundary: resolves session visibility and cursor policy before handing work to the planner/executor.
 
+mod attribution;
 mod cache;
 mod cardinality_tiebreak;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
@@ -16,6 +17,13 @@ mod projection;
 
 use crate::db::{QueryError, executor::ExecutorPlanError};
 
+pub use attribution::{
+    AttributedRead, OperationReadAttribution, ReadAccessRoute, ReadExecutionRoute,
+    ReadPlanCacheOutcome,
+};
+pub(in crate::db::session) use attribution::{
+    OperationReadAttributionBuilder, read_operation_local_instruction_counter,
+};
 pub(in crate::db) use cache::QueryPlanCacheAttribution;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use cache::QueryPlanCompilePhaseAttribution;

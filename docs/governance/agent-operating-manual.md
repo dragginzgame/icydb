@@ -199,6 +199,25 @@ struct TypeName;
   at `.0`.
 - Never modify pushed release tags.
 
+## Downstream Qualification Ownership
+
+- Every design that uses a downstream proving application must name the exact
+  IcyDB-owned qualification gate: source identity, build inputs, command or
+  focused checks, artifact boundaries and acceptance result.
+- A downstream repository's complete CI remains downstream- and user-owned
+  unless IcyDB's release workflow actually runs that exact command against the
+  immutable candidate. Do not declare complete downstream CI as an IcyDB
+  release-completion requirement while recording only a focused build, a
+  subset of tests or a read-only source inspection.
+- Release status must record the exact gate that ran, including ignored tests,
+  skipped phases, tool-identity preconditions and wrapper failures. A required
+  gate that stops before its workload is incomplete, not passing.
+- A later downstream-owned full-CI pass proves adoption compatibility. It does
+  not retroactively become IcyDB's upstream release evidence.
+- When complete downstream CI is intentionally user-owned, designs and status
+  records must say so consistently and define the narrower IcyDB-owned proof
+  without calling it the complete downstream gate.
+
 ## Design Docs
 
 - Do not assume patch numbers for design or status docs.

@@ -99,6 +99,42 @@ impl OutputRow {
     }
 }
 
+#[inline(never)]
+fn project_single_mutation_result(
+    binding: &TypedEntityBinding,
+    result: DynamicMutationResult,
+) -> Result<OutputRow, TypedAdapterError> {
+    let DynamicMutationResult {
+        entity,
+        columns,
+        mut rows,
+        affected_rows: _,
+    } = result;
+    if entity != binding.entity() {
+        return Err(TypedAdapterError::EntityMismatch);
+    }
+    if rows.len() != 1 {
+        return Err(TypedAdapterError::RowShapeMismatch);
+    }
+    let values = rows.pop().ok_or(TypedAdapterError::RowShapeMismatch)?;
+    OutputRow::new(binding, entity, columns, values)
+}
+
+#[inline(never)]
+fn project_mutation_result_batch(
+    binding: &TypedEntityBinding,
+    results: Vec<DynamicMutationResult>,
+    expected_results: usize,
+) -> Result<Vec<OutputRow>, TypedAdapterError> {
+    if results.len() != expected_results {
+        return Err(TypedAdapterError::RowShapeMismatch);
+    }
+    results
+        .into_iter()
+        .map(|result| project_single_mutation_result(binding, result))
+        .collect()
+}
+
 /// Stable typed-adapter boundary failures.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TypedAdapterError {
@@ -960,6 +996,15 @@ pub enum StructuralMutation {
 }
 
 impl StructuralMutation {
+    fn entity(&self) -> &str {
+        match self {
+            Self::Insert { entity, .. }
+            | Self::Update { entity, .. }
+            | Self::Replace { entity, .. }
+            | Self::Delete { entity, .. } => entity,
+        }
+    }
+
     fn into_core(self) -> core::db::DynamicMutation {
         match self {
             Self::Insert { entity, patch } => core::db::DynamicMutation::Insert {
@@ -1016,6 +1061,45 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(self
             .inner
             .execute_trusted_dynamic_mutation_batch(mutations)?)
+    }
+
+    /// Execute and project one same-entity structural mutation batch.
+    ///
+    /// The binding is checked before execution, every mutation must target its
+    /// accepted entity, and every result must contain exactly one row. This
+    /// concrete terminal keeps mutation execution, cardinality validation and
+    /// accepted-field projection outside generated entity monomorphs; callers
+    /// retain only their final [`TypedRowAdapter::decode_row`] step.
+    #[inline(never)]
+    pub fn execute_trusted_structural_mutation_batch_rows(
+        &self,
+        binding: &TypedEntityBinding,
+        mutations: Vec<StructuralMutation>,
+    ) -> Result<Vec<OutputRow>, TypedWriteError> {
+        let current = self
+            .inner
+            .typed_entity_binding_is_current(&binding.inner)
+            .map_err(|error| TypedWriteError::Database(Error::from(error)))?;
+        if !current {
+            return Err(TypedAdapterError::StaleBinding.into());
+        }
+        if mutations
+            .iter()
+            .any(|mutation| mutation.entity() != binding.entity())
+        {
+            return Err(TypedAdapterError::EntityMismatch.into());
+        }
+
+        let expected_results = mutations.len();
+        let mutations = mutations
+            .into_iter()
+            .map(StructuralMutation::into_core)
+            .collect();
+        let results = self
+            .inner
+            .execute_trusted_dynamic_mutation_batch(mutations)
+            .map_err(|error| TypedWriteError::Database(Error::from(error)))?;
+        project_mutation_result_batch(binding, results, expected_results).map_err(Into::into)
     }
 
     /// Execute one same-entity structural insert batch atomically.
@@ -1177,6 +1261,26 @@ impl<C: CanisterKind> DbSession<C> {
             .execute_trusted_typed_mutation(&write.binding.inner, &write.mutation)
             .map_err(|error| TypedWriteError::Database(Error::from(error)))?
             .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))
+    }
+
+    /// Execute one generated write and project its required single row.
+    ///
+    /// `TypedWrite` already owns its accepted binding, so execution, exact
+    /// single-row validation and accepted-field projection remain in one
+    /// concrete non-entity terminal. Generated adapters need only decode the
+    /// returned row into their final Rust entity.
+    #[inline(never)]
+    pub fn execute_trusted_typed_write_row(
+        &self,
+        write: TypedWrite,
+    ) -> Result<OutputRow, TypedWriteError> {
+        let TypedWrite { binding, mutation } = write;
+        let result = self
+            .inner
+            .execute_trusted_typed_mutation(&binding.inner, &mutation)
+            .map_err(|error| TypedWriteError::Database(Error::from(error)))?
+            .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))?;
+        project_single_mutation_result(&binding, result).map_err(Into::into)
     }
 
     /// Execute one non-empty same-store generated write batch atomically.

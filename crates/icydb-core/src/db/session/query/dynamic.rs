@@ -5,9 +5,9 @@
 
 use crate::{
     db::{
-        DbSession, DynamicQuery, DynamicTypedEntityBinding, ExhaustiveQueryPageOutput,
-        ExhaustiveReadError, GroupedQueryOutput, LiveQueryPageOutput, MissingRowPolicy, QueryError,
-        ReadSetRevisionError, ReadSetRevisionProof, ScalarPageWork,
+        AttributedRead, DbSession, DynamicQuery, DynamicTypedEntityBinding,
+        ExhaustiveQueryPageOutput, ExhaustiveReadError, GroupedQueryOutput, LiveQueryPageOutput,
+        MissingRowPolicy, QueryError, ReadSetRevisionError, ReadSetRevisionProof, ScalarPageWork,
         codec::{finalize_hash_sha256, new_hash_sha256_prefixed},
         commit::{cursor_authentication_key, database_incarnation_id},
         cursor::{
@@ -27,7 +27,10 @@ use crate::{
             intent::{IntentError, StructuralQuery},
             plan::CardinalityTiebreakRoutePin,
         },
-        session::AcceptedSchemaCatalogContext,
+        session::{
+            AcceptedSchemaCatalogContext,
+            query::{OperationReadAttributionBuilder, read_operation_local_instruction_counter},
+        },
     },
     traits::CanisterKind,
 };
@@ -302,8 +305,9 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[expect(
+        clippy::too_many_arguments,
         clippy::too_many_lines,
-        reason = "live-page orchestration keeps planning, cursor validation, execution, and response proof in one auditable boundary"
+        reason = "live-page orchestration keeps planning, cursor validation, execution, optional attribution, and response proof in one auditable boundary"
     )]
     fn execute_scalar_page_against_catalog(
         &self,
@@ -313,6 +317,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: AcceptedSchemaCatalogContext,
         mode: ScalarPageMode,
         supplied_proof: Option<&ReadSetRevisionProof>,
+        mut operation_attribution: Option<&mut OperationReadAttributionBuilder>,
     ) -> Result<(LiveQueryPageOutput, Option<ReadSetRevisionProof>), ExhaustiveReadError> {
         if request.has_grouping()
             || request.grouped_execution_limits().is_some()
@@ -408,7 +413,7 @@ impl<C: CanisterKind> DbSession<C> {
                 Self::exact_primary_key_candidate_bound(prepared_plan)
                     .is_some_and(|bound| bound == 1 && bound <= page_output_limit)
             });
-        let (prepared_plan, projection, _) = if initial_is_exact_exhaustion {
+        let (prepared_plan, projection, plan_cache) = if initial_is_exact_exhaustion {
             initial_plan.ok_or_else(Self::scalar_page_cursor_error)?
         } else {
             let query = Self::structural_query_from_dynamic_request_with_page_limit(
@@ -444,6 +449,9 @@ impl<C: CanisterKind> DbSession<C> {
             if let Some(rejection) = summary.rejection() {
                 return Err(QueryError::from(rejection.code()).into());
             }
+        }
+        if let Some(attribution) = operation_attribution.as_deref_mut() {
+            attribution.record_plan(&prepared_plan, plan_cache);
         }
 
         let exact_initial_exhaustion = initial_is_exact_exhaustion;
@@ -513,6 +521,9 @@ impl<C: CanisterKind> DbSession<C> {
         let page = execute_structural_projection_page(&self.db, projection_request)
             .map_err(QueryError::execute)?;
         let row_count = page.rows.row_count();
+        if let Some(attribution) = operation_attribution {
+            attribution.record_execution(page.execution_route, page.scanned_keys, row_count);
+        }
         let rows = page
             .rows
             .into_value_rows()
@@ -620,9 +631,63 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             ScalarPageMode::Live,
             None,
+            None,
         )
         .map(|(page, _)| page)
         .map_err(Self::live_page_error)
+    }
+
+    /// Execute one public live page with bounded operation-local attribution.
+    ///
+    /// The attribution is returned with the unchanged page and never enters
+    /// retained metrics. It contains only fixed route/cache enums and counters;
+    /// query text, predicates, literals, entity/index names and caller identity
+    /// are deliberately absent.
+    pub fn execute_public_live_page_with_attribution(
+        &self,
+        request: &DynamicQuery,
+        continuation: Option<&str>,
+    ) -> Result<AttributedRead<LiveQueryPageOutput>, QueryError> {
+        let start = read_operation_local_instruction_counter();
+        let mut attributed = crate::metrics::with_query_metrics_context(|| {
+            let catalog = self
+                .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))
+                .map_err(QueryError::execute)?;
+            self.execute_live_page_with_attribution_against_catalog(request, continuation, catalog)
+        })?;
+        attributed.attribution.total_local_instructions =
+            read_operation_local_instruction_counter().saturating_sub(start);
+        Ok(attributed)
+    }
+
+    fn execute_live_page_with_attribution_against_catalog(
+        &self,
+        request: &DynamicQuery,
+        continuation: Option<&str>,
+        catalog: AcceptedSchemaCatalogContext,
+    ) -> Result<AttributedRead<LiveQueryPageOutput>, QueryError> {
+        let start = read_operation_local_instruction_counter();
+        let mut attribution = OperationReadAttributionBuilder::new();
+        let result = self
+            .execute_scalar_page_against_catalog(
+                request,
+                continuation,
+                DynamicReadLane::Public,
+                catalog,
+                ScalarPageMode::Live,
+                None,
+                Some(&mut attribution),
+            )
+            .map(|(page, _)| page)
+            .map_err(Self::live_page_error);
+        let engine_local_instructions =
+            read_operation_local_instruction_counter().saturating_sub(start);
+        let result = result?;
+
+        Ok(AttributedRead {
+            result,
+            attribution: attribution.finish(engine_local_instructions)?,
+        })
     }
 
     /// Execute one live page through a typed binding's immutable accepted
@@ -647,9 +712,31 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             ScalarPageMode::Live,
             None,
+            None,
         )
         .map(|(page, _)| Some(page))
         .map_err(Self::live_page_error)
+    }
+
+    /// Execute one attributed live page through an immutable typed binding.
+    /// `None` means the opaque binding is stale.
+    #[doc(hidden)]
+    pub fn execute_public_live_page_with_attribution_for_typed_binding(
+        &self,
+        binding: &DynamicTypedEntityBinding,
+        request: &DynamicQuery,
+        continuation: Option<&str>,
+    ) -> Result<Option<AttributedRead<LiveQueryPageOutput>>, QueryError> {
+        crate::metrics::with_query_metrics_context(|| {
+            let Some(catalog) = self
+                .current_typed_entity_binding_catalog(binding)
+                .map_err(QueryError::execute)?
+            else {
+                return Ok(None);
+            };
+            self.execute_live_page_with_attribution_against_catalog(request, continuation, catalog)
+                .map(Some)
+        })
     }
 
     /// Execute one ordinary entity-name-driven bounded grouped read.
@@ -726,6 +813,7 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             ScalarPageMode::Live,
             None,
+            None,
         )
         .map(|(page, _)| page)
         .map_err(Self::live_page_error)
@@ -760,6 +848,7 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             ScalarPageMode::Exhaustive,
             proof,
+            None,
         )?;
         let proof = proof.ok_or(ReadSetRevisionError::NonCanonical)?;
         Ok(ExhaustiveQueryPageOutput::from_live_page(page, proof))
@@ -784,6 +873,7 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             ScalarPageMode::Exhaustive,
             proof,
+            None,
         )?;
         let proof = proof.ok_or(ReadSetRevisionError::NonCanonical)?;
         Ok(Some(ExhaustiveQueryPageOutput::from_live_page(page, proof)))
@@ -805,6 +895,7 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             ScalarPageMode::Exhaustive,
             proof,
+            None,
         )?;
         let proof = proof.ok_or(ReadSetRevisionError::NonCanonical)?;
         Ok(ExhaustiveQueryPageOutput::from_live_page(page, proof))

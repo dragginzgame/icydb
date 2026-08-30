@@ -200,6 +200,10 @@ pub use schema::{
     SchemaMigrationFindingKind, SchemaMigrationPhase, SchemaMigrationReceipt,
     SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
 };
+pub use session::{
+    AttributedRead, OperationReadAttribution, ReadAccessRoute, ReadExecutionRoute,
+    ReadPlanCacheOutcome,
+};
 pub use session::{DbSession, RequestExecutionRoot};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use session::{

@@ -49,7 +49,7 @@ pub(in crate::db::executor) fn execute_initial_scalar_retained_slot_page_from_ru
     emit_cursor: bool,
     suppress_route_scan_hints: bool,
     enforced_scan_probe_limit: Option<usize>,
-) -> Result<(StructuralCursorPage, usize), InternalError>
+) -> Result<(StructuralCursorPage, usize, crate::db::RouteExecutionMode), InternalError>
 where
     C: CanisterKind,
 {
@@ -68,7 +68,10 @@ where
         prepared = prepared.with_enforced_scan_probe_limit(probe_limit);
     }
 
-    execute_prepared_scalar_route_runtime_with_scan_count(prepared)
+    let execution_mode = prepared.execution_mode();
+    let (page, scanned_keys) = execute_prepared_scalar_route_runtime_with_scan_count(prepared)?;
+
+    Ok((page, scanned_keys, execution_mode))
 }
 
 /// Execute one resumed scalar page from an authenticated logical boundary.
@@ -81,7 +84,7 @@ pub(in crate::db::executor) fn execute_resumed_scalar_retained_slot_page_from_ru
     continuation: crate::db::executor::ScalarContinuationContext,
     emit_cursor: bool,
     enforced_scan_probe_limit: Option<usize>,
-) -> Result<(StructuralCursorPage, usize), InternalError>
+) -> Result<(StructuralCursorPage, usize, crate::db::RouteExecutionMode), InternalError>
 where
     C: CanisterKind,
 {
@@ -100,7 +103,10 @@ where
         prepared = prepared.with_enforced_scan_probe_limit(probe_limit);
     }
 
-    execute_prepared_scalar_route_runtime_with_scan_count(prepared)
+    let execution_mode = prepared.execution_mode();
+    let (page, scanned_keys) = execute_prepared_scalar_route_runtime_with_scan_count(prepared)?;
+
+    Ok((page, scanned_keys, execution_mode))
 }
 
 /// Execute one prepared scalar plan into an aggregate-owned retained-slot sink.

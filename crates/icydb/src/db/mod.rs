@@ -18,8 +18,8 @@ pub use bootstrap::DatabaseBootstrapError;
 #[doc(hidden)]
 pub use bootstrap::ensure_default_memory_manager;
 pub use icydb_core::db::{
-    CompareProofAndAdvanceError, DynamicQuery, ExhaustiveQueryPageOutput, GroupedQueryOutput,
-    GroupedRow, LiveQueryPageOutput, MAX_MUTATION_JOB_CONTINUATION_BYTES,
+    AttributedRead, CompareProofAndAdvanceError, DynamicQuery, ExhaustiveQueryPageOutput,
+    GroupedQueryOutput, GroupedRow, LiveQueryPageOutput, MAX_MUTATION_JOB_CONTINUATION_BYTES,
     MAX_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES, MAX_MUTATION_JOB_INTENT_BYTES,
     MAX_MUTATION_JOB_RECEIPT_BYTES, MAX_MUTATION_JOB_RECORD_BYTES,
     MAX_MUTATION_JOB_STEP_KEYS_SCANNED, MAX_MUTATION_JOB_STEP_ROWS_UPDATED,
@@ -28,8 +28,9 @@ pub use icydb_core::db::{
     MAX_RESUMABLE_JOB_STATE_BYTES, MutationJobAdvanceReceipt, MutationJobAdvanceRequest,
     MutationJobError, MutationJobId, MutationJobIdempotencyKey, MutationJobPayloadKind,
     MutationJobPhase, MutationJobRestartReason, MutationJobState, MutationJobStatus,
-    MutationJobTargetFailureReason, ProgressJobFamily, ProgressJobInventory,
-    ProgressJobInventoryRecord, ProgressJobLifecycle, ReadSetRevisionError, ReadSetRevisionProof,
+    MutationJobTargetFailureReason, OperationReadAttribution, ProgressJobFamily,
+    ProgressJobInventory, ProgressJobInventoryRecord, ProgressJobLifecycle, ReadAccessRoute,
+    ReadExecutionRoute, ReadPlanCacheOutcome, ReadSetRevisionError, ReadSetRevisionProof,
     ReadSetStoreIdentity, ReadSetStoreRevision, ResumableJobAdvance, ResumableJobAdvanceReceipt,
     ResumableJobAdvanceRequest, ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId,
     ResumableJobIdempotencyKey, ResumableJobState, ResumableJobStatus, RowProjectionOutput,

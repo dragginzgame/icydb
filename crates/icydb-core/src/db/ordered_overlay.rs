@@ -4,109 +4,136 @@
 //! Boundary: store wrappers adapt their concrete iterator entries into this merge helper.
 
 use crate::db::direction::Direction;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::BTreeSet, iter::Peekable};
 
-/// Control-flow result for ordered overlay traversal visitors.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum OrderedOverlayVisit {
-    Continue,
-    Stop,
-}
-
+/// One visible entry selected from an ordered canonical/live overlay.
 pub(in crate::db) enum OrderedOverlayEntry<Canonical, Live> {
     Canonical(Canonical),
     Live(Live),
 }
 
-impl OrderedOverlayVisit {
-    const fn should_stop(self) -> bool {
-        matches!(self, Self::Stop)
-    }
-}
-
 enum MergeStep {
-    Canonical,
-    Live,
-    Both,
+    Canonical { visible: bool },
+    Live { visible: bool },
+    Both { live_is_visible: bool },
     Done,
 }
 
-/// Visit the ordered union of a canonical iterator and a live overlay iterator.
-///
-/// Callers must pass both iterators in the requested `direction`. Equal keys
-/// prefer the live entry, which matches journaled cached-stable projection
-/// semantics.
-pub(in crate::db) fn visit_ordered_overlay<C, L, CE, LE, E>(
-    canonical_iter: C,
-    live_iter: L,
-    direction: Direction,
-    mut compare_entries: impl FnMut(&CE, &LE) -> Ordering,
-    mut canonical_is_visible: impl FnMut(&CE) -> bool,
-    mut live_is_visible: impl FnMut(&LE) -> bool,
-    mut visit: impl FnMut(OrderedOverlayEntry<CE, LE>) -> Result<OrderedOverlayVisit, E>,
-) -> Result<(), E>
+/// Allocation-free iterator over the visible union of canonical and live entries.
+pub(in crate::db) struct OrderedOverlay<'a, C, L, K, CanonicalKey, LiveKey>
 where
-    C: Iterator<Item = CE>,
-    L: Iterator<Item = LE>,
+    C: Iterator,
+    L: Iterator,
+    K: Ord,
+    CanonicalKey: for<'entry> Fn(&'entry C::Item) -> &'entry K,
+    LiveKey: for<'entry> Fn(&'entry L::Item) -> &'entry K,
 {
-    let mut canonical_iter = canonical_iter.peekable();
-    let mut live_iter = live_iter.peekable();
+    canonical_iter: Peekable<C>,
+    live_iter: Peekable<L>,
+    direction: Direction,
+    canonical_key: CanonicalKey,
+    live_key: LiveKey,
+    tombstones: &'a BTreeSet<K>,
+}
 
-    loop {
-        let step =
-            {
-                let canonical_entry = canonical_iter.peek();
-                let live_entry = live_iter.peek();
+impl<C, L, K, CanonicalKey, LiveKey> Iterator for OrderedOverlay<'_, C, L, K, CanonicalKey, LiveKey>
+where
+    C: Iterator,
+    L: Iterator,
+    K: Ord,
+    CanonicalKey: for<'entry> Fn(&'entry C::Item) -> &'entry K,
+    LiveKey: for<'entry> Fn(&'entry L::Item) -> &'entry K,
+{
+    type Item = OrderedOverlayEntry<C::Item, L::Item>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let step = {
+                let canonical_entry = self.canonical_iter.peek();
+                let live_entry = self.live_iter.peek();
                 match (canonical_entry, live_entry) {
                     (None, None) => MergeStep::Done,
-                    (Some(_), None) => MergeStep::Canonical,
-                    (None, Some(_)) => MergeStep::Live,
+                    (Some(canonical_entry), None) => MergeStep::Canonical {
+                        visible: !self
+                            .tombstones
+                            .contains((self.canonical_key)(canonical_entry)),
+                    },
+                    (None, Some(live_entry)) => MergeStep::Live {
+                        visible: !self.tombstones.contains((self.live_key)(live_entry)),
+                    },
                     (Some(canonical_entry), Some(live_entry)) => {
-                        match (direction, compare_entries(canonical_entry, live_entry)) {
-                            (_, Ordering::Equal) => MergeStep::Both,
+                        let canonical_key = (self.canonical_key)(canonical_entry);
+                        let live_key = (self.live_key)(live_entry);
+                        let live_is_visible = !self.tombstones.contains(live_key);
+                        match (self.direction, canonical_key.cmp(live_key)) {
+                            (_, Ordering::Equal) => MergeStep::Both { live_is_visible },
                             (Direction::Asc, Ordering::Less)
-                            | (Direction::Desc, Ordering::Greater) => MergeStep::Canonical,
+                            | (Direction::Desc, Ordering::Greater) => MergeStep::Canonical {
+                                visible: !self.tombstones.contains(canonical_key),
+                            },
                             (Direction::Asc, Ordering::Greater)
-                            | (Direction::Desc, Ordering::Less) => MergeStep::Live,
+                            | (Direction::Desc, Ordering::Less) => MergeStep::Live {
+                                visible: live_is_visible,
+                            },
                         }
                     }
                 }
             };
 
-        match step {
-            MergeStep::Canonical => {
-                let Some(entry) = canonical_iter.next() else {
-                    return Ok(());
-                };
-                if canonical_is_visible(&entry)
-                    && visit(OrderedOverlayEntry::Canonical(entry))?.should_stop()
-                {
-                    return Ok(());
+            match step {
+                MergeStep::Canonical { visible } => {
+                    let entry = self.canonical_iter.next()?;
+                    if visible {
+                        return Some(OrderedOverlayEntry::Canonical(entry));
+                    }
                 }
-            }
-            MergeStep::Live => {
-                let Some(entry) = live_iter.next() else {
-                    return Ok(());
-                };
-                if live_is_visible(&entry) && visit(OrderedOverlayEntry::Live(entry))?.should_stop()
-                {
-                    return Ok(());
+                MergeStep::Live { visible } => {
+                    let entry = self.live_iter.next()?;
+                    if visible {
+                        return Some(OrderedOverlayEntry::Live(entry));
+                    }
                 }
-            }
-            MergeStep::Both => {
-                let (Some(_canonical_entry), Some(live_entry)) =
-                    (canonical_iter.next(), live_iter.next())
-                else {
-                    return Ok(());
-                };
-                if live_is_visible(&live_entry)
-                    && visit(OrderedOverlayEntry::Live(live_entry))?.should_stop()
-                {
-                    return Ok(());
+                MergeStep::Both { live_is_visible } => {
+                    self.canonical_iter.next()?;
+                    let live_entry = self.live_iter.next()?;
+                    if live_is_visible {
+                        return Some(OrderedOverlayEntry::Live(live_entry));
+                    }
                 }
+                MergeStep::Done => return None,
             }
-            MergeStep::Done => return Ok(()),
         }
+    }
+}
+
+/// Build an ordered canonical/live overlay iterator.
+///
+/// Callers must pass both iterators in `direction`. Equal keys prefer the live
+/// entry, matching journaled cached-stable projection semantics. Key projection
+/// stays statically dispatched, while visitor and error types remain outside
+/// the merge state machine.
+pub(in crate::db) fn ordered_overlay_entries<C, L, K, CanonicalKey, LiveKey>(
+    canonical_iter: C,
+    live_iter: L,
+    direction: Direction,
+    canonical_key: CanonicalKey,
+    live_key: LiveKey,
+    tombstones: &BTreeSet<K>,
+) -> OrderedOverlay<'_, C, L, K, CanonicalKey, LiveKey>
+where
+    C: Iterator,
+    L: Iterator,
+    K: Ord,
+    CanonicalKey: for<'entry> Fn(&'entry C::Item) -> &'entry K,
+    LiveKey: for<'entry> Fn(&'entry L::Item) -> &'entry K,
+{
+    OrderedOverlay {
+        canonical_iter: canonical_iter.peekable(),
+        live_iter: live_iter.peekable(),
+        direction,
+        canonical_key,
+        live_key,
+        tombstones,
     }
 }
 
@@ -115,6 +142,19 @@ mod tests {
     use super::*;
     use std::collections::{BTreeMap, BTreeSet};
 
+    fn collect_overlay<'a>(
+        entries: impl Iterator<Item = OrderedOverlayEntry<(&'a u8, &'a u16), (&'a u8, &'a u16)>>,
+        stop_after: usize,
+    ) -> Vec<(u8, u16)> {
+        entries
+            .take(stop_after)
+            .map(|entry| match entry {
+                OrderedOverlayEntry::Canonical((key, value))
+                | OrderedOverlayEntry::Live((key, value)) => (*key, *value),
+            })
+            .collect()
+    }
+
     fn visit_overlay(
         canonical: &BTreeMap<u8, u16>,
         live: &BTreeMap<u8, u16>,
@@ -122,53 +162,30 @@ mod tests {
         direction: Direction,
         stop_after: usize,
     ) -> Vec<(u8, u16)> {
-        let mut visited = Vec::new();
-        let result = match direction {
-            Direction::Asc => visit_ordered_overlay(
-                canonical.iter(),
-                live.iter(),
-                direction,
-                |canonical_entry, live_entry| canonical_entry.0.cmp(live_entry.0),
-                |canonical_entry| !tombstones.contains(canonical_entry.0),
-                |live_entry| !tombstones.contains(live_entry.0),
-                |entry| {
-                    match entry {
-                        OrderedOverlayEntry::Canonical((key, value))
-                        | OrderedOverlayEntry::Live((key, value)) => {
-                            visited.push((*key, *value));
-                        }
-                    }
-                    Ok::<_, ()>(if visited.len() >= stop_after {
-                        OrderedOverlayVisit::Stop
-                    } else {
-                        OrderedOverlayVisit::Continue
-                    })
-                },
+        match direction {
+            Direction::Asc => collect_overlay(
+                ordered_overlay_entries(
+                    canonical.iter(),
+                    live.iter(),
+                    direction,
+                    |entry| entry.0,
+                    |entry| entry.0,
+                    tombstones,
+                ),
+                stop_after,
             ),
-            Direction::Desc => visit_ordered_overlay(
-                canonical.iter().rev(),
-                live.iter().rev(),
-                direction,
-                |canonical_entry, live_entry| canonical_entry.0.cmp(live_entry.0),
-                |canonical_entry| !tombstones.contains(canonical_entry.0),
-                |live_entry| !tombstones.contains(live_entry.0),
-                |entry| {
-                    match entry {
-                        OrderedOverlayEntry::Canonical((key, value))
-                        | OrderedOverlayEntry::Live((key, value)) => {
-                            visited.push((*key, *value));
-                        }
-                    }
-                    Ok::<_, ()>(if visited.len() >= stop_after {
-                        OrderedOverlayVisit::Stop
-                    } else {
-                        OrderedOverlayVisit::Continue
-                    })
-                },
+            Direction::Desc => collect_overlay(
+                ordered_overlay_entries(
+                    canonical.iter().rev(),
+                    live.iter().rev(),
+                    direction,
+                    |entry| entry.0,
+                    |entry| entry.0,
+                    tombstones,
+                ),
+                stop_after,
             ),
-        };
-        result.expect("ordered overlay traversal should succeed");
-        visited
+        }
     }
 
     #[test]

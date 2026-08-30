@@ -34,7 +34,9 @@ owns authorization and the resource policy.
 | Surface | Lane | Contract |
 | --- | --- | --- |
 | `DbSession::query::<E>()?.execute_live_page(...)` | `PublicRead` | Generated binding and decode around an authenticated bounded live page. |
+| `DbSession::query::<E>()?.execute_live_page_with_attribution(...)` | `PublicRead` | The same typed page plus one fixed operation-local route/cache/work envelope; no retained metrics. |
 | `execute_live_page` | `PublicRead` | Entity/field names resolve against accepted schema; built-in bounded admission and explicit continuation apply. |
+| `execute_live_page_with_attribution` | `PublicRead` | The same dynamic page plus one fixed operation-local route/cache/work envelope; no retained metrics. |
 | `DbSession::query::<E>()?.execute_exhaustive_page(...)` | `PublicRead` | Generated binding and decode around a revision-strict page; resume requires its complete source proof. |
 | `execute_exhaustive_page` | `PublicRead` | Bounded scalar execution plus pre/post comparison of the canonical participating-store proof. |
 | `DbSession::query::<E>()?.execute_grouped()` | `PublicRead` | Generated binding selects accepted entity identity; the engine-neutral grouped result remains structural. |
@@ -55,6 +57,9 @@ admission-policy controls.
 - Known generated row type: `query::<E>()`; runtime adapters are automatic.
 - Runtime entity/field names: `DynamicQuery` plus
   `execute_live_page`.
+- Per-call dynamic or typed cost: the corresponding
+  `execute_live_page_with_attribution` terminal; it retains the same
+  `PublicRead` admission and returns no query/caller labels.
 - Complete unchanged-set traversal: typed or dynamic
   `execute_exhaustive_page`, retaining both continuation and proof.
 - Grouped typed/dynamic rows: ordered `.group_by(...)` and `.aggregate(...)`

@@ -25,6 +25,7 @@ compensates for it.
 Covered by this document:
 
 * `execute_trusted_structural_mutation_batch`
+* `execute_trusted_structural_mutation_batch_rows`
 * `execute_trusted_structural_insert_batch`
 * Failure behavior
 * Recovery behavior
@@ -53,8 +54,11 @@ IcyDB exposes one canonical maintained batch-write lane:
 * It is not a database-session or cross-store transaction.
 
 `execute_trusted_structural_insert_batch` is the insert-only convenience shape
-over that canonical lane. Single structural mutations use the same owner. No
-alternate generated-entity batch lane is maintained.
+over that canonical lane. `execute_trusted_structural_mutation_batch_rows`
+checks one generated binding and same-entity target set before dispatch, then
+projects the ordered canonical results; it does not add another mutation or
+commit lane. Single structural mutations use the same owner. No alternate
+generated-entity batch lane is maintained.
 
 ### Application read/compute/write boundary
 

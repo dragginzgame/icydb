@@ -118,14 +118,18 @@ mod tests {
     use crate::db;
     use icydb::{
         db::{
-            StructuralPatch, WriteCell,
+            StructuralMutation, StructuralPatch, TypedAdapterError, TypedRowAdapter,
+            TypedWriteAdapter, TypedWriteError, WriteCell,
             query::{FieldRef, TypedQueryError, count},
         },
         diagnostic::{DiagnosticCode, DiagnosticDetail, ErrorOrigin, QueryReadAdmissionCode},
+        traits::EntitySource,
         types::{Id, Ulid},
         value::{InputValue, OutputValue},
     };
-    use icydb_testing_audit_one_simple_fixtures::one_simple::OneSimpleEntity01;
+    use icydb_testing_audit_one_simple_fixtures::one_simple::{
+        OneSimpleEntity01, OneSimpleEntity01Insert,
+    };
 
     fn insert_one_native_row(name: &str) -> Ulid {
         crate::__icydb_generated::__initialize_native_database_for_tests()
@@ -235,6 +239,70 @@ mod tests {
                     .map(|row| row.id),
                 Some(first),
             );
+        });
+    }
+
+    #[test]
+    fn concrete_mutation_projection_terminals_return_typed_rows() {
+        crate::__icydb_generated::__initialize_native_database_for_tests()
+            .expect("fresh native database startup should complete");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("native database should initialize");
+            let binding = OneSimpleEntity01::typed_binding(&database)
+                .expect("generated entity should bind to accepted authority");
+            let write = OneSimpleEntity01Insert {
+                name: WriteCell::Value("single".to_string()),
+            }
+            .encode_write(&binding)
+            .expect("generated insert should encode");
+            let inserted = database
+                .execute_trusted_typed_write_row(write)
+                .and_then(|row| {
+                    OneSimpleEntity01::decode_row(&binding, row).map_err(TypedWriteError::Adapter)
+                })
+                .expect("single typed mutation should return its projected row");
+            assert_eq!(inserted.name, "single");
+
+            let mutations = ["batch-one", "batch-two"]
+                .into_iter()
+                .map(|name| StructuralMutation::Insert {
+                    entity: OneSimpleEntity01::ENTITY.to_string(),
+                    patch: StructuralPatch::new()
+                        .field("name", WriteCell::Value(InputValue::Text(name.to_string()))),
+                })
+                .collect();
+            let inserted = database
+                .execute_trusted_structural_mutation_batch_rows(&binding, mutations)
+                .and_then(|rows| {
+                    rows.into_iter()
+                        .map(|row| {
+                            OneSimpleEntity01::decode_row(&binding, row)
+                                .map_err(TypedWriteError::Adapter)
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .expect("structural mutation batch should return projected rows");
+            assert_eq!(
+                inserted
+                    .iter()
+                    .map(|row| row.name.as_str())
+                    .collect::<Vec<_>>(),
+                ["batch-one", "batch-two"],
+            );
+
+            let error = database
+                .execute_trusted_structural_mutation_batch_rows(
+                    &binding,
+                    vec![StructuralMutation::Insert {
+                        entity: "OtherEntity".to_string(),
+                        patch: StructuralPatch::new(),
+                    }],
+                )
+                .expect_err("a foreign entity must reject before structural execution");
+            assert!(matches!(
+                error,
+                TypedWriteError::Adapter(TypedAdapterError::EntityMismatch)
+            ));
         });
     }
 }

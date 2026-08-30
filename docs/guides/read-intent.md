@@ -14,7 +14,9 @@ Generated Rust adapters never choose admission or execution semantics.
 | Intent | Maintained surface |
 | --- | --- |
 | Typed live page | `db.query::<E>()?.execute_live_page(continuation)` |
+| Typed live page with per-call attribution | `db.query::<E>()?.execute_live_page_with_attribution(continuation)` |
 | Dynamic live page | `execute_live_page(&request, continuation)` |
+| Dynamic live page with per-call attribution | `execute_live_page_with_attribution(&request, continuation)` |
 | Bounded typed grouped page | `db.query::<E>()?...execute_grouped()` |
 | Bounded dynamic grouped page | `execute_public_dynamic_grouped_query(&request)` |
 | Trusted dynamic maintenance page | `execute_trusted_live_page(&request, continuation)` |
@@ -96,6 +98,34 @@ binds the complete order, query window, page envelope, database incarnation,
 and accepted schema authority. It is authenticated and opaque, but not
 encrypted.
 
+## Operation-Local Read Attribution
+
+Use the attributed live-page terminal when an authorized endpoint needs the
+cost and selected physical shape of that one call:
+
+```rust
+let attributed = db!()?
+    .query::<User>()?
+    .filter(User::ACTIVE.eq(true))
+    .order_by(asc(User::ID))
+    .limit(25)
+    .execute_live_page_with_attribution(continuation.as_deref())?;
+
+let page = attributed.result;
+let cost = attributed.attribution;
+```
+
+The result page, admission rules, cursor and typed decoding are identical to
+the ordinary terminal. The fixed attribution reports total, engine and typed
+response-decode local instructions; coarse access, execution and plan-cache
+enums; and scanned/emitted row counts. Native non-Wasm execution reports zero
+instruction counters.
+
+This surface never stores the sample in retained metrics or database state and
+does not include query text, entity/index names, predicates, literals, caller
+identity or caller-controlled labels. Treat the result as endpoint diagnostic
+data: authorize its caller and keep any application-level retention bounded.
+
 ## Bounded Grouped Pages
 
 Grouped typed and dynamic reads use the same engine-neutral lane as scalar
@@ -157,6 +187,8 @@ than union with controller authority.
   total query limit.
 - Ensure filtering and ordering can select an accepted bounded/index route.
 - For grouped reads, include positive group limits within the public ceilings.
+- Use the attributed terminal only when the caller is authorized to observe
+  per-operation cost; it does not weaken public admission.
 - Treat admission rejection as a typed failure, never as an empty result.
 - Bound the final encoded response.
 - Use trusted methods only for explicit admin work.

@@ -12,7 +12,7 @@ use crate::db::{
         key::RawIndexStoreKey,
     },
     journal::FoldWatermark,
-    ordered_overlay::{OrderedOverlayEntry, OrderedOverlayVisit, visit_ordered_overlay},
+    ordered_overlay::{OrderedOverlayEntry, ordered_overlay_entries},
     positioned_overlay::{
         JournalOverlayPosition, PositionedOverlayMetadata, PositionedOverlayRetirement,
     },
@@ -1055,62 +1055,52 @@ impl IndexStore {
                 }
             }
             Direction::Asc => {
-                visit_ordered_overlay(
+                for entry in ordered_overlay_entries(
                     canonical.range((lower.clone(), upper.clone())),
                     live.range((lower, upper)),
                     direction,
-                    |canonical_entry, live_entry| canonical_entry.key().cmp(live_entry.0),
-                    |canonical_entry| !tombstones.contains(canonical_entry.key()),
-                    |live_entry| !tombstones.contains(live_entry.0),
-                    |entry| {
-                        let should_stop = match entry {
-                            OrderedOverlayEntry::Canonical(canonical_entry) => {
-                                visit_index_store_entry(
-                                    canonical_entry.key(),
-                                    &canonical_entry.value(),
-                                    &mut visit,
-                                )?
-                            }
-                            OrderedOverlayEntry::Live((key, value)) => {
-                                visit_index_store_entry(key, value, &mut visit)?
-                            }
-                        };
-                        Ok(if should_stop {
-                            OrderedOverlayVisit::Stop
-                        } else {
-                            OrderedOverlayVisit::Continue
-                        })
-                    },
-                )?;
+                    |entry| entry.key(),
+                    |entry| entry.0,
+                    tombstones,
+                ) {
+                    let should_stop = match entry {
+                        OrderedOverlayEntry::Canonical(canonical_entry) => visit_index_store_entry(
+                            canonical_entry.key(),
+                            &canonical_entry.value(),
+                            &mut visit,
+                        )?,
+                        OrderedOverlayEntry::Live((key, value)) => {
+                            visit_index_store_entry(key, value, &mut visit)?
+                        }
+                    };
+                    if should_stop {
+                        return Ok(());
+                    }
+                }
             }
             Direction::Desc => {
-                visit_ordered_overlay(
+                for entry in ordered_overlay_entries(
                     canonical.range((lower.clone(), upper.clone())).rev(),
                     live.range((lower, upper)).rev(),
                     direction,
-                    |canonical_entry, live_entry| canonical_entry.key().cmp(live_entry.0),
-                    |canonical_entry| !tombstones.contains(canonical_entry.key()),
-                    |live_entry| !tombstones.contains(live_entry.0),
-                    |entry| {
-                        let should_stop = match entry {
-                            OrderedOverlayEntry::Canonical(canonical_entry) => {
-                                visit_index_store_entry(
-                                    canonical_entry.key(),
-                                    &canonical_entry.value(),
-                                    &mut visit,
-                                )?
-                            }
-                            OrderedOverlayEntry::Live((key, value)) => {
-                                visit_index_store_entry(key, value, &mut visit)?
-                            }
-                        };
-                        Ok(if should_stop {
-                            OrderedOverlayVisit::Stop
-                        } else {
-                            OrderedOverlayVisit::Continue
-                        })
-                    },
-                )?;
+                    |entry| entry.key(),
+                    |entry| entry.0,
+                    tombstones,
+                ) {
+                    let should_stop = match entry {
+                        OrderedOverlayEntry::Canonical(canonical_entry) => visit_index_store_entry(
+                            canonical_entry.key(),
+                            &canonical_entry.value(),
+                            &mut visit,
+                        )?,
+                        OrderedOverlayEntry::Live((key, value)) => {
+                            visit_index_store_entry(key, value, &mut visit)?
+                        }
+                    };
+                    if should_stop {
+                        return Ok(());
+                    }
+                }
             }
         }
 

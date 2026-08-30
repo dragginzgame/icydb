@@ -3072,7 +3072,10 @@ mod typed_adapter_tests {
 
 #[cfg(test)]
 mod mixed_relation_batch_tests {
-    use super::{DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell};
+    use super::{
+        DbSession, DynamicMutation, DynamicStructuralPatch, DynamicTypedFieldBindingRequest,
+        DynamicTypedFieldType, DynamicWriteCell,
+    };
     use crate::{
         db::{
             DynamicQuery, asc,
@@ -3096,7 +3099,7 @@ mod mixed_relation_batch_tests {
         types::EntityTag,
         value::{InputValue, OutputValue},
     };
-    use icydb_schema::FieldSourceKey;
+    use icydb_schema::{FieldSourceKey, ScalarType};
     use std::{cell::RefCell, collections::BTreeMap};
 
     const STORE_PATH: &str = "session::write::mixed_relation_batch_tests::Store";
@@ -3695,6 +3698,71 @@ mod mixed_relation_batch_tests {
             error.diagnostic_code(),
             icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
         );
+    }
+
+    #[test]
+    fn attributed_live_page_preserves_result_database_and_retained_metrics() {
+        let session = initialize();
+        session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                insert_with_code(1, None, 10),
+                insert_with_code(2, Some(1), 20),
+                insert_with_code(3, None, 30),
+            ])
+            .expect("attributed live-page rows should insert");
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .select(["id"])
+            .order_by(desc("code"));
+        let ordinary = session
+            .execute_public_live_page(&query, None)
+            .expect("ordinary live page should execute");
+        let binding = session
+            .issue_typed_entity_binding(
+                ENTITY_SOURCE,
+                &[DynamicTypedFieldBindingRequest::new(
+                    ID_SOURCE.to_string(),
+                    DynamicTypedFieldType::Scalar(ScalarType::Nat64),
+                    false,
+                )],
+            )
+            .expect("attributed typed binding should issue");
+        let proof_before = session
+            .capture_read_set_revision_proof(&[ENTITY_NAME])
+            .expect("read-set proof should capture before attributed execution");
+        crate::metrics::metrics_reset_all();
+        let metrics_before = crate::metrics::compact_metrics_report(None);
+
+        let attributed = session
+            .execute_public_live_page_with_attribution(&query, None)
+            .expect("attributed live page should execute");
+        let typed_attributed = session
+            .execute_public_live_page_with_attribution_for_typed_binding(&binding, &query, None)
+            .expect("attributed typed live page should execute")
+            .expect("attributed typed binding should remain current");
+
+        let metrics_after = crate::metrics::compact_metrics_report(None);
+        let proof_after = session
+            .capture_read_set_revision_proof(&[ENTITY_NAME])
+            .expect("read-set proof should capture after attributed execution");
+        assert_eq!(attributed.result, ordinary);
+        assert_eq!(typed_attributed.result, ordinary);
+        assert_eq!(
+            attributed.attribution.rows_scanned,
+            ordinary.work.entries_visited
+        );
+        assert_eq!(
+            attributed.attribution.rows_emitted,
+            u64::from(ordinary.row_count),
+        );
+        assert_eq!(
+            attributed.attribution.plan_cache,
+            crate::db::ReadPlanCacheOutcome::Hit,
+        );
+        assert_eq!(attributed.attribution.total_local_instructions, 0);
+        assert_eq!(attributed.attribution.engine_local_instructions, 0);
+        assert_eq!(attributed.attribution.response_decode_local_instructions, 0,);
+        assert_eq!(proof_after, proof_before);
+        assert_eq!(metrics_after, metrics_before);
     }
 
     #[test]

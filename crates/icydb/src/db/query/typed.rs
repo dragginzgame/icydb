@@ -7,8 +7,8 @@
 
 use crate::{
     db::{
-        DbSession, DynamicQuery, ExhaustiveReadError, GroupedQueryOutput, TypedBindingError,
-        TypedEntityAdapter, TypedEntityBinding, TypedRowError,
+        AttributedRead, DbSession, DynamicQuery, ExhaustiveReadError, GroupedQueryOutput,
+        TypedBindingError, TypedEntityAdapter, TypedEntityBinding, TypedRowError,
     },
     traits::{CanisterKind, EntityKey},
     types::Id,
@@ -85,6 +85,18 @@ fn typed_query_error_from_binding(error: TypedBindingError) -> TypedQueryError {
         TypedBindingError::Adapter(error) => TypedQueryError::Row(TypedRowError::Adapter(error)),
         TypedBindingError::Database(error) => TypedQueryError::Database(error),
     }
+}
+
+#[must_use]
+#[cfg(target_arch = "wasm32")]
+fn read_operation_local_instruction_counter() -> u64 {
+    ic_cdk::api::performance_counter(1)
+}
+
+#[must_use]
+#[cfg(not(target_arch = "wasm32"))]
+const fn read_operation_local_instruction_counter() -> u64 {
+    0
 }
 
 ///
@@ -218,6 +230,53 @@ where
                     crate::db::TypedAdapterError::StaleBinding,
                 ))
             })?;
+        self.decode_live_page(result)
+    }
+
+    /// Execute one revision-tolerant typed page with bounded per-call cost attribution.
+    ///
+    /// The operation follows the same accepted dynamic execution and typed row
+    /// decoding as [`Self::execute_live_page`]. Its fixed attribution envelope
+    /// is returned beside the page without entering retained metrics or
+    /// exposing query, entity, index, literal or caller identity.
+    pub fn execute_live_page_with_attribution(
+        self,
+        continuation: Option<&str>,
+    ) -> Result<AttributedRead<LivePage<E::Row>>, TypedQueryError> {
+        let start = read_operation_local_instruction_counter();
+        let attributed = self
+            .session
+            .execute_public_typed_live_page_with_attribution(
+                &self.binding,
+                &self.request,
+                continuation,
+            )
+            .map_err(TypedQueryError::Database)?
+            .ok_or({
+                TypedQueryError::Row(TypedRowError::Adapter(
+                    crate::db::TypedAdapterError::StaleBinding,
+                ))
+            })?;
+        let decode_start = read_operation_local_instruction_counter();
+        let result = self.decode_live_page(attributed.result)?;
+        let response_decode_local_instructions =
+            read_operation_local_instruction_counter().saturating_sub(decode_start);
+        let total_local_instructions =
+            read_operation_local_instruction_counter().saturating_sub(start);
+        let mut attribution = attributed.attribution;
+        attribution.response_decode_local_instructions = response_decode_local_instructions;
+        attribution.total_local_instructions = total_local_instructions;
+
+        Ok(AttributedRead {
+            result,
+            attribution,
+        })
+    }
+
+    fn decode_live_page(
+        &self,
+        result: crate::db::LiveQueryPageOutput,
+    ) -> Result<LivePage<E::Row>, TypedQueryError> {
         let mut rows = Vec::with_capacity(result.rows.len());
         for row_index in 0..result.rows.len() {
             let row = self

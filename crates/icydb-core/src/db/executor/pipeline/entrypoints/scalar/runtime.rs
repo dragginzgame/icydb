@@ -55,6 +55,12 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
 }
 
 impl PreparedScalarRouteRuntime {
+    /// Return the physical execution mode frozen by route planning.
+    #[must_use]
+    pub(in crate::db::executor) const fn execution_mode(&self) -> crate::db::RouteExecutionMode {
+        self.route_plan.execution_mode()
+    }
+
     // Clone the entity path needed after the runtime bundle is consumed.
     pub(super) fn entity_path_handle(&self) -> std::rc::Rc<str> {
         self.authority.entity_path_handle()

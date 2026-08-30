@@ -31,7 +31,10 @@ pub(in crate::db::executor) use eval::{
 pub(in crate::db) use facade::StructuralProjectionScanBudget;
 #[cfg(feature = "sql")]
 pub(in crate::db) use facade::execute_structural_projection_rows;
-pub(in crate::db) use facade::{StructuralProjectionRequest, execute_structural_projection_page};
+pub(in crate::db) use facade::{
+    StructuralProjectionExecutionRoute, StructuralProjectionRequest,
+    execute_structural_projection_page,
+};
 pub(in crate::db::executor) use grouped::*;
 pub(in crate::db::executor) use grouped::{
     GroupedRowView, compile_grouped_projection_expr, evaluate_grouped_having_expr,
