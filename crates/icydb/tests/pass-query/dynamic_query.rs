@@ -1,6 +1,6 @@
 use icydb::{
     db::{
-        DbSession, DynamicQuery, TypedEntityAdapter,
+        DbSession, DynamicQuery, LiveQueryPageOutput, TypedEntityAdapter,
         query::{
             CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, FilterValue,
             JunctionOperator, Query, SetOperator, StateOperator, count,
@@ -102,6 +102,63 @@ where
         .grouped_limits(100, 64 * 1024)
         .limit(25)
         .execute_grouped();
+}
+
+#[allow(dead_code)]
+fn typed_dynamic_live_page_adapter<C, E>(
+    db: &DbSession<C>,
+    request: &DynamicQuery,
+    continuation: Option<&str>,
+    trusted: bool,
+) where
+    C: CanisterKind,
+    E: TypedEntityAdapter,
+{
+    let Ok(binding) = E::typed_binding(db) else {
+        return;
+    };
+    let result = if trusted {
+        db.execute_trusted_live_page(request, continuation)
+    } else {
+        db.execute_live_page(request, continuation)
+    };
+    let Ok(result) = result else {
+        return;
+    };
+    let Ok(prepared) = db.prepare_typed_live_page_output(&binding, result) else {
+        return;
+    };
+    let mut rows = Vec::with_capacity(prepared.rows.len());
+    for row in prepared.rows {
+        let Ok(row) = E::decode_row(&binding, row) else {
+            return;
+        };
+        rows.push(row);
+    }
+    std::hint::black_box((rows, prepared.continuation, prepared.work));
+}
+
+#[allow(dead_code)]
+fn prepared_dynamic_row_batch_compiles<C, E>(db: &DbSession<C>, result: LiveQueryPageOutput)
+where
+    C: CanisterKind,
+    E: TypedEntityAdapter,
+{
+    let Ok(binding) = E::typed_binding(db) else {
+        return;
+    };
+    let LiveQueryPageOutput {
+        entity,
+        columns,
+        rows,
+        row_count: _,
+        continuation,
+        work,
+    } = result;
+    let Ok(rows) = db.prepare_typed_output_rows(&binding, entity, columns, rows) else {
+        return;
+    };
+    std::hint::black_box((rows, continuation, work));
 }
 
 #[test]

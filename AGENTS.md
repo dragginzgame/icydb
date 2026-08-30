@@ -14,6 +14,15 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Before `1.0.0`, follow the hard-cut compatibility rules below; do not keep legacy fallbacks.
 - For wasm decisions, prioritize raw non-gzipped `.wasm` bytes; gzip is secondary context.
 
+## SemVer Terminology
+
+- In user instructions, bare `patch` always means the SemVer patch component in
+  `major.minor.patch`. For example, "patch 6" on the authorized `0.249` line
+  means version `0.249.6`.
+- Never interpret `patch` as a design-plan unit, tracker entry, implementation
+  slice, worktree handoff, or diff. Call those units `landing slices` or
+  `tracker items`; only use another meaning when the user explicitly names it.
+
 ## Pre-1.0 Hard Cuts
 
 - Before `1.0.0`, removed or renamed surfaces are hard-cut. Do not add aliases,
@@ -65,34 +74,35 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Prefer one semantic authority and one converged execution flow. Tests protect
   maintained behavior and boundaries, not incidental implementation shape.
 - Start with `rg` and targeted inspection; do not read broad directories unless the task requires it.
-- Make the smallest safe patch that satisfies the request.
+- Make the smallest safe change that satisfies the request.
 - Do not perform opportunistic refactors; list them as follow-up instead.
 - Before implementing a minor-version line, ensure its design/status tracker
   groups the then-intended line into a practical set of meaningful landing
-  patches, normally 1-12. This is an initial planning range, not a lifetime cap:
+  slices, normally 1-12. This is an initial planning range, not a lifetime cap:
   new evidence and explicit authorization may extend the tracker without
-  widening, renumbering, or combining otherwise independent landing patches.
-- Make each landing patch substantive and end-to-end: one bounded outcome plus
+  widening, renumbering, or combining otherwise independent landing slices.
+- Make each landing slice substantive and end-to-end: one bounded outcome plus
   its direct tests, diagnostics, docs, fixtures, and mechanical propagation.
-  Do not create micro-patches for fallout from the same change, and do not
+  Do not create micro-slices for fallout from the same change, and do not
   combine independent planned outcomes into a multi-hour mega-slice.
-- One planned landing patch is one reviewable worktree handoff and the default
-  implementation-turn boundary. Complete that patch, validate it, update its
+- One planned landing slice is one reviewable worktree handoff and the default
+  implementation-turn boundary. Complete that slice, validate it, update its
   status and latest active-version changelog notes, then stop and hand it back;
-  do not begin the next planned patch in the same turn.
+  do not begin the next planned slice in the same turn.
 - Generic continuation such as "continue", "keep going", or "next" authorizes
-  exactly the next planned landing patch within the current minor-version
+  exactly the next planned landing slice within the current minor-version
   line. It never authorizes starting a different minor. Implement multiple
-  patches in one turn only when the user explicitly names them and asks to
-  combine them.
-- Batch coherent routine work within the current landing patch, never across
-  planned patch boundaries. Record it under the latest active changelog version;
-  changelog governance owns automatic next-patch selection after publication.
+  landing slices in one turn only when the user explicitly names them and asks
+  to combine them.
+- Batch coherent routine work within the current landing slice, never across
+  planned slice boundaries. Record it under the latest active changelog
+  version; changelog governance owns automatic next-SemVer-patch selection
+  after publication.
 - Treat file and delivery-domain counts as reporting signals, not execution
   limits. Include direct tests, documentation, fixtures, exhaustive matches,
   and mechanical propagation required by the current planned outcome. If work
   reveals another independently reviewable outcome, stop and split or update
-  the tracker instead of folding it into the active patch.
+  the tracker instead of folding it into the active landing slice.
 - Run `cargo fmt --all` after code edits; reserve `cargo fmt --all --check` for non-mutating release/readiness verification.
 - Run focused checks after edits; run broader checks only when the slice is otherwise ready.
 - Do not repeatedly rerun expensive failing commands; capture the first failure and report it.
@@ -147,12 +157,12 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - If the user asks "push?", report whether the current slice is ready to push and summarize validation.
 - A statement that a patch is live/pushed records the completed boundary but
   does not by itself authorize more implementation. If the user also says to
-  continue, start exactly the next planned patch in the same minor line and do
-  not rewrite the published changelog unless asked.
-- When the current minor's planned patches are exhausted, generic continuation
-  stays in that minor and starts a read-only closeout audit. Report findings
-  before making closeout corrections; keep approved corrections in the same
-  minor line.
+  continue, start exactly the next planned landing slice in the same minor line
+  and do not rewrite the published changelog unless asked.
+- When the current minor's planned landing slices are exhausted, generic
+  continuation stays in that minor and starts a read-only closeout audit.
+  Report findings before making closeout corrections; keep approved corrections
+  in the same minor line.
 - Do not start a new minor-version line until the current minor has a reported
   ready/complete closeout verdict and the user then explicitly names the target
   minor and directs the agent to start it (for example, "start 0.212"). A

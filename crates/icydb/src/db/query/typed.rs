@@ -306,20 +306,12 @@ where
         &self,
         result: crate::db::LiveQueryPageOutput,
     ) -> Result<LivePage<E::Row>, TypedQueryError> {
-        let crate::db::LiveQueryPageOutput {
-            entity,
-            columns,
-            rows: output_rows,
-            row_count: _,
-            continuation,
-            work,
-        } = result;
-        let output_rows = self
+        let prepared = self
             .session
-            .prepare_typed_output_rows(&self.binding, entity, columns, output_rows)
+            .prepare_typed_live_page_output(&self.binding, result)
             .map_err(TypedQueryError::Row)?;
-        let mut rows = Vec::with_capacity(output_rows.len());
-        for row in output_rows {
+        let mut rows = Vec::with_capacity(prepared.rows.len());
+        for row in prepared.rows {
             rows.push(
                 E::decode_row(&self.binding, row)
                     .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?,
@@ -328,8 +320,8 @@ where
 
         Ok(LivePage {
             rows,
-            continuation,
-            work,
+            continuation: prepared.continuation,
+            work: prepared.work,
         })
     }
 

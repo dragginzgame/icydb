@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.249.md](docs/changelog/0.249.md)
 
+- `0.249.6` exposes the owned prepared-row and live-page boundary needed by
+  trusted/public downstream adapters, preserving the 0.249.5 hard cut without
+  restoring row-at-a-time projection.
 - `0.249.5` hard-cuts row-at-a-time typed projection to one owned result flow,
   including clone-free one-shot mixed-batch decoding, while leaving the
   established public Candid records unchanged.

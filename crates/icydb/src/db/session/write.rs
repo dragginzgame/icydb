@@ -126,9 +126,22 @@ impl OutputRowProjection {
     }
 }
 
-pub(crate) struct PreparedOutputRows {
+/// Owned output rows sharing one accepted typed projection.
+#[doc(hidden)]
+pub struct PreparedOutputRows {
     projection: OutputRowProjection,
     rows: IntoIter<Vec<OutputValue>>,
+}
+
+/// One consumed live-page output prepared for downstream typed decoding.
+#[doc(hidden)]
+pub struct PreparedLivePageOutput {
+    /// Owned rows sharing one accepted typed projection.
+    pub rows: PreparedOutputRows,
+    /// Authenticated continuation moved from the dynamic page.
+    pub continuation: Option<String>,
+    /// Bounded work moved from the dynamic page.
+    pub work: crate::db::ScalarPageWork,
 }
 
 impl PreparedOutputRows {
@@ -1302,7 +1315,9 @@ impl<C: CanisterKind> DbSession<C> {
             .execute_trusted_dynamic_insert_batch(entity, patches)?)
     }
 
-    pub(crate) fn prepare_typed_output_rows(
+    /// Prepare one owned dynamic row batch for non-entity-generic decoding.
+    #[doc(hidden)]
+    pub fn prepare_typed_output_rows(
         &self,
         binding: &TypedEntityBinding,
         entity: String,
@@ -1317,6 +1332,29 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(TypedRowError::Adapter(TypedAdapterError::StaleBinding));
         }
         PreparedOutputRows::new(binding, entity, columns, rows).map_err(TypedRowError::Adapter)
+    }
+
+    /// Consume one live page and prepare its rows for downstream typed decoding.
+    #[doc(hidden)]
+    pub fn prepare_typed_live_page_output(
+        &self,
+        binding: &TypedEntityBinding,
+        result: crate::db::LiveQueryPageOutput,
+    ) -> Result<PreparedLivePageOutput, TypedRowError> {
+        let crate::db::LiveQueryPageOutput {
+            entity,
+            columns,
+            rows,
+            row_count: _,
+            continuation,
+            work,
+        } = result;
+        let rows = self.prepare_typed_output_rows(binding, entity, columns, rows)?;
+        Ok(PreparedLivePageOutput {
+            rows,
+            continuation,
+            work,
+        })
     }
 
     /// Issue one opaque current accepted binding for generated field contracts.

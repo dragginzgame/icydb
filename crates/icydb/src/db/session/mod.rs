@@ -33,10 +33,10 @@ pub use sql::{
 };
 pub(crate) use write::OutputRowProjection;
 pub use write::{
-    OutputRow, StructuralMutation, StructuralPatch, TrustedTypedWriteBatch, TypedAdapterError,
-    TypedBindingError, TypedEntityAdapter, TypedEntityBinding, TypedRowAdapter, TypedRowError,
-    TypedWrite, TypedWriteAdapter, TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteError,
-    TypedWriteHandle, WriteCell,
+    OutputRow, PreparedLivePageOutput, PreparedOutputRows, StructuralMutation, StructuralPatch,
+    TrustedTypedWriteBatch, TypedAdapterError, TypedBindingError, TypedEntityAdapter,
+    TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite, TypedWriteAdapter,
+    TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteError, TypedWriteHandle, WriteCell,
 };
 
 /// Failure while capturing or executing one revision-strict exhaustive read.
