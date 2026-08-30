@@ -60,7 +60,33 @@ pub struct ExhaustiveQueryPageOutput {
     pub proof: ReadSetRevisionProof,
 }
 
+impl LiveQueryPageOutput {
+    /// Return the number of rows carried by this page.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Return whether this page carries no rows.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+}
+
 impl ExhaustiveQueryPageOutput {
+    /// Return the number of rows carried by this page.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Return whether this page carries no rows.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
     pub(in crate::db) fn from_live_page(
         page: LiveQueryPageOutput,
         proof: ReadSetRevisionProof,
@@ -155,6 +181,9 @@ mod tests {
             },
         };
 
+        assert_eq!(current.len(), 1);
+        assert!(!current.is_empty());
+
         assert_eq!(
             candid::encode_one(&current).expect("current live page should encode"),
             candid::encode_one(&frozen).expect("frozen live page should encode"),
@@ -216,6 +245,9 @@ mod tests {
                     .collect(),
             },
         };
+
+        assert_eq!(current.len(), 1);
+        assert!(!current.is_empty());
 
         assert_eq!(
             candid::encode_one(&current).expect("current exhaustive page should encode"),

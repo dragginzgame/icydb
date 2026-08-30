@@ -6,7 +6,6 @@
 //! Boundary: keeps public write semantics and row-returning projection payloads
 //! above the core save pipeline.
 
-use crate::db::RowProjectionOutput;
 use crate::{
     db::{DynamicMutationResult, session::DbSession},
     error::Error,
@@ -17,7 +16,10 @@ use candid::CandidType;
 use icydb_core as core;
 use icydb_schema::ScalarType;
 use serde::Deserialize;
-use std::{collections::BTreeSet, error::Error as StdError, fmt, marker::PhantomData, sync::Arc};
+use std::{
+    collections::BTreeSet, error::Error as StdError, fmt, marker::PhantomData, sync::Arc,
+    vec::IntoIter,
+};
 
 ///
 /// WriteCell
@@ -57,21 +59,30 @@ impl<T> WriteCell<T> {
 /// One complete accepted row supplied to an automatic generated adapter.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OutputRow {
-    binding: core::db::DynamicTypedEntityBinding,
-    entity: String,
-    accepted_slots: Vec<(u16, usize)>,
+    projection: OutputRowProjection,
     values: Vec<OutputValue>,
 }
 
-impl OutputRow {
-    fn new(
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct OutputRowProjection(Arc<OutputRowProjectionInner>);
+
+#[derive(Debug, Eq, PartialEq)]
+struct OutputRowProjectionInner {
+    binding: TypedEntityBinding,
+    entity: String,
+    accepted_slots: Vec<(u16, usize)>,
+    value_count: usize,
+}
+
+impl OutputRowProjection {
+    pub(crate) fn new(
         binding: &TypedEntityBinding,
         entity: impl Into<String>,
-        columns: Vec<String>,
-        values: Vec<OutputValue>,
+        columns: &[String],
     ) -> Result<Self, TypedAdapterError> {
-        if columns.len() != values.len() {
-            return Err(TypedAdapterError::RowShapeMismatch);
+        let entity = entity.into();
+        if entity != binding.entity() {
+            return Err(TypedAdapterError::EntityMismatch);
         }
         let mut seen_slots = BTreeSet::new();
         let mut accepted_slots = Vec::with_capacity(columns.len());
@@ -84,19 +95,121 @@ impl OutputRow {
             }
             accepted_slots.push((slot, value_index));
         }
-        Ok(Self {
-            binding: binding.inner.clone(),
-            entity: entity.into(),
+        Ok(Self(Arc::new(OutputRowProjectionInner {
+            binding: binding.clone(),
+            entity,
             accepted_slots,
+            value_count: columns.len(),
+        })))
+    }
+
+    pub(crate) fn project(&self, values: Vec<OutputValue>) -> Result<OutputRow, TypedAdapterError> {
+        if values.len() != self.0.value_count {
+            return Err(TypedAdapterError::RowShapeMismatch);
+        }
+        Ok(self.project_validated(values))
+    }
+
+    fn project_validated(&self, values: Vec<OutputValue>) -> OutputRow {
+        OutputRow {
+            projection: self.clone(),
             values,
+        }
+    }
+
+    fn entity(&self) -> &str {
+        self.0.entity.as_str()
+    }
+
+    fn binding(&self) -> &TypedEntityBinding {
+        &self.0.binding
+    }
+}
+
+pub(crate) struct PreparedOutputRows {
+    projection: OutputRowProjection,
+    rows: IntoIter<Vec<OutputValue>>,
+}
+
+impl PreparedOutputRows {
+    fn new(
+        binding: &TypedEntityBinding,
+        entity: String,
+        columns: Vec<String>,
+        rows: Vec<Vec<OutputValue>>,
+    ) -> Result<Self, TypedAdapterError> {
+        let projection = OutputRowProjection::new(binding, entity, columns.as_slice())?;
+        for values in &rows {
+            if values.len() != projection.0.value_count {
+                return Err(TypedAdapterError::RowShapeMismatch);
+            }
+        }
+        Ok(Self {
+            projection,
+            rows: rows.into_iter(),
         })
+    }
+}
+
+impl Iterator for PreparedOutputRows {
+    type Item = OutputRow;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.rows
+            .next()
+            .map(|values| self.projection.project_validated(values))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.rows.size_hint()
+    }
+}
+
+impl ExactSizeIterator for PreparedOutputRows {}
+
+impl OutputRow {
+    fn new(
+        binding: &TypedEntityBinding,
+        entity: impl Into<String>,
+        columns: &[String],
+        values: Vec<OutputValue>,
+    ) -> Result<Self, TypedAdapterError> {
+        OutputRowProjection::new(binding, entity, columns)?.project(values)
     }
 
     /// Borrow the accepted entity display name.
     #[must_use]
-    pub const fn entity(&self) -> &str {
-        self.entity.as_str()
+    pub fn entity(&self) -> &str {
+        self.projection.entity()
     }
+}
+
+struct MutationResultRowParts {
+    affected_rows: u32,
+    columns: Vec<String>,
+    entity: String,
+    values: Vec<OutputValue>,
+}
+
+fn mutation_result_row_parts(
+    result: DynamicMutationResult,
+) -> Result<MutationResultRowParts, TypedAdapterError> {
+    let DynamicMutationResult {
+        entity,
+        columns,
+        mut rows,
+        affected_rows,
+    } = result;
+    if rows.len() != 1 {
+        return Err(TypedAdapterError::RowShapeMismatch);
+    }
+    let values = rows.pop().ok_or(TypedAdapterError::RowShapeMismatch)?;
+    Ok(MutationResultRowParts {
+        affected_rows,
+        columns,
+        entity,
+        values,
+    })
 }
 
 #[inline(never)]
@@ -104,20 +217,13 @@ fn project_single_mutation_result(
     binding: &TypedEntityBinding,
     result: DynamicMutationResult,
 ) -> Result<OutputRow, TypedAdapterError> {
-    let DynamicMutationResult {
-        entity,
-        columns,
-        mut rows,
-        affected_rows: _,
-    } = result;
-    if entity != binding.entity() {
-        return Err(TypedAdapterError::EntityMismatch);
-    }
-    if rows.len() != 1 {
-        return Err(TypedAdapterError::RowShapeMismatch);
-    }
-    let values = rows.pop().ok_or(TypedAdapterError::RowShapeMismatch)?;
-    OutputRow::new(binding, entity, columns, values)
+    let parts = mutation_result_row_parts(result)?;
+    OutputRow::new(
+        binding,
+        parts.entity,
+        parts.columns.as_slice(),
+        parts.values,
+    )
 }
 
 #[inline(never)]
@@ -129,10 +235,27 @@ fn project_mutation_result_batch(
     if results.len() != expected_results {
         return Err(TypedAdapterError::RowShapeMismatch);
     }
-    results
-        .into_iter()
-        .map(|result| project_single_mutation_result(binding, result))
-        .collect()
+    let mut results = results.into_iter();
+    let Some(first) = results.next() else {
+        return Ok(Vec::new());
+    };
+    let first = mutation_result_row_parts(first)?;
+    let projection = OutputRowProjection::new(binding, first.entity, first.columns.as_slice())?;
+    let mut projected = Vec::with_capacity(expected_results);
+    projected.push(projection.project(first.values)?);
+
+    for result in results {
+        let result = mutation_result_row_parts(result)?;
+        if result.entity != projection.entity() {
+            return Err(TypedAdapterError::EntityMismatch);
+        }
+        if result.columns != first.columns {
+            return Err(TypedAdapterError::RowShapeMismatch);
+        }
+        projected.push(projection.project(result.values)?);
+    }
+
+    Ok(projected)
 }
 
 /// Stable typed-adapter boundary failures.
@@ -140,6 +263,9 @@ fn project_mutation_result_batch(
 pub enum TypedAdapterError {
     /// A typed item handle does not belong to this exact batch result owner.
     BatchHandleMismatch,
+
+    /// The typed batch row selected by this handle has already been decoded.
+    BatchRowConsumed,
 
     /// The row belongs to another accepted entity.
     EntityMismatch,
@@ -167,6 +293,7 @@ impl fmt::Display for TypedAdapterError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::BatchHandleMismatch => "typed batch handle mismatch",
+            Self::BatchRowConsumed => "typed batch row already consumed",
             Self::EntityMismatch => "typed binding entity mismatch",
             Self::FieldUnavailable => "typed binding field unavailable",
             Self::IncompatibleField => "typed binding field contract is incompatible",
@@ -270,6 +397,15 @@ impl From<TypedBindingError> for TypedWriteError {
     }
 }
 
+impl From<TypedRowError> for TypedWriteError {
+    fn from(error: TypedRowError) -> Self {
+        match error {
+            TypedRowError::Adapter(error) => Self::Adapter(error),
+            TypedRowError::Database(error) => Self::Database(error),
+        }
+    }
+}
+
 /// Opaque accepted-schema binding for one automatic generated adapter.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypedEntityBinding {
@@ -295,10 +431,10 @@ impl TypedEntityBinding {
         field_source_key: &str,
         row: &'a OutputRow,
     ) -> Result<&'a OutputValue, TypedAdapterError> {
-        if row.binding != self.inner {
+        if row.projection.0.binding != *self {
             return Err(TypedAdapterError::StaleBinding);
         }
-        if row.entity != self.inner.entity() {
+        if row.projection.0.entity != self.inner.entity() {
             return Err(TypedAdapterError::EntityMismatch);
         }
         let slot = self
@@ -306,6 +442,8 @@ impl TypedEntityBinding {
             .field_slot(field_source_key)
             .ok_or(TypedAdapterError::FieldUnavailable)?;
         let index = row
+            .projection
+            .0
             .accepted_slots
             .iter()
             .find_map(|(bound_slot, index)| (*bound_slot == slot).then_some(*index))
@@ -823,66 +961,110 @@ impl<'session, C: CanisterKind> TrustedTypedWriteBatch<'session, C> {
     }
 
     /// Consume this builder and execute its writes in one canonical batch.
-    pub fn execute(self) -> Result<TypedWriteBatchResults<'session, C>, TypedWriteError> {
+    pub fn execute(self) -> Result<TypedWriteBatchResults, TypedWriteError> {
         let results = self
             .session
             .execute_trusted_typed_write_batch(self.writes)?;
+        let results = project_typed_write_batch_results(self.bindings, results)?;
         Ok(TypedWriteBatchResults {
-            session: self.session,
             owner: self.owner,
-            bindings: self.bindings,
             results,
         })
     }
 }
 
-/// Ordered dynamic results and retained bindings from one typed batch.
-pub struct TypedWriteBatchResults<'session, C: CanisterKind> {
-    session: &'session DbSession<C>,
-    owner: Arc<()>,
-    bindings: Vec<TypedEntityBinding>,
-    results: Vec<DynamicMutationResult>,
+/// One projected result retained by a mixed-entity typed batch.
+pub struct TypedWriteBatchResult {
+    affected_rows: u32,
+    projection: OutputRowProjection,
+    row: Option<OutputRow>,
 }
 
-impl<C: CanisterKind> TypedWriteBatchResults<'_, C> {
+impl TypedWriteBatchResult {
+    /// Return the accepted entity display name for this result.
+    #[must_use]
+    pub fn entity(&self) -> &str {
+        self.projection.entity()
+    }
+
+    /// Return the number of rows affected by this write.
+    #[must_use]
+    pub const fn affected_rows(&self) -> u32 {
+        self.affected_rows
+    }
+
+    fn take_row(&mut self) -> Result<OutputRow, TypedAdapterError> {
+        self.row.take().ok_or(TypedAdapterError::BatchRowConsumed)
+    }
+}
+
+/// Ordered projected results from one mixed-entity typed batch.
+pub struct TypedWriteBatchResults {
+    owner: Arc<()>,
+    results: Vec<TypedWriteBatchResult>,
+}
+
+impl TypedWriteBatchResults {
     fn handle_position<E>(&self, handle: &TypedWriteHandle<E>) -> Result<usize, TypedAdapterError> {
-        if !Arc::ptr_eq(&self.owner, &handle.owner)
-            || handle.position >= self.bindings.len()
-            || handle.position >= self.results.len()
-        {
+        if !Arc::ptr_eq(&self.owner, &handle.owner) || handle.position >= self.results.len() {
             return Err(TypedAdapterError::BatchHandleMismatch);
         }
         Ok(handle.position)
     }
 
-    /// Borrow the exact dynamic result selected by a builder-issued handle.
+    /// Borrow the projected result selected by a builder-issued handle.
     pub fn result<E>(
         &self,
         handle: &TypedWriteHandle<E>,
-    ) -> Result<&DynamicMutationResult, TypedAdapterError> {
+    ) -> Result<&TypedWriteBatchResult, TypedAdapterError> {
         let position = self.handle_position(handle)?;
         self.results
             .get(position)
             .ok_or(TypedAdapterError::BatchHandleMismatch)
     }
 
-    /// Decode the selected result's single row through its retained binding.
-    pub fn row<E>(&self, handle: &TypedWriteHandle<E>) -> Result<E::Row, TypedRowError>
+    /// Consume and decode the selected result's row through its retained binding.
+    ///
+    /// Each builder handle owns exactly one row decode. A second decode attempt
+    /// returns [`TypedAdapterError::BatchRowConsumed`].
+    pub fn row<E>(&mut self, handle: &TypedWriteHandle<E>) -> Result<E::Row, TypedRowError>
     where
         E: TypedEntityAdapter,
     {
         let position = self
             .handle_position(handle)
             .map_err(TypedRowError::Adapter)?;
-        let binding = self.bindings.get(position).ok_or(TypedRowError::Adapter(
-            TypedAdapterError::BatchHandleMismatch,
-        ))?;
-        let result = self.results.get(position).ok_or(TypedRowError::Adapter(
-            TypedAdapterError::BatchHandleMismatch,
-        ))?;
-        let row = self.session.typed_mutation_row(binding, result, 0)?;
-        E::decode_row(binding, row).map_err(TypedRowError::Adapter)
+        let result = self
+            .results
+            .get_mut(position)
+            .ok_or(TypedRowError::Adapter(
+                TypedAdapterError::BatchHandleMismatch,
+            ))?;
+        let row = result.take_row().map_err(TypedRowError::Adapter)?;
+        E::decode_row(result.projection.binding(), row).map_err(TypedRowError::Adapter)
     }
+}
+
+fn project_typed_write_batch_results(
+    bindings: Vec<TypedEntityBinding>,
+    results: Vec<DynamicMutationResult>,
+) -> Result<Vec<TypedWriteBatchResult>, TypedAdapterError> {
+    if bindings.len() != results.len() {
+        return Err(TypedAdapterError::RowShapeMismatch);
+    }
+    let mut projected = Vec::with_capacity(results.len());
+    for (binding, result) in bindings.into_iter().zip(results) {
+        let result = mutation_result_row_parts(result)?;
+        let projection =
+            OutputRowProjection::new(&binding, result.entity, result.columns.as_slice())?;
+        let row = projection.project(result.values)?;
+        projected.push(TypedWriteBatchResult {
+            affected_rows: result.affected_rows,
+            projection,
+            row: Some(row),
+        });
+    }
+    Ok(projected)
 }
 
 fn typed_patch_from_binding<I, S>(
@@ -1120,14 +1302,13 @@ impl<C: CanisterKind> DbSession<C> {
             .execute_trusted_dynamic_insert_batch(entity, patches)?)
     }
 
-    fn typed_output_row(
+    pub(crate) fn prepare_typed_output_rows(
         &self,
         binding: &TypedEntityBinding,
-        entity: &str,
-        columns: &[String],
-        rows: &[Vec<OutputValue>],
-        row_index: usize,
-    ) -> Result<OutputRow, TypedRowError> {
+        entity: String,
+        columns: Vec<String>,
+        rows: Vec<Vec<OutputValue>>,
+    ) -> Result<PreparedOutputRows, TypedRowError> {
         let current = self
             .inner
             .typed_entity_binding_is_current(&binding.inner)
@@ -1135,90 +1316,7 @@ impl<C: CanisterKind> DbSession<C> {
         if !current {
             return Err(TypedRowError::Adapter(TypedAdapterError::StaleBinding));
         }
-        if entity != binding.inner.entity() {
-            return Err(TypedRowError::Adapter(TypedAdapterError::EntityMismatch));
-        }
-        let values = rows
-            .get(row_index)
-            .cloned()
-            .ok_or(TypedRowError::Adapter(TypedAdapterError::RowShapeMismatch))?;
-        OutputRow::new(binding, entity, columns.to_vec(), values).map_err(TypedRowError::Adapter)
-    }
-
-    pub(crate) fn typed_exact_key_row(
-        binding: &TypedEntityBinding,
-        entity: &str,
-        columns: &[String],
-        values: Vec<OutputValue>,
-    ) -> Result<OutputRow, TypedRowError> {
-        if entity != binding.inner.entity() {
-            return Err(TypedRowError::Adapter(TypedAdapterError::EntityMismatch));
-        }
-        OutputRow::new(binding, entity, columns.to_vec(), values).map_err(TypedRowError::Adapter)
-    }
-
-    /// Project one accepted dynamic-query row through a current opaque binding.
-    pub fn typed_query_row(
-        &self,
-        binding: &TypedEntityBinding,
-        result: &RowProjectionOutput,
-        row_index: usize,
-    ) -> Result<OutputRow, TypedRowError> {
-        self.typed_output_row(
-            binding,
-            result.entity.as_str(),
-            result.columns.as_slice(),
-            result.rows.as_slice(),
-            row_index,
-        )
-    }
-
-    /// Project one accepted live-page row through a current opaque binding.
-    pub fn typed_live_page_row(
-        &self,
-        binding: &TypedEntityBinding,
-        result: &crate::db::LiveQueryPageOutput,
-        row_index: usize,
-    ) -> Result<OutputRow, TypedRowError> {
-        self.typed_output_row(
-            binding,
-            result.entity.as_str(),
-            result.columns.as_slice(),
-            result.rows.as_slice(),
-            row_index,
-        )
-    }
-
-    /// Project one accepted exhaustive-page row through a current opaque binding.
-    pub fn typed_exhaustive_page_row(
-        &self,
-        binding: &TypedEntityBinding,
-        result: &crate::db::ExhaustiveQueryPageOutput,
-        row_index: usize,
-    ) -> Result<OutputRow, TypedRowError> {
-        self.typed_output_row(
-            binding,
-            result.entity.as_str(),
-            result.columns.as_slice(),
-            result.rows.as_slice(),
-            row_index,
-        )
-    }
-
-    /// Project one accepted structural-mutation row through a current opaque binding.
-    pub fn typed_mutation_row(
-        &self,
-        binding: &TypedEntityBinding,
-        result: &DynamicMutationResult,
-        row_index: usize,
-    ) -> Result<OutputRow, TypedRowError> {
-        self.typed_output_row(
-            binding,
-            result.entity.as_str(),
-            result.columns.as_slice(),
-            result.rows.as_slice(),
-            row_index,
-        )
+        PreparedOutputRows::new(binding, entity, columns, rows).map_err(TypedRowError::Adapter)
     }
 
     /// Issue one opaque current accepted binding for generated field contracts.

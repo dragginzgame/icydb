@@ -84,7 +84,9 @@ fn measure_dynamic_key_loop(items: u16, distinct: bool) -> ((u16, u16, u32, u64)
             let request =
                 DynamicQuery::new("OneSimpleEntity01").filter(FieldRef::new("id").eq(key.key()));
             match database.execute_live_page(&request, None) {
-                Ok(output) => rows = rows.saturating_add(output.row_count),
+                Ok(output) => {
+                    rows = rows.saturating_add(u32::try_from(output.len()).unwrap_or(u32::MAX));
+                }
                 Err(_) => failures = failures.saturating_add(1),
             }
         }
@@ -118,9 +120,9 @@ mod tests {
     use crate::db;
     use icydb::{
         db::{
-            StructuralMutation, StructuralPatch, TypedAdapterError, TypedRowAdapter,
+            StructuralMutation, StructuralPatch, TypedAdapterError, TypedRowAdapter, TypedRowError,
             TypedWriteAdapter, TypedWriteError, WriteCell,
-            query::{FieldRef, TypedQueryError, count},
+            query::{FieldRef, TypedQueryError, asc, count},
         },
         diagnostic::{DiagnosticCode, DiagnosticDetail, ErrorOrigin, QueryReadAdmissionCode},
         traits::EntitySource,
@@ -267,6 +269,7 @@ mod tests {
                 })
                 .expect("single typed mutation should return its projected row");
             assert_eq!(inserted.name, "single");
+            let single_id = inserted.id;
 
             let mutations = ["batch-one", "batch-two"]
                 .into_iter()
@@ -294,6 +297,27 @@ mod tests {
                     .collect::<Vec<_>>(),
                 ["batch-one", "batch-two"],
             );
+            let ids = [single_id, inserted[0].id, inserted[1].id];
+
+            let page = database
+                .query::<OneSimpleEntity01>()
+                .expect("generated typed adapter should bind")
+                .filter(FieldRef::new("id").in_list(ids))
+                .order_by(asc("id"))
+                .limit(10)
+                .execute_live_page(None)
+                .expect("typed live page should decode owned rows");
+            assert_eq!(page.len(), 3);
+            assert!(!page.is_empty());
+            let mut names = page
+                .rows
+                .iter()
+                .map(|row| row.name.as_str())
+                .collect::<Vec<_>>();
+            names.sort_unstable();
+            assert!(names.contains(&"batch-one"));
+            assert!(names.contains(&"batch-two"));
+            assert!(names.contains(&"single"));
 
             let error = database
                 .execute_trusted_structural_mutation_batch_rows(
@@ -307,6 +331,53 @@ mod tests {
             assert!(matches!(
                 error,
                 TypedWriteError::Adapter(TypedAdapterError::EntityMismatch)
+            ));
+        });
+    }
+
+    #[test]
+    fn generated_typed_write_batch_projects_and_consumes_each_row_once() {
+        crate::__icydb_generated::__initialize_native_database_for_tests()
+            .expect("fresh native database startup should complete");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("native database should initialize");
+            let mut batch = database.trusted_typed_write_batch();
+            let first = batch
+                .push(OneSimpleEntity01Insert {
+                    name: WriteCell::Value("typed-batch-one".to_string()),
+                })
+                .expect("first generated batch insert should encode");
+            let second = batch
+                .push(OneSimpleEntity01Insert {
+                    name: WriteCell::Value("typed-batch-two".to_string()),
+                })
+                .expect("second generated batch insert should encode");
+            let mut results = batch
+                .execute()
+                .expect("generated batch inserts should execute atomically");
+
+            let first_result = results
+                .result(&first)
+                .expect("first batch result should remain addressable");
+            assert_eq!(first_result.entity(), OneSimpleEntity01::ENTITY);
+            assert_eq!(first_result.affected_rows(), 1);
+            assert_eq!(
+                results
+                    .row(&first)
+                    .expect("first batch row should decode once")
+                    .name,
+                "typed-batch-one",
+            );
+            assert_eq!(
+                results
+                    .row(&second)
+                    .expect("second batch row should decode once")
+                    .name,
+                "typed-batch-two",
+            );
+            assert!(matches!(
+                results.row(&first),
+                Err(TypedRowError::Adapter(TypedAdapterError::BatchRowConsumed))
             ));
         });
     }

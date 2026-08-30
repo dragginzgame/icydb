@@ -9,6 +9,7 @@ use crate::{
     db::{
         AttributedRead, DbSession, DynamicQuery, ExhaustiveReadError, GroupedQueryOutput,
         TypedBindingError, TypedEntityAdapter, TypedEntityBinding, TypedRowError,
+        session::OutputRowProjection,
     },
     traits::{CanisterKind, EntityKey},
     types::Id,
@@ -49,6 +50,34 @@ pub struct ExhaustivePage<Row> {
     pub work: crate::db::ScalarPageWork,
     /// Complete source proof that must accompany the next resume.
     pub proof: crate::db::ReadSetRevisionProof,
+}
+
+impl<Row> LivePage<Row> {
+    /// Return the number of decoded rows in this page.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Return whether this page contains no decoded rows.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+}
+
+impl<Row> ExhaustivePage<Row> {
+    /// Return the number of decoded rows in this page.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Return whether this page contains no decoded rows.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
 }
 
 /// Failure while decoding or executing one typed exhaustive page.
@@ -277,12 +306,20 @@ where
         &self,
         result: crate::db::LiveQueryPageOutput,
     ) -> Result<LivePage<E::Row>, TypedQueryError> {
-        let mut rows = Vec::with_capacity(result.rows.len());
-        for row_index in 0..result.rows.len() {
-            let row = self
-                .session
-                .typed_live_page_row(&self.binding, &result, row_index)
-                .map_err(TypedQueryError::Row)?;
+        let crate::db::LiveQueryPageOutput {
+            entity,
+            columns,
+            rows: output_rows,
+            row_count: _,
+            continuation,
+            work,
+        } = result;
+        let output_rows = self
+            .session
+            .prepare_typed_output_rows(&self.binding, entity, columns, output_rows)
+            .map_err(TypedQueryError::Row)?;
+        let mut rows = Vec::with_capacity(output_rows.len());
+        for row in output_rows {
             rows.push(
                 E::decode_row(&self.binding, row)
                     .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?,
@@ -291,8 +328,8 @@ where
 
         Ok(LivePage {
             rows,
-            continuation: result.continuation,
-            work: result.work,
+            continuation,
+            work,
         })
     }
 
@@ -315,12 +352,21 @@ where
                     crate::db::TypedAdapterError::StaleBinding,
                 ))
             })?;
-        let mut rows = Vec::with_capacity(result.rows.len());
-        for row_index in 0..result.rows.len() {
-            let row = self
-                .session
-                .typed_exhaustive_page_row(&self.binding, &result, row_index)
-                .map_err(TypedExhaustiveQueryError::Row)?;
+        let crate::db::ExhaustiveQueryPageOutput {
+            entity,
+            columns,
+            rows: output_rows,
+            row_count: _,
+            continuation,
+            work,
+            proof,
+        } = result;
+        let output_rows = self
+            .session
+            .prepare_typed_output_rows(&self.binding, entity, columns, output_rows)
+            .map_err(TypedExhaustiveQueryError::Row)?;
+        let mut rows = Vec::with_capacity(output_rows.len());
+        for row in output_rows {
             rows.push(
                 E::decode_row(&self.binding, row).map_err(|error| {
                     TypedExhaustiveQueryError::Row(TypedRowError::Adapter(error))
@@ -330,9 +376,9 @@ where
 
         Ok(ExhaustivePage {
             rows,
-            continuation: result.continuation,
-            work: result.work,
-            proof: result.proof,
+            continuation,
+            work,
+            proof,
         })
     }
 
@@ -401,39 +447,45 @@ impl<C: CanisterKind> DbSession<C> {
                     crate::db::TypedAdapterError::StaleBinding,
                 ))
             })?;
-        let mut distinct_rows = Vec::with_capacity(result.distinct_rows.len());
-        for values in result.distinct_rows {
-            let row = values
-                .map(|values| {
-                    let row = Self::typed_exact_key_row(
-                        &binding,
-                        result.entity.as_str(),
-                        result.columns.as_slice(),
-                        values,
+        let icydb_core::db::ExactKeyBatchProjectionOutput {
+            entity,
+            columns,
+            distinct_rows: output_rows,
+            positions,
+        } = result;
+        let projection = OutputRowProjection::new(&binding, entity, columns.as_slice())
+            .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?;
+        let mut distinct_rows = Vec::with_capacity(output_rows.len());
+        for values in output_rows {
+            let row = match values {
+                Some(values) => {
+                    let row = projection
+                        .project(values)
+                        .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?;
+                    Some(
+                        E::decode_row(&binding, row)
+                            .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?,
                     )
-                    .map_err(TypedQueryError::Row)?;
-                    E::decode_row(&binding, row)
-                        .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))
-                })
-                .transpose()?;
+                }
+                None => None,
+            };
             distinct_rows.push(row);
         }
-        result
-            .positions
-            .into_iter()
-            .map(|position| {
-                let index = usize::try_from(position).map_err(|_| {
-                    TypedQueryError::Row(TypedRowError::Adapter(
-                        crate::db::TypedAdapterError::RowShapeMismatch,
-                    ))
-                })?;
-                distinct_rows.get(index).cloned().ok_or({
-                    TypedQueryError::Row(TypedRowError::Adapter(
-                        crate::db::TypedAdapterError::RowShapeMismatch,
-                    ))
-                })
-            })
-            .collect()
+
+        let mut rows = Vec::with_capacity(positions.len());
+        for position in positions {
+            let index = usize::try_from(position).map_err(|_| {
+                TypedQueryError::Row(TypedRowError::Adapter(
+                    crate::db::TypedAdapterError::RowShapeMismatch,
+                ))
+            })?;
+            rows.push(distinct_rows.get(index).cloned().ok_or({
+                TypedQueryError::Row(TypedRowError::Adapter(
+                    crate::db::TypedAdapterError::RowShapeMismatch,
+                ))
+            })?);
+        }
+        Ok(rows)
     }
 }
 

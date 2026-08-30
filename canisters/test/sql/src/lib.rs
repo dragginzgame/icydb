@@ -543,7 +543,7 @@ fn verify_typed_enrollment_failure_controls<C: icydb::traits::CanisterKind>(
     ) || other_results
         .result(&other_user)
         .map_err(typed_adapter_fixture_error)?
-        .affected_rows
+        .affected_rows()
         != 1
     {
         return Err(typed_fixture_invariant_error());
@@ -639,7 +639,7 @@ fn measure_typed_enrollment_costs<C: icydb::traits::CanisterKind>(
     let robot = batch
         .push(enrollment_robot_input(atomic_user_id, "Atomic Robot"))
         .map_err(typed_write_fixture_error)?;
-    let results = batch.execute().map_err(typed_write_fixture_error)?;
+    let mut results = batch.execute().map_err(typed_write_fixture_error)?;
     let atomic = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
     let user_row = results.row(&user).map_err(typed_row_fixture_error)?;
@@ -652,8 +652,12 @@ fn measure_typed_enrollment_costs<C: icydb::traits::CanisterKind>(
         || results
             .result(&robot)
             .map_err(typed_adapter_fixture_error)?
-            .entity
+            .entity()
             != "SqlTestEnrollmentRobot"
+        || !matches!(
+            results.row(&robot),
+            Err(TypedRowError::Adapter(TypedAdapterError::BatchRowConsumed))
+        )
     {
         return Err(typed_fixture_invariant_error());
     }

@@ -31,11 +31,12 @@ pub use request::{
 pub use sql::{
     SqlExecutionPerfAttribution, SqlPureCoveringPerfAttribution, SqlQueryPerfAttribution,
 };
+pub(crate) use write::OutputRowProjection;
 pub use write::{
     OutputRow, StructuralMutation, StructuralPatch, TrustedTypedWriteBatch, TypedAdapterError,
     TypedBindingError, TypedEntityAdapter, TypedEntityBinding, TypedRowAdapter, TypedRowError,
-    TypedWrite, TypedWriteAdapter, TypedWriteBatchResults, TypedWriteError, TypedWriteHandle,
-    WriteCell,
+    TypedWrite, TypedWriteAdapter, TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteError,
+    TypedWriteHandle, WriteCell,
 };
 
 /// Failure while capturing or executing one revision-strict exhaustive read.

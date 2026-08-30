@@ -80,10 +80,10 @@ fn enroll<C: CanisterKind>(
         label: WriteCell::Value("Ada's robot".to_string()),
     })?;
 
-    let results = batch.execute()?;
-    let _user_result = results.result(&user).map_err(TypedWriteError::from)?;
-    let _membership_result = results.result(&membership).map_err(TypedWriteError::from)?;
-    let _robot_result = results.result(&robot).map_err(TypedWriteError::from)?;
+    let mut results = batch.execute()?;
+    let _user_row = results.row(&user)?;
+    let _membership_row = results.row(&membership)?;
+    let _robot_row = results.row(&robot)?;
     Ok(user_id)
 }
 

@@ -264,19 +264,20 @@ fn enroll<C: CanisterKind>(
         label: WriteCell::Value("Ada's robot".to_string()),
     })?;
 
-    let results = batch.execute()?;
-    let _ = results.result(&user).map_err(TypedWriteError::from)?;
-    let _ = results
-        .result(&membership)
-        .map_err(TypedWriteError::from)?;
-    let _ = results.result(&robot).map_err(TypedWriteError::from)?;
+    let mut results = batch.execute()?;
+    let _user_row = results.row(&user)?;
+    let _membership_row = results.row(&membership)?;
+    let _robot_row = results.row(&robot)?;
     Ok(user_id)
 }
 ```
 
 The maintained no-SQL compile fixture contains the complete schema and error
 mapping. A handle is valid only for the result owner that issued it; mixing
-builders fails with payload-free `BatchHandleMismatch`. Authorization,
+builders fails with payload-free `BatchHandleMismatch`. Batch execution
+prepares each row once, and `row(&handle)` consumes that owned row; a second
+decode through the same handle fails with `BatchRowConsumed`. `result()`
+retains only accepted entity and affected-row metadata. Authorization,
 operation IDs, lost-response handling, and domain error mapping remain
 application responsibilities.
 

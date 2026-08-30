@@ -137,6 +137,20 @@ pub struct DynamicMutationResult {
     pub affected_rows: u32,
 }
 
+impl DynamicMutationResult {
+    /// Return the number of row payloads carried by this result.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Return whether this result carries no row payloads.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+}
+
 ///
 /// DynamicTypedFieldBindingRequest
 ///
@@ -446,7 +460,7 @@ impl DynamicTypedEntityBinding {
 
 #[cfg(test)]
 mod tests {
-    use super::DynamicTypedEntityBinding;
+    use super::{DynamicMutationResult, DynamicTypedEntityBinding};
 
     fn binding() -> DynamicTypedEntityBinding {
         DynamicTypedEntityBinding::new(
@@ -496,5 +510,18 @@ mod tests {
             binding.enum_variant_source_key("ChoiceSource", "FirstSource"),
             None,
         );
+    }
+
+    #[test]
+    fn dynamic_mutation_result_derives_cardinality_from_rows() {
+        let result = DynamicMutationResult {
+            entity: "Entity".to_string(),
+            columns: Vec::new(),
+            rows: vec![Vec::new()],
+            affected_rows: 1,
+        };
+
+        assert_eq!(result.len(), 1);
+        assert!(!result.is_empty());
     }
 }

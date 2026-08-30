@@ -21,6 +21,18 @@ pub struct RowProjectionOutput {
 }
 
 impl RowProjectionOutput {
+    /// Return the number of rows carried by this output.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Return whether this output carries no rows.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
     /// Render row values into stable display strings.
     #[must_use]
     pub fn rendered_rows(&self) -> Vec<Vec<String>> {
@@ -57,6 +69,9 @@ mod tests {
             rows: current.rows.clone(),
             row_count: current.row_count,
         };
+
+        assert_eq!(current.len(), 0);
+        assert!(current.is_empty());
 
         assert_eq!(
             candid::encode_one(&current).expect("current row projection should encode"),
