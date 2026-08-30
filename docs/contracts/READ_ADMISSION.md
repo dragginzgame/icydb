@@ -37,11 +37,13 @@ owns authorization and the resource policy.
 | `DbSession::query::<E>()?.execute_live_page_with_attribution(...)` | `PublicRead` | The same typed page plus one fixed operation-local route/cache/work envelope; no retained metrics. |
 | `execute_live_page` | `PublicRead` | Entity/field names resolve against accepted schema; built-in bounded admission and explicit continuation apply. |
 | `execute_live_page_with_attribution` | `PublicRead` | The same dynamic page plus one fixed operation-local route/cache/work envelope; no retained metrics. |
+| `advance_live_page` | `PublicRead` | Advanced adapters execute one bounded public page while IcyDB owns continuation movement, exhaustion, and progress validation. |
 | `DbSession::query::<E>()?.execute_exhaustive_page(...)` | `PublicRead` | Generated binding and decode around a revision-strict page; resume requires its complete source proof. |
 | `execute_exhaustive_page` | `PublicRead` | Bounded scalar execution plus pre/post comparison of the canonical participating-store proof. |
 | `DbSession::query::<E>()?.execute_grouped()` | `PublicRead` | Generated binding selects accepted entity identity; the engine-neutral grouped result remains structural. |
 | `execute_public_dynamic_grouped_query` | `PublicRead` | Grouped dynamic execution requires explicit limits and exposes an opaque continuation cursor. |
 | `execute_trusted_live_page` | trusted bypass | Explicit maintenance/admin dynamic page. |
+| `advance_trusted_live_page` | trusted bypass | The same adapter-oriented bounded step over the explicitly authorized trusted lane. |
 | `execute_trusted_exhaustive_page` | trusted bypass | Authorized maintenance page with the same revision-strict proof contract. |
 | `execute_trusted_dynamic_grouped_query` | trusted bypass | Explicit grouped maintenance/admin read with caller-owned authorization and explicit engine limits. |
 | `execute_trusted_sql_query` | trusted bypass | Trusted/admin SQL; caller-controlled SQL is not public-safe. |
@@ -57,6 +59,8 @@ admission-policy controls.
 - Known generated row type: `query::<E>()`; runtime adapters are automatic.
 - Runtime entity/field names: `DynamicQuery` plus
   `execute_live_page`.
+- Framework or generated-adapter traversal: `advance_live_page` or
+  `advance_trusted_live_page`; decode each returned page before advancing.
 - Per-call dynamic or typed cost: the corresponding
   `execute_live_page_with_attribution` terminal; it retains the same
   `PublicRead` admission and returns no query/caller labels.
@@ -77,6 +81,12 @@ snapshot completeness. Exhaustive pages compare the complete bounded physical
 store proof before and after every page. A non-null continuation means only
 that exhaustion has not been proved; completion requires a null continuation
 under one unchanged proof.
+
+The `advance_*` methods are page drivers for framework adapters, not
+caller-facing collect-all terminals. They move the page continuation into one
+caller-owned `Option<String>`, clear it on exhaustion, reject a repeated
+non-null token, and return the current page without that token. Consumers must
+project or decode the page immediately before requesting another step.
 
 Grouped calls additionally require positive `max_groups` and
 `max_group_bytes` values. Public calls must remain within the frozen ceilings;

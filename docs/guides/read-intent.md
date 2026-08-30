@@ -17,9 +17,11 @@ Generated Rust adapters never choose admission or execution semantics.
 | Typed live page with per-call attribution | `db.query::<E>()?.execute_live_page_with_attribution(continuation)` |
 | Dynamic live page | `execute_live_page(&request, continuation)` |
 | Dynamic live page with per-call attribution | `execute_live_page_with_attribution(&request, continuation)` |
+| Adapter-owned public page step | `advance_live_page(&request, &mut continuation)` |
 | Bounded typed grouped page | `db.query::<E>()?...execute_grouped()` |
 | Bounded dynamic grouped page | `execute_public_dynamic_grouped_query(&request)` |
 | Trusted dynamic maintenance page | `execute_trusted_live_page(&request, continuation)` |
+| Adapter-owned trusted page step | `advance_trusted_live_page(&request, &mut continuation)` |
 | Trusted dynamic grouped maintenance read | `execute_trusted_dynamic_grouped_query(&request)` |
 | Trusted SQL read | `execute_trusted_sql_query(sql)` |
 | Query diagnostics | SQL `EXPLAIN` through a trusted/admin surface |
@@ -28,6 +30,11 @@ Public scalar typed and dynamic reads return bounded live pages. A non-null
 continuation means traversal is not yet proven exhausted; it does not promise
 that another matching row exists. Grouped reads retain their separate opaque
 cursor and explicit engine limits.
+
+The adapter-oriented `advance_*` surfaces keep the same public or trusted read
+lane while moving continuation bookkeeping into IcyDB. They return exactly one
+page per call through `LivePageStep`; decode that page before advancing again.
+They intentionally do not collect a complete traversal.
 
 ## When Admission Rejects A Read
 

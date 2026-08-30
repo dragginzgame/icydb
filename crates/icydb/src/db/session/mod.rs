@@ -7,6 +7,7 @@
 mod catalog;
 pub(crate) mod generated;
 mod integrity;
+mod live_page;
 mod request;
 #[cfg(feature = "sql")]
 mod sql;
@@ -21,6 +22,7 @@ use std::{error::Error as StdError, fmt};
 pub use integrity::IntegrityCheckError;
 #[cfg(feature = "sql")]
 pub use integrity::SqlIntegrityError;
+pub use live_page::LivePageStep;
 pub use request::{
     RequestExecutionFuture, RequestExecutionRoot, with_request_execution,
     with_request_execution_async, with_request_execution_root,

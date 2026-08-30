@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.249.md](docs/changelog/0.249.md)
 
-- `0.249.0` cuts the exact Toko actor by 92,354 final raw bytes through ordered
-  traversal and typed mutation projection, and adds bounded per-call read attribution.
+- `0.249.0` cuts the exact Toko actor by 107,159 final raw bytes through shared
+  traversal, pagination and typed mutation projection, and adds bounded per-call read attribution.
 
 ## [0.248.x] 🧪 - 2026-08-29 - Native U256 Admission
 

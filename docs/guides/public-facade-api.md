@@ -110,6 +110,13 @@ before crossing the existing `InputValue` / `OutputValue` boundary.
 Always return or consume `page.continuation`; a non-null value proves the read
 has not yet established exhaustion.
 
+Framework adapters that traverse internally may instead use
+`advance_live_page(&request, &mut continuation)` or its visibly trusted
+counterpart. Each call returns one `LivePageStep`, moves the page's token into
+the supplied state, rejects non-progressing tokens, and leaves the current page
+available for immediate projection or typed decoding. These are bounded page
+drivers, not collect-all response APIs.
+
 Use `execute_exhaustive_page` for validation, export, or any operation that
 must prove it visited one complete unchanged set. Its page additionally
 returns a `ReadSetRevisionProof`. Persist that proof beside the continuation
