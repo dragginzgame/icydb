@@ -176,8 +176,8 @@ jobs:
           test -x "$CARGO_HOME/bin/candid-extractor"
           test -x "$CARGO_HOME/bin/ic-wasm"
           printf '%s\n' "$CARGO_HOME/bin" >> "$GITHUB_PATH"
-      - name: Report default-empty wasm size
-        run: bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister default_empty
+      - name: Report default-empty and request-future-scale wasm sizes
+        run: bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister default_empty --canister request_future_scale
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wasm-size-report

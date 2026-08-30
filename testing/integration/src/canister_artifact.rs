@@ -192,6 +192,14 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
+        canister: "request_future_scale",
+        package: "canister_audit_request_future_scale",
+        production_features: &["candid-export"],
+        local_test_features: &["candid-export"],
+        production_icydb_methods: NO_METHODS,
+        local_test_icydb_methods: NO_METHODS,
+    },
+    MaintainedCanisterPolicy {
         canister: "sql_perf",
         package: "canister_audit_sql_perf",
         production_features: &["candid-export", "diagnostics", "sql"],
@@ -809,7 +817,7 @@ mod tests {
 
     #[test]
     fn maintained_policy_is_complete_unique_and_deterministic() {
-        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 16);
+        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 17);
         let names = MAINTAINED_CANISTER_POLICIES
             .iter()
             .map(|policy| policy.canister)

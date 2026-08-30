@@ -116,7 +116,9 @@ counterpart. Each call returns one uncommitted `LivePageStep` that retains the
 page's token and rejects non-progressing tokens. Project or decode the page,
 then call `step.commit(&mut continuation)` only after processing succeeds. A
 failed decode therefore leaves the same page retryable. These are bounded page
-drivers, not collect-all response APIs.
+drivers, not collect-all response APIs. Framework adapters should keep this
+dispatch and continuation state machine at the concrete driver boundary rather
+than repeat it inside every entity-generic page loop.
 
 Use `execute_exhaustive_page` for validation, export, or any operation that
 must prove it visited one complete unchanged set. Its page additionally
@@ -222,6 +224,10 @@ its required single result and projects it to `OutputRow`; only the generated
 entity's final `TypedRowAdapter::decode_row` remains generic. Use
 `execute_trusted_typed_write` only when the caller specifically needs the raw
 `DynamicMutationResult` envelope.
+
+Framework adapters should likewise prefer these concrete row terminals over
+reimplementing execution, cardinality validation, and accepted-row projection
+inside every entity-generic mutation helper.
 
 Generated authored scalar primary keys and direct scalar relations retain
 their entity identity as `Id<E>` in write inputs. Optional and many direct

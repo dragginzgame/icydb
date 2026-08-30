@@ -7,6 +7,7 @@ wasm_report_default_canisters() {
         one_entity_dynamic_query \
         one_entity_typed_query \
         one_entity_sql_query \
+        request_future_scale \
         ten_entity_typed_query \
         sql_perf \
         sql
@@ -14,7 +15,7 @@ wasm_report_default_canisters() {
 
 wasm_report_canister_is_maintained_subject() {
     case "$1" in
-        default_empty|default_empty_metrics|one_entity_dynamic_query|one_entity_typed_query|one_entity_sql_query|ten_entity_typed_query|sql_perf|sql)
+        default_empty|default_empty_metrics|one_entity_dynamic_query|one_entity_typed_query|one_entity_sql_query|request_future_scale|ten_entity_typed_query|sql_perf|sql)
             return 0
             ;;
         *)

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.249.md](docs/changelog/0.249.md)
 
+- `0.249.2` type-erases the already-boxed async request child so endpoint
+  future types share one poll owner; a compile contract fixes the hard-cut
+  future shape and a 64-endpoint actor brings specialization into Wasm reports.
 - `0.249.1` makes shared live-page advancement retry-safe through a potentially
   breaking hard cut that commits continuation state only after page processing
   succeeds.

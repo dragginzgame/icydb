@@ -273,6 +273,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "canister_audit_request_future_scale"
+version = "0.249.1"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-audit-default-empty-fixtures",
+]
+
+[[package]]
 name = "canister_audit_sql_perf"
 version = "0.249.1"
 dependencies = [

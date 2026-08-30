@@ -76,6 +76,7 @@ pub const WASM_MEASUREMENT_SUBJECTS: &[&str] = &[
     "one_entity_dynamic_query",
     "one_entity_typed_query",
     "one_entity_sql_query",
+    "request_future_scale",
     "ten_entity_typed_query",
     "sql_perf",
     "sql",
@@ -150,6 +151,13 @@ pub const WASM_MEASUREMENT_COMPARISONS: &[WasmComparison] = &[
         candidate: "ten_entity_typed_query",
         disposition: WasmComparisonDisposition::Attributable,
         reason: "both actors expose the same exact-key endpoint shape and differ by nine generated entities",
+    },
+    WasmComparison {
+        id: "request_future_scale",
+        baseline: "default_empty",
+        candidate: "request_future_scale",
+        disposition: WasmComparisonDisposition::Attributable,
+        reason: "both actors use the same empty schema and feature set; the candidate adds 64 request-scoped async queries",
     },
 ];
 
@@ -253,6 +261,10 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
         minimum_final_raw_reduction_basis_points: 700,
     },
     WasmLineBudget {
+        subject: "request_future_scale",
+        minimum_final_raw_reduction_basis_points: 0,
+    },
+    WasmLineBudget {
         subject: "ten_entity_typed_query",
         minimum_final_raw_reduction_basis_points: 700,
     },
@@ -274,7 +286,7 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
 pub fn validate_wasm_measurement_contract() -> Result<(), &'static str> {
     if WASM_MEASUREMENT_PROFILE_VERSION != 1
         || WASM_MEASUREMENT_PROFILE_ID != "icydb-wasm-footprint/0.220/v1"
-        || WASM_MEASUREMENT_SUBJECTS.len() != 8
+        || WASM_MEASUREMENT_SUBJECTS.len() != 9
     {
         return Err("Wasm measurement identity or subject count drifted");
     }

@@ -69,6 +69,14 @@ fn public_endpoint_facade_compile_contract() {
         future.as_mut().poll(&mut context),
         std::task::Poll::Ready(9)
     );
+
+    let erased: icydb::db::RequestExecutionFuture<'_, u8> =
+        icydb::db::with_request_execution_async(async { 11 });
+    let mut erased = Box::pin(erased);
+    assert_eq!(
+        erased.as_mut().poll(&mut context),
+        std::task::Poll::Ready(11)
+    );
 }
 
 #[icydb::test]

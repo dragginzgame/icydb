@@ -5,6 +5,7 @@ members = [
     "canisters/audit/one_entity_dynamic_query",
     "canisters/audit/one_entity_sql_query",
     "canisters/audit/one_entity_typed_query",
+    "canisters/audit/request_future_scale",
     "canisters/audit/sql_perf",
     "canisters/audit/ten_entity_typed_query",
     "canisters/demo/rpg",

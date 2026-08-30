@@ -52,15 +52,17 @@ impl RequestExecutionRoot {
 ///
 /// The root owns counters across suspension. Ambient state is restored after
 /// every poll, including completion and unwinding, so interleaved futures
-/// cannot observe or charge each other's request.
+/// cannot observe or charge each other's request. The already-boxed child is
+/// type-erased so this poll state machine is shared across endpoint future
+/// types; that retains one allocation and adds one indirect child poll.
 #[must_use = "futures do nothing unless awaited or polled"]
-pub struct RequestExecutionFuture<F> {
+pub struct RequestExecutionFuture<'a, T> {
     root: Option<RequestExecutionRoot>,
-    future: Pin<Box<F>>,
+    future: Pin<Box<dyn Future<Output = T> + 'a>>,
 }
 
-impl<F> RequestExecutionFuture<F> {
-    fn new(future: F) -> Self {
+impl<'a, T> RequestExecutionFuture<'a, T> {
+    fn new(future: impl Future<Output = T> + 'a) -> Self {
         Self {
             root: None,
             future: Box::pin(future),
@@ -68,7 +70,7 @@ impl<F> RequestExecutionFuture<F> {
     }
 
     #[cfg(test)]
-    fn with_root(root: RequestExecutionRoot, future: F) -> Self {
+    fn with_root(root: RequestExecutionRoot, future: impl Future<Output = T> + 'a) -> Self {
         Self {
             root: Some(root),
             future: Box::pin(future),
@@ -76,8 +78,8 @@ impl<F> RequestExecutionFuture<F> {
     }
 }
 
-impl<F: Future> Future for RequestExecutionFuture<F> {
-    type Output = F::Output;
+impl<T> Future for RequestExecutionFuture<'_, T> {
+    type Output = T;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -114,10 +116,9 @@ pub fn with_request_execution<T>(run: impl FnOnce() -> T) -> T {
 /// started under one request is later polled beneath a different active
 /// request root. Ordinary endpoint executors do not move pending futures
 /// between request invocations.
-pub fn with_request_execution_async<F>(future: F) -> RequestExecutionFuture<F>
-where
-    F: Future,
-{
+pub fn with_request_execution_async<'a, T>(
+    future: impl Future<Output = T> + 'a,
+) -> RequestExecutionFuture<'a, T> {
     RequestExecutionFuture::new(future)
 }
 

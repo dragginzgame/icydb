@@ -1,18 +1,21 @@
-# IcyDB 0.250 — Native Fixed-Width `I256`
+# Native Fixed-Width `I256`
 
-- **Status:** Reserved design; implementation not authorized
-- **Date:** 2026-08-29
-- **Target line:** 0.250 after accepted 0.249 closeout and an explicit 0.250 start
-- **Predecessor authority:** the final accepted 0.249 release, to be frozen by
-  Patch 1
-- **Audience:** applications with a concrete signed 256-bit persistence and
-  query workload
+> **NON-AUTHORITATIVE IDEA — NOT A NUMBERED MINOR OR IMPLEMENTATION PLAN**
+>
+> Reconsider only when a concrete downstream schema requires signed 256-bit
+> persistence and query semantics that constrained `IntBig` cannot serve well.
+
+- **Status:** Deferred until demonstrated downstream need
+- **Recorded:** 2026-08-29
+- **Audience:** future applications with a concrete signed 256-bit persistence
+  and query workload
 
 ## 1. Summary
 
-IcyDB 0.250 reserves one independent investigation of native fixed-width
-`I256`. It does not infer signed demand from the existence of `U256`, and it
-does not start implementation while 0.249 is active.
+This document preserves the evidence and semantic questions for a possible
+native fixed-width `I256`. It does not reserve a release line, schedule a
+measurement spike or authorize implementation. Signed demand is not inferred
+from the existence of `U256`.
 
 IcyDB already supports arbitrary-precision `IntBig`. Native `I256` is justified
 only if a real downstream signed schema benefits from one inline,
@@ -24,7 +27,7 @@ The central runtime hypothesis is:
 > After ingress decode, ordinary `I256` comparison, hashing, checked scalar
 > arithmetic and fixed-byte conversion require no per-value heap allocation.
 
-Patch 1 must compare the smallest credible alternatives:
+Any future measurement must compare the smallest credible alternatives:
 
 1. existing constrained `IntBig`;
 2. constrained `IntBig` plus only generated or application boundary adapters;
@@ -44,12 +47,12 @@ box it, allocate it or become materially larger.
 -2^255 ..= 2^255 - 1
 ```
 
-It remains distinct from `U256`, `IntBig` and every smaller integer. The line
-adds no implicit coercion between them.
+It remains distinct from `U256`, `IntBig` and every smaller integer. A future
+candidate must add no implicit coercion between them.
 
-Patch 1 requires a real downstream signed schema before production work can be
-authorized. The frozen workload must include negative, zero and positive
-values and exercise:
+A future proposal requires a real downstream signed schema before measurement
+or production work can be authorized. The frozen workload must include
+negative, zero and positive values and exercise:
 
 - inserts, updates, defaults and checked constraints;
 - equality, unique and range indexes;
@@ -59,8 +62,8 @@ values and exercise:
 - lossless application-boundary conversion.
 
 The value set must include `I256::MIN`, `-1`, `0`, `1`, representative signed
-64-bit and 128-bit values, and `I256::MAX`. If no credible downstream schema
-requires this domain, Patch 1 closes the line as a no-build.
+64-bit and 128-bit values, and `I256::MAX`. Without a credible downstream
+schema requiring this domain, the idea remains deferred.
 
 ## 3. Existing Authority And Candidate Delta
 
@@ -76,10 +79,10 @@ requires this domain, Patch 1 closes the line as a no-build.
 | Candid | Existing `int` wrapper | Measured bounded `int`, exact blob or fixed limbs |
 | Aggregation | Existing exact arbitrary-precision behavior where supported | `MIN`/`MAX`; `SUM` deferred unless exact final-range semantics are proven |
 
-The simplest implementation candidate reuses the already-reviewed fixed-width
-arithmetic dependency retained by `U256`; 0.250 does not add an Ethereum SDK
-or a second numeric library merely for signed support. Dependency choice is
-still a measured Patch 1 decision, not an implementation entitlement.
+The simplest implementation candidate would reuse the already-reviewed
+fixed-width arithmetic dependency retained by `U256`; the idea does not add an
+Ethereum SDK or a second numeric library merely for signed support. Dependency
+choice remains a measured future decision, not an implementation entitlement.
 
 ## 4. Representation And Ordering
 
@@ -101,12 +104,13 @@ order: `I256::MIN` sorts first, then negative values, zero, positive values and
 or wrong-width input through a typed error.
 
 All changed pre-1.0 row, key, index, cursor and schema encodings replace their
-current version-1 form in place. The line adds no predecessor decoder,
-compatibility tag or repair bridge.
+current version-1 form in place. A future candidate must add no predecessor
+decoder, compatibility tag or repair bridge.
 
 ## 5. Candid Boundary
 
-Patch 1 measures, rather than assumes, three public carriers:
+Any future investigation must measure, rather than assume, three public
+carriers:
 
 - Candid `int`, with ingress validation of the exact signed 256-bit range;
 - Candid `blob`, validated to exactly 32 two's-complement bytes; and
@@ -123,9 +127,9 @@ choice.
 
 ## 6. Hot-Value And Allocation Contract
 
-Patch 1 records size and alignment before and after for every hot value
-container reached by the candidate, including input, runtime, output,
-expression, persisted scalar, group-key and reducer values.
+The investigation must record size and alignment before and after for every
+hot value container reached by the candidate, including input, runtime,
+output, expression, persisted scalar, group-key and reducer values.
 
 It also records:
 
@@ -143,8 +147,8 @@ their public boundaries and must be reported separately.
 ## 7. Storage And Index Density
 
 Fixed 32-byte storage is predictable but can be larger than variable `IntBig`
-for common small values. Patch 1 measures complete stable row bytes, ordered
-index-key bytes, entries per page and page touches for:
+for common small values. Any investigation must measure complete stable row
+bytes, ordered index-key bytes, entries per page and page touches for:
 
 - `-1`, `0` and `1`;
 - representative signed 64-bit and 128-bit values;
@@ -170,16 +174,16 @@ Arithmetic is checked. In particular:
 - overflow and underflow use the maintained typed numeric error family.
 
 Division and remainder must match IcyDB's maintained signed-integer semantics;
-0.250 does not introduce an alternative Euclidean or wrapping mode.
+the candidate must not introduce an alternative Euclidean or wrapping mode.
 
 Mixed `I256`/`U256`, fixed/big-integer and fixed/smaller-integer arithmetic is
 rejected unless an existing explicit conversion contract admits the pair. The
-line does not add a numeric coercion lattice.
+idea does not add a numeric coercion lattice.
 
 ## 9. Signed Aggregate Contract
 
 `MIN(I256)` and `MAX(I256)` follow the existing ordered scalar reducer route.
-`AVG(I256)` is outside this line.
+`AVG(I256)` is outside this idea.
 
 `SUM(I256)` is deferred by default. A same-width left-to-right accumulator is
 not admissible because it makes success depend on reduction order:
@@ -192,48 +196,41 @@ The mathematical result fits, but a same-width intermediate overflows. A
 future `SUM(I256)` proposal must use an exact wider internal accumulator and
 range-check only the final mathematical result, then prove bounded resource
 cost and deterministic grouped/distinct behavior. If that proof is not part of
-an explicitly reviewed 0.250 patch, `SUM(I256)` remains rejected alongside
+an explicitly reviewed future design, `SUM(I256)` remains rejected alongside
 `AVG(I256)`.
 
 ## 10. Admission Gates
 
-Production implementation requires all of the following:
+Production implementation would require all of the following:
 
-1. accepted 0.249 closeout and explicit authorization to start 0.250;
-2. one exact released predecessor revision and tree;
-3. one real downstream signed schema, query set and source fingerprint;
-4. complete constrained-`IntBig`, adapter-only and native comparisons;
-5. zero per-value heap allocation in ordinary native runtime kernels;
-6. exact hot-enum size, alignment and copy evidence;
-7. small/common/full-width stable and index density evidence;
-8. identical existing planner, executor, schema and reducer authorities;
-9. bounded Candid range validation and chosen-carrier evidence;
-10. no material retained Wasm in actors whose schemas do not use `I256`; and
-11. a neutral or simpler implementation shape with no new behavior mode.
+1. one real downstream signed schema, query set and source fingerprint;
+2. an explicitly authorized numbered design against an exact released
+   predecessor revision and tree;
+3. complete constrained-`IntBig`, adapter-only and native comparisons;
+4. zero per-value heap allocation in ordinary native runtime kernels;
+5. exact hot-enum size, alignment and copy evidence;
+6. small/common/full-width stable and index density evidence;
+7. identical existing planner, executor, schema and reducer authorities;
+8. bounded Candid range validation and chosen-carrier evidence;
+9. no material retained Wasm in actors whose schemas do not use `I256`; and
+10. a neutral or simpler implementation shape with no new behavior mode.
 
-Patch 1 freezes numerical Wasm, instruction, allocation and stable-density
-retention thresholds before a production candidate is implemented. Failure of
-any gate closes the line as a documented no-build or returns it to design
-review.
+The future measurement must freeze numerical Wasm, instruction, allocation and
+stable-density retention thresholds before a production candidate is
+implemented. Failure of any gate returns the proposal to this deferred idea.
 
-## 11. Planned Landing Patches
+## 11. Promotion Path
 
-The line contains at most four reviewable patches:
-
-| Patch | Bounded outcome | Authorization |
-| ---: | --- | --- |
-| 1 | Freeze the real signed workload and compare constrained `IntBig`, adapter-only `IntBig`, representation/carrier candidates, enum inflation, allocations, density, instructions and Wasm | Not authorized |
-| 2 | Add native `I256` storage, schema, keys, indexes, predicates, grouping, `DISTINCT` and extrema through existing owners if Patch 1 recommends build | Not authorized |
-| 3 | Add checked scalar arithmetic; keep `SUM` deferred unless a separately reviewed exact wider-accumulator proof is part of this patch | Not authorized |
-| 4 | Qualify Candid, upgrade/reinstall, query, instruction, allocation, stable-density, Wasm and downstream contracts | Not authorized |
-
-Patch 1 changes no production behavior. A no-build decision ends the line
-without opening Patches 2–4. Each later patch is separately reviewable and is
-not authorized by this reservation.
+No landing patches are scheduled or authorized. Once a real downstream need
+exists, promote this idea into a numbered design with a measurement-only first
+patch comparing constrained `IntBig`, adapter-only `IntBig` and native
+representations. Production storage/query support, checked arithmetic and
+cumulative qualification must remain separately reviewable outcomes and are
+not authorized by promoting the measurement.
 
 ## 12. Non-goals
 
-0.250 does not add:
+This idea does not add:
 
 - a replacement for `IntBig` or `U256`;
 - implicit numeric coercion;

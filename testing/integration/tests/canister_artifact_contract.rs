@@ -9,7 +9,7 @@ use icydb_testing_integration::{
 };
 
 #[test]
-#[ignore = "builds and inspects 32 independent canister artifacts; run `make test-canister-artifact-contract`"]
+#[ignore = "builds and inspects 34 independent canister artifacts; run `make test-canister-artifact-contract`"]
 fn production_and_local_source_declarations_match_the_frozen_endpoint_policy() {
     let source_write_exclusion = Mutex::new(());
     let source_guard = source_write_exclusion
