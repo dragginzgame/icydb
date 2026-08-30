@@ -10,7 +10,7 @@ use icydb::{
 #[cfg(feature = "population-seed")]
 use icydb::{
     db::{StructuralPatch, WriteCell},
-    value::{InputValue, OutputValue},
+    value::{InputValue, PublicValue},
 };
 use icydb_testing_audit_one_simple_fixtures::one_simple::OneSimpleEntity01;
 
@@ -263,8 +263,10 @@ fn lifecycle_insert_probe_row() -> Result<Ulid, icydb::Error> {
         let Some(id_slot) = output.columns.iter().position(|column| column == "id") else {
             ic_cdk::trap("lifecycle probe insert omitted its identity column");
         };
-        let Some(OutputValue::ulid(id)) = output.rows.first().and_then(|row| row.get(id_slot))
-        else {
+        let Some(value) = output.rows.first().and_then(|row| row.get(id_slot)) else {
+            ic_cdk::trap("lifecycle probe insert omitted its generated identity");
+        };
+        let PublicValue::Ulid(id) = value.as_public() else {
             ic_cdk::trap("lifecycle probe insert omitted its generated identity");
         };
         Ok(*id)

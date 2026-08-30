@@ -419,6 +419,20 @@ impl DynamicTypedEntityBinding {
             })
     }
 
+    /// Resolve one accepted enum-variant display name to its immutable source key.
+    #[must_use]
+    pub fn enum_variant_source_key(
+        &self,
+        type_source_key: &str,
+        accepted_name: &str,
+    ) -> Option<&str> {
+        self.enum_variants
+            .iter()
+            .find_map(|(bound_type, source, name)| {
+                (bound_type == type_source_key && name == accepted_name).then_some(source.as_str())
+            })
+    }
+
     /// Resolve one immutable record-member source key to its accepted display name.
     #[must_use]
     pub fn composite_field_name(&self, type_source_key: &str, source_key: &str) -> Option<&str> {
@@ -427,5 +441,60 @@ impl DynamicTypedEntityBinding {
             .find_map(|(bound_type, source, name)| {
                 (bound_type == type_source_key && source == source_key).then_some(name.as_str())
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DynamicTypedEntityBinding;
+
+    fn binding() -> DynamicTypedEntityBinding {
+        DynamicTypedEntityBinding::new(
+            [0; 16],
+            "EntitySource".to_string(),
+            "Entity".to_string(),
+            1,
+            1,
+            [1; 16],
+            1,
+            Vec::new(),
+            vec![("ChoiceSource".to_string(), "RenamedChoice".to_string())],
+            vec![
+                (
+                    "ChoiceSource".to_string(),
+                    "FirstSource".to_string(),
+                    "RenamedFirst".to_string(),
+                ),
+                (
+                    "ChoiceSource".to_string(),
+                    "SecondSource".to_string(),
+                    "Second".to_string(),
+                ),
+            ],
+            Vec::new(),
+        )
+        .expect("test binding should be internally consistent")
+    }
+
+    #[test]
+    fn accepted_enum_variant_name_resolves_to_immutable_source_key() {
+        let binding = binding();
+
+        assert_eq!(
+            binding.enum_variant_source_key("ChoiceSource", "RenamedFirst"),
+            Some("FirstSource"),
+        );
+        assert_eq!(
+            binding.enum_variant_source_key("ChoiceSource", "Second"),
+            Some("SecondSource"),
+        );
+        assert_eq!(
+            binding.enum_variant_source_key("OtherSource", "RenamedFirst"),
+            None,
+        );
+        assert_eq!(
+            binding.enum_variant_source_key("ChoiceSource", "FirstSource"),
+            None,
+        );
     }
 }

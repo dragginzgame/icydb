@@ -1,19 +1,36 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    cell::Cell,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use super::{
-    TypedAdapterContext, TypedEnumOutput, TypedInputValue, TypedOutputValue, TypedScalarValue,
-    TypedValueError,
+    TypedAdapterContext, TypedEnumDescriptor, TypedEnumSelection, TypedInputValue,
+    TypedOutputValue, TypedScalarValue, TypedValueError,
 };
+
+#[crate::enum_(
+    name = "TestChoiceSource",
+    variant(name = "Empty"),
+    variant(name = "Count", value(item(prim = "Int64")))
+)]
+pub struct TestChoice {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum TestValue {
+    Enum {
+        ordinal: usize,
+        payload: Option<Box<Self>>,
+    },
     Int64(i64),
     List(Vec<Self>),
     Map(Vec<(Self, Self)>),
     Null,
 }
 
-struct TestContext;
+#[derive(Default)]
+struct TestContext {
+    output_enum_calls: Cell<usize>,
+}
 
 impl TypedAdapterContext for TestContext {
     type PublicValue = TestValue;
@@ -82,13 +99,25 @@ impl TypedAdapterContext for TestContext {
         matches!(value, TestValue::Null)
     }
 
-    fn output_enum_variant<'a>(
+    fn output_enum<'a>(
         &self,
-        _type_source_key: &'static str,
-        _variant_source_key: &'static str,
-        _value: &'a Self::PublicValue,
-    ) -> Result<Option<TypedEnumOutput<'a, Self::PublicValue>>, TypedValueError> {
-        Err(TypedValueError::ShapeMismatch)
+        descriptor: &'static TypedEnumDescriptor,
+        value: &'a Self::PublicValue,
+    ) -> Result<TypedEnumSelection<'a, Self::PublicValue>, TypedValueError> {
+        self.output_enum_calls
+            .set(self.output_enum_calls.get().saturating_add(1));
+        if descriptor.type_source_key != "TestChoiceSource"
+            || descriptor.variants != ["Empty", "Count"]
+        {
+            return Err(TypedValueError::SourceUnavailable);
+        }
+        let TestValue::Enum { ordinal, payload } = value else {
+            return Err(TypedValueError::ShapeMismatch);
+        };
+        Ok(TypedEnumSelection {
+            ordinal: *ordinal,
+            payload: payload.as_deref(),
+        })
     }
 
     fn output_record<'a>(
@@ -103,7 +132,7 @@ impl TypedAdapterContext for TestContext {
 
 #[test]
 fn collection_adapters_preserve_values_and_canonical_order() {
-    let context = TestContext;
+    let context = TestContext::default();
     let list = vec![3_i64, 1];
     let encoded_list = list
         .clone()
@@ -149,4 +178,53 @@ fn collection_adapters_preserve_values_and_canonical_order() {
         BTreeSet::<i64>::decode_typed_output(&context, &encoded_set).expect("set should decode"),
         set,
     );
+}
+
+#[test]
+fn generated_enum_decode_selects_once_and_preserves_payload_shape() {
+    let context = TestContext::default();
+    let unit = TestValue::Enum {
+        ordinal: 0,
+        payload: None,
+    };
+
+    assert_eq!(
+        TestChoice::decode_typed_output(&context, &unit),
+        Ok(TestChoice::Empty),
+    );
+    assert_eq!(context.output_enum_calls.get(), 1);
+
+    let context = TestContext::default();
+    let value = TestValue::Enum {
+        ordinal: 1,
+        payload: Some(Box::new(TestValue::Int64(7))),
+    };
+
+    assert_eq!(
+        TestChoice::decode_typed_output(&context, &value),
+        Ok(TestChoice::Count(7)),
+    );
+    assert_eq!(context.output_enum_calls.get(), 1);
+
+    for malformed in [
+        TestValue::Enum {
+            ordinal: 0,
+            payload: Some(Box::new(TestValue::Int64(7))),
+        },
+        TestValue::Enum {
+            ordinal: 1,
+            payload: None,
+        },
+        TestValue::Enum {
+            ordinal: 2,
+            payload: None,
+        },
+    ] {
+        let context = TestContext::default();
+        assert_eq!(
+            TestChoice::decode_typed_output(&context, &malformed),
+            Err(TypedValueError::ShapeMismatch),
+        );
+        assert_eq!(context.output_enum_calls.get(), 1);
+    }
 }

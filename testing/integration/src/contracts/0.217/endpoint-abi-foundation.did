@@ -660,15 +660,20 @@ type MutationJobMetrics = record {
   mutation_count : nat64;
   restart_accepted_schema_changed : nat64;
 };
-type OutputValue = variant {
+type PublicEnumValue = record {
+  path : opt text;
+  "variant" : text;
+  payload : opt PublicValue;
+};
+type PublicValue = variant {
   Int : int64;
-  Map : vec record { OutputValue; OutputValue };
+  Map : vec record { PublicValue; PublicValue };
   Nat : nat64;
   Blob : blob;
   Bool : bool;
   Date : int32;
-  Enum : OutputValueEnum;
-  List : Vec;
+  Enum : PublicEnumValue;
+  List : vec PublicValue;
   Null;
   Text : text;
   U256 : nat;
@@ -686,11 +691,6 @@ type OutputValue = variant {
   Int128 : int;
   IntBig : int;
   Duration : nat64;
-};
-type OutputValueEnum = record {
-  path : opt text;
-  "variant" : text;
-  payload : opt OutputValue;
 };
 type QueryFieldDiagnostic = record { field : text; role : nat8 };
 type QuickIntegrityResult = record {
@@ -727,7 +727,7 @@ type Result_6 = variant { Ok : StorageReport; Err : Error };
 type Result_7 = variant { Ok : vec EntitySchemaDescription; Err : Error };
 type RowProjectionOutput = record {
   entity : text;
-  rows : vec vec OutputValue;
+  rows : vec vec PublicValue;
   row_count : nat32;
   columns : vec text;
 };
@@ -856,37 +856,6 @@ type StoreSchemaMetadataCapability = variant {
   LiveRebuiltMetadata;
 };
 type StoreSnapshotStorageMode = variant { Heap; Journaled };
-type Vec = vec variant {
-  Int : int64;
-  Map : vec record { OutputValue; OutputValue };
-  Nat : nat64;
-  Blob : blob;
-  Bool : bool;
-  Date : int32;
-  Enum : record {
-    path : opt text;
-    "variant" : text;
-    payload : opt OutputValue;
-  };
-  List : Vec;
-  Null;
-  Text : text;
-  U256 : nat;
-  Ulid : text;
-  Unit;
-  Subaccount : blob;
-  Timestamp : int64;
-  Nat128 : nat;
-  NatBig : nat;
-  Account : record { owner : principal; subaccount : opt blob };
-  Principal : principal;
-  Decimal : text;
-  Float32 : float32;
-  Float64 : float64;
-  Int128 : int;
-  IntBig : int;
-  Duration : nat64;
-};
 service : {
   icydb_query : (text) -> (Result) query;
   icydb_ddl : (text) -> (Result_1);

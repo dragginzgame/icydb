@@ -60,6 +60,11 @@ fn transparent_adapter_tokens(ident: &Ident, source: &LitStr, inner: TokenStream
 pub(crate) fn enum_adapter_tokens(node: &Enum) -> TokenStream {
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
+    let variant_sources = node
+        .variants
+        .iter()
+        .map(|variant| quote_one(&variant.name, to_str_lit))
+        .collect::<Vec<_>>();
     let input_arms = node.variants.iter().map(|variant| {
         let variant_ident = &variant.name;
         let variant_source = quote_one(&variant.name, to_str_lit);
@@ -85,39 +90,31 @@ pub(crate) fn enum_adapter_tokens(node: &Enum) -> TokenStream {
             }
         }
     });
-    let output_variants = node.variants.iter().map(|variant| {
+    let output_variants = node.variants.iter().enumerate().map(|(ordinal, variant)| {
         let variant_ident = &variant.name;
-        let variant_source = quote_one(&variant.name, to_str_lit);
+        let ordinal = syn::Index::from(ordinal);
         if let Some(payload) = &variant.value {
             let ty = payload.type_expr();
             quote! {
-                if let Some(selected) = context.output_enum_variant(
-                    #source,
-                    #variant_source,
-                    value,
-                )? {
-                    let ::icydb_model::TypedEnumOutput::Payload(payload) = selected else {
-                        return Err(::icydb_model::TypedValueError::ShapeMismatch);
-                    };
-                    return Ok(Self::#variant_ident(
+                #ordinal => {
+                    let payload = selected
+                        .payload
+                        .ok_or(::icydb_model::TypedValueError::ShapeMismatch)?;
+                    Ok(Self::#variant_ident(
                         <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
                             context,
                             payload,
                         )?
-                    ));
+                    ))
                 }
             }
         } else {
             quote! {
-                if let Some(selected) = context.output_enum_variant(
-                    #source,
-                    #variant_source,
-                    value,
-                )? {
-                    let ::icydb_model::TypedEnumOutput::Unit = selected else {
+                #ordinal => {
+                    if selected.payload.is_some() {
                         return Err(::icydb_model::TypedValueError::ShapeMismatch);
-                    };
-                    return Ok(Self::#variant_ident);
+                    }
+                    Ok(Self::#variant_ident)
                 }
             }
         }
@@ -128,8 +125,16 @@ pub(crate) fn enum_adapter_tokens(node: &Enum) -> TokenStream {
         }
     };
     let decode = quote! {
-        #(#output_variants)*
-        Err(::icydb_model::TypedValueError::ShapeMismatch)
+        const DESCRIPTOR: ::icydb_model::TypedEnumDescriptor =
+            ::icydb_model::TypedEnumDescriptor {
+                type_source_key: #source,
+                variants: &[#(#variant_sources),*],
+            };
+        let selected = context.output_enum(&DESCRIPTOR, value)?;
+        match selected.ordinal {
+            #(#output_variants),*,
+            _ => Err(::icydb_model::TypedValueError::ShapeMismatch),
+        }
     };
 
     named_adapter_impl_tokens(&ident, &source, encode, decode)
@@ -290,8 +295,11 @@ mod tests {
             "const SOURCE_KEY : & 'static str = \"ChoiceSource\"",
             "input_enum (\"ChoiceSource\" , \"Empty\"",
             "input_enum (\"ChoiceSource\" , \"Count\"",
-            "output_enum_variant (\"ChoiceSource\" , \"Empty\"",
-            "output_enum_variant (\"ChoiceSource\" , \"Count\"",
+            "TypedEnumDescriptor",
+            "type_source_key : \"ChoiceSource\"",
+            "variants : & [\"Empty\" , \"Count\"]",
+            "context . output_enum (& DESCRIPTOR , value)",
+            "match selected . ordinal",
             "TypedInputValue for Choice",
             "TypedOutputValue for Choice",
         ] {
@@ -300,6 +308,7 @@ mod tests {
                 "expected generated enum adapter contract `{expected}` in: {tokens}",
             );
         }
+        assert_eq!(tokens.matches("output_enum").count(), 1);
         assert!(!tokens.contains(":: icydb ::"));
     }
 

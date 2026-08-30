@@ -92,8 +92,8 @@ pub use icydb_model_macros::{
 pub use normalize::normalize;
 #[doc(hidden)]
 pub use typed_adapter::{
-    TypedAdapterContext, TypedEnumOutput, TypedInputValue, TypedNamedType, TypedOutputValue,
-    TypedScalarValue, TypedValueError,
+    TypedAdapterContext, TypedEnumDescriptor, TypedEnumSelection, TypedInputValue, TypedNamedType,
+    TypedOutputValue, TypedScalarValue, TypedValueError,
 };
 pub use validate::validate;
 

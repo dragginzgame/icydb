@@ -42,12 +42,24 @@ pub enum TypedScalarValue {
     Unit,
 }
 
-/// A source-bound enum output selected through current accepted authority.
+/// Immutable source identities for one generated enum adapter.
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TypedEnumOutput<'a, T> {
-    Unit,
-    Payload(&'a T),
+pub struct TypedEnumDescriptor {
+    /// Immutable authored source identity of the enum type.
+    pub type_source_key: &'static str,
+    /// Immutable authored source identities in generated Rust variant order.
+    pub variants: &'static [&'static str],
+}
+
+/// One source-bound enum output selected through current accepted authority.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TypedEnumSelection<'a, T> {
+    /// Zero-based generated Rust variant position.
+    pub ordinal: usize,
+    /// Borrowed payload when the accepted variant carries one.
+    pub payload: Option<&'a T>,
 }
 
 /// Model-value adaptation failure before row or mutation execution.
@@ -91,12 +103,11 @@ pub trait TypedAdapterContext {
         value: &'a Self::PublicValue,
     ) -> Option<&'a [(Self::PublicValue, Self::PublicValue)]>;
     fn output_is_null(&self, value: &Self::PublicValue) -> bool;
-    fn output_enum_variant<'a>(
+    fn output_enum<'a>(
         &self,
-        type_source_key: &'static str,
-        variant_source_key: &'static str,
+        descriptor: &'static TypedEnumDescriptor,
         value: &'a Self::PublicValue,
-    ) -> Result<Option<TypedEnumOutput<'a, Self::PublicValue>>, TypedValueError>;
+    ) -> Result<TypedEnumSelection<'a, Self::PublicValue>, TypedValueError>;
     fn output_record<'a>(
         &self,
         type_source_key: &'static str,

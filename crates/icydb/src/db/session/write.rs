@@ -488,34 +488,34 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
         matches!(value, PublicValue::Null)
     }
 
-    fn output_enum_variant<'a>(
+    fn output_enum<'a>(
         &self,
-        type_source_key: &'static str,
-        variant_source_key: &'static str,
+        descriptor: &'static icydb_model::TypedEnumDescriptor,
         value: &'a Self::PublicValue,
-    ) -> Result<
-        Option<icydb_model::TypedEnumOutput<'a, Self::PublicValue>>,
-        icydb_model::TypedValueError,
-    > {
+    ) -> Result<icydb_model::TypedEnumSelection<'a, Self::PublicValue>, icydb_model::TypedValueError>
+    {
         let PublicValue::Enum(value) = value else {
             return Err(icydb_model::TypedValueError::ShapeMismatch);
         };
         let type_name = self
-            .named_type_name(type_source_key)
+            .named_type_name(descriptor.type_source_key)
             .ok_or(icydb_model::TypedValueError::SourceUnavailable)?;
         if value.path() != Some(type_name) {
             return Err(icydb_model::TypedValueError::ShapeMismatch);
         }
-        let variant_name = self
-            .enum_variant_name(type_source_key, variant_source_key)
-            .ok_or(icydb_model::TypedValueError::SourceUnavailable)?;
-        if value.variant() != variant_name {
-            return Ok(None);
-        }
-        Ok(Some(value.payload().map_or(
-            icydb_model::TypedEnumOutput::Unit,
-            icydb_model::TypedEnumOutput::Payload,
-        )))
+        let variant_source_key = self
+            .inner
+            .enum_variant_source_key(descriptor.type_source_key, value.variant())
+            .ok_or(icydb_model::TypedValueError::ShapeMismatch)?;
+        let ordinal = descriptor
+            .variants
+            .iter()
+            .position(|source_key| *source_key == variant_source_key)
+            .ok_or(icydb_model::TypedValueError::ShapeMismatch)?;
+        Ok(icydb_model::TypedEnumSelection {
+            ordinal,
+            payload: value.payload(),
+        })
     }
 
     fn output_record<'a>(
