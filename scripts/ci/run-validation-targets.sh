@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+FAIL_FAST=false
+if [[ "${1:-}" == "--fail-fast" ]]; then
+  FAIL_FAST=true
+  shift
+fi
+
 if [[ $# -eq 0 ]]; then
-  echo "usage: scripts/ci/run-validation-targets.sh <make-target>..." >&2
+  echo "usage: scripts/ci/run-validation-targets.sh [--fail-fast] <make-target>..." >&2
   exit 2
 fi
 
@@ -34,7 +40,27 @@ persist_failure_log() {
   if ! mkdir -p "$FAILURE_LOG_ROOT" || ! cp "$log" "$retained_log"; then
     return 0
   fi
-  cp "$log" "$FAILURE_LOG_ROOT/latest.log" || true
+  printf '%s\n' "$retained_log"
+}
+
+persist_combined_failure_log() {
+  local retained_log="$FAILURE_LOG_ROOT/$FAILURE_RUN_ID-failures.log"
+
+  if ! mkdir -p "$FAILURE_LOG_ROOT"; then
+    return 0
+  fi
+
+  {
+    printf 'Validation failure run: %s\n' "$FAILURE_RUN_ID"
+    for index in "${!targets[@]}"; do
+      if [[ "${results[$index]}" == "FAIL" ]]; then
+        printf '\n===== Target: %s =====\n\n' "${targets[$index]}"
+        cat "${logs[$index]}"
+      fi
+    done
+  } > "$retained_log" || return 0
+
+  cp "$retained_log" "$FAILURE_LOG_ROOT/latest.log" || true
   printf '%s\n' "$retained_log"
 }
 
@@ -140,7 +166,16 @@ for target in "$@"; do
   if [[ "${GITHUB_ACTIONS:-}" == "true" && "$RUNNER_DEPTH" == "0" ]]; then
     printf '::endgroup::\n'
   fi
+
+  if [[ "$result" == "FAIL" && "$FAIL_FAST" == "true" ]]; then
+    break
+  fi
 done
+
+combined_failure_log=""
+if [[ ${#failed_targets[@]} -ne 0 ]]; then
+  combined_failure_log="$(persist_combined_failure_log)"
+fi
 
 printf '\nValidation summary:\n'
 for index in "${!targets[@]}"; do
@@ -154,6 +189,9 @@ write_github_summary
 
 if [[ ${#failed_targets[@]} -ne 0 ]]; then
   printf '\nFailure details (repeated from the full logs):\n'
+  if [[ -n "$combined_failure_log" ]]; then
+    printf 'Combined failure log retained at: %s\n' "$combined_failure_log"
+  fi
   for index in "${!targets[@]}"; do
     if [[ "${results[$index]}" == "FAIL" ]]; then
       echo
@@ -165,7 +203,7 @@ if [[ ${#failed_targets[@]} -ne 0 ]]; then
   done
 
   if [[ -f "$FAILURE_LOG_ROOT/latest.log" ]]; then
-    printf '\nLatest complete failure log: %s\n' "$FAILURE_LOG_ROOT/latest.log"
+    printf '\nLatest combined failure log: %s\n' "$FAILURE_LOG_ROOT/latest.log"
   fi
 
   if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
@@ -175,4 +213,8 @@ if [[ ${#failed_targets[@]} -ne 0 ]]; then
   exit 1
 fi
 
-echo "VALIDATION PASSED: all requested targets succeeded."
+if [[ "$FAIL_FAST" == "true" ]]; then
+  echo "VALIDATION PREFLIGHT PASSED: all requested targets succeeded."
+else
+  echo "VALIDATION PASSED: all requested targets succeeded."
+fi

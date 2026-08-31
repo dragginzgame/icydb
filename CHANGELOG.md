@@ -14,7 +14,8 @@ Detailed notes: [docs/changelog/0.250.md](docs/changelog/0.250.md)
   entity descriptors, cumulatively removing 81,876 raw and 88,448 code bytes
   from the proving actor without Candid or export changes, with the final
   4,466-byte reachable slope passing its dedicated 8 KiB gate while the 2 KiB
-  schema-only gate remains unchanged.
+  schema-only gate remains unchanged; release validation now fails cheap
+  preflights before running diagnostic-accumulating long checks.
 
 ## [0.249.x] 📊 - 2026-08-29 - Measured Downstream Wasm Headroom
 

@@ -17,6 +17,7 @@ POLICY="crates/icydb-core/src/db/query/admission/policy.rs"
 ADMISSION="crates/icydb-core/src/db/query/admission.rs"
 DIAGNOSTICS="crates/icydb-diagnostic-code/src/lib.rs"
 TYPED_QUERY="crates/icydb/src/db/query/typed.rs"
+PREPARED_QUERY="crates/icydb/src/db/session/prepared_query.rs"
 FACADE_SQL="crates/icydb/src/db/session/sql.rs"
 GENERATED_SQL="crates/icydb-model/src/build/actor/db/sql.rs"
 GENERATED_ENDPOINT="crates/icydb-model/src/build/actor/endpoint.rs"
@@ -99,8 +100,16 @@ done <<< "$public_variants"
 
 require_literal \
   "$TYPED_QUERY" \
-  "identity-bound typed live-page public-admission handoff" \
-  '.execute_public_typed_live_page(&self.binding, &self.request, continuation)'
+  "typed live-page prepared-cursor handoff" \
+  '.prepare_live_page_cursor(self.binding, self.request)'
+require_literal \
+  "$PREPARED_QUERY" \
+  "identity-bound prepared live-page public admission" \
+  '.execute_public_live_page_for_typed_binding('
+require_literal \
+  "$PREPARED_QUERY" \
+  "accepted binding supplied to prepared live-page public admission" \
+  'self.binding.inner(),'
 require_literal \
   "$FACADE_SQL" \
   "trusted SQL caller-control warning" \

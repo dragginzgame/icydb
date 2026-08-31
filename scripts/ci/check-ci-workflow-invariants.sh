@@ -143,13 +143,47 @@ if [[ ! -x scripts/ci/run-validation-targets.sh ]] ||
    ! rg -q --fixed-strings 'Failure details (repeated from the full logs)' scripts/ci/run-validation-targets.sh ||
    ! rg -q --fixed-strings 'target/validation-failures' scripts/ci/run-validation-targets.sh ||
    ! rg -q --fixed-strings 'Full failure log retained at:' scripts/ci/run-validation-targets.sh ||
-   ! rg -q --fixed-strings 'Latest complete failure log:' scripts/ci/run-validation-targets.sh ||
+   ! rg -q --fixed-strings 'Combined failure log retained at:' scripts/ci/run-validation-targets.sh ||
+   ! rg -q --fixed-strings 'Latest combined failure log:' scripts/ci/run-validation-targets.sh ||
    ! rg -q --fixed-strings 'GITHUB_STEP_SUMMARY' scripts/ci/run-validation-targets.sh ||
    ! rg -q --fixed-strings 'ICYDB_VALIDATION_RUNNER_DEPTH' scripts/ci/run-validation-targets.sh ||
+   ! rg -q --fixed-strings -- '--fail-fast' scripts/ci/run-validation-targets.sh ||
    ! rg -q '^validate-fast:$' Makefile ||
    ! rg -q '^test-integration-feedback:$' Makefile ||
    ! rg -q '^test-durability:$' Makefile; then
   fail "the local fast, focused, grouped, and failure-detail validation feedback loop is incomplete"
+fi
+
+validation_runner_test_root="$(mktemp -d)"
+cleanup_validation_runner_test() {
+  find "$validation_runner_test_root" -depth -delete
+}
+trap cleanup_validation_runner_test EXIT
+
+fail_fast_output="$validation_runner_test_root/fail-fast-output.log"
+if ICYDB_VALIDATION_FAILURE_LOG_DIR="$validation_runner_test_root/fail-fast" \
+  bash scripts/ci/run-validation-targets.sh \
+    --fail-fast __validation_missing_preflight_target help \
+    > "$fail_fast_output" 2>&1; then
+  fail "validation fail-fast probe unexpectedly passed"
+elif rg -q '^Available commands:' "$fail_fast_output"; then
+  fail "validation fail-fast mode ran a target after the first failure"
+fi
+
+accumulating_output="$validation_runner_test_root/accumulating-output.log"
+if ICYDB_VALIDATION_FAILURE_LOG_DIR="$validation_runner_test_root/accumulating" \
+  bash scripts/ci/run-validation-targets.sh \
+    __validation_missing_long_one __validation_missing_long_two \
+    > "$accumulating_output" 2>&1; then
+  fail "validation accumulating probe unexpectedly passed"
+elif [[ ! -f "$validation_runner_test_root/accumulating/latest.log" ]] ||
+  ! rg -q --fixed-strings \
+    '===== Target: __validation_missing_long_one =====' \
+    "$validation_runner_test_root/accumulating/latest.log" ||
+  ! rg -q --fixed-strings \
+    '===== Target: __validation_missing_long_two =====' \
+    "$validation_runner_test_root/accumulating/latest.log"; then
+  fail "validation accumulating mode did not retain every failed target together"
 fi
 
 for owned_path in \

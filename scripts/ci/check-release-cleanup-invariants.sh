@@ -29,7 +29,8 @@ target_recipe() {
 }
 
 if ! target_recipe validate | awk '
-  /\$\(VALIDATION_RUNNER\)/ { runner_line = NR }
+  /\$\(VALIDATION_RUNNER\).*--fail-fast/ { preflight_runner_line = NR }
+  /\$\(VALIDATION_RUNNER\)/ && $0 !~ /--fail-fast/ { long_runner_line = NR }
   $1 == "fmt-check" { fmt_line = NR }
   $1 == "lint-workflows" { workflow_line = NR }
   $1 == "shellcheck" { shell_line = NR }
@@ -39,14 +40,14 @@ if ! target_recipe validate | awk '
   $1 == "clippy" { clippy_line = NR }
   $1 == "test" { test_line = NR }
   END {
-    exit !(runner_line > 0 && fmt_line > runner_line &&
+    exit !(preflight_runner_line > 0 && fmt_line > preflight_runner_line &&
            workflow_line > fmt_line && shell_line > workflow_line &&
-           invariants_line > shell_line &&
-           clippy_line > invariants_line && features_line > clippy_line &&
-           check_line > features_line && test_line > check_line)
+           invariants_line > shell_line && check_line > invariants_line &&
+           long_runner_line > check_line && clippy_line > long_runner_line &&
+           features_line > clippy_line && test_line > features_line)
   }
 '; then
-  echo "validate must run static checks, clippy, feature checks, check, and tests in order" >&2
+  echo "validate must fail-fast through cheap preflights before accumulating long-target failures" >&2
   exit 1
 fi
 

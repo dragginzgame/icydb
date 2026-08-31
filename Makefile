@@ -163,7 +163,7 @@ help:
 	@echo "  build            Build all crates"
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
-	@echo "  validate         Run static checks, clippy, feature checks, and tests"
+	@echo "  validate         Fail fast on preflights, then accumulate long-check failures"
 	@echo "  validate-fast    Run the quick formatting, automation, invariant, and workspace-check preflight"
 	@echo "  fetch            Fetch locked dependencies into the repo-local Cargo cache"
 	@echo "  fmt              Format code"
@@ -589,20 +589,23 @@ fmt-check:
 	$(CARGO_WORK_ENV) cargo fmt --all -- --check
 
 validate:
-	$(VALIDATION_RUNNER) \
+	# Do not spend minutes on Cargo lanes after a deterministic preflight failure.
+	$(VALIDATION_RUNNER) --fail-fast \
 		fmt-check \
 		lint-workflows \
 		shellcheck \
 		check-invariants \
+		check
+	# Once preflights pass, retain every long-lane failure in one combined log.
+	$(VALIDATION_RUNNER) \
 		clippy \
 		check-feature-matrix \
-		check \
 		test
 
 # Fast local/Codex preflight. This intentionally does not replace `validate`:
 # feature-specific clippy lanes and executable tests remain in the full gate.
 validate-fast:
-	$(VALIDATION_RUNNER) \
+	$(VALIDATION_RUNNER) --fail-fast \
 		fmt-check \
 		lint-workflows \
 		shellcheck \
@@ -672,7 +675,7 @@ shellcheck:
 # GitHub Actions consumes these exact local targets as parallel lanes. The
 # terminal `check` job remains the one branch-protection and release gate.
 ci-static:
-	$(VALIDATION_RUNNER) _ci-format lint-workflows shellcheck check-invariants
+	$(VALIDATION_RUNNER) --fail-fast _ci-format lint-workflows shellcheck check-invariants
 
 _ci-format:
 	$(CARGO_WORK_ENV) cargo fmt --all -- --check
