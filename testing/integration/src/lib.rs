@@ -172,7 +172,7 @@ struct MaintainedCanisterBuildPlan {
     specs: Vec<LabeledWasmBuildSpec>,
 }
 
-static FIXTURE_CANISTERS: [FixtureCanister; 17] = [
+static FIXTURE_CANISTERS: [FixtureCanister; 19] = [
     FixtureCanister {
         name: "demo_rpg",
         package: "canister_demo_rpg",
@@ -234,6 +234,11 @@ static FIXTURE_CANISTERS: [FixtureCanister; 17] = [
         local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
+        name: "one_entity_reachable_operations",
+        package: "canister_audit_one_entity_reachable_operations",
+        local_wasm_bytes: OnceLock::new(),
+    },
+    FixtureCanister {
         name: "one_entity_typed_query",
         package: "canister_audit_one_entity_typed_query",
         local_wasm_bytes: OnceLock::new(),
@@ -256,6 +261,11 @@ static FIXTURE_CANISTERS: [FixtureCanister; 17] = [
     FixtureCanister {
         name: "ten_entity_typed_query",
         package: "canister_audit_ten_entity_typed_query",
+        local_wasm_bytes: OnceLock::new(),
+    },
+    FixtureCanister {
+        name: "ten_entity_reachable_operations",
+        package: "canister_audit_ten_entity_reachable_operations",
         local_wasm_bytes: OnceLock::new(),
     },
 ];

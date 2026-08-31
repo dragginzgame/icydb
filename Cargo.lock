@@ -253,6 +253,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "canister_audit_one_entity_reachable_operations"
+version = "0.249.6"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-audit-one-simple-fixtures",
+ "icydb-testing-wasm-helpers",
+]
+
+[[package]]
 name = "canister_audit_one_entity_sql_query"
 version = "0.249.6"
 dependencies = [
@@ -292,6 +303,17 @@ dependencies = [
  "icydb",
  "icydb-testing-audit-sql-perf-fixtures",
  "serde",
+]
+
+[[package]]
+name = "canister_audit_ten_entity_reachable_operations"
+version = "0.249.6"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-audit-ten-simple-fixtures",
+ "icydb-testing-wasm-helpers",
 ]
 
 [[package]]
@@ -1062,9 +1084,9 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "hyper"
-version = "1.11.0"
+version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d22053281f852e11534f5198498373cbb59295120a20771d90f7ed1897490a72"
+checksum = "27b501faa50e7a26c3d3560ca625132f4078a17771f4810baf70475ae48cbe43"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -1659,6 +1681,9 @@ dependencies = [
 [[package]]
 name = "icydb-testing-wasm-helpers"
 version = "0.249.6"
+dependencies = [
+ "icydb",
+]
 
 [[package]]
 name = "ident_case"
@@ -1689,9 +1714,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.14.0"
+version = "2.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
+checksum = "07aa2048142242915a31d35844fb311e0e53fcca590c3a0a40dcf1b841fa09eb"
 dependencies = [
  "equivalent",
  "hashbrown",

@@ -213,3 +213,17 @@ if has_selected_canister one_entity_typed_query \
         )
     done
 fi
+
+if has_selected_canister one_entity_reachable_operations \
+    && has_selected_canister ten_entity_reachable_operations; then
+    for sql_variant in "${sql_variants[@]}"; do
+        artifact_suffix="$(wasm_report_size_suffix "$sql_variant" "${#sql_variants[@]}")"
+        baseline_wasm="$out_dir/one_entity_reachable_operations.${profile}${artifact_suffix}.final-deployable.wasm"
+        candidate_wasm="$out_dir/ten_entity_reachable_operations.${profile}${artifact_suffix}.final-deployable.wasm"
+        (
+            cd "$ROOT"
+            cargo run -p icydb-testing-integration --bin check_wasm_entity_scale --locked -- \
+                "$baseline_wasm" "$candidate_wasm" --report-only
+        )
+    done
+fi

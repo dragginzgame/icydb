@@ -6,9 +6,11 @@ out_dir="$ROOT/artifacts/wasm-attribution"
 export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print-cargo-home)}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "$ROOT" print-cargo-target-dir)}"
 canister_names=(
+    one_entity_reachable_operations
     one_entity_typed_query
     one_entity_dynamic_query
     one_entity_sql_query
+    ten_entity_reachable_operations
     ten_entity_typed_query
 )
 

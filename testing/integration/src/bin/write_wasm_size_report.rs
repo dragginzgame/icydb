@@ -8,9 +8,10 @@ use std::{
 use icydb_testing_integration::{
     canister_artifact::MAINTAINED_CANISTER_POLICIES,
     wasm_measurement::{
-        WASM_LINE_BUDGETS, WASM_MEASUREMENT_COMPARISONS, WASM_MEASUREMENT_PROFILE_ID,
-        WASM_MEASUREMENT_PROFILE_VERSION, WASM_MEASUREMENT_SUBJECTS, WASM_PATCH_BUDGETS,
-        WasmComparison, WasmLineBudget, WasmPatchBudget, validate_wasm_measurement_contract,
+        MINIMUM_POST_LINK_RAW_REDUCTION_BASIS_POINTS, WASM_LINE_BUDGETS,
+        WASM_MEASUREMENT_COMPARISONS, WASM_MEASUREMENT_PROFILE_ID,
+        WASM_MEASUREMENT_PROFILE_VERSION, WASM_MEASUREMENT_SUBJECTS, WasmComparison,
+        WasmLineBudget, validate_wasm_measurement_contract,
     },
     wasm_optimizer::{
         POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES, WASM_OPT_SHA256,
@@ -75,7 +76,6 @@ struct MeasurementProfile {
     version: u32,
     identity: &'static str,
     comparisons: &'static [WasmComparison],
-    patch_budgets: &'static [WasmPatchBudget],
     line_budgets: &'static [WasmLineBudget],
 }
 
@@ -135,6 +135,9 @@ struct Analysis {
 #[derive(Clone, Serialize)]
 struct WasmInfo {
     function_count: Option<u64>,
+    defined_function_count: u64,
+    code_section_bytes: u64,
+    call_indirect_count: u64,
     callback_count: Option<u64>,
     data_section_count: Option<u64>,
     data_section_bytes: Option<u64>,
@@ -203,8 +206,8 @@ fn run() -> Result<(), String> {
     let final_wasm = file_meta(&args.final_wasm)?;
     let final_gz = file_meta(&args.final_gz)?;
     let did = optional_file_meta(&args.did)?;
-    let compiler_info = parse_info(&args.compiler_info)?;
-    let final_info = parse_info(&args.final_info)?;
+    let compiler_info = parse_info(&args.compiler_info, &args.compiler_wasm, &args.wasm_opt_bin)?;
+    let final_info = parse_info(&args.final_info, &args.final_wasm, &args.wasm_opt_bin)?;
     let enabled_wasm_features =
         validate_final_wasm_features(&workspace_root, &args.wasm_opt_bin, &args.final_wasm)?;
 
@@ -226,7 +229,6 @@ fn run() -> Result<(), String> {
             version: WASM_MEASUREMENT_PROFILE_VERSION,
             identity: WASM_MEASUREMENT_PROFILE_ID,
             comparisons: WASM_MEASUREMENT_COMPARISONS,
-            patch_budgets: WASM_PATCH_BUDGETS,
             line_budgets: WASM_LINE_BUDGETS,
         },
         provenance,
@@ -532,17 +534,110 @@ fn encode_hex_lower(bytes: &[u8]) -> String {
     out
 }
 
-fn parse_info(path: &Path) -> Result<WasmInfo, String> {
+fn parse_info(path: &Path, wasm_path: &Path, wasm_opt_bin: &Path) -> Result<WasmInfo, String> {
     let text = fs::read_to_string(path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
     let exported_methods = parse_exported_methods(&text);
+    let (defined_function_count, code_section_bytes) = wasm_code_structure(wasm_path)?;
+    let call_indirect_count = wasm_call_indirect_count(wasm_path, wasm_opt_bin)?;
     Ok(WasmInfo {
         function_count: int_field(&text, "Number of functions:"),
+        defined_function_count,
+        code_section_bytes,
+        call_indirect_count,
         callback_count: int_field(&text, "Number of callbacks:"),
         data_section_count: int_field(&text, "Number of data sections:"),
         data_section_bytes: int_field(&text, "Size of data sections:"),
         exported_method_count: exported_methods.len(),
         exported_methods,
+    })
+}
+
+fn wasm_code_structure(path: &Path) -> Result<(u64, u64), String> {
+    let bytes = fs::read(path)
+        .map_err(|error| format!("failed to read Wasm '{}': {error}", path.display()))?;
+    if !bytes.starts_with(b"\0asm\x01\0\0\0") {
+        return Err(format!("invalid Wasm header: '{}'", path.display()));
+    }
+
+    let mut position = 8_usize;
+    let mut defined_functions = 0_u64;
+    let mut code_section_bytes = 0_u64;
+    while position < bytes.len() {
+        let section = bytes[position];
+        position = position.saturating_add(1);
+        let payload_len = usize::try_from(read_u32_leb(&bytes, &mut position)?)
+            .map_err(|_| format!("Wasm section is too large: '{}'", path.display()))?;
+        let payload_end = position
+            .checked_add(payload_len)
+            .filter(|end| *end <= bytes.len())
+            .ok_or_else(|| format!("truncated Wasm section: '{}'", path.display()))?;
+        if section == 3 {
+            let mut payload_position = position;
+            defined_functions = u64::from(read_u32_leb(&bytes, &mut payload_position)?);
+        } else if section == 10 {
+            code_section_bytes = u64::try_from(payload_len)
+                .map_err(|_| format!("Wasm code section is too large: '{}'", path.display()))?;
+        }
+        position = payload_end;
+    }
+
+    Ok((defined_functions, code_section_bytes))
+}
+
+fn read_u32_leb(bytes: &[u8], position: &mut usize) -> Result<u32, String> {
+    let mut value = 0_u32;
+    for shift in (0..35).step_by(7) {
+        let byte = *bytes
+            .get(*position)
+            .ok_or_else(|| "truncated unsigned LEB128 value".to_string())?;
+        *position = position.saturating_add(1);
+        let payload = u32::from(byte & 0x7f);
+        if shift == 28 && payload > 0x0f {
+            return Err("unsigned LEB128 value exceeds u32".to_string());
+        }
+        value |= payload << shift;
+        if byte & 0x80 == 0 {
+            return Ok(value);
+        }
+    }
+    Err("unsigned LEB128 value exceeds five bytes".to_string())
+}
+
+fn wasm_call_indirect_count(path: &Path, wasm_opt_bin: &Path) -> Result<u64, String> {
+    let output = Command::new(wasm_opt_bin)
+        .arg(path)
+        .args(["--metrics", "--all-features"])
+        .output()
+        .map_err(|error| {
+            format!(
+                "failed to run '{}' for Wasm metrics: {error}",
+                wasm_opt_bin.display()
+            )
+        })?;
+    if !output.status.success() {
+        return Err(format!(
+            "Wasm metrics failed for '{}': {}",
+            path.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let metrics = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    metric_field(&metrics, "CallIndirect")
+        .ok_or_else(|| format!("Wasm metrics omitted CallIndirect for '{}'", path.display()))
+}
+
+fn metric_field(text: &str, label: &str) -> Option<u64> {
+    text.lines().find_map(|line| {
+        let (name, value) = line.trim().split_once(':')?;
+        if name.trim() != label {
+            return None;
+        }
+        value.split_whitespace().next()?.parse::<u64>().ok()
     })
 }
 
@@ -644,14 +739,10 @@ fn validate_post_link_contract(
     }
     let build = endpoint_surface(&args.canister, &args.sql_variant, final_info)?;
     let reduction = reduction_basis_points(compiler_wasm, final_wasm)?;
-    let patch_two_budget = WASM_PATCH_BUDGETS
-        .iter()
-        .find(|budget| budget.patch == 2)
-        .ok_or_else(|| "post-link Wasm budget is missing".to_string())?;
-    if reduction < patch_two_budget.minimum_selected_raw_reduction_basis_points {
+    if reduction < MINIMUM_POST_LINK_RAW_REDUCTION_BASIS_POINTS {
         return Err(format!(
             "post-link raw-Wasm budget failed for {}: observed={}bp, required={}bp",
-            args.canister, reduction, patch_two_budget.minimum_selected_raw_reduction_basis_points
+            args.canister, reduction, MINIMUM_POST_LINK_RAW_REDUCTION_BASIS_POINTS
         ));
     }
     Ok((build, reduction))
@@ -791,11 +882,35 @@ fn render_summary(report: &SizeReport, report_path: &Path) -> String {
             "Exports (final deployable): {}",
             report.analysis.final_deployable.exported_method_count
         ),
+    ]);
+    lines.extend(render_final_structure_summary(report));
+    lines.extend([
         String::new(),
         format!("JSON report: `{}`", report_path.display()),
     ]);
 
     format!("{}\n", lines.join("\n"))
+}
+
+fn render_final_structure_summary(report: &SizeReport) -> [String; 6] {
+    let final_wasm = &report.analysis.final_deployable;
+    [
+        String::new(),
+        format!(
+            "Defined functions (final deployable): {}",
+            final_wasm.defined_function_count
+        ),
+        String::new(),
+        format!(
+            "Code section (final deployable): {} bytes",
+            final_wasm.code_section_bytes
+        ),
+        String::new(),
+        format!(
+            "`call_indirect` (final deployable): {}",
+            final_wasm.call_indirect_count
+        ),
+    ]
 }
 
 fn append_step_summary(path: &Path, summary: &str) -> Result<(), String> {
@@ -817,6 +932,9 @@ mod tests {
     fn wasm_info(exported_methods: &[&str]) -> WasmInfo {
         WasmInfo {
             function_count: None,
+            defined_function_count: 0,
+            code_section_bytes: 0,
+            call_indirect_count: 0,
             callback_count: None,
             data_section_count: None,
             data_section_bytes: None,

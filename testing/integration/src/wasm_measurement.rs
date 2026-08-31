@@ -9,13 +9,26 @@ use serde::Serialize;
 pub const WASM_MEASUREMENT_PROFILE_VERSION: u32 = 1;
 
 /// Stable identity carried by every comparable Wasm report.
-pub const WASM_MEASUREMENT_PROFILE_ID: &str = "icydb-wasm-footprint/0.220/v1";
+pub const WASM_MEASUREMENT_PROFILE_ID: &str = "icydb-wasm-footprint/0.250/v1";
 
 /// Maximum final raw-Wasm growth admitted for each additional generated entity.
 pub const MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY: u64 = 2 * 1024;
 
 /// Generated entities added by the maintained one-entity to ten-entity pair.
 pub const ENTITY_SCALE_ADDED_ENTITIES: u64 = 9;
+
+/// Minimum compiler-to-final raw-Wasm reduction required from the maintained
+/// post-link optimizer.
+pub const MINIMUM_POST_LINK_RAW_REDUCTION_BASIS_POINTS: u16 = 700;
+
+/// Minimum final code-section reduction required from the prepared-page slice.
+pub const MINIMUM_PREPARED_PAGE_CODE_REDUCTION_BYTES: u64 = 32 * 1024;
+
+/// Absolute instruction increase that participates in the material-regression gate.
+pub const MATERIAL_INSTRUCTION_REGRESSION: u64 = 250_000;
+
+/// Relative instruction increase that participates in the material-regression gate.
+pub const MATERIAL_INSTRUCTION_REGRESSION_BASIS_POINTS: u16 = 300;
 
 /// A finalized raw-Wasm entity-scale measurement exceeded its maintained ceiling.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -74,10 +87,12 @@ pub const WASM_MEASUREMENT_SUBJECTS: &[&str] = &[
     "default_empty",
     "default_empty_metrics",
     "one_entity_dynamic_query",
+    "one_entity_reachable_operations",
     "one_entity_typed_query",
     "one_entity_sql_query",
     "request_future_scale",
     "ten_entity_typed_query",
+    "ten_entity_reachable_operations",
     "sql_perf",
     "sql",
 ];
@@ -146,11 +161,18 @@ pub const WASM_MEASUREMENT_COMPARISONS: &[WasmComparison] = &[
         reason: "distinct actor sources differ by public method bodies and SQL capability reachability",
     },
     WasmComparison {
-        id: "entity_scale",
+        id: "schema_entity_scale",
         baseline: "one_entity_typed_query",
         candidate: "ten_entity_typed_query",
         disposition: WasmComparisonDisposition::Attributable,
-        reason: "both actors expose the same exact-key endpoint shape and differ by nine generated entities",
+        reason: "both actors expose one exact-key shape; only entity 01 is reachable and the candidate declares nine additional dead-strippable schemas",
+    },
+    WasmComparison {
+        id: "reachable_entity_scale",
+        baseline: "one_entity_reachable_operations",
+        candidate: "ten_entity_reachable_operations",
+        disposition: WasmComparisonDisposition::Attributable,
+        reason: "both actors share one endpoint and operation harness; the candidate makes the same page, exact-key, insert, update, batch and delete paths reachable for nine additional simple entities",
     },
     WasmComparison {
         id: "request_future_scale",
@@ -158,71 +180,6 @@ pub const WASM_MEASUREMENT_COMPARISONS: &[WasmComparison] = &[
         candidate: "request_future_scale",
         disposition: WasmComparisonDisposition::Attributable,
         reason: "both actors use the same empty schema and feature set; the candidate adds 64 request-scoped async queries",
-    },
-];
-
-/// Numeric acceptance policy for one measured landing stage.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-pub struct WasmPatchBudget {
-    /// Planned patch ordinal.
-    pub patch: u8,
-    /// Minimum raw-Wasm reduction for the selected affected subject, in basis points.
-    pub minimum_selected_raw_reduction_basis_points: u16,
-    /// Minimum instruction reduction for the selected affected sentinel, in basis points.
-    pub minimum_selected_instruction_reduction_basis_points: u16,
-    /// Maximum raw-Wasm regression for any maintained non-selected subject.
-    pub maximum_other_raw_regression_bytes: u64,
-    /// Maximum instruction regression for any maintained non-selected sentinel.
-    pub maximum_other_instruction_regression_basis_points: u16,
-}
-
-/// Frozen per-patch budgets established before production optimization begins.
-///
-/// A rejected candidate lands as an evidence-backed no-production-change
-/// disposition. An accepted implementation must satisfy its selected-owner
-/// improvement and every non-selected regression ceiling.
-pub const WASM_PATCH_BUDGETS: &[WasmPatchBudget] = &[
-    WasmPatchBudget {
-        patch: 2,
-        minimum_selected_raw_reduction_basis_points: 700,
-        minimum_selected_instruction_reduction_basis_points: 0,
-        maximum_other_raw_regression_bytes: 0,
-        maximum_other_instruction_regression_basis_points: 100,
-    },
-    WasmPatchBudget {
-        patch: 3,
-        minimum_selected_raw_reduction_basis_points: 0,
-        minimum_selected_instruction_reduction_basis_points: 300,
-        maximum_other_raw_regression_bytes: 8 * 1024,
-        maximum_other_instruction_regression_basis_points: 100,
-    },
-    WasmPatchBudget {
-        patch: 4,
-        minimum_selected_raw_reduction_basis_points: 500,
-        minimum_selected_instruction_reduction_basis_points: 0,
-        maximum_other_raw_regression_bytes: 8 * 1024,
-        maximum_other_instruction_regression_basis_points: 100,
-    },
-    WasmPatchBudget {
-        patch: 5,
-        minimum_selected_raw_reduction_basis_points: 0,
-        minimum_selected_instruction_reduction_basis_points: 0,
-        maximum_other_raw_regression_bytes: 8 * 1024,
-        maximum_other_instruction_regression_basis_points: 100,
-    },
-    WasmPatchBudget {
-        patch: 6,
-        minimum_selected_raw_reduction_basis_points: 0,
-        minimum_selected_instruction_reduction_basis_points: 0,
-        maximum_other_raw_regression_bytes: 8 * 1024,
-        maximum_other_instruction_regression_basis_points: 100,
-    },
-    WasmPatchBudget {
-        patch: 7,
-        minimum_selected_raw_reduction_basis_points: 0,
-        minimum_selected_instruction_reduction_basis_points: 500,
-        maximum_other_raw_regression_bytes: 8 * 1024,
-        maximum_other_instruction_regression_basis_points: 100,
     },
 ];
 
@@ -237,7 +194,7 @@ pub struct WasmLineBudget {
 
 /// Frozen cumulative raw-Wasm budgets.
 ///
-/// These do not reset after individual patches. Every final production subject
+/// These do not reset after individual landing slices. Every final production subject
 /// must meet its own opening-to-closeout reduction target.
 pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
     WasmLineBudget {
@@ -251,6 +208,10 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
     WasmLineBudget {
         subject: "one_entity_dynamic_query",
         minimum_final_raw_reduction_basis_points: 700,
+    },
+    WasmLineBudget {
+        subject: "one_entity_reachable_operations",
+        minimum_final_raw_reduction_basis_points: 0,
     },
     WasmLineBudget {
         subject: "one_entity_typed_query",
@@ -269,6 +230,10 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
         minimum_final_raw_reduction_basis_points: 700,
     },
     WasmLineBudget {
+        subject: "ten_entity_reachable_operations",
+        minimum_final_raw_reduction_basis_points: 0,
+    },
+    WasmLineBudget {
         subject: "sql_perf",
         minimum_final_raw_reduction_basis_points: 500,
     },
@@ -285,8 +250,8 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
 /// Returns a static diagnostic when subject, comparison, or budget authority drifts.
 pub fn validate_wasm_measurement_contract() -> Result<(), &'static str> {
     if WASM_MEASUREMENT_PROFILE_VERSION != 1
-        || WASM_MEASUREMENT_PROFILE_ID != "icydb-wasm-footprint/0.220/v1"
-        || WASM_MEASUREMENT_SUBJECTS.len() != 9
+        || WASM_MEASUREMENT_PROFILE_ID != "icydb-wasm-footprint/0.250/v1"
+        || WASM_MEASUREMENT_SUBJECTS.len() != 11
     {
         return Err("Wasm measurement identity or subject count drifted");
     }
@@ -319,14 +284,6 @@ pub fn validate_wasm_measurement_contract() -> Result<(), &'static str> {
     {
         return Err("Wasm comparisons must have unique identities");
     }
-    if WASM_PATCH_BUDGETS.len() != 6
-        || WASM_PATCH_BUDGETS
-            .iter()
-            .enumerate()
-            .any(|(index, budget)| budget.patch != u8::try_from(index + 2).unwrap_or(u8::MAX))
-    {
-        return Err("Wasm patch budgets must cover patches 2 through 7 exactly");
-    }
     if WASM_LINE_BUDGETS.len() != WASM_MEASUREMENT_SUBJECTS.len()
         || WASM_LINE_BUDGETS
             .iter()
@@ -350,10 +307,13 @@ mod tests {
         assert_eq!(
             WASM_MEASUREMENT_COMPARISONS
                 .iter()
-                .find(|comparison| comparison.id == "entity_scale")
+                .find(|comparison| comparison.id == "schema_entity_scale")
                 .map(|comparison| comparison.disposition),
             Some(WasmComparisonDisposition::Attributable)
         );
+        assert_eq!(MINIMUM_PREPARED_PAGE_CODE_REDUCTION_BYTES, 32_768);
+        assert_eq!(MATERIAL_INSTRUCTION_REGRESSION, 250_000);
+        assert_eq!(MATERIAL_INSTRUCTION_REGRESSION_BASIS_POINTS, 300);
     }
 
     #[test]

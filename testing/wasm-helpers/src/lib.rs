@@ -1,5 +1,154 @@
 //! Shared helpers for wasm fixture schema and canister builds.
 
+use icydb::{
+    db::{DbSession, DynamicQuery, StructuralMutation, TypedEntityAdapter, TypedWriteAdapter},
+    traits::{CanisterKind, EntityKey, EntitySource},
+    types::{Id, Ulid},
+    value::InputValue,
+};
+
+/// Execute the maintained operation mix that makes one generated entity's
+/// read and write adapters reachable in audit Wasm.
+///
+/// The operation selector is deliberately runtime-controlled so the optimizer
+/// cannot remove any selected path. The harness measures reachability and code
+/// shape; it is not an application mutation API.
+#[must_use]
+#[inline(never)]
+pub fn execute_reachable_entity_operation<C, E, I, P>(
+    session: &DbSession<C>,
+    operation: u8,
+    insert: I,
+    patch: P,
+    batch_first: I,
+    batch_second: I,
+) -> u32
+where
+    C: CanisterKind,
+    E: EntityKey<Key = Ulid> + EntitySource + TypedEntityAdapter,
+    E::Row: Clone,
+    I: TypedWriteAdapter<Entity = E>,
+    P: TypedWriteAdapter<Entity = E>,
+{
+    let succeeded = match operation {
+        0 => execute_typed_page::<C, E>(session),
+        1 => session.get_many::<E>(&[Id::from_key(Ulid::MIN)]).is_ok(),
+        2 => execute_single_typed_write::<C, E, I>(session, insert),
+        3 => execute_single_typed_write::<C, E, P>(session, patch),
+        4 => execute_typed_write_batch::<C, E, I>(session, batch_first, batch_second),
+        5 => execute_structural_delete::<C, E>(session),
+        _ => false,
+    };
+    u32::from(succeeded)
+}
+
+#[inline(never)]
+fn execute_typed_page<C, E>(session: &DbSession<C>) -> bool
+where
+    C: CanisterKind,
+    E: EntitySource + TypedEntityAdapter,
+{
+    let Ok(binding) = E::typed_binding(session) else {
+        return false;
+    };
+    let request = DynamicQuery::new(E::ENTITY).limit(1);
+    let Ok(page) = session.execute_trusted_live_page(&request, None) else {
+        return false;
+    };
+    let Ok(prepared) = session.prepare_typed_live_page_output(&binding, page) else {
+        return false;
+    };
+    prepared
+        .rows
+        .into_iter()
+        .all(|row| E::decode_row(&binding, row).is_ok())
+}
+
+#[inline(never)]
+fn execute_single_typed_write<C, E, W>(session: &DbSession<C>, input: W) -> bool
+where
+    C: CanisterKind,
+    E: TypedEntityAdapter,
+    W: TypedWriteAdapter<Entity = E>,
+{
+    let Ok(binding) = E::typed_binding(session) else {
+        return false;
+    };
+    let Ok(write) = input.encode_write(&binding) else {
+        return false;
+    };
+    let Ok(row) = session.execute_trusted_typed_write_row(write) else {
+        return false;
+    };
+    E::decode_row(&binding, row).is_ok()
+}
+
+#[inline(never)]
+fn execute_typed_write_batch<C, E, W>(session: &DbSession<C>, first: W, second: W) -> bool
+where
+    C: CanisterKind,
+    E: TypedEntityAdapter,
+    W: TypedWriteAdapter<Entity = E>,
+{
+    let mut batch = session.trusted_typed_write_batch();
+    let Ok(first_handle) = batch.push(first) else {
+        return false;
+    };
+    let Ok(second_handle) = batch.push(second) else {
+        return false;
+    };
+    let Ok(mut results) = batch.execute() else {
+        return false;
+    };
+    results.row(&first_handle).is_ok() && results.row(&second_handle).is_ok()
+}
+
+#[inline(never)]
+fn execute_structural_delete<C, E>(session: &DbSession<C>) -> bool
+where
+    C: CanisterKind,
+    E: EntityKey<Key = Ulid> + EntitySource + TypedEntityAdapter,
+{
+    let Ok(binding) = E::typed_binding(session) else {
+        return false;
+    };
+    let mutation = StructuralMutation::Delete {
+        entity: E::ENTITY.to_string(),
+        key: InputValue::from(Ulid::MIN),
+    };
+    let Ok(rows) = session.execute_trusted_structural_mutation_batch_rows(&binding, vec![mutation])
+    else {
+        return false;
+    };
+    rows.into_iter()
+        .all(|row| E::decode_row(&binding, row).is_ok())
+}
+
+/// Invoke [`execute_reachable_entity_operation`] with the shared simple audit
+/// entity input shape.
+#[macro_export]
+macro_rules! execute_simple_reachable_entity_operation {
+    ($session:expr, $operation:expr, $entity:ty, $insert:ident, $patch:ident $(,)?) => {
+        $crate::execute_reachable_entity_operation::<_, $entity, $insert, $patch>(
+            $session,
+            $operation,
+            $insert {
+                name: ::icydb::db::WriteCell::Value("single-insert".to_string()),
+            },
+            $patch {
+                id: ::icydb::types::Id::<$entity>::from_key(::icydb::types::Ulid::MIN),
+                name: ::icydb::db::WriteCell::Value("single-update".to_string()),
+            },
+            $insert {
+                name: ::icydb::db::WriteCell::Value("batch-first".to_string()),
+            },
+            $insert {
+                name: ::icydb::db::WriteCell::Value("batch-second".to_string()),
+            },
+        )
+    };
+}
+
 ///
 /// define_fixture_canister
 ///

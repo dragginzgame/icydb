@@ -176,6 +176,14 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
+        canister: "one_entity_reachable_operations",
+        package: "canister_audit_one_entity_reachable_operations",
+        production_features: &["candid-export"],
+        local_test_features: &["candid-export"],
+        production_icydb_methods: NO_METHODS,
+        local_test_icydb_methods: NO_METHODS,
+    },
+    MaintainedCanisterPolicy {
         canister: "one_entity_sql_query",
         package: "canister_audit_one_entity_sql_query",
         production_features: &["candid-export", "sql"],
@@ -210,6 +218,14 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
     MaintainedCanisterPolicy {
         canister: "ten_entity_typed_query",
         package: "canister_audit_ten_entity_typed_query",
+        production_features: &["candid-export"],
+        local_test_features: &["candid-export"],
+        production_icydb_methods: NO_METHODS,
+        local_test_icydb_methods: NO_METHODS,
+    },
+    MaintainedCanisterPolicy {
+        canister: "ten_entity_reachable_operations",
+        package: "canister_audit_ten_entity_reachable_operations",
         production_features: &["candid-export"],
         local_test_features: &["candid-export"],
         production_icydb_methods: NO_METHODS,
@@ -817,7 +833,7 @@ mod tests {
 
     #[test]
     fn maintained_policy_is_complete_unique_and_deterministic() {
-        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 17);
+        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 19);
         let names = MAINTAINED_CANISTER_POLICIES
             .iter()
             .map(|policy| policy.canister)

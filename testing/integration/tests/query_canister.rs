@@ -33,6 +33,37 @@ fn query_only_typed_and_dynamic_canisters_execute_without_sql() {
 }
 
 #[test]
+fn reachable_entity_audit_pair_exercises_the_shared_operation_mix() {
+    for (canister, entity) in [
+        ("one_entity_reachable_operations", 0_u8),
+        ("ten_entity_reachable_operations", 9_u8),
+    ] {
+        let fixture = install_fixture_canister(canister);
+        for operation in 0_u8..=5 {
+            let method = if operation <= 1 {
+                "exercise_reachable_entity_read"
+            } else {
+                "exercise_reachable_entity_write"
+            };
+            let response = if operation <= 1 {
+                fixture.query_candid(method, (entity, operation))
+            } else {
+                fixture.update_candid(method, (entity, operation))
+            };
+            let ((succeeded, local_instructions),): ((u32, u64),) =
+                response.expect("reachable generated operation response should decode");
+            println!(
+                "icydb_0250_reachable_entity canister={canister} entity={entity} operation={operation} succeeded={succeeded} local_instructions={local_instructions}",
+            );
+            assert!(local_instructions > 0);
+            if matches!(operation, 0 | 1 | 2 | 4) {
+                assert_eq!(succeeded, 1);
+            }
+        }
+    }
+}
+
+#[test]
 #[ignore = "requires one exact prebuilt point-query Wasm subject"]
 fn repeated_dynamic_point_query_instruction_measurement() {
     let wasm_path = env::var("ICYDB_POINT_QUERY_WASM")

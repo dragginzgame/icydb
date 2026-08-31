@@ -5,6 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.250.x] 📊 - 2026-08-31 - Reachable Generated Entity Specialization
+
+Detailed notes: [docs/changelog/0.250.md](docs/changelog/0.250.md)
+
+- `0.250.0` adds a reproducible reachable-entity Wasm comparison that exposes
+  a 9,283-byte final raw cost per added generated entity while preserving the
+  existing dead-strippable schema-cardinality gate. Its concrete prepared-page
+  experiment was removed after a 27,201-byte code saving missed the frozen
+  32 KiB acceptance gate.
+
 ## [0.249.x] 📊 - 2026-08-29 - Measured Downstream Wasm Headroom
 
 Detailed notes: [docs/changelog/0.249.md](docs/changelog/0.249.md)
