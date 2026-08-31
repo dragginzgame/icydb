@@ -739,16 +739,16 @@ fn composite_primary_key_value_codec_tokens(
                     #primary_key_field: <#field_ty as ::icydb::__macro::KeyValueCodec>::from_key_value(&values[#index])?
                 }
             });
-    let input_value_components = key_field_specs.iter().map(|(primary_key_field, _)| {
-        quote!(::icydb::value::InputValue::from(value.#primary_key_field).into_public())
-    });
+    let input_value_components = key_field_specs.iter().map(
+        |(primary_key_field, _)| quote!(::icydb::value::InputValue::from(value.#primary_key_field)),
+    );
 
     quote! {
         impl From<#key_ident> for ::icydb::value::InputValue {
             fn from(value: #key_ident) -> Self {
-                Self::from_public(::icydb::value::PublicValue::List(::std::vec![
+                Self::list(::std::vec![
                     #(#input_value_components),*
-                ]))
+                ])
             }
         }
 
@@ -1012,12 +1012,12 @@ fn typed_write_value_input_expr(entity: &Entity, field: &Field, value: TokenStre
     if field.value.item.relation.is_some() {
         return match field.value.cardinality() {
             Cardinality::Many => quote! {
-                ::icydb::value::InputValue::from_public(::icydb::value::PublicValue::List(
+                ::icydb::value::InputValue::list(
                     #value
                         .into_iter()
-                        .map(|value| ::icydb::value::InputValue::from(value).into_public())
+                        .map(::icydb::value::InputValue::from)
                         .collect()
-                ))
+                )
             },
             Cardinality::One | Cardinality::Opt => {
                 quote!(::icydb::value::InputValue::from(#value))

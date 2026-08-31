@@ -215,6 +215,33 @@ The four mutation variants are `Insert`, `Update`, `Replace`, and `Delete`.
 `WriteCell` keeps omission, explicit `DEFAULT`, explicit `NULL`, and authored
 values distinct until accepted write admission.
 
+Recursive caller-authored values stay inside the `InputValue` boundary. Lists,
+maps, and enum payloads accept owned input values directly; callers do not need
+to expose the shared `PublicValue` kernel:
+
+```rust,ignore
+let scalar = InputValue::text("Ada".to_string());
+let unit_enum = InputValue::loose_enum("Ready");
+let payload_enum = InputValue::loose_enum("Weighted")
+    .with_enum_payload(InputValue::map(vec![(
+        InputValue::from("weights"),
+        InputValue::list(vec![
+            InputValue::nat64(60),
+            InputValue::map(vec![(
+                InputValue::from("bonus"),
+                InputValue::nat64(5),
+            )]),
+        ]),
+    )]))
+    .ok_or("Weighted must be an enum input")?;
+```
+
+`PublicValue` remains the one recursive representation shared by input and
+output roots. Its accessors are for boundary inspection and framework
+integration, not required for ordinary recursive input construction. Enum
+names and payloads still enter accepted-schema admission before runtime values
+are created.
+
 Generated `Insert`, `Patch`, and `Replace` input types implement
 `TypedWriteAdapter` whenever the declaring crate includes the runtime facade.
 Bind the generated entity to the current session, encode the input, then call

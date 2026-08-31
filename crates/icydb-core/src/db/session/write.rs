@@ -8939,8 +8939,8 @@ mod targeted_rule_mutation_tests {
 
     fn profile_input(degree: u64) -> InputValue {
         InputValue::map(vec![(
-            crate::value::PublicValue::Text("degree".to_string()),
-            crate::value::PublicValue::Nat64(degree),
+            InputValue::from("degree"),
+            InputValue::nat64(degree),
         )])
     }
 

@@ -160,8 +160,8 @@ mod tests {
             WriteCell::Value(InputValue::from("Ada")),
         );
         let embedded = InputValue::map(vec![(
-            InputValue::from(AdapterRecord::LABEL.as_str()).into_public(),
-            InputValue::from("Ada").into_public(),
+            InputValue::from(AdapterRecord::LABEL.as_str()),
+            InputValue::from("Ada"),
         )]);
 
         assert!(matches!(

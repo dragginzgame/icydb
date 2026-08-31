@@ -9,8 +9,8 @@ use crate::{
         Principal, Subaccount, Timestamp, U256, Ulid,
     },
     value::{
-        CoercionFamily, InputValue, OutputValue, PublicEnumValue, PublicValue,
-        SchemaInvariantError, TextMode, Value, ValueEnum, canonicalize_value_set, hash_value,
+        CoercionFamily, InputValue, OutputValue, PublicValue, SchemaInvariantError, TextMode,
+        Value, ValueEnum, canonicalize_value_set, hash_value,
     },
 };
 use candid::CandidType;
@@ -60,17 +60,16 @@ fn u256_public_value_carriers_roundtrip_candid_nat_boundaries() {
 
 #[test]
 fn public_value_root_wrappers_share_one_candid_shape() {
-    let value = PublicValue::Map(vec![
+    let input = InputValue::map(vec![
         (
-            PublicValue::Text("state".to_string()),
-            PublicValue::Enum(
-                PublicEnumValue::new("Ready", Some("workflow::State"))
-                    .with_payload(PublicValue::List(vec![PublicValue::Nat64(7)])),
-            ),
+            InputValue::text("state".to_string()),
+            InputValue::enum_value("Ready", Some("workflow::State"))
+                .with_enum_payload(InputValue::list(vec![InputValue::nat64(7)]))
+                .expect("an enum input should accept one recursive payload"),
         ),
-        (PublicValue::Text("missing".to_string()), PublicValue::Null),
+        (InputValue::text("missing".to_string()), InputValue::null()),
     ]);
-    let input = InputValue::from_public(value.clone());
+    let value = input.as_public().clone();
     let output = OutputValue::from_public(value.clone());
 
     assert_eq!(InputValue::ty(), PublicValue::ty());
@@ -129,6 +128,20 @@ fn public_value_root_wrappers_are_layout_neutral_and_move_without_reallocation()
         panic!("output wrapper should retain its list");
     };
     assert_eq!(output_items.as_ptr(), output_pointer);
+
+    let input_items = vec![InputValue::nat64(1), InputValue::text("two".to_string())];
+    let input_items_pointer = input_items.as_ptr().cast::<PublicValue>();
+    let PublicValue::List(input_items) = InputValue::list(input_items).into_public() else {
+        panic!("input list constructor should retain its items");
+    };
+    assert_eq!(input_items.as_ptr(), input_items_pointer);
+
+    let input_entries = vec![(InputValue::from("one"), InputValue::nat64(1))];
+    let input_entries_pointer = input_entries.as_ptr().cast::<(PublicValue, PublicValue)>();
+    let PublicValue::Map(input_entries) = InputValue::map(input_entries).into_public() else {
+        panic!("input map constructor should retain its entries");
+    };
+    assert_eq!(input_entries.as_ptr(), input_entries_pointer);
 }
 
 macro_rules! sample_value_for_scalar {

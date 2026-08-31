@@ -106,16 +106,29 @@ impl InputValue {
         Self(PublicValue::IntBig(value))
     }
 
-    /// Build a recursive list input value.
+    /// Build a recursive list from caller-authored input values.
+    ///
+    /// The owned root wrappers move into the shared recursive kernel without
+    /// cloning nested values.
     #[must_use]
-    pub const fn list(values: Vec<PublicValue>) -> Self {
-        Self(PublicValue::List(values))
+    pub fn list(values: Vec<Self>) -> Self {
+        Self(PublicValue::List(
+            values.into_iter().map(Self::into_public).collect(),
+        ))
     }
 
-    /// Build a recursive map input value.
+    /// Build a recursive map from caller-authored input key/value pairs.
+    ///
+    /// The owned root wrappers move into the shared recursive kernel without
+    /// cloning nested values.
     #[must_use]
-    pub const fn map(entries: Vec<(PublicValue, PublicValue)>) -> Self {
-        Self(PublicValue::Map(entries))
+    pub fn map(entries: Vec<(Self, Self)>) -> Self {
+        Self(PublicValue::Map(
+            entries
+                .into_iter()
+                .map(|(key, value)| (key.into_public(), value.into_public()))
+                .collect(),
+        ))
     }
 
     /// Build a null input value.
@@ -208,9 +221,7 @@ impl InputValue {
         let PublicValue::Enum(value) = self.0 else {
             return None;
         };
-        Some(Self(PublicValue::Enum(
-            value.with_payload(payload.into_public()),
-        )))
+        Some(Self(PublicValue::Enum(value.with_payload(payload.0))))
     }
 
     /// Lower an input that cannot require accepted enum admission.
@@ -481,7 +492,7 @@ impl_input_value_nat!(u8, u16, u32, u64);
 
 #[cfg(test)]
 mod tests {
-    use crate::value::{InputValue, PublicValue, Value};
+    use crate::value::{InputValue, Value};
 
     #[test]
     fn runtime_to_input_value_keeps_recursive_collection_shape() {
@@ -493,11 +504,8 @@ mod tests {
         assert_eq!(
             InputValue::from(runtime),
             InputValue::list(vec![
-                PublicValue::Nat64(7),
-                PublicValue::Map(vec![(
-                    PublicValue::Text("x".to_string()),
-                    PublicValue::Bool(true),
-                )]),
+                InputValue::nat64(7),
+                InputValue::map(vec![(InputValue::from("x"), InputValue::boolean(true))]),
             ]),
         );
     }
@@ -505,7 +513,7 @@ mod tests {
     #[test]
     fn unresolved_enum_input_cannot_lower_without_admission() {
         let direct = InputValue::loose_enum("Active");
-        let nested = InputValue::list(vec![direct.clone().into_public()]);
+        let nested = InputValue::list(vec![direct.clone()]);
 
         assert_eq!(direct.try_into_runtime_non_enum(), None);
         assert_eq!(nested.try_into_runtime_non_enum(), None);

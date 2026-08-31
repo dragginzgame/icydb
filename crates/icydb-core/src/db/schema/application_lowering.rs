@@ -5501,52 +5501,50 @@ mod tests {
             policy_field.storage_decode(),
             policy_field.leaf_codec(),
         );
-        let finite_value = InputValue::from_public(PublicValue::Map(vec![
+        let payload_enum = |variant: &str, payload: InputValue| {
+            InputValue::loose_enum(variant)
+                .with_enum_payload(payload)
+                .expect("an enum input should accept one recursive payload")
+        };
+        let finite_value = InputValue::map(vec![
             (
-                PublicValue::Text("claim_cost_tiers".to_string()),
-                PublicValue::Map(vec![
+                InputValue::from("claim_cost_tiers"),
+                InputValue::map(vec![
+                    (InputValue::from("free"), InputValue::loose_enum("Free")),
                     (
-                        PublicValue::Text("free".to_string()),
-                        PublicValue::Enum(PublicEnumValue::loose("Free")),
+                        InputValue::from("gold"),
+                        payload_enum("Icp", InputValue::nat64(10)),
                     ),
                     (
-                        PublicValue::Text("gold".to_string()),
-                        PublicValue::Enum(
-                            PublicEnumValue::loose("Icp").with_payload(PublicValue::Nat64(10)),
-                        ),
-                    ),
-                    (
-                        PublicValue::Text("silver".to_string()),
-                        PublicValue::Enum(
-                            PublicEnumValue::loose("Icrc1").with_payload(PublicValue::Nat64(20)),
-                        ),
+                        InputValue::from("silver"),
+                        payload_enum("Icrc1", InputValue::nat64(20)),
                     ),
                 ]),
             ),
-            (PublicValue::Text("fallback".to_string()), PublicValue::Null),
+            (InputValue::from("fallback"), InputValue::null()),
             (
-                PublicValue::Text("values".to_string()),
-                PublicValue::Map(vec![(
-                    PublicValue::Text("root".to_string()),
-                    PublicValue::Enum(PublicEnumValue::loose("One").with_payload(
-                        PublicValue::Enum(PublicEnumValue::loose("Record").with_payload(
-                            PublicValue::Map(vec![(
-                                PublicValue::Text("nested".to_string()),
-                                PublicValue::Enum(PublicEnumValue::loose("Many").with_payload(
-                                    PublicValue::List(vec![
-                                        PublicValue::Enum(
-                                            PublicEnumValue::loose("Text").with_payload(
-                                                PublicValue::Text("leaf".to_string()),
-                                            ),
-                                        ),
-                                    ]),
-                                )),
+                InputValue::from("values"),
+                InputValue::map(vec![(
+                    InputValue::from("root"),
+                    payload_enum(
+                        "One",
+                        payload_enum(
+                            "Record",
+                            InputValue::map(vec![(
+                                InputValue::from("nested"),
+                                payload_enum(
+                                    "Many",
+                                    InputValue::list(vec![payload_enum(
+                                        "Text",
+                                        InputValue::from("leaf"),
+                                    )]),
+                                ),
                             )]),
-                        )),
-                    )),
+                        ),
+                    ),
                 )]),
             ),
-        ]));
+        ]);
         let mut budget = ValueAdmissionBudget::standard();
         let encoded = encode_input_value_for_candidate_field_contract(
             bundle.enum_catalog(),
