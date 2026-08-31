@@ -67,7 +67,7 @@ const fn non_progressing_live_page_error() -> Error {
     )
 }
 
-fn prepare_live_page_step(
+pub(super) fn prepare_live_page_step(
     page: LiveQueryPageOutput,
     continuation: Option<&str>,
 ) -> Result<LivePageStep, Error> {

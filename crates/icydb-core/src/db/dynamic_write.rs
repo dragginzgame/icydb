@@ -151,29 +151,31 @@ impl DynamicMutationResult {
     }
 }
 
-///
-/// DynamicTypedFieldBindingRequest
-///
-/// Generated logical field contract supplied only while issuing an opaque
-/// accepted adapter binding.
-///
-
+/// Static logical field shape used only for accepted compatibility checks.
 #[doc(hidden)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DynamicTypedFieldBindingRequest {
-    pub(crate) field_type: DynamicTypedFieldType,
-    pub(crate) nullable: bool,
-    pub(crate) source_key: String,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TypedFieldType {
+    /// Exact schema-owned scalar contract.
+    Scalar(ScalarType),
+    /// Ordered repeated values with one exact item contract.
+    List(&'static Self),
+    /// Named contract selected by immutable source key.
+    Named(&'static str),
 }
 
-impl DynamicTypedFieldBindingRequest {
-    /// Construct one generated field binding request.
+/// One generated static field descriptor supplied while issuing an opaque binding.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TypedFieldDescriptor {
+    pub(crate) field_type: TypedFieldType,
+    pub(crate) nullable: bool,
+    pub(crate) source_key: &'static str,
+}
+
+impl TypedFieldDescriptor {
+    /// Construct one generated static field descriptor.
     #[must_use]
-    pub const fn new(
-        source_key: String,
-        field_type: DynamicTypedFieldType,
-        nullable: bool,
-    ) -> Self {
+    pub const fn new(source_key: &'static str, field_type: TypedFieldType, nullable: bool) -> Self {
         Self {
             field_type,
             nullable,
@@ -182,16 +184,29 @@ impl DynamicTypedFieldBindingRequest {
     }
 }
 
-/// Logical generated field shape used only for accepted compatibility checks.
+/// One generated static entity contract validated against accepted authority.
 #[doc(hidden)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum DynamicTypedFieldType {
-    /// Exact schema-owned scalar contract.
-    Scalar(ScalarType),
-    /// Ordered repeated values with one exact item contract.
-    List(Box<Self>),
-    /// Named contract selected by immutable source key.
-    Named(String),
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TypedEntityDescriptor {
+    pub(crate) entity_source_key: &'static str,
+    pub(crate) fields: &'static [TypedFieldDescriptor],
+    pub(crate) primary_key_source_keys: &'static [&'static str],
+}
+
+impl TypedEntityDescriptor {
+    /// Construct one generated static entity descriptor.
+    #[must_use]
+    pub const fn new(
+        entity_source_key: &'static str,
+        primary_key_source_keys: &'static [&'static str],
+        fields: &'static [TypedFieldDescriptor],
+    ) -> Self {
+        Self {
+            entity_source_key,
+            fields,
+            primary_key_source_keys,
+        }
+    }
 }
 
 /// Typed binding issuance failure before an opaque binding exists.
@@ -277,6 +292,11 @@ pub enum DynamicTypedMutation {
         key: InputValue,
         /// Bound authored field intents.
         patch: DynamicTypedStructuralPatch,
+    },
+    /// Delete one accepted row.
+    Delete {
+        /// Scalar or composite public primary key.
+        key: InputValue,
     },
 }
 

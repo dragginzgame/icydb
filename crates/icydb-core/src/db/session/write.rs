@@ -8,8 +8,8 @@ use super::AcceptedSchemaCatalogContext;
 use crate::{
     db::{
         DbSession, DynamicMutation, DynamicMutationResult, DynamicStructuralPatch,
-        DynamicTypedBindingError, DynamicTypedEntityBinding, DynamicTypedFieldBindingRequest,
-        DynamicTypedFieldType, DynamicTypedMutation, DynamicTypedStructuralPatch, DynamicWriteCell,
+        DynamicTypedBindingError, DynamicTypedEntityBinding, DynamicTypedMutation,
+        DynamicTypedStructuralPatch, DynamicWriteCell, TypedEntityDescriptor, TypedFieldType,
         commit::{CommitRowOp, database_incarnation_id},
         data::{
             AcceptedMutationIntentPatch, AcceptedPreKeyInsert, DecodedDataStoreKey, FieldSlot,
@@ -314,11 +314,12 @@ const fn dynamic_mutation_mode(request: &DynamicMutation) -> Option<MutationMode
     }
 }
 
-const fn dynamic_typed_mutation_mode(request: &DynamicTypedMutation) -> MutationMode {
+const fn dynamic_typed_mutation_mode(request: &DynamicTypedMutation) -> Option<MutationMode> {
     match request {
-        DynamicTypedMutation::Insert { .. } => MutationMode::Insert,
-        DynamicTypedMutation::Update { .. } => MutationMode::Update,
-        DynamicTypedMutation::Replace { .. } => MutationMode::Replace,
+        DynamicTypedMutation::Insert { .. } => Some(MutationMode::Insert),
+        DynamicTypedMutation::Update { .. } => Some(MutationMode::Update),
+        DynamicTypedMutation::Replace { .. } => Some(MutationMode::Replace),
+        DynamicTypedMutation::Delete { .. } => None,
     }
 }
 
@@ -519,8 +520,7 @@ fn lower_typed_mutation_intent(
     binding: &DynamicTypedEntityBinding,
     request: &DynamicTypedMutation,
     batch_position: u32,
-) -> Result<Option<(AcceptedStructuralMutation, SaveMutationKind)>, InternalError> {
-    let mode = dynamic_typed_mutation_mode(request);
+) -> Result<Option<(AcceptedStructuralMutation, Option<SaveMutationKind>)>, InternalError> {
     let (target, patch) = match request {
         DynamicTypedMutation::Insert { patch } => (
             AcceptedStructuralMutationTarget::ResolveFromAfterImage,
@@ -531,10 +531,18 @@ fn lower_typed_mutation_intent(
             AcceptedStructuralMutationTarget::expected(dynamic_key(entity_tag, key)?),
             patch,
         ),
+        DynamicTypedMutation::Delete { key } => {
+            return Ok(Some((
+                AcceptedStructuralMutation::delete(dynamic_key(entity_tag, key)?),
+                None,
+            )));
+        }
     };
     if !patch.is_bound_to(binding) {
         return Ok(None);
     }
+    let mode =
+        dynamic_typed_mutation_mode(request).ok_or_else(InternalError::executor_invariant)?;
     let patch = lower_typed_patch(
         descriptor,
         patch,
@@ -543,7 +551,7 @@ fn lower_typed_mutation_intent(
     )?;
     Ok(Some((
         AcceptedStructuralMutation::save(mode, target, patch),
-        save_mutation_kind(mode),
+        Some(save_mutation_kind(mode)),
     )))
 }
 
@@ -725,15 +733,15 @@ fn prepare_dynamic_mutation_result(
     Ok(result)
 }
 
-fn dynamic_typed_field_type(
-    field_type: DynamicTypedFieldType,
+fn typed_descriptor_field_type(
+    field_type: TypedFieldType,
 ) -> Result<FieldType, DynamicTypedBindingError> {
     match field_type {
-        DynamicTypedFieldType::Scalar(scalar) => Ok(FieldType::Scalar(scalar)),
-        DynamicTypedFieldType::List(item) => {
-            Ok(FieldType::List(Box::new(dynamic_typed_field_type(*item)?)))
-        }
-        DynamicTypedFieldType::Named(source_key) => TypeSourceKey::try_new(source_key)
+        TypedFieldType::Scalar(scalar) => Ok(FieldType::Scalar(scalar)),
+        TypedFieldType::List(item) => Ok(FieldType::List(Box::new(typed_descriptor_field_type(
+            *item,
+        )?))),
+        TypedFieldType::Named(source_key) => TypeSourceKey::try_new(source_key.to_string())
             .map(FieldType::Named)
             .map_err(|_| DynamicTypedBindingError::FieldUnavailable),
     }
@@ -761,22 +769,10 @@ impl<C: CanisterKind> DbSession<C> {
     /// Issue one opaque accepted binding for immutable generated source keys.
     pub fn issue_typed_entity_binding(
         &self,
-        entity_source_key: &str,
-        field_requests: &[DynamicTypedFieldBindingRequest],
+        descriptor: &TypedEntityDescriptor,
     ) -> Result<DynamicTypedEntityBinding, DynamicTypedBindingError> {
-        let entity_source = EntitySourceKey::try_new(entity_source_key)
+        let entity_source = EntitySourceKey::try_new(descriptor.entity_source_key)
             .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?;
-        let field_requests = field_requests
-            .iter()
-            .map(|request| {
-                Ok((
-                    FieldSourceKey::try_new(request.source_key.clone())
-                        .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?,
-                    dynamic_typed_field_type(request.field_type.clone())?,
-                    request.nullable,
-                ))
-            })
-            .collect::<Result<Vec<_>, DynamicTypedBindingError>>()?;
         let catalog = self
             .find_accepted_schema_catalog_context_for_entity_source_key(entity_source.as_str())?
             .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
@@ -798,12 +794,32 @@ impl<C: CanisterKind> DbSession<C> {
             .entity_snapshots()
             .get(&entity_tag)
             .ok_or_else(InternalError::store_invariant)?;
+        if descriptor.primary_key_source_keys.len() != snapshot.primary_key_field_ids().len() {
+            return Err(DynamicTypedBindingError::IncompatibleField);
+        }
+        for (source_key, accepted_field_id) in descriptor
+            .primary_key_source_keys
+            .iter()
+            .zip(snapshot.primary_key_field_ids())
+        {
+            let source = FieldSourceKey::try_new((*source_key).to_string())
+                .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?;
+            let descriptor_field_id = bundle
+                .source_bindings()
+                .field(entity_tag, &source)
+                .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
+            if descriptor_field_id != *accepted_field_id {
+                return Err(DynamicTypedBindingError::IncompatibleField);
+            }
+        }
         let row_contract = catalog.inspection_plan().row_contract();
-        let mut fields = Vec::with_capacity(field_requests.len());
-        for (source, field_type, nullable) in &field_requests {
+        let mut fields = Vec::with_capacity(descriptor.fields.len());
+        for field_descriptor in descriptor.fields {
+            let source = FieldSourceKey::try_new(field_descriptor.source_key.to_string())
+                .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?;
             let field_id = bundle
                 .source_bindings()
-                .field(entity_tag, source)
+                .field(entity_tag, &source)
                 .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
             let field = snapshot
                 .fields()
@@ -815,9 +831,10 @@ impl<C: CanisterKind> DbSession<C> {
             if runtime_field.field_id() != field_id {
                 return Err(InternalError::store_invariant().into());
             }
-            let expected_kind = lower_field_type(field_type, bundle.source_bindings())
+            let field_type = typed_descriptor_field_type(field_descriptor.field_type)?;
+            let expected_kind = lower_field_type(&field_type, bundle.source_bindings())
                 .map_err(|_| DynamicTypedBindingError::IncompatibleField)?;
-            if field.nullable() != *nullable
+            if field.nullable() != field_descriptor.nullable
                 || !typed_adapter_field_kind_matches(field.kind(), &expected_kind)
             {
                 return Err(DynamicTypedBindingError::IncompatibleField);
@@ -1927,8 +1944,65 @@ impl<C: CanisterKind> DbSession<C> {
             &catalog,
             &descriptor,
             vec![mutation],
-            vec![Some(save_kind)],
+            vec![save_kind],
             false,
+        )
+        .map(Some)
+    }
+
+    /// Execute one bounded same-entity generated typed-write batch through one
+    /// exact current binding. `None` means the binding or a patch is stale or
+    /// mismatched.
+    #[doc(hidden)]
+    pub fn execute_trusted_same_entity_typed_mutation_batch(
+        &self,
+        binding: &DynamicTypedEntityBinding,
+        requests: Vec<DynamicTypedMutation>,
+    ) -> Result<Option<DynamicMutationResult>, InternalError> {
+        if requests.is_empty() {
+            return Err(InternalError::mutation_batch_empty());
+        }
+        if requests.len() > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
+            return Err(InternalError::mutation_batch_too_many_items(
+                requests.len(),
+                MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+            ));
+        }
+        let Some(catalog) = self.current_typed_entity_binding_catalog(binding)? else {
+            return Ok(None);
+        };
+        let identity = catalog.identity();
+        let descriptor =
+            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+        let mut mutations = Vec::with_capacity(requests.len());
+        let mut save_kinds = Vec::with_capacity(requests.len());
+        for (batch_position, request) in requests.iter().enumerate() {
+            let batch_position = u32::try_from(batch_position).map_err(|_| {
+                InternalError::mutation_batch_too_many_items(
+                    requests.len(),
+                    MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+                )
+            })?;
+            let Some((mutation, save_kind)) = lower_typed_mutation_intent(
+                identity.entity_tag(),
+                &descriptor,
+                binding,
+                request,
+                batch_position,
+            )?
+            else {
+                return Ok(None);
+            };
+            mutations.push(mutation);
+            save_kinds.push(save_kind);
+        }
+
+        self.execute_lowered_dynamic_mutation_batch(
+            &catalog,
+            &descriptor,
+            mutations,
+            save_kinds,
+            true,
         )
         .map(Some)
     }
@@ -2015,7 +2089,7 @@ impl<C: CanisterKind> DbSession<C> {
                 identity_candidate_count = identity_candidate_count.saturating_add(1);
             }
             result_catalogs.push(item_catalog.clone());
-            save_kinds.push(Some(save_kind));
+            save_kinds.push(save_kind);
             items.push(AcceptedStructuralMutationBatchItem {
                 catalog: item_catalog,
                 mutation,
@@ -2057,11 +2131,12 @@ impl<C: CanisterKind> DbSession<C> {
 mod typed_adapter_tests {
     use super::{
         AcceptedFieldKind, DbSession, DynamicTypedBindingError, DynamicTypedEntityBinding,
-        DynamicTypedFieldBindingRequest, DynamicTypedFieldType, DynamicTypedMutation,
-        DynamicWriteCell, dynamic_typed_field_type, typed_adapter_field_kind_matches,
+        DynamicTypedMutation, DynamicWriteCell, TypedEntityDescriptor, TypedFieldType,
+        typed_adapter_field_kind_matches, typed_descriptor_field_type,
     };
     use crate::{
         db::{
+            TypedFieldDescriptor,
             data::DataStore,
             index::IndexStore,
             registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
@@ -2076,7 +2151,7 @@ mod typed_adapter_tests {
         types::EntityTag,
         value::InputValue,
     };
-    use icydb_schema::{EntitySourceKey, FieldSourceKey, ScalarType};
+    use icydb_schema::{FieldSourceKey, ScalarType};
     use std::{cell::RefCell, collections::BTreeMap};
 
     const STORE_PATH: &str = "session::write::typed_adapter_tests::Store";
@@ -2088,6 +2163,39 @@ mod typed_adapter_tests {
     const REPLACEMENT_SOURCE: &str =
         "session::write::typed_adapter_tests::Entity::replacement_value";
     const OTHER_ID_SOURCE: &str = "session::write::typed_adapter_tests::OtherEntity::id";
+    const ENTITY_DESCRIPTOR: TypedEntityDescriptor = TypedEntityDescriptor::new(
+        ENTITY_SOURCE,
+        &[ID_SOURCE],
+        &[
+            TypedFieldDescriptor::new(ID_SOURCE, TypedFieldType::Scalar(ScalarType::Nat64), false),
+            TypedFieldDescriptor::new(
+                VALUE_SOURCE,
+                TypedFieldType::Scalar(ScalarType::Nat64),
+                false,
+            ),
+        ],
+    );
+    const OTHER_ENTITY_DESCRIPTOR: TypedEntityDescriptor = TypedEntityDescriptor::new(
+        OTHER_ENTITY_SOURCE,
+        &[OTHER_ID_SOURCE],
+        &[TypedFieldDescriptor::new(
+            OTHER_ID_SOURCE,
+            TypedFieldType::Scalar(ScalarType::Nat64),
+            false,
+        )],
+    );
+    const REPLACEMENT_DESCRIPTOR: TypedEntityDescriptor = TypedEntityDescriptor::new(
+        ENTITY_SOURCE,
+        &[ID_SOURCE],
+        &[
+            TypedFieldDescriptor::new(ID_SOURCE, TypedFieldType::Scalar(ScalarType::Nat64), false),
+            TypedFieldDescriptor::new(
+                REPLACEMENT_SOURCE,
+                TypedFieldType::Scalar(ScalarType::Nat64),
+                false,
+            ),
+        ],
+    );
 
     struct TestCanister;
 
@@ -2175,10 +2283,6 @@ mod typed_adapter_tests {
         FieldSourceKey::try_new(source).expect("typed field source should admit")
     }
 
-    fn entity_source(source: &str) -> EntitySourceKey {
-        EntitySourceKey::try_new(source).expect("typed entity source should admit")
-    }
-
     fn publish(
         session: &DbSession<TestCanister>,
         expected: AcceptedSchemaRevision,
@@ -2208,14 +2312,6 @@ mod typed_adapter_tests {
             store_path, store, expected, &candidate,
         )
         .expect("typed binding candidate should publish");
-    }
-
-    fn request(source: &str) -> DynamicTypedFieldBindingRequest {
-        DynamicTypedFieldBindingRequest::new(
-            source.to_string(),
-            DynamicTypedFieldType::Scalar(ScalarType::Nat64),
-            false,
-        )
     }
 
     fn initialize_typed_session() -> DbSession<TestCanister> {
@@ -2355,6 +2451,12 @@ mod typed_adapter_tests {
         DynamicTypedMutation::Insert { patch }
     }
 
+    fn typed_delete(id: u64) -> DynamicTypedMutation {
+        DynamicTypedMutation::Delete {
+            key: InputValue::nat64(id),
+        }
+    }
+
     fn typed_value_patch(
         binding: &DynamicTypedEntityBinding,
         value: u64,
@@ -2405,13 +2507,52 @@ mod typed_adapter_tests {
 
     #[test]
     fn typed_adapter_field_contract_rejects_invalid_named_source_identity() {
+        const NAT64: TypedFieldType = TypedFieldType::Scalar(ScalarType::Nat64);
+
         assert!(matches!(
-            dynamic_typed_field_type(DynamicTypedFieldType::Named(String::new())),
+            typed_descriptor_field_type(TypedFieldType::Named("")),
             Err(DynamicTypedBindingError::FieldUnavailable),
         ));
         assert!(matches!(
-            dynamic_typed_field_type(DynamicTypedFieldType::Scalar(ScalarType::Nat16)),
+            typed_descriptor_field_type(TypedFieldType::Scalar(ScalarType::Nat16)),
             Ok(icydb_schema::FieldType::Scalar(ScalarType::Nat16)),
+        ));
+        assert!(matches!(
+            typed_descriptor_field_type(TypedFieldType::List(&NAT64)),
+            Ok(icydb_schema::FieldType::List(item))
+                if *item == icydb_schema::FieldType::Scalar(ScalarType::Nat64),
+        ));
+    }
+
+    #[test]
+    fn typed_descriptor_primary_key_must_match_accepted_source_order() {
+        const PRIMARY_KEY_MISMATCH: TypedEntityDescriptor =
+            TypedEntityDescriptor::new(ENTITY_SOURCE, &[VALUE_SOURCE], ENTITY_DESCRIPTOR.fields);
+        const NULLABILITY_MISMATCH: TypedEntityDescriptor = TypedEntityDescriptor::new(
+            ENTITY_SOURCE,
+            &[ID_SOURCE],
+            &[
+                TypedFieldDescriptor::new(
+                    ID_SOURCE,
+                    TypedFieldType::Scalar(ScalarType::Nat64),
+                    false,
+                ),
+                TypedFieldDescriptor::new(
+                    VALUE_SOURCE,
+                    TypedFieldType::Scalar(ScalarType::Nat64),
+                    true,
+                ),
+            ],
+        );
+
+        let session = initialize_typed_session();
+        assert!(matches!(
+            session.issue_typed_entity_binding(&PRIMARY_KEY_MISMATCH),
+            Err(DynamicTypedBindingError::IncompatibleField),
+        ));
+        assert!(matches!(
+            session.issue_typed_entity_binding(&NULLABILITY_MISMATCH),
+            Err(DynamicTypedBindingError::IncompatibleField),
         ));
     }
 
@@ -2419,7 +2560,7 @@ mod typed_adapter_tests {
     fn typed_mutation_batch_is_bounded_and_atomic() {
         let session = initialize_typed_session();
         let binding = session
-            .issue_typed_entity_binding(ENTITY_SOURCE, &[request(ID_SOURCE), request(VALUE_SOURCE)])
+            .issue_typed_entity_binding(&ENTITY_DESCRIPTOR)
             .expect("typed batch binding should issue");
 
         session
@@ -2487,13 +2628,39 @@ mod typed_adapter_tests {
     }
 
     #[test]
+    fn same_entity_typed_mutation_batch_rejects_empty_oversized_and_stale_input() {
+        let session = initialize_typed_session();
+        let binding = session
+            .issue_typed_entity_binding(&ENTITY_DESCRIPTOR)
+            .expect("typed batch binding should issue");
+
+        session
+            .execute_trusted_same_entity_typed_mutation_batch(&binding, Vec::new())
+            .expect_err("empty same-entity typed batch should reject");
+        let insert = typed_insert(&binding, 1, 10);
+        session
+            .execute_trusted_same_entity_typed_mutation_batch(
+                &binding,
+                vec![insert.clone(); super::MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS + 1],
+            )
+            .expect_err("oversized same-entity typed batch should reject");
+
+        let mut stale = binding;
+        stale.accepted_revision = stale.accepted_revision.saturating_add(1);
+        let result = session
+            .execute_trusted_same_entity_typed_mutation_batch(&stale, vec![insert])
+            .expect("stale same-entity typed admission should remain an adapter outcome");
+        assert!(result.is_none());
+    }
+
+    #[test]
     fn typed_mutation_batch_accepts_mixed_same_store_bindings_and_rejects_late_stale_input() {
         let session = initialize_mixed_typed_session(false);
         let binding = session
-            .issue_typed_entity_binding(ENTITY_SOURCE, &[request(ID_SOURCE), request(VALUE_SOURCE)])
+            .issue_typed_entity_binding(&ENTITY_DESCRIPTOR)
             .expect("first typed entity should bind");
         let other = session
-            .issue_typed_entity_binding(OTHER_ENTITY_SOURCE, &[request(OTHER_ID_SOURCE)])
+            .issue_typed_entity_binding(&OTHER_ENTITY_DESCRIPTOR)
             .expect("second typed entity should bind");
 
         let mut stale_other = other.clone();
@@ -2539,10 +2706,10 @@ mod typed_adapter_tests {
     fn typed_mutation_batch_rejects_cross_store_bindings_before_writes() {
         let session = initialize_mixed_typed_session(true);
         let binding = session
-            .issue_typed_entity_binding(ENTITY_SOURCE, &[request(ID_SOURCE), request(VALUE_SOURCE)])
+            .issue_typed_entity_binding(&ENTITY_DESCRIPTOR)
             .expect("first store typed entity should bind");
         let other = session
-            .issue_typed_entity_binding(OTHER_ENTITY_SOURCE, &[request(OTHER_ID_SOURCE)])
+            .issue_typed_entity_binding(&OTHER_ENTITY_DESCRIPTOR)
             .expect("second store typed entity should bind");
 
         let error = session
@@ -2566,46 +2733,45 @@ mod typed_adapter_tests {
     }
 
     #[test]
-    fn typed_mutation_batch_preserves_mixed_result_order() {
+    fn same_entity_typed_mutation_batch_preserves_mixed_result_order() {
         let session = initialize_typed_session();
         let binding = session
-            .issue_typed_entity_binding(ENTITY_SOURCE, &[request(ID_SOURCE), request(VALUE_SOURCE)])
+            .issue_typed_entity_binding(&ENTITY_DESCRIPTOR)
             .expect("typed batch binding should issue");
         session
-            .execute_trusted_typed_mutation_batch(vec![
-                (binding.clone(), typed_insert(&binding, 1, 10)),
-                (binding.clone(), typed_insert(&binding, 2, 20)),
-            ])
+            .execute_trusted_same_entity_typed_mutation_batch(
+                &binding,
+                vec![
+                    typed_insert(&binding, 1, 10),
+                    typed_insert(&binding, 2, 20),
+                    typed_insert(&binding, 4, 40),
+                ],
+            )
             .expect("typed fixture batch should execute")
             .expect("typed fixture binding should be current");
 
         let result = session
-            .execute_trusted_typed_mutation_batch(vec![
-                (
-                    binding.clone(),
+            .execute_trusted_same_entity_typed_mutation_batch(
+                &binding,
+                vec![
                     DynamicTypedMutation::Update {
                         key: InputValue::nat64(1),
                         patch: typed_value_patch(&binding, 11),
                     },
-                ),
-                (
-                    binding.clone(),
                     DynamicTypedMutation::Replace {
                         key: InputValue::nat64(2),
                         patch: typed_value_patch(&binding, 22),
                     },
-                ),
-                (binding.clone(), typed_insert(&binding, 3, 30)),
-            ])
+                    typed_insert(&binding, 3, 30),
+                    typed_delete(4),
+                ],
+            )
             .expect("mixed typed batch should execute")
             .expect("mixed typed binding should remain current");
-        assert_eq!(result.len(), 3);
-        assert!(result.iter().all(|item| item.affected_rows == 1));
+        assert_eq!(result.len(), 4);
+        assert_eq!(result.affected_rows, 4);
         assert_eq!(
-            result
-                .into_iter()
-                .map(|item| item.rows.into_iter().next().expect("one row per request"))
-                .collect::<Vec<_>>(),
+            result.rows,
             vec![
                 vec![
                     crate::value::OutputValue::nat64(1),
@@ -2618,6 +2784,10 @@ mod typed_adapter_tests {
                 vec![
                     crate::value::OutputValue::nat64(3),
                     crate::value::OutputValue::nat64(30),
+                ],
+                vec![
+                    crate::value::OutputValue::nat64(4),
+                    crate::value::OutputValue::nat64(40),
                 ],
             ],
         );
@@ -2669,10 +2839,7 @@ mod typed_adapter_tests {
             .expect("initial source catalog should exist");
         assert_eq!(initial_catalog.identity().entity_tag(), entity_tag);
         let initial = session
-            .issue_typed_entity_binding(
-                entity_source(ENTITY_SOURCE).as_str(),
-                &[request(ID_SOURCE), request(VALUE_SOURCE)],
-            )
+            .issue_typed_entity_binding(&ENTITY_DESCRIPTOR)
             .expect("initial typed binding should issue");
         assert_eq!(initial.field_slot(ID_SOURCE), Some(0));
         assert_eq!(initial.field_slot(VALUE_SOURCE), Some(1));
@@ -2750,7 +2917,7 @@ mod typed_adapter_tests {
                 .expect("renamed binding currentness should inspect")
         );
         let renamed = session
-            .issue_typed_entity_binding(ENTITY_SOURCE, &[request(ID_SOURCE), request(VALUE_SOURCE)])
+            .issue_typed_entity_binding(&ENTITY_DESCRIPTOR)
             .expect("renamed source-bound adapter should rebind");
         assert_eq!(renamed.entity(), "RenamedEntity");
         assert_eq!(renamed.field_slot(VALUE_SOURCE), Some(1));
@@ -2789,10 +2956,7 @@ mod typed_adapter_tests {
         );
 
         assert!(matches!(
-            session.issue_typed_entity_binding(
-                ENTITY_SOURCE,
-                &[request(ID_SOURCE), request(VALUE_SOURCE)],
-            ),
+            session.issue_typed_entity_binding(&ENTITY_DESCRIPTOR),
             Err(DynamicTypedBindingError::FieldUnavailable),
         ));
         assert!(
@@ -2802,10 +2966,7 @@ mod typed_adapter_tests {
         );
 
         let replacement = session
-            .issue_typed_entity_binding(
-                ENTITY_SOURCE,
-                &[request(ID_SOURCE), request(REPLACEMENT_SOURCE)],
-            )
+            .issue_typed_entity_binding(&REPLACEMENT_DESCRIPTOR)
             .expect("explicit replacement source should bind");
         assert!(
             session
@@ -3073,12 +3234,12 @@ mod typed_adapter_tests {
 #[cfg(test)]
 mod mixed_relation_batch_tests {
     use super::{
-        DbSession, DynamicMutation, DynamicStructuralPatch, DynamicTypedFieldBindingRequest,
-        DynamicTypedFieldType, DynamicWriteCell,
+        DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell,
+        TypedEntityDescriptor, TypedFieldType,
     };
     use crate::{
         db::{
-            DynamicQuery, asc,
+            DynamicQuery, TypedFieldDescriptor, asc,
             data::DataStore,
             desc,
             index::IndexStore,
@@ -3120,6 +3281,15 @@ mod mixed_relation_batch_tests {
     const CROSS_ID_SOURCE: &str = "session::write::mixed_relation_batch_tests::CrossStore::id";
     const CROSS_ENTITY_NAME: &str = "MixedCrossStore";
     const CROSS_ENTITY_TAG: EntityTag = EntityTag::new(2_000);
+    const TYPED_DESCRIPTOR: TypedEntityDescriptor = TypedEntityDescriptor::new(
+        ENTITY_SOURCE,
+        &[ID_SOURCE],
+        &[TypedFieldDescriptor::new(
+            ID_SOURCE,
+            TypedFieldType::Scalar(ScalarType::Nat64),
+            false,
+        )],
+    );
 
     fn batch_rows(results: &[crate::db::DynamicMutationResult]) -> Vec<Vec<OutputValue>> {
         results
@@ -3717,14 +3887,7 @@ mod mixed_relation_batch_tests {
             .execute_public_live_page(&query, None)
             .expect("ordinary live page should execute");
         let binding = session
-            .issue_typed_entity_binding(
-                ENTITY_SOURCE,
-                &[DynamicTypedFieldBindingRequest::new(
-                    ID_SOURCE.to_string(),
-                    DynamicTypedFieldType::Scalar(ScalarType::Nat64),
-                    false,
-                )],
-            )
+            .issue_typed_entity_binding(&TYPED_DESCRIPTOR)
             .expect("attributed typed binding should issue");
         let proof_before = session
             .capture_read_set_revision_proof(&[ENTITY_NAME])
@@ -4350,10 +4513,10 @@ mod identity_pre_key_tests {
         AcceptedMutationIntentPatch, AcceptedRowLayoutRuntimeContract, AcceptedStructuralMutation,
         AcceptedStructuralMutationPacking, AcceptedStructuralMutationStagedAdmission,
         AcceptedStructuralMutationTarget, DbSession, DynamicMutation, DynamicStructuralPatch,
-        DynamicTypedFieldBindingRequest, DynamicTypedFieldType, DynamicTypedMutation,
-        DynamicWriteCell, FieldSlot, MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
-        MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES, MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES,
-        MutationProgressRecordOp, add_structural_mutation_staged_bytes,
+        DynamicTypedMutation, DynamicWriteCell, FieldSlot,
+        MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS, MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES,
+        MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES, MutationProgressRecordOp,
+        TypedEntityDescriptor, TypedFieldType, add_structural_mutation_staged_bytes,
         admit_structural_mutation_staged_charge, checked_pre_key_candidate_count,
         insert_key_exists_after_generation, structural_mutation_staged_charge,
         validate_structural_mutation_result_bytes,
@@ -4369,15 +4532,16 @@ mod identity_pre_key_tests {
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     use crate::db::{
         CompareProofAndAdvanceError, ExhaustiveReadError, MutationJobError,
-        MutationJobRestartReason, RawDataStoreKey, ReadSetRevisionError, ResumableJobAdvance,
-        ResumableJobAdvanceRequest, ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId,
-        ResumableJobIdempotencyKey, ResumableJobStatus, asc,
+        MutationJobRestartReason, PrimaryKeyComponent, PrimaryKeyValue, RawDataStoreKey,
+        ReadSetRevisionError, ResumableJobAdvance, ResumableJobAdvanceRequest,
+        ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId, ResumableJobIdempotencyKey,
+        ResumableJobStatus, asc,
     };
     use crate::db::{DynamicQuery, QueryExecutionError};
     use crate::{
         db::{
             GeneratedStartupDriverStep, MutationJobAdvanceRequest, MutationJobId,
-            MutationJobIdempotencyKey, MutationJobPhase, MutationJobStatus,
+            MutationJobIdempotencyKey, MutationJobPhase, MutationJobStatus, TypedFieldDescriptor,
             commit::{
                 database_incarnation_id, forget_recovered_domain_for_tests,
                 install_startup_recovery_wakeup,
@@ -4434,6 +4598,18 @@ mod identity_pre_key_tests {
     const PAYLOAD_SOURCE: &str = "session::write::identity_pre_key_tests::Entity::payload";
     const ENTITY_NAME: &str = "IdentityRow";
     const ENTITY_TAG: EntityTag = EntityTag::new(93);
+    const TYPED_DESCRIPTOR: TypedEntityDescriptor = TypedEntityDescriptor::new(
+        ENTITY_SOURCE,
+        &[ID_SOURCE],
+        &[
+            TypedFieldDescriptor::new(ID_SOURCE, TypedFieldType::Scalar(ScalarType::Nat64), false),
+            TypedFieldDescriptor::new(
+                PAYLOAD_SOURCE,
+                TypedFieldType::Scalar(ScalarType::Nat64),
+                false,
+            ),
+        ],
+    );
     const SECOND_ENTITY_SOURCE: &str = "session::write::identity_pre_key_tests::SecondEntity";
     const SECOND_ID_SOURCE: &str = "session::write::identity_pre_key_tests::SecondEntity::id";
     const SECOND_PAYLOAD_SOURCE: &str =
@@ -5046,21 +5222,7 @@ mod identity_pre_key_tests {
 
     fn exact_key_binding<C: CanisterKind>(session: &DbSession<C>) -> DynamicTypedEntityBinding {
         session
-            .issue_typed_entity_binding(
-                ENTITY_SOURCE,
-                &[
-                    DynamicTypedFieldBindingRequest::new(
-                        ID_SOURCE.to_string(),
-                        DynamicTypedFieldType::Scalar(ScalarType::Nat64),
-                        false,
-                    ),
-                    DynamicTypedFieldBindingRequest::new(
-                        PAYLOAD_SOURCE.to_string(),
-                        DynamicTypedFieldType::Scalar(ScalarType::Nat64),
-                        false,
-                    ),
-                ],
-            )
+            .issue_typed_entity_binding(&TYPED_DESCRIPTOR)
             .expect("exact-key test binding should issue")
     }
 
@@ -5075,6 +5237,12 @@ mod identity_pre_key_tests {
             )])
             .expect("typed payload patch should bind");
         DynamicTypedMutation::Insert { patch }
+    }
+
+    fn typed_payload_delete(id: u64) -> DynamicTypedMutation {
+        DynamicTypedMutation::Delete {
+            key: InputValue::nat64(id),
+        }
     }
 
     fn insert_exact_key_fixture<C: CanisterKind>(session: &DbSession<C>, payload: u64) -> u64 {
@@ -5705,6 +5873,11 @@ mod identity_pre_key_tests {
     }
 
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    const fn exact_key(value: u64) -> PrimaryKeyValue {
+        PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value))
+    }
+
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     fn assert_exact_key_batch<C: CanisterKind>(session: &DbSession<C>) {
         let first = insert_exact_key_fixture(session, 41);
         let second = insert_exact_key_fixture(session, 42);
@@ -5714,7 +5887,12 @@ mod identity_pre_key_tests {
         let result = session
             .execute_public_exact_key_batch_for_typed_binding(
                 &binding,
-                &[second, missing, first, second],
+                &[
+                    exact_key(second),
+                    exact_key(missing),
+                    exact_key(first),
+                    exact_key(second),
+                ],
             )
             .expect("exact-key batch should execute")
             .expect("exact-key binding should remain current");
@@ -6216,7 +6394,11 @@ mod identity_pre_key_tests {
         let budget =
             HardExecutionBudget::uniform_for_tests(0, HardExecutionFailureHeadroom::new(500, 256));
         let error = session
-            .execute_exact_key_batch_with_hard_budget_for_tests(&binding, &[u64::MAX], &budget)
+            .execute_exact_key_batch_with_hard_budget_for_tests(
+                &binding,
+                &[exact_key(u64::MAX)],
+                &budget,
+            )
             .expect_err("zero query budget should reject the exact-key route");
 
         assert!(matches!(
@@ -7165,21 +7347,7 @@ mod identity_pre_key_tests {
         }
 
         let binding = session
-            .issue_typed_entity_binding(
-                ENTITY_SOURCE,
-                &[
-                    DynamicTypedFieldBindingRequest::new(
-                        ID_SOURCE.to_string(),
-                        DynamicTypedFieldType::Scalar(ScalarType::Nat64),
-                        false,
-                    ),
-                    DynamicTypedFieldBindingRequest::new(
-                        PAYLOAD_SOURCE.to_string(),
-                        DynamicTypedFieldType::Scalar(ScalarType::Nat64),
-                        false,
-                    ),
-                ],
-            )
+            .issue_typed_entity_binding(&TYPED_DESCRIPTOR)
             .expect("typed output should bind the Identity field");
         let typed_patch = binding
             .bind_write_fields(vec![(
@@ -8569,12 +8737,22 @@ mod identity_pre_key_tests {
     fn typed_mutation_batch_recovers_as_one_marker_atomic_transition() {
         let session = initialize_journaled();
         let binding = exact_key_binding(&session);
+        session
+            .execute_trusted_same_entity_typed_mutation_batch(
+                &binding,
+                vec![
+                    typed_payload_insert(&binding, 10),
+                    typed_payload_insert(&binding, 20),
+                ],
+            )
+            .expect("typed recovery fixture should commit")
+            .expect("typed recovery fixture binding should remain current");
         interrupt_next_mutation_commit_for_tests(MutationCommitInterruption::RowsPublished);
 
-        let interrupted = session.execute_trusted_typed_mutation_batch(vec![
-            (binding.clone(), typed_payload_insert(&binding, 10)),
-            (binding.clone(), typed_payload_insert(&binding, 20)),
-        ]);
+        let interrupted = session.execute_trusted_same_entity_typed_mutation_batch(
+            &binding,
+            vec![typed_payload_delete(1), typed_payload_insert(&binding, 30)],
+        );
         assert!(
             interrupted.is_err(),
             "typed batch should expose the selected durable interruption",
@@ -8596,7 +8774,7 @@ mod identity_pre_key_tests {
             .expect("the recovered typed batch should be readable");
         assert_eq!(
             recovered.rows,
-            vec![expected_dynamic_row(1, 10), expected_dynamic_row(2, 20)],
+            vec![expected_dynamic_row(2, 20), expected_dynamic_row(3, 30)],
         );
     }
 
@@ -8658,11 +8836,12 @@ mod identity_pre_key_tests {
 #[cfg(test)]
 mod targeted_rule_mutation_tests {
     use super::{
-        DbSession, DynamicMutation, DynamicStructuralPatch, DynamicTypedFieldBindingRequest,
-        DynamicTypedFieldType, DynamicTypedMutation, DynamicWriteCell,
+        DbSession, DynamicMutation, DynamicStructuralPatch, DynamicTypedMutation, DynamicWriteCell,
+        TypedEntityDescriptor, TypedFieldType,
     };
     use crate::{
         db::{
+            TypedFieldDescriptor,
             data::{DataStore, encode_input_value_for_candidate_field_contract},
             index::IndexStore,
             registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
@@ -8701,6 +8880,23 @@ mod targeted_rule_mutation_tests {
         "session::write::targeted_rule_mutation_tests::Profile::degree";
     const DEGREE_RULE_SOURCE: &str =
         "session::write::targeted_rule_mutation_tests::Profile::degree_multiple";
+    const TYPED_DESCRIPTOR: TypedEntityDescriptor = TypedEntityDescriptor::new(
+        ENTITY_SOURCE,
+        &[ID_SOURCE],
+        &[
+            TypedFieldDescriptor::new(ID_SOURCE, TypedFieldType::Scalar(ScalarType::Nat64), false),
+            TypedFieldDescriptor::new(
+                PROFILE_SOURCE,
+                TypedFieldType::Named(PROFILE_TYPE_SOURCE),
+                false,
+            ),
+            TypedFieldDescriptor::new(
+                UPDATED_AT_SOURCE,
+                TypedFieldType::Scalar(ScalarType::Timestamp),
+                false,
+            ),
+        ],
+    );
 
     struct TestCanister;
 
@@ -9028,26 +9224,7 @@ mod targeted_rule_mutation_tests {
         );
 
         let binding = session
-            .issue_typed_entity_binding(
-                ENTITY_SOURCE,
-                &[
-                    DynamicTypedFieldBindingRequest::new(
-                        ID_SOURCE.to_string(),
-                        DynamicTypedFieldType::Scalar(ScalarType::Nat64),
-                        false,
-                    ),
-                    DynamicTypedFieldBindingRequest::new(
-                        PROFILE_SOURCE.to_string(),
-                        DynamicTypedFieldType::Named(PROFILE_TYPE_SOURCE.to_string()),
-                        false,
-                    ),
-                    DynamicTypedFieldBindingRequest::new(
-                        UPDATED_AT_SOURCE.to_string(),
-                        DynamicTypedFieldType::Scalar(ScalarType::Timestamp),
-                        false,
-                    ),
-                ],
-            )
+            .issue_typed_entity_binding(&TYPED_DESCRIPTOR)
             .expect("targeted typed binding should issue");
         let typed_patch = binding
             .bind_write_fields(vec![

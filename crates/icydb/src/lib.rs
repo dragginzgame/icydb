@@ -153,7 +153,7 @@ pub use icydb_diagnostic_code::ErrorCode;
 #[doc(hidden)]
 pub mod __macro {
     pub use crate::db::{
-        TypedFieldBindingRequest, TypedFieldType, ensure_default_memory_manager,
+        TypedEntityDescriptor, TypedFieldDescriptor, TypedFieldType, ensure_default_memory_manager,
         execute_generated_storage_report,
     };
     pub use crate::guards::{authorize_schema_read, authorize_sql_read};

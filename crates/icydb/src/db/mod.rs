@@ -48,12 +48,12 @@ pub use response::ExecutionTrace;
 pub use session::SqlIntegrityError;
 pub use session::{
     DbSession, ExhaustiveReadError, IntegrityCheckError, LivePageStep, OutputRow,
-    PreparedLivePageOutput, PreparedOutputRows, RequestExecutionFuture, RequestExecutionRoot,
-    StructuralMutation, StructuralPatch, TrustedTypedWriteBatch, TypedAdapterError,
-    TypedBindingError, TypedEntityAdapter, TypedEntityBinding, TypedRowAdapter, TypedRowError,
-    TypedWrite, TypedWriteAdapter, TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteError,
-    TypedWriteHandle, WriteCell, with_request_execution, with_request_execution_async,
-    with_request_execution_root,
+    PreparedExactKeyOutput, PreparedLivePageCursor, PreparedLivePageOutput, PreparedOutputRows,
+    RequestExecutionFuture, RequestExecutionRoot, StructuralMutation, StructuralPatch,
+    TrustedTypedWriteBatch, TypedAdapterError, TypedBindingError, TypedEntityAdapter,
+    TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite, TypedWriteAdapter,
+    TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteError, TypedWriteHandle, WriteCell,
+    with_request_execution, with_request_execution_async, with_request_execution_root,
 };
 pub use startup::{
     __clear_generated_startup_failure, __install_startup_recovery_wakeup,
@@ -87,7 +87,7 @@ pub use session::{
     SqlExecutionPerfAttribution, SqlPureCoveringPerfAttribution, SqlQueryPerfAttribution,
 };
 #[doc(hidden)]
-pub use session::{TypedFieldBindingRequest, TypedFieldType};
+pub use session::{TypedEntityDescriptor, TypedFieldDescriptor, TypedFieldType};
 
 // Public core DTOs intentionally carried through the facade database surface.
 pub use icydb_core::db::{

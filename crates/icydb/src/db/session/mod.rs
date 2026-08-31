@@ -8,6 +8,7 @@ mod catalog;
 pub(crate) mod generated;
 mod integrity;
 mod live_page;
+mod prepared_query;
 mod request;
 #[cfg(feature = "sql")]
 mod sql;
@@ -23,6 +24,7 @@ pub use integrity::IntegrityCheckError;
 #[cfg(feature = "sql")]
 pub use integrity::SqlIntegrityError;
 pub use live_page::LivePageStep;
+pub use prepared_query::{PreparedExactKeyOutput, PreparedLivePageCursor, PreparedLivePageOutput};
 pub use request::{
     RequestExecutionFuture, RequestExecutionRoot, with_request_execution,
     with_request_execution_async, with_request_execution_root,
@@ -33,10 +35,10 @@ pub use sql::{
 };
 pub(crate) use write::OutputRowProjection;
 pub use write::{
-    OutputRow, PreparedLivePageOutput, PreparedOutputRows, StructuralMutation, StructuralPatch,
-    TrustedTypedWriteBatch, TypedAdapterError, TypedBindingError, TypedEntityAdapter,
-    TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite, TypedWriteAdapter,
-    TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteError, TypedWriteHandle, WriteCell,
+    OutputRow, PreparedOutputRows, StructuralMutation, StructuralPatch, TrustedTypedWriteBatch,
+    TypedAdapterError, TypedBindingError, TypedEntityAdapter, TypedEntityBinding, TypedRowAdapter,
+    TypedRowError, TypedWrite, TypedWriteAdapter, TypedWriteBatchResult, TypedWriteBatchResults,
+    TypedWriteError, TypedWriteHandle, WriteCell,
 };
 
 /// Failure while capturing or executing one revision-strict exhaustive read.
@@ -68,7 +70,7 @@ impl From<core::db::ExhaustiveReadError> for ExhaustiveReadError {
     }
 }
 #[doc(hidden)]
-pub use write::{TypedFieldBindingRequest, TypedFieldType};
+pub use write::{TypedEntityDescriptor, TypedFieldDescriptor, TypedFieldType};
 
 ///
 /// DbSession
@@ -341,33 +343,6 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(Into::into)
     }
 
-    pub(crate) fn execute_public_typed_live_page(
-        &self,
-        binding: &TypedEntityBinding,
-        request: &crate::db::DynamicQuery,
-        continuation: Option<&str>,
-    ) -> Result<Option<crate::db::LiveQueryPageOutput>, crate::Error> {
-        self.inner
-            .execute_public_live_page_for_typed_binding(binding.inner(), request, continuation)
-            .map_err(Into::into)
-    }
-
-    pub(crate) fn execute_public_typed_live_page_with_attribution(
-        &self,
-        binding: &TypedEntityBinding,
-        request: &crate::db::DynamicQuery,
-        continuation: Option<&str>,
-    ) -> Result<Option<crate::db::AttributedRead<crate::db::LiveQueryPageOutput>>, crate::Error>
-    {
-        self.inner
-            .execute_public_live_page_with_attribution_for_typed_binding(
-                binding.inner(),
-                request,
-                continuation,
-            )
-            .map_err(Into::into)
-    }
-
     pub(crate) fn execute_public_typed_exact_count(
         &self,
         binding: &TypedEntityBinding,
@@ -402,19 +377,6 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<Option<crate::db::GroupedQueryOutput>, crate::Error> {
         self.inner
             .execute_public_dynamic_grouped_query_for_typed_binding(binding.inner(), request)
-            .map_err(Into::into)
-    }
-
-    pub(crate) fn execute_public_typed_exact_key_batch<K>(
-        &self,
-        binding: &TypedEntityBinding,
-        keys: &[K],
-    ) -> Result<Option<core::db::ExactKeyBatchProjectionOutput>, crate::Error>
-    where
-        K: core::db::PrimaryKeyEncode,
-    {
-        self.inner
-            .execute_public_exact_key_batch_for_typed_binding(binding.inner(), keys)
             .map_err(Into::into)
     }
 }

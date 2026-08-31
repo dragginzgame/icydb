@@ -1,6 +1,7 @@
 use icydb::{
     db::{
-        DbSession, DynamicQuery, LiveQueryPageOutput, TypedEntityAdapter,
+        DbSession, DynamicQuery, LiveQueryPageOutput, PrimaryKeyValue, TypedEntityAdapter,
+        TypedWrite,
         query::{
             CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, FilterValue,
             JunctionOperator, Query, SetOperator, StateOperator, count,
@@ -117,20 +118,18 @@ fn typed_dynamic_live_page_adapter<C, E>(
     let Ok(binding) = E::typed_binding(db) else {
         return;
     };
-    let result = if trusted {
-        db.execute_trusted_live_page(request, continuation)
+    let cursor = db.prepare_live_page_cursor(binding, request.clone());
+    let prepared = if trusted {
+        cursor.execute_trusted_page(continuation)
     } else {
-        db.execute_live_page(request, continuation)
+        cursor.execute_page(continuation)
     };
-    let Ok(result) = result else {
-        return;
-    };
-    let Ok(prepared) = db.prepare_typed_live_page_output(&binding, result) else {
+    let Ok(prepared) = prepared else {
         return;
     };
     let mut rows = Vec::with_capacity(prepared.rows.len());
     for row in prepared.rows {
-        let Ok(row) = E::decode_row(&binding, row) else {
+        let Ok(row) = E::decode_row(cursor.binding(), row) else {
             return;
         };
         rows.push(row);
@@ -159,6 +158,45 @@ where
         return;
     };
     std::hint::black_box((rows, continuation, work));
+}
+
+#[allow(dead_code)]
+fn prepared_exact_key_batch_compiles<C, E>(db: &DbSession<C>, keys: &[PrimaryKeyValue])
+where
+    C: CanisterKind,
+    E: TypedEntityAdapter,
+{
+    let Ok(binding) = E::typed_binding(db) else {
+        return;
+    };
+    let Ok(prepared) = db.execute_public_prepared_exact_key_batch(&binding, keys) else {
+        return;
+    };
+    let distinct_rows = prepared
+        .distinct_rows
+        .into_iter()
+        .map(|row| row.map(|row| E::decode_row(&binding, row)))
+        .collect::<Vec<_>>();
+    std::hint::black_box((distinct_rows, prepared.positions));
+}
+
+#[allow(dead_code)]
+fn prepared_same_entity_write_batch_compiles<C, E>(db: &DbSession<C>, writes: Vec<TypedWrite>)
+where
+    C: CanisterKind,
+    E: TypedEntityAdapter,
+{
+    let Ok(binding) = E::typed_binding(db) else {
+        return;
+    };
+    let Ok(rows) = db.execute_trusted_typed_write_batch_rows(&binding, writes) else {
+        return;
+    };
+    let decoded = rows
+        .into_iter()
+        .map(|row| E::decode_row(&binding, row))
+        .collect::<Vec<_>>();
+    std::hint::black_box(decoded);
 }
 
 #[test]

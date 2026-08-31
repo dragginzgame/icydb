@@ -223,7 +223,7 @@ if has_selected_canister one_entity_reachable_operations \
         (
             cd "$ROOT"
             cargo run -p icydb-testing-integration --bin check_wasm_entity_scale --locked -- \
-                "$baseline_wasm" "$candidate_wasm" --report-only
+                "$baseline_wasm" "$candidate_wasm" --reachable
         )
     done
 fi

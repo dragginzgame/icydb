@@ -208,10 +208,18 @@ fn runtime_entity_references_include_source_fields_and_managed_timestamps() {
 fn typed_adapter_generation_separates_row_and_operation_shapes() {
     let mut created_at = primitive_field("created_at", Primitive::Timestamp);
     created_at.write_management = Some(FieldWriteManagement::CreatedAt);
+    let mut nickname = primitive_field("nickname", Primitive::Text);
+    nickname.value.opt = true;
+    let mut profile = primitive_field("profile", Primitive::Unit);
+    profile.value.item.primitive = None;
+    profile.value.item.is = Some(syn::parse_quote!(Profile));
     let mut entity = entity_with_fields_and_indexes(
         vec![
             scalar_field("id"),
             primitive_field("name", Primitive::Text),
+            many_scalar_field("tags"),
+            profile,
+            nickname,
             created_at,
         ],
         vec![],
@@ -229,8 +237,13 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
         "impl :: icydb :: db :: TypedWriteAdapter for TestEntityInsert",
         "impl :: icydb :: db :: TypedWriteAdapter for TestEntityPatch",
         "impl :: icydb :: db :: TypedWriteAdapter for TestEntityReplace",
-        "TypedFieldBindingRequest :: new",
+        "const DESCRIPTOR : & 'static :: icydb :: db :: TypedEntityDescriptor",
+        "TypedEntityDescriptor :: new",
+        "TypedFieldDescriptor :: new",
         "TypedFieldType :: Scalar",
+        "TypedFieldType :: List (& :: icydb :: __macro :: TypedFieldType :: Scalar",
+        "TypedFieldType :: Named (< Profile as :: icydb_model :: TypedNamedType > :: SOURCE_KEY ,)",
+        "TypedFieldDescriptor :: new (\"nickname\" , :: icydb :: __macro :: TypedFieldType :: Scalar (:: icydb :: __macro :: ScalarType :: Text { max_len : None }) , true ,)",
         "ScalarType :: Timestamp",
         "Vec < (& 'static str , :: icydb :: db :: WriteCell < :: icydb :: value :: InputValue > ,) >",
     ] {
@@ -243,6 +256,12 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
         !tokens.contains("pub created_at : :: icydb :: db :: WriteCell"),
         "managed fields must be absent from authored write inputs: {tokens}",
     );
+    for forbidden in ["TypedFieldBindingRequest", "Box :: new", "String :: from"] {
+        assert!(
+            !tokens.contains(forbidden),
+            "generated binding descriptors must remain static data: {tokens}",
+        );
+    }
     for forbidden in [
         "icydb_model :: normalize",
         "icydb_model :: validate",
@@ -271,6 +290,10 @@ fn composite_typed_adapter_uses_the_generated_canonical_key() {
             "impl :: icydb :: __macro :: EntityKey for TestEntity { type Key = TestEntityKey"
         ),
         "composite adapter must expose its generated key type: {tokens}",
+    );
+    assert!(
+        tokens.contains("& [\"tenant_id\" , \"local_id\"]"),
+        "descriptor must retain ordered primary-key source keys: {tokens}",
     );
 }
 

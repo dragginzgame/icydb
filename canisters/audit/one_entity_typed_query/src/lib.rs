@@ -120,7 +120,8 @@ mod tests {
     use crate::db;
     use icydb::{
         db::{
-            StructuralMutation, StructuralPatch, TypedAdapterError, TypedRowAdapter, TypedRowError,
+            DynamicQuery, PrimaryKeyComponent, PrimaryKeyValue, StructuralMutation,
+            StructuralPatch, TypedAdapterError, TypedRowAdapter, TypedRowError, TypedWrite,
             TypedWriteAdapter, TypedWriteError, WriteCell,
             query::{FieldRef, TypedQueryError, asc, count},
         },
@@ -246,6 +247,93 @@ mod tests {
                     .map(|row| row.id),
                 Some(first),
             );
+        });
+    }
+
+    #[test]
+    fn prepared_exact_key_terminal_returns_bound_distinct_rows_and_positions() {
+        let first = insert_one_native_row("first-prepared-exact");
+        let second = insert_one_native_row("second-prepared-exact");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("native database should initialize");
+            let binding = OneSimpleEntity01::typed_binding(&database)
+                .expect("generated entity should bind to accepted authority");
+            let keys = [second, Ulid::MAX, first, second]
+                .map(PrimaryKeyComponent::Ulid)
+                .map(PrimaryKeyValue::Scalar);
+
+            let prepared = database
+                .execute_public_prepared_exact_key_batch(&binding, &keys)
+                .expect("prepared exact-key batch should execute");
+            assert_eq!(prepared.positions, vec![0, 1, 2, 0]);
+            let distinct_ids = prepared
+                .distinct_rows
+                .into_iter()
+                .map(|row| {
+                    row.map(|row| {
+                        OneSimpleEntity01::decode_row(&binding, row)
+                            .expect("prepared exact-key row should decode")
+                            .id
+                    })
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(distinct_ids, vec![Some(second), None, Some(first)]);
+        });
+    }
+
+    #[test]
+    fn prepared_live_page_cursor_keeps_retry_and_owned_progress_distinct() {
+        let first_id = insert_one_native_row("prepared-first");
+        let second_id = insert_one_native_row("prepared-second");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("native database should initialize");
+            let binding = OneSimpleEntity01::typed_binding(&database)
+                .expect("generated entity should bind to accepted authority");
+            let request = DynamicQuery::new(OneSimpleEntity01::ENTITY)
+                .order_by(asc("id"))
+                .limit(1);
+            let mut cursor = database.prepare_live_page_cursor(binding, request);
+
+            let first = cursor
+                .execute_trusted_page(None)
+                .expect("first prepared page should execute");
+            let first_rows = first
+                .rows
+                .map(|row| {
+                    OneSimpleEntity01::decode_row(cursor.binding(), row)
+                        .expect("first prepared row should decode")
+                })
+                .collect::<Vec<_>>();
+            let retry = cursor
+                .execute_trusted_page(None)
+                .expect("unchanged caller state should retry the same page");
+            let retry_rows = retry
+                .rows
+                .map(|row| {
+                    OneSimpleEntity01::decode_row(cursor.binding(), row)
+                        .expect("retried prepared row should decode")
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(retry_rows, first_rows);
+
+            let owned_rows = cursor
+                .next_trusted_page()
+                .expect("cursor-owned page should execute")
+                .expect("cursor should yield its first page")
+                .map(|row| {
+                    OneSimpleEntity01::decode_row(cursor.binding(), row)
+                        .expect("cursor-owned prepared row should decode")
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(owned_rows, first_rows);
+            assert!(
+                cursor
+                    .next_trusted_page()
+                    .expect("exhaustion should be stable")
+                    .is_none()
+            );
+            assert_eq!(first_rows.len(), 1);
+            assert!(first_rows[0].id == first_id || first_rows[0].id == second_id);
         });
     }
 
@@ -381,6 +469,79 @@ mod tests {
             ));
         });
     }
+
+    #[test]
+    fn same_entity_typed_write_rows_preserve_order_delete_before_images_and_single_parity() {
+        crate::__icydb_generated::__initialize_native_database_for_tests()
+            .expect("fresh native database startup should complete");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("native database should initialize");
+            let binding = OneSimpleEntity01::typed_binding(&database)
+                .expect("generated entity should bind to accepted authority");
+            let encode_insert = |name: &str| {
+                OneSimpleEntity01Insert {
+                    name: WriteCell::Value(name.to_string()),
+                }
+                .encode_write(&binding)
+                .expect("generated insert should encode")
+            };
+
+            let single = database
+                .execute_trusted_typed_write_row(encode_insert("single-parity"))
+                .and_then(|row| {
+                    OneSimpleEntity01::decode_row(&binding, row).map_err(TypedWriteError::Adapter)
+                })
+                .expect("single typed terminal should return one row");
+            assert_eq!(single.name, "single-parity");
+
+            let rows = database
+                .execute_trusted_typed_write_batch_rows(
+                    &binding,
+                    vec![encode_insert("batch-first"), encode_insert("batch-second")],
+                )
+                .expect("same-entity typed batch should execute");
+            let inserted = rows
+                .into_iter()
+                .map(|row| {
+                    OneSimpleEntity01::decode_row(&binding, row).map_err(TypedWriteError::Adapter)
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .expect("same-entity batch rows should decode");
+            assert_eq!(
+                inserted
+                    .iter()
+                    .map(|row| row.name.as_str())
+                    .collect::<Vec<_>>(),
+                ["batch-first", "batch-second"],
+            );
+
+            let delete_writes = inserted
+                .iter()
+                .rev()
+                .map(|row| TypedWrite::delete(&binding, InputValue::from(row.id)))
+                .collect();
+            let before_images = database
+                .execute_trusted_typed_write_batch_rows(&binding, delete_writes)
+                .expect("typed deletes should share the same batch terminal")
+                .map(|row| {
+                    OneSimpleEntity01::decode_row(&binding, row).map_err(TypedWriteError::Adapter)
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .expect("delete before-images should decode");
+            assert_eq!(
+                before_images
+                    .iter()
+                    .map(|row| row.name.as_str())
+                    .collect::<Vec<_>>(),
+                ["batch-second", "batch-first"],
+            );
+
+            assert!(matches!(
+                database.execute_trusted_typed_write_batch_rows(&binding, Vec::new()),
+                Err(TypedWriteError::Database(_)),
+            ));
+        });
+    }
 }
 
 #[cfg(all(test, feature = "u256-audit"))]
@@ -389,14 +550,15 @@ mod u256_tests {
     use icydb::{
         U256,
         db::{
-            DynamicQuery, StructuralPatch, WriteCell,
+            DynamicQuery, StructuralPatch, TypedAdapterError, TypedWrite, TypedWriteError,
+            WriteCell,
             query::{FieldRef, asc, count, max_by, min_by},
         },
         traits::EntitySource,
         types::Id,
         value::{InputValue, OutputValue},
     };
-    use icydb_testing_audit_one_simple_fixtures::one_simple::U256AuditEntity;
+    use icydb_testing_audit_one_simple_fixtures::one_simple::{OneSimpleEntity01, U256AuditEntity};
 
     fn u256_patch(
         id: U256,
@@ -428,7 +590,10 @@ mod u256_tests {
             .position(|column| column == field)
             .expect("U256 query output should retain the requested field");
         match output.rows.get(row).and_then(|row| row.get(column)) {
-            Some(OutputValue::u256(value)) => *value,
+            Some(value) => match value.as_public() {
+                icydb::value::PublicValue::U256(value) => *value,
+                _ => panic!("U256 query output should retain its exact value kind"),
+            },
             _ => panic!("U256 query output should retain its exact value kind"),
         }
     }
@@ -535,6 +700,25 @@ mod u256_tests {
                     )],
                 )
                 .expect_err("unique U256 index should reject a duplicate value");
+        });
+    }
+
+    #[test]
+    fn same_entity_typed_write_rows_reject_a_foreign_binding_before_execution() {
+        crate::__icydb_generated::__initialize_native_database_for_tests()
+            .expect("fresh native database startup should complete");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("native database should initialize");
+            let one_binding =
+                OneSimpleEntity01::typed_binding(&database).expect("simple entity should bind");
+            let u256_binding =
+                U256AuditEntity::typed_binding(&database).expect("U256 entity should bind");
+            let foreign = TypedWrite::delete(&u256_binding, InputValue::u256(U256::MIN));
+
+            assert!(matches!(
+                database.execute_trusted_typed_write_batch_rows(&one_binding, vec![foreign]),
+                Err(TypedWriteError::Adapter(TypedAdapterError::EntityMismatch)),
+            ));
         });
     }
 }

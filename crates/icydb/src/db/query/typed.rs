@@ -8,14 +8,14 @@
 use crate::{
     db::{
         AttributedRead, DbSession, DynamicQuery, ExhaustiveReadError, GroupedQueryOutput,
-        TypedBindingError, TypedEntityAdapter, TypedEntityBinding, TypedRowError,
-        session::OutputRowProjection,
+        PreparedLivePageOutput, TypedBindingError, TypedEntityAdapter, TypedEntityBinding,
+        TypedRowError,
     },
     traits::{CanisterKind, EntityKey},
     types::Id,
 };
 use candid::CandidType;
-use icydb_core::db::{AggregateExpr, FilterExpr, OrderTerm};
+use icydb_core::db::{AggregateExpr, FilterExpr, OrderTerm, PrimaryKeyEncode, PrimaryKeyValue};
 use serde::Deserialize;
 use std::{error::Error as StdError, fmt, marker::PhantomData};
 
@@ -114,6 +114,21 @@ fn typed_query_error_from_binding(error: TypedBindingError) -> TypedQueryError {
         TypedBindingError::Adapter(error) => TypedQueryError::Row(TypedRowError::Adapter(error)),
         TypedBindingError::Database(error) => TypedQueryError::Database(error),
     }
+}
+
+fn encode_typed_exact_keys<K>(keys: &[K]) -> Result<Vec<PrimaryKeyValue>, TypedQueryError>
+where
+    K: PrimaryKeyEncode,
+{
+    keys.iter()
+        .map(|key| {
+            key.to_primary_key_value().map_err(|error| {
+                TypedQueryError::Database(crate::Error::from(
+                    icydb_core::error::InternalError::from(error),
+                ))
+            })
+        })
+        .collect()
 }
 
 #[must_use]
@@ -250,16 +265,11 @@ where
         self,
         continuation: Option<&str>,
     ) -> Result<LivePage<E::Row>, TypedQueryError> {
-        let result = self
+        let cursor = self
             .session
-            .execute_public_typed_live_page(&self.binding, &self.request, continuation)
-            .map_err(TypedQueryError::Database)?
-            .ok_or({
-                TypedQueryError::Row(TypedRowError::Adapter(
-                    crate::db::TypedAdapterError::StaleBinding,
-                ))
-            })?;
-        self.decode_live_page(result)
+            .prepare_live_page_cursor(self.binding, self.request);
+        let result = cursor.execute_page(continuation)?;
+        Self::decode_live_page(cursor.binding(), result)
     }
 
     /// Execute one revision-tolerant typed page with bounded per-call cost attribution.
@@ -273,27 +283,20 @@ where
         continuation: Option<&str>,
     ) -> Result<AttributedRead<LivePage<E::Row>>, TypedQueryError> {
         let start = read_operation_local_instruction_counter();
-        let attributed = self
+        let cursor = self
             .session
-            .execute_public_typed_live_page_with_attribution(
-                &self.binding,
-                &self.request,
-                continuation,
-            )
-            .map_err(TypedQueryError::Database)?
-            .ok_or({
-                TypedQueryError::Row(TypedRowError::Adapter(
-                    crate::db::TypedAdapterError::StaleBinding,
-                ))
-            })?;
+            .prepare_live_page_cursor(self.binding, self.request);
+        let attributed = cursor.execute_public_page_with_attribution(continuation)?;
         let decode_start = read_operation_local_instruction_counter();
-        let result = self.decode_live_page(attributed.result)?;
+        let result = Self::decode_live_page(cursor.binding(), attributed.result)?;
         let response_decode_local_instructions =
             read_operation_local_instruction_counter().saturating_sub(decode_start);
         let total_local_instructions =
             read_operation_local_instruction_counter().saturating_sub(start);
         let mut attribution = attributed.attribution;
-        attribution.response_decode_local_instructions = response_decode_local_instructions;
+        attribution.response_decode_local_instructions = attribution
+            .response_decode_local_instructions
+            .saturating_add(response_decode_local_instructions);
         attribution.total_local_instructions = total_local_instructions;
 
         Ok(AttributedRead {
@@ -303,17 +306,13 @@ where
     }
 
     fn decode_live_page(
-        &self,
-        result: crate::db::LiveQueryPageOutput,
+        binding: &TypedEntityBinding,
+        prepared: PreparedLivePageOutput,
     ) -> Result<LivePage<E::Row>, TypedQueryError> {
-        let prepared = self
-            .session
-            .prepare_typed_live_page_output(&self.binding, result)
-            .map_err(TypedQueryError::Row)?;
         let mut rows = Vec::with_capacity(prepared.rows.len());
         for row in prepared.rows {
             rows.push(
-                E::decode_row(&self.binding, row)
+                E::decode_row(binding, row)
                     .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?,
             );
         }
@@ -431,41 +430,22 @@ impl<C: CanisterKind> DbSession<C> {
         E::Row: Clone,
     {
         let binding = E::typed_binding(self).map_err(typed_query_error_from_binding)?;
-        let result = self
-            .execute_public_typed_exact_key_batch(&binding, ids)
-            .map_err(TypedQueryError::Database)?
-            .ok_or({
-                TypedQueryError::Row(TypedRowError::Adapter(
-                    crate::db::TypedAdapterError::StaleBinding,
-                ))
-            })?;
-        let icydb_core::db::ExactKeyBatchProjectionOutput {
-            entity,
-            columns,
-            distinct_rows: output_rows,
-            positions,
-        } = result;
-        let projection = OutputRowProjection::new(&binding, entity, columns.as_slice())
-            .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?;
-        let mut distinct_rows = Vec::with_capacity(output_rows.len());
-        for values in output_rows {
-            let row = match values {
-                Some(values) => {
-                    let row = projection
-                        .project(values)
-                        .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?;
-                    Some(
-                        E::decode_row(&binding, row)
-                            .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?,
-                    )
-                }
+        let keys = encode_typed_exact_keys(ids)?;
+        let prepared = self.execute_public_prepared_exact_key_batch(&binding, &keys)?;
+        let mut distinct_rows = Vec::with_capacity(prepared.distinct_rows.len());
+        for row in prepared.distinct_rows {
+            let row = match row {
+                Some(row) => Some(
+                    E::decode_row(&binding, row)
+                        .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?,
+                ),
                 None => None,
             };
             distinct_rows.push(row);
         }
 
-        let mut rows = Vec::with_capacity(positions.len());
-        for position in positions {
+        let mut rows = Vec::with_capacity(prepared.positions.len());
+        for position in prepared.positions {
             let index = usize::try_from(position).map_err(|_| {
                 TypedQueryError::Row(TypedRowError::Adapter(
                     crate::db::TypedAdapterError::RowShapeMismatch,

@@ -3,8 +3,9 @@
 use crate::{
     db::{
         DbSession, DynamicQuery, DynamicStructuralPatch, DynamicTypedEntityBinding,
-        DynamicTypedFieldBindingRequest, DynamicTypedFieldType, DynamicWriteCell, FieldRef,
-        FilterExpr, QueryError, QueryExecutionError, SqlStatementResult, asc,
+        DynamicWriteCell, FieldRef, FilterExpr, PrimaryKeyComponent, PrimaryKeyValue, QueryError,
+        QueryExecutionError, SqlStatementResult, TypedEntityDescriptor, TypedFieldDescriptor,
+        TypedFieldType, asc,
         data::{DataStore, DecodedDataStoreKey},
         index::{IndexEntryValue, IndexStore, IndexStoreVisit, RawIndexStoreKey},
         registry::{StoreAllocationIdentities, StoreRegistry, StoreRuntimeStorageCapabilities},
@@ -50,6 +51,19 @@ const ID_SOURCE: &str = "db::session::tests::unit_ordering::Singleton::id";
 const LABEL_SOURCE: &str = "db::session::tests::unit_ordering::Singleton::label";
 const AMOUNT_SOURCE: &str = "db::session::tests::unit_ordering::Singleton::amount";
 const ENTITY_TAG: EntityTag = EntityTag::new(220);
+const TYPED_DESCRIPTOR: TypedEntityDescriptor = TypedEntityDescriptor::new(
+    ENTITY_SOURCE,
+    &[ID_SOURCE],
+    &[
+        TypedFieldDescriptor::new(ID_SOURCE, TypedFieldType::Scalar(ScalarType::Unit), false),
+        TypedFieldDescriptor::new(
+            LABEL_SOURCE,
+            TypedFieldType::Scalar(ScalarType::Text { max_len: None }),
+            false,
+        ),
+    ],
+);
+const UNIT_PRIMARY_KEY: PrimaryKeyValue = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Unit);
 
 const PARSE_ONCE_QUERY: &str =
     "SELECT id, label FROM Singleton WHERE label = 'parse-once' ORDER BY id LIMIT 1";
@@ -503,21 +517,7 @@ fn unit_primary_key_ordering_is_consistent_across_query_surfaces() {
         .order_by(asc("id"))
         .limit(100);
     let binding = session
-        .issue_typed_entity_binding(
-            ENTITY_SOURCE,
-            &[
-                DynamicTypedFieldBindingRequest::new(
-                    ID_SOURCE.to_string(),
-                    DynamicTypedFieldType::Scalar(ScalarType::Unit),
-                    false,
-                ),
-                DynamicTypedFieldBindingRequest::new(
-                    LABEL_SOURCE.to_string(),
-                    DynamicTypedFieldType::Scalar(ScalarType::Text { max_len: None }),
-                    false,
-                ),
-            ],
-        )
+        .issue_typed_entity_binding(&TYPED_DESCRIPTOR)
         .expect("generated-style typed binding should resolve accepted Unit authority");
     let typed = session
         .execute_public_live_page_for_typed_binding(&binding, &primary_key_query, None)
@@ -747,7 +747,10 @@ fn assert_unit_exact_key_batch(
     let gets_before = DataStore::current_get_call_count();
     let cached_plans_before = shared_query_plan_cache_len_for_tests(session.db.cache_scope_id());
     let exact = session
-        .execute_public_exact_key_batch_for_typed_binding(binding, &[(), ()])
+        .execute_public_exact_key_batch_for_typed_binding(
+            binding,
+            &[UNIT_PRIMARY_KEY, UNIT_PRIMARY_KEY],
+        )
         .expect("typed Unit exact-key batch should execute")
         .expect("typed binding should remain current");
     assert_eq!(exact.positions, vec![0, 0]);
@@ -763,7 +766,7 @@ fn assert_unit_exact_key_batch(
         "exact-key reads must not populate the general query-plan cache",
     );
 
-    let too_many = vec![(); crate::db::MAX_TYPED_EXACT_KEY_BATCH_ITEMS + 1];
+    let too_many = vec![UNIT_PRIMARY_KEY; crate::db::MAX_TYPED_EXACT_KEY_BATCH_ITEMS + 1];
     let over_bound = session
         .execute_public_exact_key_batch_for_typed_binding(binding, too_many.as_slice())
         .expect_err("exact-key count cap plus one should reject before store access");
@@ -859,21 +862,7 @@ fn request_diagnostics_share_one_root_and_expose_repeated_point_lookups() {
     let bootstrap = initialize();
     seed_singleton(&bootstrap);
     let binding = bootstrap
-        .issue_typed_entity_binding(
-            ENTITY_SOURCE,
-            &[
-                DynamicTypedFieldBindingRequest::new(
-                    ID_SOURCE.to_string(),
-                    DynamicTypedFieldType::Scalar(ScalarType::Unit),
-                    false,
-                ),
-                DynamicTypedFieldBindingRequest::new(
-                    LABEL_SOURCE.to_string(),
-                    DynamicTypedFieldType::Scalar(ScalarType::Text { max_len: None }),
-                    false,
-                ),
-            ],
-        )
+        .issue_typed_entity_binding(&TYPED_DESCRIPTOR)
         .expect("request diagnostics binding should resolve");
     let root = crate::db::RequestExecutionRoot::__new_runtime_root();
     let first = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
@@ -896,7 +885,10 @@ fn request_diagnostics_share_one_root_and_expose_repeated_point_lookups() {
             .expect("repeated point lookup should execute");
     }
     second
-        .execute_public_exact_key_batch_for_typed_binding(&binding, &[(), ()])
+        .execute_public_exact_key_batch_for_typed_binding(
+            &binding,
+            &[UNIT_PRIMARY_KEY, UNIT_PRIMARY_KEY],
+        )
         .expect("direct exact-key batch should execute")
         .expect("binding should remain current");
 
@@ -1096,21 +1088,7 @@ fn parameterized_template_cache_evicts_deterministically_at_its_capacity_bound()
 fn accepted_runtime_root_publication_is_atomic_across_schema_revisions() {
     let session = initialize();
     let binding = session
-        .issue_typed_entity_binding(
-            ENTITY_SOURCE,
-            &[
-                DynamicTypedFieldBindingRequest::new(
-                    ID_SOURCE.to_string(),
-                    DynamicTypedFieldType::Scalar(ScalarType::Unit),
-                    false,
-                ),
-                DynamicTypedFieldBindingRequest::new(
-                    LABEL_SOURCE.to_string(),
-                    DynamicTypedFieldType::Scalar(ScalarType::Text { max_len: None }),
-                    false,
-                ),
-            ],
-        )
+        .issue_typed_entity_binding(&TYPED_DESCRIPTOR)
         .expect("initial exact-key binding should issue");
     let first_context = session
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
@@ -1130,7 +1108,7 @@ fn accepted_runtime_root_publication_is_atomic_across_schema_revisions() {
     assert_ne!(first_root, second_context.runtime_root_identity());
     assert!(
         session
-            .execute_public_exact_key_batch_for_typed_binding(&binding, &[()])
+            .execute_public_exact_key_batch_for_typed_binding(&binding, &[UNIT_PRIMARY_KEY])
             .expect("stale exact-key binding should fail closed")
             .is_none(),
     );

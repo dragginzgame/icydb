@@ -6,7 +6,7 @@
 
 use crate::{
     db::{
-        DbSession, DynamicTypedEntityBinding, ExactKeyBatchProjectionOutput, PrimaryKeyEncode,
+        DbSession, DynamicTypedEntityBinding, ExactKeyBatchProjectionOutput, PrimaryKeyValue,
         QueryError,
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow, StructuralSlotReader},
         executor::budget::{
@@ -261,9 +261,9 @@ fn load_distinct_raw_rows(
         .collect()
 }
 
-fn lower_exact_keys<K: PrimaryKeyEncode>(
+fn lower_exact_keys(
     entity_tag: crate::types::EntityTag,
-    keys: &[K],
+    keys: &[PrimaryKeyValue],
     budget: &mut HardExecutionBudgetTracker,
 ) -> Result<LoweredExactKeys, QueryError> {
     let mut distinct_by_raw = BTreeMap::new();
@@ -274,12 +274,8 @@ fn lower_exact_keys<K: PrimaryKeyEncode>(
     #[cfg(feature = "diagnostics")]
     let mut diagnostic_key_hashes = Vec::new();
     let mut input_bytes = 0_usize;
-    for key in keys {
-        let primary_key = key
-            .to_primary_key_value()
-            .map_err(InternalError::from)
-            .map_err(QueryError::execute)?;
-        let data_key = DecodedDataStoreKey::new(entity_tag, &primary_key);
+    for primary_key in keys {
+        let data_key = DecodedDataStoreKey::new(entity_tag, primary_key);
         let raw_key = data_key.to_raw().map_err(QueryError::execute)?;
         #[cfg(feature = "diagnostics")]
         if collect_diagnostic_keys {
@@ -342,14 +338,11 @@ impl<C: CanisterKind> DbSession<C> {
     /// `None` means the opaque generated binding is stale. The result carries
     /// one decoded projection per distinct key plus the original-position map.
     #[doc(hidden)]
-    pub fn execute_public_exact_key_batch_for_typed_binding<K>(
+    pub fn execute_public_exact_key_batch_for_typed_binding(
         &self,
         binding: &DynamicTypedEntityBinding,
-        keys: &[K],
-    ) -> Result<Option<ExactKeyBatchProjectionOutput>, QueryError>
-    where
-        K: PrimaryKeyEncode,
-    {
+        keys: &[PrimaryKeyValue],
+    ) -> Result<Option<ExactKeyBatchProjectionOutput>, QueryError> {
         let mut budget = HardExecutionBudgetTracker::new_with_request_scope(
             &EXACT_KEY_HARD_BUDGET,
             exact_key_budget_context(binding),
@@ -361,15 +354,12 @@ impl<C: CanisterKind> DbSession<C> {
         result
     }
 
-    fn execute_exact_key_batch_with_budget<K>(
+    fn execute_exact_key_batch_with_budget(
         &self,
         binding: &DynamicTypedEntityBinding,
-        keys: &[K],
+        keys: &[PrimaryKeyValue],
         budget: &mut HardExecutionBudgetTracker,
-    ) -> Result<Option<ExactKeyBatchProjectionOutput>, QueryError>
-    where
-        K: PrimaryKeyEncode,
-    {
+    ) -> Result<Option<ExactKeyBatchProjectionOutput>, QueryError> {
         budget
             .precharge(DiagnosticExecutionBudgetResource::QueryExecutions, 1)
             .map_err(budget_error)?;
@@ -445,15 +435,12 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-    pub(in crate::db) fn execute_exact_key_batch_with_hard_budget_for_tests<K>(
+    pub(in crate::db) fn execute_exact_key_batch_with_hard_budget_for_tests(
         &self,
         binding: &DynamicTypedEntityBinding,
-        keys: &[K],
+        keys: &[PrimaryKeyValue],
         hard_budget: &HardExecutionBudget,
-    ) -> Result<Option<ExactKeyBatchProjectionOutput>, QueryError>
-    where
-        K: PrimaryKeyEncode,
-    {
+    ) -> Result<Option<ExactKeyBatchProjectionOutput>, QueryError> {
         let mut budget = HardExecutionBudgetTracker::new_for_tests(
             *hard_budget,
             exact_key_budget_context(binding),
@@ -567,5 +554,39 @@ mod tests {
                 > MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES as u64,
             "rejected result work remains charged even when the exact-key boundary is returned",
         );
+    }
+
+    #[test]
+    fn exact_key_lowering_preserves_composite_distinct_positions() {
+        let composite = |tenant, local| {
+            PrimaryKeyValue::Composite(
+                crate::db::CompositePrimaryKeyValue::try_from_components(&[
+                    crate::db::PrimaryKeyComponent::Nat64(tenant),
+                    crate::db::PrimaryKeyComponent::Nat64(local),
+                ])
+                .expect("two non-Unit components should form a composite key"),
+            )
+        };
+        let first = composite(7, 11);
+        let second = composite(7, 12);
+        let mut budget = HardExecutionBudgetTracker::new(
+            &EXACT_KEY_HARD_BUDGET,
+            HardExecutionContext::new(
+                DiagnosticExecutionBudgetScope::Execution,
+                DiagnosticExecutionLane::PublicRead,
+                2,
+            ),
+        );
+
+        let lowered = lower_exact_keys(
+            crate::types::EntityTag::new(9),
+            &[first, second, first],
+            &mut budget,
+        )
+        .expect("composite exact keys should lower through the concrete boundary");
+
+        assert_eq!(lowered.positions, vec![0, 1, 0]);
+        assert_eq!(lowered.distinct.len(), 2);
+        assert_ne!(lowered.distinct[0].1, lowered.distinct[1].1);
     }
 }

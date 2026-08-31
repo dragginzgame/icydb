@@ -11,8 +11,13 @@ pub const WASM_MEASUREMENT_PROFILE_VERSION: u32 = 1;
 /// Stable identity carried by every comparable Wasm report.
 pub const WASM_MEASUREMENT_PROFILE_ID: &str = "icydb-wasm-footprint/0.250/v1";
 
-/// Maximum final raw-Wasm growth admitted for each additional generated entity.
-pub const MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY: u64 = 2 * 1024;
+/// Maximum final raw-Wasm growth admitted for each additional declared schema
+/// whose generated adapters remain unreachable and dead-strippable.
+pub const MAX_SCHEMA_ENTITY_SCALE_RAW_BYTES_PER_ENTITY: u64 = 2 * 1024;
+
+/// Maximum final raw-Wasm growth admitted for each additional entity whose
+/// generated page, exact-key and write adapters are all reachable.
+pub const MAX_REACHABLE_ENTITY_SCALE_RAW_BYTES_PER_ENTITY: u64 = 8 * 1024;
 
 /// Generated entities added by the maintained one-entity to ten-entity pair.
 pub const ENTITY_SCALE_ADDED_ENTITIES: u64 = 9;
@@ -62,20 +67,49 @@ pub fn entity_scale_raw_bytes_per_added_entity(
     whole + u64::from(!growth.is_multiple_of(ENTITY_SCALE_ADDED_ENTITIES))
 }
 
-/// Enforce the maintained finalized raw-Wasm entity-scale ceiling.
+/// Enforce the maintained finalized raw-Wasm schema-entity-scale ceiling.
 ///
 /// # Errors
 ///
 /// Returns the observed and admitted per-entity costs when the maintained
-/// one-entity to ten-entity pair exceeds the ceiling.
-pub fn validate_entity_scale_raw_wasm(
+/// dead-strippable one-entity to ten-entity pair exceeds the ceiling.
+pub fn validate_schema_entity_scale_raw_wasm(
     baseline_raw_bytes: u64,
     candidate_raw_bytes: u64,
 ) -> Result<u64, EntityScaleWasmBudgetExceeded> {
+    validate_entity_scale_raw_wasm_with_maximum(
+        baseline_raw_bytes,
+        candidate_raw_bytes,
+        MAX_SCHEMA_ENTITY_SCALE_RAW_BYTES_PER_ENTITY,
+    )
+}
+
+/// Enforce the maintained finalized raw-Wasm reachable-entity-scale ceiling.
+///
+/// # Errors
+///
+/// Returns the observed and admitted per-entity costs when the maintained
+/// reachable-operation one-entity to ten-entity pair exceeds the ceiling.
+pub fn validate_reachable_entity_scale_raw_wasm(
+    baseline_raw_bytes: u64,
+    candidate_raw_bytes: u64,
+) -> Result<u64, EntityScaleWasmBudgetExceeded> {
+    validate_entity_scale_raw_wasm_with_maximum(
+        baseline_raw_bytes,
+        candidate_raw_bytes,
+        MAX_REACHABLE_ENTITY_SCALE_RAW_BYTES_PER_ENTITY,
+    )
+}
+
+fn validate_entity_scale_raw_wasm_with_maximum(
+    baseline_raw_bytes: u64,
+    candidate_raw_bytes: u64,
+    maximum_raw_bytes_per_entity: u64,
+) -> Result<u64, EntityScaleWasmBudgetExceeded> {
     let observed = entity_scale_raw_bytes_per_added_entity(baseline_raw_bytes, candidate_raw_bytes);
-    if observed > MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY {
+    if observed > maximum_raw_bytes_per_entity {
         return Err(EntityScaleWasmBudgetExceeded {
-            maximum_raw_bytes_per_entity: MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY,
+            maximum_raw_bytes_per_entity,
             observed_raw_bytes_per_entity: observed,
         });
     }
@@ -303,7 +337,8 @@ mod tests {
     #[test]
     fn current_measurement_contract_is_complete_and_fail_closed() {
         validate_wasm_measurement_contract().expect("current measurement contract should validate");
-        assert_eq!(MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY, 2_048);
+        assert_eq!(MAX_SCHEMA_ENTITY_SCALE_RAW_BYTES_PER_ENTITY, 2_048);
+        assert_eq!(MAX_REACHABLE_ENTITY_SCALE_RAW_BYTES_PER_ENTITY, 8_192);
         assert_eq!(
             WASM_MEASUREMENT_COMPARISONS
                 .iter()
@@ -317,22 +352,49 @@ mod tests {
     }
 
     #[test]
-    fn entity_scale_guard_uses_final_raw_bytes_and_rounds_up() {
-        let exact_limit = MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY * ENTITY_SCALE_ADDED_ENTITIES;
+    fn schema_entity_scale_guard_uses_final_raw_bytes_and_rounds_up() {
+        let exact_limit =
+            MAX_SCHEMA_ENTITY_SCALE_RAW_BYTES_PER_ENTITY * ENTITY_SCALE_ADDED_ENTITIES;
         assert_eq!(
-            validate_entity_scale_raw_wasm(1_000_000, 1_000_000 + exact_limit),
-            Ok(MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY)
+            validate_schema_entity_scale_raw_wasm(1_000_000, 1_000_000 + exact_limit),
+            Ok(MAX_SCHEMA_ENTITY_SCALE_RAW_BYTES_PER_ENTITY)
         );
         assert_eq!(entity_scale_raw_bytes_per_added_entity(10_000, 10_001), 1);
         assert_eq!(entity_scale_raw_bytes_per_added_entity(10_001, 10_000), 0);
 
-        let exceeded = validate_entity_scale_raw_wasm(1_000_000, 1_000_000 + exact_limit + 1)
-            .expect_err("one byte above the aggregate ceiling should fail");
+        let exceeded =
+            validate_schema_entity_scale_raw_wasm(1_000_000, 1_000_000 + exact_limit + 1)
+                .expect_err("one byte above the aggregate ceiling should fail");
         assert_eq!(
             exceeded,
             EntityScaleWasmBudgetExceeded {
-                maximum_raw_bytes_per_entity: MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY,
-                observed_raw_bytes_per_entity: MAX_ENTITY_SCALE_RAW_BYTES_PER_ENTITY + 1,
+                maximum_raw_bytes_per_entity: MAX_SCHEMA_ENTITY_SCALE_RAW_BYTES_PER_ENTITY,
+                observed_raw_bytes_per_entity: MAX_SCHEMA_ENTITY_SCALE_RAW_BYTES_PER_ENTITY + 1,
+            }
+        );
+    }
+
+    #[test]
+    fn reachable_entity_scale_guard_uses_its_distinct_fail_closed_ceiling() {
+        assert_eq!(
+            validate_reachable_entity_scale_raw_wasm(2_871_318, 2_911_506),
+            Ok(4_466)
+        );
+
+        let exact_limit =
+            MAX_REACHABLE_ENTITY_SCALE_RAW_BYTES_PER_ENTITY * ENTITY_SCALE_ADDED_ENTITIES;
+        assert_eq!(
+            validate_reachable_entity_scale_raw_wasm(1_000_000, 1_000_000 + exact_limit),
+            Ok(MAX_REACHABLE_ENTITY_SCALE_RAW_BYTES_PER_ENTITY)
+        );
+        let exceeded =
+            validate_reachable_entity_scale_raw_wasm(1_000_000, 1_000_000 + exact_limit + 1)
+                .expect_err("one byte above the reachable aggregate ceiling should fail");
+        assert_eq!(
+            exceeded,
+            EntityScaleWasmBudgetExceeded {
+                maximum_raw_bytes_per_entity: MAX_REACHABLE_ENTITY_SCALE_RAW_BYTES_PER_ENTITY,
+                observed_raw_bytes_per_entity: MAX_REACHABLE_ENTITY_SCALE_RAW_BYTES_PER_ENTITY + 1,
             }
         );
     }

@@ -1,7 +1,7 @@
 //! Shared helpers for wasm fixture schema and canister builds.
 
 use icydb::{
-    db::{DbSession, DynamicQuery, StructuralMutation, TypedEntityAdapter, TypedWriteAdapter},
+    db::{DbSession, DynamicQuery, TypedEntityAdapter, TypedWrite, TypedWriteAdapter},
     traits::{CanisterKind, EntityKey, EntitySource},
     types::{Id, Ulid},
     value::InputValue,
@@ -36,7 +36,7 @@ where
         2 => execute_single_typed_write::<C, E, I>(session, insert),
         3 => execute_single_typed_write::<C, E, P>(session, patch),
         4 => execute_typed_write_batch::<C, E, I>(session, batch_first, batch_second),
-        5 => execute_structural_delete::<C, E>(session),
+        5 => execute_typed_delete::<C, E>(session),
         _ => false,
     };
     u32::from(succeeded)
@@ -52,16 +52,12 @@ where
         return false;
     };
     let request = DynamicQuery::new(E::ENTITY).limit(1);
-    let Ok(page) = session.execute_trusted_live_page(&request, None) else {
+    let mut cursor = session.prepare_live_page_cursor(binding, request);
+    let Ok(Some(rows)) = cursor.next_trusted_page() else {
         return false;
     };
-    let Ok(prepared) = session.prepare_typed_live_page_output(&binding, page) else {
-        return false;
-    };
-    prepared
-        .rows
-        .into_iter()
-        .all(|row| E::decode_row(&binding, row).is_ok())
+    rows.into_iter()
+        .all(|row| E::decode_row(cursor.binding(), row).is_ok())
 }
 
 #[inline(never)]
@@ -90,21 +86,25 @@ where
     E: TypedEntityAdapter,
     W: TypedWriteAdapter<Entity = E>,
 {
-    let mut batch = session.trusted_typed_write_batch();
-    let Ok(first_handle) = batch.push(first) else {
+    let Ok(binding) = E::typed_binding(session) else {
         return false;
     };
-    let Ok(second_handle) = batch.push(second) else {
+    let Ok(first) = first.encode_write(&binding) else {
         return false;
     };
-    let Ok(mut results) = batch.execute() else {
+    let Ok(second) = second.encode_write(&binding) else {
         return false;
     };
-    results.row(&first_handle).is_ok() && results.row(&second_handle).is_ok()
+    let Ok(mut rows) =
+        session.execute_trusted_typed_write_batch_rows(&binding, vec![first, second])
+    else {
+        return false;
+    };
+    rows.all(|row| E::decode_row(&binding, row).is_ok())
 }
 
 #[inline(never)]
-fn execute_structural_delete<C, E>(session: &DbSession<C>) -> bool
+fn execute_typed_delete<C, E>(session: &DbSession<C>) -> bool
 where
     C: CanisterKind,
     E: EntityKey<Key = Ulid> + EntitySource + TypedEntityAdapter,
@@ -112,16 +112,11 @@ where
     let Ok(binding) = E::typed_binding(session) else {
         return false;
     };
-    let mutation = StructuralMutation::Delete {
-        entity: E::ENTITY.to_string(),
-        key: InputValue::from(Ulid::MIN),
-    };
-    let Ok(rows) = session.execute_trusted_structural_mutation_batch_rows(&binding, vec![mutation])
-    else {
+    let write = TypedWrite::delete(&binding, InputValue::from(Ulid::MIN));
+    let Ok(mut rows) = session.execute_trusted_typed_write_batch_rows(&binding, vec![write]) else {
         return false;
     };
-    rows.into_iter()
-        .all(|row| E::decode_row(&binding, row).is_ok())
+    rows.all(|row| E::decode_row(&binding, row).is_ok())
 }
 
 /// Invoke [`execute_reachable_entity_operation`] with the shared simple audit

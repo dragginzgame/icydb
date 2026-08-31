@@ -978,7 +978,7 @@ fn typed_item_field_type_tokens(item: &Item) -> TokenStream {
 fn typed_field_type_tokens(value: &Value) -> TokenStream {
     let item = typed_item_field_type_tokens(&value.item);
     if value.cardinality() == Cardinality::Many {
-        quote!(::icydb::__macro::TypedFieldType::List(Box::new(#item)))
+        quote!(::icydb::__macro::TypedFieldType::List(&#item))
     } else {
         item
     }
@@ -1203,12 +1203,17 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
     let patch_ident = typed_adapter_input_ident(&ident, "Patch");
     let replace_ident = typed_adapter_input_ident(&ident, "Replace");
     let entity_name = quote_one(&ident, to_str_lit);
-    let field_requests = entity.fields.iter().map(|field| {
+    let primary_key_source_keys = entity
+        .primary_key
+        .fields()
+        .iter()
+        .map(|field| quote_one(field, to_str_lit));
+    let field_descriptors = entity.fields.iter().map(|field| {
         let name = quote_one(&field.name, to_str_lit);
         let field_type = typed_field_type_tokens(&field.value);
         let nullable = field.value.cardinality() == Cardinality::Opt;
         quote! {
-            ::icydb::__macro::TypedFieldBindingRequest::new(
+            ::icydb::__macro::TypedFieldDescriptor::new(
                 #name,
                 #field_type,
                 #nullable,
@@ -1257,17 +1262,12 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
         }
 
         impl ::icydb::db::TypedEntityAdapter for #ident {
-            fn typed_binding<C>(
-                session: &::icydb::db::DbSession<C>,
-            ) -> Result<::icydb::db::TypedEntityBinding, ::icydb::db::TypedBindingError>
-            where
-                C: ::icydb::traits::CanisterKind,
-            {
-                session.bind_typed_entity(
+            const DESCRIPTOR: &'static ::icydb::db::TypedEntityDescriptor =
+                &::icydb::__macro::TypedEntityDescriptor::new(
                     #entity_name,
-                    [#(#field_requests),*],
-                )
-            }
+                    &[#(#primary_key_source_keys),*],
+                    &[#(#field_descriptors),*],
+                );
         }
 
         impl #ident {

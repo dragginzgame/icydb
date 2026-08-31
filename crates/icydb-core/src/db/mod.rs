@@ -93,7 +93,7 @@ pub use dynamic_write::{
 };
 pub use dynamic_write::{
     DynamicMutationResult, DynamicTypedBindingError, DynamicTypedEntityBinding,
-    DynamicTypedFieldBindingRequest, DynamicTypedFieldType,
+    TypedEntityDescriptor, TypedFieldDescriptor, TypedFieldType,
 };
 pub use executor::{ExecutionFamily, RouteExecutionMode};
 pub use identity::{EntityName, IndexName};

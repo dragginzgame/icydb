@@ -14,12 +14,14 @@ use crate::{
 };
 use candid::CandidType;
 use icydb_core as core;
-use icydb_schema::ScalarType;
 use serde::Deserialize;
 use std::{
     collections::BTreeSet, error::Error as StdError, fmt, marker::PhantomData, sync::Arc,
     vec::IntoIter,
 };
+
+#[doc(hidden)]
+pub use icydb_core::db::{TypedEntityDescriptor, TypedFieldDescriptor, TypedFieldType};
 
 ///
 /// WriteCell
@@ -131,17 +133,6 @@ impl OutputRowProjection {
 pub struct PreparedOutputRows {
     projection: OutputRowProjection,
     rows: IntoIter<Vec<OutputValue>>,
-}
-
-/// One consumed live-page output prepared for downstream typed decoding.
-#[doc(hidden)]
-pub struct PreparedLivePageOutput {
-    /// Owned rows sharing one accepted typed projection.
-    pub rows: PreparedOutputRows,
-    /// Authenticated continuation moved from the dynamic page.
-    pub continuation: Option<String>,
-    /// Bounded work moved from the dynamic page.
-    pub work: crate::db::ScalarPageWork,
 }
 
 impl PreparedOutputRows {
@@ -777,59 +768,6 @@ mod typed_record_output_tests {
     }
 }
 
-/// Generated logical field shape supplied while issuing an opaque binding.
-#[doc(hidden)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TypedFieldType {
-    /// Exact schema-owned scalar contract.
-    Scalar(ScalarType),
-    /// Ordered repeated values with one exact item contract.
-    List(Box<Self>),
-    /// Named contract selected by immutable source key.
-    Named(&'static str),
-}
-
-impl TypedFieldType {
-    fn into_core(self) -> core::db::DynamicTypedFieldType {
-        match self {
-            Self::Scalar(scalar) => core::db::DynamicTypedFieldType::Scalar(scalar),
-            Self::List(item) => core::db::DynamicTypedFieldType::List(Box::new(item.into_core())),
-            Self::Named(source_key) => {
-                core::db::DynamicTypedFieldType::Named(source_key.to_string())
-            }
-        }
-    }
-}
-
-/// One generated field contract supplied while issuing an opaque binding.
-#[doc(hidden)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TypedFieldBindingRequest {
-    field_type: TypedFieldType,
-    nullable: bool,
-    source_key: &'static str,
-}
-
-impl TypedFieldBindingRequest {
-    /// Construct one generated field binding request.
-    #[must_use]
-    pub const fn new(source_key: &'static str, field_type: TypedFieldType, nullable: bool) -> Self {
-        Self {
-            field_type,
-            nullable,
-            source_key,
-        }
-    }
-
-    fn into_core(self) -> core::db::DynamicTypedFieldBindingRequest {
-        core::db::DynamicTypedFieldBindingRequest::new(
-            self.source_key.to_string(),
-            self.field_type.into_core(),
-            self.nullable,
-        )
-    }
-}
-
 /// IcyDB-owned decode adapter implemented by runtime-enabled generated code.
 pub trait TypedRowAdapter {
     /// Complete application row produced by decoding.
@@ -844,10 +782,17 @@ pub trait TypedRowAdapter {
 
 /// IcyDB-owned binding adapter implemented by runtime-enabled generated entities.
 pub trait TypedEntityAdapter: TypedRowAdapter {
+    /// Static generated source contract validated before an opaque binding is issued.
+    #[doc(hidden)]
+    const DESCRIPTOR: &'static TypedEntityDescriptor;
+
     /// Bind generated source identities to current accepted schema authority.
     fn typed_binding<C>(session: &DbSession<C>) -> Result<TypedEntityBinding, TypedBindingError>
     where
-        C: CanisterKind;
+        C: CanisterKind,
+    {
+        session.bind_typed_entity(Self::DESCRIPTOR)
+    }
 }
 
 /// IcyDB-owned write adapter implemented by runtime-enabled generated inputs.
@@ -912,6 +857,15 @@ impl TypedWrite {
             binding: binding.clone(),
             mutation: core::db::DynamicTypedMutation::Replace { key, patch },
         })
+    }
+
+    /// Build one delete intent from an accepted primary-key value.
+    #[must_use]
+    pub fn delete(binding: &TypedEntityBinding, key: InputValue) -> Self {
+        Self {
+            binding: binding.clone(),
+            mutation: core::db::DynamicTypedMutation::Delete { key },
+        }
     }
 }
 
@@ -1334,45 +1288,14 @@ impl<C: CanisterKind> DbSession<C> {
         PreparedOutputRows::new(binding, entity, columns, rows).map_err(TypedRowError::Adapter)
     }
 
-    /// Consume one live page and prepare its rows for downstream typed decoding.
-    #[doc(hidden)]
-    pub fn prepare_typed_live_page_output(
-        &self,
-        binding: &TypedEntityBinding,
-        result: crate::db::LiveQueryPageOutput,
-    ) -> Result<PreparedLivePageOutput, TypedRowError> {
-        let crate::db::LiveQueryPageOutput {
-            entity,
-            columns,
-            rows,
-            row_count: _,
-            continuation,
-            work,
-        } = result;
-        let rows = self.prepare_typed_output_rows(binding, entity, columns, rows)?;
-        Ok(PreparedLivePageOutput {
-            rows,
-            continuation,
-            work,
-        })
-    }
-
     /// Issue one opaque current accepted binding for generated field contracts.
     #[doc(hidden)]
-    pub fn bind_typed_entity<I>(
+    pub fn bind_typed_entity(
         &self,
-        entity_source_key: &str,
-        field_requests: I,
-    ) -> Result<TypedEntityBinding, TypedBindingError>
-    where
-        I: IntoIterator<Item = TypedFieldBindingRequest>,
-    {
-        let fields = field_requests
-            .into_iter()
-            .map(TypedFieldBindingRequest::into_core)
-            .collect::<Vec<_>>();
+        descriptor: &TypedEntityDescriptor,
+    ) -> Result<TypedEntityBinding, TypedBindingError> {
         self.inner
-            .issue_typed_entity_binding(entity_source_key, fields.as_slice())
+            .issue_typed_entity_binding(descriptor)
             .map(TypedEntityBinding::new)
             .map_err(|error| match error {
                 core::db::DynamicTypedBindingError::FieldUnavailable => {
@@ -1436,6 +1359,40 @@ impl<C: CanisterKind> DbSession<C> {
             .execute_trusted_typed_mutation_batch(requests)
             .map_err(|error| TypedWriteError::Database(Error::from(error)))?
             .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))
+    }
+
+    /// Execute and prepare one non-empty same-entity generated write batch.
+    ///
+    /// Every write must carry the supplied exact binding. The existing typed
+    /// mutation batch remains the atomic commit and recovery owner; this
+    /// terminal adds only exact result cardinality and one shared accepted-row
+    /// projection before generated code performs its final typed decode.
+    #[inline(never)]
+    pub fn execute_trusted_typed_write_batch_rows(
+        &self,
+        binding: &TypedEntityBinding,
+        writes: Vec<TypedWrite>,
+    ) -> Result<PreparedOutputRows, TypedWriteError> {
+        if writes.iter().any(|write| write.binding != *binding) {
+            return Err(TypedAdapterError::EntityMismatch.into());
+        }
+        let expected_results = writes.len();
+        let requests = writes.into_iter().map(|write| write.mutation).collect();
+        let result = self
+            .inner
+            .execute_trusted_same_entity_typed_mutation_batch(binding.inner(), requests)
+            .map_err(|error| TypedWriteError::Database(Error::from(error)))?
+            .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))?;
+        let DynamicMutationResult {
+            entity,
+            columns,
+            rows,
+            affected_rows: _,
+        } = result;
+        if rows.len() != expected_results {
+            return Err(TypedAdapterError::RowShapeMismatch.into());
+        }
+        PreparedOutputRows::new(binding, entity, columns, rows).map_err(Into::into)
     }
 
     /// Start one mixed-entity generated typed-write batch.
