@@ -73,6 +73,22 @@ let page = db!()?
     .execute_live_page(None)?;
 ```
 
+Repeated `.filter(...)` calls are cumulative and join their expressions with
+`AND`. This keeps the natural typed spelling for exact compound-index lookups:
+
+```rust,ignore
+let page = db!()?
+    .query::<InventoryStack>()?
+    .filter(InventoryStack::OWNER_ID.eq(owner_id))
+    .filter(InventoryStack::SLOT.eq(slot))
+    .limit(1)
+    .execute_live_page(None)?;
+```
+
+The accepted schema remains authoritative: public admission succeeds only when
+the combined predicate selects an accepted bounded index route. `LIMIT 1` does
+not make a genuine full scan admissible.
+
 When only cardinality is needed, `DbSession::execute_exact_count` and typed
 `Query::execute_exact_count` return an exact `u64` without scanning rows. They
 accept a bare entity query or one strict equality/non-empty bounded `IN`

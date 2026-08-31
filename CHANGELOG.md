@@ -9,10 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.250.md](docs/changelog/0.250.md)
 
-- `0.250.1` hard-cuts recursive list/map input construction to compose owned
-  `InputValue` roots directly, removing caller-side kernel unwrapping without
-  changing Candid, accepted-schema admission or the single recursive value
-  representation.
+- `0.250.1` improves typed input and query ergonomics by composing recursive
+  `InputValue` roots directly and preserving repeated filters for compound-index
+  planning, without changing Candid or weakening E184 full-scan rejection.
 - `0.250.0` reduces measured reachable generated-entity specialization through
   concrete prepared read/write boundaries and static accepted-schema-validated
   entity descriptors, cumulatively removing 81,876 raw and 88,448 code bytes

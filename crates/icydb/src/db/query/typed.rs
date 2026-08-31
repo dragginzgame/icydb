@@ -177,7 +177,7 @@ where
         })
     }
 
-    /// Add one accepted-field filter expression.
+    /// Add one accepted-field filter expression, joined with prior filters by `AND`.
     #[must_use]
     pub fn filter(mut self, filter: impl Into<FilterExpr>) -> Self {
         self.request = self.request.filter(filter);

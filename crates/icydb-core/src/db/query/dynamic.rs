@@ -5,7 +5,7 @@
 
 use crate::db::query::{
     builder::AggregateExpr,
-    expr::{FilterExpr, OrderTerm},
+    expr::{FilterExpr, JunctionOperator, OrderTerm},
 };
 
 ///
@@ -50,10 +50,21 @@ impl DynamicQuery {
         }
     }
 
-    /// Add one filter expression.
+    /// Add one filter expression, joined with prior filters by `AND`.
     #[must_use]
     pub fn filter(mut self, filter: impl Into<FilterExpr>) -> Self {
-        self.filter = Some(filter.into());
+        let appended = filter.into();
+        self.filter = Some(match self.filter.take() {
+            Some(FilterExpr::Junction {
+                operator: JunctionOperator::And,
+                mut filters,
+            }) => {
+                filters.push(appended);
+                FilterExpr::and(filters)
+            }
+            Some(existing) => FilterExpr::and(vec![existing, appended]),
+            None => appended,
+        });
         self
     }
 
@@ -171,5 +182,24 @@ impl DynamicQuery {
 
     pub(in crate::db) fn continuation_cursor(&self) -> Option<&str> {
         self.cursor.as_deref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DynamicQuery, FilterExpr};
+
+    #[test]
+    fn repeated_filters_accumulate_as_one_conjunction() {
+        let owner = FilterExpr::eq("owner_id", 1_u64);
+        let slot = FilterExpr::eq("slot", 2_u64);
+        let query = DynamicQuery::new("InventoryStack")
+            .filter(owner.clone())
+            .filter(slot.clone());
+
+        assert_eq!(
+            query.filter_expr(),
+            Some(&FilterExpr::and(vec![owner, slot]))
+        );
     }
 }

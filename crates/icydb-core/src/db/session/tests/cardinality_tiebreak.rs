@@ -235,6 +235,44 @@ fn exact_cardinality_supports_multi_lookup_and_branch_set_but_excludes_range_and
 }
 
 #[test]
+fn chained_filters_form_one_compound_index_predicate_for_public_admission() {
+    let session = initialize();
+    seed_rows(&session);
+
+    let query = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("wide_fixed").eq(InputValue::text("all".to_string())))
+        .filter(FieldRef::new("wide_branch").eq(InputValue::text("y".to_string())))
+        .select(["id"])
+        .limit(1);
+    let page = session
+        .execute_public_live_page(&query, None)
+        .expect("chained exact filters should select their accepted compound index");
+
+    assert_eq!(page.rows, vec![vec![OutputValue::nat64(1)]]);
+
+    let full_scan = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("wide_branch").eq(InputValue::text("y".to_string())))
+        .select(["id"])
+        .limit(1);
+    let diagnostic = session
+        .execute_public_live_page(&full_scan, None)
+        .expect_err("LIMIT 1 must not admit a genuine full scan")
+        .diagnostic();
+    assert_eq!(
+        diagnostic.code(),
+        icydb_diagnostic_code::DiagnosticCode::QueryReadAdmission,
+    );
+    assert_eq!(
+        diagnostic.detail(),
+        Some(
+            &icydb_diagnostic_code::DiagnosticDetail::QueryReadAdmission {
+                reason: icydb_diagnostic_code::QueryReadAdmissionCode::UnboundedFullScanRejected,
+            },
+        ),
+    );
+}
+
+#[test]
 fn structural_and_residual_ranking_remain_strictly_ahead_of_cardinality() {
     let session = initialize();
     seed_rows(&session);

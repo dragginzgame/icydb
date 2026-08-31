@@ -79,7 +79,11 @@ where
     C: CanisterKind,
     E: TypedEntityAdapter,
 {
-    let _ = query.limit(25).execute_live_page_with_attribution(None);
+    let _ = query
+        .filter(FilterExpr::eq("owner_id", 1_u64))
+        .filter(FilterExpr::eq("slot", 2_u64))
+        .limit(25)
+        .execute_live_page_with_attribution(None);
 }
 
 #[allow(dead_code)]
