@@ -254,10 +254,12 @@ fn lifecycle_database_probe() -> Result<bool, icydb::Error> {
 #[cfg(feature = "population-seed")]
 fn lifecycle_insert_probe_row() -> Result<Ulid, icydb::Error> {
     icydb::db::with_request_execution(|| {
-        let patch = StructuralPatch::new().field(
-            "name",
-            WriteCell::Value(InputValue::text("lifecycle-probe".to_string())),
-        );
+        let patch = StructuralPatch::new()
+            .field(
+                "name",
+                WriteCell::Value(InputValue::text("lifecycle-probe".to_string())),
+            )
+            .field("profiles", WriteCell::Value(InputValue::list(Vec::new())));
         let output =
             db()?.execute_trusted_structural_insert_batch("OneSimpleEntity01", vec![patch])?;
         let Some(id_slot) = output.columns.iter().position(|column| column == "id") else {
