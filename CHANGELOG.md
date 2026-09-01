@@ -5,6 +5,19 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.252.x] 📚 - 2026-09-01 - Nested Storage Contract
+
+Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
+
+- `0.252.0` defines IcyDB's relational nested-storage boundary: scalar paths
+  through named records retain their exact accepted capabilities, while
+  repeated values remain bounded whole-field aggregates rather than document
+  traversal or multikey storage; unknown structural fields and dotted subpath
+  targets now reject as unsupported, and structural writes can bind generated
+  aggregate values without rebuilding record maps. Release, package, publish,
+  push, and aggregate validation workflows now preserve Cargo build caches so
+  cleanup remains explicitly manual.
+
 ## [0.251.x] 📊 - 2026-09-01 - Runtime And Entity Codec Wasm Reduction
 
 Detailed notes: [docs/changelog/0.251.md](docs/changelog/0.251.md)

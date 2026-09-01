@@ -766,6 +766,18 @@ mod typed_record_output_tests {
             Err(TypedAdapterError::ValueShapeMismatch),
         );
     }
+
+    #[test]
+    fn typed_input_failures_retain_source_and_shape_classes() {
+        assert_eq!(
+            TypedAdapterError::from(icydb_model::TypedValueError::SourceUnavailable),
+            TypedAdapterError::FieldUnavailable,
+        );
+        assert_eq!(
+            TypedAdapterError::from(icydb_model::TypedValueError::ShapeMismatch),
+            TypedAdapterError::ValueShapeMismatch,
+        );
+    }
 }
 
 /// IcyDB-owned decode adapter implemented by runtime-enabled generated code.
@@ -1172,6 +1184,21 @@ impl StructuralMutation {
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    #[inline(never)]
+    fn ensure_typed_write_binding_is_current(
+        &self,
+        binding: &TypedEntityBinding,
+    ) -> Result<(), TypedWriteError> {
+        let current = self
+            .inner
+            .typed_entity_binding_is_current(&binding.inner)
+            .map_err(|error| TypedWriteError::Database(Error::from(error)))?;
+        if !current {
+            return Err(TypedAdapterError::StaleBinding.into());
+        }
+        Ok(())
+    }
+
     /// Execute one trusted structural mutation through accepted schema only.
     ///
     /// This dynamic lane never materializes a generated entity and never runs
@@ -1221,13 +1248,7 @@ impl<C: CanisterKind> DbSession<C> {
         binding: &TypedEntityBinding,
         mutations: Vec<StructuralMutation>,
     ) -> Result<Vec<OutputRow>, TypedWriteError> {
-        let current = self
-            .inner
-            .typed_entity_binding_is_current(&binding.inner)
-            .map_err(|error| TypedWriteError::Database(Error::from(error)))?;
-        if !current {
-            return Err(TypedAdapterError::StaleBinding.into());
-        }
+        self.ensure_typed_write_binding_is_current(binding)?;
         if mutations
             .iter()
             .any(|mutation| mutation.entity() != binding.entity())
@@ -1305,6 +1326,30 @@ impl<C: CanisterKind> DbSession<C> {
                     TypedBindingError::Database(Error::from(error))
                 }
             })
+    }
+
+    /// Encode one generated value as a structural input through an exact
+    /// current accepted binding.
+    ///
+    /// Generated records, enums, and collections reuse their existing
+    /// [`icydb_model::TypedInputValue`] implementation. Accepted source
+    /// bindings resolve every named type, record member, and enum variant;
+    /// the returned [`InputValue`] enters the ordinary structural write
+    /// admission path.
+    pub fn bind_typed_input<T>(
+        &self,
+        binding: &TypedEntityBinding,
+        value: T,
+    ) -> Result<InputValue, TypedWriteError>
+    where
+        T: icydb_model::TypedInputValue,
+    {
+        self.ensure_typed_write_binding_is_current(binding)?;
+        value
+            .encode_typed_input(binding)
+            .map(InputValue::from_public)
+            .map_err(TypedAdapterError::from)
+            .map_err(Into::into)
     }
 
     /// Execute one generated write only while its opaque accepted binding is current.

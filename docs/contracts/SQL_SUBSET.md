@@ -373,6 +373,14 @@ SQL DDL is a frontend over accepted schema catalog mutation, not the source of
 schema authority. Schema mutation and row-rewrite admission remain governed by
 `docs/contracts/WRITE_ADMISSION.md`.
 
+Field-path capability is shape-sensitive. Accepted scalar paths through named
+records may participate in the exact projection, predicate, ordering,
+aggregate, and eligible index cells recorded in
+`docs/contracts/NESTED_STORAGE.md`. Paths through lists, sets, maps, tuples, or
+newtype wrappers are not SQL terms; they reject before execution or catalog
+mutation and never select a scan or multikey fallback. Scalar member paths also
+remain unsupported as `GROUP BY` keys and as raw non-aggregate `HAVING` terms.
+
 `CREATE INDEX` currently admits field-path secondary indexes and deterministic
 text expression secondary indexes. Single-field, multi-field, unique, explicit
 `ASC`, filtered `WHERE` predicates, and `LOWER`/`UPPER`/`TRIM` expression keys

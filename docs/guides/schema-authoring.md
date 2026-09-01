@@ -113,6 +113,48 @@ field or entity is accepted. Every query and write still binds the source names
 against one current accepted-schema snapshot. Schema-only consumers continue
 to depend on `icydb-model` without receiving runtime-owned `FieldRef` values.
 
+## Bounded Owner-Local Collections
+
+Use a named list when a small owner-local sequence has a durable item-count
+ceiling and is normally read and replaced with its containing row:
+
+```rust
+use icydb_model::prelude::*;
+
+#[record(fields(
+    field(name = "slot", value(item(prim = "Nat16"))),
+    field(name = "quantity", value(item(prim = "Nat64")))
+))]
+pub struct InventoryStack {}
+
+#[list(
+    item(is = "InventoryStack"),
+    ty(rule(
+        name = "capacity",
+        length_range_inclusive(min = 0, max = 51)
+    ))
+)]
+pub struct InventoryStacks {}
+```
+
+The accepted `length_range_inclusive` rule is the database safety ceiling.
+Anonymous `value(many, ...)` has no inline application capacity; general row,
+request, and decode limits still apply. Lower dynamic limits, slot uniqueness,
+and cross-entity existence remain application rules unless modeled through an
+existing accepted constraint.
+
+At a structural write boundary, pass `InventoryStacks(stacks)` (or an
+anonymous `Vec<InventoryStack>`) to `DbSession::bind_typed_input` with the
+owning entity's current typed binding. The generated adapter resolves record
+member names through accepted source identities and returns one ordinary
+`InputValue`; applications do not need to reconstruct each stack as a named
+map. Complete-field accepted admission still enforces the named list rule.
+
+If collection members need independent queries, indexes, relations, or
+mutation, model them as entities with an owner key. Lists, sets, and maps stored
+in a row are whole-field aggregates. The exact decision matrix is maintained
+in the [nested storage contract](../contracts/NESTED_STORAGE.md).
+
 ## Host Build And Runtime Model Boundary
 
 Cargo compiles `build.rs` for the host, even when the library target is Wasm.

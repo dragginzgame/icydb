@@ -106,7 +106,7 @@ help:
 	@echo "  patch            Test a source candidate, then bump patch version files (0.0.x)"
 	@echo "  minor            Confirm and test a source candidate, then bump minor files (0.x.0)"
 	@echo "  major            Confirm and test a source candidate, then bump major files (x.0.0)"
-	@echo "  release-clean    Remove the repo-local build cache and transient release artifacts"
+	@echo "  release-clean    Remove transient release artifacts; Cargo cleanup stays manual"
 	@echo "  release-stage    Stage known release files"
 	@echo "  release-commit   Verify the tested candidate transition, commit, and tag"
 	@echo "  release-push     Atomically push the release commit and exact tag, then clean transient artifacts"
@@ -168,7 +168,7 @@ help:
 	@echo "  fetch            Fetch locked dependencies into the repo-local Cargo cache"
 	@echo "  fmt              Format code"
 	@echo "  fmt-check        Check formatting"
-	@echo "  clean            Clean build artifacts"
+	@echo "  clean            Manually clean Cargo build artifacts"
 	@echo "  wasm-size-report Build and report the maintained Wasm measurement subjects"
 	@echo "  wasm-audit-report Build Wasm + write Twiggy reports for maintained measurement subjects"
 	@echo "  wasm-query-attribution Build symbol-bearing typed/dynamic/SQL query attribution artifacts"
@@ -270,7 +270,6 @@ release-prepare:
 	@mkdir -p "$(RELEASE_TMP_DIR)"
 
 release-clean:
-	@$(MAKE) --no-print-directory clean
 	@bash scripts/ci/cleanup-release-workspace.sh
 
 release: ensure-clean
@@ -771,8 +770,8 @@ _ci-tier-b-0-237-perf-regressions:
 test-watch:
 	$(CARGO_WORK_ENV) cargo watch -x test
 
-# Build and test everything through explicit, sequential workflow steps.
+# Build and test everything through explicit, sequential workflow steps while
+# preserving the reusable Cargo build cache. `make clean` remains manual.
 all: ensure-clean
-	$(MAKE) --no-print-directory clean
 	$(MAKE) --no-print-directory validate
 	$(MAKE) --no-print-directory build

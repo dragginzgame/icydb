@@ -258,6 +258,27 @@ integration, not required for ordinary recursive input construction. Enum
 names and payloads still enter accepted-schema admission before runtime values
 are created.
 
+When an application already has generated record or collection values, bind
+them through the current entity adapter instead of rebuilding record maps:
+
+```rust,ignore
+let db = db!()?;
+let binding = Robot::typed_binding(&db)?;
+let inventory = db.bind_typed_input(&binding, stacks)?; // Vec<InventoryStack>
+let patch = StructuralPatch::new().field(
+    Robot::CORE_INVENTORY.as_str(),
+    WriteCell::Value(inventory),
+);
+```
+
+`bind_typed_input` revalidates the binding, then invokes the same generated
+`TypedInputValue` implementation used by typed writes. Record members and enum
+variants resolve through accepted source identities, and the resulting normal
+`InputValue` still passes complete structural write admission. A stale binding
+rejects before conversion; a binding without the required source identity
+returns the typed adapter's `FieldUnavailable` error. The method does not add a
+second encoder, field mutation mode, or subpath write route.
+
 Generated `Insert`, `Patch`, and `Replace` input types implement
 `TypedWriteAdapter` whenever the declaring crate includes the runtime facade.
 Bind the generated entity to the current session, encode the input, then call

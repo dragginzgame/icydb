@@ -8,7 +8,8 @@ Atomic commit ordering is defined in `ATOMICITY.md`. Batch transaction scope is
 defined in `TRANSACTION_SEMANTICS.md`. Durable replay and import trust boundaries
 are defined in `DURABILITY.md`. SQL syntax and exposure policy are defined in
 `SQL_SUBSET.md`, and relation-specific guarantees are defined in
-`REF_INTEGRITY.md`.
+`REF_INTEGRITY.md`. Composite and collection ownership is defined in
+`NESTED_STORAGE.md`.
 
 ## Core Rule
 
@@ -63,6 +64,11 @@ An accepted composite field resolves to one store-local nominal type ID and a
 complete accepted record, tuple, or newtype definition. Record member names,
 tuple arity, nested kinds, and nested nullability are admission facts. Generated
 Rust codecs may confirm that contract but may not reconstruct it at runtime.
+
+Every composite or collection mutation supplies one complete root-field value.
+There is no record-member, positional, keyed, or predicate-selected element
+mutation. The accepted after-image and durable rules remain the only write,
+atomicity, journal, and recovery authority for that replacement.
 
 For unique secondary indexes, accepted schema also owns the complete partial
 membership contract. Every top-level nullable key source that can omit a
@@ -124,7 +130,7 @@ in the apply phase.
 | Surface | Write-admission rule |
 | --- | --- |
 | Typed `create`, `insert`, `update`, and `replace` | Materialize through the accepted row contract, run the typed preflight, then prepare the commit from the canonical row. Generated authored scalar primary-key and direct scalar-relation inputs retain `Id<E>` until their adapter lowers the declared raw key; schema-generated insert fields remain absent and non-authorable. |
-| Public structural mutation or mixed batch | Preserve per-item insert/update/replace/delete intent plus `Omitted`, `Default`, `Null`, and authored `Value` cells until accepted policy resolves one complete canonical final-row overlay. A batch resolves every item from one captured accepted root, admits at most 64 exact entity heads in one store, and uses one operation timestamp. This lane does not materialize a generated entity or invoke application callbacks. |
+| Public structural mutation or mixed batch | Preserve per-item insert/update/replace/delete intent plus `Omitted`, `Default`, `Null`, and authored `Value` cells until accepted policy resolves one complete canonical final-row overlay. `DbSession::bind_typed_input` may prepare a normal `InputValue` cell from an existing generated record or collection through one current accepted binding; it reuses `TypedInputValue` and does not bypass complete-field admission. A batch resolves every item from one captured accepted root, admits at most 64 exact entity heads in one store, and uses one operation timestamp. This lane does not materialize a generated entity or invoke application callbacks. |
 | SQL `INSERT` and explicit exact/prefix `UPDATE` | Decode literals, omissions, and `DEFAULT` against accepted field contracts, then enter the same accepted structural after-image owner. Exact selection traverses authoritative primary keys and independently proves affected-row and scanned-key fit with cap plus one; prefix selection retains the explicit ordered `LIMIT`. Neither trusted nor generated SQL exposure policy bypasses row admission. |
 | Structural, typed-adapter, and SQL `DELETE` | Resolve selected rows through accepted authority, validate relation delete safety, and prepare row/index/relation removals before the marker. Deletes have no row after-image. |
 | Atomic same-store batches | Admit and stage every heterogeneous item before opening one commit window. Dynamic and mixed-binding typed facades converge here. Duplicate entity-qualified targets across operation kinds reject, while equal primitive keys in different entities remain distinct. Unique, relation, index, and row constraints consume the complete final overlay through each item's exact accepted context; public result conversion and response bounds finish before marker publication. One rejected item rejects the entire batch and consumes no Identity. |

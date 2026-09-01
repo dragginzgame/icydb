@@ -653,11 +653,6 @@ impl InternalError {
         )
     }
 
-    /// Construct an executor-origin mutation unknown-field invariant.
-    pub(crate) fn mutation_structural_field_unknown(_entity_path: &str, _field_name: &str) -> Self {
-        Self::executor_invariant()
-    }
-
     /// Construct a query-origin scalar page invariant for missing order at the cursor boundary.
     pub(crate) fn scalar_page_cursor_boundary_order_required() -> Self {
         Self::query_executor_invariant()

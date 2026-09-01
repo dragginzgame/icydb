@@ -41,6 +41,10 @@ For local development setup, test prerequisites, and troubleshooting, see
 - SQL is intentionally single-entity. It is useful for canister-local reads,
   writes, aggregates, introspection, and accepted-catalog DDL, not joins or
   general relational workloads.
+- Named-record scalar paths retain their exact accepted query/index
+  capabilities. Lists, sets, and maps remain owner-local aggregates with
+  whole-field replacement, not document traversal or multikey behavior. See
+  the [nested storage contract](docs/contracts/NESTED_STORAGE.md).
 
 ## Use IcyDB
 

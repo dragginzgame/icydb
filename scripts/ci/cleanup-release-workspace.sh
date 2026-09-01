@@ -6,8 +6,8 @@ RELEASE_TMP_DIR="$ROOT/.cache/release-tmp"
 SQLITE_TMP_DIR="$ROOT/.cache/icydb-sqlite-comparison"
 CACHE_DIR="$ROOT/.cache"
 
-# Automatic release cleanup owns only transient paths rooted in this workspace.
-# Explicit `make release-clean` owns the separate Cargo build-cache deletion.
+# Automatic and explicit release cleanup own only transient paths rooted in
+# this workspace. Cargo build-cache deletion is always a separate manual action.
 # Shared /tmp may contain live files from unrelated processes and must never be
 # swept here.
 mkdir -p "$RELEASE_TMP_DIR"

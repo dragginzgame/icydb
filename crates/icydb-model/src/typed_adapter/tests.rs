@@ -15,6 +15,16 @@ use super::{
 )]
 pub struct TestChoice {}
 
+#[crate::record(
+    name = "TestProfileSource",
+    fields(
+        field(name = "label", value(item(prim = "Text", unbounded))),
+        field(name = "choice", value(item(is = "TestChoice"))),
+        field(name = "note", value(opt, item(prim = "Int64")))
+    )
+)]
+pub struct TestProfile {}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum TestValue {
     Enum {
@@ -25,6 +35,7 @@ enum TestValue {
     List(Vec<Self>),
     Map(Vec<(Self, Self)>),
     Null,
+    Text(String),
 }
 
 #[derive(Default)]
@@ -38,6 +49,7 @@ impl TypedAdapterContext for TestContext {
     fn input_scalar(&self, value: TypedScalarValue) -> Self::PublicValue {
         match value {
             TypedScalarValue::Int64(value) => TestValue::Int64(value),
+            TypedScalarValue::Text(value) => TestValue::Text(value),
             _ => unreachable!("test context admits only i64 scalars"),
         }
     }
@@ -56,24 +68,44 @@ impl TypedAdapterContext for TestContext {
 
     fn input_enum(
         &self,
-        _type_source_key: &'static str,
-        _variant_source_key: &'static str,
-        _payload: Option<Self::PublicValue>,
+        type_source_key: &'static str,
+        variant_source_key: &'static str,
+        payload: Option<Self::PublicValue>,
     ) -> Result<Self::PublicValue, TypedValueError> {
-        Err(TypedValueError::ShapeMismatch)
+        if type_source_key != "TestChoiceSource" {
+            return Err(TypedValueError::SourceUnavailable);
+        }
+        let ordinal = match variant_source_key {
+            "Empty" => 0,
+            "Count" => 1,
+            _ => return Err(TypedValueError::SourceUnavailable),
+        };
+        Ok(TestValue::Enum {
+            ordinal,
+            payload: payload.map(Box::new),
+        })
     }
 
     fn input_record(
         &self,
-        _type_source_key: &'static str,
-        _fields: Vec<(&'static str, Self::PublicValue)>,
+        type_source_key: &'static str,
+        fields: Vec<(&'static str, Self::PublicValue)>,
     ) -> Result<Self::PublicValue, TypedValueError> {
-        Err(TypedValueError::ShapeMismatch)
+        if type_source_key != "TestProfileSource" {
+            return Err(TypedValueError::SourceUnavailable);
+        }
+        Ok(TestValue::Map(
+            fields
+                .into_iter()
+                .map(|(name, value)| (TestValue::Text(name.to_string()), value))
+                .collect(),
+        ))
     }
 
     fn output_scalar(&self, value: &Self::PublicValue) -> Option<TypedScalarValue> {
         match value {
             TestValue::Int64(value) => Some(TypedScalarValue::Int64(*value)),
+            TestValue::Text(value) => Some(TypedScalarValue::Text(value.clone())),
             _ => None,
         }
     }
@@ -177,6 +209,59 @@ fn collection_adapters_preserve_values_and_canonical_order() {
     assert_eq!(
         BTreeSet::<i64>::decode_typed_output(&context, &encoded_set).expect("set should decode"),
         set,
+    );
+}
+
+#[test]
+fn generated_nested_input_preserves_record_list_enum_payload_and_null_shape() {
+    let context = TestContext::default();
+    let encoded = vec![
+        TestProfile {
+            label: "Ada".to_string(),
+            choice: TestChoice::Empty,
+            note: None,
+        },
+        TestProfile {
+            label: "Grace".to_string(),
+            choice: TestChoice::Count(7),
+            note: Some(9),
+        },
+    ]
+    .encode_typed_input(&context)
+    .expect("generated nested input should encode once through the context");
+
+    assert_eq!(
+        encoded,
+        TestValue::List(vec![
+            TestValue::Map(vec![
+                (
+                    TestValue::Text("label".to_string()),
+                    TestValue::Text("Ada".to_string()),
+                ),
+                (
+                    TestValue::Text("choice".to_string()),
+                    TestValue::Enum {
+                        ordinal: 0,
+                        payload: None,
+                    },
+                ),
+                (TestValue::Text("note".to_string()), TestValue::Null),
+            ]),
+            TestValue::Map(vec![
+                (
+                    TestValue::Text("label".to_string()),
+                    TestValue::Text("Grace".to_string()),
+                ),
+                (
+                    TestValue::Text("choice".to_string()),
+                    TestValue::Enum {
+                        ordinal: 1,
+                        payload: Some(Box::new(TestValue::Int64(7))),
+                    },
+                ),
+                (TestValue::Text("note".to_string()), TestValue::Int64(9),),
+            ]),
+        ]),
     );
 }
 

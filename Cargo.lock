@@ -269,6 +269,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
+ "icydb-model",
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-wasm-helpers",
 ]
@@ -322,6 +323,7 @@ dependencies = [
  "candid",
  "ic-cdk",
  "icydb",
+ "icydb-model",
  "icydb-testing-audit-ten-simple-fixtures",
  "icydb-testing-wasm-helpers",
 ]
@@ -1693,6 +1695,7 @@ name = "icydb-testing-wasm-helpers"
 version = "0.251.0"
 dependencies = [
  "icydb",
+ "icydb-model",
 ]
 
 [[package]]

@@ -39,24 +39,25 @@ fn reachable_entity_audit_pair_exercises_the_shared_operation_mix() {
         ("ten_entity_reachable_operations", 9_u8),
     ] {
         let fixture = install_fixture_canister(canister);
-        for operation in 0_u8..=5 {
+        for operation in 0_u8..=7 {
             let method = if operation <= 1 {
                 "exercise_reachable_entity_read"
             } else {
                 "exercise_reachable_entity_write"
             };
+            let selected_entity = if operation >= 6 { 0 } else { entity };
             let response = if operation <= 1 {
-                fixture.query_candid(method, (entity, operation))
+                fixture.query_candid(method, (selected_entity, operation))
             } else {
-                fixture.update_candid(method, (entity, operation))
+                fixture.update_candid(method, (selected_entity, operation))
             };
             let ((succeeded, local_instructions),): ((u32, u64),) =
                 response.expect("reachable generated operation response should decode");
             println!(
-                "icydb_0250_reachable_entity canister={canister} entity={entity} operation={operation} succeeded={succeeded} local_instructions={local_instructions}",
+                "icydb_0250_reachable_entity canister={canister} entity={selected_entity} operation={operation} succeeded={succeeded} local_instructions={local_instructions}",
             );
             assert!(local_instructions > 0);
-            if matches!(operation, 0 | 1 | 2 | 4) {
+            if matches!(operation, 0 | 1 | 2 | 4 | 6 | 7) {
                 assert_eq!(succeeded, 1);
             }
         }

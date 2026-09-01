@@ -5,6 +5,8 @@ predicate semantics, coercion rules, diagnostics guarantees, and testing
 expectations. It complements `docs/contracts/QUERY_CONTRACT.md`.
 Read-execution lane and default bounded-admission rules live in
 `docs/contracts/READ_ADMISSION.md`.
+Composite path and whole-collection capability boundaries live in
+`docs/contracts/NESTED_STORAGE.md`.
 
 ---
 
@@ -116,6 +118,12 @@ Map field predicates are intentionally rejected at validation time in the
 current contract:
 **map fields are not queryable/indexable**.
 
+Named-record scalar paths are admitted only through accepted nested-leaf
+metadata. Tuple/newtype members, map members, and paths that cross a list or
+set are not query terms. The exact supported scalar-path cells and root
+collection predicates are defined by the
+[nested storage contract](NESTED_STORAGE.md).
+
 #### Comparison Operators
 
 For `Compare`:
@@ -212,6 +220,10 @@ Given a row `R` and predicate `P`:
 
   * for text: substring / prefix / suffix under declared coercion
   * for collections: element containment under declared coercion
+
+For a collection-valued field, `In` and `NotIn` compare the complete field
+against complete collection literals. `Contains` is the maintained top-level
+element test. Neither form traverses a member of a record-valued element.
 
 Operators are **never overloaded with incompatible semantics** across domains.
 

@@ -1,11 +1,15 @@
 //! Shared helpers for wasm fixture schema and canister builds.
 
 use icydb::{
-    db::{DbSession, DynamicQuery, TypedEntityAdapter, TypedWrite, TypedWriteAdapter},
+    db::{
+        DbSession, DynamicQuery, StructuralMutation, StructuralPatch, TypedEntityAdapter,
+        TypedWrite, TypedWriteAdapter, WriteCell,
+    },
     traits::{CanisterKind, EntityKey, EntitySource},
     types::{Id, Ulid},
     value::InputValue,
 };
+use icydb_model::TypedInputValue;
 
 /// Execute the maintained operation mix that makes one generated entity's
 /// read and write adapters reachable in audit Wasm.
@@ -15,9 +19,15 @@ use icydb::{
 /// shape; it is not an application mutation API.
 #[must_use]
 #[inline(never)]
-pub fn execute_reachable_entity_operation<C, E, I, P>(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the audit boundary keeps operation inputs explicit to preserve measured Wasm sharing"
+)]
+pub fn execute_reachable_entity_operation<C, E, I, P, T>(
     session: &DbSession<C>,
     operation: u8,
+    structural_field: Option<&'static str>,
+    structural_input: Option<T>,
     insert: I,
     patch: P,
     batch_first: I,
@@ -29,6 +39,7 @@ where
     E::Row: Clone,
     I: TypedWriteAdapter<Entity = E>,
     P: TypedWriteAdapter<Entity = E>,
+    T: TypedInputValue,
 {
     let succeeded = match operation {
         0 => execute_typed_page::<C, E>(session),
@@ -37,6 +48,49 @@ where
         3 => execute_single_typed_write::<C, E, P>(session, patch),
         4 => execute_typed_write_batch::<C, E, I>(session, batch_first, batch_second),
         5 => execute_typed_delete::<C, E>(session),
+        6 => {
+            let Some(structural_input) = structural_input else {
+                return 0;
+            };
+            let Ok(binding) = E::typed_binding(session) else {
+                return 0;
+            };
+            let Ok(structural_input) = session.bind_typed_input(&binding, structural_input) else {
+                return 0;
+            };
+            match structural_field {
+                None => true,
+                Some(structural_field) => {
+                    let patch = StructuralPatch::new()
+                        .field(
+                            "name",
+                            WriteCell::Value(InputValue::text("structural-input".to_string())),
+                        )
+                        .field(structural_field, WriteCell::Value(structural_input));
+                    let mutation = StructuralMutation::Insert {
+                        entity: E::ENTITY.to_string(),
+                        patch,
+                    };
+                    let Ok(single) = session.execute_trusted_structural_mutation(mutation.clone())
+                    else {
+                        return 0;
+                    };
+                    if single.affected_rows != 1 || single.rows.len() != 1 {
+                        return 0;
+                    }
+                    let Ok(batch) = session.execute_trusted_structural_mutation_batch(vec![
+                        mutation.clone(),
+                        mutation,
+                    ]) else {
+                        return 0;
+                    };
+                    batch.len() == 2
+                        && batch
+                            .iter()
+                            .all(|result| result.affected_rows == 1 && result.rows.len() == 1)
+                }
+            }
+        }
         _ => false,
     };
     u32::from(succeeded)
@@ -123,22 +177,28 @@ where
 /// entity input shape.
 #[macro_export]
 macro_rules! execute_simple_reachable_entity_operation {
-    ($session:expr, $operation:expr, $entity:ty, $insert:ident, $patch:ident $(,)?) => {
-        $crate::execute_reachable_entity_operation::<_, $entity, $insert, $patch>(
+    ($session:expr, $operation:expr, $entity:ty, $insert:ident, $patch:ident, [$($extra_field:ident = $extra_value:expr),*], $structural_field:expr, $structural_input:expr $(,)?) => {
+        $crate::execute_reachable_entity_operation::<_, $entity, $insert, $patch, _>(
             $session,
             $operation,
+            $structural_field,
+            $structural_input,
             $insert {
                 name: ::icydb::db::WriteCell::Value("single-insert".to_string()),
+                $($extra_field: $extra_value,)*
             },
             $patch {
                 id: ::icydb::types::Id::<$entity>::from_key(::icydb::types::Ulid::MIN),
                 name: ::icydb::db::WriteCell::Value("single-update".to_string()),
+                $($extra_field: $extra_value,)*
             },
             $insert {
                 name: ::icydb::db::WriteCell::Value("batch-first".to_string()),
+                $($extra_field: $extra_value,)*
             },
             $insert {
                 name: ::icydb::db::WriteCell::Value("batch-second".to_string()),
+                $($extra_field: $extra_value,)*
             },
         )
     };

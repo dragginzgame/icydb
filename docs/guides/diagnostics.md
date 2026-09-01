@@ -152,3 +152,17 @@ SQL endpoints and dynamic, fluent, or generated query APIs share this context
 only when they reach the same canonical planner failure. SQL parse failures and
 frontend-only lowering failures that have no singular resolver field do not
 invent one.
+
+## Unsupported Nested Paths
+
+Accepted schema classifies named-record scalar paths separately from paths
+that cross lists, sets, maps, tuples, or newtype wrappers. Unsupported paths
+reject before query execution or index-catalog mutation and never receive a
+scan or multikey fallback. Exact capability cells are defined in the
+[nested storage contract](../contracts/NESTED_STORAGE.md).
+
+Use each surface's typed diagnostic code and structured context; do not match
+messages or assume that every frontend exposes the same internal variant.
+Structural mutation accepts root fields only; an unknown root or dotted
+subpath target returns the existing executor-origin `RuntimeUnsupported`
+diagnostic before commit preparation.

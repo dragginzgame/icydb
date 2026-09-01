@@ -217,7 +217,7 @@ pub const WASM_MEASUREMENT_COMPARISONS: &[WasmComparison] = &[
         baseline: "one_entity_reachable_operations",
         candidate: "ten_entity_reachable_operations",
         disposition: WasmComparisonDisposition::Attributable,
-        reason: "both actors share one endpoint and operation harness; the candidate makes the same page, exact-key, insert, update, batch and delete paths reachable for nine additional simple entities",
+        reason: "both actors share one representative nested entity and operation harness; the candidate makes the same page, exact-key, insert, update, batch, delete and binding-owned nested-input conversion paths reachable for nine additional simple entities",
     },
     WasmComparison {
         id: "request_future_scale",

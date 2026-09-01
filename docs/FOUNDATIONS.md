@@ -215,6 +215,10 @@ Ordinary Rust records, tuples, and newtypes use exact nominal composite
 contracts from accepted schema. IcyDB has no open-ended persisted field kind:
 every stored field is admitted against one complete accepted contract.
 
+Named-record scalar paths and repeated aggregates deliberately have different
+capabilities. The normative [nested storage contract](contracts/NESTED_STORAGE.md)
+defines the exact shape, path, query, index, mutation, and bound matrix.
+
 ---
 
 ### 3.3 Schema Validation vs Compile-Time Boilerplate
@@ -366,6 +370,12 @@ Collection predicates (`In`, `NotIn`, `Contains`, `IsEmpty`) express membership/
 
 Non-goals include implicit list deduplication, hidden ordering guarantees for sets,
 cascade/ownership inference from collection shape, and relation discovery in nested structures.
+
+Collections stored in one row remain whole-field aggregates. Their root
+predicates do not authorize traversal through repeated members, collection
+expansion, multikey indexes, or element mutation. Model independently queried
+or mutated children as entities; see the
+[nested storage contract](contracts/NESTED_STORAGE.md).
 
 ---
 

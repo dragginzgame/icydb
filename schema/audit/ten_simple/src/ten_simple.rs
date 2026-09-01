@@ -24,9 +24,41 @@ define_fixture_store!(
     )),
 );
 
+#[enum_(
+    variant(name = "Ready"),
+    variant(name = "Weighted", value(item(prim = "Nat64")))
+)]
+pub struct ReachableInputChoice {}
+
+#[record(fields(
+    field(name = "label", value(item(prim = "Text", max_len = 64))),
+    field(name = "choice", value(item(is = "ReachableInputChoice"))),
+    field(name = "note", value(opt, item(prim = "Text", max_len = 64)))
+))]
+pub struct ReachableInputProfile {}
+
+#[entity(
+    store = "TenSimpleStore",
+    version = 1,
+    pk(fields = ["id"]),
+    fields(
+        field(
+            name = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
+        field(name = "name", value(item(prim = "Text", unbounded))),
+        field(
+            name = "profiles",
+            value(many, item(is = "ReachableInputProfile"))
+        )
+    ),
+    timestamps
+)]
+pub struct TenSimpleEntity01 {}
+
 define_simple_audit_entities!(
     "TenSimpleStore";
-    TenSimpleEntity01,
     TenSimpleEntity02,
     TenSimpleEntity03,
     TenSimpleEntity04,

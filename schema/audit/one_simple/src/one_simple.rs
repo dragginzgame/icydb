@@ -1,7 +1,5 @@
 use icydb_model::prelude::*;
-use icydb_testing_wasm_helpers::{
-    define_fixture_canister, define_fixture_store, define_simple_audit_entities,
-};
+use icydb_testing_wasm_helpers::{define_fixture_canister, define_fixture_store};
 
 define_fixture_canister!(
     OneSimpleCanister = "OneSimpleCanister",
@@ -24,10 +22,38 @@ define_fixture_store!(
     )),
 );
 
-define_simple_audit_entities!(
-    "OneSimpleStore";
-    OneSimpleEntity01
-);
+#[enum_(
+    variant(name = "Ready"),
+    variant(name = "Weighted", value(item(prim = "Nat64")))
+)]
+pub struct ReachableInputChoice {}
+
+#[record(fields(
+    field(name = "label", value(item(prim = "Text", max_len = 64))),
+    field(name = "choice", value(item(is = "ReachableInputChoice"))),
+    field(name = "note", value(opt, item(prim = "Text", max_len = 64)))
+))]
+pub struct ReachableInputProfile {}
+
+#[entity(
+    store = "OneSimpleStore",
+    version = 1,
+    pk(fields = ["id"]),
+    fields(
+        field(
+            name = "id",
+            value(item(prim = "Ulid")),
+            generated(insert = "Ulid::generate")
+        ),
+        field(name = "name", value(item(prim = "Text", unbounded))),
+        field(
+            name = "profiles",
+            value(many, item(is = "ReachableInputProfile"))
+        )
+    ),
+    timestamps
+)]
+pub struct OneSimpleEntity01 {}
 
 #[cfg(feature = "u256-audit")]
 #[entity(

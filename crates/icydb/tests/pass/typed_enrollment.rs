@@ -1,5 +1,5 @@
 use icydb::{
-    db::{DbSession, TypedWriteError, WriteCell},
+    db::{DbSession, StructuralMutation, StructuralPatch, TypedWriteError, WriteCell},
     traits::CanisterKind,
     types::{Id, Principal},
 };
@@ -16,6 +16,22 @@ pub struct EnrollmentCanister {}
 
 #[store(canister = "EnrollmentCanister", storage(heap()))]
 pub struct EnrollmentStore {}
+
+#[enum_(
+    variant(name = "Ready"),
+    variant(name = "Weighted", value(item(prim = "Nat64")))
+)]
+pub struct EnrollmentState {}
+
+#[record(fields(
+    field(name = "label", value(item(prim = "Text", max_len = 64))),
+    field(name = "state", value(item(is = "EnrollmentState"))),
+    field(name = "note", value(opt, item(prim = "Text", max_len = 64)))
+))]
+pub struct EnrollmentProfile {}
+
+#[list(item(is = "EnrollmentProfile"))]
+pub struct EnrollmentProfiles {}
 
 #[entity(
     store = "EnrollmentStore",
@@ -58,6 +74,17 @@ pub struct UserPrincipal {}
 )]
 pub struct Robot {}
 
+#[entity(
+    store = "EnrollmentStore",
+    version = 1,
+    pk(field = "id"),
+    fields(
+        field(name = "id", value(item(prim = "Nat64"))),
+        field(name = "profiles", value(item(is = "EnrollmentProfiles")))
+    )
+)]
+pub struct ProfileOwner {}
+
 #[allow(dead_code)]
 fn enroll<C: CanisterKind>(
     session: &DbSession<C>,
@@ -85,6 +112,37 @@ fn enroll<C: CanisterKind>(
     let _membership_row = results.row(&membership)?;
     let _robot_row = results.row(&robot)?;
     Ok(user_id)
+}
+
+#[allow(dead_code)]
+fn generated_structural_input<C: CanisterKind>(
+    session: &DbSession<C>,
+) -> Result<(), TypedWriteError> {
+    let binding = ProfileOwner::typed_binding(session)?;
+    let profiles = EnrollmentProfiles(vec![
+        EnrollmentProfile {
+            label: "Ada".to_string(),
+            state: EnrollmentState::Ready,
+            note: None,
+        },
+        EnrollmentProfile {
+            label: "Grace".to_string(),
+            state: EnrollmentState::Weighted(7),
+            note: Some("nested enum payload".to_string()),
+        },
+    ]);
+    let profiles = session.bind_typed_input(&binding, profiles)?;
+    let mutation = StructuralMutation::Insert {
+        entity: ProfileOwner::ENTITY.to_string(),
+        patch: StructuralPatch::new()
+            .field(ProfileOwner::PROFILES.as_str(), WriteCell::Value(profiles)),
+    };
+
+    let _single = session.execute_trusted_structural_mutation(mutation.clone());
+    let _batch = session.execute_trusted_structural_mutation_batch(vec![mutation.clone()]);
+    let _bound_batch =
+        session.execute_trusted_structural_mutation_batch_rows(&binding, vec![mutation]);
+    Ok(())
 }
 
 #[test]

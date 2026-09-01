@@ -104,21 +104,27 @@ if ! target_recipe clean | grep -Fq "$CARGO_CLEAN_RECIPE"; then
   exit 1
 fi
 
-if ! target_recipe release-clean | awk -v cleanup="$CLEANUP_SCRIPT" '
-  /\$\(MAKE\).* clean([[:space:]]|$)/ { cargo_clean_line = NR }
-  index($0, cleanup) { transient_cleanup_line = NR }
-  END {
-    exit !(cargo_clean_line > 0 && transient_cleanup_line > cargo_clean_line)
-  }
-'; then
-  echo "release-clean must delete the Cargo build cache before transient release state" >&2
+if ! target_recipe release-clean | grep -Fq "$CLEANUP_SCRIPT"; then
+  echo "release-clean must remove transient release state" >&2
   exit 1
 fi
 
 if grep -Eq 'cargo[[:space:]]+clean|TARGET_DIR|CARGO_HOME' "$ROOT/$CLEANUP_SCRIPT"; then
-  echo "automatic release cleanup must preserve Cargo build state" >&2
+  echo "release workspace cleanup must preserve Cargo build state" >&2
   exit 1
 fi
+
+for target in \
+  patch minor major \
+  release-prepare release-clean release release-stage release-commit release-push \
+  release-patch release-minor release-major \
+  package publish all; do
+  if target_recipe "$target" | grep -Eq \
+    'cargo[[:space:]]+clean|\$\(MAKE\).* clean([;[:space:]]|$)'; then
+    echo "$target must preserve Cargo build state; cleanup is manual" >&2
+    exit 1
+  fi
+done
 
 for target in patch minor major; do
   if ! target_recipe "$target" | awk -v target="$target" '

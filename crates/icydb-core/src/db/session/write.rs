@@ -377,7 +377,6 @@ fn dynamic_key(
 }
 
 fn lower_dynamic_patch(
-    entity_path: &str,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     patch: &DynamicStructuralPatch,
     mode: MutationMode,
@@ -387,9 +386,7 @@ fn lower_dynamic_patch(
     for (field_name, cell) in patch.fields() {
         let slot = descriptor
             .field_slot_index_by_name(field_name)
-            .ok_or_else(|| {
-                InternalError::mutation_structural_field_unknown(entity_path, field_name)
-            })?;
+            .ok_or_else(InternalError::executor_unsupported)?;
         let field = descriptor
             .field_for_slot_index(slot)
             .ok_or_else(InternalError::executor_invariant)?;
@@ -420,7 +417,6 @@ fn lower_dynamic_patch(
 
 fn lower_dynamic_mutation_intent(
     entity_tag: crate::types::EntityTag,
-    entity_path: &str,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     request: &DynamicMutation,
     batch_position: u32,
@@ -433,7 +429,6 @@ fn lower_dynamic_mutation_intent(
                     mode,
                     AcceptedStructuralMutationTarget::ResolveFromAfterImage,
                     lower_dynamic_patch(
-                        entity_path,
                         descriptor,
                         patch,
                         mode,
@@ -457,7 +452,6 @@ fn lower_dynamic_mutation_intent(
                     mode,
                     AcceptedStructuralMutationTarget::expected(dynamic_key(entity_tag, key)?),
                     lower_dynamic_patch(
-                        entity_path,
                         descriptor,
                         patch,
                         mode,
@@ -1764,7 +1758,6 @@ impl<C: CanisterKind> DbSession<C> {
                 AcceptedRowLayoutRuntimeContract::from_accepted_schema(item_catalog.snapshot())?;
             let (mutation, save_kind) = lower_dynamic_mutation_intent(
                 item_identity.entity_tag(),
-                item_identity.entity_path(),
                 &descriptor,
                 request,
                 batch_position,
@@ -1908,7 +1901,6 @@ impl<C: CanisterKind> DbSession<C> {
             }
             let (mutation, save_kind) = lower_dynamic_mutation_intent(
                 accepted_identity.entity_tag(),
-                accepted_identity.entity_path(),
                 &descriptor,
                 request,
                 batch_position,
@@ -3257,7 +3249,7 @@ mod mixed_relation_batch_tests {
                 accepted_schema_candidate_with_field_bindings_for_tests,
             },
         },
-        error::ErrorClass,
+        error::{ErrorClass, ErrorOrigin},
         traits::{CanisterKind, Path},
         types::EntityTag,
         value::{InputValue, OutputValue},
@@ -4348,6 +4340,64 @@ mod mixed_relation_batch_tests {
             })
             .expect("the cross-entity commit must publish the secondary row");
         assert_eq!(other_unchanged.affected_rows, 0);
+    }
+
+    #[test]
+    fn structural_unknown_root_and_dotted_subpath_reject_before_commit() {
+        let session = initialize();
+        session
+            .execute_trusted_dynamic_mutation_batch(vec![insert(1, None), insert(2, None)])
+            .expect("structural rejection fixtures should commit");
+
+        let unknown_root = session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
+                entity: ENTITY_NAME.to_string(),
+                key: InputValue::nat64(1),
+                patch: DynamicStructuralPatch::new(vec![(
+                    "missing".to_string(),
+                    DynamicWriteCell::Value(InputValue::nat64(10)),
+                )]),
+            })
+            .expect_err("an unknown structural root field must reject");
+        assert_eq!(unknown_root.class(), ErrorClass::Unsupported);
+        assert_eq!(unknown_root.origin(), ErrorOrigin::Executor);
+        assert_eq!(
+            unknown_root.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        );
+        assert!(unknown_root.diagnostic_facts().is_empty());
+
+        let dotted_subpath = session
+            .execute_trusted_dynamic_mutation_batch(vec![
+                update_code(1, 11),
+                DynamicMutation::Update {
+                    entity: ENTITY_NAME.to_string(),
+                    key: InputValue::nat64(2),
+                    patch: DynamicStructuralPatch::new(vec![(
+                        "code.value".to_string(),
+                        DynamicWriteCell::Value(InputValue::nat64(12)),
+                    )]),
+                },
+            ])
+            .expect_err("a dotted structural subpath must reject the complete batch");
+        assert_eq!(dotted_subpath.class(), ErrorClass::Unsupported);
+        assert_eq!(dotted_subpath.origin(), ErrorOrigin::Executor);
+        assert_eq!(
+            dotted_subpath.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeUnsupported,
+        );
+        assert!(dotted_subpath.diagnostic_facts().is_empty());
+
+        let unchanged = session
+            .execute_trusted_dynamic_mutation(&update_code(1, 1))
+            .expect("the rejected batch must preserve the earlier row");
+        assert_eq!(unchanged.affected_rows, 0);
+
+        let whole_field = session
+            .execute_trusted_dynamic_mutation(&update_code(2, 12))
+            .expect("a complete root-field update must remain supported");
+        assert_eq!(whole_field.affected_rows, 1);
+        assert_eq!(whole_field.rows, vec![expected_row_with_code(2, None, 12)]);
     }
 
     #[test]

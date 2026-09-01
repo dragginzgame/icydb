@@ -842,18 +842,6 @@ fn classification_integrity_corruption_constructors_never_downgrade() {
 }
 
 #[test]
-fn mutation_unknown_field_uses_compact_executor_invariant() {
-    let err = InternalError::mutation_structural_field_unknown("tests::User", "missing_name");
-
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Executor);
-    assert_eq!(
-        err.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation,
-    );
-}
-
-#[test]
 fn mutation_error_details_project_exact_bounded_numeric_facts() {
     use icydb_diagnostic_code::{
         DiagnosticFactTag as Tag, DiagnosticMutationOperation as Operation,

@@ -19,6 +19,7 @@ candid-export = []
 candid = { workspace = true }
 ic-cdk = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
+icydb-model = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }
 
