@@ -139,7 +139,8 @@ mod tests {
             .expect("fresh native database startup should complete");
         icydb::db::with_request_execution(|| {
             let patch = StructuralPatch::new()
-                .field("name", WriteCell::Value(InputValue::text(name.to_string())));
+                .field("name", WriteCell::Value(InputValue::text(name.to_string())))
+                .field("profiles", WriteCell::Value(InputValue::list(Vec::new())));
             let result = db()
                 .expect("native database should initialize")
                 .execute_trusted_structural_insert_batch("OneSimpleEntity01", vec![patch])
@@ -347,6 +348,7 @@ mod tests {
                 .expect("generated entity should bind to accepted authority");
             let write = OneSimpleEntity01Insert {
                 name: WriteCell::Value("single".to_string()),
+                profiles: WriteCell::Value(Vec::new()),
             }
             .encode_write(&binding)
             .expect("generated insert should encode");
@@ -364,7 +366,8 @@ mod tests {
                 .map(|name| StructuralMutation::Insert {
                     entity: OneSimpleEntity01::ENTITY.to_string(),
                     patch: StructuralPatch::new()
-                        .field("name", WriteCell::Value(InputValue::text(name.to_string()))),
+                        .field("name", WriteCell::Value(InputValue::text(name.to_string())))
+                        .field("profiles", WriteCell::Value(InputValue::list(Vec::new()))),
                 })
                 .collect();
             let inserted = database
@@ -433,11 +436,13 @@ mod tests {
             let first = batch
                 .push(OneSimpleEntity01Insert {
                     name: WriteCell::Value("typed-batch-one".to_string()),
+                    profiles: WriteCell::Value(Vec::new()),
                 })
                 .expect("first generated batch insert should encode");
             let second = batch
                 .push(OneSimpleEntity01Insert {
                     name: WriteCell::Value("typed-batch-two".to_string()),
+                    profiles: WriteCell::Value(Vec::new()),
                 })
                 .expect("second generated batch insert should encode");
             let mut results = batch
@@ -481,6 +486,7 @@ mod tests {
             let encode_insert = |name: &str| {
                 OneSimpleEntity01Insert {
                     name: WriteCell::Value(name.to_string()),
+                    profiles: WriteCell::Value(Vec::new()),
                 }
                 .encode_write(&binding)
                 .expect("generated insert should encode")
