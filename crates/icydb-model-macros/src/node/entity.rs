@@ -1134,18 +1134,18 @@ fn typed_write_fields_tokens(entity: &Entity, include_primary_key: bool) -> Vec<
     entity
         .fields
         .iter()
-        .filter_map(|field| {
+        .enumerate()
+        .filter_map(|(descriptor_ordinal, field)| {
             if !field_is_insert_authorable(field)
                 || (!include_primary_key && field_is_primary_key(entity, field))
             {
                 return None;
             }
-            let name = quote_one(&field.name, to_str_lit);
             let ident = &field.name;
             let input = typed_write_cell_input_expr(entity, field, quote!(self.#ident));
 
             Some(quote! {
-                fields.push((#name, #input));
+                encoder.push(#descriptor_ordinal, #input);
             })
         })
         .collect()
@@ -1161,14 +1161,14 @@ fn typed_write_adapter_impl_tokens(
     let fields = typed_write_fields_tokens(entity, include_primary_key);
     let field_count = fields.len();
     let build = match operation {
-        "insert" => quote!(::icydb::db::TypedWrite::insert(binding, fields)),
+        "insert" => quote!(encoder.insert()),
         "patch" => {
             let key = typed_primary_key_input_expr(entity);
-            quote!(::icydb::db::TypedWrite::update(binding, #key, fields))
+            quote!(encoder.update(#key))
         }
         "replace" => {
             let key = typed_primary_key_input_expr(entity);
-            quote!(::icydb::db::TypedWrite::replace(binding, #key, fields))
+            quote!(encoder.replace(#key))
         }
         _ => unreachable!("generated typed operation must be known"),
     };
@@ -1181,10 +1181,8 @@ fn typed_write_adapter_impl_tokens(
                 self,
                 binding: &::icydb::db::TypedEntityBinding,
             ) -> Result<::icydb::db::TypedWrite, ::icydb::db::TypedAdapterError> {
-                let mut fields: ::std::vec::Vec<(
-                    &'static str,
-                    ::icydb::db::WriteCell<::icydb::value::InputValue>,
-                )> = ::std::vec::Vec::with_capacity(#field_count);
+                let mut encoder =
+                    ::icydb::db::BoundWriteEncoder::new(binding, #field_count);
                 #(#fields)*
 
                 #build

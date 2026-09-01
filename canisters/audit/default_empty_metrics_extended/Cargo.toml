@@ -1,5 +1,5 @@
 [package]
-name = "canister_audit_default_empty_metrics"
+name = "canister_audit_default_empty_metrics_extended"
 edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -14,6 +14,7 @@ crate-type = ["cdylib"]
 [features]
 default = []
 candid-export = []
+metrics-extended = []
 sql = ["icydb/sql"]
 
 [dependencies]

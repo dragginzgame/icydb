@@ -693,7 +693,9 @@ fn endpoint_surface(canister: &str, sql_variant: &str, info: &WasmInfo) -> Resul
         .production_features
         .iter()
         .copied()
-        .filter(|feature| *feature == "candid-export" || sql_variant == "sql-on")
+        .filter(|feature| {
+            *feature == "candid-export" || *feature == "metrics-extended" || sql_variant == "sql-on"
+        })
         .map(str::to_string)
         .collect();
     let names = exported_method_names(info);

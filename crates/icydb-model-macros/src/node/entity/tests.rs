@@ -245,7 +245,7 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
         "TypedFieldType :: Named (< Profile as :: icydb_model :: TypedNamedType > :: SOURCE_KEY ,)",
         "TypedFieldDescriptor :: new (\"nickname\" , :: icydb :: __macro :: TypedFieldType :: Scalar (:: icydb :: __macro :: ScalarType :: Text { max_len : None }) , true ,)",
         "ScalarType :: Timestamp",
-        "Vec < (& 'static str , :: icydb :: db :: WriteCell < :: icydb :: value :: InputValue > ,) >",
+        "BoundWriteEncoder :: new (binding , 5usize)",
     ] {
         assert!(
             tokens.contains(expected),
@@ -256,7 +256,14 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
         !tokens.contains("pub created_at : :: icydb :: db :: WriteCell"),
         "managed fields must be absent from authored write inputs: {tokens}",
     );
-    for forbidden in ["TypedFieldBindingRequest", "Box :: new", "String :: from"] {
+    for forbidden in [
+        "TypedFieldBindingRequest",
+        "Box :: new",
+        "String :: from",
+        "TypedWrite :: insert",
+        "TypedWrite :: update",
+        "TypedWrite :: replace",
+    ] {
         assert!(
             !tokens.contains(forbidden),
             "generated binding descriptors must remain static data: {tokens}",

@@ -172,7 +172,7 @@ struct MaintainedCanisterBuildPlan {
     specs: Vec<LabeledWasmBuildSpec>,
 }
 
-static FIXTURE_CANISTERS: [FixtureCanister; 19] = [
+static FIXTURE_CANISTERS: [FixtureCanister; 20] = [
     FixtureCanister {
         name: "demo_rpg",
         package: "canister_demo_rpg",
@@ -226,6 +226,11 @@ static FIXTURE_CANISTERS: [FixtureCanister; 19] = [
     FixtureCanister {
         name: "default_empty_metrics",
         package: "canister_audit_default_empty_metrics",
+        local_wasm_bytes: OnceLock::new(),
+    },
+    FixtureCanister {
+        name: "default_empty_metrics_extended",
+        package: "canister_audit_default_empty_metrics_extended",
         local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {
@@ -635,9 +640,10 @@ fn selected_canister_features(
     selected_features
         .iter()
         .copied()
-        .filter(|feature| {
-            (*feature == "candid-export" && candid_enabled)
-                || (*feature != "candid-export" && options.sql_mode.enabled())
+        .filter(|feature| match *feature {
+            "candid-export" => candid_enabled,
+            "metrics-extended" => true,
+            _ => options.sql_mode.enabled(),
         })
         .collect()
 }

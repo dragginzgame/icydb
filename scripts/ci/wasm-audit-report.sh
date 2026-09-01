@@ -180,7 +180,7 @@ write_summary_report() {
         current_gz="$(jq -er '.artifacts.final_deployable_wasm_gz.bytes' "$size_report_path")"
         if ! jq -e '
             .format_version == 1
-            and .measurement_profile.identity == "icydb-wasm-footprint/0.250/v1"
+            and .measurement_profile.identity == "icydb-wasm-footprint/0.251/v1"
             and .pipeline.build_profile == "production"
             and .pipeline.candid_metadata == "enabled"
             and .pipeline.post_link_transform == "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1"
@@ -202,7 +202,7 @@ write_summary_report() {
             if [[ -f "$baseline_artifact" ]] \
                 && jq -e --slurpfile current "$size_report_path" '
                     .format_version == 1
-                    and .measurement_profile.identity == "icydb-wasm-footprint/0.250/v1"
+                    and .measurement_profile.identity == "icydb-wasm-footprint/0.251/v1"
                     and .provenance.source_dirty == false
                     and .pipeline.final_deployable_stage == "binaryen_oz_wasm"
                     and .artifacts.final_deployable_wasm.bytes

@@ -75,6 +75,11 @@ const METRICS_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_metrics", CanisterMethodMode::Query),
     ("icydb_metrics_reset", CanisterMethodMode::Update),
 ];
+const METRICS_EXTENDED_METHODS: &[ExpectedCanisterMethod] = &[
+    ("icydb_metrics", CanisterMethodMode::Query),
+    ("icydb_metrics_extended", CanisterMethodMode::Query),
+    ("icydb_metrics_reset", CanisterMethodMode::Update),
+];
 const SQL_PERF_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_fixtures_load", CanisterMethodMode::Update),
     ("icydb_fixtures_reset", CanisterMethodMode::Update),
@@ -154,18 +159,26 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
     MaintainedCanisterPolicy {
         canister: "default_empty",
         package: "canister_audit_default_empty",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &["candid-export", "sql"],
+        local_test_features: &["candid-export", "sql"],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "default_empty_metrics",
         package: "canister_audit_default_empty_metrics",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &["candid-export", "sql"],
+        local_test_features: &["candid-export", "sql"],
         production_icydb_methods: METRICS_METHODS,
         local_test_icydb_methods: METRICS_METHODS,
+    },
+    MaintainedCanisterPolicy {
+        canister: "default_empty_metrics_extended",
+        package: "canister_audit_default_empty_metrics_extended",
+        production_features: &["candid-export", "metrics-extended", "sql"],
+        local_test_features: &["candid-export", "metrics-extended", "sql"],
+        production_icydb_methods: METRICS_EXTENDED_METHODS,
+        local_test_icydb_methods: METRICS_EXTENDED_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "one_entity_dynamic_query",
@@ -833,7 +846,7 @@ mod tests {
 
     #[test]
     fn maintained_policy_is_complete_unique_and_deterministic() {
-        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 19);
+        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 20);
         let names = MAINTAINED_CANISTER_POLICIES
             .iter()
             .map(|policy| policy.canister)

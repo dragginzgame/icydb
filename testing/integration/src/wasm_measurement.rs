@@ -9,7 +9,7 @@ use serde::Serialize;
 pub const WASM_MEASUREMENT_PROFILE_VERSION: u32 = 1;
 
 /// Stable identity carried by every comparable Wasm report.
-pub const WASM_MEASUREMENT_PROFILE_ID: &str = "icydb-wasm-footprint/0.250/v1";
+pub const WASM_MEASUREMENT_PROFILE_ID: &str = "icydb-wasm-footprint/0.251/v1";
 
 /// Maximum final raw-Wasm growth admitted for each additional declared schema
 /// whose generated adapters remain unreachable and dead-strippable.
@@ -28,6 +28,9 @@ pub const MINIMUM_POST_LINK_RAW_REDUCTION_BASIS_POINTS: u16 = 700;
 
 /// Minimum final code-section reduction required from the prepared-page slice.
 pub const MINIMUM_PREPARED_PAGE_CODE_REDUCTION_BYTES: u64 = 32 * 1024;
+
+/// Minimum final raw-Wasm reduction required from the compact basic-metrics slice.
+pub const MINIMUM_BASIC_METRICS_RAW_REDUCTION_BYTES: u64 = 32 * 1024;
 
 /// Absolute instruction increase that participates in the material-regression gate.
 pub const MATERIAL_INSTRUCTION_REGRESSION: u64 = 250_000;
@@ -120,6 +123,7 @@ fn validate_entity_scale_raw_wasm_with_maximum(
 pub const WASM_MEASUREMENT_SUBJECTS: &[&str] = &[
     "default_empty",
     "default_empty_metrics",
+    "default_empty_metrics_extended",
     "one_entity_dynamic_query",
     "one_entity_reachable_operations",
     "one_entity_typed_query",
@@ -177,8 +181,15 @@ pub const WASM_MEASUREMENT_COMPARISONS: &[WasmComparison] = &[
         id: "metrics_surface",
         baseline: "default_empty",
         candidate: "default_empty_metrics",
-        disposition: WasmComparisonDisposition::DirectionalOnly,
-        reason: "distinct actor sources differ by endpoint declarations and retained metrics wiring",
+        disposition: WasmComparisonDisposition::Attributable,
+        reason: "both actors share one empty schema and feature profile; the candidate adds only the basic metrics and reset endpoint declarations",
+    },
+    WasmComparison {
+        id: "metrics_extended_surface",
+        baseline: "default_empty_metrics",
+        candidate: "default_empty_metrics_extended",
+        disposition: WasmComparisonDisposition::Attributable,
+        reason: "both actors share one empty schema and SQL selection; the candidate adds only the extended metrics feature and endpoint declaration",
     },
     WasmComparison {
         id: "typed_ingress",
@@ -240,6 +251,10 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
         minimum_final_raw_reduction_basis_points: 500,
     },
     WasmLineBudget {
+        subject: "default_empty_metrics_extended",
+        minimum_final_raw_reduction_basis_points: 0,
+    },
+    WasmLineBudget {
         subject: "one_entity_dynamic_query",
         minimum_final_raw_reduction_basis_points: 700,
     },
@@ -284,8 +299,8 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
 /// Returns a static diagnostic when subject, comparison, or budget authority drifts.
 pub fn validate_wasm_measurement_contract() -> Result<(), &'static str> {
     if WASM_MEASUREMENT_PROFILE_VERSION != 1
-        || WASM_MEASUREMENT_PROFILE_ID != "icydb-wasm-footprint/0.250/v1"
-        || WASM_MEASUREMENT_SUBJECTS.len() != 11
+        || WASM_MEASUREMENT_PROFILE_ID != "icydb-wasm-footprint/0.251/v1"
+        || WASM_MEASUREMENT_SUBJECTS.len() != 12
     {
         return Err("Wasm measurement identity or subject count drifted");
     }
@@ -347,6 +362,7 @@ mod tests {
             Some(WasmComparisonDisposition::Attributable)
         );
         assert_eq!(MINIMUM_PREPARED_PAGE_CODE_REDUCTION_BYTES, 32_768);
+        assert_eq!(MINIMUM_BASIC_METRICS_RAW_REDUCTION_BYTES, 32_768);
         assert_eq!(MATERIAL_INSTRUCTION_REGRESSION, 250_000);
         assert_eq!(MATERIAL_INSTRUCTION_REGRESSION_BASIS_POINTS, 300);
     }

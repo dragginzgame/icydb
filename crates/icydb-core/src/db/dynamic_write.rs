@@ -238,7 +238,7 @@ struct DynamicTypedFieldBinding {
 ///
 /// DynamicTypedStructuralPatch
 ///
-/// Opaque accepted-ID/slot patch produced by a current typed binding.
+/// Opaque descriptor-ordinal patch sealed to one current typed binding.
 ///
 
 #[doc(hidden)]
@@ -247,13 +247,13 @@ pub struct DynamicTypedStructuralPatch {
     entity_source: String,
     entity_tag: u64,
     accepted_fingerprint: [u8; 16],
-    fields: Vec<(u32, u16, DynamicWriteCell)>,
+    fields: Vec<(usize, DynamicWriteCell)>,
 }
 
 impl DynamicTypedStructuralPatch {
-    /// Borrow accepted field ID/slot intents for core mutation lowering.
+    /// Borrow binding-local descriptor-ordinal intents for core mutation lowering.
     #[must_use]
-    pub(crate) const fn fields(&self) -> &[(u32, u16, DynamicWriteCell)] {
+    pub(crate) const fn fields(&self) -> &[(usize, DynamicWriteCell)] {
         self.fields.as_slice()
     }
 
@@ -267,8 +267,9 @@ impl DynamicTypedStructuralPatch {
 ///
 /// DynamicTypedMutation
 ///
-/// One source-bound generated mutation whose fields already carry accepted
-/// field IDs and slots. Entity and field names are not routing authority.
+/// One source-bound generated mutation whose fields carry binding-local
+/// descriptor ordinals. Entity names, field names and ordinals are not routing
+/// authority; the sealed binding resolves accepted IDs and slots.
 ///
 
 #[doc(hidden)]
@@ -408,30 +409,31 @@ impl DynamicTypedEntityBinding {
             .map(|field| (field.source_key.as_str(), field.field_id, field.slot))
     }
 
-    /// Bind generated source-key write intent to accepted field IDs and slots.
+    pub(crate) fn field_identity_binding(&self, descriptor_ordinal: usize) -> Option<(u32, u16)> {
+        self.fields
+            .get(descriptor_ordinal)
+            .map(|field| (field.field_id, field.slot))
+    }
+
+    /// Bind generated descriptor-ordinal write intent to accepted field IDs and slots.
     #[must_use]
-    pub fn bind_write_fields(
+    pub fn bind_write_ordinals(
         &self,
-        fields: Vec<(String, DynamicWriteCell)>,
+        fields: Vec<(usize, DynamicWriteCell)>,
     ) -> Option<DynamicTypedStructuralPatch> {
-        let mut seen_ids = BTreeSet::new();
-        let mut seen_slots = BTreeSet::new();
-        let mut bound = Vec::with_capacity(fields.len());
-        for (source_key, cell) in fields {
-            let field = self
-                .fields
-                .iter()
-                .find(|field| field.source_key == source_key)?;
-            if !seen_ids.insert(field.field_id) || !seen_slots.insert(field.slot) {
+        let mut previous_ordinal = None;
+        for (descriptor_ordinal, _) in &fields {
+            if previous_ordinal.is_some_and(|previous| *descriptor_ordinal <= previous) {
                 return None;
             }
-            bound.push((field.field_id, field.slot, cell));
+            let _ = self.fields.get(*descriptor_ordinal)?;
+            previous_ordinal = Some(*descriptor_ordinal);
         }
         Some(DynamicTypedStructuralPatch {
             entity_source: self.entity_source.clone(),
             entity_tag: self.entity_tag,
             accepted_fingerprint: self.accepted_fingerprint,
-            fields: bound,
+            fields,
         })
     }
 

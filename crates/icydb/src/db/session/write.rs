@@ -804,7 +804,69 @@ pub trait TypedWriteAdapter {
     fn encode_write(self, binding: &TypedEntityBinding) -> Result<TypedWrite, TypedAdapterError>;
 }
 
-/// One generated write lowered through immutable source keys.
+/// Concrete generated-field encoder over one opaque accepted binding.
+#[doc(hidden)]
+pub struct BoundWriteEncoder {
+    binding: TypedEntityBinding,
+    fields: Vec<(usize, core::db::DynamicWriteCell)>,
+}
+
+impl BoundWriteEncoder {
+    /// Prepare one generated write with its exact authored-field capacity.
+    #[must_use]
+    pub fn new(binding: &TypedEntityBinding, field_count: usize) -> Self {
+        Self {
+            binding: binding.clone(),
+            fields: Vec::with_capacity(field_count),
+        }
+    }
+
+    /// Append one generated write cell by binding-local descriptor ordinal.
+    pub fn push(&mut self, descriptor_ordinal: usize, cell: WriteCell<InputValue>) {
+        self.fields.push((descriptor_ordinal, cell.into_core()));
+    }
+
+    /// Finish one insert intent through the opaque accepted binding.
+    pub fn insert(self) -> Result<TypedWrite, TypedAdapterError> {
+        let (binding, patch) = self.into_bound_patch()?;
+        Ok(TypedWrite {
+            binding,
+            mutation: core::db::DynamicTypedMutation::Insert { patch },
+        })
+    }
+
+    /// Finish one patch/update intent through the opaque accepted binding.
+    pub fn update(self, key: InputValue) -> Result<TypedWrite, TypedAdapterError> {
+        let (binding, patch) = self.into_bound_patch()?;
+        Ok(TypedWrite {
+            binding,
+            mutation: core::db::DynamicTypedMutation::Update { key, patch },
+        })
+    }
+
+    /// Finish one replacement intent through the opaque accepted binding.
+    pub fn replace(self, key: InputValue) -> Result<TypedWrite, TypedAdapterError> {
+        let (binding, patch) = self.into_bound_patch()?;
+        Ok(TypedWrite {
+            binding,
+            mutation: core::db::DynamicTypedMutation::Replace { key, patch },
+        })
+    }
+
+    fn into_bound_patch(
+        self,
+    ) -> Result<(TypedEntityBinding, core::db::DynamicTypedStructuralPatch), TypedAdapterError>
+    {
+        let Self { binding, fields } = self;
+        let patch = binding
+            .inner
+            .bind_write_ordinals(fields)
+            .ok_or(TypedAdapterError::FieldUnavailable)?;
+        Ok((binding, patch))
+    }
+}
+
+/// One generated write lowered through binding-owned accepted field identities.
 #[derive(Clone, Debug)]
 pub struct TypedWrite {
     binding: TypedEntityBinding,
@@ -812,53 +874,6 @@ pub struct TypedWrite {
 }
 
 impl TypedWrite {
-    /// Build one insert intent from immutable field source keys.
-    pub fn insert<I, S>(binding: &TypedEntityBinding, fields: I) -> Result<Self, TypedAdapterError>
-    where
-        I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
-        S: AsRef<str>,
-    {
-        let patch = typed_patch_from_binding(binding, fields)?;
-        Ok(Self {
-            binding: binding.clone(),
-            mutation: core::db::DynamicTypedMutation::Insert { patch },
-        })
-    }
-
-    /// Build one patch/update intent from immutable field source keys.
-    pub fn update<I, S>(
-        binding: &TypedEntityBinding,
-        key: InputValue,
-        fields: I,
-    ) -> Result<Self, TypedAdapterError>
-    where
-        I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
-        S: AsRef<str>,
-    {
-        let patch = typed_patch_from_binding(binding, fields)?;
-        Ok(Self {
-            binding: binding.clone(),
-            mutation: core::db::DynamicTypedMutation::Update { key, patch },
-        })
-    }
-
-    /// Build one replacement intent from immutable field source keys.
-    pub fn replace<I, S>(
-        binding: &TypedEntityBinding,
-        key: InputValue,
-        fields: I,
-    ) -> Result<Self, TypedAdapterError>
-    where
-        I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
-        S: AsRef<str>,
-    {
-        let patch = typed_patch_from_binding(binding, fields)?;
-        Ok(Self {
-            binding: binding.clone(),
-            mutation: core::db::DynamicTypedMutation::Replace { key, patch },
-        })
-    }
-
     /// Build one delete intent from an accepted primary-key value.
     #[must_use]
     pub fn delete(binding: &TypedEntityBinding, key: InputValue) -> Self {
@@ -1032,24 +1047,6 @@ fn project_typed_write_batch_results(
         });
     }
     Ok(projected)
-}
-
-fn typed_patch_from_binding<I, S>(
-    binding: &TypedEntityBinding,
-    fields: I,
-) -> Result<core::db::DynamicTypedStructuralPatch, TypedAdapterError>
-where
-    I: IntoIterator<Item = (S, WriteCell<InputValue>)>,
-    S: AsRef<str>,
-{
-    let fields = fields
-        .into_iter()
-        .map(|(source, cell)| (source.as_ref().to_string(), cell.into_core()))
-        .collect();
-    binding
-        .inner
-        .bind_write_fields(fields)
-        .ok_or(TypedAdapterError::FieldUnavailable)
 }
 
 impl WriteCell<InputValue> {

@@ -20,6 +20,7 @@ done < <(find canisters -name build.rs -print0)
 
 for source in \
   canisters/audit/default_empty_metrics/src/lib.rs \
+  canisters/audit/default_empty_metrics_extended/src/lib.rs \
   canisters/audit/sql_perf/src/lib.rs \
   canisters/test/sql/src/lib.rs \
   canisters/demo/rpg/src/lib.rs

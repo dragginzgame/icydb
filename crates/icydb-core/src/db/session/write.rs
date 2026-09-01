@@ -476,17 +476,21 @@ fn lower_dynamic_mutation_intent(
 
 fn lower_typed_patch(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    binding: &DynamicTypedEntityBinding,
     patch: &DynamicTypedStructuralPatch,
     mode: MutationMode,
     mutation_context: MutationDiagnosticContext,
 ) -> Result<AcceptedMutationIntentPatch, InternalError> {
     let mut lowered = AcceptedMutationIntentPatch::new();
-    for (field_id, slot, cell) in patch.fields() {
-        let slot_index = usize::from(*slot);
+    for (descriptor_ordinal, cell) in patch.fields() {
+        let (field_id, slot) = binding
+            .field_identity_binding(*descriptor_ordinal)
+            .ok_or_else(InternalError::store_invariant)?;
+        let slot_index = usize::from(slot);
         let field = descriptor
             .field_for_slot_index(slot_index)
             .ok_or_else(InternalError::store_invariant)?;
-        if field.field_id().get() != *field_id {
+        if field.field_id().get() != field_id {
             return Err(InternalError::store_invariant());
         }
         if !matches!(cell, DynamicWriteCell::Omitted)
@@ -545,6 +549,7 @@ fn lower_typed_mutation_intent(
         dynamic_typed_mutation_mode(request).ok_or_else(InternalError::executor_invariant)?;
     let patch = lower_typed_patch(
         descriptor,
+        binding,
         patch,
         mode,
         mutation_diagnostic_context(entity_tag, mode, batch_position),
@@ -2427,15 +2432,9 @@ mod typed_adapter_tests {
         value: u64,
     ) -> DynamicTypedMutation {
         let patch = binding
-            .bind_write_fields(vec![
-                (
-                    ID_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::nat64(id)),
-                ),
-                (
-                    VALUE_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::nat64(value)),
-                ),
+            .bind_write_ordinals(vec![
+                (0, DynamicWriteCell::Value(InputValue::nat64(id))),
+                (1, DynamicWriteCell::Value(InputValue::nat64(value))),
             ])
             .expect("typed insert patch should bind");
         DynamicTypedMutation::Insert { patch }
@@ -2443,10 +2442,7 @@ mod typed_adapter_tests {
 
     fn typed_other_insert(binding: &DynamicTypedEntityBinding, id: u64) -> DynamicTypedMutation {
         let patch = binding
-            .bind_write_fields(vec![(
-                OTHER_ID_SOURCE.to_string(),
-                DynamicWriteCell::Value(InputValue::nat64(id)),
-            )])
+            .bind_write_ordinals(vec![(0, DynamicWriteCell::Value(InputValue::nat64(id)))])
             .expect("other typed insert patch should bind");
         DynamicTypedMutation::Insert { patch }
     }
@@ -2462,10 +2458,7 @@ mod typed_adapter_tests {
         value: u64,
     ) -> super::DynamicTypedStructuralPatch {
         binding
-            .bind_write_fields(vec![(
-                VALUE_SOURCE.to_string(),
-                DynamicWriteCell::Value(InputValue::nat64(value)),
-            )])
+            .bind_write_ordinals(vec![(1, DynamicWriteCell::Value(InputValue::nat64(value)))])
             .expect("typed value patch should bind")
     }
 
@@ -2845,14 +2838,35 @@ mod typed_adapter_tests {
         assert_eq!(initial.field_slot(VALUE_SOURCE), Some(1));
         assert_eq!(initial.output_field_slot("value"), Some(1));
         let initial_patch = initial
-            .bind_write_fields(vec![(
-                VALUE_SOURCE.to_string(),
-                DynamicWriteCell::Value(InputValue::nat64(7)),
-            )])
+            .bind_write_ordinals(vec![(1, DynamicWriteCell::Value(InputValue::nat64(7)))])
             .expect("source-bound patch should lower");
         assert_eq!(
             initial_patch.fields(),
-            &[(2, 1, DynamicWriteCell::Value(InputValue::nat64(7)))]
+            &[(1, DynamicWriteCell::Value(InputValue::nat64(7)))]
+        );
+        assert!(
+            initial
+                .bind_write_ordinals(vec![(2, DynamicWriteCell::Value(InputValue::nat64(8)),)])
+                .is_none(),
+            "out-of-range descriptor ordinals must fail closed",
+        );
+        assert!(
+            initial
+                .bind_write_ordinals(vec![
+                    (1, DynamicWriteCell::Omitted),
+                    (1, DynamicWriteCell::Default),
+                ])
+                .is_none(),
+            "duplicate descriptor ordinals must fail closed",
+        );
+        assert!(
+            initial
+                .bind_write_ordinals(vec![
+                    (1, DynamicWriteCell::Omitted),
+                    (0, DynamicWriteCell::Default),
+                ])
+                .is_none(),
+            "out-of-order descriptor ordinals must fail closed",
         );
 
         publish(
@@ -2980,15 +2994,9 @@ mod typed_adapter_tests {
                 .is_none()
         );
         let patch = replacement
-            .bind_write_fields(vec![
-                (
-                    ID_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::nat64(1)),
-                ),
-                (
-                    REPLACEMENT_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::nat64(9)),
-                ),
+            .bind_write_ordinals(vec![
+                (0, DynamicWriteCell::Value(InputValue::nat64(1))),
+                (1, DynamicWriteCell::Value(InputValue::nat64(9))),
             ])
             .expect("replacement source write should bind by accepted IDs and slots");
         let result = session
@@ -3007,15 +3015,9 @@ mod typed_adapter_tests {
         assert_eq!(result.affected_rows, 1);
 
         let second_patch = replacement
-            .bind_write_fields(vec![
-                (
-                    ID_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::nat64(2)),
-                ),
-                (
-                    REPLACEMENT_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::nat64(10)),
-                ),
+            .bind_write_ordinals(vec![
+                (0, DynamicWriteCell::Value(InputValue::nat64(2))),
+                (1, DynamicWriteCell::Value(InputValue::nat64(10))),
             ])
             .expect("second source-bound patch should lower");
         session
@@ -5231,8 +5233,8 @@ mod identity_pre_key_tests {
         payload: u64,
     ) -> DynamicTypedMutation {
         let patch = binding
-            .bind_write_fields(vec![(
-                PAYLOAD_SOURCE.to_string(),
+            .bind_write_ordinals(vec![(
+                1,
                 DynamicWriteCell::Value(InputValue::nat64(payload)),
             )])
             .expect("typed payload patch should bind");
@@ -7350,10 +7352,7 @@ mod identity_pre_key_tests {
             .issue_typed_entity_binding(&TYPED_DESCRIPTOR)
             .expect("typed output should bind the Identity field");
         let typed_patch = binding
-            .bind_write_fields(vec![(
-                PAYLOAD_SOURCE.to_string(),
-                DynamicWriteCell::Value(InputValue::nat64(50)),
-            )])
+            .bind_write_ordinals(vec![(1, DynamicWriteCell::Value(InputValue::nat64(50)))])
             .expect("typed payload should lower");
         let typed = session
             .execute_trusted_typed_mutation(
@@ -7368,15 +7367,9 @@ mod identity_pre_key_tests {
             1,
         );
         let explicit_typed_patch = binding
-            .bind_write_fields(vec![
-                (
-                    ID_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::nat64(51)),
-                ),
-                (
-                    PAYLOAD_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::nat64(52)),
-                ),
+            .bind_write_ordinals(vec![
+                (0, DynamicWriteCell::Value(InputValue::nat64(51))),
+                (1, DynamicWriteCell::Value(InputValue::nat64(52))),
             ])
             .expect("the low-level binding should retain exact authored intent");
         let explicit_typed_error = session
@@ -9227,15 +9220,9 @@ mod targeted_rule_mutation_tests {
             .issue_typed_entity_binding(&TYPED_DESCRIPTOR)
             .expect("targeted typed binding should issue");
         let typed_patch = binding
-            .bind_write_fields(vec![
-                (
-                    ID_SOURCE.to_string(),
-                    DynamicWriteCell::Value(InputValue::nat64(2)),
-                ),
-                (
-                    PROFILE_SOURCE.to_string(),
-                    DynamicWriteCell::Value(profile_input(12)),
-                ),
+            .bind_write_ordinals(vec![
+                (0, DynamicWriteCell::Value(InputValue::nat64(2))),
+                (1, DynamicWriteCell::Value(profile_input(12))),
             ])
             .expect("targeted typed patch should bind");
         let typed_error = session

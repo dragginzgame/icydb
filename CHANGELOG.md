@@ -5,6 +5,21 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.251.x] 📊 - 2026-09-01 - Runtime And Entity Codec Wasm Reduction
+
+Detailed notes: [docs/changelog/0.251.md](docs/changelog/0.251.md)
+
+- `0.251.2` rejects a lossless compact descriptor after it grows both maintained
+  actors, then closes the line with reproduced metrics/schema controls and the
+  passing 8 KiB reachable gate unchanged; the stronger 2 KiB objective remains
+  explicitly incomplete.
+- `0.251.1` hard-cuts generated writes to one allocation-light binding-owned
+  ordinal encoder, removing 11,170 raw Toko bytes and reducing the maintained
+  reachable slope from 40,190 to 40,053 bytes with exact Candid.
+- `0.251.0` freezes the published 0.250.1 Wasm controls and rejects non-saving
+  compact-metrics and ordinal-row candidates without retaining another runtime
+  feature, state owner or decode path.
+
 ## [0.250.x] 📊 - 2026-08-31 - Reachable Generated Entity Specialization
 
 Detailed notes: [docs/changelog/0.250.md](docs/changelog/0.250.md)

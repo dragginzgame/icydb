@@ -24,8 +24,10 @@ Measure and report:
 The exact default targets are:
 
 - canisters: `default_empty`, `default_empty_metrics`,
-  `one_entity_dynamic_query`, `one_entity_typed_query`,
-  `one_entity_sql_query`, `ten_entity_typed_query`, `sql_perf`, and `sql`
+  `default_empty_metrics_extended`, `one_entity_dynamic_query`,
+  `one_entity_reachable_operations`, `one_entity_typed_query`,
+  `one_entity_sql_query`, `request_future_scale`, `ten_entity_typed_query`,
+  `ten_entity_reachable_operations`, `sql_perf`, and `sql`
 - profile: `wasm-release`
 - build profile: production, `--no-default-features`, exact maintained
   production features, and Candid metadata enabled
@@ -38,6 +40,8 @@ Default target roles:
 - `default_empty_metrics` isolates the compact generated metrics endpoint cost.
   It intentionally starts from the empty schema so metrics/Candid/IC method
   retention is not mixed into query runtime growth.
+- `default_empty_metrics_extended` isolates the additional rich metrics surface
+  over that same empty schema and exact feature profile.
 - `one_entity_typed_query` measures the generated typed projection over the
   accepted dynamic-query lane.
 - `one_entity_sql_query` measures the SQL query frontend/runtime path.
@@ -54,10 +58,10 @@ the pinned Binaryen version/hash and flags, Candid identity, exports, accepted
 Wasm features, and final raw artifact identity. Dirty reports remain useful
 locally but cannot become a baseline or satisfy a regression verdict.
 
-The checked-in comparison ledger currently classifies the metrics, typed, SQL,
-and entity-scale subtractions as directional only because their maintained
-actors do not share one source and one schema. Those deltas may rank follow-up
-attribution work but cannot independently select a production owner.
+The checked-in comparison ledger classifies the controlled metrics,
+entity-scale and request-future pairs as attributable. Typed and SQL ingress
+remain directional because their maintained actors differ in more than one
+owner.
 
 ---
 
