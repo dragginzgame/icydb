@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
+- `0.252.3` makes the stable runtime value tag the single discriminator for
+  grouped keys, aggregate contracts, and compiled-expression diagnostics,
+  removing three parallel mappings without changing interfaces or entity reachability.
 - `0.252.2` removes duplicate planner labels and stale grouped-query ownership
   branches, leaving canonical path, `HAVING`, and row-slot state with one
   authority each while making the optimized actor smaller.

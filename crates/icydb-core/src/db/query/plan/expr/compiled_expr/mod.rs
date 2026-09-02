@@ -25,7 +25,7 @@ use crate::{
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    value::Value,
+    value::{Value, ValueTag},
 };
 use icydb_diagnostic_code::QueryProjectionCode;
 use std::borrow::Cow;
@@ -51,66 +51,6 @@ impl ProjectionAccessCode {
     pub(in crate::db) const SLOT: Self = Self(1);
     pub(in crate::db) const GROUP_KEY: Self = Self(2);
     pub(in crate::db) const FIELD_PATH: Self = Self(3);
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct ProjectionValueKindCode(u8);
-
-impl ProjectionValueKindCode {
-    const ACCOUNT: Self = Self(0);
-    const BLOB: Self = Self(1);
-    const BOOL: Self = Self(2);
-    const DATE: Self = Self(3);
-    const DECIMAL: Self = Self(4);
-    const DURATION: Self = Self(5);
-    const ENUM: Self = Self(6);
-    const FLOAT32: Self = Self(7);
-    const FLOAT64: Self = Self(8);
-    const INT64: Self = Self(9);
-    const INT128: Self = Self(10);
-    const INT_BIG: Self = Self(11);
-    const LIST: Self = Self(12);
-    const MAP: Self = Self(13);
-    const NULL: Self = Self(14);
-    const PRINCIPAL: Self = Self(15);
-    const SUBACCOUNT: Self = Self(16);
-    const TEXT: Self = Self(17);
-    const TIMESTAMP: Self = Self(18);
-    const NAT64: Self = Self(19);
-    const NAT128: Self = Self(20);
-    const NAT_BIG: Self = Self(21);
-    const ULID: Self = Self(22);
-    const UNIT: Self = Self(23);
-    const U256: Self = Self(24);
-    pub(in crate::db) const fn from_value(value: &Value) -> Self {
-        match value {
-            Value::Account(_) => Self::ACCOUNT,
-            Value::Blob(_) => Self::BLOB,
-            Value::Bool(_) => Self::BOOL,
-            Value::Date(_) => Self::DATE,
-            Value::Decimal(_) => Self::DECIMAL,
-            Value::Duration(_) => Self::DURATION,
-            Value::Enum(_) => Self::ENUM,
-            Value::Float32(_) => Self::FLOAT32,
-            Value::Float64(_) => Self::FLOAT64,
-            Value::Int64(_) => Self::INT64,
-            Value::Int128(_) => Self::INT128,
-            Value::IntBig(_) => Self::INT_BIG,
-            Value::List(_) => Self::LIST,
-            Value::Map(_) => Self::MAP,
-            Value::Null => Self::NULL,
-            Value::Principal(_) => Self::PRINCIPAL,
-            Value::Subaccount(_) => Self::SUBACCOUNT,
-            Value::Text(_) => Self::TEXT,
-            Value::Timestamp(_) => Self::TIMESTAMP,
-            Value::Nat64(_) => Self::NAT64,
-            Value::Nat128(_) => Self::NAT128,
-            Value::NatBig(_) => Self::NAT_BIG,
-            Value::Ulid(_) => Self::ULID,
-            Value::Unit => Self::UNIT,
-            Value::U256(_) => Self::U256,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -304,18 +244,18 @@ pub(in crate::db) enum ProjectionEvalError {
 
     InvalidUnaryOperand {
         op: ProjectionUnaryOpCode,
-        found: ProjectionValueKindCode,
+        found: ValueTag,
     },
 
     InvalidCaseCondition {
         arm_index: Option<usize>,
-        found: ProjectionValueKindCode,
+        found: ValueTag,
     },
 
     InvalidBinaryOperands {
         op: ProjectionBinaryOpCode,
-        left: ProjectionValueKindCode,
-        right: ProjectionValueKindCode,
+        left: ValueTag,
+        right: ValueTag,
     },
 
     UnknownGroupedAggregateExpression {
@@ -338,7 +278,7 @@ pub(in crate::db) enum ProjectionEvalError {
     Numeric(NumericEvalError),
 
     InvalidGroupedHavingResult {
-        found: ProjectionValueKindCode,
+        found: ValueTag,
     },
 }
 
@@ -394,7 +334,7 @@ impl ProjectionEvalError {
     pub(in crate::db) const fn invalid_unary_operand(op: UnaryOp, found: &Value) -> Self {
         Self::InvalidUnaryOperand {
             op: ProjectionUnaryOpCode::from_unary_op(op),
-            found: ProjectionValueKindCode::from_value(found),
+            found: found.canonical_tag(),
         }
     }
 
@@ -404,7 +344,7 @@ impl ProjectionEvalError {
     ) -> Self {
         Self::InvalidCaseCondition {
             arm_index,
-            found: ProjectionValueKindCode::from_value(found),
+            found: found.canonical_tag(),
         }
     }
 
@@ -415,8 +355,8 @@ impl ProjectionEvalError {
     ) -> Self {
         Self::InvalidBinaryOperands {
             op: ProjectionBinaryOpCode::from_binary_op(op),
-            left: ProjectionValueKindCode::from_value(left),
-            right: ProjectionValueKindCode::from_value(right),
+            left: left.canonical_tag(),
+            right: right.canonical_tag(),
         }
     }
 
@@ -442,7 +382,7 @@ impl ProjectionEvalError {
 
     pub(in crate::db) const fn invalid_grouped_having_result(found: &Value) -> Self {
         Self::InvalidGroupedHavingResult {
-            found: ProjectionValueKindCode::from_value(found),
+            found: found.canonical_tag(),
         }
     }
 
@@ -462,49 +402,7 @@ impl ProjectionEvalError {
             Self::Numeric(err) => err.into_internal_error(),
             Self::FieldPathEvaluationFailed { class, origin }
             | Self::ReaderFailed { class, origin } => InternalError::classified(class, origin),
-            Self::UnknownField { access } | Self::MissingFieldValue { access, .. } => {
-                let _ = access;
-                InternalError::query_invalid_logical_plan()
-            }
-            Self::MissingFieldPathValue { root_slot } => {
-                let _ = root_slot;
-                InternalError::query_invalid_logical_plan()
-            }
-            Self::InvalidUnaryOperand { op, found } => {
-                let _ = (op, found);
-                InternalError::query_invalid_logical_plan()
-            }
-            Self::InvalidCaseCondition { arm_index, found } => {
-                let _ = (arm_index, found);
-                InternalError::query_invalid_logical_plan()
-            }
-            Self::InvalidBinaryOperands { op, left, right } => {
-                let _ = (op, left, right);
-                InternalError::query_invalid_logical_plan()
-            }
-            Self::UnknownGroupedAggregateExpression { kind } => {
-                let _ = kind;
-                InternalError::query_invalid_logical_plan()
-            }
-            Self::MissingGroupedAggregateValue { index } => {
-                let _ = index;
-                InternalError::query_invalid_logical_plan()
-            }
-            Self::InvalidFunctionCall {
-                function,
-                argument_count,
-            } => {
-                let _ = (function, argument_count);
-                InternalError::query_invalid_logical_plan()
-            }
-            Self::InvalidProjection { reason } => {
-                let _ = reason;
-                InternalError::query_invalid_logical_plan()
-            }
-            Self::InvalidGroupedHavingResult { found } => {
-                let _ = found;
-                InternalError::query_invalid_logical_plan()
-            }
+            _ => InternalError::query_invalid_logical_plan(),
         }
     }
 }

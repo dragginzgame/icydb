@@ -14,7 +14,7 @@ use crate::{
         schema::AcceptedFieldKind,
     },
     error::InternalError,
-    value::Value,
+    value::{Value, ValueTag},
 };
 use std::cmp::Ordering;
 
@@ -41,12 +41,12 @@ pub(in crate::db::executor) enum AggregateFieldValueError {
     FieldValueTypeMismatch {
         slot_index: usize,
         expected: AggregateFieldKindCode,
-        found: AggregateValueKindCode,
+        found: ValueTag,
     },
 
     IncomparableFieldValues {
-        left: AggregateValueKindCode,
-        right: AggregateValueKindCode,
+        left: ValueTag,
+        right: ValueTag,
     },
 
     AcceptedContractUnavailable {
@@ -93,80 +93,20 @@ impl AggregateFieldKindCode {
     pub(in crate::db::executor) const U256: Self = Self(32);
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) struct AggregateValueKindCode(u8);
-
-impl AggregateValueKindCode {
-    pub(in crate::db::executor) const ACCOUNT: Self = Self(0);
-    pub(in crate::db::executor) const BLOB: Self = Self(1);
-    pub(in crate::db::executor) const BOOL: Self = Self(2);
-    pub(in crate::db::executor) const DATE: Self = Self(3);
-    pub(in crate::db::executor) const DECIMAL: Self = Self(4);
-    pub(in crate::db::executor) const DURATION: Self = Self(5);
-    pub(in crate::db::executor) const ENUM: Self = Self(6);
-    pub(in crate::db::executor) const FLOAT32: Self = Self(7);
-    pub(in crate::db::executor) const FLOAT64: Self = Self(8);
-    pub(in crate::db::executor) const INT64: Self = Self(9);
-    pub(in crate::db::executor) const INT128: Self = Self(10);
-    pub(in crate::db::executor) const INT_BIG: Self = Self(11);
-    pub(in crate::db::executor) const LIST: Self = Self(12);
-    pub(in crate::db::executor) const MAP: Self = Self(13);
-    pub(in crate::db::executor) const NULL: Self = Self(14);
-    pub(in crate::db::executor) const PRINCIPAL: Self = Self(15);
-    pub(in crate::db::executor) const SUBACCOUNT: Self = Self(16);
-    pub(in crate::db::executor) const TEXT: Self = Self(17);
-    pub(in crate::db::executor) const TIMESTAMP: Self = Self(18);
-    pub(in crate::db::executor) const NAT64: Self = Self(19);
-    pub(in crate::db::executor) const NAT128: Self = Self(20);
-    pub(in crate::db::executor) const NAT_BIG: Self = Self(21);
-    pub(in crate::db::executor) const ULID: Self = Self(22);
-    pub(in crate::db::executor) const UNIT: Self = Self(23);
-    pub(in crate::db::executor) const U256: Self = Self(24);
-    const fn from_value(value: &Value) -> Self {
-        match value {
-            Value::Account(_) => Self::ACCOUNT,
-            Value::Blob(_) => Self::BLOB,
-            Value::Bool(_) => Self::BOOL,
-            Value::Date(_) => Self::DATE,
-            Value::Decimal(_) => Self::DECIMAL,
-            Value::Duration(_) => Self::DURATION,
-            Value::Enum(_) => Self::ENUM,
-            Value::Float32(_) => Self::FLOAT32,
-            Value::Float64(_) => Self::FLOAT64,
-            Value::Int64(_) => Self::INT64,
-            Value::Int128(_) => Self::INT128,
-            Value::IntBig(_) => Self::INT_BIG,
-            Value::List(_) => Self::LIST,
-            Value::Map(_) => Self::MAP,
-            Value::Null => Self::NULL,
-            Value::Principal(_) => Self::PRINCIPAL,
-            Value::Subaccount(_) => Self::SUBACCOUNT,
-            Value::Text(_) => Self::TEXT,
-            Value::Timestamp(_) => Self::TIMESTAMP,
-            Value::Nat64(_) => Self::NAT64,
-            Value::Nat128(_) => Self::NAT128,
-            Value::NatBig(_) => Self::NAT_BIG,
-            Value::Ulid(_) => Self::ULID,
-            Value::Unit => Self::UNIT,
-            Value::U256(_) => Self::U256,
-        }
-    }
-}
-
 // Compact runtime representation selected from accepted schema authority.
 // Full bounds, recursive shape, and enum-ID validation already happen at the
 // accepted row boundary; aggregate execution only guards the decoded top-level
 // representation and retains the direct comparison strategy it needs.
 #[derive(Clone, Copy, Debug)]
 enum AggregateRuntimeValueShape {
-    Exact(AggregateValueKindCode),
+    Exact(ValueTag),
     Structured,
 }
 
 impl AggregateRuntimeValueShape {
     fn accepts_value(self, value: &Value) -> bool {
         match (self, value) {
-            (Self::Exact(expected), value) => expected == AggregateValueKindCode::from_value(value),
+            (Self::Exact(expected), value) => expected == value.canonical_tag(),
             (Self::Structured, Value::List(_) | Value::Map(_)) => true,
             _ => false,
         }
@@ -174,42 +114,28 @@ impl AggregateRuntimeValueShape {
 
     fn direct_compare(self, left: &Value, right: &Value) -> Option<Ordering> {
         match (self, left, right) {
-            (
-                Self::Exact(AggregateValueKindCode::DECIMAL),
-                Value::Decimal(left),
-                Value::Decimal(right),
-            ) => left.partial_cmp(right),
-            (
-                Self::Exact(AggregateValueKindCode::FLOAT32),
-                Value::Float32(left),
-                Value::Float32(right),
-            ) => left.get().partial_cmp(&right.get()),
-            (
-                Self::Exact(AggregateValueKindCode::FLOAT64),
-                Value::Float64(left),
-                Value::Float64(right),
-            ) => left.get().partial_cmp(&right.get()),
-            (
-                Self::Exact(AggregateValueKindCode::INT64),
-                Value::Int64(left),
-                Value::Int64(right),
-            ) => Some(left.cmp(right)),
-            (
-                Self::Exact(AggregateValueKindCode::INT128),
-                Value::Int128(left),
-                Value::Int128(right),
-            ) => Some(left.cmp(right)),
-            (
-                Self::Exact(AggregateValueKindCode::NAT64),
-                Value::Nat64(left),
-                Value::Nat64(right),
-            ) => Some(left.cmp(right)),
-            (
-                Self::Exact(AggregateValueKindCode::NAT128),
-                Value::Nat128(left),
-                Value::Nat128(right),
-            ) => Some(left.cmp(right)),
-            (Self::Exact(AggregateValueKindCode::U256), Value::U256(left), Value::U256(right)) => {
+            (Self::Exact(ValueTag::Decimal), Value::Decimal(left), Value::Decimal(right)) => {
+                left.partial_cmp(right)
+            }
+            (Self::Exact(ValueTag::Float32), Value::Float32(left), Value::Float32(right)) => {
+                left.get().partial_cmp(&right.get())
+            }
+            (Self::Exact(ValueTag::Float64), Value::Float64(left), Value::Float64(right)) => {
+                left.get().partial_cmp(&right.get())
+            }
+            (Self::Exact(ValueTag::Int64), Value::Int64(left), Value::Int64(right)) => {
+                Some(left.cmp(right))
+            }
+            (Self::Exact(ValueTag::Int128), Value::Int128(left), Value::Int128(right)) => {
+                Some(left.cmp(right))
+            }
+            (Self::Exact(ValueTag::Nat64), Value::Nat64(left), Value::Nat64(right)) => {
+                Some(left.cmp(right))
+            }
+            (Self::Exact(ValueTag::Nat128), Value::Nat128(left), Value::Nat128(right)) => {
+                Some(left.cmp(right))
+            }
+            (Self::Exact(ValueTag::U256), Value::U256(left), Value::U256(right)) => {
                 Some(left.cmp(right))
             }
             _ => None,
@@ -227,10 +153,7 @@ struct AggregateFieldValueContract {
 }
 
 impl AggregateFieldValueContract {
-    const fn exact(
-        diagnostic_kind: AggregateFieldKindCode,
-        runtime_kind: AggregateValueKindCode,
-    ) -> Self {
+    const fn exact(diagnostic_kind: AggregateFieldKindCode, runtime_kind: ValueTag) -> Self {
         Self {
             diagnostic_kind,
             runtime_shape: AggregateRuntimeValueShape::Exact(runtime_kind),
@@ -240,36 +163,36 @@ impl AggregateFieldValueContract {
     fn from_accepted_field_kind(kind: &AcceptedFieldKind) -> Self {
         use AcceptedFieldKind as Accepted;
         use AggregateFieldKindCode as Field;
-        use AggregateValueKindCode as Runtime;
+        use ValueTag as Runtime;
 
         match kind {
-            Accepted::Account => Self::exact(Field::ACCOUNT, Runtime::ACCOUNT),
-            Accepted::Blob { .. } => Self::exact(Field::BLOB, Runtime::BLOB),
-            Accepted::Bool => Self::exact(Field::BOOL, Runtime::BOOL),
-            Accepted::Date => Self::exact(Field::DATE, Runtime::DATE),
-            Accepted::Decimal { .. } => Self::exact(Field::DECIMAL, Runtime::DECIMAL),
-            Accepted::Duration => Self::exact(Field::DURATION, Runtime::DURATION),
-            Accepted::Enum { .. } => Self::exact(Field::ENUM, Runtime::ENUM),
-            Accepted::Float32 => Self::exact(Field::FLOAT32, Runtime::FLOAT32),
-            Accepted::Float64 => Self::exact(Field::FLOAT64, Runtime::FLOAT64),
-            Accepted::Int8 => Self::exact(Field::INT8, Runtime::INT64),
-            Accepted::Int16 => Self::exact(Field::INT16, Runtime::INT64),
-            Accepted::Int32 => Self::exact(Field::INT32, Runtime::INT64),
-            Accepted::Int64 => Self::exact(Field::INT64, Runtime::INT64),
-            Accepted::Int128 => Self::exact(Field::INT128, Runtime::INT128),
-            Accepted::IntBig { .. } => Self::exact(Field::INT_BIG, Runtime::INT_BIG),
-            Accepted::Principal => Self::exact(Field::PRINCIPAL, Runtime::PRINCIPAL),
-            Accepted::Subaccount => Self::exact(Field::SUBACCOUNT, Runtime::SUBACCOUNT),
-            Accepted::Text { .. } => Self::exact(Field::TEXT, Runtime::TEXT),
-            Accepted::Timestamp => Self::exact(Field::TIMESTAMP, Runtime::TIMESTAMP),
-            Accepted::Nat8 => Self::exact(Field::NAT8, Runtime::NAT64),
-            Accepted::Nat16 => Self::exact(Field::NAT16, Runtime::NAT64),
-            Accepted::Nat32 => Self::exact(Field::NAT32, Runtime::NAT64),
-            Accepted::Nat64 => Self::exact(Field::NAT64, Runtime::NAT64),
-            Accepted::Nat128 => Self::exact(Field::NAT128, Runtime::NAT128),
-            Accepted::NatBig { .. } => Self::exact(Field::NAT_BIG, Runtime::NAT_BIG),
-            Accepted::Ulid => Self::exact(Field::ULID, Runtime::ULID),
-            Accepted::Unit => Self::exact(Field::UNIT, Runtime::UNIT),
+            Accepted::Account => Self::exact(Field::ACCOUNT, Runtime::Account),
+            Accepted::Blob { .. } => Self::exact(Field::BLOB, Runtime::Blob),
+            Accepted::Bool => Self::exact(Field::BOOL, Runtime::Bool),
+            Accepted::Date => Self::exact(Field::DATE, Runtime::Date),
+            Accepted::Decimal { .. } => Self::exact(Field::DECIMAL, Runtime::Decimal),
+            Accepted::Duration => Self::exact(Field::DURATION, Runtime::Duration),
+            Accepted::Enum { .. } => Self::exact(Field::ENUM, Runtime::Enum),
+            Accepted::Float32 => Self::exact(Field::FLOAT32, Runtime::Float32),
+            Accepted::Float64 => Self::exact(Field::FLOAT64, Runtime::Float64),
+            Accepted::Int8 => Self::exact(Field::INT8, Runtime::Int64),
+            Accepted::Int16 => Self::exact(Field::INT16, Runtime::Int64),
+            Accepted::Int32 => Self::exact(Field::INT32, Runtime::Int64),
+            Accepted::Int64 => Self::exact(Field::INT64, Runtime::Int64),
+            Accepted::Int128 => Self::exact(Field::INT128, Runtime::Int128),
+            Accepted::IntBig { .. } => Self::exact(Field::INT_BIG, Runtime::IntBig),
+            Accepted::Principal => Self::exact(Field::PRINCIPAL, Runtime::Principal),
+            Accepted::Subaccount => Self::exact(Field::SUBACCOUNT, Runtime::Subaccount),
+            Accepted::Text { .. } => Self::exact(Field::TEXT, Runtime::Text),
+            Accepted::Timestamp => Self::exact(Field::TIMESTAMP, Runtime::Timestamp),
+            Accepted::Nat8 => Self::exact(Field::NAT8, Runtime::Nat64),
+            Accepted::Nat16 => Self::exact(Field::NAT16, Runtime::Nat64),
+            Accepted::Nat32 => Self::exact(Field::NAT32, Runtime::Nat64),
+            Accepted::Nat64 => Self::exact(Field::NAT64, Runtime::Nat64),
+            Accepted::Nat128 => Self::exact(Field::NAT128, Runtime::Nat128),
+            Accepted::NatBig { .. } => Self::exact(Field::NAT_BIG, Runtime::NatBig),
+            Accepted::Ulid => Self::exact(Field::ULID, Runtime::Ulid),
+            Accepted::Unit => Self::exact(Field::UNIT, Runtime::Unit),
             Accepted::U256 => Self::exact(Field::U256, Runtime::U256),
             Accepted::Relation { key_kind, .. } => {
                 let key_contract = Self::from_accepted_field_kind(key_kind);
@@ -278,9 +201,9 @@ impl AggregateFieldValueContract {
                     runtime_shape: key_contract.runtime_shape,
                 }
             }
-            Accepted::List(_) => Self::exact(Field::LIST, Runtime::LIST),
-            Accepted::Set(_) => Self::exact(Field::SET, Runtime::LIST),
-            Accepted::Map { .. } => Self::exact(Field::MAP, Runtime::MAP),
+            Accepted::List(_) => Self::exact(Field::LIST, Runtime::List),
+            Accepted::Set(_) => Self::exact(Field::SET, Runtime::List),
+            Accepted::Map { .. } => Self::exact(Field::MAP, Runtime::Map),
             Accepted::Composite { .. } => Self {
                 diagnostic_kind: Field::STRUCTURED,
                 runtime_shape: AggregateRuntimeValueShape::Structured,
@@ -301,7 +224,7 @@ impl AggregateFieldValueError {
         Self::FieldValueTypeMismatch {
             slot_index: field_slot.index,
             expected: field_slot.contract.diagnostic_kind,
-            found: AggregateValueKindCode::from_value(found),
+            found: found.canonical_tag(),
         }
     }
 
@@ -492,8 +415,8 @@ pub(in crate::db::executor) fn compare_orderable_field_values(
 ) -> Result<Ordering, AggregateFieldValueError> {
     let Some(ordering) = compare_numeric_or_strict_order(left, right) else {
         return Err(AggregateFieldValueError::IncomparableFieldValues {
-            left: AggregateValueKindCode::from_value(left),
-            right: AggregateValueKindCode::from_value(right),
+            left: left.canonical_tag(),
+            right: right.canonical_tag(),
         });
     };
 
