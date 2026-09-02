@@ -14,7 +14,7 @@ use crate::{
 use crate::{
     db::{
         data::{CanonicalSlotReader, decode_structural_value_storage_bytes},
-        executor::projection::path::resolve_path_segments,
+        executor::projection::path::{resolve_path_segments, resolve_value_field_path},
     },
     error::InternalError,
     value::Value,
@@ -60,37 +60,6 @@ fn field_path_decode_error(field: &str, _err: impl Sized) -> ProjectionEvalError
         field,
         InternalError::persisted_row_field_decode_corruption(field),
     )
-}
-
-// Walk a materialized `Value::Map` field path for retained-row and aggregate
-// readers. Missing nested keys are distinct from malformed path roots so
-// filter readers can reject missing paths before NULL-test semantics.
-fn resolve_value_field_path<'value>(
-    root: &'value Value,
-    field: &str,
-    segments: &[String],
-) -> Result<Option<&'value Value>, ProjectionEvalError> {
-    let mut current = root;
-    for segment in segments {
-        let entries = current.as_map().ok_or_else(|| {
-            field_path_error(
-                field,
-                InternalError::persisted_row_field_decode_failed(
-                    field,
-                    "field-path traversal requires a map value",
-                ),
-            )
-        })?;
-        let Some((_, value)) = entries
-            .iter()
-            .find(|(key, _)| matches!(key, Value::Text(text) if text == segment))
-        else {
-            return Ok(None);
-        };
-        current = value;
-    }
-
-    Ok(Some(current))
 }
 
 // Apply the reader-specific missing-path policy after path traversal. Scalar

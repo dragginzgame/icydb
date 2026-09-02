@@ -7,7 +7,8 @@
 use crate::db::{
     access::AccessPlan,
     query::plan::{
-        AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupedPlanAggregateFamily, OrderSpec,
+        AccessPlannedQuery, GroupAggregateSpec, GroupFieldSet, GroupedPlanAggregateFamily,
+        OrderSpec,
         expr::{
             GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
             classify_grouped_order_term_for_field, classify_grouped_top_k_order_term,
@@ -185,7 +186,7 @@ pub(in crate::db) fn grouped_plan_strategy(
         GroupedPlanAggregateFamily::from_grouped_aggregates(grouped.group.aggregates.as_slice());
     let order_strategy_projection = grouped_order_strategy_projection(
         grouped.scalar.order.as_ref(),
-        grouped.group.group_fields.as_slice(),
+        &grouped.group.group_fields,
     );
 
     if grouped.scalar.distinct {
@@ -208,7 +209,11 @@ pub(in crate::db) fn grouped_plan_strategy(
         ));
     }
 
-    if plan.has_any_residual_filter() {
+    // Path-aware ordered admission reaches this point only after the route
+    // planner proves the selected index stream complete for the query. Its
+    // residual predicate filters rows without disturbing group-key order;
+    // preserve the older direct-only fallback rule outside that proof.
+    if plan.has_any_residual_filter() && grouped.group.group_fields.as_path_aware().is_none() {
         return Some(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::ResidualFilterBlocksGroupedOrder,
             aggregate_family,
@@ -245,7 +250,7 @@ pub(in crate::db) fn grouped_plan_strategy(
             return Some(hash_group_fallback_strategy(reason, aggregate_family));
         }
     }
-    if grouped_access_path_proves_group_order(grouped.group.group_fields.as_slice(), &plan.access) {
+    if grouped_access_path_proves_group_order(&grouped.group.group_fields, &plan.access) {
         return Some(GroupedPlanStrategy::ordered_group_with_aggregate_family(
             aggregate_family,
         ));
@@ -288,22 +293,18 @@ enum GroupedOrderStrategyProjection {
 
 fn grouped_order_strategy_projection(
     order: Option<&OrderSpec>,
-    group_fields: &[FieldSlot],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
 ) -> GroupedOrderStrategyProjection {
     let Some(order) = order else {
         return GroupedOrderStrategyProjection::Canonical;
     };
-    let grouped_field_names = group_fields
-        .iter()
-        .map(FieldSlot::field)
-        .collect::<Vec<_>>();
     let top_k_required = order
         .fields
         .iter()
         .any(|term| grouped_top_k_order_term_requires_heap(term.expr()));
 
     if top_k_required {
-        return grouped_top_k_strategy_projection(order, grouped_field_names.as_slice());
+        return grouped_top_k_strategy_projection(order, group_fields);
     }
 
     grouped_canonical_order_strategy_projection(order, group_fields)
@@ -311,7 +312,7 @@ fn grouped_order_strategy_projection(
 
 fn grouped_canonical_order_strategy_projection(
     order: &OrderSpec,
-    group_fields: &[FieldSlot],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
 ) -> GroupedOrderStrategyProjection {
     if order.fields.len() < group_fields.len() {
         return GroupedOrderStrategyProjection::HashFallback(
@@ -332,7 +333,12 @@ fn grouped_canonical_order_strategy_projection(
                 );
             }
             canonical_direction.get_or_insert(direction);
-            match classify_grouped_order_term_for_field(term.expr(), group_fields[index].field()) {
+            let Some(group_field) = group_fields.get(index) else {
+                return GroupedOrderStrategyProjection::HashFallback(
+                    GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
+                );
+            };
+            match classify_grouped_order_term_for_field(term.expr(), group_field) {
                 GroupedOrderTermAdmissibility::Preserves(_) => {}
                 GroupedOrderTermAdmissibility::PrefixMismatch => {
                     return GroupedOrderStrategyProjection::HashFallback(
@@ -353,10 +359,10 @@ fn grouped_canonical_order_strategy_projection(
 
 fn grouped_top_k_strategy_projection(
     order: &OrderSpec,
-    grouped_field_names: &[&str],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
 ) -> GroupedOrderStrategyProjection {
     for term in &order.fields {
-        match classify_grouped_top_k_order_term(term.expr(), grouped_field_names) {
+        match classify_grouped_top_k_order_term(term.expr(), group_fields) {
             GroupedTopKOrderTermAdmissibility::Admissible => {}
             GroupedTopKOrderTermAdmissibility::NonGroupFieldReference => {
                 return GroupedOrderStrategyProjection::HashFallback(
@@ -375,7 +381,7 @@ fn grouped_top_k_strategy_projection(
 }
 
 fn grouped_access_path_proves_group_order<K>(
-    group_fields: &[FieldSlot],
+    group_fields: &GroupFieldSet,
     access: &AccessPlan<K>,
 ) -> bool {
     // Derive grouped-order evidence from the normalized executable access contract so
@@ -404,7 +410,7 @@ fn grouped_access_path_proves_group_order<K>(
     // grouped-order proof may skip them until the next declared grouped key.
     // Any gap beyond the equality prefix remains unfixed and therefore blocks
     // ordered grouping.
-    for group_field in group_fields {
+    for group_field in group_fields.iter() {
         while cursor < prefix_len
             && cursor < details.key_arity()
             && details.key_field_at(cursor) != Some(group_field.field())

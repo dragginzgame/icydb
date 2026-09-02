@@ -59,8 +59,8 @@ impl GroupedRouteStage {
     /// Borrow grouped field slot projection list.
     pub(in crate::db::executor) const fn group_fields(
         &self,
-    ) -> &[crate::db::query::plan::FieldSlot] {
-        self.planner_payload.group_fields.as_slice()
+    ) -> &crate::db::query::plan::GroupFieldSet {
+        &self.planner_payload.group_fields
     }
 
     /// Borrow planner-lowered grouped aggregate execution specs.
@@ -215,7 +215,7 @@ impl GroupedRouteStage {
                     max_group_bytes: 8 * 1024,
                 },
                 grouped_execution_route: GroupedExecutionRoute::CountRowsDedicated,
-                group_fields: Vec::new(),
+                group_fields: crate::db::query::plan::GroupFieldSet::empty(),
                 grouped_aggregate_execution_specs: Vec::new(),
                 projection_layout: PlannedProjectionLayout {
                     group_field_positions: Vec::new(),

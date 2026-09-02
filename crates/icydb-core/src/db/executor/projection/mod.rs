@@ -57,3 +57,5 @@ pub(in crate::db::executor) use materialize::{
 pub(in crate::db::executor::projection) use materialize::{
     project_admitted_page, project_distinct,
 };
+pub(in crate::db::executor) use path::resolve_path_segments;
+pub(in crate::db::executor) use path::resolve_value_field_path;

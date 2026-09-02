@@ -35,8 +35,12 @@ fn grouped_having_runtime_accepts_post_aggregate_round_compare() {
         None,
         false,
     )];
-    let compiled = compile_grouped_projection_expr(&expr, &[], &specs)
-        .expect("grouped HAVING ROUND compare should compile");
+    let compiled = compile_grouped_projection_expr(
+        &expr,
+        &crate::db::query::plan::GroupFieldSet::empty(),
+        &specs,
+    )
+    .expect("grouped HAVING ROUND compare should compile");
     let aggregate_values = [Value::Decimal(Decimal::new(10049, 3))];
     let grouped_row = GroupedRowView::new(&[], &aggregate_values);
     let matched = group_matches_having_expr(&compiled, &grouped_row)
@@ -63,8 +67,12 @@ fn grouped_having_runtime_accepts_post_aggregate_arithmetic_compare() {
         None,
         false,
     )];
-    let compiled = compile_grouped_projection_expr(&expr, &[], &specs)
-        .expect("grouped HAVING arithmetic compare should compile");
+    let compiled = compile_grouped_projection_expr(
+        &expr,
+        &crate::db::query::plan::GroupFieldSet::empty(),
+        &specs,
+    )
+    .expect("grouped HAVING arithmetic compare should compile");
     let aggregate_values = [Value::Nat64(5)];
     let grouped_row = GroupedRowView::new(&[], &aggregate_values);
     let matched = group_matches_having_expr(&compiled, &grouped_row)
@@ -91,7 +99,7 @@ fn grouped_having_runtime_accepts_and_over_group_keys_and_aggregates() {
         }),
     };
 
-    let group_fields = [group_field];
+    let group_fields = crate::db::query::plan::GroupFieldSet::Direct(vec![group_field]);
     let specs = [GroupedAggregateExecutionSpec::from_test_inputs(
         AggregateKind::Count,
         None,
@@ -132,8 +140,12 @@ fn grouped_having_runtime_accepts_post_aggregate_case_and_not() {
         None,
         false,
     )];
-    let compiled = compile_grouped_projection_expr(&expr, &[], &specs)
-        .expect("grouped HAVING CASE should compile");
+    let compiled = compile_grouped_projection_expr(
+        &expr,
+        &crate::db::query::plan::GroupFieldSet::empty(),
+        &specs,
+    )
+    .expect("grouped HAVING CASE should compile");
     let aggregate_values = [Value::Nat64(6)];
     let grouped_row = GroupedRowView::new(&[], &aggregate_values);
     let matched = group_matches_having_expr(&compiled, &grouped_row)

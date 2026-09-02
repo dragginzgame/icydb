@@ -87,13 +87,31 @@ pub(crate) fn rewrite_generated_paths(
     overrides: &CratePathOverrides,
 ) -> Result<TokenStream, darling::Error> {
     let model = contains_ident(&tokens, "icydb_model")
-        .then(|| resolve_path(MODEL_PACKAGE, overrides.model.as_ref(), Some("model_crate")))
+        .then(|| resolve_model_path(overrides.model.as_ref()))
         .transpose()?;
     let icydb = contains_ident(&tokens, "icydb")
         .then(|| resolve_path(ICYDB_PACKAGE, None, None))
         .transpose()?;
 
     Ok(rewrite_stream(tokens, model.as_ref(), icydb.as_ref()))
+}
+
+fn resolve_model_path(explicit: Option<&Path>) -> Result<TokenStream, darling::Error> {
+    if let Some(path) = explicit {
+        return Ok(quote!(#path));
+    }
+
+    if let Ok(found) = crate_name(MODEL_PACKAGE) {
+        return Ok(found_crate_path(found));
+    }
+
+    let facade = crate_name(ICYDB_PACKAGE).map_err(|error| {
+        darling::Error::custom(format!(
+            "generated output requires a direct `{MODEL_PACKAGE}` dependency, a direct `{ICYDB_PACKAGE}` facade dependency, or an explicit `model_crate = \"...\"` override: {error}"
+        ))
+    })?;
+    let facade = found_crate_path(facade);
+    Ok(quote!(#facade::model))
 }
 
 fn resolve_path(
@@ -105,18 +123,22 @@ fn resolve_path(
         return Ok(quote!(#path));
     }
 
-    match crate_name(package).map_err(|error| {
+    crate_name(package).map(found_crate_path).map_err(|error| {
         let override_hint = override_name.map_or_else(String::new, |name| {
             format!(" or an explicit `{name} = \"...\"` override")
         });
         darling::Error::custom(format!(
             "generated output requires a direct `{package}` dependency{override_hint}: {error}"
         ))
-    })? {
-        FoundCrate::Itself => Ok(quote!(crate)),
+    })
+}
+
+fn found_crate_path(found: FoundCrate) -> TokenStream {
+    match found {
+        FoundCrate::Itself => quote!(crate),
         FoundCrate::Name(name) => {
             let ident = syn::Ident::new(name.as_str(), proc_macro2::Span::call_site());
-            Ok(quote!(::#ident))
+            quote!(::#ident)
         }
     }
 }

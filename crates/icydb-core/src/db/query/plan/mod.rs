@@ -12,6 +12,7 @@ mod continuation;
 mod covering;
 pub(in crate::db) mod expr;
 mod group;
+mod group_field;
 mod grouped_layout;
 mod key_item_match;
 mod key_support;
@@ -75,6 +76,7 @@ pub(in crate::db) use group::{
     grouped_aggregate_specs_from_projection_spec,
     resolved_grouped_distinct_execution_strategy_with_schema_info,
 };
+pub(in crate::db) use group_field::{GroupField, GroupFieldRef, GroupFieldSet, ScalarGroupPath};
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
 pub(in crate::db::query::plan) use key_support::field_key_contract_supports_operator;
 pub(in crate::db::query) use logical_builder::{
@@ -116,8 +118,7 @@ pub(in crate::db::query) use pipeline::{
 };
 pub(in crate::db::query) use planner::PlannerError;
 pub(in crate::db::query) use planner::{
-    PlannedAccessSelection, plan_access_selection_with_order_and_accepted_semantic_indexes,
-    plan_access_selection_with_order_and_semantic_indexes,
+    PlannedAccessSelection, plan_access_selection_with_order_and_semantic_indexes,
 };
 pub(in crate::db) use planner::{
     residual_query_predicate_after_access_path_bounds,
@@ -134,7 +135,7 @@ pub(in crate::db::query) use projection::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use semantics::access_plan_label;
 #[cfg(feature = "sql")]
-pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_slot;
+pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_group_field;
 pub(in crate::db) use semantics::{
     AccessPlanProjection, AggregateIdentity, AggregateSemanticKey, GroupDistinctAdmissibility,
     GroupDistinctPolicyReason, GroupedCursorPolicyViolation, GroupedPlanFallbackReason,
@@ -151,7 +152,7 @@ pub(crate) use validate::PolicyPlanError;
 #[cfg(feature = "sql")]
 pub(in crate::db) use validate::resolve_aggregate_target_field_slot_with_schema;
 pub(in crate::db) use validate::{
-    resolve_group_field_slot_with_schema, validate_cursor_order_plan_shape,
+    resolve_group_field_with_schema, validate_cursor_order_plan_shape,
 };
 pub(in crate::db::query) use validate::{
     validate_group_query_semantics_with_schema, validate_intent_plan_shape,

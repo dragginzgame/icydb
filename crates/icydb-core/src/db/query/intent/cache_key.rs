@@ -188,25 +188,13 @@ struct AggregateCacheKey {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct GroupingCacheKey {
-    group_fields: Vec<GroupFieldCacheKey>,
+    // The enclosing query-plan key already carries accepted schema identity,
+    // so canonical field/path identity is sufficient and cannot cross a slot remap.
+    group_fields: Vec<ProjectionExprCacheKey>,
     aggregates: Vec<AggregateCacheKey>,
     having_expr: Option<ProjectionExprCacheKey>,
     max_groups: u64,
     max_group_bytes: u64,
-}
-
-///
-/// GroupFieldCacheKey
-///
-/// Canonical reference to one grouped field inside `GroupingCacheKey`.
-/// The index is preserved alongside the field name because later grouped
-/// projections and `HAVING` symbols refer back to aggregate/group slot order.
-///
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct GroupFieldCacheKey {
-    index: usize,
-    field: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -391,6 +379,16 @@ impl ProjectionExprCacheKey {
             Expr::Alias { expr, name: _ } => Self::from_expr(expr.as_ref()),
         }
     }
+
+    fn from_group_field(field: crate::db::query::plan::GroupFieldRef<'_>) -> Self {
+        match field.as_scalar_path() {
+            Some(path) => Self::FieldPath {
+                root: path.path().root().as_str().to_string(),
+                segments: path.path().segments().to_vec(),
+            },
+            None => Self::Field(field.field().to_string()),
+        }
+    }
 }
 
 impl BinaryOpCacheKey {
@@ -470,7 +468,7 @@ impl GroupingCacheKey {
                 .group
                 .group_fields
                 .iter()
-                .map(GroupFieldCacheKey::from_field_slot)
+                .map(ProjectionExprCacheKey::from_group_field)
                 .collect(),
             aggregates: grouped
                 .group
@@ -484,15 +482,6 @@ impl GroupingCacheKey {
                 .map(ProjectionExprCacheKey::from_expr),
             max_groups: grouped.group.execution.max_groups,
             max_group_bytes: grouped.group.execution.max_group_bytes,
-        }
-    }
-}
-
-impl GroupFieldCacheKey {
-    fn from_field_slot(field: &crate::db::query::plan::FieldSlot) -> Self {
-        Self {
-            index: field.index,
-            field: field.field.clone(),
         }
     }
 }

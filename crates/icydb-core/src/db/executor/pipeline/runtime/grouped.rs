@@ -7,7 +7,9 @@
 use crate::db::executor::aggregate::GroupedRuntimeStats;
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, RawRow},
+        data::{
+            CanonicalSlotReader, DecodedDataStoreKey, RawRow, decode_structural_value_storage_bytes,
+        },
         executor::{
             ExecutionOptimization, ExecutionPreparation,
             aggregate::field::{
@@ -15,14 +17,17 @@ use crate::{
             },
             budget::charge_current_execution_budget,
             pipeline::contracts::{GroupedCursorPage, ResolvedExecutionKeyStream},
-            projection::eval_effective_runtime_filter_program_with_value_cow_reader,
+            projection::{
+                eval_effective_runtime_filter_program_with_value_cow_reader, resolve_path_segments,
+                resolve_value_field_path,
+            },
             terminal::{RetainedSlotLayout, RetainedSlotRow, RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
         query::plan::{
-            EffectiveRuntimeFilterProgram, FieldSlot as PlannedFieldSlot,
-            GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
-            expr::CompiledExprValueReader,
+            EffectiveRuntimeFilterProgram, FieldSlot as PlannedFieldSlot, GroupFieldSet,
+            GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, ScalarGroupPath,
+            expr::{CompiledExprValueReader, ProjectionEvalError},
         },
         registry::StoreHandle,
     },
@@ -48,7 +53,7 @@ pub(in crate::db::executor) struct RowView {
 // runtime shape plus the already selected predicate program.
 pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_inputs(
     row_layout: RowLayout,
-    group_fields: &[PlannedFieldSlot],
+    group_fields: &GroupFieldSet,
     grouped_aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
     grouped_distinct_execution_strategy: &GroupedDistinctExecutionStrategy,
     effective_runtime_filter_program: Option<&EffectiveRuntimeFilterProgram>,
@@ -57,8 +62,8 @@ pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_inputs(
     let mut required_slots = vec![false; field_count];
 
     // Phase 1: every grouped path needs the group key slots themselves.
-    for field in group_fields {
-        if let Some(required_slot) = required_slots.get_mut(field.index()) {
+    for field in group_fields.iter() {
+        if let Some(required_slot) = required_slots.get_mut(field.root_slot()) {
             *required_slot = true;
         }
     }
@@ -117,6 +122,9 @@ enum RowViewStorage {
         slot: usize,
         value: Value,
     },
+    SinglePath {
+        value: Value,
+    },
     Retained(RetainedSlotRow),
 }
 
@@ -161,6 +169,7 @@ impl RowView {
         match &self.storage {
             RowViewStorage::Dense(slots) => slots.get(index).and_then(Option::as_ref),
             RowViewStorage::Single { slot, value } => (*slot == index).then_some(value),
+            RowViewStorage::SinglePath { .. } => None,
             RowViewStorage::Retained(row) => row.slot_ref(index),
         }
     }
@@ -175,6 +184,7 @@ impl RowView {
             RowViewStorage::Single { slot, value } => {
                 (*slot == index).then_some(Cow::Borrowed(value))
             }
+            RowViewStorage::SinglePath { .. } => None,
             RowViewStorage::Retained(row) => row.slot_ref(index).map(Cow::Borrowed),
         }
     }
@@ -185,6 +195,7 @@ impl RowView {
             #[cfg(test)]
             RowViewStorage::Dense(slots) => slots.get(index).and_then(Option::as_ref),
             RowViewStorage::Single { slot, value } => (*slot == index).then_some(value),
+            RowViewStorage::SinglePath { .. } => None,
             RowViewStorage::Retained(row) => row.slot_ref(index),
         }
     }
@@ -218,6 +229,7 @@ impl RowView {
 
                 Err(Self::missing_required_slot_error(index))
             }
+            RowViewStorage::SinglePath { .. } => Err(Self::missing_required_slot_error(index)),
             RowViewStorage::Retained(mut row) => row
                 .take_slot(index)
                 .ok_or_else(|| Self::missing_required_slot_error(index)),
@@ -245,6 +257,19 @@ impl RowView {
         match self.require_slot_value(index)? {
             Cow::Borrowed(value) => f(value),
             Cow::Owned(value) => f(&value),
+        }
+    }
+
+    /// Borrow the scalar leaf produced by the prepared single-path row decoder.
+    #[must_use]
+    pub(in crate::db::executor) const fn predecoded_single_group_path_value(
+        &self,
+    ) -> Option<&Value> {
+        match &self.storage {
+            RowViewStorage::SinglePath { value } => Some(value),
+            #[cfg(test)]
+            RowViewStorage::Dense(_) => None,
+            RowViewStorage::Single { .. } | RowViewStorage::Retained(_) => None,
         }
     }
 
@@ -299,6 +324,21 @@ impl CompiledExprValueReader for RowView {
     fn read_aggregate(&self, _index: usize) -> Option<Cow<'_, Value>> {
         None
     }
+
+    fn read_field_path(
+        &self,
+        root_slot: usize,
+        field: &str,
+        segments: &[String],
+        _segment_bytes: &[Box<[u8]>],
+    ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
+        let Some(root) = self.slot_value_ref(root_slot) else {
+            return Ok(None);
+        };
+        let value = resolve_value_field_path(root, field, segments)?;
+
+        Ok(Some(value.map_or(Cow::Owned(Value::Null), Cow::Borrowed)))
+    }
 }
 
 ///
@@ -314,19 +354,33 @@ struct SingleGroupedSlotDecode {
     slot: usize,
 }
 
-///
-/// GroupedRowDecodePath
-///
-/// GroupedRowDecodePath freezes how one grouped row should be decoded from
-/// persisted row bytes at the structural grouped runtime boundary.
-/// It keeps the common single-slot fast path and the indexed retained-layout
-/// path under one local owner instead of reselecting that decode policy at
-/// each grouped row read callsite.
-///
+/// Prepared raw-row decoder for the common one-scalar-path grouped shape.
+struct SingleGroupedPathDecode {
+    root_slot: usize,
+    label: String,
+    segment_bytes: Box<[Box<[u8]>]>,
+}
 
-enum GroupedRowDecodePath<'a> {
-    Single(&'a SingleGroupedSlotDecode),
-    Indexed,
+impl SingleGroupedPathDecode {
+    fn new(path: &ScalarGroupPath) -> Self {
+        Self {
+            root_slot: path.root_slot(),
+            label: path.label().to_string(),
+            segment_bytes: path
+                .path()
+                .segments()
+                .iter()
+                .map(|segment| segment.as_bytes().to_vec().into_boxed_slice())
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        }
+    }
+}
+
+/// One mutually exclusive single-value row decode selected at preparation.
+enum SingleGroupedDecode {
+    Path(SingleGroupedPathDecode),
+    Slot(SingleGroupedSlotDecode),
 }
 
 ///
@@ -342,7 +396,7 @@ pub(in crate::db::executor) struct StructuralGroupedRowRuntime {
     store: StoreHandle,
     row_layout: RowLayout,
     grouped_slot_layout: RetainedSlotLayout,
-    single_grouped_slot_decode: Option<SingleGroupedSlotDecode>,
+    single_grouped_decode: Option<SingleGroupedDecode>,
 }
 
 impl StructuralGroupedRowRuntime {
@@ -353,19 +407,23 @@ impl StructuralGroupedRowRuntime {
         store: StoreHandle,
         row_layout: RowLayout,
         grouped_slot_layout: RetainedSlotLayout,
+        single_grouped_path: Option<&ScalarGroupPath>,
     ) -> Self {
-        let single_grouped_slot_decode = match grouped_slot_layout.required_slots() {
-            [required_slot] => Some(SingleGroupedSlotDecode {
-                slot: *required_slot,
-            }),
-            _ => None,
-        };
+        let single_grouped_decode = single_grouped_path
+            .map(SingleGroupedPathDecode::new)
+            .map(SingleGroupedDecode::Path)
+            .or_else(|| match grouped_slot_layout.required_slots() {
+                [required_slot] => Some(SingleGroupedDecode::Slot(SingleGroupedSlotDecode {
+                    slot: *required_slot,
+                })),
+                _ => None,
+            });
 
         Self {
             store,
             row_layout,
             grouped_slot_layout,
-            single_grouped_slot_decode,
+            single_grouped_decode,
         }
     }
 
@@ -376,11 +434,14 @@ impl StructuralGroupedRowRuntime {
         key: &DecodedDataStoreKey,
         row: RawRow,
     ) -> Result<RowView, InternalError> {
-        match self.row_decode_path() {
-            GroupedRowDecodePath::Single(single_grouped_slot_decode) => {
+        match self.single_grouped_decode.as_ref() {
+            Some(SingleGroupedDecode::Path(single_grouped_path_decode)) => {
+                self.single_path_row_view_from_data_row(key, row, single_grouped_path_decode)
+            }
+            Some(SingleGroupedDecode::Slot(single_grouped_slot_decode)) => {
                 self.single_slot_row_view_from_data_row(key, row, single_grouped_slot_decode)
             }
-            GroupedRowDecodePath::Indexed => {
+            None => {
                 charge_grouped_decoded_row(&row, self.grouped_slot_layout.required_slots().len())?;
                 let retained_slots = RowDecoder::decode_retained_slots_from_data_key(
                     &self.row_layout,
@@ -392,6 +453,40 @@ impl StructuralGroupedRowRuntime {
                 Ok(RowView::from_retained_slots(retained_slots))
             }
         }
+    }
+
+    fn single_path_row_view_from_data_row(
+        &self,
+        key: &DecodedDataStoreKey,
+        row: RawRow,
+        path: &SingleGroupedPathDecode,
+    ) -> Result<RowView, InternalError> {
+        charge_grouped_decoded_row(&row, path.segment_bytes.len())?;
+        let row_fields = self.row_layout.open_raw_row_with_contract(&row)?;
+        row_fields.validate_primary_key(key)?;
+        let root_bytes = row_fields.required_bytes(path.root_slot)?;
+        let leaf_bytes =
+            resolve_path_segments(root_bytes, path.segment_bytes.as_ref()).map_err(|_| {
+                InternalError::persisted_row_field_decode_failed(
+                    path.label.as_str(),
+                    "grouped scalar-path traversal failed",
+                )
+            })?;
+        let value = match leaf_bytes {
+            Some(leaf_bytes) => {
+                decode_structural_value_storage_bytes(leaf_bytes).map_err(|_| {
+                    InternalError::persisted_row_field_decode_failed(
+                        path.label.as_str(),
+                        "grouped scalar-path leaf decode failed",
+                    )
+                })?
+            }
+            None => Value::Null,
+        };
+
+        Ok(RowView {
+            storage: RowViewStorage::SinglePath { value },
+        })
     }
 
     // Decode one grouped row view for the common single-slot shape without
@@ -434,23 +529,20 @@ impl StructuralGroupedRowRuntime {
         )
     }
 
-    // Resolve the grouped row decode path once from the retained-slot runtime
-    // metadata before row decode begins.
-    fn row_decode_path(&self) -> GroupedRowDecodePath<'_> {
-        self.single_grouped_slot_decode
-            .as_ref()
-            .map_or(GroupedRowDecodePath::Indexed, GroupedRowDecodePath::Single)
-    }
-
     // Return the single-slot decode contract only when the caller-selected
     // required slot matches the runtime-frozen single grouped slot path.
-    fn matching_single_grouped_slot_decode(
+    const fn matching_single_grouped_slot_decode(
         &self,
         required_slot: usize,
     ) -> Option<&SingleGroupedSlotDecode> {
-        self.single_grouped_slot_decode
-            .as_ref()
-            .filter(|single_grouped_slot_decode| single_grouped_slot_decode.slot == required_slot)
+        match self.single_grouped_decode.as_ref() {
+            Some(SingleGroupedDecode::Slot(single_grouped_slot_decode))
+                if single_grouped_slot_decode.slot == required_slot =>
+            {
+                Some(single_grouped_slot_decode)
+            }
+            Some(SingleGroupedDecode::Path(_) | SingleGroupedDecode::Slot(_)) | None => None,
+        }
     }
 
     // Read one persisted row under the grouped consistency contract while

@@ -3,9 +3,10 @@
 Procedural-macro compiler for `icydb-model` declarations and application
 helper derives.
 
-Applications normally consume these macros through `icydb-model`. The compiler
-lowers declarations into that package's host graph and the public
-`icydb-schema` proposal vocabulary; it has no dependency on `icydb` or
+Runtime-enabled applications normally consume these macros through
+`icydb::model`; schema-only tools consume them through `icydb-model`. The
+compiler lowers declarations into the model package's host graph and the
+public `icydb-schema` proposal vocabulary; it has no dependency on `icydb` or
 `icydb-core`.
 
 The package also transports the two thin request-entry attributes re-exported

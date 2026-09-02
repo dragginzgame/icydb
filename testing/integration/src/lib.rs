@@ -4,6 +4,7 @@ mod canister_build_cache;
 
 pub mod canister_artifact;
 pub mod durable_mutation_job_contract;
+pub mod group_path_contract;
 pub mod sql_performance_contract;
 pub mod streaming_execution_contract;
 pub mod wasm_measurement;
@@ -172,7 +173,7 @@ struct MaintainedCanisterBuildPlan {
     specs: Vec<LabeledWasmBuildSpec>,
 }
 
-static FIXTURE_CANISTERS: [FixtureCanister; 20] = [
+static FIXTURE_CANISTERS: [FixtureCanister; 21] = [
     FixtureCanister {
         name: "demo_rpg",
         package: "canister_demo_rpg",
@@ -231,6 +232,11 @@ static FIXTURE_CANISTERS: [FixtureCanister; 20] = [
     FixtureCanister {
         name: "default_empty_metrics_extended",
         package: "canister_audit_default_empty_metrics_extended",
+        local_wasm_bytes: OnceLock::new(),
+    },
+    FixtureCanister {
+        name: "group_path_sql_query",
+        package: "canister_audit_group_path_sql_query",
         local_wasm_bytes: OnceLock::new(),
     },
     FixtureCanister {

@@ -1,5 +1,8 @@
 use crate::db::{
-    query::plan::expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSelection},
+    query::plan::{
+        GroupField, GroupFieldSet,
+        expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSelection},
+    },
     schema::SchemaInfo,
     sql::{
         identifier::split_qualified_identifier,
@@ -161,7 +164,16 @@ pub(super) fn lower_grouped_projection(
     let SqlProjection::Items(items) = projection else {
         return Err(SqlLoweringError::grouped_projection_requires_explicit_list());
     };
-    let grouped_field_names = group_by.iter().map(String::as_str).collect::<Vec<_>>();
+    let mut group_fields = GroupFieldSet::empty();
+    for field in group_by {
+        let Some(group_field) = GroupField::resolve_with_schema(schema, field) else {
+            return Err(SqlLoweringError::unknown_field(
+                QueryFieldRole::GroupBy,
+                field,
+            ));
+        };
+        group_fields.push(group_field);
+    }
 
     let mut seen_aggregate = false;
     let mut fields = Vec::with_capacity(items.len());
@@ -178,12 +190,7 @@ pub(super) fn lower_grouped_projection(
                 index,
             ));
         }
-        validate_grouped_projection_expr(
-            index,
-            grouped_field_names.as_slice(),
-            schema,
-            expr_facts,
-        )?;
+        validate_grouped_projection_expr(index, &group_fields, schema, expr_facts)?;
         seen_aggregate |= contains_aggregate;
         if contains_aggregate {
             aggregate_call_interner.extend_select_item(&mut aggregate_calls, &item);
@@ -214,7 +221,7 @@ pub(super) fn lower_grouped_projection(
 // while preserving specific unknown-field diagnostics.
 fn validate_grouped_projection_expr(
     index: usize,
-    grouped_field_names: &[&str],
+    group_fields: &GroupFieldSet,
     schema: &SchemaInfo,
     analysis: &LoweredExprAnalysis,
 ) -> Result<(), SqlLoweringError> {
@@ -224,7 +231,7 @@ fn validate_grouped_projection_expr(
             field,
         ));
     }
-    if !analysis.references_only_direct_fields(grouped_field_names) {
+    if !analysis.references_only_group_fields(group_fields) {
         return Err(SqlLoweringError::grouped_projection_references_non_group_field(index));
     }
 
@@ -249,14 +256,23 @@ fn grouped_projection_is_canonical_identity(
     group_fields
         .iter()
         .zip(group_by.iter())
-        .all(|(field, group_by)| {
-            matches!(
-                field,
-                ProjectionField::Scalar {
-                    expr: Expr::Field(field_id),
-                    alias: None,
-                } if field_id.as_str() == group_by
-            )
+        .all(|(field, group_by)| match field {
+            ProjectionField::Scalar {
+                expr: Expr::Field(field_id),
+                alias: None,
+            } => field_id.as_str() == group_by,
+            ProjectionField::Scalar {
+                expr: Expr::FieldPath(path),
+                alias: None,
+            } => {
+                let mut label = path.root().as_str().to_string();
+                for segment in path.segments() {
+                    label.push('.');
+                    label.push_str(segment);
+                }
+                &label == group_by
+            }
+            ProjectionField::Scalar { .. } => false,
         })
         && aggregate_fields.iter().all(|field| {
             matches!(

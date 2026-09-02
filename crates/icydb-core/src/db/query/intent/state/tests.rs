@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     db::query::plan::{
-        FieldSlot, OrderDirection,
+        FieldSlot, GroupField, OrderDirection,
         expr::{FieldId, Function},
     },
     value::Value,
@@ -70,8 +70,11 @@ fn grouped_load_to_delete_preserves_grouping_policy_without_group_shape() {
 #[test]
 fn group_field_slot_deduplicates_by_slot_index() {
     let mut intent = QueryIntent::new();
-    intent.push_group_field_slot(FieldSlot::from_test_slot(4, "rank"));
-    intent.push_group_field_slot(FieldSlot::from_test_slot(4, "duplicate-rank"));
+    intent.push_group_field(GroupField::Direct(FieldSlot::from_test_slot(4, "rank")));
+    intent.push_group_field(GroupField::Direct(FieldSlot::from_test_slot(
+        4,
+        "duplicate-rank",
+    )));
 
     let grouped = intent
         .grouped()

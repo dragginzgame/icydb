@@ -5,7 +5,7 @@
 
 use crate::db::{
     query::plan::{
-        FieldSlot, GroupSpec,
+        GroupSpec,
         expr::{ProjectionSpec, infer_expr_type},
         validate::{ExprPlanError, PlanError},
     },
@@ -20,16 +20,10 @@ pub(in crate::db::query) fn validate_group_projection_expr_compatibility(
 ) -> Result<(), PlanError> {
     group.group_fields.is_empty().then_some(()).map_or_else(
         || {
-            let grouped_fields = group
-                .group_fields
-                .iter()
-                .map(FieldSlot::field)
-                .collect::<Vec<_>>();
-
             for (index, field) in projection.fields().enumerate() {
-                field
-                    .expr()
-                    .references_only_fields(grouped_fields.as_slice())
+                group
+                    .group_fields
+                    .contains_all_expr_references(field.expr())
                     .then_some(())
                     .ok_or_else(|| {
                         PlanError::from(

@@ -8,6 +8,14 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "
 cd "$ROOT"
 
 BUMP_TYPE=${1:-patch}
+INTERNAL_WORKSPACE_PACKAGES=(
+  icydb
+  icydb-core
+  icydb-diagnostic-code
+  icydb-model
+  icydb-model-macros
+  icydb-schema
+)
 
 LOCKFILE_SNAPSHOT_DIR=""
 LOCKFILE_SNAPSHOT=""
@@ -47,6 +55,21 @@ if [[ "$PREV" == "$NEW" ]]; then
   echo "Version unchanged ($NEW)"
   exit 0
 fi
+
+# Published IcyDB packages share private generated-code and schema contracts.
+# Keep every registry-facing intra-workspace edge on the exact release rather
+# than allowing Cargo's default caret range to split the family by patch.
+for package in "${INTERNAL_WORKSPACE_PACKAGES[@]}"; do
+  sed -i -E \
+    "s#^(${package}[[:space:]]*=[[:space:]]*\\{[^}]*version[[:space:]]*=[[:space:]]*\\\")[^\\\"]+(\\\"[^}]*\\})#\\1=$NEW\\2#" \
+    Cargo.toml
+  if ! grep -E "^${package}[[:space:]]*=" Cargo.toml |
+    grep -Fq "version = \"=$NEW\""
+  then
+    echo "Failed to pin $package to exact workspace version =$NEW" >&2
+    exit 1
+  fi
+done
 
 if [[ -n "$LOCKFILE_SNAPSHOT" ]]; then
   cp "$LOCKFILE_SNAPSHOT" Cargo.lock

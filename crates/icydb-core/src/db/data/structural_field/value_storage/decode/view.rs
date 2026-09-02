@@ -63,7 +63,7 @@ impl<'a> ValueStorageView<'a> {
 
     /// Return whether this view contains a generic null value.
     #[inline]
-    pub(in crate::db::data) const fn is_null(&self) -> bool {
+    pub(in crate::db) const fn is_null(&self) -> bool {
         self.tag() == TAG_NULL
     }
 

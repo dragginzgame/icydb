@@ -7,7 +7,7 @@ use crate::db::{
     query::{
         builder::aggregate::AggregateExpr,
         plan::{
-            FieldSlot, GroupAggregateSpec, LogicalPlan,
+            GroupAggregateSpec, LogicalPlan,
             expr::{
                 Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
                 collect_unique_direct_projection_slots_with_schema,
@@ -46,7 +46,7 @@ pub(in crate::db::query) fn lower_projection_intent_with_schema(
         LogicalPlan::Grouped(grouped) => match selection {
             ProjectionSelection::Exprs(fields) => ProjectionSpec::new(fields.clone()),
             ProjectionSelection::All | ProjectionSelection::Fields(_) => lower_grouped_projection(
-                grouped.group.group_fields.as_slice(),
+                &grouped.group.group_fields,
                 grouped.group.aggregates.as_slice(),
             ),
         },
@@ -147,7 +147,7 @@ pub(in crate::db::query) fn lower_projection_identity(
             ProjectionSelection::Exprs(fields) => ProjectionSpec::new(fields.clone()),
         },
         LogicalPlan::Grouped(grouped) => lower_grouped_projection(
-            grouped.group.group_fields.as_slice(),
+            &grouped.group.group_fields,
             grouped.group.aggregates.as_slice(),
         ),
     }
@@ -156,12 +156,15 @@ pub(in crate::db::query) fn lower_projection_identity(
 /// Lower grouped plans to one explicit projection of grouped keys followed by
 /// grouped aggregates, preserving declaration order.
 fn lower_grouped_projection(
-    group_fields: &[FieldSlot],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
     aggregates: &[GroupAggregateSpec],
 ) -> ProjectionSpec {
     let mut fields = Vec::with_capacity(group_fields.len().saturating_add(aggregates.len()));
-    for group_field in group_fields {
-        fields.push(direct_field_projection(FieldId::new(group_field.field())));
+    for group_field in group_fields.iter() {
+        fields.push(ProjectionField::Scalar {
+            expr: group_field.projection_expr(),
+            alias: None,
+        });
     }
     for aggregate in aggregates {
         fields.push(aggregate_projection(group_aggregate_spec_expr(aggregate)));

@@ -207,6 +207,12 @@ impl AcceptedFieldKindSemantics {
         }
     }
 
+    /// Return true when grouped equality can consume the persisted value as-is.
+    #[must_use]
+    pub(in crate::db) const fn has_identity_group_canonical_form(self) -> bool {
+        matches!(self.category, AcceptedFieldKindCategory::Scalar(kind) if !matches!(kind, ScalarKind::Decimal | ScalarKind::Enum | ScalarKind::Unit))
+    }
+
     /// Return true when the field kind is a collection.
     #[must_use]
     pub(in crate::db) const fn is_collection(self) -> bool {

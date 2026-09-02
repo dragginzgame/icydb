@@ -9,7 +9,7 @@ use crate::{
     db::query::{
         builder::AggregateExpr,
         plan::{
-            FieldSlot, GroupedAggregateExecutionSpec,
+            GroupedAggregateExecutionSpec,
             expr::{
                 BinaryOp, CompiledExpr, CompiledExprCaseArm, Expr, ProjectionEvalError,
                 ProjectionSpec, ScalarProjectionCaseArm, ScalarProjectionExpr,
@@ -266,7 +266,7 @@ impl CompiledExprCaseArm {
 /// Compile one grouped projection spec into direct grouped field/aggregate lookups.
 pub(in crate::db) fn compile_grouped_projection_plan(
     projection: &ProjectionSpec,
-    group_fields: &[FieldSlot],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
     aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
 ) -> Result<Vec<CompiledExpr>, ProjectionEvalError> {
     let mut compiled_fields = Vec::with_capacity(projection.len());
@@ -284,13 +284,13 @@ pub(in crate::db) fn compile_grouped_projection_plan(
 
 pub(in crate::db) fn compile_grouped_projection_expr(
     expr: &Expr,
-    group_fields: &[FieldSlot],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
     aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
 ) -> Result<CompiledExpr, ProjectionEvalError> {
     match expr {
         Expr::Field(field_id) => {
             let field_name = field_id.as_str();
-            let Some(offset) = resolve_group_field_offset(group_fields, field_name) else {
+            let Some(offset) = resolve_group_field_offset(group_fields, expr) else {
                 return Err(ProjectionEvalError::unknown_group_field());
             };
 
@@ -299,7 +299,15 @@ pub(in crate::db) fn compile_grouped_projection_expr(
                 field: field_name.to_string(),
             })
         }
-        Expr::FieldPath(_) => Err(ProjectionEvalError::unknown_field_path()),
+        Expr::FieldPath(path) => {
+            let Some(offset) = resolve_group_field_offset(group_fields, expr) else {
+                return Err(ProjectionEvalError::unknown_group_field());
+            };
+            Ok(CompiledExpr::GroupKey {
+                offset,
+                field: render_field_path_label(path.root().as_str(), path.path_spec().segments()),
+            })
+        }
         Expr::Aggregate(aggregate_expr) => {
             let Some(index) =
                 resolve_grouped_aggregate_index(aggregate_execution_specs, aggregate_expr)
@@ -378,9 +386,12 @@ pub(in crate::db) fn compile_grouped_projection_expr(
     }
 }
 
-fn resolve_group_field_offset(group_fields: &[FieldSlot], field_name: &str) -> Option<usize> {
+fn resolve_group_field_offset(
+    group_fields: &crate::db::query::plan::GroupFieldSet,
+    expr: &Expr,
+) -> Option<usize> {
     for (offset, group_field) in group_fields.iter().enumerate() {
-        if group_field.field() == field_name {
+        if group_field.matches_expr(expr) {
             return Some(offset);
         }
     }

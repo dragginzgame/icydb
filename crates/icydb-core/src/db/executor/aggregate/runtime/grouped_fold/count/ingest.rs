@@ -48,6 +48,9 @@ pub(super) fn fold_row_view_count_rows(
 ) -> Result<(), InternalError> {
     let consistency = route.consistency();
     let (scanned_rows, filtered_rows) = counters;
+    let Some(group_fields) = route.group_fields().as_direct() else {
+        return Err(InternalError::query_executor_invariant());
+    };
 
     while let Some(data_key) = resolved.key_stream_mut().next_key()? {
         let (row_materialization_local_instructions, row_view) =
@@ -66,7 +69,7 @@ pub(super) fn fold_row_view_count_rows(
         increment_row(
             grouped_counts,
             &row_view,
-            route.group_fields(),
+            group_fields,
             grouped_execution_context,
         )?;
     }

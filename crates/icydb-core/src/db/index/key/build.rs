@@ -188,7 +188,9 @@ fn accepted_field_path_component_bytes_from_slots(
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<Vec<u8>>, InternalError> {
     let source = slots.required_value_by_contract_cow(field.slot())?;
-    let Some(source) = resolve_accepted_field_path_component(source.as_ref(), field)? else {
+    let Some(source) =
+        resolve_field_path_component(source.as_ref(), field.field_name(), field.path())?
+    else {
         return Ok(None);
     };
 
@@ -291,7 +293,8 @@ fn accepted_expression_component_bytes_from_slots(
     match key_item {
         SchemaExpressionIndexKeyItemInfo::FieldPath(field) => {
             let source = slots.required_value_by_contract_cow(field.slot())?;
-            let Some(source) = resolve_accepted_field_path_component(source.as_ref(), field)?
+            let Some(source) =
+                resolve_field_path_component(source.as_ref(), field.field_name(), field.path())?
             else {
                 return Ok(None);
             };
@@ -326,7 +329,9 @@ fn field_path_rebuild_component_bytes_from_slots(
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<Vec<u8>>, InternalError> {
     let source = slots.required_value_by_contract_cow(usize::from(field.slot().get()))?;
-    let Some(source) = resolve_field_path_rebuild_component(source.as_ref(), field)? else {
+    let Some(source) =
+        resolve_field_path_component(source.as_ref(), field.field_name(), field.path())?
+    else {
         return Ok(None);
     };
 
@@ -355,7 +360,12 @@ fn expression_rebuild_expression_component_bytes_from_slots(
 ) -> Result<Option<Vec<u8>>, InternalError> {
     let source =
         slots.required_value_by_contract_cow(usize::from(expression.source().slot().get()))?;
-    let Some(source) = resolve_field_path_rebuild_component(source.as_ref(), expression.source())?
+    let source_field = expression.source();
+    let Some(source) = resolve_field_path_component(
+        source.as_ref(),
+        source_field.field_name(),
+        source_field.path(),
+    )?
     else {
         return Ok(None);
     };
@@ -375,40 +385,20 @@ fn expression_rebuild_expression_component_bytes_from_slots(
     encode_value_index_component(value)
 }
 
-fn resolve_accepted_field_path_component<'a>(
+fn resolve_field_path_component<'a>(
     root: &'a Value,
-    field: &SchemaIndexFieldPathInfo,
+    field_name: &str,
+    path: &[String],
 ) -> Result<Option<&'a Value>, InternalError> {
     let mut current = root;
-    for segment in field.path().iter().skip(1) {
-        let entries = current.as_map().ok_or_else(|| {
-            InternalError::persisted_row_field_decode_failed(
-                field.field_name(),
-                "field-path index traversal requires a map value",
-            )
-        })?;
-        let Some((_, value)) = entries
-            .iter()
-            .find(|(key, _)| matches!(key, Value::Text(text) if text == segment))
-        else {
+    for segment in path.iter().skip(1) {
+        if matches!(current, Value::Null) {
             return Ok(None);
-        };
-        current = value;
-    }
-
-    Ok(Some(current))
-}
-
-fn resolve_field_path_rebuild_component<'a>(
-    root: &'a Value,
-    field: &SchemaFieldPathIndexRebuildKey,
-) -> Result<Option<&'a Value>, InternalError> {
-    let mut current = root;
-    for segment in field.path().iter().skip(1) {
+        }
         let entries = current.as_map().ok_or_else(|| {
             InternalError::persisted_row_field_decode_failed(
-                field.field_name(),
-                "field-path rebuild traversal requires a map value",
+                field_name,
+                "field-path index traversal requires a map value",
             )
         })?;
         let Some((_, value)) = entries

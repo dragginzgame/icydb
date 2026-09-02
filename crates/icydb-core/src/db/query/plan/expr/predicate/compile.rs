@@ -15,7 +15,7 @@ use crate::{
             Predicate, canonical_membership_value_list, collapse_membership_compare_leaves,
         },
         query::plan::expr::{
-            BinaryOp, BooleanFunctionShape, CanonicalExpr, CaseWhenArm, Expr,
+            BinaryOp, BooleanFunctionShape, CanonicalExpr, CaseWhenArm, Expr, FieldPath,
             FieldPredicateFunctionKind, Function, NullTestFunctionKind, TextPredicateFunctionKind,
             UnaryOp, truth_condition_binary_compare_op,
         },
@@ -389,17 +389,17 @@ fn compile_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> Option<
     let op = truth_condition_binary_compare_op(op)?;
 
     match (left, right) {
-        (Expr::Field(field), Expr::Literal(value)) => {
+        (field @ (Expr::Field(_) | Expr::FieldPath(_)), Expr::Literal(value)) => {
             Some(Predicate::Compare(ComparePredicate::with_coercion(
-                field.as_str().to_string(),
+                predicate_field_label(field)?,
                 op,
                 value.clone(),
                 compare_literal_coercion(op, value),
             )))
         }
-        (Expr::Literal(value), Expr::Field(field)) => {
+        (Expr::Literal(value), field @ (Expr::Field(_) | Expr::FieldPath(_))) => {
             Some(Predicate::Compare(ComparePredicate::with_coercion(
-                field.as_str().to_string(),
+                predicate_field_label(field)?,
                 op.flipped(),
                 value.clone(),
                 compare_literal_coercion(op.flipped(), value),
@@ -430,6 +430,27 @@ fn compile_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> Option<
         },
         _ => None,
     }
+}
+
+// Preserve one canonical dotted identity for planner-only nested compare
+// predicates. Runtime keeps the expression lane when access cannot discharge
+// this predicate, so this label is never mistaken for a top-level row field.
+fn predicate_field_label(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Field(field) => Some(field.as_str().to_string()),
+        Expr::FieldPath(path) => Some(render_predicate_field_path(path)),
+        _ => None,
+    }
+}
+
+fn render_predicate_field_path(path: &FieldPath) -> String {
+    let mut label = path.root().as_str().to_string();
+    for segment in path.segments() {
+        label.push('.');
+        label.push_str(segment);
+    }
+
+    label
 }
 
 // Compile one admitted boolean function onto the requested runtime truth
@@ -895,7 +916,8 @@ impl RuntimePredicateAdmission {
         }
 
         match (left, right) {
-            (Expr::Field(_), Expr::Literal(_) | Expr::Field(_)) => true,
+            (Expr::Field(_), Expr::Literal(_) | Expr::Field(_))
+            | (Expr::FieldPath(_), Expr::Literal(_)) => true,
             (
                 Expr::FunctionCall {
                     function: Function::Lower,

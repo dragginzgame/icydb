@@ -3,6 +3,8 @@
 //! Does not own: query planning policy or runtime predicate evaluation.
 //! Boundary: validates entity/index model consistency for predicate schema metadata.
 
+use std::borrow::Cow;
+
 #[cfg(feature = "sql")]
 use crate::db::schema::canonicalize_strict_sql_literal_for_persisted_kind;
 use crate::db::schema::{
@@ -441,6 +443,61 @@ impl SchemaInfo {
         schema_field_info(self.fields.as_slice(), name).map(|field| field.slot)
     }
 
+    /// Resolve one accepted direct field or nested query path to its query type.
+    #[must_use]
+    pub(in crate::db) fn accepted_query_field_type(
+        &self,
+        name: &str,
+    ) -> Option<Cow<'_, FieldType>> {
+        if let Some(field_type) = self.field(name) {
+            return Some(Cow::Borrowed(field_type));
+        }
+
+        let (root, nested) = name.split_once('.')?;
+        if root.is_empty() || nested.is_empty() {
+            return None;
+        }
+        let field = schema_field_info(self.fields.as_slice(), root)?;
+        let leaf = field
+            .nested_leaves
+            .iter()
+            .find(|leaf| leaf.path().iter().map(String::as_str).eq(nested.split('.')))?;
+        let query_kind = query_field_kind_from_persisted_kind(
+            leaf.kind(),
+            self.value_catalog.composite_catalog(),
+        );
+        Some(Cow::Owned(field_type_from_persisted_kind(&query_kind)))
+    }
+
+    /// Return whether null at this field or any accepted path ancestor omits
+    /// the field from a physical secondary index.
+    #[must_use]
+    pub(in crate::db) fn accepted_query_field_is_omittable(&self, name: &str) -> Option<bool> {
+        if let Some(field) = schema_field_info(self.fields.as_slice(), name) {
+            return Some(field.nullable);
+        }
+
+        let (root, nested) = name.split_once('.')?;
+        if root.is_empty() || nested.is_empty() {
+            return None;
+        }
+        let field = schema_field_info(self.fields.as_slice(), root)?;
+        let terminal = field
+            .nested_leaves
+            .iter()
+            .find(|leaf| leaf.path().iter().map(String::as_str).eq(nested.split('.')))?;
+
+        Some(
+            field.nullable
+                || terminal.nullable()
+                || field.nested_leaves.iter().any(|candidate| {
+                    candidate.nullable()
+                        && candidate.path().len() < terminal.path().len()
+                        && terminal.path().starts_with(candidate.path())
+                }),
+        )
+    }
+
     /// Return accepted field names in canonical physical-slot order.
     ///
     /// Structural identity projection uses this ordering instead of reopening
@@ -580,6 +637,22 @@ impl SchemaInfo {
                 );
                 field_type_from_persisted_kind(&query_kind)
             })
+    }
+
+    /// Borrow the accepted query kind for one nested scalar leaf.
+    #[must_use]
+    pub(in crate::db) fn accepted_nested_query_field_kind(
+        &self,
+        name: &str,
+        segments: &[String],
+    ) -> Option<&AcceptedFieldKind> {
+        let field = schema_field_info(self.fields.as_slice(), name)?;
+
+        field
+            .nested_leaves
+            .iter()
+            .find(|leaf| leaf.path() == segments)
+            .map(PersistedNestedLeafSnapshot::kind)
     }
 
     /// Return whether one top-level field exposes any nested path metadata.

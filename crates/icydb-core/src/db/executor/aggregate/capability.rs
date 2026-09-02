@@ -46,17 +46,7 @@ pub(in crate::db::executor) const fn accepted_field_kind_supports_average(
 pub(in crate::db::executor) const fn accepted_field_kind_has_identity_group_canonical_form(
     kind: &AcceptedFieldKind,
 ) -> bool {
-    !matches!(
-        kind,
-        AcceptedFieldKind::Decimal { .. }
-            | AcceptedFieldKind::Enum { .. }
-            | AcceptedFieldKind::Relation { .. }
-            | AcceptedFieldKind::List(_)
-            | AcceptedFieldKind::Set(_)
-            | AcceptedFieldKind::Map { .. }
-            | AcceptedFieldKind::Composite { .. }
-            | AcceptedFieldKind::Unit
-    )
+    classify_accepted_field_kind(kind).has_identity_group_canonical_form()
 }
 
 /// Return true when one accepted grouped field can use borrowed key probing.

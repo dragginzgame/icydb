@@ -6,6 +6,10 @@ between a shared model crate and a generated canister. The model compiler and
 canonical scalar metadata remain the authority when this guide and code ever
 disagree.
 
+Runtime-enabled crates normally use `icydb::model`; this keeps model authoring
+and database runtime on one direct `icydb` dependency. Schema-only tooling may
+instead depend directly on `icydb-model` without pulling in the runtime.
+
 ## Primary Keys
 
 Declare one required field with `pk(field = "id")`, or two to four distinct
@@ -119,7 +123,7 @@ Use a named list when a small owner-local sequence has a durable item-count
 ceiling and is normally read and replaced with its containing row:
 
 ```rust
-use icydb_model::prelude::*;
+use icydb::model::prelude::*;
 
 #[record(fields(
     field(name = "slot", value(item(prim = "Nat16"))),

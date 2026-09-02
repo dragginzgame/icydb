@@ -294,10 +294,11 @@ For each release:
    detailed changelog edits may remain staged or unstaged and are included in
    the release transition; every other tracked change stops the release before
    the expensive gate starts and is checked again afterward. The version bump
-   changes only workspace package versions in the validated lockfile, verifies
-   that result offline, then records the exact version-and-release-note diff. A
-   failure leaves any generated mutation visible for review; release tooling
-   never restores files automatically.
+   changes workspace package versions and their exact intra-workspace
+   dependency pins together, preserves the validated external dependency graph,
+   verifies that result offline, then records the exact
+   version-and-release-note diff. A failure leaves any generated mutation
+   visible for review; release tooling never restores files automatically.
 6. Review the release diff.
 7. Run `make release-stage` to stage known release files.
 8. Run `make release-commit`. It must verify the staged diff against the tested

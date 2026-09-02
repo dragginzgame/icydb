@@ -241,7 +241,11 @@ fn validate_index_reference_with_schema(
         index.key_item_at(slot).is_some_and(|key_item| {
             let field = key_item.field();
 
-            schema.field(field).is_some() && schema.field_is_indexed(field)
+            schema.accepted_query_field_type(field).is_some()
+                && field
+                    .split('.')
+                    .next()
+                    .is_some_and(|root| schema.field_is_indexed(root))
         })
     }) {
         return Ok(());

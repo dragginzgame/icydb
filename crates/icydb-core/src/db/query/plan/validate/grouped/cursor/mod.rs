@@ -4,7 +4,7 @@
 //! Boundary: validates grouped order/paging alignment before plan admission.
 
 use crate::db::query::plan::{
-    FieldSlot, GroupSpec, OrderSpec, ScalarPlan,
+    GroupFieldSet, GroupSpec, OrderSpec, ScalarPlan,
     expr::{
         GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
         classify_grouped_order_term_for_field, classify_grouped_top_k_order_term,
@@ -40,7 +40,7 @@ pub(in crate::db::query) fn validate_group_cursor_constraints(
         return Ok(());
     };
 
-    let lane = validate_order_lane(order, group.group_fields.as_slice())?;
+    let lane = validate_order_lane(order, &group.group_fields)?;
     let has_limit = logical.page.as_ref().and_then(|page| page.limit).is_some();
     if matches!(lane, GroupedOrderCursorLane::TopK) && !has_limit {
         return Err(PlanError::from(GroupPlanError::order_requires_limit()));
@@ -63,19 +63,15 @@ pub(in crate::db::query) fn validate_group_cursor_constraints(
 // expression model.
 fn validate_order_lane(
     order: &OrderSpec,
-    group_fields: &[FieldSlot],
+    group_fields: &GroupFieldSet,
 ) -> Result<GroupedOrderCursorLane, PlanError> {
-    let grouped_field_names = group_fields
-        .iter()
-        .map(FieldSlot::field)
-        .collect::<Vec<_>>();
     let top_k_required = order
         .fields
         .iter()
         .any(|term| grouped_top_k_order_term_requires_heap(term.expr()));
 
     if top_k_required {
-        return validate_top_k_order_lane(order, grouped_field_names.as_slice());
+        return validate_top_k_order_lane(order, group_fields);
     }
 
     validate_canonical_order_lane(order, group_fields)
@@ -85,7 +81,7 @@ fn validate_order_lane(
 // grouped-key cursor contract that still powers resumable grouped ordering.
 fn validate_canonical_order_lane(
     order: &OrderSpec,
-    group_fields: &[FieldSlot],
+    group_fields: &GroupFieldSet,
 ) -> Result<GroupedOrderCursorLane, PlanError> {
     if order.fields.len() < group_fields.len() {
         return Err(PlanError::from(
@@ -97,7 +93,12 @@ fn validate_canonical_order_lane(
         let order_field = term.rendered_label();
 
         if index < group_fields.len() {
-            match classify_grouped_order_term_for_field(term.expr(), group_fields[index].field()) {
+            let Some(group_field) = group_fields.get(index) else {
+                return Err(PlanError::from(
+                    GroupPlanError::order_prefix_not_aligned_with_group_keys(),
+                ));
+            };
+            match classify_grouped_order_term_for_field(term.expr(), group_field) {
                 GroupedOrderTermAdmissibility::Preserves(_) => {}
                 GroupedOrderTermAdmissibility::PrefixMismatch => {
                     return Err(PlanError::from(
@@ -122,12 +123,12 @@ fn validate_canonical_order_lane(
 // materialized and non-resumable in this release.
 fn validate_top_k_order_lane(
     order: &OrderSpec,
-    grouped_field_names: &[&str],
+    group_fields: &GroupFieldSet,
 ) -> Result<GroupedOrderCursorLane, PlanError> {
     for term in &order.fields {
         let order_field = term.rendered_label();
 
-        match classify_grouped_top_k_order_term(term.expr(), grouped_field_names) {
+        match classify_grouped_top_k_order_term(term.expr(), group_fields) {
             GroupedTopKOrderTermAdmissibility::Admissible => {}
             GroupedTopKOrderTermAdmissibility::NonGroupFieldReference => {
                 return Err(PlanError::from(

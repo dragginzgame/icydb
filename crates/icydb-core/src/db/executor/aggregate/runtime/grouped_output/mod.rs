@@ -9,9 +9,7 @@ mod tests;
 use crate::{
     db::executor::{
         ExecutionOptimization, ExecutionTrace, RuntimeGroupedRow,
-        aggregate::{
-            FieldSlot, GroupedAggregateExecutionSpec, PlannedProjectionLayout, ProjectionSpec,
-        },
+        aggregate::{GroupedAggregateExecutionSpec, PlannedProjectionLayout, ProjectionSpec},
         pipeline::contracts::{ExecutionOutcomeMetrics, GroupedCursorPage, GroupedRouteStage},
         pipeline::runtime::GroupedFoldStage,
         plan_metrics::{
@@ -290,7 +288,7 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
     projection: &ProjectionSpec,
     projection_is_identity: bool,
     projection_layout: &PlannedProjectionLayout,
-    group_fields: &[FieldSlot],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
     aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
     rows: Vec<RuntimeGroupedRow>,
 ) -> Result<Vec<RuntimeGroupedRow>, InternalError> {

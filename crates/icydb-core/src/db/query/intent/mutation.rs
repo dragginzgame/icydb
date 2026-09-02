@@ -11,7 +11,7 @@ use crate::db::query::{
         state::{GroupedIntent, NormalizedFilter, QueryIntent},
     },
     plan::{
-        FieldSlot, GroupAggregateSpec, GroupedExecutionConfig, OrderSpec, OrderTerm,
+        GroupAggregateSpec, GroupField, GroupedExecutionConfig, OrderSpec, OrderTerm,
         expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr, normalize_bool_expr},
     },
 };
@@ -82,19 +82,13 @@ impl QueryIntent {
     }
 
     /// Record one grouped key slot while preserving grouped-delete policy semantics.
-    pub(in crate::db::query::intent) fn push_group_field_slot(&mut self, field_slot: FieldSlot) {
+    pub(in crate::db::query::intent) fn push_group_field(&mut self, field: GroupField) {
         let Some(grouped) = self.grouped_mutation_target() else {
             return;
         };
 
         let group = &mut grouped.group;
-        if !group
-            .group_fields
-            .iter()
-            .any(|existing| existing.index() == field_slot.index())
-        {
-            group.group_fields.push(field_slot);
-        }
+        group.group_fields.push(field);
     }
 
     /// Record one grouped aggregate terminal while preserving delete policy flags.

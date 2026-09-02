@@ -361,7 +361,7 @@ impl PreparedExecutionPlanCore {
                 );
                 let grouped_slot_layout = compile_grouped_row_slot_layout_from_inputs(
                     authority.row_layout()?,
-                    grouped_plan.group.group_fields.as_slice(),
+                    &grouped_plan.group.group_fields,
                     self.residents
                         .plan
                         .grouped_aggregate_execution_specs()

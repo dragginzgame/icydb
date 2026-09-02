@@ -124,6 +124,7 @@ pub const WASM_MEASUREMENT_SUBJECTS: &[&str] = &[
     "default_empty",
     "default_empty_metrics",
     "default_empty_metrics_extended",
+    "group_path_sql_query",
     "one_entity_dynamic_query",
     "one_entity_reachable_operations",
     "one_entity_typed_query",
@@ -255,6 +256,10 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
         minimum_final_raw_reduction_basis_points: 0,
     },
     WasmLineBudget {
+        subject: "group_path_sql_query",
+        minimum_final_raw_reduction_basis_points: 0,
+    },
+    WasmLineBudget {
         subject: "one_entity_dynamic_query",
         minimum_final_raw_reduction_basis_points: 700,
     },
@@ -300,7 +305,7 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
 pub fn validate_wasm_measurement_contract() -> Result<(), &'static str> {
     if WASM_MEASUREMENT_PROFILE_VERSION != 1
         || WASM_MEASUREMENT_PROFILE_ID != "icydb-wasm-footprint/0.251/v1"
-        || WASM_MEASUREMENT_SUBJECTS.len() != 12
+        || WASM_MEASUREMENT_SUBJECTS.len() != 13
     {
         return Err("Wasm measurement identity or subject count drifted");
     }

@@ -8,6 +8,8 @@ SCHEMA_CARGO="crates/icydb-schema/Cargo.toml"
 SCHEMA_ROOT="crates/icydb-schema/src"
 MODEL_CARGO="crates/icydb-model/Cargo.toml"
 MODEL_MACROS_CARGO="crates/icydb-model-macros/Cargo.toml"
+FACADE_LIB="crates/icydb/src/lib.rs"
+FACADE_ONLY_FIXTURE_CARGO="testing/model-facade-only/Cargo.toml"
 SCHEMA_ONLY_FIXTURE_CARGO="testing/model-schema-only/Cargo.toml"
 TYPED_ADAPTER_FIXTURE_CARGO="testing/model-typed-adapter/Cargo.toml"
 CORE_APPLICATION="crates/icydb-core/src/db/schema/application.rs"
@@ -134,6 +136,20 @@ do
     status=1
   fi
 done
+
+if ! rg -q --fixed-strings 'pub use icydb_model as model;' "$FACADE_LIB"; then
+  echo "the public facade must expose application authoring through icydb::model" >&2
+  status=1
+fi
+
+if ! rg -q --fixed-strings 'package = "icydb"' "$FACADE_ONLY_FIXTURE_CARGO" ||
+   rg -q --no-heading --color=never \
+     '^[[:space:]]*icydb-(core|model|model-macros|schema)[[:space:]]*=' \
+     "$FACADE_ONLY_FIXTURE_CARGO"
+then
+  echo "the facade-only model fixture must depend directly on icydb alone" >&2
+  status=1
+fi
 
 for required_application_owner in \
   'database_incarnation_id()' \

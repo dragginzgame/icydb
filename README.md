@@ -70,10 +70,11 @@ Compact and extended metrics types are part of base IcyDB. The explicit
 `icydb_metrics_extended` source declaration, rather than another Cargo feature,
 selects the public extended-metrics endpoint.
 
-Application schema crates depend separately on `icydb-model`; the runtime
-`icydb` facade does not re-export model declaration macros. Low-level tools
-that construct schema proposals or inspect canonical scalar metadata may
-depend on `icydb-schema` directly.
+Runtime-enabled application and schema crates normally depend only on `icydb`.
+Application-model declarations, macros, reusable types, and validation are
+available through `icydb::model`. Schema-only tooling that deliberately omits
+the runtime may depend on the independently published `icydb-model` package;
+low-level proposal tools may depend on `icydb-schema` directly.
 
 Canisters normally call `icydb::start!()` in `src/lib.rs`, add `icydb` as a
 build dependency using the same tag, and call
@@ -99,7 +100,7 @@ See [Schema authoring](docs/guides/schema-authoring.md) for primary-key types,
 reserved names, relation suffixes, and host/Wasm crate layouts.
 
 ```rust
-use icydb_model::prelude::*;
+use icydb::model::prelude::*;
 
 #[canister(
     memory_namespace = "app",
@@ -178,9 +179,10 @@ bounded advancement, recovery, and abort guidance.
 Typed adapters are automatic when the schema crate depends on the `icydb`
 runtime facade. Named enums, records, newtypes, lists, sets, maps, and tuples
 implement the model-owned adapter traits directly, including the built-in
-types under `icydb_model::base::types`. A schema-only crate can omit `icydb`
-and remains independent of runtime and persistence. No suffix-derived sibling
-types are created, so names such as `X` and `XEntity` can coexist.
+types under `icydb::model::base::types`. A schema-only crate can instead use
+`icydb-model` directly and remains independent of runtime and persistence. No
+suffix-derived sibling types are created, so names such as `X` and `XEntity`
+can coexist.
 
 For macro-development diagnostics, place `#[debug]` on the public struct
 immediately below an IcyDB model attribute. The macro intentionally emits its
@@ -431,7 +433,7 @@ the same mutation, activation, integrity, and recovery authority.
 Rules use a closed typed grammar with named operands:
 
 ```rust
-use icydb_model::prelude::*;
+use icydb::model::prelude::*;
 
 #[newtype(
     item(prim = "Nat16"),
@@ -455,8 +457,8 @@ Database writes never invoke them, and they do not become database constraints
 or recovery-time policy.
 
 ```rust
-use icydb_model::{NormalizeAndValidate as _, normalize, validate};
-use icydb_model::{base::types::web::MimeType, visitor::VisitorError};
+use icydb::model::{NormalizeAndValidate as _, normalize, validate};
+use icydb::model::{base::types::web::MimeType, visitor::VisitorError};
 
 fn prepare_explicitly(mut value: MimeType) -> Result<MimeType, VisitorError> {
     normalize(&mut value)?;
@@ -530,8 +532,8 @@ Tier B commands, local SQL demos, CLI usage, and Wasm reports live in
 
 ## Repository Map
 
-- `crates/icydb` - public runtime facade, accepted-schema session APIs, and
-  generated actor-wiring/build surfaces.
+- `crates/icydb` - public runtime facade, model-authoring re-export,
+  accepted-schema session APIs, and generated actor-wiring/build surfaces.
 - `crates/icydb-core` - runtime, planner, executor, persisted rows, stores,
   SQL, schema catalog, and metrics internals.
 - `crates/icydb-diagnostic-code` - compact diagnostic code registry and
@@ -542,7 +544,8 @@ Tier B commands, local SQL demos, CLI usage, and Wasm reports live in
   model types and behavior, fragment lowering, and generated canister actor
   glue.
 - `crates/icydb-model-macros` - current application-model declaration and
-  application helper macros consumed through `icydb-model`.
+  application helper macros consumed through `icydb::model` or standalone
+  `icydb-model`.
 - `crates/icydb-cli` - developer CLI for local SQL, canister
   lifecycle helpers, and observability reports.
 - `schema/*` - demo, audit, and test schemas.

@@ -491,12 +491,20 @@ fn validate_group_by_sql_capabilities(
     fields: &[String],
 ) -> Result<(), SqlLoweringError> {
     for field in fields {
-        let Some(capabilities) = schema.sql_capabilities(field) else {
+        let mut parts = field.split('.');
+        let Some(root) = parts.next() else {
             return Err(SqlLoweringError::unknown_field(
                 QueryFieldRole::GroupBy,
-                field.as_str(),
+                field,
             ));
         };
+        let segments = parts.map(str::to_string).collect::<Vec<_>>();
+        let capabilities = if segments.is_empty() {
+            schema.sql_capabilities(root)
+        } else {
+            schema.nested_sql_capabilities(root, segments.as_slice())
+        }
+        .ok_or_else(|| SqlLoweringError::unknown_field(QueryFieldRole::GroupBy, field.as_str()))?;
         // Keep enum grouping closed until the canonical-ID runtime/key route
         // consumes the catalog capability recorded on accepted SchemaInfo.
         if capabilities.enum_equality().is_some() || !capabilities.groupable() {

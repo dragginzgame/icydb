@@ -748,7 +748,7 @@ pub(in crate::db) struct GroupedExecutionConfig {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct GroupSpec {
-    pub(in crate::db) group_fields: Vec<FieldSlot>,
+    pub(in crate::db) group_fields: crate::db::query::plan::GroupFieldSet,
     pub(in crate::db) aggregates: Vec<GroupAggregateSpec>,
     pub(in crate::db) execution: GroupedExecutionConfig,
 }

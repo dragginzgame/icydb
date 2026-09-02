@@ -11,7 +11,7 @@ use crate::{
     },
     value::Value,
 };
-use std::{cmp::Ordering, ops::Bound};
+use std::{borrow::Cow, cmp::Ordering, ops::Bound};
 
 pub(in crate::db::query) fn eligible_sorted_index_contracts(
     indexes: &[SemanticIndexAccessContract],
@@ -39,15 +39,15 @@ pub(in crate::db::query) fn index_literal_matches_schema(
     index_field_literal_matcher(schema, field).matches(value)
 }
 
-#[derive(Clone, Copy)]
 pub(in crate::db::query) struct IndexFieldLiteralMatcher<'a> {
-    field_type: Option<&'a FieldType>,
+    field_type: Option<Cow<'a, FieldType>>,
 }
 
 impl IndexFieldLiteralMatcher<'_> {
     #[must_use]
-    pub(in crate::db::query) fn matches(self, value: &Value) -> bool {
+    pub(in crate::db::query) fn matches(&self, value: &Value) -> bool {
         self.field_type
+            .as_ref()
             .is_some_and(|field_type| literal_matches_type(value, field_type))
     }
 }
@@ -58,7 +58,7 @@ pub(in crate::db::query) fn index_field_literal_matcher<'a>(
     field: &str,
 ) -> IndexFieldLiteralMatcher<'a> {
     IndexFieldLiteralMatcher {
-        field_type: schema.field(field),
+        field_type: schema.accepted_query_field_type(field),
     }
 }
 

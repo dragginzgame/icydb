@@ -1,0 +1,16 @@
+[package]
+name = "icydb-testing-model-facade-only"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+license = { workspace = true }
+description = "Compile contract for model authoring through the IcyDB facade"
+repository = { workspace = true }
+authors = { workspace = true }
+
+[dependencies]
+runtime_api = { package = "icydb", path = "../../crates/icydb" }
+
+[lints]
+workspace = true

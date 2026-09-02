@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
+- `0.252.1` adds hash and completeness-proven ordered `GROUP BY` support for
+  accepted scalar record paths, preserving null groups, cursors, direct-query
+  behavior, and bounded downstream Wasm; it also exposes model authoring through
+  the single `icydb` facade and pins the published crate family to one exact
+  patch release.
 - `0.252.0` defines IcyDB's relational nested-storage boundary: scalar paths
   through named records retain their exact accepted capabilities, while
   repeated values remain bounded whole-field aggregates rather than document

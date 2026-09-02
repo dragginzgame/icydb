@@ -35,7 +35,8 @@ fn grouped_identity_projection_fast_path_preserves_rows() {
         group_field_positions: vec![0],
         aggregate_positions: vec![1, 2],
     };
-    let group_fields = [FieldSlot::from_test_slot(0, "age")];
+    let group_fields =
+        crate::db::query::plan::GroupFieldSet::Direct(vec![FieldSlot::from_test_slot(0, "age")]);
     let aggregate_execution_specs = [
         GroupedAggregateExecutionSpec::from_test_inputs(AggregateKind::Count, None, None, false),
         GroupedAggregateExecutionSpec::from_test_inputs(
@@ -60,7 +61,7 @@ fn grouped_identity_projection_fast_path_preserves_rows() {
         &projection,
         true,
         &projection_layout,
-        group_fields.as_slice(),
+        &group_fields,
         aggregate_execution_specs.as_slice(),
         rows.clone(),
     )
@@ -89,7 +90,8 @@ fn grouped_non_identity_projection_reorders_aggregate_outputs() {
         group_field_positions: vec![0],
         aggregate_positions: vec![1, 2],
     };
-    let group_fields = [FieldSlot::from_test_slot(0, "age")];
+    let group_fields =
+        crate::db::query::plan::GroupFieldSet::Direct(vec![FieldSlot::from_test_slot(0, "age")]);
     let aggregate_execution_specs = [
         GroupedAggregateExecutionSpec::from_test_inputs(AggregateKind::Count, None, None, false),
         GroupedAggregateExecutionSpec::from_test_inputs(
@@ -114,7 +116,7 @@ fn grouped_non_identity_projection_reorders_aggregate_outputs() {
         &projection,
         false,
         &projection_layout,
-        group_fields.as_slice(),
+        &group_fields,
         aggregate_execution_specs.as_slice(),
         rows,
     )

@@ -181,6 +181,14 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         local_test_icydb_methods: METRICS_EXTENDED_METHODS,
     },
     MaintainedCanisterPolicy {
+        canister: "group_path_sql_query",
+        package: "canister_audit_group_path_sql_query",
+        production_features: &["candid-export", "sql"],
+        local_test_features: &["candid-export", "sql"],
+        production_icydb_methods: NO_METHODS,
+        local_test_icydb_methods: NO_METHODS,
+    },
+    MaintainedCanisterPolicy {
         canister: "one_entity_dynamic_query",
         package: "canister_audit_one_entity_dynamic_query",
         production_features: &["candid-export", "request-diagnostics"],

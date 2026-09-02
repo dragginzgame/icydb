@@ -563,6 +563,21 @@ impl GroupedPathRuntimeContext {
         grouped_slot_layout: RetainedSlotLayout,
     ) -> Result<GroupedStreamStage, InternalError> {
         let runtime = ExecutionRuntimeAdapter::from_stream_runtime(self.traversal_runtime);
+        let single_grouped_path = if execution_preparation
+            .effective_runtime_filter_program()
+            .is_none()
+            && matches!(route.grouped_aggregate_execution_specs(), [aggregate] if aggregate.admits_count_rows_dedicated_fold())
+        {
+            route
+                .group_fields()
+                .as_path_aware()
+                .and_then(|fields| match fields {
+                    [field] => field.as_scalar_path(),
+                    _ => None,
+                })
+        } else {
+            None
+        };
         build_grouped_stream_with_runtime(
             self.authority.entity_path(),
             route,
@@ -572,6 +587,7 @@ impl GroupedPathRuntimeContext {
                 self.row_store,
                 self.authority.row_layout()?,
                 grouped_slot_layout,
+                single_grouped_path,
             ),
         )
     }

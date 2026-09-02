@@ -31,7 +31,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     if grouped_handoff
         .group_fields()
         .iter()
-        .any(|field| field.accepted_kind().is_none())
+        .any(|field| !field.is_resolved())
     {
         return Err(InternalError::query_executor_invariant());
     }
@@ -41,7 +41,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     let grouped_execution = grouped_handoff.execution();
     let grouped_plan_strategy = grouped_handoff.grouped_plan_strategy();
     let grouped_execution_route = grouped_handoff.grouped_execution_route();
-    let group_fields = grouped_handoff.group_fields().to_vec();
+    let group_fields = grouped_handoff.group_fields().clone();
     let projection_is_identity = grouped_handoff.projection_is_identity();
     let grouped_having_expr = grouped_handoff.having_expr().cloned();
     let grouped_route_plan = build_execution_route_plan(

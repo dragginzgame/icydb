@@ -24,6 +24,11 @@
 //!   canister `build.rs` files should use this module rather than depending on
 //!   lower-level implementation crates directly.
 //!
+//! - `model`
+//!   Application-model declarations, macros, reusable types, validation, and
+//!   normalization. Runtime-enabled downstream crates should use this
+//!   re-export instead of adding a second IcyDB package dependency.
+//!
 //! - `traits` / `types` / `value`
 //!   Stable runtime building blocks used by generated code.
 //!
@@ -60,6 +65,12 @@
 extern crate self as icydb;
 
 pub use icydb_core::types::{ParseU256Error, U256};
+/// Application-model authoring through the public IcyDB facade.
+///
+/// Runtime-enabled consumers should normally depend only on `icydb` and use
+/// `icydb::model::prelude`. Schema-only tooling may still depend directly on
+/// the independently published `icydb-model` package.
+pub use icydb_model as model;
 pub use icydb_model_macros::{request_execution, test};
 
 // core modules

@@ -8,7 +8,7 @@ use crate::{
     db::query::{
         intent::QueryError,
         plan::{
-            FieldSlot,
+            FieldSlot, GroupField,
             validate::{ExprPlanError, GroupPlanError, PlanError},
         },
     },
@@ -16,12 +16,12 @@ use crate::{
 };
 use icydb_diagnostic_code::QueryFieldRole;
 
-/// Resolve one grouped field through schema slot authority.
-pub(in crate::db) fn resolve_group_field_slot_with_schema(
+/// Resolve one direct or scalar record-path grouping key through schema authority.
+pub(in crate::db) fn resolve_group_field_with_schema(
     schema: &SchemaInfo,
     field: &str,
-) -> Result<FieldSlot, PlanError> {
-    FieldSlot::resolve_with_schema(schema, field).ok_or_else(|| {
+) -> Result<GroupField, PlanError> {
+    GroupField::resolve_with_schema(schema, field).ok_or_else(|| {
         PlanError::from(GroupPlanError::unknown_group_field(field))
             .attach_query_field(QueryFieldRole::GroupBy)
     })

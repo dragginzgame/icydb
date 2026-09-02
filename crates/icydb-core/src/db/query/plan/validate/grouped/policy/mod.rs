@@ -95,7 +95,7 @@ fn validate_zero_key_aggregate_policy(
     having_expr: Option<&Expr>,
 ) -> Result<(), PlanError> {
     match resolve_global_distinct_field_aggregate(
-        group.group_fields.as_slice(),
+        &group.group_fields,
         group.aggregates.as_slice(),
         having_expr,
     ) {

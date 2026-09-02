@@ -3,9 +3,9 @@ use crate::{
         query::{
             builder::AggregateExpr,
             plan::{
-                canonicalize_grouped_having_numeric_literal_for_slot,
+                canonicalize_grouped_having_numeric_literal_for_group_field,
                 expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr},
-                resolve_group_field_slot_with_schema,
+                resolve_group_field_with_schema,
             },
         },
         schema::SchemaInfo,
@@ -257,11 +257,24 @@ fn canonicalize_grouped_having_compare_literals(
     expr: &Expr,
     other: &Expr,
 ) -> Option<Expr> {
-    let (Expr::Literal(value), Expr::Field(field)) = (expr, other) else {
+    let Expr::Literal(value) = expr else {
         return None;
     };
-    let field_slot = resolve_group_field_slot_with_schema(schema, field.as_str()).ok()?;
-    let canonical = canonicalize_grouped_having_numeric_literal_for_slot(&field_slot, value)?;
+    let field = match other {
+        Expr::Field(field) => field.as_str().to_string(),
+        Expr::FieldPath(path) => {
+            let mut field = path.root().as_str().to_string();
+            for segment in path.segments() {
+                field.push('.');
+                field.push_str(segment);
+            }
+            field
+        }
+        _ => return None,
+    };
+    let group_field = resolve_group_field_with_schema(schema, field.as_str()).ok()?;
+    let canonical =
+        canonicalize_grouped_having_numeric_literal_for_group_field(schema, &group_field, value)?;
 
     Some(Expr::Literal(canonical))
 }

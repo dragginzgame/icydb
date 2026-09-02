@@ -5,7 +5,7 @@
 use crate::{
     db::executor::{
         aggregate::{
-            ExecutionContext, FieldSlot, GroupError, ProjectionSpec,
+            ExecutionContext, GroupError, ProjectionSpec,
             contracts::GroupedDistinctExecutionMode,
             runtime::grouped_fold::{
                 bundle::{
@@ -35,8 +35,15 @@ use crate::{
 struct GenericGroupedFoldRunner<'a> {
     route: &'a GroupedRouteStage,
     grouped_projection_spec: &'a ProjectionSpec,
-    group_fields: &'a [FieldSlot],
-    borrowed_group_probe_supported: bool,
+    group_fields: &'a crate::db::query::plan::GroupFieldSet,
+    group_probe_kind: GroupProbeKind,
+}
+
+#[derive(Clone, Copy)]
+enum GroupProbeKind {
+    DirectBorrowed,
+    DirectOwned,
+    PathAware,
 }
 
 impl<'a> GenericGroupedFoldRunner<'a> {
@@ -46,9 +53,13 @@ impl<'a> GenericGroupedFoldRunner<'a> {
             route,
             grouped_projection_spec,
             group_fields: route.group_fields(),
-            borrowed_group_probe_supported: group_fields_support_borrowed_group_probe(
-                route.group_fields(),
-            ),
+            group_probe_kind: match route.group_fields().as_direct() {
+                Some(fields) if group_fields_support_borrowed_group_probe(fields) => {
+                    GroupProbeKind::DirectBorrowed
+                }
+                Some(_) => GroupProbeKind::DirectOwned,
+                None => GroupProbeKind::PathAware,
+            },
         }
     }
 
@@ -115,16 +126,28 @@ impl<'a> GenericGroupedFoldRunner<'a> {
                 continue;
             }
 
-            early_scan_stop = grouped_fold
-                .ingest_row(
+            early_scan_stop = if let Some(direct_group_fields) = self.group_fields.as_direct() {
+                grouped_fold.ingest_row(
                     grouped_execution_context,
                     &data_key,
                     &row_view,
-                    self.group_fields,
+                    direct_group_fields,
                     self.route.direction(),
                     |closed| selection.push_closed_group(closed),
                 )
-                .map_err(GroupError::into_internal_error)?;
+            } else if let Some(path_group_fields) = self.group_fields.as_path_aware() {
+                grouped_fold.ingest_path_row(
+                    grouped_execution_context,
+                    &data_key,
+                    &row_view,
+                    path_group_fields,
+                    self.route.direction(),
+                    |closed| selection.push_closed_group(closed),
+                )
+            } else {
+                return Err(InternalError::query_executor_invariant());
+            }
+            .map_err(GroupError::into_internal_error)?;
             if early_scan_stop {
                 break;
             }
@@ -162,15 +185,21 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         grouped_execution_context: &mut ExecutionContext,
         grouped_bundle: &mut GroupedAggregateBundle,
     ) -> Result<(usize, usize), InternalError> {
-        if self.borrowed_group_probe_supported {
-            return self.fold_rows_into_bundle_borrowed(
+        match self.group_probe_kind {
+            GroupProbeKind::DirectBorrowed => self.fold_rows_into_bundle_borrowed(
                 stream,
                 grouped_execution_context,
                 grouped_bundle,
-            );
+            ),
+            GroupProbeKind::DirectOwned => {
+                self.fold_rows_into_bundle_owned(stream, grouped_execution_context, grouped_bundle)
+            }
+            GroupProbeKind::PathAware => self.fold_rows_into_bundle_path_aware(
+                stream,
+                grouped_execution_context,
+                grouped_bundle,
+            ),
         }
-
-        self.fold_rows_into_bundle_owned(stream, grouped_execution_context, grouped_bundle)
     }
 
     // Ingest grouped source rows with the borrowed existing-group probe path
@@ -204,12 +233,15 @@ impl<'a> GenericGroupedFoldRunner<'a> {
 
             // Phase 2: update through the allocation-free existing-group
             // probe path selected outside the row loop.
+            let Some(direct_group_fields) = self.group_fields.as_direct() else {
+                return Err(InternalError::query_executor_invariant());
+            };
             grouped_bundle
                 .ingest_row_with_borrowed_group_probe(
                     grouped_execution_context,
                     &data_key,
                     &row_view,
-                    self.group_fields,
+                    direct_group_fields,
                 )
                 .map_err(GroupError::into_internal_error)?;
         }
@@ -248,12 +280,55 @@ impl<'a> GenericGroupedFoldRunner<'a> {
 
             // Phase 2: update through the owned canonical key path selected
             // outside the row loop.
+            let Some(direct_group_fields) = self.group_fields.as_direct() else {
+                return Err(InternalError::query_executor_invariant());
+            };
             grouped_bundle
                 .ingest_row_with_owned_group_key(
                     grouped_execution_context,
                     &data_key,
                     &row_view,
-                    self.group_fields,
+                    direct_group_fields,
+                )
+                .map_err(GroupError::into_internal_error)?;
+        }
+
+        Ok((scanned_rows, filtered_rows))
+    }
+
+    fn fold_rows_into_bundle_path_aware(
+        &self,
+        stream: &mut GroupedStreamStage,
+        grouped_execution_context: &mut ExecutionContext,
+        grouped_bundle: &mut GroupedAggregateBundle,
+    ) -> Result<(usize, usize), InternalError> {
+        let Some(group_fields) = self.group_fields.as_path_aware() else {
+            return Err(InternalError::query_executor_invariant());
+        };
+        let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
+        let effective_runtime_filter_program =
+            execution_preparation.effective_runtime_filter_program();
+        let mut scanned_rows = 0usize;
+        let mut filtered_rows = 0usize;
+        let consistency = self.route.consistency();
+
+        while let Some(data_key) = resolved.key_stream_mut().next_key()? {
+            let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
+                continue;
+            };
+            scanned_rows = scanned_rows.saturating_add(1);
+            if let Some(filter) = effective_runtime_filter_program
+                && !row_view.eval_filter_program(filter)?
+            {
+                continue;
+            }
+            filtered_rows = filtered_rows.saturating_add(1);
+            grouped_bundle
+                .ingest_row_with_path_group_probe(
+                    grouped_execution_context,
+                    &data_key,
+                    &row_view,
+                    group_fields,
                 )
                 .map_err(GroupError::into_internal_error)?;
         }

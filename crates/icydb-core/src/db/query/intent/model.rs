@@ -19,8 +19,7 @@ use crate::db::{
             build_query_model_plan_with_indexes_from_scalar_planning_state,
             expr::{Expr, ProjectionSelection, is_normalized_bool_expr, normalize_bool_expr},
             prepare_query_model_scalar_planning_state_with_schema_info,
-            resolve_group_field_slot_with_schema,
-            try_build_trivial_scalar_load_plan_with_schema_info,
+            resolve_group_field_with_schema, try_build_trivial_scalar_load_plan_with_schema_info,
         },
     },
     schema::SchemaInfo,
@@ -332,9 +331,9 @@ impl QueryModel {
         field: &str,
         schema: &SchemaInfo,
     ) -> Result<Self, QueryError> {
-        let field_slot =
-            resolve_group_field_slot_with_schema(schema, field).map_err(QueryError::from)?;
-        self.intent.push_group_field_slot(field_slot);
+        let group_field =
+            resolve_group_field_with_schema(schema, field).map_err(QueryError::from)?;
+        self.intent.push_group_field(group_field);
 
         Ok(self)
     }

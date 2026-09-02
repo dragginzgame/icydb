@@ -10,7 +10,7 @@ use crate::{
         predicate::{IndexCompileTarget, IndexCompileTargetKind, Predicate, PredicateProgram},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
-            EffectiveRuntimeFilterProgram, ExecutionShapeSignature, FieldSlot, GroupPlan,
+            EffectiveRuntimeFilterProgram, ExecutionShapeSignature, GroupPlan,
             GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedPlanStrategy,
             LogicalPlan, PlannerRouteProfile, PredicatePushdownDiagnostics, QueryMode,
             ResidualFilterContract, ResidualFilterShape, ResolvedOrder, ResolvedOrderField,
@@ -303,14 +303,12 @@ impl AccessPlannedQuery {
             return Ok(());
         };
 
-        let accepted_slots = grouped
+        let accepted_fields = grouped
             .group
             .group_fields
-            .iter()
-            .map(|field_slot| FieldSlot::resolve_with_schema(schema_info, field_slot.field()))
-            .collect::<Option<Vec<_>>>()
+            .resolve_with_schema(schema_info)
             .ok_or_else(InternalError::planner_executor_invariant)?;
-        grouped.group.group_fields = accepted_slots;
+        grouped.group.group_fields = accepted_fields;
 
         Ok(())
     }
@@ -540,11 +538,10 @@ fn project_static_execution_planning_contract_with_schema(
     );
     let residual_filter_shape = residual_filter_contract.shape();
     let execution_preparation_compiled_predicate =
-        should_compile_execution_preparation_predicate(residual_filter_shape)
-            .then(|| {
-                compile_optional_predicate(schema_info, execution_preparation_predicate.as_ref())
-            })
-            .flatten();
+        (should_compile_execution_preparation_predicate(residual_filter_shape)
+            && !planner_predicate_requires_expression_runtime(plan))
+        .then(|| compile_optional_predicate(schema_info, execution_preparation_predicate.as_ref()))
+        .flatten();
     let predicate_pushdown_diagnostics =
         derive_predicate_pushdown_diagnostics(plan, residual_filter_shape);
     let scalar_projection_plan = if plan.grouped_plan().is_none() {
@@ -668,10 +665,15 @@ fn derive_residual_filter_predicate_from_preparation(
 ) -> Option<Predicate> {
     let execution_preparation_predicate = execution_preparation_predicate?;
 
-    residual_query_predicate_after_access_path_bounds(
+    let residual = residual_query_predicate_after_access_path_bounds(
         plan.access.as_path(),
         execution_preparation_predicate,
-    )
+    );
+    if residual.is_some() && planner_predicate_requires_expression_runtime(plan) {
+        return None;
+    }
+
+    residual
 }
 
 // Derive the explicit residual semantic expression once for finalized plans.
@@ -679,11 +681,35 @@ fn derive_residual_filter_predicate_from_preparation(
 // runtime filtering still survives access satisfaction.
 fn derive_residual_filter_expr(plan: &AccessPlannedQuery) -> Option<Expr> {
     let filter_expr = plan.scalar_plan().filter_expr.as_ref()?;
-    if derive_semantic_filter_fully_satisfied_by_access_contract(plan) {
+    if derive_semantic_filter_fully_satisfied_by_access_contract(plan)
+        && (!planner_predicate_requires_expression_runtime(plan)
+            || planner_predicate_is_fully_satisfied_by_access_contract(plan))
+    {
         return None;
     }
 
     Some(filter_expr.clone())
+}
+
+// Nested-path predicate shells are planner facts only: the predicate runtime
+// addresses top-level row slots. Keep the already-compiled expression as the
+// execution authority unless the selected access path proves the predicate in
+// full and no runtime filter remains.
+fn planner_predicate_requires_expression_runtime(plan: &AccessPlannedQuery) -> bool {
+    plan.scalar_plan().predicate_covers_filter_expr
+        && plan
+            .scalar_plan()
+            .filter_expr
+            .as_ref()
+            .is_some_and(Expr::contains_field_path)
+}
+
+fn planner_predicate_is_fully_satisfied_by_access_contract(plan: &AccessPlannedQuery) -> bool {
+    let Some(predicate) = derive_execution_preparation_predicate(plan) else {
+        return false;
+    };
+
+    residual_query_predicate_after_access_path_bounds(plan.access.as_path(), &predicate).is_none()
 }
 
 // Return whether any residual filtering survives after access planning. This
@@ -774,7 +800,7 @@ fn resolve_grouped_static_planning_semantics(
 
     let mut aggregate_specs = grouped_aggregate_specs_from_projection_spec(
         projection_spec,
-        grouped.group.group_fields.as_slice(),
+        &grouped.group.group_fields,
         grouped.group.aggregates.as_slice(),
     )?;
     extend_grouped_having_aggregate_specs(&mut aggregate_specs, grouped)?;
@@ -786,7 +812,7 @@ fn resolve_grouped_static_planning_semantics(
     let grouped_distinct_execution_strategy = Some(
         resolved_grouped_distinct_execution_strategy_with_schema_info(
             schema_info,
-            grouped.group.group_fields.as_slice(),
+            &grouped.group.group_fields,
             grouped.group.aggregates.as_slice(),
             grouped.having_expr.as_ref(),
         )?,
@@ -957,7 +983,9 @@ fn resolved_index_slots_for_access_path(
     let key_items = path_facts.index_key_items_for_slot_map()?;
     let mut slots = Vec::with_capacity(key_items.key_arity());
     for key_item in key_items.key_items() {
-        let slot = schema_info.field_slot_index(key_item.as_ref().field())?;
+        let field = key_item.as_ref().field();
+        let root = field.split_once('.').map_or(field, |(root, _)| root);
+        let slot = schema_info.field_slot_index(root)?;
         slots.push(slot);
     }
 
@@ -975,7 +1003,9 @@ fn index_compile_targets_for_schema_plan(
 
     for (component_index, key_item) in key_items.key_items().iter().enumerate() {
         let key_item = key_item.as_ref();
-        let field_slot = schema_info.field_slot_index(key_item.field())?;
+        let field = key_item.field();
+        let root = field.split_once('.').map_or(field, |(root, _)| root);
+        let field_slot = schema_info.field_slot_index(root)?;
         targets.push(IndexCompileTarget {
             component_index,
             field_slot,

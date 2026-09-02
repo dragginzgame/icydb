@@ -265,7 +265,7 @@ impl GroupedIntent {
         Self {
             scalar,
             group: GroupSpec {
-                group_fields: Vec::new(),
+                group_fields: crate::db::query::plan::GroupFieldSet::empty(),
                 aggregates: Vec::new(),
                 execution: GroupedExecutionConfig::unbounded(),
             },

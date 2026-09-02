@@ -10,8 +10,8 @@ use crate::{
 use std::borrow::Cow;
 
 use self::contracts::{
-    CompiledExpr, CompiledExprValueReader, FieldSlot, GroupedAggregateExecutionSpec,
-    PlannedProjectionLayout, ProjectionSpec,
+    CompiledExpr, CompiledExprValueReader, GroupedAggregateExecutionSpec, PlannedProjectionLayout,
+    ProjectionSpec,
 };
 
 pub(in crate::db::executor) use contracts::{
@@ -118,7 +118,7 @@ pub(in crate::db::executor) fn compile_grouped_projection_plan_if_needed<'a>(
     projection: &ProjectionSpec,
     projection_is_identity: bool,
     projection_layout: &'a PlannedProjectionLayout,
-    group_fields: &'a [FieldSlot],
+    group_fields: &'a crate::db::query::plan::GroupFieldSet,
     aggregate_execution_specs: &'a [GroupedAggregateExecutionSpec],
 ) -> Result<Option<CompiledGroupedProjectionPlan<'a>>, InternalError> {
     if projection_is_identity {

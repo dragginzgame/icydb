@@ -7,13 +7,26 @@
 ///
 /// Normalize one possibly-qualified identifier against one SQL entity scope.
 ///
-/// If `identifier` is `qualifier.field` and `qualifier` matches any scope
-/// candidate by tail-equivalence, this returns `field`. Otherwise returns the
-/// original identifier unchanged.
+/// If `identifier` starts with an entity/alias scope followed by one direct
+/// field or record path, this removes only that scope prefix. Otherwise it
+/// falls back to direct qualifier matching and preserves the original input
+/// when no scope candidate matches.
 ///
 
 #[must_use]
 pub fn normalize_identifier_to_scope(identifier: String, entity_scope: &[String]) -> String {
+    for candidate in entity_scope {
+        let prefix_len = candidate.len();
+        if identifier.len() > prefix_len
+            && identifier
+                .get(..prefix_len)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case(candidate))
+            && identifier.as_bytes().get(prefix_len) == Some(&b'.')
+        {
+            return identifier[prefix_len.saturating_add(1)..].to_string();
+        }
+    }
+
     let Some((qualifier, leaf)) = split_qualified_identifier(identifier.as_str()) else {
         return identifier;
     };
@@ -85,6 +98,26 @@ mod tests {
             normalize_identifier_to_scope("public.FixtureUser.email".to_string(), scope.as_slice()),
             "email".to_string()
         );
+    }
+
+    #[test]
+    fn normalize_identifier_to_scope_strips_scope_before_record_path() {
+        let scope = vec![
+            "public.FixtureUser".to_string(),
+            "FixtureUser".to_string(),
+            "u".to_string(),
+        ];
+
+        for identifier in [
+            "public.FixtureUser.profile.rank",
+            "FixtureUser.profile.rank",
+            "u.profile.rank",
+        ] {
+            assert_eq!(
+                normalize_identifier_to_scope(identifier.to_string(), scope.as_slice()),
+                "profile.rank",
+            );
+        }
     }
 
     #[test]

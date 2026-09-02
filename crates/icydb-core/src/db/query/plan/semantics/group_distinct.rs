@@ -4,7 +4,7 @@
 //! Boundary: provides planner-shared grouped DISTINCT policy reasoning contracts.
 
 use crate::db::query::plan::{
-    AggregateKind, FieldSlot, GroupAggregateSpec, GroupPlan, expr::Expr, validate::GroupPlanError,
+    AggregateKind, GroupAggregateSpec, GroupPlan, expr::Expr, validate::GroupPlanError,
 };
 use crate::error::InternalError;
 
@@ -176,7 +176,7 @@ pub(in crate::db) const fn grouped_distinct_admissibility(
 /// field-target aggregate handling.
 #[must_use]
 pub(in crate::db) fn is_global_distinct_field_aggregate_candidate(
-    group_fields: &[FieldSlot],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
     aggregates: &[GroupAggregateSpec],
 ) -> bool {
     group_fields.is_empty()
@@ -188,7 +188,7 @@ pub(in crate::db) fn is_global_distinct_field_aggregate_candidate(
 
 /// Resolve one supported global DISTINCT field-target grouped aggregate shape.
 pub(in crate::db) fn resolve_global_distinct_field_aggregate<'a>(
-    group_fields: &'a [FieldSlot],
+    group_fields: &'a crate::db::query::plan::GroupFieldSet,
     aggregates: &'a [GroupAggregateSpec],
     having_expr: Option<&'a Expr>,
 ) -> Result<Option<GlobalDistinctFieldAggregate<'a>>, GroupDistinctPolicyReason> {
@@ -243,7 +243,7 @@ impl GroupPlan {
     #[must_use]
     pub(in crate::db) fn is_global_distinct_aggregate_without_group_keys(&self) -> bool {
         resolve_global_distinct_field_aggregate(
-            self.group.group_fields.as_slice(),
+            &self.group.group_fields,
             self.group.aggregates.as_slice(),
             self.having_expr.as_ref(),
         )

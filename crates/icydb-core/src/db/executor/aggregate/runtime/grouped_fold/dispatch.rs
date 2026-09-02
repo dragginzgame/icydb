@@ -35,8 +35,9 @@ impl GroupedCountKeyPath {
         route: &GroupedRouteStage,
         effective_runtime_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     ) -> Self {
+        let direct_group_fields = route.group_fields().as_direct().unwrap_or_default();
         if effective_runtime_filter_program.is_none()
-            && let [field] = route.group_fields()
+            && let [field] = direct_group_fields
             && field
                 .accepted_kind()
                 .is_some_and(accepted_field_kind_has_identity_group_canonical_form)
@@ -45,9 +46,8 @@ impl GroupedCountKeyPath {
                 group_field_index: field.index(),
             };
         }
-
         Self::RowView {
-            probe_kind: GroupedCountProbeKind::for_group_fields(route.group_fields()),
+            probe_kind: GroupedCountProbeKind::for_group_fields(direct_group_fields),
         }
     }
 }

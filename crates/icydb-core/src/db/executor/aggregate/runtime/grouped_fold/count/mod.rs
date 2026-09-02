@@ -192,6 +192,9 @@ fn execute_ordered_grouped_count_fold_stage(
             }
         }
         GroupedCountKeyPath::RowView { .. } => {
+            let Some(group_fields) = route.group_fields().as_direct() else {
+                return Err(InternalError::query_executor_invariant());
+            };
             while let Some(data_key) = resolved.key_stream_mut().next_key()? {
                 let (row_materialization_local_instructions, row_view) =
                     metrics::measure(|| row_runtime.read_row_view(consistency, &data_key));
@@ -206,8 +209,7 @@ fn execute_ordered_grouped_count_fold_stage(
                     continue;
                 }
                 metrics::record_owned_group_fallback_row();
-                let group_key =
-                    materialize_group_key_from_row_view(&row_view, route.group_fields(), None)?;
+                let group_key = materialize_group_key_from_row_view(&row_view, group_fields, None)?;
                 early_scan_stop = apply_ordered_count_row(
                     &mut transitions,
                     grouped_execution_context,

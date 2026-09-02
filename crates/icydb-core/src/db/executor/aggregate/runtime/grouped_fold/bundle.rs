@@ -22,20 +22,24 @@ use crate::{
                     count::materialize_group_key_from_row_view,
                     utils::{
                         GroupIndexBucket, compare_grouped_boundary_values,
-                        find_matching_group_index_in_bucket, group_key_matches_row_view,
-                        stable_hash_group_values_from_row_view,
+                        find_matching_group_index_in_bucket, group_key_matches_path_group_values,
+                        group_key_matches_row_view, group_key_matches_single_group_value,
+                        materialize_path_group_key, resolve_group_field_value,
+                        stable_hash_group_values_from_row_view, stable_hash_path_group_values,
+                        stable_hash_single_group_value,
                     },
                 },
             },
             budget::charge_sort_work,
             group::{
-                GroupKey, StableHash, StableHashBuildHasher, StableHashMap,
+                GroupKey, KeyCanonicalError, StableHash, StableHashBuildHasher, StableHashMap,
                 retained_hash_entry_backing_bytes, try_reserve_hash_entry,
                 try_reserve_vec_elements,
             },
             pipeline::runtime::RowView,
         },
         numeric::canonical_value_compare,
+        query::plan::GroupField,
     },
     error::InternalError,
     value::Value,
@@ -323,6 +327,65 @@ impl OrderedGroupedAggregateFold {
     ) -> Result<bool, GroupError> {
         let incoming_key = materialize_group_key_from_row_view(row_view, group_fields, None)
             .map_err(GroupError::from)?;
+        self.ingest_group_key(
+            execution_context,
+            data_key,
+            row_view,
+            incoming_key,
+            direction,
+            visit_closed_group,
+        )
+    }
+
+    /// Ingest one ordered path-aware row through the shared transition owner.
+    pub(super) fn ingest_path_row(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+        data_key: &DecodedDataStoreKey,
+        row_view: &RowView,
+        group_fields: &[GroupField],
+        direction: Direction,
+        visit_closed_group: impl FnOnce(GroupedFinalizeGroup) -> Result<bool, InternalError>,
+    ) -> Result<bool, GroupError> {
+        let incoming_key = if let [field] = group_fields {
+            let group_value = row_view
+                .predecoded_single_group_path_value()
+                .map_or_else(|| resolve_group_field_value(row_view, field), Ok)
+                .map_err(GroupError::from)?
+                .clone();
+            if field.has_identity_group_canonical_form() {
+                GroupKey::from_single_canonical_group_value(group_value)
+                    .map_err(KeyCanonicalError::into_internal_error)
+                    .map_err(GroupError::from)?
+            } else {
+                GroupKey::from_single_group_value(group_value)
+                    .map_err(KeyCanonicalError::into_internal_error)
+                    .map_err(GroupError::from)?
+            }
+        } else {
+            let hash =
+                stable_hash_path_group_values(row_view, group_fields).map_err(GroupError::from)?;
+            materialize_path_group_key(row_view, group_fields, hash).map_err(GroupError::from)?
+        };
+        self.ingest_group_key(
+            execution_context,
+            data_key,
+            row_view,
+            incoming_key,
+            direction,
+            visit_closed_group,
+        )
+    }
+
+    fn ingest_group_key(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+        data_key: &DecodedDataStoreKey,
+        row_view: &RowView,
+        incoming_key: GroupKey,
+        direction: Direction,
+        visit_closed_group: impl FnOnce(GroupedFinalizeGroup) -> Result<bool, InternalError>,
+    ) -> Result<bool, GroupError> {
         let specs = self.aggregate_specs.as_slice();
 
         self.transitions.apply_row(
@@ -453,6 +516,27 @@ impl GroupedAggregateBundle {
         .map_err(GroupError::from)
     }
 
+    fn find_matching_path_group_index(
+        &self,
+        group_hash: StableHash,
+        row_view: &RowView,
+        group_fields: &[GroupField],
+    ) -> Result<Option<usize>, GroupError> {
+        let Some(bucket) = self.bucket_index.get(&group_hash) else {
+            return Ok(None);
+        };
+
+        find_matching_group_index_in_bucket(
+            bucket.as_slice(),
+            self.groups.len(),
+            |group_index| self.groups.get(group_index).map(|entry| &entry.group_key),
+            |group_key| group_key_matches_path_group_values(group_key, row_view, group_fields),
+            || {},
+            |_group_index, _group_count| InternalError::query_executor_invariant(),
+        )
+        .map_err(GroupError::from)
+    }
+
     // Create one new group entry and preserve grouped budget accounting under
     // the old per-aggregate-state budget model.
     fn insert_new_group(
@@ -533,6 +617,59 @@ impl GroupedAggregateBundle {
         self.insert_new_group(group_key, execution_context)
     }
 
+    fn resolve_path_group_index(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+        row_view: &RowView,
+        group_fields: &[GroupField],
+    ) -> Result<usize, GroupError> {
+        if let [field] = group_fields {
+            let group_value =
+                resolve_group_field_value(row_view, field).map_err(GroupError::from)?;
+            let group_hash =
+                stable_hash_single_group_value(group_value).map_err(GroupError::from)?;
+            if let Some(bucket) = self.bucket_index.get(&group_hash) {
+                let existing = find_matching_group_index_in_bucket(
+                    bucket.as_slice(),
+                    self.groups.len(),
+                    |group_index| self.groups.get(group_index).map(|entry| &entry.group_key),
+                    |group_key| group_key_matches_single_group_value(group_key, group_value),
+                    || {},
+                    |_group_index, _group_count| InternalError::query_executor_invariant(),
+                )
+                .map_err(GroupError::from)?;
+                if let Some(group_index) = existing {
+                    return Ok(group_index);
+                }
+            }
+
+            let identity_canonical_form = field.has_identity_group_canonical_form();
+            let group_key = if identity_canonical_form {
+                GroupKey::from_single_canonical_group_value_with_hash(
+                    group_value.clone(),
+                    group_hash,
+                )
+            } else {
+                GroupKey::from_single_group_value_with_hash(group_value.clone(), group_hash)
+                    .map_err(KeyCanonicalError::into_internal_error)
+                    .map_err(GroupError::from)?
+            };
+            return self.insert_new_group(group_key, execution_context);
+        }
+
+        let group_hash =
+            stable_hash_path_group_values(row_view, group_fields).map_err(GroupError::from)?;
+        if let Some(group_index) =
+            self.find_matching_path_group_index(group_hash, row_view, group_fields)?
+        {
+            return Ok(group_index);
+        }
+
+        let group_key = materialize_path_group_key(row_view, group_fields, group_hash)
+            .map_err(GroupError::from)?;
+        self.insert_new_group(group_key, execution_context)
+    }
+
     // Apply one grouped input row to the resolved per-group aggregate states.
     fn apply_row_to_group(
         group_state: &mut GroupedAggregateGroupState,
@@ -609,6 +746,19 @@ impl GroupedAggregateBundle {
         let group_index =
             self.resolve_owned_group_index(execution_context, row_view, group_fields)?;
 
+        self.apply_row_to_resolved_group(data_key, row_view, execution_context, group_index)
+    }
+
+    /// Ingest one row through allocation-free path-aware hash/equality probes.
+    pub(super) fn ingest_row_with_path_group_probe(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+        data_key: &DecodedDataStoreKey,
+        row_view: &RowView,
+        group_fields: &[GroupField],
+    ) -> Result<(), GroupError> {
+        let group_index =
+            self.resolve_path_group_index(execution_context, row_view, group_fields)?;
         self.apply_row_to_resolved_group(data_key, row_view, execution_context, group_index)
     }
 

@@ -3,6 +3,7 @@ members = [
     "canisters/audit/default_empty",
     "canisters/audit/default_empty_metrics",
     "canisters/audit/default_empty_metrics_extended",
+    "canisters/audit/group_path_sql_query",
     "canisters/audit/one_entity_dynamic_query",
     "canisters/audit/one_entity_reachable_operations",
     "canisters/audit/one_entity_sql_query",
@@ -28,6 +29,7 @@ members = [
     "crates/icydb-model-macros",
     "crates/icydb-schema",
     "schema/audit/default_empty",
+    "schema/audit/group_path",
     "schema/audit/one_simple",
     "schema/audit/sql_perf",
     "schema/audit/ten_simple",
@@ -36,6 +38,7 @@ members = [
     "schema/test/sql",
     "testing/endpoint-installation",
     "testing/integration",
+    "testing/model-facade-only",
     "testing/model-schema-only",
     "testing/model-typed-adapter",
     "testing/sql-generator",
@@ -81,13 +84,14 @@ ic-stable-structures = "0.7.2"
 ic-testkit = "0.8.9"
 ic-timers = "0.7.0"
 icrc-ledger-types = "0.2.0"
-icydb = { path = "crates/icydb", version = "0.252.0" }
-icydb-core = { path = "crates/icydb-core", version = "0.252.0" }
-icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "0.252.0" }
-icydb-model = { path = "crates/icydb-model", version = "0.252.0" }
-icydb-model-macros = { path = "crates/icydb-model-macros", version = "0.252.0" }
-icydb-schema = { path = "crates/icydb-schema", version = "0.252.0" }
+icydb = { path = "crates/icydb", version = "=0.252.0" }
+icydb-core = { path = "crates/icydb-core", version = "=0.252.0" }
+icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.252.0" }
+icydb-model = { path = "crates/icydb-model", version = "=0.252.0" }
+icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.252.0" }
+icydb-schema = { path = "crates/icydb-schema", version = "=0.252.0" }
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
+icydb-testing-audit-group-path-fixtures = { path = "schema/audit/group_path" }
 icydb-testing-audit-one-simple-fixtures = { path = "schema/audit/one_simple" }
 icydb-testing-audit-sql-perf-fixtures = { path = "schema/audit/sql_perf" }
 icydb-testing-audit-ten-simple-fixtures = { path = "schema/audit/ten_simple" }

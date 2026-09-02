@@ -85,8 +85,12 @@ impl CompiledStructuralAggregateRequest {
         for field in request.projection.fields() {
             let ProjectionField::Scalar { expr, .. } = field;
             projection.push(
-                compile_grouped_projection_expr(expr, &[], aggregate_execution_specs.as_slice())
-                    .map_err(|_err| InternalError::query_executor_invariant())?,
+                compile_grouped_projection_expr(
+                    expr,
+                    &crate::db::query::plan::GroupFieldSet::empty(),
+                    aggregate_execution_specs.as_slice(),
+                )
+                .map_err(|_err| InternalError::query_executor_invariant())?,
             );
         }
 
@@ -94,8 +98,12 @@ impl CompiledStructuralAggregateRequest {
             .having
             .as_ref()
             .map(|expr| {
-                compile_grouped_projection_expr(expr, &[], aggregate_execution_specs.as_slice())
-                    .map_err(|_err| InternalError::query_executor_invariant())
+                compile_grouped_projection_expr(
+                    expr,
+                    &crate::db::query::plan::GroupFieldSet::empty(),
+                    aggregate_execution_specs.as_slice(),
+                )
+                .map_err(|_err| InternalError::query_executor_invariant())
             })
             .transpose()?;
 

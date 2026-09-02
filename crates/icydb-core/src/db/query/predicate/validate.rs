@@ -3,6 +3,8 @@
 //! Does not own: planner routing decisions or executor runtime filtering behavior.
 //! Boundary: validates predicate/type semantics before planning and execution.
 
+use std::borrow::Cow;
+
 use crate::{
     db::{
         predicate::{
@@ -77,15 +79,33 @@ fn validate_compare(schema: &SchemaInfo, cmp: &ComparePredicate) -> Result<(), V
     let field_type = ensure_field(schema, &cmp.field)?;
 
     if cmp.op.is_equality_family() {
-        validate_eq_ne(&cmp.field, field_type, &cmp.value, &cmp.coercion)
+        validate_eq_ne(&cmp.field, field_type.as_ref(), &cmp.value, &cmp.coercion)
     } else if cmp.op.is_ordering_family() {
-        validate_ordering(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
+        validate_ordering(
+            &cmp.field,
+            field_type.as_ref(),
+            &cmp.value,
+            &cmp.coercion,
+            cmp.op,
+        )
     } else if cmp.op.is_membership_family() {
-        validate_in(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
+        validate_in(
+            &cmp.field,
+            field_type.as_ref(),
+            &cmp.value,
+            &cmp.coercion,
+            cmp.op,
+        )
     } else if cmp.op.is_contains_family() {
-        validate_contains(&cmp.field, field_type, &cmp.value, &cmp.coercion)
+        validate_contains(&cmp.field, field_type.as_ref(), &cmp.value, &cmp.coercion)
     } else {
-        validate_text_compare(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
+        validate_text_compare(
+            &cmp.field,
+            field_type.as_ref(),
+            &cmp.value,
+            &cmp.coercion,
+            cmp.op,
+        )
     }
 }
 
@@ -104,18 +124,18 @@ fn validate_compare_fields(
     } else if cmp.op.is_equality_family() {
         validate_compare_fields_eq_ne(
             &cmp.left_field,
-            left_type,
+            left_type.as_ref(),
             &cmp.right_field,
-            right_type,
+            right_type.as_ref(),
             &cmp.coercion,
             cmp.op,
         )
     } else {
         validate_compare_fields_ordering(
             &cmp.left_field,
-            left_type,
+            left_type.as_ref(),
             &cmp.right_field,
-            right_type,
+            right_type.as_ref(),
             &cmp.coercion,
             cmp.op,
         )
@@ -315,14 +335,18 @@ fn validate_text_contains(
     Ok(())
 }
 
-fn ensure_field<'a>(schema: &'a SchemaInfo, field: &str) -> Result<&'a FieldType, ValidateError> {
-    let field_type = schema
-        .field(field)
-        .ok_or_else(|| ValidateError::UnknownField {
-            field: field.to_string(),
-        })?;
+fn ensure_field<'a>(
+    schema: &'a SchemaInfo,
+    field: &str,
+) -> Result<Cow<'a, FieldType>, ValidateError> {
+    let field_type =
+        schema
+            .accepted_query_field_type(field)
+            .ok_or_else(|| ValidateError::UnknownField {
+                field: field.to_string(),
+            })?;
 
-    if matches!(field_type, FieldType::Map { .. }) {
+    if matches!(field_type.as_ref(), FieldType::Map { .. }) {
         return Err(ValidateError::MapPredicateUnsupported {
             field: field.to_string(),
         });

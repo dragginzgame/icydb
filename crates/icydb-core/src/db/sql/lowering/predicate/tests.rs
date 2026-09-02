@@ -2,7 +2,8 @@ use crate::{
     db::{
         predicate::{CompareOp, Predicate},
         query::plan::expr::{
-            BinaryOp, Expr, FieldId, Function, UnaryOp, compile_normalized_bool_expr_to_predicate,
+            BinaryOp, Expr, FieldId, FieldPath, Function, UnaryOp,
+            compile_normalized_bool_expr_to_predicate,
             derive_normalized_bool_expr_predicate_subset,
         },
         sql::{
@@ -155,6 +156,28 @@ fn derive_where_predicate_subset_recovers_plain_compare_after_bool_lowering() {
         ),
         "plain compares should derive from the lowered boolean expression",
     );
+}
+
+#[test]
+fn derive_where_predicate_subset_keeps_canonical_nested_path_identity() {
+    let expr = Expr::Binary {
+        op: BinaryOp::Gte,
+        left: Box::new(Expr::FieldPath(FieldPath::new(
+            "profile",
+            vec!["rank".to_string()],
+        ))),
+        right: Box::new(Expr::Literal(Value::Int64(0))),
+    };
+    let predicate = derive_normalized_bool_expr_predicate_subset(&expr)
+        .expect("nested scalar-path compare should retain a planner predicate");
+
+    assert!(matches!(
+        predicate,
+        Predicate::Compare(ref compare)
+            if compare.field() == "profile.rank"
+                && compare.op() == CompareOp::Gte
+                && compare.value() == &Value::Int64(0)
+    ));
 }
 
 #[test]

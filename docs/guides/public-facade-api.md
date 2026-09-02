@@ -20,6 +20,24 @@ argument selects the existing root; it never creates or resets a budget and
 is rejected if another root is active. It is not shared with the called
 canister, which has a separate IcyDB instance and request scope.
 
+## Model Authoring
+
+Runtime-enabled consumers normally declare one direct IcyDB package dependency
+and author models through the facade:
+
+```rust
+use icydb::model::prelude::*;
+```
+
+The re-export includes declaration macros, reusable model types, explicit
+normalization/validation, and generated adapter traits. Macro expansion
+resolves both its model-owned and runtime-owned paths through the same `icydb`
+dependency, including when that dependency is renamed in `Cargo.toml`.
+
+The independently published `icydb-model` package remains available for
+schema-only tools that intentionally omit the database runtime. Runtime-enabled
+application crates do not need to name it separately.
+
 ## Request Entry
 
 The boundary attribute is framework-neutral and must appear outside the

@@ -5,7 +5,7 @@
 
 use crate::db::{
     query::plan::{
-        AggregateSemanticKey, GroupSpec,
+        AggregateSemanticKey, GroupField, GroupSpec,
         expr::{Expr, ProjectionSpec},
         validate::grouped::projection_expr::validate_group_projection_expr_compatibility,
         validate::{GroupPlanError, PlanError, resolve_group_aggregate_target_field_type},
@@ -39,26 +39,6 @@ fn validate_grouped_having_structure(
     }
 
     Ok(())
-}
-
-// Validate that HAVING group-field references are a subset of declared GROUP BY keys.
-fn validate_having_group_field_reference(
-    group: &GroupSpec,
-    field_slot: &crate::db::query::plan::FieldSlot,
-    index: usize,
-) -> Result<(), PlanError> {
-    group
-        .group_fields
-        .iter()
-        .any(|group_field| group_field.index() == field_slot.index())
-        .then_some(())
-        .ok_or_else(|| {
-            PlanError::from(GroupPlanError::having_non_group_field_reference(
-                index,
-                field_slot.field(),
-            ))
-            .attach_query_field(QueryFieldRole::Having)
-        })
 }
 
 // Validate that HAVING aggregate symbols point at declared aggregate slots.
@@ -100,38 +80,38 @@ fn validate_group_spec_structure(schema: &SchemaInfo, group: &GroupSpec) -> Resu
         .then_some(())
         .ok_or_else(|| PlanError::from(GroupPlanError::empty_aggregates()))?;
 
-    let mut seen_accepted_group_slots = Vec::<usize>::with_capacity(group.group_fields.len());
-    for (group_index, field_slot) in group.group_fields.iter().enumerate() {
-        let Some(accepted_slot) = schema.field_slot_index(field_slot.field()) else {
+    for (group_index, group_field) in group.group_fields.iter().enumerate() {
+        let Some(resolved) = GroupField::resolve_with_schema(schema, group_field.field()) else {
             return Err(PlanError::from(GroupPlanError::unknown_group_field_at(
                 group_index,
-                field_slot.field(),
+                group_field.field(),
             ))
             .attach_query_field(QueryFieldRole::GroupBy));
         };
-        if accepted_slot != field_slot.index() {
+        if group_field.root_slot() != resolved.root_slot() || !group_field.same_identity(&resolved)
+        {
             return Err(PlanError::from(GroupPlanError::unknown_group_field_at(
                 group_index,
-                field_slot.field(),
+                group_field.field(),
             ))
             .attach_query_field(QueryFieldRole::GroupBy));
         }
 
-        seen_accepted_group_slots
-            .contains(&accepted_slot)
-            .then_some(())
-            .map_or_else(
-                || {
-                    seen_accepted_group_slots.push(accepted_slot);
-                    Ok(())
-                },
-                |()| {
-                    Err(PlanError::from(GroupPlanError::duplicate_group_field(
-                        group_index,
-                        field_slot.field(),
-                    )))
-                },
-            )?;
+        for seen_index in 0..group_index {
+            let Some(seen) = group.group_fields.get(seen_index) else {
+                return Err(PlanError::from(GroupPlanError::unknown_group_field_at(
+                    group_index,
+                    group_field.field(),
+                ))
+                .attach_query_field(QueryFieldRole::GroupBy));
+            };
+            if seen.same_identity(&resolved) {
+                return Err(PlanError::from(GroupPlanError::duplicate_group_field(
+                    group_index,
+                    group_field.field(),
+                )));
+            }
+        }
     }
 
     for (index, aggregate) in group.aggregates.iter().enumerate() {
@@ -153,23 +133,18 @@ fn validate_grouped_having_expr_structure(
 ) -> Result<(), PlanError> {
     expr.try_for_each_tree_expr_with_compare_index(compare_index, &mut |compare_index, node| {
         match node {
-            Expr::Field(field_id) => {
-                let field_name = field_id.as_str();
-                let Some(field_slot) = group
-                    .group_fields
-                    .iter()
-                    .find(|group_field| group_field.field() == field_name)
-                else {
+            Expr::Field(_) | Expr::FieldPath(_) => {
+                if !group.group_fields.contains_expr(node) {
                     return Err(
                         PlanError::from(GroupPlanError::having_non_group_field_reference(
                             compare_index,
-                            field_name,
+                            crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label(node),
                         ))
                         .attach_query_field(QueryFieldRole::Having),
                     );
-                };
+                }
 
-                validate_having_group_field_reference(group, field_slot, compare_index)
+                Ok(())
             }
             Expr::Aggregate(aggregate_expr) => {
                 let Some(aggregate_index) =
@@ -187,7 +162,6 @@ fn validate_grouped_having_expr_structure(
                 validate_having_aggregate_index(group, aggregate_index, compare_index)
             }
             Expr::Literal(_)
-            | Expr::FieldPath(_)
             | Expr::FunctionCall { .. }
             | Expr::Unary { .. }
             | Expr::Case { .. }

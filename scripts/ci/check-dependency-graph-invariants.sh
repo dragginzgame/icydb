@@ -4,9 +4,58 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LOCK="$ROOT/Cargo.lock"
 MANIFEST="$ROOT/Cargo.toml"
+INTERNAL_WORKSPACE_PACKAGES=(
+  icydb
+  icydb-core
+  icydb-diagnostic-code
+  icydb-model
+  icydb-model-macros
+  icydb-schema
+)
 
 if [[ ! -f "$LOCK" || ! -f "$MANIFEST" ]]; then
   echo "Cargo manifest or lockfile is missing under $ROOT" >&2
+  exit 1
+fi
+
+workspace_version="$(
+  awk '
+    /^\[workspace\.package\]$/ { in_workspace_package = 1; next }
+    /^\[/ { in_workspace_package = 0 }
+    in_workspace_package && $1 == "version" {
+      gsub(/"/, "", $3)
+      print $3
+      exit
+    }
+  ' "$MANIFEST"
+)"
+if [[ -z "$workspace_version" ]]; then
+  echo "Unable to resolve the workspace package version from $MANIFEST" >&2
+  exit 1
+fi
+
+for package in "${INTERNAL_WORKSPACE_PACKAGES[@]}"; do
+  workspace_requirement="$(
+    awk -v package="$package" '
+      /^\[workspace\.dependencies\]$/ { in_workspace_dependencies = 1; next }
+      /^\[/ { in_workspace_dependencies = 0 }
+      in_workspace_dependencies && $1 == package { print; exit }
+    ' "$MANIFEST"
+  )"
+  if [[ "$workspace_requirement" != *"version = \"=$workspace_version\""* ]]; then
+    echo "$package must be pinned to exact workspace version =$workspace_version" >&2
+    exit 1
+  fi
+done
+
+non_workspace_internal_edges="$({
+  rg -n --no-heading --color=never \
+    '^[[:space:]]*icydb(-[a-z0-9-]+)?[[:space:]]*=' \
+    crates/*/Cargo.toml || true
+} | rg -v 'workspace[[:space:]]*=[[:space:]]*true' || true)"
+if [[ -n "$non_workspace_internal_edges" ]]; then
+  echo "Published IcyDB crates must inherit exact internal versions from the workspace:" >&2
+  printf '%s\n' "$non_workspace_internal_edges" >&2
   exit 1
 fi
 

@@ -448,7 +448,7 @@ impl GroupedExecutionRoute {
 #[derive(Clone)]
 pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     base: &'a AccessPlannedQuery,
-    group_fields: &'a [FieldSlot],
+    group_fields: &'a crate::db::query::plan::GroupFieldSet,
     grouped_aggregate_execution_specs: Vec<GroupedAggregateExecutionSpec>,
     projection_layout: PlannedProjectionLayout,
     projection_is_identity: bool,
@@ -468,7 +468,7 @@ impl<'a> GroupedExecutorHandoff<'a> {
 
     /// Borrow declared grouped key fields.
     #[must_use]
-    pub(in crate::db) const fn group_fields(&self) -> &'a [FieldSlot] {
+    pub(in crate::db) const fn group_fields(&self) -> &'a crate::db::query::plan::GroupFieldSet {
         self.group_fields
     }
 
@@ -543,7 +543,7 @@ pub(in crate::db) fn grouped_executor_handoff(
     let (projection_layout, _aggregate_specs, projection_is_identity) =
         planned_projection_layout_and_aggregate_specs_from_spec(
             projection_spec,
-            grouped.group.group_fields.as_slice(),
+            &grouped.group.group_fields,
             grouped.group.aggregates.as_slice(),
         )?;
     validate_grouped_projection_layout(&projection_layout)?;
@@ -553,10 +553,14 @@ pub(in crate::db) fn grouped_executor_handoff(
         .grouped_aggregate_execution_specs()
         .ok_or_else(InternalError::planner_executor_invariant)?
         .to_vec();
-    let grouped_fold_path = GroupedFoldPath::from_plan_strategy(
-        grouped_plan_strategy,
-        grouped_aggregate_execution_specs.as_slice(),
-    );
+    let grouped_fold_path = if grouped.group.group_fields.as_path_aware().is_some() {
+        GroupedFoldPath::GenericReducers
+    } else {
+        GroupedFoldPath::from_plan_strategy(
+            grouped_plan_strategy,
+            grouped_aggregate_execution_specs.as_slice(),
+        )
+    };
     let grouped_distinct_policy_contract = GroupedDistinctPolicyContract::new(
         match grouped_distinct_admissibility(grouped.scalar.distinct, grouped.having_expr.is_some())
         {
@@ -575,7 +579,7 @@ pub(in crate::db) fn grouped_executor_handoff(
 
     Ok(GroupedExecutorHandoff {
         base: plan,
-        group_fields: grouped.group.group_fields.as_slice(),
+        group_fields: &grouped.group.group_fields,
         grouped_aggregate_execution_specs,
         projection_layout,
         projection_is_identity,
@@ -603,7 +607,7 @@ pub(in crate::db) fn grouped_aggregate_execution_specs(
 /// projection semantics without requiring a frozen grouped executor handoff.
 pub(in crate::db) fn grouped_aggregate_specs_from_projection_spec(
     projection_spec: &ProjectionSpec,
-    group_fields: &[FieldSlot],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
     aggregates: &[GroupAggregateSpec],
 ) -> Result<Vec<GroupedAggregateExecutionSpec>, InternalError> {
     let (_, aggregate_specs, _) = planned_projection_layout_and_aggregate_specs_from_spec(
@@ -738,7 +742,7 @@ impl GroupedDistinctExecutionStrategy {
 // while freezing the field-target slot under planner ownership.
 pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_with_schema_info(
     schema_info: &SchemaInfo,
-    group_fields: &[FieldSlot],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
     aggregates: &[GroupAggregateSpec],
     having_expr: Option<&crate::db::query::plan::expr::Expr>,
 ) -> Result<GroupedDistinctExecutionStrategy, InternalError> {
@@ -782,7 +786,7 @@ fn resolve_aggregate_target_field_slot_from_schema(
 // projection specs from canonical projection semantics.
 fn planned_projection_layout_and_aggregate_specs_core(
     projection_spec: &ProjectionSpec,
-    group_fields: &[FieldSlot],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
     aggregates: &[GroupAggregateSpec],
 ) -> Result<
     (
@@ -792,10 +796,6 @@ fn planned_projection_layout_and_aggregate_specs_core(
     ),
     InternalError,
 > {
-    let grouped_field_names = group_fields
-        .iter()
-        .map(FieldSlot::field)
-        .collect::<Vec<_>>();
     let mut group_field_positions = Vec::new();
     let mut aggregate_positions = Vec::new();
     let mut aggregate_specs = Vec::new();
@@ -810,12 +810,12 @@ fn planned_projection_layout_and_aggregate_specs_core(
             collect_grouped_projection_aggregate_scan(root_expr, &mut aggregate_specs)?;
 
         match root_expr {
-            Expr::Field(field_id) => {
+            Expr::Field(_) | Expr::FieldPath(_) => {
                 group_field_positions.push(index);
                 projection_is_identity &= next_aggregate_index == 0
                     && group_fields
                         .get(next_group_field_index)
-                        .is_some_and(|group_field| field_id.as_str() == group_field.field.as_str());
+                        .is_some_and(|group_field| group_field.matches_expr(root_expr));
                 next_group_field_index = next_group_field_index.saturating_add(1);
             }
             Expr::Aggregate(aggregate_expr) => {
@@ -837,7 +837,7 @@ fn planned_projection_layout_and_aggregate_specs_core(
                 next_aggregate_index = next_aggregate_index
                     .saturating_add(aggregate_scan.introduced_aggregate_count());
             }
-            _ if root_expr.references_only_fields(grouped_field_names.as_slice()) => {
+            _ if group_fields.contains_all_expr_references(root_expr) => {
                 group_field_positions.push(index);
                 projection_is_identity &= grouped_projection_expression_preserves_identity(
                     root_expr,
@@ -869,7 +869,7 @@ fn planned_projection_layout_and_aggregate_specs_core(
 
 fn planned_projection_layout_and_aggregate_specs_from_spec(
     projection_spec: &ProjectionSpec,
-    group_fields: &[FieldSlot],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
     aggregates: &[GroupAggregateSpec],
 ) -> Result<
     (
@@ -883,14 +883,9 @@ fn planned_projection_layout_and_aggregate_specs_from_spec(
     // fail at the planner boundary instead of only in downstream assertions.
     #[cfg(test)]
     {
-        let grouped_field_names = group_fields
-            .iter()
-            .map(FieldSlot::field)
-            .collect::<Vec<_>>();
-
         for field in projection_spec.fields() {
             let root_expr = expression_without_alias(field.expr());
-            if !root_expr.references_only_fields(grouped_field_names.as_slice()) {
+            if !group_fields.contains_all_expr_references(root_expr) {
                 return Err(InternalError::planner_executor_invariant());
             }
         }
@@ -904,18 +899,14 @@ fn planned_projection_layout_and_aggregate_specs_from_spec(
 // identity.
 fn grouped_projection_expression_preserves_identity(
     root_expr: &Expr,
-    group_fields: &[FieldSlot],
+    group_fields: &crate::db::query::plan::GroupFieldSet,
     next_group_field_index: usize,
     next_aggregate_index: usize,
 ) -> bool {
     next_aggregate_index == 0
-        && matches!(
-            root_expr,
-            Expr::Field(field_id)
-                if group_fields.get(next_group_field_index).is_some_and(
-                    |group_field| field_id.as_str() == group_field.field.as_str(),
-                )
-        )
+        && group_fields
+            .get(next_group_field_index)
+            .is_some_and(|group_field| group_field.matches_expr(root_expr))
 }
 
 fn collect_grouped_projection_aggregate_scan(

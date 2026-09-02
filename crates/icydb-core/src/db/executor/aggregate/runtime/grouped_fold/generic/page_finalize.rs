@@ -889,7 +889,10 @@ mod tests {
             group_field_positions: vec![0],
             aggregate_positions: vec![1, 2],
         };
-        let group_fields = [FieldSlot::from_test_slot(0, "age")];
+        let group_fields =
+            crate::db::query::plan::GroupFieldSet::Direct(vec![FieldSlot::from_test_slot(
+                0, "age",
+            )]);
         let aggregate_execution_specs = [
             GroupedAggregateExecutionSpec::from_test_inputs(
                 AggregateKind::Count,
@@ -906,7 +909,7 @@ mod tests {
         ];
         let compiled_projection = compile_grouped_projection_plan(
             &projection,
-            group_fields.as_slice(),
+            &group_fields,
             aggregate_execution_specs.as_slice(),
         )
         .expect("grouped projection should compile");

@@ -36,4 +36,4 @@ pub(in crate::db::query) use semantic_gates::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use symbols::resolve_aggregate_target_field_slot_with_schema;
 pub(in crate::db::query::plan::validate) use symbols::resolve_group_aggregate_target_field_type;
-pub(in crate::db) use symbols::resolve_group_field_slot_with_schema;
+pub(in crate::db) use symbols::resolve_group_field_with_schema;

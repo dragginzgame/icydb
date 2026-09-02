@@ -85,6 +85,10 @@ name = "u256_measurement_contract"
 path = "tests/u256_measurement_contract.rs"
 
 [[test]]
+name = "group_path_measurement_contract"
+path = "tests/group_path_measurement_contract.rs"
+
+[[test]]
 name = "endpoint_cost_closeout"
 path = "tests/endpoint_cost_closeout.rs"
 

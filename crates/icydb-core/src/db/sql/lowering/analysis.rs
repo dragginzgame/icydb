@@ -1,7 +1,10 @@
 use crate::db::{
     query::{
         builder::AggregateExpr,
-        plan::expr::{Expr, FieldPath},
+        plan::{
+            GroupFieldSet,
+            expr::{Expr, FieldPath},
+        },
     },
     schema::SchemaInfo,
 };
@@ -132,6 +135,24 @@ impl LoweredExprAnalysis {
         self.source_refs.iter().all(|source_ref| match source_ref {
             LoweredExprSourceRef::Direct(field) => allowed.contains(&field.as_str()),
             LoweredExprSourceRef::Path(_) => false,
+        })
+    }
+
+    /// Return whether every outer field/path leaf is one declared group key.
+    #[must_use]
+    pub(in crate::db::sql::lowering) fn references_only_group_fields(
+        &self,
+        group_fields: &GroupFieldSet,
+    ) -> bool {
+        self.source_refs.iter().all(|source_ref| {
+            group_fields.iter().any(|group_field| match source_ref {
+                LoweredExprSourceRef::Direct(field) => group_field
+                    .as_direct()
+                    .is_some_and(|group_field| group_field.field() == field),
+                LoweredExprSourceRef::Path(path) => group_field
+                    .as_scalar_path()
+                    .is_some_and(|group_path| group_path.path() == path.path_spec()),
+            })
         })
     }
 

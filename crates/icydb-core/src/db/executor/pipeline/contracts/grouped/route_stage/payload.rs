@@ -39,7 +39,7 @@ pub(in crate::db::executor) struct GroupedPlannerPayload {
     pub(in crate::db::executor) plan: Arc<AccessPlannedQuery>,
     pub(in crate::db::executor) grouped_execution: GroupedExecutionConfig,
     pub(in crate::db::executor) grouped_execution_route: GroupedExecutionRoute,
-    pub(in crate::db::executor) group_fields: Vec<crate::db::query::plan::FieldSlot>,
+    pub(in crate::db::executor) group_fields: crate::db::query::plan::GroupFieldSet,
     pub(in crate::db::executor) grouped_aggregate_execution_specs:
         Vec<GroupedAggregateExecutionSpec>,
     pub(in crate::db::executor) projection_layout: PlannedProjectionLayout,

@@ -28,7 +28,7 @@ pub(in crate::db) use group_having::{
     grouped_having_compare_op_supported,
 };
 #[cfg(feature = "sql")]
-pub(in crate::db) use group_model::canonicalize_grouped_having_numeric_literal_for_slot;
+pub(in crate::db) use group_model::canonicalize_grouped_having_numeric_literal_for_group_field;
 pub(in crate::db) use group_model::group_aggregate_spec_expr;
 pub(in crate::db) use grouped_strategy::grouped_plan_strategy;
 pub(in crate::db) use grouped_strategy::{GroupedPlanFallbackReason, GroupedPlanStrategy};

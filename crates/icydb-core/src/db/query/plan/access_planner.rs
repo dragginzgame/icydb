@@ -11,7 +11,7 @@ use crate::{
         query::plan::{
             OrderSpec, PlannedAccessSelection, PlannerError, VisibleIndexes,
             canonicalize_order_spec_for_grouping,
-            plan_access_selection_with_order_and_accepted_semantic_indexes,
+            plan_access_selection_with_order_and_semantic_indexes,
         },
         schema::{SchemaInfo, ValidateError},
     },
@@ -91,9 +91,8 @@ pub(in crate::db::query) fn plan_query_access_with_accepted_schema(
 
     let canonical_order =
         canonicalize_order_spec_for_grouping(schema_info, order.cloned(), grouped);
-    plan_access_selection_with_order_and_accepted_semantic_indexes(
+    plan_access_selection_with_order_and_semantic_indexes(
         visible_indexes.accepted_semantic_index_contracts(),
-        visible_indexes.accepted_field_path_indexes(),
         schema_info,
         normalized_predicate,
         canonical_order.as_ref(),

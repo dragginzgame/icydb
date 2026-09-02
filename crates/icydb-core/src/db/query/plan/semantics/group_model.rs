@@ -49,15 +49,15 @@ fn canonicalize_grouped_having_numeric_literal_for_accepted_kind(
     }
 }
 
-/// Canonicalize one grouped `HAVING` literal through the strongest authority
-/// carried by its planner slot.
+/// Canonicalize one grouped `HAVING` literal through a direct/path key owner.
 #[must_use]
-pub(in crate::db) fn canonicalize_grouped_having_numeric_literal_for_slot(
-    field_slot: &FieldSlot,
+pub(in crate::db) fn canonicalize_grouped_having_numeric_literal_for_group_field(
+    schema: &SchemaInfo,
+    group_field: &crate::db::query::plan::GroupField,
     value: &Value,
 ) -> Option<Value> {
     canonicalize_grouped_having_numeric_literal_for_accepted_kind(
-        field_slot.accepted_kind()?,
+        group_field.accepted_kind_from_schema(schema)?,
         value,
     )
 }

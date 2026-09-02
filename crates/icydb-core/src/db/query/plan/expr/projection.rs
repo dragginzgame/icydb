@@ -4,7 +4,10 @@
 
 use crate::{
     db::{
-        query::plan::expr::ast::{Alias, BinaryOp, Expr, FieldId},
+        query::plan::{
+            GroupFieldRef, GroupFieldSet,
+            expr::ast::{Alias, BinaryOp, Expr, FieldId},
+        },
         schema::SchemaInfo,
     },
     error::InternalError,
@@ -366,13 +369,17 @@ impl GroupedOrderExprAnalysis {
     // Build the shared grouped-order proof summary for one expression tree
     // while keeping canonical grouped-key proof and broader Top-K admission on
     // the same recursive owner.
-    fn from_expr(expr: &Expr, group_fields: &[&str], expected_group_field: Option<&str>) -> Self {
+    fn from_expr(
+        expr: &Expr,
+        group_fields: Option<&GroupFieldSet>,
+        expected_group_field: Option<GroupFieldRef<'_>>,
+    ) -> Self {
         match expr {
-            Expr::Field(field) => Self {
+            Expr::Field(_) | Expr::FieldPath(_) => Self {
                 canonical_shape: expected_group_field.map_or(
                     GroupedCanonicalOrderShape::Unsupported,
                     |expected_group_field| {
-                        if field.as_str() == expected_group_field {
+                        if expected_group_field.matches_expr(expr) {
                             GroupedCanonicalOrderShape::CanonicalGroupField
                         } else {
                             GroupedCanonicalOrderShape::OtherField
@@ -380,18 +387,12 @@ impl GroupedOrderExprAnalysis {
                     },
                 ),
                 flags: GroupedOrderExprFlags::field_reference(
-                    group_fields
-                        .iter()
-                        .any(|allowed| *allowed == field.as_str()),
+                    group_fields.is_some_and(|group_fields| group_fields.contains_expr(expr)),
                 ),
             },
             Expr::Aggregate(_) => Self {
                 canonical_shape: GroupedCanonicalOrderShape::Unsupported,
                 flags: GroupedOrderExprFlags::aggregate(),
-            },
-            Expr::FieldPath(_) => Self {
-                canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-                flags: GroupedOrderExprFlags::empty(),
             },
             Expr::Literal(_) => Self {
                 canonical_shape: GroupedCanonicalOrderShape::Unsupported,
@@ -507,24 +508,26 @@ fn classify_grouped_canonical_order_shape(
     op: BinaryOp,
     left: &Expr,
     right: &Expr,
-    expected_group_field: Option<&str>,
+    expected_group_field: Option<GroupFieldRef<'_>>,
 ) -> GroupedCanonicalOrderShape {
     let Some(expected_group_field) = expected_group_field else {
         return GroupedCanonicalOrderShape::Unsupported;
     };
 
     match (op, left, right) {
-        (BinaryOp::Add, Expr::Field(field), right)
-            if field.as_str() == expected_group_field && is_numeric_order_offset_literal(right) =>
+        (BinaryOp::Add, Expr::Field(_) | Expr::FieldPath(_), right)
+            if expected_group_field.matches_expr(left)
+                && is_numeric_order_offset_literal(right) =>
         {
             GroupedCanonicalOrderShape::GroupFieldPlusConstant
         }
-        (BinaryOp::Sub, Expr::Field(field), right)
-            if field.as_str() == expected_group_field && is_numeric_order_offset_literal(right) =>
+        (BinaryOp::Sub, Expr::Field(_) | Expr::FieldPath(_), right)
+            if expected_group_field.matches_expr(left)
+                && is_numeric_order_offset_literal(right) =>
         {
             GroupedCanonicalOrderShape::GroupFieldMinusConstant
         }
-        (BinaryOp::Add | BinaryOp::Sub, Expr::Field(_), right)
+        (BinaryOp::Add | BinaryOp::Sub, Expr::Field(_) | Expr::FieldPath(_), right)
             if is_numeric_order_offset_literal(right) =>
         {
             GroupedCanonicalOrderShape::OtherFieldOffset
@@ -539,9 +542,9 @@ fn classify_grouped_canonical_order_shape(
 #[must_use]
 pub(in crate::db) fn classify_grouped_order_term_for_field(
     expr: &Expr,
-    expected_group_field: &str,
+    expected_group_field: GroupFieldRef<'_>,
 ) -> GroupedOrderTermAdmissibility {
-    GroupedOrderExprAnalysis::from_expr(expr, &[], Some(expected_group_field))
+    GroupedOrderExprAnalysis::from_expr(expr, None, Some(expected_group_field))
         .canonical_admissibility()
 }
 
@@ -570,9 +573,9 @@ const fn is_numeric_order_offset_literal(expr: &Expr) -> bool {
 #[must_use]
 pub(in crate::db) fn classify_grouped_top_k_order_term(
     expr: &Expr,
-    group_fields: &[&str],
+    group_fields: &GroupFieldSet,
 ) -> GroupedTopKOrderTermAdmissibility {
-    let analysis = GroupedOrderExprAnalysis::from_expr(expr, group_fields, None);
+    let analysis = GroupedOrderExprAnalysis::from_expr(expr, Some(group_fields), None);
 
     if analysis.flags.references_only_group_fields() {
         if !analysis.flags.contains_aggregate()
@@ -591,6 +594,6 @@ pub(in crate::db) fn classify_grouped_top_k_order_term(
 /// canonical grouped-key ordered lane for bounded Top-K finalization.
 #[must_use]
 pub(in crate::db) fn grouped_top_k_order_term_requires_heap(expr: &Expr) -> bool {
-    let analysis = GroupedOrderExprAnalysis::from_expr(expr, &[], None);
+    let analysis = GroupedOrderExprAnalysis::from_expr(expr, None, None);
     analysis.flags.contains_aggregate() || analysis.flags.contains_case()
 }

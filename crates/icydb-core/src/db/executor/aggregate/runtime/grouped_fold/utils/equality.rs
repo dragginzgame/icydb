@@ -22,7 +22,7 @@ use crate::{
 
 // Return true when one canonical grouped key matches one direct single grouped
 // value under the grouped-count single-field identity-canonical fast path.
-fn single_group_key_matches_value(
+pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn group_key_matches_single_group_value(
     group_key: &GroupKey,
     group_value: &Value,
 ) -> Result<bool, InternalError> {
@@ -155,6 +155,6 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn find_matching_s
     group_value: &Value,
 ) -> Result<Option<usize>, InternalError> {
     find_matching_group_in_bucket(grouped_counts, bucket, |group_key| {
-        single_group_key_matches_value(group_key, group_value)
+        group_key_matches_single_group_value(group_key, group_value)
     })
 }

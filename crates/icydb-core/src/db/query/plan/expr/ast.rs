@@ -423,6 +423,30 @@ pub(in crate::db) fn collect_scalar_expr_field_roots(
 }
 
 impl Expr {
+    /// Return true when this planner expression contains a nested field path.
+    #[must_use]
+    pub(in crate::db) fn contains_field_path(&self) -> bool {
+        match self {
+            Self::FieldPath(_) => true,
+            Self::Field(_) | Self::Literal(_) | Self::Aggregate(_) => false,
+            Self::FunctionCall { args, .. } => args.iter().any(Self::contains_field_path),
+            Self::Unary { expr, .. } => expr.contains_field_path(),
+            Self::Binary { left, right, .. } => {
+                left.contains_field_path() || right.contains_field_path()
+            }
+            Self::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                when_then_arms.iter().any(|arm| {
+                    arm.condition().contains_field_path() || arm.result().contains_field_path()
+                }) || else_expr.contains_field_path()
+            }
+            #[cfg(test)]
+            Self::Alias { expr, .. } => expr.contains_field_path(),
+        }
+    }
+
     /// Return true when this planner expression tree still contains any raw
     /// searched `CASE` node after owner-local canonicalization.
     #[must_use]
@@ -638,22 +662,5 @@ impl Expr {
         }
 
         Ok(())
-    }
-
-    /// Return true when every field leaf referenced by this expression is
-    /// present in the supplied allowlist.
-    #[must_use]
-    pub(in crate::db) fn references_only_fields(&self, allowed: &[&str]) -> bool {
-        self.all_tree_expr(&mut |expr| match expr {
-            Self::Field(field) => allowed.iter().any(|allowed| *allowed == field.as_str()),
-            Self::FieldPath(_) => false,
-            Self::Aggregate(_) | Self::Literal(_) => true,
-            Self::FunctionCall { .. }
-            | Self::Unary { .. }
-            | Self::Binary { .. }
-            | Self::Case { .. } => true,
-            #[cfg(test)]
-            Self::Alias { .. } => true,
-        })
     }
 }

@@ -21,7 +21,8 @@ use crate::{
                 AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupedPlanAggregateFamily,
                 GroupedPlanFallbackReason, GroupedPlanStrategy, LogicalPlan, OrderDirection,
                 OrderSpec, PageSpec, QueryMode, ScalarPlan, explain_access_strategy_label,
-                expr::Expr, grouped_plan_strategy, render_scalar_filter_expr_plan_label,
+                expr::{Expr, PathSpec},
+                grouped_plan_strategy, render_scalar_filter_expr_plan_label,
             },
         },
     },
@@ -267,6 +268,7 @@ pub enum ExplainGrouping {
 pub struct ExplainGroupField {
     pub(in crate::db) slot_index: usize,
     pub(in crate::db) field: String,
+    pub(in crate::db) path: Option<PathSpec>,
 }
 
 impl ExplainGroupField {
@@ -884,9 +886,10 @@ impl AccessPlannedQuery {
                             .group
                             .group_fields
                             .iter()
-                            .map(|field_slot| ExplainGroupField {
-                                slot_index: field_slot.index(),
-                                field: field_slot.field().to_string(),
+                            .map(|group_field| ExplainGroupField {
+                                slot_index: group_field.root_slot(),
+                                field: group_field.field().to_string(),
+                                path: group_field.as_scalar_path().map(|path| path.path().clone()),
                             })
                             .collect(),
                         aggregates: logical

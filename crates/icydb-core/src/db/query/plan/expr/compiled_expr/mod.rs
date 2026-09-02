@@ -355,12 +355,6 @@ impl ProjectionEvalError {
         }
     }
 
-    pub(in crate::db) const fn unknown_field_path() -> Self {
-        Self::UnknownField {
-            access: ProjectionAccessCode::FIELD_PATH,
-        }
-    }
-
     pub(in crate::db) const fn missing_unknown_value() -> Self {
         Self::MissingFieldValue {
             access: ProjectionAccessCode::UNKNOWN,

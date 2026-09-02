@@ -4,19 +4,20 @@ use crate::db::{
     codec::write_hash_u64,
     query::{
         builder::scalar_projection::render_scalar_projection_expr_plan_label,
-        explain::ExplainGrouping,
+        explain::{ExplainGroupField, ExplainGrouping},
         fingerprint::{
             aggregate_hash::{AggregateHashShape, hash_group_aggregate_structural_fingerprint},
             hash_sections::{
-                GROUPING_NONE_TAG, GROUPING_PRESENT_TAG, GROUPING_STRATEGY_HASH_TAG,
-                GROUPING_STRATEGY_ORDERED_TAG, write_str, write_tag, write_u32,
+                GROUP_FIELD_DIRECT_TAG, GROUP_FIELD_SCALAR_PATH_TAG, GROUPING_NONE_TAG,
+                GROUPING_PRESENT_TAG, GROUPING_STRATEGY_HASH_TAG, GROUPING_STRATEGY_ORDERED_TAG,
+                write_str, write_tag, write_u32,
             },
             projection_hash::hash_projection_structural_fingerprint,
         },
         plan::{
-            AccessPlannedQuery, GroupAggregateSpec, GroupedPlanAggregateFamily,
-            GroupedPlanFallbackReason, GroupedPlanStrategy, expr::ProjectionSpec,
-            grouped_plan_strategy,
+            AccessPlannedQuery, GroupAggregateSpec, GroupFieldSet, GroupedPlanAggregateFamily,
+            GroupedPlanFallbackReason, GroupedPlanStrategy, ScalarGroupPath, expr::PathSpec,
+            expr::ProjectionSpec, grouped_plan_strategy,
         },
     },
 };
@@ -37,11 +38,25 @@ use crate::db::query::fingerprint::hash_sections::grouping::having::{
 struct GroupedFingerprintShape<'a> {
     ordered_group: bool,
     aggregate_family_code: Option<&'a str>,
-    group_fields: Vec<(u32, &'a str)>,
+    group_fields: GroupedFingerprintFields<'a>,
     aggregates: Vec<AggregateHashShape<'a>>,
     having: Option<GroupHavingFingerprintSource<'a>>,
     max_groups: u64,
     max_group_bytes: u64,
+}
+
+enum GroupedFingerprintFields<'a> {
+    Explain(&'a [ExplainGroupField]),
+    Plan(&'a GroupFieldSet),
+}
+
+impl GroupedFingerprintFields<'_> {
+    const fn len(&self) -> usize {
+        match self {
+            Self::Explain(fields) => fields.len(),
+            Self::Plan(fields) => fields.len(),
+        }
+    }
 }
 
 /// Canonical grouped fingerprint projection state shared by plan and explain hashing.
@@ -132,10 +147,7 @@ impl<'a> ProjectedGroupingShape<'a> {
                 Self::Grouped(GroupedFingerprintShape {
                     ordered_group: *strategy == "ordered_group",
                     aggregate_family_code: Some(aggregate_family.code()),
-                    group_fields: group_fields
-                        .iter()
-                        .map(|field| (field.slot_index() as u32, field.field()))
-                        .collect(),
+                    group_fields: GroupedFingerprintFields::Explain(group_fields),
                     aggregates: aggregates
                         .iter()
                         .map(|aggregate| {
@@ -182,12 +194,7 @@ impl<'a> ProjectedGroupingShape<'a> {
         Self::Grouped(GroupedFingerprintShape {
             ordered_group: strategy.is_ordered_group(),
             aggregate_family_code: Some(strategy.aggregate_family().code()),
-            group_fields: grouped
-                .group
-                .group_fields
-                .iter()
-                .map(|field| (field.index as u32, field.field.as_str()))
-                .collect(),
+            group_fields: GroupedFingerprintFields::Plan(&grouped.group.group_fields),
             aggregates: grouped
                 .group
                 .aggregates
@@ -209,12 +216,12 @@ impl<'a> ProjectedGroupingShape<'a> {
             having: grouped.effective_having_expr().map(|expr| match expr {
                 std::borrow::Cow::Borrowed(expr) => GroupHavingFingerprintSource::PlanBorrowed {
                     expr,
-                    group_fields: grouped.group.group_fields.as_slice(),
+                    group_fields: &grouped.group.group_fields,
                     aggregates: grouped.group.aggregates.as_slice(),
                 },
                 std::borrow::Cow::Owned(expr) => GroupHavingFingerprintSource::PlanOwned {
                     expr,
-                    group_fields: grouped.group.group_fields.as_slice(),
+                    group_fields: &grouped.group.group_fields,
                     aggregates: grouped.group.aggregates.as_slice(),
                 },
             }),
@@ -246,14 +253,7 @@ fn hash_projected_grouping_shape(
                 );
             }
 
-            hash_group_field_slots(
-                hasher,
-                grouped.group_fields.len(),
-                grouped
-                    .group_fields
-                    .iter()
-                    .map(|(slot_index, field)| (*slot_index, *field)),
-            );
+            hash_group_field_slots(hasher, &grouped.group_fields);
             hash_group_aggregate_shapes(
                 hasher,
                 grouped.aggregates.len(),
@@ -269,13 +269,44 @@ fn hash_projected_grouping_shape(
 
 // Hash grouped key order using stable slot identity first, then the canonical
 // field label as a guardrail against grouped projection drift.
-fn hash_group_field_slots<'a, I>(hasher: &mut Sha256, field_count: usize, fields: I)
-where
-    I: IntoIterator<Item = (u32, &'a str)>,
-{
-    write_u32(hasher, field_count as u32);
-    for (slot_index, field) in fields {
-        write_u32(hasher, slot_index);
+fn hash_group_field_slots(hasher: &mut Sha256, fields: &GroupedFingerprintFields<'_>) {
+    write_u32(hasher, fields.len() as u32);
+    match fields {
+        GroupedFingerprintFields::Explain(fields) => {
+            for field in *fields {
+                hash_group_field(
+                    hasher,
+                    field.slot_index() as u32,
+                    field.field(),
+                    field.path.as_ref(),
+                );
+            }
+        }
+        GroupedFingerprintFields::Plan(fields) => {
+            for field in fields.iter() {
+                hash_group_field(
+                    hasher,
+                    field.root_slot() as u32,
+                    field.field(),
+                    field.as_scalar_path().map(ScalarGroupPath::path),
+                );
+            }
+        }
+    }
+}
+
+fn hash_group_field(hasher: &mut Sha256, root_slot: u32, field: &str, path: Option<&PathSpec>) {
+    if let Some(path) = path {
+        write_tag(hasher, GROUP_FIELD_SCALAR_PATH_TAG);
+        write_u32(hasher, root_slot);
+        write_str(hasher, path.root().as_str());
+        write_u32(hasher, path.segments().len() as u32);
+        for segment in path.segments() {
+            write_str(hasher, segment);
+        }
+    } else {
+        write_tag(hasher, GROUP_FIELD_DIRECT_TAG);
+        write_u32(hasher, root_slot);
         write_str(hasher, field);
     }
 }
