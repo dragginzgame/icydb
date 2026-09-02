@@ -80,7 +80,7 @@ impl<'a> OrderedGroupedPageSelection<'a> {
                     route.group_fields(),
                     route.grouped_aggregate_execution_specs(),
                 )
-                .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
+                .map_err(ProjectionEvalError::into_internal_error)
             })
             .transpose()?;
         let selection = GroupedPageFinalizeSelection::new(
@@ -372,7 +372,7 @@ pub(super) fn finalize_grouped_page(
                 route.group_fields(),
                 route.grouped_aggregate_execution_specs(),
             )
-            .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
+            .map_err(ProjectionEvalError::into_internal_error)
         })
         .transpose()?;
     let selection = GroupedPageFinalizeSelection::new(
@@ -493,9 +493,7 @@ fn compile_grouped_top_k_order(
             Ok(compiled) => compiled,
             Err(ProjectionEvalError::UnknownField { .. }) => continue,
             Err(err) => {
-                return Err(ProjectionEvalError::into_grouped_projection_internal_error(
-                    err,
-                ));
+                return Err(ProjectionEvalError::into_internal_error(err));
             }
         };
         terms.push(CompiledGroupedTopKOrderTerm {
@@ -532,7 +530,7 @@ fn compile_grouped_page_candidate_top_k_ranking(
                 .expr
                 .evaluate(&grouped_row)
                 .map(Cow::into_owned)
-                .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?,
+                .map_err(ProjectionEvalError::into_internal_error)?,
             direction: term.direction,
         });
     }

@@ -56,6 +56,88 @@ const fn diagnostic_compare_op(op: CompareOp) -> DiagnosticOperatorKind {
     }
 }
 
+const fn diagnostic_unary_op(op: UnaryOp) -> DiagnosticOperatorKind {
+    match op {
+        UnaryOp::Not => DiagnosticOperatorKind::Not,
+    }
+}
+
+const fn diagnostic_binary_op(op: BinaryOp) -> DiagnosticOperatorKind {
+    match op {
+        BinaryOp::Add => DiagnosticOperatorKind::Add,
+        BinaryOp::And => DiagnosticOperatorKind::And,
+        BinaryOp::Div => DiagnosticOperatorKind::Div,
+        BinaryOp::Eq => DiagnosticOperatorKind::Eq,
+        BinaryOp::Gt => DiagnosticOperatorKind::Gt,
+        BinaryOp::Gte => DiagnosticOperatorKind::Gte,
+        BinaryOp::Lt => DiagnosticOperatorKind::Lt,
+        BinaryOp::Lte => DiagnosticOperatorKind::Lte,
+        BinaryOp::Mul => DiagnosticOperatorKind::Mul,
+        BinaryOp::Ne => DiagnosticOperatorKind::Ne,
+        BinaryOp::Or => DiagnosticOperatorKind::Or,
+        BinaryOp::Sub => DiagnosticOperatorKind::Sub,
+    }
+}
+
+const fn diagnostic_function(function: Function) -> DiagnosticFunctionKind {
+    match function {
+        Function::Abs => DiagnosticFunctionKind::Abs,
+        Function::Cbrt => DiagnosticFunctionKind::Cbrt,
+        Function::Ceiling => DiagnosticFunctionKind::Ceiling,
+        Function::Coalesce => DiagnosticFunctionKind::Coalesce,
+        Function::CollectionContains => DiagnosticFunctionKind::CollectionContains,
+        Function::Contains => DiagnosticFunctionKind::Contains,
+        Function::EndsWith => DiagnosticFunctionKind::EndsWith,
+        Function::Exp => DiagnosticFunctionKind::Exp,
+        Function::Floor => DiagnosticFunctionKind::Floor,
+        Function::InList => DiagnosticFunctionKind::InList,
+        Function::IsEmpty => DiagnosticFunctionKind::IsEmpty,
+        Function::IsMissing => DiagnosticFunctionKind::IsMissing,
+        Function::IsNotEmpty => DiagnosticFunctionKind::IsNotEmpty,
+        Function::IsNotNull => DiagnosticFunctionKind::IsNotNull,
+        Function::IsNull => DiagnosticFunctionKind::IsNull,
+        Function::Left => DiagnosticFunctionKind::Left,
+        Function::Length => DiagnosticFunctionKind::Length,
+        Function::Ln => DiagnosticFunctionKind::Ln,
+        Function::Log => DiagnosticFunctionKind::Log,
+        Function::Log2 => DiagnosticFunctionKind::Log2,
+        Function::Log10 => DiagnosticFunctionKind::Log10,
+        Function::Lower => DiagnosticFunctionKind::Lower,
+        Function::Ltrim => DiagnosticFunctionKind::Ltrim,
+        Function::Mod => DiagnosticFunctionKind::Mod,
+        Function::NullIf => DiagnosticFunctionKind::NullIf,
+        Function::OctetLength => DiagnosticFunctionKind::OctetLength,
+        Function::Position => DiagnosticFunctionKind::Position,
+        Function::Power => DiagnosticFunctionKind::Power,
+        Function::Replace => DiagnosticFunctionKind::Replace,
+        Function::Right => DiagnosticFunctionKind::Right,
+        Function::Round => DiagnosticFunctionKind::Round,
+        Function::Rtrim => DiagnosticFunctionKind::Rtrim,
+        Function::Sign => DiagnosticFunctionKind::Sign,
+        Function::Sqrt => DiagnosticFunctionKind::Sqrt,
+        Function::StartsWith => DiagnosticFunctionKind::StartsWith,
+        Function::Substring => DiagnosticFunctionKind::Substring,
+        Function::Trim => DiagnosticFunctionKind::Trim,
+        Function::Trunc => DiagnosticFunctionKind::Trunc,
+        Function::Upper => DiagnosticFunctionKind::Upper,
+    }
+}
+
+const fn diagnostic_expr_type_family(expr_type: &ExprType) -> DiagnosticTypeFamily {
+    match expr_type {
+        ExprType::Blob => DiagnosticTypeFamily::Blob,
+        ExprType::Bool => DiagnosticTypeFamily::Bool,
+        ExprType::Collection => DiagnosticTypeFamily::Collection,
+        #[cfg(test)]
+        ExprType::Null => DiagnosticTypeFamily::Null,
+        ExprType::Numeric(_) => DiagnosticTypeFamily::Numeric,
+        ExprType::Opaque | ExprType::U256 => DiagnosticTypeFamily::Opaque,
+        ExprType::Structured => DiagnosticTypeFamily::Structured,
+        ExprType::Text => DiagnosticTypeFamily::Text,
+        ExprType::Unknown => DiagnosticTypeFamily::Unknown,
+    }
+}
+
 ///
 /// PlanError
 ///
@@ -762,202 +844,6 @@ impl GroupPlanError {
 /// Expression-spine inference failures owned by planner semantics.
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExprPlanTypeClass {
-    Blob,
-    Bool,
-    Collection,
-    #[cfg(test)]
-    Null,
-    Numeric,
-    Opaque,
-    Structured,
-    Text,
-    Unknown,
-}
-
-impl ExprPlanTypeClass {
-    pub(in crate::db) const fn from_expr_type(expr_type: &ExprType) -> Self {
-        match expr_type {
-            ExprType::Blob => Self::Blob,
-            ExprType::Bool => Self::Bool,
-            ExprType::Collection => Self::Collection,
-            #[cfg(test)]
-            ExprType::Null => Self::Null,
-            ExprType::Numeric(_) => Self::Numeric,
-            ExprType::Opaque => Self::Opaque,
-            ExprType::U256 => Self::Opaque,
-            ExprType::Structured => Self::Structured,
-            ExprType::Text => Self::Text,
-            ExprType::Unknown => Self::Unknown,
-        }
-    }
-
-    const fn diagnostic_kind(self) -> DiagnosticTypeFamily {
-        match self {
-            Self::Blob => DiagnosticTypeFamily::Blob,
-            Self::Bool => DiagnosticTypeFamily::Bool,
-            Self::Collection => DiagnosticTypeFamily::Collection,
-            #[cfg(test)]
-            Self::Null => DiagnosticTypeFamily::Null,
-            Self::Numeric => DiagnosticTypeFamily::Numeric,
-            Self::Opaque => DiagnosticTypeFamily::Opaque,
-            Self::Structured => DiagnosticTypeFamily::Structured,
-            Self::Text => DiagnosticTypeFamily::Text,
-            Self::Unknown => DiagnosticTypeFamily::Unknown,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ExprPlanUnaryOpCode(DiagnosticOperatorKind);
-
-impl ExprPlanUnaryOpCode {
-    pub const NOT: Self = Self(DiagnosticOperatorKind::Not);
-
-    pub(in crate::db) const fn from_unary_op(op: UnaryOp) -> Self {
-        match op {
-            UnaryOp::Not => Self::NOT,
-        }
-    }
-
-    const fn diagnostic_kind(self) -> DiagnosticOperatorKind {
-        self.0
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ExprPlanBinaryOpCode(DiagnosticOperatorKind);
-
-impl ExprPlanBinaryOpCode {
-    pub const ADD: Self = Self(DiagnosticOperatorKind::Add);
-    pub const AND: Self = Self(DiagnosticOperatorKind::And);
-    pub const DIV: Self = Self(DiagnosticOperatorKind::Div);
-    pub const EQ: Self = Self(DiagnosticOperatorKind::Eq);
-    pub const GT: Self = Self(DiagnosticOperatorKind::Gt);
-    pub const GTE: Self = Self(DiagnosticOperatorKind::Gte);
-    pub const LT: Self = Self(DiagnosticOperatorKind::Lt);
-    pub const LTE: Self = Self(DiagnosticOperatorKind::Lte);
-    pub const MUL: Self = Self(DiagnosticOperatorKind::Mul);
-    pub const NE: Self = Self(DiagnosticOperatorKind::Ne);
-    pub const OR: Self = Self(DiagnosticOperatorKind::Or);
-    pub const SUB: Self = Self(DiagnosticOperatorKind::Sub);
-
-    pub(in crate::db) const fn from_binary_op(op: BinaryOp) -> Self {
-        match op {
-            BinaryOp::Add => Self::ADD,
-            BinaryOp::And => Self::AND,
-            BinaryOp::Div => Self::DIV,
-            BinaryOp::Eq => Self::EQ,
-            BinaryOp::Gt => Self::GT,
-            BinaryOp::Gte => Self::GTE,
-            BinaryOp::Lt => Self::LT,
-            BinaryOp::Lte => Self::LTE,
-            BinaryOp::Mul => Self::MUL,
-            BinaryOp::Ne => Self::NE,
-            BinaryOp::Or => Self::OR,
-            BinaryOp::Sub => Self::SUB,
-        }
-    }
-
-    const fn diagnostic_kind(self) -> DiagnosticOperatorKind {
-        self.0
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct ExprPlanFunctionCode(DiagnosticFunctionKind);
-
-impl ExprPlanFunctionCode {
-    pub const ABS: Self = Self(DiagnosticFunctionKind::Abs);
-    pub const CBRT: Self = Self(DiagnosticFunctionKind::Cbrt);
-    pub const CEILING: Self = Self(DiagnosticFunctionKind::Ceiling);
-    pub const COALESCE: Self = Self(DiagnosticFunctionKind::Coalesce);
-    pub const COLLECTION_CONTAINS: Self = Self(DiagnosticFunctionKind::CollectionContains);
-    pub const CONTAINS: Self = Self(DiagnosticFunctionKind::Contains);
-    pub const ENDS_WITH: Self = Self(DiagnosticFunctionKind::EndsWith);
-    pub const EXP: Self = Self(DiagnosticFunctionKind::Exp);
-    pub const FLOOR: Self = Self(DiagnosticFunctionKind::Floor);
-    pub const IN_LIST: Self = Self(DiagnosticFunctionKind::InList);
-    pub const IS_EMPTY: Self = Self(DiagnosticFunctionKind::IsEmpty);
-    pub const IS_MISSING: Self = Self(DiagnosticFunctionKind::IsMissing);
-    pub const IS_NOT_EMPTY: Self = Self(DiagnosticFunctionKind::IsNotEmpty);
-    pub const IS_NOT_NULL: Self = Self(DiagnosticFunctionKind::IsNotNull);
-    pub const IS_NULL: Self = Self(DiagnosticFunctionKind::IsNull);
-    pub const LEFT: Self = Self(DiagnosticFunctionKind::Left);
-    pub const LENGTH: Self = Self(DiagnosticFunctionKind::Length);
-    pub const LN: Self = Self(DiagnosticFunctionKind::Ln);
-    pub const LOG: Self = Self(DiagnosticFunctionKind::Log);
-    pub const LOG2: Self = Self(DiagnosticFunctionKind::Log2);
-    pub const LOG10: Self = Self(DiagnosticFunctionKind::Log10);
-    pub const LOWER: Self = Self(DiagnosticFunctionKind::Lower);
-    pub const LTRIM: Self = Self(DiagnosticFunctionKind::Ltrim);
-    pub const MOD: Self = Self(DiagnosticFunctionKind::Mod);
-    pub const NULLIF: Self = Self(DiagnosticFunctionKind::NullIf);
-    pub const OCTET_LENGTH: Self = Self(DiagnosticFunctionKind::OctetLength);
-    pub const POSITION: Self = Self(DiagnosticFunctionKind::Position);
-    pub const POWER: Self = Self(DiagnosticFunctionKind::Power);
-    pub const REPLACE: Self = Self(DiagnosticFunctionKind::Replace);
-    pub const RIGHT: Self = Self(DiagnosticFunctionKind::Right);
-    pub const ROUND: Self = Self(DiagnosticFunctionKind::Round);
-    pub const RTRIM: Self = Self(DiagnosticFunctionKind::Rtrim);
-    pub const SIGN: Self = Self(DiagnosticFunctionKind::Sign);
-    pub const SQRT: Self = Self(DiagnosticFunctionKind::Sqrt);
-    pub const STARTS_WITH: Self = Self(DiagnosticFunctionKind::StartsWith);
-    pub const SUBSTRING: Self = Self(DiagnosticFunctionKind::Substring);
-    pub const TRIM: Self = Self(DiagnosticFunctionKind::Trim);
-    pub const TRUNC: Self = Self(DiagnosticFunctionKind::Trunc);
-    pub const UPPER: Self = Self(DiagnosticFunctionKind::Upper);
-
-    pub(in crate::db) const fn from_function(function: Function) -> Self {
-        match function {
-            Function::Abs => Self::ABS,
-            Function::Cbrt => Self::CBRT,
-            Function::Ceiling => Self::CEILING,
-            Function::Coalesce => Self::COALESCE,
-            Function::CollectionContains => Self::COLLECTION_CONTAINS,
-            Function::Contains => Self::CONTAINS,
-            Function::EndsWith => Self::ENDS_WITH,
-            Function::Exp => Self::EXP,
-            Function::Floor => Self::FLOOR,
-            Function::InList => Self::IN_LIST,
-            Function::IsEmpty => Self::IS_EMPTY,
-            Function::IsMissing => Self::IS_MISSING,
-            Function::IsNotEmpty => Self::IS_NOT_EMPTY,
-            Function::IsNotNull => Self::IS_NOT_NULL,
-            Function::IsNull => Self::IS_NULL,
-            Function::Left => Self::LEFT,
-            Function::Length => Self::LENGTH,
-            Function::Ln => Self::LN,
-            Function::Log => Self::LOG,
-            Function::Log2 => Self::LOG2,
-            Function::Log10 => Self::LOG10,
-            Function::Lower => Self::LOWER,
-            Function::Ltrim => Self::LTRIM,
-            Function::Mod => Self::MOD,
-            Function::NullIf => Self::NULLIF,
-            Function::OctetLength => Self::OCTET_LENGTH,
-            Function::Position => Self::POSITION,
-            Function::Power => Self::POWER,
-            Function::Replace => Self::REPLACE,
-            Function::Right => Self::RIGHT,
-            Function::Round => Self::ROUND,
-            Function::Rtrim => Self::RTRIM,
-            Function::Sign => Self::SIGN,
-            Function::Sqrt => Self::SQRT,
-            Function::StartsWith => Self::STARTS_WITH,
-            Function::Substring => Self::SUBSTRING,
-            Function::Trim => Self::TRIM,
-            Function::Trunc => Self::TRUNC,
-            Function::Upper => Self::UPPER,
-        }
-    }
-
-    const fn diagnostic_kind(self) -> DiagnosticFunctionKind {
-        self.0
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExprPlanError {
     /// SQL lowering references a field that does not exist in schema.
@@ -969,7 +855,7 @@ pub enum ExprPlanError {
     /// Aggregate terminal requires a numeric target field.
     NonNumericAggregateTarget {
         kind: AggregateKind,
-        found: ExprPlanTypeClass,
+        found: DiagnosticTypeFamily,
     },
 
     /// Aggregate expression requires an explicit target field.
@@ -977,52 +863,52 @@ pub enum ExprPlanError {
 
     /// Function call received an unsupported argument count.
     InvalidFunctionArity {
-        function: ExprPlanFunctionCode,
+        function: DiagnosticFunctionKind,
         expected: usize,
         actual: usize,
     },
 
     /// Function call received one incompatible argument type.
     InvalidFunctionArgument {
-        function: ExprPlanFunctionCode,
+        function: DiagnosticFunctionKind,
         argument_index: usize,
-        found: ExprPlanTypeClass,
+        found: DiagnosticTypeFamily,
     },
 
     /// Function call received incompatible dynamic argument types.
     IncompatibleFunctionArguments {
-        function: ExprPlanFunctionCode,
+        function: DiagnosticFunctionKind,
         left_argument_index: usize,
         right_argument_index: usize,
-        left: ExprPlanTypeClass,
-        right: ExprPlanTypeClass,
+        left: DiagnosticTypeFamily,
+        right: DiagnosticTypeFamily,
     },
 
     /// Unary operation is incompatible with inferred operand type.
     InvalidUnaryOperand {
-        op: ExprPlanUnaryOpCode,
-        found: ExprPlanTypeClass,
+        op: DiagnosticOperatorKind,
+        found: DiagnosticTypeFamily,
     },
 
     /// CASE branch condition is not boolean-typed.
     InvalidCaseConditionType {
         arm_index: usize,
-        found: ExprPlanTypeClass,
+        found: DiagnosticTypeFamily,
     },
 
     /// CASE result branches cannot agree on one shared scalar type.
     IncompatibleCaseBranchTypes {
         left_branch_index: Option<usize>,
         right_branch_index: Option<usize>,
-        left: ExprPlanTypeClass,
-        right: ExprPlanTypeClass,
+        left: DiagnosticTypeFamily,
+        right: DiagnosticTypeFamily,
     },
 
     /// Binary operation is incompatible with inferred operand types.
     InvalidBinaryOperands {
-        op: ExprPlanBinaryOpCode,
-        left: ExprPlanTypeClass,
-        right: ExprPlanTypeClass,
+        op: DiagnosticOperatorKind,
+        left: DiagnosticTypeFamily,
+        right: DiagnosticTypeFamily,
     },
 
     /// GROUP BY projections must not reference fields outside grouped keys.
@@ -1037,7 +923,7 @@ impl ExprPlanError {
                     DiagnosticFactTag::AggregateKind,
                     diagnostic_aggregate_kind(*kind).raw(),
                 ),
-                (DiagnosticFactTag::TypeFamily, found.diagnostic_kind().raw()),
+                (DiagnosticFactTag::TypeFamily, found.raw()),
             ],
             Self::AggregateTargetRequired { kind } => vec![(
                 DiagnosticFactTag::AggregateKind,
@@ -1048,10 +934,7 @@ impl ExprPlanError {
                 expected,
                 actual,
             } => vec![
-                (
-                    DiagnosticFactTag::FunctionKind,
-                    function.diagnostic_kind().raw(),
-                ),
+                (DiagnosticFactTag::FunctionKind, function.raw()),
                 (
                     DiagnosticFactTag::ExpectedArity,
                     diagnostic_index(*expected),
@@ -1063,15 +946,12 @@ impl ExprPlanError {
                 argument_index,
                 found,
             } => vec![
-                (
-                    DiagnosticFactTag::FunctionKind,
-                    function.diagnostic_kind().raw(),
-                ),
+                (DiagnosticFactTag::FunctionKind, function.raw()),
                 (
                     DiagnosticFactTag::ArgumentIndex,
                     diagnostic_index(*argument_index),
                 ),
-                (DiagnosticFactTag::TypeFamily, found.diagnostic_kind().raw()),
+                (DiagnosticFactTag::TypeFamily, found.raw()),
             ],
             Self::IncompatibleFunctionArguments {
                 function,
@@ -1080,28 +960,25 @@ impl ExprPlanError {
                 left,
                 right,
             } => vec![
-                (
-                    DiagnosticFactTag::FunctionKind,
-                    function.diagnostic_kind().raw(),
-                ),
+                (DiagnosticFactTag::FunctionKind, function.raw()),
                 (
                     DiagnosticFactTag::ArgumentIndex,
                     diagnostic_index(*left_argument_index),
                 ),
-                (DiagnosticFactTag::TypeFamily, left.diagnostic_kind().raw()),
+                (DiagnosticFactTag::TypeFamily, left.raw()),
                 (
                     DiagnosticFactTag::ArgumentIndex,
                     diagnostic_index(*right_argument_index),
                 ),
-                (DiagnosticFactTag::TypeFamily, right.diagnostic_kind().raw()),
+                (DiagnosticFactTag::TypeFamily, right.raw()),
             ],
             Self::InvalidUnaryOperand { op, found } => vec![
-                (DiagnosticFactTag::OperatorKind, op.diagnostic_kind().raw()),
-                (DiagnosticFactTag::TypeFamily, found.diagnostic_kind().raw()),
+                (DiagnosticFactTag::OperatorKind, op.raw()),
+                (DiagnosticFactTag::TypeFamily, found.raw()),
             ],
             Self::InvalidCaseConditionType { arm_index, found } => vec![
                 (DiagnosticFactTag::BranchIndex, diagnostic_index(*arm_index)),
-                (DiagnosticFactTag::TypeFamily, found.diagnostic_kind().raw()),
+                (DiagnosticFactTag::TypeFamily, found.raw()),
             ],
             Self::IncompatibleCaseBranchTypes {
                 left_branch_index,
@@ -1113,17 +990,17 @@ impl ExprPlanError {
                 if let Some(index) = left_branch_index {
                     facts.push((DiagnosticFactTag::BranchIndex, diagnostic_index(*index)));
                 }
-                facts.push((DiagnosticFactTag::TypeFamily, left.diagnostic_kind().raw()));
+                facts.push((DiagnosticFactTag::TypeFamily, left.raw()));
                 if let Some(index) = right_branch_index {
                     facts.push((DiagnosticFactTag::BranchIndex, diagnostic_index(*index)));
                 }
-                facts.push((DiagnosticFactTag::TypeFamily, right.diagnostic_kind().raw()));
+                facts.push((DiagnosticFactTag::TypeFamily, right.raw()));
                 facts
             }
             Self::InvalidBinaryOperands { op, left, right } => vec![
-                (DiagnosticFactTag::OperatorKind, op.diagnostic_kind().raw()),
-                (DiagnosticFactTag::TypeFamily, left.diagnostic_kind().raw()),
-                (DiagnosticFactTag::TypeFamily, right.diagnostic_kind().raw()),
+                (DiagnosticFactTag::OperatorKind, op.raw()),
+                (DiagnosticFactTag::TypeFamily, left.raw()),
+                (DiagnosticFactTag::TypeFamily, right.raw()),
             ],
             Self::GroupedProjectionReferencesNonGroupField { index } => {
                 vec![(DiagnosticFactTag::ProjectionIndex, diagnostic_index(*index))]
@@ -1154,9 +1031,12 @@ impl ExprPlanError {
     /// Construct one non-numeric aggregate-target planner error.
     pub(in crate::db::query) const fn non_numeric_aggregate_target(
         kind: AggregateKind,
-        found: ExprPlanTypeClass,
+        found: &ExprType,
     ) -> Self {
-        Self::NonNumericAggregateTarget { kind, found }
+        Self::NonNumericAggregateTarget {
+            kind,
+            found: diagnostic_expr_type_family(found),
+        }
     }
 
     /// Construct one invalid function-arity planner error.
@@ -1166,7 +1046,7 @@ impl ExprPlanError {
         actual: usize,
     ) -> Self {
         Self::InvalidFunctionArity {
-            function: ExprPlanFunctionCode::from_function(function),
+            function: diagnostic_function(function),
             expected,
             actual,
         }
@@ -1176,12 +1056,12 @@ impl ExprPlanError {
     pub(in crate::db::query) const fn invalid_function_argument(
         function: Function,
         argument_index: usize,
-        found: ExprPlanTypeClass,
+        found: &ExprType,
     ) -> Self {
         Self::InvalidFunctionArgument {
-            function: ExprPlanFunctionCode::from_function(function),
+            function: diagnostic_function(function),
             argument_index,
-            found,
+            found: diagnostic_expr_type_family(found),
         }
     }
 
@@ -1190,62 +1070,62 @@ impl ExprPlanError {
         function: Function,
         left_argument_index: usize,
         right_argument_index: usize,
-        left: ExprPlanTypeClass,
-        right: ExprPlanTypeClass,
+        left: &ExprType,
+        right: &ExprType,
     ) -> Self {
         Self::IncompatibleFunctionArguments {
-            function: ExprPlanFunctionCode::from_function(function),
+            function: diagnostic_function(function),
             left_argument_index,
             right_argument_index,
-            left,
-            right,
+            left: diagnostic_expr_type_family(left),
+            right: diagnostic_expr_type_family(right),
         }
     }
 
     /// Construct one invalid unary-operand planner error.
-    pub(in crate::db::query) const fn invalid_unary_operand(
-        op: UnaryOp,
-        found: ExprPlanTypeClass,
-    ) -> Self {
+    pub(in crate::db::query) const fn invalid_unary_operand(op: UnaryOp, found: &ExprType) -> Self {
         Self::InvalidUnaryOperand {
-            op: ExprPlanUnaryOpCode::from_unary_op(op),
-            found,
+            op: diagnostic_unary_op(op),
+            found: diagnostic_expr_type_family(found),
         }
     }
 
     /// Construct one invalid CASE-condition planner error.
     pub(in crate::db::query) const fn invalid_case_condition_type(
         arm_index: usize,
-        found: ExprPlanTypeClass,
+        found: &ExprType,
     ) -> Self {
-        Self::InvalidCaseConditionType { arm_index, found }
+        Self::InvalidCaseConditionType {
+            arm_index,
+            found: diagnostic_expr_type_family(found),
+        }
     }
 
     /// Construct one incompatible CASE-branch-types planner error.
     pub(in crate::db::query) const fn incompatible_case_branch_types(
         left_branch_index: Option<usize>,
         right_branch_index: Option<usize>,
-        left: ExprPlanTypeClass,
-        right: ExprPlanTypeClass,
+        left: &ExprType,
+        right: &ExprType,
     ) -> Self {
         Self::IncompatibleCaseBranchTypes {
             left_branch_index,
             right_branch_index,
-            left,
-            right,
+            left: diagnostic_expr_type_family(left),
+            right: diagnostic_expr_type_family(right),
         }
     }
 
     /// Construct one invalid binary-operands planner error.
     pub(in crate::db::query) const fn invalid_binary_operands(
         op: BinaryOp,
-        left: ExprPlanTypeClass,
-        right: ExprPlanTypeClass,
+        left: &ExprType,
+        right: &ExprType,
     ) -> Self {
         Self::InvalidBinaryOperands {
-            op: ExprPlanBinaryOpCode::from_binary_op(op),
-            left,
-            right,
+            op: diagnostic_binary_op(op),
+            left: diagnostic_expr_type_family(left),
+            right: diagnostic_expr_type_family(right),
         }
     }
 
@@ -1423,16 +1303,13 @@ impl GroupPlanError {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ExprPlanError, ExprPlanTypeClass, GroupPlanError, OrderPlanError, PlanError,
-        diagnostic_index,
-    };
+    use super::{ExprPlanError, GroupPlanError, OrderPlanError, PlanError, diagnostic_index};
     use crate::db::{
         QueryError, ValidateError,
         predicate::CompareOp,
         query::plan::{
             AggregateKind,
-            expr::{BinaryOp, Function},
+            expr::{BinaryOp, ExprType, Function, NumericSubtype},
         },
     };
     use icydb_diagnostic_code::{
@@ -1666,8 +1543,8 @@ mod tests {
                 Function::Coalesce,
                 0,
                 2,
-                ExprPlanTypeClass::Text,
-                ExprPlanTypeClass::Numeric,
+                &ExprType::Text,
+                &ExprType::Numeric(NumericSubtype::Integer),
             )
             .diagnostic_facts(),
             vec![
@@ -1694,8 +1571,8 @@ mod tests {
         assert_eq!(
             ExprPlanError::invalid_binary_operands(
                 BinaryOp::Add,
-                ExprPlanTypeClass::Text,
-                ExprPlanTypeClass::Bool,
+                &ExprType::Text,
+                &ExprType::Bool,
             )
             .diagnostic_facts(),
             vec![
@@ -1717,8 +1594,8 @@ mod tests {
             ExprPlanError::incompatible_case_branch_types(
                 Some(1),
                 None,
-                ExprPlanTypeClass::Blob,
-                ExprPlanTypeClass::Structured,
+                &ExprType::Blob,
+                &ExprType::Structured,
             )
             .diagnostic_facts(),
             vec![

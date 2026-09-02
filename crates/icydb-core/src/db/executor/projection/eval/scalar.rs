@@ -329,7 +329,7 @@ pub(in crate::db::executor) fn eval_compiled_expr_with_required_slot_reader_cow<
     expr.evaluate(&reader)
         .map(Cow::into_owned)
         .map(Cow::Owned)
-        .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
+        .map_err(ProjectionEvalError::into_internal_error)
 }
 
 // Evaluate direct `OCTET_LENGTH(field)` over scalar text/blob slots without
@@ -345,7 +345,7 @@ fn eval_direct_scalar_octet_length(
     let leaf_codec = slots.field_leaf_codec(slot).map_err(|_| {
         let _ = field;
 
-        ProjectionEvalError::missing_slot_value(slot).into_invalid_logical_plan_internal_error()
+        ProjectionEvalError::missing_slot_value(slot).into_internal_error()
     })?;
     if !matches!(
         leaf_codec,
@@ -383,7 +383,7 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_required_slot_reader(
     let value = match expr.evaluate(&reader) {
         Ok(value) => value.into_owned(),
         Err(ProjectionEvalError::MissingFieldPathValue { .. }) => return Ok(false),
-        Err(err) => return Err(err.into_invalid_logical_plan_internal_error()),
+        Err(err) => return Err(err.into_internal_error()),
     };
 
     collapse_true_only_boolean_admission(value, |_found| {
@@ -409,7 +409,7 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_cow_reader<'a>(
                 ProjectionEvalError::MissingFieldValue { .. } => {
                     InternalError::query_invalid_logical_plan()
                 }
-                err => err.into_invalid_logical_plan_internal_error(),
+                err => err.into_internal_error(),
             });
         }
     };

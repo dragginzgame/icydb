@@ -219,7 +219,7 @@ pub(in crate::db::executor) fn validate_prepared_projection_row(
     for compiled in prepared_validation.compiled_exprs() {
         let mut read_slot = |slot| row.projection_validation_slot_value(slot);
         eval_compiled_expr_with_value_ref_reader(compiled, &mut read_slot)
-            .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
+            .map_err(ProjectionEvalError::into_internal_error)?;
     }
 
     Ok(())

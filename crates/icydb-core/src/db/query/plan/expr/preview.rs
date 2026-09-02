@@ -1,8 +1,8 @@
 use crate::{
     db::{
         numeric::{
-            NumericArithmeticOp, apply_value_arithmetic_checked, coerce_numeric_decimal,
-            compare_numeric_eq, compare_numeric_or_strict_order,
+            apply_value_arithmetic_checked, coerce_numeric_decimal, compare_numeric_eq,
+            compare_numeric_or_strict_order,
         },
         query::plan::expr::{
             BinaryOp, CaseWhenArm, Expr, Function, ScalarEvalFunctionShape, UnaryOp,
@@ -171,13 +171,7 @@ fn eval_literal_only_binary_expr(op: BinaryOp, left: &Value, right: &Value) -> O
                 return Some(Value::Null);
             }
 
-            let arithmetic_op = match op {
-                BinaryOp::Add => NumericArithmeticOp::Add,
-                BinaryOp::Sub => NumericArithmeticOp::Sub,
-                BinaryOp::Mul => NumericArithmeticOp::Mul,
-                BinaryOp::Div => NumericArithmeticOp::Div,
-                _ => return None,
-            };
+            let arithmetic_op = op.numeric_arithmetic_op()?;
 
             apply_value_arithmetic_checked(arithmetic_op, left, right)
                 .ok()

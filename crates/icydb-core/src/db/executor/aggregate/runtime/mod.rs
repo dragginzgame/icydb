@@ -37,5 +37,5 @@ pub(in crate::db::executor) fn group_matches_having_expr(
     grouped_row: &GroupedRowView<'_>,
 ) -> Result<bool, InternalError> {
     evaluate_grouped_having_expr(expr, grouped_row)
-        .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
+        .map_err(ProjectionEvalError::into_internal_error)
 }

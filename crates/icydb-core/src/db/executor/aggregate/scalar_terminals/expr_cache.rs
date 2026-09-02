@@ -145,5 +145,5 @@ fn evaluate_scalar_terminal_expr(
     let mut read_slot = |slot: usize| row.slot_ref(slot);
 
     crate::db::executor::projection::eval_compiled_expr_with_value_ref_reader(expr, &mut read_slot)
-        .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
+        .map_err(ProjectionEvalError::into_internal_error)
 }

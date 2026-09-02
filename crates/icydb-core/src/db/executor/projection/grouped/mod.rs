@@ -127,7 +127,7 @@ pub(in crate::db::executor) fn compile_grouped_projection_plan_if_needed<'a>(
 
     let compiled_projection =
         compile_grouped_projection_plan(projection, group_fields, aggregate_execution_specs)
-            .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
+            .map_err(ProjectionEvalError::into_internal_error)?;
 
     Ok(Some(CompiledGroupedProjectionPlan {
         compiled_projection,

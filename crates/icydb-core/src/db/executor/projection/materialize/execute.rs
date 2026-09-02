@@ -140,18 +140,18 @@ fn project_slot_row_direct_octet_lengths_into(
         let Some(slot) = octet_length_slot else {
             let mut read_slot = |slot: usize| row.slot_ref(slot);
             let value = eval_compiled_expr_with_value_ref_reader(compiled, &mut read_slot)
-                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
+                .map_err(ProjectionEvalError::into_internal_error)?;
             shaped.push(value);
             continue;
         };
 
-        let (_slot, _field) = compiled.direct_octet_length_slot().ok_or_else(|| {
-            ProjectionEvalError::missing_unknown_value().into_invalid_logical_plan_internal_error()
-        })?;
+        let (_slot, _field) = compiled
+            .direct_octet_length_slot()
+            .ok_or_else(|| ProjectionEvalError::missing_unknown_value().into_internal_error())?;
         let value = row
             .slot_ref(*slot)
             .ok_or_else(|| ProjectionEvalError::missing_slot_value(*slot))
-            .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
+            .map_err(ProjectionEvalError::into_internal_error)?;
         shaped.push(retained_slot_octet_length_value(value)?);
     }
 
@@ -200,7 +200,7 @@ fn project_slot_row_from_direct_slots_into(
         let value = row
             .take_slot(slot)
             .ok_or_else(|| ProjectionEvalError::missing_slot_value(slot))
-            .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
+            .map_err(ProjectionEvalError::into_internal_error)?;
         shaped.push(value);
     }
 
@@ -223,7 +223,7 @@ fn project_repeated_slot_row_from_direct_slots_into(
             let slot = projection.source_slot();
             row.take_slot(slot)
                 .ok_or_else(|| ProjectionEvalError::missing_slot_value(slot))
-                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?
+                .map_err(ProjectionEvalError::into_internal_error)?
         };
         shaped.push(value);
     }
@@ -387,7 +387,7 @@ fn visit_prepared_projection_values_with_required_value_reader_cow<'a>(
             crate::db::executor::projection::eval::eval_compiled_expr_with_value_ref_reader(
                 compiled, read_slot,
             )
-            .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?,
+            .map_err(ProjectionEvalError::into_internal_error)?,
         );
     }
 

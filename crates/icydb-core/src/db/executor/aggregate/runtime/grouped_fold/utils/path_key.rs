@@ -40,7 +40,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn resolve_group_f
 
     Ok(
         resolve_value_field_path(root, path.label(), path.path().segments())
-            .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?
+            .map_err(ProjectionEvalError::into_internal_error)?
             .unwrap_or(&Value::Null),
     )
 }

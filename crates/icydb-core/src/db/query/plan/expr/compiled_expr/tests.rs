@@ -4,9 +4,10 @@ use crate::{
     },
     value::Value,
 };
+use icydb_diagnostic_code::QueryProjectionCode;
 use std::{borrow::Cow, cell::RefCell, cmp::Ordering};
 
-use super::ProjectionAccessCode;
+use super::ProjectionAccessKind;
 
 struct TestRowView {
     slots: Vec<Option<Value>>,
@@ -676,6 +677,24 @@ fn grouped_compiled_expr_function_calls_reuse_projection_semantics() {
 }
 
 #[test]
+fn grouped_compiled_expr_function_error_preserves_projection_reason() {
+    let expr = CompiledExpr::FunctionCall {
+        function: Function::Lower,
+        args: vec![slot_expr(0)].into_boxed_slice(),
+    };
+    let err = expr
+        .evaluate(&row_view())
+        .expect_err("lower should reject a numeric input");
+
+    assert_eq!(
+        err,
+        ProjectionEvalError::InvalidProjection {
+            reason: QueryProjectionCode::TextInputRequired,
+        }
+    );
+}
+
+#[test]
 fn grouped_compiled_expr_missing_slot_keeps_compact_diagnostic() {
     let expr = CompiledExpr::Slot {
         slot: 99,
@@ -688,7 +707,7 @@ fn grouped_compiled_expr_missing_slot_keeps_compact_diagnostic() {
     assert_eq!(
         err,
         ProjectionEvalError::MissingFieldValue {
-            access: ProjectionAccessCode::SLOT,
+            access: ProjectionAccessKind::Slot,
             index: 99,
         }
     );
@@ -720,7 +739,7 @@ fn compiled_expr_group_key_in_row_context_errors_not_null() {
     assert_eq!(
         err,
         ProjectionEvalError::MissingFieldValue {
-            access: ProjectionAccessCode::GROUP_KEY,
+            access: ProjectionAccessKind::GroupKey,
             index: 0,
         }
     );
@@ -739,7 +758,7 @@ fn compiled_expr_slot_in_grouped_context_errors_not_null() {
     assert_eq!(
         err,
         ProjectionEvalError::MissingFieldValue {
-            access: ProjectionAccessCode::SLOT,
+            access: ProjectionAccessKind::Slot,
             index: 0,
         }
     );
@@ -757,7 +776,7 @@ fn compiled_expr_out_of_bounds_grouped_reads_error_not_null() {
     std::assert_matches!(
         group_key.evaluate(&grouped_view),
         Err(ProjectionEvalError::MissingFieldValue {
-            access: ProjectionAccessCode::GROUP_KEY,
+            access: ProjectionAccessKind::GroupKey,
             index: 9,
         })
     );

@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        numeric::{NumericArithmeticOp, apply_value_arithmetic_checked},
+        numeric::apply_value_arithmetic_checked,
         query::plan::expr::{
             BinaryOp, CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, Function,
             ProjectionEvalError, ProjectionFunctionEvalError, UnaryOp,
@@ -481,11 +481,11 @@ fn eval_grouped_function_call(
 ) -> Result<Value, ProjectionEvalError> {
     eval_projection_function_call_checked(function, args).map_err(|err| match err {
         ProjectionFunctionEvalError::Numeric(err) => ProjectionEvalError::Numeric(err),
-        ProjectionFunctionEvalError::Query(err) => {
-            ProjectionFunctionEvalError::query_projection_reason(&err).map_or_else(
-                || ProjectionEvalError::invalid_function_call(function, args.len()),
-                ProjectionEvalError::invalid_projection,
-            )
+        ProjectionFunctionEvalError::InvalidProjection(reason) => {
+            ProjectionEvalError::invalid_projection(reason)
+        }
+        ProjectionFunctionEvalError::InvalidCall => {
+            ProjectionEvalError::invalid_function_call(function, args.len())
         }
     })
 }
@@ -568,19 +568,8 @@ fn evaluate_numeric_binary_expr(
         return Ok(Value::Null);
     }
 
-    let arithmetic_op = match op {
-        BinaryOp::Add => NumericArithmeticOp::Add,
-        BinaryOp::Sub => NumericArithmeticOp::Sub,
-        BinaryOp::Mul => NumericArithmeticOp::Mul,
-        BinaryOp::Div => NumericArithmeticOp::Div,
-        BinaryOp::Or
-        | BinaryOp::And
-        | BinaryOp::Eq
-        | BinaryOp::Ne
-        | BinaryOp::Lt
-        | BinaryOp::Lte
-        | BinaryOp::Gt
-        | BinaryOp::Gte => return Err(invalid_binary_operands(op, left, right)),
+    let Some(arithmetic_op) = op.numeric_arithmetic_op() else {
+        return Err(invalid_binary_operands(op, left, right));
     };
     let Some(result) = apply_value_arithmetic_checked(arithmetic_op, left, right)? else {
         return Err(invalid_binary_operands(op, left, right));

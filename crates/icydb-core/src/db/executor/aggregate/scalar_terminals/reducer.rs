@@ -457,8 +457,7 @@ impl ScalarAggregateReducerRuntime {
                 continue;
             }
             let value = row.slot_ref(reducer.slot).ok_or_else(|| {
-                ProjectionEvalError::missing_slot_value(reducer.slot)
-                    .into_invalid_logical_plan_internal_error()
+                ProjectionEvalError::missing_slot_value(reducer.slot).into_internal_error()
             })?;
             reducer.state.ingest_borrowed_value(value)?;
         }

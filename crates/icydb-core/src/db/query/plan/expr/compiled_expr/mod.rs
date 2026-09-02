@@ -44,187 +44,21 @@ pub(in crate::db) use evaluate::evaluate_grouped_having_expr;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct ProjectionAccessCode(u8);
-
-impl ProjectionAccessCode {
-    pub(in crate::db) const UNKNOWN: Self = Self(0);
-    pub(in crate::db) const SLOT: Self = Self(1);
-    pub(in crate::db) const GROUP_KEY: Self = Self(2);
-    pub(in crate::db) const FIELD_PATH: Self = Self(3);
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct ProjectionUnaryOpCode(u8);
-
-impl ProjectionUnaryOpCode {
-    const NOT: Self = Self(0);
-
-    const fn from_unary_op(op: UnaryOp) -> Self {
-        match op {
-            UnaryOp::Not => Self::NOT,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct ProjectionBinaryOpCode(u8);
-
-impl ProjectionBinaryOpCode {
-    const ADD: Self = Self(0);
-    const AND: Self = Self(1);
-    const DIV: Self = Self(2);
-    const EQ: Self = Self(3);
-    const GT: Self = Self(4);
-    const GTE: Self = Self(5);
-    const LT: Self = Self(6);
-    const LTE: Self = Self(7);
-    const MUL: Self = Self(8);
-    const NE: Self = Self(9);
-    const OR: Self = Self(10);
-    const SUB: Self = Self(11);
-
-    const fn from_binary_op(op: BinaryOp) -> Self {
-        match op {
-            BinaryOp::Add => Self::ADD,
-            BinaryOp::And => Self::AND,
-            BinaryOp::Div => Self::DIV,
-            BinaryOp::Eq => Self::EQ,
-            BinaryOp::Gt => Self::GT,
-            BinaryOp::Gte => Self::GTE,
-            BinaryOp::Lt => Self::LT,
-            BinaryOp::Lte => Self::LTE,
-            BinaryOp::Mul => Self::MUL,
-            BinaryOp::Ne => Self::NE,
-            BinaryOp::Or => Self::OR,
-            BinaryOp::Sub => Self::SUB,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(in crate::db) struct ProjectionFunctionCode(u8);
-
-impl ProjectionFunctionCode {
-    const ABS: Self = Self(0);
-    const CBRT: Self = Self(1);
-    const CEILING: Self = Self(2);
-    const COALESCE: Self = Self(3);
-    const COLLECTION_CONTAINS: Self = Self(4);
-    const CONTAINS: Self = Self(5);
-    const ENDS_WITH: Self = Self(6);
-    const EXP: Self = Self(7);
-    const FLOOR: Self = Self(8);
-    const IN_LIST: Self = Self(38);
-    const IS_EMPTY: Self = Self(9);
-    const IS_MISSING: Self = Self(10);
-    const IS_NOT_EMPTY: Self = Self(11);
-    const IS_NOT_NULL: Self = Self(12);
-    const IS_NULL: Self = Self(13);
-    const LEFT: Self = Self(14);
-    const LENGTH: Self = Self(15);
-    const LN: Self = Self(16);
-    const LOG: Self = Self(17);
-    const LOG2: Self = Self(18);
-    const LOG10: Self = Self(19);
-    const LOWER: Self = Self(20);
-    const LTRIM: Self = Self(21);
-    const MOD: Self = Self(22);
-    const NULLIF: Self = Self(23);
-    const OCTET_LENGTH: Self = Self(24);
-    const POSITION: Self = Self(25);
-    const POWER: Self = Self(26);
-    const REPLACE: Self = Self(27);
-    const RIGHT: Self = Self(28);
-    const ROUND: Self = Self(29);
-    const RTRIM: Self = Self(30);
-    const SIGN: Self = Self(31);
-    const SQRT: Self = Self(32);
-    const STARTS_WITH: Self = Self(33);
-    const SUBSTRING: Self = Self(34);
-    const TRIM: Self = Self(35);
-    const TRUNC: Self = Self(36);
-    const UPPER: Self = Self(37);
-
-    const fn from_function(function: Function) -> Self {
-        match function {
-            Function::Abs => Self::ABS,
-            Function::Cbrt => Self::CBRT,
-            Function::Ceiling => Self::CEILING,
-            Function::Coalesce => Self::COALESCE,
-            Function::CollectionContains => Self::COLLECTION_CONTAINS,
-            Function::Contains => Self::CONTAINS,
-            Function::EndsWith => Self::ENDS_WITH,
-            Function::Exp => Self::EXP,
-            Function::Floor => Self::FLOOR,
-            Function::InList => Self::IN_LIST,
-            Function::IsEmpty => Self::IS_EMPTY,
-            Function::IsMissing => Self::IS_MISSING,
-            Function::IsNotEmpty => Self::IS_NOT_EMPTY,
-            Function::IsNotNull => Self::IS_NOT_NULL,
-            Function::IsNull => Self::IS_NULL,
-            Function::Left => Self::LEFT,
-            Function::Length => Self::LENGTH,
-            Function::Ln => Self::LN,
-            Function::Log => Self::LOG,
-            Function::Log2 => Self::LOG2,
-            Function::Log10 => Self::LOG10,
-            Function::Lower => Self::LOWER,
-            Function::Ltrim => Self::LTRIM,
-            Function::Mod => Self::MOD,
-            Function::NullIf => Self::NULLIF,
-            Function::OctetLength => Self::OCTET_LENGTH,
-            Function::Position => Self::POSITION,
-            Function::Power => Self::POWER,
-            Function::Replace => Self::REPLACE,
-            Function::Right => Self::RIGHT,
-            Function::Round => Self::ROUND,
-            Function::Rtrim => Self::RTRIM,
-            Function::Sign => Self::SIGN,
-            Function::Sqrt => Self::SQRT,
-            Function::StartsWith => Self::STARTS_WITH,
-            Function::Substring => Self::SUBSTRING,
-            Function::Trim => Self::TRIM,
-            Function::Trunc => Self::TRUNC,
-            Function::Upper => Self::UPPER,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct ProjectionAggregateKindCode(u8);
-
-impl ProjectionAggregateKindCode {
-    const COUNT: Self = Self(0);
-    const SUM: Self = Self(1);
-    const AVG: Self = Self(2);
-    const EXISTS: Self = Self(3);
-    const MIN: Self = Self(4);
-    const MAX: Self = Self(5);
-    const FIRST: Self = Self(6);
-    const LAST: Self = Self(7);
-
-    const fn from_aggregate_kind(kind: AggregateKind) -> Self {
-        match kind {
-            AggregateKind::Count => Self::COUNT,
-            AggregateKind::Sum => Self::SUM,
-            AggregateKind::Avg => Self::AVG,
-            AggregateKind::Exists => Self::EXISTS,
-            AggregateKind::Min => Self::MIN,
-            AggregateKind::Max => Self::MAX,
-            AggregateKind::First => Self::FIRST,
-            AggregateKind::Last => Self::LAST,
-        }
-    }
+pub(in crate::db) enum ProjectionAccessKind {
+    Unknown,
+    Slot,
+    GroupKey,
+    FieldPath,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ProjectionEvalError {
     UnknownField {
-        access: ProjectionAccessCode,
+        access: ProjectionAccessKind,
     },
 
     MissingFieldValue {
-        access: ProjectionAccessCode,
+        access: ProjectionAccessKind,
         index: usize,
     },
 
@@ -243,7 +77,7 @@ pub(in crate::db) enum ProjectionEvalError {
     },
 
     InvalidUnaryOperand {
-        op: ProjectionUnaryOpCode,
+        op: UnaryOp,
         found: ValueTag,
     },
 
@@ -253,13 +87,13 @@ pub(in crate::db) enum ProjectionEvalError {
     },
 
     InvalidBinaryOperands {
-        op: ProjectionBinaryOpCode,
+        op: BinaryOp,
         left: ValueTag,
         right: ValueTag,
     },
 
     UnknownGroupedAggregateExpression {
-        kind: ProjectionAggregateKindCode,
+        kind: AggregateKind,
     },
 
     MissingGroupedAggregateValue {
@@ -267,7 +101,7 @@ pub(in crate::db) enum ProjectionEvalError {
     },
 
     InvalidFunctionCall {
-        function: ProjectionFunctionCode,
+        function: Function,
         argument_count: usize,
     },
 
@@ -291,34 +125,34 @@ impl From<NumericEvalError> for ProjectionEvalError {
 impl ProjectionEvalError {
     pub(in crate::db) const fn unknown_group_field() -> Self {
         Self::UnknownField {
-            access: ProjectionAccessCode::GROUP_KEY,
+            access: ProjectionAccessKind::GroupKey,
         }
     }
 
     pub(in crate::db) const fn missing_unknown_value() -> Self {
         Self::MissingFieldValue {
-            access: ProjectionAccessCode::UNKNOWN,
+            access: ProjectionAccessKind::Unknown,
             index: 0,
         }
     }
 
     pub(in crate::db) const fn missing_slot_value(slot: usize) -> Self {
         Self::MissingFieldValue {
-            access: ProjectionAccessCode::SLOT,
+            access: ProjectionAccessKind::Slot,
             index: slot,
         }
     }
 
     pub(in crate::db) const fn missing_group_key_value(offset: usize) -> Self {
         Self::MissingFieldValue {
-            access: ProjectionAccessCode::GROUP_KEY,
+            access: ProjectionAccessKind::GroupKey,
             index: offset,
         }
     }
 
     pub(in crate::db) const fn missing_field_path_root_value(root_slot: usize) -> Self {
         Self::MissingFieldValue {
-            access: ProjectionAccessCode::FIELD_PATH,
+            access: ProjectionAccessKind::FieldPath,
             index: root_slot,
         }
     }
@@ -333,7 +167,7 @@ impl ProjectionEvalError {
 
     pub(in crate::db) const fn invalid_unary_operand(op: UnaryOp, found: &Value) -> Self {
         Self::InvalidUnaryOperand {
-            op: ProjectionUnaryOpCode::from_unary_op(op),
+            op,
             found: found.canonical_tag(),
         }
     }
@@ -354,16 +188,14 @@ impl ProjectionEvalError {
         right: &Value,
     ) -> Self {
         Self::InvalidBinaryOperands {
-            op: ProjectionBinaryOpCode::from_binary_op(op),
+            op,
             left: left.canonical_tag(),
             right: right.canonical_tag(),
         }
     }
 
     pub(in crate::db) const fn unknown_grouped_aggregate_expression(kind: AggregateKind) -> Self {
-        Self::UnknownGroupedAggregateExpression {
-            kind: ProjectionAggregateKindCode::from_aggregate_kind(kind),
-        }
+        Self::UnknownGroupedAggregateExpression { kind }
     }
 
     pub(in crate::db) const fn invalid_function_call(
@@ -371,7 +203,7 @@ impl ProjectionEvalError {
         argument_count: usize,
     ) -> Self {
         Self::InvalidFunctionCall {
-            function: ProjectionFunctionCode::from_function(function),
+            function,
             argument_count,
         }
     }
@@ -386,18 +218,8 @@ impl ProjectionEvalError {
         }
     }
 
-    /// Map one projection evaluation failure into the invalid-logical-plan boundary.
-    pub(in crate::db) fn into_invalid_logical_plan_internal_error(self) -> InternalError {
-        self.into_internal_error()
-    }
-
-    /// Map one grouped projection evaluation failure into the grouped-output
-    /// invalid-logical-plan boundary while preserving grouped context.
-    pub(in crate::db) fn into_grouped_projection_internal_error(self) -> InternalError {
-        self.into_internal_error()
-    }
-
-    fn into_internal_error(self) -> InternalError {
+    /// Map one projection evaluation failure into its executor-facing error.
+    pub(in crate::db) fn into_internal_error(self) -> InternalError {
         match self {
             Self::Numeric(err) => err.into_internal_error(),
             Self::FieldPathEvaluationFailed { class, origin }

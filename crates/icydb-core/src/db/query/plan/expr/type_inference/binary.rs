@@ -8,7 +8,7 @@ use crate::db::{
                 unify::{blob_opaque_compatible, infer_numeric_result_subtype},
             },
         },
-        validate::{ExprPlanError, ExprPlanTypeClass},
+        validate::ExprPlanError,
     },
     schema::SchemaInfo,
 };
@@ -62,11 +62,7 @@ pub(super) fn infer_binary_expr_type(
 // Binary type inference keeps one shared planner-facing operand mismatch error
 // so arithmetic, boolean, and equality lanes cannot drift in diagnostics.
 fn invalid_binary_operands(op: BinaryOp, left: &ExprType, right: &ExprType) -> PlanError {
-    PlanError::from(ExprPlanError::invalid_binary_operands(
-        op,
-        ExprPlanTypeClass::from_expr_type(left),
-        ExprPlanTypeClass::from_expr_type(right),
-    ))
+    PlanError::from(ExprPlanError::invalid_binary_operands(op, left, right))
 }
 
 const fn binary_equality_comparable(left: &ExprType, right: &ExprType) -> bool {

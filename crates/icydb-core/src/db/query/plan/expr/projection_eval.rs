@@ -20,8 +20,8 @@ use crate::{
     db::{
         QueryError,
         numeric::{
-            NumericArithmeticOp, NumericEvalError, apply_value_arithmetic_checked,
-            coerce_numeric_decimal, compare_numeric_eq, compare_numeric_or_strict_order,
+            NumericEvalError, apply_value_arithmetic_checked, coerce_numeric_decimal,
+            compare_numeric_eq, compare_numeric_or_strict_order,
         },
         query::plan::expr::{
             BinaryOp, CompiledExpr, CompiledExprValueReader, Expr, Function, ProjectionEvalError,
@@ -30,7 +30,7 @@ use crate::{
     },
     value::Value,
 };
-use icydb_diagnostic_code::{DiagnosticDetail, QueryProjectionCode};
+use icydb_diagnostic_code::QueryProjectionCode;
 use std::{borrow::Cow, cmp::Ordering};
 
 const PREVIEW_VALUE_SLOT: usize = 0;
@@ -63,35 +63,21 @@ impl CompiledExprValueReader for PreviewValueReader<'_> {
 ///
 
 pub(in crate::db) enum ProjectionFunctionEvalError {
-    Query(QueryError),
+    InvalidCall,
+    InvalidProjection(QueryProjectionCode),
     Numeric(NumericEvalError),
 }
 
 impl ProjectionFunctionEvalError {
     /// Convert this function-evaluation failure into the query-facing error
     /// taxonomy used by builder preview paths.
+    #[cfg(test)]
     pub(in crate::db) fn into_query_error(self) -> QueryError {
         match self {
-            Self::Query(err) => err,
+            Self::InvalidCall => QueryError::invariant(),
+            Self::InvalidProjection(reason) => QueryError::unsupported_projection(reason),
             Self::Numeric(err) => QueryError::from_numeric_eval_error(err),
         }
-    }
-
-    /// Return the compact projection reason when this function failure already
-    /// crossed a query-facing projection boundary.
-    pub(in crate::db) fn query_projection_reason(err: &QueryError) -> Option<QueryProjectionCode> {
-        let Some(DiagnosticDetail::QueryProjection { reason }) = err.diagnostic().detail().copied()
-        else {
-            return None;
-        };
-
-        Some(reason)
-    }
-}
-
-impl From<QueryError> for ProjectionFunctionEvalError {
-    fn from(err: QueryError) -> Self {
-        Self::Query(err)
     }
 }
 
@@ -101,8 +87,8 @@ impl From<NumericEvalError> for ProjectionFunctionEvalError {
     }
 }
 
-fn projection_unsupported(reason: QueryProjectionCode) -> ProjectionFunctionEvalError {
-    QueryError::unsupported_projection(reason).into()
+const fn projection_unsupported(reason: QueryProjectionCode) -> ProjectionFunctionEvalError {
+    ProjectionFunctionEvalError::InvalidProjection(reason)
 }
 
 /// Evaluate one bounded projection-function call over already-evaluated
@@ -124,7 +110,9 @@ pub(in crate::db) fn eval_projection_function_call_checked(
 ) -> Result<Value, ProjectionFunctionEvalError> {
     match function.scalar_eval_shape() {
         ScalarEvalFunctionShape::NullTest => eval_null_test_function_call(function, args),
-        ScalarEvalFunctionShape::NonExecutableProjection => Err(QueryError::invariant().into()),
+        ScalarEvalFunctionShape::NonExecutableProjection => {
+            Err(ProjectionFunctionEvalError::InvalidCall)
+        }
         ScalarEvalFunctionShape::UnaryText => eval_unary_text_function_call(function, args),
         ScalarEvalFunctionShape::DynamicCoalesce => eval_coalesce_function_call(function, args),
         ScalarEvalFunctionShape::DynamicNullIf => eval_nullif_function_call(function, args),
@@ -138,8 +126,8 @@ pub(in crate::db) fn eval_projection_function_call_checked(
         ScalarEvalFunctionShape::ReplaceText => eval_replace_text_function_call(function, args),
         ScalarEvalFunctionShape::SubstringText => eval_substring_text_function_call(function, args),
         ScalarEvalFunctionShape::NumericScale => eval_numeric_scale_function_call(function, args),
-        ScalarEvalFunctionShape::OctetLength => eval_octet_length_function_call(function, args),
-        ScalarEvalFunctionShape::Membership => eval_membership_function_call(function, args),
+        ScalarEvalFunctionShape::OctetLength => eval_octet_length_function_call(args),
+        ScalarEvalFunctionShape::Membership => eval_membership_function_call(args),
     }
 }
 
@@ -261,31 +249,27 @@ fn preview_eval_error_into_query_error(err: ProjectionEvalError) -> QueryError {
     }
 }
 
-fn required_function_arg<'a>(
-    function: Function,
-    args: &'a [Value],
+fn required_function_arg(
+    args: &[Value],
     index: usize,
-    label: &str,
-) -> Result<&'a Value, ProjectionFunctionEvalError> {
-    let _ = (function, label);
-
+) -> Result<&Value, ProjectionFunctionEvalError> {
     args.get(index)
-        .ok_or_else(|| QueryError::invariant().into())
+        .ok_or(ProjectionFunctionEvalError::InvalidCall)
 }
 
 fn eval_null_test_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
-    let value = required_function_arg(function, args, 0, "value")?;
+    let value = required_function_arg(args, 0)?;
 
     if args.len() != 1 {
-        return Err(QueryError::invariant().into());
+        return Err(ProjectionFunctionEvalError::InvalidCall);
     }
 
     let kind = function
         .boolean_null_test_kind()
-        .ok_or_else(QueryError::invariant)?;
+        .ok_or(ProjectionFunctionEvalError::InvalidCall)?;
 
     Ok(kind.eval_value(value))
 }
@@ -294,18 +278,18 @@ fn eval_unary_text_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
-    let input = required_function_arg(function, args, 0, "input")?;
+    let input = required_function_arg(args, 0)?;
 
     match input {
         Value::Null => Ok(Value::Null),
         Value::Text(text) => {
             let kind = function
                 .unary_text_function_kind()
-                .ok_or_else(QueryError::invariant)?;
+                .ok_or(ProjectionFunctionEvalError::InvalidCall)?;
 
             Ok(kind.eval_text(text.as_str()))
         }
-        other => Err(text_input_error(function, other).into()),
+        _ => Err(text_input_error()),
     }
 }
 
@@ -313,7 +297,7 @@ fn eval_unary_numeric_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
-    let input = required_function_arg(function, args, 0, "input")?;
+    let input = required_function_arg(args, 0)?;
 
     match input {
         Value::Null => Ok(Value::Null),
@@ -326,7 +310,7 @@ fn eval_unary_numeric_function_call(
 
             let kind = function
                 .unary_numeric_function_kind()
-                .ok_or_else(QueryError::invariant)?;
+                .ok_or(ProjectionFunctionEvalError::InvalidCall)?;
 
             Ok(kind
                 .eval_decimal(decimal)
@@ -335,14 +319,11 @@ fn eval_unary_numeric_function_call(
     }
 }
 
-fn eval_octet_length_function_call(
-    function: Function,
-    args: &[Value],
-) -> Result<Value, ProjectionFunctionEvalError> {
-    let input = required_function_arg(function, args, 0, "input")?;
+fn eval_octet_length_function_call(args: &[Value]) -> Result<Value, ProjectionFunctionEvalError> {
+    let input = required_function_arg(args, 0)?;
 
     if args.len() != 1 {
-        return Err(QueryError::invariant().into());
+        return Err(ProjectionFunctionEvalError::InvalidCall);
     }
 
     match input {
@@ -359,11 +340,11 @@ fn eval_binary_numeric_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
-    let left = required_function_arg(function, args, 0, "left")?;
-    let right = required_function_arg(function, args, 1, "right")?;
+    let left = required_function_arg(args, 0)?;
+    let right = required_function_arg(args, 1)?;
 
     if args.len() != 2 {
-        return Err(QueryError::invariant().into());
+        return Err(ProjectionFunctionEvalError::InvalidCall);
     }
 
     match (left, right) {
@@ -371,7 +352,7 @@ fn eval_binary_numeric_function_call(
         (left, right) => {
             let kind = function
                 .binary_numeric_function_kind()
-                .ok_or_else(QueryError::invariant)?;
+                .ok_or(ProjectionFunctionEvalError::InvalidCall)?;
             let Some(value) = kind
                 .eval_values(left, right)
                 .map_err(ProjectionFunctionEvalError::from)?
@@ -391,7 +372,7 @@ fn eval_coalesce_function_call(
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     if args.len() < 2 {
-        return Err(QueryError::invariant().into());
+        return Err(ProjectionFunctionEvalError::InvalidCall);
     }
 
     Ok(function.eval_coalesce_values(args))
@@ -401,11 +382,11 @@ fn eval_nullif_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
-    let left = required_function_arg(function, args, 0, "left")?;
-    let right = required_function_arg(function, args, 1, "right")?;
+    let left = required_function_arg(args, 0)?;
+    let right = required_function_arg(args, 1)?;
 
     if args.len() != 2 {
-        return Err(QueryError::invariant().into());
+        return Err(ProjectionFunctionEvalError::InvalidCall);
     }
 
     let equals = eval_preview_binary_expr(BinaryOp::Eq, left, right)?;
@@ -417,19 +398,19 @@ fn eval_left_right_text_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
-    let input = required_function_arg(function, args, 0, "input")?;
-    let length = integer_literal_arg(function, args, 1, "length")?;
+    let input = required_function_arg(args, 0)?;
+    let length = integer_literal_arg(args, 1)?;
 
     match (input, length) {
         (Value::Null, _) | (_, None) => Ok(Value::Null),
         (Value::Text(text), Some(length)) => {
             let kind = function
                 .left_right_text_function_kind()
-                .ok_or_else(QueryError::invariant)?;
+                .ok_or(ProjectionFunctionEvalError::InvalidCall)?;
 
             Ok(kind.eval_text(text.as_str(), length))
         }
-        (other, _) => Err(text_input_error(function, other).into()),
+        _ => Err(text_input_error()),
     }
 }
 
@@ -437,19 +418,19 @@ fn eval_text_predicate_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
-    let input = required_function_arg(function, args, 0, "input")?;
-    let literal = text_literal_arg(function, args, 1, "literal")?;
+    let input = required_function_arg(args, 0)?;
+    let literal = text_literal_arg(args, 1)?;
 
     match (input, literal) {
         (Value::Null, _) | (_, None) => Ok(Value::Null),
         (Value::Text(text), Some(needle)) => {
             let kind = function
                 .boolean_text_predicate_kind()
-                .ok_or_else(QueryError::invariant)?;
+                .ok_or(ProjectionFunctionEvalError::InvalidCall)?;
 
             Ok(kind.eval_text(text, needle))
         }
-        (other, _) => Err(text_input_error(function, other).into()),
+        _ => Err(text_input_error()),
     }
 }
 
@@ -457,13 +438,13 @@ fn eval_position_text_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
-    let needle = text_literal_arg(function, args, 0, "literal")?;
-    let input = required_function_arg(function, args, 1, "input")?;
+    let needle = text_literal_arg(args, 0)?;
+    let input = required_function_arg(args, 1)?;
 
     match (needle, input) {
         (_, Value::Null) | (None, _) => Ok(Value::Null),
         (Some(needle), Value::Text(text)) => Ok(function.eval_position_text(text.as_str(), needle)),
-        (_, other) => Err(text_input_error(function, other).into()),
+        _ => Err(text_input_error()),
     }
 }
 
@@ -471,16 +452,16 @@ fn eval_replace_text_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
-    let input = required_function_arg(function, args, 0, "input")?;
-    let from = text_literal_arg(function, args, 1, "from")?;
-    let to = text_literal_arg(function, args, 2, "to")?;
+    let input = required_function_arg(args, 0)?;
+    let from = text_literal_arg(args, 1)?;
+    let to = text_literal_arg(args, 2)?;
 
     match (input, from, to) {
         (Value::Null, _, _) | (_, None, _) | (_, _, None) => Ok(Value::Null),
         (Value::Text(text), Some(from), Some(to)) => {
             Ok(function.eval_replace_text(text.as_str(), from, to))
         }
-        (other, _, _) => Err(text_input_error(function, other).into()),
+        _ => Err(text_input_error()),
     }
 }
 
@@ -488,16 +469,16 @@ fn eval_substring_text_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
-    let input = required_function_arg(function, args, 0, "input")?;
-    let start = integer_literal_arg(function, args, 1, "start")?;
-    let length = optional_integer_literal_arg(function, args, 2, "length")?;
+    let input = required_function_arg(args, 0)?;
+    let start = integer_literal_arg(args, 1)?;
+    let length = optional_integer_literal_arg(args, 2)?;
 
     match (input, start) {
         (Value::Null, _) | (_, None) => Ok(Value::Null),
         (Value::Text(text), Some(start)) => {
             Ok(function.eval_substring_text(text.as_str(), start, length))
         }
-        (other, _) => Err(text_input_error(function, other).into()),
+        _ => Err(text_input_error()),
     }
 }
 
@@ -505,8 +486,8 @@ fn eval_numeric_scale_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, ProjectionFunctionEvalError> {
-    let input = required_function_arg(function, args, 0, "input")?;
-    let scale = integer_literal_arg(function, args, 1, "scale")?;
+    let input = required_function_arg(args, 0)?;
+    let scale = integer_literal_arg(args, 1)?;
 
     match (input, scale) {
         (Value::Null, _) | (_, None) => Ok(Value::Null),
@@ -527,22 +508,19 @@ fn eval_numeric_scale_function_call(
     }
 }
 
-fn eval_membership_function_call(
-    function: Function,
-    args: &[Value],
-) -> Result<Value, ProjectionFunctionEvalError> {
-    let target = required_function_arg(function, args, 0, "target")?;
-    let values = required_function_arg(function, args, 1, "values")?;
+fn eval_membership_function_call(args: &[Value]) -> Result<Value, ProjectionFunctionEvalError> {
+    let target = required_function_arg(args, 0)?;
+    let values = required_function_arg(args, 1)?;
 
     if args.len() != 2 {
-        return Err(QueryError::invariant().into());
+        return Err(ProjectionFunctionEvalError::InvalidCall);
     }
     if matches!(target, Value::Null) {
         return Ok(Value::Null);
     }
 
     let Value::List(values) = values else {
-        return Err(QueryError::invariant().into());
+        return Err(ProjectionFunctionEvalError::InvalidCall);
     };
 
     let mut saw_null = false;
@@ -553,8 +531,7 @@ fn eval_membership_function_call(
             continue;
         }
 
-        let comparison = eval_preview_compare_binary_expr(BinaryOp::Eq, target, value)
-            .map_err(ProjectionFunctionEvalError::from)?;
+        let comparison = eval_preview_compare_binary_expr(BinaryOp::Eq, target, value)?;
         if matches!(comparison, Value::Bool(true)) {
             matched = true;
         }
@@ -571,7 +548,7 @@ fn eval_preview_binary_expr(
     op: BinaryOp,
     left: &Value,
     right: &Value,
-) -> Result<Value, QueryError> {
+) -> Result<Value, ProjectionFunctionEvalError> {
     match op {
         BinaryOp::Or | BinaryOp::And => eval_preview_boolean_binary_expr(op, left, right),
         BinaryOp::Eq
@@ -590,11 +567,11 @@ fn eval_preview_binary_expr(
     }
 }
 
-fn eval_preview_boolean_binary_expr(
+const fn eval_preview_boolean_binary_expr(
     op: BinaryOp,
     left: &Value,
     right: &Value,
-) -> Result<Value, QueryError> {
+) -> Result<Value, ProjectionFunctionEvalError> {
     match op {
         BinaryOp::And => match (left, right) {
             (Value::Bool(false), _) | (_, Value::Bool(false)) => Ok(Value::Bool(false)),
@@ -602,7 +579,7 @@ fn eval_preview_boolean_binary_expr(
             (Value::Bool(true) | Value::Null, Value::Null) | (Value::Null, Value::Bool(true)) => {
                 Ok(Value::Null)
             }
-            _ => Err(invalid_binary_operands(op, left, right)),
+            _ => Err(invalid_binary_operands()),
         },
         BinaryOp::Or => match (left, right) {
             (Value::Bool(true), _) | (_, Value::Bool(true)) => Ok(Value::Bool(true)),
@@ -610,9 +587,9 @@ fn eval_preview_boolean_binary_expr(
             (Value::Bool(false) | Value::Null, Value::Null) | (Value::Null, Value::Bool(false)) => {
                 Ok(Value::Null)
             }
-            _ => Err(invalid_binary_operands(op, left, right)),
+            _ => Err(invalid_binary_operands()),
         },
-        _ => Err(QueryError::invariant()),
+        _ => Err(ProjectionFunctionEvalError::InvalidCall),
     }
 }
 
@@ -620,11 +597,14 @@ fn eval_preview_numeric_binary_expr(
     op: BinaryOp,
     left: &Value,
     right: &Value,
-) -> Result<Value, QueryError> {
-    let Some(result) = apply_value_arithmetic_checked(numeric_arithmetic_op(op), left, right)
-        .map_err(QueryError::from_numeric_eval_error)?
+) -> Result<Value, ProjectionFunctionEvalError> {
+    let Some(arithmetic_op) = op.numeric_arithmetic_op() else {
+        return Err(ProjectionFunctionEvalError::InvalidCall);
+    };
+    let Some(result) = apply_value_arithmetic_checked(arithmetic_op, left, right)
+        .map_err(ProjectionFunctionEvalError::from)?
     else {
-        return Err(invalid_binary_operands(op, left, right));
+        return Err(invalid_binary_operands());
     };
 
     Ok(result)
@@ -634,7 +614,7 @@ fn eval_preview_compare_binary_expr(
     op: BinaryOp,
     left: &Value,
     right: &Value,
-) -> Result<Value, QueryError> {
+) -> Result<Value, ProjectionFunctionEvalError> {
     if matches!(left, Value::Null) || matches!(right, Value::Null) {
         return Ok(Value::Null);
     }
@@ -648,7 +628,7 @@ fn eval_preview_compare_binary_expr(
             } else if !numeric_widen_enabled {
                 left == right
             } else {
-                return Err(invalid_binary_operands(op, left, right));
+                return Err(invalid_binary_operands());
             }
         }
         BinaryOp::Ne => {
@@ -657,101 +637,73 @@ fn eval_preview_compare_binary_expr(
             } else if !numeric_widen_enabled {
                 left != right
             } else {
-                return Err(invalid_binary_operands(op, left, right));
+                return Err(invalid_binary_operands());
             }
         }
-        BinaryOp::Lt => eval_order_comparison(op, left, right, Ordering::is_lt)?,
-        BinaryOp::Lte => eval_order_comparison(op, left, right, Ordering::is_le)?,
-        BinaryOp::Gt => eval_order_comparison(op, left, right, Ordering::is_gt)?,
-        BinaryOp::Gte => eval_order_comparison(op, left, right, Ordering::is_ge)?,
-        _ => return Err(QueryError::invariant()),
+        BinaryOp::Lt => eval_order_comparison(left, right, Ordering::is_lt)?,
+        BinaryOp::Lte => eval_order_comparison(left, right, Ordering::is_le)?,
+        BinaryOp::Gt => eval_order_comparison(left, right, Ordering::is_gt)?,
+        BinaryOp::Gte => eval_order_comparison(left, right, Ordering::is_ge)?,
+        _ => return Err(ProjectionFunctionEvalError::InvalidCall),
     };
 
     Ok(Value::Bool(value))
 }
 
 fn eval_order_comparison(
-    op: BinaryOp,
     left: &Value,
     right: &Value,
     predicate: impl FnOnce(Ordering) -> bool,
-) -> Result<bool, QueryError> {
+) -> Result<bool, ProjectionFunctionEvalError> {
     let Some(ordering) = compare_numeric_or_strict_order(left, right) else {
-        return Err(invalid_binary_operands(op, left, right));
+        return Err(invalid_binary_operands());
     };
 
     Ok(predicate(ordering))
 }
 
-fn text_input_error(_function: Function, _other: &Value) -> QueryError {
-    QueryError::unsupported_projection(QueryProjectionCode::TextInputRequired)
+const fn text_input_error() -> ProjectionFunctionEvalError {
+    projection_unsupported(QueryProjectionCode::TextInputRequired)
 }
 
-fn text_literal_arg<'a>(
-    function: Function,
-    args: &'a [Value],
+fn text_literal_arg(
+    args: &[Value],
     index: usize,
-    label: &str,
-) -> Result<Option<&'a str>, QueryError> {
-    match required_function_arg(function, args, index, label)
-        .map_err(ProjectionFunctionEvalError::into_query_error)?
-    {
+) -> Result<Option<&str>, ProjectionFunctionEvalError> {
+    match required_function_arg(args, index)? {
         Value::Null => Ok(None),
         Value::Text(text) => Ok(Some(text.as_str())),
-        _ => Err(QueryError::unsupported_projection(
+        _ => Err(projection_unsupported(
             QueryProjectionCode::TextOrNullArgumentRequired,
         )),
     }
 }
 
 fn integer_literal_arg(
-    function: Function,
     args: &[Value],
     index: usize,
-    label: &str,
-) -> Result<Option<i64>, QueryError> {
-    match required_function_arg(function, args, index, label)
-        .map_err(ProjectionFunctionEvalError::into_query_error)?
-    {
+) -> Result<Option<i64>, ProjectionFunctionEvalError> {
+    match required_function_arg(args, index)? {
         Value::Null => Ok(None),
         Value::Int64(value) => Ok(Some(*value)),
         Value::Nat64(value) => Ok(Some(i64::try_from(*value).unwrap_or(i64::MAX))),
-        _ => Err(QueryError::unsupported_projection(
+        _ => Err(projection_unsupported(
             QueryProjectionCode::IntegerOrNullArgumentRequired,
         )),
     }
 }
 
 fn optional_integer_literal_arg(
-    function: Function,
     args: &[Value],
     index: usize,
-    label: &str,
-) -> Result<Option<i64>, QueryError> {
+) -> Result<Option<i64>, ProjectionFunctionEvalError> {
     if index >= args.len() {
         return Ok(None);
     }
 
-    integer_literal_arg(function, args, index, label)
+    integer_literal_arg(args, index)
 }
 
-fn invalid_binary_operands(_op: BinaryOp, _left: &Value, _right: &Value) -> QueryError {
-    QueryError::unsupported_projection(QueryProjectionCode::BinaryOperandsIncompatible)
-}
-
-const fn numeric_arithmetic_op(op: BinaryOp) -> NumericArithmeticOp {
-    match op {
-        BinaryOp::Or
-        | BinaryOp::And
-        | BinaryOp::Eq
-        | BinaryOp::Ne
-        | BinaryOp::Lt
-        | BinaryOp::Lte
-        | BinaryOp::Gt
-        | BinaryOp::Gte
-        | BinaryOp::Add => NumericArithmeticOp::Add,
-        BinaryOp::Sub => NumericArithmeticOp::Sub,
-        BinaryOp::Mul => NumericArithmeticOp::Mul,
-        BinaryOp::Div => NumericArithmeticOp::Div,
-    }
+const fn invalid_binary_operands() -> ProjectionFunctionEvalError {
+    projection_unsupported(QueryProjectionCode::BinaryOperandsIncompatible)
 }

@@ -7,7 +7,7 @@ use crate::{
                 Expr, NumericSubtype,
                 type_inference::{ExprType, infer_expr_type},
             },
-            validate::{ExprPlanError, ExprPlanTypeClass},
+            validate::ExprPlanError,
         },
     },
     db::schema::SchemaInfo,
@@ -47,10 +47,7 @@ fn infer_sum_aggregate_type(
 
     if !sum_like_input_type_supported(kind, &inferred) {
         return Err(PlanError::from(
-            ExprPlanError::non_numeric_aggregate_target(
-                kind,
-                ExprPlanTypeClass::from_expr_type(&inferred),
-            ),
+            ExprPlanError::non_numeric_aggregate_target(kind, &inferred),
         ));
     }
 

@@ -354,7 +354,7 @@ pub(in crate::db::executor) fn project_grouped_values_from_compiled_projection(
         let projected_value = expr
             .evaluate(&grouped_row)
             .map(Cow::into_owned)
-            .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
+            .map_err(ProjectionEvalError::into_internal_error)?;
 
         if expected_group_position == Some(projection_index) {
             projected_group_key.push(projected_value);

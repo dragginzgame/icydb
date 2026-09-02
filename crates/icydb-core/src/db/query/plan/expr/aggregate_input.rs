@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        numeric::{NumericArithmeticOp, apply_value_arithmetic_checked, coerce_numeric_decimal},
+        numeric::{apply_value_arithmetic_checked, coerce_numeric_decimal},
         query::plan::{
             AggregateKind,
             expr::{AggregateInputConstantFoldShape, BinaryOp, Expr, Function},
@@ -107,20 +107,7 @@ fn fold_aggregate_input_constant_binary(op: BinaryOp, left: &Expr, right: &Expr)
         return Some(Expr::Literal(Value::Null));
     }
 
-    let arithmetic_op = match op {
-        BinaryOp::Or
-        | BinaryOp::And
-        | BinaryOp::Eq
-        | BinaryOp::Ne
-        | BinaryOp::Lt
-        | BinaryOp::Lte
-        | BinaryOp::Gt
-        | BinaryOp::Gte => return None,
-        BinaryOp::Add => NumericArithmeticOp::Add,
-        BinaryOp::Sub => NumericArithmeticOp::Sub,
-        BinaryOp::Mul => NumericArithmeticOp::Mul,
-        BinaryOp::Div => NumericArithmeticOp::Div,
-    };
+    let arithmetic_op = op.numeric_arithmetic_op()?;
     let result = apply_value_arithmetic_checked(arithmetic_op, left, right)
         .ok()
         .flatten()?;

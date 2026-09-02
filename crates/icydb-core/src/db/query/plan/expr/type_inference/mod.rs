@@ -18,7 +18,7 @@ use crate::db::{
             NumericSubtype,
             ast::{Expr, UnaryOp},
         },
-        validate::{ExprPlanError, ExprPlanTypeClass},
+        validate::ExprPlanError,
     },
     schema::SchemaInfo,
 };
@@ -141,8 +141,7 @@ fn infer_expr_type_impl(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, Pl
                 UnaryOp::Not => {
                     if !matches!(inner, ExprType::Bool) {
                         return Err(PlanError::from(ExprPlanError::invalid_unary_operand(
-                            *op,
-                            ExprPlanTypeClass::from_expr_type(&inner),
+                            *op, &inner,
                         )));
                     }
 

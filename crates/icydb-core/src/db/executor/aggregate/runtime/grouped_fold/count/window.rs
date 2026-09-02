@@ -90,7 +90,7 @@ impl<'a> GroupedCountWindowSelection<'a> {
                     route.group_fields(),
                     route.grouped_aggregate_execution_specs(),
                 )
-                .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
+                .map_err(ProjectionEvalError::into_internal_error)
             })
             .transpose()?;
 

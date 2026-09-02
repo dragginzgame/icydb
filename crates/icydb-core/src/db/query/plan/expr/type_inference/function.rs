@@ -7,7 +7,7 @@ use crate::db::{
                 ExprType, FunctionArgumentFamily, infer_expr_type, unify::unify_coalesce_expr_types,
             },
         },
-        validate::{ExprPlanError, ExprPlanTypeClass},
+        validate::ExprPlanError,
     },
     schema::SchemaInfo,
 };
@@ -282,8 +282,8 @@ fn infer_coalesce_function_type(
                         function,
                         current_index,
                         index,
-                        left,
-                        right,
+                        &left,
+                        &right,
                     ))
                 })?,
             ),
@@ -312,7 +312,7 @@ fn infer_nullif_function_type(
 
     let _ = unify_coalesce_expr_types(args[0].clone(), args[1].clone(), |left, right| {
         PlanError::from(ExprPlanError::incompatible_function_arguments(
-            function, 0, 1, left, right,
+            function, 0, 1, &left, &right,
         ))
     })?;
 
@@ -327,7 +327,7 @@ fn invalid_function_argument(
     PlanError::from(ExprPlanError::invalid_function_argument(
         function,
         argument_index,
-        ExprPlanTypeClass::from_expr_type(found),
+        found,
     ))
 }
 

@@ -3,7 +3,10 @@
 //! Does not own: expression type inference policy or runtime expression evaluation.
 //! Boundary: defines canonical expression tree structures consumed by planner validation/lowering.
 
-use crate::{db::query::builder::aggregate::AggregateExpr, value::Value};
+use crate::{
+    db::{numeric::NumericArithmeticOp, query::builder::aggregate::AggregateExpr},
+    value::Value,
+};
 use std::collections::BTreeSet;
 
 ///
@@ -215,10 +218,29 @@ pub(in crate::db) enum BinaryOp {
 }
 
 impl BinaryOp {
+    /// Return the shared numeric operation for this arithmetic operator.
+    #[must_use]
+    pub(in crate::db) const fn numeric_arithmetic_op(self) -> Option<NumericArithmeticOp> {
+        match self {
+            Self::Add => Some(NumericArithmeticOp::Add),
+            Self::Sub => Some(NumericArithmeticOp::Sub),
+            Self::Mul => Some(NumericArithmeticOp::Mul),
+            Self::Div => Some(NumericArithmeticOp::Div),
+            Self::Or
+            | Self::And
+            | Self::Eq
+            | Self::Ne
+            | Self::Lt
+            | Self::Lte
+            | Self::Gt
+            | Self::Gte => None,
+        }
+    }
+
     /// Report whether this operator belongs to the numeric arithmetic family.
     #[must_use]
     pub(in crate::db) const fn is_numeric_arithmetic(self) -> bool {
-        matches!(self, Self::Add | Self::Sub | Self::Mul | Self::Div)
+        self.numeric_arithmetic_op().is_some()
     }
 }
 

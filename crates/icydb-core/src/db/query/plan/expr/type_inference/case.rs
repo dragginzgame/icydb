@@ -5,7 +5,7 @@ use crate::db::{
             CaseWhenArm, Expr,
             type_inference::{ExprType, infer_expr_type, unify::unify_case_branch_types},
         },
-        validate::{ExprPlanError, ExprPlanTypeClass},
+        validate::ExprPlanError,
     },
     schema::SchemaInfo,
 };
@@ -23,7 +23,7 @@ pub(super) fn infer_case_expr_type(
         if !matches!(condition_type, ExprType::Bool) {
             return Err(PlanError::from(ExprPlanError::invalid_case_condition_type(
                 arm_index,
-                ExprPlanTypeClass::from_expr_type(&condition_type),
+                &condition_type,
             )));
         }
 

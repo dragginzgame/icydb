@@ -8,7 +8,7 @@ use crate::{
     db::query::plan::{
         PlanError,
         expr::{BinaryOp, Expr, NumericSubtype, type_inference::ExprType},
-        validate::{ExprPlanError, ExprPlanTypeClass},
+        validate::ExprPlanError,
     },
     value::Value,
 };
@@ -19,7 +19,7 @@ pub(super) fn unify_coalesce_expr_types<F>(
     mismatch: F,
 ) -> Result<ExprType, PlanError>
 where
-    F: FnOnce(ExprPlanTypeClass, ExprPlanTypeClass) -> PlanError,
+    F: FnOnce(ExprType, ExprType) -> PlanError,
 {
     match (current, next) {
         (ExprType::Numeric(left), ExprType::Numeric(right)) => {
@@ -45,10 +45,7 @@ where
         (ExprType::Unknown, other) | (other, ExprType::Unknown) => Ok(other),
         #[cfg(test)]
         (ExprType::Null, other) | (other, ExprType::Null) => Ok(other),
-        (left, right) => Err(mismatch(
-            ExprPlanTypeClass::from_expr_type(&left),
-            ExprPlanTypeClass::from_expr_type(&right),
-        )),
+        (left, right) => Err(mismatch(left, right)),
     }
 }
 
@@ -86,8 +83,8 @@ pub(super) fn unify_case_branch_types(
         ExprPlanError::incompatible_case_branch_types(
             left_index,
             right_index,
-            ExprPlanTypeClass::from_expr_type(left_type),
-            ExprPlanTypeClass::from_expr_type(right_type),
+            left_type,
+            right_type,
         ),
     ))
 }

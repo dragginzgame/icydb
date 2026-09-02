@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
+- `0.252.4` removes parallel projection and planner diagnostic adapters,
+  centralizes numeric-operator lowering, and keeps function-evaluation errors
+  internal until their actual boundary. Twenty-five production files remove
+  373 net lines while the representative SQL actor loses 2,579 raw Wasm bytes
+  with byte-identical Candid.
 - `0.252.3` makes the stable runtime value tag the single discriminator for
   grouped keys, aggregate contracts, and compiled-expression diagnostics,
   removing three parallel mappings without changing interfaces or entity reachability.
