@@ -781,6 +781,8 @@ fn take_bytes<'a>(input: &mut &'a [u8], len: usize, label: &str) -> Result<&'a [
 mod tests {
     use std::collections::BTreeSet;
 
+    use crate::FIXTURE_CANISTERS;
+
     use super::{
         CanisterMethod, CanisterMethodMode, MAINTAINED_CANISTER_POLICIES,
         candid_visible_wasm_methods, inspect_candid_methods, inspect_wasm_methods,
@@ -853,8 +855,17 @@ mod tests {
     }
 
     #[test]
-    fn maintained_policy_is_complete_unique_and_deterministic() {
-        assert_eq!(MAINTAINED_CANISTER_POLICIES.len(), 20);
+    fn maintained_policy_matches_fixture_inventory_and_is_unique_and_deterministic() {
+        let maintained = MAINTAINED_CANISTER_POLICIES
+            .iter()
+            .map(|policy| (policy.canister, policy.package))
+            .collect::<BTreeSet<_>>();
+        let fixtures = FIXTURE_CANISTERS
+            .iter()
+            .map(|fixture| (fixture.name, fixture.package))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(maintained, fixtures);
+
         let names = MAINTAINED_CANISTER_POLICIES
             .iter()
             .map(|policy| policy.canister)
