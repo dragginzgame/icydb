@@ -262,14 +262,7 @@ fn canonicalize_grouped_having_compare_literals(
     };
     let field = match other {
         Expr::Field(field) => field.as_str().to_string(),
-        Expr::FieldPath(path) => {
-            let mut field = path.root().as_str().to_string();
-            for segment in path.segments() {
-                field.push('.');
-                field.push_str(segment);
-            }
-            field
-        }
+        Expr::FieldPath(path) => path.path_spec().dotted_label(),
         _ => return None,
     };
     let group_field = resolve_group_field_with_schema(schema, field.as_str()).ok()?;

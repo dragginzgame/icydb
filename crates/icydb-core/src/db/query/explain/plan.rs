@@ -922,10 +922,8 @@ impl AccessPlannedQuery {
 }
 
 fn explain_group_having(logical: &crate::db::query::plan::GroupPlan) -> Option<ExplainGroupHaving> {
-    let expr = logical.effective_having_expr()?;
-
     Some(ExplainGroupHaving {
-        expr: expr.into_owned(),
+        expr: logical.having_expr()?.clone(),
     })
 }
 

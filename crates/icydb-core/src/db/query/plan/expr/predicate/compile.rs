@@ -15,7 +15,7 @@ use crate::{
             Predicate, canonical_membership_value_list, collapse_membership_compare_leaves,
         },
         query::plan::expr::{
-            BinaryOp, BooleanFunctionShape, CanonicalExpr, CaseWhenArm, Expr, FieldPath,
+            BinaryOp, BooleanFunctionShape, CanonicalExpr, CaseWhenArm, Expr,
             FieldPredicateFunctionKind, Function, NullTestFunctionKind, TextPredicateFunctionKind,
             UnaryOp, truth_condition_binary_compare_op,
         },
@@ -438,19 +438,9 @@ fn compile_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> Option<
 fn predicate_field_label(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Field(field) => Some(field.as_str().to_string()),
-        Expr::FieldPath(path) => Some(render_predicate_field_path(path)),
+        Expr::FieldPath(path) => Some(path.path_spec().dotted_label()),
         _ => None,
     }
-}
-
-fn render_predicate_field_path(path: &FieldPath) -> String {
-    let mut label = path.root().as_str().to_string();
-    for segment in path.segments() {
-        label.push('.');
-        label.push_str(segment);
-    }
-
-    label
 }
 
 // Compile one admitted boolean function onto the requested runtime truth

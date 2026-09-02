@@ -474,7 +474,7 @@ fn ensure_sql_selectable_field_path(
     else {
         return Err(SqlLoweringError::unknown_field(
             QueryFieldRole::Projection,
-            render_field_path(path),
+            path.path_spec().dotted_label(),
         ));
     };
     if !capabilities.selectable() {
@@ -557,15 +557,6 @@ fn ensure_sql_selectable_field(
     }
 
     Ok(())
-}
-
-fn render_field_path(path: &FieldPath) -> String {
-    let mut rendered = path.root().as_str().to_string();
-    for segment in path.segments() {
-        rendered.push('.');
-        rendered.push_str(segment);
-    }
-    rendered
 }
 
 /// Validate accepted-schema SQL capabilities for one lowered base-query tail.

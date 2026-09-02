@@ -26,13 +26,8 @@ pub(super) enum GroupHavingFingerprintSource<'a> {
         group_fields: &'a [ExplainGroupField],
         aggregates: &'a [ExplainGroupAggregate],
     },
-    PlanBorrowed {
+    Plan {
         expr: &'a Expr,
-        group_fields: &'a GroupFieldSet,
-        aggregates: &'a [GroupAggregateSpec],
-    },
-    PlanOwned {
-        expr: Expr,
         group_fields: &'a GroupFieldSet,
         aggregates: &'a [GroupAggregateSpec],
     },
@@ -124,19 +119,7 @@ pub(super) fn hash_group_having_projection(
                 aggregates,
             },
         ),
-        GroupHavingFingerprintSource::PlanBorrowed {
-            expr,
-            group_fields,
-            aggregates,
-        } => hash_group_having_expr(
-            hasher,
-            expr,
-            &GroupHavingFingerprintContext::Plan {
-                group_fields,
-                aggregates,
-            },
-        ),
-        GroupHavingFingerprintSource::PlanOwned {
+        GroupHavingFingerprintSource::Plan {
             expr,
             group_fields,
             aggregates,

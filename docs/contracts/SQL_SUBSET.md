@@ -375,11 +375,13 @@ schema authority. Schema mutation and row-rewrite admission remain governed by
 
 Field-path capability is shape-sensitive. Accepted scalar paths through named
 records may participate in the exact projection, predicate, ordering,
-aggregate, and eligible index cells recorded in
+grouping, aggregate, and eligible index cells recorded in
 `docs/contracts/NESTED_STORAGE.md`. Paths through lists, sets, maps, tuples, or
 newtype wrappers are not SQL terms; they reject before execution or catalog
-mutation and never select a scan or multikey fallback. Scalar member paths also
-remain unsupported as `GROUP BY` keys and as raw non-aggregate `HAVING` terms.
+mutation and never select a scan or multikey fallback. `GROUP BY` admits direct
+fields and accepted scalar record paths, not arbitrary expressions. A raw path
+in grouped projection, `HAVING`, or grouped `ORDER BY` must match the exact
+canonical identity of a declared grouping key.
 
 `CREATE INDEX` currently admits field-path secondary indexes and deterministic
 text expression secondary indexes. Single-field, multi-field, unique, explicit
@@ -680,6 +682,7 @@ Supported aggregate projection forms are:
 Supported grouped projection examples:
 
 - `SELECT age, COUNT(*) FROM Customer GROUP BY age`
+- `SELECT profile.rank, COUNT(*) FROM Player GROUP BY profile.rank`
 - `SELECT name, COUNT(*), SUM(age) FROM Customer GROUP BY name`
 - `SELECT TRIM(name), COUNT(*) FROM Customer GROUP BY name`
 - `SELECT age, ROUND(AVG(age), 2) FROM Customer GROUP BY age`

@@ -84,6 +84,18 @@ impl PathSpec {
         self.path.as_slice()
     }
 
+    /// Render the canonical dotted identity for this field path.
+    #[must_use]
+    pub(in crate::db) fn dotted_label(&self) -> String {
+        let mut label = self.root.as_str().to_string();
+        for segment in &self.path {
+            label.push('.');
+            label.push_str(segment);
+        }
+
+        label
+    }
+
     /// Return whether this path is expected to resolve to a scalar leaf.
     #[must_use]
     pub(in crate::db) const fn is_scalar_leaf(&self) -> bool {
@@ -662,5 +674,20 @@ impl Expr {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PathSpec;
+
+    #[test]
+    fn path_spec_renders_one_canonical_dotted_label() {
+        let path = PathSpec::new(
+            "profile",
+            vec!["location".to_string(), "country".to_string()],
+        );
+
+        assert_eq!(path.dotted_label(), "profile.location.country");
     }
 }

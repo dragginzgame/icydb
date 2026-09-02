@@ -174,22 +174,7 @@ impl RowView {
         }
     }
 
-    /// Read one slot by index without cloning decoded grouped row values.
-    pub(in crate::db::executor) fn slot_value(&self, index: usize) -> Option<Cow<'_, Value>> {
-        match &self.storage {
-            #[cfg(test)]
-            RowViewStorage::Dense(slots) => {
-                slots.get(index).and_then(Option::as_ref).map(Cow::Borrowed)
-            }
-            RowViewStorage::Single { slot, value } => {
-                (*slot == index).then_some(Cow::Borrowed(value))
-            }
-            RowViewStorage::SinglePath { .. } => None,
-            RowViewStorage::Retained(row) => row.slot_ref(index).map(Cow::Borrowed),
-        }
-    }
-
-    /// Borrow one slot by index for value-only compiled expression readers.
+    /// Borrow one slot by index without cloning decoded grouped row values.
     pub(in crate::db::executor) fn slot_value_ref(&self, index: usize) -> Option<&Value> {
         match &self.storage {
             #[cfg(test)]
@@ -204,8 +189,8 @@ impl RowView {
     pub(in crate::db::executor) fn require_slot_value(
         &self,
         index: usize,
-    ) -> Result<Cow<'_, Value>, InternalError> {
-        self.slot_value(index)
+    ) -> Result<&Value, InternalError> {
+        self.slot_value_ref(index)
             .ok_or_else(|| Self::missing_required_slot_error(index))
     }
 
@@ -241,23 +226,16 @@ impl RowView {
         &self,
         index: usize,
     ) -> Result<Value, InternalError> {
-        match self.require_slot_value(index)? {
-            Cow::Borrowed(value) => Ok(value.clone()),
-            Cow::Owned(value) => Ok(value),
-        }
+        self.require_slot_value(index).cloned()
     }
 
-    /// Run one closure with a required slot value borrowed from either the
-    /// decoded row-view storage or the stack-local lazy decode result.
+    /// Run one closure with a required slot value borrowed from row-view storage.
     pub(in crate::db::executor) fn with_required_slot<R>(
         &self,
         index: usize,
         f: impl FnOnce(&Value) -> Result<R, InternalError>,
     ) -> Result<R, InternalError> {
-        match self.require_slot_value(index)? {
-            Cow::Borrowed(value) => f(value),
-            Cow::Owned(value) => f(&value),
-        }
+        f(self.require_slot_value(index)?)
     }
 
     /// Borrow the scalar leaf produced by the prepared single-path row decoder.
@@ -280,7 +258,7 @@ impl RowView {
     ) -> Result<bool, InternalError> {
         eval_effective_runtime_filter_program_with_value_cow_reader(
             effective_runtime_filter_program,
-            &mut |slot| self.slot_value(slot),
+            &mut |slot| self.slot_value_ref(slot).map(Cow::Borrowed),
             "grouped row filter expression could not read slot",
         )
     }
@@ -830,17 +808,17 @@ mod tests {
         let row_view = RowView::from_retained_slots(retained);
 
         assert_eq!(
-            row_view.slot_value(1).as_deref(),
+            row_view.slot_value_ref(1),
             Some(&Value::Nat64(7)),
             "first retained slot read should borrow the decoded value",
         );
         assert_eq!(
-            row_view.slot_value(1).as_deref(),
+            row_view.slot_value_ref(1),
             Some(&Value::Nat64(7)),
             "second retained slot read must see the same decoded value",
         );
         assert_eq!(
-            row_view.slot_value(4).as_deref(),
+            row_view.slot_value_ref(4),
             Some(&Value::Text("group".to_string())),
             "reading another retained slot must not invalidate earlier slots",
         );

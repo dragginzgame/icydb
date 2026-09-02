@@ -41,21 +41,11 @@ pub(super) fn infer_field_path_expr_type(
     field_type.map_or_else(
         || {
             Err(PlanError::from(ExprPlanError::unknown_expr_field(
-                render_field_path(path),
+                path.path_spec().dotted_label(),
             )))
         },
         |field_type| Ok(expr_type_from_field_type(&field_type)),
     )
-}
-
-pub(super) fn render_field_path(path: &FieldPath) -> String {
-    let mut label = path.root().as_str().to_string();
-    for segment in path.segments() {
-        label.push('.');
-        label.push_str(segment);
-    }
-
-    label
 }
 
 pub(super) const fn infer_literal_type(value: &Value) -> ExprType {

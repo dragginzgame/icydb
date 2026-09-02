@@ -49,6 +49,8 @@ If `NULL` values are present:
 
 - all `NULL` values in the same grouping field are considered equal
 - `NULL` groups form a single group
+- a missing descendant of an accepted optional scalar record path contributes
+  the same canonical `NULL` group key as an explicit null terminal
 
 If this rule changes in the future, this document MUST be updated.
 
@@ -57,6 +59,17 @@ If this rule changes in the future, this document MUST be updated.
 For multi-field grouping, group identity is defined by ordered tuple equality.
 
 `(a, b)` and `(b, a)` are distinct unless explicitly equivalent under canonical equality.
+
+### 2.5 Group-Key Sources
+
+A grouping key is either a direct accepted field or an accepted scalar path
+through required or optional named records. Accepted schema is the sole
+authority for path admission and terminal groupability. A query may mix direct
+and scalar-path keys in one ordered tuple.
+
+Paths through lists, sets, maps, tuples, newtypes, or blobs do not become group
+keys. A raw path used by grouped projection, `HAVING`, or grouped `ORDER BY`
+must match the exact canonical identity of a declared grouping key.
 
 ## 3. Ordering Semantics
 
@@ -84,12 +97,20 @@ If `ORDER BY` is supplied:
 
 ## 4. Execution Shape
 
-### 4.1 Blocking Semantics
+### 4.1 Hash And Ordered Semantics
 
-Grouped execution is blocking.
+Complete hash grouping is blocking: all relevant rows are processed before its
+grouped results are finalized.
 
-- all relevant rows are processed before grouped results are emitted
-- streaming/grouped hybrid execution is not supported
+Completeness-proven ordered grouping instead keeps one live group and emits
+only groups whose input range has closed. A bounded page may stop scanning once
+its requested window and continuation lookahead are proven. The planner may
+select this route only when one accepted index contract proves the stream
+complete and ordered for the declared key tuple; otherwise it uses complete
+hash grouping.
+
+Execution does not switch strategies from runtime observations and does not
+combine partial hash state with ordered emission.
 
 ### 4.2 No Partial Emission
 
@@ -204,7 +225,7 @@ not:
 - canonical group identity
 - deterministic finalization
 - explicit plan-shape separation
-- blocking execution semantics
+- blocking complete-hash or completeness-proven ordered closed-group semantics
 - atomic budget enforcement
 - explicit response surface
 - deterministic continuation behavior

@@ -30,7 +30,7 @@ impl CompiledExpr {
             },
             ScalarProjectionExpr::FieldPath(path) => Self::FieldPath {
                 root_slot: path.root_slot(),
-                field: render_field_path_label(path.root(), path.segments()),
+                field: path.dotted_label(),
                 segments: path.segments().to_vec().into_boxed_slice(),
                 segment_bytes: path
                     .segments()
@@ -305,7 +305,7 @@ pub(in crate::db) fn compile_grouped_projection_expr(
             };
             Ok(CompiledExpr::GroupKey {
                 offset,
-                field: render_field_path_label(path.root().as_str(), path.path_spec().segments()),
+                field: path.path_spec().dotted_label(),
             })
         }
         Expr::Aggregate(aggregate_expr) => {
@@ -417,16 +417,6 @@ const fn is_comparison_op(op: BinaryOp) -> bool {
         op,
         BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte
     )
-}
-
-fn render_field_path_label(root: &str, segments: &[String]) -> String {
-    let mut label = root.to_string();
-    for segment in segments {
-        label.push('.');
-        label.push_str(segment);
-    }
-
-    label
 }
 
 ///

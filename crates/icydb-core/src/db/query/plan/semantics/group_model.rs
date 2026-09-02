@@ -3,8 +3,6 @@
 //! Does not own: grouped runtime fold execution or cursor token handling.
 //! Boundary: derives planner-owned grouped semantic projections from query/model inputs.
 
-use std::borrow::Cow;
-
 use crate::{
     db::{
         query::{
@@ -158,10 +156,10 @@ impl GroupAggregateSpec {
 }
 
 impl GroupPlan {
-    /// Borrow the effective grouped HAVING expression for this grouped plan.
+    /// Borrow the canonical grouped HAVING expression.
     #[must_use]
-    pub(in crate::db) fn effective_having_expr(&self) -> Option<Cow<'_, Expr>> {
-        self.having_expr.as_ref().map(Cow::Borrowed)
+    pub(in crate::db) const fn having_expr(&self) -> Option<&Expr> {
+        self.having_expr.as_ref()
     }
 }
 

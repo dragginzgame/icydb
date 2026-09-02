@@ -264,14 +264,7 @@ fn grouped_projection_is_canonical_identity(
             ProjectionField::Scalar {
                 expr: Expr::FieldPath(path),
                 alias: None,
-            } => {
-                let mut label = path.root().as_str().to_string();
-                for segment in path.segments() {
-                    label.push('.');
-                    label.push_str(segment);
-                }
-                &label == group_by
-            }
+            } => path.path_spec().dotted_label() == *group_by,
             ProjectionField::Scalar { .. } => false,
         })
         && aggregate_fields.iter().all(|field| {

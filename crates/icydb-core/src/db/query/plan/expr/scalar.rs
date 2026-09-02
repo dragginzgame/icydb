@@ -60,10 +60,10 @@ pub(in crate::db) struct ScalarProjectionFieldPath {
 }
 
 impl ScalarProjectionFieldPath {
-    /// Borrow the top-level field name used as the path root.
+    /// Render the canonical dotted field-path identity.
     #[must_use]
-    pub(in crate::db) const fn root(&self) -> &str {
-        self.path.root().as_str()
+    pub(in crate::db) fn dotted_label(&self) -> String {
+        self.path.dotted_label()
     }
 
     /// Borrow the resolved top-level field slot used by execution.

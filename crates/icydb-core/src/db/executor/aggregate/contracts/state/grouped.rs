@@ -34,8 +34,6 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-use std::borrow::Cow;
-
 ///
 /// AggregateInputValue
 ///
@@ -206,13 +204,12 @@ impl GroupedTerminalAggregateState {
     }
 
     // Read one direct field-target input when the aggregate only needs to
-    // inspect the row value. The returned cow keeps single-slot views borrowed
-    // while raw-row-backed views avoid retained-slot vector construction.
+    // inspect the row value.
     fn target_field_value<'a>(
         &self,
         row_view: Option<&'a RowView>,
         label: &'static str,
-    ) -> Result<Cow<'a, Value>, InternalError> {
+    ) -> Result<&'a Value, InternalError> {
         let Some(target_field) = self.target_field.as_ref() else {
             return Err(Self::field_target_execution_required(label));
         };
@@ -234,7 +231,7 @@ impl GroupedTerminalAggregateState {
         let value = if self.grouped_input_expr.is_some() {
             self.evaluate_compiled_input_value(row_view)?
         } else if self.target_field.is_some() {
-            self.target_field_value(row_view, label)?.into_owned()
+            self.target_field_value(row_view, label)?.clone()
         } else {
             return Err(Self::field_target_execution_required(label));
         };

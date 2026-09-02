@@ -7,10 +7,7 @@
 //! can consume one stable projection-helper API.
 
 use crate::{
-    db::{
-        QueryError,
-        query::plan::expr::{Expr, FieldPath},
-    },
+    db::{QueryError, query::plan::expr::Expr},
     value::Value,
 };
 
@@ -75,7 +72,7 @@ fn render_scalar_projection_expr_plan_label_with_parent(
 ) -> String {
     match expr {
         Expr::Field(field) => field.as_str().to_string(),
-        Expr::FieldPath(path) => render_field_path_plan_label(path),
+        Expr::FieldPath(path) => path.path_spec().dotted_label(),
         Expr::Literal(value) => render_scalar_projection_literal(value),
         Expr::FunctionCall { function, args } => {
             let rendered_args = args
@@ -149,16 +146,6 @@ fn render_scalar_projection_expr_plan_label_with_parent(
             }
         }
     }
-}
-
-fn render_field_path_plan_label(path: &FieldPath) -> String {
-    let mut label = path.root().as_str().to_string();
-    for segment in path.segments() {
-        label.push('.');
-        label.push_str(segment);
-    }
-
-    label
 }
 
 fn render_case_projection_expr_plan_label(

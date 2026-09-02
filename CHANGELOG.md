@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
+- `0.252.2` removes duplicate planner labels and stale grouped-query ownership
+  branches, leaving canonical path, `HAVING`, and row-slot state with one
+  authority each while making the optimized actor smaller.
 - `0.252.1` adds hash and completeness-proven ordered `GROUP BY` support for
   accepted scalar record paths, preserving null groups, cursors, direct-query
   behavior, and bounded downstream Wasm; it also exposes model authoring through

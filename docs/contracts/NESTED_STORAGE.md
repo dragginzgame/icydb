@@ -55,17 +55,29 @@ subject to the terminal scalar kind and the ordinary clause contract:
 | Filtering | Supported for operators admitted by the terminal kind. |
 | Ordering | Supported when the terminal kind is orderable. |
 | Projection `DISTINCT` | Supported on the materialized scalar result. |
-| `GROUP BY` | Unsupported; grouped keys remain direct fields. |
+| `GROUP BY` | Supported when the accepted path terminates at a groupable scalar. Direct and scalar-path keys may be mixed. |
 | Aggregate input | Supported when the aggregate accepts the terminal kind, including aggregate `DISTINCT`. |
-| `HAVING` | Supported only inside an admitted aggregate expression; a raw member path is not a grouped key. |
+| `HAVING` | Supported inside an admitted aggregate expression and as a raw key only when the exact canonical path is declared in `GROUP BY`. |
 | `CASE`, arithmetic, and scalar functions | Supported where the selected expression and clause accept the terminal kind. |
 | Internal prepared/cache execution | Supported; this does not add public SQL placeholders or `PREPARE`. |
 | Single or composite index | Supported when every component is an accepted indexable scalar source. |
 
 For example, `SELECT profile.score FROM Player WHERE profile.score >= 10
 ORDER BY profile.score` is admitted when `score` has the required scalar
-capabilities. `GROUP BY profile.score` and raw `HAVING profile.score > 10`
-reject, while `HAVING SUM(profile.score) > 100` may be admitted.
+capabilities. The same accepted path may be grouped and referenced as its raw
+group key:
+
+```sql
+SELECT profile.score, COUNT(*)
+FROM Player
+GROUP BY profile.score
+HAVING profile.score > 10;
+```
+
+An undeclared sibling or descendant path still rejects in grouped projection,
+raw `HAVING`, or grouped `ORDER BY`. `HAVING SUM(profile.score) > 100` retains
+its existing aggregate-expression semantics independently of whether the path
+is a declared group key.
 
 ## Whole-Collection Predicates
 
@@ -117,6 +129,8 @@ them:
 - an explicit null terminal follows the normal null predicate rules;
 - ordering and projection `DISTINCT` use the same null key for missing and
   explicit-null descendants;
+- grouping uses that same canonical null key, so missing descendants and
+  explicit-null terminals form one null group;
 - an accepted omission-capable non-unique nested index omits null or missing
   terminals, so non-null comparisons may use it but null or missing-path tests
   cannot recover omitted rows; and
@@ -124,7 +138,9 @@ them:
   terminal, rejects while the maintained predicate binder cannot prove the
   required dotted membership guard.
 
-These rules do not make scalar member paths valid grouped keys.
+An omission-capable path index cannot provide a complete ordered grouping
+stream unless the accepted predicate proof excludes every omitted row. Without
+that proof, grouping uses the complete hash route.
 
 ## Bounds And Aggregate Ownership
 
