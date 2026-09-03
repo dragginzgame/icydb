@@ -1,3 +1,8 @@
+//! Module: schema::sql_ddl::constraint
+//! Responsibility: SQL DDL constraint candidate construction and publication.
+//! Does not own: SQL syntax binding or catalog persistence mechanics.
+//! Boundary: applies bound constraint requests through accepted-schema transitions.
+
 use crate::{
     db::{
         commit::publish_accepted_schema_candidate,

@@ -1,3 +1,8 @@
+//! Module: sql::lowering::expr
+//! Responsibility: SQL expression lowering into canonical planner expressions.
+//! Does not own: SQL token parsing or runtime expression evaluation.
+//! Boundary: enforces clause-phase admission while translating parsed expressions.
+
 use crate::db::sql::lowering::{SqlLoweringError, aggregate::lower_aggregate_call};
 use crate::{
     db::{

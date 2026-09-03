@@ -1,3 +1,8 @@
+//! Module: predicate::parser::operand::text
+//! Responsibility: direct predicate prefix-text operand parsing and coercion.
+//! Does not own: generic SQL expression lowering or runtime text comparison.
+//! Boundary: lowers accepted LIKE/ILIKE syntax into canonical predicate nodes.
+
 use crate::{
     db::{
         predicate::{

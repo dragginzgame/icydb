@@ -7,12 +7,12 @@
 /// TESTS
 ///
 use crate::db::{
-    access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef},
+    access::{AccessPathKind, AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef},
     direction::Direction,
     predicate::IndexPredicateCapability,
     query::plan::{
-        AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch, FieldSlot, OrderDirection,
-        OrderSpec,
+        AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch,
+        DeterministicSecondaryOrderContract, FieldSlot, OrderDirection, OrderSpec,
         expr::{Expr, FieldId, Function, ProjectionSelection, ProjectionSpec},
         index_key_item_order_terms,
     },
@@ -438,7 +438,7 @@ fn covering_projection_order_contract(
     order: Option<&OrderSpec>,
     index_order_terms: &[&str],
     prefix_len: usize,
-    variable_prefix: bool,
+    requires_full_index_order: bool,
     primary_key_names: &[&str],
     path_kind_is_range: bool,
 ) -> Option<CoveringProjectionOrder> {
@@ -460,7 +460,7 @@ fn covering_projection_order_contract(
         OrderDirection::Desc => Direction::Desc,
     };
     match order_contract.classify_index_match(index_order_terms, prefix_len) {
-        DeterministicSecondaryIndexOrderMatch::Suffix if !variable_prefix => {
+        DeterministicSecondaryIndexOrderMatch::Suffix if !requires_full_index_order => {
             Some(CoveringProjectionOrder::IndexOrder(direction))
         }
         DeterministicSecondaryIndexOrderMatch::Full if !path_kind_is_range => {
@@ -623,7 +623,7 @@ struct IndexCoveringAccessFacts<'a> {
     coverable_component_exprs: Vec<Option<Expr>>,
     prefix_values: &'a [Value],
     prefix_len: usize,
-    variable_prefix: bool,
+    requires_full_index_order: bool,
     path_kind_is_range: bool,
 }
 
@@ -636,7 +636,10 @@ fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoverin
             coverable_component_exprs: coverable_component_exprs_for_contract(&index),
             prefix_values: values,
             prefix_len: values.len(),
-            variable_prefix: false,
+            requires_full_index_order:
+                DeterministicSecondaryOrderContract::access_kind_requires_full_index_order(
+                    AccessPathKind::IndexPrefix,
+                ),
             path_kind_is_range: false,
         });
     }
@@ -647,7 +650,10 @@ fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoverin
             coverable_component_exprs: coverable_component_exprs_for_contract(&index),
             prefix_values: &[],
             prefix_len: 1,
-            variable_prefix: true,
+            requires_full_index_order:
+                DeterministicSecondaryOrderContract::access_kind_requires_full_index_order(
+                    AccessPathKind::IndexMultiLookup,
+                ),
             path_kind_is_range: false,
         });
     }
@@ -659,7 +665,10 @@ fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoverin
             coverable_component_exprs: coverable_component_exprs_for_contract(&index),
             prefix_values: spec.fixed_values(),
             prefix_len: spec.branch_prefix_len(),
-            variable_prefix: true,
+            requires_full_index_order:
+                DeterministicSecondaryOrderContract::access_kind_requires_full_index_order(
+                    AccessPathKind::IndexBranchSet,
+                ),
             path_kind_is_range: false,
         });
     }
@@ -671,7 +680,10 @@ fn index_covering_access_facts<K>(access: &AccessPlan<K>) -> Option<IndexCoverin
             coverable_component_exprs: coverable_component_exprs_for_contract(&index),
             prefix_values: spec.prefix_values(),
             prefix_len: spec.prefix_values().len(),
-            variable_prefix: false,
+            requires_full_index_order:
+                DeterministicSecondaryOrderContract::access_kind_requires_full_index_order(
+                    AccessPathKind::IndexRange,
+                ),
             path_kind_is_range: true,
         });
     }
@@ -710,7 +722,7 @@ fn prepare_covering_index_projection_plan<'a>(
         plan.scalar_plan().order.as_ref(),
         order_terms.as_slice(),
         index_facts.prefix_len,
-        index_facts.variable_prefix,
+        index_facts.requires_full_index_order,
         primary_key_names,
         index_facts.path_kind_is_range,
     )?;

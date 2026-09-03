@@ -1,3 +1,8 @@
+//! Module: schema::sql_ddl
+//! Responsibility: catalog-native SQL DDL publication orchestration.
+//! Does not own: SQL parsing or accepted schema transition policy.
+//! Boundary: publishes validated DDL candidates through schema mutation contracts.
+
 mod constraint;
 mod field_metadata;
 mod user_index_domain;

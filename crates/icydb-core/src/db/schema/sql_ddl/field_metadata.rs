@@ -1,3 +1,8 @@
+//! Module: schema::sql_ddl::field_metadata
+//! Responsibility: SQL DDL field metadata candidate construction and publication.
+//! Does not own: SQL syntax binding or physical nonempty-row migration.
+//! Boundary: applies bound field changes through accepted-schema transitions.
+
 use crate::{
     db::{
         commit::publish_accepted_schema_candidate,

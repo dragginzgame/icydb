@@ -1,3 +1,8 @@
+//! Module: sql::parser::statement::delete
+//! Responsibility: DELETE statement clause parsing and statement assembly.
+//! Does not own: mutation lowering or execution semantics.
+//! Boundary: converts DELETE tokens into the shared parsed statement model.
+
 use crate::db::{
     sql::parser::{Parser, SqlDeleteStatement},
     sql_shared::{Keyword, SqlParseError},

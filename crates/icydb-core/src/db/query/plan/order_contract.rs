@@ -10,15 +10,6 @@ use crate::db::{
 };
 
 ///
-/// DeterministicSecondaryOrderContract
-///
-/// Planner-owned shared `..., primary_key_fields` order contract with one
-/// uniform direction. The non-primary-key term list may be empty, which
-/// represents the primary-key-only order shape under the same normalized
-/// contract.
-///
-
-///
 /// DeterministicSecondaryIndexOrderMatch
 ///
 /// Planner-owned match classification between one normalized secondary ORDER BY
@@ -124,6 +115,15 @@ pub(in crate::db) enum GroupedIndexOrderMatch {
     None,
 }
 
+///
+/// DeterministicSecondaryOrderContract
+///
+/// Planner-owned shared `..., primary_key_fields` order contract with one
+/// uniform direction. The non-primary-key term list may be empty, which
+/// represents the primary-key-only order shape under the same normalized
+/// contract.
+///
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct DeterministicSecondaryOrderContract {
     non_primary_key_terms: Vec<String>,
@@ -177,6 +177,18 @@ impl DeterministicSecondaryOrderContract {
         self.non_primary_key_terms.as_slice()
     }
 
+    /// Return whether one access-path kind requires a full index-order match.
+    #[inline]
+    #[must_use]
+    pub(in crate::db) const fn access_kind_requires_full_index_order(
+        access_kind: AccessPathKind,
+    ) -> bool {
+        matches!(
+            access_kind,
+            AccessPathKind::IndexMultiLookup | AccessPathKind::IndexBranchSet
+        )
+    }
+
     /// Return whether this order contract requires a full index-order match
     /// for the supplied variable-prefix access shape.
     #[must_use]
@@ -188,12 +200,9 @@ impl DeterministicSecondaryOrderContract {
             return false;
         }
 
-        access_shape_facts.single_path_facts().is_some_and(|path| {
-            matches!(
-                path.kind(),
-                AccessPathKind::IndexMultiLookup | AccessPathKind::IndexBranchSet
-            )
-        })
+        access_shape_facts
+            .single_path_facts()
+            .is_some_and(|path| Self::access_kind_requires_full_index_order(path.kind()))
     }
 
     /// Return true when the normalized non-primary-key terms match one expected
@@ -644,7 +653,12 @@ fn has_exact_ordered_primary_key_tie_break_fields(
 
 #[cfg(test)]
 mod tests {
-    use super::{GroupedIndexOrderContract, GroupedIndexOrderMatch};
+    use super::{
+        DeterministicSecondaryOrderContract, GroupedIndexOrderContract, GroupedIndexOrderMatch,
+    };
+    use crate::db::access::AccessPathKind::{
+        IndexBranchSet, IndexMultiLookup, IndexPrefix, IndexRange,
+    };
     use crate::db::query::plan::OrderDirection;
 
     fn grouped_contract(terms: &[&str]) -> GroupedIndexOrderContract {
@@ -685,5 +699,23 @@ mod tests {
             contract.classify_index_match(&index, 1),
             GroupedIndexOrderMatch::None
         );
+    }
+
+    #[test]
+    fn variable_prefix_access_kinds_require_a_full_secondary_order_match() {
+        for access_kind in [IndexMultiLookup, IndexBranchSet] {
+            assert!(
+                DeterministicSecondaryOrderContract::access_kind_requires_full_index_order(
+                    access_kind,
+                )
+            );
+        }
+        for access_kind in [IndexPrefix, IndexRange] {
+            assert!(
+                !DeterministicSecondaryOrderContract::access_kind_requires_full_index_order(
+                    access_kind,
+                )
+            );
+        }
     }
 }

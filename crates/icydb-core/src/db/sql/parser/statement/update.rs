@@ -1,3 +1,8 @@
+//! Module: sql::parser::statement::update
+//! Responsibility: UPDATE statement clause parsing and statement assembly.
+//! Does not own: mutation lowering or execution semantics.
+//! Boundary: converts UPDATE tokens into the shared parsed statement model.
+
 use crate::db::{
     sql::parser::{Parser, SqlAssignment, SqlUpdateStatement, SqlWriteValue},
     sql_shared::{Keyword, SqlExpectedToken, SqlParseError, TokenKind},

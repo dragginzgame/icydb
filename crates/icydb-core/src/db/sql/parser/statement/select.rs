@@ -1,3 +1,8 @@
+//! Module: sql::parser::statement::select
+//! Responsibility: SELECT statement clause parsing and statement assembly.
+//! Does not own: expression lowering or query planning semantics.
+//! Boundary: converts SELECT tokens into the shared parsed statement model.
+
 use crate::db::{
     sql::parser::{Parser, SqlSelectStatement},
     sql_shared::{Keyword, SqlParseError},

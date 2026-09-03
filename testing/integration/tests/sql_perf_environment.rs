@@ -24,7 +24,7 @@ const FIXTURE_PROFILE_VERSION: u32 = 1;
 const FIXTURE_GENERATOR_VERSION: u32 = 1;
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 const DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION: u32 = 1;
-const DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID: &str = "icydb-sql-attribution/0.215/v2";
+const DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID: &str = "icydb-sql-attribution/0.215/v1";
 const POCKET_IC_VERSION: &str = "pocket-ic-server 16.0.0";
 
 ///
@@ -141,7 +141,7 @@ pub(crate) struct PerfCanisterBuildIdentity {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum PerfCacheModePolicy {
     /// Cold, update-proven warm-at-entry, and same-message reuse stay distinct.
-    ColdWarmAtEntryAndLoopLocalV2,
+    ColdWarmAtEntryAndLoopLocalV1,
 }
 
 ///
@@ -360,7 +360,7 @@ pub(crate) fn capture_perf_environment(
             diagnostics_attribution_schema_version: DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION,
             diagnostics_attribution_schema_identity: DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID.to_string(),
             phase_ownership_version: PERFORMANCE_PHASE_OWNERSHIP_VERSION,
-            cache_mode_policy: PerfCacheModePolicy::ColdWarmAtEntryAndLoopLocalV2,
+            cache_mode_policy: PerfCacheModePolicy::ColdWarmAtEntryAndLoopLocalV1,
             instruction_counter_policy:
                 PerfInstructionCounterPolicy::IcPerformanceCounter1LocalDeltaV1,
         },
@@ -967,7 +967,7 @@ pub(crate) mod tests {
                 diagnostics_attribution_schema_identity: DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID
                     .to_string(),
                 phase_ownership_version: PERFORMANCE_PHASE_OWNERSHIP_VERSION,
-                cache_mode_policy: PerfCacheModePolicy::ColdWarmAtEntryAndLoopLocalV2,
+                cache_mode_policy: PerfCacheModePolicy::ColdWarmAtEntryAndLoopLocalV1,
                 instruction_counter_policy:
                     PerfInstructionCounterPolicy::IcPerformanceCounter1LocalDeltaV1,
             },
@@ -1068,14 +1068,30 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn single_variant_environment_policies_reject_unknown_serialized_values() {
-        let mut encoded = serde_json::to_value(identity()).expect("test identity should encode");
-        encoded["comparable"]["cache_mode_policy"] = serde_json::json!("legacy_cache_mode");
-        assert!(serde_json::from_value::<PerfEnvironmentIdentity>(encoded).is_err());
-
-        let mut encoded = serde_json::to_value(identity()).expect("test identity should encode");
-        encoded["comparable"]["instruction_counter_policy"] = serde_json::json!("legacy_counter");
-        assert!(serde_json::from_value::<PerfEnvironmentIdentity>(encoded).is_err());
+    fn environment_identity_roundtrips_the_current_version_one_policy() {
+        let identity = identity();
+        let encoded = serde_json::to_value(&identity).expect("test identity should encode");
+        assert_eq!(
+            encoded["comparable"]["diagnostics_attribution_schema_version"],
+            serde_json::json!(1),
+        );
+        assert_eq!(
+            encoded["comparable"]["diagnostics_attribution_schema_identity"],
+            serde_json::json!("icydb-sql-attribution/0.215/v1"),
+        );
+        assert_eq!(
+            encoded["comparable"]["cache_mode_policy"],
+            serde_json::json!("cold_warm_at_entry_and_loop_local_v1"),
+        );
+        assert_eq!(
+            encoded["comparable"]["instruction_counter_policy"],
+            serde_json::json!("ic_performance_counter1_local_delta_v1"),
+        );
+        assert_eq!(
+            serde_json::from_value::<PerfEnvironmentIdentity>(encoded)
+                .expect("current test identity should decode"),
+            identity,
+        );
     }
 
     #[test]
