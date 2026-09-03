@@ -423,10 +423,6 @@ fn startup_observation(fixture: &StandaloneCanisterFixture) -> StartupObservatio
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one causal real-canister scenario proves mid-build upgrade, fallback, Ready consumption, live maintenance, and two-slot reuse"
-)]
 fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly() {
     const fn unavailable_fallback_ceiling(predecessor: u64) -> u64 {
         predecessor.saturating_add(predecessor / 20)
