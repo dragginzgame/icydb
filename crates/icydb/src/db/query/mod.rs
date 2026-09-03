@@ -12,7 +12,7 @@ mod typed;
 pub use typed::{
     ExhaustivePage, LivePage, MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES,
     MAX_TYPED_EXACT_KEY_BATCH_ITEMS, MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES,
-    MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES, Query, TypedExhaustiveQueryError, TypedQueryError,
+    MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES, Query, TypedExhaustiveQueryError,
 };
 
 pub use icydb_core::db::{

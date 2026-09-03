@@ -4,12 +4,14 @@
 //! Boundary: concrete global sink implementation behind the sink facade.
 
 use crate::{
-    db::{MutationJobPhase, MutationJobRestartReason, MutationJobTargetFailureReason},
+    db::{
+        MutationJobPhase, MutationJobRestartReason, MutationJobTargetFailureReason, MutationMode,
+    },
     metrics::state as metrics,
 };
 
 use super::counters::*;
-use super::{ExecKind, MetricsEvent, MetricsSink, MutationJobLifecycleEvent, SaveMutationKind};
+use super::{ExecKind, MetricsEvent, MetricsSink, MutationJobLifecycleEvent};
 
 /// GlobalMetricsSink
 /// Default process-local sink that writes into global metrics state.
@@ -492,21 +494,21 @@ impl MetricsSink for GlobalMetricsSink {
             }
             MetricsEvent::SaveMutation {
                 entity_path,
-                kind,
+                mode,
                 rows_touched,
             } => {
                 metrics::with_state_mut(|m| {
                     #[remain::sorted]
-                    match kind {
-                        SaveMutationKind::Insert => {
+                    match mode {
+                        MutationMode::Insert => {
                             m.ops.save_insert_calls = m.ops.save_insert_calls.saturating_add(1);
                             m.ops.rows_inserted = m.ops.rows_inserted.saturating_add(rows_touched);
                         }
-                        SaveMutationKind::Replace => {
+                        MutationMode::Replace => {
                             m.ops.save_replace_calls = m.ops.save_replace_calls.saturating_add(1);
                             m.ops.rows_replaced = m.ops.rows_replaced.saturating_add(rows_touched);
                         }
-                        SaveMutationKind::Update => {
+                        MutationMode::Update => {
                             m.ops.save_update_calls = m.ops.save_update_calls.saturating_add(1);
                             m.ops.rows_updated = m.ops.rows_updated.saturating_add(rows_touched);
                         }
@@ -514,16 +516,16 @@ impl MetricsSink for GlobalMetricsSink {
 
                     let entry = m.entities.entry(entity_path.to_string()).or_default();
                     #[remain::sorted]
-                    match kind {
-                        SaveMutationKind::Insert => {
+                    match mode {
+                        MutationMode::Insert => {
                             entry.save_insert_calls = entry.save_insert_calls.saturating_add(1);
                             entry.rows_inserted = entry.rows_inserted.saturating_add(rows_touched);
                         }
-                        SaveMutationKind::Replace => {
+                        MutationMode::Replace => {
                             entry.save_replace_calls = entry.save_replace_calls.saturating_add(1);
                             entry.rows_replaced = entry.rows_replaced.saturating_add(rows_touched);
                         }
-                        SaveMutationKind::Update => {
+                        MutationMode::Update => {
                             entry.save_update_calls = entry.save_update_calls.saturating_add(1);
                             entry.rows_updated = entry.rows_updated.saturating_add(rows_touched);
                         }

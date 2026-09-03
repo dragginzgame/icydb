@@ -104,8 +104,8 @@ fn query_one_entity_typed_rows() -> Result<u32, u16> {
         let row = database
             .get::<OneSimpleEntity01>(Id::from_key(Ulid::MIN))
             .map_err(|error| match error {
-                icydb::db::query::TypedQueryError::Database(error) => error.code().raw(),
-                icydb::db::query::TypedQueryError::Row(_) => u16::MAX,
+                icydb::db::TypedOperationError::Database(error) => error.code().raw(),
+                icydb::db::TypedOperationError::Adapter(_) => u16::MAX,
             })?;
 
         Ok(u32::from(row.is_some()))
@@ -121,9 +121,9 @@ mod tests {
     use icydb::{
         db::{
             DynamicQuery, PrimaryKeyComponent, PrimaryKeyValue, StructuralMutation,
-            StructuralPatch, TypedAdapterError, TypedRowAdapter, TypedRowError, TypedWrite,
-            TypedWriteAdapter, TypedWriteError, WriteCell,
-            query::{FieldRef, TypedQueryError, asc, count},
+            StructuralPatch, TypedAdapterError, TypedOperationError, TypedRowAdapter, TypedWrite,
+            TypedWriteAdapter, WriteCell,
+            query::{FieldRef, asc, count},
         },
         diagnostic::{DiagnosticCode, DiagnosticDetail, ErrorOrigin, QueryReadAdmissionCode},
         traits::EntitySource,
@@ -204,7 +204,7 @@ mod tests {
                 .aggregate(count())
                 .execute_grouped()
                 .expect_err("generated typed grouped query must require explicit limits");
-            let TypedQueryError::Database(error) = error else {
+            let TypedOperationError::Database(error) = error else {
                 panic!("grouped limit rejection should cross the typed database boundary");
             };
             let diagnostic = error.diagnostic();
@@ -355,7 +355,8 @@ mod tests {
             let inserted = database
                 .execute_trusted_typed_write_row(write)
                 .and_then(|row| {
-                    OneSimpleEntity01::decode_row(&binding, row).map_err(TypedWriteError::Adapter)
+                    OneSimpleEntity01::decode_row(&binding, row)
+                        .map_err(TypedOperationError::Adapter)
                 })
                 .expect("single typed mutation should return its projected row");
             assert_eq!(inserted.name, "single");
@@ -376,7 +377,7 @@ mod tests {
                     rows.into_iter()
                         .map(|row| {
                             OneSimpleEntity01::decode_row(&binding, row)
-                                .map_err(TypedWriteError::Adapter)
+                                .map_err(TypedOperationError::Adapter)
                         })
                         .collect::<Result<Vec<_>, _>>()
                 })
@@ -421,7 +422,7 @@ mod tests {
                 .expect_err("a foreign entity must reject before structural execution");
             assert!(matches!(
                 error,
-                TypedWriteError::Adapter(TypedAdapterError::EntityMismatch)
+                TypedOperationError::Adapter(TypedAdapterError::EntityMismatch)
             ));
         });
     }
@@ -470,7 +471,9 @@ mod tests {
             );
             assert!(matches!(
                 results.row(&first),
-                Err(TypedRowError::Adapter(TypedAdapterError::BatchRowConsumed))
+                Err(TypedOperationError::Adapter(
+                    TypedAdapterError::BatchRowConsumed
+                ))
             ));
         });
     }
@@ -495,7 +498,8 @@ mod tests {
             let single = database
                 .execute_trusted_typed_write_row(encode_insert("single-parity"))
                 .and_then(|row| {
-                    OneSimpleEntity01::decode_row(&binding, row).map_err(TypedWriteError::Adapter)
+                    OneSimpleEntity01::decode_row(&binding, row)
+                        .map_err(TypedOperationError::Adapter)
                 })
                 .expect("single typed terminal should return one row");
             assert_eq!(single.name, "single-parity");
@@ -509,7 +513,8 @@ mod tests {
             let inserted = rows
                 .into_iter()
                 .map(|row| {
-                    OneSimpleEntity01::decode_row(&binding, row).map_err(TypedWriteError::Adapter)
+                    OneSimpleEntity01::decode_row(&binding, row)
+                        .map_err(TypedOperationError::Adapter)
                 })
                 .collect::<Result<Vec<_>, _>>()
                 .expect("same-entity batch rows should decode");
@@ -530,7 +535,8 @@ mod tests {
                 .execute_trusted_typed_write_batch_rows(&binding, delete_writes)
                 .expect("typed deletes should share the same batch terminal")
                 .map(|row| {
-                    OneSimpleEntity01::decode_row(&binding, row).map_err(TypedWriteError::Adapter)
+                    OneSimpleEntity01::decode_row(&binding, row)
+                        .map_err(TypedOperationError::Adapter)
                 })
                 .collect::<Result<Vec<_>, _>>()
                 .expect("delete before-images should decode");
@@ -544,7 +550,7 @@ mod tests {
 
             assert!(matches!(
                 database.execute_trusted_typed_write_batch_rows(&binding, Vec::new()),
-                Err(TypedWriteError::Database(_)),
+                Err(TypedOperationError::Database(_)),
             ));
         });
     }
@@ -556,7 +562,7 @@ mod u256_tests {
     use icydb::{
         U256,
         db::{
-            DynamicQuery, StructuralPatch, TypedAdapterError, TypedWrite, TypedWriteError,
+            DynamicQuery, StructuralPatch, TypedAdapterError, TypedOperationError, TypedWrite,
             WriteCell,
             query::{FieldRef, asc, count, max_by, min_by},
         },
@@ -723,7 +729,9 @@ mod u256_tests {
 
             assert!(matches!(
                 database.execute_trusted_typed_write_batch_rows(&one_binding, vec![foreign]),
-                Err(TypedWriteError::Adapter(TypedAdapterError::EntityMismatch)),
+                Err(TypedOperationError::Adapter(
+                    TypedAdapterError::EntityMismatch
+                )),
             ));
         });
     }

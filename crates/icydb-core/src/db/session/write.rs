@@ -28,13 +28,13 @@ use crate::{
         integrity::MutationProgressRecordOp,
         schema::{
             AcceptedFieldKind, AcceptedIdentityAllocation, AcceptedRowLayoutRuntimeContract,
-            FieldId, FieldInsertGeneration, IdentityStatementCursor, lower_field_type,
-            output_value_from_runtime,
+            AcceptedRowLayoutRuntimeField, FieldId, FieldInsertGeneration, IdentityStatementCursor,
+            lower_field_type, output_value_from_runtime,
         },
         write_context::{AcceptedWriteContext, MutationMode},
     },
     error::{InternalError, MutationDiagnosticContext},
-    metrics::sink::{MetricsEvent, SaveMutationKind, record},
+    metrics::sink::{MetricsEvent, record},
     traits::CanisterKind,
     types::{CurrentTimestamp, Timestamp},
     value::{InputValue, Value},
@@ -305,42 +305,6 @@ impl AcceptedStructuralMutationRow {
     }
 }
 
-const fn dynamic_mutation_mode(request: &DynamicMutation) -> Option<MutationMode> {
-    match request {
-        DynamicMutation::Insert { .. } => Some(MutationMode::Insert),
-        DynamicMutation::Update { .. } => Some(MutationMode::Update),
-        DynamicMutation::Replace { .. } => Some(MutationMode::Replace),
-        DynamicMutation::Delete { .. } => None,
-    }
-}
-
-const fn dynamic_typed_mutation_mode(request: &DynamicTypedMutation) -> Option<MutationMode> {
-    match request {
-        DynamicTypedMutation::Insert { .. } => Some(MutationMode::Insert),
-        DynamicTypedMutation::Update { .. } => Some(MutationMode::Update),
-        DynamicTypedMutation::Replace { .. } => Some(MutationMode::Replace),
-        DynamicTypedMutation::Delete { .. } => None,
-    }
-}
-
-const fn save_mutation_kind(mode: MutationMode) -> SaveMutationKind {
-    match mode {
-        MutationMode::Insert => SaveMutationKind::Insert,
-        MutationMode::Replace => SaveMutationKind::Replace,
-        MutationMode::Update => SaveMutationKind::Update,
-    }
-}
-
-const fn diagnostic_mutation_operation(
-    mode: MutationMode,
-) -> icydb_diagnostic_code::DiagnosticMutationOperation {
-    match mode {
-        MutationMode::Insert => icydb_diagnostic_code::DiagnosticMutationOperation::Insert,
-        MutationMode::Replace => icydb_diagnostic_code::DiagnosticMutationOperation::Replace,
-        MutationMode::Update => icydb_diagnostic_code::DiagnosticMutationOperation::Update,
-    }
-}
-
 const fn mutation_diagnostic_context(
     entity_tag: crate::types::EntityTag,
     mode: MutationMode,
@@ -348,7 +312,7 @@ const fn mutation_diagnostic_context(
 ) -> MutationDiagnosticContext {
     MutationDiagnosticContext::new(
         entity_tag.value(),
-        diagnostic_mutation_operation(mode),
+        mode.diagnostic_operation(),
         batch_position,
     )
 }
@@ -376,6 +340,37 @@ fn dynamic_key(
     DecodedDataStoreKey::try_from_structural_key(entity_tag, &value)
 }
 
+fn lower_resolved_write_cell(
+    lowered: AcceptedMutationIntentPatch,
+    field: &AcceptedRowLayoutRuntimeField<'_>,
+    cell: &DynamicWriteCell,
+    mode: MutationMode,
+    mutation_context: MutationDiagnosticContext,
+) -> Result<AcceptedMutationIntentPatch, InternalError> {
+    if !matches!(cell, DynamicWriteCell::Omitted)
+        && (field.write_policy().insert_generation().is_some()
+            || field.write_policy().write_management().is_some())
+    {
+        return Err(InternalError::mutation_database_owned_field_explicit(
+            mutation_context,
+            field.field_id().get(),
+        ));
+    }
+
+    let slot = FieldSlot::from_validated_index(usize::from(field.slot().get()));
+    Ok(match cell {
+        DynamicWriteCell::Omitted => lowered,
+        DynamicWriteCell::Default => match mode {
+            MutationMode::Insert | MutationMode::Replace => {
+                lowered.set_explicit_insert_default(slot)
+            }
+            MutationMode::Update => lowered.set_explicit_update_default(slot),
+        },
+        DynamicWriteCell::Null => lowered.set_authored(slot, InputValue::null()),
+        DynamicWriteCell::Value(value) => lowered.set_authored(slot, value.clone()),
+    })
+}
+
 fn lower_dynamic_patch(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     patch: &DynamicStructuralPatch,
@@ -390,29 +385,32 @@ fn lower_dynamic_patch(
         let field = descriptor
             .field_for_slot_index(slot)
             .ok_or_else(InternalError::executor_invariant)?;
-        if !matches!(cell, DynamicWriteCell::Omitted)
-            && (field.write_policy().insert_generation().is_some()
-                || field.write_policy().write_management().is_some())
-        {
-            return Err(InternalError::mutation_database_owned_field_explicit(
-                mutation_context,
-                field.field_id().get(),
-            ));
-        }
-        let slot = FieldSlot::from_validated_index(slot);
-        lowered = match cell {
-            DynamicWriteCell::Omitted => lowered,
-            DynamicWriteCell::Default => match mode {
-                MutationMode::Insert | MutationMode::Replace => {
-                    lowered.set_explicit_insert_default(slot)
-                }
-                MutationMode::Update => lowered.set_explicit_update_default(slot),
-            },
-            DynamicWriteCell::Null => lowered.set_authored(slot, InputValue::null()),
-            DynamicWriteCell::Value(value) => lowered.set_authored(slot, value.clone()),
-        };
+        lowered = lower_resolved_write_cell(lowered, field, cell, mode, mutation_context)?;
     }
     Ok(lowered)
+}
+
+fn lower_dynamic_save_intent(
+    entity_tag: crate::types::EntityTag,
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    patch: &DynamicStructuralPatch,
+    mode: MutationMode,
+    target: AcceptedStructuralMutationTarget,
+    batch_position: u32,
+) -> Result<(AcceptedStructuralMutation, Option<MutationMode>), InternalError> {
+    Ok((
+        AcceptedStructuralMutation::save(
+            mode,
+            target,
+            lower_dynamic_patch(
+                descriptor,
+                patch,
+                mode,
+                mutation_diagnostic_context(entity_tag, mode, batch_position),
+            )?,
+        ),
+        Some(mode),
+    ))
 }
 
 fn lower_dynamic_mutation_intent(
@@ -420,47 +418,32 @@ fn lower_dynamic_mutation_intent(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     request: &DynamicMutation,
     batch_position: u32,
-) -> Result<(AcceptedStructuralMutation, Option<SaveMutationKind>), InternalError> {
+) -> Result<(AcceptedStructuralMutation, Option<MutationMode>), InternalError> {
     match request {
-        DynamicMutation::Insert { patch, .. } => {
-            let mode = MutationMode::Insert;
-            Ok((
-                AcceptedStructuralMutation::save(
-                    mode,
-                    AcceptedStructuralMutationTarget::ResolveFromAfterImage,
-                    lower_dynamic_patch(
-                        descriptor,
-                        patch,
-                        mode,
-                        mutation_diagnostic_context(entity_tag, mode, batch_position),
-                    )?,
-                ),
-                Some(SaveMutationKind::Insert),
-            ))
-        }
-        DynamicMutation::Update { key, patch, .. }
-        | DynamicMutation::Replace { key, patch, .. } => {
-            let mode =
-                dynamic_mutation_mode(request).ok_or_else(InternalError::executor_invariant)?;
-            let kind = match mode {
-                MutationMode::Insert => SaveMutationKind::Insert,
-                MutationMode::Replace => SaveMutationKind::Replace,
-                MutationMode::Update => SaveMutationKind::Update,
-            };
-            Ok((
-                AcceptedStructuralMutation::save(
-                    mode,
-                    AcceptedStructuralMutationTarget::expected(dynamic_key(entity_tag, key)?),
-                    lower_dynamic_patch(
-                        descriptor,
-                        patch,
-                        mode,
-                        mutation_diagnostic_context(entity_tag, mode, batch_position),
-                    )?,
-                ),
-                Some(kind),
-            ))
-        }
+        DynamicMutation::Insert { patch, .. } => lower_dynamic_save_intent(
+            entity_tag,
+            descriptor,
+            patch,
+            MutationMode::Insert,
+            AcceptedStructuralMutationTarget::ResolveFromAfterImage,
+            batch_position,
+        ),
+        DynamicMutation::Update { key, patch, .. } => lower_dynamic_save_intent(
+            entity_tag,
+            descriptor,
+            patch,
+            MutationMode::Update,
+            AcceptedStructuralMutationTarget::expected(dynamic_key(entity_tag, key)?),
+            batch_position,
+        ),
+        DynamicMutation::Replace { key, patch, .. } => lower_dynamic_save_intent(
+            entity_tag,
+            descriptor,
+            patch,
+            MutationMode::Replace,
+            AcceptedStructuralMutationTarget::expected(dynamic_key(entity_tag, key)?),
+            batch_position,
+        ),
         DynamicMutation::Delete { key, .. } => Ok((
             AcceptedStructuralMutation::delete(dynamic_key(entity_tag, key)?),
             None,
@@ -487,27 +470,7 @@ fn lower_typed_patch(
         if field.field_id().get() != field_id {
             return Err(InternalError::store_invariant());
         }
-        if !matches!(cell, DynamicWriteCell::Omitted)
-            && (field.write_policy().insert_generation().is_some()
-                || field.write_policy().write_management().is_some())
-        {
-            return Err(InternalError::mutation_database_owned_field_explicit(
-                mutation_context,
-                field.field_id().get(),
-            ));
-        }
-        let slot = FieldSlot::from_validated_index(slot_index);
-        lowered = match cell {
-            DynamicWriteCell::Omitted => lowered,
-            DynamicWriteCell::Default => match mode {
-                MutationMode::Insert | MutationMode::Replace => {
-                    lowered.set_explicit_insert_default(slot)
-                }
-                MutationMode::Update => lowered.set_explicit_update_default(slot),
-            },
-            DynamicWriteCell::Null => lowered.set_authored(slot, InputValue::null()),
-            DynamicWriteCell::Value(value) => lowered.set_authored(slot, value.clone()),
-        };
+        lowered = lower_resolved_write_cell(lowered, field, cell, mode, mutation_context)?;
     }
     Ok(lowered)
 }
@@ -518,14 +481,20 @@ fn lower_typed_mutation_intent(
     binding: &DynamicTypedEntityBinding,
     request: &DynamicTypedMutation,
     batch_position: u32,
-) -> Result<Option<(AcceptedStructuralMutation, Option<SaveMutationKind>)>, InternalError> {
-    let (target, patch) = match request {
+) -> Result<Option<(AcceptedStructuralMutation, Option<MutationMode>)>, InternalError> {
+    let (mode, target, patch) = match request {
         DynamicTypedMutation::Insert { patch } => (
+            MutationMode::Insert,
             AcceptedStructuralMutationTarget::ResolveFromAfterImage,
             patch,
         ),
-        DynamicTypedMutation::Update { key, patch }
-        | DynamicTypedMutation::Replace { key, patch } => (
+        DynamicTypedMutation::Update { key, patch } => (
+            MutationMode::Update,
+            AcceptedStructuralMutationTarget::expected(dynamic_key(entity_tag, key)?),
+            patch,
+        ),
+        DynamicTypedMutation::Replace { key, patch } => (
+            MutationMode::Replace,
             AcceptedStructuralMutationTarget::expected(dynamic_key(entity_tag, key)?),
             patch,
         ),
@@ -539,8 +508,6 @@ fn lower_typed_mutation_intent(
     if !patch.is_bound_to(binding) {
         return Ok(None);
     }
-    let mode =
-        dynamic_typed_mutation_mode(request).ok_or_else(InternalError::executor_invariant)?;
     let patch = lower_typed_patch(
         descriptor,
         binding,
@@ -550,7 +517,7 @@ fn lower_typed_mutation_intent(
     )?;
     Ok(Some((
         AcceptedStructuralMutation::save(mode, target, patch),
-        Some(save_mutation_kind(mode)),
+        Some(mode),
     )))
 }
 
@@ -1635,7 +1602,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         mutations: Vec<AcceptedStructuralMutation>,
-        save_kinds: Vec<Option<SaveMutationKind>>,
+        save_modes: Vec<Option<MutationMode>>,
         enforce_mixed_batch_result_bound: bool,
     ) -> Result<DynamicMutationResult, InternalError> {
         let identity = catalog.identity();
@@ -1646,13 +1613,13 @@ impl<C: CanisterKind> DbSession<C> {
             mutations,
             Timestamp::now(),
             |rows| {
-                if rows.len() != save_kinds.len() {
+                if rows.len() != save_modes.len() {
                     return Err(InternalError::executor_invariant());
                 }
                 let metrics = rows
                     .iter()
-                    .zip(save_kinds)
-                    .filter_map(|(row, kind)| kind.map(|kind| (kind, row.logical_changed())))
+                    .zip(save_modes)
+                    .filter_map(|(row, mode)| mode.map(|mode| (mode, row.logical_changed())))
                     .collect::<Vec<_>>();
                 let result = prepare_dynamic_mutation_result(
                     catalog,
@@ -1663,10 +1630,10 @@ impl<C: CanisterKind> DbSession<C> {
                 Ok((result, metrics))
             },
         )?;
-        for (kind, logical_changed) in metrics {
+        for (mode, logical_changed) in metrics {
             record(MetricsEvent::SaveMutation {
                 entity_path: entity_path.clone(),
-                kind,
+                mode,
                 rows_touched: u64::from(logical_changed),
             });
         }
@@ -1723,7 +1690,7 @@ impl<C: CanisterKind> DbSession<C> {
         let mut entity_tags = std::collections::BTreeSet::new();
         let mut items = Vec::with_capacity(requests.len());
         let mut result_catalogs = Vec::with_capacity(requests.len());
-        let mut save_kinds = Vec::with_capacity(requests.len());
+        let mut save_modes = Vec::with_capacity(requests.len());
         let mut identity_candidate_count = 0_usize;
 
         for (batch_position, request) in requests.iter().enumerate() {
@@ -1756,7 +1723,7 @@ impl<C: CanisterKind> DbSession<C> {
             }
             let descriptor =
                 AcceptedRowLayoutRuntimeContract::from_accepted_schema(item_catalog.snapshot())?;
-            let (mutation, save_kind) = lower_dynamic_mutation_intent(
+            let (mutation, save_mode) = lower_dynamic_mutation_intent(
                 item_identity.entity_tag(),
                 &descriptor,
                 request,
@@ -1773,7 +1740,7 @@ impl<C: CanisterKind> DbSession<C> {
                 identity_candidate_count = identity_candidate_count.saturating_add(1);
             }
             result_catalogs.push(item_catalog.clone());
-            save_kinds.push(save_kind);
+            save_modes.push(save_mode);
             items.push(AcceptedStructuralMutationBatchItem {
                 catalog: item_catalog,
                 mutation,
@@ -1784,7 +1751,7 @@ impl<C: CanisterKind> DbSession<C> {
             &anchor_catalog,
             items,
             result_catalogs,
-            save_kinds,
+            save_modes,
             identity_candidate_count,
         )
     }
@@ -1794,10 +1761,10 @@ impl<C: CanisterKind> DbSession<C> {
         anchor_catalog: &AcceptedSchemaCatalogContext,
         items: Vec<AcceptedStructuralMutationBatchItem>,
         result_catalogs: Vec<AcceptedSchemaCatalogContext>,
-        save_kinds: Vec<Option<SaveMutationKind>>,
+        save_modes: Vec<Option<MutationMode>>,
         identity_candidate_count: usize,
     ) -> Result<Vec<DynamicMutationResult>, InternalError> {
-        if items.len() != result_catalogs.len() || items.len() != save_kinds.len() {
+        if items.len() != result_catalogs.len() || items.len() != save_modes.len() {
             return Err(InternalError::executor_invariant());
         }
         let mutation_count = items.len();
@@ -1819,11 +1786,11 @@ impl<C: CanisterKind> DbSession<C> {
                 }
                 let mut results = Vec::with_capacity(rows.len());
                 let mut metrics = Vec::with_capacity(rows.len());
-                for (((row, catalog), entity_path), save_kind) in rows
+                for (((row, catalog), entity_path), save_mode) in rows
                     .into_iter()
                     .zip(result_catalogs.iter())
                     .zip(result_entity_paths.iter())
-                    .zip(save_kinds)
+                    .zip(save_modes)
                 {
                     let logical_changed = row.logical_changed();
                     let descriptor =
@@ -1834,8 +1801,8 @@ impl<C: CanisterKind> DbSession<C> {
                         vec![row],
                         false,
                     )?);
-                    if let Some(kind) = save_kind {
-                        metrics.push((entity_path.clone(), kind, logical_changed));
+                    if let Some(mode) = save_mode {
+                        metrics.push((entity_path.clone(), mode, logical_changed));
                     }
                 }
                 let encoded = candid::encode_one(&results)
@@ -1847,10 +1814,10 @@ impl<C: CanisterKind> DbSession<C> {
                 ))
             },
         )?;
-        for (entity_path, kind, logical_changed) in metrics {
+        for (entity_path, mode, logical_changed) in metrics {
             record(MetricsEvent::SaveMutation {
                 entity_path,
-                kind,
+                mode,
                 rows_touched: u64::from(logical_changed),
             });
         }
@@ -1882,7 +1849,7 @@ impl<C: CanisterKind> DbSession<C> {
         let descriptor =
             AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
         let mut mutations = Vec::with_capacity(requests.len());
-        let mut save_kinds = Vec::with_capacity(requests.len());
+        let mut save_modes = Vec::with_capacity(requests.len());
 
         for (batch_position, request) in requests.iter().enumerate() {
             let batch_position = u32::try_from(batch_position).map_err(|_| {
@@ -1899,21 +1866,21 @@ impl<C: CanisterKind> DbSession<C> {
             if item_catalog.identity() != accepted_identity {
                 return Err(InternalError::query_executor_invariant());
             }
-            let (mutation, save_kind) = lower_dynamic_mutation_intent(
+            let (mutation, save_mode) = lower_dynamic_mutation_intent(
                 accepted_identity.entity_tag(),
                 &descriptor,
                 request,
                 batch_position,
             )?;
             mutations.push(mutation);
-            save_kinds.push(save_kind);
+            save_modes.push(save_mode);
         }
 
         self.execute_lowered_dynamic_mutation_batch(
             &catalog,
             &descriptor,
             mutations,
-            save_kinds,
+            save_modes,
             enforce_mixed_batch_result_bound,
         )
     }
@@ -1932,7 +1899,7 @@ impl<C: CanisterKind> DbSession<C> {
         let identity = catalog.identity();
         let descriptor =
             AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
-        let Some((mutation, save_kind)) =
+        let Some((mutation, save_mode)) =
             lower_typed_mutation_intent(identity.entity_tag(), &descriptor, binding, request, 0)?
         else {
             return Ok(None);
@@ -1941,7 +1908,7 @@ impl<C: CanisterKind> DbSession<C> {
             &catalog,
             &descriptor,
             vec![mutation],
-            vec![save_kind],
+            vec![save_mode],
             false,
         )
         .map(Some)
@@ -1972,7 +1939,7 @@ impl<C: CanisterKind> DbSession<C> {
         let descriptor =
             AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
         let mut mutations = Vec::with_capacity(requests.len());
-        let mut save_kinds = Vec::with_capacity(requests.len());
+        let mut save_modes = Vec::with_capacity(requests.len());
         for (batch_position, request) in requests.iter().enumerate() {
             let batch_position = u32::try_from(batch_position).map_err(|_| {
                 InternalError::mutation_batch_too_many_items(
@@ -1980,7 +1947,7 @@ impl<C: CanisterKind> DbSession<C> {
                     MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
                 )
             })?;
-            let Some((mutation, save_kind)) = lower_typed_mutation_intent(
+            let Some((mutation, save_mode)) = lower_typed_mutation_intent(
                 identity.entity_tag(),
                 &descriptor,
                 binding,
@@ -1991,14 +1958,14 @@ impl<C: CanisterKind> DbSession<C> {
                 return Ok(None);
             };
             mutations.push(mutation);
-            save_kinds.push(save_kind);
+            save_modes.push(save_mode);
         }
 
         self.execute_lowered_dynamic_mutation_batch(
             &catalog,
             &descriptor,
             mutations,
-            save_kinds,
+            save_modes,
             true,
         )
         .map(Some)
@@ -2032,7 +1999,7 @@ impl<C: CanisterKind> DbSession<C> {
         let mut entity_tags = std::collections::BTreeSet::new();
         let mut items = Vec::with_capacity(requests.len());
         let mut result_catalogs = Vec::with_capacity(requests.len());
-        let mut save_kinds = Vec::with_capacity(requests.len());
+        let mut save_modes = Vec::with_capacity(requests.len());
         let mut identity_candidate_count = 0_usize;
 
         for (batch_position, (binding, request)) in requests.iter().enumerate() {
@@ -2065,7 +2032,7 @@ impl<C: CanisterKind> DbSession<C> {
             }
             let descriptor =
                 AcceptedRowLayoutRuntimeContract::from_accepted_schema(item_catalog.snapshot())?;
-            let Some((mutation, save_kind)) = lower_typed_mutation_intent(
+            let Some((mutation, save_mode)) = lower_typed_mutation_intent(
                 item_identity.entity_tag(),
                 &descriptor,
                 binding,
@@ -2086,7 +2053,7 @@ impl<C: CanisterKind> DbSession<C> {
                 identity_candidate_count = identity_candidate_count.saturating_add(1);
             }
             result_catalogs.push(item_catalog.clone());
-            save_kinds.push(save_kind);
+            save_modes.push(save_mode);
             items.push(AcceptedStructuralMutationBatchItem {
                 catalog: item_catalog,
                 mutation,
@@ -2097,7 +2064,7 @@ impl<C: CanisterKind> DbSession<C> {
             &catalog,
             items,
             result_catalogs,
-            save_kinds,
+            save_modes,
             identity_candidate_count,
         )
         .map(Some)

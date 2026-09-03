@@ -320,16 +320,16 @@ impl From<icydb_model::TypedValueError> for TypedAdapterError {
     }
 }
 
-/// Failure while issuing one opaque typed binding.
+/// Failure while binding, decoding, or executing one typed operation.
 #[derive(Debug)]
-pub enum TypedBindingError {
-    /// Generated identity or shape disagrees with accepted authority.
+pub enum TypedOperationError {
+    /// Generated shape, binding, or returned-row validation failed.
     Adapter(TypedAdapterError),
-    /// Accepted database inspection failed.
+    /// The accepted database operation rejected or failed.
     Database(Error),
 }
 
-impl fmt::Display for TypedBindingError {
+impl fmt::Display for TypedOperationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Adapter(error) => error.fmt(formatter),
@@ -338,75 +338,17 @@ impl fmt::Display for TypedBindingError {
     }
 }
 
-impl StdError for TypedBindingError {}
+impl StdError for TypedOperationError {}
 
-/// Failure while projecting one accepted dynamic row through an opaque binding.
-#[derive(Debug)]
-pub enum TypedRowError {
-    /// The binding or returned row is stale or mismatched.
-    Adapter(TypedAdapterError),
-    /// Accepted database inspection failed.
-    Database(Error),
-}
-
-impl fmt::Display for TypedRowError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Adapter(error) => error.fmt(formatter),
-            Self::Database(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl StdError for TypedRowError {}
-
-/// Failure while validating or executing one typed write.
-#[derive(Debug)]
-pub enum TypedWriteError {
-    /// The opaque adapter binding is stale or mismatched.
-    Adapter(TypedAdapterError),
-    /// The accepted database write rejected or failed.
-    Database(Error),
-}
-
-impl fmt::Display for TypedWriteError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Adapter(error) => error.fmt(formatter),
-            Self::Database(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl StdError for TypedWriteError {}
-
-impl From<Error> for TypedWriteError {
+impl From<Error> for TypedOperationError {
     fn from(error: Error) -> Self {
         Self::Database(error)
     }
 }
 
-impl From<TypedAdapterError> for TypedWriteError {
+impl From<TypedAdapterError> for TypedOperationError {
     fn from(error: TypedAdapterError) -> Self {
         Self::Adapter(error)
-    }
-}
-
-impl From<TypedBindingError> for TypedWriteError {
-    fn from(error: TypedBindingError) -> Self {
-        match error {
-            TypedBindingError::Adapter(error) => Self::Adapter(error),
-            TypedBindingError::Database(error) => Self::Database(error),
-        }
-    }
-}
-
-impl From<TypedRowError> for TypedWriteError {
-    fn from(error: TypedRowError) -> Self {
-        match error {
-            TypedRowError::Adapter(error) => Self::Adapter(error),
-            TypedRowError::Database(error) => Self::Database(error),
-        }
     }
 }
 
@@ -799,7 +741,7 @@ pub trait TypedEntityAdapter: TypedRowAdapter {
     const DESCRIPTOR: &'static TypedEntityDescriptor;
 
     /// Bind generated source identities to current accepted schema authority.
-    fn typed_binding<C>(session: &DbSession<C>) -> Result<TypedEntityBinding, TypedBindingError>
+    fn typed_binding<C>(session: &DbSession<C>) -> Result<TypedEntityBinding, TypedOperationError>
     where
         C: CanisterKind,
     {
@@ -935,7 +877,7 @@ impl<'session, C: CanisterKind> TrustedTypedWriteBatch<'session, C> {
     }
 
     /// Resolve and encode one generated write under its generated entity.
-    pub fn push<W>(&mut self, input: W) -> Result<TypedWriteHandle<W::Entity>, TypedWriteError>
+    pub fn push<W>(&mut self, input: W) -> Result<TypedWriteHandle<W::Entity>, TypedOperationError>
     where
         W: TypedWriteAdapter,
     {
@@ -955,7 +897,7 @@ impl<'session, C: CanisterKind> TrustedTypedWriteBatch<'session, C> {
     }
 
     /// Consume this builder and execute its writes in one canonical batch.
-    pub fn execute(self) -> Result<TypedWriteBatchResults, TypedWriteError> {
+    pub fn execute(self) -> Result<TypedWriteBatchResults, TypedOperationError> {
         let results = self
             .session
             .execute_trusted_typed_write_batch(self.writes)?;
@@ -1021,21 +963,17 @@ impl TypedWriteBatchResults {
     ///
     /// Each builder handle owns exactly one row decode. A second decode attempt
     /// returns [`TypedAdapterError::BatchRowConsumed`].
-    pub fn row<E>(&mut self, handle: &TypedWriteHandle<E>) -> Result<E::Row, TypedRowError>
+    pub fn row<E>(&mut self, handle: &TypedWriteHandle<E>) -> Result<E::Row, TypedOperationError>
     where
         E: TypedEntityAdapter,
     {
-        let position = self
-            .handle_position(handle)
-            .map_err(TypedRowError::Adapter)?;
+        let position = self.handle_position(handle)?;
         let result = self
             .results
             .get_mut(position)
-            .ok_or(TypedRowError::Adapter(
-                TypedAdapterError::BatchHandleMismatch,
-            ))?;
-        let row = result.take_row().map_err(TypedRowError::Adapter)?;
-        E::decode_row(result.projection.binding(), row).map_err(TypedRowError::Adapter)
+            .ok_or(TypedAdapterError::BatchHandleMismatch)?;
+        let row = result.take_row()?;
+        Ok(E::decode_row(result.projection.binding(), row)?)
     }
 }
 
@@ -1188,11 +1126,11 @@ impl<C: CanisterKind> DbSession<C> {
     fn ensure_typed_write_binding_is_current(
         &self,
         binding: &TypedEntityBinding,
-    ) -> Result<(), TypedWriteError> {
+    ) -> Result<(), TypedOperationError> {
         let current = self
             .inner
             .typed_entity_binding_is_current(&binding.inner)
-            .map_err(|error| TypedWriteError::Database(Error::from(error)))?;
+            .map_err(|error| TypedOperationError::Database(Error::from(error)))?;
         if !current {
             return Err(TypedAdapterError::StaleBinding.into());
         }
@@ -1247,7 +1185,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         binding: &TypedEntityBinding,
         mutations: Vec<StructuralMutation>,
-    ) -> Result<Vec<OutputRow>, TypedWriteError> {
+    ) -> Result<Vec<OutputRow>, TypedOperationError> {
         self.ensure_typed_write_binding_is_current(binding)?;
         if mutations
             .iter()
@@ -1264,8 +1202,12 @@ impl<C: CanisterKind> DbSession<C> {
         let results = self
             .inner
             .execute_trusted_dynamic_mutation_batch(mutations)
-            .map_err(|error| TypedWriteError::Database(Error::from(error)))?;
-        project_mutation_result_batch(binding, results, expected_results).map_err(Into::into)
+            .map_err(|error| TypedOperationError::Database(Error::from(error)))?;
+        Ok(project_mutation_result_batch(
+            binding,
+            results,
+            expected_results,
+        )?)
     }
 
     /// Execute one same-entity structural insert batch atomically.
@@ -1295,15 +1237,18 @@ impl<C: CanisterKind> DbSession<C> {
         entity: String,
         columns: Vec<String>,
         rows: Vec<Vec<OutputValue>>,
-    ) -> Result<PreparedOutputRows, TypedRowError> {
+    ) -> Result<PreparedOutputRows, TypedOperationError> {
         let current = self
             .inner
             .typed_entity_binding_is_current(&binding.inner)
-            .map_err(|error| TypedRowError::Database(Error::from(error)))?;
+            .map_err(|error| TypedOperationError::Database(Error::from(error)))?;
         if !current {
-            return Err(TypedRowError::Adapter(TypedAdapterError::StaleBinding));
+            return Err(TypedOperationError::Adapter(
+                TypedAdapterError::StaleBinding,
+            ));
         }
-        PreparedOutputRows::new(binding, entity, columns, rows).map_err(TypedRowError::Adapter)
+        PreparedOutputRows::new(binding, entity, columns, rows)
+            .map_err(TypedOperationError::Adapter)
     }
 
     /// Issue one opaque current accepted binding for generated field contracts.
@@ -1311,19 +1256,19 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn bind_typed_entity(
         &self,
         descriptor: &TypedEntityDescriptor,
-    ) -> Result<TypedEntityBinding, TypedBindingError> {
+    ) -> Result<TypedEntityBinding, TypedOperationError> {
         self.inner
             .issue_typed_entity_binding(descriptor)
             .map(TypedEntityBinding::new)
             .map_err(|error| match error {
                 core::db::DynamicTypedBindingError::FieldUnavailable => {
-                    TypedBindingError::Adapter(TypedAdapterError::FieldUnavailable)
+                    TypedOperationError::Adapter(TypedAdapterError::FieldUnavailable)
                 }
                 core::db::DynamicTypedBindingError::IncompatibleField => {
-                    TypedBindingError::Adapter(TypedAdapterError::IncompatibleField)
+                    TypedOperationError::Adapter(TypedAdapterError::IncompatibleField)
                 }
                 core::db::DynamicTypedBindingError::Internal(error) => {
-                    TypedBindingError::Database(Error::from(error))
+                    TypedOperationError::Database(Error::from(error))
                 }
             })
     }
@@ -1340,27 +1285,28 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         binding: &TypedEntityBinding,
         value: T,
-    ) -> Result<InputValue, TypedWriteError>
+    ) -> Result<InputValue, TypedOperationError>
     where
         T: icydb_model::TypedInputValue,
     {
         self.ensure_typed_write_binding_is_current(binding)?;
-        value
+        let value = value
             .encode_typed_input(binding)
-            .map(InputValue::from_public)
-            .map_err(TypedAdapterError::from)
-            .map_err(Into::into)
+            .map_err(TypedAdapterError::from)?;
+        Ok(InputValue::from_public(value))
     }
 
     /// Execute one generated write only while its opaque accepted binding is current.
     pub fn execute_trusted_typed_write(
         &self,
         write: TypedWrite,
-    ) -> Result<DynamicMutationResult, TypedWriteError> {
+    ) -> Result<DynamicMutationResult, TypedOperationError> {
         self.inner
             .execute_trusted_typed_mutation(&write.binding.inner, &write.mutation)
-            .map_err(|error| TypedWriteError::Database(Error::from(error)))?
-            .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))
+            .map_err(|error| TypedOperationError::Database(Error::from(error)))?
+            .ok_or(TypedOperationError::Adapter(
+                TypedAdapterError::StaleBinding,
+            ))
     }
 
     /// Execute one generated write and project its required single row.
@@ -1373,14 +1319,16 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn execute_trusted_typed_write_row(
         &self,
         write: TypedWrite,
-    ) -> Result<OutputRow, TypedWriteError> {
+    ) -> Result<OutputRow, TypedOperationError> {
         let TypedWrite { binding, mutation } = write;
         let result = self
             .inner
             .execute_trusted_typed_mutation(&binding.inner, &mutation)
-            .map_err(|error| TypedWriteError::Database(Error::from(error)))?
-            .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))?;
-        project_single_mutation_result(&binding, result).map_err(Into::into)
+            .map_err(|error| TypedOperationError::Database(Error::from(error)))?
+            .ok_or(TypedOperationError::Adapter(
+                TypedAdapterError::StaleBinding,
+            ))?;
+        Ok(project_single_mutation_result(&binding, result)?)
     }
 
     /// Execute one non-empty same-store generated write batch atomically.
@@ -1392,15 +1340,17 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn execute_trusted_typed_write_batch(
         &self,
         writes: Vec<TypedWrite>,
-    ) -> Result<Vec<DynamicMutationResult>, TypedWriteError> {
+    ) -> Result<Vec<DynamicMutationResult>, TypedOperationError> {
         let requests = writes
             .into_iter()
             .map(|write| (write.binding.inner, write.mutation))
             .collect();
         self.inner
             .execute_trusted_typed_mutation_batch(requests)
-            .map_err(|error| TypedWriteError::Database(Error::from(error)))?
-            .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))
+            .map_err(|error| TypedOperationError::Database(Error::from(error)))?
+            .ok_or(TypedOperationError::Adapter(
+                TypedAdapterError::StaleBinding,
+            ))
     }
 
     /// Execute and prepare one non-empty same-entity generated write batch.
@@ -1414,7 +1364,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         binding: &TypedEntityBinding,
         writes: Vec<TypedWrite>,
-    ) -> Result<PreparedOutputRows, TypedWriteError> {
+    ) -> Result<PreparedOutputRows, TypedOperationError> {
         if writes.iter().any(|write| write.binding != *binding) {
             return Err(TypedAdapterError::EntityMismatch.into());
         }
@@ -1423,8 +1373,10 @@ impl<C: CanisterKind> DbSession<C> {
         let result = self
             .inner
             .execute_trusted_same_entity_typed_mutation_batch(binding.inner(), requests)
-            .map_err(|error| TypedWriteError::Database(Error::from(error)))?
-            .ok_or(TypedWriteError::Adapter(TypedAdapterError::StaleBinding))?;
+            .map_err(|error| TypedOperationError::Database(Error::from(error)))?
+            .ok_or(TypedOperationError::Adapter(
+                TypedAdapterError::StaleBinding,
+            ))?;
         let DynamicMutationResult {
             entity,
             columns,
@@ -1434,7 +1386,7 @@ impl<C: CanisterKind> DbSession<C> {
         if rows.len() != expected_results {
             return Err(TypedAdapterError::RowShapeMismatch.into());
         }
-        PreparedOutputRows::new(binding, entity, columns, rows).map_err(Into::into)
+        Ok(PreparedOutputRows::new(binding, entity, columns, rows)?)
     }
 
     /// Start one mixed-entity generated typed-write batch.

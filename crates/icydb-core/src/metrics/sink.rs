@@ -25,8 +25,7 @@ use std::rc::Rc;
 pub use events::{
     CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, GroupedPlanExecutionMode,
     MetricsEvent, MutationCommitClass, MutationJobLifecycleEvent, PlanChoiceReason, PlanKind,
-    SaveMutationKind, SchemaReconcileOutcome, SchemaTransitionOutcome, SqlCompileRejectPhase,
-    SqlWriteKind,
+    SchemaReconcileOutcome, SchemaTransitionOutcome, SqlCompileRejectPhase, SqlWriteKind,
 };
 
 thread_local! {

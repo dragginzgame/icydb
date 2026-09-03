@@ -14,8 +14,8 @@ pub use sink::with_query_metrics_context;
 pub use sink::{
     CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, GroupedPlanExecutionMode,
     MetricsEvent, MetricsSink, MutationCommitClass, MutationJobLifecycleEvent, PlanChoiceReason,
-    PlanKind, SaveMutationKind, SchemaReconcileOutcome, SchemaTransitionOutcome,
-    SqlCompileRejectPhase, SqlWriteKind, compact_metrics_report, metrics_reset_all,
+    PlanKind, SchemaReconcileOutcome, SchemaTransitionOutcome, SqlCompileRejectPhase, SqlWriteKind,
+    compact_metrics_report, metrics_reset_all,
 };
 pub use state::{
     CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport,

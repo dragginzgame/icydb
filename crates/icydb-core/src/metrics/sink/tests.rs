@@ -1,6 +1,8 @@
 use super::*;
 use crate::{
-    db::{MutationJobPhase, MutationJobRestartReason, MutationJobTargetFailureReason},
+    db::{
+        MutationJobPhase, MutationJobRestartReason, MutationJobTargetFailureReason, MutationMode,
+    },
     error::ErrorClass,
 };
 use std::cell::Cell;
@@ -622,14 +624,14 @@ fn exec_error_metrics_count_attempt_and_outcome_without_rows() {
 fn save_mutation_metrics_accumulate_by_mode() {
     metrics_reset_all();
 
-    for (kind, rows_touched) in [
-        (SaveMutationKind::Insert, 2),
-        (SaveMutationKind::Update, 3),
-        (SaveMutationKind::Replace, 4),
+    for (mode, rows_touched) in [
+        (MutationMode::Insert, 2),
+        (MutationMode::Update, 3),
+        (MutationMode::Replace, 4),
     ] {
         record(MetricsEvent::SaveMutation {
             entity_path: "metrics::tests::Entity".into(),
-            kind,
+            mode,
             rows_touched,
         });
     }

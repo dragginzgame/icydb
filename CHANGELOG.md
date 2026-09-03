@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
+- `0.252.6` converges structural and typed writes on one mutation-mode and
+  accepted-cell lowering path, hard-cuts four duplicate public typed-operation
+  error wrappers to `TypedOperationError`, and gives exact first-component
+  range and numeric metadata one bounded traversal and execution envelope.
 - `0.252.5` removes internal policy rediscovery across secondary ordering,
   accepted-index predicates, and Wasm/performance build evidence; gives
   maintained actors one fixture identity, hard-cuts current evidence to

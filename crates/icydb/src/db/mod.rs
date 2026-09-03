@@ -50,11 +50,10 @@ pub use session::{
     BoundWriteEncoder, DbSession, ExhaustiveReadError, IntegrityCheckError, LivePageStep,
     OutputRow, PreparedExactKeyOutput, PreparedLivePageCursor, PreparedLivePageOutput,
     PreparedOutputRows, RequestExecutionFuture, RequestExecutionRoot, StructuralMutation,
-    StructuralPatch, TrustedTypedWriteBatch, TypedAdapterError, TypedBindingError,
-    TypedEntityAdapter, TypedEntityBinding, TypedRowAdapter, TypedRowError, TypedWrite,
-    TypedWriteAdapter, TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteError,
-    TypedWriteHandle, WriteCell, with_request_execution, with_request_execution_async,
-    with_request_execution_root,
+    StructuralPatch, TrustedTypedWriteBatch, TypedAdapterError, TypedEntityAdapter,
+    TypedEntityBinding, TypedOperationError, TypedRowAdapter, TypedWrite, TypedWriteAdapter,
+    TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteHandle, WriteCell,
+    with_request_execution, with_request_execution_async, with_request_execution_root,
 };
 pub use startup::{
     __clear_generated_startup_failure, __install_startup_recovery_wakeup,

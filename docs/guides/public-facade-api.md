@@ -328,10 +328,10 @@ callers do not coordinate heterogeneous result indexes:
 fn enroll<C: CanisterKind>(
     session: &DbSession<C>,
     principal: Principal,
-) -> Result<Id<User>, TypedWriteError> {
+) -> Result<Id<User>, TypedOperationError> {
     let user_id = Id::<User>::generate()
         .map_err(icydb::Error::from)
-        .map_err(TypedWriteError::Database)?;
+        .map_err(TypedOperationError::Database)?;
     let mut batch = session.trusted_typed_write_batch();
     let user = batch.push(UserInsert {
         id: WriteCell::Value(user_id),

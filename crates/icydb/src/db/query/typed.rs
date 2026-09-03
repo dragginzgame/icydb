@@ -8,8 +8,7 @@
 use crate::{
     db::{
         AttributedRead, DbSession, DynamicQuery, ExhaustiveReadError, GroupedQueryOutput,
-        PreparedLivePageOutput, TypedBindingError, TypedEntityAdapter, TypedEntityBinding,
-        TypedRowError,
+        PreparedLivePageOutput, TypedEntityAdapter, TypedEntityBinding, TypedOperationError,
     },
     traits::{CanisterKind, EntityKey},
     types::Id,
@@ -18,15 +17,6 @@ use candid::CandidType;
 use icydb_core::db::{AggregateExpr, FilterExpr, OrderTerm, PrimaryKeyEncode, PrimaryKeyValue};
 use serde::Deserialize;
 use std::{error::Error as StdError, fmt, marker::PhantomData};
-
-/// Failure while executing one accepted-schema-bound typed query.
-#[derive(Debug)]
-pub enum TypedQueryError {
-    /// The accepted dynamic read rejected or failed.
-    Database(crate::Error),
-    /// A returned accepted row could not be projected through the binding.
-    Row(TypedRowError),
-}
 
 /// One revision-tolerant bounded typed page.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -83,47 +73,37 @@ impl<Row> ExhaustivePage<Row> {
 /// Failure while decoding or executing one typed exhaustive page.
 #[derive(Debug)]
 pub enum TypedExhaustiveQueryError {
+    /// The accepted exhaustive-read boundary or its source proof failed.
     Exhaustive(ExhaustiveReadError),
-    Row(TypedRowError),
+    /// Typed binding, decoding, or ordinary database execution failed.
+    Operation(TypedOperationError),
 }
 
 impl fmt::Display for TypedExhaustiveQueryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Exhaustive(error) => error.fmt(formatter),
-            Self::Row(error) => error.fmt(formatter),
+            Self::Operation(error) => error.fmt(formatter),
         }
     }
 }
 
 impl StdError for TypedExhaustiveQueryError {}
 
-impl fmt::Display for TypedQueryError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Database(error) => error.fmt(formatter),
-            Self::Row(error) => error.fmt(formatter),
-        }
+impl From<TypedOperationError> for TypedExhaustiveQueryError {
+    fn from(error: TypedOperationError) -> Self {
+        Self::Operation(error)
     }
 }
 
-impl StdError for TypedQueryError {}
-
-fn typed_query_error_from_binding(error: TypedBindingError) -> TypedQueryError {
-    match error {
-        TypedBindingError::Adapter(error) => TypedQueryError::Row(TypedRowError::Adapter(error)),
-        TypedBindingError::Database(error) => TypedQueryError::Database(error),
-    }
-}
-
-fn encode_typed_exact_keys<K>(keys: &[K]) -> Result<Vec<PrimaryKeyValue>, TypedQueryError>
+fn encode_typed_exact_keys<K>(keys: &[K]) -> Result<Vec<PrimaryKeyValue>, TypedOperationError>
 where
     K: PrimaryKeyEncode,
 {
     keys.iter()
         .map(|key| {
             key.to_primary_key_value().map_err(|error| {
-                TypedQueryError::Database(crate::Error::from(
+                TypedOperationError::Database(crate::Error::from(
                     icydb_core::error::InternalError::from(error),
                 ))
             })
@@ -166,7 +146,7 @@ where
     C: CanisterKind,
     E: TypedEntityAdapter,
 {
-    pub(crate) fn new(session: &'session DbSession<C>) -> Result<Self, TypedBindingError> {
+    pub(crate) fn new(session: &'session DbSession<C>) -> Result<Self, TypedOperationError> {
         let binding = E::typed_binding(session)?;
         let request = DynamicQuery::new(binding.entity());
         Ok(Self {
@@ -246,15 +226,12 @@ where
     /// bounded `IN` filter over the leading field of an accepted unfiltered
     /// field-path user index. The index may have trailing fields. Other shapes
     /// and unavailable exact-cardinality metadata fail closed.
-    pub fn execute_exact_count(self) -> Result<u64, TypedQueryError> {
+    pub fn execute_exact_count(self) -> Result<u64, TypedOperationError> {
         self.session
-            .execute_public_typed_exact_count(&self.binding, &self.request)
-            .map_err(TypedQueryError::Database)?
-            .ok_or({
-                TypedQueryError::Row(TypedRowError::Adapter(
-                    crate::db::TypedAdapterError::StaleBinding,
-                ))
-            })
+            .execute_public_typed_exact_count(&self.binding, &self.request)?
+            .ok_or(TypedOperationError::Adapter(
+                crate::db::TypedAdapterError::StaleBinding,
+            ))
     }
 
     /// Execute one revision-tolerant bounded page and decode its typed rows.
@@ -264,7 +241,7 @@ where
     pub fn execute_live_page(
         self,
         continuation: Option<&str>,
-    ) -> Result<LivePage<E::Row>, TypedQueryError> {
+    ) -> Result<LivePage<E::Row>, TypedOperationError> {
         let cursor = self
             .session
             .prepare_live_page_cursor(self.binding, self.request);
@@ -281,7 +258,7 @@ where
     pub fn execute_live_page_with_attribution(
         self,
         continuation: Option<&str>,
-    ) -> Result<AttributedRead<LivePage<E::Row>>, TypedQueryError> {
+    ) -> Result<AttributedRead<LivePage<E::Row>>, TypedOperationError> {
         let start = read_operation_local_instruction_counter();
         let cursor = self
             .session
@@ -308,13 +285,10 @@ where
     fn decode_live_page(
         binding: &TypedEntityBinding,
         prepared: PreparedLivePageOutput,
-    ) -> Result<LivePage<E::Row>, TypedQueryError> {
+    ) -> Result<LivePage<E::Row>, TypedOperationError> {
         let mut rows = Vec::with_capacity(prepared.rows.len());
         for row in prepared.rows {
-            rows.push(
-                E::decode_row(binding, row)
-                    .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?,
-            );
+            rows.push(E::decode_row(binding, row)?);
         }
 
         Ok(LivePage {
@@ -339,7 +313,7 @@ where
             .execute_public_typed_exhaustive_page(&self.binding, &self.request, continuation, proof)
             .map_err(TypedExhaustiveQueryError::Exhaustive)?
             .ok_or({
-                TypedExhaustiveQueryError::Row(TypedRowError::Adapter(
+                TypedExhaustiveQueryError::Operation(TypedOperationError::Adapter(
                     crate::db::TypedAdapterError::StaleBinding,
                 ))
             })?;
@@ -355,14 +329,12 @@ where
         let output_rows = self
             .session
             .prepare_typed_output_rows(&self.binding, entity, columns, output_rows)
-            .map_err(TypedExhaustiveQueryError::Row)?;
+            .map_err(TypedExhaustiveQueryError::Operation)?;
         let mut rows = Vec::with_capacity(output_rows.len());
         for row in output_rows {
-            rows.push(
-                E::decode_row(&self.binding, row).map_err(|error| {
-                    TypedExhaustiveQueryError::Row(TypedRowError::Adapter(error))
-                })?,
-            );
+            rows.push(E::decode_row(&self.binding, row).map_err(|error| {
+                TypedExhaustiveQueryError::Operation(TypedOperationError::Adapter(error))
+            })?);
         }
 
         Ok(ExhaustivePage {
@@ -379,21 +351,18 @@ where
     /// accepted schema, shared query planner, and grouped executor remain the
     /// sole runtime authorities; `E` supplies only the source-bound entity
     /// binding used to reject stale adapters.
-    pub fn execute_grouped(self) -> Result<GroupedQueryOutput, TypedQueryError> {
+    pub fn execute_grouped(self) -> Result<GroupedQueryOutput, TypedOperationError> {
         self.session
-            .execute_public_typed_dynamic_grouped_query(&self.binding, &self.request)
-            .map_err(TypedQueryError::Database)?
-            .ok_or({
-                TypedQueryError::Row(TypedRowError::Adapter(
-                    crate::db::TypedAdapterError::StaleBinding,
-                ))
-            })
+            .execute_public_typed_dynamic_grouped_query(&self.binding, &self.request)?
+            .ok_or(TypedOperationError::Adapter(
+                crate::db::TypedAdapterError::StaleBinding,
+            ))
     }
 }
 
 impl<C: CanisterKind> DbSession<C> {
     /// Start one typed read bound to current accepted schema authority.
-    pub fn query<E>(&self) -> Result<Query<'_, C, E>, TypedBindingError>
+    pub fn query<E>(&self) -> Result<Query<'_, C, E>, TypedOperationError>
     where
         E: TypedEntityAdapter,
     {
@@ -404,17 +373,15 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// This path validates one current accepted binding and performs one
     /// bounded store lookup without constructing or caching a dynamic plan.
-    pub fn get<E>(&self, id: Id<E>) -> Result<Option<E::Row>, TypedQueryError>
+    pub fn get<E>(&self, id: Id<E>) -> Result<Option<E::Row>, TypedOperationError>
     where
         E: EntityKey + TypedEntityAdapter,
         E::Row: Clone,
     {
         let mut rows = self.get_many::<E>(&[id])?;
-        rows.pop().ok_or({
-            TypedQueryError::Row(TypedRowError::Adapter(
-                crate::db::TypedAdapterError::RowShapeMismatch,
-            ))
-        })
+        rows.pop().ok_or(TypedOperationError::Adapter(
+            crate::db::TypedAdapterError::RowShapeMismatch,
+        ))
     }
 
     /// Read generated entities directly by typed entity identifier.
@@ -424,21 +391,18 @@ impl<C: CanisterKind> DbSession<C> {
     /// while sharing one physical lookup and persisted-row decode. One batch is
     /// bounded by [`MAX_TYPED_EXACT_KEY_BATCH_ITEMS`], encoded key bytes,
     /// distinct stored-row bytes, and logical result bytes.
-    pub fn get_many<E>(&self, ids: &[Id<E>]) -> Result<Vec<Option<E::Row>>, TypedQueryError>
+    pub fn get_many<E>(&self, ids: &[Id<E>]) -> Result<Vec<Option<E::Row>>, TypedOperationError>
     where
         E: EntityKey + TypedEntityAdapter,
         E::Row: Clone,
     {
-        let binding = E::typed_binding(self).map_err(typed_query_error_from_binding)?;
+        let binding = E::typed_binding(self)?;
         let keys = encode_typed_exact_keys(ids)?;
         let prepared = self.execute_public_prepared_exact_key_batch(&binding, &keys)?;
         let mut distinct_rows = Vec::with_capacity(prepared.distinct_rows.len());
         for row in prepared.distinct_rows {
             let row = match row {
-                Some(row) => Some(
-                    E::decode_row(&binding, row)
-                        .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?,
-                ),
+                Some(row) => Some(E::decode_row(&binding, row)?),
                 None => None,
             };
             distinct_rows.push(row);
@@ -446,16 +410,14 @@ impl<C: CanisterKind> DbSession<C> {
 
         let mut rows = Vec::with_capacity(prepared.positions.len());
         for position in prepared.positions {
-            let index = usize::try_from(position).map_err(|_| {
-                TypedQueryError::Row(TypedRowError::Adapter(
-                    crate::db::TypedAdapterError::RowShapeMismatch,
-                ))
-            })?;
-            rows.push(distinct_rows.get(index).cloned().ok_or({
-                TypedQueryError::Row(TypedRowError::Adapter(
-                    crate::db::TypedAdapterError::RowShapeMismatch,
-                ))
-            })?);
+            let index = usize::try_from(position)
+                .map_err(|_| crate::db::TypedAdapterError::RowShapeMismatch)?;
+            rows.push(
+                distinct_rows
+                    .get(index)
+                    .cloned()
+                    .ok_or(crate::db::TypedAdapterError::RowShapeMismatch)?,
+            );
         }
         Ok(rows)
     }

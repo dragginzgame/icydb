@@ -23,6 +23,20 @@ pub enum MutationMode {
     Update,
 }
 
+impl MutationMode {
+    /// Project the canonical mutation mode into the bounded diagnostic taxonomy.
+    #[must_use]
+    pub(crate) const fn diagnostic_operation(
+        self,
+    ) -> icydb_diagnostic_code::DiagnosticMutationOperation {
+        match self {
+            Self::Insert => icydb_diagnostic_code::DiagnosticMutationOperation::Insert,
+            Self::Replace => icydb_diagnostic_code::DiagnosticMutationOperation::Replace,
+            Self::Update => icydb_diagnostic_code::DiagnosticMutationOperation::Update,
+        }
+    }
+}
+
 ///
 /// AcceptedWriteContext
 ///

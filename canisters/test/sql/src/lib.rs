@@ -5,19 +5,19 @@
 use candid::CandidType;
 use ic_cdk::{query, update};
 #[cfg(feature = "sql")]
+use icydb::db::query::asc;
+#[cfg(feature = "sql")]
 use icydb::types::{Decimal, Float32, Float64};
 use icydb::{
     ErrorKind, ErrorOrigin, QueryErrorKind,
     db::{
         DynamicQuery, StructuralMutation, StructuralPatch, TypedAdapterError, TypedEntityAdapter,
-        TypedRowError, TypedWriteAdapter, TypedWriteError, TypedWriteHandle, WriteCell,
+        TypedOperationError, TypedWriteAdapter, TypedWriteHandle, WriteCell,
     },
     prelude::FieldRef,
     types::{Id, Ulid},
     value::InputValue,
 };
-#[cfg(feature = "sql")]
-use icydb::{db::query::asc, value::OutputValue};
 use icydb_model::base::types::web::MimeType;
 use icydb_model::{Inner as _, NormalizeAndValidate as _, normalize, validate};
 use icydb_testing_test_sql_fixtures::sql::{
@@ -462,17 +462,10 @@ const fn typed_fixture_invariant_error() -> icydb::Error {
     )
 }
 
-fn typed_write_fixture_error(error: TypedWriteError) -> icydb::Error {
+fn typed_operation_fixture_error(error: TypedOperationError) -> icydb::Error {
     match error {
-        TypedWriteError::Adapter(_) => typed_fixture_invariant_error(),
-        TypedWriteError::Database(error) => error,
-    }
-}
-
-fn typed_row_fixture_error(error: TypedRowError) -> icydb::Error {
-    match error {
-        TypedRowError::Adapter(_) => typed_fixture_invariant_error(),
-        TypedRowError::Database(error) => error,
+        TypedOperationError::Adapter(_) => typed_fixture_invariant_error(),
+        TypedOperationError::Database(error) => error,
     }
 }
 
@@ -513,15 +506,15 @@ where
     W: TypedWriteAdapter,
 {
     let binding = W::Entity::typed_binding(session).map_err(|error| match error {
-        icydb::db::TypedBindingError::Adapter(_) => typed_fixture_invariant_error(),
-        icydb::db::TypedBindingError::Database(error) => error,
+        icydb::db::TypedOperationError::Adapter(_) => typed_fixture_invariant_error(),
+        icydb::db::TypedOperationError::Database(error) => error,
     })?;
     let write = input
         .encode_write(&binding)
         .map_err(typed_adapter_fixture_error)?;
     session
         .execute_trusted_typed_write(write)
-        .map_err(typed_write_fixture_error)?;
+        .map_err(typed_operation_fixture_error)?;
     Ok(())
 }
 
@@ -535,8 +528,8 @@ fn verify_typed_enrollment_failure_controls<C: icydb::traits::CanisterKind>(
     let mut other = session.trusted_typed_write_batch();
     let other_user = other
         .push(enrollment_user_input(other_user_id, "Other Owner"))
-        .map_err(typed_write_fixture_error)?;
-    let other_results = other.execute().map_err(typed_write_fixture_error)?;
+        .map_err(typed_operation_fixture_error)?;
+    let other_results = other.execute().map_err(typed_operation_fixture_error)?;
     if !matches!(
         other_results.result(foreign_user),
         Err(TypedAdapterError::BatchHandleMismatch)
@@ -553,17 +546,17 @@ fn verify_typed_enrollment_failure_controls<C: icydb::traits::CanisterKind>(
     let mut failed = session.trusted_typed_write_batch();
     failed
         .push(enrollment_user_input(failed_user_id, "Must Remain Atomic"))
-        .map_err(typed_write_fixture_error)?;
+        .map_err(typed_operation_fixture_error)?;
     failed
         .push(enrollment_robot_input(failed_user_id, "Must Not Commit"))
-        .map_err(typed_write_fixture_error)?;
+        .map_err(typed_operation_fixture_error)?;
     failed
         .push(enrollment_membership_input(
             existing_principal,
             failed_user_id,
         ))
-        .map_err(typed_write_fixture_error)?;
-    if !matches!(failed.execute(), Err(TypedWriteError::Database(_))) {
+        .map_err(typed_operation_fixture_error)?;
+    if !matches!(failed.execute(), Err(TypedOperationError::Database(_))) {
         return Err(typed_fixture_invariant_error());
     }
     let failed_robot_page = session.execute_trusted_live_page(
@@ -629,22 +622,24 @@ fn measure_typed_enrollment_costs<C: icydb::traits::CanisterKind>(
     let mut batch = session.trusted_typed_write_batch();
     let user = batch
         .push(enrollment_user_input(atomic_user_id, "Atomic User"))
-        .map_err(typed_write_fixture_error)?;
+        .map_err(typed_operation_fixture_error)?;
     let membership = batch
         .push(enrollment_membership_input(
             atomic_principal,
             atomic_user_id,
         ))
-        .map_err(typed_write_fixture_error)?;
+        .map_err(typed_operation_fixture_error)?;
     let robot = batch
         .push(enrollment_robot_input(atomic_user_id, "Atomic Robot"))
-        .map_err(typed_write_fixture_error)?;
-    let mut results = batch.execute().map_err(typed_write_fixture_error)?;
+        .map_err(typed_operation_fixture_error)?;
+    let mut results = batch.execute().map_err(typed_operation_fixture_error)?;
     let atomic = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
-    let user_row = results.row(&user).map_err(typed_row_fixture_error)?;
-    let membership_row = results.row(&membership).map_err(typed_row_fixture_error)?;
-    let robot_row = results.row(&robot).map_err(typed_row_fixture_error)?;
+    let user_row = results.row(&user).map_err(typed_operation_fixture_error)?;
+    let membership_row = results
+        .row(&membership)
+        .map_err(typed_operation_fixture_error)?;
+    let robot_row = results.row(&robot).map_err(typed_operation_fixture_error)?;
     if user_row.id != atomic_user_id.key()
         || membership_row.authentication_principal != atomic_principal
         || membership_row.user_id != atomic_user_id.key()
@@ -656,7 +651,9 @@ fn measure_typed_enrollment_costs<C: icydb::traits::CanisterKind>(
             != "SqlTestEnrollmentRobot"
         || !matches!(
             results.row(&robot),
-            Err(TypedRowError::Adapter(TypedAdapterError::BatchRowConsumed))
+            Err(TypedOperationError::Adapter(
+                TypedAdapterError::BatchRowConsumed
+            ))
         )
     {
         return Err(typed_fixture_invariant_error());

@@ -179,20 +179,21 @@ impl IndexPrefixCardinality {
         })
     }
 
-    /// Sum exact leading-component multiplicities inside one canonical range.
-    pub(super) fn exact_first_component_range_count(
+    fn try_fold_exact_first_components<T>(
         &self,
         data_generation: u64,
         index_id: IndexId,
-        lower: &Bound<Vec<u8>>,
-        upper: &Bound<Vec<u8>>,
+        bounds: (&Bound<Vec<u8>>, &Bound<Vec<u8>>),
         stop_after: u64,
-    ) -> Result<Option<(u64, u64, bool)>, InternalError> {
+        mut accumulator: T,
+        mut fold: impl FnMut(T, &[u8], u64) -> Result<T, InternalError>,
+    ) -> Result<Option<(T, u64, bool)>, InternalError> {
         if stop_after == 0 || !self.decodable || self.data_generation != Some(data_generation) {
             return Ok(None);
         }
 
         let key_kind = IndexKeyKind::User;
+        let (lower, upper) = bounds;
         let lower = match lower {
             Bound::Unbounded => Bound::Included(IndexPrefixCardinalityFirstKey::range_start(
                 key_kind, index_id,
@@ -204,7 +205,6 @@ impl IndexPrefixCardinality {
                 key_kind, index_id, component,
             )),
         };
-        let mut total = 0_u64;
         let mut examined = 0_u64;
         for (key, multiplicity) in self.first_component_counts.range((lower, Bound::Unbounded)) {
             if !key.matches_identity(key_kind, index_id)
@@ -217,18 +217,39 @@ impl IndexPrefixCardinality {
                 break;
             }
             if examined == stop_after {
-                return Ok(Some((total, examined, false)));
+                return Ok(Some((accumulator, examined, false)));
             }
             if *multiplicity == 0 {
                 return Err(InternalError::store_invariant());
             }
+            accumulator = fold(accumulator, key.component.as_slice(), *multiplicity)?;
             examined = checked_metadata_count_increment(examined)?;
-            total = total
-                .checked_add(*multiplicity)
-                .ok_or_else(InternalError::store_invariant)?;
         }
 
-        Ok(Some((total, examined, true)))
+        Ok(Some((accumulator, examined, true)))
+    }
+
+    /// Sum exact leading-component multiplicities inside one canonical range.
+    pub(super) fn exact_first_component_range_count(
+        &self,
+        data_generation: u64,
+        index_id: IndexId,
+        lower: &Bound<Vec<u8>>,
+        upper: &Bound<Vec<u8>>,
+        stop_after: u64,
+    ) -> Result<Option<(u64, u64, bool)>, InternalError> {
+        self.try_fold_exact_first_components(
+            data_generation,
+            index_id,
+            (lower, upper),
+            stop_after,
+            0_u64,
+            |total, _component, multiplicity| {
+                total
+                    .checked_add(multiplicity)
+                    .ok_or_else(InternalError::store_invariant)
+            },
+        )
     }
 
     /// Fold exact synchronized `Int32` leading values and multiplicities.
@@ -238,41 +259,30 @@ impl IndexPrefixCardinality {
         index_id: IndexId,
         stop_after: u64,
     ) -> Result<Option<(u64, i128, u64, bool)>, InternalError> {
-        if stop_after == 0 || !self.decodable || self.data_generation != Some(data_generation) {
-            return Ok(None);
-        }
-
-        let key_kind = IndexKeyKind::User;
-        let start = IndexPrefixCardinalityFirstKey::range_start(key_kind, index_id);
-        let mut count = 0_u64;
-        let mut sum = 0_i128;
-        let mut examined = 0_u64;
-        for (key, multiplicity) in self.first_component_counts.range(start..) {
-            if !key.matches_identity(key_kind, index_id) {
-                break;
-            }
-            if examined == stop_after {
-                return Ok(Some((count, sum, examined, false)));
-            }
-            if *multiplicity == 0 {
-                return Err(InternalError::store_invariant());
-            }
-
-            let value = decode_canonical_index_int64_component(key.component.as_slice())?;
-            let value = i32::try_from(value).map_err(|_| InternalError::store_invariant())?;
-            let contribution = i128::from(value)
-                .checked_mul(i128::from(*multiplicity))
-                .ok_or_else(InternalError::store_invariant)?;
-            count = count
-                .checked_add(*multiplicity)
-                .ok_or_else(InternalError::store_invariant)?;
-            sum = sum
-                .checked_add(contribution)
-                .ok_or_else(InternalError::store_invariant)?;
-            examined = checked_metadata_count_increment(examined)?;
-        }
-
-        Ok(Some((count, sum, examined, true)))
+        self.try_fold_exact_first_components(
+            data_generation,
+            index_id,
+            (&Bound::Unbounded, &Bound::Unbounded),
+            stop_after,
+            (0_u64, 0_i128),
+            |(count, sum), component, multiplicity| {
+                let value = decode_canonical_index_int64_component(component)?;
+                let value = i32::try_from(value).map_err(|_| InternalError::store_invariant())?;
+                let contribution = i128::from(value)
+                    .checked_mul(i128::from(multiplicity))
+                    .ok_or_else(InternalError::store_invariant)?;
+                let count = count
+                    .checked_add(multiplicity)
+                    .ok_or_else(InternalError::store_invariant)?;
+                let sum = sum
+                    .checked_add(contribution)
+                    .ok_or_else(InternalError::store_invariant)?;
+                Ok((count, sum))
+            },
+        )
+        .map(|result| {
+            result.map(|((count, sum), examined, complete)| (count, sum, examined, complete))
+        })
     }
 
     #[must_use]

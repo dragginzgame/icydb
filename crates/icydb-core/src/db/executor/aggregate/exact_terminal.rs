@@ -43,7 +43,7 @@ use crate::db::{
             try_charge_current_execution_budget_bundle,
         },
     },
-    index::IndexState,
+    index::{IndexState, IndexStore},
     numeric::{NumericEvalError, average_decimal_terms_checked},
     query::plan::AggregateKind,
 };
@@ -58,6 +58,59 @@ fn measure_exact_cardinality<T>(run: impl FnOnce() -> T) -> (u64, T) {
 #[cfg(not(feature = "diagnostics"))]
 fn measure_exact_cardinality<T>(run: impl FnOnce() -> T) -> (u64, T) {
     (0, run())
+}
+
+#[cfg(feature = "sql")]
+struct ExactFirstComponentMetadata<T> {
+    value: T,
+    examined: u64,
+    stop_after: u64,
+    local_instructions: u64,
+}
+
+#[cfg(feature = "sql")]
+fn execute_exact_first_component_metadata<T>(
+    authority: &EntityAuthority,
+    index_id: IndexId,
+    resolve_store: impl FnOnce() -> Result<StoreHandle, InternalError>,
+    resolve_stop_after: impl FnOnce() -> Result<Option<u64>, InternalError>,
+    read: impl FnOnce(&IndexStore, u64, u64) -> Result<Option<(T, u64, bool)>, InternalError>,
+) -> Result<Option<ExactFirstComponentMetadata<T>>, InternalError> {
+    if !accepted_index_target_matches(authority, index_id) {
+        return Err(InternalError::query_executor_invariant());
+    }
+    let store = resolve_store()?;
+    if !store.with_index(|index| matches!(index.state(), IndexState::Ready)) {
+        return Ok(None);
+    }
+    let Some(stop_after) = resolve_stop_after()? else {
+        return Ok(None);
+    };
+    if stop_after == 0 {
+        return Ok(None);
+    }
+
+    let data_generation = store.with_data(DataStore::generation);
+    let (local_instructions, metadata) = measure_exact_cardinality(|| {
+        store.with_index(|index| read(index, data_generation, stop_after))
+    });
+    let Some((value, examined, complete)) = metadata? else {
+        return Ok(None);
+    };
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+        examined,
+    )?;
+    if !complete {
+        return Ok(None);
+    }
+
+    Ok(Some(ExactFirstComponentMetadata {
+        value,
+        examined,
+        stop_after,
+        local_instructions,
+    }))
 }
 
 /// One planner-proved exact-cardinality metadata target.
@@ -192,37 +245,31 @@ where
     let context =
         direct_read_execution_context(&authority, lane, EXACT_NUMERIC_AGGREGATE_SHAPE_DOMAIN);
     with_read_execution_budget(db.request_execution_scope(), context, || {
-        if !accepted_index_target_matches(&authority, index_id) {
-            return Err(InternalError::query_executor_invariant());
-        }
-        let store = db.recovered_store(authority.store_path())?;
-        if !store.with_index(|index| matches!(index.state(), IndexState::Ready)) {
-            return Ok(None);
-        }
-
-        let stop_after = current_execution_remaining_budget_units(&[(
-            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
-            1,
-        )])?;
-        if stop_after == 0 {
-            return Ok(None);
-        }
-        let data_generation = store.with_data(DataStore::generation);
-        let (metadata_local_instructions, fold) = measure_exact_cardinality(|| {
-            store.with_index(|index| {
-                index.exact_first_component_numeric_fold(data_generation, index_id, stop_after)
-            })
-        });
-        let Some((count, sum, examined, complete)) = fold? else {
+        let Some(metadata) = execute_exact_first_component_metadata(
+            &authority,
+            index_id,
+            || db.recovered_store(authority.store_path()),
+            || {
+                current_execution_remaining_budget_units(&[(
+                    DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                    1,
+                )])
+                .map(|stop_after| (stop_after != 0).then_some(stop_after))
+            },
+            |index, data_generation, stop_after| {
+                index
+                    .exact_first_component_numeric_fold(data_generation, index_id, stop_after)
+                    .map(|fold| {
+                        fold.map(|(count, sum, examined, complete)| {
+                            ((count, sum), examined, complete)
+                        })
+                    })
+            },
+        )?
+        else {
             return Ok(None);
         };
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
-            examined,
-        )?;
-        if !complete {
-            return Ok(None);
-        }
+        let (count, sum) = metadata.value;
 
         let sum = Decimal::from_i128_with_scale(sum, 0);
         let average = (count != 0)
@@ -241,12 +288,12 @@ where
         charge_runtime_value_rows(std::slice::from_ref(&row))?;
 
         #[cfg(not(feature = "diagnostics"))]
-        let _ = metadata_local_instructions;
+        let _ = metadata.local_instructions;
         #[cfg(feature = "diagnostics")]
         {
             record_rows_scanned_for_path(authority.entity_path(), 0);
             super::terminal_attribution::record_index_prefix_cardinality_terminal_attribution(
-                metadata_local_instructions,
+                metadata.local_instructions,
             );
         }
 
@@ -262,52 +309,41 @@ fn exact_user_index_first_component_cardinality(
     lower: Option<&Bound<Vec<u8>>>,
     upper: Option<&Bound<Vec<u8>>>,
 ) -> Result<Option<u64>, InternalError> {
-    if !accepted_index_target_matches(authority, index_id) {
-        return Err(InternalError::query_executor_invariant());
-    }
-    if !store.with_index(|index| matches!(index.state(), IndexState::Ready)) {
-        return Ok(None);
-    }
-
-    let metadata_capacity = current_execution_remaining_budget_units(&[(
-        DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
-        1,
-    )])?;
     let bounds = lower.zip(upper);
-    let stop_after = if bounds.is_some() {
-        metadata_capacity
-    } else {
-        let semantic_capacity =
-            current_execution_remaining_budget_units(&exact_distinct_per_unit_budget())?;
-        let Some(semantic_stop_after) = semantic_capacity.checked_add(1) else {
-            return Ok(None);
-        };
-        semantic_stop_after.min(metadata_capacity)
-    };
-    if stop_after == 0 {
-        return Ok(None);
-    }
-
     let unbounded = Bound::Unbounded;
     let (lower, upper) = bounds.unwrap_or((&unbounded, &unbounded));
-    let data_generation = store.with_data(DataStore::generation);
-    let Some((total, examined, complete)) = store.with_index(|index| {
-        index.exact_first_component_range_cardinality(
-            data_generation,
-            index_id,
-            lower,
-            upper,
-            stop_after,
-        )
-    })?
+    let Some(metadata) = execute_exact_first_component_metadata(
+        authority,
+        index_id,
+        || Ok(store),
+        || {
+            let metadata_capacity = current_execution_remaining_budget_units(&[(
+                DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                1,
+            )])?;
+            let stop_after = if bounds.is_some() {
+                Some(metadata_capacity)
+            } else {
+                current_execution_remaining_budget_units(&exact_distinct_per_unit_budget())?
+                    .checked_add(1)
+                    .map(|semantic_stop_after| semantic_stop_after.min(metadata_capacity))
+            };
+            Ok(stop_after.filter(|stop_after| *stop_after != 0))
+        },
+        |index, data_generation, stop_after| {
+            index.exact_first_component_range_cardinality(
+                data_generation,
+                index_id,
+                lower,
+                upper,
+                stop_after,
+            )
+        },
+    )?
     else {
         return Ok(None);
     };
-    charge_current_execution_budget(
-        DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
-        examined,
-    )?;
-    if !complete || (bounds.is_none() && examined == stop_after) {
+    if bounds.is_none() && metadata.examined == metadata.stop_after {
         return Ok(None);
     }
 
@@ -316,15 +352,19 @@ fn exact_user_index_first_component_cardinality(
             (DiagnosticExecutionBudgetResource::ResultRows, 1),
             (DiagnosticExecutionBudgetResource::ResultBytes, 32),
         ])?,
-        None => {
-            try_charge_current_execution_budget_bundle(&exact_distinct_success_budget(examined)?)?
-        }
+        None => try_charge_current_execution_budget_bundle(&exact_distinct_success_budget(
+            metadata.examined,
+        )?)?,
     };
     if !charged {
         return Ok(None);
     }
 
-    Ok(Some(if bounds.is_some() { total } else { examined }))
+    Ok(Some(if bounds.is_some() {
+        metadata.value
+    } else {
+        metadata.examined
+    }))
 }
 
 #[cfg(feature = "sql")]

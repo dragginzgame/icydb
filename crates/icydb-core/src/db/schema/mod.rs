@@ -353,14 +353,12 @@ pub(in crate::db::schema) use mutation::{
     derive_dense_field_removal_candidate, derive_dense_index_removal_candidate,
     derive_relation_removal_candidate, prove_empty_user_index_domain,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use runtime::accepted_insert_field_is_omittable;
 pub(in crate::db) use runtime::{
     AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract, AcceptedInsertOmissionPolicy,
-    AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, OwnedAcceptedFieldDecodeContract,
-    OwnedAcceptedRelationEdgeContract,
-};
-#[cfg(feature = "sql")]
-pub(in crate::db) use runtime::{
-    AcceptedRowLayoutRuntimeField, accepted_insert_field_is_omittable,
+    AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
+    OwnedAcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract,
 };
 pub(in crate::db) use runtime_root::{
     AcceptedSchemaRuntimeRootIdentity, AcceptedSchemaRuntimeStoreRoot,

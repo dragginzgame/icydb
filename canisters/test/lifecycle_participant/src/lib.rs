@@ -4,7 +4,7 @@ use std::{cell::RefCell, time::Duration};
 
 use candid::CandidType;
 use icydb::{
-    db::query::TypedQueryError,
+    db::TypedOperationError,
     types::{Id, Ulid},
 };
 #[cfg(feature = "population-seed")]
@@ -281,8 +281,8 @@ fn lifecycle_probe_row_exists(id: Ulid) -> Result<bool, icydb::Error> {
         let database = db()?;
         match database.get::<OneSimpleEntity01>(Id::from_key(id)) {
             Ok(row) => Ok(row.is_some()),
-            Err(TypedQueryError::Database(error)) => Err(error),
-            Err(TypedQueryError::Row(_)) => {
+            Err(TypedOperationError::Database(error)) => Err(error),
+            Err(TypedOperationError::Adapter(_)) => {
                 ic_cdk::trap("lifecycle probe row failed accepted-model decoding")
             }
         }

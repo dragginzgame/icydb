@@ -1272,7 +1272,7 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
             /// Bind this generated adapter to current accepted schema authority.
             pub fn typed_binding<C>(
                 session: &::icydb::db::DbSession<C>,
-            ) -> Result<::icydb::db::TypedEntityBinding, ::icydb::db::TypedBindingError>
+            ) -> Result<::icydb::db::TypedEntityBinding, ::icydb::db::TypedOperationError>
             where
                 C: ::icydb::traits::CanisterKind,
             {

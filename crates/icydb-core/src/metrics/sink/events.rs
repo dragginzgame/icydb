@@ -4,7 +4,9 @@
 //! Boundary: exposes event enums consumed by metrics sinks and runtime instrumentation.
 
 use crate::{
-    db::{MutationJobPhase, MutationJobRestartReason, MutationJobTargetFailureReason},
+    db::{
+        MutationJobPhase, MutationJobRestartReason, MutationJobTargetFailureReason, MutationMode,
+    },
     error::ErrorClass,
 };
 use std::rc::Rc;
@@ -83,18 +85,6 @@ pub enum CacheMissReason {
 
 impl ExecOutcome {
     // Map the crate's typed runtime error taxonomy into stable metrics buckets.
-}
-
-///
-/// SaveMutationKind
-///
-
-#[derive(Clone, Copy, Debug)]
-#[remain::sorted]
-pub enum SaveMutationKind {
-    Insert,
-    Replace,
-    Update,
 }
 
 ///
@@ -391,7 +381,7 @@ pub enum MetricsEvent {
     },
     SaveMutation {
         entity_path: Rc<str>,
-        kind: SaveMutationKind,
+        mode: MutationMode,
         rows_touched: u64,
     },
     SchemaReconcile {

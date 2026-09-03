@@ -166,13 +166,7 @@ impl AcceptedMutationConstraintScheduler {
         self.record_target_key(&raw_key, context.entity_tag, batch_position)?;
         let mutation = MutationDiagnosticContext::new(
             context.entity_tag.value(),
-            match mode {
-                MutationMode::Insert => icydb_diagnostic_code::DiagnosticMutationOperation::Insert,
-                MutationMode::Replace => {
-                    icydb_diagnostic_code::DiagnosticMutationOperation::Replace
-                }
-                MutationMode::Update => icydb_diagnostic_code::DiagnosticMutationOperation::Update,
-            },
+            mode.diagnostic_operation(),
             batch_position,
         );
         validate_row_local_after_image(

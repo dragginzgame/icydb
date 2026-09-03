@@ -6,8 +6,7 @@
 use crate::{
     db::{
         AttributedRead, DbSession, DynamicQuery, OutputRow, PreparedOutputRows, PrimaryKeyValue,
-        TypedAdapterError, TypedEntityBinding, TypedRowError,
-        query::TypedQueryError,
+        TypedAdapterError, TypedEntityBinding, TypedOperationError,
         session::{OutputRowProjection, live_page::prepare_live_page_step},
     },
     traits::CanisterKind,
@@ -82,7 +81,7 @@ where
     pub fn execute_page(
         &self,
         continuation: Option<&str>,
-    ) -> Result<PreparedLivePageOutput, TypedQueryError> {
+    ) -> Result<PreparedLivePageOutput, TypedOperationError> {
         let page = self
             .session
             .inner
@@ -91,7 +90,7 @@ where
                 &self.request,
                 continuation,
             )
-            .map_err(|error| TypedQueryError::Database(crate::Error::from(error)))?
+            .map_err(|error| TypedOperationError::Database(crate::Error::from(error)))?
             .ok_or_else(stale_binding_error)?;
         self.prepare_page(page, continuation)
     }
@@ -101,12 +100,12 @@ where
     pub fn execute_trusted_page(
         &self,
         continuation: Option<&str>,
-    ) -> Result<PreparedLivePageOutput, TypedQueryError> {
+    ) -> Result<PreparedLivePageOutput, TypedOperationError> {
         let page = self
             .session
             .inner
             .execute_trusted_live_page(&self.request, continuation)
-            .map_err(|error| TypedQueryError::Database(crate::Error::from(error)))?;
+            .map_err(|error| TypedOperationError::Database(crate::Error::from(error)))?;
         self.prepare_page(page, continuation)
     }
 
@@ -116,7 +115,7 @@ where
     /// This keeps retry semantics explicit without retaining page traversal in
     /// each entity-generic adapter.
     #[inline(never)]
-    pub fn next_page(&mut self) -> Result<Option<PreparedOutputRows>, TypedQueryError> {
+    pub fn next_page(&mut self) -> Result<Option<PreparedOutputRows>, TypedOperationError> {
         if self.exhausted {
             return Ok(None);
         }
@@ -128,7 +127,7 @@ where
     ///
     /// A decoding failure after this method returns must discard the cursor.
     #[inline(never)]
-    pub fn next_trusted_page(&mut self) -> Result<Option<PreparedOutputRows>, TypedQueryError> {
+    pub fn next_trusted_page(&mut self) -> Result<Option<PreparedOutputRows>, TypedOperationError> {
         if self.exhausted {
             return Ok(None);
         }
@@ -145,7 +144,7 @@ where
     pub(crate) fn execute_public_page_with_attribution(
         &self,
         continuation: Option<&str>,
-    ) -> Result<AttributedRead<PreparedLivePageOutput>, TypedQueryError> {
+    ) -> Result<AttributedRead<PreparedLivePageOutput>, TypedOperationError> {
         let attributed = self
             .session
             .inner
@@ -154,7 +153,7 @@ where
                 &self.request,
                 continuation,
             )
-            .map_err(|error| TypedQueryError::Database(crate::Error::from(error)))?
+            .map_err(|error| TypedOperationError::Database(crate::Error::from(error)))?
             .ok_or_else(stale_binding_error)?;
         let prepare_start = read_operation_local_instruction_counter();
         let result = self.prepare_page(attributed.result, continuation)?;
@@ -172,7 +171,7 @@ where
         &self,
         page: crate::db::LiveQueryPageOutput,
         continuation: Option<&str>,
-    ) -> Result<PreparedLivePageOutput, TypedQueryError> {
+    ) -> Result<PreparedLivePageOutput, TypedOperationError> {
         let crate::db::LiveQueryPageOutput {
             entity,
             columns,
@@ -180,13 +179,10 @@ where
             row_count: _,
             continuation,
             work,
-        } = prepare_live_page_step(page, continuation)
-            .map_err(TypedQueryError::Database)?
-            .into_page();
+        } = prepare_live_page_step(page, continuation)?.into_page();
         let rows = self
             .session
-            .prepare_typed_output_rows(&self.binding, entity, columns, rows)
-            .map_err(TypedQueryError::Row)?;
+            .prepare_typed_output_rows(&self.binding, entity, columns, rows)?;
         Ok(PreparedLivePageOutput {
             rows,
             continuation,
@@ -202,11 +198,11 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         binding: &TypedEntityBinding,
         keys: &[PrimaryKeyValue],
-    ) -> Result<PreparedExactKeyOutput, TypedQueryError> {
+    ) -> Result<PreparedExactKeyOutput, TypedOperationError> {
         let output = self
             .inner
             .execute_public_exact_key_batch_for_typed_binding(binding.inner(), keys)
-            .map_err(|error| TypedQueryError::Database(crate::Error::from(error)))?
+            .map_err(|error| TypedOperationError::Database(crate::Error::from(error)))?
             .ok_or_else(stale_binding_error)?;
         let icydb_core::db::ExactKeyBatchProjectionOutput {
             entity,
@@ -215,14 +211,14 @@ impl<C: CanisterKind> DbSession<C> {
             positions,
         } = output;
         let projection = OutputRowProjection::new(binding, entity, columns.as_slice())
-            .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))?;
+            .map_err(TypedOperationError::Adapter)?;
         let distinct_rows = distinct_rows
             .into_iter()
             .map(|values| {
                 values
                     .map(|values| projection.project(values))
                     .transpose()
-                    .map_err(|error| TypedQueryError::Row(TypedRowError::Adapter(error)))
+                    .map_err(TypedOperationError::Adapter)
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(PreparedExactKeyOutput {
@@ -243,8 +239,8 @@ impl<C: CanisterKind> DbSession<C> {
     }
 }
 
-const fn stale_binding_error() -> TypedQueryError {
-    TypedQueryError::Row(TypedRowError::Adapter(TypedAdapterError::StaleBinding))
+const fn stale_binding_error() -> TypedOperationError {
+    TypedOperationError::Adapter(TypedAdapterError::StaleBinding)
 }
 
 #[must_use]

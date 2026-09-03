@@ -2,7 +2,7 @@
 //! Ten-entity reachable-operation canister used for Wasm specialization auditing.
 //!
 
-use icydb::db::{TypedAdapterError, TypedWriteError};
+use icydb::db::{TypedAdapterError, TypedOperationError};
 use icydb_testing_audit_ten_simple_fixtures::ten_simple::{
     ReachableInputChoice, ReachableInputProfile, TenSimpleEntity01, TenSimpleEntity01Insert,
     TenSimpleEntity01Patch, TenSimpleEntity02, TenSimpleEntity02Insert, TenSimpleEntity02Patch,
@@ -50,7 +50,7 @@ fn unbound_structural_input_rejects<C: icydb::traits::CanisterKind>(
                 label: "unbound".to_string(),
             },
         ),
-        Err(TypedWriteError::Adapter(
+        Err(TypedOperationError::Adapter(
             TypedAdapterError::FieldUnavailable
         ))
     )
