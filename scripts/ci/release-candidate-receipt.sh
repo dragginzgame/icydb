@@ -126,7 +126,7 @@ validate_changed_paths() {
                 ;;
         esac
 
-        escaped_candidate_version="${candidate_version//./\.}"
+        escaped_candidate_version="${candidate_version//./\\.}"
         case "$diff_mode" in
             working)
                 if ! cmp -s \

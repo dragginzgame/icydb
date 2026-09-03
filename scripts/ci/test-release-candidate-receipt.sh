@@ -23,6 +23,15 @@ expect_failure() {
     fi
 }
 
+write_lockfile() {
+    local version="$1"
+
+    # The checksum deliberately matches an unescaped SemVer regex but not the
+    # literal version. Release validation must leave it untouched.
+    printf 'version = 3\nchecksum = "prefix0a223b6suffix"\n\n[[package]]\nname = "fixture"\nversion = "%s"\n' \
+        "$version" > "$FIXTURE/Cargo.lock"
+}
+
 mkdir -p "$FIXTURE"
 git -C "$FIXTURE" init -q
 git -C "$FIXTURE" config user.name "IcyDB release fixture"
@@ -30,7 +39,7 @@ git -C "$FIXTURE" config user.email "release-fixture@invalid.example"
 mkdir -p "$FIXTURE/docs/changelog"
 printf '.ignored/\n' > "$FIXTURE/.gitignore"
 printf '[workspace.package]\nversion = "0.223.6"\n' > "$FIXTURE/Cargo.toml"
-printf 'version = 3\n\n[[package]]\nname = "fixture"\nversion = "0.223.6"\n' > "$FIXTURE/Cargo.lock"
+write_lockfile 0.223.6
 printf 'IcyDB 0.223.6\n' > "$FIXTURE/README.md"
 printf 'root release notes\n' > "$FIXTURE/CHANGELOG.md"
 printf 'detailed release notes\n' > "$FIXTURE/docs/changelog/0.223.md"
@@ -59,7 +68,7 @@ git -C "$FIXTURE" add CHANGELOG.md docs/changelog/0.223.md
 run_subject verify-tested-tree "$candidate_commit"
 
 printf '[workspace.package]\nversion = "0.223.7"\n' > "$FIXTURE/Cargo.toml"
-printf 'version = 3\n\n[[package]]\nname = "fixture"\nversion = "0.223.7"\n' > "$FIXTURE/Cargo.lock"
+write_lockfile 0.223.7
 printf 'IcyDB 0.223.7\n' > "$FIXTURE/README.md"
 expect_failure run_subject record patch 0000000000000000000000000000000000000000
 run_subject record patch "$candidate_commit" >/dev/null
@@ -80,7 +89,7 @@ git -C "$FIXTURE" commit -q --no-verify -m "tampered release"
 expect_failure run_subject verify-commit
 git -C "$FIXTURE" switch -q --detach "$candidate_commit"
 printf '[workspace.package]\nversion = "0.223.7"\n' > "$FIXTURE/Cargo.toml"
-printf 'version = 3\n\n[[package]]\nname = "fixture"\nversion = "0.223.7"\n' > "$FIXTURE/Cargo.lock"
+write_lockfile 0.223.7
 printf 'IcyDB 0.223.7\n' > "$FIXTURE/README.md"
 printf 'root release notes updated during test\n' > "$FIXTURE/CHANGELOG.md"
 printf 'detailed release notes updated during test\n' > "$FIXTURE/docs/changelog/0.223.md"
@@ -95,7 +104,7 @@ expect_failure run_subject verify-commit
 git -C "$FIXTURE" restore code.txt
 
 printf '[workspace.package]\nversion = "0.223.8"\n' > "$FIXTURE/Cargo.toml"
-printf 'version = 3\n\n[[package]]\nname = "fixture"\nversion = "0.223.8"\n' > "$FIXTURE/Cargo.lock"
+write_lockfile 0.223.8
 printf 'IcyDB 0.223.8\n' > "$FIXTURE/README.md"
 printf 'candidate source changed during bump\n' > "$FIXTURE/code.txt"
 expect_failure run_subject record patch "$(git -C "$FIXTURE" rev-parse HEAD)"
