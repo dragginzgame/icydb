@@ -1128,7 +1128,7 @@ mod tests {
 
     #[test]
     fn mutation_execution_policy_identity_covers_limits_and_failure_reserves() {
-        assert_eq!(MUTATION_EXECUTION_BUDGET_POLICY_IDENTITY, 0xb691_2779);
+        assert_eq!(MUTATION_EXECUTION_BUDGET_POLICY_IDENTITY, 0x35cc_94d9);
         assert_eq!(
             MUTATION_HARD_BUDGET.limit(DiagnosticExecutionBudgetResource::InstructionUnits),
             MUTATION_EXECUTION_INSTRUCTION_LIMIT,
