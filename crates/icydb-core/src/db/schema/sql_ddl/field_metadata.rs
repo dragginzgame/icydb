@@ -1,17 +1,13 @@
 use crate::{
     db::{
-        commit::{
-            publish_accepted_schema_candidate,
-            publish_accepted_schema_candidate_with_constraint_validation_job_removal,
-        },
+        commit::publish_accepted_schema_candidate,
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, ConstraintActivationKind,
-            ConstraintActivationState, ConstraintId, ConstraintOrigin, FieldId,
-            PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation,
-            SchemaFieldDropTarget, SchemaFieldNullabilityTarget, SchemaFieldRenameTarget,
-            SchemaInsertDefaultTarget, SchemaRowLayout,
-            derive_sql_ddl_field_nullability_persisted_after,
+            ConstraintId, ConstraintOrigin, FieldId, PersistedFieldSnapshot,
+            PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation, SchemaFieldDropTarget,
+            SchemaFieldNullabilityTarget, SchemaFieldRenameTarget, SchemaInsertDefaultTarget,
+            SchemaRowLayout, derive_sql_ddl_field_nullability_persisted_after,
         },
     },
     error::InternalError,
@@ -21,7 +17,8 @@ use crate::{
 use super::{
     SqlDdlPublicationEnvelope,
     constraint::{candidate_with_snapshot, current_sql_ddl_bundle},
-    require_exact_empty_sql_ddl_entity, validate_sql_ddl_drop_schema_gate,
+    publish_sql_ddl_constraint_removal, require_exact_empty_sql_ddl_entity,
+    validate_sql_ddl_drop_schema_gate,
 };
 
 /// Execute one SQL DDL field drop after proving no physical row requires the
@@ -370,23 +367,15 @@ pub(in crate::db) fn execute_admin_sql_ddl_not_null_activation_abort(
         .with_constraint_catalog(catalog)
         .with_schema_version(next_schema_version);
     let candidate = candidate_with_snapshot(&current, entity_tag, after)?;
-    if state == ConstraintActivationState::Validating {
-        publish_accepted_schema_candidate_with_constraint_validation_job_removal(
-            accepted_before_identity.store_path(),
-            store,
-            current_revision,
-            &candidate,
-            entity_tag,
-            constraint_id,
-        )
-    } else {
-        publish_accepted_schema_candidate(
-            accepted_before_identity.store_path(),
-            store,
-            current_revision,
-            &candidate,
-        )
-    }
+    publish_sql_ddl_constraint_removal(
+        store,
+        &accepted_before_identity,
+        current_revision,
+        &candidate,
+        entity_tag,
+        constraint_id,
+        Some(state),
+    )
 }
 
 fn validate_sql_ddl_field_nullability_metadata_change(

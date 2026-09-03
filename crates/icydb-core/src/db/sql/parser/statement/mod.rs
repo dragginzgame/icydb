@@ -14,16 +14,23 @@ mod update;
 use crate::db::sql::parser::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
 use crate::db::{
     sql::parser::{
-        Parser, SqlDeleteStatement, SqlDescribeMode, SqlDescribeStatement, SqlSelectStatement,
-        SqlShowColumnsStatement, SqlShowConstraintsStatement, SqlShowEntitiesStatement,
-        SqlShowIndexesStatement, SqlShowMemoryStatement, SqlShowRelationsStatement,
-        SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
+        Parser, SqlDeleteStatement, SqlDescribeMode, SqlDescribeStatement, SqlOrderTerm,
+        SqlSelectStatement, SqlShowColumnsStatement, SqlShowConstraintsStatement,
+        SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowMemoryStatement,
+        SqlShowRelationsStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
     },
     sql_shared::{
-        Keyword, SqlClauseOrderRule, SqlExpectedToken, SqlParseError, SqlSyntaxErrorKind, TokenKind,
+        Keyword, SqlClauseOrderRule, SqlExpectedToken, SqlIntegerLiteralClause, SqlParseError,
+        SqlSyntaxErrorKind, TokenKind,
     },
 };
 use icydb_diagnostic_code::SqlFeatureCode;
+
+struct SqlOrderedWindowSuffix {
+    order_by: Vec<SqlOrderTerm>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+}
 
 impl Parser {
     pub(super) fn parse_statement(&mut self) -> Result<SqlStatement, SqlParseError> {
@@ -69,6 +76,36 @@ impl Parser {
             SqlExpectedToken::StatementStart,
             self.peek_kind(),
         ))
+    }
+
+    // Parse the shared ordered-window suffix in its one admitted clause order.
+    fn parse_order_limit_offset_clauses(
+        &mut self,
+    ) -> Result<SqlOrderedWindowSuffix, SqlParseError> {
+        let order_by = if self.eat_keyword(Keyword::Order) {
+            self.expect_keyword(Keyword::By)?;
+            self.parse_order_terms()?
+        } else {
+            Vec::new()
+        };
+
+        let limit = if self.eat_keyword(Keyword::Limit) {
+            Some(self.parse_u32_literal(SqlIntegerLiteralClause::Limit)?)
+        } else {
+            None
+        };
+
+        let offset = if self.eat_keyword(Keyword::Offset) {
+            Some(self.parse_u32_literal(SqlIntegerLiteralClause::Offset)?)
+        } else {
+            None
+        };
+
+        Ok(SqlOrderedWindowSuffix {
+            order_by,
+            limit,
+            offset,
+        })
     }
 
     // Classify one trailing token as a likely out-of-order clause mistake so

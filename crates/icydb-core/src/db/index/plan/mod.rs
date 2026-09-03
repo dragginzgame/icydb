@@ -50,25 +50,13 @@ impl IndexKeyLane {
     }
 }
 
-fn accepted_predicate_program_for_accepted_field_path_index(
-    accepted_index: &SchemaIndexInfo,
+// Compile one accepted mutation-lane index predicate. Malformed persisted SQL
+// remains fail-closed as `False`; integrity inspection owns corruption errors.
+fn accepted_index_mutation_predicate_program(
+    predicate_sql: Option<&str>,
     row_contract: &StructuralRowContract,
 ) -> Option<PredicateProgram> {
-    let predicate_sql = accepted_index.predicate_sql()?;
-    let predicate = parse_sql_predicate(predicate_sql)
-        .map_or(Predicate::False, |predicate| normalize(&predicate));
-
-    Some(PredicateProgram::compile_with_row_contract(
-        row_contract,
-        &predicate,
-    ))
-}
-
-fn accepted_predicate_program_for_accepted_expression_index(
-    accepted_index: &SchemaExpressionIndexInfo,
-    row_contract: &StructuralRowContract,
-) -> Option<PredicateProgram> {
-    let predicate_sql = accepted_index.predicate_sql()?;
+    let predicate_sql = predicate_sql?;
     let predicate = parse_sql_predicate(predicate_sql)
         .map_or(Predicate::False, |predicate| normalize(&predicate));
 
@@ -246,7 +234,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
 
     for accepted_index in schema_info.field_path_indexes() {
         let predicate_program =
-            accepted_predicate_program_for_accepted_field_path_index(accepted_index, row_contract);
+            accepted_index_mutation_predicate_program(accepted_index.predicate_sql(), row_contract);
         plan_accepted_field_path_index_mutation_for_slot_reader_structural(
             &mut groups,
             entity_path,
@@ -270,7 +258,7 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
 
     for accepted_index in accepted_expression_indexes {
         let predicate_program =
-            accepted_predicate_program_for_accepted_expression_index(accepted_index, row_contract);
+            accepted_index_mutation_predicate_program(accepted_index.predicate_sql(), row_contract);
         plan_accepted_expression_index_mutation_for_slot_reader_structural(
             &mut groups,
             entity_path,

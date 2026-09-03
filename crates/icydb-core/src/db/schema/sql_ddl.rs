@@ -7,10 +7,11 @@ use crate::{
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
-            AcceptedSchemaSnapshot, CandidateSchemaRevision, MutationPublicationPreflight,
-            PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation, SchemaStore,
-            SchemaTransitionDecision, SchemaTransitionPlanKind, StagedUserIndexDomainReplacement,
-            decide_schema_transition, mutation::required_empty_entity_field_addition_matches,
+            AcceptedSchemaSnapshot, CandidateSchemaRevision, ConstraintActivationState,
+            ConstraintId, MutationPublicationPreflight, PersistedSchemaSnapshot,
+            SchemaDdlAcceptedSnapshotDerivation, SchemaStore, SchemaTransitionDecision,
+            SchemaTransitionPlanKind, StagedUserIndexDomainReplacement, decide_schema_transition,
+            mutation::required_empty_entity_field_addition_matches,
             transition::SchemaTransitionPlan,
         },
     },
@@ -29,6 +30,39 @@ pub(in crate::db) use field_metadata::{
     execute_admin_sql_ddl_field_drop, execute_admin_sql_ddl_field_nullability_change,
     execute_admin_sql_ddl_field_rename, execute_admin_sql_ddl_not_null_activation_abort,
 };
+
+// Publish one SQL-DDL constraint removal and retire its validation job exactly
+// when the removed activation had reached the validating state.
+fn publish_sql_ddl_constraint_removal(
+    store: StoreHandle,
+    accepted_before_identity: &AcceptedCatalogIdentity,
+    expected_revision: AcceptedSchemaRevision,
+    candidate: &CandidateSchemaRevision,
+    entity_tag: EntityTag,
+    constraint_id: ConstraintId,
+    activation_state: Option<ConstraintActivationState>,
+) -> Result<(), InternalError> {
+    if matches!(
+        activation_state,
+        Some(ConstraintActivationState::Validating)
+    ) {
+        return crate::db::commit::publish_accepted_schema_candidate_with_constraint_validation_job_removal(
+            accepted_before_identity.store_path(),
+            store,
+            expected_revision,
+            candidate,
+            entity_tag,
+            constraint_id,
+        );
+    }
+
+    crate::db::commit::publish_accepted_schema_candidate(
+        accepted_before_identity.store_path(),
+        store,
+        expected_revision,
+        candidate,
+    )
+}
 
 fn publish_accepted_entity_snapshot_revision(
     store: StoreHandle,

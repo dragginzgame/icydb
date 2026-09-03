@@ -56,3 +56,19 @@ pub(in crate::db) use semantics::{TextOp, compare_eq, compare_order, compare_tex
 pub(in crate::db::predicate) use semantics::{
     eval_equality_compare_result, eval_list_membership_compare_result, eval_ordered_compare_result,
 };
+
+/// Return the literal prefix from the supported single-trailing-wildcard
+/// `LIKE` pattern shape.
+#[must_use]
+pub(in crate::db) fn supported_like_prefix(pattern: &str) -> Option<&str> {
+    if !pattern.ends_with('%') {
+        return None;
+    }
+
+    let prefix = &pattern[..pattern.len() - 1];
+    if prefix.contains('%') || prefix.contains('_') {
+        return None;
+    }
+
+    Some(prefix)
+}

@@ -1,15 +1,11 @@
 use crate::{
     db::{
-        commit::{
-            publish_accepted_schema_candidate,
-            publish_accepted_schema_candidate_with_constraint_validation_job_removal,
-        },
+        commit::publish_accepted_schema_candidate,
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
-            AcceptedSchemaSnapshot, CandidateSchemaRevision, ConstraintActivationState,
-            ConstraintOrigin, PersistedSchemaSnapshot, SchemaVersion,
-            validate_unpublished_check_candidate_exact,
+            AcceptedSchemaSnapshot, CandidateSchemaRevision, ConstraintOrigin,
+            PersistedSchemaSnapshot, SchemaVersion, validate_unpublished_check_candidate_exact,
         },
         sql::ddl::{
             BoundSqlAddCheckConstraintRequest, BoundSqlCreateIndexRequest,
@@ -19,6 +15,8 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
+
+use super::publish_sql_ddl_constraint_removal;
 
 /// Publish one SQL-DDL check as either a write-gated activation or an exactly
 /// validated accepted constraint.
@@ -196,23 +194,15 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation_abort(
         .with_aborted_unique_activation(constraint_id, next_schema_version)
         .map_err(|_| InternalError::store_invariant())?;
     let candidate = candidate_with_snapshot(&current, entity_tag, after)?;
-    if activation_state == ConstraintActivationState::Validating {
-        publish_accepted_schema_candidate_with_constraint_validation_job_removal(
-            accepted_before_identity.store_path(),
-            store,
-            current_revision,
-            &candidate,
-            entity_tag,
-            constraint_id,
-        )
-    } else {
-        publish_accepted_schema_candidate(
-            accepted_before_identity.store_path(),
-            store,
-            current_revision,
-            &candidate,
-        )
-    }
+    publish_sql_ddl_constraint_removal(
+        store,
+        &accepted_before_identity,
+        current_revision,
+        &candidate,
+        entity_tag,
+        constraint_id,
+        Some(activation_state),
+    )
 }
 
 /// Drop or abort one SQL-DDL-owned check through the same marker-owned schema
@@ -261,23 +251,15 @@ pub(in crate::db) fn execute_admin_sql_ddl_check_drop(
         .with_constraint_catalog(catalog)
         .with_schema_version(next_schema_version);
     let candidate = candidate_with_snapshot(&current, entity_tag, after)?;
-    if activation_state == Some(ConstraintActivationState::Validating) {
-        publish_accepted_schema_candidate_with_constraint_validation_job_removal(
-            accepted_before_identity.store_path(),
-            store,
-            current_revision,
-            &candidate,
-            entity_tag,
-            request.constraint_id(),
-        )
-    } else {
-        publish_accepted_schema_candidate(
-            accepted_before_identity.store_path(),
-            store,
-            current_revision,
-            &candidate,
-        )
-    }
+    publish_sql_ddl_constraint_removal(
+        store,
+        &accepted_before_identity,
+        current_revision,
+        &candidate,
+        entity_tag,
+        request.constraint_id(),
+        activation_state,
+    )
 }
 
 pub(super) fn current_sql_ddl_bundle(

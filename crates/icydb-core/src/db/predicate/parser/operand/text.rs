@@ -3,6 +3,7 @@ use crate::{
         predicate::{
             CoercionId, CompareOp, ComparePredicate, Predicate,
             parser::operand::field::{PredicateFieldOperand, parse_predicate_field_operand},
+            supported_like_prefix,
         },
         sql_shared::{Keyword, SqlExpectedToken, SqlParseError, SqlTokenCursor, TokenKind},
     },
@@ -70,7 +71,7 @@ pub(in crate::db::predicate::parser) fn parse_prefix_text_predicate(
             cursor.peek_kind(),
         ));
     };
-    let Some(prefix) = like_prefix_from_pattern(pattern.as_str()) else {
+    let Some(prefix) = supported_like_prefix(pattern.as_str()) else {
         return Err(SqlParseError::unsupported_feature(
             SqlFeatureCode::LikePatternBeyondTrailingPrefix,
         ));
@@ -173,17 +174,4 @@ fn peek_not_identifier_keyword(cursor: &SqlTokenCursor, keyword: &str) -> bool {
             cursor.peek_next_kind(),
             Some(TokenKind::Identifier(value)) if value.eq_ignore_ascii_case(keyword)
         )
-}
-
-fn like_prefix_from_pattern(pattern: &str) -> Option<&str> {
-    if !pattern.ends_with('%') {
-        return None;
-    }
-
-    let prefix = &pattern[..pattern.len() - 1];
-    if prefix.contains('%') || prefix.contains('_') {
-        return None;
-    }
-
-    Some(prefix)
 }

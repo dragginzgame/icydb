@@ -94,22 +94,6 @@ fn match_secondary_order_pushdown_core(
     )
 }
 
-fn variable_prefix_shape_requires_full_secondary_order(
-    access_shape_facts: &AccessShapeFacts,
-    order_contract: &DeterministicSecondaryOrderContract,
-) -> bool {
-    if order_contract.non_primary_key_terms().is_empty() {
-        return false;
-    }
-
-    access_shape_facts.single_path_facts().is_some_and(|path| {
-        matches!(
-            path.kind(),
-            AccessPathKind::IndexMultiLookup | AccessPathKind::IndexBranchSet
-        )
-    })
-}
-
 /// Derive secondary ORDER BY pushdown applicability from route-owned access
 /// access-shape facts and one planner-owned deterministic ORDER BY contract.
 #[must_use]
@@ -134,7 +118,7 @@ fn secondary_order_pushdown_applicability(
         let index_name = details.name();
         let prefix_len = details.slot_arity();
         let variable_prefix_requires_full_order =
-            variable_prefix_shape_requires_full_secondary_order(access_shape_facts, order_contract);
+            order_contract.requires_full_index_order_for_access_shape(access_shape_facts);
         if prefix_len > details.key_arity() {
             return PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {

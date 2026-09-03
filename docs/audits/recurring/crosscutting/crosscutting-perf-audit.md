@@ -587,7 +587,7 @@ binary is sufficient for ordinary correctness tests but is not sufficiently
 explicit for durable performance evidence.
 
 The current measurement identity is
-`icydb-sql-performance/0.237/v1` under PocketIC 15.0.0. Evidence carrying an
+`icydb-sql-performance/0.237/v1` under PocketIC 16.0.0. Evidence carrying an
 older profile identity or another PocketIC version is historical and is not
 decoded or compared as current evidence.
 

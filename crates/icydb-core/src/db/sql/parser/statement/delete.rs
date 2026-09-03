@@ -1,6 +1,6 @@
 use crate::db::{
     sql::parser::{Parser, SqlDeleteStatement},
-    sql_shared::{Keyword, SqlIntegerLiteralClause, SqlParseError},
+    sql_shared::{Keyword, SqlParseError},
 };
 
 impl Parser {
@@ -15,24 +15,7 @@ impl Parser {
             None
         };
 
-        let order_by = if self.eat_keyword(Keyword::Order) {
-            self.expect_keyword(Keyword::By)?;
-            self.parse_order_terms()?
-        } else {
-            Vec::new()
-        };
-
-        let limit = if self.eat_keyword(Keyword::Limit) {
-            Some(self.parse_u32_literal(SqlIntegerLiteralClause::Limit)?)
-        } else {
-            None
-        };
-
-        let offset = if self.eat_keyword(Keyword::Offset) {
-            Some(self.parse_u32_literal(SqlIntegerLiteralClause::Offset)?)
-        } else {
-            None
-        };
+        let window = self.parse_order_limit_offset_clauses()?;
         let returning = if self.eat_keyword(Keyword::Returning) {
             Some(self.parse_returning_projection()?)
         } else {
@@ -43,9 +26,9 @@ impl Parser {
             entity,
             table_alias,
             predicate,
-            order_by,
-            limit,
-            offset,
+            order_by: window.order_by,
+            limit: window.limit,
+            offset: window.offset,
             returning,
         })
     }

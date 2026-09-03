@@ -177,6 +177,25 @@ impl DeterministicSecondaryOrderContract {
         self.non_primary_key_terms.as_slice()
     }
 
+    /// Return whether this order contract requires a full index-order match
+    /// for the supplied variable-prefix access shape.
+    #[must_use]
+    pub(in crate::db) fn requires_full_index_order_for_access_shape(
+        &self,
+        access_shape_facts: &AccessShapeFacts,
+    ) -> bool {
+        if self.non_primary_key_terms.is_empty() {
+            return false;
+        }
+
+        access_shape_facts.single_path_facts().is_some_and(|path| {
+            matches!(
+                path.kind(),
+                AccessPathKind::IndexMultiLookup | AccessPathKind::IndexBranchSet
+            )
+        })
+    }
+
     /// Return true when the normalized non-primary-key terms match one expected
     /// canonical term sequence.
     #[must_use]
@@ -301,22 +320,6 @@ fn prefix_order_contract_safe(access_shape_facts: &AccessShapeFacts) -> bool {
     details.is_unique() || details.slot_arity() > 0
 }
 
-fn variable_prefix_shape_requires_full_secondary_order(
-    access_shape_facts: &AccessShapeFacts,
-    order_contract: &DeterministicSecondaryOrderContract,
-) -> bool {
-    if order_contract.non_primary_key_terms().is_empty() {
-        return false;
-    }
-
-    access_shape_facts.single_path_facts().is_some_and(|path| {
-        matches!(
-            path.kind(),
-            AccessPathKind::IndexMultiLookup | AccessPathKind::IndexBranchSet
-        )
-    })
-}
-
 fn deterministic_secondary_index_key_items_order_satisfied_for_access_shape(
     access_shape_facts: &AccessShapeFacts,
     order_contract: &DeterministicSecondaryOrderContract,
@@ -332,7 +335,7 @@ fn deterministic_secondary_index_key_items_order_satisfied_for_access_shape(
     match compatibility.match_kind() {
         DeterministicSecondaryIndexOrderMatch::Full => true,
         DeterministicSecondaryIndexOrderMatch::Suffix => {
-            !variable_prefix_shape_requires_full_secondary_order(access_shape_facts, order_contract)
+            !order_contract.requires_full_index_order_for_access_shape(access_shape_facts)
         }
         DeterministicSecondaryIndexOrderMatch::None => false,
     }

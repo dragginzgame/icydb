@@ -1,8 +1,9 @@
 use std::{collections::BTreeSet, time::Duration};
 
 use candid::{CandidType, Deserialize};
-use ic_testkit::pic::{
-    CanisterInstallExt, ErrorCode, RejectResponse, RetryPolicy, StandaloneCanisterFixture,
+use ic_testkit::{
+    pic::{CanisterInstallExt, RetryPolicy, StandaloneCanisterFixture},
+    pocket_ic::{ErrorCode, RejectResponse},
 };
 use icydb::types::Ulid;
 use icydb_testing_integration::{

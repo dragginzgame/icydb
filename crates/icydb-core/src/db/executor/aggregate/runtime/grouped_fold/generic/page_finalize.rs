@@ -17,6 +17,7 @@ use crate::{
                     group_matches_having_expr,
                     grouped_fold::{
                         bundle::GroupedAggregateBundle,
+                        compile_grouped_having_expr,
                         utils::{
                             compare_grouped_boundary_values, grouped_next_cursor_boundary,
                             grouped_resume_boundary_allows_candidate,
@@ -72,17 +73,7 @@ impl<'a> OrderedGroupedPageSelection<'a> {
             route.group_fields(),
             route.grouped_aggregate_execution_specs(),
         )?;
-        let compiled_having_expr = route
-            .grouped_having_expr()
-            .map(|expr| {
-                compile_grouped_projection_expr(
-                    expr,
-                    route.group_fields(),
-                    route.grouped_aggregate_execution_specs(),
-                )
-                .map_err(ProjectionEvalError::into_internal_error)
-            })
-            .transpose()?;
+        let compiled_having_expr = compile_grouped_having_expr(route)?;
         let selection = GroupedPageFinalizeSelection::new(
             route,
             route.grouped_pagination_window(),
@@ -364,17 +355,7 @@ pub(super) fn finalize_grouped_page(
         route.group_fields(),
         route.grouped_aggregate_execution_specs(),
     )?;
-    let compiled_having_expr = route
-        .grouped_having_expr()
-        .map(|expr| {
-            compile_grouped_projection_expr(
-                expr,
-                route.group_fields(),
-                route.grouped_aggregate_execution_specs(),
-            )
-            .map_err(ProjectionEvalError::into_internal_error)
-        })
-        .transpose()?;
+    let compiled_having_expr = compile_grouped_having_expr(route)?;
     let selection = GroupedPageFinalizeSelection::new(
         route,
         pagination_window,

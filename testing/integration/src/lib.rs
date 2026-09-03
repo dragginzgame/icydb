@@ -11,10 +11,10 @@ pub mod wasm_measurement;
 pub mod wasm_optimizer;
 
 use candid::CandidType;
-use ic_testkit::artifacts::{LabeledWasmBuildSpec, WasmBuildInputSnapshot, wasm_path};
-use ic_testkit::pic::{
-    InstallSpec, PocketIc, PocketIcBuilder, PocketIcBuilderExt, PocketIcStartupConfig,
-    StandaloneCanisterFixture,
+use ic_testkit::{
+    artifacts::{LabeledWasmBuildSpec, WasmBuildInputSnapshot, wasm_path},
+    pic::{InstallSpec, PocketIcBuilderExt, PocketIcStartupConfig, StandaloneCanisterFixture},
+    pocket_ic::{PocketIc, PocketIcBuilder},
 };
 use icydb::{Error, ErrorCode};
 use serde::Deserialize;

@@ -15,7 +15,7 @@ use crate::{
                 runtime::{
                     group_matches_having_expr,
                     grouped_fold::{
-                        metrics,
+                        compile_grouped_having_expr, metrics,
                         utils::{compare_grouped_boundary_values, grouped_next_cursor_boundary},
                     },
                     grouped_output::project_grouped_rows_from_projection,
@@ -24,7 +24,7 @@ use crate::{
             },
             group::GroupKey,
             pipeline::contracts::GroupedRouteStage,
-            projection::{GroupedRowView, ProjectionEvalError, compile_grouped_projection_expr},
+            projection::GroupedRowView,
         },
     },
     error::InternalError,
@@ -82,17 +82,7 @@ pub(super) struct GroupedCountWindowSelection<'a> {
 impl<'a> GroupedCountWindowSelection<'a> {
     // Build one grouped-count window selector from one grouped route stage.
     pub(super) fn new(route: &'a GroupedRouteStage) -> Result<Self, InternalError> {
-        let compiled_having_expr = route
-            .grouped_having_expr()
-            .map(|expr| {
-                compile_grouped_projection_expr(
-                    expr,
-                    route.group_fields(),
-                    route.grouped_aggregate_execution_specs(),
-                )
-                .map_err(ProjectionEvalError::into_internal_error)
-            })
-            .transpose()?;
+        let compiled_having_expr = compile_grouped_having_expr(route)?;
 
         Ok(Self {
             route,

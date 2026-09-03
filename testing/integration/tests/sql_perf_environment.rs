@@ -25,7 +25,7 @@ const FIXTURE_GENERATOR_VERSION: u32 = 1;
 const WASM_TARGET: &str = "wasm32-unknown-unknown";
 const DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION: u32 = 1;
 const DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID: &str = "icydb-sql-attribution/0.215/v2";
-const POCKET_IC_VERSION: &str = "pocket-ic-server 15.0.0";
+const POCKET_IC_VERSION: &str = "pocket-ic-server 16.0.0";
 
 ///
 /// PerfFixtureSurfaceIdentity

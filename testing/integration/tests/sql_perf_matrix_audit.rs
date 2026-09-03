@@ -36,8 +36,9 @@ use std::{
 };
 
 use candid::{CandidType, decode_one, encode_one};
-use ic_testkit::pic::{
-    ControllerSnapshots, PocketIc, PocketIcSnapshotExt, StandaloneCanisterFixture,
+use ic_testkit::{
+    pic::{ControllerSnapshots, PocketIcSnapshotExt, StandaloneCanisterFixture},
+    pocket_ic::PocketIc,
 };
 use icydb::{
     Error, ErrorOrigin,

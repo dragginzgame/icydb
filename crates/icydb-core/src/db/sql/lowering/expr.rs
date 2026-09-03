@@ -1,6 +1,7 @@
 use crate::db::sql::lowering::{SqlLoweringError, aggregate::lower_aggregate_call};
 use crate::{
     db::{
+        predicate::supported_like_prefix,
         query::{
             builder::NumericProjectionExpr,
             plan::expr::{BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, UnaryOp},
@@ -133,7 +134,7 @@ fn lower_sql_like_expr(
     casefold: bool,
     phase: SqlExprPhase,
 ) -> Result<Expr, SqlLoweringError> {
-    let Some(prefix) = sql_like_prefix_from_pattern(pattern) else {
+    let Some(prefix) = supported_like_prefix(pattern) else {
         return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
             SqlFeatureCode::LikePatternBeyondTrailingPrefix,
         )
@@ -154,19 +155,6 @@ fn lower_sql_like_expr(
     } else {
         expr
     })
-}
-
-fn sql_like_prefix_from_pattern(pattern: &str) -> Option<&str> {
-    if !pattern.ends_with('%') {
-        return None;
-    }
-
-    let prefix = &pattern[..pattern.len() - 1];
-    if prefix.contains('%') || prefix.contains('_') {
-        return None;
-    }
-
-    Some(prefix)
 }
 
 fn lower_sql_like_target_expr(

@@ -15,10 +15,13 @@ use crate::{
     db::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionPreparation,
-            aggregate::runtime::grouped_fold::{
-                count::execute_single_grouped_count_fold_stage,
-                distinct::execute_global_distinct_grouped_fold_stage,
-                generic::execute_generic_grouped_fold_stage,
+            aggregate::{
+                CompiledExpr,
+                runtime::grouped_fold::{
+                    count::execute_single_grouped_count_fold_stage,
+                    distinct::execute_global_distinct_grouped_fold_stage,
+                    generic::execute_generic_grouped_fold_stage,
+                },
             },
             group::grouped_budget_observability,
             group::grouped_execution_context_from_planner_config,
@@ -34,6 +37,7 @@ use crate::{
                 },
             },
             plan_metrics::record_grouped_plan_metrics,
+            projection::{ProjectionEvalError, compile_grouped_projection_expr},
         },
         index::IndexCompilePolicy,
     },
@@ -43,6 +47,24 @@ use crate::{
 pub(in crate::db::executor) use metrics::{
     GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
 };
+
+// Compile the route-owned HAVING expression once through the same grouped
+// projection contract used by every grouped finalization lane.
+fn compile_grouped_having_expr(
+    route: &GroupedRouteStage,
+) -> Result<Option<CompiledExpr>, InternalError> {
+    route
+        .grouped_having_expr()
+        .map(|expr| {
+            compile_grouped_projection_expr(
+                expr,
+                route.group_fields(),
+                route.grouped_aggregate_execution_specs(),
+            )
+            .map_err(ProjectionEvalError::into_internal_error)
+        })
+        .transpose()
+}
 
 // Build one grouped key stream from route-owned grouped execution metadata
 // using already-resolved runtime and row-decode boundaries.

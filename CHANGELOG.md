@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
+- `0.252.5` removes remaining planner, schema-publication, predicate,
+  grouped-finalization, index-mutation, and SQL statement policy rediscovery,
+  leaving one internal owner per behavior while shrinking the representative
+  SQL actor; it also updates the host integration harness to `ic-testkit 0.9.0`
+  and PocketIC 16.
 - `0.252.4` removes parallel projection and planner diagnostic adapters,
   centralizes numeric-operator lowering, and keeps function-evaluation errors
   internal until their actual boundary. Twenty-five production files remove
