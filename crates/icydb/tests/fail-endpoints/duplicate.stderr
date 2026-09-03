@@ -1,59 +1,59 @@
-error[E0428]: the name `__ICYDB_ENDPOINT_DECLARATION_METRICS` is defined multiple times
-  --> tests/fail-endpoints/duplicate.rs:11:1
+error[E0428]: the name `__ICYDB_ENDPOINT_DECLARATION_SCHEMA` is defined multiple times
+  --> tests/fail-endpoints/duplicate.rs:12:1
    |
-11 | / icydb::endpoints! {
-12 | |     icydb_metrics(authorization = public);
-13 | |     icydb_metrics(authorization = public);
-14 | | }
+12 | / icydb::endpoints! {
+13 | |     icydb_schema(authorization = public);
+14 | |     icydb_schema(authorization = public);
+15 | | }
    | | ^
    | | |
-   | |_`__ICYDB_ENDPOINT_DECLARATION_METRICS` redefined here
-   |   previous definition of the value `__ICYDB_ENDPOINT_DECLARATION_METRICS` here
+   | |_`__ICYDB_ENDPOINT_DECLARATION_SCHEMA` redefined here
+   |   previous definition of the value `__ICYDB_ENDPOINT_DECLARATION_SCHEMA` here
    |
-   = note: `__ICYDB_ENDPOINT_DECLARATION_METRICS` must be defined only once in the value namespace of this module
+   = note: `__ICYDB_ENDPOINT_DECLARATION_SCHEMA` must be defined only once in the value namespace of this module
    = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0428]: the name `__canister_method___icydb_export_icydb_metrics` is defined multiple times
-  --> tests/fail-endpoints/duplicate.rs:11:1
+error[E0428]: the name `__canister_method___icydb_export_icydb_schema` is defined multiple times
+  --> tests/fail-endpoints/duplicate.rs:12:1
    |
-11 | / icydb::endpoints! {
-12 | |     icydb_metrics(authorization = public);
-13 | |     icydb_metrics(authorization = public);
-14 | | }
+12 | / icydb::endpoints! {
+13 | |     icydb_schema(authorization = public);
+14 | |     icydb_schema(authorization = public);
+15 | | }
    | | ^
    | | |
-   | |_`__canister_method___icydb_export_icydb_metrics` redefined here
-   |   previous definition of the value `__canister_method___icydb_export_icydb_metrics` here
+   | |_`__canister_method___icydb_export_icydb_schema` redefined here
+   |   previous definition of the value `__canister_method___icydb_export_icydb_schema` here
    |
-   = note: `__canister_method___icydb_export_icydb_metrics` must be defined only once in the value namespace of this module
+   = note: `__canister_method___icydb_export_icydb_schema` must be defined only once in the value namespace of this module
    = note: this error originates in the attribute macro `$crate::__reexports::ic_cdk::query` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0428]: the name `__icydb_export_icydb_metrics` is defined multiple times
-  --> tests/fail-endpoints/duplicate.rs:11:1
+error[E0428]: the name `__icydb_export_icydb_schema` is defined multiple times
+  --> tests/fail-endpoints/duplicate.rs:12:1
    |
-11 | / icydb::endpoints! {
-12 | |     icydb_metrics(authorization = public);
-13 | |     icydb_metrics(authorization = public);
-14 | | }
+12 | / icydb::endpoints! {
+13 | |     icydb_schema(authorization = public);
+14 | |     icydb_schema(authorization = public);
+15 | | }
    | | ^
    | | |
-   | |_`__icydb_export_icydb_metrics` redefined here
-   |   previous definition of the value `__icydb_export_icydb_metrics` here
+   | |_`__icydb_export_icydb_schema` redefined here
+   |   previous definition of the value `__icydb_export_icydb_schema` here
    |
-   = note: `__icydb_export_icydb_metrics` must be defined only once in the value namespace of this module
+   = note: `__icydb_export_icydb_schema` must be defined only once in the value namespace of this module
    = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0428]: the name `__candid_method___icydb_export_icydb_metrics` is defined multiple times
-  --> tests/fail-endpoints/duplicate.rs:11:1
+error[E0428]: the name `__candid_method___icydb_export_icydb_schema` is defined multiple times
+  --> tests/fail-endpoints/duplicate.rs:12:1
    |
-11 | / icydb::endpoints! {
-12 | |     icydb_metrics(authorization = public);
-13 | |     icydb_metrics(authorization = public);
-14 | | }
+12 | / icydb::endpoints! {
+13 | |     icydb_schema(authorization = public);
+14 | |     icydb_schema(authorization = public);
+15 | | }
    | | ^
    | | |
-   | |_`__candid_method___icydb_export_icydb_metrics` redefined here
-   |   previous definition of the value `__candid_method___icydb_export_icydb_metrics` here
+   | |_`__candid_method___icydb_export_icydb_schema` redefined here
+   |   previous definition of the value `__candid_method___icydb_export_icydb_schema` here
    |
-   = note: `__candid_method___icydb_export_icydb_metrics` must be defined only once in the value namespace of this module
+   = note: `__candid_method___icydb_export_icydb_schema` must be defined only once in the value namespace of this module
    = note: this error originates in the macro `$crate::__icydb_endpoints_internal` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

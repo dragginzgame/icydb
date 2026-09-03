@@ -1,5 +1,5 @@
 icydb::endpoints! {
-    icydb_metrics(authorization = public);
+    icydb_schema(authorization = public);
 }
 
 fn main() {}

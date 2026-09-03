@@ -2,7 +2,7 @@ error[E0433]: cannot find `__icydb_generated` in `crate`
  --> tests/fail-endpoints/without_start.rs:1:1
   |
 1 | / icydb::endpoints! {
-2 | |     icydb_metrics(authorization = public);
+2 | |     icydb_schema(authorization = public);
 3 | | }
   | |_^ could not find `__icydb_generated` in the crate root
   |
@@ -12,7 +12,7 @@ error[E0433]: cannot find `__icydb_generated` in `crate`
  --> tests/fail-endpoints/without_start.rs:1:1
   |
 1 | / icydb::endpoints! {
-2 | |     icydb_metrics(authorization = public);
+2 | |     icydb_schema(authorization = public);
 3 | | }
   | |_^ could not find `__icydb_generated` in the crate root
   |
