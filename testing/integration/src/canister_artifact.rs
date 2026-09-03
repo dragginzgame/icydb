@@ -1,7 +1,7 @@
-//! Built-canister Candid and Wasm inspection support.
-//!
-//! This module owns artifact evidence only. It does not decide which endpoint
-//! should exist and cannot generate an IC export.
+//! Module: integration::canister_artifact
+//! Responsibility: actor policy and inspection.
+//! Does not own: builds or runtime.
+//! Boundary: checks artifacts against policy.
 
 use std::{collections::BTreeSet, fs, path::Path, process::Command};
 
@@ -60,9 +60,9 @@ pub struct MaintainedCanisterPolicy {
     pub canister: &'static str,
     /// Cargo package producing the actor Wasm.
     pub package: &'static str,
-    /// Exact future production feature set, in deterministic lexical order.
+    /// Exact production feature set, in deterministic lexical order.
     pub production_features: &'static [&'static str],
-    /// Exact future local/test feature set, in deterministic lexical order.
+    /// Exact local/test feature set, in deterministic lexical order.
     pub local_test_features: &'static [&'static str],
     /// IcyDB-prefixed methods exported by the maintained production build.
     pub production_icydb_methods: &'static [ExpectedCanisterMethod],
@@ -154,7 +154,7 @@ const RPG_LOCAL_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_snapshot", CanisterMethodMode::Query),
 ];
 
-/// Frozen build and pre-cut export policy for maintained and evidence actors.
+/// Frozen current build and export policy for maintained and evidence actors.
 pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
     MaintainedCanisterPolicy {
         canister: "default_empty",
@@ -781,8 +781,6 @@ fn take_bytes<'a>(input: &mut &'a [u8], len: usize, label: &str) -> Result<&'a [
 mod tests {
     use std::collections::BTreeSet;
 
-    use crate::FIXTURE_CANISTERS;
-
     use super::{
         CanisterMethod, CanisterMethodMode, MAINTAINED_CANISTER_POLICIES,
         candid_visible_wasm_methods, inspect_candid_methods, inspect_wasm_methods,
@@ -855,17 +853,7 @@ mod tests {
     }
 
     #[test]
-    fn maintained_policy_matches_fixture_inventory_and_is_unique_and_deterministic() {
-        let maintained = MAINTAINED_CANISTER_POLICIES
-            .iter()
-            .map(|policy| (policy.canister, policy.package))
-            .collect::<BTreeSet<_>>();
-        let fixtures = FIXTURE_CANISTERS
-            .iter()
-            .map(|fixture| (fixture.name, fixture.package))
-            .collect::<BTreeSet<_>>();
-        assert_eq!(maintained, fixtures);
-
+    fn maintained_policy_identity_is_unique_and_policy_is_deterministic() {
         let names = MAINTAINED_CANISTER_POLICIES
             .iter()
             .map(|policy| policy.canister)

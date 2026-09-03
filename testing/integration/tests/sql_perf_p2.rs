@@ -1719,7 +1719,7 @@ mod tests {
         unknown_field
             .as_object_mut()
             .expect("P2 selection should be a JSON object")
-            .insert("legacy_candidates".to_string(), serde_json::json!([]));
+            .insert("unexpected_candidates".to_string(), serde_json::json!([]));
         assert!(
             serde_json::from_value::<P2CandidateSelection>(unknown_field).is_err(),
             "unknown P2 selection fields must fail current-format decoding",

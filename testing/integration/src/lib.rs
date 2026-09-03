@@ -1,4 +1,7 @@
-//! Shared integration harness helpers.
+//! Module: integration
+//! Responsibility: shared canister build, installation, and PocketIC harness contracts.
+//! Does not own: product runtime semantics or individual integration scenarios.
+//! Boundary: exposes reusable test-only build and runtime adapters to integration targets.
 
 mod canister_build_cache;
 
@@ -10,14 +13,12 @@ pub mod streaming_execution_contract;
 pub mod wasm_measurement;
 pub mod wasm_optimizer;
 
-use candid::CandidType;
-use ic_testkit::{
-    artifacts::{LabeledWasmBuildSpec, WasmBuildInputSnapshot, wasm_path},
-    pic::{InstallSpec, PocketIcBuilderExt, PocketIcStartupConfig, StandaloneCanisterFixture},
-    pocket_ic::{PocketIc, PocketIcBuilder},
+use crate::canister_build_cache::{
+    CargoWasmBatchEntry, CargoWasmCacheRequest, PostLinkBatchEntry, PostLinkCacheRequest,
+    build_cached_cargo_wasm, build_cached_cargo_wasm_batch,
+    build_cached_cargo_wasm_batch_from_snapshot, cache_post_link_wasm, cache_post_link_wasm_batch,
+    cargo_wasm_batch_specs, trace_post_link, trace_wasm_build,
 };
-use icydb::{Error, ErrorCode};
-use serde::Deserialize;
 use std::{
     env,
     ffi::OsString,
@@ -28,12 +29,14 @@ use std::{
     time::Duration,
 };
 
-use crate::canister_build_cache::{
-    CargoWasmBatchEntry, CargoWasmCacheRequest, PostLinkBatchEntry, PostLinkCacheRequest,
-    build_cached_cargo_wasm, build_cached_cargo_wasm_batch,
-    build_cached_cargo_wasm_batch_from_snapshot, cache_post_link_wasm, cache_post_link_wasm_batch,
-    cargo_wasm_batch_specs, trace_post_link, trace_wasm_build,
+use candid::CandidType;
+use ic_testkit::{
+    artifacts::{LabeledWasmBuildSpec, WasmBuildInputSnapshot, wasm_path},
+    pic::{InstallSpec, PocketIcBuilderExt, PocketIcStartupConfig, StandaloneCanisterFixture},
+    pocket_ic::{PocketIc, PocketIcBuilder},
 };
+use icydb::{Error, ErrorCode};
+use serde::Deserialize;
 
 const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
 const FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS: usize = 4;
@@ -146,9 +149,18 @@ pub fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture)
 }
 
 struct FixtureCanister {
-    name: &'static str,
-    package: &'static str,
-    local_wasm_bytes: OnceLock<Vec<u8>>,
+    policy: &'static canister_artifact::MaintainedCanisterPolicy,
+    local_wasm_bytes: &'static OnceLock<Vec<u8>>,
+}
+
+impl FixtureCanister {
+    const fn name(&self) -> &'static str {
+        self.policy.canister
+    }
+
+    const fn package(&self) -> &'static str {
+        self.policy.package
+    }
 }
 
 struct BuiltCanisterArtifacts {
@@ -173,113 +185,9 @@ struct MaintainedCanisterBuildPlan {
     specs: Vec<LabeledWasmBuildSpec>,
 }
 
-static FIXTURE_CANISTERS: [FixtureCanister; 21] = [
-    FixtureCanister {
-        name: "demo_rpg",
-        package: "canister_demo_rpg",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "lifecycle_participant",
-        package: "canister_test_lifecycle_participant",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "read_authority",
-        package: "canister_test_read_authority",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "schema_guard",
-        package: "canister_test_schema_guard",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "schema_public",
-        package: "canister_test_schema_public",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "sql",
-        package: "canister_test_sql",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "sql_bounded",
-        package: "canister_test_sql_bounded",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "sql_guard",
-        package: "canister_test_sql_guard",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "startup_timer",
-        package: "canister_test_startup_timer",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "default_empty",
-        package: "canister_audit_default_empty",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "default_empty_metrics",
-        package: "canister_audit_default_empty_metrics",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "default_empty_metrics_extended",
-        package: "canister_audit_default_empty_metrics_extended",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "group_path_sql_query",
-        package: "canister_audit_group_path_sql_query",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "one_entity_dynamic_query",
-        package: "canister_audit_one_entity_dynamic_query",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "one_entity_reachable_operations",
-        package: "canister_audit_one_entity_reachable_operations",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "one_entity_typed_query",
-        package: "canister_audit_one_entity_typed_query",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "one_entity_sql_query",
-        package: "canister_audit_one_entity_sql_query",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "request_future_scale",
-        package: "canister_audit_request_future_scale",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "sql_perf",
-        package: "canister_audit_sql_perf",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "ten_entity_typed_query",
-        package: "canister_audit_ten_entity_typed_query",
-        local_wasm_bytes: OnceLock::new(),
-    },
-    FixtureCanister {
-        name: "ten_entity_reachable_operations",
-        package: "canister_audit_ten_entity_reachable_operations",
-        local_wasm_bytes: OnceLock::new(),
-    },
-];
+static FIXTURE_LOCAL_WASM_BYTES: [OnceLock<Vec<u8>>;
+    canister_artifact::MAINTAINED_CANISTER_POLICIES.len()] =
+    [const { OnceLock::new() }; canister_artifact::MAINTAINED_CANISTER_POLICIES.len()];
 
 /// Cargo wasm profile used when building fixture canisters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -343,6 +251,24 @@ impl CanisterSqlMode {
 
     const fn enabled(self) -> bool {
         matches!(self, Self::Enabled)
+    }
+
+    /// Return the canonical build-configuration label for this feature mode.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Enabled => "enabled",
+            Self::Disabled => "disabled",
+        }
+    }
+
+    /// Return the canonical report label for this feature mode.
+    #[must_use]
+    pub const fn report_variant(self) -> &'static str {
+        match self {
+            Self::Enabled => "sql-on",
+            Self::Disabled => "sql-off",
+        }
     }
 }
 
@@ -409,6 +335,15 @@ impl CanisterBuildProfile {
             Self::Production => "canister-production",
         }
     }
+
+    /// Return the canonical evidence label for this maintained profile.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LocalTest => "local_test",
+            Self::Production => "production",
+        }
+    }
 }
 
 /// Final artifacts for both maintained canister profiles in contract order.
@@ -439,6 +374,66 @@ impl Default for CanisterBuildOptions {
     }
 }
 
+/// Effective maintained build configuration for one fixture canister.
+///
+/// This is the canonical projection of build options plus the fixture's
+/// maintained feature policy. Build execution and reproducibility evidence
+/// consume the same projection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedCanisterBuildConfiguration {
+    profile: CanisterWasmProfile,
+    build_profile: CanisterBuildProfile,
+    sql_mode: CanisterSqlMode,
+    candid_export: bool,
+    no_default_features: bool,
+    path_trimming: bool,
+    features: Vec<&'static str>,
+}
+
+impl ResolvedCanisterBuildConfiguration {
+    /// Return the exact Cargo profile passed to the build.
+    #[must_use]
+    pub const fn profile(&self) -> CanisterWasmProfile {
+        self.profile
+    }
+
+    /// Return the exact maintained feature profile.
+    #[must_use]
+    pub const fn build_profile(&self) -> CanisterBuildProfile {
+        self.build_profile
+    }
+
+    /// Return the exact SQL feature mode.
+    #[must_use]
+    pub const fn sql_mode(&self) -> CanisterSqlMode {
+        self.sql_mode
+    }
+
+    /// Return whether generated Candid metadata is embedded.
+    #[must_use]
+    pub const fn candid_export(&self) -> bool {
+        self.candid_export
+    }
+
+    /// Return whether release path-remapping flags are applied.
+    #[must_use]
+    pub const fn path_trimming(&self) -> bool {
+        self.path_trimming
+    }
+
+    /// Return the exact ordered Cargo feature set passed to the build.
+    #[must_use]
+    pub fn features(&self) -> &[&'static str] {
+        &self.features
+    }
+
+    /// Return whether Cargo package defaults are disabled.
+    #[must_use]
+    pub const fn no_default_features(&self) -> bool {
+        self.no_default_features
+    }
+}
+
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -451,14 +446,19 @@ fn target_dir(workspace_root: &Path) -> PathBuf {
     env::var_os("CARGO_TARGET_DIR").map_or_else(|| workspace_root.join("target"), PathBuf::from)
 }
 
-fn fixture_for_canister_name(canister_name: &str) -> Result<&'static FixtureCanister, String> {
-    FIXTURE_CANISTERS
+fn fixture_for_canister_name(canister_name: &str) -> Result<FixtureCanister, String> {
+    canister_artifact::MAINTAINED_CANISTER_POLICIES
         .iter()
-        .find(|fixture| fixture.name == canister_name)
+        .enumerate()
+        .find(|(_, policy)| policy.canister == canister_name)
+        .map(|(index, policy)| FixtureCanister {
+            policy,
+            local_wasm_bytes: &FIXTURE_LOCAL_WASM_BYTES[index],
+        })
         .ok_or_else(|| {
-            let expected = FIXTURE_CANISTERS
+            let expected = canister_artifact::MAINTAINED_CANISTER_POLICIES
                 .iter()
-                .map(|fixture| fixture.name)
+                .map(|policy| policy.canister)
                 .collect::<Vec<_>>()
                 .join("', '");
 
@@ -467,7 +467,23 @@ fn fixture_for_canister_name(canister_name: &str) -> Result<&'static FixtureCani
 }
 
 fn package_for_canister_name(canister_name: &str) -> Result<&'static str, String> {
-    fixture_for_canister_name(canister_name).map(|fixture| fixture.package)
+    fixture_for_canister_name(canister_name).map(|fixture| fixture.package())
+}
+
+/// Resolve the exact maintained build configuration for one fixture canister.
+///
+/// # Errors
+///
+/// Returns an error when the canister name is unknown.
+pub fn resolve_fixture_canister_build_configuration(
+    canister_name: &str,
+    options: CanisterBuildOptions,
+) -> Result<ResolvedCanisterBuildConfiguration, String> {
+    let fixture = fixture_for_canister_name(canister_name)?;
+    Ok(resolve_canister_build_configuration(
+        fixture.policy,
+        options,
+    ))
 }
 
 // Shorten retained source/build paths in release wasm artifacts without
@@ -600,8 +616,8 @@ fn configure_canister_build(
         .iter()
         .find(|policy| policy.package == package_name)
         .ok_or_else(|| format!("no maintained feature policy for package '{package_name}'"))?;
-    let features = selected_canister_features(policy, options);
-    let profile = options.profile.as_str();
+    let resolved = resolve_canister_build_configuration(policy, options);
+    let profile = resolved.profile().as_str();
     let compiler_emitted = wasm_path(canister_target_dir, package_name, profile);
     let final_deployable = if matches!(options.profile, CanisterWasmProfile::WasmAttribution) {
         compiler_emitted.clone()
@@ -612,14 +628,14 @@ fn configure_canister_build(
             .join(format!("{package_name}.wasm"))
     };
 
-    let mut arguments = cargo_profile_arguments(options.profile);
-    if !features.is_empty() {
-        arguments.extend([OsString::from("--features"), features.join(",").into()]);
+    let mut arguments = cargo_profile_arguments(resolved.profile(), resolved.no_default_features());
+    if !resolved.features().is_empty() {
+        arguments.extend([
+            OsString::from("--features"),
+            resolved.features().join(",").into(),
+        ]);
     }
-    let extra_rustflags = if matches!(
-        options.profile,
-        CanisterWasmProfile::WasmRelease | CanisterWasmProfile::WasmAttribution
-    ) {
+    let extra_rustflags = if resolved.path_trimming() {
         wasm_release_path_trim_flags(root)
     } else {
         Vec::new()
@@ -634,16 +650,16 @@ fn configure_canister_build(
     })
 }
 
-fn selected_canister_features(
+fn resolve_canister_build_configuration(
     policy: &canister_artifact::MaintainedCanisterPolicy,
     options: CanisterBuildOptions,
-) -> Vec<&'static str> {
+) -> ResolvedCanisterBuildConfiguration {
     let selected_features = match options.build_profile {
         CanisterBuildProfile::LocalTest => policy.local_test_features,
         CanisterBuildProfile::Production => policy.production_features,
     };
     let candid_enabled = options.candid_export.enabled_for_profile(options.profile);
-    selected_features
+    let features = selected_features
         .iter()
         .copied()
         .filter(|feature| match *feature {
@@ -651,14 +667,30 @@ fn selected_canister_features(
             "metrics-extended" => true,
             _ => options.sql_mode.enabled(),
         })
-        .collect()
+        .collect();
+
+    ResolvedCanisterBuildConfiguration {
+        profile: options.profile,
+        build_profile: options.build_profile,
+        sql_mode: options.sql_mode,
+        candid_export: candid_enabled,
+        no_default_features: true,
+        path_trimming: matches!(
+            options.profile,
+            CanisterWasmProfile::WasmRelease | CanisterWasmProfile::WasmAttribution
+        ),
+        features,
+    }
 }
 
-fn cargo_profile_arguments(profile: CanisterWasmProfile) -> Vec<OsString> {
-    let mut arguments = vec![
-        OsString::from("--locked"),
-        OsString::from("--no-default-features"),
-    ];
+fn cargo_profile_arguments(
+    profile: CanisterWasmProfile,
+    no_default_features: bool,
+) -> Vec<OsString> {
+    let mut arguments = vec![OsString::from("--locked")];
+    if no_default_features {
+        arguments.push(OsString::from("--no-default-features"));
+    }
     match profile {
         CanisterWasmProfile::Debug => {}
         CanisterWasmProfile::Release => arguments.push(OsString::from("--release")),
@@ -724,22 +756,22 @@ pub fn build_fixture_canister_wasm_stages_with_options(
     let fixture = fixture_for_canister_name(canister_name)
         .unwrap_or_else(|error| panic!("fixture canister should be supported: {error}"));
     let artifacts = build_canister_package_artifacts(
-        fixture.package,
+        fixture.package(),
         options,
-        &canister_build_label(fixture, options),
+        &canister_build_label(&fixture, options),
     )
-    .unwrap_or_else(|error| panic!("{} canister should build: {error}", fixture.name));
+    .unwrap_or_else(|error| panic!("{} canister should build: {error}", fixture.name()));
     let compiler_emitted = fs::read(&artifacts.compiler_emitted).unwrap_or_else(|error| {
         panic!(
             "failed to read compiler-emitted {} canister wasm at {}: {error}",
-            fixture.name,
+            fixture.name(),
             artifacts.compiler_emitted.display()
         )
     });
     let final_deployable = fs::read(&artifacts.final_deployable).unwrap_or_else(|error| {
         panic!(
             "failed to read final deployable {} canister wasm at {}: {error}",
-            fixture.name,
+            fixture.name(),
             artifacts.final_deployable.display()
         )
     });
@@ -905,11 +937,11 @@ fn local_fixture_wasm_bytes_with_options(
     if options == local_canister_build_options() {
         return fixture
             .local_wasm_bytes
-            .get_or_init(|| build_local_fixture_wasm_bytes_with_options(fixture, options))
+            .get_or_init(|| build_local_fixture_wasm_bytes_with_options(&fixture, options))
             .clone();
     }
 
-    build_local_fixture_wasm_bytes_with_options(fixture, options)
+    build_local_fixture_wasm_bytes_with_options(&fixture, options)
 }
 
 fn build_local_fixture_wasm_bytes_with_options(
@@ -917,16 +949,16 @@ fn build_local_fixture_wasm_bytes_with_options(
     options: CanisterBuildOptions,
 ) -> Vec<u8> {
     let wasm_path = build_canister_package(
-        fixture.package,
+        fixture.package(),
         options,
         &canister_build_label(fixture, options),
     )
-    .unwrap_or_else(|err| panic!("{} canister should build: {err}", fixture.name));
+    .unwrap_or_else(|err| panic!("{} canister should build: {err}", fixture.name()));
 
     fs::read(&wasm_path).unwrap_or_else(|err| {
         panic!(
             "failed to read built {} canister wasm at {}: {err}",
-            fixture.name,
+            fixture.name(),
             wasm_path.display()
         )
     })
@@ -939,7 +971,7 @@ fn local_canister_build_options() -> CanisterBuildOptions {
 fn canister_build_label(fixture: &FixtureCanister, options: CanisterBuildOptions) -> String {
     format!(
         "{} canister build ({})",
-        fixture.name,
+        fixture.name(),
         options.profile.as_str(),
     )
 }

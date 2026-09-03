@@ -3,6 +3,8 @@
 //! Does not own: scenario construction, PocketIC execution, sample collection, or report rendering.
 //! Boundary: validates the exact broad-scan scenario set before a performance artifact can be comparable.
 
+use crate::sql_perf_regression_sentinels::REGRESSION_SENTINEL_SCENARIO_IDS;
+
 use std::{
     collections::BTreeSet,
     error::Error,
@@ -14,11 +16,9 @@ use icydb_testing_sql_generator::{
     SQL_SCHEDULED_SHARD_COUNT, ScenarioShardError, scheduled_sql_scenario_shard,
 };
 
-use crate::sql_perf_regression_sentinels::REGRESSION_SENTINEL_SCENARIO_IDS;
-
 /// Current checked-in SQL performance profile version.
 pub(crate) const SQL_PERFORMANCE_PROFILE_VERSION: u32 = 1;
-/// Stable identity of the PocketIC 15 SQL performance authority.
+/// Stable identity of the checked-in SQL performance profile.
 pub(crate) const SQL_PERFORMANCE_PROFILE_ID: &str = "icydb-sql-performance/0.237/v1";
 
 const EXPECTED_SCENARIO_COUNT: usize = 1_787;

@@ -17,6 +17,10 @@ use std::{
 };
 
 use icydb::db::EntitySchemaDescription;
+use icydb_testing_integration::{
+    CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
+    CanisterWasmProfile, resolve_fixture_canister_build_configuration,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -26,6 +30,18 @@ const WASM_TARGET: &str = "wasm32-unknown-unknown";
 const DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION: u32 = 1;
 const DIAGNOSTICS_ATTRIBUTION_SCHEMA_ID: &str = "icydb-sql-attribution/0.215/v1";
 const POCKET_IC_VERSION: &str = "pocket-ic-server 16.0.0";
+const PERFORMANCE_CANISTER_NAME: &str = "sql_perf";
+
+/// Return the exact build options for comparable SQL performance evidence.
+#[must_use]
+pub(crate) const fn performance_canister_build_options() -> CanisterBuildOptions {
+    CanisterBuildOptions {
+        profile: CanisterWasmProfile::WasmRelease,
+        sql_mode: CanisterSqlMode::Enabled,
+        candid_export: CanisterCandidExportMode::Auto,
+        build_profile: CanisterBuildProfile::LocalTest,
+    }
+}
 
 ///
 /// PerfFixtureSurfaceIdentity
@@ -109,7 +125,7 @@ pub(crate) struct PerfFixtureProfileIdentity {
 /// PerfCanisterBuildIdentity
 ///
 /// Comparable build configuration for the measured SQL audit canister.
-/// Owned by the performance runner; raw WASM content belongs to subject identity.
+/// Projects harness-owned build configuration; raw WASM belongs to subject identity.
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -303,7 +319,6 @@ pub(crate) enum PerfEnvironmentField {
 pub(crate) fn capture_perf_environment(
     profile: PerformanceProfile,
     workspace_root: &Path,
-    wasm_profile: &str,
     wasm_bytes: &[u8],
     accepted_descriptions: &[EntitySchemaDescription],
     pocket_ic_binary: &Path,
@@ -335,6 +350,7 @@ pub(crate) fn capture_perf_environment(
         "git",
         &["status", "--porcelain=v1", "--untracked-files=normal"],
     )?;
+    let (canister_build, feature_set) = current_perf_canister_build_configuration()?;
     let identity = PerfEnvironmentIdentity {
         comparable: PerfComparableEnvironmentIdentity {
             performance_profile_version: profile.version(),
@@ -342,19 +358,10 @@ pub(crate) fn capture_perf_environment(
             p1_scenario_set_hash: profile.expected_scenario_set_hash().to_string(),
             accepted_snapshot_hash,
             fixture: current_fixture_profile(profile)?,
-            canister_build: PerfCanisterBuildIdentity {
-                cargo_profile: wasm_profile.to_string(),
-                build_profile: "local_test".to_string(),
-                sql_mode: "enabled".to_string(),
-                candid_export: false,
-                path_trimming: true,
-            },
+            canister_build,
             rust_toolchain,
             wasm_target: WASM_TARGET.to_string(),
-            feature_set: ["diagnostics", "sql", "test-admin-api"]
-                .into_iter()
-                .map(str::to_string)
-                .collect(),
+            feature_set,
             pocket_ic_version,
             pocket_ic_sha256: sha256_hex(&pocket_ic_bytes),
             diagnostics_attribution_schema_version: DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION,
@@ -393,15 +400,21 @@ pub(crate) fn validate_perf_environment(
         .validate()
         .map_err(PerfEnvironmentError::InvalidProfile)?;
     let comparable = &identity.comparable;
+    let mut sorted_features = comparable.feature_set.clone();
+    sorted_features.sort();
+    sorted_features.dedup();
+    if sorted_features != comparable.feature_set {
+        return Err(PerfEnvironmentError::InvalidIdentity(
+            "feature set must be sorted and duplicate-free",
+        ));
+    }
+    let (expected_build, expected_features) = current_perf_canister_build_configuration()?;
     if comparable.performance_profile_version != profile.version()
         || comparable.performance_profile_identity != profile.identity()
         || comparable.p1_scenario_set_hash != profile.expected_scenario_set_hash()
         || comparable.fixture.scale_scenario_set_hash != profile.expected_scale_scenario_set_hash()
-        || comparable.canister_build.cargo_profile != "wasm-release"
-        || comparable.canister_build.build_profile != "local_test"
-        || comparable.canister_build.sql_mode != "enabled"
-        || comparable.canister_build.candid_export
-        || !comparable.canister_build.path_trimming
+        || comparable.canister_build != expected_build
+        || comparable.feature_set != expected_features
         || comparable.wasm_target != WASM_TARGET
         || comparable.diagnostics_attribution_schema_version
             != DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION
@@ -436,17 +449,36 @@ pub(crate) fn validate_perf_environment(
             "required environment identity field is empty or malformed",
         ));
     }
-    let mut sorted_features = comparable.feature_set.clone();
-    sorted_features.sort();
-    sorted_features.dedup();
-    if sorted_features != comparable.feature_set {
-        return Err(PerfEnvironmentError::InvalidIdentity(
-            "feature set must be sorted and duplicate-free",
-        ));
-    }
     validate_fixture_profile(profile, &comparable.fixture)?;
 
     Ok(())
+}
+
+fn current_perf_canister_build_configuration()
+-> Result<(PerfCanisterBuildIdentity, Vec<String>), PerfEnvironmentError> {
+    let resolved = resolve_fixture_canister_build_configuration(
+        PERFORMANCE_CANISTER_NAME,
+        performance_canister_build_options(),
+    )
+    .map_err(|_| {
+        PerfEnvironmentError::InvalidIdentity(
+            "maintained SQL performance canister build configuration is unavailable",
+        )
+    })?;
+    let identity = PerfCanisterBuildIdentity {
+        cargo_profile: resolved.profile().as_str().to_string(),
+        build_profile: resolved.build_profile().as_str().to_string(),
+        sql_mode: resolved.sql_mode().as_str().to_string(),
+        candid_export: resolved.candid_export(),
+        path_trimming: resolved.path_trimming(),
+    };
+    let features = resolved
+        .features()
+        .iter()
+        .map(|feature| (*feature).to_string())
+        .collect();
+
+    Ok((identity, features))
 }
 
 /// Require two artifacts to have the same comparable environment.
@@ -937,6 +969,8 @@ pub(crate) mod tests {
     use super::*;
 
     pub(crate) fn identity() -> PerfEnvironmentIdentity {
+        let (canister_build, feature_set) = current_perf_canister_build_configuration()
+            .expect("maintained test build configuration should resolve");
         PerfEnvironmentIdentity {
             comparable: PerfComparableEnvironmentIdentity {
                 performance_profile_version: SQL_PERFORMANCE_PROFILE.version(),
@@ -947,20 +981,10 @@ pub(crate) mod tests {
                 accepted_snapshot_hash: "11".repeat(32),
                 fixture: current_fixture_profile(SQL_PERFORMANCE_PROFILE)
                     .expect("fixture identity should build"),
-                canister_build: PerfCanisterBuildIdentity {
-                    cargo_profile: "wasm-release".to_string(),
-                    build_profile: "local_test".to_string(),
-                    sql_mode: "enabled".to_string(),
-                    candid_export: false,
-                    path_trimming: true,
-                },
+                canister_build,
                 rust_toolchain: "rustc test".to_string(),
                 wasm_target: WASM_TARGET.to_string(),
-                feature_set: vec![
-                    "diagnostics".to_string(),
-                    "sql".to_string(),
-                    "test-admin-api".to_string(),
-                ],
+                feature_set,
                 pocket_ic_version: POCKET_IC_VERSION.to_string(),
                 pocket_ic_sha256: "33".repeat(32),
                 diagnostics_attribution_schema_version: DIAGNOSTICS_ATTRIBUTION_SCHEMA_VERSION,
@@ -1104,6 +1128,27 @@ pub(crate) mod tests {
             validate_perf_environment(SQL_PERFORMANCE_PROFILE, &environment),
             Err(PerfEnvironmentError::InvalidIdentity(
                 "feature set must be sorted and duplicate-free"
+            ))
+        ));
+
+        let mut environment = identity();
+        environment
+            .comparable
+            .feature_set
+            .push("unexpected_feature".to_string());
+        assert!(matches!(
+            validate_perf_environment(SQL_PERFORMANCE_PROFILE, &environment),
+            Err(PerfEnvironmentError::InvalidIdentity(
+                "fixed environment contract drifted"
+            ))
+        ));
+
+        let mut environment = identity();
+        environment.comparable.canister_build.build_profile = "production".to_string();
+        assert!(matches!(
+            validate_perf_environment(SQL_PERFORMANCE_PROFILE, &environment),
+            Err(PerfEnvironmentError::InvalidIdentity(
+                "fixed environment contract drifted"
             ))
         ));
 

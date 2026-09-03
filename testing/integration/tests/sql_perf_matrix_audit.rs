@@ -25,41 +25,6 @@ mod sql_perf_scale;
 mod sql_perf_scale_baseline;
 mod sql_perf_scale_shard;
 
-use std::{
-    cmp::Reverse,
-    collections::{BTreeMap, BTreeSet, HashSet},
-    env,
-    fmt::Write as _,
-    fs,
-    io::{self, Read},
-    path::{Path, PathBuf},
-};
-
-use candid::{CandidType, decode_one, encode_one};
-use ic_testkit::{
-    pic::{ControllerSnapshots, PocketIcSnapshotExt, StandaloneCanisterFixture},
-    pocket_ic::PocketIc,
-};
-use icydb::{
-    Error, ErrorOrigin,
-    db::{
-        EntitySchemaDescription, SqlDescribeOutput, SqlQueryExecutionAttribution,
-        SqlShowColumnsOutput, sql::SqlQueryResult,
-    },
-    diagnostic::{DiagnosticCode, ErrorClass},
-};
-use icydb_testing_integration::{
-    CanisterBuildOptions, CanisterBuildProfile, CanisterWasmProfile,
-    build_fixture_canister_wasm_bytes_with_options, install_prebuilt_fixture_canister,
-    reset_icydb_fixtures,
-    sql_performance_contract::{
-        SQL_GROUPED_EARLY_FINALIZATION_P2_SCENARIOS, SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES,
-        SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES,
-    },
-};
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-
 use crate::sql_harness::{
     CorrectnessObservation, CorrectnessScenario, CorrectnessVerdict, DiagnosticFact,
     EligibleProvider, EvidenceStrength, ExpectedAcceptance, MutationKind, NullabilityClass,
@@ -75,7 +40,8 @@ use crate::sql_perf_calibration::{
     CalibrationRunArtifacts, build_calibration_cohort_review, write_calibration_cohort_review,
 };
 use crate::sql_perf_environment::{
-    PerfEnvironmentIdentity, capture_perf_environment, validate_perf_environment,
+    PerfEnvironmentIdentity, capture_perf_environment, performance_canister_build_options,
+    validate_perf_environment,
 };
 use crate::sql_perf_instrumentation::{
     INSTRUMENTATION_SENTINEL_SCENARIO_ID, InstrumentationPathSample,
@@ -118,6 +84,39 @@ use crate::sql_perf_scale_shard::{
     read_merged_scale_report, read_scale_shard_report, write_merged_scale_report,
     write_scale_shard_report,
 };
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, BTreeSet, HashSet},
+    env,
+    fmt::Write as _,
+    fs,
+    io::{self, Read},
+    path::{Path, PathBuf},
+};
+
+use candid::{CandidType, decode_one, encode_one};
+use ic_testkit::{
+    pic::{ControllerSnapshots, PocketIcSnapshotExt, StandaloneCanisterFixture},
+    pocket_ic::PocketIc,
+};
+use icydb::{
+    Error, ErrorOrigin,
+    db::{
+        EntitySchemaDescription, SqlDescribeOutput, SqlQueryExecutionAttribution,
+        SqlShowColumnsOutput, sql::SqlQueryResult,
+    },
+    diagnostic::{DiagnosticCode, ErrorClass},
+};
+use icydb_testing_integration::{
+    CanisterBuildOptions, CanisterWasmProfile, build_fixture_canister_wasm_bytes_with_options,
+    install_prebuilt_fixture_canister, reset_icydb_fixtures,
+    sql_performance_contract::{
+        SQL_GROUPED_EARLY_FINALIZATION_P2_SCENARIOS, SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES,
+        SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES,
+    },
+};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 const SQL_PERF_P1_SHARD_INDEX_ENV: &str = "ICYDB_SQL_PERF_P1_SHARD_INDEX";
 const SQL_PERF_P1_SHARD_DIR_ENV: &str = "ICYDB_SQL_PERF_P1_SHARD_DIR";
@@ -2708,15 +2707,11 @@ const fn top_n() -> usize {
 }
 
 const fn matrix_canister_wasm_profile() -> CanisterWasmProfile {
-    CanisterWasmProfile::WasmRelease
+    performance_canister_build_options().profile
 }
 
-fn matrix_canister_build_options() -> CanisterBuildOptions {
-    CanisterBuildOptions {
-        profile: matrix_canister_wasm_profile(),
-        build_profile: CanisterBuildProfile::LocalTest,
-        ..CanisterBuildOptions::default()
-    }
+const fn matrix_canister_build_options() -> CanisterBuildOptions {
+    performance_canister_build_options()
 }
 
 fn rejected_scenario_correctness_projection(
@@ -2790,7 +2785,6 @@ fn capture_matrix_environment(
     let identity = capture_perf_environment(
         SQL_PERFORMANCE_PROFILE,
         &workspace_root(),
-        matrix_canister_wasm_profile().as_str(),
         wasm_bytes,
         &accepted,
         &pocket_ic_binary,

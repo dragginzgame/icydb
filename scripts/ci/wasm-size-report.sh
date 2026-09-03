@@ -105,20 +105,24 @@ build_variant() {
     local sql_mode
     local artifact_suffix
     local stem=""
+    local -a build_options
 
     sql_mode="${sql_variant#sql-}"
     artifact_suffix="$(wasm_report_size_suffix "$sql_variant" "${#sql_variants[@]}")"
     stem="${canister_name}.${profile}${artifact_suffix}"
+    build_options=(
+        --build-profile production
+        --profile "$profile"
+        --sql-mode "$sql_mode"
+        --candid-export on
+    )
 
     echo "[wasm-size] Building '$canister_name' using profile '$profile' ($sql_variant)"
     (
         cd "$ROOT"
         cargo run -p icydb-testing-integration --bin build_fixture_canister --locked -- \
             "$canister_name" \
-            --build-profile production \
-            --profile "$profile" \
-            --sql-mode "$sql_mode" \
-            --candid-export on
+            "${build_options[@]}"
     )
 
     ICP_DIR="$ROOT/.icp/local/canisters/$canister_name"
@@ -165,8 +169,7 @@ build_variant() {
         cd "$ROOT"
         cargo run -p icydb-testing-integration --bin write_wasm_size_report --locked -- \
             --canister "$canister_name" \
-            --profile "$profile" \
-            --sql-variant "$sql_variant" \
+            "${build_options[@]}" \
             --did "$DID_COPY" \
             --compiler-wasm "$COMPILER_COPY" \
             --final-wasm "$FINAL_COPY" \

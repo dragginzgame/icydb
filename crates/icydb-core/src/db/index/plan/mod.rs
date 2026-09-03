@@ -15,7 +15,7 @@ use crate::{
         data::{CanonicalSlotReader, StructuralRowContract},
         index::{IndexKey, IndexReadContract, IndexRowIdentity},
         key_taxonomy::PrimaryKeyValue,
-        predicate::{Predicate, PredicateProgram, normalize, parse_sql_predicate},
+        predicate::{PredicateProgram, normalized_accepted_index_predicate},
         schema::{
             SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexInfo,
             SchemaInfo,
@@ -56,14 +56,8 @@ fn accepted_index_mutation_predicate_program(
     predicate_sql: Option<&str>,
     row_contract: &StructuralRowContract,
 ) -> Option<PredicateProgram> {
-    let predicate_sql = predicate_sql?;
-    let predicate = parse_sql_predicate(predicate_sql)
-        .map_or(Predicate::False, |predicate| normalize(&predicate));
-
-    Some(PredicateProgram::compile_with_row_contract(
-        row_contract,
-        &predicate,
-    ))
+    normalized_accepted_index_predicate(predicate_sql)
+        .map(|predicate| PredicateProgram::compile_with_row_contract(row_contract, &predicate))
 }
 
 pub(in crate::db::index::plan) fn accepted_field_path_index_key_for_slot_reader_with_membership_structural(

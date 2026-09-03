@@ -1,3 +1,8 @@
+//! Module: write_wasm_size_report
+//! Responsibility: validate and render Wasm evidence.
+//! Does not own: policy or builds.
+//! Boundary: writes resolved report format v1.
+
 use std::{
     env, fs,
     io::Read,
@@ -6,7 +11,9 @@ use std::{
 };
 
 use icydb_testing_integration::{
-    canister_artifact::MAINTAINED_CANISTER_POLICIES,
+    CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
+    CanisterWasmProfile, ResolvedCanisterBuildConfiguration,
+    resolve_fixture_canister_build_configuration,
     wasm_measurement::{
         MINIMUM_POST_LINK_RAW_REDUCTION_BASIS_POINTS, WASM_LINE_BUDGETS,
         WASM_MEASUREMENT_COMPARISONS, WASM_MEASUREMENT_PROFILE_ID,
@@ -41,8 +48,7 @@ const GENERATED_EXPORTS: &[&str] = &[
 #[derive(Debug)]
 struct Args {
     canister: String,
-    profile: String,
-    sql_variant: String,
+    build_options: CanisterBuildOptions,
     did: PathBuf,
     compiler_wasm: PathBuf,
     final_wasm: PathBuf,
@@ -191,6 +197,8 @@ fn run() -> Result<(), String> {
             args.canister
         ));
     }
+    let resolved =
+        resolve_fixture_canister_build_configuration(&args.canister, args.build_options)?;
 
     let workspace_root = workspace_root()?;
     let provenance = capture_provenance(&workspace_root)?;
@@ -206,6 +214,12 @@ fn run() -> Result<(), String> {
     let final_wasm = file_meta(&args.final_wasm)?;
     let final_gz = file_meta(&args.final_gz)?;
     let did = optional_file_meta(&args.did)?;
+    if did.is_some() != resolved.candid_export() {
+        return Err(format!(
+            "Candid artifact availability for '{}' does not match its resolved build configuration",
+            args.canister
+        ));
+    }
     let compiler_info = parse_info(&args.compiler_info, &args.compiler_wasm, &args.wasm_opt_bin)?;
     let final_info = parse_info(&args.final_info, &args.final_wasm, &args.wasm_opt_bin)?;
     let enabled_wasm_features =
@@ -222,6 +236,7 @@ fn run() -> Result<(), String> {
         &final_wasm,
         &compiler_info,
         &final_info,
+        &resolved,
     )?;
     let report = SizeReport {
         format_version: SIZE_REPORT_FORMAT_VERSION,
@@ -233,18 +248,10 @@ fn run() -> Result<(), String> {
         },
         provenance,
         tools,
-        pipeline: Pipeline {
-            compiler_emitted_stage: "cargo_wasm",
-            post_link_transform: POST_LINK_PIPELINE_IDENTITY,
-            final_deployable_stage: "binaryen_oz_wasm",
-            candid_metadata: "enabled",
-            build_profile: "production",
-            no_default_features: true,
-            path_remapping: "workspace=/w;cargo-registry=/c;rust-library=/r",
-        },
+        pipeline: pipeline(&resolved),
         canister: args.canister,
-        profile: args.profile,
-        sql_variant: args.sql_variant,
+        profile: resolved.profile().as_str().to_string(),
+        sql_variant: resolved.sql_mode().report_variant().to_string(),
         artifacts: Artifacts {
             did,
             candid_export,
@@ -295,8 +302,24 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--canister" => parsed.canister = Some(required_value(&arg, &mut args)?),
-            "--profile" => parsed.profile = Some(required_value(&arg, &mut args)?),
-            "--sql-variant" => parsed.sql_variant = Some(required_value(&arg, &mut args)?),
+            "--profile" => {
+                parsed.profile = Some(CanisterWasmProfile::parse(&required_value(
+                    &arg, &mut args,
+                )?)?);
+            }
+            "--build-profile" => {
+                parsed.build_profile = Some(CanisterBuildProfile::parse(&required_value(
+                    &arg, &mut args,
+                )?)?);
+            }
+            "--sql-mode" => {
+                parsed.sql_mode = Some(CanisterSqlMode::parse(&required_value(&arg, &mut args)?)?);
+            }
+            "--candid-export" => {
+                parsed.candid_export = Some(CanisterCandidExportMode::parse(&required_value(
+                    &arg, &mut args,
+                )?)?);
+            }
             "--did" => parsed.did = Some(required_path(&arg, &mut args)?),
             "--compiler-wasm" => parsed.compiler_wasm = Some(required_path(&arg, &mut args)?),
             "--final-wasm" => parsed.final_wasm = Some(required_path(&arg, &mut args)?),
@@ -318,8 +341,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
 #[derive(Default)]
 struct ParsedArgs {
     canister: Option<String>,
-    profile: Option<String>,
-    sql_variant: Option<String>,
+    profile: Option<CanisterWasmProfile>,
+    build_profile: Option<CanisterBuildProfile>,
+    sql_mode: Option<CanisterSqlMode>,
+    candid_export: Option<CanisterCandidExportMode>,
     did: Option<PathBuf>,
     compiler_wasm: Option<PathBuf>,
     final_wasm: Option<PathBuf>,
@@ -336,8 +361,12 @@ impl ParsedArgs {
     fn finish(self) -> Result<Args, String> {
         Ok(Args {
             canister: require_arg(self.canister, "--canister")?,
-            profile: require_arg(self.profile, "--profile")?,
-            sql_variant: require_arg(self.sql_variant, "--sql-variant")?,
+            build_options: CanisterBuildOptions {
+                profile: require_arg(self.profile, "--profile")?,
+                build_profile: require_arg(self.build_profile, "--build-profile")?,
+                sql_mode: require_arg(self.sql_mode, "--sql-mode")?,
+                candid_export: require_arg(self.candid_export, "--candid-export")?,
+            },
             did: require_arg(self.did, "--did")?,
             compiler_wasm: require_arg(self.compiler_wasm, "--compiler-wasm")?,
             final_wasm: require_arg(self.final_wasm, "--final-wasm")?,
@@ -366,7 +395,7 @@ fn require_arg<T>(value: Option<T>, flag: &str) -> Result<T, String> {
 }
 
 fn usage() -> String {
-    "usage: write_wasm_size_report --canister name --profile profile --sql-variant sql-on|sql-off --did path --compiler-wasm path --final-wasm path --final-gz path --compiler-info path --final-info path --report-json path --summary-md path --ic-wasm-bin path --wasm-opt-bin path".to_string()
+    "usage: write_wasm_size_report --canister name --build-profile local|production --profile debug|release|wasm-release --sql-mode on|off --candid-export auto|on|off --did path --compiler-wasm path --final-wasm path --final-gz path --compiler-info path --final-info path --report-json path --summary-md path --ic-wasm-bin path --wasm-opt-bin path".to_string()
 }
 
 fn workspace_root() -> Result<PathBuf, String> {
@@ -684,19 +713,11 @@ fn parse_export_line(line: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn endpoint_surface(canister: &str, sql_variant: &str, info: &WasmInfo) -> Result<Build, String> {
-    let policy = MAINTAINED_CANISTER_POLICIES
+fn endpoint_surface(resolved: &ResolvedCanisterBuildConfiguration, info: &WasmInfo) -> Build {
+    let exact_features = resolved
+        .features()
         .iter()
-        .find(|policy| policy.canister == canister)
-        .ok_or_else(|| format!("no maintained canister policy exists for '{canister}'"))?;
-    let exact_features = policy
-        .production_features
-        .iter()
-        .copied()
-        .filter(|feature| {
-            *feature == "candid-export" || *feature == "metrics-extended" || sql_variant == "sql-on"
-        })
-        .map(str::to_string)
+        .map(|feature| (*feature).to_string())
         .collect();
     let names = exported_method_names(info);
     let generated_endpoint_surface = GeneratedEndpointSurface {
@@ -717,11 +738,31 @@ fn endpoint_surface(canister: &str, sql_variant: &str, info: &WasmInfo) -> Resul
         .map(ToOwned::to_owned)
         .collect();
 
-    Ok(Build {
+    Build {
         exact_features,
         generated_endpoint_surface,
         custom_exports,
-    })
+    }
+}
+
+const fn pipeline(resolved: &ResolvedCanisterBuildConfiguration) -> Pipeline {
+    Pipeline {
+        compiler_emitted_stage: "cargo_wasm",
+        post_link_transform: POST_LINK_PIPELINE_IDENTITY,
+        final_deployable_stage: "binaryen_oz_wasm",
+        candid_metadata: if resolved.candid_export() {
+            "enabled"
+        } else {
+            "disabled"
+        },
+        build_profile: resolved.build_profile().as_str(),
+        no_default_features: resolved.no_default_features(),
+        path_remapping: if resolved.path_trimming() {
+            "workspace=/w;cargo-registry=/c;rust-library=/r"
+        } else {
+            "disabled"
+        },
+    }
 }
 
 fn validate_post_link_contract(
@@ -730,6 +771,7 @@ fn validate_post_link_contract(
     final_wasm: &FileMeta,
     compiler_info: &WasmInfo,
     final_info: &WasmInfo,
+    resolved: &ResolvedCanisterBuildConfiguration,
 ) -> Result<(Build, u16), String> {
     let compiler_exports = exported_method_names(compiler_info);
     let final_exports = exported_method_names(final_info);
@@ -739,7 +781,7 @@ fn validate_post_link_contract(
             args.canister
         ));
     }
-    let build = endpoint_surface(&args.canister, &args.sql_variant, final_info)?;
+    let build = endpoint_surface(resolved, final_info);
     let reduction = reduction_basis_points(compiler_wasm, final_wasm)?;
     if reduction < MINIMUM_POST_LINK_RAW_REDUCTION_BASIS_POINTS {
         return Err(format!(
@@ -929,7 +971,31 @@ fn append_step_summary(path: &Path, summary: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{WasmInfo, endpoint_surface};
+    use icydb_testing_integration::{
+        CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
+        CanisterWasmProfile, ResolvedCanisterBuildConfiguration,
+        resolve_fixture_canister_build_configuration,
+    };
+
+    use super::{WasmInfo, endpoint_surface, parse_args, pipeline};
+
+    fn resolved(
+        canister: &str,
+        profile: CanisterWasmProfile,
+        sql_mode: CanisterSqlMode,
+        candid_export: CanisterCandidExportMode,
+    ) -> ResolvedCanisterBuildConfiguration {
+        resolve_fixture_canister_build_configuration(
+            canister,
+            CanisterBuildOptions {
+                profile,
+                sql_mode,
+                candid_export,
+                build_profile: CanisterBuildProfile::Production,
+            },
+        )
+        .expect("maintained canister build configuration should resolve")
+    }
 
     fn wasm_info(exported_methods: &[&str]) -> WasmInfo {
         WasmInfo {
@@ -950,17 +1016,21 @@ mod tests {
 
     #[test]
     fn endpoint_surface_reports_absent_generated_sql_update_endpoint() {
-        let build = endpoint_surface(
+        let resolved = resolved(
             "sql",
-            "sql-on",
+            CanisterWasmProfile::WasmRelease,
+            CanisterSqlMode::Enabled,
+            CanisterCandidExportMode::Enabled,
+        );
+        let build = endpoint_surface(
+            &resolved,
             &wasm_info(&[
                 "canister_query icydb_query",
                 "canister_update icydb_ddl",
                 "canister_update icydb_fixtures_reset",
                 "canister_update icydb_fixtures_load",
             ]),
-        )
-        .expect("maintained SQL policy should resolve");
+        );
 
         assert!(build.generated_endpoint_surface.sql_readonly);
         assert!(build.generated_endpoint_surface.sql_ddl);
@@ -972,16 +1042,20 @@ mod tests {
 
     #[test]
     fn endpoint_surface_reports_generated_sql_update_endpoint() {
-        let build = endpoint_surface(
+        let resolved = resolved(
             "sql",
-            "sql-on",
+            CanisterWasmProfile::WasmRelease,
+            CanisterSqlMode::Enabled,
+            CanisterCandidExportMode::Enabled,
+        );
+        let build = endpoint_surface(
+            &resolved,
             &wasm_info(&[
                 "canister_query icydb_query",
                 "canister_update icydb_update",
                 "canister_update icydb_integrity",
             ]),
-        )
-        .expect("maintained SQL policy should resolve");
+        );
 
         assert!(build.generated_endpoint_surface.sql_update);
         assert!(build.generated_endpoint_surface.sql_integrity);
@@ -990,15 +1064,51 @@ mod tests {
 
     #[test]
     fn production_feature_identity_is_exact_and_variant_sensitive() {
-        let sql_on = endpoint_surface("sql_perf", "sql-on", &wasm_info(&[]))
-            .expect("maintained SQL perf policy should resolve");
+        let sql_on = endpoint_surface(
+            &resolved(
+                "sql_perf",
+                CanisterWasmProfile::WasmRelease,
+                CanisterSqlMode::Enabled,
+                CanisterCandidExportMode::Enabled,
+            ),
+            &wasm_info(&[]),
+        );
         assert_eq!(
             sql_on.exact_features,
             ["candid-export", "diagnostics", "sql"]
         );
 
-        let sql_off = endpoint_surface("sql_perf", "sql-off", &wasm_info(&[]))
-            .expect("maintained SQL perf policy should resolve");
+        let sql_off = endpoint_surface(
+            &resolved(
+                "sql_perf",
+                CanisterWasmProfile::WasmRelease,
+                CanisterSqlMode::Disabled,
+                CanisterCandidExportMode::Enabled,
+            ),
+            &wasm_info(&[]),
+        );
         assert_eq!(sql_off.exact_features, ["candid-export"]);
+    }
+
+    #[test]
+    fn pipeline_identity_comes_from_resolved_build_configuration() {
+        let debug = resolved(
+            "sql_perf",
+            CanisterWasmProfile::Debug,
+            CanisterSqlMode::Disabled,
+            CanisterCandidExportMode::Disabled,
+        );
+        let pipeline = pipeline(&debug);
+
+        assert_eq!(pipeline.candid_metadata, "disabled");
+        assert_eq!(pipeline.build_profile, "production");
+        assert!(pipeline.no_default_features);
+        assert_eq!(pipeline.path_remapping, "disabled");
+    }
+
+    #[test]
+    fn report_arguments_reject_untyped_build_labels() {
+        assert!(parse_args(["--profile", "profile-ish"].map(str::to_string)).is_err());
+        assert!(parse_args(["--sql-mode", "maybe"].map(str::to_string)).is_err());
     }
 }

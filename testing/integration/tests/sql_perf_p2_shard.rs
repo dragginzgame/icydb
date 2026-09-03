@@ -1536,7 +1536,10 @@ pub(crate) mod tests {
         unknown_field
             .as_object_mut()
             .expect("P2 shard should be a JSON object")
-            .insert("legacy_confirmations".to_string(), serde_json::json!([]));
+            .insert(
+                "unexpected_confirmations".to_string(),
+                serde_json::json!([]),
+            );
         assert!(
             serde_json::from_value::<P2ShardReport>(unknown_field).is_err(),
             "unknown P2 shard fields must fail current-format decoding",
@@ -1546,7 +1549,7 @@ pub(crate) mod tests {
         unknown_merged
             .as_object_mut()
             .expect("merged P2 report should be a JSON object")
-            .insert("legacy_summary".to_string(), serde_json::json!({}));
+            .insert("unexpected_summary".to_string(), serde_json::json!({}));
         assert!(
             serde_json::from_value::<MergedP2ShardReports>(unknown_merged).is_err(),
             "unknown merged P2 fields must fail current-format decoding",

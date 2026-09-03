@@ -1,8 +1,7 @@
 //! Module: executor::aggregate::runtime::grouped_fold::count::window
 //! Responsibility: grouped `COUNT(*)` page-window selection.
+//! Does not own: grouped accumulation or grouped projection evaluation.
 //! Boundary: owns HAVING, resume-boundary, bounded selection, and cursor payloads.
-
-use std::{cmp::Ordering, collections::BinaryHeap};
 
 use crate::{
     db::{
@@ -30,6 +29,8 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+
+use std::{cmp::Ordering, collections::BinaryHeap};
 
 ///
 /// BoundedGroupedCountCandidate

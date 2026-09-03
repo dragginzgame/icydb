@@ -1,3 +1,8 @@
+//! Module: build_fixture_canister
+//! Responsibility: stage one parsed fixture build.
+//! Does not own: policy or the ICP network.
+//! Boundary: turns CLI input into typed build options.
+
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, stage_canister_for_icp_with_options,

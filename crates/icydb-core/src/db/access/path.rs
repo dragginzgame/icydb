@@ -7,7 +7,7 @@ use crate::{
     db::{
         Predicate,
         index::SemanticIndexExpression,
-        predicate::{normalize, parse_sql_predicate},
+        predicate::normalized_accepted_index_predicate,
         schema::{SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo},
     },
     value::Value,
@@ -140,7 +140,7 @@ impl SemanticIndexAccessContract {
                     })
                     .collect(),
                 unique: accepted.unique(),
-                predicate_semantics: accepted_index_predicate_semantics(accepted),
+                predicate_semantics: normalized_accepted_index_predicate(accepted.predicate_sql()),
             }),
         }
     }
@@ -161,9 +161,7 @@ impl SemanticIndexAccessContract {
                     .map(accepted_expression_key_item)
                     .collect(),
                 unique: accepted.unique(),
-                predicate_semantics: accepted_index_predicate_semantics_from_sql(
-                    accepted.predicate_sql(),
-                ),
+                predicate_semantics: normalized_accepted_index_predicate(accepted.predicate_sql()),
             }),
         }
     }
@@ -262,21 +260,6 @@ fn accepted_field_path_term(field_name: &str, path: &[String]) -> String {
     } else {
         path.join(".")
     }
-}
-
-fn accepted_index_predicate_semantics(
-    accepted: &crate::db::schema::SchemaIndexInfo,
-) -> Option<Predicate> {
-    accepted_index_predicate_semantics_from_sql(accepted.predicate_sql())
-}
-
-fn accepted_index_predicate_semantics_from_sql(predicate_sql: Option<&str>) -> Option<Predicate> {
-    let predicate_sql = predicate_sql?;
-
-    Some(
-        parse_sql_predicate(predicate_sql)
-            .map_or(Predicate::False, |predicate| normalize(&predicate)),
-    )
 }
 
 ///

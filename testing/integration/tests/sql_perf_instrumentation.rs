@@ -755,7 +755,7 @@ mod tests {
         fs::remove_file(&path).expect("temporary calibration artifact should be removed");
 
         let mut encoded = serde_json::to_value(&report).expect("report should encode");
-        encoded["legacy_overhead"] = serde_json::json!(1);
+        encoded["unexpected_overhead"] = serde_json::json!(1);
         assert!(serde_json::from_value::<InstrumentationCalibrationReport>(encoded).is_err());
 
         let mut coverage_drifted = report.clone();

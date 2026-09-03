@@ -1,3 +1,12 @@
+//! Module: integration::canister_build_cache
+//! Responsibility: build-artifact caching.
+//! Does not own: feature policy or artifact semantics.
+//! Boundary: caches resolved build recipes.
+
+use crate::wasm_optimizer::{
+    POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, optimize_deployable_wasm_with_optimizer,
+    pinned_wasm_optimizer,
+};
 use std::{
     collections::BTreeSet,
     env,
@@ -17,11 +26,6 @@ use ic_testkit::artifacts::{
     WasmBuildSpec, build_artifact_caches_batch,
     build_wasm_canisters_cached_batch_with_config_and_progress,
     build_wasm_canisters_cached_with_progress, prepare_artifact_cache,
-};
-
-use crate::wasm_optimizer::{
-    POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, optimize_deployable_wasm_with_optimizer,
-    pinned_wasm_optimizer,
 };
 
 const CACHE_TRACE_ENV: &str = "ICYDB_CANISTER_CACHE_TRACE";

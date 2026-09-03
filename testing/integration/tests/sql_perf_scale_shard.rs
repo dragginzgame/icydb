@@ -1406,7 +1406,7 @@ pub(crate) mod tests {
     fn scale_shard_artifacts_reject_unknown_fields_and_oversize_output() {
         let (p1_scenarios, reports) = complete_reports();
         let encoded = serde_json::to_string(&reports[0]).expect("test report should encode");
-        let with_unknown = encoded.replacen('{', "{\"legacy\":true,", 1);
+        let with_unknown = encoded.replacen('{', "{\"unexpected\":true,", 1);
         assert!(serde_json::from_str::<ScaleShardReport>(&with_unknown).is_err());
         assert!(matches!(
             validate_scale_shard_artifact_size(Path::new("scale.json"), 11, 10),

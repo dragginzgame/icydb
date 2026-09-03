@@ -1,3 +1,8 @@
+//! Module: lifecycle_participant
+//! Responsibility: generated lifecycle-participant composition integration coverage.
+//! Does not own: production lifecycle orchestration or fixture canister implementation.
+//! Boundary: exercises installed fixture behavior through PocketIC-facing APIs.
+
 use std::{collections::BTreeSet, time::Duration};
 
 use candid::{CandidType, Deserialize};

@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
-- `0.252.5` removes internal policy rediscovery, hard-cuts current SQL
-  performance evidence to version 1, restores module ownership documentation,
-  and updates the host harness to `ic-testkit 0.9.0` and PocketIC 16 without
-  changing Candid.
+- `0.252.5` removes internal policy rediscovery across secondary ordering,
+  accepted-index predicates, and Wasm/performance build evidence; gives
+  maintained actors one fixture identity, hard-cuts current evidence to
+  version 1, restores ownership documentation, and updates the host harness to
+  `ic-testkit 0.9.0` and PocketIC 16 without changing Candid.
 - `0.252.4` removes parallel projection and planner diagnostic adapters,
   centralizes numeric-operator lowering, and keeps function-evaluation errors
   internal until their actual boundary. Twenty-five production files remove

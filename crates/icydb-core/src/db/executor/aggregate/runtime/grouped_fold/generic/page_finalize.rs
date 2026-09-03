@@ -1,7 +1,7 @@
 //! Module: db::executor::aggregate::runtime::grouped_fold::generic::page_finalize
-//! Finalizes grouped-fold candidate streams into grouped result pages.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Responsibility: grouped-fold candidate filtering, ordering, pagination, and projection.
+//! Does not own: grouped accumulation or aggregate-route derivation.
+//! Boundary: consumes finalized group bundles and emits runtime grouped result pages.
 
 use crate::{
     db::executor::projection::ProjectionEvalError,
@@ -39,8 +39,10 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
+
 use std::{borrow::Cow, cmp::Ordering, collections::BinaryHeap};
+
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 
 ///
 /// OrderedGroupedPageSelection
