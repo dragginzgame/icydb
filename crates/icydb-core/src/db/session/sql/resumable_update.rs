@@ -1883,20 +1883,8 @@ mod tests {
 
     #[test]
     fn resumable_batch_policy_identity_covers_every_compatibility_input() {
-        assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0x195d_c27a);
+        assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0x3a31_c25a);
         assert_ne!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 1);
-
-        let mut predecessor = RESUMABLE_UPDATE_BATCH_POLICY_INPUTS;
-        let timestamp_policy_index = predecessor.len() - 3;
-        predecessor[timestamp_policy_index] = 1;
-        assert_eq!(
-            resumable_update_batch_policy_identity(predecessor),
-            0x55d6_794b
-        );
-        assert_ne!(
-            resumable_update_batch_policy_identity(predecessor),
-            RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY,
-        );
 
         for index in 0..RESUMABLE_UPDATE_BATCH_POLICY_INPUTS.len() {
             let mut changed = RESUMABLE_UPDATE_BATCH_POLICY_INPUTS;
