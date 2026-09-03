@@ -13,7 +13,7 @@ use crate::db::executor::saturating_u32_len;
 use crate::db::{
     cursor::GroupedContinuationToken,
     direction::Direction,
-    executor::{ExecutionOptimization, KeyOrderComparator, OrderedKeyStreamBox, RuntimeGroupedRow},
+    executor::{KeyOrderComparator, OrderedKeyStreamBox, RuntimeGroupedRow},
     schema::AcceptedValueCatalogHandle,
 };
 
@@ -109,11 +109,10 @@ pub(in crate::db::executor) const fn key_stream_comparator_from_direction(
 /// FastPathKeyResult
 ///
 /// Internal fast-path access result.
-/// Carries ordered keys plus observability metadata for shared execution phases.
+/// Carries ordered keys plus an optional exact scan-count hint.
 ///
 
 pub(in crate::db::executor) struct FastPathKeyResult {
     pub(in crate::db::executor) ordered_key_stream: OrderedKeyStreamBox,
     pub(in crate::db::executor) rows_scanned: Option<usize>,
-    pub(in crate::db::executor) optimization: ExecutionOptimization,
 }

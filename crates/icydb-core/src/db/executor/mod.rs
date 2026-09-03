@@ -7,7 +7,6 @@ mod aggregate;
 mod authority;
 pub(in crate::db) mod budget;
 mod covering;
-mod diagnostics;
 #[cfg(feature = "sql")]
 pub(in crate::db) mod explain;
 mod group;
@@ -18,7 +17,6 @@ mod order;
 mod pipeline;
 pub(super) mod planning;
 mod prepared_execution_plan;
-mod profiling;
 pub(in crate::db) mod projection;
 pub(in crate::db) use planning::route;
 mod scan;
@@ -56,8 +54,6 @@ pub(in crate::db::executor) use covering::{
     decode_covering_projection_component, decode_covering_projection_pairs,
     map_covering_projection_pairs,
 };
-pub(in crate::db) use diagnostics::ExecutionOptimization;
-pub(in crate::db::executor) use diagnostics::ExecutionTrace;
 #[cfg(feature = "sql")]
 pub(in crate::db) use explain::{
     assemble_load_execution_node_descriptor_from_route_facts,
@@ -106,13 +102,6 @@ pub(in crate::db) use prepared_execution_plan::SharedPreparedExecutionPlan;
 pub(in crate::db::executor) use prepared_execution_plan::SharedPreparedProjectionRuntimeHandoff;
 pub(in crate::db::executor) use prepared_execution_plan::{
     PreparedGroupedRuntimeResidents, PreparedScalarPlanCore, PreparedScalarRuntimeHandoff,
-};
-pub(in crate::db::executor) use profiling::{
-    ExecutionProfileStats, record_aggregation, with_execution_stats_capture,
-};
-pub(in crate::db::executor) use profiling::{
-    measure_execution_stats_phase, record_key_stream_micros, record_key_stream_yield,
-    record_ordering, record_projection, record_rows_after_predicate,
 };
 pub(in crate::db) use projection::{
     StructuralProjectionRequest, execute_structural_projection_page,

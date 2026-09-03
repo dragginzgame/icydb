@@ -247,16 +247,15 @@ define_numeric_fact_value_registry! {
         GroupDistinctStateBytes = 15;
         CursorSteps = 16;
         TemporaryBytes = 17;
-        DiagnosticSteps = 18;
-        ResultRows = 19;
-        ResultBytes = 20;
-        InstructionUnits = 21;
+        ResultRows = 18;
+        ResultBytes = 19;
+        InstructionUnits = 20;
     }
 }
 
 impl DiagnosticExecutionBudgetResource {
     /// Every maintained hard-budget resource in stable numeric order.
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 20] = [
         Self::QueryExecutions,
         Self::PlanningSteps,
         Self::PlanCompilations,
@@ -274,7 +273,6 @@ impl DiagnosticExecutionBudgetResource {
         Self::GroupDistinctStateBytes,
         Self::CursorSteps,
         Self::TemporaryBytes,
-        Self::DiagnosticSteps,
         Self::ResultRows,
         Self::ResultBytes,
         Self::InstructionUnits,
@@ -1221,7 +1219,7 @@ mod tests {
             );
         }
         assert_eq!(DiagnosticExecutionBudgetResource::known(0), None);
-        assert_eq!(DiagnosticExecutionBudgetResource::known(22), None);
+        assert_eq!(DiagnosticExecutionBudgetResource::known(21), None);
 
         assert_eq!(DiagnosticExecutionBudgetScope::Execution.raw(), 1);
         assert_eq!(DiagnosticExecutionBudgetScope::Request.raw(), 2);

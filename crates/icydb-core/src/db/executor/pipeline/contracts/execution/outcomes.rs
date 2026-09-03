@@ -3,8 +3,8 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
+use crate::db::executor::pipeline::contracts::StructuralCursorPage;
 use crate::db::executor::terminal::KernelRow;
-use crate::db::executor::{ExecutionOptimization, pipeline::contracts::StructuralCursorPage};
 
 ///
 /// ScalarPageMaterialization
@@ -58,18 +58,12 @@ pub(in crate::db::executor) struct KernelRowsExecutionAttempt {
 ///
 /// ExecutionOutcomeMetrics
 ///
-/// Shared attempt and finalization observability metrics for scalar execution.
-/// Keeps path-outcome reporting and residual-retry accounting fields grouped
-/// as one boundary payload.
+/// Shared scan accounting for scalar execution attempts.
 ///
 
 pub(in crate::db::executor) struct ExecutionOutcomeMetrics {
-    pub(in crate::db::executor) optimization: Option<ExecutionOptimization>,
     pub(in crate::db::executor) rows_scanned: usize,
     pub(in crate::db::executor) post_access_rows: usize,
-    pub(in crate::db::executor) index_predicate_applied: bool,
-    pub(in crate::db::executor) index_predicate_keys_rejected: u64,
-    pub(in crate::db::executor) distinct_keys_deduped: u64,
 }
 
 impl ExecutionOutcomeMetrics {
@@ -77,16 +71,8 @@ impl ExecutionOutcomeMetrics {
     // metrics from the latest attempt.
     pub(in crate::db::executor) const fn merge_residual_retry_attempt(self, latest: Self) -> Self {
         Self {
-            optimization: latest.optimization,
             rows_scanned: self.rows_scanned.saturating_add(latest.rows_scanned),
             post_access_rows: latest.post_access_rows,
-            index_predicate_applied: self.index_predicate_applied || latest.index_predicate_applied,
-            index_predicate_keys_rejected: self
-                .index_predicate_keys_rejected
-                .saturating_add(latest.index_predicate_keys_rejected),
-            distinct_keys_deduped: self
-                .distinct_keys_deduped
-                .saturating_add(latest.distinct_keys_deduped),
         }
     }
 }

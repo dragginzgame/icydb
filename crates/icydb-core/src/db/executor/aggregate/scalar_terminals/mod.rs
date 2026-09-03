@@ -45,7 +45,6 @@ pub(in crate::db) use terminal::{StructuralAggregateTerminal, StructuralAggregat
 /// Execute one structural global aggregate request over a shared prepared scalar plan.
 pub(in crate::db) fn execute_structural_aggregate_rows_for_canister<C>(
     db: &Db<C>,
-    debug: bool,
     shared_plan: SharedPreparedExecutionPlan,
     request: StructuralAggregateRequest,
 ) -> Result<Vec<Vec<Value>>, InternalError>
@@ -55,13 +54,12 @@ where
     let context =
         prepared_read_execution_context(&shared_plan, DiagnosticExecutionLane::TrustedRead);
     with_read_execution_budget(db.request_execution_scope(), context, || {
-        execute_structural_aggregate_rows_inner(db, debug, shared_plan, request)
+        execute_structural_aggregate_rows_inner(db, shared_plan, request)
     })
 }
 
 fn execute_structural_aggregate_rows_inner<C>(
     db: &Db<C>,
-    debug: bool,
     shared_plan: SharedPreparedExecutionPlan,
     request: StructuralAggregateRequest,
 ) -> Result<Vec<Vec<Value>>, InternalError>
@@ -81,7 +79,6 @@ where
         .collect::<Result<Vec<_>, _>>()?;
     let ordered_values = execute_scalar_aggregate_terminals(
         db,
-        debug,
         shared_plan,
         PreparedScalarAggregateTerminalSet::new(terminals),
     )?;
@@ -116,7 +113,6 @@ where
 
 fn execute_scalar_aggregate_terminals<C>(
     db: &Db<C>,
-    debug: bool,
     plan: SharedPreparedExecutionPlan,
     terminals: PreparedScalarAggregateTerminalSet,
 ) -> Result<Vec<Value>, InternalError>
@@ -140,7 +136,6 @@ where
 
     execute_prepared_scalar_aggregate_kernel_row_sink_for_canister(
         db,
-        debug,
         plan,
         retained_slot_layout,
         aggregate_route_plan,

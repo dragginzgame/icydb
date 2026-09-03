@@ -5,9 +5,7 @@ use crate::{
             BoundedOrderWindow, DataRowOrderWindow, OrderedKeyStreamBox, PendingOrderRows,
             ScalarContinuationContext, begin_production_scalar_page_unit,
             exact_output_key_count_hint, finish_production_scalar_page_unit,
-            key_stream_budget_is_redundant, measure_execution_stats_phase,
-            production_scalar_page_work_is_active, record_key_stream_micros,
-            record_key_stream_yield,
+            key_stream_budget_is_redundant, production_scalar_page_work_is_active,
             route::LoadOrderRouteMode,
             terminal::page::{
                 KernelRow, KernelRowOrderWindow, KernelRowScanStrategy, ScalarRowRuntimeHandle,
@@ -367,8 +365,6 @@ fn scan_kernel_rows_with_bounded_order_window(
             finish_scan_page_unit(page_unit)?;
             break;
         };
-        record_key_stream_yield();
-
         rows_scanned = rows_scanned.saturating_add(1);
         let row = read_row(key)?;
         finish_scan_page_unit(page_unit)?;
@@ -421,7 +417,6 @@ fn try_scan_borrowed_primary_rows(
         Ok(true)
     };
     let mut visit_row = |key: DecodedDataStoreKey, row: &RawRow| {
-        record_key_stream_yield();
         rows_scanned.set(rows_scanned.get().saturating_add(1));
         let decoded = read_row(&key, row)?;
         finish_scan_page_unit(active_unit.replace(ScanPageUnit::Untracked))?;
@@ -496,8 +491,6 @@ fn scan_rows_with<T>(
                 finish_scan_page_unit(page_unit)?;
                 break;
             };
-            record_key_stream_yield();
-
             rows_scanned = rows_scanned.saturating_add(1);
             let row = read_row(key_stream, key)?;
             finish_scan_page_unit(page_unit)?;
@@ -525,8 +518,6 @@ fn scan_rows_with<T>(
             finish_scan_page_unit(page_unit)?;
             break;
         };
-        record_key_stream_yield();
-
         rows_scanned = rows_scanned.saturating_add(1);
         let row = read_row(key_stream, key)?;
         finish_scan_page_unit(page_unit)?;
@@ -590,10 +581,7 @@ fn finish_scan_page_unit(unit: ScanPageUnit) -> Result<(), InternalError> {
 fn next_kernel_scan_key(
     key_stream: &mut OrderedKeyStreamBox,
 ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-    let (next_key, key_stream_micros) = measure_execution_stats_phase(|| key_stream.next_key());
-    record_key_stream_micros(key_stream_micros);
-
-    next_key
+    key_stream.next_key()
 }
 
 // Compute the staged row capacity after the caller has converted a cursorless
@@ -655,10 +643,7 @@ fn scan_data_rows_direct_with_reader(
 fn next_direct_data_row_scan_key(
     key_stream: &mut OrderedKeyStreamBox,
 ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-    let (read_result, key_stream_micros) = measure_execution_stats_phase(|| key_stream.next_key());
-    record_key_stream_micros(key_stream_micros);
-
-    read_result
+    key_stream.next_key()
 }
 
 // Scan one ordered key stream directly into canonical data rows while
@@ -701,7 +686,6 @@ pub(super) fn scan_materialized_order_direct_data_rows<'a>(
         }
 
         while let Some(key) = next_direct_data_row_scan_key(key_stream)? {
-            record_key_stream_yield();
             rows_scanned = rows_scanned.saturating_add(1);
             let row = match residual_filter_program {
                 None => row_runtime.read_data_row(consistency, key),

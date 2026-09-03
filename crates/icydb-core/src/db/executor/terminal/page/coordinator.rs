@@ -24,8 +24,8 @@ const PAGE_RESOURCE_NOT_OWNED: u64 = u64::MAX;
 const MAX_SCALAR_ROW_NESTED_STEPS: u64 = 256;
 // Stable protocol identities frozen from the original v1 operational
 // envelopes. Limit tuning within either profile must not invalidate progress.
-const TRUSTED_SCALAR_PAGE_PROFILE_IDENTITY: u64 = 0x0481_7ce8_139a_63f6;
-const PUBLIC_SCALAR_PAGE_PROFILE_IDENTITY: u64 = 0x9dbc_64c1_e664_c15e;
+const TRUSTED_SCALAR_PAGE_PROFILE_IDENTITY: u64 = 0x1fcc_206d_e0a3_9aa5;
+const PUBLIC_SCALAR_PAGE_PROFILE_IDENTITY: u64 = 0xdb4e_b896_81d8_92bd;
 const DEFAULT_PAGE_LIMITS: [u64; RESOURCE_COUNT] = [
     PAGE_RESOURCE_NOT_OWNED, // query executions belong to the hard request/execution scope
     PAGE_RESOURCE_NOT_OWNED, // planning steps happen outside physical page traversal
@@ -44,7 +44,6 @@ const DEFAULT_PAGE_LIMITS: [u64; RESOURCE_COUNT] = [
     16 * 1_024 * 1_024,      // group/distinct state bytes
     100_000,                 // cursor and lookahead steps
     16 * 1_024 * 1_024,      // other temporary bytes
-    100_000,                 // bounded diagnostics aggregation
     1_024,                   // output rows per page
     8 * 1_024 * 1_024,       // output bytes per page
     PAGE_RESOURCE_NOT_OWNED, // instruction watermark remains a hard-budget concern

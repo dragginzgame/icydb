@@ -5,5 +5,5 @@
 //! Boundary: adapts core response shapes to facade-facing Candid-friendly types.
 
 // re-exports
-pub use icydb_core::db::{ExecutionTrace, GroupedRow};
+pub use icydb_core::db::GroupedRow;
 pub use icydb_core::value::render_output_value_text;

@@ -219,14 +219,6 @@ pub(in crate::db) enum DistinctExecutionStrategy {
     HashMaterialize,
 }
 
-impl DistinctExecutionStrategy {
-    /// Return true when scalar DISTINCT execution is enabled.
-    #[must_use]
-    pub(in crate::db) const fn is_enabled(self) -> bool {
-        !matches!(self, Self::None)
-    }
-}
-
 ///
 /// PlannerRouteProfile
 ///

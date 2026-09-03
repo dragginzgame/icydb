@@ -9,7 +9,6 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-use std::cell::Cell;
 
 pub(crate) use compile::{
     IndexCompilePolicy, compile_index_program, compile_index_program_for_targets,
@@ -112,15 +111,10 @@ pub(crate) fn eval_index_compare(
 ///
 /// IndexPredicateExecution
 ///
-/// Execution-time wrapper for one compiled index predicate program.
-/// Carries optional observability counters used by load execution tracing.
+/// Borrowed compiled index predicate used during execution.
 ///
 
-#[derive(Clone, Copy)]
-pub(in crate::db) struct IndexPredicateExecution<'a> {
-    pub(in crate::db) program: &'a IndexPredicateProgram,
-    pub(in crate::db) rejected_keys_counter: Option<&'a Cell<u64>>,
-}
+pub(in crate::db) type IndexPredicateExecution<'a> = &'a IndexPredicateProgram;
 
 // Evaluate one compiled index-only program against one decoded index key.
 pub(in crate::db) fn eval_index_program_on_decoded_key(
@@ -228,18 +222,12 @@ fn eval_index_or_on_prefix_components(
     all_known.then_some(false)
 }
 
-/// Evaluate one compiled index-only execution request and update observability
-/// counters when a key is rejected by index-only filtering.
+/// Evaluate one compiled index-only execution request.
 pub(in crate::db) fn eval_index_execution_on_decoded_key(
     key: &IndexKey,
     execution: IndexPredicateExecution<'_>,
 ) -> Result<bool, InternalError> {
-    let passed = eval_index_program_on_decoded_key(key, execution.program)?;
-    if !passed && let Some(counter) = execution.rejected_keys_counter {
-        counter.set(counter.get().saturating_add(1));
-    }
-
-    Ok(passed)
+    eval_index_program_on_decoded_key(key, execution)
 }
 
 /// Build canonical index-component bytes for one literal.

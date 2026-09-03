@@ -218,20 +218,6 @@ impl OrderedKeyStreamBox {
         Self::Distinct(DistinctOrderedKeyStream::new(inner.boxed(), comparator))
     }
 
-    /// Construct one owned distinct ordered key stream with dedup observability.
-    #[must_use]
-    pub(in crate::db::executor) fn distinct_with_dedup_counter(
-        inner: Self,
-        comparator: KeyOrderComparator,
-        deduped_keys_counter: Rc<Cell<u64>>,
-    ) -> Self {
-        Self::Distinct(DistinctOrderedKeyStream::new_with_dedup_counter(
-            inner.boxed(),
-            comparator,
-            deduped_keys_counter,
-        ))
-    }
-
     /// Construct one ordered concatenation from already branch-ordered streams.
     #[must_use]
     pub(in crate::db::executor) fn concat_all(mut streams: Vec<Self>) -> Self {

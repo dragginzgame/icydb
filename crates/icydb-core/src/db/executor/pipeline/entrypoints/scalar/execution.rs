@@ -1,26 +1,21 @@
 //! Module: executor::pipeline::entrypoints::scalar::execution
 //! Responsibility: shared scalar route execution setup.
 //! Does not own: materialized-page finalization or aggregate row sinking.
-//! Boundary: prepares route hints, continuation checks, traces, and execution inputs.
+//! Boundary: prepares route hints, continuation checks, and execution inputs.
 
 use crate::{
     db::{
         executor::{
-            AccessStreamBindings, ExecutionProfileStats, ExecutionRoutePlan, ExecutionTrace,
-            ScalarContinuationContext, TraversalRuntime,
-            diagnostics::execution_trace_for_access,
-            pipeline::timing::{elapsed_execution_micros, start_execution_timer},
+            AccessStreamBindings, ExecutionRoutePlan, ScalarContinuationContext, TraversalRuntime,
             pipeline::{
                 contracts::{
-                    ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
-                    PreparedExecutionInputContext,
+                    ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionInputContext,
                 },
                 entrypoints::scalar::{
                     hints::{ScalarRouteTerminal, normalize_scalar_route_for_execution},
                     runtime::PreparedScalarRouteRuntime,
                 },
             },
-            with_execution_stats_capture,
         },
         schema::cardinality_generation::CardinalityAcceptedRootIdentity,
     },
@@ -30,46 +25,11 @@ use crate::{
 ///
 /// PreparedScalarKernelExecution
 ///
-/// PreparedScalarKernelExecution carries one completed scalar kernel attempt
-/// plus the observability state that callers finish after they know the
-/// materialized/page or aggregate row-sink outcome counters.
+/// PreparedScalarKernelExecution carries one completed scalar kernel attempt.
 ///
 
 pub(super) struct PreparedScalarKernelExecution<T> {
     pub(super) attempt: T,
-    pub(super) execution_stats: Option<ExecutionProfileStats>,
-    pub(super) execution_trace: Option<ExecutionTrace>,
-    pub(super) execution_time_micros: u64,
-}
-
-pub(super) fn attach_execution_stats_to_trace(
-    execution_trace: &mut Option<ExecutionTrace>,
-    execution_stats: Option<ExecutionProfileStats>,
-) {
-    if let Some(trace) = execution_trace.as_mut() {
-        trace.set_execution_stats(execution_stats.map(ExecutionProfileStats::into_execution_stats));
-    }
-}
-
-// Finish scalar-kernel observability once for materialized page execution and
-// aggregate row-sink execution. Both terminals share the same scanned,
-// post-access, projected-row, distinct-key, and trace-stat contract.
-pub(super) fn finish_scalar_kernel_observability(
-    execution_trace: &mut Option<ExecutionTrace>,
-    execution_stats: Option<ExecutionProfileStats>,
-    metrics: &ExecutionOutcomeMetrics,
-    projected_rows: usize,
-) {
-    let mut execution_stats = execution_stats;
-    if let Some(stats) = execution_stats.as_mut() {
-        stats.apply_scalar_outcome(
-            metrics.rows_scanned,
-            metrics.post_access_rows,
-            projected_rows,
-            metrics.distinct_keys_deduped,
-        );
-    }
-    attach_execution_stats_to_trace(execution_trace, execution_stats);
 }
 
 // Run one prepared scalar runtime through shared route/input setup, then let
@@ -96,7 +56,6 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         projection_runtime_mode,
         suppress_route_scan_hints,
         enforced_scan_probe_limit,
-        debug,
     } = prepared;
     let accepted_schema = authority.accepted_schema_authority()?;
     let accepted_root = CardinalityAcceptedRootIdentity::new(
@@ -137,12 +96,8 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
     }
 
     let route_continuation = route_plan.continuation();
-    let continuation_applied = route_continuation.applied();
     continuation.debug_assert_route_continuation_invariants(plan, route_continuation);
     let direction = route_plan.direction();
-    let mut execution_trace =
-        debug.then(|| execution_trace_for_access(&plan.access, direction, continuation_applied));
-    let execution_started_at = start_execution_timer();
 
     let executable_access = plan.access.executable_contract();
     let access_continuation = continuation.clone();
@@ -162,16 +117,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         emit_cursor: cursor_emission.enabled(),
         enforced_scan_probe_limit,
     });
-    let (attempt, execution_stats) = with_execution_stats_capture(debug, || {
-        execute(&execution_inputs, &route_plan, continuation.clone())
-    });
-    let attempt = attempt?;
-    let execution_time_micros = elapsed_execution_micros(execution_started_at);
+    let attempt = execute(&execution_inputs, &route_plan, continuation)?;
 
-    Ok(PreparedScalarKernelExecution {
-        attempt,
-        execution_stats,
-        execution_trace: execution_trace.take(),
-        execution_time_micros,
-    })
+    Ok(PreparedScalarKernelExecution { attempt })
 }

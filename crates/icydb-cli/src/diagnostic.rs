@@ -436,7 +436,6 @@ const fn execution_budget_resource_text(value: u64) -> Option<&'static str> {
         }
         Some(DiagnosticExecutionBudgetResource::CursorSteps) => Some("cursor-steps"),
         Some(DiagnosticExecutionBudgetResource::TemporaryBytes) => Some("temporary-bytes"),
-        Some(DiagnosticExecutionBudgetResource::DiagnosticSteps) => Some("diagnostic-steps"),
         Some(DiagnosticExecutionBudgetResource::ResultRows) => Some("result-rows"),
         Some(DiagnosticExecutionBudgetResource::ResultBytes) => Some("result-bytes"),
         Some(DiagnosticExecutionBudgetResource::InstructionUnits) => Some("instruction-units"),

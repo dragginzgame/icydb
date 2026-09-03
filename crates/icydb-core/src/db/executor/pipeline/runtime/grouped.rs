@@ -9,7 +9,7 @@ use crate::{
             CanonicalSlotReader, DecodedDataStoreKey, RawRow, decode_structural_value_storage_bytes,
         },
         executor::{
-            ExecutionOptimization, ExecutionPreparation,
+            ExecutionPreparation,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, extract_orderable_field_value_with_slot_reader,
             },
@@ -653,74 +653,27 @@ impl GroupedStreamStage {
 /// GroupedFoldStage
 ///
 /// Fold-phase output payload for grouped execution.
-/// Owns grouped page materialization plus observability counters consumed by
-/// the final output stage.
+/// Owns grouped page materialization and pagination sanity-check inputs.
 ///
 
 pub(in crate::db::executor) struct GroupedFoldStage {
     page: GroupedCursorPage,
     filtered_rows: usize,
     check_filtered_rows_upper_bound: bool,
-    rows_scanned: usize,
-    optimization: Option<ExecutionOptimization>,
-    index_predicate_applied: bool,
-    index_predicate_keys_rejected: u64,
-    distinct_keys_deduped: u64,
 }
 
 impl GroupedFoldStage {
-    // Build one grouped fold-stage payload from grouped page output plus stream
-    // observability metadata captured after grouped fold execution.
-    pub(in crate::db::executor) fn from_grouped_stream(
+    // Build one grouped fold-stage payload from grouped page output.
+    pub(in crate::db::executor) const fn new(
         page: GroupedCursorPage,
         filtered_rows: usize,
         check_filtered_rows_upper_bound: bool,
-        stream: &GroupedStreamStage,
-        scanned_rows_fallback: usize,
     ) -> Self {
         Self {
             page,
             filtered_rows,
             check_filtered_rows_upper_bound,
-            rows_scanned: stream
-                .resolved
-                .rows_scanned_override()
-                .unwrap_or(scanned_rows_fallback),
-            optimization: stream.resolved.optimization(),
-            index_predicate_applied: stream.resolved.index_predicate_applied(),
-            index_predicate_keys_rejected: stream.resolved.index_predicate_keys_rejected(),
-            distinct_keys_deduped: stream.resolved.distinct_keys_deduped(),
         }
-    }
-
-    // Return grouped output row count for observability.
-    pub(in crate::db::executor) const fn rows_returned(&self) -> usize {
-        self.page.rows.len()
-    }
-
-    // Borrow grouped path optimization outcome metadata.
-    pub(in crate::db::executor) const fn optimization(&self) -> Option<ExecutionOptimization> {
-        self.optimization
-    }
-
-    // Borrow grouped path rows-scanned observability metric.
-    pub(in crate::db::executor) const fn rows_scanned(&self) -> usize {
-        self.rows_scanned
-    }
-
-    // Borrow grouped path index-predicate observability metadata.
-    pub(in crate::db::executor) const fn index_predicate_applied(&self) -> bool {
-        self.index_predicate_applied
-    }
-
-    // Borrow grouped path index-predicate rejection counter.
-    pub(in crate::db::executor) const fn index_predicate_keys_rejected(&self) -> u64 {
-        self.index_predicate_keys_rejected
-    }
-
-    // Borrow grouped path DISTINCT-key dedupe counter.
-    pub(in crate::db::executor) const fn distinct_keys_deduped(&self) -> u64 {
-        self.distinct_keys_deduped
     }
 
     // Return whether grouped finalization should assert filtered-row upper bound.
@@ -731,6 +684,11 @@ impl GroupedFoldStage {
     // Borrow grouped filtered-row count for pagination sanity checks.
     pub(in crate::db::executor) const fn filtered_rows(&self) -> usize {
         self.filtered_rows
+    }
+
+    // Return the grouped output row count before consuming the page.
+    pub(in crate::db::executor) const fn page_row_count(&self) -> usize {
+        self.page.rows.len()
     }
 
     // Consume folded stage and return final grouped page payload.

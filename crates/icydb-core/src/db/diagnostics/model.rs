@@ -1,6 +1,6 @@
 //! Module: diagnostics::model
 //! Responsibility: storage diagnostics DTO contracts and simple accessors.
-//! Does not own: store traversal or execution trace policy.
+//! Does not own: store traversal or query execution policy.
 //! Boundary: report assembly modules construct these DTOs; public callers read them.
 
 use crate::db::{

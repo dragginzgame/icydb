@@ -3,8 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::executor::{ExecutionOptimization, OrderedKeyStreamBox};
-use std::{cell::Cell, rc::Rc};
+use crate::db::executor::OrderedKeyStreamBox;
 
 ///
 /// ResolvedExecutionKeyStream
@@ -15,11 +14,7 @@ use std::{cell::Cell, rc::Rc};
 
 pub(in crate::db::executor) struct ResolvedExecutionKeyStream {
     key_stream: OrderedKeyStreamBox,
-    optimization: Option<ExecutionOptimization>,
     rows_scanned_override: Option<usize>,
-    index_predicate_applied: bool,
-    index_predicate_keys_rejected: u64,
-    distinct_keys_deduped_counter: Option<Rc<Cell<u64>>>,
 }
 
 impl ResolvedExecutionKeyStream {
@@ -27,48 +22,29 @@ impl ResolvedExecutionKeyStream {
     #[must_use]
     pub(in crate::db::executor) const fn new(
         key_stream: OrderedKeyStreamBox,
-        optimization: Option<ExecutionOptimization>,
         rows_scanned_override: Option<usize>,
-        index_predicate_applied: bool,
-        index_predicate_keys_rejected: u64,
-        distinct_keys_deduped_counter: Option<Rc<Cell<u64>>>,
     ) -> Self {
         Self {
             key_stream,
-            optimization,
             rows_scanned_override,
-            index_predicate_applied,
-            index_predicate_keys_rejected,
-            distinct_keys_deduped_counter,
         }
     }
 
-    /// Decorate the owned key stream while preserving all resolution metadata.
-    ///
-    /// The decorator also returns the counter owned by the resulting stream so
-    /// DISTINCT accounting cannot be separated from the decorated stream.
+    /// Decorate the owned key stream while preserving resolution metadata.
     #[must_use]
     pub(in crate::db::executor) fn decorate_key_stream(
         self,
-        decorate: impl FnOnce(OrderedKeyStreamBox) -> (OrderedKeyStreamBox, Option<Rc<Cell<u64>>>),
+        decorate: impl FnOnce(OrderedKeyStreamBox) -> OrderedKeyStreamBox,
     ) -> Self {
         let Self {
             key_stream,
-            optimization,
             rows_scanned_override,
-            index_predicate_applied,
-            index_predicate_keys_rejected,
-            distinct_keys_deduped_counter: _,
         } = self;
-        let (key_stream, distinct_keys_deduped_counter) = decorate(key_stream);
+        let key_stream = decorate(key_stream);
 
         Self {
             key_stream,
-            optimization,
             rows_scanned_override,
-            index_predicate_applied,
-            index_predicate_keys_rejected,
-            distinct_keys_deduped_counter,
         }
     }
 
@@ -81,31 +57,5 @@ impl ResolvedExecutionKeyStream {
     #[must_use]
     pub(in crate::db::executor) const fn rows_scanned_override(&self) -> Option<usize> {
         self.rows_scanned_override
-    }
-
-    /// Return resolved optimization label.
-    #[must_use]
-    pub(in crate::db::executor) const fn optimization(&self) -> Option<ExecutionOptimization> {
-        self.optimization
-    }
-
-    /// Return whether index predicate was applied during access stream resolution.
-    #[must_use]
-    pub(in crate::db::executor) const fn index_predicate_applied(&self) -> bool {
-        self.index_predicate_applied
-    }
-
-    /// Return count of index predicate key rejections during stream resolution.
-    #[must_use]
-    pub(in crate::db::executor) const fn index_predicate_keys_rejected(&self) -> u64 {
-        self.index_predicate_keys_rejected
-    }
-
-    /// Return distinct deduplicated key count for this resolved stream.
-    #[must_use]
-    pub(in crate::db::executor) fn distinct_keys_deduped(&self) -> u64 {
-        self.distinct_keys_deduped_counter
-            .as_ref()
-            .map_or(0, |counter| counter.get())
     }
 }

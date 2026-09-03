@@ -8,8 +8,7 @@ use crate::{
     db::{
         direction::Direction,
         executor::{
-            ExecutionTrace, GroupedPaginationWindow,
-            pipeline::contracts::grouped::GroupedRouteStage,
+            GroupedPaginationWindow, pipeline::contracts::grouped::GroupedRouteStage,
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
@@ -165,18 +164,6 @@ impl GroupedRouteStage {
         self.continuation.grouped_next_cursor(last_group_key)
     }
 
-    /// Borrow optional grouped execution trace for observability mutation.
-    pub(in crate::db::executor) const fn execution_trace_mut(
-        &mut self,
-    ) -> &mut Option<ExecutionTrace> {
-        &mut self.execution_trace
-    }
-
-    /// Consume stage and return final grouped execution trace payload.
-    pub(in crate::db::executor) fn into_execution_trace(self) -> Option<ExecutionTrace> {
-        self.execution_trace
-    }
-
     /// Build one minimal grouped route stage for grouped runtime tests that
     /// only need window-selection semantics.
     #[cfg(test)]
@@ -235,7 +222,6 @@ impl GroupedRouteStage {
                 >::new()),
             },
             continuation,
-            execution_trace: None,
         }
     }
 }

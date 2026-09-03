@@ -18,32 +18,18 @@ use crate::db::{
     },
     query::plan::{AccessPlannedQuery, DistinctExecutionStrategy},
 };
-use std::{cell::Cell, rc::Rc};
 
 fn wrap_distinct_ordered_key_stream(
     ordered_key_stream: OrderedKeyStreamBox,
     strategy: DistinctExecutionStrategy,
     key_comparator: KeyOrderComparator,
-    dedup_counter: Option<Rc<Cell<u64>>>,
-) -> (OrderedKeyStreamBox, Option<Rc<Cell<u64>>>) {
+) -> OrderedKeyStreamBox {
     match strategy {
-        DistinctExecutionStrategy::None => return (ordered_key_stream, None),
+        DistinctExecutionStrategy::None => return ordered_key_stream,
         DistinctExecutionStrategy::PreOrdered | DistinctExecutionStrategy::HashMaterialize => {}
     }
 
-    if let Some(counter) = dedup_counter {
-        let wrapped = OrderedKeyStreamBox::distinct_with_dedup_counter(
-            ordered_key_stream,
-            key_comparator,
-            counter.clone(),
-        );
-        return (wrapped, Some(counter));
-    }
-
-    (
-        OrderedKeyStreamBox::distinct(ordered_key_stream, key_comparator),
-        None,
-    )
+    OrderedKeyStreamBox::distinct(ordered_key_stream, key_comparator)
 }
 
 /// Decorate one resolved execution key stream with DISTINCT behavior when requested.
@@ -54,9 +40,8 @@ pub(in crate::db::executor) fn decorate_resolved_execution_key_stream(
 ) -> ResolvedExecutionKeyStream {
     let key_comparator = key_stream_comparator_from_direction(direction);
     let strategy = plan.distinct_execution_strategy();
-    let dedup_counter = strategy.is_enabled().then(|| Rc::new(Cell::new(0u64)));
 
     resolved.decorate_key_stream(|key_stream| {
-        wrap_distinct_ordered_key_stream(key_stream, strategy, key_comparator, dedup_counter)
+        wrap_distinct_ordered_key_stream(key_stream, strategy, key_comparator)
     })
 }

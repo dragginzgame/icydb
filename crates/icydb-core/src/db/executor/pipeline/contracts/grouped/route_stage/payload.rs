@@ -5,7 +5,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::{
-    executor::{ExecutionRoutePlan, ExecutionTrace, GroupedContinuationContext},
+    executor::{ExecutionRoutePlan, GroupedContinuationContext},
     query::plan::{
         AccessPlannedQuery, GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
         GroupedExecutionConfig, GroupedExecutionRoute, PlannedProjectionLayout, expr::Expr,
@@ -62,5 +62,4 @@ pub(in crate::db::executor) struct GroupedRouteStage {
     pub(in crate::db::executor) grouped_route_plan: ExecutionRoutePlan,
     pub(in crate::db::executor) index_specs: IndexSpecBundle,
     pub(in crate::db::executor) continuation: GroupedContinuationContext,
-    pub(in crate::db::executor) execution_trace: Option<ExecutionTrace>,
 }

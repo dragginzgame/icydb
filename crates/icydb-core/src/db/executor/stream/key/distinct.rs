@@ -13,7 +13,6 @@ use crate::{
     },
     error::InternalError,
 };
-use std::{cell::Cell, rc::Rc};
 
 ///
 /// DistinctOrderedKeyStream
@@ -26,7 +25,6 @@ pub(in crate::db::executor) struct DistinctOrderedKeyStream<S> {
     inner: S,
     last_emitted: Option<DecodedDataStoreKey>,
     comparator: KeyOrderComparator,
-    deduped_keys_counter: Option<Rc<Cell<u64>>>,
 }
 
 impl<S> DistinctOrderedKeyStream<S> {
@@ -37,22 +35,6 @@ impl<S> DistinctOrderedKeyStream<S> {
             inner,
             last_emitted: None,
             comparator,
-            deduped_keys_counter: None,
-        }
-    }
-
-    /// Construct one distinct stream adapter with external dedup observability counter.
-    #[must_use]
-    pub(in crate::db::executor) const fn new_with_dedup_counter(
-        inner: S,
-        comparator: KeyOrderComparator,
-        deduped_keys_counter: Rc<Cell<u64>>,
-    ) -> Self {
-        Self {
-            inner,
-            last_emitted: None,
-            comparator,
-            deduped_keys_counter: Some(deduped_keys_counter),
         }
     }
 }
@@ -95,9 +77,6 @@ where
                     return Err(InternalError::query_executor_invariant());
                 }
                 if last == &next {
-                    if let Some(counter) = self.deduped_keys_counter.as_ref() {
-                        counter.set(counter.get().saturating_add(1));
-                    }
                     continue;
                 }
             }

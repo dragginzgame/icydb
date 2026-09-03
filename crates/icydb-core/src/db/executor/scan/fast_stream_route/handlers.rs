@@ -15,7 +15,7 @@ use crate::{
         access::ExecutableAccessPlan,
         direction::Direction,
         executor::{
-            AccessStreamBindings, AccessStreamExecutionPolicy, ExecutionOptimization,
+            AccessStreamBindings, AccessStreamExecutionPolicy,
             pipeline::contracts::FastPathKeyResult, route::verify_pk_stream_fast_path_access,
             scan::fast_stream::execute_structural_fast_stream_request,
             stream::access::TraversalRuntime,
@@ -43,6 +43,5 @@ pub(super) fn execute_primary_key_fast_stream_route(
         AccessStreamBindings::no_index(stream_direction),
         AccessStreamExecutionPolicy::canonical_key_order(probe_fetch_hint),
         None,
-        ExecutionOptimization::PrimaryKey,
     )?))
 }

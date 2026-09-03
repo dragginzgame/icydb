@@ -5,8 +5,7 @@ use crate::{
         executor::{
             ExecutionKernel, PendingOrderRows, budget::charge_current_execution_budget,
             compare_orderable_row_with_boundary, pipeline::contracts::CursorEmissionMode,
-            record_rows_after_predicate, route::access_order_satisfied_by_route_mode,
-            terminal::page::KernelRow,
+            route::access_order_satisfied_by_route_mode, terminal::page::KernelRow,
         },
         query::plan::{AccessPlannedQuery, ResolvedOrder},
     },
@@ -25,12 +24,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
     let logical = plan.scalar_plan();
     let retained_count = scan_rows.retained_count();
 
-    // Phase 1: residual predicates are always applied while the raw row is
-    // open. Post-access records the resulting cardinality but never re-runs
-    // semantic filtering against a second row representation.
-    record_rows_after_predicate(retained_count);
-
-    // Phase 2: ordering.
+    // Phase 1: ordering.
     let ordered = logical
         .order
         .as_ref()

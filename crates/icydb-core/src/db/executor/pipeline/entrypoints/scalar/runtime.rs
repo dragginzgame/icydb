@@ -51,7 +51,6 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
     pub(super) projection_runtime_mode: ProjectionMaterializationMode,
     pub(super) suppress_route_scan_hints: bool,
     pub(super) enforced_scan_probe_limit: Option<usize>,
-    pub(super) debug: bool,
 }
 
 impl PreparedScalarRouteRuntime {
@@ -59,11 +58,6 @@ impl PreparedScalarRouteRuntime {
     #[must_use]
     pub(in crate::db::executor) const fn execution_mode(&self) -> crate::db::RouteExecutionMode {
         self.route_plan.execution_mode()
-    }
-
-    // Clone the entity path needed after the runtime bundle is consumed.
-    pub(super) fn entity_path_handle(&self) -> std::rc::Rc<str> {
-        self.authority.entity_path_handle()
     }
 
     /// Attach one execution-only cap-plus-one scan probe.
@@ -136,7 +130,6 @@ impl InitialScalarPlanRuntimeOptions {
 // replacing the retained-slot layout for this execution only.
 pub(super) fn prepare_initial_scalar_route_runtime_from_plan_with_retained_slot_layout<C>(
     db: &Db<C>,
-    debug: bool,
     plan: PreparedLoadPlan,
     retained_slot_layout: RetainedSlotLayout,
     options: InitialScalarPlanRuntimeOptions,
@@ -152,7 +145,6 @@ where
 
     prepare_initial_scalar_route_runtime_from_handoff(
         db,
-        debug,
         prepared,
         ScalarContinuationContext::initial(),
         options,
@@ -165,7 +157,6 @@ where
 
 pub(super) fn prepare_resumed_scalar_retained_slot_page_runtime_from_handoff<C>(
     db: &Db<C>,
-    debug: bool,
     mut prepared: PreparedScalarRuntimeHandoff,
     continuation: ScalarContinuationContext,
     cursor_emission: CursorEmissionMode,
@@ -179,7 +170,6 @@ where
 
     prepare_scalar_route_runtime_from_inputs(
         db,
-        debug,
         prepared.authority,
         prepared.execution_preparation,
         prepared.prepared_projection_contract,
@@ -198,7 +188,6 @@ where
 // entrypoint does not repeat runtime layout policy beside runtime setup.
 pub(super) fn prepare_initial_scalar_retained_slot_page_runtime_from_handoff<C>(
     db: &Db<C>,
-    debug: bool,
     mut prepared: PreparedScalarRuntimeHandoff,
     cursor_emission: CursorEmissionMode,
     suppress_route_scan_hints: bool,
@@ -218,7 +207,6 @@ where
 
     prepare_initial_scalar_route_runtime_from_handoff(
         db,
-        debug,
         prepared,
         continuation,
         InitialScalarPlanRuntimeOptions::unpaged_rows_with_route_scan_hints(
@@ -284,7 +272,6 @@ fn projection_contract_requires_data_rows(shape: &PreparedProjectionContract) ->
 // the materialized, retained-slot, and aggregate row-sink entrypoints.
 pub(super) fn prepare_initial_scalar_route_runtime_from_handoff<C>(
     db: &Db<C>,
-    debug: bool,
     prepared: PreparedScalarRuntimeHandoff,
     continuation: ScalarContinuationContext,
     options: InitialScalarPlanRuntimeOptions,
@@ -304,7 +291,6 @@ where
 
     prepare_scalar_route_runtime_from_inputs(
         db,
-        debug,
         prepared.authority,
         prepared.execution_preparation,
         prepared.prepared_projection_contract,
@@ -430,7 +416,6 @@ fn build_prepared_scalar_route_runtime(
     cursor_emission: CursorEmissionMode,
     projection_runtime_mode: ProjectionMaterializationMode,
     suppress_route_scan_hints: bool,
-    debug: bool,
 ) -> Result<PreparedScalarRouteRuntime, InternalError> {
     let projection = PreparedExecutionProjection::compile(
         authority.clone(),
@@ -454,17 +439,14 @@ fn build_prepared_scalar_route_runtime(
         projection_runtime_mode,
         suppress_route_scan_hints,
         enforced_scan_probe_limit: None,
-        debug,
     })
 }
 
 // Prepare one scalar runtime bundle after the caller has already resolved the
 // structural inputs that stay constant across initial, resumed, retained-slot,
 // and materialized scalar entrypoint families.
-#[expect(clippy::too_many_arguments)]
 fn prepare_scalar_route_runtime_from_inputs<C>(
     db: &Db<C>,
-    debug: bool,
     authority: EntityAuthority,
     prep: ExecutionPreparation,
     prepared_projection_validation: Option<Rc<PreparedProjectionContract>>,
@@ -522,6 +504,5 @@ where
         cursor_emission,
         projection_runtime_mode,
         suppress_route_scan_hints,
-        debug,
     )
 }

@@ -127,7 +127,7 @@ The former physical/planner version split was not adopted. Current authority is:
 | Maintained physical/execution evidence | Narrow 0.236 planner extension |
 | --- | --- |
 | existing index-entry contracts and artifact measurements | exact counts for tied Prefix/MultiLookup/BranchSet candidates |
-| existing execution trace actuals | one `exact_cardinality_tiebreak` reason |
+| entity-cost metrics and focused instruction receipts | one `exact_cardinality_tiebreak` reason |
 | existing chosen/alternative/rejected explain projection | bounded evidence availability/fallback state |
 
 The remaining broad physical costing, covering-payload, histogram, warning,

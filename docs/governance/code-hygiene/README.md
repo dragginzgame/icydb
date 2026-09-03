@@ -67,7 +67,7 @@ Example:
 use crate::{
     db::{
         access::{AccessPlan, AccessPath},
-        executor::ExecutionTrace,
+        executor::ExecutionKernel,
     },
     value::Value,
 };

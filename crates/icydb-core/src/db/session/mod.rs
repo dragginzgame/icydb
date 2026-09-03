@@ -53,12 +53,11 @@ pub(in crate::db::session) use write::{
 ///
 /// DbSession
 ///
-/// Session-scoped database handle with debug policy and execution routing.
+/// Session-scoped database handle with execution routing.
 ///
 
 pub struct DbSession<C: CanisterKind> {
     db: Db<C>,
-    debug: bool,
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -70,7 +69,6 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Self {
         Self {
             db: Db::new(store, request_root.scope()),
-            debug: false,
         }
     }
 
@@ -90,14 +88,6 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn __new_from_current_request(store: &'static LocalKey<StoreRegistry>) -> Option<Self> {
         request::current_request_scope().map(|scope| Self {
             db: Db::new(store, scope),
-            debug: false,
         })
-    }
-
-    /// Enable debug execution behavior where supported by executors.
-    #[must_use]
-    pub const fn debug(mut self) -> Self {
-        self.debug = true;
-        self
     }
 }

@@ -8,7 +8,6 @@ use crate::{
         cursor::ValidatedGroupedCursor,
         executor::{
             GroupedContinuationContext, PreparedLoadPlan,
-            diagnostics::execution_trace_for_access,
             pipeline::contracts::{GroupedPlannerPayload, GroupedRouteStage, IndexSpecBundle},
             route::{RouteExecutionMode, RoutePlanRequest, build_execution_route_plan},
             validate_executor_plan_for_authority,
@@ -22,7 +21,6 @@ use crate::{
 pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     plan: PreparedLoadPlan,
     cursor: ValidatedGroupedCursor,
-    debug: bool,
 ) -> Result<GroupedRouteStage, InternalError> {
     let authority = plan.authority();
 
@@ -65,10 +63,6 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
 
     let direction = grouped_route_plan.direction();
     let grouped_pagination_window = plan.grouped_pagination_window(&cursor)?;
-    let continuation_applied = !cursor.is_empty();
-    let execution_trace = debug.then(|| {
-        execution_trace_for_access(&plan.logical_plan().access, direction, continuation_applied)
-    });
     let continuation_signature = plan.continuation_signature_for_runtime()?;
     let continuation_boundary_arity = plan.grouped_cursor_boundary_arity()?;
     let continuation = GroupedContinuationContext::new(
@@ -99,6 +93,5 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
             index_range_specs: prepared.index_range_specs,
         },
         continuation,
-        execution_trace,
     })
 }

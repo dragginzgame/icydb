@@ -499,21 +499,6 @@ pub(crate) enum AccessPath<K> {
 }
 
 impl<K> AccessPath<K> {
-    /// Return the coarse semantic discriminator for this path.
-    #[must_use]
-    pub(in crate::db) const fn kind(&self) -> AccessPathKind {
-        match self {
-            Self::ByKey(_) => AccessPathKind::ByKey,
-            Self::ByKeys(_) => AccessPathKind::ByKeys,
-            Self::KeyRange { .. } => AccessPathKind::KeyRange,
-            Self::IndexPrefix { .. } => AccessPathKind::IndexPrefix,
-            Self::IndexMultiLookup { .. } => AccessPathKind::IndexMultiLookup,
-            Self::IndexBranchSet { .. } => AccessPathKind::IndexBranchSet,
-            Self::IndexRange { .. } => AccessPathKind::IndexRange,
-            Self::FullScan => AccessPathKind::FullScan,
-        }
-    }
-
     /// Return true when this path is a full scan.
     #[must_use]
     pub(crate) const fn is_full_scan(&self) -> bool {

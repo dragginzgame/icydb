@@ -141,10 +141,6 @@ impl<'a> ExecutionAttemptKernel<'a> {
             metrics: ExecutionOutcomeMetrics {
                 rows_scanned,
                 post_access_rows,
-                optimization: resolved.optimization(),
-                index_predicate_applied: resolved.index_predicate_applied(),
-                index_predicate_keys_rejected: resolved.index_predicate_keys_rejected(),
-                distinct_keys_deduped: resolved.distinct_keys_deduped(),
             },
         })
     }
@@ -169,11 +165,6 @@ impl<'a> ExecutionAttemptKernel<'a> {
         attempt.metrics.rows_scanned = resolved
             .rows_scanned_override()
             .unwrap_or(attempt.metrics.rows_scanned);
-        attempt.metrics.optimization = resolved.optimization();
-        attempt.metrics.index_predicate_applied = resolved.index_predicate_applied();
-        attempt.metrics.index_predicate_keys_rejected = resolved.index_predicate_keys_rejected();
-        attempt.metrics.distinct_keys_deduped = resolved.distinct_keys_deduped();
-
         Ok(attempt)
     }
 

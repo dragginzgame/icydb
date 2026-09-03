@@ -187,14 +187,13 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
     effective_runtime_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     grouped_execution_context: &mut ExecutionContext,
     execution_strategy: &GroupedDistinctExecutionStrategy,
-    row_counters: (&mut usize, &mut usize),
+    filtered_rows: &mut usize,
 ) -> Result<RuntimeGroupedRow, InternalError> {
     // Phase 1: resolve structural field access and initialize distinct reducer state.
     let reducer_spec = DistinctReducerSpec::from_strategy(execution_strategy)?;
     let dispatcher = GlobalDistinctFieldAggregateDispatcher::resolve(execution_strategy)?;
     let mut distinct_values = GroupKeySet::new();
     let mut accumulator = GlobalDistinctFieldAccumulator::new(reducer_spec);
-    let (scanned_rows, filtered_rows) = row_counters;
 
     // Phase 2: walk the resolved key stream, admit distinct values, and update
     // reducer state in one straight-line loop.
@@ -202,7 +201,6 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
         let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
             continue;
         };
-        *scanned_rows = (*scanned_rows).saturating_add(1);
         if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
             && !row_view.eval_filter_program(effective_runtime_filter_program)?
         {

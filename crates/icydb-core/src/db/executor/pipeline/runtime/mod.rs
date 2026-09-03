@@ -11,11 +11,6 @@ mod retained_slots;
 #[cfg(test)]
 mod tests;
 
-use crate::db::executor::{
-    ExecutionTrace, aggregate::runtime::finalize_path_outcome_for_path,
-    pipeline::contracts::ExecutionOutcomeMetrics, pipeline::contracts::StructuralCursorPage,
-};
-
 pub(in crate::db::executor) use adapter::{
     ExecutionMaterializationContract, ExecutionRuntimeAdapter,
 };
@@ -27,24 +22,3 @@ pub(in crate::db::executor) use grouped::{
 pub(in crate::db::executor) use retained_slots::compile_retained_slot_layout_for_mode;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use retained_slots::compile_retained_slot_layout_for_mode_with_extra_slots;
-
-/// Finalize one structural scalar page before typed or structural surface projection.
-pub(in crate::db::executor) fn finalize_structural_page_for_path(
-    entity_path: &str,
-    page: StructuralCursorPage,
-    metrics: ExecutionOutcomeMetrics,
-    execution_trace: &mut Option<ExecutionTrace>,
-    execution_time_micros: u64,
-) -> StructuralCursorPage {
-    let rows_emitted = page.row_count();
-
-    finalize_path_outcome_for_path(
-        entity_path,
-        execution_trace,
-        metrics,
-        rows_emitted,
-        false,
-        execution_time_micros,
-    );
-    page
-}

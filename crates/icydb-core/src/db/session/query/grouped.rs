@@ -7,7 +7,6 @@ use crate::{
     db::{
         DbSession, GroupedQueryOutput, QueryError,
         cursor::{ValidatedGroupedCursor, decode_optional_grouped_cursor_token},
-        diagnostics::ExecutionTrace,
         executor::{
             ExecutionFamily, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
             execute_shared_grouped_plan_for_canister,
@@ -64,11 +63,8 @@ impl<C: CanisterKind> DbSession<C> {
             }
         }
 
-        let (result, _trace) = self.execute_structural_grouped_with_trace(
-            prepared_plan,
-            cursor_token,
-            execution_lane,
-        )?;
+        let result =
+            self.execute_structural_grouped(prepared_plan, cursor_token, execution_lane)?;
         let row_count = result.row_count();
         let (rows, next_cursor) = finalize_structural_grouped_projection_result(result)?;
 
@@ -103,15 +99,15 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one accepted-schema-owned grouped plan without a generated type.
-    pub(in crate::db::session) fn execute_structural_grouped_with_trace(
+    pub(in crate::db::session) fn execute_structural_grouped(
         &self,
         plan: SharedPreparedExecutionPlan,
         cursor_token: Option<&str>,
         execution_lane: DiagnosticExecutionLane,
-    ) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), QueryError> {
+    ) -> Result<StructuralGroupedProjectionResult, QueryError> {
         let (plan, cursor) = self.prepare_structural_grouped_execution(plan, cursor_token)?;
 
-        execute_shared_grouped_plan_for_canister(&self.db, self.debug, plan, cursor, execution_lane)
+        execute_shared_grouped_plan_for_canister(&self.db, plan, cursor, execution_lane)
             .map_err(QueryError::execute)
     }
 }

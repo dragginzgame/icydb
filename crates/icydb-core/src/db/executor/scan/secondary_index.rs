@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::ExecutableAccessPlan,
         executor::{
-            AccessStreamBindings, AccessStreamExecutionPolicy, ExecutionOptimization,
+            AccessStreamBindings, AccessStreamExecutionPolicy,
             pipeline::contracts::FastPathKeyResult,
             scan::fast_stream::execute_structural_fast_stream_request,
             stream::access::TraversalRuntime,
@@ -60,7 +60,6 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
             crate::db::executor::IndexLeafOrderPolicy::PreservePrefixBranch,
         ),
         index_predicate_execution,
-        ExecutionOptimization::SecondaryOrderPushdown,
     )?;
     if let Some(fetch) = probe_fetch_hint {
         debug_assert!(

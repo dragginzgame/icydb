@@ -43,7 +43,6 @@ static READ_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
         128 * 1_024 * 1_024, // group/distinct state bytes
         1_000_000,           // cursor steps
         128 * 1_024 * 1_024, // temporary bytes
-        1_000_000,           // diagnostic steps
         100_000,             // result rows
         64 * 1_024 * 1_024,  // result bytes
         4_500_000_000,       // instruction units
@@ -69,7 +68,6 @@ static MUTATION_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
         128 * 1_024 * 1_024,                  // group/distinct state bytes
         1_000_000,                            // cursor steps
         128 * 1_024 * 1_024,                  // temporary bytes
-        1_000_000,                            // diagnostic steps
         100_000,                              // result rows
         64 * 1_024 * 1_024,                   // result bytes
         MUTATION_EXECUTION_INSTRUCTION_LIMIT, // instruction units
@@ -856,23 +854,6 @@ pub(in crate::db) fn finish_current_execution_instruction_watermark() -> Result<
     })
 }
 
-/// Admit one optional diagnostics update, suppressing detail after its finite allowance.
-#[must_use]
-pub(in crate::db::executor) fn admit_current_execution_diagnostic_step() -> bool {
-    ACTIVE_EXECUTION_BUDGET.with(|budget| {
-        let Ok(mut budget) = budget.try_borrow_mut() else {
-            return false;
-        };
-        let Some(budget) = budget.as_mut() else {
-            return true;
-        };
-
-        budget
-            .charge_periodic(DiagnosticExecutionBudgetResource::DiagnosticSteps, 1)
-            .is_ok()
-    })
-}
-
 /// Charge one fully materialized runtime-value result before response shaping.
 pub(in crate::db::executor) fn charge_runtime_value_rows(
     rows: &[Vec<Value>],
@@ -1097,10 +1078,9 @@ pub(in crate::db) const fn resource_index(resource: DiagnosticExecutionBudgetRes
         DiagnosticExecutionBudgetResource::GroupDistinctStateBytes => 14,
         DiagnosticExecutionBudgetResource::CursorSteps => 15,
         DiagnosticExecutionBudgetResource::TemporaryBytes => 16,
-        DiagnosticExecutionBudgetResource::DiagnosticSteps => 17,
-        DiagnosticExecutionBudgetResource::ResultRows => 18,
-        DiagnosticExecutionBudgetResource::ResultBytes => 19,
-        DiagnosticExecutionBudgetResource::InstructionUnits => 20,
+        DiagnosticExecutionBudgetResource::ResultRows => 17,
+        DiagnosticExecutionBudgetResource::ResultBytes => 18,
+        DiagnosticExecutionBudgetResource::InstructionUnits => 19,
     }
 }
 
@@ -1236,24 +1216,6 @@ mod tests {
         assert_eq!(tracker.failure_headroom(), TEST_HEADROOM);
         assert_eq!(TEST_HEADROOM.instruction_units(), 500);
         assert_eq!(TEST_HEADROOM.response_bytes(), 256);
-    }
-
-    #[test]
-    fn diagnostic_exhaustion_suppresses_optional_detail_without_failing_execution() {
-        let budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
-            .with_limit_for_tests(DiagnosticExecutionBudgetResource::DiagnosticSteps, 0);
-        let result = with_execution_budget(
-            HardExecutionBudgetTracker::new_for_tests(budget, TEST_CONTEXT),
-            || {
-                assert!(!admit_current_execution_diagnostic_step());
-                charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultRows, 1)?;
-                Ok::<_, InternalError>(())
-            },
-            std::convert::identity,
-            ExecutionBudgetFinish::Automatic,
-        );
-
-        assert!(result.is_ok());
     }
 
     #[test]

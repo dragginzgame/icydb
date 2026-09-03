@@ -68,11 +68,10 @@ impl<C: CanisterKind> DbSession<C> {
         let (rows, row_count) = match scan_budget {
             Some(scan_budget) => execute_sql_projection_rows_for_canister_with_scan_budget(
                 &self.db,
-                self.debug,
                 prepared_plan,
                 scan_budget,
             ),
-            None => execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan),
+            None => execute_sql_projection_rows_for_canister(&self.db, prepared_plan),
         }
         .map_err(QueryError::execute)?;
 
@@ -182,13 +181,11 @@ impl<C: CanisterKind> DbSession<C> {
                 prepared_plan,
                 projection,
                 |session, prepared_plan| {
-                    session
-                        .execute_structural_grouped_with_trace(
-                            prepared_plan,
-                            None,
-                            DiagnosticExecutionLane::TrustedRead,
-                        )
-                        .map(|(result, _trace)| result)
+                    session.execute_structural_grouped(
+                        prepared_plan,
+                        None,
+                        DiagnosticExecutionLane::TrustedRead,
+                    )
                 },
             );
         }

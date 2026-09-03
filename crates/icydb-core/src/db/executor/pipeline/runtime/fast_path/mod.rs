@@ -1,6 +1,6 @@
 //! Module: executor::pipeline::runtime::fast_path
 //! Responsibility: fast-path decision and fallback key-stream resolution policy.
-//! Does not own: page materialization or execution-trace finalization.
+//! Does not own: page materialization.
 //! Boundary: internal helper boundary for `executor::pipeline::runtime`.
 
 mod strategy;
@@ -8,7 +8,7 @@ mod strategy;
 use crate::{
     db::{
         executor::{
-            AccessStreamExecutionPolicy, ExecutionOptimization, ExecutionRoutePlan,
+            AccessStreamExecutionPolicy, ExecutionRoutePlan,
             pipeline::{contracts::ResolvedExecutionKeyStream, runtime::ExecutionAttemptKernel},
         },
         index::{
@@ -18,7 +18,6 @@ use crate::{
     },
     error::InternalError,
 };
-use std::cell::Cell;
 
 use crate::db::executor::pipeline::runtime::fast_path::strategy::FastPathResolutionStrategy;
 
@@ -39,27 +38,13 @@ enum ResolvedIndexPredicateProgram<'a> {
 }
 
 impl<'a> ResolvedIndexPredicateProgram<'a> {
-    // Return true when this execution attempt will apply an index predicate
-    // during fast-path or fallback key-stream resolution.
-    const fn applied(&self) -> bool {
-        !matches!(self, Self::None)
-    }
-
-    // Build the execution-time wrapper around the resolved predicate program
-    // without exposing whether the program was borrowed or compiled on demand.
-    const fn execution(
-        &'a self,
-        rejected_keys_counter: &'a Cell<u64>,
-    ) -> Option<IndexPredicateExecution<'a>> {
-        let program = match self {
+    // Borrow the resolved program without exposing whether it was borrowed or
+    // compiled on demand.
+    const fn execution(&'a self) -> Option<IndexPredicateExecution<'a>> {
+        Some(match self {
             Self::None => return None,
-            Self::Borrowed(program) => *program,
+            Self::Borrowed(program) => program,
             Self::Owned(program) => program,
-        };
-
-        Some(IndexPredicateExecution {
-            program,
-            rejected_keys_counter: Some(rejected_keys_counter),
         })
     }
 }
@@ -70,17 +55,14 @@ impl<'a> ResolvedIndexPredicateProgram<'a> {
 ///
 /// FastPathResolutionContext freezes the execution state shared by fast-path
 /// hit handling and canonical fallback stream resolution.
-/// It keeps route-owned fallback hints and index-predicate observability in
-/// one place so stream resolution no longer rethreads the same fields through
-/// sibling helpers.
+/// It keeps route-owned fallback hints and index-predicate execution in one
+/// place so stream resolution no longer rethreads them through sibling helpers.
 ///
 
 struct FastPathResolutionContext<'a, 'b> {
     kernel: &'a ExecutionAttemptKernel<'a>,
     route_plan: &'b ExecutionRoutePlan,
     index_predicate_execution: Option<IndexPredicateExecution<'a>>,
-    index_predicate_applied: bool,
-    index_predicate_rejected_counter: &'a Cell<u64>,
 }
 
 impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
@@ -90,15 +72,11 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
         kernel: &'a ExecutionAttemptKernel<'a>,
         route_plan: &'b ExecutionRoutePlan,
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
-        index_predicate_applied: bool,
-        index_predicate_rejected_counter: &'a Cell<u64>,
     ) -> Self {
         Self {
             kernel,
             route_plan,
             index_predicate_execution,
-            index_predicate_applied,
-            index_predicate_rejected_counter,
         }
     }
 
@@ -111,16 +89,7 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
         match fast_path_decision {
             Some(fast) => Ok(ResolvedExecutionKeyStream::new(
                 fast.ordered_key_stream,
-                Some(
-                    ExecutionAttemptKernel::decorate_fast_path_optimization_for_route(
-                        fast.optimization,
-                        self.route_plan,
-                    ),
-                ),
                 fast.rows_scanned,
-                self.index_predicate_applied,
-                self.index_predicate_rejected_counter.get(),
-                None,
             )),
             None => self.resolve_fallback_execution_key_stream(),
         }
@@ -148,14 +117,7 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
                 self.index_predicate_execution,
             )?;
 
-        Ok(ResolvedExecutionKeyStream::new(
-            key_stream,
-            None,
-            None,
-            self.index_predicate_applied,
-            self.index_predicate_rejected_counter.get(),
-            None,
-        ))
+        Ok(ResolvedExecutionKeyStream::new(key_stream, None))
     }
 }
 
@@ -234,10 +196,7 @@ impl ExecutionAttemptKernel<'_> {
         // execution-preparation boundary already owns the requested mode, and
         // only fall back to one on-demand compile when it does not.
         let index_predicate_program = self.resolve_index_predicate_program(predicate_compile_mode);
-        let index_predicate_applied = index_predicate_program.applied();
-        let index_predicate_rejected_counter = Cell::new(0u64);
-        let index_predicate_execution =
-            index_predicate_program.execution(&index_predicate_rejected_counter);
+        let index_predicate_execution = index_predicate_program.execution();
 
         // Phase 1: select fast-path resolution strategy once from route shape.
         let fast_path_strategy = FastPathResolutionStrategy::for_route(route_plan);
@@ -248,35 +207,9 @@ impl ExecutionAttemptKernel<'_> {
         )?;
 
         // Phase 2: materialize from fast-path hit or canonical fallback stream.
-        let resolution = FastPathResolutionContext::new(
-            self,
-            route_plan,
-            index_predicate_execution,
-            index_predicate_applied,
-            &index_predicate_rejected_counter,
-        );
+        let resolution =
+            FastPathResolutionContext::new(self, route_plan, index_predicate_execution);
 
         resolution.resolve_from_decision(fast_path_decision)
-    }
-
-    // Project one fast-path optimization label through route-level top-N seek
-    // metadata so trace taxonomy keeps top-N assisted fast paths explicit.
-    const fn decorate_fast_path_optimization_for_route(
-        optimization: ExecutionOptimization,
-        route_plan: &ExecutionRoutePlan,
-    ) -> ExecutionOptimization {
-        if route_plan.top_n_seek_spec().is_none() {
-            return optimization;
-        }
-
-        match optimization {
-            ExecutionOptimization::PrimaryKey => ExecutionOptimization::PrimaryKeyTopNSeek,
-            ExecutionOptimization::SecondaryOrderPushdown => {
-                ExecutionOptimization::SecondaryOrderTopNSeek
-            }
-            ExecutionOptimization::PrimaryKeyTopNSeek
-            | ExecutionOptimization::SecondaryOrderTopNSeek
-            | ExecutionOptimization::IndexRangeLimitPushdown => optimization,
-        }
     }
 }

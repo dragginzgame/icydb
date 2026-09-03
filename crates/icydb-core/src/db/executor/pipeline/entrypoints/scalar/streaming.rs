@@ -6,14 +6,11 @@
 use crate::{
     db::{
         executor::{
-            ExecutionKernel, ExecutionTrace,
+            ExecutionKernel,
             pipeline::{
-                contracts::{ExecutionOutcomeMetrics, KernelRowsExecutionAttempt},
+                contracts::KernelRowsExecutionAttempt,
                 entrypoints::scalar::{
-                    execution::{
-                        execute_prepared_scalar_kernel, finish_scalar_kernel_observability,
-                    },
-                    hints::ScalarRouteTerminal,
+                    execution::execute_prepared_scalar_kernel, hints::ScalarRouteTerminal,
                     runtime::PreparedScalarRouteRuntime,
                 },
             },
@@ -26,17 +23,12 @@ use crate::{
 
 // Shared scalar aggregate row-sink output tuple:
 // 1) post-access/windowed rows fed into the sink
-// 2) path-outcome observability metrics
-// 3) optional execution trace
-// 4) elapsed execution time for finalization-compatible attribution
-type ScalarKernelRowSinkExecution = (usize, ExecutionOutcomeMetrics, Option<ExecutionTrace>, u64);
-
 // Execute one prepared scalar runtime bundle through the canonical scalar spine,
 // stopping after post-access/windowed kernel rows for aggregate reducers.
 pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
     prepared: PreparedScalarRouteRuntime,
     mut row_sink: impl FnMut(&KernelRow) -> Result<(), InternalError>,
-) -> Result<ScalarKernelRowSinkExecution, InternalError> {
+) -> Result<(), InternalError> {
     let execution = execute_prepared_scalar_kernel(
         prepared,
         ScalarRouteTerminal::KernelRows,
@@ -49,25 +41,10 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
             )
         },
     )?;
-    let execution_stats = execution.execution_stats;
-    let mut execution_trace = execution.execution_trace;
-    let execution_time_micros = execution.execution_time_micros;
-    let KernelRowsExecutionAttempt { rows, metrics } = execution.attempt;
-    let projected_rows = rows.len();
+    let KernelRowsExecutionAttempt { rows, .. } = execution.attempt;
     for row in &rows {
         row_sink(row)?;
     }
-    finish_scalar_kernel_observability(
-        &mut execution_trace,
-        execution_stats,
-        &metrics,
-        projected_rows,
-    );
 
-    Ok((
-        projected_rows,
-        metrics,
-        execution_trace.take(),
-        execution_time_micros,
-    ))
+    Ok(())
 }

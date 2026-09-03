@@ -61,7 +61,6 @@ pub(super) fn execute_single_grouped_count_fold_stage(
     let consistency = route.consistency();
     let key_path = GroupedCountKeyPath::for_route(route, effective_runtime_filter_program);
     let mut grouped_counts = GroupedCountState::new();
-    let mut scanned_rows = 0usize;
     let mut filtered_rows = 0usize;
 
     // Phase 1: fold grouped source rows directly into one canonical count map.
@@ -73,7 +72,6 @@ pub(super) fn execute_single_grouped_count_fold_stage(
                 let Some(group_value) = group_value? else {
                     continue;
                 };
-                scanned_rows = scanned_rows.saturating_add(1);
                 filtered_rows = filtered_rows.saturating_add(1);
                 grouped_counts
                     .increment_single_group_value(group_value, grouped_execution_context)?;
@@ -89,7 +87,7 @@ pub(super) fn execute_single_grouped_count_fold_stage(
                 effective_runtime_filter_program,
                 grouped_execution_context,
                 &mut grouped_counts,
-                (&mut scanned_rows, &mut filtered_rows),
+                &mut filtered_rows,
                 GroupedCountState::increment_row_borrowed_group_probe,
             )?;
         }
@@ -103,7 +101,7 @@ pub(super) fn execute_single_grouped_count_fold_stage(
                 effective_runtime_filter_program,
                 grouped_execution_context,
                 &mut grouped_counts,
-                (&mut scanned_rows, &mut filtered_rows),
+                &mut filtered_rows,
                 GroupedCountState::increment_row_owned_group_key,
             )?;
         }
@@ -115,15 +113,13 @@ pub(super) fn execute_single_grouped_count_fold_stage(
     let (page_rows, next_cursor) =
         finalize_grouped_count_page(route, grouped_projection_spec, grouped_counts.into_groups())?;
 
-    Ok(GroupedFoldStage::from_grouped_stream(
+    Ok(GroupedFoldStage::new(
         crate::db::executor::pipeline::contracts::GroupedCursorPage {
             rows: page_rows,
             next_cursor,
         },
         filtered_rows,
         true,
-        stream,
-        scanned_rows,
     ))
 }
 
@@ -141,7 +137,6 @@ fn execute_ordered_grouped_count_fold_stage(
     let effective_runtime_filter_program = execution_preparation.effective_runtime_filter_program();
     let consistency = route.consistency();
     let key_path = GroupedCountKeyPath::for_route(route, effective_runtime_filter_program);
-    let mut scanned_rows = 0usize;
     let mut filtered_rows = 0usize;
     let mut early_scan_stop = false;
 
@@ -153,7 +148,6 @@ fn execute_ordered_grouped_count_fold_stage(
                 let Some(group_value) = group_value? else {
                     continue;
                 };
-                scanned_rows = scanned_rows.saturating_add(1);
                 let group_key = GroupKey::from_single_canonical_group_value(group_value)
                     .map_err(KeyCanonicalError::into_internal_error)?;
                 early_scan_stop = apply_ordered_count_row(
@@ -178,7 +172,6 @@ fn execute_ordered_grouped_count_fold_stage(
                 let Some(row_view) = row_view? else {
                     continue;
                 };
-                scanned_rows = scanned_rows.saturating_add(1);
                 if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
                     && !row_view.eval_filter_program(effective_runtime_filter_program)?
                 {
@@ -209,15 +202,13 @@ fn execute_ordered_grouped_count_fold_stage(
     }
     let (page_rows, next_cursor) = selection.finish(route)?;
 
-    Ok(GroupedFoldStage::from_grouped_stream(
+    Ok(GroupedFoldStage::new(
         GroupedCursorPage {
             rows: page_rows,
             next_cursor,
         },
         filtered_rows,
         true,
-        stream,
-        scanned_rows,
     ))
 }
 

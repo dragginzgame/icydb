@@ -42,8 +42,6 @@ pub use icydb_core::db::{
     SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
 };
 #[cfg(feature = "sql")]
-pub use response::ExecutionTrace;
-#[cfg(feature = "sql")]
 pub use session::SqlIntegrityError;
 pub use session::{
     BoundWriteEncoder, DbSession, ExhaustiveReadError, IntegrityCheckError, LivePageStep,
@@ -113,7 +111,7 @@ pub use icydb_schema::{
     SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
 };
 
-// Hidden core wiring used by generated code and advanced diagnostics.
+// Hidden core wiring used by generated code and query construction.
 #[doc(hidden)]
 pub use icydb_core::db::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, CompositePrimaryKeyValue,

@@ -73,10 +73,6 @@ pub use diagnostics::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport,
     StoreSnapshotStorageMode,
 };
-pub use diagnostics::{
-    ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionStats,
-    ExecutionTrace,
-};
 #[doc(hidden)]
 pub use dynamic_write::{
     DynamicMutation, DynamicStructuralPatch, DynamicTypedMutation, DynamicTypedStructuralPatch,

@@ -71,7 +71,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         grouped_execution_context: &mut ExecutionContext,
         mut grouped_bundle: GroupedAggregateBundle,
     ) -> Result<GroupedFoldStage, InternalError> {
-        let (scanned_rows, filtered_rows) =
+        let filtered_rows =
             self.fold_rows_into_bundle(stream, grouped_execution_context, &mut grouped_bundle)?;
         let (page_rows, next_cursor) = finalize_grouped_page(
             self.route,
@@ -80,15 +80,13 @@ impl<'a> GenericGroupedFoldRunner<'a> {
             self.route.grouped_pagination_window(),
         )?;
 
-        Ok(GroupedFoldStage::from_grouped_stream(
+        Ok(GroupedFoldStage::new(
             GroupedCursorPage {
                 rows: page_rows,
                 next_cursor,
             },
             filtered_rows,
             true,
-            stream,
-            scanned_rows,
         ))
     }
 
@@ -108,7 +106,6 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
         let effective_runtime_filter_program =
             execution_preparation.effective_runtime_filter_program();
-        let mut scanned_rows = 0usize;
         let mut filtered_rows = 0usize;
         let consistency = self.route.consistency();
         let mut early_scan_stop = false;
@@ -117,7 +114,6 @@ impl<'a> GenericGroupedFoldRunner<'a> {
             let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
                 continue;
             };
-            scanned_rows = scanned_rows.saturating_add(1);
             if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
                 && !row_view.eval_filter_program(effective_runtime_filter_program)?
             {
@@ -161,15 +157,13 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         }
         let (page_rows, next_cursor) = selection.finish(self.route)?;
 
-        Ok(GroupedFoldStage::from_grouped_stream(
+        Ok(GroupedFoldStage::new(
             GroupedCursorPage {
                 rows: page_rows,
                 next_cursor,
             },
             filtered_rows,
             true,
-            stream,
-            scanned_rows,
         ))
     }
 
@@ -180,7 +174,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         stream: &mut GroupedStreamStage,
         grouped_execution_context: &mut ExecutionContext,
         grouped_bundle: &mut GroupedAggregateBundle,
-    ) -> Result<(usize, usize), InternalError> {
+    ) -> Result<usize, InternalError> {
         match self.group_probe_kind {
             GroupProbeKind::DirectBorrowed => self.fold_rows_into_bundle_borrowed(
                 stream,
@@ -205,11 +199,10 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         stream: &mut GroupedStreamStage,
         grouped_execution_context: &mut ExecutionContext,
         grouped_bundle: &mut GroupedAggregateBundle,
-    ) -> Result<(usize, usize), InternalError> {
+    ) -> Result<usize, InternalError> {
         let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
         let effective_runtime_filter_program =
             execution_preparation.effective_runtime_filter_program();
-        let mut scanned_rows = 0usize;
         let mut filtered_rows = 0usize;
         let consistency = self.route.consistency();
 
@@ -219,7 +212,6 @@ impl<'a> GenericGroupedFoldRunner<'a> {
             let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
                 continue;
             };
-            scanned_rows = scanned_rows.saturating_add(1);
             if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
                 && !row_view.eval_filter_program(effective_runtime_filter_program)?
             {
@@ -242,7 +234,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
                 .map_err(GroupError::into_internal_error)?;
         }
 
-        Ok((scanned_rows, filtered_rows))
+        Ok(filtered_rows)
     }
 
     // Ingest grouped source rows with the owned group-key path selected once
@@ -252,11 +244,10 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         stream: &mut GroupedStreamStage,
         grouped_execution_context: &mut ExecutionContext,
         grouped_bundle: &mut GroupedAggregateBundle,
-    ) -> Result<(usize, usize), InternalError> {
+    ) -> Result<usize, InternalError> {
         let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
         let effective_runtime_filter_program =
             execution_preparation.effective_runtime_filter_program();
-        let mut scanned_rows = 0usize;
         let mut filtered_rows = 0usize;
         let consistency = self.route.consistency();
 
@@ -266,7 +257,6 @@ impl<'a> GenericGroupedFoldRunner<'a> {
             let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
                 continue;
             };
-            scanned_rows = scanned_rows.saturating_add(1);
             if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
                 && !row_view.eval_filter_program(effective_runtime_filter_program)?
             {
@@ -289,7 +279,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
                 .map_err(GroupError::into_internal_error)?;
         }
 
-        Ok((scanned_rows, filtered_rows))
+        Ok(filtered_rows)
     }
 
     fn fold_rows_into_bundle_path_aware(
@@ -297,14 +287,13 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         stream: &mut GroupedStreamStage,
         grouped_execution_context: &mut ExecutionContext,
         grouped_bundle: &mut GroupedAggregateBundle,
-    ) -> Result<(usize, usize), InternalError> {
+    ) -> Result<usize, InternalError> {
         let Some(group_fields) = self.group_fields.as_path_aware() else {
             return Err(InternalError::query_executor_invariant());
         };
         let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
         let effective_runtime_filter_program =
             execution_preparation.effective_runtime_filter_program();
-        let mut scanned_rows = 0usize;
         let mut filtered_rows = 0usize;
         let consistency = self.route.consistency();
 
@@ -312,7 +301,6 @@ impl<'a> GenericGroupedFoldRunner<'a> {
             let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
                 continue;
             };
-            scanned_rows = scanned_rows.saturating_add(1);
             if let Some(filter) = effective_runtime_filter_program
                 && !row_view.eval_filter_program(filter)?
             {
@@ -329,7 +317,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
                 .map_err(GroupError::into_internal_error)?;
         }
 
-        Ok((scanned_rows, filtered_rows))
+        Ok(filtered_rows)
     }
 }
 

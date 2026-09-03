@@ -44,7 +44,6 @@ pub(in crate::db::executor) fn execute_initial_scalar_retained_slot_page_from_ru
     C,
 >(
     db: &Db<C>,
-    debug: bool,
     prepared: PreparedScalarRuntimeHandoff,
     emit_cursor: bool,
     suppress_route_scan_hints: bool,
@@ -56,7 +55,6 @@ where
 {
     let mut prepared = prepare_initial_scalar_retained_slot_page_runtime_from_handoff(
         db,
-        debug,
         prepared,
         if emit_cursor {
             CursorEmissionMode::Emit
@@ -81,7 +79,6 @@ pub(in crate::db::executor) fn execute_resumed_scalar_retained_slot_page_from_ru
     C,
 >(
     db: &Db<C>,
-    debug: bool,
     prepared: crate::db::executor::PreparedScalarRuntimeHandoff,
     continuation: crate::db::executor::ScalarContinuationContext,
     emit_cursor: bool,
@@ -93,7 +90,6 @@ where
 {
     let mut prepared = prepare_resumed_scalar_retained_slot_page_runtime_from_handoff(
         db,
-        debug,
         prepared,
         continuation,
         if emit_cursor {
@@ -117,7 +113,6 @@ where
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) fn execute_prepared_scalar_aggregate_kernel_row_sink_for_canister<C>(
     db: &Db<C>,
-    debug: bool,
     plan: PreparedLoadPlan,
     retained_slot_layout: RetainedSlotLayout,
     aggregate_route_plan: Option<ExecutionRoutePlan>,
@@ -128,7 +123,6 @@ where
 {
     let prepared = prepare_initial_scalar_route_runtime_from_plan_with_retained_slot_layout(
         db,
-        debug,
         plan,
         retained_slot_layout,
         InitialScalarPlanRuntimeOptions::unpaged_rows(

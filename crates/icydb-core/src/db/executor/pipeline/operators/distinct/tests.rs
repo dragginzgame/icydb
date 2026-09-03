@@ -15,7 +15,6 @@ use crate::{
     error::{ErrorClass, ErrorOrigin, InternalError},
     types::EntityTag,
 };
-use std::{cell::Cell, rc::Rc};
 
 fn data_key(value: u64) -> DecodedDataStoreKey {
     let raw =
@@ -97,49 +96,14 @@ fn distinct_stream_suppresses_consecutive_duplicates() {
 #[test]
 fn distinct_stream_identity_equality_never_emits_same_decoded_data_store_key_twice() {
     let inner = StaticOrderedKeyStream::new(vec![data_key(7), data_key(7), data_key(7)]);
-    let dedup_counter = Rc::new(Cell::new(0u64));
-    let mut stream = DistinctOrderedKeyStream::new_with_dedup_counter(
-        inner,
-        KeyOrderComparator::from_direction(Direction::Asc),
-        dedup_counter.clone(),
-    );
+    let mut stream =
+        DistinctOrderedKeyStream::new(inner, KeyOrderComparator::from_direction(Direction::Asc));
 
     let out = collect_stream(&mut stream).expect("distinct stream should succeed");
     assert_eq!(
         out,
         vec![data_key(7)],
         "identical decoded data-store keys must collapse to one row under kernel row DISTINCT",
-    );
-    assert_eq!(
-        dedup_counter.get(),
-        2,
-        "every repeated identical DecodedDataStoreKey should be counted as deduped",
-    );
-}
-
-#[test]
-fn distinct_stream_records_deduped_key_count() {
-    let inner = StaticOrderedKeyStream::new(vec![
-        data_key(1),
-        data_key(1),
-        data_key(2),
-        data_key(2),
-        data_key(2),
-        data_key(3),
-    ]);
-    let dedup_counter = Rc::new(Cell::new(0u64));
-    let mut stream = DistinctOrderedKeyStream::new_with_dedup_counter(
-        inner,
-        KeyOrderComparator::from_direction(Direction::Asc),
-        dedup_counter.clone(),
-    );
-
-    let out = collect_stream(&mut stream).expect("distinct stream should succeed");
-    assert_eq!(out, vec![data_key(1), data_key(2), data_key(3)]);
-    assert_eq!(
-        dedup_counter.get(),
-        3,
-        "dedup counter should include every suppressed adjacent duplicate key"
     );
 }
 

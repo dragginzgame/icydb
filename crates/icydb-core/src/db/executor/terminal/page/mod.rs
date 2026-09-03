@@ -29,10 +29,8 @@ use crate::{
         data::DataRow,
         executor::{
             OrderReadableRow, OrderedKeyStreamBox, ScalarContinuationContext,
-            measure_execution_stats_phase,
             pipeline::contracts::{KernelPageMaterializationRequest, ScalarPageMaterialization},
             projection::ProjectionValidationRow,
-            record_projection,
             route::LoadOrderRouteMode,
         },
         predicate::MissingRowPolicy,
@@ -290,10 +288,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
 
     // Phase 2: select the final payload shape once, then build it in one
     // explicit kernel-row shaping pass.
-    let (payload, projection_micros) =
-        measure_execution_stats_phase(|| scalar_materialization_plan.finalize_payload(rows));
-    let payload = payload?;
-    record_projection(payload.row_count(), projection_micros);
+    let payload = scalar_materialization_plan.finalize_payload(rows)?;
 
     Ok(ScalarPageMaterialization {
         payload,
@@ -347,10 +342,6 @@ pub(in crate::db::executor) fn materialize_key_stream_into_kernel_rows<'a>(
         metrics: ExecutionOutcomeMetrics {
             rows_scanned,
             post_access_rows,
-            optimization: None,
-            index_predicate_applied: false,
-            index_predicate_keys_rejected: 0,
-            distinct_keys_deduped: 0,
         },
     })
 }

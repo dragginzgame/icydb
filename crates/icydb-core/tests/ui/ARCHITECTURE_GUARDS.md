@@ -13,7 +13,6 @@ the complete SQL execution graph and its root diagnostics surface.
 | `db/commit_module_private.rs` | `db::commit` recovery/marker internals are not public API. |
 | `db/cursor_module_private.rs` | `db::cursor` continuation/token internals are not public API. |
 | `db/canonical_row_not_public.rs` | `CanonicalRow` stays internal so arbitrary callers cannot acquire row-write capability. |
-| `db/diagnostics_module_private.rs` | `db::diagnostics` module internals are not imported directly; use root re-exports. |
 | `db/executor/grouped_budget_observability_module_private.rs` | Grouped budget observability internals are not publicly importable. |
 | `db/executor/cannot_import_query_plan_planner.rs` | Executor boundary must not import planner internals (`db::query::plan::planner`). |
 | `db/executor/kernel_module_private.rs` | `db::executor::kernel` internals are not public API. |
@@ -34,5 +33,4 @@ the complete SQL execution graph and its root diagnostics surface.
 
 | Test | Allowed Path Contract |
 | --- | --- |
-| `db/execution_trace_root_import.rs` | `ExecutionTrace` diagnostics surface is available via `db` root re-exports. |
 | `db/session_root_import.rs` | `DbSession` is available via `db` root public API. |

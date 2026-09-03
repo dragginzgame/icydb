@@ -159,9 +159,7 @@ pub(in crate::db::executor) fn index_predicate_rejects_prefix_components(
     predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> bool {
     predicate_execution
-        .and_then(|execution| {
-            eval_index_program_on_prefix_components(prefix_components, execution.program)
-        })
+        .and_then(|execution| eval_index_program_on_prefix_components(prefix_components, execution))
         .is_some_and(|passed| !passed)
 }
 

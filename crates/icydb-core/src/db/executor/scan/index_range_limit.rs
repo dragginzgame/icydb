@@ -8,7 +8,7 @@ use crate::{
         access::ExecutableAccessPlan,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, AccessStreamExecutionPolicy,
-            ExecutionOptimization, LoweredIndexRangeSpec, pipeline::contracts::FastPathKeyResult,
+            LoweredIndexRangeSpec, pipeline::contracts::FastPathKeyResult,
             scan::fast_stream::execute_structural_fast_stream_request,
             stream::access::TraversalRuntime,
         },
@@ -53,6 +53,5 @@ pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
         AccessStreamBindings::with_index_range_continuation(index_range_spec, continuation),
         AccessStreamExecutionPolicy::canonical_key_order(Some(effective_fetch)),
         index_predicate_execution,
-        ExecutionOptimization::IndexRangeLimitPushdown,
     )?))
 }

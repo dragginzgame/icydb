@@ -10,9 +10,8 @@ use crate::{
     db::{
         access::ExecutableAccessPlan,
         executor::{
-            AccessStreamBindings, AccessStreamExecutionPolicy, ExecutionOptimization,
-            OrderedKeyStreamBox, pipeline::contracts::FastPathKeyResult,
-            stream::access::TraversalRuntime,
+            AccessStreamBindings, AccessStreamExecutionPolicy, OrderedKeyStreamBox,
+            pipeline::contracts::FastPathKeyResult, stream::access::TraversalRuntime,
         },
     },
     error::InternalError,
@@ -20,16 +19,12 @@ use crate::{
 };
 
 // Enforce exact row-count observability required by fast-path stream execution.
-fn finalize_fast_path_key_stream(
-    key_stream: OrderedKeyStreamBox,
-    optimization: ExecutionOptimization,
-) -> FastPathKeyResult {
+fn finalize_fast_path_key_stream(key_stream: OrderedKeyStreamBox) -> FastPathKeyResult {
     let rows_scanned = key_stream.cheap_access_candidate_count_hint();
 
     FastPathKeyResult {
         ordered_key_stream: key_stream,
         rows_scanned,
-        optimization,
     }
 }
 
@@ -40,7 +35,6 @@ pub(in crate::db::executor) fn execute_structural_fast_stream_request(
     bindings: AccessStreamBindings<'_>,
     execution_policy: AccessStreamExecutionPolicy,
     index_predicate_execution: Option<crate::db::index::predicate::IndexPredicateExecution<'_>>,
-    optimization: ExecutionOptimization,
 ) -> Result<FastPathKeyResult, InternalError> {
     let key_stream = runtime.ordered_key_stream_from_executable_plan(
         executable_access,
@@ -49,5 +43,5 @@ pub(in crate::db::executor) fn execute_structural_fast_stream_request(
         index_predicate_execution,
     )?;
 
-    Ok(finalize_fast_path_key_stream(key_stream, optimization))
+    Ok(finalize_fast_path_key_stream(key_stream))
 }

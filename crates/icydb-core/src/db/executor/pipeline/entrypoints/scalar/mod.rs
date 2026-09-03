@@ -1,11 +1,10 @@
 //! Module: executor::pipeline::entrypoints::scalar
 //! Responsibility: scalar load execution entrypoint module wiring.
-//! Does not own: runtime construction, execution loops, finalization, or diagnostics logic.
+//! Does not own: runtime construction or execution loops.
 //! Boundary: re-exports scalar entrypoint surfaces to the executor pipeline root.
 
 mod entrypoints;
 mod execution;
-mod finalize;
 mod hints;
 mod materialized;
 mod runtime;

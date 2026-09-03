@@ -102,12 +102,6 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(Into::into)
     }
 
-    #[must_use]
-    pub fn debug(mut self) -> Self {
-        self.inner = self.inner.debug();
-        self
-    }
-
     /// Execute one revision-tolerant bounded dynamic page.
     pub fn execute_live_page(
         &self,

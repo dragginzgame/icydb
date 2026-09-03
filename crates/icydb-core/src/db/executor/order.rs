@@ -9,9 +9,7 @@ use crate::{
         data::{CanonicalSlotReader, DataRow},
         executor::{
             budget::{charge_current_execution_budget, charge_sort_work, runtime_value_work},
-            measure_execution_stats_phase,
             projection::eval_compiled_expr_with_value_reader,
-            record_ordering,
             terminal::RowLayout,
         },
         numeric::canonical_value_compare,
@@ -153,13 +151,7 @@ where
         return Ok(());
     }
     charge_sort_work::<R>(rows.len())?;
-    let rows_sorted = rows.len();
-    let (result, ordering_micros) = measure_execution_stats_phase(|| {
-        apply_structural_order_window_inner(rows, resolved_order, keep_count)
-    });
-    record_ordering(rows_sorted, ordering_micros);
-
-    result
+    apply_structural_order_window_inner(rows, resolved_order, keep_count)
 }
 
 fn apply_structural_order_window_inner<R>(
@@ -295,12 +287,9 @@ impl<R> PendingOrderRows<R> {
                 let rows_sorted = rows.len();
                 if rows_sorted > 1 {
                     charge_sort_work::<R>(rows_sorted)?;
-                    let ((), ordering_micros) = measure_execution_stats_phase(|| {
-                        rows.sort_by(|left, right| {
-                            compare_cached_orderable_rows(&left.1, &right.1, resolved_order)
-                        });
+                    rows.sort_by(|left, right| {
+                        compare_cached_orderable_rows(&left.1, &right.1, resolved_order)
                     });
-                    record_ordering(rows_sorted, ordering_micros);
                 }
 
                 Ok(rows.into_iter().map(|(row, _)| row).collect())
@@ -467,12 +456,9 @@ impl<'a> DataRowOrderWindow<'a> {
         let rows_sorted = rows.len();
         if rows_sorted > 1 {
             charge_sort_work::<DataRow>(rows_sorted)?;
-            let ((), ordering_micros) = measure_execution_stats_phase(|| {
-                rows.sort_by(|left, right| {
-                    compare_cached_orderable_rows(&left.1, &right.1, self.resolved_order)
-                });
+            rows.sort_by(|left, right| {
+                compare_cached_orderable_rows(&left.1, &right.1, self.resolved_order)
             });
-            record_ordering(rows_sorted, ordering_micros);
         }
 
         Ok(rows.into_iter().map(|(row, _)| row).collect())

@@ -35,7 +35,6 @@ const REQUEST_HARD_BUDGET: HardExecutionBudget = HardExecutionBudget::new(
         128 * 1_024 * 1_024, // group/distinct state bytes
         1_000_000,           // cursor steps
         128 * 1_024 * 1_024, // temporary bytes
-        1_000_000,           // diagnostic steps
         100_000,             // result rows
         64 * 1_024 * 1_024,  // result bytes
         4_500_000_000,       // instruction units

@@ -28,7 +28,6 @@ use crate::{
             terminal::RetainedSlotRow,
             with_production_scalar_page_work,
         },
-        index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     metrics::EntityMetricsSpan,
@@ -86,7 +85,6 @@ impl StructuralProjectionScanBudget {
 ///
 
 pub(in crate::db) struct StructuralProjectionRequest {
-    debug: bool,
     prepared_plan: SharedPreparedExecutionPlan,
     scan_budget: Option<StructuralProjectionScanBudget>,
     execution_lane: DiagnosticExecutionLane,
@@ -100,12 +98,10 @@ impl StructuralProjectionRequest {
     /// Build one structural projection request from adapter-provided runtime
     /// switches.
     pub(in crate::db) const fn new(
-        debug: bool,
         prepared_plan: SharedPreparedExecutionPlan,
         execution_lane: DiagnosticExecutionLane,
     ) -> Self {
         Self {
-            debug,
             prepared_plan,
             scan_budget: None,
             execution_lane,
@@ -213,7 +209,6 @@ where
     C: CanisterKind,
 {
     let StructuralProjectionRequest {
-        debug,
         prepared_plan,
         scan_budget,
         execution_lane: _,
@@ -270,11 +265,7 @@ where
             });
         let index_predicate_execution = covering_execution_preparation
             .as_ref()
-            .and_then(ExecutionPreparation::strict_mode)
-            .map(|program| IndexPredicateExecution {
-                program,
-                rejected_keys_counter: None,
-            });
+            .and_then(ExecutionPreparation::strict_mode);
 
         if let Some(projected) = try_execute_prepared_covering_projection_rows_for_canister(
             db,
@@ -432,7 +423,6 @@ where
         if execution_continuation.has_progress() {
             execute_resumed_scalar_retained_slot_page_from_runtime_handoff_for_canister(
                 db,
-                debug,
                 scalar_runtime,
                 execution_continuation,
                 emit_cursor,
@@ -442,7 +432,6 @@ where
         } else {
             execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister(
                 db,
-                debug,
                 scalar_runtime,
                 emit_cursor,
                 distinct,

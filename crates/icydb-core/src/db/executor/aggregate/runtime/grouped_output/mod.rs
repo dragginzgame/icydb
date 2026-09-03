@@ -1,16 +1,16 @@
 //! Module: executor::aggregate::runtime::grouped_output
 //! Responsibility: grouped row projection materialization and output finalization.
 //! Does not own: grouped stream/fold execution orchestration.
-//! Boundary: grouped output shaping + observability finalization helpers.
+//! Boundary: grouped output shaping helpers.
 
 #[cfg(test)]
 mod tests;
 
 use crate::{
     db::executor::{
-        ExecutionOptimization, ExecutionTrace, RuntimeGroupedRow,
+        RuntimeGroupedRow,
         aggregate::{GroupedAggregateExecutionSpec, PlannedProjectionLayout, ProjectionSpec},
-        pipeline::contracts::{ExecutionOutcomeMetrics, GroupedCursorPage, GroupedRouteStage},
+        pipeline::contracts::GroupedCursorPage,
         pipeline::runtime::GroupedFoldStage,
         projection::*,
     },
@@ -19,158 +19,18 @@ use crate::{
 };
 use std::borrow::Cow;
 
-///
-/// FinalizedGroupedOutput
-///
-/// FinalizedGroupedOutput keeps the grouped output page plus optional trace
-/// together after grouped observability finalization runs.
-/// It lets grouped output finalization compute one owner-local result bundle
-/// instead of mixing observability mutation with the final return surface.
-///
-
-struct FinalizedGroupedOutput {
-    page: GroupedCursorPage,
-    trace: Option<ExecutionTrace>,
-}
-
-impl FinalizedGroupedOutput {
-    // Finalize one grouped fold output into the grouped page + trace surface
-    // after execution-trace state has been updated.
-    fn from_folded(
-        mut route: GroupedRouteStage,
-        folded: GroupedFoldStage,
-        execution_time_micros: u64,
-    ) -> Self {
-        let rows_returned = folded.rows_returned();
-        let metrics = ExecutionOutcomeMetrics {
-            optimization: folded.optimization(),
-            rows_scanned: folded.rows_scanned(),
-            post_access_rows: rows_returned,
-            index_predicate_applied: folded.index_predicate_applied(),
-            index_predicate_keys_rejected: folded.index_predicate_keys_rejected(),
-            distinct_keys_deduped: folded.distinct_keys_deduped(),
-        };
-        finalize_grouped_observability(
-            route.execution_trace_mut(),
-            metrics,
-            rows_returned,
-            execution_time_micros,
-        );
-
-        if folded.should_check_filtered_rows_upper_bound() {
-            debug_assert!(
-                folded.filtered_rows() >= rows_returned,
-                "grouped pagination must return at most filtered row cardinality",
-            );
-        }
-
-        Self {
-            page: folded.into_page(),
-            trace: route.into_execution_trace(),
-        }
-    }
-
-    // Consume this finalized grouped output into the public grouped page plus
-    // optional execution-trace tuple.
-    fn into_surface(self) -> (GroupedCursorPage, Option<ExecutionTrace>) {
-        (self.page, self.trace)
-    }
-}
-
-// Finalize grouped output payloads and observability after grouped fold
-// execution using a non-generic grouped page/fold contract.
+// Finalize grouped output after grouped fold execution.
 pub(in crate::db::executor) fn finalize_grouped_output(
-    route: GroupedRouteStage,
     folded: GroupedFoldStage,
-    execution_time_micros: u64,
-) -> (GroupedCursorPage, Option<ExecutionTrace>) {
-    FinalizedGroupedOutput::from_folded(route, folded, execution_time_micros).into_surface()
-}
-
-// Record shared observability outcome for scalar/grouped execution paths.
-pub(in crate::db::executor) fn finalize_path_outcome_for_path(
-    _entity_path: &str,
-    execution_trace: &mut Option<ExecutionTrace>,
-    metrics: ExecutionOutcomeMetrics,
-    rows_emitted: usize,
-    index_only: bool,
-    execution_time_micros: u64,
-) {
-    let ExecutionOutcomeMetrics {
-        optimization,
-        rows_scanned,
-        post_access_rows: _post_access_rows,
-        index_predicate_applied,
-        index_predicate_keys_rejected,
-        distinct_keys_deduped,
-    } = metrics;
-    finalize_execution_trace_path_outcome(
-        execution_trace,
-        optimization,
-        rows_scanned,
-        rows_emitted,
-        execution_time_micros,
-        index_only,
-        index_predicate_applied,
-        index_predicate_keys_rejected,
-        distinct_keys_deduped,
-    );
-}
-
-fn finalize_grouped_observability(
-    execution_trace: &mut Option<ExecutionTrace>,
-    metrics: ExecutionOutcomeMetrics,
-    _rows_returned: usize,
-    execution_time_micros: u64,
-) {
-    let ExecutionOutcomeMetrics {
-        optimization,
-        rows_scanned,
-        post_access_rows,
-        index_predicate_applied,
-        index_predicate_keys_rejected,
-        distinct_keys_deduped,
-    } = metrics;
-    finalize_execution_trace_path_outcome(
-        execution_trace,
-        optimization,
-        rows_scanned,
-        post_access_rows,
-        execution_time_micros,
-        false,
-        index_predicate_applied,
-        index_predicate_keys_rejected,
-        distinct_keys_deduped,
-    );
-}
-
-// Finalize the shared execution-trace outcome contract after aggregate output
-// shaping has already determined the final row counts for this path.
-#[expect(clippy::too_many_arguments)]
-fn finalize_execution_trace_path_outcome(
-    execution_trace: &mut Option<ExecutionTrace>,
-    optimization: Option<ExecutionOptimization>,
-    rows_scanned: usize,
-    rows_emitted: usize,
-    execution_time_micros: u64,
-    index_only: bool,
-    index_predicate_applied: bool,
-    index_predicate_keys_rejected: u64,
-    distinct_keys_deduped: u64,
-) {
-    if let Some(execution_trace) = execution_trace.as_mut() {
-        execution_trace.set_path_outcome(
-            optimization,
-            rows_scanned,
-            rows_scanned,
-            rows_emitted,
-            execution_time_micros,
-            index_only,
-            index_predicate_applied,
-            index_predicate_keys_rejected,
-            distinct_keys_deduped,
+) -> GroupedCursorPage {
+    if folded.should_check_filtered_rows_upper_bound() {
+        debug_assert!(
+            folded.filtered_rows() >= folded.page_row_count(),
+            "grouped pagination must return at most filtered row cardinality",
         );
     }
+
+    folded.into_page()
 }
 
 // Evaluate grouped projection semantics for each grouped row while preserving

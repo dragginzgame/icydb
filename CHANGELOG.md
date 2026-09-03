@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
+- `0.252.7` hard-cuts the caller-invisible `DbSession::debug()` execution-trace
+  and trace-only profiling stack, leaving SQL `EXPLAIN`, on-canister entity-cost
+  metrics, Canic endpoint attribution, and execution budgets as the maintained
+  observability surfaces.
 - `0.252.6` hard-cuts the separate diagnostics feature, detailed SQL/request
   attribution, and off-canister performance matrix while retaining one
   on-canister entity-cost report, Canic endpoint ownership, and narrow

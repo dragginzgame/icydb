@@ -1,20 +1,16 @@
 //! Module: executor::pipeline::entrypoints::scalar::materialized
 //! Responsibility: scalar materialized runtime execution spine.
 //! Does not own: runtime bundle construction, streaming aggregate execution, or finalization.
-//! Boundary: converts prepared scalar runtime into payload, metrics, trace, and timing.
+//! Boundary: converts prepared scalar runtime into a payload and scan count.
 
 use crate::{
     db::{
         executor::{
-            ExecutionKernel, ExecutionTrace,
+            ExecutionKernel,
             pipeline::{
                 contracts::{ExecutionOutcomeMetrics, StructuralCursorPage},
                 entrypoints::scalar::{
-                    execution::{
-                        execute_prepared_scalar_kernel, finish_scalar_kernel_observability,
-                    },
-                    finalize::finalize_scalar_structural_path_execution,
-                    hints::ScalarRouteTerminal,
+                    execution::execute_prepared_scalar_kernel, hints::ScalarRouteTerminal,
                     runtime::PreparedScalarRouteRuntime,
                 },
             },
@@ -27,14 +23,7 @@ use crate::{
 // Shared scalar runtime output tuple:
 // 1) final materialized payload
 // 2) path-outcome observability metrics
-// 3) optional execution trace
-// 4) elapsed execution time for finalization
-pub(super) type ScalarPathExecution = (
-    StructuralCursorPage,
-    ExecutionOutcomeMetrics,
-    Option<ExecutionTrace>,
-    u64,
-);
+pub(super) type ScalarPathExecution = (StructuralCursorPage, ExecutionOutcomeMetrics);
 
 // Execute one prepared scalar runtime bundle through the canonical monomorphic
 // scalar spine without re-entering typed executor state.
@@ -53,24 +42,10 @@ pub(super) fn execute_prepared_scalar_path_execution(
             )
         },
     )?;
-    let execution_stats = execution.execution_stats;
-    let mut execution_trace = execution.execution_trace;
-    let execution_time_micros = execution.execution_time_micros;
     let materialized = execution.attempt;
     let (payload, metrics) = materialized.into_payload_and_metrics();
-    finish_scalar_kernel_observability(
-        &mut execution_trace,
-        execution_stats,
-        &metrics,
-        payload.row_count(),
-    );
 
-    Ok((
-        payload,
-        metrics,
-        execution_trace.take(),
-        execution_time_micros,
-    ))
+    Ok((payload, metrics))
 }
 
 // Execute one prepared scalar runtime bundle and finalize the shared
@@ -80,10 +55,9 @@ pub(super) fn execute_prepared_scalar_path_execution(
 pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_scan_count(
     prepared: PreparedScalarRouteRuntime,
 ) -> Result<(StructuralCursorPage, usize), InternalError> {
-    let entity_path = prepared.entity_path_handle();
     let execution = execute_prepared_scalar_path_execution(prepared)?;
     let rows_scanned = execution.1.rows_scanned;
-    let (page, _) = finalize_scalar_structural_path_execution(entity_path.as_ref(), execution);
+    let page = execution.0;
 
     Ok((page, rows_scanned))
 }

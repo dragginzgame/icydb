@@ -37,7 +37,7 @@ pub(super) fn fold_row_view_count_rows(
     effective_runtime_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     grouped_execution_context: &mut ExecutionContext,
     grouped_counts: &mut GroupedCountState,
-    counters: (&mut usize, &mut usize),
+    filtered_rows: &mut usize,
     mut increment_row: impl FnMut(
         &mut GroupedCountState,
         &RowView,
@@ -46,7 +46,6 @@ pub(super) fn fold_row_view_count_rows(
     ) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
     let consistency = route.consistency();
-    let (scanned_rows, filtered_rows) = counters;
     let Some(group_fields) = route.group_fields().as_direct() else {
         return Err(InternalError::query_executor_invariant());
     };
@@ -56,7 +55,6 @@ pub(super) fn fold_row_view_count_rows(
         let Some(row_view) = row_view? else {
             continue;
         };
-        *scanned_rows = scanned_rows.saturating_add(1);
         if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
             && !row_view.eval_filter_program(effective_runtime_filter_program)?
         {
