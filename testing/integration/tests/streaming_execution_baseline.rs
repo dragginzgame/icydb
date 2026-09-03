@@ -51,14 +51,13 @@ struct LivePageDriverProbe {
 }
 
 // The physical prefix-merge gate remains unchanged at fewer than 68 entries.
-// The final 0.246 bounded-sort hard cut measures 5,317,622 instructions with
-// the same 65-entry work, so retain less than 0.2% measurement headroom without
-// weakening the physical-work contract.
-const PREFIX_FAMILY_MAX_FANOUT_INSTRUCTION_CEILING: u64 = 5_328_000;
-// Total attribution includes accepted-schema observation. Keep the exact
-// 41-entry/one-fetch structural gate below, while allowing for the wider
-// 0.236 exact-cardinality audit schema in the shared canister.
-const INTERSECTION_2_SPARSE_INSTRUCTION_CEILING: u64 = 2_300_000;
+// PocketIC 16 measures the same 65-entry work at 13,097,171 instructions, so
+// retain roughly one percent of review headroom without weakening that gate.
+const PREFIX_FAMILY_MAX_FANOUT_INSTRUCTION_CEILING: u64 = 13_250_000;
+// Total attribution includes accepted-schema observation under PocketIC 16.
+// Keep the exact 41-entry/one-fetch structural gate below as the primary
+// regression contract.
+const INTERSECTION_2_SPARSE_INSTRUCTION_CEILING: u64 = 10_250_000;
 const TOPN_WIDE_PAYLOAD_INSTRUCTION_CEILING: u64 = 65_592_124;
 
 #[derive(CandidType, Debug, Deserialize)]

@@ -49,9 +49,6 @@ icydb::start! {
 }
 
 icydb::endpoints! {
-    icydb_metrics(authorization = public);
-    #[cfg(feature = "test-admin-api")]
-    icydb_metrics_reset;
     #[cfg(feature = "test-admin-api")]
     icydb_fixtures_reset;
     #[cfg(feature = "test-admin-api")]

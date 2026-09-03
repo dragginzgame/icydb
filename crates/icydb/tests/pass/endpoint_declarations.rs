@@ -3,6 +3,7 @@
 mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
 
+    #[cfg(feature = "metrics")]
     pub(crate) mod endpoint_handlers {
         pub(crate) fn metrics() -> Result<icydb::metrics::MetricsReport, icydb::Error> {
             Ok(icydb::metrics::MetricsReport::default())
@@ -13,6 +14,7 @@ mod __icydb_generated {
         }
     }
 
+    #[cfg(feature = "metrics")]
     pub(crate) mod endpoint_authorization {
         pub(crate) fn require_operational_controller() -> Result<(), icydb::Error> {
             Ok(())
@@ -23,7 +25,9 @@ mod __icydb_generated {
 icydb::endpoints! {
     #[cfg(any())]
     icydb_ddl;
+    #[cfg(feature = "metrics")]
     icydb_metrics(authorization = public);
+    #[cfg(feature = "metrics")]
     icydb_metrics_reset;
 }
 

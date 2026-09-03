@@ -3113,13 +3113,10 @@ mod typed_adapter_tests {
 
 #[cfg(test)]
 mod mixed_relation_batch_tests {
-    use super::{
-        DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell,
-        TypedEntityDescriptor, TypedFieldType,
-    };
+    use super::{DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell};
     use crate::{
         db::{
-            DynamicQuery, TypedFieldDescriptor, asc,
+            DynamicQuery, asc,
             data::DataStore,
             desc,
             index::IndexStore,
@@ -3140,7 +3137,7 @@ mod mixed_relation_batch_tests {
         types::EntityTag,
         value::{InputValue, OutputValue},
     };
-    use icydb_schema::{FieldSourceKey, ScalarType};
+    use icydb_schema::FieldSourceKey;
     use std::{cell::RefCell, collections::BTreeMap};
 
     const STORE_PATH: &str = "session::write::mixed_relation_batch_tests::Store";
@@ -3161,16 +3158,6 @@ mod mixed_relation_batch_tests {
     const CROSS_ID_SOURCE: &str = "session::write::mixed_relation_batch_tests::CrossStore::id";
     const CROSS_ENTITY_NAME: &str = "MixedCrossStore";
     const CROSS_ENTITY_TAG: EntityTag = EntityTag::new(2_000);
-    const TYPED_DESCRIPTOR: TypedEntityDescriptor = TypedEntityDescriptor::new(
-        ENTITY_SOURCE,
-        &[ID_SOURCE],
-        &[TypedFieldDescriptor::new(
-            ID_SOURCE,
-            TypedFieldType::Scalar(ScalarType::Nat64),
-            false,
-        )],
-    );
-
     fn batch_rows(results: &[crate::db::DynamicMutationResult]) -> Vec<Vec<OutputValue>> {
         results
             .iter()

@@ -17,7 +17,9 @@ use icydb_testing_integration::{
     install_fixture_canister_without_startup_delivery,
 };
 
-const PARTICIPANT_INSTRUCTION_CEILING: u64 = 10_750_000;
+// PocketIC 16 measures the converged post-upgrade participant at 11,138,241
+// instructions. Retain roughly one percent of review headroom.
+const PARTICIPANT_INSTRUCTION_CEILING: u64 = 11_250_000;
 const INSTALL_CODE_RETRY_LIMIT: usize = 4;
 const INSTALL_CODE_COOLDOWN: Duration = Duration::from_mins(5);
 

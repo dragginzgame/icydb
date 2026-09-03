@@ -24,6 +24,13 @@ pub(crate) struct EntityMetricsSpan<'entity> {
 
 impl<'entity> EntityMetricsSpan<'entity> {
     #[must_use]
+    #[cfg_attr(
+        not(feature = "metrics"),
+        expect(
+            clippy::missing_const_for_fn,
+            reason = "feature-on construction reads the IC execution mode and instruction counter"
+        )
+    )]
     pub(crate) fn new(entity_path: &'entity str) -> Self {
         #[cfg(feature = "metrics")]
         {

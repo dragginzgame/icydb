@@ -12,7 +12,7 @@ Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 - `0.252.5` completes the closeout with single-owner query, mutation, and build
   paths; hard-cuts duplicated metrics and per-call query-cost envelopes to one
   optional on-canister entity hit/cost report; and updates the host harness to
-  `ic-testkit 0.9.0` and PocketIC 16.
+  `ic-testkit 0.9.0` with current PocketIC 16 performance contracts.
 - `0.252.4` removes parallel projection and planner diagnostic adapters,
   centralizes numeric-operator lowering, and keeps function-evaluation errors
   internal until their actual boundary. Twenty-five production files remove

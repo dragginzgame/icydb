@@ -70,11 +70,9 @@ const METRICS_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_metrics", CanisterMethodMode::Query),
     ("icydb_metrics_reset", CanisterMethodMode::Update),
 ];
-const SQL_PERF_METHODS: &[ExpectedCanisterMethod] = &[
+const SQL_PERF_LOCAL_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_fixtures_load", CanisterMethodMode::Update),
     ("icydb_fixtures_reset", CanisterMethodMode::Update),
-    ("icydb_metrics", CanisterMethodMode::Query),
-    ("icydb_metrics_reset", CanisterMethodMode::Update),
 ];
 const TEST_SQL_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_ddl", CanisterMethodMode::Update),
@@ -213,8 +211,8 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         package: "canister_audit_sql_perf",
         production_features: &["candid-export", "diagnostics", "sql"],
         local_test_features: &["candid-export", "diagnostics", "sql", "test-admin-api"],
-        production_icydb_methods: METRICS_METHODS,
-        local_test_icydb_methods: SQL_PERF_METHODS,
+        production_icydb_methods: NO_METHODS,
+        local_test_icydb_methods: SQL_PERF_LOCAL_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "ten_entity_typed_query",

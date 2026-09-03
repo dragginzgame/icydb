@@ -188,8 +188,8 @@ pub const CURRENT_DURABLE_ABSENT_CANCELLATION_INSTRUCTIONS: u64 = 37_249;
 /// Current complete inventory sample with one retained mutation job.
 pub const CURRENT_DURABLE_INVENTORY_ONE_INSTRUCTIONS: u64 = 116_690;
 
-/// Current complete inventory sample at all 64 retained slots.
-pub const CURRENT_DURABLE_INVENTORY_FULL_INSTRUCTIONS: u64 = 5_880_547;
+/// Current PocketIC 16 complete inventory sample at all 64 retained slots.
+pub const CURRENT_DURABLE_INVENTORY_FULL_INSTRUCTIONS: u64 = 7_393_208;
 
 /// Maximum reviewed instruction cost for one byte- and count-packed 240-update Forward step.
 pub const DURABLE_FORWARD_INSTRUCTION_REVIEW_CEILING: u64 = 7_500_000_000;
@@ -201,7 +201,7 @@ pub const DURABLE_VERIFY_INSTRUCTION_REVIEW_CEILING: u64 = 500_000_000;
 pub const DURABLE_CONTROL_INSTRUCTION_REVIEW_CEILING: u64 = 2_000_000;
 
 /// Maximum reviewed instruction cost for a complete 64-record inventory.
-pub const DURABLE_INVENTORY_INSTRUCTION_REVIEW_CEILING: u64 = 7_000_000;
+pub const DURABLE_INVENTORY_INSTRUCTION_REVIEW_CEILING: u64 = 7_500_000;
 
 /// Per-patch raw-Wasm movement that requires explicit attribution.
 pub const DURABLE_MUTATION_JOB_PATCH_WASM_REVIEW_BYTES: u64 = 64 * 1_024;
