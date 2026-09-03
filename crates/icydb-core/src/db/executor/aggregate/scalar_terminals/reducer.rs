@@ -2,10 +2,6 @@
 //! Responsibility: scalar aggregate reducer state and row ingestion runtime.
 //! Boundary: owns row-loop execution over pre-classified reducer paths.
 
-#[cfg(feature = "diagnostics")]
-use crate::db::executor::aggregate::terminal_attribution::{
-    ScalarAggregateTerminalAttribution, measure_phase,
-};
 use crate::{
     db::executor::{
         aggregate::{
@@ -326,8 +322,6 @@ pub(super) struct ScalarAggregateReducerRuntime {
     expr_reducers: Vec<ExprAggregateReducer>,
     terminal_count: usize,
     expr_cache: ScalarTerminalExprCache,
-    #[cfg(feature = "diagnostics")]
-    attribution: ScalarAggregateTerminalAttribution,
 }
 
 impl ScalarAggregateReducerRuntime {
@@ -392,8 +386,6 @@ impl ScalarAggregateReducerRuntime {
             expr_reducers,
             terminal_count,
             expr_cache: ScalarTerminalExprCache::new(input_exprs, filter_exprs),
-            #[cfg(feature = "diagnostics")]
-            attribution: ScalarAggregateTerminalAttribution::none(),
         }
     }
 
@@ -401,27 +393,6 @@ impl ScalarAggregateReducerRuntime {
     // evaluated before input expressions so filtered-out rows still avoid input
     // work, while expression tables keep shared expressions to once per row.
     pub(super) fn ingest_row(&mut self, row: &KernelRow) -> Result<(), InternalError> {
-        #[cfg(feature = "diagnostics")]
-        {
-            self.attribution.rows_ingested = self.attribution.rows_ingested.saturating_add(1);
-            let (local_instructions, result) = measure_phase(|| self.ingest_row_inner(row));
-            self.attribution.reducer_fold_local_instructions = self
-                .attribution
-                .reducer_fold_local_instructions
-                .saturating_add(local_instructions);
-
-            result
-        }
-
-        #[cfg(not(feature = "diagnostics"))]
-        {
-            self.ingest_row_inner(row)
-        }
-    }
-
-    // Keep the reducer fold body separate so diagnostics can wrap exactly the
-    // per-row terminal work without changing the non-diagnostics control flow.
-    fn ingest_row_inner(&mut self, row: &KernelRow) -> Result<(), InternalError> {
         self.expr_cache.reset_for_row();
         self.ingest_row_reducers(row)?;
         self.ingest_field_reducers(row)?;
@@ -432,12 +403,7 @@ impl ScalarAggregateReducerRuntime {
 
     fn ingest_row_reducers(&mut self, row: &KernelRow) -> Result<(), InternalError> {
         for reducer in &mut self.row_reducers {
-            if !self.expr_cache.filter_matches(
-                reducer.filter,
-                row,
-                #[cfg(feature = "diagnostics")]
-                &mut self.attribution.filter_evaluations,
-            )? {
+            if !self.expr_cache.filter_matches(reducer.filter, row)? {
                 continue;
             }
             reducer.state.ingest_row()?;
@@ -448,12 +414,7 @@ impl ScalarAggregateReducerRuntime {
 
     fn ingest_field_reducers(&mut self, row: &KernelRow) -> Result<(), InternalError> {
         for reducer in &mut self.field_reducers {
-            if !self.expr_cache.filter_matches(
-                reducer.filter,
-                row,
-                #[cfg(feature = "diagnostics")]
-                &mut self.attribution.filter_evaluations,
-            )? {
+            if !self.expr_cache.filter_matches(reducer.filter, row)? {
                 continue;
             }
             let value = row.slot_ref(reducer.slot).ok_or_else(|| {
@@ -467,20 +428,10 @@ impl ScalarAggregateReducerRuntime {
 
     fn ingest_expr_reducers(&mut self, row: &KernelRow) -> Result<(), InternalError> {
         for reducer in &mut self.expr_reducers {
-            if !self.expr_cache.filter_matches(
-                reducer.filter,
-                row,
-                #[cfg(feature = "diagnostics")]
-                &mut self.attribution.filter_evaluations,
-            )? {
+            if !self.expr_cache.filter_matches(reducer.filter, row)? {
                 continue;
             }
-            let value = self.expr_cache.input_value(
-                row,
-                reducer.expr_index,
-                #[cfg(feature = "diagnostics")]
-                &mut self.attribution.expression_evaluations,
-            )?;
+            let value = self.expr_cache.input_value(row, reducer.expr_index)?;
             reducer.state.ingest_borrowed_value(value)?;
         }
 
@@ -516,11 +467,6 @@ impl ScalarAggregateReducerRuntime {
         }
 
         Ok(ordered_values)
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(super) const fn attribution(&self) -> ScalarAggregateTerminalAttribution {
-        self.attribution
     }
 }
 

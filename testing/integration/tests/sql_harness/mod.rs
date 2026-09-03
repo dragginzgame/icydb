@@ -33,7 +33,4 @@ pub(crate) use verdict::{
     CorrectnessObservation, CorrectnessVerdict, DiagnosticFact, ObservedOutcome,
     correctness_verdict,
 };
-pub(crate) use verdict::{
-    FailureOwner, HarnessFailureKind, MeasurementStatus, MismatchCategory, PerformanceFailure,
-    PerformanceVerdict, performance_verdict,
-};
+pub(crate) use verdict::{FailureOwner, HarnessFailureKind, MismatchCategory};

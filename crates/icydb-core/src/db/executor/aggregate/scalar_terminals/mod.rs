@@ -37,10 +37,6 @@ use crate::{
 use icydb_diagnostic_code::DiagnosticExecutionLane;
 use std::borrow::Cow;
 
-#[cfg(feature = "diagnostics")]
-use crate::db::executor::aggregate::terminal_attribution::{
-    ScalarAggregateTerminalAttribution, measure_phase, record_scalar_aggregate_terminal_attribution,
-};
 pub(in crate::db::executor::aggregate) use reducer::scalar_distinct_conservative_unit_work;
 pub(in crate::db) use request::StructuralAggregateRequest;
 #[cfg(feature = "sql")]
@@ -130,12 +126,6 @@ where
     if terminals.is_empty() {
         return Ok(Vec::new());
     }
-    #[cfg(feature = "diagnostics")]
-    let mut terminal_attribution = ScalarAggregateTerminalAttribution::from_terminal_counts(
-        terminals.terminal_count(),
-        terminals.input_expr_count(),
-        terminals.filter_expr_count(),
-    );
 
     let plan = plan.into_prepared_load_plan();
     let authority = plan.authority();
@@ -147,26 +137,7 @@ where
         .flatten();
 
     let mut reducer_runtime = ScalarAggregateReducerRuntime::new(terminals);
-    #[cfg(feature = "diagnostics")]
-    {
-        let (total_local_instructions, execution) = measure_phase(|| {
-            execute_prepared_scalar_aggregate_kernel_row_sink_for_canister(
-                db,
-                debug,
-                plan,
-                retained_slot_layout,
-                aggregate_route_plan,
-                |row| reducer_runtime.ingest_row(row),
-            )
-        });
-        execution?;
-        let runtime_attribution = reducer_runtime.attribution();
-        terminal_attribution.merge_runtime(runtime_attribution);
-        terminal_attribution.base_row_local_instructions = total_local_instructions
-            .saturating_sub(terminal_attribution.reducer_fold_local_instructions);
-        record_scalar_aggregate_terminal_attribution(terminal_attribution);
-    }
-    #[cfg(not(feature = "diagnostics"))]
+
     execute_prepared_scalar_aggregate_kernel_row_sink_for_canister(
         db,
         debug,

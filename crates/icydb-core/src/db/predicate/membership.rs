@@ -86,8 +86,6 @@ pub(in crate::db) fn collapse_membership_values(
 
 /// Canonicalize an already-admitted membership literal set.
 pub(in crate::db) fn canonical_membership_value_list(mut values: Vec<Value>) -> Value {
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    crate::db::diagnostics::record_sql_membership_canonicalization(values.len());
     canonicalize_value_set(&mut values);
 
     Value::List(values)

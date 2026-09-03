@@ -52,7 +52,6 @@ impl ScalarTerminalExprCache {
         &mut self,
         row: &KernelRow,
         index: usize,
-        #[cfg(feature = "diagnostics")] evaluation_count: &mut u64,
     ) -> Result<&Value, InternalError> {
         cached_scalar_terminal_expr_value(
             self.input_exprs.as_slice(),
@@ -60,8 +59,6 @@ impl ScalarTerminalExprCache {
             &mut self.input_values,
             index,
             "input",
-            #[cfg(feature = "diagnostics")]
-            evaluation_count,
         )
     }
 
@@ -69,7 +66,6 @@ impl ScalarTerminalExprCache {
         &mut self,
         filter_index: Option<usize>,
         row: &KernelRow,
-        #[cfg(feature = "diagnostics")] filter_evaluation_count: &mut u64,
     ) -> Result<bool, InternalError> {
         let Some(filter_index) = filter_index else {
             return Ok(true);
@@ -80,8 +76,6 @@ impl ScalarTerminalExprCache {
             &mut self.filter_values,
             filter_index,
             "filter",
-            #[cfg(feature = "diagnostics")]
-            filter_evaluation_count,
         )?;
 
         admit_true_only_boolean_value(value, |_found| InternalError::query_executor_invariant())
@@ -113,7 +107,6 @@ fn cached_scalar_terminal_expr_value<'a>(
     values: &'a mut [Option<Value>],
     index: usize,
     _label: &str,
-    #[cfg(feature = "diagnostics")] evaluation_count: &mut u64,
 ) -> Result<&'a Value, InternalError> {
     let expr = exprs
         .get(index)
@@ -122,10 +115,6 @@ fn cached_scalar_terminal_expr_value<'a>(
         .get_mut(index)
         .ok_or_else(InternalError::query_executor_invariant)?;
     if value.is_none() {
-        #[cfg(feature = "diagnostics")]
-        {
-            *evaluation_count = evaluation_count.saturating_add(1);
-        }
         *value = Some(evaluate_scalar_terminal_expr(expr, row)?);
     }
 

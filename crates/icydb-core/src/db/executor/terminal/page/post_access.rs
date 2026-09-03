@@ -14,11 +14,6 @@ use crate::{
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 
-#[cfg(feature = "diagnostics")]
-use super::metrics::{
-    measure_kernel_row_phase, record_kernel_row_order_window_local_instructions,
-    record_kernel_row_page_window_local_instructions,
-};
 // Run canonical load post-access phases over kernel rows.
 pub(super) fn apply_post_access_to_kernel_rows_dyn(
     plan: &AccessPlannedQuery,
@@ -52,8 +47,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
             {
                 return Err(InternalError::query_executor_invariant());
             }
-            apply_measured_structural_order_window(
-                scan_rows,
+            scan_rows.apply_order(
                 resolved_order,
                 ExecutionKernel::bounded_order_keep_count(plan, cursor, cursor_emission.enabled()),
             )?
@@ -84,7 +78,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
         } else {
             let resolved_order = cursor.map(|_| plan.require_resolved_order()).transpose()?;
 
-            apply_measured_load_cursor_and_pagination_window(
+            apply_load_cursor_and_pagination_window(
                 &mut rows,
                 cursor
                     .zip(resolved_order)
@@ -96,42 +90,6 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
     };
 
     Ok((rows, rows_after_cursor))
-}
-
-fn apply_measured_structural_order_window(
-    rows: PendingOrderRows<KernelRow>,
-    resolved_order: &ResolvedOrder,
-    keep_count: Option<usize>,
-) -> Result<Vec<KernelRow>, InternalError> {
-    #[cfg(feature = "diagnostics")]
-    let (order_window_local_instructions, result) =
-        measure_kernel_row_phase(|| rows.apply_order(resolved_order, keep_count));
-    #[cfg(feature = "diagnostics")]
-    record_kernel_row_order_window_local_instructions(order_window_local_instructions);
-    #[cfg(not(feature = "diagnostics"))]
-    let result = rows.apply_order(resolved_order, keep_count);
-
-    result
-}
-
-fn apply_measured_load_cursor_and_pagination_window(
-    rows: &mut Vec<KernelRow>,
-    cursor: Option<(&ResolvedOrder, &CursorBoundary)>,
-    offset: u32,
-    limit: Option<u32>,
-) -> Result<usize, InternalError> {
-    #[cfg(feature = "diagnostics")]
-    {
-        let (page_window_local_instructions, rows_after_cursor) = measure_kernel_row_phase(|| {
-            apply_load_cursor_and_pagination_window(rows, cursor, offset, limit)
-        });
-        record_kernel_row_page_window_local_instructions(page_window_local_instructions);
-
-        rows_after_cursor
-    }
-
-    #[cfg(not(feature = "diagnostics"))]
-    apply_load_cursor_and_pagination_window(rows, cursor, offset, limit)
 }
 
 // Apply one simple cursorless load page window directly on canonical data

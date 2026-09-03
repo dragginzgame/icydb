@@ -14,7 +14,7 @@ authors = { workspace = true }
 blake3 = { workspace = true }
 candid = { workspace = true }
 ic-testkit = { workspace = true }
-icydb = { workspace = true, features = ["diagnostics", "metrics", "migration", "sql"] }
+icydb = { workspace = true, features = ["metrics", "migration", "sql"] }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -73,10 +73,6 @@ name = "sql_perf_audit"
 path = "tests/sql_perf_audit.rs"
 
 [[test]]
-name = "sql_perf_matrix_audit"
-path = "tests/sql_perf_matrix_audit.rs"
-
-[[test]]
 name = "canister_artifact_contract"
 path = "tests/canister_artifact_contract.rs"
 
@@ -87,10 +83,6 @@ path = "tests/u256_measurement_contract.rs"
 [[test]]
 name = "group_path_measurement_contract"
 path = "tests/group_path_measurement_contract.rs"
-
-[[test]]
-name = "streaming_execution_baseline"
-path = "tests/streaming_execution_baseline.rs"
 
 [[test]]
 name = "durable_mutation_job_scale"

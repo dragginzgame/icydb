@@ -13,10 +13,7 @@ use crate::db::{
         describe_entity_fields_with_persisted_schema,
         describe_entity_relations_with_persisted_schema,
     },
-    session::{
-        AcceptedSchemaCatalogContext,
-        sql::{CompiledSqlCommand, SqlCacheAttribution},
-    },
+    session::{AcceptedSchemaCatalogContext, sql::CompiledSqlCommand},
 };
 use crate::{
     db::{DbSession, EntityCatalogDescription, QueryError, session::sql::SqlStatementResult},
@@ -188,7 +185,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         compiled: &CompiledSqlCommand,
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>> {
+    ) -> Option<Result<SqlStatementResult, QueryError>> {
         self.execute_metadata_compiled_sql_with_cache(compiled, Some(catalog))
     }
 
@@ -196,7 +193,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         compiled: &CompiledSqlCommand,
         catalog: Option<&AcceptedSchemaCatalogContext>,
-    ) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>> {
+    ) -> Option<Result<SqlStatementResult, QueryError>> {
         let result = match compiled {
             CompiledSqlCommand::DescribeEntity { mode } => {
                 self.describe_entity_sql_statement_result_with_catalog(catalog?, *mode)
@@ -229,6 +226,6 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Explain(_) => return None,
         };
 
-        Some(SqlCacheAttribution::with_default(result))
+        Some(result)
     }
 }

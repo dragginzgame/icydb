@@ -140,12 +140,12 @@ impl SharedPreparedExecutionPlan {
             .get_or_init_hybrid_covering_read_plan(self.authority.clone())
     }
 
-    #[cfg(all(test, feature = "diagnostics"))]
+    #[cfg(test)]
     pub(in crate::db) fn has_projection_covering_read_plan_for_tests(&self) -> bool {
         self.projection_covering_read_execution_plan().is_some()
     }
 
-    #[cfg(all(test, feature = "diagnostics"))]
+    #[cfg(test)]
     pub(in crate::db) fn has_hybrid_covering_read_plan_for_tests(&self) -> bool {
         self.hybrid_covering_read_plan().is_some()
     }

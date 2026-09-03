@@ -4,12 +4,6 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-#[cfg(feature = "diagnostics")]
-use crate::db::diagnostics::measure_local_instruction_delta as measure_grouped_execute_phase;
-#[cfg(feature = "diagnostics")]
-use crate::db::executor::{
-    GroupedCountFoldMetrics, aggregate::GroupedRuntimeStats, with_grouped_count_fold_metrics,
-};
 use crate::db::executor::{SharedPreparedExecutionPlan, StructuralGroupedProjectionResult};
 use crate::db::registry::StoreHandle;
 use crate::{
@@ -29,7 +23,7 @@ use crate::{
             pipeline::contracts::{ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage},
             pipeline::grouped_runtime::resolve_grouped_route_for_plan,
             pipeline::runtime::{
-                GroupedFoldStage, GroupedStreamStage, StructuralGroupedRowRuntime,
+                GroupedStreamStage, StructuralGroupedRowRuntime,
                 compile_grouped_row_slot_layout_from_inputs,
             },
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
@@ -94,75 +88,6 @@ where
         trace,
     ))
 }
-
-/// Execute one generic-free shared grouped plan with runtime phase attribution.
-#[cfg(feature = "diagnostics")]
-pub(in crate::db) fn execute_shared_grouped_plan_for_canister_with_phase_attribution<C>(
-    db: &crate::db::Db<C>,
-    debug: bool,
-    plan: SharedPreparedExecutionPlan,
-    cursor: ValidatedGroupedCursor,
-    execution_lane: DiagnosticExecutionLane,
-) -> Result<
-    (
-        StructuralGroupedProjectionResult,
-        Option<ExecutionTrace>,
-        GroupedExecutePhaseAttribution,
-    ),
-    InternalError,
->
-where
-    C: CanisterKind,
-{
-    let context = prepared_read_execution_context(&plan, execution_lane);
-    with_read_execution_budget(db.request_execution_scope(), context, || {
-        execute_shared_grouped_plan_for_canister_with_phase_attribution_inner(
-            db, debug, plan, cursor,
-        )
-    })
-}
-
-#[cfg(feature = "diagnostics")]
-fn execute_shared_grouped_plan_for_canister_with_phase_attribution_inner<C>(
-    db: &crate::db::Db<C>,
-    debug: bool,
-    plan: SharedPreparedExecutionPlan,
-    cursor: ValidatedGroupedCursor,
-) -> Result<
-    (
-        StructuralGroupedProjectionResult,
-        Option<ExecutionTrace>,
-        GroupedExecutePhaseAttribution,
-    ),
-    InternalError,
->
-where
-    C: CanisterKind,
-{
-    charge_grouped_cursor_input(&cursor)?;
-    let value_catalog = plan
-        .authority_ref()
-        .accepted_schema_info()
-        .map(crate::db::schema::SchemaInfo::value_catalog_handle)
-        .cloned()
-        .ok_or_else(InternalError::query_executor_invariant)?;
-    let prepared = prepare_grouped_route_runtime_for_load_plan(
-        db,
-        debug,
-        plan.into_prepared_load_plan(),
-        cursor,
-    )?;
-    let (page, trace, phase_attribution) =
-        execute_prepared_grouped_route_runtime_with_phase_attribution(prepared)?;
-    charge_grouped_page_result(&page)?;
-
-    Ok((
-        StructuralGroupedProjectionResult::from_page(page, value_catalog),
-        trace,
-        phase_attribution,
-    ))
-}
-
 fn charge_grouped_page_result(page: &GroupedCursorPage) -> Result<(), InternalError> {
     charge_runtime_grouped_rows(&page.rows)?;
     if let Some(cursor) = page.next_cursor.as_ref() {
@@ -234,300 +159,6 @@ pub(in crate::db::executor) struct PreparedGroupedRouteRuntime {
     runtime: GroupedPathRuntimeContext,
     execution_preparation: ExecutionPreparation,
     grouped_slot_layout: RetainedSlotLayout,
-}
-
-///
-/// GroupedRouteExecutionResult
-///
-/// GroupedRouteExecutionResult is the canonical grouped runtime output shell
-/// used by both ordinary and diagnostics-attributed grouped entrypoints.
-/// The grouped lane keeps one execution spine and lets outer wrappers choose
-/// whether they need the optional phase split.
-///
-
-struct GroupedRouteExecutionResult {
-    page: GroupedCursorPage,
-    trace: Option<ExecutionTrace>,
-    #[cfg(feature = "diagnostics")]
-    phase_attribution: Option<GroupedExecutePhaseAttribution>,
-}
-
-///
-/// GroupedExecutionObserver
-///
-/// GroupedExecutionObserver records optional diagnostics around the canonical
-/// grouped stream, fold, and finalize operations. Its non-diagnostics form is
-/// zero-sized and executes those operations directly.
-///
-
-struct GroupedExecutionObserver {
-    #[cfg(feature = "diagnostics")]
-    collect_phase_attribution: bool,
-    #[cfg(feature = "diagnostics")]
-    phase_attribution: GroupedExecutePhaseAttribution,
-}
-
-///
-/// GroupedCountAttribution
-///
-/// GroupedCountAttribution records dedicated grouped-count lookup and update
-/// work from the canonical grouped fold operation.
-///
-
-#[cfg(feature = "diagnostics")]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(in crate::db) struct GroupedCountAttribution {
-    pub(in crate::db) borrowed_hash_computations: u64,
-    pub(in crate::db) bucket_candidate_checks: u64,
-    pub(in crate::db) existing_group_hits: u64,
-    pub(in crate::db) new_group_inserts: u64,
-    pub(in crate::db) row_materialization_local_instructions: u64,
-    pub(in crate::db) group_lookup_local_instructions: u64,
-    pub(in crate::db) existing_group_update_local_instructions: u64,
-    pub(in crate::db) new_group_insert_local_instructions: u64,
-}
-
-#[cfg(feature = "diagnostics")]
-impl GroupedCountAttribution {
-    #[must_use]
-    pub(in crate::db) const fn none() -> Self {
-        Self {
-            borrowed_hash_computations: 0,
-            bucket_candidate_checks: 0,
-            existing_group_hits: 0,
-            new_group_inserts: 0,
-            row_materialization_local_instructions: 0,
-            group_lookup_local_instructions: 0,
-            existing_group_update_local_instructions: 0,
-            new_group_insert_local_instructions: 0,
-        }
-    }
-
-    #[must_use]
-    const fn from_fold_metrics(metrics: GroupedCountFoldMetrics) -> Self {
-        Self {
-            borrowed_hash_computations: metrics.borrowed_hash_computations,
-            bucket_candidate_checks: metrics.bucket_candidate_checks,
-            existing_group_hits: metrics.existing_group_hits,
-            new_group_inserts: metrics.new_group_inserts,
-            row_materialization_local_instructions: metrics.row_materialization_local_instructions,
-            group_lookup_local_instructions: metrics.group_lookup_local_instructions,
-            existing_group_update_local_instructions: metrics
-                .existing_group_update_local_instructions,
-            new_group_insert_local_instructions: metrics.new_group_insert_local_instructions,
-        }
-    }
-}
-
-///
-/// GroupedRuntimeAttribution
-///
-/// GroupedRuntimeAttribution carries the resource-owner snapshot captured by
-/// successful grouped fold execution through diagnostics boundaries.
-/// It is the single internal transport for grouped work and peak live-state
-/// facts shared by fluent and SQL attribution.
-///
-
-#[cfg(feature = "diagnostics")]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(in crate::db) struct GroupedRuntimeAttribution {
-    pub(in crate::db) rows_scanned: u64,
-    pub(in crate::db) groups_observed: u64,
-    pub(in crate::db) groups_finalized: u64,
-    pub(in crate::db) peak_live_groups: u64,
-    pub(in crate::db) peak_live_aggregate_states: u64,
-    pub(in crate::db) peak_live_distinct_values: u64,
-    pub(in crate::db) peak_estimated_state_bytes: u64,
-    pub(in crate::db) early_scan_stop: bool,
-}
-
-#[cfg(feature = "diagnostics")]
-impl GroupedRuntimeAttribution {
-    /// Build the diagnostics transport directly from executor-owned runtime truth.
-    #[must_use]
-    fn from_runtime_stats(stats: GroupedRuntimeStats, rows_scanned: usize) -> Self {
-        Self {
-            rows_scanned: u64::try_from(rows_scanned).unwrap_or(u64::MAX),
-            groups_observed: stats.groups_observed(),
-            groups_finalized: stats.groups_finalized(),
-            peak_live_groups: stats.peak_live_groups(),
-            peak_live_aggregate_states: stats.peak_live_aggregate_states(),
-            peak_live_distinct_values: stats.peak_live_distinct_values(),
-            peak_estimated_state_bytes: stats.peak_estimated_state_bytes(),
-            early_scan_stop: stats.early_scan_stop(),
-        }
-    }
-
-    /// Build the empty runtime attribution used by non-grouped SQL phases.
-    #[must_use]
-    pub(in crate::db) const fn none() -> Self {
-        Self {
-            rows_scanned: 0,
-            groups_observed: 0,
-            groups_finalized: 0,
-            peak_live_groups: 0,
-            peak_live_aggregate_states: 0,
-            peak_live_distinct_values: 0,
-            peak_estimated_state_bytes: 0,
-            early_scan_stop: false,
-        }
-    }
-}
-
-impl GroupedExecutionObserver {
-    #[cfg(feature = "diagnostics")]
-    fn new(collect_phase_attribution: bool) -> Self {
-        Self {
-            collect_phase_attribution,
-            phase_attribution: GroupedExecutePhaseAttribution::default(),
-        }
-    }
-
-    #[cfg(not(feature = "diagnostics"))]
-    const fn new() -> Self {
-        Self {}
-    }
-
-    #[cfg(feature = "diagnostics")]
-    fn build_stream(
-        &mut self,
-        build: impl FnOnce() -> Result<GroupedStreamStage, InternalError>,
-    ) -> Result<GroupedStreamStage, InternalError> {
-        if self.collect_phase_attribution {
-            let (local_instructions, stream) = measure_grouped_execute_phase(build);
-            self.phase_attribution.stream_local_instructions = local_instructions;
-
-            return stream;
-        }
-
-        build()
-    }
-
-    #[cfg(not(feature = "diagnostics"))]
-    #[expect(
-        clippy::unused_self,
-        reason = "keeps one observer call shape while the non-diagnostics observer remains zero-sized"
-    )]
-    fn build_stream(
-        &self,
-        build: impl FnOnce() -> Result<GroupedStreamStage, InternalError>,
-    ) -> Result<GroupedStreamStage, InternalError> {
-        build()
-    }
-
-    #[cfg(feature = "diagnostics")]
-    fn fold(
-        &mut self,
-        fold: impl FnOnce() -> Result<GroupedFoldStage, InternalError>,
-    ) -> Result<GroupedFoldStage, InternalError> {
-        if self.collect_phase_attribution {
-            let mut grouped_count_fold_metrics = GroupedCountFoldMetrics::default();
-            let ((local_instructions, folded), aggregation_micros) =
-                crate::db::executor::measure_execution_stats_phase(|| {
-                    measure_grouped_execute_phase(|| {
-                        let (folded, metrics) = with_grouped_count_fold_metrics(fold);
-                        grouped_count_fold_metrics = metrics;
-
-                        folded
-                    })
-                });
-            record_aggregation(aggregation_micros);
-            self.phase_attribution.fold_local_instructions = local_instructions;
-            self.phase_attribution.grouped_count =
-                GroupedCountAttribution::from_fold_metrics(grouped_count_fold_metrics);
-
-            return folded;
-        }
-
-        let (folded, aggregation_micros) = crate::db::executor::measure_execution_stats_phase(fold);
-        record_aggregation(aggregation_micros);
-
-        folded
-    }
-
-    #[cfg(not(feature = "diagnostics"))]
-    #[expect(
-        clippy::unused_self,
-        reason = "keeps one observer call shape while the non-diagnostics observer remains zero-sized"
-    )]
-    fn fold(
-        &self,
-        fold: impl FnOnce() -> Result<GroupedFoldStage, InternalError>,
-    ) -> Result<GroupedFoldStage, InternalError> {
-        let (folded, aggregation_micros) = crate::db::executor::measure_execution_stats_phase(fold);
-        record_aggregation(aggregation_micros);
-
-        folded
-    }
-
-    #[cfg(feature = "diagnostics")]
-    fn observe_runtime(&mut self, folded: &GroupedFoldStage) {
-        if self.collect_phase_attribution {
-            self.phase_attribution.runtime = GroupedRuntimeAttribution::from_runtime_stats(
-                folded.runtime_stats(),
-                folded.rows_scanned(),
-            );
-        }
-    }
-
-    #[cfg(not(feature = "diagnostics"))]
-    #[expect(
-        clippy::unused_self,
-        reason = "keeps one observer call shape while the non-diagnostics observer remains zero-sized"
-    )]
-    const fn observe_runtime(&self, _folded: &GroupedFoldStage) {}
-
-    #[cfg(feature = "diagnostics")]
-    fn finalize(
-        &mut self,
-        finalize: impl FnOnce() -> (GroupedCursorPage, Option<ExecutionTrace>),
-    ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
-        if self.collect_phase_attribution {
-            let (local_instructions, finalized) = measure_grouped_execute_phase(finalize);
-            self.phase_attribution.finalize_local_instructions = local_instructions;
-
-            return finalized;
-        }
-
-        finalize()
-    }
-
-    #[cfg(not(feature = "diagnostics"))]
-    #[expect(
-        clippy::unused_self,
-        reason = "keeps one observer call shape while the non-diagnostics observer remains zero-sized"
-    )]
-    fn finalize(
-        &self,
-        finalize: impl FnOnce() -> (GroupedCursorPage, Option<ExecutionTrace>),
-    ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
-        finalize()
-    }
-
-    #[cfg(feature = "diagnostics")]
-    fn into_phase_attribution(self) -> Option<GroupedExecutePhaseAttribution> {
-        self.collect_phase_attribution
-            .then_some(self.phase_attribution)
-    }
-}
-
-///
-/// GroupedExecutePhaseAttribution
-///
-/// GroupedExecutePhaseAttribution records the internal grouped-load execute
-/// split after one prepared route has already crossed the session compile
-/// boundary. It observes the canonical stream, fold, and finalization
-/// operations without owning an alternate execution path.
-///
-
-#[cfg(feature = "diagnostics")]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(in crate::db) struct GroupedExecutePhaseAttribution {
-    pub(in crate::db) stream_local_instructions: u64,
-    pub(in crate::db) fold_local_instructions: u64,
-    pub(in crate::db) finalize_local_instructions: u64,
-    pub(in crate::db) runtime: GroupedRuntimeAttribution,
-    pub(in crate::db) grouped_count: GroupedCountAttribution,
 }
 
 impl GroupedPathRuntimeContext {
@@ -660,20 +291,19 @@ fn execute_grouped_route_path(
     mut route: GroupedRouteStage,
     execution_preparation: ExecutionPreparation,
     grouped_slot_layout: RetainedSlotLayout,
-    #[cfg(feature = "diagnostics")] collect_phase_attribution: bool,
-) -> Result<GroupedRouteExecutionResult, InternalError> {
-    #[cfg(feature = "diagnostics")]
-    let mut observer = GroupedExecutionObserver::new(collect_phase_attribution);
-    #[cfg(not(feature = "diagnostics"))]
-    let observer = GroupedExecutionObserver::new();
+) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
     let collect_stats = route.execution_trace.is_some();
     let execution_started_at = start_execution_timer();
     let (fold_result, mut execution_stats) = with_execution_stats_capture(collect_stats, || {
-        let stream = observer.build_stream(|| {
-            runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)
-        })?;
+        let stream =
+            runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)?;
+        let (folded, aggregation_micros) =
+            crate::db::executor::measure_execution_stats_phase(|| {
+                execute_group_fold_stage(&route, stream)
+            });
+        record_aggregation(aggregation_micros);
 
-        observer.fold(|| execute_group_fold_stage(&route, stream))
+        folded
     });
     let folded = fold_result?;
     let execution_time_micros = elapsed_execution_micros(execution_started_at);
@@ -685,39 +315,11 @@ fn execute_grouped_route_path(
             execution_stats.map(crate::db::executor::ExecutionProfileStats::into_execution_stats),
         );
     }
-    observer.observe_runtime(&folded);
-    let (page, trace) =
-        observer.finalize(|| finalize_grouped_output(route, folded, execution_time_micros));
-
-    Ok(GroupedRouteExecutionResult {
-        page,
-        trace,
-        #[cfg(feature = "diagnostics")]
-        phase_attribution: observer.into_phase_attribution(),
-    })
-}
-
-// Execute one grouped prepared runtime bundle through the canonical grouped
-// runtime spine while optionally capturing diagnostics phase attribution.
-fn execute_prepared_grouped_route_runtime_internal(
-    prepared: PreparedGroupedRouteRuntime,
-    #[cfg(feature = "diagnostics")] collect_phase_attribution: bool,
-) -> Result<GroupedRouteExecutionResult, InternalError> {
-    let PreparedGroupedRouteRuntime {
+    Ok(finalize_grouped_output(
         route,
-        runtime,
-        execution_preparation,
-        grouped_slot_layout,
-    } = prepared;
-
-    execute_grouped_route_path(
-        &runtime,
-        route,
-        execution_preparation,
-        grouped_slot_layout,
-        #[cfg(feature = "diagnostics")]
-        collect_phase_attribution,
-    )
+        folded,
+        execution_time_micros,
+    ))
 }
 
 // Execute one fully prepared grouped runtime bundle through the canonical
@@ -725,32 +327,12 @@ fn execute_prepared_grouped_route_runtime_internal(
 pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime(
     prepared: PreparedGroupedRouteRuntime,
 ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
-    let result = execute_prepared_grouped_route_runtime_internal(
-        prepared,
-        #[cfg(feature = "diagnostics")]
-        false,
-    )?;
+    let PreparedGroupedRouteRuntime {
+        route,
+        runtime,
+        execution_preparation,
+        grouped_slot_layout,
+    } = prepared;
 
-    Ok((result.page, result.trace))
-}
-
-/// Execute one prepared grouped runtime bundle while reporting the internal
-/// stream/fold/finalize split for perf-only grouped attribution surfaces.
-#[cfg(feature = "diagnostics")]
-pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime_with_phase_attribution(
-    prepared: PreparedGroupedRouteRuntime,
-) -> Result<
-    (
-        GroupedCursorPage,
-        Option<ExecutionTrace>,
-        GroupedExecutePhaseAttribution,
-    ),
-    InternalError,
-> {
-    let result = execute_prepared_grouped_route_runtime_internal(prepared, true)?;
-    let phase_attribution = result
-        .phase_attribution
-        .ok_or_else(InternalError::query_executor_invariant)?;
-
-    Ok((result.page, result.trace, phase_attribution))
+    execute_grouped_route_path(&runtime, route, execution_preparation, grouped_slot_layout)
 }

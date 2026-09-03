@@ -244,47 +244,16 @@ IcyDB pagination guarantees:
 
 These guarantees are part of the current query contract.
 
-## Bounded Request Diagnostics
+## Entity Cost Observation
 
-Builds that enable the `diagnostics` feature may opt one request root into a
-bounded query summary:
+The optional `metrics` feature reports heap-only hit, total-instruction, and
+maximum-instruction counters by accepted entity path. It does not change query
+intent, planning, execution, cursor identity, or persisted state. Endpoint
+attribution belongs to Canic; the runtime does not retain request shapes,
+predicate values, keys, rows, cache counters, or per-phase SQL attribution.
 
-```rust
-let database = icydb::db!()?;
-database.enable_request_diagnostics();
-
-// Every later db!() session under this endpoint shares this collection state.
-run_application_work()?;
-
-let summary = database.request_diagnostics();
-```
-
-Enabling collection is idempotent. A nested helper or another `DbSession`
-derived from the same endpoint root cannot create or reset a second summary.
-Collection begins when explicitly enabled; earlier request work is not
-reconstructed.
-
-The summary groups maintained reads by a literal-free normalized shape and
-reports bounded cache, execution, physical-row, byte, access-path, residual,
-and exact-key evidence. It retains at most 32 shapes, 128 hashed key
-identities, eight residual/candidate fields per shape, and 128 bytes per
-label. Raw keys, predicate literals, and row payloads are never retained or
-returned. Capacity loss remains visible through shape, key-identity, and
-suppression counters.
-
-Repeated point queries can therefore produce an actionable warning to preload
-known keys with bounded `get_many` and reuse the rows. A selected equality
-index followed by residual equality work may also produce a diagnostic-only
-compound-index prefix, such as `collection_id + stage`. IcyDB never creates or
-publishes an index from this evidence.
-
-Diagnostic hashing, aggregation, retained bytes, and snapshot bytes consume
-the same request root's finite resource counters. If diagnostic allowance is
-unavailable, collection fails soft: query planning and successful result
-semantics stay unchanged, detail is omitted, and suppression is reported.
-Plan observations may outnumber completed executions when the request-wide
-execution budget rejects later N+1 calls; that difference is intentional and
-shows where aggregate protection stopped physical work.
+Request-wide execution budgets remain mandatory safety policy and are not a
+metrics mode.
 
 ## Missing-Row Semantics (Explicit)
 

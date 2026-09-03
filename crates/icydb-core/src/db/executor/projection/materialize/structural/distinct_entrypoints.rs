@@ -13,7 +13,6 @@ use crate::{
                 ProjectionDistinctStrategy, ProjectionDistinctWindow,
                 distinct::{DistinctProjectedRow, collect_distinct_projected_rows},
                 execute::{project_data_row, project_slot_row},
-                metrics::ProjectionMaterializationMetricsRecorder,
                 plan::PreparedProjectionContract,
                 structural::MaterializedProjectionRows,
             },
@@ -44,7 +43,6 @@ impl MaterializedDistinctProjectionPage {
 pub(in crate::db::executor::projection) struct DistinctProjectionRuntime<'a> {
     resolved_order: Option<&'a ResolvedOrder>,
     output_work: Option<&'a mut ProductionScalarOutputWork>,
-    metrics: ProjectionMaterializationMetricsRecorder,
 }
 
 impl<'a> DistinctProjectionRuntime<'a> {
@@ -52,12 +50,10 @@ impl<'a> DistinctProjectionRuntime<'a> {
     pub(in crate::db::executor::projection) const fn new(
         resolved_order: Option<&'a ResolvedOrder>,
         output_work: Option<&'a mut ProductionScalarOutputWork>,
-        metrics: ProjectionMaterializationMetricsRecorder,
     ) -> Self {
         Self {
             resolved_order,
             output_work,
-            metrics,
         }
     }
 }
@@ -73,19 +69,14 @@ pub(in crate::db::executor::projection) fn project_distinct(
     let DistinctProjectionRuntime {
         resolved_order,
         output_work,
-        metrics,
     } = runtime;
     let output_work = RefCell::new(output_work);
     let projected = page.consume_projection_rows(
         |slot_rows| {
-            metrics.record_slot_rows_path_hit();
-
             collect_distinct_projected_rows(
                 strategy,
                 window,
                 slot_rows,
-                || metrics.record_distinct_candidate_row(),
-                || metrics.record_distinct_bounded_stop(),
                 |row| {
                     output_work
                         .borrow_mut()
@@ -101,14 +92,10 @@ pub(in crate::db::executor::projection) fn project_distinct(
             )
         },
         |data_rows| {
-            metrics.record_data_rows_path_hit();
-
             collect_distinct_projected_rows(
                 strategy,
                 window,
                 data_rows,
-                || metrics.record_distinct_candidate_row(),
-                || metrics.record_distinct_bounded_stop(),
                 |row| {
                     output_work
                         .borrow_mut()
@@ -119,24 +106,13 @@ pub(in crate::db::executor::projection) fn project_distinct(
                     let boundary = resolved_order
                         .map(|order| cursor_boundary_from_data_row(&row, &row_layout, order))
                         .transpose()?;
-                    project_data_row(&row_layout, prepared_projection, &row, metrics)
+                    project_data_row(&row_layout, prepared_projection, &row)
                         .map(|row| DistinctProjectedRow::new(row, boundary))
                 },
             )
         },
     )?;
-    let (rows, last_emitted_logical, has_more, stats) = projected.into_parts();
-    match stats.strategy {
-        ProjectionDistinctStrategy::OrderedAdjacent => {
-            metrics.record_distinct_adjacent_path_hit();
-        }
-        ProjectionDistinctStrategy::GlobalReplay => {
-            metrics.record_distinct_global_path_hit();
-        }
-    }
-    metrics.record_distinct_unique_rows(stats.unique_rows);
-    metrics.record_distinct_peak_retained_entries(stats.peak_retained_entries);
-    metrics.record_distinct_peak_retained_backing_bytes(stats.peak_retained_backing_bytes);
+    let (rows, last_emitted_logical, has_more) = projected.into_parts();
 
     Ok(MaterializedDistinctProjectionPage {
         rows: MaterializedProjectionRows::from_row_views(rows),

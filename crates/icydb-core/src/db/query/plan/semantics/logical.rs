@@ -368,15 +368,6 @@ impl AccessPlannedQuery {
             .as_slice())
     }
 
-    /// Borrow the planner-frozen mask for direct projected output slots.
-    #[cfg(any(test, feature = "diagnostics"))]
-    pub(in crate::db) fn projected_slot_mask(&self) -> Result<&[bool], InternalError> {
-        Ok(self
-            .require_static_execution_planning_contract()?
-            .projected_slot_mask
-            .as_slice())
-    }
-
     /// Return whether projection remains the full model-identity field list.
     pub(in crate::db) fn projection_is_model_identity(&self) -> Result<bool, InternalError> {
         Ok(self
@@ -568,8 +559,6 @@ fn project_static_execution_planning_contract_with_schema(
         &plan.projection_selection,
     );
     let projection_referenced_slots = projection_spec.referenced_slots_for_schema(schema_info)?;
-    let projected_slot_mask =
-        projected_slot_mask_for_spec(schema_info, projection_direct_slots.as_deref());
     let projection_is_model_identity = projection_spec.is_schema_identity_for(schema_info);
     let resolved_order = resolved_order_for_plan(schema_info, plan)?;
     let order_referenced_slots = order_referenced_slots_for_resolved_order(resolved_order.as_ref());
@@ -589,7 +578,6 @@ fn project_static_execution_planning_contract_with_schema(
         projection_direct_slots,
         projection_data_row_direct_slots,
         projection_referenced_slots,
-        projected_slot_mask,
         projection_is_model_identity,
         resolved_order,
         order_referenced_slots,
@@ -833,34 +821,6 @@ fn extend_grouped_having_aggregate_specs(
     }
 
     Ok(())
-}
-
-fn projected_slot_mask_for_spec(
-    schema_info: &SchemaInfo,
-    direct_projection_slots: Option<&[usize]>,
-) -> Vec<bool> {
-    let schema_slot_len = direct_projection_slots
-        .and_then(|slots| slots.iter().copied().max())
-        .map_or(0, |slot| slot.saturating_add(1));
-    let mut projected_slots = vec![
-        false;
-        schema_info
-            .field_names_in_slot_order()
-            .len()
-            .max(schema_slot_len)
-    ];
-
-    let Some(direct_projection_slots) = direct_projection_slots else {
-        return projected_slots;
-    };
-
-    for slot in direct_projection_slots.iter().copied() {
-        if let Some(projected) = projected_slots.get_mut(slot) {
-            *projected = true;
-        }
-    }
-
-    projected_slots
 }
 
 fn resolved_order_for_plan(

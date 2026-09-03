@@ -6,10 +6,6 @@
 mod obligations;
 
 use crate::sql_harness::{EligibleProvider, EvidenceClass, EvidenceStrength};
-use icydb_testing_integration::sql_performance_contract::{
-    SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES, SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES,
-};
-
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -101,35 +97,6 @@ impl FeatureCategory {
 }
 
 ///
-/// PerformanceObligation
-///
-/// Performance evidence class required by one SQL contract feature.
-/// Owned by the correctness coverage manifest and matched against declared scenarios.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PerformanceObligation {
-    BroadScan,
-    FocusedHotspot,
-    None,
-    RegressionSentinel,
-    ScaleSentinel,
-}
-
-impl PerformanceObligation {
-    /// Return the stable machine-readable performance-obligation identity.
-    const fn code(self) -> &'static str {
-        match self {
-            Self::BroadScan => "broad_scan",
-            Self::FocusedHotspot => "focused_hotspot",
-            Self::None => "none",
-            Self::RegressionSentinel => "regression_sentinel",
-            Self::ScaleSentinel => "scale_sentinel",
-        }
-    }
-}
-
-///
 /// EvidenceRequirement
 ///
 /// Minimum evidence layer and strength required for one coverage cell.
@@ -157,7 +124,6 @@ struct CoverageCell {
     contract_section: &'static str,
     category: FeatureCategory,
     evidence: &'static [EvidenceRequirement],
-    performance: &'static [PerformanceObligation],
     eligible_providers: &'static [EligibleProvider],
     deterministic_providers: &'static [&'static str],
     generated_families: &'static [&'static str],
@@ -267,18 +233,6 @@ const EVIDENCE_STRENGTH_TAXONOMY: &[EvidenceStrength] = &[
     EvidenceStrength::ContractAssertion,
     EvidenceStrength::BoundaryAssertion,
 ];
-const PERFORMANCE_OBLIGATION_TAXONOMY: &[PerformanceObligation] = &[
-    PerformanceObligation::None,
-    PerformanceObligation::BroadScan,
-    PerformanceObligation::ScaleSentinel,
-    PerformanceObligation::RegressionSentinel,
-    PerformanceObligation::FocusedHotspot,
-];
-
-const PERF_NONE: &[PerformanceObligation] = &[PerformanceObligation::None];
-const PERF_BROAD: &[PerformanceObligation] = &[PerformanceObligation::BroadScan];
-const PERF_SCALE: &[PerformanceObligation] = &[PerformanceObligation::ScaleSentinel];
-
 const ELIGIBLE_SQLITE: &[EligibleProvider] = &[
     EligibleProvider::SqliteReference,
     EligibleProvider::FrontendEquivalent,
@@ -817,22 +771,22 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "core.ddl.add_check",
-        "testing/integration/tests/sql_perf_audit.rs",
-        "sql_perf_journaled_check_write_cost_is_measured",
+        "testing/integration/tests/sql_canister.rs",
+        "u256_closeout_matrix_survives_catalog_reopen_and_upgrade",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.check_not_valid_lifecycle",
-        "testing/integration/tests/sql_perf_audit.rs",
-        "sql_perf_integrity_accepted_check_pages_stay_bounded",
+        "crates/icydb-core/src/db/schema/constraint.rs",
+        "check_activation_preserves_identity_through_validation_and_promotion",
         ContractAssertion,
         [State]
     ),
     provider!(
         "core.ddl.check_plain_rejection",
-        "testing/integration/tests/sql_perf_audit.rs",
-        "sql_perf_journaled_check_write_cost_is_measured",
+        "testing/integration/tests/sql_canister.rs",
+        "u256_closeout_matrix_survives_catalog_reopen_and_upgrade",
         ContractAssertion,
         [State]
     ),
@@ -936,8 +890,8 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "core.mutation.trusted_resumable_update_state",
-        "testing/integration/tests/sql_perf_audit.rs",
-        "sql_perf_mutation_forward_steps_stay_bounded",
+        "crates/icydb-core/src/db/session/write.rs",
+        "mutation_execution_budget_exhaustion_terminalizes_forward_and_verify",
         ContractAssertion,
         [Execute, State]
     ),
@@ -972,7 +926,7 @@ const PROVIDERS: &[ProviderSpec] = &[
     provider!(
         "core.blob.equality",
         "testing/integration/tests/sql_perf_audit.rs",
-        "sql_perf_blob_metadata_query_stays_on_covering_index",
+        "sql_blob_scalar_query_executes_equality_and_octet_length",
         ContractAssertion,
         [Execute]
     ),
@@ -993,7 +947,7 @@ const PROVIDERS: &[ProviderSpec] = &[
     provider!(
         "core.blob.octet_length",
         "testing/integration/tests/sql_perf_audit.rs",
-        "sql_perf_blob_metadata_query_stays_on_covering_index",
+        "sql_blob_scalar_query_executes_equality_and_octet_length",
         ContractAssertion,
         [Execute]
     ),
@@ -1065,7 +1019,6 @@ macro_rules! cell {
         $section:literal,
         $category:ident,
         $evidence:ident,
-        $performance:ident,
         $eligible:ident,
         [$($provider:literal),+ $(,)?],
         $reference_exclusion:expr
@@ -1077,7 +1030,6 @@ macro_rules! cell {
             contract_section: $section,
             category: FeatureCategory::$category,
             evidence: $evidence,
-            performance: $performance,
             eligible_providers: $eligible,
             deterministic_providers: deterministic_providers!(
                 $evidence,
@@ -1097,7 +1049,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Core Rule",
         Policy,
         REQ_EXECUTE,
-        PERF_BROAD,
         ELIGIBLE_FRONTEND,
         ["core.query.public_read_families"],
         NO_EXTERNAL_ROUTE
@@ -1109,7 +1060,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Core Rule",
         Policy,
         REQ_BOUNDARY,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["build.sql.trusted_entrypoints"],
         NO_EXTERNAL_POLICY
@@ -1121,7 +1071,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Cursor Pagination",
         Clause,
         REQ_PARSE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
         NO_EXTERNAL_SYNTAX
@@ -1133,7 +1082,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Cursor Pagination",
         Clause,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.scalar_matrix"],
         None
@@ -1145,7 +1093,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Cursor Pagination",
         Clause,
         REQ_METAMORPHIC_EXECUTE,
-        PERF_BROAD,
         ELIGIBLE_EXECUTION_MODE,
         [
             "core.query.grouped_cursor",
@@ -1160,7 +1107,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Operational vs Semantic Features",
         Clause,
         REQ_PARSE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
         NO_EXTERNAL_SYNTAX
@@ -1172,7 +1118,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Operational vs Semantic Features",
         Expression,
         REQ_PARSE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_expressions"],
         NO_EXTERNAL_SYNTAX
@@ -1184,7 +1129,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`SELECT`",
         Statement,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.public_read_families"],
         None
@@ -1196,7 +1140,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`SELECT`",
         Statement,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.distinct_window"],
         None
@@ -1208,7 +1151,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`SELECT`",
         Statement,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.global_aggregate"],
         None
@@ -1220,7 +1162,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`SELECT`",
         Statement,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         [
             "core.query.grouped_aggregate",
@@ -1235,7 +1176,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`SELECT`",
         Expression,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.aggregate_distinct_filter"],
         None
@@ -1247,7 +1187,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`SELECT`",
         Expression,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.computed_projection"],
         None
@@ -1259,7 +1198,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`SELECT`",
         Interaction,
         REQ_EXECUTE_REFERENCE,
-        PERF_NONE,
         ELIGIBLE_SQLITE,
         ["core.query.composition"],
         None
@@ -1271,7 +1209,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`SELECT`",
         Interaction,
         REQ_EXECUTE_REFERENCE,
-        PERF_NONE,
         ELIGIBLE_SQLITE,
         ["core.query.composition"],
         None
@@ -1283,7 +1220,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`SELECT`",
         Clause,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.null_ordering"],
         None
@@ -1295,7 +1231,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Exact Primary-Key Reads",
         Interaction,
         REQ_ROUTE_EXECUTE,
-        PERF_BROAD,
         ELIGIBLE_EXECUTION_MODE,
         ["core.query.exact_key_route", "core.query.exact_key_execute"],
         NO_EXTERNAL_ROUTE
@@ -1307,7 +1242,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Exact Primary-Key Reads",
         Expression,
         REQ_LOWER,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.parameters_rejected"],
         NO_EXTERNAL_SYNTAX
@@ -1319,7 +1253,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`EXPLAIN`",
         Statement,
         REQ_EXECUTE,
-        PERF_BROAD,
         ELIGIBLE_ICYDB,
         [
             "core.query.explain_public",
@@ -1334,7 +1267,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         Statement,
         REQ_EXECUTE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
         NO_EXTERNAL_CATALOG
@@ -1346,7 +1278,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         Statement,
         REQ_EXECUTE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
         NO_EXTERNAL_CATALOG
@@ -1358,7 +1289,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         Statement,
         REQ_EXECUTE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
         NO_EXTERNAL_CATALOG
@@ -1370,7 +1300,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         Statement,
         REQ_EXECUTE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
         NO_EXTERNAL_CATALOG
@@ -1382,7 +1311,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         Statement,
         REQ_EXECUTE,
-        PERF_BROAD,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
         NO_EXTERNAL_CATALOG
@@ -1394,7 +1322,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         Statement,
         REQ_EXECUTE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.query.catalog_metadata"],
         NO_EXTERNAL_CATALOG
@@ -1406,7 +1333,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         Statement,
         REQ_EXECUTE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
         NO_EXTERNAL_CATALOG
@@ -1418,7 +1344,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         Statement,
         REQ_EXECUTE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.query.metadata_public"],
         NO_EXTERNAL_CATALOG
@@ -1430,7 +1355,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         ValueType,
         REQ_EXECUTE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.query.catalog_metadata"],
         NO_EXTERNAL_CATALOG
@@ -1442,7 +1366,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         Policy,
         REQ_BOUNDARY,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         [
             "build.sql.introspection_guard",
@@ -1457,7 +1380,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         ValueType,
         REQ_EXECUTE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.query.catalog_metadata"],
         NO_EXTERNAL_CATALOG
@@ -1469,7 +1391,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         ValueType,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.create_field_path"],
         NO_EXTERNAL_CATALOG
@@ -1481,7 +1402,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Introspection",
         Clause,
         REQ_PARSE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
         NO_EXTERNAL_SYNTAX
@@ -1493,7 +1413,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.create_field_path"],
         NO_EXTERNAL_CATALOG
@@ -1505,7 +1424,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.create_multi_field"],
         NO_EXTERNAL_CATALOG
@@ -1517,7 +1435,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Clause,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.index_ascending"],
         NO_EXTERNAL_CATALOG
@@ -1529,7 +1446,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.create_filtered"],
         NO_EXTERNAL_CATALOG
@@ -1541,7 +1457,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.create_expression"],
         NO_EXTERNAL_CATALOG
@@ -1553,7 +1468,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.create_if_not_exists"],
         NO_EXTERNAL_CATALOG
@@ -1565,7 +1479,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         [
             "core.ddl.create_unique",
@@ -1581,7 +1494,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.drop_index"],
         NO_EXTERNAL_CATALOG
@@ -1593,7 +1505,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.drop_index_if_exists"],
         NO_EXTERNAL_CATALOG
@@ -1605,7 +1516,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.add_column"],
         NO_EXTERNAL_CATALOG
@@ -1617,7 +1527,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.add_check", "core.ddl.check_plain_rejection"],
         NO_EXTERNAL_CATALOG
@@ -1629,7 +1538,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.check_not_valid_lifecycle"],
         NO_EXTERNAL_CATALOG
@@ -1641,7 +1549,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.check_not_valid_lifecycle"],
         NO_EXTERNAL_CATALOG
@@ -1653,7 +1560,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.check_not_valid_lifecycle"],
         NO_EXTERNAL_CATALOG
@@ -1665,7 +1571,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.alter_default"],
         NO_EXTERNAL_CATALOG
@@ -1677,7 +1582,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.alter_nullability"],
         NO_EXTERNAL_CATALOG
@@ -1689,7 +1593,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.rename_column"],
         NO_EXTERNAL_CATALOG
@@ -1701,7 +1604,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.ddl.drop_column"],
         NO_EXTERNAL_CATALOG
@@ -1713,7 +1615,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Clause,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.ddl.desc_rejected"],
         NO_EXTERNAL_CATALOG
@@ -1725,7 +1626,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Policy,
         REQ_BOUNDARY_LOWER,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         [
             "core.ddl.generated_owned_rejected",
@@ -1743,7 +1643,6 @@ const MANIFEST: &[CoverageCell] = &[
         "DDL",
         Interaction,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         [
             "core.ddl.drop_column_precommit_atomicity",
@@ -1759,7 +1658,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Mutation Execution",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.public_families"],
         None
@@ -1771,7 +1669,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Mutation Execution",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.public_families"],
         None
@@ -1783,7 +1680,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Mutation Execution",
         Statement,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.public_families"],
         None
@@ -1795,7 +1691,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Mutation Execution",
         Clause,
         REQ_EXECUTE,
-        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.returning_star"],
         None
@@ -1807,7 +1702,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Mutation Execution",
         Policy,
         REQ_BOUNDARY,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.mutation.lane_ownership"],
         NO_EXTERNAL_POLICY
@@ -1819,7 +1713,6 @@ const MANIFEST: &[CoverageCell] = &[
         "SQL `UPDATE` Availability By Surface",
         Policy,
         REQ_EXECUTE,
-        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.public_families"],
         None
@@ -1831,7 +1724,6 @@ const MANIFEST: &[CoverageCell] = &[
         "SQL `UPDATE` Availability By Surface",
         Policy,
         REQ_BOUNDARY,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         [
             "canister.mutation.query_rejects_update",
@@ -1846,7 +1738,6 @@ const MANIFEST: &[CoverageCell] = &[
         "SQL `UPDATE` Availability By Surface",
         Policy,
         REQ_BOUNDARY,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         [
             "build.sql.update_disabled_by_default",
@@ -1861,7 +1752,6 @@ const MANIFEST: &[CoverageCell] = &[
         "SQL `UPDATE` Availability By Surface",
         Policy,
         REQ_BOUNDARY,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         [
             "build.sql.update_primary_key_policy",
@@ -1877,7 +1767,6 @@ const MANIFEST: &[CoverageCell] = &[
         "SQL `UPDATE` Availability By Surface",
         Policy,
         REQ_BOUNDARY,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         [
             "build.sql.update_bounded_policy",
@@ -1893,7 +1782,6 @@ const MANIFEST: &[CoverageCell] = &[
         "SQL `UPDATE` Availability By Surface",
         Interaction,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.trusted_update_window"],
         None
@@ -1905,7 +1793,6 @@ const MANIFEST: &[CoverageCell] = &[
         "SQL `UPDATE` Availability By Surface",
         Interaction,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.trusted_resumable_update_state"],
         None
@@ -1917,7 +1804,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Blob Literals and Blob Values",
         ValueType,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.blob.insert_hex"],
         None
@@ -1929,7 +1815,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Blob Literals and Blob Values",
         Policy,
         REQ_BOUNDARY,
-        PERF_NONE,
         ELIGIBLE_ICYDB,
         ["core.blob.literal_boundary"],
         NO_EXTERNAL_BLOB_LIMIT
@@ -1941,7 +1826,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Blob Literals and Blob Values",
         ValueType,
         REQ_STATE,
-        PERF_SCALE,
         ELIGIBLE_STATE,
         [
             "core.blob.insert_hex",
@@ -1958,7 +1842,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Blob Literals and Blob Values",
         ValueType,
         REQ_LOWER,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.blob.order_rejected"],
         NO_EXTERNAL_SYNTAX
@@ -1970,7 +1853,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Entity Naming And Aliases",
         Clause,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.qualified_names"],
         None
@@ -1982,7 +1864,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Projection",
         Clause,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.projection_shape"],
         None
@@ -1994,7 +1875,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Projection",
         Clause,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.global_aggregate", "core.query.aggregate_inputs"],
         None
@@ -2006,7 +1886,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Projection",
         Interaction,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         [
             "core.query.grouped_aggregate",
@@ -2022,7 +1901,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Projection",
         Clause,
         REQ_LOWER,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.invalid_grouped_projection"],
         NO_EXTERNAL_SYNTAX
@@ -2034,7 +1912,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Shared SQL Expression Family",
         Expression,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.computed_projection"],
         None
@@ -2046,7 +1923,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Shared SQL Expression Family",
         Expression,
         REQ_EXECUTE,
-        PERF_BROAD,
         ELIGIBLE_FRONTEND,
         ["core.query.computed_projection"],
         NO_EXTERNAL_TEXT
@@ -2058,7 +1934,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Shared SQL Expression Family",
         Expression,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.value_selection"],
         None
@@ -2070,7 +1945,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Shared SQL Expression Family",
         Expression,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         [
             "core.query.searched_case",
@@ -2087,7 +1961,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Shared SQL Expression Family",
         Expression,
         REQ_PARSE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.simple_case_rejected"],
         NO_EXTERNAL_SYNTAX
@@ -2099,7 +1972,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Projection Aliases",
         Clause,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.alias_order"],
         None
@@ -2111,7 +1983,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Projection Aliases",
         Interaction,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.alias_order"],
         None
@@ -2123,7 +1994,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Expression,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         [
             "core.query.scalar_matrix",
@@ -2138,7 +2008,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Expression,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.field_comparison"],
         None
@@ -2150,7 +2019,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Interaction,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.grouped_where_field_comparison"],
         None
@@ -2162,7 +2030,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Expression,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         [
             "core.query.membership",
@@ -2177,7 +2044,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Expression,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.range"],
         None
@@ -2189,7 +2055,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Expression,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.null_predicates"],
         None
@@ -2201,7 +2066,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Expression,
         REQ_EXECUTE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.boolean_truth"],
         None
@@ -2213,7 +2077,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Expression,
         REQ_EXECUTE,
-        PERF_BROAD,
         ELIGIBLE_FRONTEND,
         [
             "core.query.prefix_not_like",
@@ -2230,7 +2093,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Expression,
         REQ_METAMORPHIC_EXECUTE,
-        PERF_BROAD,
         ELIGIBLE_FRONTEND,
         ["core.query.starts_with"],
         NO_EXTERNAL_TEXT
@@ -2242,7 +2104,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Expression,
         REQ_EXECUTE,
-        PERF_BROAD,
         ELIGIBLE_FRONTEND,
         ["core.query.prefix_ilike", "core.query.prefix_not_ilike"],
         NO_EXTERNAL_TEXT
@@ -2254,7 +2115,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Expression,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.field_bound_range"],
         None
@@ -2266,7 +2126,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Interaction,
         REQ_EXECUTE,
-        PERF_BROAD,
         ELIGIBLE_FRONTEND,
         ["core.query.expression_arguments"],
         NO_EXTERNAL_TEXT
@@ -2278,7 +2137,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Predicates",
         Expression,
         REQ_LOWER,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_expressions"],
         NO_EXTERNAL_TEXT
@@ -2290,7 +2148,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`HAVING`",
         Clause,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         [
             "core.query.having",
@@ -2305,7 +2162,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`HAVING`",
         Clause,
         REQ_EXECUTE_REFERENCE,
-        PERF_BROAD,
         ELIGIBLE_SQLITE,
         ["core.query.global_having"],
         None
@@ -2317,7 +2173,6 @@ const MANIFEST: &[CoverageCell] = &[
         "`HAVING`",
         Expression,
         REQ_LOWER,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_expressions"],
         NO_EXTERNAL_SYNTAX
@@ -2329,7 +2184,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Write `RETURNING`",
         Clause,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.returning_star"],
         None
@@ -2341,7 +2195,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Write `RETURNING`",
         Clause,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_STATE,
         ["core.mutation.returning_fields"],
         None
@@ -2353,7 +2206,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Public SQL Write `RETURNING`",
         Expression,
         REQ_STATE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.mutation.returning_rejected"],
         NO_EXTERNAL_SYNTAX
@@ -2365,7 +2217,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Explicitly Rejected SQL Families",
         Statement,
         REQ_PARSE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
         NO_EXTERNAL_SYNTAX
@@ -2377,7 +2228,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Explicitly Rejected SQL Families",
         Statement,
         REQ_PARSE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
         NO_EXTERNAL_SYNTAX
@@ -2389,7 +2239,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Explicitly Rejected SQL Families",
         Statement,
         REQ_PARSE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
         NO_EXTERNAL_SYNTAX
@@ -2401,7 +2250,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Explicitly Rejected SQL Families",
         Expression,
         REQ_PARSE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
         NO_EXTERNAL_SYNTAX
@@ -2413,7 +2261,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Explicitly Rejected SQL Families",
         Statement,
         REQ_PARSE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_families"],
         NO_EXTERNAL_SYNTAX
@@ -2425,7 +2272,6 @@ const MANIFEST: &[CoverageCell] = &[
         "Explicitly Rejected SQL Families",
         Expression,
         REQ_PARSE,
-        PERF_NONE,
         ELIGIBLE_REJECTION,
         ["core.query.unsupported_expressions"],
         NO_EXTERNAL_SYNTAX
@@ -2558,7 +2404,6 @@ fn validate_cell(
     validate_feature_id(cell.id)?;
     if cell.contract_section.is_empty()
         || cell.evidence.is_empty()
-        || cell.performance.is_empty()
         || cell.eligible_providers.is_empty()
         || cell.deterministic_providers.is_empty()
     {
@@ -2569,14 +2414,6 @@ fn validate_cell(
     }
     let _ = cell.category;
     let _ = cell.generated_families;
-
-    let has_none = cell.performance.contains(&PerformanceObligation::None);
-    if has_none && cell.performance.len() != 1 {
-        return Err(format!(
-            "manifest cell {:?} mixes no-performance disposition with obligations",
-            cell.id
-        ));
-    }
 
     let permits_reference = cell.eligible_providers.iter().any(|provider| {
         matches!(
@@ -2693,10 +2530,6 @@ pub(super) fn sql_coverage_manifest_revision() -> String {
         hash_evidence_requirements(&mut hasher, cell.evidence);
         hash_text_list(
             &mut hasher,
-            cell.performance.iter().map(|obligation| obligation.code()),
-        );
-        hash_text_list(
-            &mut hasher,
             cell.eligible_providers
                 .iter()
                 .map(|provider| provider.code()),
@@ -2800,7 +2633,6 @@ fn sql_coverage_manifest_revision_has_a_fixed_golden_vector() {
 fn sql_coverage_manifest_is_complete_and_consistent() {
     assert_eq!(EVIDENCE_CLASS_TAXONOMY.len(), 8);
     assert_eq!(EVIDENCE_STRENGTH_TAXONOMY.len(), 4);
-    assert_eq!(PERFORMANCE_OBLIGATION_TAXONOMY.len(), 5);
 
     let providers = provider_specs().expect("deterministic SQL providers should resolve");
     let mut manifest_features = BTreeSet::new();
@@ -2832,37 +2664,6 @@ fn sql_coverage_manifest_is_complete_and_consistent() {
     assert_eq!(
         profile_features, reference_manifest_features,
         "the compact SQLite profile and manifest reference obligations must form an exact bijection",
-    );
-
-    let broad_performance_features = MANIFEST
-        .iter()
-        .filter(|cell| cell.performance.contains(&PerformanceObligation::BroadScan))
-        .map(|cell| cell.id)
-        .collect::<BTreeSet<_>>();
-    let required_broad_performance_features = SQL_PERFORMANCE_BROAD_CONTRACT_FEATURES
-        .iter()
-        .copied()
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        broad_performance_features, required_broad_performance_features,
-        "manifest broad-scan dispositions must match the shared query-performance contract",
-    );
-
-    let scale_performance_features = MANIFEST
-        .iter()
-        .filter(|cell| {
-            cell.performance
-                .contains(&PerformanceObligation::ScaleSentinel)
-        })
-        .map(|cell| cell.id)
-        .collect::<BTreeSet<_>>();
-    let required_scale_performance_features = SQL_PERFORMANCE_SCALE_CONTRACT_FEATURES
-        .iter()
-        .copied()
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        scale_performance_features, required_scale_performance_features,
-        "manifest scale dispositions must match the shared query-performance contract",
     );
 
     let declared_providers = providers.keys().copied().collect::<BTreeSet<_>>();

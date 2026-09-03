@@ -22,8 +22,8 @@ use crate::{
                 exact_count_cardinality_prefix_keys_for_accepted_authority,
             },
             sql::{
-                CompiledSqlCommand, SqlCacheAttribution, SqlCompiledSchemaFingerprint,
-                SqlGlobalAggregateCachedPlan, SqlGlobalAggregatePlanCacheEntry, SqlStatementResult,
+                CompiledSqlCommand, SqlCompiledSchemaFingerprint, SqlGlobalAggregateCachedPlan,
+                SqlGlobalAggregatePlanCacheEntry, SqlStatementResult,
                 projection::sql_projection_statement_result_from_value_rows,
             },
         },
@@ -35,15 +35,6 @@ use crate::{
 use icydb_diagnostic_code::DiagnosticExecutionLane;
 use std::{ops::Bound, rc::Rc};
 
-#[cfg(feature = "diagnostics")]
-use super::diagnostics::measure_scalar_aggregate_execute_phase_with_physical_access;
-#[cfg(feature = "diagnostics")]
-use crate::db::session::sql::measure_sql_stage;
-#[cfg(feature = "diagnostics")]
-use crate::db::session::{
-    query::QueryPlanCompilePhaseAttribution, sql::SqlExecutePhaseAttribution,
-};
-
 pub(super) enum ExactTarget {
     Disabled,
     FallbackOnly(EntityAuthority),
@@ -51,63 +42,39 @@ pub(super) enum ExactTarget {
     ExactPlan {
         authority: EntityAuthority,
         entry: Rc<SqlGlobalAggregatePlanCacheEntry>,
-        cache_attribution: SqlCacheAttribution,
     },
 }
 
 pub(super) enum ExactOutcome {
-    Direct {
-        result: SqlStatementResult,
-        cache_attribution: SqlCacheAttribution,
-        #[cfg(feature = "diagnostics")]
-        phase_attribution: Option<Box<SqlExecutePhaseAttribution>>,
-    },
-    Prepared {
-        prepared_plan: SharedPreparedExecutionPlan,
-        cache_attribution: SqlCacheAttribution,
-    },
-    Fallback {
-        authority: Option<EntityAuthority>,
-        #[cfg(feature = "diagnostics")]
-        execute_local_instructions: u64,
-        #[cfg(feature = "diagnostics")]
-        store_local_instructions: u64,
-    },
+    Direct(SqlStatementResult),
+    Prepared(SharedPreparedExecutionPlan),
+    Fallback { authority: Option<EntityAuthority> },
 }
 
 fn exact_aggregate_statement_result(
     catalog: &AcceptedSchemaCatalogContext,
     projection: &ProjectionSpec,
     row: Vec<Value>,
-    cache_attribution: SqlCacheAttribution,
-) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+) -> Result<SqlStatementResult, QueryError> {
     let (columns, fixed_scales) =
         StructuralProjectionContract::from_projection_spec(projection).into_components();
 
-    Ok((
-        sql_projection_statement_result_from_value_rows(
-            catalog.enum_catalog(),
-            columns,
-            fixed_scales,
-            std::iter::once(row),
-            1,
-        )?,
-        cache_attribution,
-    ))
+    sql_projection_statement_result_from_value_rows(
+        catalog.enum_catalog(),
+        columns,
+        fixed_scales,
+        std::iter::once(row),
+        1,
+    )
 }
 
 impl ExactTarget {
     fn from_optional_entry(
         authority: EntityAuthority,
         entry: Option<Rc<SqlGlobalAggregatePlanCacheEntry>>,
-        cache_attribution: SqlCacheAttribution,
     ) -> Self {
         match entry {
-            Some(entry) => Self::ExactPlan {
-                authority,
-                entry,
-                cache_attribution,
-            },
+            Some(entry) => Self::ExactPlan { authority, entry },
             None => Self::FallbackOnly(authority),
         }
     }
@@ -122,22 +89,12 @@ impl ExactTarget {
 
 impl ExactOutcome {
     const fn disabled() -> Self {
-        Self::Fallback {
-            authority: None,
-            #[cfg(feature = "diagnostics")]
-            execute_local_instructions: 0,
-            #[cfg(feature = "diagnostics")]
-            store_local_instructions: 0,
-        }
+        Self::Fallback { authority: None }
     }
 
     const fn fallback(authority: EntityAuthority) -> Self {
         Self::Fallback {
             authority: Some(authority),
-            #[cfg(feature = "diagnostics")]
-            execute_local_instructions: 0,
-            #[cfg(feature = "diagnostics")]
-            store_local_instructions: 0,
         }
     }
 
@@ -145,43 +102,10 @@ impl ExactOutcome {
         catalog: &AcceptedSchemaCatalogContext,
         projection: &ProjectionSpec,
         row: Vec<Value>,
-        cache_attribution: SqlCacheAttribution,
     ) -> Result<Self, QueryError> {
-        let (result, cache_attribution) =
-            exact_aggregate_statement_result(catalog, projection, row, cache_attribution)?;
+        let result = exact_aggregate_statement_result(catalog, projection, row)?;
 
-        Ok(Self::Direct {
-            result,
-            cache_attribution,
-            #[cfg(feature = "diagnostics")]
-            phase_attribution: None,
-        })
-    }
-
-    #[cfg(feature = "diagnostics")]
-    const fn measured_fallback(
-        authority: EntityAuthority,
-        execute_local_instructions: u64,
-        store_local_instructions: u64,
-    ) -> Self {
-        Self::Fallback {
-            authority: Some(authority),
-            execute_local_instructions,
-            store_local_instructions,
-        }
-    }
-
-    #[cfg(feature = "diagnostics")]
-    const fn measured_direct(
-        result: SqlStatementResult,
-        cache_attribution: SqlCacheAttribution,
-        phase_attribution: Box<SqlExecutePhaseAttribution>,
-    ) -> Self {
-        Self::Direct {
-            result,
-            cache_attribution,
-            phase_attribution: Some(phase_attribution),
-        }
+        Ok(Self::Direct(result))
     }
 }
 
@@ -323,11 +247,7 @@ fn exact_target_from_cached_entry(
     }
     let authority = catalog.accepted_entity_authority();
 
-    ExactTarget::ExactPlan {
-        authority,
-        entry,
-        cache_attribution: SqlCacheAttribution::shared_query_plan_cache_hit(),
-    }
+    ExactTarget::ExactPlan { authority, entry }
 }
 
 fn cached_compiled_global_aggregate_plan_entry(
@@ -400,97 +320,18 @@ impl<C: CanisterKind> DbSession<C> {
                     return Err(QueryError::invariant());
                 };
 
-                Ok(ExactOutcome::Prepared {
-                    prepared_plan,
-                    cache_attribution: SqlCacheAttribution::shared_query_plan_cache_hit(),
-                })
+                Ok(ExactOutcome::Prepared(prepared_plan))
             }
-            ExactTarget::ExactPlan {
-                authority,
-                entry,
-                cache_attribution,
-            } => {
+            ExactTarget::ExactPlan { authority, entry } => {
                 if let Some(row) =
                     self.execute_exact_global_aggregate(command, authority.clone(), &entry)?
                 {
-                    return ExactOutcome::from_direct_row(
-                        catalog,
-                        command.projection(),
-                        row,
-                        cache_attribution,
-                    );
+                    return ExactOutcome::from_direct_row(catalog, command.projection(), row);
                 }
 
                 Ok(ExactOutcome::fallback(authority))
             }
         }
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(super) fn execute_measured_exact_target(
-        &self,
-        command: &SqlGlobalAggregateCommand,
-        catalog: &AcceptedSchemaCatalogContext,
-        target: ExactTarget,
-        plan_compile_attribution: QueryPlanCompilePhaseAttribution,
-    ) -> Result<ExactOutcome, QueryError> {
-        let (authority, exact_plan, cache_attribution) = match target {
-            ExactTarget::Disabled => {
-                return Ok(ExactOutcome::disabled());
-            }
-            ExactTarget::FallbackOnly(authority) => {
-                return Ok(ExactOutcome::fallback(authority));
-            }
-            ExactTarget::PreparedPlan(entry) => {
-                let Some(prepared_plan) = entry.prepared_plan() else {
-                    return Err(QueryError::invariant());
-                };
-
-                return Ok(ExactOutcome::Prepared {
-                    prepared_plan,
-                    cache_attribution: SqlCacheAttribution::shared_query_plan_cache_hit(),
-                });
-            }
-            ExactTarget::ExactPlan {
-                authority,
-                entry,
-                cache_attribution,
-            } => (authority, entry, cache_attribution),
-        };
-        let (
-            scalar_aggregate_terminal,
-            ((execute_local_instructions, store_local_instructions), result),
-        ) = measure_scalar_aggregate_execute_phase_with_physical_access(|| {
-            self.execute_exact_global_aggregate(command, authority.clone(), &exact_plan)
-        });
-        if let Some(row) = result? {
-            let (result, cache_attribution) = exact_aggregate_statement_result(
-                catalog,
-                command.projection(),
-                row,
-                cache_attribution,
-            )?;
-            let phase_attribution =
-                SqlExecutePhaseAttribution::from_query_plan_execute_total_and_store_total(
-                    plan_compile_attribution.planner_local_instructions(),
-                    plan_compile_attribution,
-                    execute_local_instructions,
-                    store_local_instructions,
-                )
-                .with_scalar_aggregate_terminal(scalar_aggregate_terminal);
-
-            return Ok(ExactOutcome::measured_direct(
-                result,
-                cache_attribution,
-                Box::new(phase_attribution),
-            ));
-        }
-
-        Ok(ExactOutcome::measured_fallback(
-            authority,
-            execute_local_instructions,
-            store_local_instructions,
-        ))
     }
 
     fn exact_shortcut_target_for_authority(
@@ -524,17 +365,12 @@ impl<C: CanisterKind> DbSession<C> {
                     exact_first_component_plan_entry(catalog, index_id, exact_numeric)
                 });
 
-            return Ok(ExactTarget::from_optional_entry(
-                authority.clone(),
-                entry,
-                SqlCacheAttribution::none(),
-            ));
+            return Ok(ExactTarget::from_optional_entry(authority.clone(), entry));
         }
         if command.query().direct_count_cardinality_entity_candidate() {
             return Ok(ExactTarget::from_optional_entry(
                 authority.clone(),
                 Some(direct_count_cardinality_entity_plan_entry(catalog)),
-                SqlCacheAttribution::none(),
             ));
         }
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
@@ -549,18 +385,13 @@ impl<C: CanisterKind> DbSession<C> {
             )?,
         );
 
-        Ok(ExactTarget::from_optional_entry(
-            authority.clone(),
-            entry,
-            SqlCacheAttribution::none(),
-        ))
+        Ok(ExactTarget::from_optional_entry(authority.clone(), entry))
     }
 
     fn exact_target_from_cached_shared_plan(
         catalog: &AcceptedSchemaCatalogContext,
         authority: EntityAuthority,
         prepared_plan: &SharedPreparedExecutionPlan,
-        cache_attribution: SqlCacheAttribution,
     ) -> ExactTarget {
         let entry = direct_count_cardinality_plan_entry_from_prefix_keys(
             catalog,
@@ -575,7 +406,7 @@ impl<C: CanisterKind> DbSession<C> {
             })
         });
 
-        ExactTarget::from_optional_entry(authority, entry, cache_attribution)
+        ExactTarget::from_optional_entry(authority, entry)
     }
 
     fn exact_target_for_authority(
@@ -589,7 +420,7 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(shortcut);
         }
 
-        let (prepared_plan, cache_attribution) = self
+        let (prepared_plan, _) = self
             .cached_shared_query_plan_for_accepted_authority_with_catalog(
                 authority.clone(),
                 catalog,
@@ -601,7 +432,6 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             authority,
             &prepared_plan,
-            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
         ))
     }
 
@@ -635,58 +465,5 @@ impl<C: CanisterKind> DbSession<C> {
         cache_compiled_exact_target(compiled, &target);
 
         Ok(target)
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(super) fn resolve_compiled_exact_target_with_phase_attribution(
-        &self,
-        compiled: &CompiledSqlCommand,
-        command: &SqlGlobalAggregateCommand,
-        catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<(ExactTarget, QueryPlanCompilePhaseAttribution), QueryError> {
-        let mut attribution = QueryPlanCompilePhaseAttribution::default();
-        let (cache_lookup, cached_plan) =
-            measure_sql_stage(|| cached_compiled_global_aggregate_plan_entry(compiled, catalog));
-        attribution.cache_lookup = attribution.cache_lookup.saturating_add(cache_lookup);
-        if let Some(plan) = cached_plan {
-            return Ok((exact_target_from_cached_entry(catalog, plan), attribution));
-        }
-        if !exact_metadata_candidate(command) {
-            return Ok((ExactTarget::Disabled, attribution));
-        }
-
-        let authority = catalog.accepted_entity_authority();
-        let (schema_info_local, shortcut) = measure_sql_stage(|| {
-            self.exact_shortcut_target_for_authority(&authority, command, catalog)
-        });
-        attribution.schema_info = attribution.schema_info.saturating_add(schema_info_local);
-        let shortcut = shortcut?;
-        let target = if shortcut.exact_plan_entry().is_some() {
-            shortcut
-        } else {
-            let (prepared_plan, cache_attribution, compile_attribution) = self
-                .cached_shared_query_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
-                    authority.clone(),
-                    catalog,
-                    command.query(),
-                    DiagnosticExecutionLane::TrustedRead,
-                )?;
-            attribution.merge(compile_attribution);
-
-            Self::exact_target_from_cached_shared_plan(
-                catalog,
-                authority,
-                &prepared_plan,
-                SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-            )
-        };
-        if target.exact_plan_entry().is_some() {
-            let (cache_insert, ()) = measure_sql_stage(|| {
-                cache_compiled_exact_target(compiled, &target);
-            });
-            attribution.cache_insert = attribution.cache_insert.saturating_add(cache_insert);
-        }
-
-        Ok((target, attribution))
     }
 }

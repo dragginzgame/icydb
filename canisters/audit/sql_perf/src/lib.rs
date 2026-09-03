@@ -18,14 +18,11 @@ use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{
         DynamicQuery, EntitySchemaDescription, ExhaustiveQueryPageOutput, ExhaustiveReadError,
-        GroupedCountAttribution, GroupedExecutionAttribution, IntegrityCheckError,
-        IntegrityCheckResult, IntegrityJobOwner, LiveQueryPageOutput, MutationJobAdvanceReceipt,
-        MutationJobAdvanceRequest, MutationJobError, MutationJobId, MutationJobIdempotencyKey,
-        MutationJobPhase, MutationJobState, MutationJobStatus, ProgressJobInventory,
-        ReadSetRevisionError, ReadSetRevisionProof, SqlCompileAttribution, SqlExecutionAttribution,
-        SqlIntegrityError, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
-        SqlQueryExecutionAttribution, SqlStructuralWorkAttribution, StructuralMutation,
-        StructuralPatch, WriteCell,
+        IntegrityCheckError, IntegrityCheckResult, IntegrityJobOwner, LiveQueryPageOutput,
+        MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobError, MutationJobId,
+        MutationJobIdempotencyKey, MutationJobPhase, MutationJobState, MutationJobStatus,
+        ProgressJobInventory, ReadSetRevisionError, ReadSetRevisionProof, SqlIntegrityError,
+        StructuralMutation, StructuralPatch, WriteCell,
         query::{FieldRef, FilterExpr, asc},
         sql::SqlQueryResult,
     },
@@ -58,18 +55,11 @@ icydb::endpoints! {
 // SqlQueryPerfResult
 //
 // Dedicated audit envelope that preserves the SQL result payload while
-// attaching one compile/execute instruction sample for the measured query call
-// or one average sample across a same-call loop.
+// attaching one total instruction sample for the measured query call or one
+// average sample across a same-call loop.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "sql")]
 struct SqlQueryPerfResult {
-    result: SqlQueryResult,
-    attribution: SqlQueryExecutionAttribution,
-}
-
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-#[cfg(feature = "sql")]
-struct SqlTotalOnlyPerfResult {
     result: SqlQueryResult,
     instructions: u64,
 }
@@ -1040,338 +1030,18 @@ fn validate_scale_fixture_rows(row_count: u32) -> Result<i32, icydb::Error> {
 }
 
 #[cfg(feature = "sql")]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct GroupedCountTotals {
-    borrowed_hash_computations: u64,
-    bucket_candidate_checks: u64,
-    existing_group_hits: u64,
-    new_group_inserts: u64,
-    row_materialization_local_instructions: u64,
-    group_lookup_local_instructions: u64,
-    existing_group_update_local_instructions: u64,
-    new_group_insert_local_instructions: u64,
+fn query_entity_with_perf(sql: &str) -> Result<SqlQueryPerfResult, icydb::Error> {
+    let start = ic_cdk::api::performance_counter(1);
+    let result = db()?.execute_trusted_sql_query(sql)?;
+    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+    Ok(SqlQueryPerfResult {
+        result,
+        instructions,
+    })
 }
 
 #[cfg(feature = "sql")]
-impl GroupedCountTotals {
-    const fn record_grouped_count(&mut self, count: GroupedCountAttribution) {
-        self.borrowed_hash_computations = self
-            .borrowed_hash_computations
-            .saturating_add(count.borrowed_hash_computations);
-        self.bucket_candidate_checks = self
-            .bucket_candidate_checks
-            .saturating_add(count.bucket_candidate_checks);
-        self.existing_group_hits = self
-            .existing_group_hits
-            .saturating_add(count.existing_group_hits);
-        self.new_group_inserts = self
-            .new_group_inserts
-            .saturating_add(count.new_group_inserts);
-        self.row_materialization_local_instructions = self
-            .row_materialization_local_instructions
-            .saturating_add(count.row_materialization_local_instructions);
-        self.group_lookup_local_instructions = self
-            .group_lookup_local_instructions
-            .saturating_add(count.group_lookup_local_instructions);
-        self.existing_group_update_local_instructions = self
-            .existing_group_update_local_instructions
-            .saturating_add(count.existing_group_update_local_instructions);
-        self.new_group_insert_local_instructions = self
-            .new_group_insert_local_instructions
-            .saturating_add(count.new_group_insert_local_instructions);
-    }
-}
-
-///
-/// GroupedRuntimeTotals
-///
-/// Accumulates executor-owned grouped runtime facts across repeated perf runs.
-/// Average work counters and maximum live-state peaks are projected into the
-/// final sample without making the audit canister a second runtime authority.
-///
-
-#[cfg(feature = "sql")]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct GroupedRuntimeTotals {
-    rows_scanned: u64,
-    groups_observed: u64,
-    groups_finalized: u64,
-    max_peak_live_groups: u64,
-    max_peak_live_aggregate_states: u64,
-    max_peak_live_distinct_values: u64,
-    early_scan_stop_runs: u64,
-}
-
-#[cfg(feature = "sql")]
-impl GroupedRuntimeTotals {
-    fn record(&mut self, grouped: GroupedExecutionAttribution) {
-        self.rows_scanned = self.rows_scanned.saturating_add(grouped.rows_scanned);
-        self.groups_observed = self.groups_observed.saturating_add(grouped.groups_observed);
-        self.groups_finalized = self
-            .groups_finalized
-            .saturating_add(grouped.groups_finalized);
-        self.max_peak_live_groups = self.max_peak_live_groups.max(grouped.peak_live_groups);
-        self.max_peak_live_aggregate_states = self
-            .max_peak_live_aggregate_states
-            .max(grouped.peak_live_aggregate_states);
-        self.max_peak_live_distinct_values = self
-            .max_peak_live_distinct_values
-            .max(grouped.peak_live_distinct_values);
-        self.early_scan_stop_runs = self
-            .early_scan_stop_runs
-            .saturating_add(u64::from(grouped.early_scan_stop));
-    }
-
-    const fn apply_average(
-        self,
-        attribution: &mut GroupedExecutionAttribution,
-        repeated_run_count: u64,
-    ) {
-        attribution.rows_scanned = self.rows_scanned / repeated_run_count;
-        attribution.groups_observed = self.groups_observed / repeated_run_count;
-        attribution.groups_finalized = self.groups_finalized / repeated_run_count;
-        attribution.peak_live_groups = self.max_peak_live_groups;
-        attribution.peak_live_aggregate_states = self.max_peak_live_aggregate_states;
-        attribution.peak_live_distinct_values = self.max_peak_live_distinct_values;
-        attribution.early_scan_stop = self.early_scan_stop_runs == repeated_run_count;
-    }
-}
-
-#[cfg(feature = "sql")]
-const fn record_structural_work(
-    total: &mut SqlStructuralWorkAttribution,
-    current: SqlStructuralWorkAttribution,
-) {
-    total.range_conjunctions_examined = total
-        .range_conjunctions_examined
-        .saturating_add(current.range_conjunctions_examined);
-    total.range_lower_bounds_extracted = total
-        .range_lower_bounds_extracted
-        .saturating_add(current.range_lower_bounds_extracted);
-    total.range_upper_bounds_extracted = total
-        .range_upper_bounds_extracted
-        .saturating_add(current.range_upper_bounds_extracted);
-    total.range_physical_children_emitted = total
-        .range_physical_children_emitted
-        .saturating_add(current.range_physical_children_emitted);
-    total.residual_predicate_evaluations = total
-        .residual_predicate_evaluations
-        .saturating_add(current.residual_predicate_evaluations);
-    total.membership_authored_members = total
-        .membership_authored_members
-        .saturating_add(current.membership_authored_members);
-    total.membership_normalized_members = total
-        .membership_normalized_members
-        .saturating_add(current.membership_normalized_members);
-    total.membership_distinct_members = total
-        .membership_distinct_members
-        .saturating_add(current.membership_distinct_members);
-    total.membership_null_members = total
-        .membership_null_members
-        .saturating_add(current.membership_null_members);
-    total.membership_canonicalization_passes = total
-        .membership_canonicalization_passes
-        .saturating_add(current.membership_canonicalization_passes);
-    total.membership_members_revisited = total
-        .membership_members_revisited
-        .saturating_add(current.membership_members_revisited);
-    total.prefix_branches_before_deduplication = total
-        .prefix_branches_before_deduplication
-        .saturating_add(current.prefix_branches_before_deduplication);
-    total.prefix_branches_after_deduplication = total
-        .prefix_branches_after_deduplication
-        .saturating_add(current.prefix_branches_after_deduplication);
-    total.prefix_exclusions_tested = total
-        .prefix_exclusions_tested
-        .saturating_add(current.prefix_exclusions_tested);
-    total.prefix_exclusions_pruned = total
-        .prefix_exclusions_pruned
-        .saturating_add(current.prefix_exclusions_pruned);
-    total.prefix_branch_cap_admissions = total
-        .prefix_branch_cap_admissions
-        .saturating_add(current.prefix_branch_cap_admissions);
-    total.prefix_branch_cap_rejections = total
-        .prefix_branch_cap_rejections
-        .saturating_add(current.prefix_branch_cap_rejections);
-}
-
-#[cfg(feature = "sql")]
-const fn average_structural_work(
-    total: SqlStructuralWorkAttribution,
-    divisor: u64,
-) -> SqlStructuralWorkAttribution {
-    SqlStructuralWorkAttribution {
-        range_conjunctions_examined: total.range_conjunctions_examined / divisor,
-        range_lower_bounds_extracted: total.range_lower_bounds_extracted / divisor,
-        range_upper_bounds_extracted: total.range_upper_bounds_extracted / divisor,
-        range_physical_children_emitted: total.range_physical_children_emitted / divisor,
-        residual_predicate_evaluations: total.residual_predicate_evaluations / divisor,
-        membership_authored_members: total.membership_authored_members / divisor,
-        membership_normalized_members: total.membership_normalized_members / divisor,
-        membership_distinct_members: total.membership_distinct_members / divisor,
-        membership_null_members: total.membership_null_members / divisor,
-        membership_canonicalization_passes: total.membership_canonicalization_passes / divisor,
-        membership_members_revisited: total.membership_members_revisited / divisor,
-        prefix_branches_before_deduplication: total.prefix_branches_before_deduplication / divisor,
-        prefix_branches_after_deduplication: total.prefix_branches_after_deduplication / divisor,
-        prefix_exclusions_tested: total.prefix_exclusions_tested / divisor,
-        prefix_exclusions_pruned: total.prefix_exclusions_pruned / divisor,
-        prefix_branch_cap_admissions: total.prefix_branch_cap_admissions / divisor,
-        prefix_branch_cap_rejections: total.prefix_branch_cap_rejections / divisor,
-    }
-}
-
-#[cfg(feature = "sql")]
-#[expect(clippy::too_many_arguments)]
-#[expect(
-    clippy::field_reassign_with_default,
-    reason = "perf attribution DTOs intentionally use default-backed assignment so future diagnostics counters do not break audit initializers"
-)]
-fn average_attribution(
-    total_compile_local_instructions: u64,
-    total_compile_cache_key_local_instructions: u64,
-    total_compile_cache_lookup_local_instructions: u64,
-    total_compile_parse_local_instructions: u64,
-    total_compile_parse_tokenize_local_instructions: u64,
-    total_compile_parse_select_local_instructions: u64,
-    total_compile_parse_expr_local_instructions: u64,
-    total_compile_parse_predicate_local_instructions: u64,
-    total_compile_aggregate_lane_check_local_instructions: u64,
-    total_compile_prepare_local_instructions: u64,
-    total_compile_lower_local_instructions: u64,
-    total_compile_bind_local_instructions: u64,
-    total_compile_cache_insert_local_instructions: u64,
-    total_plan_lookup_local_instructions: u64,
-    total_planner_local_instructions: u64,
-    total_store_local_instructions: u64,
-    total_executor_invocation_local_instructions: u64,
-    total_executor_local_instructions: u64,
-    total_response_finalization_local_instructions: u64,
-    total_pure_covering_decode_local_instructions: u64,
-    total_pure_covering_row_assembly_local_instructions: u64,
-    total_grouped_stream_local_instructions: u64,
-    total_grouped_fold_local_instructions: u64,
-    total_grouped_finalize_local_instructions: u64,
-    grouped_runtime_totals: GroupedRuntimeTotals,
-    total_grouped_count_borrowed_hash_computations: u64,
-    total_grouped_count_bucket_candidate_checks: u64,
-    total_grouped_count_existing_group_hits: u64,
-    total_grouped_count_new_group_inserts: u64,
-    total_grouped_count_row_materialization_local_instructions: u64,
-    total_grouped_count_group_lookup_local_instructions: u64,
-    total_grouped_count_existing_group_update_local_instructions: u64,
-    total_grouped_count_new_group_insert_local_instructions: u64,
-    total_store_get_calls: u64,
-    total_index_store_get_calls: u64,
-    total_index_store_range_scan_calls: u64,
-    total_index_store_entry_reads: u64,
-    total_structural_work: SqlStructuralWorkAttribution,
-    total_response_decode_local_instructions: u64,
-    total_execute_local_instructions: u64,
-    total_local_instructions: u64,
-    total_sql_compiled_command_cache_hits: u64,
-    total_sql_compiled_command_cache_misses: u64,
-    total_shared_query_plan_cache_hits: u64,
-    total_shared_query_plan_cache_misses: u64,
-    total_shared_query_plan_cache_insertions: u64,
-    total_shared_query_plan_cache_evictions: u64,
-    total_shared_query_plan_cache_rejected_oversize: u64,
-    saw_pure_covering: bool,
-    saw_grouped: bool,
-    runs: u32,
-) -> SqlQueryExecutionAttribution {
-    let divisor = u64::from(runs);
-
-    let mut attribution = SqlQueryExecutionAttribution::default();
-    attribution.compile_local_instructions = total_compile_local_instructions / divisor;
-    attribution.compile = SqlCompileAttribution {
-        cache_key_local_instructions: total_compile_cache_key_local_instructions / divisor,
-        cache_lookup_local_instructions: total_compile_cache_lookup_local_instructions / divisor,
-        parse_local_instructions: total_compile_parse_local_instructions / divisor,
-        parse_tokenize_local_instructions: total_compile_parse_tokenize_local_instructions
-            / divisor,
-        parse_select_local_instructions: total_compile_parse_select_local_instructions / divisor,
-        parse_expr_local_instructions: total_compile_parse_expr_local_instructions / divisor,
-        parse_predicate_local_instructions: total_compile_parse_predicate_local_instructions
-            / divisor,
-        aggregate_lane_check_local_instructions:
-            total_compile_aggregate_lane_check_local_instructions / divisor,
-        prepare_local_instructions: total_compile_prepare_local_instructions / divisor,
-        lower_local_instructions: total_compile_lower_local_instructions / divisor,
-        bind_local_instructions: total_compile_bind_local_instructions / divisor,
-        cache_insert_local_instructions: total_compile_cache_insert_local_instructions / divisor,
-    };
-    attribution.plan_lookup_local_instructions = total_plan_lookup_local_instructions / divisor;
-    attribution.execution = SqlExecutionAttribution {
-        planner_local_instructions: total_planner_local_instructions / divisor,
-        planner_schema_info_local_instructions: 0,
-        planner_prepare_local_instructions: 0,
-        planner_cache_key_local_instructions: 0,
-        planner_cache_lookup_local_instructions: 0,
-        planner_plan_build_local_instructions: 0,
-        planner_cache_insert_local_instructions: 0,
-        store_local_instructions: total_store_local_instructions / divisor,
-        executor_invocation_local_instructions: total_executor_invocation_local_instructions
-            / divisor,
-        executor_local_instructions: total_executor_local_instructions / divisor,
-        response_finalization_local_instructions: total_response_finalization_local_instructions
-            / divisor,
-    };
-    if saw_pure_covering {
-        attribution.pure_covering = Some(SqlPureCoveringAttribution {
-            decode_local_instructions: total_pure_covering_decode_local_instructions / divisor,
-            row_assembly_local_instructions: total_pure_covering_row_assembly_local_instructions
-                / divisor,
-        });
-    }
-    if saw_grouped {
-        let mut grouped = GroupedExecutionAttribution {
-            stream_local_instructions: total_grouped_stream_local_instructions / divisor,
-            fold_local_instructions: total_grouped_fold_local_instructions / divisor,
-            finalize_local_instructions: total_grouped_finalize_local_instructions / divisor,
-            count: GroupedCountAttribution {
-                borrowed_hash_computations: total_grouped_count_borrowed_hash_computations
-                    / divisor,
-                bucket_candidate_checks: total_grouped_count_bucket_candidate_checks / divisor,
-                existing_group_hits: total_grouped_count_existing_group_hits / divisor,
-                new_group_inserts: total_grouped_count_new_group_inserts / divisor,
-                row_materialization_local_instructions:
-                    total_grouped_count_row_materialization_local_instructions / divisor,
-                group_lookup_local_instructions: total_grouped_count_group_lookup_local_instructions
-                    / divisor,
-                existing_group_update_local_instructions:
-                    total_grouped_count_existing_group_update_local_instructions / divisor,
-                new_group_insert_local_instructions:
-                    total_grouped_count_new_group_insert_local_instructions / divisor,
-            },
-            ..GroupedExecutionAttribution::default()
-        };
-        grouped_runtime_totals.apply_average(&mut grouped, divisor);
-        attribution.grouped = Some(grouped);
-    }
-    attribution.store_get_calls = total_store_get_calls / divisor;
-    attribution.index_store_get_calls = total_index_store_get_calls / divisor;
-    attribution.index_store_range_scan_calls = total_index_store_range_scan_calls / divisor;
-    attribution.index_store_entry_reads = total_index_store_entry_reads / divisor;
-    attribution.structural_work = average_structural_work(total_structural_work, divisor);
-    attribution.response_decode_local_instructions =
-        total_response_decode_local_instructions / divisor;
-    attribution.execute_local_instructions = total_execute_local_instructions / divisor;
-    attribution.total_local_instructions = total_local_instructions / divisor;
-    attribution.cache = SqlQueryCacheAttribution {
-        sql_compiled_command_hits: total_sql_compiled_command_cache_hits,
-        sql_compiled_command_misses: total_sql_compiled_command_cache_misses,
-        shared_query_plan_hits: total_shared_query_plan_cache_hits,
-        shared_query_plan_misses: total_shared_query_plan_cache_misses,
-        shared_query_plan_insertions: total_shared_query_plan_cache_insertions,
-        shared_query_plan_evictions: total_shared_query_plan_cache_evictions,
-        shared_query_plan_rejected_oversize: total_shared_query_plan_cache_rejected_oversize,
-    };
-
-    attribution
-}
-#[cfg(feature = "sql")]
-#[expect(clippy::too_many_lines)]
 fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
     if runs == 0 {
         return Err(invalid_perf_loop_runs_error());
@@ -1379,212 +1049,21 @@ fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResul
 
     let session = icydb::db!()?;
     let mut first_result = None;
-    let mut total_compile_local_instructions = 0_u64;
-    let mut total_compile_cache_key_local_instructions = 0_u64;
-    let mut total_compile_cache_lookup_local_instructions = 0_u64;
-    let mut total_compile_parse_local_instructions = 0_u64;
-    let mut total_compile_parse_tokenize_local_instructions = 0_u64;
-    let mut total_compile_parse_select_local_instructions = 0_u64;
-    let mut total_compile_parse_expr_local_instructions = 0_u64;
-    let mut total_compile_parse_predicate_local_instructions = 0_u64;
-    let mut total_compile_aggregate_lane_check_local_instructions = 0_u64;
-    let mut total_compile_prepare_local_instructions = 0_u64;
-    let mut total_compile_lower_local_instructions = 0_u64;
-    let mut total_compile_bind_local_instructions = 0_u64;
-    let mut total_compile_cache_insert_local_instructions = 0_u64;
-    let mut total_plan_lookup_local_instructions = 0_u64;
-    let mut total_planner_local_instructions = 0_u64;
-    let mut total_store_local_instructions = 0_u64;
-    let mut total_executor_invocation_local_instructions = 0_u64;
-    let mut total_executor_local_instructions = 0_u64;
-    let mut total_response_finalization_local_instructions = 0_u64;
-    let mut total_pure_covering_decode_local_instructions = 0_u64;
-    let mut total_pure_covering_row_assembly_local_instructions = 0_u64;
-    let mut total_grouped_stream_local_instructions = 0_u64;
-    let mut total_grouped_fold_local_instructions = 0_u64;
-    let mut total_grouped_finalize_local_instructions = 0_u64;
-    let mut grouped_runtime_totals = GroupedRuntimeTotals::default();
-    let mut grouped_count_totals = GroupedCountTotals::default();
-    let mut total_store_get_calls = 0_u64;
-    let mut total_index_store_get_calls = 0_u64;
-    let mut total_index_store_range_scan_calls = 0_u64;
-    let mut total_index_store_entry_reads = 0_u64;
-    let mut total_structural_work = SqlStructuralWorkAttribution::default();
-    let mut total_response_decode_local_instructions = 0_u64;
-    let mut total_execute_local_instructions = 0_u64;
-    let mut total_local_instructions = 0_u64;
-    let mut total_sql_compiled_command_cache_hits = 0_u64;
-    let mut total_sql_compiled_command_cache_misses = 0_u64;
-    let mut total_shared_query_plan_cache_hits = 0_u64;
-    let mut total_shared_query_plan_cache_misses = 0_u64;
-    let mut total_shared_query_plan_cache_insertions = 0_u64;
-    let mut total_shared_query_plan_cache_evictions = 0_u64;
-    let mut total_shared_query_plan_cache_rejected_oversize = 0_u64;
-    let mut saw_pure_covering = false;
-    let mut saw_grouped = false;
-
-    // Execute the same SQL through one session repeatedly so a real
-    // session-local compiled-command cache can move the compile side honestly.
+    let start = ic_cdk::api::performance_counter(1);
     for _ in 0..runs {
-        let (result, attribution) = session.execute_trusted_sql_query_with_attribution(sql)?;
+        let result = session.execute_trusted_sql_query(sql)?;
         if first_result.is_none() {
             first_result = Some(result);
         }
-
-        total_compile_local_instructions =
-            total_compile_local_instructions.saturating_add(attribution.compile_local_instructions);
-        total_compile_cache_key_local_instructions = total_compile_cache_key_local_instructions
-            .saturating_add(attribution.compile.cache_key_local_instructions);
-        total_compile_cache_lookup_local_instructions =
-            total_compile_cache_lookup_local_instructions
-                .saturating_add(attribution.compile.cache_lookup_local_instructions);
-        total_compile_parse_local_instructions = total_compile_parse_local_instructions
-            .saturating_add(attribution.compile.parse_local_instructions);
-        total_compile_parse_tokenize_local_instructions =
-            total_compile_parse_tokenize_local_instructions
-                .saturating_add(attribution.compile.parse_tokenize_local_instructions);
-        total_compile_parse_select_local_instructions =
-            total_compile_parse_select_local_instructions
-                .saturating_add(attribution.compile.parse_select_local_instructions);
-        total_compile_parse_expr_local_instructions = total_compile_parse_expr_local_instructions
-            .saturating_add(attribution.compile.parse_expr_local_instructions);
-        total_compile_parse_predicate_local_instructions =
-            total_compile_parse_predicate_local_instructions
-                .saturating_add(attribution.compile.parse_predicate_local_instructions);
-        total_compile_aggregate_lane_check_local_instructions =
-            total_compile_aggregate_lane_check_local_instructions
-                .saturating_add(attribution.compile.aggregate_lane_check_local_instructions);
-        total_compile_prepare_local_instructions = total_compile_prepare_local_instructions
-            .saturating_add(attribution.compile.prepare_local_instructions);
-        total_compile_lower_local_instructions = total_compile_lower_local_instructions
-            .saturating_add(attribution.compile.lower_local_instructions);
-        total_compile_bind_local_instructions = total_compile_bind_local_instructions
-            .saturating_add(attribution.compile.bind_local_instructions);
-        total_compile_cache_insert_local_instructions =
-            total_compile_cache_insert_local_instructions
-                .saturating_add(attribution.compile.cache_insert_local_instructions);
-        total_plan_lookup_local_instructions = total_plan_lookup_local_instructions
-            .saturating_add(attribution.plan_lookup_local_instructions);
-        total_planner_local_instructions = total_planner_local_instructions
-            .saturating_add(attribution.execution.planner_local_instructions);
-        total_store_local_instructions = total_store_local_instructions
-            .saturating_add(attribution.execution.store_local_instructions);
-        total_executor_invocation_local_instructions = total_executor_invocation_local_instructions
-            .saturating_add(attribution.execution.executor_invocation_local_instructions);
-        total_executor_local_instructions = total_executor_local_instructions
-            .saturating_add(attribution.execution.executor_local_instructions);
-        total_response_finalization_local_instructions =
-            total_response_finalization_local_instructions.saturating_add(
-                attribution
-                    .execution
-                    .response_finalization_local_instructions,
-            );
-        if let Some(pure_covering) = attribution.pure_covering {
-            saw_pure_covering = true;
-            total_pure_covering_decode_local_instructions =
-                total_pure_covering_decode_local_instructions
-                    .saturating_add(pure_covering.decode_local_instructions);
-            total_pure_covering_row_assembly_local_instructions =
-                total_pure_covering_row_assembly_local_instructions
-                    .saturating_add(pure_covering.row_assembly_local_instructions);
-        }
-        if let Some(grouped) = attribution.grouped {
-            saw_grouped = true;
-            total_grouped_stream_local_instructions = total_grouped_stream_local_instructions
-                .saturating_add(grouped.stream_local_instructions);
-            total_grouped_fold_local_instructions = total_grouped_fold_local_instructions
-                .saturating_add(grouped.fold_local_instructions);
-            total_grouped_finalize_local_instructions = total_grouped_finalize_local_instructions
-                .saturating_add(grouped.finalize_local_instructions);
-            grouped_runtime_totals.record(grouped);
-            grouped_count_totals.record_grouped_count(grouped.count);
-        }
-        total_store_get_calls = total_store_get_calls.saturating_add(attribution.store_get_calls);
-        total_index_store_get_calls =
-            total_index_store_get_calls.saturating_add(attribution.index_store_get_calls);
-        total_index_store_range_scan_calls = total_index_store_range_scan_calls
-            .saturating_add(attribution.index_store_range_scan_calls);
-        total_index_store_entry_reads =
-            total_index_store_entry_reads.saturating_add(attribution.index_store_entry_reads);
-        record_structural_work(&mut total_structural_work, attribution.structural_work);
-        total_response_decode_local_instructions = total_response_decode_local_instructions
-            .saturating_add(attribution.response_decode_local_instructions);
-        total_execute_local_instructions =
-            total_execute_local_instructions.saturating_add(attribution.execute_local_instructions);
-        total_local_instructions =
-            total_local_instructions.saturating_add(attribution.total_local_instructions);
-        total_sql_compiled_command_cache_hits = total_sql_compiled_command_cache_hits
-            .saturating_add(attribution.cache.sql_compiled_command_hits);
-        total_sql_compiled_command_cache_misses = total_sql_compiled_command_cache_misses
-            .saturating_add(attribution.cache.sql_compiled_command_misses);
-        total_shared_query_plan_cache_hits = total_shared_query_plan_cache_hits
-            .saturating_add(attribution.cache.shared_query_plan_hits);
-        total_shared_query_plan_cache_misses = total_shared_query_plan_cache_misses
-            .saturating_add(attribution.cache.shared_query_plan_misses);
-        total_shared_query_plan_cache_insertions = total_shared_query_plan_cache_insertions
-            .saturating_add(attribution.cache.shared_query_plan_insertions);
-        total_shared_query_plan_cache_evictions = total_shared_query_plan_cache_evictions
-            .saturating_add(attribution.cache.shared_query_plan_evictions);
-        total_shared_query_plan_cache_rejected_oversize =
-            total_shared_query_plan_cache_rejected_oversize
-                .saturating_add(attribution.cache.shared_query_plan_rejected_oversize);
     }
+    let instructions = ic_cdk::api::performance_counter(1)
+        .saturating_sub(start)
+        .checked_div(u64::from(runs))
+        .ok_or_else(invalid_perf_loop_runs_error)?;
 
     Ok(SqlQueryPerfResult {
-        result: first_result.expect("perf loop with runs > 0 should record one result"),
-        attribution: average_attribution(
-            total_compile_local_instructions,
-            total_compile_cache_key_local_instructions,
-            total_compile_cache_lookup_local_instructions,
-            total_compile_parse_local_instructions,
-            total_compile_parse_tokenize_local_instructions,
-            total_compile_parse_select_local_instructions,
-            total_compile_parse_expr_local_instructions,
-            total_compile_parse_predicate_local_instructions,
-            total_compile_aggregate_lane_check_local_instructions,
-            total_compile_prepare_local_instructions,
-            total_compile_lower_local_instructions,
-            total_compile_bind_local_instructions,
-            total_compile_cache_insert_local_instructions,
-            total_plan_lookup_local_instructions,
-            total_planner_local_instructions,
-            total_store_local_instructions,
-            total_executor_invocation_local_instructions,
-            total_executor_local_instructions,
-            total_response_finalization_local_instructions,
-            total_pure_covering_decode_local_instructions,
-            total_pure_covering_row_assembly_local_instructions,
-            total_grouped_stream_local_instructions,
-            total_grouped_fold_local_instructions,
-            total_grouped_finalize_local_instructions,
-            grouped_runtime_totals,
-            grouped_count_totals.borrowed_hash_computations,
-            grouped_count_totals.bucket_candidate_checks,
-            grouped_count_totals.existing_group_hits,
-            grouped_count_totals.new_group_inserts,
-            grouped_count_totals.row_materialization_local_instructions,
-            grouped_count_totals.group_lookup_local_instructions,
-            grouped_count_totals.existing_group_update_local_instructions,
-            grouped_count_totals.new_group_insert_local_instructions,
-            total_store_get_calls,
-            total_index_store_get_calls,
-            total_index_store_range_scan_calls,
-            total_index_store_entry_reads,
-            total_structural_work,
-            total_response_decode_local_instructions,
-            total_execute_local_instructions,
-            total_local_instructions,
-            total_sql_compiled_command_cache_hits,
-            total_sql_compiled_command_cache_misses,
-            total_shared_query_plan_cache_hits,
-            total_shared_query_plan_cache_misses,
-            total_shared_query_plan_cache_insertions,
-            total_shared_query_plan_cache_evictions,
-            total_shared_query_plan_cache_rejected_oversize,
-            saw_pure_covering,
-            saw_grouped,
-            runs,
-        ),
+        result: first_result.ok_or_else(invalid_perf_loop_runs_error)?,
+        instructions,
     })
 }
 /// Clear all dedicated perf fixture rows from this canister.
@@ -2490,51 +1969,7 @@ fn query_user(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[cfg(feature = "sql")]
 #[query]
 fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            icydb::db!()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Execute one PerfAuditUser-only SQL query through the fully attributed path
-/// while measuring the same outer canister-local boundary as the total-only
-/// calibration endpoint.
-#[cfg(feature = "sql")]
-#[query]
-fn query_user_attributed_total_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
-        let (result, _attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-
-        Ok(SqlTotalOnlyPerfResult {
-            result,
-            instructions,
-        })
-    })
-}
-
-/// Execute one PerfAuditUser-only SQL query through the normal non-attributed
-/// path and measure only the top-level canister-local delta.
-#[cfg(feature = "sql")]
-#[query]
-fn query_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
-        let result = db()?.execute_trusted_sql_query(sql.as_str())?;
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-
-        Ok(SqlTotalOnlyPerfResult {
-            result,
-            instructions,
-        })
-    })
+    icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
 
 /// Execute one PerfAuditUser-only SQL query through the update surface so the
@@ -2542,15 +1977,7 @@ fn query_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icy
 #[cfg(feature = "sql")]
 #[update]
 fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
+    icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
 
 /// Execute the same PerfAuditUser-only SQL query repeatedly inside one canister
@@ -2659,48 +2086,6 @@ fn query_user_numeric_budget_fallback_with_perf(
             instructions,
         })
     })
-}
-
-/// Execute one fixed streaming-fixture query with full attribution.
-#[cfg(feature = "sql")]
-#[query]
-fn query_streaming_execution_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Warm one fixed streaming-fixture query under update instructions.
-#[cfg(feature = "sql")]
-#[update]
-fn warm_streaming_execution_query_with_perf(
-    sql: String,
-) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Execute one fixed streaming-fixture query repeatedly in one request.
-#[cfg(feature = "sql")]
-#[query]
-fn query_streaming_execution_loop_with_perf(
-    sql: String,
-    runs: u32,
-) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
 }
 
 #[cfg(feature = "sql")]
@@ -3822,60 +3207,7 @@ fn measure_integrity_sql_perf(sql: String) -> Result<IntegritySqlPerfResult, Sql
 #[cfg(feature = "sql")]
 #[query]
 fn query_heap_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Execute one PerfAuditHeapUser-only SQL query through the normal
-/// non-attributed path and measure only the top-level canister-local delta.
-#[cfg(feature = "sql")]
-#[query]
-fn query_heap_user_total_only_perf(sql: String) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
-        let result = db()?.execute_trusted_sql_query(sql.as_str())?;
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-
-        Ok(SqlTotalOnlyPerfResult {
-            result,
-            instructions,
-        })
-    })
-}
-
-/// Execute one PerfAuditHeapUser-only SQL query through the update surface so
-/// the canister can persist any warmed in-heap query caches for later query
-/// calls.
-#[cfg(feature = "sql")]
-#[update]
-fn warm_heap_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Execute the same PerfAuditHeapUser-only SQL query repeatedly inside one
-/// canister query call and report the per-run average instruction sample.
-#[cfg(feature = "sql")]
-#[query]
-fn query_heap_user_loop_with_perf(
-    sql: String,
-    runs: u32,
-) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
+    icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
 
 /// Execute one PerfAuditJournaledUser-only SQL query and attach one local
@@ -3883,34 +3215,7 @@ fn query_heap_user_loop_with_perf(
 #[cfg(feature = "sql")]
 #[query]
 fn query_journaled_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Execute one PerfAuditJournaledUser-only SQL query through the normal
-/// non-attributed path and measure only the top-level canister-local delta.
-#[cfg(feature = "sql")]
-#[query]
-fn query_journaled_user_total_only_perf(
-    sql: String,
-) -> Result<SqlTotalOnlyPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
-        let result = db()?.execute_trusted_sql_query(sql.as_str())?;
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-
-        Ok(SqlTotalOnlyPerfResult {
-            result,
-            instructions,
-        })
-    })
+    icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
 
 /// Execute the journaled LIMIT 1 shape through an update call. After a
@@ -3936,137 +3241,12 @@ fn measure_journaled_reentry_perf() -> Result<ReadTotalOnlyPerfResult, icydb::Er
     })
 }
 
-/// Execute one PerfAuditJournaledUser-only SQL query through the update surface
-/// so the canister can persist any warmed in-heap query caches for later query
-/// calls.
-#[cfg(feature = "sql")]
-#[update]
-fn warm_journaled_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Execute the same PerfAuditJournaledUser-only SQL query repeatedly inside
-/// one canister query call and report the per-run average instruction sample.
-#[cfg(feature = "sql")]
-#[query]
-fn query_journaled_user_loop_with_perf(
-    sql: String,
-    runs: u32,
-) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
-}
-
-/// Execute one PerfAuditAccount-only SQL query.
-#[cfg(feature = "sql")]
-#[query]
-fn query_account(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    icydb::db::with_request_execution(|| db()?.execute_trusted_sql_query(sql.as_str()))
-}
-
-/// Execute one PerfAuditAccount-only SQL query and attach one local instruction
-/// sample.
-#[cfg(feature = "sql")]
-#[query]
-fn query_account_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Execute one PerfAuditAccount-only SQL query through the update surface so
-/// the canister can persist any warmed in-heap query caches for later query
-/// calls.
-#[cfg(feature = "sql")]
-#[update]
-fn warm_account_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Execute the same PerfAuditAccount-only SQL query repeatedly inside one
-/// canister query call and report the per-run average instruction sample.
-#[cfg(feature = "sql")]
-#[query]
-fn query_account_loop_with_perf(
-    sql: String,
-    runs: u32,
-) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
-}
-
-/// Execute one PerfAuditBlob-only SQL query.
-#[cfg(feature = "sql")]
-#[query]
-fn query_blob(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    icydb::db::with_request_execution(|| db()?.execute_trusted_sql_query(sql.as_str()))
-}
-
 /// Execute one PerfAuditBlob-only SQL query and attach one local instruction
 /// sample.
 #[cfg(feature = "sql")]
 #[query]
 fn query_blob_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Execute one PerfAuditBlob-only SQL query through the update surface so the
-/// canister can persist any warmed in-heap query caches for later query calls.
-#[cfg(feature = "sql")]
-#[update]
-fn warm_blob_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Execute the same PerfAuditBlob-only SQL query repeatedly inside one
-/// canister query call and report the per-run average instruction sample.
-#[cfg(feature = "sql")]
-#[query]
-fn query_blob_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
-}
-
-/// Execute one PerfAuditToken-only SQL query.
-#[cfg(feature = "sql")]
-#[query]
-fn query_token(sql: String) -> Result<SqlQueryResult, icydb::Error> {
-    icydb::db::with_request_execution(|| db()?.execute_trusted_sql_query(sql.as_str()))
+    icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
 
 /// Execute one PerfAuditToken-only SQL query and attach one local instruction
@@ -4074,39 +3254,7 @@ fn query_token(sql: String) -> Result<SqlQueryResult, icydb::Error> {
 #[cfg(feature = "sql")]
 #[query]
 fn query_token_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Execute one PerfAuditToken-only SQL query through the update surface so the
-/// canister can persist warmed query caches for later query calls.
-#[cfg(feature = "sql")]
-#[update]
-fn warm_token_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (result, attribution) =
-            db()?.execute_trusted_sql_query_with_attribution(sql.as_str())?;
-
-        Ok(SqlQueryPerfResult {
-            result,
-            attribution,
-        })
-    })
-}
-
-/// Execute the same PerfAuditToken-only SQL query repeatedly inside one
-/// canister query call and report the per-run average instruction sample.
-#[cfg(feature = "sql")]
-#[query]
-fn query_token_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
+    icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
 
 #[cfg(feature = "sql")]

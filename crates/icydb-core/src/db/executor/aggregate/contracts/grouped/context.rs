@@ -29,20 +29,20 @@ use std::mem::size_of;
 pub(in crate::db::executor) struct ExecutionBudget {
     groups: u64,
     aggregate_states: u64,
-    #[cfg(any(test, feature = "diagnostics"))]
+    #[cfg(test)]
     live_groups: u64,
-    #[cfg(any(test, feature = "diagnostics"))]
+    #[cfg(test)]
     peak_live_groups: u64,
-    #[cfg(any(test, feature = "diagnostics"))]
+    #[cfg(test)]
     live_aggregate_states: u64,
-    #[cfg(any(test, feature = "diagnostics"))]
+    #[cfg(test)]
     peak_live_aggregate_states: u64,
     estimated_bytes: u64,
     peak_estimated_bytes: u64,
     distinct_values: u64,
-    #[cfg(any(test, feature = "diagnostics"))]
+    #[cfg(test)]
     live_distinct_values: u64,
-    #[cfg(any(test, feature = "diagnostics"))]
+    #[cfg(test)]
     peak_live_distinct_values: u64,
 }
 
@@ -53,20 +53,20 @@ impl ExecutionBudget {
         Self {
             groups: 0,
             aggregate_states: 0,
-            #[cfg(any(test, feature = "diagnostics"))]
+            #[cfg(test)]
             live_groups: 0,
-            #[cfg(any(test, feature = "diagnostics"))]
+            #[cfg(test)]
             peak_live_groups: 0,
-            #[cfg(any(test, feature = "diagnostics"))]
+            #[cfg(test)]
             live_aggregate_states: 0,
-            #[cfg(any(test, feature = "diagnostics"))]
+            #[cfg(test)]
             peak_live_aggregate_states: 0,
             estimated_bytes: 0,
             peak_estimated_bytes: 0,
             distinct_values: 0,
-            #[cfg(any(test, feature = "diagnostics"))]
+            #[cfg(test)]
             live_distinct_values: 0,
-            #[cfg(any(test, feature = "diagnostics"))]
+            #[cfg(test)]
             peak_live_distinct_values: 0,
         }
     }
@@ -102,21 +102,21 @@ impl ExecutionBudget {
     }
 
     /// Return the peak number of simultaneously live canonical groups.
-    #[cfg(any(test, feature = "diagnostics"))]
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) const fn peak_live_groups(&self) -> u64 {
         self.peak_live_groups
     }
 
     /// Return the peak number of simultaneously live aggregate state slots.
-    #[cfg(any(test, feature = "diagnostics"))]
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) const fn peak_live_aggregate_states(&self) -> u64 {
         self.peak_live_aggregate_states
     }
 
     /// Return the peak number of simultaneously live grouped DISTINCT values.
-    #[cfg(any(test, feature = "diagnostics"))]
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) const fn peak_live_distinct_values(&self) -> u64 {
         self.peak_live_distinct_values
@@ -182,7 +182,7 @@ impl ExecutionBudget {
 
         self.groups = next_groups;
         self.aggregate_states = self.aggregate_states.saturating_add(1);
-        #[cfg(any(test, feature = "diagnostics"))]
+        #[cfg(test)]
         {
             if new_group_key {
                 self.live_groups = self.live_groups.saturating_add(1);
@@ -244,7 +244,7 @@ impl ExecutionBudget {
         self.aggregate_states = self
             .aggregate_states
             .saturating_add(u64::try_from(aggregate_state_count).unwrap_or(u64::MAX));
-        #[cfg(any(test, feature = "diagnostics"))]
+        #[cfg(test)]
         {
             self.live_groups = self.live_groups.saturating_add(1);
             self.peak_live_groups = self.peak_live_groups.max(self.live_groups);
@@ -271,7 +271,7 @@ impl ExecutionBudget {
             "ordered grouped state release must not exceed its live reservation",
         );
         self.estimated_bytes = self.estimated_bytes.saturating_sub(bytes_delta);
-        #[cfg(any(test, feature = "diagnostics"))]
+        #[cfg(test)]
         {
             self.live_groups = self.live_groups.saturating_sub(1);
             self.live_aggregate_states = self
@@ -321,7 +321,7 @@ impl ExecutionBudget {
         self.distinct_values = attempted;
         self.estimated_bytes = next_bytes;
         self.peak_estimated_bytes = self.peak_estimated_bytes.max(next_bytes);
-        #[cfg(any(test, feature = "diagnostics"))]
+        #[cfg(test)]
         {
             self.live_distinct_values = self.live_distinct_values.saturating_add(1);
             if self.live_distinct_values > self.peak_live_distinct_values {
@@ -374,7 +374,7 @@ impl Default for ExecutionBudget {
 ///
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(test)]
 pub(in crate::db::executor) struct GroupedRuntimeStats {
     groups_observed: u64,
     groups_finalized: u64,
@@ -385,7 +385,7 @@ pub(in crate::db::executor) struct GroupedRuntimeStats {
     early_scan_stop: bool,
 }
 
-#[cfg(any(test, feature = "diagnostics"))]
+#[cfg(test)]
 impl GroupedRuntimeStats {
     /// Return the number of canonical groups observed by successful fold execution.
     #[must_use]
@@ -533,7 +533,7 @@ impl ExecutionContext {
     }
 
     /// Freeze executor-owned grouped work and live-state facts after a successful fold.
-    #[cfg(any(test, feature = "diagnostics"))]
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db::executor) const fn successful_runtime_stats(
         &self,

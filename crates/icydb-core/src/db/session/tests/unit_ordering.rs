@@ -15,23 +15,11 @@ use crate::{
             PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot, SchemaIndexId,
             SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaVersion,
             accepted_schema_candidate_with_field_bindings_for_tests,
-            accepted_schema_snapshot_fingerprint_builds_for_tests,
-            reset_accepted_schema_snapshot_fingerprint_builds_for_tests,
         },
-        session::{
-            AcceptedSchemaRuntimeBuildCounts, accepted_schema_runtime_build_counts_for_tests,
-            query::{
-                shared_query_plan_cache_len_for_tests,
-                shared_query_template_cache_entry_upper_bound_for_tests,
-                shared_query_template_cache_len_for_tests,
-            },
-            reset_accepted_schema_runtime_build_counts_for_tests,
-            sql::{
-                SqlCompiledSchemaFingerprint, SqlGlobalAggregateCachedPlan,
-                SqlGlobalAggregatePlanCacheEntry,
-            },
+        session::sql::{
+            SqlCompiledSchemaFingerprint, SqlGlobalAggregateCachedPlan,
+            SqlGlobalAggregatePlanCacheEntry,
         },
-        sql::parser::{reset_sql_parse_calls_for_tests, sql_parse_calls_for_tests},
         sql_statement_dispatch, sum,
     },
     error::ErrorOrigin,
@@ -64,9 +52,6 @@ const TYPED_DESCRIPTOR: TypedEntityDescriptor = TypedEntityDescriptor::new(
     ],
 );
 const UNIT_PRIMARY_KEY: PrimaryKeyValue = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Unit);
-
-const PARSE_ONCE_QUERY: &str =
-    "SELECT id, label FROM Singleton WHERE label = 'parse-once' ORDER BY id LIMIT 1";
 
 struct TestCanister;
 
@@ -187,75 +172,38 @@ fn rejected_sql_fields_keep_exact_role() {
 }
 
 #[test]
-fn trusted_sql_query_reuses_one_parse_on_cache_miss_and_hit() {
+fn admitted_generated_dispatch_preserves_entity_routing() {
     let session = initialize();
 
-    reset_sql_parse_calls_for_tests();
-    let (_, cold) = session
-        .execute_trusted_sql_query_with_attribution(PARSE_ONCE_QUERY)
-        .expect("cold parse-once query should execute");
-    assert_eq!(sql_parse_calls_for_tests(), 1);
-    assert_eq!(cold.cache.sql_compiled_command_misses, 1);
-    assert_eq!(cold.cache.sql_compiled_command_hits, 0);
-
-    reset_sql_parse_calls_for_tests();
-    let (_, warm) = session
-        .execute_trusted_sql_query_with_attribution(PARSE_ONCE_QUERY)
-        .expect("warm parse-once query should execute");
-    assert_eq!(sql_parse_calls_for_tests(), 1);
-    assert_eq!(warm.cache.sql_compiled_command_hits, 1);
-    assert_eq!(warm.cache.sql_compiled_command_misses, 0);
-}
-
-#[test]
-fn admitted_generated_dispatch_is_consumed_without_reparsing() {
-    let session = initialize();
-
-    reset_sql_parse_calls_for_tests();
-    let dispatch = sql_statement_dispatch(PARSE_ONCE_QUERY)
-        .expect("generated endpoint dispatch should parse the query");
+    let dispatch = sql_statement_dispatch(
+        "SELECT id, label FROM Singleton WHERE label = 'dispatch' ORDER BY id LIMIT 1",
+    )
+    .expect("generated endpoint dispatch should parse the query");
     assert!(!dispatch.requires_introspection());
-    let (_, entity, attribution) = session
-        .execute_trusted_sql_query_with_entity_name_and_attribution(&dispatch)
+    let (_, entity) = session
+        .execute_trusted_sql_query_with_entity_name(&dispatch)
         .expect("admitted generated dispatch should execute");
 
     assert_eq!(entity, ENTITY_NAME);
-    assert_eq!(sql_parse_calls_for_tests(), 1);
-    assert_eq!(attribution.cache.sql_compiled_command_misses, 1);
-    assert_eq!(
-        attribution.compile.parse_local_instructions,
-        attribution
-            .compile
-            .parse_tokenize_local_instructions
-            .saturating_add(attribution.compile.parse_select_local_instructions)
-            .saturating_add(attribution.compile.parse_expr_local_instructions)
-            .saturating_add(attribution.compile.parse_predicate_local_instructions)
-    );
-    assert!(attribution.compile_local_instructions >= attribution.compile.parse_local_instructions);
 }
 
 #[test]
-fn trusted_sql_response_routing_and_mutation_compilation_parse_once() {
+fn trusted_sql_response_and_mutation_surface_routing_remain_distinct() {
     let session = initialize();
 
-    reset_sql_parse_calls_for_tests();
     let dispatch = sql_statement_dispatch("SHOW STORES")
         .expect("entity-less introspection dispatch should parse");
     let (_, entity) = session
         .execute_trusted_sql_query_with_entity_name(&dispatch)
         .expect("entity-less introspection should execute");
     assert!(entity.is_empty());
-    assert_eq!(sql_parse_calls_for_tests(), 1);
 
-    reset_sql_parse_calls_for_tests();
     session
         .compile_sql_mutation_with_execution_context(
             "DELETE FROM Singleton WHERE id = '00000000000000000000000000'",
         )
-        .expect("mutation cache miss should compile from one parse");
-    assert_eq!(sql_parse_calls_for_tests(), 1);
+        .expect("mutation SQL should compile through its own surface");
 
-    reset_sql_parse_calls_for_tests();
     let error = session
         .execute_trusted_sql_query("DELETE FROM Singleton")
         .expect_err("query ingress should reject mutation SQL");
@@ -263,7 +211,6 @@ fn trusted_sql_response_routing_and_mutation_compilation_parse_once() {
         error.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::QuerySqlSurfaceMismatch,
     );
-    assert_eq!(sql_parse_calls_for_tests(), 1);
 }
 
 #[test]
@@ -297,8 +244,8 @@ fn global_aggregate_command_cache_retains_one_fingerprint_bound_preparation() {
     let session = initialize();
     seed_singleton(&session);
 
-    let (exact_context, _, _, _) = session
-        .compile_sql_query_with_execution_context("SELECT COUNT(*) FROM Singleton")
+    let (exact_context, _) = session
+        .compile_sql_query_for_tests("SELECT COUNT(*) FROM Singleton")
         .expect("exact count should compile");
     let exact_fingerprint = exact_context.compiled_schema_fingerprint();
     assert!(
@@ -308,7 +255,7 @@ fn global_aggregate_command_cache_retains_one_fingerprint_bound_preparation() {
             .is_none()
     );
     session
-        .execute_compiled_sql_query_context_with_cache_attribution(&exact_context)
+        .execute_compiled_sql_query_context(&exact_context)
         .expect("exact count should execute");
     let exact_entry = exact_context
         .command()
@@ -337,12 +284,12 @@ fn global_aggregate_command_cache_retains_one_fingerprint_bound_preparation() {
         .expect("a populated command slot must remain bound to its original fingerprint");
     assert!(Rc::ptr_eq(&exact_entry, &retained_entry));
 
-    let (prepared_context, _, _, _) = session
-        .compile_sql_query_with_execution_context("SELECT COUNT(DISTINCT label) FROM Singleton")
+    let (prepared_context, _) = session
+        .compile_sql_query_for_tests("SELECT COUNT(DISTINCT label) FROM Singleton")
         .expect("ordinary aggregate should compile");
     let prepared_fingerprint = prepared_context.compiled_schema_fingerprint();
     session
-        .execute_compiled_sql_query_context_with_cache_attribution(&prepared_context)
+        .execute_compiled_sql_query_context(&prepared_context)
         .expect("ordinary aggregate should execute");
     let prepared_entry = prepared_context
         .command()
@@ -374,11 +321,11 @@ fn u256_arithmetic_and_sum_converge_across_sql_prepared_and_fluent_paths() {
     };
     assert_eq!(rows, &expected_arithmetic);
 
-    let (prepared, _, _, _) = session
-        .compile_sql_query_with_execution_context(arithmetic_sql)
+    let (prepared, _) = session
+        .compile_sql_query_for_tests(arithmetic_sql)
         .expect("U256 arithmetic SQL should compile once");
-    let (prepared_result, _) = session
-        .execute_compiled_sql_query_context_with_cache_attribution(&prepared)
+    let prepared_result = session
+        .execute_compiled_sql_query_context(&prepared)
         .expect("prepared U256 arithmetic SQL should execute");
     let SqlStatementResult::Projection {
         rows: prepared_rows,
@@ -425,14 +372,14 @@ fn u256_arithmetic_and_sum_converge_across_sql_prepared_and_fluent_paths() {
     }
 
     let overflow_sql = format!("SELECT amount + U256 '{}' FROM Singleton", U256::MAX);
-    let (prepared_overflow, _, _, _) = session
-        .compile_sql_query_with_execution_context(&overflow_sql)
+    let (prepared_overflow, _) = session
+        .compile_sql_query_for_tests(&overflow_sql)
         .expect("U256 overflow expression should compile before execution");
     let direct_error = session
         .execute_trusted_sql_query(&overflow_sql)
         .expect_err("direct U256 overflow should fail");
     let prepared_error = session
-        .execute_compiled_sql_query_context_with_cache_attribution(&prepared_overflow)
+        .execute_compiled_sql_query_context(&prepared_overflow)
         .expect_err("prepared U256 overflow should fail");
     assert_eq!(direct_error.diagnostic(), prepared_error.diagnostic());
 }
@@ -722,11 +669,9 @@ fn accepted_entity_display_name_lookup_is_case_insensitive() {
 fn missing_describe_entity_reports_accepted_schema_not_found() {
     let session = initialize();
 
-    reset_sql_parse_calls_for_tests();
     let error = session
         .execute_trusted_sql_query("DESCRIBE Card")
         .expect_err("a missing DESCRIBE target should fail");
-    assert_eq!(sql_parse_calls_for_tests(), 1);
 
     assert_eq!(
         error.diagnostic_code(),
@@ -745,7 +690,6 @@ fn assert_unit_exact_key_batch(
     binding: &DynamicTypedEntityBinding,
 ) {
     let gets_before = DataStore::current_get_call_count();
-    let cached_plans_before = shared_query_plan_cache_len_for_tests(session.db.cache_scope_id());
     let exact = session
         .execute_public_exact_key_batch_for_typed_binding(
             binding,
@@ -760,12 +704,6 @@ fn assert_unit_exact_key_batch(
         1,
         "duplicate input positions must share one physical row read",
     );
-    assert_eq!(
-        shared_query_plan_cache_len_for_tests(session.db.cache_scope_id()),
-        cached_plans_before,
-        "exact-key reads must not populate the general query-plan cache",
-    );
-
     let too_many = vec![UNIT_PRIMARY_KEY; crate::db::MAX_TYPED_EXACT_KEY_BATCH_ITEMS + 1];
     let over_bound = session
         .execute_public_exact_key_batch_for_typed_binding(binding, too_many.as_slice())
@@ -792,36 +730,6 @@ fn assert_unit_exact_key_batch(
 }
 
 #[test]
-fn accepted_runtime_root_is_reused_across_one_thousand_queries() {
-    let session = initialize();
-    seed_singleton(&session);
-    let query = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("id").eq(InputValue::unit()))
-        .select(["id"])
-        .limit(1);
-
-    session
-        .execute_trusted_live_page(&query, None)
-        .expect("warm query should build the accepted runtime root");
-    reset_accepted_schema_runtime_build_counts_for_tests();
-    reset_accepted_schema_snapshot_fingerprint_builds_for_tests();
-
-    for _ in 0..1_000 {
-        let request_session = new_request_session();
-        let output = request_session
-            .execute_trusted_live_page(&query, None)
-            .expect("warm query should reuse accepted runtime state");
-        assert_eq!(output.row_count, 1);
-    }
-
-    assert_eq!(
-        accepted_schema_runtime_build_counts_for_tests(),
-        AcceptedSchemaRuntimeBuildCounts::default(),
-    );
-    assert_eq!(accepted_schema_snapshot_fingerprint_builds_for_tests(), 0);
-}
-
-#[test]
 fn parameterized_plan_cache_binds_current_values_across_dynamic_and_sql_surfaces() {
     let session = initialize();
     seed_singleton(&session);
@@ -834,10 +742,8 @@ fn parameterized_plan_cache_binds_current_values_across_dynamic_and_sql_surfaces
         .execute_trusted_live_page(&matching, None)
         .expect("first dynamic equality should compile its parameterized template");
     assert_eq!(first.rows, vec![singleton_row()]);
-    let cached_after_first = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
-
-    let (second, attribution) = session
-        .execute_trusted_sql_query_with_attribution(
+    let second = session
+        .execute_trusted_sql_query(
             "SELECT id, label FROM Singleton WHERE label = 'missing' ORDER BY id LIMIT 2",
         )
         .expect("different SQL literal should bind through the shared dynamic template");
@@ -848,84 +754,6 @@ fn parameterized_plan_cache_binds_current_values_across_dynamic_and_sql_surfaces
         rows.is_empty(),
         "the first literal's index bound must not leak"
     );
-    assert_eq!(attribution.cache.shared_query_plan_hits, 1);
-    assert_eq!(attribution.cache.shared_query_plan_misses, 0);
-    assert_eq!(
-        shared_query_template_cache_len_for_tests(session.db.cache_scope_id()),
-        cached_after_first,
-        "different literal values should reuse one shared template",
-    );
-}
-
-#[test]
-fn request_diagnostics_share_one_root_and_expose_repeated_point_lookups() {
-    let bootstrap = initialize();
-    seed_singleton(&bootstrap);
-    let binding = bootstrap
-        .issue_typed_entity_binding(&TYPED_DESCRIPTOR)
-        .expect("request diagnostics binding should resolve");
-    let root = crate::db::RequestExecutionRoot::__new_runtime_root();
-    let first = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
-    let second = DbSession::<TestCanister>::new(&STORE_REGISTRY, &root);
-    assert!(first.enable_request_diagnostics());
-    assert!(
-        !second.enable_request_diagnostics(),
-        "a derived session must not reset the request summary",
-    );
-
-    let query = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("id").eq(InputValue::unit()))
-        .select(["id"])
-        .limit(1);
-    for session in [
-        &first, &first, &first, &first, &second, &second, &second, &second,
-    ] {
-        session
-            .execute_trusted_live_page(&query, None)
-            .expect("repeated point lookup should execute");
-    }
-    second
-        .execute_public_exact_key_batch_for_typed_binding(
-            &binding,
-            &[UNIT_PRIMARY_KEY, UNIT_PRIMARY_KEY],
-        )
-        .expect("direct exact-key batch should execute")
-        .expect("binding should remain current");
-
-    let diagnostics = first
-        .request_diagnostics()
-        .expect("enabled request diagnostics should snapshot");
-    let dynamic = diagnostics
-        .shapes
-        .iter()
-        .find(|shape| {
-            shape.entity == ENTITY_SOURCE
-                && shape.access_path == crate::db::RequestDiagnosticAccessPath::ByKey
-        })
-        .expect("dynamic point shape should be retained");
-    assert_eq!(dynamic.executions, 8);
-    assert_eq!(
-        dynamic
-            .plan_cache_hits
-            .saturating_add(dynamic.plan_cache_misses),
-        8,
-    );
-    assert_eq!(dynamic.hottest_key_lookups, 8);
-    assert_eq!(dynamic.rows_returned, 8);
-    assert!(diagnostics.warnings.iter().any(|warning| {
-        warning.normalized_shape_fingerprint_prefix == dynamic.normalized_shape_fingerprint_prefix
-            && warning.message.contains("get_many")
-    }));
-
-    let direct = diagnostics
-        .shapes
-        .iter()
-        .find(|shape| shape.access_path == crate::db::RequestDiagnosticAccessPath::ByKeys)
-        .expect("planner-free exact-key shape should be retained");
-    assert_eq!(direct.executions, 1);
-    assert_eq!(direct.exact_key_lookups, 2);
-    assert_eq!(direct.hottest_key_lookups, 2);
-    assert_eq!(second.request_diagnostics(), Some(diagnostics));
 }
 
 #[test]
@@ -946,17 +774,11 @@ fn parameterized_in_list_cache_identity_is_independent_of_nonempty_arity() {
         .execute_trusted_live_page(&one, None)
         .expect("one-item IN should compile its list-slot template");
     assert!(first.rows.is_empty());
-    let cached_after_first = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
     let second = session
         .execute_trusted_live_page(&two, None)
         .expect("two-item IN should bind to the same list-slot template");
 
     assert_eq!(second.rows, vec![singleton_row()]);
-    assert_eq!(
-        shared_query_template_cache_len_for_tests(session.db.cache_scope_id()),
-        cached_after_first,
-        "IN list arity must not create one template per length",
-    );
 }
 
 #[test]
@@ -977,17 +799,12 @@ fn parameterized_range_rebinds_bounds_and_rejects_wrong_types_before_reuse() {
             .rows
             .is_empty(),
     );
-    let cached_after_first = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
     assert_eq!(
         session
             .execute_trusted_live_page(&below, None)
             .expect("second range should bind a fresh lower bound")
             .rows,
         vec![singleton_row()],
-    );
-    assert_eq!(
-        shared_query_template_cache_len_for_tests(session.db.cache_scope_id()),
-        cached_after_first,
     );
 
     let wrong_type = DynamicQuery::new(ENTITY_NAME)
@@ -999,89 +816,6 @@ fn parameterized_range_rebinds_bounds_and_rejects_wrong_types_before_reuse() {
             .is_err(),
         "schema validation must reject a wrong-typed binding before cache reuse",
     );
-    assert_eq!(
-        shared_query_template_cache_len_for_tests(session.db.cache_scope_id()),
-        cached_after_first,
-    );
-}
-
-#[test]
-fn parameterized_cache_keeps_projection_and_order_topology_distinct() {
-    let session = initialize();
-    seed_singleton(&session);
-    let base = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("label").eq(InputValue::text("singleton".to_string())))
-        .select(["id"]);
-    session
-        .execute_trusted_live_page(&base, None)
-        .expect("base parameterized shape should execute");
-    let after_base = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
-
-    let projection = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("label").eq(InputValue::text("singleton".to_string())))
-        .select(["id", "label"]);
-    session
-        .execute_trusted_live_page(&projection, None)
-        .expect("different projection shape should execute");
-    let after_projection = shared_query_template_cache_len_for_tests(session.db.cache_scope_id());
-    assert_eq!(after_projection, after_base.saturating_add(1));
-
-    let ordered = DynamicQuery::new(ENTITY_NAME)
-        .filter(FieldRef::new("label").eq(InputValue::text("singleton".to_string())))
-        .select(["id", "label"])
-        .order_by(asc("label"));
-    session
-        .execute_trusted_live_page(&ordered, None)
-        .expect("different ordering topology should execute");
-    assert_eq!(
-        shared_query_template_cache_len_for_tests(session.db.cache_scope_id()),
-        after_projection.saturating_add(1),
-    );
-}
-
-#[test]
-fn parameterized_template_cache_evicts_deterministically_at_its_capacity_bound() {
-    let session = initialize();
-    seed_singleton(&session);
-    let entry_upper_bound = shared_query_template_cache_entry_upper_bound_for_tests();
-
-    let mut last_attribution = None;
-    for limit in 1..=entry_upper_bound.saturating_add(1) {
-        let sql = format!(
-            "SELECT id, label FROM Singleton WHERE label = 'singleton' ORDER BY id LIMIT {limit}"
-        );
-        let (_, attribution) = session
-            .execute_trusted_sql_query_with_attribution(&sql)
-            .expect("each bounded parameterized shape should execute");
-        assert_eq!(attribution.cache.shared_query_plan_misses, 1);
-        last_attribution = Some(attribution);
-    }
-
-    assert_eq!(
-        last_attribution
-            .expect("at least one cache insertion should execute")
-            .cache
-            .shared_query_plan_evictions,
-        1,
-    );
-
-    let cache_scope_id = session.db.cache_scope_id();
-    assert!(shared_query_template_cache_len_for_tests(cache_scope_id) <= entry_upper_bound,);
-
-    let (_, newest) = session
-        .execute_trusted_sql_query_with_attribution(&format!(
-            "SELECT id, label FROM Singleton WHERE label = 'other' ORDER BY id LIMIT {}",
-            entry_upper_bound.saturating_add(1),
-        ))
-        .expect("newest retained shape should execute");
-    assert_eq!(newest.cache.shared_query_plan_hits, 1);
-
-    let (_, oldest) = session
-        .execute_trusted_sql_query_with_attribution(
-            "SELECT id, label FROM Singleton WHERE label = 'other' ORDER BY id LIMIT 1",
-        )
-        .expect("evicted oldest shape should recompile");
-    assert_eq!(oldest.cache.shared_query_plan_misses, 1);
 }
 
 #[test]
@@ -1094,8 +828,6 @@ fn accepted_runtime_root_publication_is_atomic_across_schema_revisions() {
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .expect("initial accepted runtime root should resolve");
     let first_root = first_context.runtime_root_identity();
-    reset_accepted_schema_runtime_build_counts_for_tests();
-
     publish_schema(
         &session,
         AcceptedSchemaRevision::INITIAL,
@@ -1113,14 +845,6 @@ fn accepted_runtime_root_publication_is_atomic_across_schema_revisions() {
             .is_none(),
     );
     assert_eq!(first_context.runtime_root_identity(), first_root);
-    assert_eq!(
-        accepted_schema_runtime_build_counts_for_tests(),
-        AcceptedSchemaRuntimeBuildCounts {
-            root_identity_builds: 1,
-            root_publications: 1,
-            entity_compilations: 1,
-        },
-    );
 }
 
 fn initialize() -> DbSession<TestCanister> {

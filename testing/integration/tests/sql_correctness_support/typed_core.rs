@@ -8,12 +8,11 @@ use std::collections::BTreeSet;
 use crate::sql_harness::{
     CorrectnessObservation, CorrectnessScenario, CorrectnessVerdict, DiagnosticFact,
     EligibleProvider, EvidenceStrength, ExpectedAcceptance, FailureOwner, HarnessFailureKind,
-    MeasurementStatus, MismatchCategory, MutationKind, NormalizedCell, NormalizedResult,
-    NullabilityClass, ObservedOutcome, PerformanceFailure, PerformanceVerdict, PredicateFamily,
-    QueryShape, RouteExpectation, RouteFact, RouteFamily, RouteObservation, RouteOutcome,
-    RouteReason, RowOrder, ScenarioMetadata, ScenarioStratum, SelectionError, StatementFamily,
-    ValueTypeFamily, WindowSpec, compare_normalized_results, correctness_verdict,
-    performance_verdict, select_stratified,
+    MismatchCategory, MutationKind, NormalizedCell, NormalizedResult, NullabilityClass,
+    ObservedOutcome, PredicateFamily, QueryShape, RouteExpectation, RouteFact, RouteFamily,
+    RouteObservation, RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, ScenarioStratum,
+    SelectionError, StatementFamily, ValueTypeFamily, WindowSpec, compare_normalized_results,
+    correctness_verdict, select_stratified,
 };
 
 const PRIMARY_PUSHED: RouteFact = RouteFact::new(
@@ -149,7 +148,7 @@ fn typed_normalization_preserves_order_null_bytes_and_duplicate_multiplicity() {
 }
 
 #[test]
-fn correctness_and_performance_verdicts_fail_closed_independently() {
+fn correctness_verdict_fails_closed_for_product_and_harness_failures() {
     let scenario = scenario(
         "admitted.failure",
         EligibleProvider::SqliteReference,
@@ -175,14 +174,6 @@ fn correctness_and_performance_verdicts_fail_closed_independently() {
     };
     assert_eq!(failure.signature.owner, FailureOwner::Product);
     assert_eq!(failure.signature.category, MismatchCategory::Acceptance);
-    assert!(matches!(
-        performance_verdict(&failed, MeasurementStatus::Comparable),
-        PerformanceVerdict::Failed(PerformanceFailure::CorrectnessFailed(_))
-    ));
-    assert_eq!(
-        performance_verdict(&CorrectnessVerdict::Passed, MeasurementStatus::Missing),
-        PerformanceVerdict::Failed(PerformanceFailure::MissingMeasurement)
-    );
 
     let harness_failure = CorrectnessObservation {
         subject: ObservedOutcome::HarnessFailure(HarnessFailureKind::Rendering),

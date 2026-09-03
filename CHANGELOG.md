@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
+- `0.252.6` hard-cuts the separate diagnostics feature, detailed SQL/request
+  attribution, and off-canister performance matrix while retaining one
+  on-canister entity-cost report, Canic endpoint ownership, and narrow
+  total-only development probes.
 - `0.252.5` completes the closeout with single-owner query, mutation, and build
   paths; hard-cuts duplicated metrics and per-call query-cost envelopes to one
   optional on-canister entity hit/cost report; and updates the host harness to

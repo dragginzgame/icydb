@@ -3,7 +3,7 @@ use crate::{
         Db,
         data::{DataStore, DecodedDataStoreKey},
         executor::projection::covering::{
-            CoveringProjectionMetricsRecorder, PreparedCoveringProjectionRuntime,
+            PreparedCoveringProjectionRuntime,
             contracts::{
                 AccessPlannedQuery, CoveringExistingRowMode, CoveringHybridReadExecutionPlan,
                 CoveringReadField, CoveringReadFieldSource,
@@ -69,7 +69,6 @@ where
     };
     let row_presence_proven = existing_row_mode == CoveringExistingRowMode::ProvenByPlanner;
 
-    runtime.metrics.record_hybrid_path_hit();
     let row_layout = authority.row_layout()?;
     let ownership = HybridProjectionOwnership::compile(hybrid.fields.as_slice());
 
@@ -86,7 +85,6 @@ where
                 scan_window.page_window_applied,
                 raw_pairs,
                 &ownership,
-                runtime.metrics,
             )?
         } else {
             execute_hybrid_covering_projection_with_checked_rows(
@@ -100,7 +98,6 @@ where
                 scan_window.page_window_applied,
                 raw_pairs,
                 &ownership,
-                runtime.metrics,
             )?
         };
 
@@ -120,7 +117,6 @@ fn execute_hybrid_covering_projection_with_proven_rows(
     page_window_applied: bool,
     raw_pairs: IndexComponentRows,
     ownership: &HybridProjectionOwnership,
-    metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     let mut keyed_components = Vec::with_capacity(raw_pairs.len().saturating_sub(page_skip_count));
 
@@ -156,7 +152,6 @@ fn execute_hybrid_covering_projection_with_proven_rows(
             decoded_components,
             sparse_row_fields,
             ownership,
-            metrics,
         )?;
 
         projected_rows.push(projected_row);
@@ -177,7 +172,6 @@ fn execute_hybrid_covering_projection_with_checked_rows(
     page_window_applied: bool,
     raw_pairs: IndexComponentRows,
     ownership: &HybridProjectionOwnership,
-    metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     let mut projected_rows = Vec::with_capacity(raw_pairs.len().saturating_sub(page_skip_count));
     let mut projected_row_count = 0usize;
@@ -208,7 +202,6 @@ fn execute_hybrid_covering_projection_with_checked_rows(
             decoded_components,
             sparse_row_fields,
             ownership,
-            metrics,
         )?;
 
         projected_rows.push((data_key, projected_row));
@@ -329,7 +322,6 @@ fn project_hybrid_covering_row(
     mut decoded_components: Vec<(usize, Value)>,
     mut row_fields: Vec<(usize, Value)>,
     ownership: &HybridProjectionOwnership,
-    metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
@@ -341,8 +333,6 @@ fn project_hybrid_covering_row(
         let value = match &field.source {
             CoveringReadFieldSource::IndexComponent { component_index }
             | CoveringReadFieldSource::IndexExpressionComponent { component_index } => {
-                metrics.record_hybrid_index_field_access();
-
                 take_or_clone_compact_value(
                     &mut decoded_components,
                     *component_index,
@@ -353,15 +343,11 @@ fn project_hybrid_covering_row(
                 data_key.primary_key_component_runtime_value(*component_index)?
             }
             CoveringReadFieldSource::Constant(value) => value.clone(),
-            CoveringReadFieldSource::RowField => {
-                metrics.record_hybrid_row_field_access();
-
-                take_or_clone_compact_value(
-                    &mut row_fields,
-                    field.field_slot.index(),
-                    ownership.move_on_use(field_index)?,
-                )?
-            }
+            CoveringReadFieldSource::RowField => take_or_clone_compact_value(
+                &mut row_fields,
+                field.field_slot.index(),
+                ownership.move_on_use(field_index)?,
+            )?,
         };
         projected.push(value);
     }

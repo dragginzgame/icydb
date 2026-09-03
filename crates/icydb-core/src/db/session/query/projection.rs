@@ -6,7 +6,7 @@
 
 use crate::{
     db::{
-        DbSession, QueryError,
+        DbSession, QueryError, TraceReuseEvent,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::{
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
@@ -17,7 +17,6 @@ use crate::{
             },
         },
         schema::{AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, output_value_from_runtime},
-        session::query::QueryPlanCacheAttribution,
     },
     traits::CanisterKind,
     value::{OutputValue, Value},
@@ -182,12 +181,12 @@ impl<C: CanisterKind> DbSession<C> {
         (
             SharedPreparedExecutionPlan,
             StructuralProjectionContract,
-            QueryPlanCacheAttribution,
+            TraceReuseEvent,
         ),
         QueryError,
     > {
         let schema_fingerprint = authority.accepted_schema_fingerprint();
-        let (prepared_plan, cache_attribution) = self
+        let (prepared_plan, reuse) = self
             .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
                 authority.clone(),
                 accepted_schema,
@@ -202,7 +201,7 @@ impl<C: CanisterKind> DbSession<C> {
         );
         let projection = StructuralProjectionContract::from_projection_spec(&projection_spec);
 
-        Ok((prepared_plan, projection, cache_attribution))
+        Ok((prepared_plan, projection, reuse))
     }
 
     pub(in crate::db::session) fn structural_projection_prepared_plan_for_accepted_authority_with_route_pin(
@@ -216,12 +215,12 @@ impl<C: CanisterKind> DbSession<C> {
         Option<(
             SharedPreparedExecutionPlan,
             StructuralProjectionContract,
-            QueryPlanCacheAttribution,
+            TraceReuseEvent,
         )>,
         QueryError,
     > {
         let schema_fingerprint = authority.accepted_schema_fingerprint();
-        let Some((prepared_plan, cache_attribution)) = self
+        let Some((prepared_plan, reuse)) = self
             .shared_query_plan_for_accepted_authority_with_route_pin(
                 authority.clone(),
                 accepted_schema,
@@ -240,6 +239,6 @@ impl<C: CanisterKind> DbSession<C> {
         );
         let projection = StructuralProjectionContract::from_projection_spec(&projection_spec);
 
-        Ok(Some((prepared_plan, projection, cache_attribution)))
+        Ok(Some((prepared_plan, projection, reuse)))
     }
 }

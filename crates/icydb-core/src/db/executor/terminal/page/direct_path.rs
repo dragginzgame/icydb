@@ -22,13 +22,6 @@ use super::{
     },
 };
 
-#[cfg(feature = "diagnostics")]
-use super::metrics::{
-    measure_direct_data_row_phase, record_direct_data_row_order_window_local_instructions,
-    record_direct_data_row_page_window_local_instructions,
-    record_direct_data_row_scan_local_instructions,
-};
-
 // Execute one already-resolved direct `DataRow` strategy through the shared
 // direct-lane scan and page-window shell.
 #[expect(clippy::too_many_arguments)]
@@ -49,19 +42,7 @@ pub(super) fn execute_direct_data_row_path(
     // scan instead of retaining every raw candidate until a later sort pass.
     let row_skip_count = direct_data_row_page_skip_count(plan);
     let order_keep_count = ExecutionKernel::bounded_order_keep_count(plan, None, false);
-    #[cfg(feature = "diagnostics")]
-    let (scan_local_instructions, scan_result) = measure_direct_data_row_phase(|| {
-        execute_direct_data_row_scan(
-            key_stream,
-            scan_budget_hint,
-            row_skip_count,
-            consistency,
-            row_runtime,
-            direct_data_row_path,
-            order_keep_count,
-        )
-    });
-    #[cfg(not(feature = "diagnostics"))]
+
     let scan_result = execute_direct_data_row_scan(
         key_stream,
         scan_budget_hint,
@@ -72,8 +53,6 @@ pub(super) fn execute_direct_data_row_path(
         order_keep_count,
     );
     let scan_result = scan_result?;
-    #[cfg(feature = "diagnostics")]
-    record_direct_data_row_scan_local_instructions(scan_local_instructions);
 
     // Phase 2: only the retained winner set reaches final canonical ordering.
     let (mut data_rows, rows_scanned, rows_matched, page_window_already_applied) = match scan_result
@@ -88,13 +67,7 @@ pub(super) fn execute_direct_data_row_path(
             rows_scanned,
             rows_matched,
         }) => {
-            #[cfg(feature = "diagnostics")]
-            let (order_window_local_instructions, rows) =
-                measure_direct_data_row_phase(|| window.into_sorted_rows());
-            #[cfg(not(feature = "diagnostics"))]
             let rows = window.into_sorted_rows();
-            #[cfg(feature = "diagnostics")]
-            record_direct_data_row_order_window_local_instructions(order_window_local_instructions);
 
             (rows?, rows_scanned, rows_matched, false)
         }
@@ -107,23 +80,10 @@ pub(super) fn execute_direct_data_row_path(
     } else {
         data_rows.len()
     };
-    #[cfg(feature = "diagnostics")]
-    let (page_window_local_instructions, page_window_result) =
-        measure_direct_data_row_phase(|| {
-            if !page_window_already_applied {
-                apply_data_row_page_window(plan, &mut data_rows);
-            }
 
-            Ok::<(), InternalError>(())
-        });
-    #[cfg(not(feature = "diagnostics"))]
     if !page_window_already_applied {
         apply_data_row_page_window(plan, &mut data_rows);
     }
-    #[cfg(feature = "diagnostics")]
-    page_window_result?;
-    #[cfg(feature = "diagnostics")]
-    record_direct_data_row_page_window_local_instructions(page_window_local_instructions);
 
     Ok(ScalarPageMaterialization {
         payload: StructuralCursorPage::new(data_rows),

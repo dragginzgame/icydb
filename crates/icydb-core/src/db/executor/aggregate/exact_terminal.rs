@@ -29,9 +29,6 @@ const EXACT_COUNT_SHAPE_DOMAIN: u64 = 0x6963_7964_622d_6578;
 #[cfg(feature = "sql")]
 const EXACT_NUMERIC_AGGREGATE_SHAPE_DOMAIN: u64 = 0x6963_7964_622d_6e75;
 
-#[cfg(feature = "diagnostics")]
-use crate::db::diagnostics::measure_local_instruction_delta as measure_exact_terminal_phase;
-
 #[cfg(feature = "sql")]
 use crate::db::{
     executor::{
@@ -48,12 +45,6 @@ use crate::db::{
 #[cfg(feature = "sql")]
 use crate::{types::Decimal, value::Value};
 
-#[cfg(feature = "diagnostics")]
-fn measure_exact_cardinality<T>(run: impl FnOnce() -> T) -> (u64, T) {
-    measure_exact_terminal_phase(run)
-}
-
-#[cfg(not(feature = "diagnostics"))]
 fn measure_exact_cardinality<T>(run: impl FnOnce() -> T) -> (u64, T) {
     (0, run())
 }
@@ -210,16 +201,7 @@ where
             charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultBytes, 32)?;
         }
 
-        #[cfg(not(feature = "diagnostics"))]
         let _ = (index_prefix_target, metadata_local_instructions);
-        #[cfg(feature = "diagnostics")]
-        {
-            if index_prefix_target {
-                super::terminal_attribution::record_index_prefix_cardinality_terminal_attribution(
-                    metadata_local_instructions,
-                );
-            }
-        }
 
         Ok(Some(output))
     })
@@ -288,14 +270,7 @@ where
             .collect::<Result<Vec<_>, _>>()?;
         charge_runtime_value_rows(std::slice::from_ref(&row))?;
 
-        #[cfg(not(feature = "diagnostics"))]
         let _ = metadata.local_instructions;
-        #[cfg(feature = "diagnostics")]
-        {
-            super::terminal_attribution::record_index_prefix_cardinality_terminal_attribution(
-                metadata.local_instructions,
-            );
-        }
 
         Ok(Some(row))
     })

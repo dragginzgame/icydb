@@ -10,8 +10,6 @@ pub(in crate::db::executor) mod field;
 pub(in crate::db::executor) mod runtime;
 #[cfg(feature = "sql")]
 mod scalar_terminals;
-#[cfg(feature = "diagnostics")]
-mod terminal_attribution;
 pub(in crate::db::executor::aggregate) mod value_reducer;
 
 pub(in crate::db::executor) use capability::{
@@ -23,8 +21,6 @@ pub(in crate::db::executor) use contracts::AggregateFoldMode;
 pub(in crate::db::executor) use contracts::BinaryOp;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use contracts::FieldId;
-#[cfg(feature = "diagnostics")]
-pub(in crate::db::executor) use contracts::GroupedRuntimeStats;
 pub(in crate::db::executor) use contracts::{
     AccessPlannedQuery, AggregateKind, CompiledExpr, EffectiveRuntimeFilterProgram,
     ExecutionConfig, ExecutionContext, FieldSlot, FoldControl, GlobalDistinctAggregateKind,
@@ -45,8 +41,4 @@ pub(in crate::db) use exact_terminal::{
 pub(in crate::db) use scalar_terminals::{
     StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
     execute_structural_aggregate_rows_for_canister,
-};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use terminal_attribution::{
-    ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
 };

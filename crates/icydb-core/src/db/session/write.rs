@@ -4368,13 +4368,13 @@ mod identity_pre_key_tests {
     };
     #[cfg(feature = "sql")]
     use crate::db::data::DecodedDataStoreKey;
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     use crate::db::executor::budget::{
         HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
         with_execution_budget_for_tests, with_query_execution_budget_for_tests,
     };
     use crate::db::mutation_job::{MutationJobRecord, MutationJobTransition};
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     use crate::db::{
         CompareProofAndAdvanceError, ExhaustiveReadError, MutationJobError,
         MutationJobRestartReason, PrimaryKeyComponent, PrimaryKeyValue, RawDataStoreKey,
@@ -5139,7 +5139,7 @@ mod identity_pre_key_tests {
             ),
             vec![vec![OutputValue::nat64(10)]],
         );
-        #[cfg(feature = "diagnostics")]
+        #[cfg(feature = "sql")]
         assert_sql_query_fits_resource_limit(
             &session,
             "SELECT payload FROM IdentityRow ORDER BY payload ASC, id ASC LIMIT 1",
@@ -5154,7 +5154,7 @@ mod identity_pre_key_tests {
             ),
             vec![vec![OutputValue::nat64(40)]],
         );
-        #[cfg(feature = "diagnostics")]
+        #[cfg(feature = "sql")]
         assert_sql_query_fits_resource_limit(
             &session,
             "SELECT payload FROM IdentityRow ORDER BY payload DESC, id DESC LIMIT 1",
@@ -5173,7 +5173,7 @@ mod identity_pre_key_tests {
                 vec![OutputValue::nat64(4), OutputValue::nat64(20)],
             ],
         );
-        #[cfg(feature = "diagnostics")]
+        #[cfg(feature = "sql")]
         assert_sql_query_fits_resource_limit(
             &session,
             "SELECT id, payload FROM IdentityRow \
@@ -5644,7 +5644,7 @@ mod identity_pre_key_tests {
         );
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     fn identity_row_stored_bytes<C: CanisterKind>(
         session: &DbSession<C>,
         store_path: &'static str,
@@ -5668,7 +5668,7 @@ mod identity_pre_key_tests {
         })
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     fn with_stored_bytes_limit<T>(
         limit: u64,
         shape_fingerprint_prefix: u64,
@@ -5691,7 +5691,7 @@ mod identity_pre_key_tests {
         with_query_execution_budget_for_tests(budget, context, operation)
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     fn advance_with_exhausted_mutation_predicate_budget(
         session: &DbSession<JournaledTestCanister>,
         request: &MutationJobAdvanceRequest,
@@ -5717,12 +5717,12 @@ mod identity_pre_key_tests {
         )
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     const fn exact_key(value: u64) -> PrimaryKeyValue {
         PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value))
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     fn assert_exact_key_batch<C: CanisterKind>(session: &DbSession<C>) {
         let first = insert_exact_key_fixture(session, 41);
         let second = insert_exact_key_fixture(session, 42);
@@ -5758,14 +5758,14 @@ mod identity_pre_key_tests {
         );
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     #[test]
     fn exact_key_batches_preserve_semantics_across_heap_and_journaled_stores() {
         assert_exact_key_batch(&initialize());
         assert_exact_key_batch(&initialize_journaled());
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     fn assert_primary_range_materialization_fetches_once<C: CanisterKind>(
         session: &DbSession<C>,
         store_path: &'static str,
@@ -5807,7 +5807,7 @@ mod identity_pre_key_tests {
         );
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     #[test]
     fn row_materialization_fetches_each_required_payload_at_most_once() {
         assert_primary_range_materialization_fetches_once(&initialize(), STORE_PATH);
@@ -5817,7 +5817,7 @@ mod identity_pre_key_tests {
         );
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     #[test]
     fn ordered_grouped_pages_close_a_group_spanning_physical_refills_before_resume() {
         let session = initialize();
@@ -5896,7 +5896,7 @@ mod identity_pre_key_tests {
         }
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     #[test]
     fn exhaustive_pages_require_and_recompare_the_complete_source_proof() {
         let session = initialize();
@@ -5953,7 +5953,7 @@ mod identity_pre_key_tests {
         ));
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     #[test]
     fn heap_sources_cannot_back_durable_resumable_jobs() {
         let session = initialize();
@@ -5971,7 +5971,7 @@ mod identity_pre_key_tests {
         ));
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     #[test]
     fn proof_and_progress_controls_charge_one_shared_request_scope() {
         let (session, root) = initialize_journaled_with_root();
@@ -5992,7 +5992,7 @@ mod identity_pre_key_tests {
         assert_eq!(root.observed(resource).saturating_sub(before), 3);
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     #[test]
     fn source_proofs_ignore_unrelated_stores_but_bind_access_state_changes() {
         let session = initialize();
@@ -6030,7 +6030,7 @@ mod identity_pre_key_tests {
         ));
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     #[expect(
         clippy::too_many_lines,
         reason = "one lifecycle test proves successful replay plus pre-page and post-page source invalidation without sharing progress state across tests"
@@ -6231,7 +6231,7 @@ mod identity_pre_key_tests {
         );
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     #[test]
     fn exact_key_batch_uses_typed_hard_execution_budget() {
         let session = initialize();
@@ -6279,7 +6279,7 @@ mod identity_pre_key_tests {
         assert_ne!(facts[5].1, 0);
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     fn assert_planned_query_exhausts(
         session: &DbSession<TestCanister>,
         query: &crate::db::DynamicQuery,
@@ -6315,7 +6315,7 @@ mod identity_pre_key_tests {
         );
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     fn assert_grouped_query_exhausts(
         session: &DbSession<TestCanister>,
         query: &crate::db::DynamicQuery,
@@ -6351,7 +6351,7 @@ mod identity_pre_key_tests {
         );
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     fn assert_sql_query_exhausts(
         session: &DbSession<TestCanister>,
         sql: &str,
@@ -6387,7 +6387,7 @@ mod identity_pre_key_tests {
         );
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     fn assert_sql_query_fits_resource_limit(
         session: &DbSession<TestCanister>,
         sql: &str,
@@ -6410,7 +6410,7 @@ mod identity_pre_key_tests {
         .expect("bounded SQL execution should fit its physical-work limit");
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     #[test]
     fn planned_read_routes_share_physical_resource_accounting() {
         let session = initialize();
@@ -6507,7 +6507,7 @@ mod identity_pre_key_tests {
         );
     }
 
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
+    #[cfg(feature = "sql")]
     #[test]
     fn mutation_execution_budget_exhaustion_terminalizes_forward_and_verify() {
         let (session, _root) = initialize_journaled_with_root();

@@ -217,11 +217,6 @@ pub(in crate::db) use fingerprint::{
 pub(in crate::db::schema) use fingerprint::{
     accepted_schema_admission_fingerprint, accepted_schema_admission_fingerprint_method_version,
 };
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use fingerprint::{
-    accepted_schema_snapshot_fingerprint_builds_for_tests,
-    reset_accepted_schema_snapshot_fingerprint_builds_for_tests,
-};
 #[cfg(feature = "sql")]
 pub(in crate::db) use format::show_indexes_for_schema_info_with_runtime_state;
 pub(in crate::db) use identity::{

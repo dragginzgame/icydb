@@ -14,7 +14,7 @@ use crate::{
                 runtime::{
                     group_matches_having_expr,
                     grouped_fold::{
-                        compile_grouped_having_expr, metrics,
+                        compile_grouped_having_expr,
                         utils::{compare_grouped_boundary_values, grouped_next_cursor_boundary},
                     },
                     grouped_output::project_grouped_rows_from_projection,
@@ -124,11 +124,9 @@ impl<'a> GroupedCountWindowSelection<'a> {
         // stop as soon as the current grouped page window proves another row
         // exists beyond the emitted page.
         for (group_key, count) in self.select_candidates(grouped_counts)? {
-            metrics::record_candidate_row_qualified();
             let aggregate_value = finalize_count(u64::from(count));
             if groups_skipped_for_offset < initial_offset_for_page {
                 groups_skipped_for_offset = groups_skipped_for_offset.saturating_add(1);
-                metrics::record_page_row_skipped_for_offset();
                 continue;
             }
             if let Some(limit) = limit
@@ -148,7 +146,6 @@ impl<'a> GroupedCountWindowSelection<'a> {
                 emitted_group_key,
                 vec![aggregate_value],
             ));
-            metrics::record_page_row_emitted();
         }
 
         Ok(GroupedCountPageRows::new(page_rows, has_more))
@@ -193,7 +190,6 @@ impl<'a> GroupedCountWindowSelection<'a> {
 
         // Phase 2: restore canonical grouped-key order across every qualifying
         // row when the grouped page window is not bounded by `offset + limit + 1`.
-        metrics::record_unbounded_selection_rows_sorted(out.len());
         out.sort_by(|(left_key, _), (right_key, _)| {
             compare_grouped_boundary_values(
                 self.route.direction(),
@@ -208,7 +204,6 @@ impl<'a> GroupedCountWindowSelection<'a> {
     // Return true when one grouped count row survives grouped HAVING and
     // resume-boundary filtering and should participate in candidate selection.
     fn row_matches_window(&self, group_key: &GroupKey, count: u32) -> Result<bool, InternalError> {
-        metrics::record_window_row_considered();
         let aggregate_value = finalize_count(u64::from(count));
         let Value::List(group_key_values) = group_key.canonical_value() else {
             return Err(GroupedRouteStage::canonical_group_key_must_be_list(
@@ -222,7 +217,6 @@ impl<'a> GroupedCountWindowSelection<'a> {
         if let Some(compiled_having_expr) = self.compiled_having_expr.as_ref()
             && !group_matches_having_expr(compiled_having_expr, &grouped_row)?
         {
-            metrics::record_having_row_rejected();
             return Ok(false);
         }
         if let Some(resume_boundary) = self.resume_boundary
@@ -232,7 +226,6 @@ impl<'a> GroupedCountWindowSelection<'a> {
                 resume_boundary,
             )
         {
-            metrics::record_resume_boundary_row_rejected();
             return Ok(false);
         }
 
@@ -271,7 +264,6 @@ impl<'a> GroupedCountWindowSelection<'a> {
         count: u32,
         selection_bound: usize,
     ) {
-        metrics::record_bounded_selection_candidate_seen();
         let candidate = BoundedGroupedCountCandidate {
             group_key,
             count,
@@ -288,7 +280,6 @@ impl<'a> GroupedCountWindowSelection<'a> {
         {
             retained.pop();
             retained.push(candidate);
-            metrics::record_bounded_selection_heap_replacement();
         }
     }
 
@@ -305,7 +296,6 @@ impl<'a> GroupedCountWindowSelection<'a> {
             .into_iter()
             .map(|candidate| (candidate.group_key, candidate.count))
             .collect::<Vec<_>>();
-        metrics::record_bounded_selection_rows_sorted(out.len());
         out.sort_by(|(left_key, _), (right_key, _)| {
             compare_grouped_boundary_values(
                 self.route.direction(),
@@ -346,7 +336,6 @@ impl GroupedCountPageRows {
         route: &GroupedRouteStage,
         grouped_projection_spec: &ProjectionSpec,
     ) -> Result<(Vec<RuntimeGroupedRow>, Option<GroupedContinuationToken>), InternalError> {
-        metrics::record_projection_rows_input(self.rows.len());
         let next_cursor_boundary = self
             .has_more
             .then(|| {
@@ -364,8 +353,6 @@ impl GroupedCountPageRows {
             self.rows,
         )?;
         let next_cursor = if self.has_more {
-            metrics::record_cursor_construction_attempt();
-            metrics::record_next_cursor_emitted();
             next_cursor_boundary
                 .map(|last_group_key| route.grouped_next_cursor(last_group_key))
                 .transpose()?

@@ -57,25 +57,14 @@ const OVERSIZED_SQL_GROUP_NAME_LEN: usize = 1_050_000;
 const IDENTITY_MAX_BATCH_ROWS: u32 = (4 * 1024) - 1;
 const APPLICATION_BEHAVIOR_PERF_ITERATIONS: u32 = 256;
 
-#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
-#[query]
-fn measure_sql_query_attribution(
-    sql: String,
-) -> Result<icydb::db::SqlQueryExecutionAttribution, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let (_, attribution) = icydb::db!()?.execute_trusted_sql_query_with_attribution(&sql)?;
-        Ok(attribution)
-    })
-}
-
-#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[cfg(feature = "test-admin-api")]
 #[derive(CandidType, Clone, Debug)]
 struct SqlExecutionInstructionResult {
     result: Result<icydb::db::sql::SqlQueryResult, icydb::Error>,
     local_instructions: u64,
 }
 
-#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[cfg(feature = "test-admin-api")]
 #[derive(CandidType, Clone, Debug)]
 struct AcceptedSchemaReadInstructionResult {
     description: icydb::db::EntitySchemaDescription,
@@ -83,7 +72,7 @@ struct AcceptedSchemaReadInstructionResult {
 }
 
 /// Measure one trusted SQL query while retaining either success or failure.
-#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[cfg(feature = "test-admin-api")]
 #[query]
 fn measure_sql_query_instructions(sql: String) -> SqlExecutionInstructionResult {
     let start = ic_cdk::api::performance_counter(1);
@@ -98,7 +87,7 @@ fn measure_sql_query_instructions(sql: String) -> SqlExecutionInstructionResult 
 }
 
 /// Measure administrative DDL admission through the existing catalog owner.
-#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn measure_sql_ddl_admission_instructions(sql: String) -> SqlExecutionInstructionResult {
     let start = ic_cdk::api::performance_counter(1);
@@ -113,7 +102,7 @@ fn measure_sql_ddl_admission_instructions(sql: String) -> SqlExecutionInstructio
 }
 
 /// Measure one trusted exact update through the existing complete write path.
-#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[cfg(feature = "test-admin-api")]
 #[update]
 fn measure_trusted_sql_exact_update_instructions(sql: String) -> SqlExecutionInstructionResult {
     let start = ic_cdk::api::performance_counter(1);
@@ -129,7 +118,7 @@ fn measure_trusted_sql_exact_update_instructions(sql: String) -> SqlExecutionIns
 }
 
 /// Measure an accepted schema read after startup has reopened catalog authority.
-#[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
+#[cfg(feature = "test-admin-api")]
 #[query]
 fn measure_accepted_schema_read_instructions(
     entity: String,

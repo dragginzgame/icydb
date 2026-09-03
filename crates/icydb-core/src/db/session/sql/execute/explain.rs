@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        DbSession, MissingRowPolicy, QueryError,
+        DbSession, MissingRowPolicy, QueryError, TraceReuseEvent,
         executor::{
             EntityAuthority, assemble_load_execution_node_descriptor_from_route_facts,
             explain::assemble_scalar_aggregate_execution_descriptor_with_projection,
@@ -24,7 +24,6 @@ use crate::{
         schema::SchemaInfo,
         session::{
             AcceptedSchemaCatalogContext,
-            query::{QueryPlanCacheAttribution, query_plan_cache_reuse_event},
             sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
         },
         sql::{
@@ -94,8 +93,8 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         structural: &StructuralQuery,
         map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
-    ) -> Result<(T, QueryPlanCacheAttribution), QueryError> {
-        let (prepared_plan, cache_attribution) = self
+    ) -> Result<(T, TraceReuseEvent), QueryError> {
+        let (prepared_plan, reuse) = self
             .cached_shared_query_plan_for_accepted_authority_with_catalog(
                 authority,
                 catalog,
@@ -104,7 +103,7 @@ impl<C: CanisterKind> DbSession<C> {
             )?;
         let mapped = map(prepared_plan.logical_plan())?;
 
-        Ok((mapped, cache_attribution))
+        Ok((mapped, reuse))
     }
 
     // Resolve one lowered SQL query through the shared prepared-plan cache and
@@ -114,8 +113,8 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         catalog: &AcceptedSchemaCatalogContext,
         structural: &StructuralQuery,
-    ) -> Result<(AccessPlannedQuery, QueryPlanCacheAttribution), QueryError> {
-        let (prepared_plan, cache_attribution) = self
+    ) -> Result<(AccessPlannedQuery, TraceReuseEvent), QueryError> {
+        let (prepared_plan, reuse) = self
             .cached_shared_query_plan_for_accepted_authority_with_catalog(
                 authority,
                 catalog,
@@ -123,7 +122,7 @@ impl<C: CanisterKind> DbSession<C> {
                 DiagnosticExecutionLane::Diagnostic,
             )?;
 
-        Ok((prepared_plan.logical_plan().clone(), cache_attribution))
+        Ok((prepared_plan.logical_plan().clone(), reuse))
     }
 
     pub(in crate::db::session::sql::execute) fn explain_lowered_sql_for_authority(
@@ -241,12 +240,11 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map_err(QueryError::from_sql_lowering_error)?;
         if verbose {
-            let (mut plan, cache_attribution) = self
-                .cached_sql_query_explain_plan_for_accepted_authority(
-                    authority.clone(),
-                    catalog,
-                    &structural,
-                )?;
+            let (mut plan, reuse) = self.cached_sql_query_explain_plan_for_accepted_authority(
+                authority.clone(),
+                catalog,
+                &structural,
+            )?;
             let visible_indexes = self
                 .visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
             plan.finalize_access_choice_with_semantic_indexes_and_schema(
@@ -258,7 +256,7 @@ impl<C: CanisterKind> DbSession<C> {
                 StructuralQuery::finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
                     &plan,
                     &authority,
-                    Some(query_plan_cache_reuse_event(cache_attribution)),
+                    Some(reuse),
                     |descriptor| {
                         annotate_sql_projection_debug_on_execution_descriptor(
                             descriptor, &plan, projection,

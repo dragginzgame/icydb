@@ -1,11 +1,3 @@
-#[cfg(feature = "diagnostics")]
-use crate::db::{
-    diagnostics::measure_local_instruction_delta as measure_structural_result,
-    executor::projection::covering::{
-        record_pure_covering_decode_local_instructions,
-        record_pure_covering_row_assembly_local_instructions,
-    },
-};
 use crate::{
     db::{
         Db,
@@ -121,34 +113,7 @@ where
     if component_indices.is_empty() {
         if stream_order_satisfies_projection_order {
             let capacity = raw_pairs.len().saturating_sub(scan_window.page_skip_count);
-            #[cfg(feature = "diagnostics")]
-            let (decode_local_instructions, projected_rows) = measure_structural_result(|| {
-                fold_covering_projection_component_rows_in_window(
-                    raw_pairs,
-                    store,
-                    plan.scalar_consistency(),
-                    existing_row_mode,
-                    CoveringProjectionComponentWindow::new(scan_window.page_skip_count, None),
-                    Vec::with_capacity(capacity),
-                    |mut rows, data_key, _components| {
-                        rows.push(project_covering_row_from_decoded_values(
-                            &data_key,
-                            covering.fields.as_slice(),
-                            &[],
-                            &[],
-                        )?);
-                        Ok(Some(rows))
-                    },
-                )
-            });
-            #[cfg(feature = "diagnostics")]
-            record_pure_covering_decode_local_instructions(decode_local_instructions);
-            #[cfg(feature = "diagnostics")]
-            let Some(mut projected_rows) = projected_rows? else {
-                return Ok(None);
-            };
 
-            #[cfg(not(feature = "diagnostics"))]
             let Some(mut projected_rows) = fold_covering_projection_component_rows_in_window(
                 raw_pairs,
                 store,
@@ -180,24 +145,6 @@ where
             return Ok(Some(projected_rows));
         }
 
-        #[cfg(feature = "diagnostics")]
-        let (decode_local_instructions, projected_keys) = measure_structural_result(|| {
-            map_covering_projection_pairs(
-                raw_pairs,
-                store,
-                plan.scalar_consistency(),
-                existing_row_mode,
-                |_components| Ok::<Option<()>, InternalError>(Some(())),
-            )
-        });
-        #[cfg(feature = "diagnostics")]
-        record_pure_covering_decode_local_instructions(decode_local_instructions);
-        #[cfg(feature = "diagnostics")]
-        let Some(projected_keys): Option<Vec<(DecodedDataStoreKey, ())>> = projected_keys? else {
-            return Ok(None);
-        };
-
-        #[cfg(not(feature = "diagnostics"))]
         let Some(projected_keys) = map_covering_projection_pairs(
             raw_pairs,
             store,
@@ -246,24 +193,6 @@ where
         };
         let raw_pairs = drop_scan_time_covering_offset(raw_pairs, decoded_scan_time_skip_count);
 
-        #[cfg(feature = "diagnostics")]
-        let (decode_local_instructions, decoded_rows) = measure_structural_result(|| {
-            decode_single_covering_projection_pairs(
-                raw_pairs,
-                store,
-                plan.scalar_consistency(),
-                existing_row_mode,
-                Ok::<Value, InternalError>,
-            )
-        });
-        #[cfg(feature = "diagnostics")]
-        record_pure_covering_decode_local_instructions(decode_local_instructions);
-        #[cfg(feature = "diagnostics")]
-        let Some(decoded_rows): Option<Vec<(DecodedDataStoreKey, Value)>> = decoded_rows? else {
-            return Ok(None);
-        };
-
-        #[cfg(not(feature = "diagnostics"))]
         let Some(decoded_rows) = decode_single_covering_projection_pairs(
             raw_pairs,
             store,
@@ -332,24 +261,6 @@ where
     };
     let raw_pairs = drop_scan_time_covering_offset(raw_pairs, decoded_scan_time_skip_count);
 
-    #[cfg(feature = "diagnostics")]
-    let (decode_local_instructions, decoded_rows) = measure_structural_result(|| {
-        decode_covering_projection_pairs(
-            raw_pairs,
-            store,
-            plan.scalar_consistency(),
-            existing_row_mode,
-            Ok::<Vec<Value>, InternalError>,
-        )
-    });
-    #[cfg(feature = "diagnostics")]
-    record_pure_covering_decode_local_instructions(decode_local_instructions);
-    #[cfg(feature = "diagnostics")]
-    let Some(decoded_rows) = decoded_rows? else {
-        return Ok(None);
-    };
-
-    #[cfg(not(feature = "diagnostics"))]
     let Some(decoded_rows) = decode_covering_projection_pairs(
         raw_pairs,
         store,
@@ -533,21 +444,6 @@ fn assemble_primary_store_covering_rows_in_stream_order(
     output_capacity_hint: usize,
     covering: &CoveringReadExecutionPlan,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    #[cfg(feature = "diagnostics")]
-    let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
-        collect_primary_store_covering_rows_in_stream_order(
-            stream,
-            skip_count,
-            output_capacity_hint,
-            covering,
-        )
-    });
-    #[cfg(feature = "diagnostics")]
-    record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
-    #[cfg(feature = "diagnostics")]
-    let projected_rows = projected_rows?;
-
-    #[cfg(not(feature = "diagnostics"))]
     let projected_rows = collect_primary_store_covering_rows_in_stream_order(
         stream,
         skip_count,
@@ -653,18 +549,6 @@ fn assemble_covering_rows_in_index_order<I>(
     skip_count: usize,
     build_row: impl FnMut(I) -> Result<Vec<Value>, InternalError>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    #[cfg(feature = "diagnostics")]
-    let mut build_row = build_row;
-    #[cfg(feature = "diagnostics")]
-    let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
-        collect_covering_rows_in_index_order(items, skip_count, &mut build_row)
-    });
-    #[cfg(feature = "diagnostics")]
-    record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
-    #[cfg(feature = "diagnostics")]
-    let projected_rows = projected_rows?;
-
-    #[cfg(not(feature = "diagnostics"))]
     let projected_rows = collect_covering_rows_in_index_order(items, skip_count, build_row)?;
 
     Ok(projected_rows)
@@ -675,17 +559,6 @@ fn assemble_covering_rows_with_reorder<I>(
     order_contract: CoveringProjectionOrder,
     build_row: impl FnMut(I) -> Result<(DecodedDataStoreKey, Vec<Value>), InternalError>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    #[cfg(feature = "diagnostics")]
-    let mut build_row = build_row;
-    #[cfg(feature = "diagnostics")]
-    let (row_assembly_local_instructions, projected_rows) =
-        measure_structural_result(|| collect_covering_row_pairs_for_reorder(items, &mut build_row));
-    #[cfg(feature = "diagnostics")]
-    record_pure_covering_row_assembly_local_instructions(row_assembly_local_instructions);
-    #[cfg(feature = "diagnostics")]
-    let mut projected_rows = projected_rows?;
-
-    #[cfg(not(feature = "diagnostics"))]
     let mut projected_rows = collect_covering_row_pairs_for_reorder(items, build_row)?;
 
     reorder_covering_projection_pairs(order_contract, projected_rows.as_mut_slice());

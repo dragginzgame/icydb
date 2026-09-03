@@ -4,12 +4,7 @@
         test-canister-artifact-contract test-sql-canister-matrix \
         test-sql-tier-c-shard test-sql-tier-c-merge \
         test-sql-tier-c-replay \
-        build-sql-perf-wasm build-canister-local build-canister-production \
-        test-sql-introspection-baseline \
-        test-sql-perf-p1-shard test-sql-perf-p1-merge \
-        test-sql-perf-scale-shard test-sql-perf-p2-shard test-sql-perf-p2-merge \
-        test-sql-perf-instrumentation test-sql-perf-calibration-review test-sql-perf-baseline \
-        test-sql-perf-baseline-contract \
+        build-canister-local build-canister-production \
         build check clippy fmt fmt-check validate validate-fast clean install install-dev update-dev install-gh install-hooks \
         fetch test-watch all ensure-clean security-check check-versioning \
         test-no-default-smoke \
@@ -20,20 +15,14 @@
         _test-durability-core-commit _test-durability-core-mutation-job _test-durability-integration \
         _ci-format _ci-core-no-default-check _ci-core-no-default-test \
         _ci-core-sql-check _ci-core-sql-clippy \
-        _ci-core-diagnostics-check _ci-core-diagnostics-clippy \
         _ci-workspace-clippy _ci-workspace-integration-clippy _ci-workspace-tests \
         _ci-tier-a-sqlite _ci-tier-a-mutation _ci-tier-a-integration \
-        _ci-tier-b-sql-canister _ci-tier-b-0-237-perf-regressions \
+        _ci-tier-b-sql-canister _ci-tier-b-sql-perf \
         print-cargo-home print-cargo-target-dir
 
 # Resolve the repo root from this Makefile so scripts can query these values
 # via `make -C "$$ROOT"` and share a single source of truth.
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-
-# Cargo runs integration-test binaries from the owning package directory. Resolve
-# caller-supplied artifact paths here so relative CLI/workflow inputs retain their
-# repository-root meaning after Cargo crosses that working-directory boundary.
-workspace_path = $(if $(strip $(1)),$(if $(filter /%,$(strip $(1))),$(strip $(1)),$(abspath $(ROOT_DIR)/$(strip $(1)))))
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
 # filesystem do not contend on a shared cargo home or target directory.
@@ -43,34 +32,11 @@ RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache"
-PERF_POCKET_IC_ENV := POCKET_IC_BIN="$(POCKET_IC_BIN)"
 VALIDATION_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-validation-targets.sh"
 POCKET_IC_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-with-pocketic-server.sh"
 ACTIONLINT_VERSION ?= 1.7.12
 ACTIONLINT_INSTALL_DIR ?= $(HOME)/.local/bin
 ACTIONLINT_BIN ?= $(ACTIONLINT_INSTALL_DIR)/actionlint
-P1_SHARD_DIR ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p1_shards
-P1_REPORT_OUT ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_deterministic_matrix
-P1_BASELINE_PATH ?=
-PERF_CALIBRATION_COHORT ?=
-PERF_CALIBRATION_RUN ?=
-PERF_CALIBRATION_RUN_1_DIR ?=
-PERF_CALIBRATION_RUN_2_DIR ?=
-PERF_CALIBRATION_RUN_3_DIR ?=
-PERF_CALIBRATION_REVIEW_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_calibration_review.json
-PERF_BASELINE_DIR ?=
-P2_SELECTION_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_candidates.json
-P2_SHARD_DIR ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_shards
-P2_REPORT_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_p2_report.json
-P2_BASELINE_PATH ?=
-P2_CURRENT_PATH ?= $(P2_REPORT_PATH)
-PERF_COMPARISON_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_comparison.json
-PERF_INSTRUMENTATION_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_instrumentation.json
-SQL_PERF_WASM_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_canister.wasm
-SCALE_BASELINE_PATH ?=
-SCALE_CURRENT_PATH ?= $(SCALE_REPORT_PATH)
-SCALE_SHARD_DIR ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_scale_shards
-SCALE_REPORT_PATH ?= $(ROOT_DIR)/artifacts/perf-audit/sql_perf_scale_report.json
 TIER_C_ARTIFACT_DIR ?= $(ROOT_DIR)/artifacts/correctness/sql_tier_c
 TIER_C_FAILURE_ARTIFACT ?=
 
@@ -121,7 +87,7 @@ help:
 	@echo "  test             Run all tests; PocketIC needs a cached/explicit binary or download opt-in"
 	@echo "  test-integration-feedback TEST_TARGET=... TEST_NAME=..."
 	@echo "                  Run one exact integration test, then its complete binary"
-	@echo "  test-durability  Run the focused commit, mutation-job, convergence, recovery, and perf matrix"
+	@echo "  test-durability  Run the focused commit, mutation-job, convergence, and recovery checks"
 	@echo "  test-canister-artifact-contract"
 	@echo "                  Build and inspect all 34 independent production/local canister artifacts"
 	@echo "  test-sql-canister-matrix"
@@ -132,34 +98,10 @@ help:
 	@echo "                  Merge all eight Tier C receipts and publish typed coverage"
 	@echo "  test-sql-tier-c-replay TIER_C_FAILURE_ARTIFACT=..."
 	@echo "                  Reproduce one minimized Tier C failure exactly"
-	@echo "  build-sql-perf-wasm"
-	@echo "                  Build the one wasm-release subject shared by every performance shard"
-	@echo "  test-sql-introspection-baseline"
-	@echo "                  Measure the exact 0.224 introspection instruction and Candid contract"
 	@echo "  build-canister-local CANISTER=demo_rpg"
 	@echo "                  Build and stage the exact local/test feature profile"
 	@echo "  build-canister-production CANISTER=demo_rpg"
 	@echo "                  Build and stage the exact production feature profile"
-	@echo "  test-sql-perf-p1-shard P1_SHARD=0"
-	@echo "                  Run one deterministic P1 performance shard (0 through 7)"
-	@echo "  test-sql-perf-p1-merge P1_BASELINE_PATH=..."
-	@echo "                  Merge strict P1/scale shards against one reviewed P1 baseline"
-	@echo "  test-sql-perf-p1-merge PERF_CALIBRATION_COHORT=... PERF_CALIBRATION_RUN=1"
-	@echo "                  Produce one explicit clean run in a three-run initial calibration"
-	@echo "  test-sql-perf-scale-shard SCALE_SHARD=0"
-	@echo "                  Run one deterministic scale shard (0 through 7)"
-	@echo "  test-sql-perf-p2-shard P2_SHARD=0"
-	@echo "                  Run one deterministic P2 confirmation shard (0 through 7)"
-	@echo "  test-sql-perf-p2-merge"
-	@echo "                  Merge all eight strict P2 shard artifacts"
-	@echo "  test-sql-perf-instrumentation"
-	@echo "                  Capture attributed versus total-only sentinel overhead"
-	@echo "  test-sql-perf-calibration-review PERF_CALIBRATION_RUN_1_DIR=... PERF_CALIBRATION_RUN_2_DIR=... PERF_CALIBRATION_RUN_3_DIR=..."
-	@echo "                  Validate and review one exact three-run initial calibration cohort"
-	@echo "  test-sql-perf-baseline P2_BASELINE_PATH=..."
-	@echo "                  Compare reviewed P2 and scale baselines"
-	@echo "  test-sql-perf-baseline-contract PERF_BASELINE_DIR=..."
-	@echo "                  Validate one reviewed Tier D bundle against current artifact contracts"
 	@echo "  build            Build all crates"
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
@@ -171,7 +113,6 @@ help:
 	@echo "  clean            Manually clean Cargo build artifacts"
 	@echo "  wasm-size-report Build and report the maintained Wasm measurement subjects"
 	@echo "  wasm-audit-report Build Wasm + write Twiggy reports for maintained measurement subjects"
-	@echo "  wasm-query-attribution Build symbol-bearing typed/dynamic/SQL query attribution artifacts"
 	@echo "  lint-workflows   Lint GitHub Actions workflows with pinned actionlint"
 	@echo "  shellcheck       Lint repository shell automation"
 	@echo ""
@@ -381,8 +322,7 @@ _test-durability-integration:
 		-p icydb-testing-integration \
 		--test convergence_candidate \
 		--test durable_mutation_job_scale \
-		--test recovery_closeout \
-		--test sql_perf_audit
+		--test recovery_closeout
 
 test-canister-artifact-contract:
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
@@ -400,7 +340,7 @@ test-sql-tier-c-shard:
 	ICYDB_SQL_TIER_C_SHARD_INDEX="$(TIER_C_SHARD)" \
 	ICYDB_SQL_TIER_C_ARTIFACT_DIR="$(TIER_C_ARTIFACT_DIR)" \
 	$(CARGO_WORK_ENV) \
-	cargo test --locked -p icydb-core --lib --features sql,diagnostics \
+	cargo test --locked -p icydb-core --lib --features sql \
 		db::session::tests::tier_c_reference::tier_c_native_shard_emits_exact_receipt \
 		-- --ignored --exact --nocapture --test-threads=1
 	@test -s "$(TIER_C_ARTIFACT_DIR)/tier-c-shard-$(TIER_C_SHARD).json" || { echo "Tier C shard produced no current receipt" >&2; exit 1; }
@@ -409,7 +349,7 @@ test-sql-tier-c-merge:
 	@rm -f "$(TIER_C_ARTIFACT_DIR)/tier-c-merged.json"
 	ICYDB_SQL_TIER_C_ARTIFACT_DIR="$(TIER_C_ARTIFACT_DIR)" \
 	$(CARGO_WORK_ENV) \
-	cargo test --locked -p icydb-core --lib --features sql,diagnostics \
+	cargo test --locked -p icydb-core --lib --features sql \
 		db::session::tests::tier_c_reference::tier_c_native_receipts_merge_exactly_and_require_clean_evidence \
 		-- --ignored --exact --nocapture --test-threads=1
 	@test -s "$(TIER_C_ARTIFACT_DIR)/tier-c-merged.json" || { echo "Tier C merge produced no current receipt" >&2; exit 1; }
@@ -418,23 +358,8 @@ test-sql-tier-c-replay:
 	@test -n "$(TIER_C_FAILURE_ARTIFACT)" || { echo "TIER_C_FAILURE_ARTIFACT must name one failure.<blake3>.json artifact" >&2; exit 1; }
 	ICYDB_SQL_TIER_C_FAILURE_ARTIFACT="$(TIER_C_FAILURE_ARTIFACT)" \
 	$(CARGO_WORK_ENV) \
-	cargo test --locked -p icydb-core --lib --features sql,diagnostics \
+	cargo test --locked -p icydb-core --lib --features sql \
 		db::session::tests::tier_c_reference::tier_c_failure_artifact_replays_exact_minimized_failure \
-		-- --ignored --exact --nocapture --test-threads=1
-
-build-sql-perf-wasm:
-	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
-	$(CARGO_WORK_ENV) \
-	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
-		sql_perf_builds_shared_wasm_subject -- --ignored --exact --nocapture
-
-test-sql-introspection-baseline:
-	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used for introspection evidence" >&2; exit 1; }
-	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before introspection measurement" >&2; exit 1; }
-	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
-	$(PERF_POCKET_IC_ENV) $(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
-	cargo test --locked -p icydb-testing-integration --test sql_perf_matrix_audit \
-		sql_introspection_0_224_contract_is_exactly_measured \
 		-- --ignored --exact --nocapture --test-threads=1
 
 build-canister-local:
@@ -449,115 +374,11 @@ build-canister-production:
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile production \
 		--profile wasm-release --candid-export on
 
-test-sql-perf-p1-shard:
-	@test -n "$(P1_SHARD)" || { echo "P1_SHARD must be an index from 0 through 7" >&2; exit 1; }
-	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used for performance evidence" >&2; exit 1; }
-	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
-	ICYDB_SQL_PERF_P1_SHARD_INDEX="$(P1_SHARD)" \
-	ICYDB_SQL_PERF_P1_SHARD_DIR="$(P1_SHARD_DIR)" \
-	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
-	$(PERF_POCKET_IC_ENV) $(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
-	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
-		sql_perf_p1_shard_reports_hotspots -- --ignored --nocapture
-
-test-sql-perf-p1-merge:
-	@if [ -n "$(P1_BASELINE_PATH)" ]; then \
-		test -z "$(PERF_CALIBRATION_COHORT)$(PERF_CALIBRATION_RUN)" || { echo "P1 baseline and calibration inputs are mutually exclusive" >&2; exit 1; }; \
-	else \
-		test -n "$(PERF_CALIBRATION_COHORT)" || { echo "set P1_BASELINE_PATH or both PERF_CALIBRATION_COHORT and PERF_CALIBRATION_RUN" >&2; exit 1; }; \
-		test -n "$(PERF_CALIBRATION_RUN)" || { echo "set P1_BASELINE_PATH or both PERF_CALIBRATION_COHORT and PERF_CALIBRATION_RUN" >&2; exit 1; }; \
-	fi
-	ICYDB_SQL_PERF_P1_SHARD_DIR="$(P1_SHARD_DIR)" \
-	ICYDB_SQL_PERF_P1_BASELINE_PATH="$(call workspace_path,$(P1_BASELINE_PATH))" \
-	ICYDB_SQL_PERF_CALIBRATION_COHORT="$(PERF_CALIBRATION_COHORT)" \
-	ICYDB_SQL_PERF_CALIBRATION_RUN="$(PERF_CALIBRATION_RUN)" \
-	ICYDB_SQL_PERF_SCALE_SHARD_DIR="$(SCALE_SHARD_DIR)" \
-	ICYDB_SQL_PERF_SCALE_REPORT_PATH="$(SCALE_REPORT_PATH)" \
-	ICYDB_SQL_PERF_MATRIX_OUT="$(P1_REPORT_OUT)" \
-	ICYDB_SQL_PERF_P2_SELECTION_PATH="$(P2_SELECTION_PATH)" \
-	$(CARGO_WORK_ENV) \
-	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
-		sql_perf_p1_merges_saved_shards -- --ignored --nocapture
-
-test-sql-perf-scale-shard:
-	@test -n "$(SCALE_SHARD)" || { echo "SCALE_SHARD must be an index from 0 through 7" >&2; exit 1; }
-	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used for performance evidence" >&2; exit 1; }
-	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
-	ICYDB_SQL_PERF_SCALE_SHARD_INDEX="$(SCALE_SHARD)" \
-	ICYDB_SQL_PERF_SCALE_SHARD_DIR="$(SCALE_SHARD_DIR)" \
-	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
-	$(PERF_POCKET_IC_ENV) $(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
-	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
-		sql_perf_scale_shard_measures_declared_ladders -- --ignored --nocapture
-
-test-sql-perf-p2-shard:
-	@test -n "$(P2_SHARD)" || { echo "P2_SHARD must be an index from 0 through 7" >&2; exit 1; }
-	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used for performance evidence" >&2; exit 1; }
-	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
-	ICYDB_SQL_PERF_P2_SHARD_INDEX="$(P2_SHARD)" \
-	ICYDB_SQL_PERF_P2_SELECTION_PATH="$(P2_SELECTION_PATH)" \
-	ICYDB_SQL_PERF_P2_SHARD_DIR="$(P2_SHARD_DIR)" \
-	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
-	$(PERF_POCKET_IC_ENV) $(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
-	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
-		sql_perf_p2_shard_confirms_selected_candidates -- --ignored --nocapture
-
-test-sql-perf-p2-merge:
-	ICYDB_SQL_PERF_P2_SELECTION_PATH="$(P2_SELECTION_PATH)" \
-	ICYDB_SQL_PERF_P2_SHARD_DIR="$(P2_SHARD_DIR)" \
-	ICYDB_SQL_PERF_P2_REPORT_PATH="$(P2_REPORT_PATH)" \
-	$(CARGO_WORK_ENV) \
-	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
-		sql_perf_p2_merges_saved_shards -- --ignored --nocapture
-
-test-sql-perf-instrumentation:
-	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used for performance evidence" >&2; exit 1; }
-	@test -s "$(SQL_PERF_WASM_PATH)" || { echo "run make build-sql-perf-wasm before SQL performance measurement" >&2; exit 1; }
-	ICYDB_SQL_PERF_INSTRUMENTATION_REPORT_PATH="$(PERF_INSTRUMENTATION_PATH)" \
-	ICYDB_SQL_PERF_WASM_PATH="$(SQL_PERF_WASM_PATH)" \
-	$(PERF_POCKET_IC_ENV) $(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) \
-	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
-		sql_perf_calibrates_attribution_overhead -- --ignored --nocapture
-
-test-sql-perf-calibration-review:
-	@test -d "$(call workspace_path,$(PERF_CALIBRATION_RUN_1_DIR))" || { echo "PERF_CALIBRATION_RUN_1_DIR must name the ordinal-1 evidence bundle" >&2; exit 1; }
-	@test -d "$(call workspace_path,$(PERF_CALIBRATION_RUN_2_DIR))" || { echo "PERF_CALIBRATION_RUN_2_DIR must name the ordinal-2 evidence bundle" >&2; exit 1; }
-	@test -d "$(call workspace_path,$(PERF_CALIBRATION_RUN_3_DIR))" || { echo "PERF_CALIBRATION_RUN_3_DIR must name the ordinal-3 evidence bundle" >&2; exit 1; }
-	ICYDB_SQL_PERF_CALIBRATION_RUN_1_DIR="$(call workspace_path,$(PERF_CALIBRATION_RUN_1_DIR))" \
-	ICYDB_SQL_PERF_CALIBRATION_RUN_2_DIR="$(call workspace_path,$(PERF_CALIBRATION_RUN_2_DIR))" \
-	ICYDB_SQL_PERF_CALIBRATION_RUN_3_DIR="$(call workspace_path,$(PERF_CALIBRATION_RUN_3_DIR))" \
-	ICYDB_SQL_PERF_CALIBRATION_REVIEW_PATH="$(PERF_CALIBRATION_REVIEW_PATH)" \
-	$(CARGO_WORK_ENV) \
-	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
-		sql_perf_reviews_initial_calibration_cohort -- --ignored --exact --nocapture
-
-test-sql-perf-baseline:
-	@test -n "$(P2_BASELINE_PATH)" || { echo "P2_BASELINE_PATH must name a reviewed merged P2 baseline" >&2; exit 1; }
-	@test -n "$(SCALE_BASELINE_PATH)" || { echo "SCALE_BASELINE_PATH must name a reviewed merged scale baseline" >&2; exit 1; }
-	ICYDB_SQL_PERF_BASELINE_PATH="$(call workspace_path,$(P2_BASELINE_PATH))" \
-	ICYDB_SQL_PERF_CURRENT_PATH="$(call workspace_path,$(P2_CURRENT_PATH))" \
-	ICYDB_SQL_PERF_COMPARISON_PATH="$(PERF_COMPARISON_PATH)" \
-	ICYDB_SQL_PERF_SCALE_BASELINE_PATH="$(call workspace_path,$(SCALE_BASELINE_PATH))" \
-	ICYDB_SQL_PERF_SCALE_CURRENT_PATH="$(call workspace_path,$(SCALE_CURRENT_PATH))" \
-	$(CARGO_WORK_ENV) \
-	cargo test -p icydb-testing-integration --test sql_perf_matrix_audit \
-		sql_perf_compares_saved_baseline -- --ignored --nocapture
-
-test-sql-perf-baseline-contract:
-	@test -d "$(call workspace_path,$(PERF_BASELINE_DIR))" || { echo "PERF_BASELINE_DIR must name a reviewed Tier D baseline bundle" >&2; exit 1; }
-	ICYDB_SQL_PERF_BASELINE_BUNDLE_DIR="$(call workspace_path,$(PERF_BASELINE_DIR))" \
-	$(CARGO_WORK_ENV) \
-	cargo test --locked -p icydb-testing-integration --test sql_perf_matrix_audit \
-		sql_perf_baseline_bundle_is_current -- --ignored --exact --nocapture
-
 wasm-size-report:
 	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh $(SIZE_REPORT_ARGS)
 
 wasm-audit-report:
 	$(CARGO_WORK_ENV) bash scripts/ci/wasm-audit-report.sh $(AUDIT_REPORT_ARGS)
-
-wasm-query-attribution:
-	$(CARGO_WORK_ENV) bash scripts/ci/wasm-query-attribution.sh $(ATTRIBUTION_ARGS)
 
 #
 # Development commands
@@ -575,7 +396,6 @@ check:
 clippy:
 	$(CARGO_WORK_ENV) cargo clippy --workspace --all-targets -- -D warnings
 	$(CARGO_WORK_ENV) cargo clippy -p icydb-core --no-default-features --features sql -- -D warnings
-	$(CARGO_WORK_ENV) cargo clippy -p icydb-core --no-default-features --features diagnostics -- -D warnings
 
 fmt:
 	$(CARGO_WORK_ENV) cargo sort --workspace
@@ -651,8 +471,6 @@ check-feature-matrix:
 	$(CARGO_WORK_ENV) cargo check -p icydb-core --no-default-features
 	$(CARGO_WORK_ENV) cargo check -p icydb --no-default-features --features sql
 	$(CARGO_WORK_ENV) cargo check -p icydb-core --no-default-features --features sql
-	$(CARGO_WORK_ENV) cargo check -p icydb --no-default-features --features diagnostics
-	$(CARGO_WORK_ENV) cargo check -p icydb-core --no-default-features --features diagnostics
 	$(CARGO_WORK_ENV) cargo check --workspace --no-default-features
 
 lint-workflows:
@@ -684,8 +502,6 @@ ci-core:
 		_ci-core-no-default-check \
 		_ci-core-sql-check \
 		_ci-core-sql-clippy \
-		_ci-core-diagnostics-check \
-		_ci-core-diagnostics-clippy \
 		_ci-core-no-default-test
 
 _ci-core-no-default-check:
@@ -703,14 +519,6 @@ _ci-core-sql-check:
 _ci-core-sql-clippy:
 	$(CARGO_WORK_ENV) cargo clippy --locked \
 		-p icydb-core --no-default-features --features sql -- -D warnings
-
-_ci-core-diagnostics-check:
-	$(CARGO_WORK_ENV) cargo check --locked \
-		-p icydb -p icydb-core --no-default-features --features diagnostics
-
-_ci-core-diagnostics-clippy:
-	$(CARGO_WORK_ENV) cargo clippy --locked \
-		-p icydb-core --no-default-features --features diagnostics -- -D warnings
 
 ci-workspace:
 	$(VALIDATION_RUNNER) \
@@ -755,16 +563,15 @@ ci-sql-tier-b:
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) POCKET_IC_BIN="$(POCKET_IC_BIN)" \
 		$(POCKET_IC_RUNNER) $(VALIDATION_RUNNER) \
 		_ci-tier-b-sql-canister \
-		_ci-tier-b-0-237-perf-regressions
+		_ci-tier-b-sql-perf
 
 _ci-tier-b-sql-canister:
 	cargo test --locked --no-fail-fast \
 		-p icydb-testing-integration --test sql_canister --verbose
 
-_ci-tier-b-0-237-perf-regressions:
+_ci-tier-b-sql-perf:
 	cargo test --locked --no-fail-fast \
-		-p icydb-testing-integration --test sql_perf_audit \
-		sql_perf_0_237_ --verbose -- --nocapture
+		-p icydb-testing-integration --test sql_perf_audit --verbose -- --nocapture
 
 # Run tests in watch mode
 test-watch:

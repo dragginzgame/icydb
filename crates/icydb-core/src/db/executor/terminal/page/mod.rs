@@ -12,7 +12,6 @@
 )]
 mod coordinator;
 mod direct_path;
-mod metrics;
 mod plan;
 mod post_access;
 mod post_scan;
@@ -56,11 +55,6 @@ pub(in crate::db::executor) use coordinator::{
     production_scalar_page_work_is_active, with_production_scalar_page_work,
 };
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use metrics::{
-    DirectDataRowPhaseAttribution, KernelRowPhaseAttribution,
-    with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
-};
 pub(in crate::db::executor) use plan::{
     KernelRowOrderWindow, KernelRowScanStrategy, resolve_cursorless_short_path_plan,
 };

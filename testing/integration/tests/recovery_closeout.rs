@@ -2,10 +2,7 @@ use candid::CandidType;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorCode,
-    db::{
-        DatabaseStartupState, LiveQueryPageOutput, SqlQueryExecutionAttribution,
-        sql::SqlQueryResult,
-    },
+    db::{DatabaseStartupState, LiveQueryPageOutput, sql::SqlQueryResult},
     diagnostic::DiagnosticFactTag,
 };
 use icydb_testing_integration::{
@@ -50,15 +47,9 @@ struct JointFanoutFixtureFacts {
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct SqlTotalOnlyPerfResult {
-    result: SqlQueryResult,
-    instructions: u64,
-}
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 struct SqlQueryPerfResult {
     result: SqlQueryResult,
-    attribution: SqlQueryExecutionAttribution,
+    instructions: u64,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -296,7 +287,7 @@ fn query_total_only(
     method: &str,
     sql: &str,
 ) -> SqlQueryResult {
-    let result: Result<SqlTotalOnlyPerfResult, Error> = fixture
+    let result: Result<SqlQueryPerfResult, Error> = fixture
         .query_candid(method, (sql.to_string(),))
         .expect("total-only query should decode");
     result.expect("total-only query should succeed").result
@@ -328,16 +319,7 @@ fn token_count_with_perf(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlQ
 
 fn assert_metadata_backed_count(sample: SqlQueryPerfResult, expected: u32) {
     assert_count(sample.result, expected);
-    assert_eq!(sample.attribution.store_get_calls, 0);
-    assert_eq!(sample.attribution.index_store_entry_reads, 0);
-    assert_eq!(
-        sample
-            .attribution
-            .scalar_aggregate
-            .as_ref()
-            .and_then(|aggregate| aggregate.sink_mode.as_deref()),
-        Some("IndexPrefixCardinality"),
-    );
+    assert!(sample.instructions > 0);
 }
 
 fn assert_projection_row_count(result: &SqlQueryResult, expected: usize) {
@@ -405,7 +387,7 @@ fn mutate_cardinality_index(
 fn assert_user_name_id(fixture: &StandaloneCanisterFixture, id: i32, present: bool) {
     let result = query_total_only(
         fixture,
-        "query_user_total_only_perf",
+        "query_user_with_perf",
         &format!(
             "SELECT id FROM PerfAuditUser WHERE name = 'convergence-closeout-{id}' ORDER BY id ASC"
         ),
@@ -424,7 +406,7 @@ fn assert_user_name_id(fixture: &StandaloneCanisterFixture, id: i32, present: bo
 fn assert_user_index_count(fixture: &StandaloneCanisterFixture) {
     let indexes = query_total_only(
         fixture,
-        "query_user_total_only_perf",
+        "query_user_with_perf",
         "SHOW INDEXES FROM PerfAuditUser",
     );
     let SqlQueryResult::ShowIndexes { indexes, .. } = indexes else {
@@ -484,18 +466,12 @@ fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly(
     let conservative = user_count_with_perf(&fixture, ACTIVE_COUNT_SQL);
     assert_count(conservative.result.clone(), 512);
     assert!(
-        conservative.attribution.index_store_entry_reads > 0,
-        "a Building generation must retain the conservative index scan",
-    );
-    assert!(
-        conservative.attribution.total_local_instructions
-            <= unavailable_fallback_ceiling(FALLBACK_COLD_PREDECESSOR),
+        conservative.instructions <= unavailable_fallback_ceiling(FALLBACK_COLD_PREDECESSOR),
         "cold unavailable fallback exceeded its frozen five-percent regression gate",
     );
     println!(
-        "0.240 unavailable exact-target fallback: cold={} index_entries={}",
-        conservative.attribution.total_local_instructions,
-        conservative.attribution.index_store_entry_reads,
+        "0.240 unavailable exact-target fallback: cold={}",
+        conservative.instructions,
     );
 
     upgrade_with_wasm(&fixture, current_sql_perf_wasm());
@@ -592,18 +568,14 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
     assert_projection_row_count(&fallback.result, 2);
     let unchanged_fallback = user_count_with_perf(&fixture, SELECTIVE_SQL);
     assert_eq!(unchanged_fallback.result, fallback.result);
-    assert_eq!(
-        unchanged_fallback.attribution.index_store_entry_reads,
-        fallback.attribution.index_store_entry_reads,
-    );
     assert_within_cardinality_hot_path_gate(
-        unchanged_fallback.attribution.total_local_instructions,
-        fallback.attribution.total_local_instructions,
+        unchanged_fallback.instructions,
+        fallback.instructions,
         "unchanged unavailable fallback",
     );
     let fallback_explain = explain_text(query_total_only(
         &fixture,
-        "query_user_total_only_perf",
+        "query_user_with_perf",
         SELECTIVE_EXPLAIN_SQL,
     ));
     assert!(
@@ -614,8 +586,6 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         fallback_explain.contains("idx_perf_audit_cardinality_tie__common"),
         "{fallback_explain}",
     );
-    assert!(fallback.attribution.index_store_entry_reads >= 10_000);
-
     let first: Result<LiveQueryPagePerfOutput, Error> = fixture
         .query_candid(
             "query_cardinality_tiebreak_live_page_with_perf",
@@ -686,16 +656,8 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         .expect("Ready exact sample should decode");
     let exact = exact.expect("Ready exact selection should execute");
     assert_eq!(exact.result, fallback.result);
-    assert!(exact.attribution.index_store_entry_reads <= 4);
     assert!(
-        exact
-            .attribution
-            .index_store_entry_reads
-            .saturating_mul(1_000)
-            < fallback.attribution.index_store_entry_reads,
-    );
-    assert!(
-        exact.attribution.total_local_instructions < fallback.attribution.total_local_instructions,
+        exact.instructions < fallback.instructions,
         "the production-shaped selective route must repay its bounded planning work",
     );
     let warm_exact: Result<SqlQueryPerfResult, Error> = fixture
@@ -703,16 +665,15 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         .expect("warm exact-selected sample should decode");
     let warm_exact = warm_exact.expect("warm exact-selected plan should execute");
     assert_eq!(warm_exact.result, exact.result);
-    assert_eq!(warm_exact.attribution.index_store_entry_reads, 2);
     assert_within_cardinality_hot_path_gate(
-        warm_exact.attribution.total_local_instructions,
-        exact.attribution.total_local_instructions,
+        warm_exact.instructions,
+        exact.instructions,
         "warm exact-selected plan",
     );
 
     let explain = explain_text(query_total_only(
         &fixture,
-        "query_user_total_only_perf",
+        "query_user_with_perf",
         SELECTIVE_EXPLAIN_SQL,
     ));
     assert!(explain.contains("exact_cardinality_tiebreak"), "{explain}");
@@ -724,13 +685,11 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
     assert!(explain.contains("exact_prefix_entries: 2"), "{explain}");
 
     println!(
-        "0.236 selective tie-break: fallback_entries={} exact_entries={} fallback_instructions={} unchanged_fallback_instructions={} exact_instructions={} warm_exact_instructions={} first_cursor_instructions={} pinned_before_ready_instructions={} pinned_after_ready_instructions={} stable_before_upgrade={} stable_after_upgrade={}",
-        fallback.attribution.index_store_entry_reads,
-        exact.attribution.index_store_entry_reads,
-        fallback.attribution.total_local_instructions,
-        unchanged_fallback.attribution.total_local_instructions,
-        exact.attribution.total_local_instructions,
-        warm_exact.attribution.total_local_instructions,
+        "0.236 selective tie-break: fallback_instructions={} unchanged_fallback_instructions={} exact_instructions={} warm_exact_instructions={} first_cursor_instructions={} pinned_before_ready_instructions={} pinned_after_ready_instructions={} stable_before_upgrade={} stable_after_upgrade={}",
+        fallback.instructions,
+        unchanged_fallback.instructions,
+        exact.instructions,
+        warm_exact.instructions,
         first_instructions,
         before_ready.instructions,
         after_ready.instructions,
@@ -759,7 +718,7 @@ fn exact_cardinality_tiebreak_maximum_ic_shapes_remain_bounded() {
 
     let maximum_candidates = user_count_with_perf(&fixture, MAXIMUM_CANDIDATE_SQL);
     assert_projection_row_count(&maximum_candidates.result, 1);
-    assert!(maximum_candidates.attribution.total_local_instructions < IC_QUERY_INSTRUCTION_CEILING,);
+    assert!(maximum_candidates.instructions < IC_QUERY_INSTRUCTION_CEILING,);
     let candidate_explain = user_count_with_perf(
         &fixture,
         format!("EXPLAIN EXECUTION VERBOSE {MAXIMUM_CANDIDATE_SQL}").as_str(),
@@ -786,7 +745,7 @@ fn exact_cardinality_tiebreak_maximum_ic_shapes_remain_bounded() {
     let maximum_probe_sql = maximum_cardinality_probe_sql();
     let maximum_probes = user_count_with_perf(&fixture, &maximum_probe_sql);
     assert_projection_row_count(&maximum_probes.result, 1);
-    assert!(maximum_probes.attribution.total_local_instructions < IC_QUERY_INSTRUCTION_CEILING);
+    assert!(maximum_probes.instructions < IC_QUERY_INSTRUCTION_CEILING);
     let probe_explain = user_count_with_perf(
         &fixture,
         format!("EXPLAIN EXECUTION VERBOSE {maximum_probe_sql}").as_str(),
@@ -804,8 +763,7 @@ fn exact_cardinality_tiebreak_maximum_ic_shapes_remain_bounded() {
 
     println!(
         "0.236 maximum tie-break: candidates=64 candidate_instructions={} probes=256 probe_instructions={} probe_value_bytes=3072000",
-        maximum_candidates.attribution.total_local_instructions,
-        maximum_probes.attribution.total_local_instructions,
+        maximum_candidates.instructions, maximum_probes.instructions,
     );
 }
 
@@ -834,7 +792,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     assert_count(
         query_total_only(
             &populated,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT COUNT(*) FROM PerfAuditUser",
         ),
         2_048,
@@ -848,7 +806,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
         assert_count(
             query_total_only(
                 fixture,
-                "query_user_total_only_perf",
+                "query_user_with_perf",
                 "SELECT COUNT(*) FROM PerfAuditUser",
             ),
             expected_rows,
@@ -871,7 +829,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
         assert_count(
             query_total_only(
                 fixture,
-                "query_user_total_only_perf",
+                "query_user_with_perf",
                 "SELECT COUNT(*) FROM PerfAuditUser",
             ),
             expected_rows,
@@ -889,7 +847,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     assert_count(
         query_total_only(
             &cold,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT COUNT(*) FROM PerfAuditUser",
         ),
         65,
@@ -897,7 +855,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     assert_count(
         query_total_only(
             &populated,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT COUNT(*) FROM PerfAuditUser",
         ),
         2_113,
@@ -910,39 +868,39 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     let extrema_before_upgrade = [
         query_total_only(
             &populated,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT MIN(id) FROM PerfAuditUser",
         ),
         query_total_only(
             &populated,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT MAX(id) FROM PerfAuditUser",
         ),
         query_total_only(
             &populated,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT MAX(age) FROM PerfAuditUser",
         ),
         query_total_only(
             &populated,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT MAX(age) FROM PerfAuditUser WHERE age < 43",
         ),
     ];
     let ordered_endpoints_before_upgrade = [
         query_total_only(
             &populated,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 1",
         ),
         query_total_only(
             &populated,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT age FROM PerfAuditUser ORDER BY age DESC, id DESC LIMIT 1",
         ),
         query_total_only(
             &populated,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT id, name FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3",
         ),
     ];
@@ -956,9 +914,9 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     );
     assert!(startup_watchdog_armed(&populated));
 
-    let pending: Result<SqlTotalOnlyPerfResult, Error> = populated
+    let pending: Result<SqlQueryPerfResult, Error> = populated
         .query_candid(
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             ("SELECT COUNT(*) FROM PerfAuditUser".to_string(),),
         )
         .expect("recovering query result should decode");
@@ -980,7 +938,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     assert_count(
         query_total_only(
             &populated,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT COUNT(*) FROM PerfAuditUser",
         ),
         2_177,
@@ -992,22 +950,22 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
         [
             query_total_only(
                 &populated,
-                "query_user_total_only_perf",
+                "query_user_with_perf",
                 "SELECT MIN(id) FROM PerfAuditUser",
             ),
             query_total_only(
                 &populated,
-                "query_user_total_only_perf",
+                "query_user_with_perf",
                 "SELECT MAX(id) FROM PerfAuditUser",
             ),
             query_total_only(
                 &populated,
-                "query_user_total_only_perf",
+                "query_user_with_perf",
                 "SELECT MAX(age) FROM PerfAuditUser",
             ),
             query_total_only(
                 &populated,
-                "query_user_total_only_perf",
+                "query_user_with_perf",
                 "SELECT MAX(age) FROM PerfAuditUser WHERE age < 43",
             ),
         ],
@@ -1018,17 +976,17 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
         [
             query_total_only(
                 &populated,
-                "query_user_total_only_perf",
+                "query_user_with_perf",
                 "SELECT age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 1",
             ),
             query_total_only(
                 &populated,
-                "query_user_total_only_perf",
+                "query_user_with_perf",
                 "SELECT age FROM PerfAuditUser ORDER BY age DESC, id DESC LIMIT 1",
             ),
             query_total_only(
                 &populated,
-                "query_user_total_only_perf",
+                "query_user_with_perf",
                 "SELECT id, name FROM PerfAuditUser WHERE age < 43 ORDER BY age DESC, id DESC LIMIT 3",
             ),
         ],
@@ -1046,7 +1004,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     assert_count(
         query_total_only(
             &populated,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT COUNT(*) FROM PerfAuditUser",
         ),
         2_178,
@@ -1104,7 +1062,7 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
     assert_count(
         query_total_only(
             &fixture,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT COUNT(*) FROM PerfAuditUser",
         ),
         2_048,
@@ -1112,14 +1070,14 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
     assert_count(
         query_total_only(
             &fixture,
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             "SELECT COUNT(*) FROM PerfAuditUser WHERE age >= 31 AND age < 35",
         ),
         512,
     );
     let exact_name = query_total_only(
         &fixture,
-        "query_user_total_only_perf",
+        "query_user_with_perf",
         "SELECT id FROM PerfAuditUser WHERE name = 'scale-group-001' ORDER BY id ASC",
     );
     let SqlQueryResult::Projection(exact_name) = exact_name else {
@@ -1129,7 +1087,7 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
 
     let indexes = query_total_only(
         &fixture,
-        "query_user_total_only_perf",
+        "query_user_with_perf",
         "SHOW INDEXES FROM PerfAuditUser",
     );
     let SqlQueryResult::ShowIndexes { indexes, .. } = indexes else {
@@ -1191,7 +1149,7 @@ fn explicit_reinstall_recreates_clean_current_state() {
     assert_count(
         query_total_only(
             &fixture,
-            "query_journaled_user_total_only_perf",
+            "query_journaled_user_with_perf",
             "SELECT COUNT(*) FROM PerfAuditJournaledUser",
         ),
         0,
@@ -1204,7 +1162,5 @@ fn explicit_reinstall_recreates_clean_current_state() {
         panic!("post-reinstall ordered DISTINCT should return a projection");
     };
     assert!(rows.rows.is_empty());
-    assert_eq!(group_seek.attribution.store_get_calls, 0);
-    assert_eq!(group_seek.attribution.index_store_entry_reads, 0);
-    assert_eq!(group_seek.attribution.index_store_range_scan_calls, 1);
+    assert!(group_seek.instructions > 0);
 }

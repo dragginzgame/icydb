@@ -98,10 +98,6 @@ require_text \
     .github/workflows/ci.yml \
     'bash scripts/ci/install-wasm-optimizer.sh' \
     'CI must install the repository-owned Binaryen executable.'
-require_text \
-    .github/workflows/sql-performance.yml \
-    'bash scripts/ci/install-wasm-optimizer.sh' \
-    'SQL performance CI must install the repository-owned Binaryen executable.'
 if rg -Fiq -- 'canic' \
     "$ROOT/scripts/ci/install-wasm-optimizer.sh" \
     "$ROOT/scripts/ci/verify-wasm-optimizer.sh" \
@@ -111,8 +107,7 @@ if rg -Fiq -- 'canic' \
 fi
 if rg -Fq -- 'binaryen' \
     "$ROOT/scripts/dev/workstation-setup.sh" \
-    "$ROOT/.github/workflows/ci.yml" \
-    "$ROOT/.github/workflows/sql-performance.yml"; then
+    "$ROOT/.github/workflows/ci.yml"; then
     echo '[ERROR] maintained setup paths must delegate Binaryen installation to the canonical script.' >&2
     failures=1
 fi

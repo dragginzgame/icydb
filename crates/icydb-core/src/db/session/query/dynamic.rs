@@ -17,9 +17,8 @@ use crate::{
         },
         data::{DecodedDataStoreKey, RawDataStoreKey},
         executor::{
-            CoveringProjectionMetricsRecorder, PageWorkEnvelope,
-            ProjectionMaterializationMetricsRecorder, ScalarContinuationContext,
-            StructuralProjectionRequest, execute_structural_projection_page,
+            PageWorkEnvelope, ScalarContinuationContext, StructuralProjectionRequest,
+            execute_structural_projection_page,
         },
         query::{
             admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
@@ -503,15 +502,12 @@ impl<C: CanisterKind> DbSession<C> {
             .cloned()
             .ok_or_else(QueryError::invariant)?;
         let (columns, _fixed_scales) = projection.into_components();
-        let projection_request = StructuralProjectionRequest::new(
-            self.debug,
-            prepared_plan,
-            CoveringProjectionMetricsRecorder::none(),
-            ProjectionMaterializationMetricsRecorder::none(),
-            execution_lane,
-        )
-        .with_distinct_output_offset(usize::try_from(prior_rows_emitted).unwrap_or(usize::MAX))
-        .with_page_work_envelope(envelope);
+        let projection_request =
+            StructuralProjectionRequest::new(self.debug, prepared_plan, execution_lane)
+                .with_distinct_output_offset(
+                    usize::try_from(prior_rows_emitted).unwrap_or(usize::MAX),
+                )
+                .with_page_work_envelope(envelope);
         let projection_request = if exact_initial_exhaustion {
             projection_request
         } else {

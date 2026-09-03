@@ -7,14 +7,11 @@
 //! the low-level vocabulary exported through the facade.
 #![warn(unreachable_pub)]
 // The no-default test target intentionally type-checks shared test/helper
-// surfaces whose consuming tests live behind SQL or diagnostics
-// features. Keep production and all-features dead-code linting strict.
+// surfaces whose consuming tests live behind SQL. Keep production and
+// all-features dead-code linting strict.
 #![cfg_attr(
     all(test, not(feature = "sql")),
-    expect(
-        dead_code,
-        reason = "shared test helpers have SQL and diagnostics consumers"
-    )
+    expect(dead_code, reason = "shared test helpers have SQL consumers")
 )]
 // The base build owns the complete engine-neutral planner/executor substrate.
 // SQL is an optional frontend over that substrate and is currently the only

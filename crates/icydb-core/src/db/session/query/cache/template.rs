@@ -91,9 +91,4 @@ impl PreparedQueryTemplate {
             },
         )
     }
-
-    #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-    pub(super) const fn minimum_estimated_retained_bytes() -> usize {
-        PREPARED_QUERY_TEMPLATE_BASE_RETAINED_BYTES_ESTIMATE
-    }
 }

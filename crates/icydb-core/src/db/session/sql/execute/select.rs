@@ -4,11 +4,6 @@
 //! Does not own: SQL command routing, write execution, or EXPLAIN rendering.
 //! Boundary: keeps SELECT plan-to-result adaptation out of the SQL execution hub.
 
-#[cfg(feature = "diagnostics")]
-use crate::db::session::{
-    query::QueryPlanCompilePhaseAttribution,
-    sql::{SqlExecutePhaseAttribution, measure_sql_stage},
-};
 use crate::{
     db::{
         DbSession, QueryError,
@@ -26,20 +21,12 @@ use crate::{
                 execute_sql_projection_rows_for_canister_with_scan_budget,
                 sql_statement_result_from_structural_projection_payload,
             },
-            sql::{SqlCacheAttribution, SqlCompiledCommandExecutionContext, SqlStatementResult},
+            sql::{SqlCompiledCommandExecutionContext, SqlStatementResult},
         },
     },
     traits::CanisterKind,
 };
 use icydb_diagnostic_code::DiagnosticExecutionLane;
-
-use super::diagnostics::GroupedSqlDiagnosticsCollector;
-#[cfg(feature = "diagnostics")]
-use super::diagnostics::measure_execute_phase_with_physical_access;
-#[cfg(feature = "diagnostics")]
-use super::select_plan::ResolvedSelectPreparedPlan;
-#[cfg(feature = "diagnostics")]
-use crate::db::session::sql::projection::execute_sql_projection_rows_for_canister_with_direct_data_row_attribution;
 
 impl<C: CanisterKind> DbSession<C> {
     // Convert one grouped executor result plus SQL projection labels into the
@@ -69,9 +56,8 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: StructuralProjectionContract,
-        cache_attribution: SqlCacheAttribution,
         scan_budget: Option<StructuralProjectionScanBudget>,
-    ) -> Result<(StructuralProjectionPayload, SqlCacheAttribution), QueryError> {
+    ) -> Result<StructuralProjectionPayload, QueryError> {
         let value_catalog = prepared_plan
             .authority_ref()
             .accepted_schema_info()
@@ -90,9 +76,12 @@ impl<C: CanisterKind> DbSession<C> {
         }
         .map_err(QueryError::execute)?;
 
-        Ok((
-            StructuralProjectionPayload::new(columns, fixed_scales, rows, row_count, value_catalog),
-            cache_attribution,
+        Ok(StructuralProjectionPayload::new(
+            columns,
+            fixed_scales,
+            rows,
+            row_count,
+            value_catalog,
         ))
     }
 
@@ -103,92 +92,31 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: StructuralProjectionContract,
-        cache_attribution: SqlCacheAttribution,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        let (payload, cache_attribution) = self
-            .execute_sql_projection_from_structural_prepared_plan(
-                prepared_plan,
-                projection,
-                cache_attribution,
-                None,
-            )?;
+    ) -> Result<SqlStatementResult, QueryError> {
+        let payload = self.execute_sql_projection_from_structural_prepared_plan(
+            prepared_plan,
+            projection,
+            None,
+        )?;
 
-        Ok((
-            sql_statement_result_from_structural_projection_payload(payload)?,
-            cache_attribution,
-        ))
+        sql_statement_result_from_structural_projection_payload(payload)
     }
 
     // Execute one grouped SQL statement from one shared lowered prepared plan
-    // plus one shared structural projection contract. Normal and diagnostics surfaces
-    // share this plan-to-statement shell; diagnostics only swaps response
-    // finalization through the optional collector.
-    fn execute_grouped_sql_core<T>(
+    // plus one shared structural projection contract.
+    fn execute_grouped_sql_statement_from_prepared_plan(
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: StructuralProjectionContract,
-        diagnostics: Option<GroupedSqlDiagnosticsCollector<'_>>,
         execute_grouped: impl FnOnce(
             &Self,
             SharedPreparedExecutionPlan,
-        )
-            -> Result<(StructuralGroupedProjectionResult, T), QueryError>,
-    ) -> Result<(SqlStatementResult, T), QueryError> {
+        ) -> Result<StructuralGroupedProjectionResult, QueryError>,
+    ) -> Result<SqlStatementResult, QueryError> {
         let (columns, fixed_scales) = projection.into_components();
-        let (result, extra) = execute_grouped(self, prepared_plan)?;
-        let statement_result = if let Some(diagnostics) = diagnostics {
-            diagnostics.finalize_grouped_sql_statement::<C>(columns, fixed_scales, result)?
-        } else {
-            Self::grouped_sql_statement_result_from_result(columns, fixed_scales, result)?
-        };
+        let result = execute_grouped(self, prepared_plan)?;
 
-        Ok((statement_result, extra))
-    }
-
-    // Execute one grouped SQL statement through the shared grouped SQL core
-    // without diagnostics response attribution.
-    fn execute_grouped_sql_statement_from_prepared_plan<T>(
-        &self,
-        prepared_plan: SharedPreparedExecutionPlan,
-        projection: StructuralProjectionContract,
-        execute_grouped: impl FnOnce(
-            &Self,
-            SharedPreparedExecutionPlan,
-        )
-            -> Result<(StructuralGroupedProjectionResult, T), QueryError>,
-    ) -> Result<(SqlStatementResult, T), QueryError> {
-        self.execute_grouped_sql_core(prepared_plan, projection, None, execute_grouped)
-    }
-
-    // Diagnostics-only grouped SQL execution split that keeps runtime
-    // invocation and session response-envelope finalization in separate
-    // counters while sharing the same grouped SQL core as normal execution.
-    #[cfg(feature = "diagnostics")]
-    fn execute_grouped_sql_statement_with_response_attribution<T>(
-        &self,
-        prepared_plan: SharedPreparedExecutionPlan,
-        projection: StructuralProjectionContract,
-        execute_grouped: impl FnOnce(
-            &Self,
-            SharedPreparedExecutionPlan,
-        )
-            -> Result<(StructuralGroupedProjectionResult, T), QueryError>,
-    ) -> Result<(SqlStatementResult, T, u64), QueryError> {
-        let mut response_finalization_local_instructions = 0;
-        let diagnostics =
-            GroupedSqlDiagnosticsCollector::new(&mut response_finalization_local_instructions);
-        let (statement_result, extra) = self.execute_grouped_sql_core(
-            prepared_plan,
-            projection,
-            Some(diagnostics),
-            execute_grouped,
-        )?;
-
-        Ok((
-            statement_result,
-            extra,
-            response_finalization_local_instructions,
-        ))
+        Self::grouped_sql_statement_result_from_result(columns, fixed_scales, result)
     }
 
     // Execute one SQL load query from a structural lowered query through the
@@ -199,16 +127,14 @@ impl<C: CanisterKind> DbSession<C> {
         query: StructuralQuery,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
-    ) -> Result<(StructuralProjectionPayload, SqlCacheAttribution), QueryError> {
-        let (prepared_plan, projection, cache_attribution) = self
-            .sql_select_prepared_plan_for_accepted_authority(&query, authority, accepted_schema)?;
+    ) -> Result<StructuralProjectionPayload, QueryError> {
+        let (prepared_plan, projection) = self.sql_select_prepared_plan_for_accepted_authority(
+            &query,
+            authority,
+            accepted_schema,
+        )?;
 
-        self.execute_sql_projection_from_structural_prepared_plan(
-            prepared_plan,
-            projection,
-            cache_attribution,
-            None,
-        )
+        self.execute_sql_projection_from_structural_prepared_plan(prepared_plan, projection, None)
     }
 
     // Execute one exact-mutation selector through a primary-only prepared plan
@@ -219,8 +145,8 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
         scan_budget: StructuralProjectionScanBudget,
-    ) -> Result<(StructuralProjectionPayload, SqlCacheAttribution), QueryError> {
-        let (prepared_plan, projection, cache_attribution) = self
+    ) -> Result<StructuralProjectionPayload, QueryError> {
+        let (prepared_plan, projection) = self
             .sql_primary_only_select_prepared_plan_for_accepted_authority(
                 &query,
                 authority,
@@ -230,157 +156,19 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_sql_projection_from_structural_prepared_plan(
             prepared_plan,
             projection,
-            cache_attribution,
             Some(scan_budget),
         )
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(super) fn execute_select_compiled_sql_with_phase_attribution_from_resolver(
-        &self,
-        query: &StructuralQuery,
-        resolve_plan: impl FnOnce() -> Result<
-            (ResolvedSelectPreparedPlan, QueryPlanCompilePhaseAttribution),
-            QueryError,
-        >,
-    ) -> Result<
-        (
-            SqlStatementResult,
-            SqlCacheAttribution,
-            SqlExecutePhaseAttribution,
-        ),
-        QueryError,
-    > {
-        if query.has_grouping() {
-            let (planner_local_instructions, resolved_query_plan) = measure_sql_stage(resolve_plan);
-            let (resolved, plan_compile_attribution) = resolved_query_plan?;
-            let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
-
-            let ((execute_local_instructions, store_local_instructions), statement_result) =
-                measure_execute_phase_with_physical_access(move || {
-                    self.execute_grouped_sql_statement_with_response_attribution(
-                        prepared_plan,
-                        projection,
-                        |session, prepared_plan| {
-                            session
-                                .execute_structural_grouped_with_phase_attribution(
-                                    prepared_plan,
-                                    None,
-                                    DiagnosticExecutionLane::TrustedRead,
-                                )
-                                .map(|(result, _trace, phase_attribution)| {
-                                    (result, phase_attribution)
-                                })
-                        },
-                    )
-                });
-            let (
-                statement_result,
-                grouped_phase_attribution,
-                response_finalization_local_instructions,
-            ) = statement_result?;
-
-            return Ok((
-                statement_result,
-                cache_attribution,
-                SqlExecutePhaseAttribution::from_grouped_select_phase(
-                    planner_local_instructions,
-                    plan_compile_attribution,
-                    execute_local_instructions,
-                    store_local_instructions,
-                    response_finalization_local_instructions,
-                    grouped_phase_attribution,
-                ),
-            ));
-        }
-
-        let (planner_local_instructions, resolved_query_plan) = measure_sql_stage(resolve_plan);
-        let (resolved, plan_compile_attribution) = resolved_query_plan?;
-        let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
-
-        let enum_catalog = prepared_plan
-            .authority_ref()
-            .accepted_schema_info()
-            .map(crate::db::schema::SchemaInfo::value_catalog_handle)
-            .cloned()
-            .ok_or_else(QueryError::invariant)?;
-        let ((execute_local_instructions, store_local_instructions), payload) =
-            measure_execute_phase_with_physical_access(move || {
-                let (columns, fixed_scales) = projection.into_components();
-                execute_sql_projection_rows_for_canister_with_direct_data_row_attribution(
-                    &self.db,
-                    self.debug,
-                    prepared_plan,
-                )
-                .map(|((rows, row_count), direct_data_row, kernel_row)| {
-                    (
-                        StructuralProjectionPayload::new(
-                            columns,
-                            fixed_scales,
-                            rows,
-                            row_count,
-                            enum_catalog,
-                        ),
-                        direct_data_row,
-                        kernel_row,
-                    )
-                })
-                .map_err(QueryError::execute)
-            });
-        let (payload, direct_data_row, kernel_row) = payload?;
-        let (response_finalization_local_instructions, statement_result) =
-            measure_sql_stage(|| sql_statement_result_from_structural_projection_payload(payload));
-        let statement_result = statement_result?;
-
-        Ok((
-            statement_result,
-            cache_attribution,
-            SqlExecutePhaseAttribution::from_projection_select_phase(
-                planner_local_instructions,
-                plan_compile_attribution,
-                execute_local_instructions,
-                store_local_instructions,
-                response_finalization_local_instructions,
-                direct_data_row,
-                kernel_row,
-            ),
-        ))
     }
 
     pub(super) fn execute_select_compiled_sql_with_context(
         &self,
         query: &StructuralQuery,
         context: &SqlCompiledCommandExecutionContext,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+    ) -> Result<SqlStatementResult, QueryError> {
         let resolved = self.resolve_select_prepared_plan_for_context(query, context)?;
-        let (prepared_plan, projection, cache_attribution) = resolved.into_parts();
+        let (prepared_plan, projection) = resolved.into_parts();
 
-        self.execute_select_compiled_sql_from_prepared_plan(
-            query,
-            prepared_plan,
-            projection,
-            cache_attribution,
-        )
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(super) fn execute_select_compiled_sql_with_context_phase_attribution(
-        &self,
-        query: &StructuralQuery,
-        context: &SqlCompiledCommandExecutionContext,
-    ) -> Result<
-        (
-            SqlStatementResult,
-            SqlCacheAttribution,
-            SqlExecutePhaseAttribution,
-        ),
-        QueryError,
-    > {
-        self.execute_select_compiled_sql_with_phase_attribution_from_resolver(query, || {
-            self.resolve_select_prepared_plan_for_context_with_compile_phase_attribution(
-                query, context,
-            )
-        })
+        self.execute_select_compiled_sql_from_prepared_plan(query, prepared_plan, projection)
     }
 
     fn execute_select_compiled_sql_from_prepared_plan(
@@ -388,10 +176,9 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: StructuralProjectionContract,
-        cache_attribution: SqlCacheAttribution,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+    ) -> Result<SqlStatementResult, QueryError> {
         if query.has_grouping() {
-            let (statement_result, ()) = self.execute_grouped_sql_statement_from_prepared_plan(
+            return self.execute_grouped_sql_statement_from_prepared_plan(
                 prepared_plan,
                 projection,
                 |session, prepared_plan| {
@@ -401,17 +188,11 @@ impl<C: CanisterKind> DbSession<C> {
                             None,
                             DiagnosticExecutionLane::TrustedRead,
                         )
-                        .map(|(result, _trace)| (result, ()))
+                        .map(|(result, _trace)| result)
                 },
-            )?;
-
-            return Ok((statement_result, cache_attribution));
+            );
         }
 
-        self.execute_sql_statement_from_structural_prepared_plan(
-            prepared_plan,
-            projection,
-            cache_attribution,
-        )
+        self.execute_sql_statement_from_structural_prepared_plan(prepared_plan, projection)
     }
 }

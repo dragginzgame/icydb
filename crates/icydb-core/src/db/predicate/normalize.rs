@@ -230,10 +230,6 @@ fn normalize_compare_value_for_accepted_contract(
                 )?);
             }
             let normalized = canonical_membership_value_list(normalized);
-            #[cfg(all(feature = "sql", feature = "diagnostics"))]
-            if let Value::List(values) = &normalized {
-                crate::db::diagnostics::record_sql_membership_normalized(values);
-            }
             Ok(normalized)
         }
         CompareOp::Contains => {
@@ -377,10 +373,6 @@ fn normalize_compare_value_for_accepted_kind(
                 op,
             )?;
             let normalized = canonical_membership_value_list(normalized);
-            #[cfg(all(feature = "sql", feature = "diagnostics"))]
-            if let Value::List(values) = &normalized {
-                crate::db::diagnostics::record_sql_membership_normalized(values);
-            }
             Ok(normalized)
         }
         CompareOp::Contains => {

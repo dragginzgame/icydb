@@ -325,28 +325,6 @@ impl<R> PendingOrderRows<R> {
             PendingOrderRowStorage::Cached { rows, .. } => rows.len(),
         }
     }
-
-    /// Estimate complete backing bytes retained by the pending row set.
-    #[cfg(feature = "diagnostics")]
-    #[must_use]
-    pub(in crate::db::executor) fn retained_backing_bytes(&self) -> u64
-    where
-        R: OrderReadableRow,
-    {
-        match &self.storage {
-            PendingOrderRowStorage::Plain(rows) => rows.iter().fold(0_u64, |total, row| {
-                total.saturating_add(row.retained_order_backing_bytes())
-            }),
-            PendingOrderRowStorage::Cached { rows, .. } => {
-                rows.iter().fold(0_u64, |total, (row, values)| {
-                    total
-                        .saturating_add(row.retained_order_backing_bytes())
-                        .saturating_add(values.estimated_backing_bytes())
-                })
-            }
-        }
-    }
-
     /// Consume rows that must not carry pending expression-order values.
     ///
     /// # Errors
@@ -480,19 +458,6 @@ impl<'a> DataRowOrderWindow<'a> {
         }
     }
 
-    /// Return the largest complete backing total retained while selecting.
-    #[cfg(feature = "diagnostics")]
-    #[must_use]
-    pub(in crate::db::executor) const fn peak_retained_backing_bytes(&self) -> u64 {
-        match &self.candidates {
-            DataRowOrderCandidates::Bounded(window) => window.peak_retained_backing_bytes,
-            DataRowOrderCandidates::Complete {
-                retained_backing_bytes,
-                ..
-            } => *retained_backing_bytes,
-        }
-    }
-
     /// Consume the selected candidates in final canonical order.
     pub(in crate::db::executor) fn into_sorted_rows(self) -> Result<Vec<DataRow>, InternalError> {
         let mut rows = match self.candidates {
@@ -578,16 +543,6 @@ where
         }
 
         Ok(())
-    }
-
-    /// Return the largest complete backing total retained while selecting.
-    #[cfg(feature = "diagnostics")]
-    #[must_use]
-    pub(in crate::db::executor) const fn peak_retained_backing_bytes(&self) -> u64 {
-        match &self.candidates {
-            BoundedOrderCandidates::Direct(window) => window.peak_retained_backing_bytes,
-            BoundedOrderCandidates::Cached(window) => window.peak_retained_backing_bytes,
-        }
     }
 
     /// Consume retained rows while preserving expression-order values for

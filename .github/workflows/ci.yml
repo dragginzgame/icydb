@@ -41,7 +41,6 @@ jobs:
       - run: cargo fetch --locked
       - run: cargo check --locked -p icydb --no-default-features
       - run: cargo check --locked -p icydb --no-default-features --features sql
-      - run: cargo check --locked -p icydb --no-default-features --features diagnostics
       - run: cargo check --locked -p icydb --no-default-features --features migration
 
   static:

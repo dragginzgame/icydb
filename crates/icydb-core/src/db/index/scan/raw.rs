@@ -87,10 +87,7 @@ impl MergedEntryReadRecorder {
 }
 
 impl Drop for MergedEntryReadRecorder {
-    fn drop(&mut self) {
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
-        IndexStore::record_merged_entry_reads(self.count);
-    }
+    fn drop(&mut self) {}
 }
 
 fn merged_range_structural_bytes<I, E, K>(
@@ -274,9 +271,6 @@ impl IndexStore {
             return Ok(true);
         }
 
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
-        Self::record_range_scan_call();
-
         let retained_range_bound_bytes =
             bounds.iter().try_fold(0usize, |bytes, (lower, upper)| {
                 bytes
@@ -435,9 +429,6 @@ impl IndexStore {
         if envelope_is_empty(bounds.0, bounds.1) {
             return Ok(());
         }
-
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
-        Self::record_range_scan_call();
 
         match direction {
             Direction::Asc => match &self.backend {

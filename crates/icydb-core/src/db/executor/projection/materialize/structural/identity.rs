@@ -8,7 +8,6 @@ use crate::{
         StructuralCursorPage,
         projection::materialize::{
             execute::{project_identity_data_row, project_slot_row},
-            metrics::ProjectionMaterializationMetricsRecorder,
             plan::PreparedProjectionContract,
             row_view::RowView,
             structural::MaterializedProjectionRows,
@@ -25,11 +24,9 @@ pub(in crate::db::executor::projection::materialize::structural) fn project_iden
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionContract,
     page: StructuralCursorPage,
-    metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<MaterializedProjectionRows, InternalError> {
     page.consume_projection_rows(
         |slot_rows| {
-            metrics.record_slot_rows_path_hit();
             let rows = slot_rows
                 .into_iter()
                 .map(|row| project_slot_row(prepared_projection, row).map(RowView::into_owned))
@@ -38,10 +35,9 @@ pub(in crate::db::executor::projection::materialize::structural) fn project_iden
             Ok(MaterializedProjectionRows::from_value_rows(rows))
         },
         |data_rows| {
-            metrics.record_data_rows_path_hit();
             let rows = data_rows
                 .iter()
-                .map(|row| project_identity_data_row(&row_layout, row, metrics))
+                .map(|row| project_identity_data_row(&row_layout, row))
                 .collect::<Result<Vec<_>, InternalError>>()?;
 
             Ok(MaterializedProjectionRows::from_value_rows(rows))

@@ -6,7 +6,6 @@
 mod contracts;
 mod distinct;
 mod execute;
-mod metrics;
 mod plan;
 mod row_view;
 mod structural;
@@ -14,9 +13,6 @@ mod structural;
 pub(in crate::db::executor::projection) use distinct::{
     ProjectionDistinctStrategy, ProjectionDistinctWindow, projection_distinct_strategy,
 };
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use metrics::DistinctProjectionMetricsRecorder;
-pub(in crate::db) use metrics::ProjectionMaterializationMetricsRecorder;
 pub(in crate::db) use plan::{PreparedProjectionContract, prepare_projection_contract_from_plan};
 pub(in crate::db::executor) use plan::{ProjectionValidationRow, validate_prepared_projection_row};
 pub(in crate::db) use structural::MaterializedProjectionRows;

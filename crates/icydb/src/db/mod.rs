@@ -108,11 +108,6 @@ pub use icydb_core::db::{
     ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
 };
 pub use icydb_core::db::{ReadIntentKind, TraceReuseEvent};
-#[cfg(feature = "diagnostics")]
-pub use icydb_core::db::{
-    RequestDiagnosticAccessPath, RequestDiagnosticWarning, RequestDiagnosticWarningKind,
-    RequestDiagnostics, RequestQueryShapeDiagnostic,
-};
 pub use icydb_schema::{
     EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldSourceKey,
     SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
@@ -124,27 +119,11 @@ pub use icydb_core::db::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, CompositePrimaryKeyValue,
     CompositePrimaryKeyValueError, Predicate, PrimaryKeyComponent, PrimaryKeyValue,
 };
-#[doc(hidden)]
-pub use session::generated::execute_generated_storage_report;
-
-// Diagnostics payloads stay feature-gated so normal canister builds do not
-// retain observability surfaces they did not request.
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-#[doc(hidden)]
-pub use icydb_core::db::{
-    DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
-    ScalarAggregateAttribution,
-};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-#[doc(hidden)]
-pub use icydb_core::db::{
-    SqlCompileAttribution, SqlExecutionAttribution, SqlOutputBlobAttribution,
-    SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
-    SqlStructuralWorkAttribution,
-};
 #[cfg(feature = "sql")]
 #[doc(hidden)]
 pub use icydb_core::db::{
     SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
     sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
 };
+#[doc(hidden)]
+pub use session::generated::execute_generated_storage_report;

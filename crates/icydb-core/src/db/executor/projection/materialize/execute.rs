@@ -15,7 +15,6 @@ use crate::{
                     eval_compiled_expr_with_value_ref_reader,
                 },
                 materialize::{
-                    metrics::ProjectionMaterializationMetricsRecorder,
                     plan::{
                         PreparedDirectProjectionSlot, PreparedDirectProjectionSlots,
                         PreparedProjectionContract,
@@ -45,28 +44,13 @@ pub(super) fn project_data_row(
     row_layout: &RowLayout,
     prepared_projection: &PreparedProjectionContract,
     row: &DataRow,
-    metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<RowView, InternalError> {
     if let Some(slots) = prepared_projection.data_row_direct_projection_slots() {
-        return project_data_row_from_direct_slots(row_layout, row, slots, metrics)
-            .map(RowView::owned);
+        return project_data_row_from_direct_slots(row_layout, row, slots).map(RowView::owned);
     }
 
     let compiled_fields = prepared_projection.compiled_exprs();
-    #[cfg(any(test, feature = "diagnostics"))]
-    let projected_slot_mask = prepared_projection.projected_slot_mask();
-    #[cfg(not(any(test, feature = "diagnostics")))]
-    let projected_slot_mask = &[];
-
-    metrics.record_data_rows_scalar_fallback_hit();
-    project_scalar_data_row(
-        compiled_fields,
-        row,
-        row_layout,
-        projected_slot_mask,
-        metrics,
-    )
-    .map(RowView::owned)
+    project_scalar_data_row(compiled_fields, row, row_layout).map(RowView::owned)
 }
 
 // Decode one identity row directly into its final owned response row. The
@@ -75,15 +59,10 @@ pub(super) fn project_data_row(
 pub(super) fn project_identity_data_row(
     row_layout: &RowLayout,
     row: &DataRow,
-    metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
     let (data_key, raw_row) = row;
     let mut values = Vec::new();
     row_layout.decode_full_value_row_from_data_key_into(data_key, raw_row, &mut values)?;
-    for _ in 0..values.len() {
-        metrics.record_data_rows_slot_access(true);
-    }
-
     Ok(values)
 }
 
@@ -235,7 +214,6 @@ fn project_data_row_from_direct_slots(
     row_layout: &RowLayout,
     row: &DataRow,
     direct_slots: &PreparedDirectProjectionSlots,
-    metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
     let projections = direct_slots.projections();
     let mut shaped = Vec::with_capacity(projections.len());
@@ -244,17 +222,10 @@ fn project_data_row_from_direct_slots(
             row_layout,
             row,
             projections,
-            metrics,
             &mut shaped,
         )?;
     } else {
-        project_data_row_from_direct_slots_into(
-            row_layout,
-            row,
-            projections,
-            metrics,
-            &mut shaped,
-        )?;
+        project_data_row_from_direct_slots_into(row_layout, row, projections, &mut shaped)?;
     }
 
     Ok(shaped)
@@ -264,7 +235,6 @@ fn project_data_row_from_direct_slots_into(
     row_layout: &RowLayout,
     row: &DataRow,
     projections: &[PreparedDirectProjectionSlot],
-    metrics: ProjectionMaterializationMetricsRecorder,
     shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
     charge_projection_steps(projections.len())?;
@@ -275,7 +245,6 @@ fn project_data_row_from_direct_slots_into(
 
     for projection in projections {
         let slot = projection.source_slot();
-        metrics.record_data_rows_slot_access(true);
         let value = row_fields.required_direct_projection_value(slot)?;
         shaped.push(value);
     }
@@ -287,7 +256,6 @@ fn project_repeated_data_row_from_direct_slots_into(
     row_layout: &RowLayout,
     row: &DataRow,
     projections: &[PreparedDirectProjectionSlot],
-    metrics: ProjectionMaterializationMetricsRecorder,
     shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
     charge_projection_steps(projections.len())?;
@@ -305,7 +273,6 @@ fn project_repeated_data_row_from_direct_slots_into(
                 .ok_or_else(InternalError::query_executor_invariant)?
         } else {
             let slot = projection.source_slot();
-            metrics.record_data_rows_slot_access(true);
             row_fields.required_direct_projection_value(slot)?
         };
 
@@ -319,18 +286,9 @@ fn project_scalar_data_row(
     compiled_fields: &[CompiledExpr],
     row: &DataRow,
     row_layout: &RowLayout,
-    projected_slot_mask: &[bool],
-    metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
     let mut shaped = Vec::with_capacity(compiled_fields.len());
-    project_scalar_data_row_into(
-        compiled_fields,
-        row,
-        row_layout,
-        projected_slot_mask,
-        metrics,
-        &mut shaped,
-    )?;
+    project_scalar_data_row_into(compiled_fields, row, row_layout, &mut shaped)?;
 
     Ok(shaped)
 }
@@ -339,24 +297,15 @@ fn project_scalar_data_row_into(
     compiled_fields: &[CompiledExpr],
     (data_key, raw_row): &DataRow,
     row_layout: &RowLayout,
-    projected_slot_mask: &[bool],
-    metrics: ProjectionMaterializationMetricsRecorder,
     shaped: &mut Vec<Value>,
 ) -> Result<(), InternalError> {
-    #[cfg(not(any(test, feature = "diagnostics")))]
-    let _ = projected_slot_mask;
-
     charge_projection_steps(compiled_fields.len())?;
     shaped.clear();
     let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_primary_key(data_key)?;
 
     for compiled in compiled_fields {
-        let mut record_slot = |slot| {
-            metrics.record_data_rows_slot_access(
-                projected_slot_mask.get(slot).copied().unwrap_or(false),
-            );
-        };
+        let mut record_slot = |_| {};
         let value = eval_compiled_expr_with_required_slot_reader_cow(
             compiled,
             &row_fields,

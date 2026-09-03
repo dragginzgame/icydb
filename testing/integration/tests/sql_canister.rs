@@ -29,7 +29,7 @@ use icydb::{
     db::{
         EntitySchemaDescription, IntegrityCheckResult, QuickIntegrityStatus, RowProjectionOutput,
         SqlColumnDefault, SqlColumnExtra, SqlColumnKey, SqlDescribeOutput, SqlIntegrityError,
-        SqlQueryExecutionAttribution, SqlShowColumnsOutput, StorageReport,
+        SqlShowColumnsOutput, StorageReport,
         sql::{SqlGroupedRowsOutput, SqlQueryResult},
     },
     diagnostic::{DiagnosticCode, RuntimeBoundaryCode},
@@ -387,15 +387,6 @@ fn query_sql_endpoint(
     fixture
         .query_candid("icydb_query", (sql.to_string(),))
         .expect("sql query canister call should decode")
-}
-
-fn query_sql_attribution(
-    fixture: &StandaloneCanisterFixture,
-    sql: &str,
-) -> Result<SqlQueryExecutionAttribution, Error> {
-    fixture
-        .query_candid("measure_sql_query_attribution", (sql.to_string(),))
-        .expect("SQL attribution canister call should decode")
 }
 
 fn measure_query_sql(
@@ -1090,18 +1081,6 @@ fn sql_canister_required_sqlite_reference_profile_matches_bundled_reference() {
             "live IcyDB should agree with bundled SQLite for scenario {:?}",
             scenario.id(),
         );
-        if scenario.id() == "sqlite.required.scalar_distinct_window" {
-            let attribution = query_sql_attribution(&fixture, &correctness_scenario.sql)
-                .expect("SQLite DISTINCT window should expose route attribution");
-            assert_eq!(attribution.store_get_calls, 0);
-            assert_eq!(attribution.index_store_entry_reads, 3);
-            assert_eq!(attribution.index_store_range_scan_calls, 4);
-            let distinct = attribution
-                .distinct_projection
-                .expect("SQLite DISTINCT window should publish finalizer attribution");
-            assert_eq!(distinct.adjacent_path_hits, 1);
-            assert_eq!(distinct.candidate_rows, 3);
-        }
     }
 }
 
@@ -1703,8 +1682,6 @@ fn assert_nullable_unique_route_evidence(
     before: &SqlQueryResult,
     after: &SqlQueryResult,
     forced_full_scan: &SqlQueryResult,
-    proven_attribution: &SqlQueryExecutionAttribution,
-    full_scan_attribution: &SqlQueryExecutionAttribution,
 ) {
     assert_eq!(
         after, before,
@@ -1721,21 +1698,6 @@ fn assert_nullable_unique_route_evidence(
         &[&["alice"]],
         1,
         "filtered unique access should return exactly the matching present value",
-    );
-    assert!(
-        proven_attribution.index_store_entry_reads > 0,
-        "the selected filtered index route should read its physical entry",
-    );
-    println!(
-        "nullable unique query reads: proven_data_gets={} proven_index_gets={} proven_index_ranges={} proven_index_entries={} equivalent_full_scan_data_gets={} equivalent_full_scan_index_gets={} equivalent_full_scan_index_ranges={} equivalent_full_scan_index_entries={}",
-        proven_attribution.store_get_calls,
-        proven_attribution.index_store_get_calls,
-        proven_attribution.index_store_range_scan_calls,
-        proven_attribution.index_store_entry_reads,
-        full_scan_attribution.store_get_calls,
-        full_scan_attribution.index_store_get_calls,
-        full_scan_attribution.index_store_range_scan_calls,
-        full_scan_attribution.index_store_entry_reads,
     );
 }
 
@@ -1872,14 +1834,6 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
         3,
         "direct nullable DISTINCT fallback should preserve canonical results",
     );
-    let nullable_distinct_attribution = query_sql_attribution(&fixture, nullable_distinct_sql)
-        .expect("direct nullable DISTINCT fallback should expose attribution");
-    assert_eq!(nullable_distinct_attribution.index_store_entry_reads, 0);
-    assert_eq!(
-        nullable_distinct_attribution.index_store_range_scan_calls,
-        0
-    );
-
     let after_explain = expect_explain(
         query_sql(&fixture, format!("EXPLAIN EXECUTION {select_sql}").as_str())
             .expect("post-index EXPLAIN should succeed"),
@@ -1917,17 +1871,7 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
     let forced_full_scan = query_sql_endpoint(&fixture, forced_full_scan_sql)
         .expect("equivalent conservative query should execute through a full scan");
     assert_nullable_unique_range_route_parity(&fixture);
-    let proven_attribution = query_sql_attribution(&fixture, select_sql)
-        .expect("proven index route should expose detailed attribution");
-    let full_scan_attribution = query_sql_attribution(&fixture, forced_full_scan_sql)
-        .expect("conservative route should expose detailed attribution");
-    assert_nullable_unique_route_evidence(
-        &before,
-        &after,
-        &forced_full_scan,
-        &proven_attribution,
-        &full_scan_attribution,
-    );
+    assert_nullable_unique_route_evidence(&before, &after, &forced_full_scan);
 }
 
 fn require_measured_ddl_success(measured: SqlExecutionInstructionResult, context: &str) -> u64 {

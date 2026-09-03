@@ -10,7 +10,6 @@ use crate::{
                 grouped_distinct::{
                     execute_global_distinct_field_aggregate, page_global_distinct_grouped_row,
                 },
-                grouped_fold::metrics,
                 grouped_output::project_grouped_rows_from_projection,
             },
         },
@@ -52,7 +51,6 @@ pub(super) fn execute_global_distinct_grouped_fold_stage(
         grouped_window.initial_offset_for_page(),
         grouped_window.limit(),
     );
-    metrics::record_projection_rows_input(page_rows.len());
     let page_rows = project_grouped_rows_from_projection(
         grouped_projection_spec,
         route.projection_is_identity(),
@@ -67,8 +65,6 @@ pub(super) fn execute_global_distinct_grouped_fold_stage(
             rows: page_rows,
             next_cursor: None,
         },
-        #[cfg(feature = "diagnostics")]
-        grouped_execution_context.successful_runtime_stats(false),
         filtered_rows,
         false,
         stream,

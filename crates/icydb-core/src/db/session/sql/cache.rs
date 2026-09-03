@@ -1,11 +1,11 @@
 //! Module: db::session::sql::cache
-//! Responsibility: SQL compiled-command cache identity and attribution.
+//! Responsibility: SQL compiled-command cache identity and storage.
 //! Does not own: SQL parsing, lowering, execution, or result shaping.
 //! Boundary: keeps syntax-bound SQL cache state separate from shared query-plan cache state.
 
 use crate::{
     db::{
-        DbSession, QueryError,
+        DbSession,
         schema::{AcceptedSchemaRevision, AcceptedSchemaRuntimeRootIdentity, SchemaVersion},
         session::{
             AcceptedSchemaCatalogContext,
@@ -21,25 +21,6 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 // front-end prepared/template lane. Grouped semantic canonicalization and
 // grouped structural/cache identity do not flow into this key.
 const SQL_COMPILED_COMMAND_CACHE_MAX_ENTRIES: usize = 1024;
-
-///
-/// SqlCacheAttribution
-///
-/// SqlCacheAttribution keeps the surviving SQL-front-end compile cache
-/// separate from the shared lower query-plan cache so perf audits can tell
-/// which boundary actually produced reuse on one query path.
-///
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(in crate::db) struct SqlCacheAttribution {
-    pub sql_compiled_command_cache_hits: u64,
-    pub sql_compiled_command_cache_misses: u64,
-    pub shared_query_plan_cache_hits: u64,
-    pub shared_query_plan_cache_misses: u64,
-    pub shared_query_plan_cache_insertions: u64,
-    pub shared_query_plan_cache_evictions: u64,
-    pub shared_query_plan_cache_rejected_oversize: u64,
-}
 
 ///
 /// SqlCompiledCommandSurface
@@ -130,93 +111,6 @@ thread_local! {
     // registries in tests.
     static SQL_COMPILED_COMMAND_CACHES: RefCell<HashMap<usize, SqlCompiledCommandCache>> =
         RefCell::new(HashMap::default());
-}
-
-impl SqlCacheAttribution {
-    #[must_use]
-    pub(in crate::db::session::sql) const fn none() -> Self {
-        Self {
-            sql_compiled_command_cache_hits: 0,
-            sql_compiled_command_cache_misses: 0,
-            shared_query_plan_cache_hits: 0,
-            shared_query_plan_cache_misses: 0,
-            shared_query_plan_cache_insertions: 0,
-            shared_query_plan_cache_evictions: 0,
-            shared_query_plan_cache_rejected_oversize: 0,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::session::sql) const fn sql_compiled_command_cache_hit() -> Self {
-        Self {
-            sql_compiled_command_cache_hits: 1,
-            ..Self::none()
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::session::sql) const fn sql_compiled_command_cache_miss() -> Self {
-        Self {
-            sql_compiled_command_cache_misses: 1,
-            ..Self::none()
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::session::sql) const fn shared_query_plan_cache_hit() -> Self {
-        Self {
-            shared_query_plan_cache_hits: 1,
-            ..Self::none()
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn from_shared_query_plan_cache(
-        attribution: crate::db::session::query::QueryPlanCacheAttribution,
-    ) -> Self {
-        Self {
-            shared_query_plan_cache_hits: attribution.hits,
-            shared_query_plan_cache_misses: attribution.misses,
-            shared_query_plan_cache_insertions: attribution.insertions,
-            shared_query_plan_cache_evictions: attribution.evictions,
-            shared_query_plan_cache_rejected_oversize: attribution.rejected_oversize,
-            ..Self::none()
-        }
-    }
-
-    pub(in crate::db::session::sql) fn with_default<T>(
-        result: Result<T, QueryError>,
-    ) -> Result<(T, Self), QueryError> {
-        result.map(|result| (result, Self::default()))
-    }
-
-    #[cfg(feature = "diagnostics")]
-    #[must_use]
-    pub(in crate::db::session::sql) const fn merge(self, other: Self) -> Self {
-        Self {
-            sql_compiled_command_cache_hits: self
-                .sql_compiled_command_cache_hits
-                .saturating_add(other.sql_compiled_command_cache_hits),
-            sql_compiled_command_cache_misses: self
-                .sql_compiled_command_cache_misses
-                .saturating_add(other.sql_compiled_command_cache_misses),
-            shared_query_plan_cache_hits: self
-                .shared_query_plan_cache_hits
-                .saturating_add(other.shared_query_plan_cache_hits),
-            shared_query_plan_cache_misses: self
-                .shared_query_plan_cache_misses
-                .saturating_add(other.shared_query_plan_cache_misses),
-            shared_query_plan_cache_insertions: self
-                .shared_query_plan_cache_insertions
-                .saturating_add(other.shared_query_plan_cache_insertions),
-            shared_query_plan_cache_evictions: self
-                .shared_query_plan_cache_evictions
-                .saturating_add(other.shared_query_plan_cache_evictions),
-            shared_query_plan_cache_rejected_oversize: self
-                .shared_query_plan_cache_rejected_oversize
-                .saturating_add(other.shared_query_plan_cache_rejected_oversize),
-        }
-    }
 }
 
 impl SqlCompiledCommandCacheKey {

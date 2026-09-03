@@ -12,11 +12,7 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         schema::SchemaInfo,
-        session::sql::{
-            CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandSurface,
-            compile::{SqlCompileArtifacts, SqlCompilePhaseAttribution},
-            measured,
-        },
+        session::sql::{CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandSurface},
         sql::{
             lowering::{
                 PreparedSqlStatement, bind_lowered_sql_delete_query_structural_with_schema,
@@ -40,10 +36,10 @@ use icydb_diagnostic_code::SqlLoweringCode;
 impl<C: CanisterKind> DbSession<C> {
     // Compile one parsed SQL statement into the generic-free session-owned
     // semantic command artifact for one resolved authority.
-    fn compile_sql_statement_semantic_artifacts(
+    fn compile_sql_statement_semantic(
         statement: &SqlStatement,
         schema: &SchemaInfo,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
+    ) -> Result<CompiledSqlCommand, QueryError> {
         let entity_name = schema.entity_name().ok_or_else(QueryError::invariant)?;
 
         match statement {
@@ -72,17 +68,12 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    // Prepare one statement against a resolved schema entity name while
-    // preserving the prepare-stage counter as a first-class compile artifact
-    // field.
+    // Prepare one statement against a resolved schema entity name.
     fn prepare_statement_for_entity_name(
         statement: &SqlStatement,
         entity_name: &str,
-    ) -> Result<(u64, PreparedSqlStatement), QueryError> {
-        measured(|| {
-            prepare_sql_statement(statement, entity_name)
-                .map_err(QueryError::from_sql_lowering_error)
-        })
+    ) -> Result<PreparedSqlStatement, QueryError> {
+        prepare_sql_statement(statement, entity_name).map_err(QueryError::from_sql_lowering_error)
     }
 
     // Compile SELECT by owning only lane detection. Each lane keeps its own
@@ -92,26 +83,14 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         entity_name: &str,
         schema: &SchemaInfo,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
-        let (prepare_local_instructions, prepared) =
-            Self::prepare_statement_for_entity_name(statement, entity_name)?;
-        let (aggregate_lane_check_local_instructions, requires_aggregate_lane) =
-            measured(|| Ok(prepared.statement().is_global_aggregate_lane_shape()))?;
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let requires_aggregate_lane = prepared.statement().is_global_aggregate_lane_shape();
 
         if requires_aggregate_lane {
-            Self::compile_select_global_aggregate(
-                prepared,
-                schema,
-                aggregate_lane_check_local_instructions,
-                prepare_local_instructions,
-            )
+            Self::compile_select_global_aggregate(prepared, schema)
         } else {
-            Self::compile_select_non_aggregate(
-                prepared,
-                schema,
-                aggregate_lane_check_local_instructions,
-                prepare_local_instructions,
-            )
+            Self::compile_select_non_aggregate(prepared, schema)
         }
     }
 
@@ -122,25 +101,15 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_select_global_aggregate(
         prepared: PreparedSqlStatement,
         schema: &SchemaInfo,
-        aggregate_lane_check_local_instructions: u64,
-        prepare_local_instructions: u64,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
-        let (lower_local_instructions, command) = measured(|| {
-            compile_sql_global_aggregate_command_from_prepared_with_schema(
-                prepared,
-                MissingRowPolicy::Ignore,
-                schema,
-            )
-            .map_err(QueryError::from_sql_lowering_error)
-        })?;
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        let command = compile_sql_global_aggregate_command_from_prepared_with_schema(
+            prepared,
+            MissingRowPolicy::Ignore,
+            schema,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
 
-        Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::global_aggregate(command),
-            aggregate_lane_check_local_instructions,
-            prepare_local_instructions,
-            lower_local_instructions,
-            0,
-        ))
+        Ok(CompiledSqlCommand::global_aggregate(command))
     }
 
     // Compile one prepared SELECT that remains on the ordinary scalar query
@@ -149,29 +118,17 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_select_non_aggregate(
         prepared: PreparedSqlStatement,
         schema: &SchemaInfo,
-        aggregate_lane_check_local_instructions: u64,
-        prepare_local_instructions: u64,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
-        let (lower_local_instructions, select) = measured(|| {
-            lower_prepared_sql_select_statement_with_schema(prepared, schema)
-                .map_err(QueryError::from_sql_lowering_error)
-        })?;
-        let (bind_local_instructions, query) = measured(|| {
-            bind_lowered_sql_select_query_structural_with_schema(
-                select,
-                MissingRowPolicy::Ignore,
-                schema,
-            )
-            .map_err(QueryError::from_sql_lowering_error)
-        })?;
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        let select = lower_prepared_sql_select_statement_with_schema(prepared, schema)
+            .map_err(QueryError::from_sql_lowering_error)?;
+        let query = bind_lowered_sql_select_query_structural_with_schema(
+            select,
+            MissingRowPolicy::Ignore,
+            schema,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
 
-        Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::select(query),
-            aggregate_lane_check_local_instructions,
-            prepare_local_instructions,
-            lower_local_instructions,
-            bind_local_instructions,
-        ))
+        Ok(CompiledSqlCommand::select(query))
     }
 
     // Compile DELETE through the same prepare/lower/bind phases as ordinary
@@ -180,58 +137,40 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         entity_name: &str,
         schema: &SchemaInfo,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
-        let (prepare_local_instructions, prepared) =
-            Self::prepare_statement_for_entity_name(statement, entity_name)?;
-        let (lower_local_instructions, delete) = measured(|| {
-            lower_prepared_sql_delete_statement(prepared)
-                .map_err(QueryError::from_sql_lowering_error)
-        })?;
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let delete = lower_prepared_sql_delete_statement(prepared)
+            .map_err(QueryError::from_sql_lowering_error)?;
         let returning = delete.returning().cloned();
         let query = delete.into_base_query();
-        let (bind_local_instructions, query) = measured(|| {
-            bind_lowered_sql_delete_query_structural_with_schema(
-                query,
-                MissingRowPolicy::Ignore,
-                schema,
-            )
-            .map_err(QueryError::from_sql_lowering_error)
-        })?;
+        let query = bind_lowered_sql_delete_query_structural_with_schema(
+            query,
+            MissingRowPolicy::Ignore,
+            schema,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
 
-        Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::Delete {
-                query: Arc::new(query),
-                returning,
-            },
-            0,
-            prepare_local_instructions,
-            lower_local_instructions,
-            bind_local_instructions,
-        ))
+        Ok(CompiledSqlCommand::Delete {
+            query: Arc::new(query),
+            returning,
+        })
     }
 
-    // Compile INSERT after the shared prepare phase. Prepared statement
-    // extraction intentionally remains outside the lower/bind counters because
-    // the historical INSERT path has no separate lower or bind stage.
+    // Compile INSERT after the shared prepare phase.
     fn compile_insert(
         statement: &SqlStatement,
         entity_name: &str,
         schema: &SchemaInfo,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
-        let (prepare_local_instructions, prepared) =
-            Self::prepare_statement_for_entity_name(statement, entity_name)?;
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
         let statement = extract_prepared_sql_insert_statement(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
-        let (bind_local_instructions, source_query) =
-            Self::compile_insert_select_source_query(&statement.source, schema)?;
+        let source_query = Self::compile_insert_select_source_query(&statement.source, schema)?;
 
-        Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::Insert(CompiledSqlInsertCommand::new(statement, source_query)),
-            0,
-            prepare_local_instructions,
-            0,
-            bind_local_instructions,
-        ))
+        Ok(CompiledSqlCommand::Insert(CompiledSqlInsertCommand::new(
+            statement,
+            source_query,
+        )))
     }
 
     // Compile the SELECT source for INSERT SELECT once while the SQL compiled
@@ -239,44 +178,34 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_insert_select_source_query(
         source: &SqlInsertSource,
         schema: &SchemaInfo,
-    ) -> Result<(u64, Option<crate::db::query::intent::StructuralQuery>), QueryError> {
+    ) -> Result<Option<crate::db::query::intent::StructuralQuery>, QueryError> {
         let SqlInsertSource::Select(source) = source else {
-            return Ok((0, None));
+            return Ok(None);
         };
         let source = insert_select_source_with_primary_key_order(
             source.as_ref(),
             schema.primary_key_names(),
         )?;
-        let (bind_local_instructions, query) = measured(|| {
-            bind_sql_select_statement_structural_with_schema(
-                source,
-                MissingRowPolicy::Ignore,
-                schema,
-            )
-            .map_err(QueryError::from_sql_lowering_error)
-        })?;
+        let query = bind_sql_select_statement_structural_with_schema(
+            source,
+            MissingRowPolicy::Ignore,
+            schema,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
 
-        Ok((bind_local_instructions, Some(query)))
+        Ok(Some(query))
     }
 
-    // Compile UPDATE after the shared prepare phase. Like INSERT, UPDATE owns
-    // only prepared-statement extraction here to preserve existing attribution.
+    // Compile UPDATE after the shared prepare phase.
     fn compile_update(
         statement: &SqlStatement,
         entity_name: &str,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
-        let (prepare_local_instructions, prepared) =
-            Self::prepare_statement_for_entity_name(statement, entity_name)?;
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
         let statement = extract_prepared_sql_update_statement(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
 
-        Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::Update(statement),
-            0,
-            prepare_local_instructions,
-            0,
-            0,
-        ))
+        Ok(CompiledSqlCommand::Update(statement))
     }
 
     // Compile EXPLAIN by lowering its prepared target but deliberately not
@@ -286,21 +215,13 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         entity_name: &str,
         schema: &SchemaInfo,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
-        let (prepare_local_instructions, prepared) =
-            Self::prepare_statement_for_entity_name(statement, entity_name)?;
-        let (lower_local_instructions, lowered) = measured(|| {
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let lowered =
             lower_sql_explain_command_from_prepared_statement_with_schema(prepared, schema)
-                .map_err(QueryError::from_sql_lowering_error)
-        })?;
+                .map_err(QueryError::from_sql_lowering_error)?;
 
-        Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::Explain(Box::new(lowered)),
-            0,
-            prepare_local_instructions,
-            lower_local_instructions,
-            0,
-        ))
+        Ok(CompiledSqlCommand::Explain(Box::new(lowered)))
     }
 
     // Compile DESCRIBE by validating the prepared surface and returning the
@@ -308,22 +229,15 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_describe(
         statement: &SqlStatement,
         entity_name: &str,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
-        let (prepare_local_instructions, _prepared) =
-            Self::prepare_statement_for_entity_name(statement, entity_name)?;
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
 
         let SqlStatement::Describe(describe) = statement else {
             return Err(QueryError::invariant());
         };
-        Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::DescribeEntity {
-                mode: describe.mode,
-            },
-            0,
-            prepare_local_instructions,
-            0,
-            0,
-        ))
+        Ok(CompiledSqlCommand::DescribeEntity {
+            mode: describe.mode,
+        })
     }
 
     // Compile SHOW INDEXES by validating the prepared surface and returning
@@ -331,17 +245,10 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_show_indexes(
         statement: &SqlStatement,
         entity_name: &str,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
-        let (prepare_local_instructions, _prepared) =
-            Self::prepare_statement_for_entity_name(statement, entity_name)?;
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
 
-        Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::ShowIndexesEntity,
-            0,
-            prepare_local_instructions,
-            0,
-            0,
-        ))
+        Ok(CompiledSqlCommand::ShowIndexesEntity)
     }
 
     // Compile SHOW CONSTRAINTS by validating the prepared surface and
@@ -349,17 +256,10 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_show_constraints(
         statement: &SqlStatement,
         entity_name: &str,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
-        let (prepare_local_instructions, _prepared) =
-            Self::prepare_statement_for_entity_name(statement, entity_name)?;
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
 
-        Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::ShowConstraintsEntity,
-            0,
-            prepare_local_instructions,
-            0,
-            0,
-        ))
+        Ok(CompiledSqlCommand::ShowConstraintsEntity)
     }
 
     // Compile SHOW COLUMNS by validating the prepared surface and returning
@@ -367,99 +267,57 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_show_columns(
         statement: &SqlStatement,
         entity_name: &str,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
-        let (prepare_local_instructions, _prepared) =
-            Self::prepare_statement_for_entity_name(statement, entity_name)?;
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
 
         let SqlStatement::ShowColumns(show_columns) = statement else {
             return Err(QueryError::invariant());
         };
-        Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::ShowColumnsEntity {
-                mode: show_columns.mode,
-            },
-            0,
-            prepare_local_instructions,
-            0,
-            0,
-        ))
+        Ok(CompiledSqlCommand::ShowColumnsEntity {
+            mode: show_columns.mode,
+        })
     }
 
     // Compile SHOW RELATIONS into the fixed accepted-catalog projection.
     fn compile_show_relations(
         statement: &SqlStatement,
         entity_name: &str,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
-        let (prepare_local_instructions, _prepared) =
-            Self::prepare_statement_for_entity_name(statement, entity_name)?;
+    ) -> Result<CompiledSqlCommand, QueryError> {
+        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
 
-        Ok(SqlCompileArtifacts::new(
-            CompiledSqlCommand::ShowRelationsEntity,
-            0,
-            prepare_local_instructions,
-            0,
-            0,
-        ))
+        Ok(CompiledSqlCommand::ShowRelationsEntity)
     }
 
     // Compile SHOW ENTITIES without entity-bound preparation because the
     // command is catalog-backed and historically reports no compile sub-stages.
-    const fn compile_show_entities(entity: Option<String>, verbose: bool) -> SqlCompileArtifacts {
-        SqlCompileArtifacts::new(
-            CompiledSqlCommand::ShowEntities { entity, verbose },
-            0,
-            0,
-            0,
-            0,
-        )
+    const fn compile_show_entities(entity: Option<String>, verbose: bool) -> CompiledSqlCommand {
+        CompiledSqlCommand::ShowEntities { entity, verbose }
     }
 
     // Compile SHOW STORES without entity-bound preparation because the command
     // is catalog-wide and historically reports no compile sub-stages.
-    const fn compile_show_stores(verbose: bool) -> SqlCompileArtifacts {
-        SqlCompileArtifacts::new(CompiledSqlCommand::ShowStores { verbose }, 0, 0, 0, 0)
+    const fn compile_show_stores(verbose: bool) -> CompiledSqlCommand {
+        CompiledSqlCommand::ShowStores { verbose }
     }
 
     // Compile SHOW MEMORY without entity-bound preparation because the command
     // is catalog-wide and historically reports no compile sub-stages.
-    const fn compile_show_memory() -> SqlCompileArtifacts {
-        SqlCompileArtifacts::new(CompiledSqlCommand::ShowMemory, 0, 0, 0, 0)
+    const fn compile_show_memory() -> CompiledSqlCommand {
+        CompiledSqlCommand::ShowMemory
     }
 
     // Own the complete parsed-statement compile boundary: surface validation
     // happens here before the cache-independent semantic compiler runs, so no
     // caller can accidentally compile a query through the update lane or the
     // inverse.
-    fn compile_sql_statement_entry(
+    pub(in crate::db::session::sql) fn compile_sql_statement(
         statement: &SqlStatement,
         surface: SqlCompiledCommandSurface,
         schema: &SchemaInfo,
-    ) -> Result<SqlCompileArtifacts, QueryError> {
+    ) -> Result<CompiledSqlCommand, QueryError> {
         Self::ensure_sql_statement_supported_for_surface(statement, surface)?;
 
-        Self::compile_sql_statement_semantic_artifacts(statement, schema)
-    }
-
-    // Wrap the complete compile entrypoint with the attribution shape used by
-    // callers. The semantic artifact remains the single authority for command
-    // output and stage-local compile counters.
-    pub(in crate::db::session::sql) fn compile_sql_statement_measured(
-        statement: &SqlStatement,
-        surface: SqlCompiledCommandSurface,
-        schema: &SchemaInfo,
-    ) -> Result<(SqlCompileArtifacts, SqlCompilePhaseAttribution), QueryError> {
-        let artifacts = Self::compile_sql_statement_entry(statement, surface, schema)?;
-        debug_assert!(
-            !artifacts.shape.is_aggregate || artifacts.bind == 0,
-            "aggregate SQL artifacts must not report scalar bind work"
-        );
-        debug_assert!(
-            !artifacts.shape.is_mutation || artifacts.aggregate_lane_check == 0,
-            "mutation SQL artifacts must not report SELECT lane checks"
-        );
-        let attribution = artifacts.phase_attribution();
-
-        Ok((artifacts, attribution))
+        Self::compile_sql_statement_semantic(statement, schema)
     }
 }
 

@@ -22,29 +22,7 @@ use crate::{error::InternalError, types::EntityTag};
 use candid::CandidType;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-use std::cell::Cell;
 use std::{cell::RefCell, thread::LocalKey};
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-thread_local! {
-    static EXACT_PREFIX_EVIDENCE_PROBE_CALLS: Cell<u64> = const { Cell::new(0) };
-    static EXACT_PREFIX_EVIDENCE_LIFECYCLE_READS: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) fn reset_exact_prefix_evidence_call_counts_for_tests() {
-    EXACT_PREFIX_EVIDENCE_PROBE_CALLS.with(|count| count.set(0));
-    EXACT_PREFIX_EVIDENCE_LIFECYCLE_READS.with(|count| count.set(0));
-}
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) fn exact_prefix_evidence_call_counts_for_tests() -> (u64, u64) {
-    (
-        EXACT_PREFIX_EVIDENCE_PROBE_CALLS.with(Cell::get),
-        EXACT_PREFIX_EVIDENCE_LIFECYCLE_READS.with(Cell::get),
-    )
-}
 
 ///
 /// StoreHandle
@@ -550,17 +528,7 @@ impl StoreHandle {
 
     /// Borrow the row store immutably.
     pub fn with_data<R>(&self, f: impl FnOnce(&DataStore) -> R) -> R {
-        #[cfg(feature = "diagnostics")]
-        {
-            crate::db::physical_access::measure_physical_access_operation(|| {
-                self.data.with_borrow(f)
-            })
-        }
-
-        #[cfg(not(feature = "diagnostics"))]
-        {
-            self.data.with_borrow(f)
-        }
+        self.data.with_borrow(f)
     }
 
     /// Borrow the row store mutably.
@@ -570,17 +538,7 @@ impl StoreHandle {
 
     /// Borrow the index store immutably.
     pub fn with_index<R>(&self, f: impl FnOnce(&IndexStore) -> R) -> R {
-        #[cfg(feature = "diagnostics")]
-        {
-            crate::db::physical_access::measure_physical_access_operation(|| {
-                self.index.with_borrow(f)
-            })
-        }
-
-        #[cfg(not(feature = "diagnostics"))]
-        {
-            self.index.with_borrow(f)
-        }
+        self.index.with_borrow(f)
     }
 
     /// Borrow the index store mutably.
@@ -723,8 +681,6 @@ impl StoreHandle {
         accepted_root: CardinalityAcceptedRootIdentity,
         keys: &[UserIndexPrefixCardinalityKey],
     ) -> ExactUserIndexPrefixEvidence {
-        #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-        EXACT_PREFIX_EVIDENCE_PROBE_CALLS.with(|count| count.set(count.get().saturating_add(1)));
         let data_generation = self.with_data(DataStore::generation);
         if let Some(counts) = self.exact_user_index_prefix_key_counts_for_admitted_root(
             database_incarnation,
@@ -745,9 +701,6 @@ impl StoreHandle {
     pub(in crate::db) fn exact_user_index_prefix_evidence_lifecycle_stamp(
         &self,
     ) -> ExactPrefixCardinalityLifecycleStamp {
-        #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-        EXACT_PREFIX_EVIDENCE_LIFECYCLE_READS
-            .with(|count| count.set(count.get().saturating_add(1)));
         if self.journal.is_none() {
             return ExactPrefixCardinalityLifecycleStamp(
                 ExactPrefixCardinalityLifecycleIdentity::Volatile,

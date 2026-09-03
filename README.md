@@ -60,10 +60,9 @@ typed, and dynamic reads and writes. Enable `sql` only when the canister uses
 session/library SQL APIs or generated SQL endpoints; SQL is an optional
 frontend over the same engine-neutral query runtime.
 
-IcyDB has four optional Cargo features:
+IcyDB has three optional Cargo features:
 
 - `sql` adds SQL, including `EXPLAIN`, `DESCRIBE`, and `SHOW`.
-- `diagnostics` adds detailed execution attribution for profiling and audits.
 - `metrics` adds one heap-only, on-canister entity hit/cost report.
 - `migration` adds explicit schema-migration operations and endpoints.
 

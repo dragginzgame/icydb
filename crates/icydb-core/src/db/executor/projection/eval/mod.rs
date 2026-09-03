@@ -37,8 +37,6 @@ pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_slot_r
         DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
         1,
     )?;
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    crate::db::diagnostics::record_sql_residual_predicate_evaluation();
     if let Some(predicate_program) = filter_program.predicate_program() {
         return predicate_program.eval_with_structural_slot_reader(slots);
     }
@@ -66,8 +64,6 @@ where
         DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
         1,
     )?;
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    crate::db::diagnostics::record_sql_residual_predicate_evaluation();
     if let Some(predicate_program) = filter_program.predicate_program() {
         return Ok(predicate_program.eval_with_slot_value_cow_reader(read_slot));
     }

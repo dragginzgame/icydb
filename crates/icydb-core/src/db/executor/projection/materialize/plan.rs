@@ -96,8 +96,6 @@ pub(in crate::db) struct PreparedProjectionContract {
     retained_slot_direct_projection_slots: Option<PreparedDirectProjectionSlots>,
     retained_slot_direct_octet_length_projection_slots: Vec<Option<usize>>,
     data_row_direct_projection_slots: Option<PreparedDirectProjectionSlots>,
-    #[cfg(any(test, feature = "diagnostics"))]
-    projected_slot_mask: Vec<bool>,
 }
 
 impl PreparedProjectionContract {
@@ -144,12 +142,6 @@ impl PreparedProjectionContract {
     ) -> Option<&PreparedDirectProjectionSlots> {
         self.data_row_direct_projection_slots.as_ref()
     }
-
-    #[cfg(any(test, feature = "diagnostics"))]
-    #[must_use]
-    pub(in crate::db) const fn projected_slot_mask(&self) -> &[bool] {
-        self.projected_slot_mask.as_slice()
-    }
 }
 
 ///
@@ -191,9 +183,6 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
         &projection,
         plan.frozen_data_row_direct_projection_slots(),
     );
-    #[cfg(any(test, feature = "diagnostics"))]
-    let projected_slot_mask =
-        projected_slot_mask_from_slots(row_layout.field_count(), plan.projected_slot_mask()?);
     Ok(PreparedProjectionContract {
         projection,
         compiled_exprs: compiled_projection,
@@ -201,8 +190,6 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
         retained_slot_direct_projection_slots,
         retained_slot_direct_octet_length_projection_slots,
         data_row_direct_projection_slots,
-        #[cfg(any(test, feature = "diagnostics"))]
-        projected_slot_mask,
     })
 }
 
@@ -278,17 +265,4 @@ fn slot_uses_scalar_byte_length_codec(row_layout: &RowLayout, slot: usize) -> bo
                 LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
             )
         })
-}
-
-#[cfg(any(test, feature = "diagnostics"))]
-fn projected_slot_mask_from_slots(field_count: usize, projected_slots: &[bool]) -> Vec<bool> {
-    let mut mask = vec![false; field_count];
-
-    for (slot, projected) in projected_slots.iter().copied().enumerate() {
-        if projected && let Some(entry) = mask.get_mut(slot) {
-            *entry = true;
-        }
-    }
-
-    mask
 }

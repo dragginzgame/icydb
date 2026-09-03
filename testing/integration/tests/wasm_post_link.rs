@@ -61,7 +61,7 @@ fn query_user(fixture: &StandaloneCanisterFixture) -> SqlQueryResult {
 fn query_user_instructions(fixture: &StandaloneCanisterFixture) -> SqlTotalOnlyPerfResult {
     let result: Result<SqlTotalOnlyPerfResult, Error> = fixture
         .query_candid(
-            "query_user_total_only_perf",
+            "query_user_with_perf",
             ("SELECT id, name, age FROM PerfAuditUser ORDER BY id".to_string(),),
         )
         .expect("SQL instruction result should decode");

@@ -18,7 +18,7 @@ impl Parser {
     pub(super) fn parse_order_terms(&mut self) -> Result<Vec<SqlOrderTerm>, SqlParseError> {
         let mut terms = Vec::new();
         loop {
-            let field = self.record_expr_parse_stage(Self::parse_order_term_target)?;
+            let field = self.parse_order_term_target()?;
             let direction = if self.eat_keyword(Keyword::Desc) {
                 SqlOrderDirection::Desc
             } else {

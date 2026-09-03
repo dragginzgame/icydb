@@ -3,8 +3,6 @@
 //! Does not own: SELECT row materialization, grouped execution, or response shaping.
 //! Boundary: exposes resolved prepared plans consumed by SELECT execution orchestration.
 
-#[cfg(feature = "diagnostics")]
-use crate::db::session::query::QueryPlanCompilePhaseAttribution;
 use crate::{
     db::{
         DbSession, QueryError,
@@ -14,10 +12,9 @@ use crate::{
         session::{
             AcceptedSchemaCatalogContext,
             query::{
-                QueryPlanCacheAttribution, StructuralProjectionContract,
-                query_plan_requires_cardinality_lifecycle_recheck,
+                StructuralProjectionContract, query_plan_requires_cardinality_lifecycle_recheck,
             },
-            sql::{SqlCacheAttribution, SqlCompiledCommandExecutionContext},
+            sql::SqlCompiledCommandExecutionContext,
         },
     },
     traits::CanisterKind,
@@ -27,19 +24,16 @@ use icydb_diagnostic_code::DiagnosticExecutionLane;
 pub(super) struct ResolvedSelectPreparedPlan {
     prepared_plan: SharedPreparedExecutionPlan,
     projection: StructuralProjectionContract,
-    cache_attribution: SqlCacheAttribution,
 }
 
 impl ResolvedSelectPreparedPlan {
     const fn new(
         prepared_plan: SharedPreparedExecutionPlan,
         projection: StructuralProjectionContract,
-        cache_attribution: SqlCacheAttribution,
     ) -> Self {
         Self {
             prepared_plan,
             projection,
-            cache_attribution,
         }
     }
 
@@ -47,29 +41,18 @@ impl ResolvedSelectPreparedPlan {
         prepared_plan: SharedPreparedExecutionPlan,
         projection: StructuralProjectionContract,
     ) -> Self {
-        Self::new(
-            prepared_plan,
-            projection,
-            SqlCacheAttribution::shared_query_plan_cache_hit(),
-        )
+        Self::new(prepared_plan, projection)
     }
 
     const fn from_shared_query_plan(
         prepared_plan: SharedPreparedExecutionPlan,
         projection: StructuralProjectionContract,
-        cache_attribution: SqlCacheAttribution,
     ) -> Self {
-        Self::new(prepared_plan, projection, cache_attribution)
+        Self::new(prepared_plan, projection)
     }
 
-    pub(super) fn into_parts(
-        self,
-    ) -> (
-        SharedPreparedExecutionPlan,
-        StructuralProjectionContract,
-        SqlCacheAttribution,
-    ) {
-        (self.prepared_plan, self.projection, self.cache_attribution)
+    pub(super) fn into_parts(self) -> (SharedPreparedExecutionPlan, StructuralProjectionContract) {
+        (self.prepared_plan, self.projection)
     }
 
     const fn prepared_plan(&self) -> &SharedPreparedExecutionPlan {
@@ -105,7 +88,7 @@ fn cache_compiled_select_prepared_plan(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    #[cfg(all(test, feature = "diagnostics"))]
+    #[cfg(test)]
     pub(in crate::db) fn sql_select_prepared_plan_for_tests(
         &self,
         query: &StructuralQuery,
@@ -113,7 +96,7 @@ impl<C: CanisterKind> DbSession<C> {
         accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<SharedPreparedExecutionPlan, QueryError> {
         self.sql_select_prepared_plan_for_accepted_authority(query, authority, accepted_schema)
-            .map(|(plan, _, _)| plan)
+            .map(|(plan, _)| plan)
     }
 
     // Resolve one SQL SELECT through a caller-selected accepted authority and
@@ -124,15 +107,8 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            StructuralProjectionContract,
-            SqlCacheAttribution,
-        ),
-        QueryError,
-    > {
-        let (prepared_plan, projection, cache_attribution) = self
+    ) -> Result<(SharedPreparedExecutionPlan, StructuralProjectionContract), QueryError> {
+        let (prepared_plan, projection, _) = self
             .structural_projection_prepared_plan_for_accepted_authority(
                 query,
                 authority,
@@ -140,11 +116,7 @@ impl<C: CanisterKind> DbSession<C> {
                 DiagnosticExecutionLane::TrustedRead,
             )?;
 
-        Ok((
-            prepared_plan,
-            projection,
-            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-        ))
+        Ok((prepared_plan, projection))
     }
 
     // Resolve one SQL selector through accepted authority while excluding
@@ -155,16 +127,9 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            StructuralProjectionContract,
-            SqlCacheAttribution,
-        ),
-        QueryError,
-    > {
+    ) -> Result<(SharedPreparedExecutionPlan, StructuralProjectionContract), QueryError> {
         let schema_fingerprint = authority.accepted_schema_fingerprint();
-        let (prepared_plan, cache_attribution) = self
+        let (prepared_plan, _) = self
             .cached_primary_only_query_plan_for_accepted_authority_with_schema_fingerprint(
                 authority.clone(),
                 accepted_schema,
@@ -173,7 +138,7 @@ impl<C: CanisterKind> DbSession<C> {
                 DiagnosticExecutionLane::Mutation,
             )?;
 
-        Self::sql_select_projection_from_prepared_plan(prepared_plan, authority, cache_attribution)
+        Self::sql_select_projection_from_prepared_plan(prepared_plan, authority)
     }
 
     fn select_authority_for_context(
@@ -190,73 +155,21 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
         authority: EntityAuthority,
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            StructuralProjectionContract,
-            SqlCacheAttribution,
-        ),
-        QueryError,
-    > {
-        let (prepared_plan, cache_attribution) = self
+    ) -> Result<(SharedPreparedExecutionPlan, StructuralProjectionContract), QueryError> {
+        let (prepared_plan, _) = self
             .cached_shared_query_plan_for_accepted_authority_with_catalog(
                 authority.clone(),
                 catalog,
                 query,
                 DiagnosticExecutionLane::TrustedRead,
             )?;
-        Self::sql_select_projection_from_prepared_plan(prepared_plan, authority, cache_attribution)
-    }
-
-    #[cfg(feature = "diagnostics")]
-    fn sql_select_prepared_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
-        &self,
-        query: &StructuralQuery,
-        authority: EntityAuthority,
-        catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            StructuralProjectionContract,
-            SqlCacheAttribution,
-            QueryPlanCompilePhaseAttribution,
-        ),
-        QueryError,
-    > {
-        let (prepared_plan, cache_attribution, plan_compile_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
-                authority.clone(),
-                catalog,
-                query,
-                DiagnosticExecutionLane::TrustedRead,
-            )?;
-        let (prepared_plan, projection, cache_attribution) =
-            Self::sql_select_projection_from_prepared_plan(
-                prepared_plan,
-                authority,
-                cache_attribution,
-            )?;
-
-        Ok((
-            prepared_plan,
-            projection,
-            cache_attribution,
-            plan_compile_attribution,
-        ))
+        Self::sql_select_projection_from_prepared_plan(prepared_plan, authority)
     }
 
     fn sql_select_projection_from_prepared_plan(
         prepared_plan: SharedPreparedExecutionPlan,
         authority: EntityAuthority,
-        cache_attribution: QueryPlanCacheAttribution,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            StructuralProjectionContract,
-            SqlCacheAttribution,
-        ),
-        QueryError,
-    > {
+    ) -> Result<(SharedPreparedExecutionPlan, StructuralProjectionContract), QueryError> {
         let projection_spec = prepared_plan.logical_plan().projection_spec_with_schema(
             authority
                 .accepted_schema_info()
@@ -264,11 +177,7 @@ impl<C: CanisterKind> DbSession<C> {
         );
         let projection = StructuralProjectionContract::from_projection_spec(&projection_spec);
 
-        Ok((
-            prepared_plan,
-            projection,
-            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-        ))
+        Ok((prepared_plan, projection))
     }
 
     pub(super) fn resolve_select_prepared_plan_for_authority_with_catalog(
@@ -277,7 +186,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<ResolvedSelectPreparedPlan, QueryError> {
-        let (prepared_plan, projection, cache_attribution) = self
+        let (prepared_plan, projection) = self
             .sql_select_prepared_plan_for_accepted_authority_with_catalog(
                 query, authority, catalog,
             )?;
@@ -285,31 +194,6 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(ResolvedSelectPreparedPlan::from_shared_query_plan(
             prepared_plan,
             projection,
-            cache_attribution,
-        ))
-    }
-
-    #[cfg(feature = "diagnostics")]
-    fn resolve_select_prepared_plan_for_authority_with_catalog_and_compile_phase_attribution(
-        &self,
-        query: &StructuralQuery,
-        authority: EntityAuthority,
-        catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<(ResolvedSelectPreparedPlan, QueryPlanCompilePhaseAttribution), QueryError> {
-        let (prepared_plan, projection, cache_attribution, plan_compile_attribution) = self
-            .sql_select_prepared_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
-                query,
-                authority,
-                catalog,
-            )?;
-
-        Ok((
-            ResolvedSelectPreparedPlan::from_shared_query_plan(
-                prepared_plan,
-                projection,
-                cache_attribution,
-            ),
-            plan_compile_attribution,
         ))
     }
 
@@ -338,34 +222,5 @@ impl<C: CanisterKind> DbSession<C> {
         );
 
         Ok(resolved)
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(super) fn resolve_select_prepared_plan_for_context_with_compile_phase_attribution(
-        &self,
-        query: &StructuralQuery,
-        context: &SqlCompiledCommandExecutionContext,
-    ) -> Result<(ResolvedSelectPreparedPlan, QueryPlanCompilePhaseAttribution), QueryError> {
-        if let Some((prepared_plan, projection)) = cached_compiled_select_prepared_plan(context) {
-            return Ok((
-                ResolvedSelectPreparedPlan::from_compiled_cache_hit(prepared_plan, projection),
-                QueryPlanCompilePhaseAttribution::default(),
-            ));
-        }
-
-        let authority = Self::select_authority_for_context(context);
-        let (resolved, plan_compile_attribution) = self
-            .resolve_select_prepared_plan_for_authority_with_catalog_and_compile_phase_attribution(
-                query,
-                authority,
-                context.accepted_catalog(),
-            )?;
-        cache_compiled_select_prepared_plan(
-            context,
-            resolved.prepared_plan(),
-            resolved.projection(),
-        );
-
-        Ok((resolved, plan_compile_attribution))
     }
 }

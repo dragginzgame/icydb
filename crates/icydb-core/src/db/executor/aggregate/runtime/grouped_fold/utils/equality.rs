@@ -7,10 +7,7 @@ use std::cmp::Ordering;
 use crate::{
     db::{
         executor::{
-            aggregate::{
-                FieldSlot,
-                runtime::grouped_fold::{metrics, utils::GroupIndexBucket},
-            },
+            aggregate::{FieldSlot, runtime::grouped_fold::utils::GroupIndexBucket},
             group::GroupKey,
             pipeline::runtime::RowView,
         },
@@ -79,8 +76,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn group_key_match
 }
 
 // Search one stable-hash bucket slice for a matching group key without owning
-// the caller's bucket storage. The caller supplies group-key access and metric
-// hooks so COUNT and generic grouped bundles keep their local state shapes.
+// the caller's bucket storage.
 pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn find_matching_group_index_in_bucket<
     'a,
 >(
@@ -88,11 +84,9 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn find_matching_g
     group_count: usize,
     mut group_key_at: impl FnMut(usize) -> Option<&'a GroupKey>,
     mut matches_group: impl FnMut(&GroupKey) -> Result<bool, InternalError>,
-    mut record_candidate: impl FnMut(),
     missing_group_error: impl Fn(usize, usize) -> InternalError,
 ) -> Result<Option<usize>, InternalError> {
     for group_index in bucket_indexes.iter().copied() {
-        record_candidate();
         let Some(group_key) = group_key_at(group_index) else {
             return Err(missing_group_error(group_index, group_count));
         };
@@ -124,7 +118,6 @@ fn find_matching_group_in_bucket(
                 .map(|(group_key, _)| group_key)
         },
         matches_group,
-        metrics::record_bucket_candidate_check,
         |_group_index, _group_count| InternalError::query_executor_invariant(),
     )
 }

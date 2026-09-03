@@ -31,12 +31,10 @@ impl Parser {
         };
 
         let having = if self.eat_keyword(Keyword::Having) {
-            let clause = self.record_predicate_parse_stage(|parser| {
-                parser.parse_sql_expr(
-                    crate::db::sql::parser::projection::SqlExprParseSurface::HavingCondition,
-                    0,
-                )
-            })?;
+            let clause = self.parse_sql_expr(
+                crate::db::sql::parser::projection::SqlExprParseSurface::HavingCondition,
+                0,
+            )?;
 
             vec![clause]
         } else {

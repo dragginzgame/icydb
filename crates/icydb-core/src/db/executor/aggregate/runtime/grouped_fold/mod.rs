@@ -8,7 +8,6 @@ mod count;
 mod dispatch;
 mod distinct;
 mod generic;
-mod metrics;
 mod utils;
 
 use crate::{
@@ -41,10 +40,6 @@ use crate::{
         index::IndexCompilePolicy,
     },
     error::InternalError,
-};
-#[cfg(feature = "diagnostics")]
-pub(in crate::db::executor) use metrics::{
-    GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
 };
 
 // Compile the route-owned HAVING expression once through the same grouped

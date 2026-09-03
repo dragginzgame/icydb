@@ -20,21 +20,6 @@ use crate::{
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 
-#[cfg(feature = "diagnostics")]
-use super::metrics::{
-    measure_direct_data_row_phase, record_direct_data_row_key_stream_local_instructions,
-    record_direct_data_row_peak_retained_backing_bytes,
-    record_direct_data_row_peak_retained_candidates,
-    record_direct_data_row_row_read_local_instructions,
-};
-#[cfg(feature = "diagnostics")]
-use super::metrics::{
-    measure_kernel_row_phase, record_kernel_retained_slot_layout,
-    record_kernel_row_key_stream_local_instructions, record_kernel_row_peak_retained_backing_bytes,
-    record_kernel_row_peak_retained_candidates, record_kernel_row_row_read_local_instructions,
-    record_kernel_row_scan_local_instructions,
-};
-
 ///
 /// RowScanResult
 ///
@@ -120,27 +105,8 @@ pub(in crate::db::executor) struct KernelRowScanRequest<'a, 'r> {
     pub(in crate::db::executor) row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,
 }
 
-pub(in crate::db::executor) fn execute_kernel_row_scan(
-    request: KernelRowScanRequest<'_, '_>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
-    #[cfg(feature = "diagnostics")]
-    {
-        let (scan_local_instructions, result) =
-            measure_kernel_row_phase(|| execute_kernel_row_scan_inner(request));
-        record_kernel_row_scan_local_instructions(scan_local_instructions);
-        let result = result?;
-        record_kernel_row_peak_retained_candidates(result.0.retained_count());
-        record_kernel_row_peak_retained_backing_bytes(result.0.retained_backing_bytes());
-
-        Ok(result)
-    }
-
-    #[cfg(not(feature = "diagnostics"))]
-    execute_kernel_row_scan_inner(request)
-}
-
 #[expect(clippy::too_many_lines)]
-fn execute_kernel_row_scan_inner(
+pub(in crate::db::executor) fn execute_kernel_row_scan(
     request: KernelRowScanRequest<'_, '_>,
 ) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
     let KernelRowScanRequest {
@@ -190,9 +156,6 @@ fn execute_kernel_row_scan_inner(
         KernelRowScanStrategy::RetainedFullRows {
             retained_slot_layout,
         } => {
-            #[cfg(feature = "diagnostics")]
-            record_kernel_retained_slot_layout(retained_slot_layout);
-
             let row_runtime = &*row_runtime;
             let mut read_row =
                 |key| row_runtime.read_full_row_retained(consistency, key, retained_slot_layout);
@@ -209,9 +172,6 @@ fn execute_kernel_row_scan_inner(
             filter_program,
             retained_slot_layout,
         } => {
-            #[cfg(feature = "diagnostics")]
-            record_kernel_retained_slot_layout(retained_slot_layout);
-
             let row_runtime = &*row_runtime;
             let mut read_row = |key| {
                 row_runtime.read_full_row_retained_with_filter_program(
@@ -233,9 +193,6 @@ fn execute_kernel_row_scan_inner(
         KernelRowScanStrategy::SlotOnlyRows {
             retained_slot_layout,
         } => {
-            #[cfg(feature = "diagnostics")]
-            record_kernel_retained_slot_layout(retained_slot_layout);
-
             let row_runtime = &*row_runtime;
             let mut read_row =
                 |key| row_runtime.read_slot_only(consistency, &key, retained_slot_layout);
@@ -257,9 +214,6 @@ fn execute_kernel_row_scan_inner(
             filter_program,
             retained_slot_layout,
         } => {
-            #[cfg(feature = "diagnostics")]
-            record_kernel_retained_slot_layout(retained_slot_layout);
-
             let row_runtime = &*row_runtime;
             let mut read_row = |key| {
                 row_runtime.read_slot_only_with_filter_program(
@@ -381,7 +335,7 @@ fn scan_kernel_rows_with(
         bounds.row_keep_cap,
         bounds.row_skip_count,
         next_kernel_scan_key,
-        |_key_stream, key| read_kernel_scan_row(key, read_row),
+        |_key_stream, key| read_row(key),
     )?;
 
     Ok((PendingOrderRows::plain(result.rows), result.rows_scanned))
@@ -416,7 +370,7 @@ fn scan_kernel_rows_with_bounded_order_window(
         record_key_stream_yield();
 
         rows_scanned = rows_scanned.saturating_add(1);
-        let row = read_kernel_scan_row(key, read_row)?;
+        let row = read_row(key)?;
         finish_scan_page_unit(page_unit)?;
         let Some(row) = row else {
             continue;
@@ -427,9 +381,6 @@ fn scan_kernel_rows_with_bounded_order_window(
 
         window.push(row)?;
     }
-
-    #[cfg(feature = "diagnostics")]
-    record_kernel_row_peak_retained_backing_bytes(window.peak_retained_backing_bytes());
 
     Ok((window.into_pending_rows(), rows_scanned))
 }
@@ -472,7 +423,7 @@ fn try_scan_borrowed_primary_rows(
     let mut visit_row = |key: DecodedDataStoreKey, row: &RawRow| {
         record_key_stream_yield();
         rows_scanned.set(rows_scanned.get().saturating_add(1));
-        let decoded = read_borrowed_kernel_scan_row(&key, row, read_row)?;
+        let decoded = read_row(&key, row)?;
         finish_scan_page_unit(active_unit.replace(ScanPageUnit::Untracked))?;
         if let Some(decoded) = decoded {
             if !decoded.has_materialized_slots() {
@@ -498,11 +449,6 @@ fn try_scan_borrowed_primary_rows(
             observed,
             observed.saturating_add(1),
         ));
-    }
-
-    #[cfg(feature = "diagnostics")]
-    if let Some(window) = window.as_ref() {
-        record_kernel_row_peak_retained_backing_bytes(window.peak_retained_backing_bytes());
     }
 
     let rows = window.map_or_else(
@@ -644,45 +590,10 @@ fn finish_scan_page_unit(unit: ScanPageUnit) -> Result<(), InternalError> {
 fn next_kernel_scan_key(
     key_stream: &mut OrderedKeyStreamBox,
 ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-    #[cfg(feature = "diagnostics")]
-    let ((key_stream_local_instructions, next_key), key_stream_micros) =
-        measure_execution_stats_phase(|| measure_kernel_row_phase(|| key_stream.next_key()));
-    #[cfg(not(feature = "diagnostics"))]
     let (next_key, key_stream_micros) = measure_execution_stats_phase(|| key_stream.next_key());
     record_key_stream_micros(key_stream_micros);
-    #[cfg(feature = "diagnostics")]
-    record_kernel_row_key_stream_local_instructions(key_stream_local_instructions);
 
     next_key
-}
-
-fn read_kernel_scan_row(
-    key: DecodedDataStoreKey,
-    read_row: &mut KernelRowReader<'_>,
-) -> Result<Option<KernelRow>, InternalError> {
-    #[cfg(feature = "diagnostics")]
-    let (row_read_local_instructions, row) = measure_kernel_row_phase(|| read_row(key));
-    #[cfg(not(feature = "diagnostics"))]
-    let row = read_row(key);
-    #[cfg(feature = "diagnostics")]
-    record_kernel_row_row_read_local_instructions(row_read_local_instructions);
-
-    row
-}
-
-fn read_borrowed_kernel_scan_row(
-    key: &DecodedDataStoreKey,
-    row: &RawRow,
-    read_row: &mut BorrowedKernelRowReader<'_>,
-) -> Result<Option<KernelRow>, InternalError> {
-    #[cfg(feature = "diagnostics")]
-    let (row_read_local_instructions, decoded) = measure_kernel_row_phase(|| read_row(key, row));
-    #[cfg(not(feature = "diagnostics"))]
-    let decoded = read_row(key, row);
-    #[cfg(feature = "diagnostics")]
-    record_kernel_row_row_read_local_instructions(row_read_local_instructions);
-
-    decoded
 }
 
 // Compute the staged row capacity after the caller has converted a cursorless
@@ -737,38 +648,17 @@ fn scan_data_rows_direct_with_reader(
         row_keep_cap,
         row_skip_count,
         next_direct_data_row_scan_key,
-        |_key_stream, key| read_direct_data_row_scan_row(key, &mut read_data_row),
+        |_key_stream, key| read_data_row(key),
     )
 }
 
 fn next_direct_data_row_scan_key(
     key_stream: &mut OrderedKeyStreamBox,
 ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-    #[cfg(feature = "diagnostics")]
-    let ((key_stream_local_instructions, read_result), key_stream_micros) =
-        measure_execution_stats_phase(|| measure_direct_data_row_phase(|| key_stream.next_key()));
-    #[cfg(not(feature = "diagnostics"))]
     let (read_result, key_stream_micros) = measure_execution_stats_phase(|| key_stream.next_key());
     record_key_stream_micros(key_stream_micros);
-    #[cfg(feature = "diagnostics")]
-    record_direct_data_row_key_stream_local_instructions(key_stream_local_instructions);
 
     read_result
-}
-
-fn read_direct_data_row_scan_row(
-    key: DecodedDataStoreKey,
-    read_data_row: &mut impl FnMut(DecodedDataStoreKey) -> Result<Option<DataRow>, InternalError>,
-) -> Result<Option<DataRow>, InternalError> {
-    #[cfg(feature = "diagnostics")]
-    let (row_read_local_instructions, row_read_result) =
-        measure_direct_data_row_phase(|| read_data_row(key));
-    #[cfg(not(feature = "diagnostics"))]
-    let row_read_result = read_data_row(key);
-    #[cfg(feature = "diagnostics")]
-    record_direct_data_row_row_read_local_instructions(row_read_local_instructions);
-
-    row_read_result
 }
 
 // Scan one ordered key stream directly into canonical data rows while
@@ -787,8 +677,7 @@ fn scan_data_rows_direct_with_filter_program(
 }
 
 // Run the materialized-order raw data-row lane through one residual-predicate
-// policy helper so perf-attributed and normal scans share the same scan-time
-// filtering contract.
+// policy helper so every scan shares the same scan-time filtering contract.
 pub(super) fn scan_materialized_order_direct_data_rows<'a>(
     key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
@@ -814,29 +703,18 @@ pub(super) fn scan_materialized_order_direct_data_rows<'a>(
         while let Some(key) = next_direct_data_row_scan_key(key_stream)? {
             record_key_stream_yield();
             rows_scanned = rows_scanned.saturating_add(1);
-            let row =
-                read_direct_data_row_scan_row(key, &mut |key| match residual_filter_program {
-                    None => row_runtime.read_data_row(consistency, key),
-                    Some(filter_program) => row_runtime.read_data_row_with_filter_program(
-                        consistency,
-                        key,
-                        filter_program,
-                    ),
-                })?;
+            let row = match residual_filter_program {
+                None => row_runtime.read_data_row(consistency, key),
+                Some(filter_program) => {
+                    row_runtime.read_data_row_with_filter_program(consistency, key, filter_program)
+                }
+            }?;
             let Some(row) = row else {
                 continue;
             };
 
             window.push(row)?;
             rows_matched = rows_matched.saturating_add(1);
-        }
-
-        #[cfg(feature = "diagnostics")]
-        {
-            record_direct_data_row_peak_retained_candidates(window.retained_count());
-            record_direct_data_row_peak_retained_backing_bytes(
-                window.peak_retained_backing_bytes(),
-            );
         }
 
         Ok(DataRowOrderScanResult {

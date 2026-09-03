@@ -498,18 +498,19 @@ Evidence mode: `semi-mechanical`
 
 Check feature-gated and test-only surfaces:
 
-* `diagnostics`
 * `sql`
+* `metrics`
+* `migration`
 * generated endpoint switches
 * metrics hooks
 * test-only re-exports and fixtures
 
-Classify test and diagnostics surface by current owner. Test-only surface may be
+Classify test and observability surface by current owner. Test-only surface may be
 valid, but it should not force production visibility wider than necessary.
 
 Produce:
 
-| Surface [M] | Feature/Cfg [M] | Production Consumer? [M/C] | Test/Diagnostics Consumer? [M/C] | Visibility Could Narrow? [C] | Action [C] | Disposition [C] | Risk [C] |
+| Surface [M] | Feature/Cfg [M] | Production Consumer? [M/C] | Test/Observability Consumer? [M/C] | Visibility Could Narrow? [C] | Action [C] | Disposition [C] | Risk [C] |
 | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
 
 ## STEP 7 - Removal Safety Plan

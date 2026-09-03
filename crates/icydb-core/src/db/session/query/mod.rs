@@ -6,8 +6,6 @@
 
 mod cache;
 mod cardinality_tiebreak;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-mod diagnostics;
 mod dynamic;
 mod exact_count;
 mod exact_key;
@@ -16,23 +14,8 @@ mod projection;
 
 use crate::db::{QueryError, executor::ExecutorPlanError};
 
-pub(in crate::db) use cache::QueryPlanCacheAttribution;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use cache::QueryPlanCompilePhaseAttribution;
 #[cfg(feature = "sql")]
-pub(in crate::db::session) use cache::{
-    query_plan_cache_reuse_event, query_plan_requires_cardinality_lifecycle_recheck,
-};
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use cache::{
-    shared_query_plan_cache_len_for_tests, shared_query_template_cache_entry_upper_bound_for_tests,
-    shared_query_template_cache_len_for_tests,
-};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub use diagnostics::{
-    DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
-    KernelRowAttribution, ScalarAggregateAttribution,
-};
+pub(in crate::db::session) use cache::query_plan_requires_cardinality_lifecycle_recheck;
 #[cfg(feature = "sql")]
 pub(in crate::db::session) use exact_count::exact_count_cardinality_prefix_keys_for_accepted_authority;
 #[doc(hidden)]

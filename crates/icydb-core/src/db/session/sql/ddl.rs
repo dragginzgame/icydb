@@ -36,7 +36,7 @@ use crate::{
                 BoundSqlCreateIndexRequest, BoundSqlDdlStatement, BoundSqlValidationConstraintKind,
                 PreparedSqlDdlCommand, prepare_sql_ddl_statement,
             },
-            parser::parse_sql_with_attribution,
+            parser::parse_sql,
         },
     },
     error::InternalError,
@@ -176,8 +176,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         sql: &str,
     ) -> Result<(AcceptedSchemaCatalogContext, PreparedSqlDdlCommand), QueryError> {
-        let (statement, _) =
-            parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+        let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
         let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?
             .ok_or_else(QueryError::unsupported_query)?;
         let catalog = self

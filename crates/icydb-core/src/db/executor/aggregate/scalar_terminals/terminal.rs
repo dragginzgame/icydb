@@ -151,21 +151,6 @@ impl PreparedScalarAggregateTerminalSet {
         Some((kind, field.as_str()))
     }
 
-    #[cfg(feature = "diagnostics")]
-    pub(super) const fn terminal_count(&self) -> usize {
-        self.terminals.len()
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(super) const fn input_expr_count(&self) -> usize {
-        self.input_exprs.len()
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(super) const fn filter_expr_count(&self) -> usize {
-        self.filter_exprs.len()
-    }
-
     pub(super) fn retained_slot_layout(
         &self,
         authority: &EntityAuthority,

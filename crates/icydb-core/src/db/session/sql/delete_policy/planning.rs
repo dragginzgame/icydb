@@ -8,7 +8,7 @@ use crate::db::{
         SqlWriteExecutionBounds, SqlWritePlanCore, SqlWriteShapePolicyRejection,
         SqlWriteStatementShape, SqlWriteStatementShapeInput, classify_write_statement_shape,
     },
-    sql::parser::{SqlDeleteStatement, SqlStatement, parse_sql_with_attribution},
+    sql::parser::{SqlDeleteStatement, SqlStatement, parse_sql},
 };
 
 /// Classify one SQL statement under an explicit `DELETE` exposure policy.
@@ -21,8 +21,7 @@ pub(in crate::db) fn classify_sql_delete_policy(
     policy: SqlDeleteExposurePolicy,
     context: SqlDeletePolicyContext<'_>,
 ) -> Result<SqlDeletePolicyReport, QueryError> {
-    let (statement, _) =
-        parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
 
     Ok(classify_sql_delete_statement_policy(
         &statement, policy, context,

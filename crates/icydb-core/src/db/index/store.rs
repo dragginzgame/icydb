@@ -23,7 +23,7 @@ use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
 };
 use serde::Deserialize;
-#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+#[cfg(test)]
 use std::cell::Cell;
 use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet};
 use std::ops::Bound;
@@ -33,32 +33,12 @@ thread_local! {
     static JOURNALED_SNAPSHOT_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-thread_local! {
-    static INDEX_STORE_GET_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
-    static INDEX_STORE_RANGE_SCAN_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+#[cfg(test)]
 thread_local! {
     static INDEX_STORE_ENTRY_READ_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-fn record_index_store_get_call() {
-    INDEX_STORE_GET_CALL_COUNT.with(|count| {
-        count.set(count.get().saturating_add(1));
-    });
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-fn record_index_store_range_scan_call() {
-    INDEX_STORE_RANGE_SCAN_CALL_COUNT.with(|count| {
-        count.set(count.get().saturating_add(1));
-    });
-}
-
-#[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+#[cfg(test)]
 fn record_index_store_entry_read() {
     INDEX_STORE_ENTRY_READ_COUNT.with(|count| {
         count.set(count.get().saturating_add(1));
@@ -70,7 +50,7 @@ fn visit_index_store_entry<E>(
     value: &IndexEntryValue,
     visit: &mut impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
 ) -> Result<bool, E> {
-    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(test)]
     record_index_store_entry_read();
 
     visit(key, value)
@@ -221,7 +201,7 @@ impl IndexStore {
         match &self.backend {
             IndexStoreBackend::Heap(map) => {
                 for (key, value) in map {
-                    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+                    #[cfg(test)]
                     record_index_store_entry_read();
 
                     if visitor(key, value)?.should_stop() {
@@ -240,9 +220,6 @@ impl IndexStore {
     }
 
     pub(in crate::db) fn get(&self, key: &RawIndexStoreKey) -> Option<IndexEntryValue> {
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
-        record_index_store_get_call();
-
         match &self.backend {
             IndexStoreBackend::Heap(map) => map.get(key).cloned(),
             IndexStoreBackend::Journaled { .. } => Self::journaled_get(&self.backend, key),
@@ -880,34 +857,10 @@ impl IndexStore {
         bytes
     }
 
-    /// Return the monotonic perf-only count of index-entry fetches seen by this process.
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    pub(in crate::db) fn current_get_call_count() -> u64 {
-        INDEX_STORE_GET_CALL_COUNT.with(Cell::get)
-    }
-
-    /// Return the monotonic perf-only count of index range traversal probes seen by this process.
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    pub(in crate::db) fn current_range_scan_call_count() -> u64 {
-        INDEX_STORE_RANGE_SCAN_CALL_COUNT.with(Cell::get)
-    }
-
     /// Return the monotonic perf-only count of index entries yielded by traversal.
-    #[cfg(any(test, all(feature = "sql", feature = "diagnostics")))]
+    #[cfg(test)]
     pub(in crate::db) fn current_entry_read_count() -> u64 {
         INDEX_STORE_ENTRY_READ_COUNT.with(Cell::get)
-    }
-
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    pub(in crate::db::index) fn record_range_scan_call() {
-        record_index_store_range_scan_call();
-    }
-
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    pub(in crate::db::index) fn record_merged_entry_reads(count: u64) {
-        INDEX_STORE_ENTRY_READ_COUNT.with(|total| {
-            total.set(total.get().saturating_add(count));
-        });
     }
 
     const fn bump_generation(&mut self) {
@@ -1593,48 +1546,6 @@ mod tests {
             store.exact_prefix_cardinality(7, IndexKeyKind::User, index_id, &[collection, draft],),
             Some(1),
             "missing user index removals must not affect synchronized prefix cardinality",
-        );
-    }
-
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    #[test]
-    fn index_store_diagnostic_counters_record_gets_range_scans_and_entry_reads() {
-        let mut store = IndexStore::init_heap();
-        store.insert(raw_key(7), IndexEntryValue::presence());
-        store.insert(raw_key(9), IndexEntryValue::presence());
-
-        let gets_before = IndexStore::current_get_call_count();
-        assert_eq!(store.get(&raw_key(7)), Some(IndexEntryValue::presence()));
-        assert_eq!(store.get(&raw_key(8)), None);
-
-        assert_eq!(
-            IndexStore::current_get_call_count().saturating_sub(gets_before),
-            2,
-            "diagnostic index-store get counter should count both hit and miss reads",
-        );
-
-        let range_scans_before = IndexStore::current_range_scan_call_count();
-        let lower = Bound::Included(raw_key(7));
-        let upper = Bound::Included(raw_key(9));
-        store
-            .visit_raw_entries_in_range((&lower, &upper), Direction::Asc, |_key, _entry| Ok(false))
-            .expect("raw index range visit should succeed");
-
-        assert_eq!(
-            IndexStore::current_range_scan_call_count().saturating_sub(range_scans_before),
-            1,
-            "diagnostic index-store range-scan counter should count one range traversal probe",
-        );
-
-        let entries_before = IndexStore::current_entry_read_count();
-        store
-            .visit_entries(|_key, _entry| Ok::<_, Infallible>(IndexStoreVisit::Continue))
-            .expect("index entry visit should succeed");
-
-        assert_eq!(
-            IndexStore::current_entry_read_count().saturating_sub(entries_before),
-            2,
-            "diagnostic index-store entry counter should count yielded traversal entries",
         );
     }
 

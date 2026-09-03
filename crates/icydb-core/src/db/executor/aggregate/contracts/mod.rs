@@ -10,8 +10,6 @@ mod plan;
 mod state;
 
 pub(in crate::db::executor) use error::{GroupBudgetResourceCode, GroupError};
-#[cfg(feature = "diagnostics")]
-pub(in crate::db::executor) use grouped::GroupedRuntimeStats;
 pub(in crate::db::executor) use grouped::{ExecutionConfig, ExecutionContext};
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db::executor) use plan::BinaryOp;

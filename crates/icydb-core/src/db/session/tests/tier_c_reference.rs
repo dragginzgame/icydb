@@ -239,7 +239,7 @@ fn execute_select_case(
     if case.violation().is_some() {
         assert!(
             session
-                .execute_trusted_sql_query_with_attribution(case.rendered_sql())
+                .execute_trusted_sql_query(case.rendered_sql())
                 .is_err(),
             "Tier C invalid SELECT was accepted: scenario={} sql={:?}",
             case.identity().id(),
@@ -260,8 +260,8 @@ fn execute_select_case(
     let expected = execute_generated_select_case(case)
         .expect("accepted scheduled SELECT should execute in the SQLite reference");
     let observed_facts = planned_select_execution_facts(session, case.rendered_sql());
-    let executed = session.execute_trusted_sql_query_with_attribution(case.rendered_sql());
-    let (result, _) = match executed {
+    let executed = session.execute_trusted_sql_query(case.rendered_sql());
+    let result = match executed {
         Ok(executed) => executed,
         Err(error) => panic!(
             "Tier C accepted SELECT was rejected: scenario={} sql={:?} error={error:?}",
@@ -934,8 +934,8 @@ fn planned_select_execution_facts(
     session: &DbSession<TestCanister>,
     sql: &str,
 ) -> ObservedExecutionFacts {
-    let (context, _, _, _) = session
-        .compile_sql_query_with_execution_context(sql)
+    let (context, _) = session
+        .compile_sql_query_for_tests(sql)
         .unwrap_or_else(|error| {
             panic!("accepted scheduled SELECT should compile: sql={sql:?} error={error:?}")
         });

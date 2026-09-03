@@ -12,7 +12,7 @@ use crate::db::{
     },
     sql::{
         lowering::prepare_sql_statement,
-        parser::{SqlStatement, SqlUpdateStatement, parse_sql_with_attribution},
+        parser::{SqlStatement, SqlUpdateStatement, parse_sql},
     },
 };
 
@@ -56,8 +56,7 @@ pub(in crate::db) fn classify_sql_update_policy(
     policy: SqlUpdateExposurePolicy,
     context: SqlUpdatePolicyContext<'_>,
 ) -> Result<SqlUpdatePolicyReport, QueryError> {
-    let (statement, _) =
-        parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
 
     Ok(classify_sql_update_statement_policy(
         &statement, policy, context,
@@ -123,8 +122,7 @@ fn parse_prepared_sql_statement(
     sql: &str,
     expected_entity: &str,
 ) -> Result<SqlStatement, QueryError> {
-    let (statement, _) =
-        parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
 
     prepare_sql_statement(&statement, expected_entity)
         .map(crate::db::sql::lowering::PreparedSqlStatement::into_statement)

@@ -23,67 +23,7 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-use std::cell::Cell;
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(in crate::db) struct AcceptedSchemaRuntimeBuildCounts {
-    pub root_identity_builds: u64,
-    pub root_publications: u64,
-    pub entity_compilations: u64,
-}
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-thread_local! {
-    static ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS: Cell<AcceptedSchemaRuntimeBuildCounts> =
-        const { Cell::new(AcceptedSchemaRuntimeBuildCounts {
-            root_identity_builds: 0,
-            root_publications: 0,
-            entity_compilations: 0,
-        }) };
-}
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-fn record_accepted_schema_entity_runtime_compilation() {
-    ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS.with(|cell| {
-        let mut counts = cell.get();
-        counts.entity_compilations = counts.entity_compilations.saturating_add(1);
-        cell.set(counts);
-    });
-}
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-fn record_accepted_schema_runtime_root_identity_build() {
-    ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS.with(|cell| {
-        let mut counts = cell.get();
-        counts.root_identity_builds = counts.root_identity_builds.saturating_add(1);
-        cell.set(counts);
-    });
-}
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-fn record_accepted_schema_runtime_root_publication() {
-    ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS.with(|cell| {
-        let mut counts = cell.get();
-        counts.root_publications = counts.root_publications.saturating_add(1);
-        cell.set(counts);
-    });
-}
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) fn reset_accepted_schema_runtime_build_counts_for_tests() {
-    ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS
-        .with(|counts| counts.set(AcceptedSchemaRuntimeBuildCounts::default()));
-}
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-#[must_use]
-pub(in crate::db) fn accepted_schema_runtime_build_counts_for_tests()
--> AcceptedSchemaRuntimeBuildCounts {
-    ACCEPTED_SCHEMA_RUNTIME_BUILD_COUNTS.with(Cell::get)
-}
 
 ///
 /// AcceptedSchemaEntityRuntime
@@ -160,8 +100,6 @@ impl AcceptedSchemaEntityRuntime {
             schema_info,
             authority,
         };
-        #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-        record_accepted_schema_entity_runtime_compilation();
 
         Ok(runtime)
     }
@@ -237,8 +175,6 @@ impl AcceptedSchemaRuntimeRoot {
             entities_by_path,
             entities_by_canonical_name,
         };
-        #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-        record_accepted_schema_runtime_root_publication();
 
         Ok(root)
     }
@@ -527,8 +463,6 @@ impl<C: CanisterKind> DbSession<C> {
 
         let database_incarnation =
             database_incarnation_id().map_err(AcceptedInspectionPlanLoadError::Unselected)?;
-        #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-        record_accepted_schema_runtime_root_identity_build();
         let identity = AcceptedSchemaRuntimeRootIdentity::from_store_roots(
             database_incarnation,
             store_roots.as_slice(),

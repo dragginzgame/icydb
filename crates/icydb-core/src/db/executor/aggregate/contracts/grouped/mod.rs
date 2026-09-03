@@ -4,6 +4,4 @@
 //! Boundary: grouped runtime substrate layered over spec + state contracts.
 
 mod context;
-#[cfg(feature = "diagnostics")]
-pub(in crate::db::executor) use context::GroupedRuntimeStats;
 pub(in crate::db::executor) use context::{ExecutionConfig, ExecutionContext};

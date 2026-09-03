@@ -12,24 +12,13 @@ mod statement;
 mod tests;
 
 use crate::{
-    db::{
-        diagnostics::measure_local_instruction_delta as measure_parse_stage,
-        sql_shared::{
-            Keyword, MAX_SQL_EXPR_DEPTH, SqlExpectedToken, SqlIntegerLiteralClause,
-            SqlSyntaxErrorKind, SqlTokenCursor, TokenKind, sql_expr_depth_limit_error,
-            tokenize_sql,
-        },
+    db::sql_shared::{
+        Keyword, MAX_SQL_EXPR_DEPTH, SqlExpectedToken, SqlIntegerLiteralClause, SqlSyntaxErrorKind,
+        SqlTokenCursor, TokenKind, sql_expr_depth_limit_error, tokenize_sql,
     },
     value::Value,
 };
 use icydb_diagnostic_code::SqlFeatureCode;
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-use std::cell::Cell;
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-thread_local! {
-    static SQL_PARSE_CALLS: Cell<u64> = const { Cell::new(0) };
-}
 
 pub(crate) use crate::db::sql_shared::SqlParseError;
 pub(crate) use model::{
@@ -51,107 +40,38 @@ pub(crate) use model::{
 };
 #[cfg(feature = "sql")]
 pub(crate) use model::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
-///
-/// SqlParsePhaseAttribution
-///
-/// SqlParsePhaseAttribution records the parser-owned reduced SQL front-end
-/// split beneath the top-level compile parse bucket.
-/// The statement-shell bucket keeps clause sequencing and trailing validation
-/// separate from tokenization and the heavier expression/predicate roots.
-///
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct SqlParsePhaseAttribution {
-    pub tokenize: u64,
-    pub statement_shell: u64,
-    pub expr: u64,
-    pub predicate: u64,
-}
-
-impl SqlParsePhaseAttribution {
-    #[must_use]
-    pub(crate) const fn total(self) -> u64 {
-        self.tokenize
-            .saturating_add(self.statement_shell)
-            .saturating_add(self.expr)
-            .saturating_add(self.predicate)
-    }
-}
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-pub(crate) fn reset_sql_parse_calls_for_tests() {
-    SQL_PARSE_CALLS.set(0);
-}
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-pub(crate) fn sql_parse_calls_for_tests() -> u64 {
-    SQL_PARSE_CALLS.get()
-}
-
 /// Parse one reduced SQL statement.
 ///
 /// Parsing is deterministic and normalization-insensitive for keyword casing,
 /// insignificant whitespace, and optional one-statement terminator (`;`).
-#[cfg(test)]
 pub(crate) fn parse_sql(sql: &str) -> Result<SqlStatement, SqlParseError> {
-    let (statement, _) = parse_sql_with_attribution(sql)?;
-
-    Ok(statement)
-}
-
-/// Parse one reduced SQL statement while reporting the parser-owned
-/// tokenization, statement-shell, expression-root, and predicate-root split.
-pub(crate) fn parse_sql_with_attribution(
-    sql: &str,
-) -> Result<(SqlStatement, SqlParsePhaseAttribution), SqlParseError> {
-    #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-    SQL_PARSE_CALLS.set(SQL_PARSE_CALLS.get().saturating_add(1));
-
-    let (tokenize, tokens) = measure_parse_stage(|| tokenize_sql(sql));
-    let tokens = tokens?;
+    let tokens = tokenize_sql(sql)?;
     if tokens.is_empty() {
         return Err(SqlParseError::EmptyInput);
     }
 
     let mut parser = Parser::new(SqlTokenCursor::new(tokens));
-    let (statement_total, statement) = measure_parse_stage(|| {
-        let statement = parser.parse_statement()?;
+    let statement = parser.parse_statement()?;
 
-        if parser.eat_semicolon() && !parser.is_eof() {
-            return Err(SqlParseError::unsupported_feature(
-                SqlFeatureCode::MultiStatementSql,
-            ));
+    if parser.eat_semicolon() && !parser.is_eof() {
+        return Err(SqlParseError::unsupported_feature(
+            SqlFeatureCode::MultiStatementSql,
+        ));
+    }
+
+    if !parser.is_eof() {
+        if let Some(err) = parser.trailing_clause_order_error(&statement) {
+            return Err(err);
         }
 
-        if !parser.is_eof() {
-            if let Some(err) = parser.trailing_clause_order_error(&statement) {
-                return Err(err);
-            }
-
-            if let Some(feature) = parser.peek_unsupported_feature() {
-                return Err(SqlParseError::unsupported_feature(feature));
-            }
-
-            return Err(SqlParseError::expected_end_of_input(parser.peek_kind()));
+        if let Some(feature) = parser.peek_unsupported_feature() {
+            return Err(SqlParseError::unsupported_feature(feature));
         }
 
-        Ok(statement)
-    });
-    let statement = statement?;
+        return Err(SqlParseError::expected_end_of_input(parser.peek_kind()));
+    }
 
-    let statement_shell = statement_total
-        .saturating_sub(parser.attribution.expr)
-        .saturating_sub(parser.attribution.predicate);
-
-    Ok((
-        statement,
-        SqlParsePhaseAttribution {
-            tokenize,
-            statement_shell,
-            expr: parser.attribution.expr,
-            predicate: parser.attribution.predicate,
-        },
-    ))
+    Ok(statement)
 }
 
 /// Parse one bounded `CHECK INTEGRITY` statement.
@@ -183,7 +103,6 @@ pub(super) fn parse_integrity_sql(sql: &str) -> Result<SqlIntegrityStatement, Sq
 // Parser state over one pre-tokenized SQL statement.
 struct Parser {
     cursor: SqlTokenCursor,
-    attribution: SqlParsePhaseAttribution,
     next_param_index: usize,
     expr_depth: usize,
 }
@@ -192,12 +111,6 @@ impl Parser {
     const fn new(cursor: SqlTokenCursor) -> Self {
         Self {
             cursor,
-            attribution: SqlParsePhaseAttribution {
-                tokenize: 0,
-                statement_shell: 0,
-                expr: 0,
-                predicate: 0,
-            },
             next_param_index: 0,
             expr_depth: 0,
         }
@@ -372,26 +285,6 @@ impl Parser {
 
     const fn is_eof(&self) -> bool {
         self.cursor.is_eof()
-    }
-
-    fn record_expr_parse_stage<T>(
-        &mut self,
-        run: impl FnOnce(&mut Self) -> Result<T, SqlParseError>,
-    ) -> Result<T, SqlParseError> {
-        let (delta, result) = measure_parse_stage(|| run(self));
-        self.attribution.expr = self.attribution.expr.saturating_add(delta);
-
-        result
-    }
-
-    fn record_predicate_parse_stage<T>(
-        &mut self,
-        run: impl FnOnce(&mut Self) -> Result<T, SqlParseError>,
-    ) -> Result<T, SqlParseError> {
-        let (delta, result) = measure_parse_stage(|| run(self));
-        self.attribution.predicate = self.attribution.predicate.saturating_add(delta);
-
-        result
     }
 }
 

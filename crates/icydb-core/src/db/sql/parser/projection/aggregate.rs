@@ -52,9 +52,7 @@ impl Parser {
 
         self.expect_lparen()?;
         self.expect_keyword(Keyword::Where)?;
-        let expr = self.record_predicate_parse_stage(|parser| {
-            parser.parse_sql_expr(SqlExprParseSurface::Where, 0)
-        })?;
+        let expr = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
         self.expect_rparen()?;
 
         Ok(Some(expr))

@@ -24,8 +24,6 @@ use crate::{
     value::Value,
 };
 use std::cmp::Ordering;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-use std::ops::Bound;
 
 // Build one deterministic primary-key half-open range candidate from the
 // primary-key subset of one canonical AND-group.
@@ -169,11 +167,6 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
     }
 
     best.map(|(_, index, range_slot, prefix, range)| {
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
-        crate::db::diagnostics::record_sql_range_conjunction(
-            !matches!(range.lower, Bound::Unbounded),
-            !matches!(range.upper, Bound::Unbounded),
-        );
         let field_slots = (0..=range_slot).collect();
 
         SemanticIndexRangeSpec::from_access_contract(

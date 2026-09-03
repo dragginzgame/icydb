@@ -85,8 +85,6 @@ impl<'a> GenericGroupedFoldRunner<'a> {
                 rows: page_rows,
                 next_cursor,
             },
-            #[cfg(feature = "diagnostics")]
-            grouped_execution_context.successful_runtime_stats(false),
             filtered_rows,
             true,
             stream,
@@ -168,8 +166,6 @@ impl<'a> GenericGroupedFoldRunner<'a> {
                 rows: page_rows,
                 next_cursor,
             },
-            #[cfg(feature = "diagnostics")]
-            grouped_execution_context.successful_runtime_stats(early_scan_stop),
             filtered_rows,
             true,
             stream,

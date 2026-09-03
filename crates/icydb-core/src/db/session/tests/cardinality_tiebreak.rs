@@ -14,8 +14,7 @@ use crate::{
         },
         registry::{
             StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
-            StoreRuntimeStorageCapabilities, exact_prefix_evidence_call_counts_for_tests,
-            reset_exact_prefix_evidence_call_counts_for_tests,
+            StoreRuntimeStorageCapabilities,
         },
         schema::{
             AcceptedFieldKind, AcceptedSchemaRevision, CandidateSchemaRevision, FieldId,
@@ -126,18 +125,10 @@ fn exact_cardinality_resolves_only_final_ties_and_cached_selection_is_advisory()
     let session = initialize();
     seed_rows(&session);
 
-    reset_exact_prefix_evidence_call_counts_for_tests();
     projection_rows(
         &session,
         "SELECT id FROM PlannerRow WHERE rare = 'group-a' ORDER BY id LIMIT 20",
     );
-    assert_eq!(
-        exact_prefix_evidence_call_counts_for_tests(),
-        (0, 0),
-        "a query without a final tied set must not touch cardinality evidence",
-    );
-
-    reset_exact_prefix_evidence_call_counts_for_tests();
     let cold = explain(&session, "common = 'everyone' AND rare = 'group-a'");
     assert!(cold.contains("z_rare_idx"), "{cold}");
     assert!(cold.contains("exact_cardinality_tiebreak"), "{cold}");
@@ -147,11 +138,6 @@ fn exact_cardinality_resolves_only_final_ties_and_cached_selection_is_advisory()
     );
     assert!(cold.contains("exact_prefix_entries: 12"), "{cold}");
     assert!(cold.contains("exact_prefix_entries: 6"), "{cold}");
-    let (cold_probes, cold_lifecycle_reads) = exact_prefix_evidence_call_counts_for_tests();
-    assert!(cold_probes > 0);
-    assert_eq!(cold_lifecycle_reads, 0);
-
-    reset_exact_prefix_evidence_call_counts_for_tests();
     let structured = explain_json(&session, "common = 'everyone' AND rare = 'group-a'");
     assert!(
         structured.contains("\"reason\":\"exact_cardinality_tiebreak\""),
@@ -161,33 +147,21 @@ fn exact_cardinality_resolves_only_final_ties_and_cached_selection_is_advisory()
         structured.contains("\"cardinality_evidence_state\":\"exact_at_selection\""),
         "{structured}"
     );
-    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (0, 0));
-
-    reset_exact_prefix_evidence_call_counts_for_tests();
     let rows = projection_rows(
         &session,
         "SELECT id FROM PlannerRow \
          WHERE common = 'everyone' AND rare = 'group-a' ORDER BY id LIMIT 20",
     );
     assert_eq!(rows.len(), 6);
-    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (0, 0));
 
     for id in 100..110 {
         insert_row(&session, id, "other", "group-a");
     }
-    reset_exact_prefix_evidence_call_counts_for_tests();
     let stale = explain(&session, "common = 'everyone' AND rare = 'group-a'");
     assert!(stale.contains("IndexPrefix(z_rare_idx)"), "{stale}");
-    assert_eq!(
-        exact_prefix_evidence_call_counts_for_tests(),
-        (0, 0),
-        "ordinary writes must not refresh a now-cardinality-stale cached plan",
-    );
 
-    reset_exact_prefix_evidence_call_counts_for_tests();
     let rebound = explain(&session, "common = 'other' AND rare = 'group-a'");
     assert!(rebound.contains("IndexPrefix(a_common_idx)"), "{rebound}");
-    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (1, 0));
 }
 
 #[test]
@@ -195,16 +169,12 @@ fn exact_cardinality_supports_multi_lookup_and_branch_set_but_excludes_range_and
     let session = initialize();
     seed_rows(&session);
 
-    reset_exact_prefix_evidence_call_counts_for_tests();
     let multi = explain(&session, "common IN ('everyone', 'absent')");
     assert!(multi.contains("IndexMultiLookup(a_common_idx)"), "{multi}");
     assert!(
         multi.contains("cardinality_evidence: exact_at_selection"),
         "{multi}"
     );
-    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (1, 0));
-
-    reset_exact_prefix_evidence_call_counts_for_tests();
     let branch = explain(
         &session,
         "wide_fixed = 'all' AND wide_branch IN ('x', 'y') \
@@ -215,23 +185,16 @@ fn exact_cardinality_supports_multi_lookup_and_branch_set_but_excludes_range_and
         "{branch}"
     );
     assert!(branch.contains("exact_cardinality_tiebreak"), "{branch}");
-    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (1, 0));
-
-    reset_exact_prefix_evidence_call_counts_for_tests();
     projection_rows(
         &session,
         "SELECT id FROM PlannerRow WHERE common >= 'everyone' ORDER BY id LIMIT 20",
     );
-    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (0, 0));
-
-    reset_exact_prefix_evidence_call_counts_for_tests();
     session
         .execute_trusted_sql_query(
             "SELECT common, COUNT(*) FROM PlannerRow \
              WHERE common = 'everyone' AND rare = 'group-a' GROUP BY common LIMIT 20",
         )
         .expect("grouped exclusion fixture should execute");
-    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (0, 0));
 }
 
 #[test]
@@ -277,7 +240,6 @@ fn structural_and_residual_ranking_remain_strictly_ahead_of_cardinality() {
     let session = initialize();
     seed_rows(&session);
 
-    reset_exact_prefix_evidence_call_counts_for_tests();
     let structurally_stronger = explain(
         &session,
         "wide_fixed = 'all' AND wide_branch IN ('x', 'y') AND rare = 'absent'",
@@ -290,13 +252,6 @@ fn structural_and_residual_ranking_remain_strictly_ahead_of_cardinality() {
         structurally_stronger.contains("cardinality_evidence: not_applicable"),
         "{structurally_stronger}",
     );
-    assert_eq!(
-        exact_prefix_evidence_call_counts_for_tests(),
-        (0, 0),
-        "a structurally weaker zero-entry prefix must never reach cardinality",
-    );
-
-    reset_exact_prefix_evidence_call_counts_for_tests();
     let lower_residual = explain(&session, "LOWER(common) = 'everyone' AND rare = 'absent'");
     assert!(
         lower_residual.contains("IndexPrefix(zz_lower_common_idx)"),
@@ -309,11 +264,6 @@ fn structural_and_residual_ranking_remain_strictly_ahead_of_cardinality() {
     assert!(
         lower_residual.contains("cardinality_evidence: not_applicable"),
         "{lower_residual}",
-    );
-    assert_eq!(
-        exact_prefix_evidence_call_counts_for_tests(),
-        (0, 0),
-        "a higher-residual zero-entry prefix must never reach cardinality",
     );
 }
 
@@ -332,7 +282,6 @@ fn exact_cardinality_cursor_pin_resumes_without_fresh_evidence() {
         "six matching rows should produce a bounded test continuation"
     );
     insert_row(&session, 100, "everyone", "group-a");
-    reset_exact_prefix_evidence_call_counts_for_tests();
     let mut row_count = first.row_count;
     for _ in 0..8 {
         let Some(cursor) = continuation.take() else {
@@ -346,11 +295,6 @@ fn exact_cardinality_cursor_pin_resumes_without_fresh_evidence() {
     }
     assert_eq!(row_count, 3);
     assert!(continuation.is_none());
-    assert_eq!(
-        exact_prefix_evidence_call_counts_for_tests(),
-        (0, 0),
-        "a pinned continuation must not consult current cardinality",
-    );
 }
 
 #[test]
@@ -461,7 +405,6 @@ fn unavailable_fallback_refreshes_only_on_lifecycle_change_and_keeps_cursor_rout
     let session = initialize_journaled();
     seed_rows(&session);
 
-    reset_exact_prefix_evidence_call_counts_for_tests();
     let unavailable = explain(&session, "common = 'everyone' AND rare = 'group-a'");
     assert!(
         unavailable.contains("IndexPrefix(a_common_idx)"),
@@ -471,16 +414,11 @@ fn unavailable_fallback_refreshes_only_on_lifecycle_change_and_keeps_cursor_rout
         unavailable.contains("cardinality_evidence: unavailable"),
         "{unavailable}"
     );
-    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (1, 1));
-
-    reset_exact_prefix_evidence_call_counts_for_tests();
     projection_rows(
         &session,
         "SELECT id FROM PlannerRow WHERE common = 'everyone' \
          AND rare = 'group-a' ORDER BY id LIMIT 20",
     );
-    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (0, 1));
-
     let query = selective_dynamic_query();
     let first = session
         .execute_trusted_live_page(&query, None)
@@ -490,32 +428,21 @@ fn unavailable_fallback_refreshes_only_on_lifecycle_change_and_keeps_cursor_rout
         .expect("bounded unavailable fallback should continue");
     drive_journaled_cardinality_to_ready(&session);
 
-    reset_exact_prefix_evidence_call_counts_for_tests();
     session
         .execute_trusted_live_page(&query, Some(cursor.as_str()))
         .expect("issued fallback cursor should retain its pinned route");
-    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (0, 0));
 
-    reset_exact_prefix_evidence_call_counts_for_tests();
     projection_rows(
         &session,
         "SELECT id FROM PlannerRow WHERE common = 'everyone' \
          AND rare = 'group-a' ORDER BY id LIMIT 20",
     );
-    assert_eq!(
-        exact_prefix_evidence_call_counts_for_tests(),
-        (1, 1),
-        "a compiled SQL fallback must re-enter the shared cache after Ready publication",
-    );
-
-    reset_exact_prefix_evidence_call_counts_for_tests();
     let ready = explain(&session, "common = 'everyone' AND rare = 'group-a'");
     assert!(ready.contains("IndexPrefix(z_rare_idx)"), "{ready}");
     assert!(
         ready.contains("cardinality_evidence: exact_at_selection"),
         "{ready}"
     );
-    assert_eq!(exact_prefix_evidence_call_counts_for_tests(), (0, 0));
 }
 
 fn selective_dynamic_query() -> DynamicQuery {

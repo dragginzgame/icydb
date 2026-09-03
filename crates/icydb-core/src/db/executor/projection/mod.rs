@@ -9,14 +9,8 @@ mod facade;
 mod grouped;
 mod materialize;
 mod path;
-pub(in crate::db) use covering::CoveringProjectionMetricsRecorder;
 pub(in crate::db::executor) use covering::{
     PreparedCoveringProjectionRuntime, try_execute_prepared_covering_projection_rows_for_canister,
-};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use covering::{
-    current_pure_covering_decode_local_instructions,
-    current_pure_covering_row_assembly_local_instructions,
 };
 pub(in crate::db) use eval::ProjectionEvalError;
 #[cfg(feature = "sql")]
@@ -36,10 +30,7 @@ pub(in crate::db::executor) use grouped::*;
 pub(in crate::db::executor) use grouped::{
     GroupedRowView, compile_grouped_projection_expr, evaluate_grouped_having_expr,
 };
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use materialize::DistinctProjectionMetricsRecorder;
 pub(in crate::db) use materialize::MaterializedProjectionRows;
-pub(in crate::db) use materialize::ProjectionMaterializationMetricsRecorder;
 pub(in crate::db) use materialize::project;
 pub(in crate::db::executor::projection) use materialize::{
     DistinctProjectionRuntime, ProjectionDistinctStrategy, ProjectionDistinctWindow,

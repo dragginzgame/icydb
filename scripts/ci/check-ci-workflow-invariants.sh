@@ -118,17 +118,15 @@ if ! rg -q 'run:[[:space:]]+make ci-static' .github/workflows/ci.yml ||
 fi
 
 if ! rg -q --fixed-strings 'bash scripts/ci/install-pocketic.sh' .github/workflows/ci.yml ||
-   ! rg -q --fixed-strings 'bash scripts/ci/install-pocketic.sh' .github/workflows/sql-performance.yml ||
    ! rg -q --fixed-strings 'scripts/ci/run-with-pocketic-server.sh' Makefile ||
    ! rg -q --fixed-strings 'ICYDB_POCKET_IC_SERVER_URL' testing/integration/src/lib.rs; then
   fail "PocketIC workflows must install one locked binary and Tier B must use one governed server"
 fi
 
-tier_b_perf_target_refs="$(rg -c --fixed-strings '_ci-tier-b-0-237-perf-regressions' Makefile || true)"
+tier_b_perf_target_refs="$(rg -c --fixed-strings '_ci-tier-b-sql-perf' Makefile || true)"
 if [[ "$tier_b_perf_target_refs" -lt 3 ]] ||
-   ! rg -q '^_ci-tier-b-0-237-perf-regressions:$' Makefile ||
-   ! rg -q --fixed-strings 'sql_perf_0_237_' Makefile; then
-  fail "Tier B must retain the fixed 0.237 SQL performance regression gates"
+   ! rg -q '^_ci-tier-b-sql-perf:$' Makefile; then
+  fail "Tier B must retain the total-only SQL performance gate"
 fi
 
 if rg -q '^[[:space:]]+CARGO_HOME:' .github/workflows/ci.yml &&

@@ -17,7 +17,7 @@ mod resumable_job;
 mod sql;
 mod write;
 
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
+#[cfg(all(test, feature = "sql"))]
 mod tests;
 
 use crate::{
@@ -27,16 +27,6 @@ use crate::{
 use std::thread::LocalKey;
 
 pub(in crate::db) use accepted_schema::AcceptedSchemaCatalogContext;
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use accepted_schema::{
-    AcceptedSchemaRuntimeBuildCounts, accepted_schema_runtime_build_counts_for_tests,
-    reset_accepted_schema_runtime_build_counts_for_tests,
-};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub use query::{
-    DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
-    KernelRowAttribution, ScalarAggregateAttribution,
-};
 #[doc(hidden)]
 pub use query::{
     MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,
@@ -46,12 +36,6 @@ pub use request::RequestExecutionRoot;
 pub(in crate::db) use request::RequestExecutionScope;
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
 pub(in crate::db) use response::grouped_cursor_from_bytes;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub use sql::{
-    SqlCompileAttribution, SqlDistinctProjectionAttribution, SqlExecutionAttribution,
-    SqlHybridCoveringAttribution, SqlOutputBlobAttribution, SqlPureCoveringAttribution,
-    SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
-};
 #[cfg(feature = "sql")]
 pub use sql::{
     SqlConstraintValidationPage, SqlConstraintValidationRevisionStatus,
@@ -108,23 +92,6 @@ impl<C: CanisterKind> DbSession<C> {
             db: Db::new(store, scope),
             debug: false,
         })
-    }
-
-    /// Enable bounded request-wide query diagnostics without resetting prior counters.
-    ///
-    /// Returns `true` only when this call enabled collection. Every session
-    /// derived from the same request root observes the same diagnostic state.
-    #[cfg(feature = "diagnostics")]
-    #[must_use]
-    pub fn enable_request_diagnostics(&self) -> bool {
-        self.db.request_execution_scope().enable_diagnostics()
-    }
-
-    /// Snapshot bounded request-wide query diagnostics when collection is enabled.
-    #[cfg(feature = "diagnostics")]
-    #[must_use]
-    pub fn request_diagnostics(&self) -> Option<crate::db::RequestDiagnostics> {
-        self.db.request_execution_scope().diagnostics_snapshot()
     }
 
     /// Enable debug execution behavior where supported by executors.

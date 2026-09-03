@@ -12,75 +12,12 @@ use crate::{
 
 use icydb_core as core;
 
-#[cfg(all(feature = "diagnostics", target_arch = "wasm32"))]
-fn read_sql_response_decode_local_instruction_counter() -> u64 {
-    ic_cdk::api::performance_counter(1)
-}
-
-#[cfg(all(feature = "diagnostics", not(target_arch = "wasm32")))]
-const fn read_sql_response_decode_local_instruction_counter() -> u64 {
-    0
-}
-
-#[cfg(feature = "diagnostics")]
-fn measure_sql_response_decode_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
-    let start = read_sql_response_decode_local_instruction_counter();
-    let result = run();
-    let delta = read_sql_response_decode_local_instruction_counter().saturating_sub(start);
-
-    (delta, result)
-}
-
-// Fold trusted SQL response packaging into the explicit audit attribution so
-// its total remains exhaustive across compile, planner, store, executor, and
-// decode.
-#[cfg(feature = "diagnostics")]
-const fn finalize_trusted_sql_query_attribution(
-    mut attribution: crate::db::SqlQueryExecutionAttribution,
-    response_decode_local_instructions: u64,
-) -> crate::db::SqlQueryExecutionAttribution {
-    attribution.response_decode_local_instructions = response_decode_local_instructions;
-    attribution.execute_local_instructions = attribution
-        .execution
-        .planner_local_instructions
-        .saturating_add(attribution.execution.store_local_instructions)
-        .saturating_add(attribution.execution.executor_local_instructions)
-        .saturating_add(
-            attribution
-                .execution
-                .response_finalization_local_instructions,
-        )
-        .saturating_add(response_decode_local_instructions);
-    attribution.total_local_instructions = attribution
-        .compile_local_instructions
-        .saturating_add(attribution.execute_local_instructions);
-
-    attribution
-}
-
 impl<C: CanisterKind> DbSession<C> {
     fn sql_query_result_from_statement(
         statement: core::db::SqlStatementResult,
         entity: String,
     ) -> SqlQueryResult {
         crate::db::sql::sql_query_result_from_statement(statement, entity)
-    }
-
-    #[cfg(feature = "diagnostics")]
-    #[inline]
-    fn sql_query_result_with_attribution(
-        result: core::db::SqlStatementResult,
-        entity: String,
-        mut attribution: crate::db::SqlQueryExecutionAttribution,
-    ) -> (SqlQueryResult, crate::db::SqlQueryExecutionAttribution) {
-        let (response_decode_local_instructions, result) =
-            measure_sql_response_decode_stage(|| {
-                Self::sql_query_result_from_statement(result, entity)
-            });
-        attribution =
-            finalize_trusted_sql_query_attribution(attribution, response_decode_local_instructions);
-
-        (result, attribution)
     }
 
     /// Execute one trusted/admin reduced SQL query against accepted catalog authority.
@@ -103,27 +40,6 @@ impl<C: CanisterKind> DbSession<C> {
             .inner
             .execute_trusted_sql_query_with_entity_name(dispatch)?;
         Ok(Self::sql_query_result_from_statement(result, entity))
-    }
-
-    /// Execute one trusted/admin reduced SQL query and report the top-level
-    /// compile/execute cost split at the SQL seam.
-    ///
-    /// This helper keeps the same explicit trusted-boundary contract as
-    /// `execute_trusted_sql_query`.
-    #[cfg(feature = "diagnostics")]
-    #[doc(hidden)]
-    pub fn execute_trusted_sql_query_with_attribution(
-        &self,
-        sql: &str,
-    ) -> Result<(SqlQueryResult, crate::db::SqlQueryExecutionAttribution), Error> {
-        let dispatch = core::db::sql_statement_dispatch(sql)?;
-        let (result, entity, attribution) = self
-            .inner
-            .execute_trusted_sql_query_with_entity_name_and_attribution(&dispatch)?;
-        let (result, attribution) =
-            Self::sql_query_result_with_attribution(result, entity, attribution);
-
-        Ok((result, attribution))
     }
 
     /// Execute one trusted SQL `INSERT` or `DELETE` against one entity type.
@@ -227,57 +143,5 @@ impl<C: CanisterKind> DbSession<C> {
             self.inner.execute_admin_sql_ddl(sql)?,
             entity,
         ))
-    }
-}
-
-#[cfg(all(test, feature = "diagnostics"))]
-mod tests {
-    use super::finalize_trusted_sql_query_attribution;
-    use crate::db::SqlQueryExecutionAttribution;
-
-    #[test]
-    #[expect(
-        clippy::field_reassign_with_default,
-        reason = "the audit diagnostics DTO test intentionally stays resilient to future attribution fields"
-    )]
-    fn sql_attribution_total_stays_exhaustive_after_decode_finalize() {
-        let mut attribution = SqlQueryExecutionAttribution::default();
-        attribution.compile_local_instructions = 11;
-        attribution.compile.cache_lookup_local_instructions = 1;
-        attribution.compile.parse_local_instructions = 2;
-        attribution.compile.parse_tokenize_local_instructions = 1;
-        attribution.compile.parse_select_local_instructions = 1;
-        attribution.compile.prepare_local_instructions = 3;
-        attribution.compile.lower_local_instructions = 4;
-        attribution.compile.bind_local_instructions = 1;
-        attribution.plan_lookup_local_instructions = 13;
-        attribution.execution.planner_local_instructions = 13;
-        attribution.execution.store_local_instructions = 17;
-        attribution.execution.executor_invocation_local_instructions = 17;
-        attribution.execution.executor_local_instructions = 17;
-        attribution.store_get_calls = 3;
-        attribution.execute_local_instructions = 47;
-        attribution.total_local_instructions = 58;
-
-        let finalized = finalize_trusted_sql_query_attribution(attribution, 19);
-
-        assert_eq!(
-            finalized.execute_local_instructions,
-            finalized
-                .execution
-                .planner_local_instructions
-                .saturating_add(finalized.execution.store_local_instructions)
-                .saturating_add(finalized.execution.executor_local_instructions)
-                .saturating_add(finalized.execution.response_finalization_local_instructions)
-                .saturating_add(finalized.response_decode_local_instructions),
-            "trusted SQL execute totals should include planner, store, executor, and decode work",
-        );
-        assert_eq!(
-            finalized.total_local_instructions,
-            finalized
-                .compile_local_instructions
-                .saturating_add(finalized.execute_local_instructions),
-            "trusted SQL total instructions should remain exhaustive across compiler, planner, store, executor, and decode",
-        );
     }
 }

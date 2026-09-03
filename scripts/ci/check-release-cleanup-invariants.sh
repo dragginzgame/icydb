@@ -54,12 +54,8 @@ fi
 if ! target_recipe clippy | awk '
   /cargo clippy --workspace --all-targets/ { workspace_line = NR }
   /cargo clippy -p icydb-core --no-default-features --features sql/ { sql_line = NR }
-  /cargo clippy -p icydb-core --no-default-features --features diagnostics/ {
-    diagnostics_line = NR
-  }
   END {
-    exit !(workspace_line > 0 && sql_line > workspace_line &&
-           diagnostics_line > sql_line)
+    exit !(workspace_line > 0 && sql_line > workspace_line)
   }
 '; then
   echo "clippy must lint the complete workspace and test surface before feature-only lanes" >&2
@@ -68,11 +64,9 @@ fi
 
 if ! target_recipe ci-core | awk '
   $1 == "_ci-core-sql-clippy" { sql_line = NR }
-  $1 == "_ci-core-diagnostics-clippy" { diagnostics_line = NR }
   $1 == "_ci-core-no-default-test" { test_line = NR }
   END {
-    exit !(sql_line > 0 && diagnostics_line > sql_line &&
-           test_line > diagnostics_line)
+    exit !(sql_line > 0 && test_line > sql_line)
   }
 '; then
   echo "ci-core must complete clippy lanes before executable tests" >&2

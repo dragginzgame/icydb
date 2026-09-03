@@ -11,11 +11,6 @@ mod tests;
 pub(in crate::db) use page::KernelRow;
 pub(in crate::db) use page::PageWorkEnvelope;
 pub(in crate::db) use page::RetainedSlotRow;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use page::{
-    DirectDataRowPhaseAttribution, KernelRowPhaseAttribution,
-    with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
-};
 pub(in crate::db::executor) use page::{
     ProductionScalarOutputWork, RetainedSlotLayout, RetainedSlotValueMode,
     begin_production_scalar_page_unit, finish_production_scalar_page_unit,

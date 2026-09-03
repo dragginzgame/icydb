@@ -4,10 +4,7 @@
 
 use crate::{
     db::executor::{
-        aggregate::{
-            ExecutionContext, GroupError,
-            runtime::grouped_fold::{metrics, utils::GroupIndexBucket},
-        },
+        aggregate::{ExecutionContext, GroupError, runtime::grouped_fold::utils::GroupIndexBucket},
         group::{
             GroupKey, StableHash, StableHashBuildHasher, StableHashMap,
             retained_hash_entry_backing_bytes, try_reserve_hash_entry, try_reserve_vec_elements,
@@ -38,42 +35,11 @@ impl GroupedCountState {
         }
     }
 
-    // Increment one existing grouped-count bucket under the measured
-    // existing-group update contract shared by every grouped-count ingest lane.
-    pub(super) fn measure_existing_group_increment(
-        &mut self,
-        existing_index: usize,
-        source: &'static str,
-    ) -> Result<(), InternalError> {
-        let (update_local_instructions, update_result) =
-            metrics::measure(|| self.increment_existing_group(existing_index, source));
-        metrics::record_existing_group_hit(update_local_instructions);
-
-        update_result
-    }
-
-    // Insert one newly observed grouped key under the measured new-group
-    // insert contract shared by every grouped-count ingest lane.
-    pub(super) fn measure_new_group_insert(
-        &mut self,
-        group_hash: StableHash,
-        group_key: GroupKey,
-        grouped_execution_context: &mut ExecutionContext,
-    ) -> Result<(), InternalError> {
-        let (insert_local_instructions, insert_result) = metrics::measure(|| {
-            self.finish_new_group_insert(group_hash, group_key, grouped_execution_context)
-        });
-        metrics::record_new_group_insert(insert_local_instructions);
-
-        insert_result
-    }
-
     // Increment one existing grouped-count bucket after lookup has already
-    // proven the candidate group index is valid for the caller's ingest lane.
-    fn increment_existing_group(
+    // proven the candidate group index is valid.
+    pub(super) fn increment_existing_group(
         &mut self,
         existing_index: usize,
-        _source: &'static str,
     ) -> Result<(), InternalError> {
         let (_, count) = self
             .groups
@@ -85,7 +51,7 @@ impl GroupedCountState {
 
     // Insert one newly observed grouped key after the borrowed fast path has
     // already ruled out an existing canonical group match.
-    fn finish_new_group_insert(
+    pub(super) fn insert_new_group(
         &mut self,
         group_hash: StableHash,
         group_key: GroupKey,

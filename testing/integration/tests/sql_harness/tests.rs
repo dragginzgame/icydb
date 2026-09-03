@@ -222,17 +222,4 @@ fn failure_taxonomies_cover_the_current_slice_contract() {
             .iter()
             .all(|category| !category.code().is_empty())
     );
-
-    for status in [
-        MeasurementStatus::Comparable,
-        MeasurementStatus::Incomparable,
-        MeasurementStatus::Missing,
-        MeasurementStatus::Regression,
-    ] {
-        let _ = performance_verdict(&CorrectnessVerdict::Passed, status);
-    }
-    assert!(matches!(
-        performance_verdict(&CorrectnessVerdict::Passed, MeasurementStatus::Missing),
-        PerformanceVerdict::Failed(PerformanceFailure::MissingMeasurement)
-    ));
 }

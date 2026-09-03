@@ -6,7 +6,6 @@
 mod identity;
 mod template;
 
-#[cfg(feature = "sql")]
 use crate::db::TraceReuseEvent;
 use crate::db::commit::CommitSchemaFingerprint;
 use crate::{
@@ -33,13 +32,8 @@ use crate::{
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource, DiagnosticExecutionLane};
 use std::{cell::RefCell, collections::HashMap};
 
-#[cfg(feature = "diagnostics")]
-pub(in crate::db) use identity::QueryPlanCompilePhaseAttribution;
-use identity::{
-    QueryPlanAcceptedSchema, QueryPlanCacheKey, QueryPlanCompilePhase,
-    QueryPlanCompilePhaseRecorder, SchemaCacheIdentity,
-};
-pub(in crate::db) use identity::{QueryPlanCacheAttribution, QueryPlanVisibility};
+pub(in crate::db) use identity::QueryPlanVisibility;
+use identity::{QueryPlanAcceptedSchema, QueryPlanCacheKey, SchemaCacheIdentity};
 use template::PreparedQueryTemplate;
 
 const SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES: usize = 1024;
@@ -47,7 +41,7 @@ const SHARED_QUERY_TEMPLATE_CACHE_MAX_RETAINED_BYTES: usize = 4 * 1024 * 1024;
 const REQUEST_PLANNING_SHAPE_DOMAIN: u64 = 0x2210_0006_0000_0001;
 
 type QueryPlanCache = BoundedCache<QueryPlanCacheKey, CachedQueryArtifact>;
-type CachedPreparedPlanLookup = Option<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution)>;
+type CachedPreparedPlanLookup = Option<(SharedPreparedExecutionPlan, TraceReuseEvent)>;
 
 #[derive(Clone, Debug)]
 enum CachedQueryArtifact {
@@ -87,34 +81,6 @@ thread_local! {
         RefCell::new(HashMap::default());
 }
 
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) fn shared_query_plan_cache_len_for_tests(cache_scope_id: usize) -> usize {
-    QUERY_PLAN_CACHES.with(|caches| {
-        caches
-            .borrow()
-            .get(&cache_scope_id)
-            .map_or(0, BoundedCache::len)
-    })
-}
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) fn shared_query_template_cache_len_for_tests(cache_scope_id: usize) -> usize {
-    QUERY_PLAN_CACHES.with(|caches| {
-        caches.borrow().get(&cache_scope_id).map_or(0, |cache| {
-            cache
-                .values()
-                .filter(|artifact| artifact.parameterized_template().is_some())
-                .count()
-        })
-    })
-}
-
-#[cfg(all(test, feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) const fn shared_query_template_cache_entry_upper_bound_for_tests() -> usize {
-    SHARED_QUERY_TEMPLATE_CACHE_MAX_RETAINED_BYTES
-        / PreparedQueryTemplate::minimum_estimated_retained_bytes()
-}
-
 fn schema_info_for_plan_cache_authority(
     authority: &EntityAuthority,
     accepted_schema: &AcceptedSchemaSnapshot,
@@ -148,19 +114,6 @@ fn accepted_schema_has_expression_indexes(accepted_schema: &AcceptedSchemaSnapsh
                 .iter()
                 .any(|item| matches!(item, PersistedIndexKeyItemSnapshot::Expression(_))),
         })
-}
-
-// Map one shared query-plan cache attribution outcome onto the explicit reuse
-// event owned by the current cache contract.
-#[cfg(feature = "sql")]
-pub(in crate::db::session) const fn query_plan_cache_reuse_event(
-    attribution: QueryPlanCacheAttribution,
-) -> TraceReuseEvent {
-    if attribution.hits > 0 {
-        TraceReuseEvent::Hit
-    } else {
-        TraceReuseEvent::Miss
-    }
 }
 
 // A compiled front-end artifact may retain an exact or policy-fallback plan,
@@ -227,115 +180,95 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
-    fn lookup_shared_query_template_for_authority_recording(
+    fn lookup_shared_query_template_for_authority(
         &self,
         _authority: &EntityAuthority,
         cache_key: &QueryPlanCacheKey,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
     ) -> Option<PreparedQueryTemplate> {
-        recorder.measure(QueryPlanCompilePhase::CacheLookup, || {
-            self.with_query_plan_cache(|cache| {
-                cache
-                    .get(cache_key)
-                    .and_then(CachedQueryArtifact::parameterized_template)
-                    .cloned()
-            })
+        self.with_query_plan_cache(|cache| {
+            cache
+                .get(cache_key)
+                .and_then(CachedQueryArtifact::parameterized_template)
+                .cloned()
         })
     }
 
-    fn insert_shared_query_template_for_authority_recording(
+    fn insert_shared_query_template_for_authority(
         &self,
         _authority: &EntityAuthority,
         cache_key: QueryPlanCacheKey,
         template: PreparedQueryTemplate,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
-    ) -> QueryPlanCacheAttribution {
+    ) {
         let weight = cache_key
             .estimated_retained_bytes()
             .saturating_add(template.estimated_retained_bytes());
-        let outcome = recorder.measure(QueryPlanCompilePhase::CacheInsert, || {
-            self.with_query_plan_cache(|cache| {
-                cache.insert_weighted(
-                    cache_key,
-                    CachedQueryArtifact::ParameterizedTemplate(template),
-                    weight,
-                )
-            })
+        self.with_query_plan_cache(|cache| {
+            cache.insert_weighted(
+                cache_key,
+                CachedQueryArtifact::ParameterizedTemplate(template),
+                weight,
+            );
         });
-
-        QueryPlanCacheAttribution::miss()
-            .with_template_insert(outcome.evicted, outcome.rejected_oversize)
     }
 
-    fn remember_shared_query_template_bound_plan_recording(
+    fn remember_shared_query_template_bound_plan(
         &self,
         cache_key: &QueryPlanCacheKey,
         predicate_fingerprint: [u8; 32],
         prepared_plan: SharedPreparedExecutionPlan,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
     ) -> Result<(), QueryError> {
-        recorder.measure(QueryPlanCompilePhase::CacheInsert, || {
-            self.with_query_plan_cache(|cache| {
-                let template = cache
-                    .get_mut(cache_key)
-                    .and_then(CachedQueryArtifact::parameterized_template_mut)
-                    .ok_or_else(QueryError::invariant)?;
-                template.remember_bound_plan(predicate_fingerprint, prepared_plan);
-                Ok(())
-            })
+        self.with_query_plan_cache(|cache| {
+            let template = cache
+                .get_mut(cache_key)
+                .and_then(CachedQueryArtifact::parameterized_template_mut)
+                .ok_or_else(QueryError::invariant)?;
+            template.remember_bound_plan(predicate_fingerprint, prepared_plan);
+            Ok(())
         })
     }
 
-    fn lookup_shared_query_plan_for_authority_recording(
+    fn lookup_shared_query_plan_for_authority(
         &self,
         authority: &EntityAuthority,
         cache_key: &QueryPlanCacheKey,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
     ) -> Result<CachedPreparedPlanLookup, QueryError> {
-        recorder.measure(QueryPlanCompilePhase::CacheLookup, || {
-            let cached = self.with_query_plan_cache(|cache| {
-                cache
-                    .get(cache_key)
-                    .and_then(CachedQueryArtifact::prepared_plan)
-                    .cloned()
-            });
-            if let Some(prepared_plan) = cached
-                && self.cached_cardinality_tiebreak_is_current(authority, &prepared_plan)?
-            {
-                return Ok(Some((prepared_plan, QueryPlanCacheAttribution::hit())));
-            }
+        let cached = self.with_query_plan_cache(|cache| {
+            cache
+                .get(cache_key)
+                .and_then(CachedQueryArtifact::prepared_plan)
+                .cloned()
+        });
+        if let Some(prepared_plan) = cached
+            && self.cached_cardinality_tiebreak_is_current(authority, &prepared_plan)?
+        {
+            return Ok(Some((prepared_plan, TraceReuseEvent::Hit)));
+        }
 
-            Ok(None)
-        })
+        Ok(None)
     }
 
-    fn insert_shared_query_plan_for_authority_recording(
+    fn insert_shared_query_plan_for_authority(
         &self,
         _authority: &EntityAuthority,
         cache_key: QueryPlanCacheKey,
         prepared_plan: &SharedPreparedExecutionPlan,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
     ) {
-        recorder.measure(QueryPlanCompilePhase::CacheInsert, || {
-            self.with_query_plan_cache(|cache| {
-                cache.insert(
-                    cache_key,
-                    CachedQueryArtifact::PreparedPlan(prepared_plan.clone()),
-                );
-            });
+        self.with_query_plan_cache(|cache| {
+            cache.insert(
+                cache_key,
+                CachedQueryArtifact::PreparedPlan(prepared_plan.clone()),
+            );
         });
     }
 
-    fn resolve_shared_query_plan_for_authority_recording(
+    fn resolve_shared_query_plan_for_authority(
         &self,
         authority: &EntityAuthority,
         cache_key: QueryPlanCacheKey,
         planning_context: HardExecutionContext,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
         build_prepared_plan: impl FnOnce() -> Result<SharedPreparedExecutionPlan, QueryError>,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
-        let cached_plan =
-            self.lookup_shared_query_plan_for_authority_recording(authority, &cache_key, recorder)?;
+    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
+        let cached_plan = self.lookup_shared_query_plan_for_authority(authority, &cache_key)?;
         if let Some(cached_plan) = cached_plan {
             return Ok(cached_plan);
         }
@@ -345,16 +278,10 @@ impl<C: CanisterKind> DbSession<C> {
             DiagnosticExecutionBudgetResource::PlanCompilations,
         )?;
 
-        let prepared_plan =
-            recorder.measure(QueryPlanCompilePhase::PlanBuild, build_prepared_plan)?;
-        self.insert_shared_query_plan_for_authority_recording(
-            authority,
-            cache_key,
-            &prepared_plan,
-            recorder,
-        );
+        let prepared_plan = build_prepared_plan()?;
+        self.insert_shared_query_plan_for_authority(authority, cache_key, &prepared_plan);
 
-        Ok((prepared_plan, QueryPlanCacheAttribution::miss()))
+        Ok((prepared_plan, TraceReuseEvent::Miss))
     }
 
     pub(in crate::db::session) fn visible_indexes_for_accepted_schema(
@@ -404,7 +331,7 @@ impl<C: CanisterKind> DbSession<C> {
         schema_fingerprint: CommitSchemaFingerprint,
         query: &StructuralQuery,
         lane: DiagnosticExecutionLane,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
+    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let schema = QueryPlanAcceptedSchema::from_accepted_schema_with_fingerprint(
             accepted_schema,
@@ -430,7 +357,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
         lane: DiagnosticExecutionLane,
         route_pin: CardinalityTiebreakRoutePin,
-    ) -> Result<Option<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution)>, QueryError> {
+    ) -> Result<Option<(SharedPreparedExecutionPlan, TraceReuseEvent)>, QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let planning_context =
             direct_read_execution_context(&authority, lane, REQUEST_PLANNING_SHAPE_DOMAIN);
@@ -463,7 +390,7 @@ impl<C: CanisterKind> DbSession<C> {
             SharedPreparedExecutionPlan::from_plan(authority, plan, schema_fingerprint)
                 .map_err(QueryError::execute)?;
 
-        Ok(Some((prepared_plan, QueryPlanCacheAttribution::miss())))
+        Ok(Some((prepared_plan, TraceReuseEvent::Miss)))
     }
 
     #[cfg(feature = "sql")]
@@ -474,7 +401,7 @@ impl<C: CanisterKind> DbSession<C> {
         schema_fingerprint: CommitSchemaFingerprint,
         query: &StructuralQuery,
         lane: DiagnosticExecutionLane,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
+    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
         let visibility = match self.query_plan_visibility_for_store_path(authority.store_path())? {
             QueryPlanVisibility::StoreReady | QueryPlanVisibility::PrimaryOnly => {
                 QueryPlanVisibility::PrimaryOnly
@@ -502,51 +429,13 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         query: &StructuralQuery,
         lane: DiagnosticExecutionLane,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
+    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let schema = QueryPlanAcceptedSchema::from_catalog(catalog);
 
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
             authority, schema, visibility, query, lane,
         )
-    }
-
-    #[cfg(feature = "diagnostics")]
-    pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_catalog_and_compile_phase_attribution(
-        &self,
-        authority: EntityAuthority,
-        catalog: &AcceptedSchemaCatalogContext,
-        query: &StructuralQuery,
-        lane: DiagnosticExecutionLane,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            QueryPlanCacheAttribution,
-            QueryPlanCompilePhaseAttribution,
-        ),
-        QueryError,
-    > {
-        let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let schema = QueryPlanAcceptedSchema::from_catalog(catalog);
-        let mut compile_attribution = QueryPlanCompilePhaseAttribution::default();
-        let mut recorder = QueryPlanCompilePhaseRecorder::new(&mut compile_attribution);
-        let (prepared_plan, cache_attribution) = self
-            .cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility_recording(
-                authority,
-                schema,
-                visibility,
-                query,
-                lane,
-                &mut recorder,
-            )?;
-        if self.db.request_execution_scope().diagnostics_enabled() {
-            self.db.request_execution_scope().record_query_plan(
-                crate::db::executor::request_query_plan_evidence(&prepared_plan),
-                cache_attribution,
-            );
-        }
-
-        Ok((prepared_plan, cache_attribution, compile_attribution))
     }
 
     fn cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
@@ -556,41 +445,7 @@ impl<C: CanisterKind> DbSession<C> {
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
         lane: DiagnosticExecutionLane,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
-        let mut recorder = QueryPlanCompilePhaseRecorder::none();
-
-        let prepared = self
-            .cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility_recording(
-                authority,
-                schema,
-                visibility,
-                query,
-                lane,
-                &mut recorder,
-            )?;
-        #[cfg(feature = "diagnostics")]
-        if self.db.request_execution_scope().diagnostics_enabled() {
-            self.db.request_execution_scope().record_query_plan(
-                crate::db::executor::request_query_plan_evidence(&prepared.0),
-                prepared.1,
-            );
-        }
-        Ok(prepared)
-    }
-
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one cache orchestration keeps its fast paths and miss handoff visible"
-    )]
-    fn cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility_recording(
-        &self,
-        authority: EntityAuthority,
-        schema: QueryPlanAcceptedSchema<'_>,
-        visibility: QueryPlanVisibility,
-        query: &StructuralQuery,
-        lane: DiagnosticExecutionLane,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
+    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
         let planning_context =
             direct_read_execution_context(&authority, lane, REQUEST_PLANNING_SHAPE_DOMAIN);
         self.charge_request_planning_resource(
@@ -598,50 +453,40 @@ impl<C: CanisterKind> DbSession<C> {
             DiagnosticExecutionBudgetResource::PlanningSteps,
         )?;
         let schema_identity = schema.identity();
-        if let Some(cached) = self.try_cached_filterless_query_plan_for_authority_recording(
+        if let Some(cached) = self.try_cached_filterless_query_plan_for_authority(
             &authority,
             schema_identity,
             visibility,
             query,
-            recorder,
         ) {
             return Ok(cached);
         }
-        let schema_info = recorder.measure(QueryPlanCompilePhase::SchemaInfo, || {
-            schema_info_for_plan_cache_authority(&authority, schema.accepted_schema())
-        })?;
+        let schema_info =
+            schema_info_for_plan_cache_authority(&authority, schema.accepted_schema())?;
         if query.trivial_scalar_load_fast_path_eligible_with_schema(&schema_info) {
-            return self.cached_trivial_scalar_load_plan_for_authority_recording(
+            return self.cached_trivial_scalar_load_plan_for_authority(
                 authority,
                 schema_identity,
                 schema_info,
                 visibility,
                 query,
                 planning_context,
-                recorder,
             );
         }
 
-        let planning_state = recorder.measure(QueryPlanCompilePhase::Prepare, || {
-            query.prepare_scalar_planning_state_with_schema_info(schema_info)
-        })?;
-        let parameter_contract = recorder.measure(QueryPlanCompilePhase::Prepare, || {
-            query
-                .filter_predicate_fully_covers_expression()
-                .then(|| planning_state.normalized_predicate())
-                .flatten()
-                .and_then(PreparedQueryParameterContract::from_normalized_predicate)
-        });
+        let planning_state = query.prepare_scalar_planning_state_with_schema_info(schema_info)?;
+        let parameter_contract = query
+            .filter_predicate_fully_covers_expression()
+            .then(|| planning_state.normalized_predicate())
+            .flatten()
+            .and_then(PreparedQueryParameterContract::from_normalized_predicate);
         if let Some(parameter_contract) = parameter_contract {
-            let bound_predicate_fingerprint = recorder
-                .measure(QueryPlanCompilePhase::Prepare, || {
-                    planning_state
-                        .normalized_predicate()
-                        .map(predicate_fingerprint_normalized)
-                })
+            let bound_predicate_fingerprint = planning_state
+                .normalized_predicate()
+                .map(predicate_fingerprint_normalized)
                 .ok_or_else(QueryError::invariant)?;
 
-            return self.resolve_parameterized_query_plan_for_authority_recording(
+            return self.resolve_parameterized_query_plan_for_authority(
                 &authority,
                 schema,
                 schema_identity,
@@ -651,32 +496,24 @@ impl<C: CanisterKind> DbSession<C> {
                 parameter_contract,
                 bound_predicate_fingerprint,
                 planning_context,
-                recorder,
             );
         }
-        let normalized_predicate_fingerprint =
-            recorder.measure(QueryPlanCompilePhase::Prepare, || {
-                planning_state
-                    .normalized_predicate()
-                    .map(predicate_fingerprint_normalized)
-            });
-        let cache_key = recorder.measure(QueryPlanCompilePhase::CacheKey, || {
-            QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
-                authority.clone(),
-                schema_identity,
-                visibility,
-                query,
-                normalized_predicate_fingerprint,
-            )
-        });
-        let visible_indexes = recorder.measure(QueryPlanCompilePhase::SchemaInfo, || {
-            Self::visible_indexes_for_accepted_schema(planning_state.schema_info(), visibility)
-        });
-        self.resolve_shared_query_plan_for_authority_recording(
+        let normalized_predicate_fingerprint = planning_state
+            .normalized_predicate()
+            .map(predicate_fingerprint_normalized);
+        let cache_key = QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
+            authority.clone(),
+            schema_identity,
+            visibility,
+            query,
+            normalized_predicate_fingerprint,
+        );
+        let visible_indexes =
+            Self::visible_indexes_for_accepted_schema(planning_state.schema_info(), visibility);
+        self.resolve_shared_query_plan_for_authority(
             &authority,
             cache_key,
             planning_context,
-            recorder,
             || {
                 let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
                     &visible_indexes,
@@ -702,7 +539,7 @@ impl<C: CanisterKind> DbSession<C> {
         clippy::too_many_arguments,
         reason = "parameterized cache binding keeps schema, visibility, and current values explicit"
     )]
-    fn resolve_parameterized_query_plan_for_authority_recording(
+    fn resolve_parameterized_query_plan_for_authority(
         &self,
         authority: &EntityAuthority,
         schema: QueryPlanAcceptedSchema<'_>,
@@ -713,28 +550,23 @@ impl<C: CanisterKind> DbSession<C> {
         parameter_contract: PreparedQueryParameterContract,
         bound_predicate_fingerprint: [u8; 32],
         planning_context: HardExecutionContext,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
-        let cache_key = recorder.measure(QueryPlanCompilePhase::CacheKey, || {
-            QueryPlanCacheKey::for_authority_with_parameter_contract(
-                authority.clone(),
-                schema_identity,
-                visibility,
-                query,
-                parameter_contract.clone(),
-            )
-        });
-        let cached_template = self
-            .lookup_shared_query_template_for_authority_recording(authority, &cache_key, recorder);
+    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
+        let cache_key = QueryPlanCacheKey::for_authority_with_parameter_contract(
+            authority.clone(),
+            schema_identity,
+            visibility,
+            query,
+            parameter_contract,
+        );
+        let cached_template =
+            self.lookup_shared_query_template_for_authority(authority, &cache_key);
         if let Some(template) = cached_template {
             if let Some(prepared_plan) = template.reused_bound_plan(bound_predicate_fingerprint)
                 && self.cached_cardinality_tiebreak_is_current(authority, &prepared_plan)?
             {
-                return Ok((prepared_plan, QueryPlanCacheAttribution::hit()));
+                return Ok((prepared_plan, TraceReuseEvent::Hit));
             }
-            let bound = recorder.measure(QueryPlanCompilePhase::PlanBuild, || {
-                template.bind(query, planning_state)
-            })?;
+            let bound = template.bind(query, planning_state)?;
             let bound = self.apply_exact_cardinality_tiebreak(
                 authority,
                 template.candidate_indexes(),
@@ -746,14 +578,13 @@ impl<C: CanisterKind> DbSession<C> {
                 schema.fingerprint(),
             )
             .map_err(QueryError::execute)?;
-            self.remember_shared_query_template_bound_plan_recording(
+            self.remember_shared_query_template_bound_plan(
                 &cache_key,
                 bound_predicate_fingerprint,
                 prepared_plan.clone(),
-                recorder,
             )?;
 
-            return Ok((prepared_plan, QueryPlanCacheAttribution::hit()));
+            return Ok((prepared_plan, TraceReuseEvent::Hit));
         }
 
         self.charge_request_planning_resource(
@@ -761,15 +592,12 @@ impl<C: CanisterKind> DbSession<C> {
             DiagnosticExecutionBudgetResource::PlanCompilations,
         )?;
 
-        let visible_indexes = recorder.measure(QueryPlanCompilePhase::SchemaInfo, || {
-            Self::visible_indexes_for_accepted_schema(planning_state.schema_info(), visibility)
-        });
-        let plan = recorder.measure(QueryPlanCompilePhase::PlanBuild, || {
-            query.build_plan_with_visible_indexes_from_scalar_planning_state(
-                &visible_indexes,
-                planning_state,
-            )
-        })?;
+        let visible_indexes =
+            Self::visible_indexes_for_accepted_schema(planning_state.schema_info(), visibility);
+        let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
+            &visible_indexes,
+            planning_state,
+        )?;
         let plan = self.apply_exact_cardinality_tiebreak(
             authority,
             visible_indexes.accepted_semantic_index_contracts(),
@@ -781,71 +609,58 @@ impl<C: CanisterKind> DbSession<C> {
             SharedPreparedExecutionPlan::from_plan(authority.clone(), plan, schema.fingerprint())
                 .map_err(QueryError::execute)?;
         template.remember_bound_plan(bound_predicate_fingerprint, prepared_plan.clone());
-        let attribution = self.insert_shared_query_template_for_authority_recording(
-            authority, cache_key, template, recorder,
-        );
+        self.insert_shared_query_template_for_authority(authority, cache_key, template);
 
-        Ok((prepared_plan, attribution))
+        Ok((prepared_plan, TraceReuseEvent::Miss))
     }
 
-    fn try_cached_filterless_query_plan_for_authority_recording(
+    fn try_cached_filterless_query_plan_for_authority(
         &self,
         authority: &EntityAuthority,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
-    ) -> Option<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution)> {
-        self.try_cached_filterless_query_plan_for_entity_path_recording(
+    ) -> Option<(SharedPreparedExecutionPlan, TraceReuseEvent)> {
+        self.try_cached_filterless_query_plan_for_entity_path(
             authority.entity_path(),
             schema_identity,
             visibility,
             query,
-            recorder,
         )
     }
 
-    fn try_cached_filterless_query_plan_for_entity_path_recording(
+    fn try_cached_filterless_query_plan_for_entity_path(
         &self,
         entity_path: &str,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
-    ) -> Option<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution)> {
+    ) -> Option<(SharedPreparedExecutionPlan, TraceReuseEvent)> {
         if query.has_scalar_filter() {
             return None;
         }
 
-        let cache_key = recorder.measure(QueryPlanCompilePhase::CacheKey, || {
-            QueryPlanCacheKey::for_entity_path_with_normalized_predicate_fingerprint(
-                entity_path,
-                schema_identity,
-                visibility,
-                query,
-                None,
-            )
-        });
-        let cached = recorder.measure(QueryPlanCompilePhase::CacheLookup, || {
-            self.with_query_plan_cache(|cache| {
-                cache
-                    .get(&cache_key)
-                    .and_then(CachedQueryArtifact::prepared_plan)
-                    .cloned()
-            })
+        let cache_key = QueryPlanCacheKey::for_entity_path_with_normalized_predicate_fingerprint(
+            entity_path,
+            schema_identity,
+            visibility,
+            query,
+            None,
+        );
+        let cached = self.with_query_plan_cache(|cache| {
+            cache
+                .get(&cache_key)
+                .and_then(CachedQueryArtifact::prepared_plan)
+                .cloned()
         });
         if let Some(prepared_plan) = cached {
-            return Some((prepared_plan, QueryPlanCacheAttribution::hit()));
+            return Some((prepared_plan, TraceReuseEvent::Hit));
         }
 
         None
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "accepted planning authority and request-budget attribution stay explicit"
-    )]
-    fn cached_trivial_scalar_load_plan_for_authority_recording(
+    fn cached_trivial_scalar_load_plan_for_authority(
         &self,
         authority: EntityAuthority,
         schema_identity: SchemaCacheIdentity,
@@ -853,23 +668,19 @@ impl<C: CanisterKind> DbSession<C> {
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
         planning_context: HardExecutionContext,
-        recorder: &mut QueryPlanCompilePhaseRecorder<'_>,
-    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
-        let cache_key = recorder.measure(QueryPlanCompilePhase::CacheKey, || {
-            QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
-                authority.clone(),
-                schema_identity,
-                visibility,
-                query,
-                None,
-            )
-        });
+    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
+        let cache_key = QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
+            authority.clone(),
+            schema_identity,
+            visibility,
+            query,
+            None,
+        );
 
-        self.resolve_shared_query_plan_for_authority_recording(
+        self.resolve_shared_query_plan_for_authority(
             &authority,
             cache_key,
             planning_context,
-            recorder,
             || {
                 let Some(plan) =
                     query.try_build_trivial_scalar_load_plan_with_schema_info(schema_info)?

@@ -39,7 +39,7 @@ The current system already has three relevant authorities:
    business-workflow engine or persist arbitrary Rust callbacks.
 
 The public session does not expose request-budget consumption or headroom.
-`RequestDiagnostics` reports query-shape observations, not authoritative
+The optional entity-cost report is aggregate observability, not authoritative
 budget admission. Public `Error` preserves E273 facts, but its compact
 `Display` representation renders only the error code.
 

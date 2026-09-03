@@ -8,8 +8,7 @@ use crate::{
     db::{
         Db,
         executor::{
-            CoveringProjectionMetricsRecorder, ExecutionPreparation, PageWorkEnvelope,
-            ProductionScalarOutputWork, ProjectionMaterializationMetricsRecorder,
+            ExecutionPreparation, PageWorkEnvelope, ProductionScalarOutputWork,
             SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeHandoff,
             StructuralCursorPage,
             budget::{
@@ -82,15 +81,13 @@ impl StructuralProjectionScanBudget {
 ///
 /// StructuralProjectionRequest carries the generic-free projection execution
 /// intent needed after admission/lowering has produced one shared prepared plan.
-/// Adapter layers may attach diagnostic callbacks, but executor owns all path
-/// selection and row materialization decisions after this boundary.
+/// The executor owns all path selection and row materialization decisions after
+/// this boundary.
 ///
 
 pub(in crate::db) struct StructuralProjectionRequest {
     debug: bool,
     prepared_plan: SharedPreparedExecutionPlan,
-    covering_metrics: CoveringProjectionMetricsRecorder,
-    materialization_metrics: ProjectionMaterializationMetricsRecorder,
     scan_budget: Option<StructuralProjectionScanBudget>,
     execution_lane: DiagnosticExecutionLane,
     continuation: crate::db::executor::ScalarContinuationContext,
@@ -101,19 +98,15 @@ pub(in crate::db) struct StructuralProjectionRequest {
 
 impl StructuralProjectionRequest {
     /// Build one structural projection request from adapter-provided runtime
-    /// switches and diagnostic callback bundles.
+    /// switches.
     pub(in crate::db) const fn new(
         debug: bool,
         prepared_plan: SharedPreparedExecutionPlan,
-        covering_metrics: CoveringProjectionMetricsRecorder,
-        materialization_metrics: ProjectionMaterializationMetricsRecorder,
         execution_lane: DiagnosticExecutionLane,
     ) -> Self {
         Self {
             debug,
             prepared_plan,
-            covering_metrics,
-            materialization_metrics,
             scan_budget: None,
             execution_lane,
             continuation: crate::db::executor::ScalarContinuationContext::initial(),
@@ -222,8 +215,6 @@ where
     let StructuralProjectionRequest {
         debug,
         prepared_plan,
-        covering_metrics,
-        materialization_metrics,
         scan_budget,
         execution_lane: _,
         continuation,
@@ -293,7 +284,6 @@ where
                 index_prefix_specs,
                 index_range_specs,
                 index_predicate_execution,
-                covering_metrics,
             ),
             covering,
             || prepared_plan.hybrid_covering_read_plan(),
@@ -503,7 +493,6 @@ where
             DistinctProjectionRuntime::new(
                 emit_cursor.then_some(resolved_order.as_ref()).flatten(),
                 output_work.as_mut(),
-                materialization_metrics,
             ),
         )?;
         projected.into_parts()
@@ -515,7 +504,6 @@ where
             resolved_order.as_ref(),
             cursor_page_row_limit,
             output_work,
-            materialization_metrics,
         )?;
         projected.into_parts()
     } else {
@@ -539,12 +527,7 @@ where
             }
             None => (None, false),
         };
-        let rows = project(
-            row_layout,
-            prepared_projection,
-            page,
-            materialization_metrics,
-        )?;
+        let rows = project(row_layout, prepared_projection, page)?;
         (
             rows,
             last_emitted_logical,

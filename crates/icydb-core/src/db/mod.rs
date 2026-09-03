@@ -13,8 +13,6 @@ mod dynamic_write;
 pub(crate) mod identity;
 pub(crate) mod integrity;
 mod mutation_job;
-#[cfg(feature = "diagnostics")]
-pub(in crate::db) mod physical_access;
 pub(crate) mod predicate;
 pub(crate) mod query;
 mod read_set;
@@ -71,8 +69,6 @@ pub use codec::hex::encode_hex_lower;
 #[doc(hidden)]
 pub use commit::install_startup_recovery_wakeup;
 pub use data::DataStore;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub use diagnostics::SqlStructuralWorkAttribution;
 pub use diagnostics::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport,
     StoreSnapshotStorageMode,
@@ -80,11 +76,6 @@ pub use diagnostics::{
 pub use diagnostics::{
     ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionStats,
     ExecutionTrace,
-};
-#[cfg(feature = "diagnostics")]
-pub use diagnostics::{
-    RequestDiagnosticAccessPath, RequestDiagnosticWarning, RequestDiagnosticWarningKind,
-    RequestDiagnostics, RequestQueryShapeDiagnostic,
 };
 #[doc(hidden)]
 pub use dynamic_write::{
@@ -204,21 +195,10 @@ pub use schema::{
     SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
 };
 pub use session::{DbSession, RequestExecutionRoot};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub use session::{
-    DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
-    KernelRowAttribution, ScalarAggregateAttribution,
-};
 #[doc(hidden)]
 pub use session::{
     MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,
     MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES,
-};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub use session::{
-    SqlCompileAttribution, SqlDistinctProjectionAttribution, SqlExecutionAttribution,
-    SqlHybridCoveringAttribution, SqlOutputBlobAttribution, SqlPureCoveringAttribution,
-    SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
 };
 #[cfg(feature = "sql")]
 pub use session::{

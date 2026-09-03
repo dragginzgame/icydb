@@ -1069,10 +1069,7 @@ mod tests {
             ),
             &wasm_info(&[]),
         );
-        assert_eq!(
-            sql_on.exact_features,
-            ["candid-export", "diagnostics", "sql"]
-        );
+        assert_eq!(sql_on.exact_features, ["candid-export", "sql"]);
 
         let sql_off = endpoint_surface(
             &resolved(

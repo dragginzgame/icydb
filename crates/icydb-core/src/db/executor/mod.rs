@@ -36,15 +36,7 @@ pub(in crate::db) use crate::db::access::{
     ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
 };
 pub(in crate::db) use aggregate::runtime::RuntimeGroupedRow;
-#[cfg(feature = "diagnostics")]
-pub(in crate::db::executor) use aggregate::runtime::{
-    GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
-};
 pub(in crate::db) use aggregate::{ExactCardinalityTarget, execute_exact_cardinality_for_canister};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use aggregate::{
-    ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
-};
 #[cfg(feature = "sql")]
 pub(in crate::db) use aggregate::{
     StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
@@ -66,8 +58,6 @@ pub(in crate::db::executor) use covering::{
 };
 pub(in crate::db) use diagnostics::ExecutionOptimization;
 pub(in crate::db::executor) use diagnostics::ExecutionTrace;
-#[cfg(feature = "diagnostics")]
-pub(in crate::db) use diagnostics::request_query_plan_evidence;
 #[cfg(feature = "sql")]
 pub(in crate::db) use explain::{
     assemble_load_execution_node_descriptor_from_route_facts,
@@ -102,12 +92,6 @@ pub(in crate::db::executor) use pipeline::contracts::{
     AccessScanContinuationInput, AccessStreamBindings,
 };
 pub(in crate::db) use pipeline::execute_shared_grouped_plan_for_canister;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use pipeline::execute_shared_grouped_plan_for_canister_with_phase_attribution;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use pipeline::{
-    GroupedCountAttribution, GroupedExecutePhaseAttribution, GroupedRuntimeAttribution,
-};
 pub(in crate::db) use planning::continuation::ScalarContinuationContext;
 pub(in crate::db::executor) use planning::continuation::{
     AccessWindow, ContinuationMode, GroupedContinuationContext, GroupedPaginationWindow,
@@ -130,10 +114,6 @@ pub(in crate::db::executor) use profiling::{
     measure_execution_stats_phase, record_key_stream_micros, record_key_stream_yield,
     record_ordering, record_projection, record_rows_after_predicate,
 };
-pub(in crate::db) use projection::CoveringProjectionMetricsRecorder;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use projection::DistinctProjectionMetricsRecorder;
-pub(in crate::db) use projection::ProjectionMaterializationMetricsRecorder;
 pub(in crate::db) use projection::{
     StructuralProjectionRequest, execute_structural_projection_page,
 };
@@ -141,11 +121,6 @@ pub(in crate::db) use projection::{
 pub(in crate::db) use projection::{
     StructuralProjectionScanBudget, eval_compiled_filter_expr_with_required_slot_reader,
     execute_structural_projection_rows,
-};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use projection::{
-    current_pure_covering_decode_local_instructions,
-    current_pure_covering_row_assembly_local_instructions,
 };
 pub(in crate::db::executor) use stream::access::PrimaryRangeKeyStream;
 pub(in crate::db::executor) use stream::access::TraversalRuntime;
@@ -165,16 +140,10 @@ pub(in crate::db::executor) use stream::{
     PrefixSetMergeSafety,
 };
 pub(in crate::db) use terminal::PageWorkEnvelope;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use terminal::{DirectDataRowPhaseAttribution, KernelRowPhaseAttribution};
 pub(in crate::db::executor) use terminal::{
     ProductionScalarOutputWork, RetainedSlotLayout, begin_production_scalar_page_unit,
     finish_production_scalar_page_unit, production_scalar_page_access_entry_limit,
     production_scalar_page_work_is_active, with_production_scalar_page_work,
-};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use terminal::{
-    with_direct_data_row_phase_attribution, with_kernel_row_phase_attribution,
 };
 pub(in crate::db::executor) use util::{apply_offset_limit_window, saturating_u32_len};
 

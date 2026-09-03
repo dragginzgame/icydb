@@ -15,7 +15,6 @@ crate-type = ["cdylib"]
 default = []
 candid-export = []
 sql = ["icydb/sql"]
-diagnostics = ["icydb/diagnostics"]
 local-sql-query = ["sql"]
 test-admin-api = ["sql"]
 

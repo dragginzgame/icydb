@@ -510,7 +510,6 @@ impl GroupedAggregateBundle {
             self.groups.len(),
             |group_index| self.groups.get(group_index).map(|entry| &entry.group_key),
             |group_key| group_key_matches_row_view(group_key, row_view, group_fields),
-            || {},
             |_group_index, _group_count| InternalError::query_executor_invariant(),
         )
         .map_err(GroupError::from)
@@ -531,7 +530,6 @@ impl GroupedAggregateBundle {
             self.groups.len(),
             |group_index| self.groups.get(group_index).map(|entry| &entry.group_key),
             |group_key| group_key_matches_path_group_values(group_key, row_view, group_fields),
-            || {},
             |_group_index, _group_count| InternalError::query_executor_invariant(),
         )
         .map_err(GroupError::from)
@@ -634,7 +632,6 @@ impl GroupedAggregateBundle {
                     self.groups.len(),
                     |group_index| self.groups.get(group_index).map(|entry| &entry.group_key),
                     |group_key| group_key_matches_single_group_value(group_key, group_value),
-                    || {},
                     |_group_index, _group_count| InternalError::query_executor_invariant(),
                 )
                 .map_err(GroupError::from)?;

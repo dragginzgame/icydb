@@ -365,12 +365,6 @@ fn index_branch_set_from_and_with_cap(
         };
         let mut branch_values = branch_values;
         prune_branch_values_by_exclusions(branch_key_item, &mut branch_values, &excluded_values);
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
-        if record_shared_branch_cap {
-            crate::db::diagnostics::record_sql_prefix_branch_cap(
-                !branch_values.is_empty() && branch_values.len() <= max_branch_values,
-            );
-        }
         if branch_values.is_empty() || branch_values.len() > max_branch_values {
             continue;
         }
@@ -595,18 +589,7 @@ fn build_index_branch_values(
             )?;
             branch_values.push(lookup_value);
         }
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
-        let branches_before_deduplication = branch_values.len();
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
-        crate::db::diagnostics::record_sql_membership_canonicalization(
-            branches_before_deduplication,
-        );
         canonicalize_value_set(&mut branch_values);
-        #[cfg(all(feature = "sql", feature = "diagnostics"))]
-        crate::db::diagnostics::record_sql_prefix_branch_deduplication(
-            branches_before_deduplication,
-            branch_values.len(),
-        );
         if branch_values.is_empty() {
             return None;
         }
@@ -627,20 +610,12 @@ fn prune_branch_values_by_exclusions(
     branch_values: &mut Vec<Value>,
     excluded_values: &[CachedSetLiteral<'_>],
 ) {
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    let branches_before_pruning = branch_values.len();
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    let mut exclusions_tested = 0usize;
     branch_values.retain(|branch_value| {
         !excluded_values.iter().any(|excluded| {
             if key_item.field() != excluded.field {
                 return false;
             }
             excluded.values.iter().any(|excluded_value| {
-                #[cfg(all(feature = "sql", feature = "diagnostics"))]
-                {
-                    exclusions_tested = exclusions_tested.saturating_add(1);
-                }
                 if !excluded_value.compatible {
                     return false;
                 }
@@ -655,9 +630,4 @@ fn prune_branch_values_by_exclusions(
             })
         })
     });
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    crate::db::diagnostics::record_sql_prefix_exclusion_pruning(
-        exclusions_tested,
-        branches_before_pruning.saturating_sub(branch_values.len()),
-    );
 }

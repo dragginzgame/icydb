@@ -82,9 +82,7 @@ impl SqlExprParseSurface {
 
 impl Parser {
     pub(super) fn parse_where_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
-        self.record_predicate_parse_stage(|parser| {
-            parser.parse_sql_expr(SqlExprParseSurface::Where, 0)
-        })
+        self.parse_sql_expr(SqlExprParseSurface::Where, 0)
     }
 
     pub(super) fn parse_projection(
@@ -100,9 +98,7 @@ impl Parser {
             let item = if self.projection_item_is_simple_field() {
                 self.expect_identifier().map(SqlSelectItem::Field)?
             } else {
-                let expr = self.record_expr_parse_stage(|parser| {
-                    parser.parse_sql_expr(SqlExprParseSurface::Projection, 0)
-                })?;
+                let expr = self.parse_sql_expr(SqlExprParseSurface::Projection, 0)?;
 
                 Self::select_item_from_sql_expr(expr)?
             };

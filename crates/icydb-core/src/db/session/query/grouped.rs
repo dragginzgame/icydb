@@ -3,10 +3,6 @@
 //! Does not own: grouped planning, runtime aggregation, or response shaping.
 //! Boundary: validates a shared prepared plan and delegates grouped execution.
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-use crate::db::executor::{
-    GroupedExecutePhaseAttribution, execute_shared_grouped_plan_for_canister_with_phase_attribution,
-};
 use crate::{
     db::{
         DbSession, GroupedQueryOutput, QueryError,
@@ -117,32 +113,5 @@ impl<C: CanisterKind> DbSession<C> {
 
         execute_shared_grouped_plan_for_canister(&self.db, self.debug, plan, cursor, execution_lane)
             .map_err(QueryError::execute)
-    }
-
-    /// Execute one accepted-schema-owned grouped plan with phase attribution.
-    #[cfg(all(feature = "sql", feature = "diagnostics"))]
-    pub(in crate::db::session) fn execute_structural_grouped_with_phase_attribution(
-        &self,
-        plan: SharedPreparedExecutionPlan,
-        cursor_token: Option<&str>,
-        execution_lane: DiagnosticExecutionLane,
-    ) -> Result<
-        (
-            StructuralGroupedProjectionResult,
-            Option<ExecutionTrace>,
-            GroupedExecutePhaseAttribution,
-        ),
-        QueryError,
-    > {
-        let (plan, cursor) = self.prepare_structural_grouped_execution(plan, cursor_token)?;
-
-        execute_shared_grouped_plan_for_canister_with_phase_attribution(
-            &self.db,
-            self.debug,
-            plan,
-            cursor,
-            execution_lane,
-        )
-        .map_err(QueryError::execute)
     }
 }

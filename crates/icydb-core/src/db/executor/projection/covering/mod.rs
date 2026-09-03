@@ -8,8 +8,6 @@ mod hybrid;
 mod pure;
 mod shared;
 
-#[cfg(feature = "diagnostics")]
-use std::cell::Cell;
 use std::rc::Rc;
 
 use self::contracts::{
@@ -48,7 +46,6 @@ pub(in crate::db::executor) struct PreparedCoveringProjectionRuntime<'a> {
     index_prefix_specs: &'a [LoweredIndexPrefixSpec],
     index_range_specs: &'a [LoweredIndexRangeSpec],
     index_predicate_execution: Option<IndexPredicateExecution<'a>>,
-    metrics: CoveringProjectionMetricsRecorder,
 }
 
 impl<'a> PreparedCoveringProjectionRuntime<'a> {
@@ -58,72 +55,13 @@ impl<'a> PreparedCoveringProjectionRuntime<'a> {
         index_prefix_specs: &'a [LoweredIndexPrefixSpec],
         index_range_specs: &'a [LoweredIndexRangeSpec],
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
-        metrics: CoveringProjectionMetricsRecorder,
     ) -> Self {
         Self {
             plan,
             index_prefix_specs,
             index_range_specs,
             index_predicate_execution,
-            metrics,
         }
-    }
-}
-
-///
-/// CoveringProjectionMetricsRecorder
-///
-/// Executor callback bundle for covering projection materialization counters.
-/// The executor owns covering projection execution, while the SQL diagnostics
-/// adapter owns its counter storage.
-///
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-#[derive(Clone, Copy)]
-pub(in crate::db) struct CoveringProjectionMetricsRecorder {
-    path_hit: fn(),
-    index_field_access: fn(),
-    row_field_access: fn(),
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-const fn ignore_covering_projection_event() {}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-impl CoveringProjectionMetricsRecorder {
-    /// Construct one observer from projection materialization counter
-    /// callbacks supplied by the response-shaping layer.
-    pub(in crate::db) const fn new(
-        hybrid_path_hit: fn(),
-        hybrid_index_field_access: fn(),
-        hybrid_row_field_access: fn(),
-    ) -> Self {
-        Self {
-            path_hit: hybrid_path_hit,
-            index_field_access: hybrid_index_field_access,
-            row_field_access: hybrid_row_field_access,
-        }
-    }
-
-    /// Construct one observer that intentionally records no adapter metrics.
-    pub(in crate::db) const fn none() -> Self {
-        Self::new(
-            ignore_covering_projection_event,
-            ignore_covering_projection_event,
-            ignore_covering_projection_event,
-        )
-    }
-
-    pub(super) fn record_hybrid_path_hit(self) {
-        (self.path_hit)();
-    }
-
-    pub(super) fn record_hybrid_index_field_access(self) {
-        (self.index_field_access)();
-    }
-
-    pub(super) fn record_hybrid_row_field_access(self) {
-        (self.row_field_access)();
     }
 }
 
@@ -243,76 +181,4 @@ where
     }
 
     Ok(Some(representatives))
-}
-
-///
-/// CoveringProjectionMetricsRecorder
-///
-/// Zero-sized no-op recorder used when SQL materialization diagnostics are not
-/// compiled. Keeping the type available avoids cfg-heavy executor signatures.
-///
-
-#[cfg(not(all(feature = "sql", feature = "diagnostics")))]
-#[derive(Clone, Copy)]
-pub(in crate::db) struct CoveringProjectionMetricsRecorder;
-
-#[cfg(not(all(feature = "sql", feature = "diagnostics")))]
-impl CoveringProjectionMetricsRecorder {
-    pub(in crate::db) const fn new() -> Self {
-        Self
-    }
-
-    pub(in crate::db) const fn none() -> Self {
-        Self::new()
-    }
-
-    pub(super) const fn record_hybrid_path_hit(self) {
-        let _ = self;
-    }
-
-    pub(super) const fn record_hybrid_index_field_access(self) {
-        let _ = self;
-    }
-
-    pub(super) const fn record_hybrid_row_field_access(self) {
-        let _ = self;
-    }
-}
-
-#[cfg(feature = "diagnostics")]
-std::thread_local! {
-    static PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS: Cell<u64> = const { Cell::new(0) };
-    static PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(feature = "diagnostics")]
-pub(super) fn record_pure_covering_decode_local_instructions(delta: u64) {
-    if delta == 0 {
-        return;
-    }
-
-    PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS.with(|counter| {
-        counter.set(counter.get().saturating_add(delta));
-    });
-}
-
-#[cfg(feature = "diagnostics")]
-pub(super) fn record_pure_covering_row_assembly_local_instructions(delta: u64) {
-    if delta == 0 {
-        return;
-    }
-
-    PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS.with(|counter| {
-        counter.set(counter.get().saturating_add(delta));
-    });
-}
-
-#[cfg(feature = "diagnostics")]
-pub(in crate::db) fn current_pure_covering_decode_local_instructions() -> u64 {
-    PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS.with(Cell::get)
-}
-
-#[cfg(feature = "diagnostics")]
-pub(in crate::db) fn current_pure_covering_row_assembly_local_instructions() -> u64 {
-    PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS.with(Cell::get)
 }

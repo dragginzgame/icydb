@@ -7,8 +7,7 @@ use crate::{
     db::executor::{
         RuntimeGroupedRow,
         aggregate::{
-            ProjectionSpec,
-            runtime::grouped_fold::{count::window::GroupedCountWindowSelection, metrics},
+            ProjectionSpec, runtime::grouped_fold::count::window::GroupedCountWindowSelection,
         },
         group::GroupKey,
         pipeline::contracts::GroupedRouteStage,
@@ -24,7 +23,6 @@ pub(super) fn finalize_grouped_count_page(
     grouped_projection_spec: &ProjectionSpec,
     grouped_counts: Vec<(GroupKey, u32)>,
 ) -> Result<(Vec<RuntimeGroupedRow>, Option<GroupedContinuationToken>), InternalError> {
-    metrics::record_finalize_stage(grouped_counts.len());
     let selection = GroupedCountWindowSelection::new(route)?;
     selection
         .select_page_rows(grouped_counts)?

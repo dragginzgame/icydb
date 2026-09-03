@@ -15,8 +15,7 @@ use crate::{
             AcceptedSchemaCatalogContext, AcceptedStructuralMutation,
             AcceptedStructuralMutationTarget,
             sql::{
-                CompiledSqlCommand, SqlCacheAttribution, SqlCompiledCommandSurface,
-                SqlStatementResult,
+                CompiledSqlCommand, SqlCompiledCommandSurface, SqlStatementResult,
                 execute::write_returning::{
                     projection_labels_from_accepted_write_descriptor,
                     sql_returning_statement_projection, validate_sql_materialized_returning_bounds,
@@ -44,18 +43,12 @@ use candidate::{
     sql_write_candidate_collection_capacity,
 };
 
-fn sql_write_statement_result_with_default_cache(
-    result: Result<SqlStatementResult, QueryError>,
-) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-    SqlCacheAttribution::with_default(result)
-}
-
-pub(super) fn execute_compiled_sql_write_with_default_cache<C>(
+pub(super) fn execute_compiled_sql_write<C>(
     session: &DbSession<C>,
     compiled: &CompiledSqlCommand,
     catalog: Option<&AcceptedSchemaCatalogContext>,
     surface: Option<SqlCompiledCommandSurface>,
-) -> Option<Result<(SqlStatementResult, SqlCacheAttribution), QueryError>>
+) -> Option<Result<SqlStatementResult, QueryError>>
 where
     C: CanisterKind,
 {
@@ -63,7 +56,7 @@ where
         CompiledSqlCommand::Delete { query, returning } => {
             let result =
                 session.execute_sql_delete_statement(query.as_ref(), returning.as_ref(), catalog);
-            Some(sql_write_statement_result_with_default_cache(result))
+            Some(result)
         }
         CompiledSqlCommand::Insert(command) => {
             let result = if surface == Some(SqlCompiledCommandSurface::Mutation) {
@@ -79,13 +72,11 @@ where
                     catalog,
                 )
             };
-            Some(sql_write_statement_result_with_default_cache(result))
+            Some(result)
         }
-        CompiledSqlCommand::Update(_statement) => Some(
-            sql_write_statement_result_with_default_cache(Err(QueryError::sql_surface_mismatch(
-                icydb_diagnostic_code::SqlSurfaceMismatchCode::MutationRequiresExplicitUpdateIntent,
-            ))),
-        ),
+        CompiledSqlCommand::Update(_statement) => Some(Err(QueryError::sql_surface_mismatch(
+            icydb_diagnostic_code::SqlSurfaceMismatchCode::MutationRequiresExplicitUpdateIntent,
+        ))),
         CompiledSqlCommand::Select { .. }
         | CompiledSqlCommand::GlobalAggregate { .. }
         | CompiledSqlCommand::DescribeEntity { .. }
@@ -177,7 +168,7 @@ impl<C: CanisterKind> DbSession<C> {
         scan_budget: Option<StructuralProjectionScanBudget>,
         row_to_patch: &mut impl FnMut(&[Value]) -> Result<(K, AcceptedMutationIntentPatch), QueryError>,
     ) -> Result<SqlWriteCandidateCollection<K>, QueryError> {
-        let (payload, _) = match scan_budget {
+        let payload = match scan_budget {
             Some(scan_budget) => self
                 .execute_primary_only_sql_projection_from_structural_query_with_scan_budget(
                     query.clone(),

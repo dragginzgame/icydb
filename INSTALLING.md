@@ -318,58 +318,6 @@ It writes both the exact merged receipt and a strict coverage-distribution
 artifact recomputed from the same typed native catalog; mixed mutation sequences
 contribute every statement and mutation family they actually contain.
 
-Scheduled performance evidence is a separate workflow. Run all eight P1 and
-scale shards before the P1 merge, use its exact candidate artifact for all eight
-P2 shards, then merge P2:
-
-```bash
-make test-sql-perf-p1-shard P1_SHARD=0
-make test-sql-perf-scale-shard SCALE_SHARD=0
-make test-sql-perf-p1-merge
-make test-sql-perf-p2-shard P2_SHARD=0
-make test-sql-perf-p2-merge
-make test-sql-perf-instrumentation
-```
-
-Replace `0` with every shard index through `7` before each merge. Compare a
-reviewed baseline only after exact current P2 and scale reports exist:
-
-```bash
-make test-sql-perf-baseline P2_BASELINE_PATH=... SCALE_BASELINE_PATH=...
-```
-
-Validate all three artifacts in a downloaded Tier D bundle before starting a
-measurement run:
-
-```bash
-make test-sql-perf-baseline-contract PERF_BASELINE_DIR=/path/to/tier-d-bundle
-```
-
-The scheduled workflow runs this check before building its shared Wasm or
-launching shards. A current-format failure is a hard cut: capture and review a
-fresh three-run calibration cohort, then update
-`ICYDB_SQL_PERF_BASELINE_RUN_ID` to the selected current run. Do not translate
-or inject fields into an older artifact.
-
-After three initial-calibration workflow bundles exist, validate them together
-and produce the bounded review projection with:
-
-```bash
-make test-sql-perf-calibration-review \
-  PERF_CALIBRATION_RUN_1_DIR=/path/to/run-1 \
-  PERF_CALIBRATION_RUN_2_DIR=/path/to/run-2 \
-  PERF_CALIBRATION_RUN_3_DIR=/path/to/run-3
-```
-
-Each directory must contain that run's merged P2, scale, and instrumentation
-artifacts. The reviewer requires exact ordinals `1`, `2`, and `3` from one
-cohort and one clean measured subject. It reports cross-run envelopes and
-recurring top-20 promotion candidates but does not choose thresholds, edit the
-focused set, or bless a baseline.
-
-Performance artifacts and verdicts cannot satisfy correctness obligations, and
-correctness success cannot substitute for missing performance evidence.
-
 ## Local SQL Demo
 
 The repository includes a demo RPG canister with SQL-visible `character` and

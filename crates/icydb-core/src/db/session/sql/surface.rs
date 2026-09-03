@@ -10,9 +10,7 @@ use crate::{
     db::{
         DbSession, QueryError,
         session::sql::SqlCompiledCommandSurface,
-        sql::parser::{
-            SqlDdlStatement, SqlParsePhaseAttribution, SqlStatement, parse_sql_with_attribution,
-        },
+        sql::parser::{SqlDdlStatement, SqlStatement, parse_sql},
     },
     traits::CanisterKind,
 };
@@ -52,24 +50,12 @@ pub enum SqlStatementShellSurface {
 pub struct SqlStatementDispatch<'sql> {
     sql: &'sql str,
     statement: SqlStatement,
-    parse_local_instructions: u64,
-    parse_attribution: SqlParsePhaseAttribution,
 }
 
 impl<'sql> SqlStatementDispatch<'sql> {
     #[must_use]
-    const fn new(
-        sql: &'sql str,
-        statement: SqlStatement,
-        parse_local_instructions: u64,
-        parse_attribution: SqlParsePhaseAttribution,
-    ) -> Self {
-        Self {
-            sql,
-            statement,
-            parse_local_instructions,
-            parse_attribution,
-        }
+    const fn new(sql: &'sql str, statement: SqlStatement) -> Self {
+        Self { sql, statement }
     }
 
     /// Return whether this statement belongs to the operational introspection family.
@@ -87,14 +73,6 @@ impl<'sql> SqlStatementDispatch<'sql> {
     pub(in crate::db::session::sql) const fn statement(&self) -> &SqlStatement {
         &self.statement
     }
-
-    pub(in crate::db::session::sql) const fn parse_attribution(&self) -> SqlParsePhaseAttribution {
-        self.parse_attribution
-    }
-
-    pub(in crate::db::session::sql) const fn parse_local_instructions(&self) -> u64 {
-        self.parse_local_instructions
-    }
 }
 
 /// Return the entity identifier targeted by one reduced SQL statement.
@@ -104,8 +82,7 @@ impl<'sql> SqlStatementDispatch<'sql> {
 /// route them through any accepted entity.
 #[doc(hidden)]
 pub fn sql_statement_entity_name(sql: &str) -> Result<Option<String>, QueryError> {
-    let (statement, _) =
-        parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
 
     Ok(sql_statement_entity_name_from_statement(&statement).map(str::to_string))
 }
@@ -113,8 +90,7 @@ pub fn sql_statement_entity_name(sql: &str) -> Result<Option<String>, QueryError
 /// Return the generated endpoint surface required by one reduced SQL statement.
 #[doc(hidden)]
 pub fn sql_statement_surface(sql: &str) -> Result<SqlStatementSurface, QueryError> {
-    let (statement, _) =
-        parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
 
     Ok(sql_statement_surface_from_statement(&statement))
 }
@@ -122,8 +98,7 @@ pub fn sql_statement_surface(sql: &str) -> Result<SqlStatementSurface, QueryErro
 /// Return the generated endpoint route required by one shell SQL statement.
 #[doc(hidden)]
 pub fn sql_statement_shell_surface(sql: &str) -> Result<SqlStatementShellSurface, QueryError> {
-    let (statement, _) =
-        parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
+    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
 
     Ok(sql_statement_shell_surface_from_statement(&statement))
 }
@@ -131,16 +106,9 @@ pub fn sql_statement_shell_surface(sql: &str) -> Result<SqlStatementShellSurface
 /// Return generated query-endpoint routing facts for one reduced SQL statement.
 #[doc(hidden)]
 pub fn sql_statement_dispatch(sql: &str) -> Result<SqlStatementDispatch<'_>, QueryError> {
-    let (statement, parse_attribution) =
-        parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)?;
-    let parse_local_instructions = parse_attribution.total();
+    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
 
-    Ok(SqlStatementDispatch::new(
-        sql,
-        statement,
-        parse_local_instructions,
-        parse_attribution,
-    ))
+    Ok(SqlStatementDispatch::new(sql, statement))
 }
 
 const fn sql_statement_surface_from_statement(statement: &SqlStatement) -> SqlStatementSurface {

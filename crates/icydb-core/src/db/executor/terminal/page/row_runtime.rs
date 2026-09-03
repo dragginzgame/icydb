@@ -17,12 +17,6 @@ use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 
 use super::{KernelRow, RetainedSlotLayout, RetainedSlotRow};
 
-#[cfg(feature = "diagnostics")]
-use super::metrics::{
-    measure_direct_data_row_phase, record_direct_data_row_key_encode_local_instructions,
-    record_direct_data_row_store_get_local_instructions,
-};
-
 ///
 /// ScalarRowRuntimeState
 ///
@@ -53,25 +47,10 @@ impl ScalarRowRuntimeState {
         consistency: MissingRowPolicy,
         key: &DecodedDataStoreKey,
     ) -> Result<Option<RawRow>, InternalError> {
-        #[cfg(feature = "diagnostics")]
-        let (key_encode_local_instructions, raw_key_result) =
-            measure_direct_data_row_phase(|| key.raw_key());
-        #[cfg(not(feature = "diagnostics"))]
         let raw_key_result = key.raw_key();
         let raw_key = raw_key_result?;
-        #[cfg(feature = "diagnostics")]
-        record_direct_data_row_key_encode_local_instructions(key_encode_local_instructions);
 
-        #[cfg(feature = "diagnostics")]
-        let (store_get_local_instructions, row) = measure_direct_data_row_phase(|| {
-            Ok::<_, InternalError>(self.store.with_data(|store| store.get(raw_key)))
-        });
-        #[cfg(not(feature = "diagnostics"))]
         let row = self.store.with_data(|store| store.get(raw_key));
-        #[cfg(feature = "diagnostics")]
-        record_direct_data_row_store_get_local_instructions(store_get_local_instructions);
-        #[cfg(feature = "diagnostics")]
-        let row = row?;
 
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
         if let Some(row) = row.as_ref() {
@@ -103,23 +82,11 @@ impl ScalarRowRuntimeState {
         key: &DecodedDataStoreKey,
         evaluate: impl FnOnce(&RawRow) -> Result<R, InternalError>,
     ) -> Result<Option<R>, InternalError> {
-        #[cfg(feature = "diagnostics")]
-        let (key_encode_local_instructions, raw_key_result) =
-            measure_direct_data_row_phase(|| key.raw_key());
-        #[cfg(not(feature = "diagnostics"))]
         let raw_key_result = key.raw_key();
         let raw_key = raw_key_result?;
-        #[cfg(feature = "diagnostics")]
-        record_direct_data_row_key_encode_local_instructions(key_encode_local_instructions);
 
         let result = self.store.with_data(|store| {
-            #[cfg(feature = "diagnostics")]
-            let (store_get_local_instructions, row) =
-                measure_direct_data_row_phase(|| store.read(raw_key));
-            #[cfg(not(feature = "diagnostics"))]
             let row = store.read(raw_key);
-            #[cfg(feature = "diagnostics")]
-            record_direct_data_row_store_get_local_instructions(store_get_local_instructions);
 
             charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
             let Some(row) = row.as_row() else {
