@@ -16,7 +16,6 @@ mod kernel;
 mod mutation;
 mod order;
 mod pipeline;
-mod plan_metrics;
 pub(super) mod planning;
 mod prepared_execution_plan;
 mod profiling;
@@ -136,8 +135,7 @@ pub(in crate::db) use projection::CoveringProjectionMetricsRecorder;
 pub(in crate::db) use projection::DistinctProjectionMetricsRecorder;
 pub(in crate::db) use projection::ProjectionMaterializationMetricsRecorder;
 pub(in crate::db) use projection::{
-    StructuralProjectionExecutionRoute, StructuralProjectionRequest,
-    execute_structural_projection_page, execute_structural_projection_page_with_route,
+    StructuralProjectionRequest, execute_structural_projection_page,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::{

@@ -5,8 +5,8 @@
 
 use crate::{
     db::{
-        AttributedRead, DbSession, DynamicQuery, OutputRow, PreparedOutputRows, PrimaryKeyValue,
-        TypedAdapterError, TypedEntityBinding, TypedOperationError,
+        DbSession, DynamicQuery, OutputRow, PreparedOutputRows, PrimaryKeyValue, TypedAdapterError,
+        TypedEntityBinding, TypedOperationError,
         session::{OutputRowProjection, live_page::prepare_live_page_step},
     },
     traits::CanisterKind,
@@ -141,32 +141,6 @@ where
         prepared.rows
     }
 
-    pub(crate) fn execute_public_page_with_attribution(
-        &self,
-        continuation: Option<&str>,
-    ) -> Result<AttributedRead<PreparedLivePageOutput>, TypedOperationError> {
-        let attributed = self
-            .session
-            .inner
-            .execute_public_live_page_with_attribution_for_typed_binding(
-                self.binding.inner(),
-                &self.request,
-                continuation,
-            )
-            .map_err(|error| TypedOperationError::Database(crate::Error::from(error)))?
-            .ok_or_else(stale_binding_error)?;
-        let prepare_start = read_operation_local_instruction_counter();
-        let result = self.prepare_page(attributed.result, continuation)?;
-        let response_decode_local_instructions =
-            read_operation_local_instruction_counter().saturating_sub(prepare_start);
-        let mut attribution = attributed.attribution;
-        attribution.response_decode_local_instructions = response_decode_local_instructions;
-        Ok(AttributedRead {
-            result,
-            attribution,
-        })
-    }
-
     fn prepare_page(
         &self,
         page: crate::db::LiveQueryPageOutput,
@@ -241,16 +215,4 @@ impl<C: CanisterKind> DbSession<C> {
 
 const fn stale_binding_error() -> TypedOperationError {
     TypedOperationError::Adapter(TypedAdapterError::StaleBinding)
-}
-
-#[must_use]
-#[cfg(target_arch = "wasm32")]
-fn read_operation_local_instruction_counter() -> u64 {
-    ic_cdk::api::performance_counter(1)
-}
-
-#[must_use]
-#[cfg(not(target_arch = "wasm32"))]
-const fn read_operation_local_instruction_counter() -> u64 {
-    0
 }

@@ -20,10 +20,8 @@ mod write;
 #[cfg(all(test, feature = "sql", feature = "diagnostics"))]
 mod tests;
 
-use crate::metrics::sink::with_metrics_sink;
 use crate::{
     db::{Db, StoreRegistry},
-    metrics::sink::MetricsSink,
     traits::CanisterKind,
 };
 use std::thread::LocalKey;
@@ -33,10 +31,6 @@ pub(in crate::db) use accepted_schema::AcceptedSchemaCatalogContext;
 pub(in crate::db) use accepted_schema::{
     AcceptedSchemaRuntimeBuildCounts, accepted_schema_runtime_build_counts_for_tests,
     reset_accepted_schema_runtime_build_counts_for_tests,
-};
-pub use query::{
-    AttributedRead, OperationReadAttribution, ReadAccessRoute, ReadExecutionRoute,
-    ReadPlanCacheOutcome,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use query::{
@@ -75,13 +69,12 @@ pub(in crate::db::session) use write::{
 ///
 /// DbSession
 ///
-/// Session-scoped database handle with policy (debug, metrics) and execution routing.
+/// Session-scoped database handle with debug policy and execution routing.
 ///
 
 pub struct DbSession<C: CanisterKind> {
     db: Db<C>,
     debug: bool,
-    metrics: Option<&'static dyn MetricsSink>,
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -94,7 +87,6 @@ impl<C: CanisterKind> DbSession<C> {
         Self {
             db: Db::new(store, request_root.scope()),
             debug: false,
-            metrics: None,
         }
     }
 
@@ -115,7 +107,6 @@ impl<C: CanisterKind> DbSession<C> {
         request::current_request_scope().map(|scope| Self {
             db: Db::new(store, scope),
             debug: false,
-            metrics: None,
         })
     }
 
@@ -141,20 +132,5 @@ impl<C: CanisterKind> DbSession<C> {
     pub const fn debug(mut self) -> Self {
         self.debug = true;
         self
-    }
-
-    /// Attach one metrics sink for all session-executed operations.
-    #[must_use]
-    pub const fn metrics_sink(mut self, sink: &'static dyn MetricsSink) -> Self {
-        self.metrics = Some(sink);
-        self
-    }
-
-    fn with_metrics<T>(&self, f: impl FnOnce() -> T) -> T {
-        if let Some(sink) = self.metrics {
-            with_metrics_sink(sink, f)
-        } else {
-            f()
-        }
     }
 }

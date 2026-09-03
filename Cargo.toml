@@ -2,7 +2,6 @@
 members = [
     "canisters/audit/default_empty",
     "canisters/audit/default_empty_metrics",
-    "canisters/audit/default_empty_metrics_extended",
     "canisters/audit/group_path_sql_query",
     "canisters/audit/one_entity_dynamic_query",
     "canisters/audit/one_entity_reachable_operations",

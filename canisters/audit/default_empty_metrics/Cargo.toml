@@ -19,7 +19,7 @@ sql = ["icydb/sql"]
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { path = "../../../crates/icydb", default-features = false, features = ["metrics"] }
 icydb-testing-audit-default-empty-fixtures = { workspace = true }
 
 [build-dependencies]

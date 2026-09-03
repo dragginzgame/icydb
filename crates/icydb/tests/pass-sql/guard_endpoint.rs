@@ -8,7 +8,7 @@ mod __icydb_generated {
     pub(crate) mod endpoint_handlers {
         pub(crate) fn sql_query<const INTROSPECTION: bool>(
             _: String,
-        ) -> Result<icydb::db::sql::SqlQueryPerfResult, icydb::Error> {
+        ) -> Result<icydb::db::sql::SqlQueryResult, icydb::Error> {
             let _ = INTROSPECTION;
             unimplemented!()
         }

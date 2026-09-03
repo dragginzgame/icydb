@@ -10,16 +10,14 @@ use icydb::{
     db::{
         DeepIntegrityPageStatus, IntegrityCheckError, IntegrityCheckResult, IntegrityJobError,
         IntegrityJobReceipt, IntegrityPhase, IntegrityTerminalOutcome, MutationJobAdvanceReceipt,
-        MutationJobError, MutationJobPhase, MutationJobState, MutationJobStatus,
-        MutationJobTargetFailureReason, ProgressJobFamily, ProgressJobInventory, SqlDescribeOutput,
-        SqlIntegrityError, SqlQueryExecutionAttribution, SqlShowColumnsOutput,
-        SqlStructuralWorkAttribution, sql::SqlQueryResult,
+        MutationJobError, MutationJobPhase, MutationJobState, MutationJobStatus, ProgressJobFamily,
+        ProgressJobInventory, SqlDescribeOutput, SqlIntegrityError, SqlQueryExecutionAttribution,
+        SqlShowColumnsOutput, SqlStructuralWorkAttribution, sql::SqlQueryResult,
     },
     diagnostic::{
         DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
         DiagnosticFactTag, RuntimeBoundaryCode,
     },
-    metrics::EventReport,
     value::OutputValue,
 };
 use icydb_testing_integration::{
@@ -373,20 +371,6 @@ fn clear_sql_perf_fixtures(fixture: &StandaloneCanisterFixture) {
         .expect("icydb_fixtures_reset should decode");
     reset.expect("icydb_fixtures_reset should succeed");
     drain_online_watchdog_until_quiescent(fixture);
-}
-
-fn reset_sql_perf_metrics(fixture: &StandaloneCanisterFixture) {
-    let result: Result<(), Error> = fixture
-        .update_candid("icydb_metrics_reset", ())
-        .expect("metrics reset response should decode");
-    result.expect("controller metrics reset should succeed");
-}
-
-fn extended_sql_perf_metrics(fixture: &StandaloneCanisterFixture) -> EventReport {
-    let result: Result<EventReport, Error> = fixture
-        .query_candid("icydb_metrics_extended", (None::<u64>,))
-        .expect("extended metrics response should decode");
-    result.expect("public extended metrics endpoint should succeed")
 }
 
 fn drain_online_watchdog_until_quiescent(fixture: &StandaloneCanisterFixture) {
@@ -2383,7 +2367,6 @@ fn sql_perf_mutation_forward_steps_stay_bounded() {
 fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
     let fixture = install_sql_perf_canister_fixture();
     reset_sql_perf_fixtures(&fixture);
-    reset_sql_perf_metrics(&fixture);
 
     let result = verify_mutation_job_lifecycle(&fixture);
 
@@ -2433,33 +2416,6 @@ fn sql_mutation_job_verify_restarts_on_revision_drift_and_completes_stably() {
 
     let inventory = progress_job_inventory(&fixture);
     assert_eq!(inventory.inventory.retained_count, 0);
-    let metrics = extended_sql_perf_metrics(&fixture);
-    let jobs = metrics
-        .counters()
-        .expect("current metrics window should include counters")
-        .ops()
-        .mutation_jobs();
-    assert_eq!(jobs.starts_inserted(), 1);
-    assert!(jobs.states_loaded() >= 1);
-    assert!(jobs.advances_exact_replayed() >= 2);
-    assert!(jobs.forward_steps_committed() >= 1);
-    assert!(jobs.verify_steps_committed() >= 1);
-    assert!(jobs.forward_to_verify_transitions() >= 2);
-    assert_eq!(jobs.verify_restarts_revision_drift(), 1);
-    assert_eq!(jobs.verify_restarts_residual_work(), 0);
-    assert_eq!(jobs.completions(), 1);
-    assert!(jobs.keys_scanned() > 0);
-    assert!(jobs.scan_bytes() > 0);
-    assert!(jobs.staged_bytes() > 0);
-    assert_eq!(
-        jobs.target_failure_count(MutationJobTargetFailureReason::Other),
-        0
-    );
-    assert_eq!(jobs.inventories_loaded(), 1);
-    assert_eq!(jobs.retained_count(), 0);
-    assert_eq!(jobs.hard_limit(), 64);
-    assert_eq!(jobs.reserved_integrity_headroom(), 8);
-    assert_eq!(jobs.retained_record_bytes(), 0);
 }
 
 #[test]

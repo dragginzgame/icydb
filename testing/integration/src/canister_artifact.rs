@@ -13,12 +13,7 @@ use candid::{
 
 use icydb::{
     Error,
-    db::{
-        EntitySchemaDescription, IntegrityCheckResult, SchemaMigrationCommand,
-        SchemaMigrationStatusPage, SchemaMigrationStatusRequest, SqlIntegrityError, StorageReport,
-        sql::{SqlQueryPerfResult, SqlQueryResult},
-    },
-    metrics::{CompactMetricsReport, EventReport},
+    db::{SchemaMigrationCommand, SchemaMigrationStatusPage, SchemaMigrationStatusRequest},
 };
 
 /// Query/update mode encoded by both an IC Wasm export and Candid service.
@@ -75,16 +70,10 @@ const METRICS_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_metrics", CanisterMethodMode::Query),
     ("icydb_metrics_reset", CanisterMethodMode::Update),
 ];
-const METRICS_EXTENDED_METHODS: &[ExpectedCanisterMethod] = &[
-    ("icydb_metrics", CanisterMethodMode::Query),
-    ("icydb_metrics_extended", CanisterMethodMode::Query),
-    ("icydb_metrics_reset", CanisterMethodMode::Update),
-];
 const SQL_PERF_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_fixtures_load", CanisterMethodMode::Update),
     ("icydb_fixtures_reset", CanisterMethodMode::Update),
     ("icydb_metrics", CanisterMethodMode::Query),
-    ("icydb_metrics_extended", CanisterMethodMode::Query),
     ("icydb_metrics_reset", CanisterMethodMode::Update),
 ];
 const TEST_SQL_METHODS: &[ExpectedCanisterMethod] = &[
@@ -147,7 +136,6 @@ const RPG_LOCAL_METHODS: &[ExpectedCanisterMethod] = &[
     ("icydb_fixtures_load", CanisterMethodMode::Update),
     ("icydb_fixtures_reset", CanisterMethodMode::Update),
     ("icydb_metrics", CanisterMethodMode::Query),
-    ("icydb_metrics_extended", CanisterMethodMode::Query),
     ("icydb_metrics_reset", CanisterMethodMode::Update),
     ("icydb_query", CanisterMethodMode::Query),
     ("icydb_schema", CanisterMethodMode::Query),
@@ -171,14 +159,6 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         local_test_features: &["candid-export", "sql"],
         production_icydb_methods: METRICS_METHODS,
         local_test_icydb_methods: METRICS_METHODS,
-    },
-    MaintainedCanisterPolicy {
-        canister: "default_empty_metrics_extended",
-        package: "canister_audit_default_empty_metrics_extended",
-        production_features: &["candid-export", "metrics-extended", "sql"],
-        local_test_features: &["candid-export", "metrics-extended", "sql"],
-        production_icydb_methods: METRICS_EXTENDED_METHODS,
-        local_test_icydb_methods: METRICS_EXTENDED_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "group_path_sql_query",
@@ -260,7 +240,6 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
             "candid-export",
             "diagnostics",
             "local-sql-query",
-            "metrics-context-audit",
             "test-admin-api",
         ],
         production_icydb_methods: TEST_SQL_PRODUCTION_METHODS,
@@ -334,7 +313,6 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         local_test_features: &[
             "candid-export",
             "diagnostics",
-            "local-extended-metrics",
             "local-sql-query",
             "test-admin-api",
         ],
@@ -536,74 +514,6 @@ pub fn inspect_candid_methods(candid: &str) -> Result<BTreeSet<CanisterMethod>, 
     Err("unterminated Candid service declaration".to_string())
 }
 
-/// Render the normative 0.217 endpoint ABI foundation from maintained Rust
-/// DTOs.
-///
-/// All transitive records are derived from their maintained public Rust DTOs.
-#[must_use]
-pub fn render_endpoint_abi_foundation() -> String {
-    let mut container = TypeContainer::new();
-    let methods = vec![
-        endpoint_method::<String, Result<SqlQueryPerfResult, Error>>(
-            &mut container,
-            "icydb_query",
-            CanisterMethodMode::Query,
-        ),
-        endpoint_method::<String, Result<SqlQueryResult, Error>>(
-            &mut container,
-            "icydb_ddl",
-            CanisterMethodMode::Update,
-        ),
-        endpoint_method::<String, Result<SqlQueryResult, Error>>(
-            &mut container,
-            "icydb_update",
-            CanisterMethodMode::Update,
-        ),
-        endpoint_method::<String, Result<IntegrityCheckResult, SqlIntegrityError>>(
-            &mut container,
-            "icydb_integrity",
-            CanisterMethodMode::Update,
-        ),
-        endpoint_method::<(), Result<(), Error>>(
-            &mut container,
-            "icydb_fixtures_reset",
-            CanisterMethodMode::Update,
-        ),
-        endpoint_method::<(), Result<(), Error>>(
-            &mut container,
-            "icydb_fixtures_load",
-            CanisterMethodMode::Update,
-        ),
-        endpoint_method::<Option<u64>, Result<CompactMetricsReport, Error>>(
-            &mut container,
-            "icydb_metrics",
-            CanisterMethodMode::Query,
-        ),
-        endpoint_method::<Option<u64>, Result<EventReport, Error>>(
-            &mut container,
-            "icydb_metrics_extended",
-            CanisterMethodMode::Query,
-        ),
-        endpoint_method::<(), Result<(), Error>>(
-            &mut container,
-            "icydb_metrics_reset",
-            CanisterMethodMode::Update,
-        ),
-        endpoint_method::<(), Result<StorageReport, Error>>(
-            &mut container,
-            "icydb_snapshot",
-            CanisterMethodMode::Query,
-        ),
-        endpoint_method::<(), Result<Vec<EntitySchemaDescription>, Error>>(
-            &mut container,
-            "icydb_schema",
-            CanisterMethodMode::Query,
-        ),
-    ];
-    let actor: Type = TypeInner::Service(methods).into();
-    format!("{}\n", compile(&container.env, &Some(actor)))
-}
-
 /// Render the normative 0.218 migration endpoint ABI from public Rust DTOs.
 #[must_use]
 pub fn render_schema_migration_endpoint_abi() -> String {
@@ -784,7 +694,7 @@ mod tests {
     use super::{
         CanisterMethod, CanisterMethodMode, MAINTAINED_CANISTER_POLICIES,
         candid_visible_wasm_methods, inspect_candid_methods, inspect_wasm_methods,
-        render_endpoint_abi_foundation, render_schema_migration_endpoint_abi,
+        render_schema_migration_endpoint_abi,
     };
 
     #[test]
@@ -870,14 +780,6 @@ mod tests {
             assert!(policy.local_test_icydb_methods.is_sorted());
             assert!(policy.production_icydb_methods.is_sorted());
         }
-    }
-
-    #[test]
-    fn endpoint_abi_foundation_matches_golden() {
-        assert_eq!(
-            render_endpoint_abi_foundation(),
-            include_str!("contracts/0.217/endpoint-abi-foundation.did")
-        );
     }
 
     #[test]

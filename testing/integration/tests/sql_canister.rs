@@ -30,10 +30,10 @@ use icydb::{
         EntitySchemaDescription, IntegrityCheckResult, QuickIntegrityStatus, RowProjectionOutput,
         SqlColumnDefault, SqlColumnExtra, SqlColumnKey, SqlDescribeOutput, SqlIntegrityError,
         SqlQueryExecutionAttribution, SqlShowColumnsOutput, StorageReport,
-        sql::{SqlGroupedRowsOutput, SqlQueryPerfResult, SqlQueryResult},
+        sql::{SqlGroupedRowsOutput, SqlQueryResult},
     },
     diagnostic::{DiagnosticCode, RuntimeBoundaryCode},
-    metrics::CompactMetricsReport,
+    metrics::MetricsReport,
     types::{Decimal, U256},
     value::OutputValue,
 };
@@ -380,10 +380,10 @@ fn seed_oversized_sql_group_name(fixture: &StandaloneCanisterFixture) {
     result.expect("oversized SQL group-name seed should succeed");
 }
 
-fn query_sql_with_perf(
+fn query_sql_endpoint(
     fixture: &StandaloneCanisterFixture,
     sql: &str,
-) -> Result<SqlQueryPerfResult, Error> {
+) -> Result<SqlQueryResult, Error> {
     fixture
         .query_candid("icydb_query", (sql.to_string(),))
         .expect("sql query canister call should decode")
@@ -408,7 +408,7 @@ fn measure_query_sql(
 }
 
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
-    query_sql_with_perf(fixture, sql).map(|payload| payload.result)
+    query_sql_endpoint(fixture, sql)
 }
 
 fn query_numeric_types(
@@ -492,18 +492,15 @@ fn reference_unknown_order_field_survives_real_canister_and_leaves_stable_bytes_
     assert!(measured_failure.local_instructions > 0);
     assert!(measured_failure.local_instructions < 40_000_000_000);
 
-    let success = query_sql_with_perf(&fixture, SUCCESS_SQL)
+    query_sql_endpoint(&fixture, SUCCESS_SQL)
         .expect("reference corrected query should succeed through generated dispatch");
-    assert!(success.instructions > 0);
-    assert!(success.instructions < 40_000_000_000);
 
     let stable_after = stable_memory_fingerprint(&fixture);
     assert_eq!(stable_after, stable_before);
 
     println!(
-        "0.232 real-canister instructions: unknown_order_field={} corrected_query={} stable_bytes={} stable_blake3={}",
+        "0.232 real-canister instructions: unknown_order_field={} stable_bytes={} stable_blake3={}",
         measured_failure.local_instructions,
-        success.instructions,
         stable_after.1,
         blake3::Hash::from_bytes(stable_after.0),
     );
@@ -1703,22 +1700,22 @@ fn sql_canister_ddl_endpoint_publishes_supported_filtered_field_path_index() {
 }
 
 fn assert_nullable_unique_route_evidence(
-    before: &SqlQueryPerfResult,
-    after: &SqlQueryPerfResult,
-    forced_full_scan: &SqlQueryPerfResult,
+    before: &SqlQueryResult,
+    after: &SqlQueryResult,
+    forced_full_scan: &SqlQueryResult,
     proven_attribution: &SqlQueryExecutionAttribution,
     full_scan_attribution: &SqlQueryExecutionAttribution,
 ) {
     assert_eq!(
-        after.result, before.result,
+        after, before,
         "the newly eligible filtered-index route must preserve pre-index full-scan output",
     );
     assert_eq!(
-        after.result, forced_full_scan.result,
+        after, forced_full_scan,
         "the proven index route and equivalent conservative full scan must agree",
     );
     assert_projection_rendered(
-        &expect_projection(after.result.clone()),
+        &expect_projection(after.clone()),
         "SqlTestUser",
         &["name"],
         &[&["alice"]],
@@ -1726,33 +1723,8 @@ fn assert_nullable_unique_route_evidence(
         "filtered unique access should return exactly the matching present value",
     );
     assert!(
-        before.instructions > 0 && after.instructions > 0,
-        "both production-shaped query routes should expose instruction attribution",
-    );
-    assert!(
         proven_attribution.index_store_entry_reads > 0,
         "the selected filtered index route should read its physical entry",
-    );
-    println!(
-        "nullable unique query instructions: pre_index_full_scan_total={} pre_index_full_scan_compiler={} pre_index_full_scan_planner={} pre_index_full_scan_store={} pre_index_full_scan_executor={} pre_index_full_scan_decode={} proven_index_total={} proven_index_compiler={} proven_index_planner={} proven_index_store={} proven_index_executor={} proven_index_decode={} equivalent_full_scan_total={} equivalent_full_scan_compiler={} equivalent_full_scan_planner={} equivalent_full_scan_store={} equivalent_full_scan_executor={} equivalent_full_scan_decode={}",
-        before.instructions,
-        before.compiler_instructions,
-        before.planner_instructions,
-        before.store_instructions,
-        before.executor_instructions,
-        before.decode_instructions,
-        after.instructions,
-        after.compiler_instructions,
-        after.planner_instructions,
-        after.store_instructions,
-        after.executor_instructions,
-        after.decode_instructions,
-        forced_full_scan.instructions,
-        forced_full_scan.compiler_instructions,
-        forced_full_scan.planner_instructions,
-        forced_full_scan.store_instructions,
-        forced_full_scan.executor_instructions,
-        forced_full_scan.decode_instructions,
     );
     println!(
         "nullable unique query reads: proven_data_gets={} proven_index_gets={} proven_index_ranges={} proven_index_entries={} equivalent_full_scan_data_gets={} equivalent_full_scan_index_gets={} equivalent_full_scan_index_ranges={} equivalent_full_scan_index_entries={}",
@@ -1871,8 +1843,8 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
             && !before_explain.contains("sql_test_user_unique_nickname_idx"),
         "pre-index EXPLAIN must retain the full scan and not select the future index: {before_explain}",
     );
-    let before = query_sql_with_perf(&fixture, select_sql)
-        .expect("pre-index full-scan query should succeed");
+    let before =
+        query_sql_endpoint(&fixture, select_sql).expect("pre-index full-scan query should succeed");
 
     publish_and_assert_nullable_unique_constraints(&fixture, &mut schema_version);
 
@@ -1890,10 +1862,10 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
             && !nullable_distinct_explain.contains("sql_test_user_unique_nickname_idx"),
         "a direct nullable field must not enter the non-null group-seek cohort: {nullable_distinct_explain}",
     );
-    let nullable_distinct = query_sql_with_perf(&fixture, nullable_distinct_sql)
+    let nullable_distinct = query_sql_endpoint(&fixture, nullable_distinct_sql)
         .expect("direct nullable DISTINCT fallback should succeed");
     assert_projection_rendered(
-        &expect_projection(nullable_distinct.result),
+        &expect_projection(nullable_distinct),
         "SqlTestUser",
         &["nickname"],
         &[&["ally"], &["bravo"], &["zulu"]],
@@ -1916,7 +1888,7 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
         after_explain.contains("IndexPrefix(sql_test_user_unique_nickname_idx)"),
         "a concrete non-null equality should prove filtered-index eligibility: {after_explain}",
     );
-    let after = query_sql_with_perf(&fixture, select_sql).expect("post-index query should succeed");
+    let after = query_sql_endpoint(&fixture, select_sql).expect("post-index query should succeed");
     let missing_proof_explain = expect_explain(
         query_sql(
             &fixture,
@@ -1942,7 +1914,7 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
             && !forced_full_scan_explain.contains("sql_test_user_unique_nickname_idx"),
         "an unsupported OR proof must preserve the full-scan route: {forced_full_scan_explain}",
     );
-    let forced_full_scan = query_sql_with_perf(&fixture, forced_full_scan_sql)
+    let forced_full_scan = query_sql_endpoint(&fixture, forced_full_scan_sql)
         .expect("equivalent conservative query should execute through a full scan");
     assert_nullable_unique_range_route_parity(&fixture);
     let proven_attribution = query_sql_attribution(&fixture, select_sql)
@@ -3304,7 +3276,7 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
         ErrorOrigin::Interface,
     );
 
-    let query: Result<SqlQueryPerfResult, Error> = fixture
+    let query: Result<SqlQueryResult, Error> = fixture
         .query_candid_as(outsider, "icydb_query", ("not valid SQL".to_string(),))
         .expect("non-controller SQL query response should decode");
     assert_eq!(query, Err(sql_error.clone()));
@@ -3322,8 +3294,8 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
         assert_eq!(result, Err(sql_error.clone()), "{method}");
     }
 
-    let metrics: Result<CompactMetricsReport, Error> = fixture
-        .query_candid_as(outsider, "icydb_metrics", (None::<u64>,))
+    let metrics: Result<MetricsReport, Error> = fixture
+        .query_candid_as(outsider, "icydb_metrics", ())
         .expect("public metrics response should decode");
     assert!(
         metrics.is_ok(),

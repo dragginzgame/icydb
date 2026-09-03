@@ -2,9 +2,7 @@ mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
 
     pub(crate) mod endpoint_handlers {
-        pub(crate) fn metrics(
-            _: Option<u64>,
-        ) -> Result<icydb::metrics::CompactMetricsReport, icydb::Error> {
+        pub(crate) fn metrics() -> Result<icydb::metrics::MetricsReport, icydb::Error> {
             unreachable!()
         }
     }

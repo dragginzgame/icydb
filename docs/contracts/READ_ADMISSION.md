@@ -34,9 +34,7 @@ owns authorization and the resource policy.
 | Surface | Lane | Contract |
 | --- | --- | --- |
 | `DbSession::query::<E>()?.execute_live_page(...)` | `PublicRead` | Generated binding and decode around an authenticated bounded live page. |
-| `DbSession::query::<E>()?.execute_live_page_with_attribution(...)` | `PublicRead` | The same typed page plus one fixed operation-local route/cache/work envelope; no retained metrics. |
 | `execute_live_page` | `PublicRead` | Entity/field names resolve against accepted schema; built-in bounded admission and explicit continuation apply. |
-| `execute_live_page_with_attribution` | `PublicRead` | The same dynamic page plus one fixed operation-local route/cache/work envelope; no retained metrics. |
 | `advance_live_page` | `PublicRead` | Advanced adapters execute one bounded public page while IcyDB owns uncommitted continuation validation and explicit post-processing commit. |
 | `DbSession::query::<E>()?.execute_exhaustive_page(...)` | `PublicRead` | Generated binding and decode around a revision-strict page; resume requires its complete source proof. |
 | `execute_exhaustive_page` | `PublicRead` | Bounded scalar execution plus pre/post comparison of the canonical participating-store proof. |
@@ -47,7 +45,7 @@ owns authorization and the resource policy.
 | `execute_trusted_exhaustive_page` | trusted bypass | Authorized maintenance page with the same revision-strict proof contract. |
 | `execute_trusted_dynamic_grouped_query` | trusted bypass | Explicit grouped maintenance/admin read with caller-owned authorization and explicit engine limits. |
 | `execute_trusted_sql_query` | trusted bypass | Trusted/admin SQL; caller-controlled SQL is not public-safe. |
-| generated `icydb_query` | trusted bypass | Controller-gated by default, or protected by one declared synchronous application guard, then uses `execute_trusted_sql_query_with_perf_attribution`. |
+| generated `icydb_query` | trusted bypass | Controller-gated by default, or protected by one declared synchronous application guard, then returns the canonical `SqlQueryResult`. |
 | SQL `EXPLAIN` | `DiagnosticExplain` | Observational planning only on its diagnostic route. |
 
 Public scalar and grouped callers may provide only the opaque cursor issued by
@@ -61,9 +59,6 @@ admission-policy controls.
   `execute_live_page`.
 - Framework or generated-adapter traversal: `advance_live_page` or
   `advance_trusted_live_page`; decode each returned page before advancing.
-- Per-call dynamic or typed cost: the corresponding
-  `execute_live_page_with_attribution` terminal; it retains the same
-  `PublicRead` admission and returns no query/caller labels.
 - Complete unchanged-set traversal: typed or dynamic
   `execute_exhaustive_page`, retaining both continuation and proof.
 - Grouped typed/dynamic rows: ordered `.group_by(...)` and `.aggregate(...)`
@@ -102,8 +97,8 @@ Generated `icydb_query` remains controller-gated when its declaration omits an
 authorization choice. A declaration may instead specify
 `authorization = guard(path)`. Guarded mode rejects anonymous callers and
 invokes the exact synchronous function once over caller plus `Sql`, before
-query metrics, request-root construction, startup admission, parsing, or
-dispatch. `Allow` continues into `execute_trusted_sql_query_with_perf_attribution`;
+request-root construction, startup admission, parsing, or dispatch. `Allow`
+continues into the generated plain-result trusted SQL dispatcher;
 `Deny` returns the typed SQL policy diagnostic. Guard authority replaces
 controller authority and never forms an implicit union.
 
@@ -116,9 +111,9 @@ dispatcher or bypass startup admission.
 `icydb_schema` retains its explicit `authorization = public | controller`
 forms and additionally accepts `authorization = guard(path)`. Guarded schema
 rejects anonymous callers and invokes the same exact synchronous guard type
-once with the `Schema` discriminator, before query metrics, request-root
-construction, startup admission, accepted-schema observation, or handler
-dispatch. `Deny` returns the typed schema-policy diagnostic. Guard authority
+once with the `Schema` discriminator, before request-root construction,
+startup admission, accepted-schema observation, or handler dispatch. `Deny`
+returns the typed schema-policy diagnostic. Guard authority
 replaces controller authority and never forms an implicit union.
 
 The dedicated method is not a second spelling for SQL introspection. SQL

@@ -5,8 +5,7 @@ use icydb::{
     Error,
     db::{
         SchemaMigrationCommand, SchemaMigrationPhase, SchemaMigrationStatusPage,
-        SchemaMigrationStatusRequest,
-        sql::{SqlQueryPerfResult, SqlQueryResult},
+        SchemaMigrationStatusRequest, sql::SqlQueryResult,
     },
 };
 use icydb_testing_integration::install_prebuilt_fixture_canister;
@@ -167,10 +166,10 @@ fn advance(
 }
 
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
-    let result: Result<SqlQueryPerfResult, Error> = fixture
+    let result: Result<SqlQueryResult, Error> = fixture
         .query_candid("icydb_query", (sql.to_string(),))
         .expect("SQL query response should decode");
-    result.map(|response| response.result)
+    result
 }
 
 fn await_ready_query(

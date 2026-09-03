@@ -13,7 +13,6 @@ use crate::{
             sql::compiled::{CompiledSqlCommand, SqlCompiledSchemaFingerprint},
         },
     },
-    metrics::sink::CacheMissReason,
     traits::CanisterKind,
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
@@ -79,55 +78,6 @@ pub(in crate::db) struct SqlCompiledCommandCacheKey {
 
 pub(in crate::db) type SqlCompiledCommandCache =
     BoundedCache<SqlCompiledCommandCacheKey, CompiledSqlCommand>;
-
-// Classify one SQL compiled-command cache miss by comparing the missed key
-// against already-warmed entries. The comparison order preserves the most
-// actionable drift dimensions before falling back to unrelated query text.
-pub(in crate::db::session::sql) fn sql_compiled_command_cache_miss_reason(
-    cache: &SqlCompiledCommandCache,
-    key: &SqlCompiledCommandCacheKey,
-) -> CacheMissReason {
-    if cache.is_empty() {
-        return CacheMissReason::Cold;
-    }
-
-    if cache.keys().any(|candidate| {
-        candidate.surface == key.surface
-            && candidate.entity_path == key.entity_path
-            && candidate.schema_fingerprint == key.schema_fingerprint
-            && candidate.sql == key.sql
-            && (candidate.accepted_runtime_root_identity != key.accepted_runtime_root_identity
-                || candidate.accepted_schema_revision != key.accepted_schema_revision
-                || candidate.schema_version != key.schema_version)
-    }) {
-        return CacheMissReason::SchemaVersion;
-    }
-
-    if cache.keys().any(|candidate| {
-        candidate.surface == key.surface
-            && candidate.entity_path == key.entity_path
-            && candidate.accepted_runtime_root_identity == key.accepted_runtime_root_identity
-            && candidate.accepted_schema_revision == key.accepted_schema_revision
-            && candidate.sql == key.sql
-            && candidate.schema_fingerprint != key.schema_fingerprint
-    }) {
-        return CacheMissReason::SchemaFingerprint;
-    }
-
-    if cache.keys().any(|candidate| {
-        candidate.entity_path == key.entity_path
-            && candidate.accepted_runtime_root_identity == key.accepted_runtime_root_identity
-            && candidate.accepted_schema_revision == key.accepted_schema_revision
-            && candidate.schema_version == key.schema_version
-            && candidate.schema_fingerprint == key.schema_fingerprint
-            && candidate.sql == key.sql
-            && candidate.surface != key.surface
-    }) {
-        return CacheMissReason::Surface;
-    }
-
-    CacheMissReason::DistinctKey
-}
 
 ///
 /// SqlCompiledCommandCacheContext

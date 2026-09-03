@@ -249,48 +249,15 @@ fn cli_args_reject_canister_flag_on_target_commands() {
 
 #[test]
 fn cli_args_group_metrics_under_top_level_keyword() {
-    let args =
-        CliArgs::try_parse_from(["icydb", "metrics", "demo_rpg", "--window-start-ms", "123"])
-            .expect("metrics command should parse");
+    let args = CliArgs::try_parse_from(["icydb", "metrics", "demo_rpg"])
+        .expect("metrics command should parse");
     let CliCommand::Metrics(args) = args.into_command() else {
         panic!("expected metrics command");
     };
 
     assert_eq!(args.target().canister_name(), "demo_rpg");
     assert_eq!(args.target().environment(), DEFAULT_ENVIRONMENT);
-    assert_eq!(args.window_start_ms(), Some(123));
-    assert!(!args.extended());
     assert!(!args.reset());
-}
-
-#[test]
-fn cli_args_group_extended_metrics_under_top_level_keyword() {
-    let args = CliArgs::try_parse_from([
-        "icydb",
-        "metrics",
-        "demo_rpg",
-        "--extended",
-        "--window-start-ms",
-        "123",
-    ])
-    .expect("extended metrics command should parse");
-    let CliCommand::Metrics(args) = args.into_command() else {
-        panic!("expected metrics command");
-    };
-
-    assert_eq!(args.target().canister_name(), "demo_rpg");
-    assert_eq!(args.target().environment(), DEFAULT_ENVIRONMENT);
-    assert_eq!(args.window_start_ms(), Some(123));
-    assert!(args.extended());
-    assert!(!args.reset());
-}
-
-#[test]
-fn cli_args_reject_extended_metrics_reset_conflict() {
-    let err = CliArgs::try_parse_from(["icydb", "metrics", "demo_rpg", "--extended", "--reset"])
-        .expect_err("metrics reset and extended report should conflict");
-
-    assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
 }
 
 #[test]
@@ -310,8 +277,6 @@ fn cli_args_group_metrics_reset_under_top_level_keyword() {
 
     assert_eq!(args.target().canister_name(), "demo_rpg");
     assert_eq!(args.target().environment(), "test");
-    assert_eq!(args.window_start_ms(), None);
-    assert!(!args.extended());
     assert!(args.reset());
 }
 

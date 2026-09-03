@@ -23,8 +23,7 @@ Measure and report:
 
 The exact default targets are:
 
-- canisters: `default_empty`, `default_empty_metrics`,
-  `default_empty_metrics_extended`, `one_entity_dynamic_query`,
+- canisters: `default_empty`, `default_empty_metrics`, `one_entity_dynamic_query`,
   `one_entity_reachable_operations`, `one_entity_typed_query`,
   `one_entity_sql_query`, `request_future_scale`, `ten_entity_typed_query`,
   `ten_entity_reachable_operations`, `sql_perf`, and `sql`
@@ -37,11 +36,9 @@ Default target roles:
 - `default_empty` is the zero-export generated-runtime floor. Keep generated
   metrics disabled so it measures baseline runtime retention without IC method
   glue.
-- `default_empty_metrics` isolates the compact generated metrics endpoint cost.
+- `default_empty_metrics` isolates the generated entity-cost metrics endpoint.
   It intentionally starts from the empty schema so metrics/Candid/IC method
   retention is not mixed into query runtime growth.
-- `default_empty_metrics_extended` isolates the additional rich metrics surface
-  over that same empty schema and exact feature profile.
 - `one_entity_typed_query` measures the generated typed projection over the
   accepted dynamic-query lane.
 - `one_entity_sql_query` measures the SQL query frontend/runtime path.

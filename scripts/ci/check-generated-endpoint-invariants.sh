@@ -20,7 +20,6 @@ done < <(find canisters -name build.rs -print0)
 
 for source in \
   canisters/audit/default_empty_metrics/src/lib.rs \
-  canisters/audit/default_empty_metrics_extended/src/lib.rs \
   canisters/audit/sql_perf/src/lib.rs \
   canisters/test/sql/src/lib.rs \
   canisters/demo/rpg/src/lib.rs
@@ -36,13 +35,6 @@ if rg -q '#\[.*ic_cdk::(query|update|init|post_upgrade)|#\[.*export_name|#\[.*no
   crates/icydb-model/src/build/actor/mod.rs
 then
   echo "[ERROR] generated private actor capabilities must not contain IC export attributes; start! owns composed lifecycle exports." >&2
-  status=1
-fi
-
-query_wrappers="$(rg -c '#\[\$crate::__reexports::ic_cdk::query\(name' crates/icydb/src/lib.rs)"
-query_contexts="$(rg -c '\$crate::__macro::with_query_metrics_context' crates/icydb/src/lib.rs)"
-if [[ "$query_wrappers" == "0" || "$query_wrappers" != "$query_contexts" ]]; then
-  echo "[ERROR] every generated query wrapper must own exactly one synchronous metrics context." >&2
   status=1
 fi
 

@@ -60,15 +60,16 @@ typed, and dynamic reads and writes. Enable `sql` only when the canister uses
 session/library SQL APIs or generated SQL endpoints; SQL is an optional
 frontend over the same engine-neutral query runtime.
 
-IcyDB has three optional Cargo features:
+IcyDB has four optional Cargo features:
 
 - `sql` adds SQL, including `EXPLAIN`, `DESCRIBE`, and `SHOW`.
 - `diagnostics` adds detailed execution attribution for profiling and audits.
+- `metrics` adds one heap-only, on-canister entity hit/cost report.
 - `migration` adds explicit schema-migration operations and endpoints.
 
-Compact and extended metrics types are part of base IcyDB. The explicit
-`icydb_metrics_extended` source declaration, rather than another Cargo feature,
-selects the public extended-metrics endpoint.
+Canisters that enable `metrics` may declare `icydb_metrics` and
+`icydb_metrics_reset`. The report is update-side only: IC query calls cannot
+retain heap mutations, while endpoint-level cost remains visible in Canic.
 
 Runtime-enabled application and schema crates normally depend only on `icydb`.
 Application-model declarations, macros, reusable types, and validation are

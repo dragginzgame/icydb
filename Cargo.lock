@@ -264,16 +264,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "canister_audit_default_empty_metrics_extended"
-version = "0.252.4"
-dependencies = [
- "candid",
- "ic-cdk",
- "icydb",
- "icydb-testing-audit-default-empty-fixtures",
-]
-
-[[package]]
 name = "canister_audit_group_path_sql_query"
 version = "0.252.4"
 dependencies = [

@@ -8,10 +8,10 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitGuard, CommitMarker, CommitPrepareContext, CommitRowOp, PreparedIndexMutation,
-            PreparedRowCommitOp, begin_commit, begin_mutation_progress_commit,
-            database_incarnation_id, finish_commit, generate_commit_id, generate_marker_batch_id,
-            next_database_commit_sequence, prepare_row_commit_with_context,
+            CommitGuard, CommitMarker, CommitPrepareContext, CommitRowOp, PreparedRowCommitOp,
+            begin_commit, begin_mutation_progress_commit, database_incarnation_id, finish_commit,
+            generate_commit_id, generate_marker_batch_id, next_database_commit_sequence,
+            prepare_row_commit_with_context,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         direction::Direction,
@@ -23,10 +23,7 @@ use crate::{
         integrity::{MutationProgressRecordOp, apply_preflighted_mutation_progress_record_op},
         key_taxonomy::PrimaryKeyValue,
         positioned_overlay::JournalOverlayPosition,
-        registry::{
-            StoreCommitParticipation, StoreHandle, StoreRecoveryCapability,
-            StoreSchemaMetadataCapability,
-        },
+        registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
         schema::{
             IdentityAdvanceId, IdentityRangeAdvance, PreparedSchemaPositionPublication,
             SchemaStore, apply_live_identity_range_checkpoint,
@@ -34,7 +31,6 @@ use crate::{
         },
     },
     error::InternalError,
-    metrics::sink::{MetricsEvent, MutationCommitClass, record},
     traits::CanisterKind,
 };
 use std::{
@@ -98,38 +94,11 @@ fn take_mutation_commit_interruption(interruption: MutationCommitInterruption) -
 }
 
 ///
-/// PreparedRowOpDelta
-///
-/// Aggregated mutation deltas from preflight-prepared row operations.
-/// Used by save/delete executors to emit consistent metrics without duplicating
-/// per-field folding logic.
-///
-
-pub(in crate::db::executor) struct PreparedRowOpDelta {
-    pub(in crate::db::executor) index_inserts: usize,
-    pub(in crate::db::executor) index_removes: usize,
-    pub(in crate::db::executor) reverse_index_inserts: usize,
-    pub(in crate::db::executor) reverse_index_removes: usize,
-}
-
-impl PreparedRowOpDelta {
-    // Construct one zeroed delta accumulator.
-    const fn zero() -> Self {
-        Self {
-            index_inserts: 0,
-            index_removes: 0,
-            reverse_index_inserts: 0,
-            reverse_index_removes: 0,
-        }
-    }
-}
-
-///
 /// OpenCommitWindow
 ///
 /// Commit-window staging bundle shared across save/delete executors.
 /// Contains the persisted commit guard, preflight-prepared row ops, and
-/// precomputed delta counters.
+/// precomputed apply metadata.
 ///
 
 pub(in crate::db::executor) struct OpenCommitWindow {
@@ -138,9 +107,6 @@ pub(in crate::db::executor) struct OpenCommitWindow {
     positioned_rows: Vec<Option<JournalOverlayPosition>>,
     effects: PreparedCommitEffects,
     pub(in crate::db::executor) index_store_guards: Vec<IndexStoreGenerationGuard>,
-    pub(in crate::db::executor) entity_deltas: Vec<(Rc<str>, PreparedRowOpDelta)>,
-    pub(in crate::db::executor) entity_count: usize,
-    pub(in crate::db::executor) commit_class: MutationCommitClass,
 }
 
 pub(in crate::db::executor) struct PreparedJournalAppend {
@@ -211,14 +177,13 @@ impl IndexStoreGenerationGuard {
 /// PreparedRowOpBatch
 ///
 /// Streaming preflight output for one commit window.
-/// The batch keeps prepared row operations, generation guards, and delta
-/// metrics together so preflight can produce all apply metadata in one pass.
+/// The batch keeps prepared row operations and generation guards together so
+/// preflight can produce all apply metadata in one pass.
 ///
 
 struct PreparedRowOpBatch {
     prepared_row_ops: Vec<PreparedRowCommitOp>,
     index_store_guards: Vec<IndexStoreGenerationGuard>,
-    entity_deltas: Vec<(Rc<str>, PreparedRowOpDelta)>,
     commit_work_units: usize,
 }
 
@@ -234,38 +199,16 @@ impl PreparedRowOpBatch {
         Ok(Self {
             prepared_row_ops: Vec::with_capacity(reserve_rows),
             index_store_guards: Vec::new(),
-            entity_deltas: Vec::new(),
             commit_work_units: fixed_commit_work_units,
         })
     }
 
     // Add one prepared row op and update all derived apply metadata immediately.
-    fn push(
-        &mut self,
-        entity_path: Rc<str>,
-        row_op: PreparedRowCommitOp,
-    ) -> Result<(), InternalError> {
+    fn push(&mut self, row_op: PreparedRowCommitOp) -> Result<(), InternalError> {
         let next_commit_work_units =
             next_mutation_commit_work_units(self.commit_work_units, row_op.index_ops.len())?;
 
-        let delta = if let Some((_, delta)) = self
-            .entity_deltas
-            .iter_mut()
-            .find(|(path, _)| path.as_ref() == entity_path.as_ref())
-        {
-            delta
-        } else {
-            self.entity_deltas
-                .push((entity_path, PreparedRowOpDelta::zero()));
-            &mut self
-                .entity_deltas
-                .last_mut()
-                .ok_or_else(InternalError::query_executor_invariant)?
-                .1
-        };
-
         for index_op in &row_op.index_ops {
-            record_prepared_index_delta(delta, index_op);
             record_index_store_generation_guard(&mut self.index_store_guards, index_op.index_store);
         }
 
@@ -570,24 +513,6 @@ fn push_index_entry_primary_key_values(
     })
 }
 
-// Fold one prepared index mutation into saturated commit-window counters.
-const fn record_prepared_index_delta(
-    summary: &mut PreparedRowOpDelta,
-    index_op: &PreparedIndexMutation,
-) {
-    let (index_inserts, index_removes, reverse_index_inserts, reverse_index_removes) =
-        index_op.counter_increments();
-
-    summary.index_inserts = summary.index_inserts.saturating_add(index_inserts);
-    summary.index_removes = summary.index_removes.saturating_add(index_removes);
-    summary.reverse_index_inserts = summary
-        .reverse_index_inserts
-        .saturating_add(reverse_index_inserts);
-    summary.reverse_index_removes = summary
-        .reverse_index_removes
-        .saturating_add(reverse_index_removes);
-}
-
 // Capture one unique index-store guard while preflight streams prepared row
 // operations. This replaces the old post-preflight guard collection pass.
 fn record_index_store_generation_guard(
@@ -660,7 +585,7 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
             overlay,
         )?;
         overlay.stage_prepared_row_op(&row);
-        batch.push(row_op.entity_path.clone(), row)?;
+        batch.push(row)?;
     }
 
     Ok(batch)
@@ -692,7 +617,6 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
     let PreparedRowOpBatch {
         prepared_row_ops,
         index_store_guards,
-        entity_deltas,
         ..
     } = preflight_prepare_row_op_batch_structural(
         db,
@@ -700,9 +624,6 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
         &mut overlay,
         fixed_commit_work_units,
     )?;
-    let affected_store_handles = affected_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
-    let commit_class = classify_mutation_commit_plan(affected_store_handles.as_slice());
-    let entity_count = entity_deltas.len();
     let CommitWindowPayload { marker, effects } = commit_window_payload_for_prepared_row_ops(
         db,
         &row_ops,
@@ -721,9 +642,6 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
         positioned_rows,
         effects,
         index_store_guards,
-        entity_deltas,
-        entity_count,
-        commit_class,
     })
 }
 
@@ -900,11 +818,7 @@ pub(in crate::db) fn commit_structural_row_ops_with_window<C: CanisterKind>(
         positioned_rows,
         effects,
         index_store_guards,
-        entity_deltas,
-        entity_count,
-        commit_class,
     } = open_commit_window_structural(db, row_ops, &deleted_key_groups, identity_ranges)?;
-    record_mutation_commit_plan(entity_count, commit_class);
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
 
@@ -917,7 +831,6 @@ pub(in crate::db) fn commit_structural_row_ops_with_window<C: CanisterKind>(
         effects,
         index_store_guards,
     )?;
-    emit_index_delta_metrics(&entity_deltas);
     mark_store_handles_index_ready(synchronized_store_handles.as_slice())?;
     Ok(())
 }
@@ -937,9 +850,6 @@ pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress<C: Caniste
         positioned_rows,
         effects,
         index_store_guards,
-        entity_deltas,
-        entity_count,
-        commit_class,
     } = open_commit_window_structural_inner(
         db,
         row_ops,
@@ -947,7 +857,6 @@ pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress<C: Caniste
         identity_ranges,
         Some(mutation_progress),
     )?;
-    record_mutation_commit_plan(entity_count, commit_class);
     let synchronized_store_handles =
         synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
 
@@ -960,7 +869,6 @@ pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress<C: Caniste
         effects,
         index_store_guards,
     )?;
-    emit_index_delta_metrics(&entity_deltas);
     mark_store_handles_index_ready(synchronized_store_handles.as_slice())?;
     Ok(())
 }
@@ -984,35 +892,6 @@ pub(in crate::db::executor) fn synchronized_store_handles_for_prepared_row_ops<C
             prepared_row_ops.iter().any(|row_op| {
                 ptr::eq(handle.data_store(), row_op.data_store)
                     && row_op
-                        .index_ops
-                        .iter()
-                        .any(|index_op| ptr::eq(handle.index_store(), index_op.index_store))
-            })
-        })
-        .collect()
-}
-
-// Resolve every registered store touched by one prepared row-op batch. Unlike
-// the synchronized-index helper, this includes data-only rows and cross-store
-// reverse-index mutations so durable/live commit classification can describe
-// the full write footprint.
-pub(in crate::db::executor) fn affected_store_handles_for_prepared_row_ops<C: CanisterKind>(
-    db: &Db<C>,
-    prepared_row_ops: &[PreparedRowCommitOp],
-) -> Vec<StoreHandle> {
-    let registered_handles = db.with_store_registry(|registry| {
-        registry
-            .iter()
-            .map(|(_, handle)| handle)
-            .collect::<Vec<StoreHandle>>()
-    });
-
-    registered_handles
-        .into_iter()
-        .filter(|handle| {
-            prepared_row_ops.iter().any(|row_op| {
-                ptr::eq(handle.data_store(), row_op.data_store)
-                    || row_op
                         .index_ops
                         .iter()
                         .any(|index_op| ptr::eq(handle.index_store(), index_op.index_store))
@@ -1292,38 +1171,6 @@ fn append_prepared_journal_batches(
     Ok(())
 }
 
-/// Classify the durable/live commit footprint represented by affected stores.
-#[must_use]
-pub(in crate::db::executor) fn classify_mutation_commit_plan(
-    handles: &[StoreHandle],
-) -> MutationCommitClass {
-    let mut touches_durable = false;
-    let mut touches_live = false;
-
-    for handle in handles {
-        match handle.storage_capabilities().commit_participation() {
-            StoreCommitParticipation::Durable => touches_durable = true,
-            StoreCommitParticipation::LiveOnly => touches_live = true,
-        }
-    }
-
-    match (touches_durable, touches_live) {
-        (true, true) => MutationCommitClass::MixedDurableAndLive,
-        (false, true) => MutationCommitClass::LiveOnly,
-        _ => MutationCommitClass::DurableOnly,
-    }
-}
-
-pub(in crate::db::executor) fn record_mutation_commit_plan(
-    entity_count: usize,
-    class: MutationCommitClass,
-) {
-    record(MetricsEvent::MutationCommitPlan {
-        entity_count: u64::try_from(entity_count).unwrap_or(u64::MAX),
-        class,
-    });
-}
-
 // Mark one batch of synchronized index stores as `Ready` after commit apply
 // succeeds and the commit marker is already closed.
 fn mark_store_handles_index_ready(handles: &[StoreHandle]) -> Result<(), InternalError> {
@@ -1335,22 +1182,6 @@ fn mark_store_handles_index_ready(handles: &[StoreHandle]) -> Result<(), Interna
 
 fn index_store_id(index_store: &'static LocalKey<RefCell<IndexStore>>) -> usize {
     std::ptr::from_ref::<LocalKey<RefCell<IndexStore>>>(index_store) as usize
-}
-
-fn emit_index_delta_metrics(entity_deltas: &[(Rc<str>, PreparedRowOpDelta)]) {
-    for (entity_path, delta) in entity_deltas {
-        record(MetricsEvent::IndexDelta {
-            entity_path: entity_path.clone(),
-            inserts: u64::try_from(delta.index_inserts).unwrap_or(u64::MAX),
-            removes: u64::try_from(delta.index_removes).unwrap_or(u64::MAX),
-        });
-
-        record(MetricsEvent::ReverseIndexDelta {
-            entity_path: entity_path.clone(),
-            inserts: u64::try_from(delta.reverse_index_inserts).unwrap_or(u64::MAX),
-            removes: u64::try_from(delta.reverse_index_removes).unwrap_or(u64::MAX),
-        });
-    }
 }
 
 fn key_within_bounds(

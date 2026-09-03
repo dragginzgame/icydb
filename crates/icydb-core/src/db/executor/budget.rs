@@ -490,7 +490,7 @@ impl HardExecutionBudgetTracker {
     pub(in crate::db) fn check_instruction_watermark(
         &mut self,
     ) -> Result<(), ExecutionBudgetExceeded> {
-        let current = local_instruction_counter();
+        let current = crate::runtime::local_instruction_counter();
         let delta = self
             .last_instruction_counter
             .map_or(0, |previous| current.saturating_sub(previous));
@@ -1098,16 +1098,6 @@ fn with_execution_budget<T, E>(
 
 fn usize_as_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
-}
-
-#[cfg(target_arch = "wasm32")]
-fn local_instruction_counter() -> u64 {
-    crate::runtime::performance_counter(1)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-const fn local_instruction_counter() -> u64 {
-    0
 }
 
 #[cfg(test)]

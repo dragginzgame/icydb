@@ -101,10 +101,8 @@ fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error
         let wrapper_instructions = authorization_instructions.saturating_sub(guard_instructions);
 
         let start = ic_cdk::api::performance_counter(1);
-        let schema_result = icydb::__macro::with_query_metrics_context(|| {
-            icydb::db::with_request_execution(|| {
-                crate::__icydb_generated::endpoint_handlers::schema()
-            })
+        let schema_result = icydb::db::with_request_execution(|| {
+            crate::__icydb_generated::endpoint_handlers::schema()
         });
         let schema_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
         schema_result?;

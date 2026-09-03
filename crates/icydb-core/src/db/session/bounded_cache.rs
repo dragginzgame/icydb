@@ -112,16 +112,14 @@ where
         }
     }
 
+    #[cfg(test)]
     pub(in crate::db::session) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    #[cfg(test)]
     pub(in crate::db::session) fn len(&self) -> usize {
         self.entries.len()
-    }
-
-    pub(in crate::db::session) fn keys(&self) -> impl Iterator<Item = &K> {
-        self.entries.keys()
     }
 
     #[cfg(all(test, feature = "sql", feature = "diagnostics"))]

@@ -1,7 +1,4 @@
-use super::{
-    SqlWriteCandidateAccounting, SqlWriteCandidateBounds, SqlWriteCandidateRows,
-    record_sql_write_metrics, require_sql_write_policy_plan,
-};
+use super::{SqlWriteCandidateBounds, require_sql_write_policy_plan};
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
@@ -27,20 +24,8 @@ use crate::{
             parser::{SqlDeleteStatement, SqlReturningProjection},
         },
     },
-    metrics::sink::SqlWriteKind,
     traits::CanisterKind,
 };
-
-fn record_sql_write_delete_metrics(entity_path: &str, row_count: u32, returning: bool) {
-    record_sql_write_metrics(
-        entity_path,
-        SqlWriteKind::Delete,
-        SqlWriteCandidateAccounting::delete_count(
-            SqlWriteCandidateRows::from_delete_count(row_count),
-            returning,
-        ),
-    );
-}
 
 const fn sql_delete_candidate_bounds(
     execution_bounds: Option<SqlWriteExecutionBounds>,
@@ -137,11 +122,6 @@ impl<C: CanisterKind> DbSession<C> {
                     })
                     .map_err(QueryError::execute)?;
                 let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
-                record_sql_write_delete_metrics(
-                    catalog.identity().entity_path(),
-                    row_count,
-                    returning.is_some(),
-                );
                 match returning {
                     None => Ok(SqlStatementResult::Count { row_count }),
                     Some(returning) => sql_returning_statement_projection(

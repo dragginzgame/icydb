@@ -29,7 +29,6 @@ use crate::{
         },
         write_context::{AcceptedWriteContext, MutationMode},
     },
-    metrics::sink::SqlWriteKind,
     traits::CanisterKind,
     types::{CurrentTimestamp, Timestamp},
     value::Value,
@@ -285,7 +284,6 @@ impl<C: CanisterKind> DbSession<C> {
                     SqlWriteMutationExecution::from_bounded_collection(
                         collection,
                         candidate_bounds,
-                        SqlWriteKind::Update,
                         MutationMode::Update,
                         write_context,
                         execution_contract.returning_bounds(statement.returning.is_some()),

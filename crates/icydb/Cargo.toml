@@ -13,6 +13,7 @@ authors = { workspace = true }
 default = []
 sql = ["icydb-core/sql"]
 diagnostics = ["icydb-core/diagnostics"]
+metrics = ["icydb-core/metrics"]
 migration = ["icydb-core/migration"]
 
 [dependencies]

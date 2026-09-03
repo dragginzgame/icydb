@@ -8,7 +8,7 @@
 #[must_use]
 #[cfg(all(feature = "diagnostics", target_arch = "wasm32"))]
 pub(in crate::db) fn read_local_instruction_counter() -> u64 {
-    crate::runtime::performance_counter(1)
+    crate::runtime::local_instruction_counter()
 }
 
 /// Read the current local instruction counter for diagnostic phase timing.

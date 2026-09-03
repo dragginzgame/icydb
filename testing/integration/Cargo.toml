@@ -14,7 +14,7 @@ authors = { workspace = true }
 blake3 = { workspace = true }
 candid = { workspace = true }
 ic-testkit = { workspace = true }
-icydb = { workspace = true, features = ["diagnostics", "migration", "sql"] }
+icydb = { workspace = true, features = ["diagnostics", "metrics", "migration", "sql"] }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -61,8 +61,8 @@ name = "wasm_post_link"
 path = "tests/wasm_post_link.rs"
 
 [[test]]
-name = "metrics_query_context"
-path = "tests/metrics_query_context.rs"
+name = "metrics_execution_mode"
+path = "tests/metrics_execution_mode.rs"
 
 [[test]]
 name = "sql_correctness"
@@ -87,10 +87,6 @@ path = "tests/u256_measurement_contract.rs"
 [[test]]
 name = "group_path_measurement_contract"
 path = "tests/group_path_measurement_contract.rs"
-
-[[test]]
-name = "endpoint_cost_closeout"
-path = "tests/endpoint_cost_closeout.rs"
 
 [[test]]
 name = "streaming_execution_baseline"

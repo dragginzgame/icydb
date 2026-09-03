@@ -18,6 +18,7 @@ use crate::{
         registry::StoreHandle,
     },
     error::InternalError,
+    metrics::EntityMetricsSpan,
     traits::CanisterKind,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource, DiagnosticExecutionLane};
@@ -29,10 +30,7 @@ const EXACT_COUNT_SHAPE_DOMAIN: u64 = 0x6963_7964_622d_6578;
 const EXACT_NUMERIC_AGGREGATE_SHAPE_DOMAIN: u64 = 0x6963_7964_622d_6e75;
 
 #[cfg(feature = "diagnostics")]
-use crate::db::{
-    diagnostics::measure_local_instruction_delta as measure_exact_terminal_phase,
-    executor::plan_metrics::record_rows_scanned_for_path,
-};
+use crate::db::diagnostics::measure_local_instruction_delta as measure_exact_terminal_phase;
 
 #[cfg(feature = "sql")]
 use crate::db::{
@@ -164,6 +162,8 @@ pub(in crate::db) fn execute_exact_cardinality_for_canister<C>(
 where
     C: CanisterKind,
 {
+    let entity_path = authority.entity_path_handle();
+    let _metrics_span = EntityMetricsSpan::new(entity_path.as_ref());
     let context = direct_read_execution_context(&authority, lane, EXACT_COUNT_SHAPE_DOMAIN);
     with_read_execution_budget(db.request_execution_scope(), context, || {
         charge_current_execution_budget(
@@ -214,7 +214,6 @@ where
         let _ = (index_prefix_target, metadata_local_instructions);
         #[cfg(feature = "diagnostics")]
         {
-            record_rows_scanned_for_path(authority.entity_path(), 0);
             if index_prefix_target {
                 super::terminal_attribution::record_index_prefix_cardinality_terminal_attribution(
                     metadata_local_instructions,
@@ -242,6 +241,8 @@ where
         return Err(InternalError::query_executor_invariant());
     }
 
+    let entity_path = authority.entity_path_handle();
+    let _metrics_span = EntityMetricsSpan::new(entity_path.as_ref());
     let context =
         direct_read_execution_context(&authority, lane, EXACT_NUMERIC_AGGREGATE_SHAPE_DOMAIN);
     with_read_execution_budget(db.request_execution_scope(), context, || {
@@ -291,7 +292,6 @@ where
         let _ = metadata.local_instructions;
         #[cfg(feature = "diagnostics")]
         {
-            record_rows_scanned_for_path(authority.entity_path(), 0);
             super::terminal_attribution::record_index_prefix_cardinality_terminal_attribution(
                 metadata.local_instructions,
             );

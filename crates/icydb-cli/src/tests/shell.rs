@@ -9,8 +9,8 @@ use crate::{
         SqlShellCallKind, candid_escape_string, drain_complete_shell_statements,
         finalize_successful_command_output, interactive_start_message, is_shell_exit_command,
         is_shell_help_command, normalize_shell_statement_line, render_grouped_shell_text,
-        render_perf_suffix, render_projection_shell_text, shell_help_text, shell_perf_attribution,
-        sql_error_with_recovery_hint, sql_shell_call_kind,
+        render_projection_shell_text, shell_help_text, sql_error_with_recovery_hint,
+        sql_shell_call_kind,
     },
 };
 use candid::{Decode, Encode};
@@ -22,57 +22,6 @@ use icydb::{
     },
     value::OutputValue,
 };
-
-#[test]
-fn render_perf_suffix_skips_zero_instruction_segments() {
-    let suffix = render_perf_suffix(Some(&shell_perf_attribution(2_400, 500, 0, 0, 1_900, 0)))
-        .expect("non-zero perf attribution should render a footer");
-
-    assert_eq!(suffix, "2.4Ki [cceeeeeeee]");
-}
-
-#[test]
-fn render_perf_suffix_omits_empty_attribution() {
-    assert!(
-        render_perf_suffix(Some(&shell_perf_attribution(0, 0, 0, 0, 0, 0))).is_none(),
-        "all-zero perf attribution should not render a footer",
-    );
-}
-
-#[test]
-fn render_perf_suffix_scales_bar_width_by_instruction_magnitude() {
-    let suffix = render_perf_suffix(Some(&shell_perf_attribution(
-        120_000_000,
-        10_000_000,
-        20_000_000,
-        20_000_000,
-        40_000_000,
-        10_000_000,
-    )))
-    .expect("large perf attribution should render a footer");
-
-    assert_eq!(suffix, "120.0Mi [ccppppsssseeeeeeeeedd????]");
-}
-
-#[test]
-fn render_perf_suffix_omits_unknown_bucket_when_top_level_attribution_is_exhaustive() {
-    let suffix = render_perf_suffix(Some(&shell_perf_attribution(
-        10_000_000, 1_000_000, 2_000_000, 2_000_000, 3_000_000, 2_000_000,
-    )))
-    .expect("complete perf attribution should render a footer");
-
-    assert_eq!(suffix, "10.0Mi [ccppppsssseeeeeedddd]");
-}
-
-#[test]
-fn render_perf_suffix_surfaces_unattributed_remainder_as_unknown_bucket() {
-    let suffix = render_perf_suffix(Some(&shell_perf_attribution(
-        10_000_000, 1_000_000, 1_000_000, 1_000_000, 4_000_000, 1_000_000,
-    )))
-    .expect("residual perf attribution should render a footer");
-
-    assert_eq!(suffix, "10.0Mi [ccppsseeeeeeeedd????]");
-}
 
 #[test]
 fn successful_command_output_keeps_one_blank_separator_line() {
@@ -174,20 +123,12 @@ fn drain_complete_shell_statements_keeps_incomplete_remainder() {
 }
 
 #[test]
-fn shell_help_text_mentions_current_perf_legend() {
+fn shell_help_text_names_current_commands_and_examples() {
     let help = shell_help_text();
 
     assert!(help.contains("? / help         show this help"));
     assert!(help.contains("\\q / quit / exit quit the interactive shell"));
     assert!(!help.contains("icydb-cli help"));
-    assert!(help.contains("c = compile"));
-    assert!(help.contains("p = planner"));
-    assert!(help.contains("s = store"));
-    assert!(help.contains("e = executor"));
-    assert!(help.contains("d = decode"));
-    assert!(help.contains("{pc=.../...}"));
-    assert!(help.contains("{er=...}"));
-    assert!(help.contains("{r=...}"));
     assert!(help.contains("CREATE INDEX character_level_idx ON character (level);"));
     assert!(help.contains("SHOW INDEXES FROM character;"));
     assert!(help.contains("DESCRIBE character;"));
@@ -398,15 +339,12 @@ fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
 
 #[test]
 fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
-    let rendered = render_projection_shell_text(
-        RowProjectionOutput {
-            entity: "Character".to_string(),
-            columns: vec!["name".to_string()],
-            rows: vec![vec![OutputValue::text("alice".to_string())]],
-            row_count: 1,
-        },
-        None,
-    );
+    let rendered = render_projection_shell_text(RowProjectionOutput {
+        entity: "Character".to_string(),
+        columns: vec!["name".to_string()],
+        rows: vec![vec![OutputValue::text("alice".to_string())]],
+        row_count: 1,
+    });
 
     assert!(
         rendered.ends_with("1 row,"),
@@ -416,15 +354,12 @@ fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
 
 #[test]
 fn projection_shell_text_renders_null_cells_as_sql_null() {
-    let rendered = render_projection_shell_text(
-        RowProjectionOutput {
-            entity: "Character".to_string(),
-            columns: vec!["nickname".to_string()],
-            rows: vec![vec![OutputValue::null()]],
-            row_count: 1,
-        },
-        None,
-    );
+    let rendered = render_projection_shell_text(RowProjectionOutput {
+        entity: "Character".to_string(),
+        columns: vec!["nickname".to_string()],
+        rows: vec![vec![OutputValue::null()]],
+        row_count: 1,
+    });
 
     assert!(
         rendered.contains("NULL"),
@@ -438,16 +373,13 @@ fn projection_shell_text_renders_null_cells_as_sql_null() {
 
 #[test]
 fn grouped_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
-    let rendered = render_grouped_shell_text(
-        SqlGroupedRowsOutput {
-            entity: "Character".to_string(),
-            columns: vec!["class_name".to_string(), "COUNT(*)".to_string()],
-            rows: vec![vec!["Bard".to_string(), "5".to_string()]],
-            row_count: 1,
-            next_cursor: None,
-        },
-        None,
-    );
+    let rendered = render_grouped_shell_text(SqlGroupedRowsOutput {
+        entity: "Character".to_string(),
+        columns: vec!["class_name".to_string(), "COUNT(*)".to_string()],
+        rows: vec![vec!["Bard".to_string(), "5".to_string()]],
+        row_count: 1,
+        next_cursor: None,
+    });
 
     assert!(
         rendered.ends_with("1 row,"),
@@ -457,16 +389,13 @@ fn grouped_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
 
 #[test]
 fn grouped_shell_text_renders_null_cells_as_sql_null() {
-    let rendered = render_grouped_shell_text(
-        SqlGroupedRowsOutput {
-            entity: "Character".to_string(),
-            columns: vec!["class_name".to_string(), "COUNT(*)".to_string()],
-            rows: vec![vec!["null".to_string(), "5".to_string()]],
-            row_count: 1,
-            next_cursor: None,
-        },
-        None,
-    );
+    let rendered = render_grouped_shell_text(SqlGroupedRowsOutput {
+        entity: "Character".to_string(),
+        columns: vec!["class_name".to_string(), "COUNT(*)".to_string()],
+        rows: vec![vec!["null".to_string(), "5".to_string()]],
+        row_count: 1,
+        next_cursor: None,
+    });
 
     assert!(
         rendered.contains("NULL"),

@@ -21,8 +21,6 @@ icydb::endpoints! {
     #[cfg(feature = "sql")]
     icydb_ddl;
     icydb_metrics(authorization = public);
-    #[cfg(feature = "local-extended-metrics")]
-    icydb_metrics_extended(authorization = public);
     icydb_metrics_reset;
     icydb_snapshot;
     icydb_schema(authorization = controller);

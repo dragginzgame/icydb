@@ -664,7 +664,6 @@ fn resolve_canister_build_configuration(
         .copied()
         .filter(|feature| match *feature {
             "candid-export" => candid_enabled,
-            "metrics-extended" => true,
             _ => options.sql_mode.enabled(),
         })
         .collect();

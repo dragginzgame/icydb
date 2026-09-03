@@ -1,7 +1,7 @@
 //! Module: metrics command handling.
-//! Responsibility: call generated metrics endpoints and render human metrics reports.
-//! Does not own: endpoint publication, generic ICP command construction, or other observability reports.
-//! Boundary: exposes the metrics command runner and test-covered report helpers through observability.
+//! Responsibility: call generated metrics endpoints and render entity-cost reports.
+//! Does not own: endpoint publication or generic ICP command construction.
+//! Boundary: one report query and one reset update.
 
 use candid::Decode;
 
@@ -9,7 +9,7 @@ mod render;
 
 use crate::{
     cli::{CanisterTarget, MetricsArgs},
-    endpoint::{Endpoint, METRICS_ENDPOINT, METRICS_EXTENDED_ENDPOINT, METRICS_RESET_ENDPOINT},
+    endpoint::{METRICS_ENDPOINT, METRICS_RESET_ENDPOINT},
     icp::require_created_canister,
     observability::{call_query, call_update, endpoint_result_error},
 };
@@ -17,86 +17,27 @@ use crate::{
 /// Read or reset the generated metrics endpoints.
 pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
     let target = args.target();
-    let endpoint = metrics_endpoint(args.reset(), args.extended());
-
     require_created_canister(target.environment(), target.canister_name())?;
 
     if args.reset() {
         return run_metrics_reset(target);
     }
 
-    if args.extended() {
-        return run_extended_metrics_report(target, endpoint, args.window_start_ms());
-    }
-
-    run_compact_metrics_report(target, endpoint, args.window_start_ms())
-}
-
-const fn metrics_endpoint(reset: bool, extended: bool) -> Endpoint {
-    if reset {
-        return METRICS_RESET_ENDPOINT;
-    }
-
-    if extended {
-        METRICS_EXTENDED_ENDPOINT
-    } else {
-        METRICS_ENDPOINT
-    }
-}
-
-fn run_compact_metrics_report(
-    target: &CanisterTarget,
-    endpoint: Endpoint,
-    window_start_ms: Option<u64>,
-) -> Result<(), String> {
-    let candid_arg = metrics_candid_arg(window_start_ms);
     let candid_bytes = call_query(
         target.environment(),
         target.canister_name(),
-        endpoint.method(),
-        candid_arg.as_str(),
+        METRICS_ENDPOINT.method(),
+        "()",
     )?;
-    let response = decode_metrics_report(candid_bytes.as_slice())?;
-
-    match response {
+    match decode_metrics_report(candid_bytes.as_slice())? {
         Ok(report) => {
             print!("{}", render_metrics_report(&report));
-
             Ok(())
         }
         Err(err) => Err(endpoint_result_error(
             "metrics",
             target,
-            endpoint.method(),
-            err,
-        )),
-    }
-}
-
-fn run_extended_metrics_report(
-    target: &CanisterTarget,
-    endpoint: Endpoint,
-    window_start_ms: Option<u64>,
-) -> Result<(), String> {
-    let candid_arg = metrics_candid_arg(window_start_ms);
-    let candid_bytes = call_query(
-        target.environment(),
-        target.canister_name(),
-        endpoint.method(),
-        candid_arg.as_str(),
-    )?;
-    let response = decode_extended_metrics_report(candid_bytes.as_slice())?;
-
-    match response {
-        Ok(report) => {
-            print!("{}", render_extended_metrics_report(&report));
-
-            Ok(())
-        }
-        Err(err) => Err(endpoint_result_error(
-            "extended metrics",
-            target,
-            endpoint.method(),
+            METRICS_ENDPOINT.method(),
             err,
         )),
     }
@@ -109,16 +50,13 @@ fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
         METRICS_RESET_ENDPOINT.method(),
         "()",
     )?;
-    let response = decode_metrics_reset_response(candid_bytes.as_slice())?;
-
-    match response {
+    match decode_metrics_reset_response(candid_bytes.as_slice())? {
         Ok(()) => {
             println!(
                 "Reset metrics on canister '{}' in environment '{}'.",
                 target.canister_name(),
                 target.environment(),
             );
-
             Ok(())
         }
         Err(err) => Err(endpoint_result_error(
@@ -132,20 +70,10 @@ fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
 
 pub(super) fn decode_metrics_report(
     candid_bytes: &[u8],
-) -> Result<Result<icydb::metrics::CompactMetricsReport, icydb::Error>, String> {
+) -> Result<Result<icydb::metrics::MetricsReport, icydb::Error>, String> {
     Decode!(
         candid_bytes,
-        Result<icydb::metrics::CompactMetricsReport, icydb::Error>
-    )
-    .map_err(|err| err.to_string())
-}
-
-pub(super) fn decode_extended_metrics_report(
-    candid_bytes: &[u8],
-) -> Result<Result<icydb::metrics::EventReport, icydb::Error>, String> {
-    Decode!(
-        candid_bytes,
-        Result<icydb::metrics::EventReport, icydb::Error>
+        Result<icydb::metrics::MetricsReport, icydb::Error>
     )
     .map_err(|err| err.to_string())
 }
@@ -156,17 +84,6 @@ pub(super) fn decode_metrics_reset_response(
     Decode!(candid_bytes, Result<(), icydb::Error>).map_err(|err| err.to_string())
 }
 
-pub(super) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
-    match window_start_ms {
-        Some(value) => format!("(opt ({value} : nat64))"),
-        None => "(null)".to_string(),
-    }
-}
-
-pub(super) fn render_metrics_report(report: &icydb::metrics::CompactMetricsReport) -> String {
+pub(super) fn render_metrics_report(report: &icydb::metrics::MetricsReport) -> String {
     render::render_metrics_report(report)
-}
-
-pub(super) fn render_extended_metrics_report(report: &icydb::metrics::EventReport) -> String {
-    render::render_extended_metrics_report(report)
 }

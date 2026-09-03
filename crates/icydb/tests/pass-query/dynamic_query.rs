@@ -33,7 +33,6 @@ where
         .select(["name", "age"])
         .limit(25);
     let _ = db.execute_live_page(&request, None);
-    let _ = db.execute_live_page_with_attribution(&request, None);
     let _ = db.execute_trusted_live_page(&request, None);
     let mut public_continuation = None;
     let _ = db
@@ -71,19 +70,6 @@ where
     E: TypedEntityAdapter,
 {
     let _ = query.limit(25).execute_exhaustive_page(None, None);
-}
-
-#[allow(dead_code)]
-fn typed_attributed_queries_compile_without_sql<C, E>(query: Query<'_, C, E>)
-where
-    C: CanisterKind,
-    E: TypedEntityAdapter,
-{
-    let _ = query
-        .filter(FilterExpr::eq("owner_id", 1_u64))
-        .filter(FilterExpr::eq("slot", 2_u64))
-        .limit(25)
-        .execute_live_page_with_attribution(None);
 }
 
 #[allow(dead_code)]

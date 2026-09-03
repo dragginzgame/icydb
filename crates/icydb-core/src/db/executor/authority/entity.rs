@@ -15,7 +15,6 @@ use crate::{
         schema::{AcceptedSchemaAuthority, AcceptedSchemaRuntimeRootIdentity, SchemaInfo},
     },
     error::InternalError,
-    metrics::sink::record_prepared_shape_already_finalized_for_path,
     types::EntityTag,
 };
 use std::{rc::Rc, sync::Arc};
@@ -152,7 +151,6 @@ impl EntityAuthority {
         // metadata with accepted schema authority. Do not overwrite that
         // schema-selected slot contract while lowering the executor core.
         if plan.has_static_execution_planning_contract() {
-            record_prepared_shape_already_finalized_for_path(self.entity_path());
             return Ok(());
         }
 

@@ -115,16 +115,8 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), QueryError> {
         let (plan, cursor) = self.prepare_structural_grouped_execution(plan, cursor_token)?;
 
-        self.with_metrics(|| {
-            execute_shared_grouped_plan_for_canister(
-                &self.db,
-                self.debug,
-                plan,
-                cursor,
-                execution_lane,
-            )
-        })
-        .map_err(QueryError::execute)
+        execute_shared_grouped_plan_for_canister(&self.db, self.debug, plan, cursor, execution_lane)
+            .map_err(QueryError::execute)
     }
 
     /// Execute one accepted-schema-owned grouped plan with phase attribution.
@@ -144,15 +136,13 @@ impl<C: CanisterKind> DbSession<C> {
     > {
         let (plan, cursor) = self.prepare_structural_grouped_execution(plan, cursor_token)?;
 
-        self.with_metrics(|| {
-            execute_shared_grouped_plan_for_canister_with_phase_attribution(
-                &self.db,
-                self.debug,
-                plan,
-                cursor,
-                execution_lane,
-            )
-        })
+        execute_shared_grouped_plan_for_canister_with_phase_attribution(
+            &self.db,
+            self.debug,
+            plan,
+            cursor,
+            execution_lane,
+        )
         .map_err(QueryError::execute)
     }
 }

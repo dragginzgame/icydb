@@ -46,16 +46,13 @@ impl<C: CanisterKind> DbSession<C> {
         let bundle =
             PreparedAggregateRequestBundle::from_global_command(command, schema_info.clone())?;
         let (request, projection) = bundle.into_parts();
-        let rows = self
-            .with_metrics(|| {
-                execute_structural_aggregate_rows_for_canister(
-                    &self.db,
-                    self.debug,
-                    prepared_plan,
-                    request,
-                )
-            })
-            .map_err(QueryError::execute)?;
+        let rows = execute_structural_aggregate_rows_for_canister(
+            &self.db,
+            self.debug,
+            prepared_plan,
+            request,
+        )
+        .map_err(QueryError::execute)?;
         let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
         let (columns, fixed_scales) = projection.into_components();
 

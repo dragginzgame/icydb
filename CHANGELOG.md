@@ -9,13 +9,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
-- `0.252.5` removes internal policy rediscovery across secondary ordering,
-  accepted-index predicates, and Wasm/performance build evidence; gives
-  maintained actors one fixture identity, hard-cuts current evidence to
-  version 1, restores ownership documentation, and updates the host harness to
-  `ic-testkit 0.9.0` and PocketIC 16 without changing Candid. It also converges
-  mutation lowering and exact first-component metadata, and hard-cuts four
-  duplicate public typed-operation errors to `TypedOperationError`.
+- `0.252.5` completes the closeout with single-owner query, mutation, and build
+  paths; hard-cuts duplicated metrics and per-call query-cost envelopes to one
+  optional on-canister entity hit/cost report; and updates the host harness to
+  `ic-testkit 0.9.0` and PocketIC 16.
 - `0.252.4` removes parallel projection and planner diagnostic adapters,
   centralizes numeric-operator lowering, and keeps function-evaluation errors
   internal until their actual boundary. Twenty-five production files remove

@@ -21,11 +21,11 @@ use icydb::{
         GroupedCountAttribution, GroupedExecutionAttribution, IntegrityCheckError,
         IntegrityCheckResult, IntegrityJobOwner, LiveQueryPageOutput, MutationJobAdvanceReceipt,
         MutationJobAdvanceRequest, MutationJobError, MutationJobId, MutationJobIdempotencyKey,
-        MutationJobPhase, MutationJobState, MutationJobStatus, OperationReadAttribution,
-        ProgressJobInventory, ReadSetRevisionError, ReadSetRevisionProof, SqlCompileAttribution,
-        SqlExecutionAttribution, SqlIntegrityError, SqlPureCoveringAttribution,
-        SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlStructuralWorkAttribution,
-        StructuralMutation, StructuralPatch, WriteCell,
+        MutationJobPhase, MutationJobState, MutationJobStatus, ProgressJobInventory,
+        ReadSetRevisionError, ReadSetRevisionProof, SqlCompileAttribution, SqlExecutionAttribution,
+        SqlIntegrityError, SqlPureCoveringAttribution, SqlQueryCacheAttribution,
+        SqlQueryExecutionAttribution, SqlStructuralWorkAttribution, StructuralMutation,
+        StructuralPatch, WriteCell,
         query::{FieldRef, FilterExpr, asc},
         sql::SqlQueryResult,
     },
@@ -51,7 +51,6 @@ icydb::start! {
 icydb::endpoints! {
     icydb_metrics(authorization = public);
     #[cfg(feature = "test-admin-api")]
-    icydb_metrics_extended(authorization = public);
     icydb_metrics_reset;
     #[cfg(feature = "test-admin-api")]
     icydb_fixtures_reset;
@@ -76,18 +75,6 @@ struct SqlQueryPerfResult {
 struct SqlTotalOnlyPerfResult {
     result: SqlQueryResult,
     instructions: u64,
-}
-
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-#[cfg(feature = "sql")]
-struct OperationReadAttributionProbe {
-    results_match: bool,
-    typed_result_matches: bool,
-    cold_plan_cache: icydb::db::ReadPlanCacheOutcome,
-    ordinary_local_instructions: u64,
-    attributed_outer_local_instructions: u64,
-    attribution: OperationReadAttribution,
-    typed_attribution: OperationReadAttribution,
 }
 
 /// Engine-level page-driver facts after accepting or rejecting one decoded page.
@@ -1810,52 +1797,6 @@ fn query_streaming_execution_public_live_page_driver_probe()
             page_has_continuation,
             continuation_after,
             exhausted,
-        })
-    })
-}
-
-/// Compare cold and warm attributed public reads with an ordinary warm control.
-/// The response is bounded and omits row payloads because result parity is
-/// checked inside the canister.
-#[cfg(feature = "sql")]
-#[query]
-fn query_streaming_execution_read_attribution_probe()
--> Result<OperationReadAttributionProbe, icydb::Error> {
-    icydb::db::with_request_execution(|| {
-        let session = db()?;
-        let request = DynamicQuery::new("PerfAuditStreamingRow")
-            .filter(FieldRef::new("id").eq(1_i32))
-            .select(["id"])
-            .limit(1);
-        let cold = session.execute_live_page_with_attribution(&request, None)?;
-
-        let ordinary_start = ic_cdk::api::performance_counter(1);
-        let ordinary = icydb::__macro::with_query_metrics_context(|| {
-            session.execute_live_page(&request, None)
-        })?;
-        let ordinary_local_instructions =
-            ic_cdk::api::performance_counter(1).saturating_sub(ordinary_start);
-
-        let attributed_start = ic_cdk::api::performance_counter(1);
-        let attributed = session.execute_live_page_with_attribution(&request, None)?;
-        let attributed_outer_local_instructions =
-            ic_cdk::api::performance_counter(1).saturating_sub(attributed_start);
-        let typed = session
-            .query::<PerfAuditStreamingRow>()
-            .map_err(|_| query_validate_error())?
-            .filter(FieldRef::new("id").eq(1_i32))
-            .limit(1)
-            .execute_live_page_with_attribution(None)
-            .map_err(|_| query_validate_error())?;
-
-        Ok(OperationReadAttributionProbe {
-            results_match: ordinary == attributed.result,
-            typed_result_matches: typed.result.rows.len() == 1 && typed.result.rows[0].id == 1,
-            cold_plan_cache: cold.attribution.plan_cache,
-            ordinary_local_instructions,
-            attributed_outer_local_instructions,
-            attribution: attributed.attribution,
-            typed_attribution: typed.attribution,
         })
     })
 }

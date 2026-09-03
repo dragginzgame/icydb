@@ -57,7 +57,6 @@ use crate::{
         write_context::MutationMode,
     },
     error::InternalError,
-    metrics::sink::{MetricsEvent, MutationJobLifecycleEvent, record},
     traits::CanisterKind,
     types::{CurrentTimestamp, EntityTag, Timestamp, Ulid},
 };
@@ -732,24 +731,11 @@ impl<C: CanisterKind> DbSession<C> {
             PackedForwardOutcome::Ready {
                 receipt,
                 progress_only,
-                physical_keys_scanned,
-                scan_bytes,
-                staged_bytes,
-            } => finish_committed_mutation_job_forward::<C>(
-                identity.entity_path(),
-                receipt,
-                progress_only,
-                physical_keys_scanned,
-                scan_bytes,
-                staged_bytes,
-            ),
+            } => finish_committed_mutation_job_forward::<C>(receipt, progress_only),
             PackedForwardOutcome::Restart(reason) => {
                 persist_terminal_mutation_job_restart::<C>(before, request, reason)
             }
-            PackedForwardOutcome::Failure(error) => {
-                record_mutation_job_target_failure(&error);
-                Err(error)
-            }
+            PackedForwardOutcome::Failure(error) => Err(error),
         }
     }
 
@@ -776,10 +762,6 @@ impl<C: CanisterKind> DbSession<C> {
         Self::advance_prepared_mutation_job_verify(before, request, prepared)
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one Verify transition keeps retained-baseline checks, bounded scan, and the exact terminal progress decision inseparable"
-    )]
     fn advance_prepared_mutation_job_verify(
         before: &MutationJobRecord,
         request: &MutationJobAdvanceRequest,
@@ -799,14 +781,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(|_| MutationJobError::TargetQueryFailed)?;
         if mutation_verify_revision_changed(captured_revision, revision_before_scan) {
             continuation.restart_forward();
-            return persist_observed_verify_restart::<C>(
-                before,
-                request,
-                &continuation,
-                0,
-                0,
-                MutationJobLifecycleEvent::VerifyRestartRevisionDrift,
-            );
+            return persist_verify_restart::<C>(before, request, &continuation, 0);
         }
 
         let identity = catalog.identity();
@@ -839,7 +814,6 @@ impl<C: CanisterKind> DbSession<C> {
         if let Err(error) = finish_current_execution_instruction_watermark() {
             return persist_classified_mutation_job_execution_failure::<C>(before, request, &error);
         }
-        record_resumable_rows_scanned(identity.entity_path(), scan.keys_scanned);
         let keys_scanned =
             u64::try_from(scan.keys_scanned).map_err(|_| MutationJobError::CounterOverflow)?;
         let revision_after_scan = durable_entity_revision(&store, identity.entity_tag())
@@ -847,20 +821,12 @@ impl<C: CanisterKind> DbSession<C> {
         if scan.residual_work
             || mutation_verify_revision_changed(captured_revision, revision_after_scan)
         {
-            let restart_event = mutation_verify_restart_lifecycle(scan.residual_work);
             continuation.restart_forward();
-            return persist_observed_verify_restart::<C>(
-                before,
-                request,
-                &continuation,
-                keys_scanned,
-                scan.scan_bytes,
-                restart_event,
-            );
+            return persist_verify_restart::<C>(before, request, &continuation, keys_scanned);
         }
 
         if scan.exhausted {
-            return persist_observed_verify_transition::<C>(
+            return persist_mutation_job_progress_transition::<C>(
                 before,
                 request,
                 MutationJobTransition::new(
@@ -871,8 +837,6 @@ impl<C: CanisterKind> DbSession<C> {
                     0,
                     0,
                 ),
-                scan.scan_bytes,
-                Some(MutationJobLifecycleEvent::Complete),
             );
         }
 
@@ -881,7 +845,7 @@ impl<C: CanisterKind> DbSession<C> {
             .encode()
             .map_err(|_| MutationJobError::CorruptProgressStore)?
             .into_bytes();
-        persist_observed_verify_transition::<C>(
+        persist_mutation_job_progress_transition::<C>(
             before,
             request,
             MutationJobTransition::new(
@@ -892,8 +856,6 @@ impl<C: CanisterKind> DbSession<C> {
                 0,
                 0,
             ),
-            scan.scan_bytes,
-            None,
         )
     }
 
@@ -985,7 +947,6 @@ impl<C: CanisterKind> DbSession<C> {
 struct ResumableForwardScan {
     final_checkpoint: Option<RawDataStoreKey>,
     physical_keys_scanned: usize,
-    scan_bytes: usize,
     exhausted: bool,
     failure: Option<ResumableForwardScanError>,
 }
@@ -1153,7 +1114,6 @@ impl<'a> ResumableForwardScanner<'a> {
         ResumableForwardScan {
             final_checkpoint: self.checkpoint.clone(),
             physical_keys_scanned: self.physical_keys_scanned,
-            scan_bytes: self.scan_bytes,
             exhausted: self.exhausted && !packing.stopped_before_candidate(),
             failure: self.failure,
         }
@@ -1164,9 +1124,6 @@ enum PackedForwardOutcome {
     Ready {
         receipt: MutationJobAdvanceReceipt,
         progress_only: Option<MutationProgressRecordOp>,
-        physical_keys_scanned: usize,
-        scan_bytes: usize,
-        staged_bytes: usize,
     },
     Restart(MutationJobRestartReason),
     Failure(MutationJobError),
@@ -1276,17 +1233,11 @@ fn prepare_packed_forward_outcome(
             );
         }
     };
-    let physical_keys_scanned = scan.physical_keys_scanned;
-    let scan_bytes = scan.scan_bytes;
-    let staged_bytes = packing.staged_bytes();
     if packing.admitted_mutations() == 0 {
         (
             PackedForwardOutcome::Ready {
                 receipt,
                 progress_only: Some(operation),
-                physical_keys_scanned,
-                scan_bytes,
-                staged_bytes,
             },
             AcceptedStructuralMutationCommitDirective::Skip,
         )
@@ -1295,9 +1246,6 @@ fn prepare_packed_forward_outcome(
             PackedForwardOutcome::Ready {
                 receipt,
                 progress_only: None,
-                physical_keys_scanned,
-                scan_bytes,
-                staged_bytes,
             },
             AcceptedStructuralMutationCommitDirective::WithMutationProgress(operation),
         )
@@ -1319,7 +1267,6 @@ fn resumable_scan_bytes_after_row(
 struct ResumableVerifyScan {
     final_checkpoint: Option<RawDataStoreKey>,
     keys_scanned: usize,
-    scan_bytes: usize,
     exhausted: bool,
     residual_work: bool,
 }
@@ -1388,7 +1335,6 @@ fn scan_mutation_job_verify(
     Ok(ResumableVerifyScan {
         final_checkpoint,
         keys_scanned,
-        scan_bytes,
         exhausted: !has_more,
         residual_work,
     })
@@ -1426,63 +1372,14 @@ fn charge_resumable_scan_row(
     )
 }
 
-fn record_resumable_rows_scanned(entity_path: &str, keys_scanned: usize) {
-    record(MetricsEvent::RowsScanned {
-        entity_path: entity_path.into(),
-        rows_scanned: u64::try_from(keys_scanned).unwrap_or(u64::MAX),
-    });
-}
-
 fn finish_committed_mutation_job_forward<C: CanisterKind>(
-    entity_path: &str,
     receipt: MutationJobAdvanceReceipt,
     progress_only: Option<MutationProgressRecordOp>,
-    physical_keys_scanned: usize,
-    scan_bytes: usize,
-    staged_bytes: usize,
 ) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
-    record_resumable_rows_scanned(entity_path, physical_keys_scanned);
     if let Some(operation) = progress_only {
         replace_mutation_progress_record_op::<C>(&operation)?;
     }
-    record_mutation_job_step(
-        MutationJobPhase::Forward,
-        &receipt,
-        scan_bytes,
-        staged_bytes,
-    );
-    if receipt.phase == MutationJobPhase::Verify {
-        record_mutation_job_lifecycle(MutationJobLifecycleEvent::ForwardToVerify);
-    }
     Ok(receipt)
-}
-
-fn record_mutation_job_lifecycle(event: MutationJobLifecycleEvent) {
-    record(MetricsEvent::MutationJobLifecycle { event });
-}
-
-fn record_mutation_job_step(
-    phase: MutationJobPhase,
-    receipt: &MutationJobAdvanceReceipt,
-    scan_bytes: usize,
-    staged_bytes: usize,
-) {
-    record(MetricsEvent::MutationJobStep {
-        phase,
-        keys_scanned: receipt.keys_scanned,
-        rows_updated: receipt.rows_updated,
-        scan_bytes: u64::try_from(scan_bytes).unwrap_or(u64::MAX),
-        staged_bytes: u64::try_from(staged_bytes).unwrap_or(u64::MAX),
-        keys_scanned_total: receipt.keys_scanned_total,
-        rows_updated_total: receipt.rows_updated_total,
-        verify_restarts_total: receipt.verify_restarts_total,
-    });
-}
-
-fn record_mutation_job_target_failure(error: &MutationJobError) {
-    if let MutationJobError::TargetMutationFailed(reason) = error {
-        record(MetricsEvent::MutationJobTargetFailure { reason: *reason });
-    }
 }
 
 fn durable_entity_revision(store: &StoreHandle, entity_tag: EntityTag) -> Result<u64, QueryError> {
@@ -1524,7 +1421,6 @@ fn persist_classified_mutation_job_execution_failure<C: CanisterKind>(
             persist_terminal_mutation_job_restart::<C>(before, request, reason)
         }
         MutationJobTargetExecutionFailure::Target(reason) => {
-            record(MetricsEvent::MutationJobTargetFailure { reason });
             Err(MutationJobError::TargetMutationFailed(reason))
         }
     }
@@ -1574,14 +1470,6 @@ fn mutation_job_execution_budget_restart_reason(
 
 const fn mutation_verify_revision_changed(retained: u64, current: u64) -> bool {
     current != retained
-}
-
-const fn mutation_verify_restart_lifecycle(residual_work: bool) -> MutationJobLifecycleEvent {
-    if residual_work {
-        MutationJobLifecycleEvent::VerifyRestartResidualWork
-    } else {
-        MutationJobLifecycleEvent::VerifyRestartRevisionDrift
-    }
 }
 
 fn prepare_mutation_job_forward_runtime<'a>(
@@ -1713,7 +1601,6 @@ fn persist_terminal_mutation_job_restart<C: CanisterKind>(
             0,
         ),
     )?;
-    record(MetricsEvent::MutationJobRestart { reason });
     Ok(receipt)
 }
 
@@ -1739,35 +1626,6 @@ fn persist_verify_restart<C: CanisterKind>(
             1,
         ),
     )
-}
-
-fn persist_observed_verify_restart<C: CanisterKind>(
-    before: &MutationJobRecord,
-    request: &MutationJobAdvanceRequest,
-    continuation: &DecodedMutationJobEngineContinuation,
-    keys_scanned: u64,
-    scan_bytes: usize,
-    event: MutationJobLifecycleEvent,
-) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
-    let receipt = persist_verify_restart::<C>(before, request, continuation, keys_scanned)?;
-    record_mutation_job_step(MutationJobPhase::Verify, &receipt, scan_bytes, 0);
-    record_mutation_job_lifecycle(event);
-    Ok(receipt)
-}
-
-fn persist_observed_verify_transition<C: CanisterKind>(
-    before: &MutationJobRecord,
-    request: &MutationJobAdvanceRequest,
-    transition: MutationJobTransition,
-    scan_bytes: usize,
-    event: Option<MutationJobLifecycleEvent>,
-) -> Result<MutationJobAdvanceReceipt, MutationJobError> {
-    let receipt = persist_mutation_job_progress_transition::<C>(before, request, transition)?;
-    record_mutation_job_step(MutationJobPhase::Verify, &receipt, scan_bytes, 0);
-    if let Some(event) = event {
-        record_mutation_job_lifecycle(event);
-    }
-    Ok(receipt)
 }
 
 fn validate_resumable_update_bindings(

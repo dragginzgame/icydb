@@ -60,84 +60,6 @@ pub struct SqlConstraintValidationOutput {
     pub complete: bool,
 }
 
-/// Stable result envelope returned by the fixed administrative SQL query
-/// endpoint.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct SqlQueryPerfResult {
-    /// Executed SQL result.
-    pub result: SqlQueryResult,
-    /// Total local instructions attributed to compilation and execution.
-    pub instructions: u64,
-    /// Planner-local instruction attribution.
-    pub planner_instructions: u64,
-    /// Store-local instruction attribution.
-    pub store_instructions: u64,
-    /// Executor-local instruction attribution.
-    pub executor_instructions: u64,
-    /// Pure-covering decode instruction attribution.
-    pub pure_covering_decode_instructions: u64,
-    /// Pure-covering row-assembly instruction attribution.
-    pub pure_covering_row_assembly_instructions: u64,
-    /// Response decode instruction attribution.
-    pub decode_instructions: u64,
-    /// SQL compiler instruction attribution.
-    pub compiler_instructions: u64,
-}
-
-impl SqlQueryPerfResult {
-    /// Construct the fixed endpoint response from maintained SQL attribution.
-    #[doc(hidden)]
-    #[must_use]
-    pub fn from_attribution(
-        result: SqlQueryResult,
-        attribution: crate::db::SqlQueryPerfAttribution,
-    ) -> Self {
-        Self {
-            result,
-            instructions: attribution.total_local_instructions,
-            planner_instructions: attribution.execution.planner_local_instructions,
-            store_instructions: attribution.execution.store_local_instructions,
-            executor_instructions: attribution.execution.executor_local_instructions,
-            pure_covering_decode_instructions: attribution
-                .pure_covering
-                .map_or(0, |pure_covering| pure_covering.decode_local_instructions),
-            pure_covering_row_assembly_instructions: attribution
-                .pure_covering
-                .map_or(0, |pure_covering| {
-                    pure_covering.row_assembly_local_instructions
-                }),
-            decode_instructions: attribution.response_decode_local_instructions,
-            compiler_instructions: attribution.compile_local_instructions,
-        }
-    }
-
-    /// Reject a success whose exact public Candid envelope cannot be delivered
-    /// by the deployed IC query boundary.
-    ///
-    /// The generated endpoint returns `Result<SqlQueryPerfResult, Error>`, so
-    /// this encodes that complete envelope rather than estimating an inner
-    /// result. Oversized successes become a small typed response error; schema
-    /// maxima and result rows remain unchanged, with no truncation or paging.
-    #[doc(hidden)]
-    pub fn into_deliverable_query_reply(self) -> Result<Self, Error> {
-        let response: Result<&Self, Error> = Ok(&self);
-        let encoded = candid::encode_one(response).map_err(|_| {
-            Error::from_kind(
-                ErrorKind::Runtime(RuntimeErrorKind::Internal),
-                ErrorOrigin::Response,
-            )
-        })?;
-        if encoded.len() > MAX_PUBLIC_SQL_QUERY_REPLY_BYTES {
-            return Err(Error::from_runtime_boundary(
-                crate::diagnostic::RuntimeBoundaryCode::SqlQueryReplyBytesExceeded,
-                ErrorOrigin::Response,
-            ));
-        }
-
-        Ok(self)
-    }
-}
-
 #[cfg_attr(doc, doc = "SqlQueryResult\n\nUnified SQL endpoint result.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub enum SqlQueryResult {
@@ -188,6 +110,27 @@ pub enum SqlQueryResult {
 }
 
 impl SqlQueryResult {
+    /// Reject a success whose exact public Candid envelope cannot be delivered
+    /// by the deployed IC query boundary.
+    #[doc(hidden)]
+    pub fn into_deliverable_query_reply(self) -> Result<Self, Error> {
+        let response: Result<&Self, Error> = Ok(&self);
+        let encoded = candid::encode_one(response).map_err(|_| {
+            Error::from_kind(
+                ErrorKind::Runtime(RuntimeErrorKind::Internal),
+                ErrorOrigin::Response,
+            )
+        })?;
+        if encoded.len() > MAX_PUBLIC_SQL_QUERY_REPLY_BYTES {
+            return Err(Error::from_runtime_boundary(
+                crate::diagnostic::RuntimeBoundaryCode::SqlQueryReplyBytesExceeded,
+                ErrorOrigin::Response,
+            ));
+        }
+
+        Ok(self)
+    }
+
     /// Render this payload into deterministic shell-friendly lines.
     #[must_use]
     pub fn render_lines(&self) -> Vec<String> {
@@ -268,8 +211,8 @@ mod tests {
 
     use candid::types::{CandidType, Label, Type, TypeInner};
 
-    use super::{MAX_PUBLIC_SQL_QUERY_REPLY_BYTES, SqlQueryPerfResult, SqlQueryResult};
-    use crate::{Error, ErrorOrigin, db::SqlQueryPerfAttribution};
+    use super::{MAX_PUBLIC_SQL_QUERY_REPLY_BYTES, SqlQueryResult};
+    use crate::{Error, ErrorOrigin};
 
     fn named_fields(ty: Type, expected_kind: &str) -> BTreeSet<String> {
         let fields = match ty.as_ref() {
@@ -295,34 +238,13 @@ mod tests {
     }
 
     #[test]
-    fn sql_query_perf_result_owns_the_fixed_public_candid_record() {
-        let fields = named_fields(SqlQueryPerfResult::ty(), "record");
-        let expected = BTreeSet::from([
-            "compiler_instructions".to_string(),
-            "decode_instructions".to_string(),
-            "executor_instructions".to_string(),
-            "instructions".to_string(),
-            "planner_instructions".to_string(),
-            "pure_covering_decode_instructions".to_string(),
-            "pure_covering_row_assembly_instructions".to_string(),
-            "result".to_string(),
-            "store_instructions".to_string(),
-        ]);
-
-        assert_eq!(fields, expected);
-    }
-
-    #[test]
     fn generated_sql_query_reply_guard_measures_the_exact_complete_envelope() {
-        let small = SqlQueryPerfResult::from_attribution(
-            SqlQueryResult::ShowIndexes {
-                entity: "Entry".to_string(),
-                indexes: vec!["by_owner".to_string()],
-            },
-            SqlQueryPerfAttribution::default(),
-        );
-        let owned: Result<SqlQueryPerfResult, Error> = Ok(small.clone());
-        let borrowed: Result<&SqlQueryPerfResult, Error> = Ok(&small);
+        let small = SqlQueryResult::ShowIndexes {
+            entity: "Entry".to_string(),
+            indexes: vec!["by_owner".to_string()],
+        };
+        let owned: Result<SqlQueryResult, Error> = Ok(small.clone());
+        let borrowed: Result<&SqlQueryResult, Error> = Ok(&small);
 
         assert_eq!(
             candid::encode_one(owned).expect("owned endpoint envelope should encode"),
@@ -330,27 +252,21 @@ mod tests {
             "the zero-copy guard must measure the exact generated endpoint envelope",
         );
         assert_eq!(
-            small
-                .into_deliverable_query_reply()
-                .expect("small generated query reply should remain deliverable")
-                .result,
-            SqlQueryResult::ShowIndexes {
+            small.into_deliverable_query_reply(),
+            Ok(SqlQueryResult::ShowIndexes {
                 entity: "Entry".to_string(),
                 indexes: vec!["by_owner".to_string()],
-            },
+            })
         );
     }
 
     #[test]
     fn generated_sql_query_reply_guard_returns_a_deliverable_typed_error() {
-        let oversized = SqlQueryPerfResult::from_attribution(
-            SqlQueryResult::ShowIndexes {
-                entity: "Entry".to_string(),
-                indexes: vec!["x".repeat(MAX_PUBLIC_SQL_QUERY_REPLY_BYTES)],
-            },
-            SqlQueryPerfAttribution::default(),
-        );
-        let candidate: Result<&SqlQueryPerfResult, Error> = Ok(&oversized);
+        let oversized = SqlQueryResult::ShowIndexes {
+            entity: "Entry".to_string(),
+            indexes: vec!["x".repeat(MAX_PUBLIC_SQL_QUERY_REPLY_BYTES)],
+        };
+        let candidate: Result<&SqlQueryResult, Error> = Ok(&oversized);
         assert!(
             candid::encode_one(candidate)
                 .expect("oversized endpoint candidate should remain fallibly encodable")
@@ -367,7 +283,7 @@ mod tests {
         );
         assert_eq!(error.origin(), ErrorOrigin::Response);
         assert!(
-            candid::encode_one(Err::<SqlQueryPerfResult, Error>(error))
+            candid::encode_one(Err::<SqlQueryResult, Error>(error))
                 .expect("typed oversize error should encode")
                 .len()
                 <= MAX_PUBLIC_SQL_QUERY_REPLY_BYTES,

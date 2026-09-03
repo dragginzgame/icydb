@@ -20,7 +20,7 @@ impl PreparedRowCommitOp {
             let existing = index_op
                 .index_store
                 .with_borrow(|store| store.get(&index_op.key));
-            index_ops.push(PreparedIndexMutation::rollback_snapshot(
+            index_ops.push(PreparedIndexMutation::new(
                 index_op.index_store,
                 index_op.key.clone(),
                 existing,

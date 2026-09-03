@@ -51,16 +51,6 @@ pub(super) const fn shell_help_text() -> &'static str {
   ? / help         show this help
   \\q / quit / exit quit the interactive shell
 
-perf footer legend:
-  c = compile     parse, lower, and compile the SQL surface
-  p = planner     resolve visible indexes and build the structural access plan
-  s = store       physical data/index-store traversal and physical payload decode
-  e = executor    residual filter, order, group, aggregate, and projection logic
-  d = decode      package the public SQL result payload for the shell
-  {pc=.../...}    pure covering decode / pure covering row assembly
-  {er=...}        remaining executor work outside the explicit pure covering subpath
-  {r=...}         local shell render time for table/footer formatting
-
 examples:
   SELECT name FROM character;
   EXPLAIN EXECUTION SELECT name FROM character;

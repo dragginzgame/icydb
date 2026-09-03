@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, fs, process::Command};
 use candid::{CandidType, Principal};
 use icydb::{
     Error, ErrorCode,
-    db::{EntitySchemaDescription, sql::SqlQueryPerfResult},
+    db::{EntitySchemaDescription, sql::SqlQueryResult},
 };
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterWasmProfile,
@@ -44,7 +44,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
         "DESCRIBE OneSimpleEntity01",
         "EXPLAIN SELECT id FROM OneSimpleEntity01 ORDER BY id ASC LIMIT 1",
     ] {
-        let allowed: Result<SqlQueryPerfResult, Error> = fixture
+        let allowed: Result<SqlQueryResult, Error> = fixture
             .query_candid_as(reader, "icydb_query", (sql.to_string(),))
             .expect("guarded SQL success should decode");
         allowed.unwrap_or_else(|error| panic!("the SQL guard should admit {sql:?}: {error:?}"));
@@ -60,7 +60,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
         "SQL introspection authority must not imply the dedicated schema method",
     );
 
-    let denied: Result<SqlQueryPerfResult, Error> = fixture
+    let denied: Result<SqlQueryResult, Error> = fixture
         .query_candid_as(outsider, "icydb_query", ("not valid SQL".to_string(),))
         .expect("guarded SQL denial should decode");
     assert_eq!(
@@ -68,7 +68,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
         ErrorCode::RUNTIME_BOUNDARY_SQL_SURFACE_POLICY_DENIED,
     );
 
-    let controller: Result<SqlQueryPerfResult, Error> = fixture
+    let controller: Result<SqlQueryResult, Error> = fixture
         .query_candid("icydb_query", ("SHOW ENTITIES".to_string(),))
         .expect("controller denial should decode");
     assert_eq!(
@@ -78,7 +78,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
         ErrorCode::RUNTIME_BOUNDARY_SQL_SURFACE_POLICY_DENIED,
     );
 
-    let mutation: Result<SqlQueryPerfResult, Error> = fixture
+    let mutation: Result<SqlQueryResult, Error> = fixture
         .query_candid_as(
             reader,
             "icydb_query",
@@ -100,7 +100,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
 fn guarded_sql_rejects_anonymous_before_application_code_and_propagates_guard_traps() {
     let fixture = install_fixture_canister("sql_guard");
 
-    let anonymous: Result<SqlQueryPerfResult, Error> = fixture
+    let anonymous: Result<SqlQueryResult, Error> = fixture
         .query_candid_as(
             Principal::anonymous(),
             "icydb_query",
@@ -112,7 +112,7 @@ fn guarded_sql_rejects_anonymous_before_application_code_and_propagates_guard_tr
         ErrorCode::RUNTIME_BOUNDARY_SQL_SURFACE_POLICY_DENIED,
     );
 
-    let trapped = fixture.query_candid_as::<Result<SqlQueryPerfResult, Error>, _>(
+    let trapped = fixture.query_candid_as::<Result<SqlQueryResult, Error>, _>(
         principal(44),
         "icydb_query",
         ("SHOW ENTITIES".to_string(),),

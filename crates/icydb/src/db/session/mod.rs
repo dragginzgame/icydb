@@ -14,7 +14,7 @@ mod request;
 mod sql;
 mod write;
 
-use crate::{metrics::MetricsSink, traits::CanisterKind};
+use crate::traits::CanisterKind;
 
 use icydb_core as core;
 use std::{error::Error as StdError, fmt};
@@ -28,10 +28,6 @@ pub use prepared_query::{PreparedExactKeyOutput, PreparedLivePageCursor, Prepare
 pub use request::{
     RequestExecutionFuture, RequestExecutionRoot, with_request_execution,
     with_request_execution_async, with_request_execution_root,
-};
-#[cfg(feature = "sql")]
-pub use sql::{
-    SqlExecutionPerfAttribution, SqlPureCoveringPerfAttribution, SqlQueryPerfAttribution,
 };
 pub(crate) use write::OutputRowProjection;
 pub use write::{
@@ -112,12 +108,6 @@ impl<C: CanisterKind> DbSession<C> {
         self
     }
 
-    #[must_use]
-    pub fn metrics_sink(mut self, sink: &'static dyn MetricsSink) -> Self {
-        self.inner = self.inner.metrics_sink(sink);
-        self
-    }
-
     /// Enable bounded request-wide query diagnostics for this request root.
     ///
     /// This is idempotent and never resets work already collected through
@@ -143,21 +133,6 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<crate::db::LiveQueryPageOutput, crate::Error> {
         self.inner
             .execute_public_live_page(request, continuation)
-            .map_err(Into::into)
-    }
-
-    /// Execute one bounded dynamic page with operation-local cost attribution.
-    ///
-    /// The fixed attribution envelope is returned beside the unchanged page.
-    /// It does not mutate retained metrics and carries no query text, predicate,
-    /// literal, entity/index name or caller identity.
-    pub fn execute_live_page_with_attribution(
-        &self,
-        request: &crate::db::DynamicQuery,
-        continuation: Option<&str>,
-    ) -> Result<crate::db::AttributedRead<crate::db::LiveQueryPageOutput>, crate::Error> {
-        self.inner
-            .execute_public_live_page_with_attribution(request, continuation)
             .map_err(Into::into)
     }
 

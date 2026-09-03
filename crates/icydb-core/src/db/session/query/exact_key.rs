@@ -17,6 +17,7 @@ use crate::{
         schema::output_value_from_runtime,
     },
     error::InternalError,
+    metrics::EntityMetricsSpan,
     traits::CanisterKind,
     value::OutputValue,
 };
@@ -376,14 +377,15 @@ impl<C: CanisterKind> DbSession<C> {
         else {
             return Ok(None);
         };
+        let identity = catalog.identity();
+        let _metrics_span = EntityMetricsSpan::new(identity.entity_path());
 
-        let lowered = lower_exact_keys(catalog.identity().entity_tag(), keys, budget)?;
+        let lowered = lower_exact_keys(identity.entity_tag(), keys, budget)?;
         #[cfg(feature = "diagnostics")]
         budget.record_exact_key_hashes(&lowered.diagnostic_key_hashes);
         let distinct_keys = lowered.distinct;
         let positions = lowered.positions;
 
-        let identity = catalog.identity();
         let store = self
             .db
             .recovered_store(identity.store_path())

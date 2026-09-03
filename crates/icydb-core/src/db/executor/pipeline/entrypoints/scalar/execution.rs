@@ -20,7 +20,6 @@ use crate::{
                     runtime::PreparedScalarRouteRuntime,
                 },
             },
-            plan_metrics::record_plan_metrics,
             with_execution_stats_capture,
         },
         schema::cardinality_generation::CardinalityAcceptedRootIdentity,
@@ -99,7 +98,6 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         enforced_scan_probe_limit,
         debug,
     } = prepared;
-    let entity_path = authority.entity_path_handle();
     let accepted_schema = authority.accepted_schema_authority()?;
     let accepted_root = CardinalityAcceptedRootIdentity::new(
         accepted_schema.revision(),
@@ -164,7 +162,6 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         emit_cursor: cursor_emission.enabled(),
         enforced_scan_probe_limit,
     });
-    record_plan_metrics(entity_path.as_ref(), plan);
     let (attempt, execution_stats) = with_execution_stats_capture(debug, || {
         execute(&execution_inputs, &route_plan, continuation.clone())
     });

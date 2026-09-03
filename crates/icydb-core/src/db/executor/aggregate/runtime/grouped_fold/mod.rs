@@ -36,7 +36,6 @@ use crate::{
                     StructuralGroupedRowRuntime,
                 },
             },
-            plan_metrics::record_grouped_plan_metrics,
             projection::{ProjectionEvalError, compile_grouped_projection_expr},
         },
         index::IndexCompilePolicy,
@@ -69,7 +68,6 @@ fn compile_grouped_having_expr(
 // Build one grouped key stream from route-owned grouped execution metadata
 // using already-resolved runtime and row-decode boundaries.
 pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
-    entity_path: &str,
     route: &GroupedRouteStage,
     runtime: &ExecutionRuntimeAdapter,
     execution_preparation: ExecutionPreparation,
@@ -91,7 +89,6 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
         emit_cursor: true,
         enforced_scan_probe_limit: None,
     });
-    record_grouped_plan_metrics(entity_path, route.plan(), route.grouped_execution_mode()?);
     let resolved = ExecutionAttemptKernel::new(&execution_inputs)
         .resolve_execution_key_stream_without_distinct(
             route.grouped_route_plan(),

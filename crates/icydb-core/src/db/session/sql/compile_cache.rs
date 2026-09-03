@@ -15,18 +15,12 @@ use crate::{
                 CompiledSqlCommand, SqlCacheAttribution, SqlCompileAttributionBuilder,
                 SqlCompilePhaseAttribution, SqlCompiledCommandCacheContext,
                 SqlCompiledCommandCacheKey, SqlCompiledCommandExecutionContext,
-                SqlCompiledCommandSurface, measured, sql_compiled_command_cache_miss_reason,
-                sql_statement_entity_name_from_statement,
+                SqlCompiledCommandSurface, measured, sql_statement_entity_name_from_statement,
             },
         },
         sql::parser::{SqlParsePhaseAttribution, SqlStatement, parse_sql_with_attribution},
     },
     error::InternalError,
-    metrics::sink::{
-        CacheKind, CacheOutcome, SqlCompileRejectPhase, record_cache_entries,
-        record_cache_event_for_path, record_cache_miss_reason_for_path,
-        record_sql_compile_reject_for_path,
-    },
     traits::CanisterKind,
 };
 
@@ -192,7 +186,7 @@ impl<C: CanisterKind> DbSession<C> {
         mut attribution: SqlCompileAttributionBuilder,
         parsed: &SqlStatement,
         surface: SqlCompiledCommandSurface,
-        entity_path: &str,
+        _entity_path: &str,
     ) -> Result<
         (
             CompiledSqlCommand,
@@ -202,25 +196,13 @@ impl<C: CanisterKind> DbSession<C> {
         ),
         QueryError,
     > {
-        let (cache_lookup_local_instructions, (cached, entries, miss_reason)) = measured(|| {
-            let cache_state = self.with_sql_compiled_command_cache(|cache| {
-                let cached = cache.get(&cache_key).cloned();
-                let miss_reason = cached
-                    .is_none()
-                    .then(|| sql_compiled_command_cache_miss_reason(cache, &cache_key));
-
-                (cached, cache.len(), miss_reason)
-            });
+        let (cache_lookup_local_instructions, cached) = measured(|| {
+            let cache_state =
+                self.with_sql_compiled_command_cache(|cache| cache.get(&cache_key).cloned());
             Ok::<_, QueryError>(cache_state)
         })?;
         attribution.record_cache_lookup(cache_lookup_local_instructions);
-        record_cache_entries(CacheKind::SqlCompiledCommand, entries);
         if let Some(compiled) = cached {
-            record_cache_event_for_path(
-                CacheKind::SqlCompiledCommand,
-                CacheOutcome::Hit,
-                entity_path,
-            );
             return Ok((
                 compiled,
                 SqlCacheAttribution::sql_compiled_command_cache_hit(),
@@ -228,43 +210,21 @@ impl<C: CanisterKind> DbSession<C> {
                 None,
             ));
         }
-        record_cache_event_for_path(
-            CacheKind::SqlCompiledCommand,
-            CacheOutcome::Miss,
-            entity_path,
-        );
-        if let Some(reason) = miss_reason {
-            record_cache_miss_reason_for_path(CacheKind::SqlCompiledCommand, reason, entity_path);
-        }
-
         let authority = catalog.accepted_entity_authority();
         let schema = catalog.accepted_schema_info();
 
-        let compile_result = Self::compile_sql_statement_measured(parsed, surface, schema);
-        let (artifacts, compile_attribution) = match compile_result {
-            Ok(compiled) => compiled,
-            Err(error) => {
-                record_sql_compile_reject_for_path(SqlCompileRejectPhase::Semantic, entity_path);
-                return Err(error);
-            }
-        };
+        let (artifacts, compile_attribution) =
+            Self::compile_sql_statement_measured(parsed, surface, schema)?;
         attribution.record_core_compile(compile_attribution);
         let compiled = artifacts.command;
 
-        let (cache_insert_local_instructions, entries) = measured(|| {
-            let entries = self.with_sql_compiled_command_cache(|cache| {
+        let (cache_insert_local_instructions, ()) = measured(|| {
+            self.with_sql_compiled_command_cache(|cache| {
                 cache.insert(cache_key, compiled.clone());
-                cache.len()
             });
-            Ok::<_, QueryError>(entries)
+            Ok::<_, QueryError>(())
         })?;
         attribution.record_cache_insert(cache_insert_local_instructions);
-        record_cache_entries(CacheKind::SqlCompiledCommand, entries);
-        record_cache_event_for_path(
-            CacheKind::SqlCompiledCommand,
-            CacheOutcome::Insert,
-            entity_path,
-        );
 
         Ok((
             compiled,

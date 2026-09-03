@@ -1,13 +1,12 @@
 //! Module: index::plan::error
-//! Responsibility: carry index-planning errors plus boundary-observable signals.
-//! Does not own: metrics emission, commit materialization, or executor behavior.
-//! Boundary: index planning annotates outcomes; commit/executor boundaries observe them.
+//! Responsibility: preserve canonical internal errors across index planning.
+//! Does not own: commit materialization or executor behavior.
+//! Boundary: index planning wraps failures; callers recover the canonical error.
 
 use crate::{
     db::commit::CommitSchemaFingerprint,
     error::{AcceptedConstraintFactContext, InternalError, MutationDiagnosticContext},
 };
-use std::rc::Rc;
 
 ///
 /// IndexPlanError
@@ -19,17 +18,13 @@ use std::rc::Rc;
 
 pub(in crate::db) struct IndexPlanError {
     error: InternalError,
-    unique_violation_entity_path: Option<Rc<str>>,
 }
 
 impl IndexPlanError {
     /// Build one ordinary index-planning error without boundary side effects.
     #[must_use]
     pub(in crate::db) const fn new(error: InternalError) -> Self {
-        Self {
-            error,
-            unique_violation_entity_path: None,
-        }
+        Self { error }
     }
 
     /// Build one accepted unique-constraint violation with catalog identity.
@@ -38,7 +33,6 @@ impl IndexPlanError {
         accepted_schema_fingerprint: CommitSchemaFingerprint,
         mutation: Option<MutationDiagnosticContext>,
         constraint_id: u32,
-        entity_path: &str,
         entity_tag: u64,
     ) -> Self {
         Self {
@@ -53,14 +47,7 @@ impl IndexPlanError {
                     None,
                 ),
             ),
-            unique_violation_entity_path: Some(entity_path.into()),
         }
-    }
-
-    /// Return the entity path for a unique-violation metric, when present.
-    #[must_use]
-    pub(in crate::db) fn unique_violation_entity_path(&self) -> Option<&str> {
-        self.unique_violation_entity_path.as_deref()
     }
 
     /// Consume this wrapper into the canonical internal error.
@@ -90,7 +77,6 @@ mod tests {
                 4,
             )),
             17,
-            "tests::User",
             23,
         )
         .into_internal_error();

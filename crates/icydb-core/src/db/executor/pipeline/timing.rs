@@ -1,6 +1,6 @@
 //! Module: db::executor::pipeline::timing
 //! Responsibility: execution-time measurement helpers used by load pipeline entrypoints.
-//! Does not own: metrics sink ownership or performance counter semantics.
+//! Does not own: retained metrics or performance counter semantics.
 //! Boundary: provides wasm-safe elapsed time measurement for execution observability.
 
 /// Capture the pipeline execution start marker.

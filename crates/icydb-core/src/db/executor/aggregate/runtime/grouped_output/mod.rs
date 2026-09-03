@@ -12,60 +12,12 @@ use crate::{
         aggregate::{GroupedAggregateExecutionSpec, PlannedProjectionLayout, ProjectionSpec},
         pipeline::contracts::{ExecutionOutcomeMetrics, GroupedCursorPage, GroupedRouteStage},
         pipeline::runtime::GroupedFoldStage,
-        plan_metrics::{
-            record_load_row_efficiency_for_path, record_rows_aggregated_for_path,
-            record_rows_emitted_for_path, record_rows_filtered_for_path,
-            record_rows_scanned_for_path,
-        },
         projection::*,
     },
     error::InternalError,
-    metrics::sink::{ExecKind, PathSpan},
     value::Value,
 };
-use std::{borrow::Cow, rc::Rc};
-
-///
-/// GroupedOutputRuntimeObserverBindings
-///
-/// GroupedOutputRuntimeObserverBindings keeps entity-typed grouped output
-/// observability behind one narrow function-table boundary.
-/// Shared grouped output finalization stays monomorphic and delegates only the
-/// entity-bound metrics/span leaf.
-///
-
-pub(in crate::db::executor) struct GroupedOutputRuntimeObserverBindings {
-    entity_path: Rc<str>,
-}
-
-impl GroupedOutputRuntimeObserverBindings {
-    /// Build one grouped output observer bundle from one structural entity path.
-    #[must_use]
-    pub(in crate::db::executor) fn for_path(entity_path: impl Into<Rc<str>>) -> Self {
-        Self {
-            entity_path: entity_path.into(),
-        }
-    }
-
-    /// Record grouped output metrics and execution-trace outcome for one completed page.
-    fn finalize_grouped_observability(
-        &self,
-        execution_trace: &mut Option<ExecutionTrace>,
-        metrics: ExecutionOutcomeMetrics,
-        rows_aggregated: usize,
-        rows_returned: usize,
-        execution_time_micros: u64,
-    ) {
-        finalize_grouped_observability_for_path(
-            self.entity_path.as_ref(),
-            execution_trace,
-            metrics,
-            rows_aggregated,
-            rows_returned,
-            execution_time_micros,
-        );
-    }
-}
+use std::borrow::Cow;
 
 ///
 /// FinalizedGroupedOutput
@@ -83,15 +35,13 @@ struct FinalizedGroupedOutput {
 
 impl FinalizedGroupedOutput {
     // Finalize one grouped fold output into the grouped page + trace surface
-    // after grouped observability has already updated counters and trace state.
+    // after execution-trace state has been updated.
     fn from_folded(
-        observer: &GroupedOutputRuntimeObserverBindings,
         mut route: GroupedRouteStage,
         folded: GroupedFoldStage,
         execution_time_micros: u64,
     ) -> Self {
         let rows_returned = folded.rows_returned();
-        let rows_aggregated = folded.filtered_rows();
         let metrics = ExecutionOutcomeMetrics {
             optimization: folded.optimization(),
             rows_scanned: folded.rows_scanned(),
@@ -100,10 +50,9 @@ impl FinalizedGroupedOutput {
             index_predicate_keys_rejected: folded.index_predicate_keys_rejected(),
             distinct_keys_deduped: folded.distinct_keys_deduped(),
         };
-        observer.finalize_grouped_observability(
+        finalize_grouped_observability(
             route.execution_trace_mut(),
             metrics,
-            rows_aggregated,
             rows_returned,
             execution_time_micros,
         );
@@ -130,19 +79,17 @@ impl FinalizedGroupedOutput {
 
 // Finalize grouped output payloads and observability after grouped fold
 // execution using a non-generic grouped page/fold contract.
-pub(in crate::db::executor) fn finalize_grouped_output_with_observer(
-    observer: &GroupedOutputRuntimeObserverBindings,
+pub(in crate::db::executor) fn finalize_grouped_output(
     route: GroupedRouteStage,
     folded: GroupedFoldStage,
     execution_time_micros: u64,
 ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
-    FinalizedGroupedOutput::from_folded(observer, route, folded, execution_time_micros)
-        .into_surface()
+    FinalizedGroupedOutput::from_folded(route, folded, execution_time_micros).into_surface()
 }
 
 // Record shared observability outcome for scalar/grouped execution paths.
 pub(in crate::db::executor) fn finalize_path_outcome_for_path(
-    entity_path: &str,
+    _entity_path: &str,
     execution_trace: &mut Option<ExecutionTrace>,
     metrics: ExecutionOutcomeMetrics,
     rows_emitted: usize,
@@ -157,75 +104,6 @@ pub(in crate::db::executor) fn finalize_path_outcome_for_path(
         index_predicate_keys_rejected,
         distinct_keys_deduped,
     } = metrics;
-    let rows_filtered = rows_scanned.saturating_sub(rows_emitted);
-    finalize_path_observability_for_path(
-        entity_path,
-        execution_trace,
-        optimization,
-        rows_scanned,
-        rows_filtered,
-        rows_emitted,
-        execution_time_micros,
-        index_only,
-        index_predicate_applied,
-        index_predicate_keys_rejected,
-        distinct_keys_deduped,
-    );
-}
-
-fn finalize_grouped_observability_for_path(
-    entity_path: &str,
-    execution_trace: &mut Option<ExecutionTrace>,
-    metrics: ExecutionOutcomeMetrics,
-    rows_aggregated: usize,
-    rows_returned: usize,
-    execution_time_micros: u64,
-) {
-    let ExecutionOutcomeMetrics {
-        optimization,
-        rows_scanned,
-        post_access_rows,
-        index_predicate_applied,
-        index_predicate_keys_rejected,
-        distinct_keys_deduped,
-    } = metrics;
-    record_rows_aggregated_for_path(entity_path, rows_aggregated);
-    let rows_filtered = rows_scanned.saturating_sub(post_access_rows);
-    finalize_path_observability_for_path(
-        entity_path,
-        execution_trace,
-        optimization,
-        rows_scanned,
-        rows_filtered,
-        post_access_rows,
-        execution_time_micros,
-        false,
-        index_predicate_applied,
-        index_predicate_keys_rejected,
-        distinct_keys_deduped,
-    );
-
-    let mut span = PathSpan::new(ExecKind::Load, entity_path);
-    span.set_rows(u64::try_from(rows_returned).unwrap_or(u64::MAX));
-}
-
-// Apply the shared path-level row counters and execution-trace outcome update
-// once the caller has decided which row count should be treated as emitted.
-#[expect(clippy::too_many_arguments)]
-fn finalize_path_observability_for_path(
-    entity_path: &str,
-    execution_trace: &mut Option<ExecutionTrace>,
-    optimization: Option<ExecutionOptimization>,
-    rows_scanned: usize,
-    rows_filtered: usize,
-    rows_emitted: usize,
-    execution_time_micros: u64,
-    index_only: bool,
-    index_predicate_applied: bool,
-    index_predicate_keys_rejected: u64,
-    distinct_keys_deduped: u64,
-) {
-    record_path_outcome_counts_for_path(entity_path, rows_scanned, rows_filtered, rows_emitted);
     finalize_execution_trace_path_outcome(
         execution_trace,
         optimization,
@@ -239,18 +117,31 @@ fn finalize_path_observability_for_path(
     );
 }
 
-// Record the shared rows-scanned / rows-filtered / rows-emitted counters used
-// by both scalar and grouped aggregate outcome finalization.
-fn record_path_outcome_counts_for_path(
-    entity_path: &str,
-    rows_scanned: usize,
-    rows_filtered: usize,
-    rows_emitted: usize,
+fn finalize_grouped_observability(
+    execution_trace: &mut Option<ExecutionTrace>,
+    metrics: ExecutionOutcomeMetrics,
+    _rows_returned: usize,
+    execution_time_micros: u64,
 ) {
-    record_rows_scanned_for_path(entity_path, rows_scanned);
-    record_rows_filtered_for_path(entity_path, rows_filtered);
-    record_rows_emitted_for_path(entity_path, rows_emitted);
-    record_load_row_efficiency_for_path(entity_path, rows_scanned, rows_filtered, rows_emitted);
+    let ExecutionOutcomeMetrics {
+        optimization,
+        rows_scanned,
+        post_access_rows,
+        index_predicate_applied,
+        index_predicate_keys_rejected,
+        distinct_keys_deduped,
+    } = metrics;
+    finalize_execution_trace_path_outcome(
+        execution_trace,
+        optimization,
+        rows_scanned,
+        post_access_rows,
+        execution_time_micros,
+        false,
+        index_predicate_applied,
+        index_predicate_keys_rejected,
+        distinct_keys_deduped,
+    );
 }
 
 // Finalize the shared execution-trace outcome contract after aggregate output

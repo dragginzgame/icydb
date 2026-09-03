@@ -7,8 +7,8 @@
 
 use crate::{
     db::{
-        AttributedRead, DbSession, DynamicQuery, ExhaustiveReadError, GroupedQueryOutput,
-        PreparedLivePageOutput, TypedEntityAdapter, TypedEntityBinding, TypedOperationError,
+        DbSession, DynamicQuery, ExhaustiveReadError, GroupedQueryOutput, PreparedLivePageOutput,
+        TypedEntityAdapter, TypedEntityBinding, TypedOperationError,
     },
     traits::{CanisterKind, EntityKey},
     types::Id,
@@ -109,18 +109,6 @@ where
             })
         })
         .collect()
-}
-
-#[must_use]
-#[cfg(target_arch = "wasm32")]
-fn read_operation_local_instruction_counter() -> u64 {
-    ic_cdk::api::performance_counter(1)
-}
-
-#[must_use]
-#[cfg(not(target_arch = "wasm32"))]
-const fn read_operation_local_instruction_counter() -> u64 {
-    0
 }
 
 ///
@@ -247,39 +235,6 @@ where
             .prepare_live_page_cursor(self.binding, self.request);
         let result = cursor.execute_page(continuation)?;
         Self::decode_live_page(cursor.binding(), result)
-    }
-
-    /// Execute one revision-tolerant typed page with bounded per-call cost attribution.
-    ///
-    /// The operation follows the same accepted dynamic execution and typed row
-    /// decoding as [`Self::execute_live_page`]. Its fixed attribution envelope
-    /// is returned beside the page without entering retained metrics or
-    /// exposing query, entity, index, literal or caller identity.
-    pub fn execute_live_page_with_attribution(
-        self,
-        continuation: Option<&str>,
-    ) -> Result<AttributedRead<LivePage<E::Row>>, TypedOperationError> {
-        let start = read_operation_local_instruction_counter();
-        let cursor = self
-            .session
-            .prepare_live_page_cursor(self.binding, self.request);
-        let attributed = cursor.execute_public_page_with_attribution(continuation)?;
-        let decode_start = read_operation_local_instruction_counter();
-        let result = Self::decode_live_page(cursor.binding(), attributed.result)?;
-        let response_decode_local_instructions =
-            read_operation_local_instruction_counter().saturating_sub(decode_start);
-        let total_local_instructions =
-            read_operation_local_instruction_counter().saturating_sub(start);
-        let mut attribution = attributed.attribution;
-        attribution.response_decode_local_instructions = attribution
-            .response_decode_local_instructions
-            .saturating_add(response_decode_local_instructions);
-        attribution.total_local_instructions = total_local_instructions;
-
-        Ok(AttributedRead {
-            result,
-            attribution,
-        })
     }
 
     fn decode_live_page(

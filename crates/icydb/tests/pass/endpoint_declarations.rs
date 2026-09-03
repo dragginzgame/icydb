@@ -4,16 +4,8 @@ mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
 
     pub(crate) mod endpoint_handlers {
-        pub(crate) fn metrics(
-            _: Option<u64>,
-        ) -> Result<icydb::metrics::CompactMetricsReport, icydb::Error> {
-            Ok(icydb::metrics::CompactMetricsReport::default())
-        }
-
-        pub(crate) fn metrics_extended(
-            _: Option<u64>,
-        ) -> Result<icydb::metrics::EventReport, icydb::Error> {
-            Ok(icydb::metrics::EventReport::default())
+        pub(crate) fn metrics() -> Result<icydb::metrics::MetricsReport, icydb::Error> {
+            Ok(icydb::metrics::MetricsReport::default())
         }
 
         pub(crate) fn metrics_reset() -> Result<(), icydb::Error> {
@@ -32,7 +24,6 @@ icydb::endpoints! {
     #[cfg(any())]
     icydb_ddl;
     icydb_metrics(authorization = public);
-    icydb_metrics_extended(authorization = public);
     icydb_metrics_reset;
 }
 

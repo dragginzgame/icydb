@@ -112,17 +112,6 @@ impl SchemaCacheIdentity {
     pub(super) const fn fingerprint(self) -> CommitSchemaFingerprint {
         self.fingerprint
     }
-
-    pub(super) fn same_version(self, other: Self) -> bool {
-        self.runtime_root == other.runtime_root
-            && self.revision == other.revision
-            && self.version == other.version
-    }
-
-    pub(super) fn same_fingerprint(self, other: Self) -> bool {
-        self.fingerprint_method_version == other.fingerprint_method_version
-            && self.fingerprint == other.fingerprint
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -321,22 +310,6 @@ impl QueryPlanCompilePhaseRecorder<'_> {
 }
 
 impl QueryPlanCacheKey {
-    pub(super) fn entity_path(&self) -> &str {
-        &self.entity_path
-    }
-
-    pub(super) const fn visibility(&self) -> QueryPlanVisibility {
-        self.visibility
-    }
-
-    pub(super) const fn schema_identity(&self) -> SchemaCacheIdentity {
-        self.schema_identity
-    }
-
-    pub(super) const fn structural_query(&self) -> &StructuralQueryCacheKey {
-        &self.structural_query
-    }
-
     pub(super) fn estimated_retained_bytes(&self) -> usize {
         size_of::<Self>()
             .saturating_add(self.entity_path.len())
@@ -469,7 +442,5 @@ mod tests {
         );
 
         assert_ne!(first, second);
-        assert!(!first.same_version(second));
-        assert!(first.same_fingerprint(second));
     }
 }

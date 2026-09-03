@@ -359,16 +359,13 @@ impl<C: CanisterKind> DbSession<C> {
         entry: &SqlGlobalAggregatePlanCacheEntry,
     ) -> Result<Option<Vec<Value>>, QueryError> {
         if let Some(target) = entry.exact_cardinality_target() {
-            let count = self
-                .with_metrics(|| {
-                    execute_exact_cardinality_for_canister(
-                        &self.db,
-                        authority,
-                        DiagnosticExecutionLane::TrustedRead,
-                        target,
-                    )
-                })
-                .map_err(QueryError::execute)?;
+            let count = execute_exact_cardinality_for_canister(
+                &self.db,
+                authority,
+                DiagnosticExecutionLane::TrustedRead,
+                target,
+            )
+            .map_err(QueryError::execute)?;
 
             return Ok(count.map(|count| vec![Value::Nat64(count)]));
         }
@@ -379,15 +376,13 @@ impl<C: CanisterKind> DbSession<C> {
             .exact_indexed_numeric_output_kinds()
             .ok_or_else(QueryError::invariant)?;
 
-        self.with_metrics(|| {
-            execute_exact_indexed_numeric_aggregate_for_canister(
-                &self.db,
-                authority,
-                DiagnosticExecutionLane::TrustedRead,
-                index_id,
-                &output_kinds,
-            )
-        })
+        execute_exact_indexed_numeric_aggregate_for_canister(
+            &self.db,
+            authority,
+            DiagnosticExecutionLane::TrustedRead,
+            index_id,
+            &output_kinds,
+        )
         .map_err(QueryError::execute)
     }
 

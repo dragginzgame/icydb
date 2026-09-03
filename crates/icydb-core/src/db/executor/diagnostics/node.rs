@@ -47,7 +47,7 @@ impl ExecutionNodeLayer {
 /// ExecutionNodeIdentity
 ///
 /// Stable executor diagnostics identity for one execution node.
-/// Allows correlation between explain node topology and row-flow counters.
+/// Allows correlation between explain node topology and execution statistics.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

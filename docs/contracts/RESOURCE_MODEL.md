@@ -272,16 +272,15 @@ instruction behavior is bounded by explicit, enforceable limits.
 
 If such bounds cannot be stated and enforced, the operator is disallowed.
 
-## 11. Execution Metrics Counters
+## 11. Entity Execution Metrics
 
-Runtime observability is additive and must not affect query behavior.
+The optional `metrics` capability records replicated entity execution in one
+heap-only accumulator. Each accepted entity reports observed execution spans,
+their saturating total local instructions, and the largest local instruction
+delta. Report collection must not alter planner, routing, storage, or execution
+semantics.
 
-Current row-flow counters emitted through the metrics sink/report surface:
-
-- `rows_scanned`: candidate rows read by execution paths
-- `rows_filtered`: rows dropped between scan and emitted output
-- `rows_aggregated`: rows folded by grouped aggregation paths
-- `rows_emitted`: rows emitted to response payloads
-
-These counters are diagnostics surfaces only. They must remain side-effect-free
-and must never alter planner, routing, or execution semantics.
+IC query calls do not retain heap mutations, so entity metrics deliberately do
+no recording in query execution. Canic remains the authority for endpoint-level
+query and update cost. The entity report does not duplicate route, cache,
+row-flow, query-shape, or endpoint attribution.

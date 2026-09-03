@@ -1,99 +1,40 @@
 //! Module: shell SQL result rendering.
-//! Responsibility: render decoded SQL results and shell-local perf suffixes.
-//! Does not own: canister calls, SQL routing, or perf payload parsing.
+//! Responsibility: render decoded SQL results.
+//! Does not own: canister calls, SQL routing, or query execution.
 //! Boundary: converts typed SQL result values into prompt-ready text.
-
-use std::time::Instant;
 
 use icydb::db::{
     RowProjectionOutput,
     sql::{
-        SqlGroupedRowsOutput, SqlQueryPerfResult, SqlQueryResult, render_grouped_lines,
+        SqlGroupedRowsOutput, SqlQueryResult, render_grouped_lines,
         render_projection_display_rows_lines,
     },
 };
 
-use crate::shell::perf::{
-    ShellLocalRenderAttribution, ShellPerfAttribution, ShellPerfAttributionInput,
-    render_executor_residual_suffix, render_perf_suffix, render_pure_covering_suffix,
-    render_shell_render_suffix,
-};
-
-const fn sql_perf_attribution(result: &SqlQueryPerfResult) -> ShellPerfAttribution {
-    ShellPerfAttribution::new(ShellPerfAttributionInput {
-        total: result.instructions,
-        planner: result.planner_instructions,
-        store: result.store_instructions,
-        executor: result.executor_instructions,
-        pure_covering_decode: result.pure_covering_decode_instructions,
-        pure_covering_row_assembly: result.pure_covering_row_assembly_instructions,
-        decode: result.decode_instructions,
-        compiler: result.compiler_instructions,
-    })
-}
-
-pub(super) fn render_shell_text_from_perf_result(input: SqlQueryPerfResult) -> String {
-    let attribution = sql_perf_attribution(&input);
-    let render_start = Instant::now();
-    let rendered = render_shell_text(input.result, Some(attribution), None);
-    let render_attribution = ShellLocalRenderAttribution::new(render_start.elapsed().as_micros());
-
-    append_shell_render_suffix(rendered, Some(&render_attribution))
-}
-
-fn render_shell_text(
-    result: SqlQueryResult,
-    attribution: Option<ShellPerfAttribution>,
-    render_attribution: Option<ShellLocalRenderAttribution>,
-) -> String {
+pub(super) fn render_shell_text(result: SqlQueryResult) -> String {
     match result {
-        SqlQueryResult::Projection(rows) => {
-            render_projection_shell_text(rows, attribution, render_attribution)
-        }
-        SqlQueryResult::Grouped(rows) => {
-            render_grouped_shell_text(rows, attribution, render_attribution)
-        }
+        SqlQueryResult::Projection(rows) => render_projection_shell_text(rows),
+        SqlQueryResult::Grouped(rows) => render_grouped_shell_text(rows),
         other => other.render_text(),
     }
 }
 
-pub(super) fn render_projection_shell_text(
-    rows: RowProjectionOutput,
-    attribution: Option<ShellPerfAttribution>,
-    render_attribution: Option<ShellLocalRenderAttribution>,
-) -> String {
+pub(super) fn render_projection_shell_text(rows: RowProjectionOutput) -> String {
     let mut rendered_rows = rows.rendered_rows();
     uppercase_null_cells(rendered_rows.as_mut_slice());
 
-    let mut lines = render_projection_display_rows_lines(
+    render_projection_display_rows_lines(
         rows.columns.as_slice(),
         rendered_rows.as_slice(),
         rows.row_count,
-    );
-
-    render_shell_lines(&mut lines, attribution, render_attribution)
+    )
+    .join("\n")
 }
 
-pub(super) fn render_grouped_shell_text(
-    mut rows: SqlGroupedRowsOutput,
-    attribution: Option<ShellPerfAttribution>,
-    render_attribution: Option<ShellLocalRenderAttribution>,
-) -> String {
+pub(super) fn render_grouped_shell_text(mut rows: SqlGroupedRowsOutput) -> String {
     uppercase_null_cells(rows.rows.as_mut_slice());
 
-    let mut lines = render_grouped_lines(&rows);
-
-    render_shell_lines(&mut lines, attribution, render_attribution)
-}
-
-fn render_shell_lines(
-    lines: &mut [String],
-    attribution: Option<ShellPerfAttribution>,
-    render_attribution: Option<ShellLocalRenderAttribution>,
-) -> String {
-    append_perf_suffix(lines, attribution.as_ref(), render_attribution.as_ref());
-
-    lines.join("\n")
+    render_grouped_lines(&rows).join("\n")
 }
 
 // Keep successful command output visually isolated so the next prompt or shell
@@ -115,62 +56,4 @@ fn uppercase_null_cells(rows: &mut [Vec<String>]) {
             }
         }
     }
-}
-
-fn append_perf_suffix(
-    lines: &mut [String],
-    attribution: Option<&ShellPerfAttribution>,
-    render_attribution: Option<&ShellLocalRenderAttribution>,
-) {
-    let Some(last) = lines.last_mut() else {
-        return;
-    };
-    let perf_suffix = render_perf_suffix(attribution);
-    let pure_covering_suffix = render_pure_covering_suffix(attribution);
-    let executor_residual_suffix = render_executor_residual_suffix(attribution);
-    let render_suffix = render_shell_render_suffix(render_attribution);
-    if perf_suffix.is_none()
-        && pure_covering_suffix.is_none()
-        && executor_residual_suffix.is_none()
-        && render_suffix.is_none()
-    {
-        return;
-    }
-
-    let mut suffixes = Vec::new();
-    if let Some(perf_suffix) = perf_suffix {
-        suffixes.push(perf_suffix);
-    }
-    if let Some(pure_covering_suffix) = pure_covering_suffix {
-        suffixes.push(pure_covering_suffix);
-    }
-    if let Some(executor_residual_suffix) = executor_residual_suffix {
-        suffixes.push(executor_residual_suffix);
-    }
-    if let Some(render_suffix) = render_suffix {
-        suffixes.push(render_suffix);
-    }
-
-    append_suffix_to_line(last, suffixes.join(" ").as_str());
-}
-
-fn append_shell_render_suffix(
-    rendered: String,
-    render_attribution: Option<&ShellLocalRenderAttribution>,
-) -> String {
-    let Some(render_suffix) = render_shell_render_suffix(render_attribution) else {
-        return rendered;
-    };
-    let mut lines = rendered.lines().map(str::to_string).collect::<Vec<_>>();
-    let Some(last) = lines.last_mut() else {
-        return rendered;
-    };
-    append_suffix_to_line(last, render_suffix.as_str());
-
-    lines.join("\n")
-}
-
-fn append_suffix_to_line(line: &mut String, suffix: &str) {
-    line.push(' ');
-    line.push_str(suffix);
 }

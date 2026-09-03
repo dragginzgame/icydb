@@ -517,12 +517,10 @@ fn merge_relation_entries(
         if old_contains == new_contains {
             continue;
         }
-        effects.push(PreparedIndexMutation::from_reverse_index_membership(
+        effects.push(PreparedIndexMutation::new(
             entry.target_store.index_store(),
             entry.key.clone(),
             new_contains.then(IndexEntryValue::presence),
-            old_contains,
-            new_contains,
         ));
     }
     effects

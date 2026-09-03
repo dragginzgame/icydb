@@ -218,33 +218,24 @@ fn generate_endpoint_runtime() -> TokenStream {
                 }
             }
 
-            #[allow(
-                clippy::unnecessary_wraps,
-                reason = "generated endpoint handlers retain one uniform fallible dispatch contract"
-            )]
-            pub(crate) fn metrics(
-                window_start_ms: Option<u64>,
-            ) -> Result<::icydb::metrics::CompactMetricsReport, ::icydb::Error> {
-                Ok(::icydb::metrics::compact_metrics_report(window_start_ms))
-            }
+            ::icydb::__icydb_with_metrics_items! {
+                #[allow(
+                    clippy::unnecessary_wraps,
+                    reason = "generated endpoint handlers retain one uniform fallible dispatch contract"
+                )]
+                pub(crate) fn metrics(
+                ) -> Result<::icydb::metrics::MetricsReport, ::icydb::Error> {
+                    Ok(::icydb::metrics::metrics_report())
+                }
 
-            #[allow(
-                clippy::unnecessary_wraps,
-                reason = "generated endpoint handlers retain one uniform fallible dispatch contract"
-            )]
-            pub(crate) fn metrics_extended(
-                window_start_ms: Option<u64>,
-            ) -> Result<::icydb::metrics::EventReport, ::icydb::Error> {
-                Ok(::icydb::metrics::metrics_report(window_start_ms))
-            }
-
-            #[allow(
-                clippy::unnecessary_wraps,
-                reason = "generated endpoint handlers retain one uniform fallible dispatch contract"
-            )]
-            pub(crate) fn metrics_reset() -> Result<(), ::icydb::Error> {
-                ::icydb::metrics::metrics_reset_all();
-                Ok(())
+                #[allow(
+                    clippy::unnecessary_wraps,
+                    reason = "generated endpoint handlers retain one uniform fallible dispatch contract"
+                )]
+                pub(crate) fn metrics_reset() -> Result<(), ::icydb::Error> {
+                    ::icydb::metrics::metrics_reset_all();
+                    Ok(())
+                }
             }
 
             pub(crate) fn snapshot(
@@ -318,7 +309,6 @@ mod tests {
 
         for handler in [
             "metrics",
-            "metrics_extended",
             "metrics_reset",
             "snapshot",
             "schema",

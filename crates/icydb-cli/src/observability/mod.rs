@@ -134,20 +134,10 @@ pub(crate) mod test_support {
         base_method_error(label, environment, canister, method, detail)
     }
 
-    pub(crate) fn metrics_candid_arg(window_start_ms: Option<u64>) -> String {
-        metrics::metrics_candid_arg(window_start_ms)
-    }
-
     pub(crate) fn decode_metrics_report(
         candid_bytes: &[u8],
-    ) -> Result<Result<icydb::metrics::CompactMetricsReport, icydb::Error>, String> {
+    ) -> Result<Result<icydb::metrics::MetricsReport, icydb::Error>, String> {
         metrics::decode_metrics_report(candid_bytes)
-    }
-
-    pub(crate) fn decode_extended_metrics_report(
-        candid_bytes: &[u8],
-    ) -> Result<Result<icydb::metrics::EventReport, icydb::Error>, String> {
-        metrics::decode_extended_metrics_report(candid_bytes)
     }
 
     pub(crate) fn decode_metrics_reset_response(
@@ -172,12 +162,8 @@ pub(crate) mod test_support {
         render::render_field_list(fields)
     }
 
-    pub(crate) fn render_metrics_report(report: &icydb::metrics::CompactMetricsReport) -> String {
+    pub(crate) fn render_metrics_report(report: &icydb::metrics::MetricsReport) -> String {
         metrics::render_metrics_report(report)
-    }
-
-    pub(crate) fn render_extended_metrics_report(report: &icydb::metrics::EventReport) -> String {
-        metrics::render_extended_metrics_report(report)
     }
 
     pub(crate) fn render_schema_report(report: &[icydb::db::EntitySchemaDescription]) -> String {

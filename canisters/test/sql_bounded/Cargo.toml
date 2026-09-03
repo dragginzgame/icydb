@@ -15,7 +15,6 @@ candid-export = []
 sql = ["icydb/sql"]
 diagnostics = ["icydb/diagnostics"]
 local-sql-query = ["sql"]
-metrics-context-audit = ["sql"]
 schema-migration-api = ["icydb/migration"]
 schema-migration-v2 = ["schema-migration-api", "icydb-testing-test-sql-fixtures/migration-v2"]
 test-admin-api = ["sql"]
@@ -23,7 +22,7 @@ test-admin-api = ["sql"]
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { path = "../../../crates/icydb", default-features = false, features = ["metrics"] }
 icydb-model = { path = "../../../crates/icydb-model" }
 icydb-testing-test-sql-fixtures = { workspace = true }
 

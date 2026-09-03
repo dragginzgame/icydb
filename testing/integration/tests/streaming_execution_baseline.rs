@@ -5,8 +5,7 @@ use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error,
     db::{
-        ExhaustiveQueryPageOutput, LiveQueryPageOutput, OperationReadAttribution, ReadAccessRoute,
-        ReadPlanCacheOutcome, ReadSetRevisionError, ReadSetRevisionProof,
+        ExhaustiveQueryPageOutput, LiveQueryPageOutput, ReadSetRevisionError, ReadSetRevisionProof,
         SqlQueryExecutionAttribution, sql::SqlQueryResult,
     },
     diagnostic::DiagnosticCode,
@@ -39,17 +38,6 @@ struct StreamingExecutionFixtureFacts {
 struct StreamingQueryPerfResult {
     result: SqlQueryResult,
     attribution: SqlQueryExecutionAttribution,
-}
-
-#[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
-struct OperationReadAttributionProbe {
-    results_match: bool,
-    typed_result_matches: bool,
-    cold_plan_cache: ReadPlanCacheOutcome,
-    ordinary_local_instructions: u64,
-    attributed_outer_local_instructions: u64,
-    attribution: OperationReadAttribution,
-    typed_attribution: OperationReadAttribution,
 }
 
 #[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
@@ -179,64 +167,6 @@ fn assert_live_page_driver_commit_contract(fixture: &StandaloneCanisterFixture) 
     assert!(!public.page_has_continuation);
     assert!(public.exhausted);
     assert!(public.continuation_after.is_none());
-}
-
-#[test]
-fn operation_local_read_attribution_is_bounded_and_low_overhead() {
-    let fixture = install_fixture_canister("sql_perf");
-    let loaded: Result<u32, Error> = fixture
-        .update_candid("load_streaming_execution_continuation_fixture", ())
-        .expect("continuation fixture row count should decode");
-    assert_eq!(
-        loaded.expect("continuation fixture should load"),
-        STREAMING_EXECUTION_CONTINUATION_ROWS,
-    );
-
-    let probe: Result<OperationReadAttributionProbe, Error> = fixture
-        .query_candid("query_streaming_execution_read_attribution_probe", ())
-        .expect("operation-local read attribution probe should decode");
-    let probe = probe.expect("operation-local read attribution probe should execute");
-    let allowed_overhead = 25_000_u64.max(probe.ordinary_local_instructions * 3 / 100);
-    let measured_overhead = probe
-        .attributed_outer_local_instructions
-        .saturating_sub(probe.ordinary_local_instructions);
-
-    assert!(probe.results_match);
-    assert!(probe.typed_result_matches);
-    assert!(probe.attribution.total_local_instructions > 0);
-    assert!(probe.attribution.engine_local_instructions > 0);
-    assert!(
-        probe.attribution.total_local_instructions > probe.attribution.engine_local_instructions
-    );
-    assert_eq!(probe.attribution.response_decode_local_instructions, 0);
-    assert_eq!(probe.cold_plan_cache, ReadPlanCacheOutcome::Miss);
-    assert_eq!(probe.attribution.plan_cache, ReadPlanCacheOutcome::Hit);
-    assert_eq!(probe.attribution.access_route, ReadAccessRoute::PrimaryKey);
-    assert_eq!(probe.attribution.rows_scanned, 1);
-    assert_eq!(probe.attribution.rows_emitted, 1);
-    assert!(probe.typed_attribution.total_local_instructions > 0);
-    assert!(probe.typed_attribution.engine_local_instructions > 0);
-    assert!(probe.typed_attribution.response_decode_local_instructions > 0);
-    assert!(
-        probe.typed_attribution.total_local_instructions
-            > probe.typed_attribution.engine_local_instructions
-    );
-    assert_eq!(probe.typed_attribution.rows_scanned, 1);
-    assert_eq!(probe.typed_attribution.rows_emitted, 1);
-    assert!(
-        measured_overhead <= allowed_overhead,
-        "operation-local attribution overhead {measured_overhead} exceeded {allowed_overhead}; ordinary={}, attributed={}",
-        probe.ordinary_local_instructions,
-        probe.attributed_outer_local_instructions,
-    );
-    println!(
-        "icydb_0249_read_attribution ordinary={} attributed={} overhead={} total={} engine={}",
-        probe.ordinary_local_instructions,
-        probe.attributed_outer_local_instructions,
-        measured_overhead,
-        probe.attribution.total_local_instructions,
-        probe.attribution.engine_local_instructions,
-    );
 }
 
 fn traverse_live_continuation_fixture(fixture: &StandaloneCanisterFixture) -> Vec<i64> {

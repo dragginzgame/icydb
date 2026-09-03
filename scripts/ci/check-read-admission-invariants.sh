@@ -121,7 +121,7 @@ require_literal \
 require_literal \
   "$GENERATED_SQL" \
   "generated query trusted dispatch" \
-  'execute_trusted_sql_query_with_perf_attribution'
+  'execute_trusted_sql_query_dispatch'
 require_literal \
   "$GUIDE" \
   "typed public endpoint guidance" \

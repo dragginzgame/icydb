@@ -1,6 +1,6 @@
 //! Module: db::session::sql
 //!
-//! Responsibility: public `DbSession` SQL facade methods and SQL perf DTOs.
+//! Responsibility: public `DbSession` SQL facade methods.
 //! Does not own: SQL lowering, SQL planner semantics, or public read policy.
 //! Boundary: wraps core SQL execution with public response conversion.
 
@@ -11,53 +11,6 @@ use crate::{
 };
 
 use icydb_core as core;
-
-/// SQL query attribution envelope used by generated canister endpoints.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct SqlQueryPerfAttribution {
-    pub compile_local_instructions: u64,
-    pub execution: SqlExecutionPerfAttribution,
-    pub pure_covering: Option<SqlPureCoveringPerfAttribution>,
-    pub response_decode_local_instructions: u64,
-    pub total_local_instructions: u64,
-}
-
-/// SQL execution-stage attribution.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct SqlExecutionPerfAttribution {
-    pub planner_local_instructions: u64,
-    pub store_local_instructions: u64,
-    pub executor_local_instructions: u64,
-}
-
-/// SQL pure-covering attribution.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct SqlPureCoveringPerfAttribution {
-    pub decode_local_instructions: u64,
-    pub row_assembly_local_instructions: u64,
-}
-
-#[cfg(feature = "diagnostics")]
-impl From<crate::db::SqlQueryExecutionAttribution> for SqlQueryPerfAttribution {
-    fn from(attribution: crate::db::SqlQueryExecutionAttribution) -> Self {
-        Self {
-            compile_local_instructions: attribution.compile_local_instructions,
-            execution: SqlExecutionPerfAttribution {
-                planner_local_instructions: attribution.execution.planner_local_instructions,
-                store_local_instructions: attribution.execution.store_local_instructions,
-                executor_local_instructions: attribution.execution.executor_local_instructions,
-            },
-            pure_covering: attribution.pure_covering.map(|pure_covering| {
-                SqlPureCoveringPerfAttribution {
-                    decode_local_instructions: pure_covering.decode_local_instructions,
-                    row_assembly_local_instructions: pure_covering.row_assembly_local_instructions,
-                }
-            }),
-            response_decode_local_instructions: attribution.response_decode_local_instructions,
-            total_local_instructions: attribution.total_local_instructions,
-        }
-    }
-}
 
 #[cfg(all(feature = "diagnostics", target_arch = "wasm32"))]
 fn read_sql_response_decode_local_instruction_counter() -> u64 {
@@ -78,9 +31,9 @@ fn measure_sql_response_decode_stage<T>(run: impl FnOnce() -> T) -> (u64, T) {
     (delta, result)
 }
 
-// Fold the trusted SQL response-packaging phase onto the outward top-level perf
-// contract so shell-facing totals remain exhaustive across compile, planner,
-// store, executor, and decode.
+// Fold trusted SQL response packaging into the explicit audit attribution so
+// its total remains exhaustive across compile, planner, store, executor, and
+// decode.
 #[cfg(feature = "diagnostics")]
 const fn finalize_trusted_sql_query_attribution(
     mut attribution: crate::db::SqlQueryExecutionAttribution,
@@ -137,39 +90,19 @@ impl<C: CanisterKind> DbSession<C> {
     /// application-owned SQL allowlist before entering this trusted lane.
     pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlQueryResult, Error> {
         let dispatch = core::db::sql_statement_dispatch(sql)?;
-        let (result, entity) = self
-            .inner
-            .execute_trusted_sql_query_with_entity_name(&dispatch)?;
-        Ok(Self::sql_query_result_from_statement(result, entity))
+        self.execute_trusted_sql_query_dispatch(&dispatch)
     }
 
     /// Execute one generated query from its admitted parsed dispatch artifact.
     #[doc(hidden)]
-    pub fn execute_trusted_sql_query_with_perf_attribution(
+    pub fn execute_trusted_sql_query_dispatch(
         &self,
         dispatch: &core::db::SqlStatementDispatch<'_>,
-    ) -> Result<(SqlQueryResult, SqlQueryPerfAttribution), Error> {
-        #[cfg(not(feature = "diagnostics"))]
-        {
-            let (result, entity) = self
-                .inner
-                .execute_trusted_sql_query_with_entity_name(dispatch)?;
-
-            Ok((
-                Self::sql_query_result_from_statement(result, entity),
-                SqlQueryPerfAttribution::default(),
-            ))
-        }
-        #[cfg(feature = "diagnostics")]
-        {
-            let (result, entity, attribution) = self
-                .inner
-                .execute_trusted_sql_query_with_entity_name_and_attribution(dispatch)?;
-            let (result, attribution) =
-                Self::sql_query_result_with_attribution(result, entity, attribution);
-
-            Ok((result, SqlQueryPerfAttribution::from(attribution)))
-        }
+    ) -> Result<SqlQueryResult, Error> {
+        let (result, entity) = self
+            .inner
+            .execute_trusted_sql_query_with_entity_name(dispatch)?;
+        Ok(Self::sql_query_result_from_statement(result, entity))
     }
 
     /// Execute one trusted/admin reduced SQL query and report the top-level
@@ -305,9 +238,9 @@ mod tests {
     #[test]
     #[expect(
         clippy::field_reassign_with_default,
-        reason = "the public diagnostics DTO test intentionally stays resilient to future attribution fields"
+        reason = "the audit diagnostics DTO test intentionally stays resilient to future attribution fields"
     )]
-    fn public_sql_perf_attribution_total_stays_exhaustive_after_decode_finalize() {
+    fn sql_attribution_total_stays_exhaustive_after_decode_finalize() {
         let mut attribution = SqlQueryExecutionAttribution::default();
         attribution.compile_local_instructions = 11;
         attribution.compile.cache_lookup_local_instructions = 1;

@@ -4,10 +4,7 @@ use candid::Principal;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorCode,
-    db::{
-        EntitySchemaDescription,
-        sql::{SqlQueryPerfResult, SqlQueryResult},
-    },
+    db::{EntitySchemaDescription, sql::SqlQueryResult},
 };
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterWasmProfile,
@@ -31,10 +28,10 @@ fn query_sql(
     fixture: &StandaloneCanisterFixture,
     caller: Principal,
 ) -> Result<SqlQueryResult, Error> {
-    let result: Result<SqlQueryPerfResult, Error> = fixture
+    let result: Result<SqlQueryResult, Error> = fixture
         .query_candid_as(caller, "icydb_query", ("SHOW ENTITIES".to_string(),))
         .expect("SQL response should decode");
-    result.map(|response| response.result)
+    result
 }
 
 fn query_schema(

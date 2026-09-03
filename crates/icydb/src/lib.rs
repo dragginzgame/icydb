@@ -82,12 +82,10 @@ pub mod value {
 }
 
 #[doc(hidden)]
+#[cfg(feature = "metrics")]
 pub mod metrics {
     pub use icydb_core::metrics::{
-        CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport,
-        EntitySummary, EventCounters, EventOps, EventReport, MetricRatio, MetricsSink,
-        MutationJobMetrics, compact_metric_code, compact_metrics_report, metrics_report,
-        metrics_reset_all,
+        EntityMetrics, MetricsReport, metrics_report, metrics_reset_all,
     };
 }
 
@@ -179,7 +177,6 @@ pub mod __macro {
     #[cfg(feature = "sql")]
     pub use icydb_core::db::{sql_statement_dispatch, sql_statement_entity_name};
     pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
-    pub use icydb_core::metrics::with_query_metrics_context;
     pub use icydb_core::traits::{CanisterKind, Path};
     pub use icydb_core::value::Value;
     pub use icydb_schema::{DEFAULT_BIG_INT_MAX_BYTES, ScalarType};
@@ -485,6 +482,20 @@ macro_rules! __icydb_with_sql_items {
 }
 
 #[doc(hidden)]
+#[cfg(feature = "metrics")]
+#[macro_export]
+macro_rules! __icydb_with_metrics_items {
+    ($($item:item)*) => { $($item)* };
+}
+
+#[doc(hidden)]
+#[cfg(not(feature = "metrics"))]
+#[macro_export]
+macro_rules! __icydb_with_metrics_items {
+    ($($item:item)*) => {};
+}
+
+#[doc(hidden)]
 #[cfg(not(feature = "sql"))]
 #[macro_export]
 macro_rules! __icydb_with_sql_items {
@@ -510,6 +521,26 @@ macro_rules! __icydb_with_migration_items {
 #[macro_export]
 macro_rules! __icydb_with_sql_endpoint {
     ($endpoint:literal; $($item:item)*) => { $($item)* };
+}
+
+#[doc(hidden)]
+#[cfg(feature = "metrics")]
+#[macro_export]
+macro_rules! __icydb_with_metrics_endpoint {
+    ($endpoint:literal; $($item:item)*) => { $($item)* };
+}
+
+#[doc(hidden)]
+#[cfg(not(feature = "metrics"))]
+#[macro_export]
+macro_rules! __icydb_with_metrics_endpoint {
+    ($endpoint:literal; $($item:item)*) => {
+        compile_error!(concat!(
+            "endpoint declaration `",
+            $endpoint,
+            "` requires the `icydb/metrics` Cargo feature"
+        ));
+    };
 }
 
 #[doc(hidden)]
@@ -614,16 +645,14 @@ macro_rules! __icydb_endpoints_internal {
             #[$crate::__reexports::ic_cdk::query(name = "icydb_query")]
             fn __icydb_export_icydb_query(
                 sql: String,
-            ) -> Result<__icydb_facade::db::sql::SqlQueryPerfResult, __icydb_facade::Error> {
+            ) -> Result<__icydb_facade::db::sql::SqlQueryResult, __icydb_facade::Error> {
                 let guard: $crate::ReadAuthorizationGuard = $guard;
                 $crate::__macro::authorize_sql_read(
                     $crate::__reexports::ic_cdk::api::msg_caller(),
                     guard,
                 )?;
-                $crate::__macro::with_query_metrics_context(|| {
-                    $crate::db::with_request_execution(|| {
-                        crate::__icydb_generated::endpoint_handlers::sql_query::<false>(sql)
-                    })
+                $crate::db::with_request_execution(|| {
+                    crate::__icydb_generated::endpoint_handlers::sql_query::<false>(sql)
                 })
             }
         }
@@ -643,16 +672,14 @@ macro_rules! __icydb_endpoints_internal {
             #[$crate::__reexports::ic_cdk::query(name = "icydb_query")]
             fn __icydb_export_icydb_query(
                 sql: String,
-            ) -> Result<__icydb_facade::db::sql::SqlQueryPerfResult, __icydb_facade::Error> {
+            ) -> Result<__icydb_facade::db::sql::SqlQueryResult, __icydb_facade::Error> {
                 let guard: $crate::ReadAuthorizationGuard = $guard;
                 $crate::__macro::authorize_sql_read(
                     $crate::__reexports::ic_cdk::api::msg_caller(),
                     guard,
                 )?;
-                $crate::__macro::with_query_metrics_context(|| {
-                    $crate::db::with_request_execution(|| {
-                        crate::__icydb_generated::endpoint_handlers::sql_query::<true>(sql)
-                    })
+                $crate::db::with_request_execution(|| {
+                    crate::__icydb_generated::endpoint_handlers::sql_query::<true>(sql)
                 })
             }
         }
@@ -669,12 +696,10 @@ macro_rules! __icydb_endpoints_internal {
             #[$crate::__reexports::ic_cdk::query(name = "icydb_query")]
             fn __icydb_export_icydb_query(
                 sql: String,
-            ) -> Result<__icydb_facade::db::sql::SqlQueryPerfResult, __icydb_facade::Error> {
+            ) -> Result<__icydb_facade::db::sql::SqlQueryResult, __icydb_facade::Error> {
                 crate::__icydb_generated::endpoint_authorization::require_sql_controller()?;
-                $crate::__macro::with_query_metrics_context(|| {
-                    $crate::db::with_request_execution(|| {
-                        crate::__icydb_generated::endpoint_handlers::sql_query::<false>(sql)
-                    })
+                $crate::db::with_request_execution(|| {
+                    crate::__icydb_generated::endpoint_handlers::sql_query::<false>(sql)
                 })
             }
         }
@@ -691,12 +716,10 @@ macro_rules! __icydb_endpoints_internal {
             #[$crate::__reexports::ic_cdk::query(name = "icydb_query")]
             fn __icydb_export_icydb_query(
                 sql: String,
-            ) -> Result<__icydb_facade::db::sql::SqlQueryPerfResult, __icydb_facade::Error> {
+            ) -> Result<__icydb_facade::db::sql::SqlQueryResult, __icydb_facade::Error> {
                 crate::__icydb_generated::endpoint_authorization::require_sql_controller()?;
-                $crate::__macro::with_query_metrics_context(|| {
-                    $crate::db::with_request_execution(|| {
-                        crate::__icydb_generated::endpoint_handlers::sql_query::<true>(sql)
-                    })
+                $crate::db::with_request_execution(|| {
+                    crate::__icydb_generated::endpoint_handlers::sql_query::<true>(sql)
                 })
             }
         }
@@ -838,13 +861,13 @@ macro_rules! __icydb_endpoints_internal {
         #[used]
         static __ICYDB_ENDPOINT_DECLARATION_METRICS: () = ();
         $(#[cfg($($cfg)*)])*
-        #[$crate::__reexports::ic_cdk::query(name = "icydb_metrics")]
-        fn __icydb_export_icydb_metrics(
-            window_start_ms: Option<u64>,
-        ) -> Result<__icydb_facade::metrics::CompactMetricsReport, __icydb_facade::Error> {
-            $crate::__macro::with_query_metrics_context(|| {
-                crate::__icydb_generated::endpoint_handlers::metrics(window_start_ms)
-            })
+        $crate::__icydb_with_metrics_endpoint! {
+            "icydb_metrics";
+            #[$crate::__reexports::ic_cdk::query(name = "icydb_metrics")]
+            fn __icydb_export_icydb_metrics(
+            ) -> Result<__icydb_facade::metrics::MetricsReport, __icydb_facade::Error> {
+                crate::__icydb_generated::endpoint_handlers::metrics()
+            }
         }
         $crate::__icydb_endpoints_internal!($($rest)*);
     };
@@ -854,47 +877,14 @@ macro_rules! __icydb_endpoints_internal {
         #[used]
         static __ICYDB_ENDPOINT_DECLARATION_METRICS: () = ();
         $(#[cfg($($cfg)*)])*
-        #[$crate::__reexports::ic_cdk::query(name = "icydb_metrics")]
-        fn __icydb_export_icydb_metrics(
-            window_start_ms: Option<u64>,
-        ) -> Result<__icydb_facade::metrics::CompactMetricsReport, __icydb_facade::Error> {
-            crate::__icydb_generated::endpoint_authorization::require_operational_controller()?;
-            $crate::__macro::with_query_metrics_context(|| {
-                crate::__icydb_generated::endpoint_handlers::metrics(window_start_ms)
-            })
-        }
-        $crate::__icydb_endpoints_internal!($($rest)*);
-    };
-
-    ($(#[cfg($($cfg:tt)*)])* icydb_metrics_extended(authorization = public); $($rest:tt)*) => {
-        $(#[cfg($($cfg)*)])*
-        #[used]
-        static __ICYDB_ENDPOINT_DECLARATION_METRICS_EXTENDED: () = ();
-        $(#[cfg($($cfg)*)])*
-        #[$crate::__reexports::ic_cdk::query(name = "icydb_metrics_extended")]
-        fn __icydb_export_icydb_metrics_extended(
-            window_start_ms: Option<u64>,
-        ) -> Result<__icydb_facade::metrics::EventReport, __icydb_facade::Error> {
-            $crate::__macro::with_query_metrics_context(|| {
-                crate::__icydb_generated::endpoint_handlers::metrics_extended(window_start_ms)
-            })
-        }
-        $crate::__icydb_endpoints_internal!($($rest)*);
-    };
-
-    ($(#[cfg($($cfg:tt)*)])* icydb_metrics_extended(authorization = controller); $($rest:tt)*) => {
-        $(#[cfg($($cfg)*)])*
-        #[used]
-        static __ICYDB_ENDPOINT_DECLARATION_METRICS_EXTENDED: () = ();
-        $(#[cfg($($cfg)*)])*
-        #[$crate::__reexports::ic_cdk::query(name = "icydb_metrics_extended")]
-        fn __icydb_export_icydb_metrics_extended(
-            window_start_ms: Option<u64>,
-        ) -> Result<__icydb_facade::metrics::EventReport, __icydb_facade::Error> {
-            crate::__icydb_generated::endpoint_authorization::require_operational_controller()?;
-            $crate::__macro::with_query_metrics_context(|| {
-                crate::__icydb_generated::endpoint_handlers::metrics_extended(window_start_ms)
-            })
+        $crate::__icydb_with_metrics_endpoint! {
+            "icydb_metrics";
+            #[$crate::__reexports::ic_cdk::query(name = "icydb_metrics")]
+            fn __icydb_export_icydb_metrics(
+            ) -> Result<__icydb_facade::metrics::MetricsReport, __icydb_facade::Error> {
+                crate::__icydb_generated::endpoint_authorization::require_operational_controller()?;
+                crate::__icydb_generated::endpoint_handlers::metrics()
+            }
         }
         $crate::__icydb_endpoints_internal!($($rest)*);
     };
@@ -904,10 +894,13 @@ macro_rules! __icydb_endpoints_internal {
         #[used]
         static __ICYDB_ENDPOINT_DECLARATION_METRICS_RESET: () = ();
         $(#[cfg($($cfg)*)])*
-        #[$crate::__reexports::ic_cdk::update(name = "icydb_metrics_reset")]
-        fn __icydb_export_icydb_metrics_reset() -> Result<(), __icydb_facade::Error> {
-            crate::__icydb_generated::endpoint_authorization::require_operational_controller()?;
-            crate::__icydb_generated::endpoint_handlers::metrics_reset()
+        $crate::__icydb_with_metrics_endpoint! {
+            "icydb_metrics_reset";
+            #[$crate::__reexports::ic_cdk::update(name = "icydb_metrics_reset")]
+            fn __icydb_export_icydb_metrics_reset() -> Result<(), __icydb_facade::Error> {
+                crate::__icydb_generated::endpoint_authorization::require_operational_controller()?;
+                crate::__icydb_generated::endpoint_handlers::metrics_reset()
+            }
         }
         $crate::__icydb_endpoints_internal!($($rest)*);
     };
@@ -920,10 +913,8 @@ macro_rules! __icydb_endpoints_internal {
         #[$crate::__reexports::ic_cdk::query(name = "icydb_snapshot")]
         fn __icydb_export_icydb_snapshot() -> Result<__icydb_facade::db::StorageReport, __icydb_facade::Error> {
             crate::__icydb_generated::endpoint_authorization::require_operational_controller()?;
-            $crate::__macro::with_query_metrics_context(|| {
-                $crate::db::with_request_execution(|| {
-                    crate::__icydb_generated::endpoint_handlers::snapshot()
-                })
+            $crate::db::with_request_execution(|| {
+                crate::__icydb_generated::endpoint_handlers::snapshot()
             })
         }
         $crate::__icydb_endpoints_internal!($($rest)*);
@@ -937,10 +928,8 @@ macro_rules! __icydb_endpoints_internal {
         #[$crate::__reexports::ic_cdk::query(name = "icydb_schema")]
         fn __icydb_export_icydb_schema(
         ) -> Result<Vec<__icydb_facade::db::EntitySchemaDescription>, __icydb_facade::Error> {
-            $crate::__macro::with_query_metrics_context(|| {
-                $crate::db::with_request_execution(|| {
-                    crate::__icydb_generated::endpoint_handlers::schema()
-                })
+            $crate::db::with_request_execution(|| {
+                crate::__icydb_generated::endpoint_handlers::schema()
             })
         }
         $crate::__icydb_endpoints_internal!($($rest)*);
@@ -961,10 +950,8 @@ macro_rules! __icydb_endpoints_internal {
                 $crate::__reexports::ic_cdk::api::msg_caller(),
                 guard,
             )?;
-            $crate::__macro::with_query_metrics_context(|| {
-                $crate::db::with_request_execution(|| {
-                    crate::__icydb_generated::endpoint_handlers::schema()
-                })
+            $crate::db::with_request_execution(|| {
+                crate::__icydb_generated::endpoint_handlers::schema()
             })
         }
         $crate::__icydb_endpoints_internal!($($rest)*);
@@ -979,10 +966,8 @@ macro_rules! __icydb_endpoints_internal {
         fn __icydb_export_icydb_schema(
         ) -> Result<Vec<__icydb_facade::db::EntitySchemaDescription>, __icydb_facade::Error> {
             crate::__icydb_generated::endpoint_authorization::require_schema_controller()?;
-            $crate::__macro::with_query_metrics_context(|| {
-                $crate::db::with_request_execution(|| {
-                    crate::__icydb_generated::endpoint_handlers::schema()
-                })
+            $crate::db::with_request_execution(|| {
+                crate::__icydb_generated::endpoint_handlers::schema()
             })
         }
         $crate::__icydb_endpoints_internal!($($rest)*);
@@ -1020,10 +1005,8 @@ macro_rules! __icydb_endpoints_internal {
                 request: __icydb_facade::db::SchemaMigrationStatusRequest,
             ) -> Result<__icydb_facade::db::SchemaMigrationStatusPage, __icydb_facade::Error> {
                 crate::__icydb_generated::endpoint_authorization::require_operational_controller()?;
-                $crate::__macro::with_query_metrics_context(|| {
-                    $crate::db::with_request_execution(|| {
-                        crate::__icydb_generated::endpoint_handlers::schema_migration(&request)
-                    })
+                $crate::db::with_request_execution(|| {
+                    crate::__icydb_generated::endpoint_handlers::schema_migration(&request)
                 })
             }
         }

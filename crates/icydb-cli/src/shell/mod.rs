@@ -6,7 +6,6 @@
 mod call;
 mod input;
 mod interactive;
-mod perf;
 mod render;
 mod route;
 
@@ -19,7 +18,7 @@ use crate::{
     cli::{SqlArgs, SqlShellFields},
     endpoint::{Endpoint, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT},
     icp::require_created_canister,
-    shell::render::render_shell_text_from_perf_result,
+    shell::render::render_shell_text,
 };
 
 ///
@@ -110,12 +109,12 @@ fn execute_trusted_sql_query(
     let candid_bytes = call::icp_query(environment, canister, endpoint.method(), escaped_sql)?;
     let response = Decode!(
         candid_bytes.as_slice(),
-        Result<icydb::db::sql::SqlQueryPerfResult, icydb::Error>
+        Result<icydb::db::sql::SqlQueryResult, icydb::Error>
     )
     .map_err(|err| err.to_string())?;
 
     match response {
-        Ok(result) => Ok(render_shell_text_from_perf_result(result)),
+        Ok(result) => Ok(render_shell_text(result)),
         Err(err) => Ok(render_sql_error(err, environment, canister)),
     }
 }
@@ -147,7 +146,7 @@ fn render_sql_error(err: icydb::Error, environment: &str, canister: &str) -> Str
 
 #[cfg(test)]
 pub(crate) mod test_support {
-    pub(crate) use super::{perf::ShellPerfAttribution, route::SqlShellCallKind};
+    pub(crate) use super::route::SqlShellCallKind;
 
     pub(crate) type SqlShellConfigInputs = (String, String, std::path::PathBuf, Option<String>);
 
@@ -171,30 +170,6 @@ pub(crate) mod test_support {
 
     pub(crate) fn normalize_shell_statement_line(line: &str) -> String {
         super::input::normalize_shell_statement_line(line)
-    }
-
-    pub(crate) fn render_perf_suffix(attribution: Option<&ShellPerfAttribution>) -> Option<String> {
-        super::perf::render_perf_suffix(attribution)
-    }
-
-    pub(crate) const fn shell_perf_attribution(
-        total: u64,
-        compiler: u64,
-        planner: u64,
-        store: u64,
-        executor: u64,
-        decode: u64,
-    ) -> ShellPerfAttribution {
-        super::perf::ShellPerfAttribution::new(super::perf::ShellPerfAttributionInput {
-            total,
-            planner,
-            store,
-            executor,
-            pure_covering_decode: 0,
-            pure_covering_row_assembly: 0,
-            decode,
-            compiler,
-        })
     }
 
     pub(crate) const fn shell_help_text() -> &'static str {
@@ -221,18 +196,12 @@ pub(crate) mod test_support {
         super::render::finalize_successful_command_output(rendered)
     }
 
-    pub(crate) fn render_grouped_shell_text(
-        rows: icydb::db::sql::SqlGroupedRowsOutput,
-        attribution: Option<ShellPerfAttribution>,
-    ) -> String {
-        super::render::render_grouped_shell_text(rows, attribution, None)
+    pub(crate) fn render_grouped_shell_text(rows: icydb::db::sql::SqlGroupedRowsOutput) -> String {
+        super::render::render_grouped_shell_text(rows)
     }
 
-    pub(crate) fn render_projection_shell_text(
-        rows: icydb::db::RowProjectionOutput,
-        attribution: Option<ShellPerfAttribution>,
-    ) -> String {
-        super::render::render_projection_shell_text(rows, attribution, None)
+    pub(crate) fn render_projection_shell_text(rows: icydb::db::RowProjectionOutput) -> String {
+        super::render::render_projection_shell_text(rows)
     }
 
     pub(crate) fn sql_shell_config_inputs(args: super::SqlArgs) -> SqlShellConfigInputs {

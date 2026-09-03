@@ -118,8 +118,8 @@ Current generated endpoint surfaces:
 - `icydb_fixtures_reset` and `icydb_fixtures_load` for local fixture flows
 - `icydb_snapshot` for storage inventory and stable allocation metadata
 - `icydb_schema` for accepted schema descriptions
-- `icydb_metrics` and `icydb_metrics_reset` for default runtime metrics
-- `icydb_metrics_extended` when the target metrics mode is `extended`
+- `icydb_metrics` and `icydb_metrics_reset` for the optional on-canister
+  entity hit/instruction report
 
 Fixture loading calls the explicitly named plain non-exported user hook:
 
@@ -420,7 +420,6 @@ icydb canister status demo_rpg
 icydb snapshot demo_rpg
 icydb schema show demo_rpg
 icydb metrics demo_rpg
-icydb metrics demo_rpg --window-start-ms <timestamp>
 icydb metrics demo_rpg --reset
 ```
 

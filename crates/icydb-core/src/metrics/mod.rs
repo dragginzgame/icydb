@@ -1,33 +1,72 @@
 //! Module: metrics
-//!
-//! Responsibility: runtime telemetry sinks and report state.
-//! Does not own: executor diagnostics or storage inspection surfaces under `db`.
-//! Boundary: crate-level metrics reporting/reset surface.
+//! Responsibility: on-canister entity cost reporting.
+//! Does not own: endpoints, query identity, or storage inspection.
+//! Boundary: one feature, one span, and one heap report.
 
-pub(crate) mod sink;
+#[cfg(feature = "metrics")]
 mod state;
 
-// re-exports
-pub use sink::metrics_report;
-#[doc(hidden)]
-pub use sink::with_query_metrics_context;
-pub use sink::{
-    CacheKind, CacheMissReason, CacheOutcome, ExecKind, ExecOutcome, GroupedPlanExecutionMode,
-    MetricsEvent, MetricsSink, MutationCommitClass, MutationJobLifecycleEvent, PlanChoiceReason,
-    PlanKind, SchemaReconcileOutcome, SchemaTransitionOutcome, SqlCompileRejectPhase, SqlWriteKind,
-    compact_metrics_report, metrics_reset_all,
-};
-pub use state::{
-    CompactEntityMetrics, CompactEventCounters, CompactMetric, CompactMetricsReport,
-    compact_metric_code,
-};
-pub use state::{
-    EntitySummary, EventCounters, EventOps, EventReport, MetricRatio, MutationJobMetrics,
-};
+#[cfg(not(feature = "metrics"))]
+use std::marker::PhantomData;
 
-///
-/// TESTS
-///
+#[cfg(feature = "metrics")]
+pub use state::{EntityMetrics, MetricsReport, metrics_report, metrics_reset_all};
 
-#[cfg(test)]
-mod tests;
+/// Instruction span for work owned by exactly one accepted entity.
+pub(crate) struct EntityMetricsSpan<'entity> {
+    #[cfg(feature = "metrics")]
+    entity_path: Option<&'entity str>,
+    #[cfg(feature = "metrics")]
+    start: u64,
+    #[cfg(not(feature = "metrics"))]
+    marker: PhantomData<&'entity str>,
+}
+
+impl<'entity> EntityMetricsSpan<'entity> {
+    #[must_use]
+    pub(crate) fn new(entity_path: &'entity str) -> Self {
+        #[cfg(feature = "metrics")]
+        {
+            let observable = metrics_are_durable();
+            Self {
+                entity_path: observable.then_some(entity_path),
+                start: if observable {
+                    crate::runtime::local_instruction_counter()
+                } else {
+                    0
+                },
+            }
+        }
+
+        #[cfg(not(feature = "metrics"))]
+        {
+            let _ = entity_path;
+            Self {
+                marker: PhantomData,
+            }
+        }
+    }
+}
+
+#[cfg(all(feature = "metrics", target_arch = "wasm32"))]
+fn metrics_are_durable() -> bool {
+    ic_cdk::api::in_replicated_execution()
+}
+
+#[cfg(all(feature = "metrics", not(target_arch = "wasm32")))]
+const fn metrics_are_durable() -> bool {
+    true
+}
+
+#[cfg(feature = "metrics")]
+impl Drop for EntityMetricsSpan<'_> {
+    fn drop(&mut self) {
+        let Some(entity_path) = self.entity_path else {
+            return;
+        };
+        state::record_entity_execution(
+            entity_path,
+            crate::runtime::local_instruction_counter().saturating_sub(self.start),
+        );
+    }
+}

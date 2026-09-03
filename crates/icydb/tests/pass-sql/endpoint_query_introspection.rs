@@ -6,21 +6,11 @@ mod __icydb_generated {
     pub(crate) mod endpoint_handlers {
         pub(crate) fn sql_query<const INTROSPECTION: bool>(
             _: String,
-        ) -> Result<icydb::db::sql::SqlQueryPerfResult, icydb::Error> {
+        ) -> Result<icydb::db::sql::SqlQueryResult, icydb::Error> {
             let _ = INTROSPECTION;
-            Ok(icydb::db::sql::SqlQueryPerfResult {
-                result: icydb::db::sql::SqlQueryResult::Count {
-                    entity: String::new(),
-                    row_count: 0,
-                },
-                instructions: 0,
-                planner_instructions: 0,
-                store_instructions: 0,
-                executor_instructions: 0,
-                pure_covering_decode_instructions: 0,
-                pure_covering_row_assembly_instructions: 0,
-                decode_instructions: 0,
-                compiler_instructions: 0,
+            Ok(icydb::db::sql::SqlQueryResult::Count {
+                entity: String::new(),
+                row_count: 0,
             })
         }
     }

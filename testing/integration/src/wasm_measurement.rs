@@ -123,7 +123,6 @@ fn validate_entity_scale_raw_wasm_with_maximum(
 pub const WASM_MEASUREMENT_SUBJECTS: &[&str] = &[
     "default_empty",
     "default_empty_metrics",
-    "default_empty_metrics_extended",
     "group_path_sql_query",
     "one_entity_dynamic_query",
     "one_entity_reachable_operations",
@@ -183,14 +182,7 @@ pub const WASM_MEASUREMENT_COMPARISONS: &[WasmComparison] = &[
         baseline: "default_empty",
         candidate: "default_empty_metrics",
         disposition: WasmComparisonDisposition::Attributable,
-        reason: "both actors share one empty schema and feature profile; the candidate adds only the basic metrics and reset endpoint declarations",
-    },
-    WasmComparison {
-        id: "metrics_extended_surface",
-        baseline: "default_empty_metrics",
-        candidate: "default_empty_metrics_extended",
-        disposition: WasmComparisonDisposition::Attributable,
-        reason: "both actors share one empty schema and SQL selection; the candidate adds only the extended metrics feature and endpoint declaration",
+        reason: "both actors share one empty schema and feature profile; the candidate adds only the entity-cost metrics and reset endpoint declarations",
     },
     WasmComparison {
         id: "typed_ingress",
@@ -252,10 +244,6 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
         minimum_final_raw_reduction_basis_points: 500,
     },
     WasmLineBudget {
-        subject: "default_empty_metrics_extended",
-        minimum_final_raw_reduction_basis_points: 0,
-    },
-    WasmLineBudget {
         subject: "group_path_sql_query",
         minimum_final_raw_reduction_basis_points: 0,
     },
@@ -305,7 +293,7 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
 pub fn validate_wasm_measurement_contract() -> Result<(), &'static str> {
     if WASM_MEASUREMENT_PROFILE_VERSION != 1
         || WASM_MEASUREMENT_PROFILE_ID != "icydb-wasm-footprint/0.251/v1"
-        || WASM_MEASUREMENT_SUBJECTS.len() != 13
+        || WASM_MEASUREMENT_SUBJECTS.len() != 12
     {
         return Err("Wasm measurement identity or subject count drifted");
     }

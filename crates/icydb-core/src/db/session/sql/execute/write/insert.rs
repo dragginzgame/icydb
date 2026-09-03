@@ -29,7 +29,6 @@ use crate::{
         sql_shared::SqlSyntaxErrorKind,
         write_context::{AcceptedWriteContext, MutationMode},
     },
-    metrics::sink::SqlWriteKind,
     traits::CanisterKind,
     types::{CurrentTimestamp, Timestamp},
     value::Value,
@@ -392,19 +391,12 @@ impl<C: CanisterKind> DbSession<C> {
                         )?;
                     }
                 }
-                let kind = match &statement.source {
-                    SqlInsertSource::Values(_) | SqlInsertSource::DefaultValues => {
-                        SqlWriteKind::Insert
-                    }
-                    SqlInsertSource::Select(_) => SqlWriteKind::InsertSelect,
-                };
                 self.execute_sql_write_mutation_batch(
                     catalog,
                     &descriptor,
                     SqlWriteMutationExecution::from_bounded_collection(
                         collection,
                         candidate_bounds,
-                        kind,
                         MutationMode::Insert,
                         write_context,
                         execution_bounds.map(|bounds| bounds.returning),

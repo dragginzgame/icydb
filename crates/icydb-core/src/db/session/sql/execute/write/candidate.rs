@@ -14,25 +14,12 @@ use crate::{
             SqlExactUpdatePolicy, combined_optional_row_bound,
             write_policy::SqlWriteExecutionBounds,
         },
-        sql::parser::SqlReturningProjection,
     },
     value::Value,
 };
 use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
 
 const SQL_WRITE_MUTATION_BATCH_INITIAL_RESERVE_ROWS: usize = 64;
-
-fn usize_to_u64_saturating(value: usize) -> u64 {
-    u64::try_from(value).unwrap_or(u64::MAX)
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct SqlWriteCandidateAccounting {
-    semantic_candidates: SqlWriteCandidateRows,
-    matched_candidates: SqlWriteCandidateRows,
-    mutated_rows: usize,
-    returning_rows: usize,
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct SqlWriteCandidateRows(usize);
@@ -44,10 +31,6 @@ impl SqlWriteCandidateRows {
 
     pub(super) const fn len(self) -> usize {
         self.0
-    }
-
-    pub(super) fn from_delete_count(row_count: u32) -> Self {
-        Self(usize::try_from(row_count).unwrap_or(usize::MAX))
     }
 }
 
@@ -208,49 +191,6 @@ pub(super) const fn sql_insert_candidate_bounds(
     ))
 }
 
-impl SqlWriteCandidateAccounting {
-    pub(super) const fn mutation_batch(
-        staged_rows: SqlWriteCandidateRows,
-        mutated_rows: usize,
-        returning: Option<&SqlReturningProjection>,
-    ) -> Self {
-        Self {
-            semantic_candidates: staged_rows,
-            matched_candidates: staged_rows,
-            mutated_rows,
-            returning_rows: if returning.is_some() { mutated_rows } else { 0 },
-        }
-    }
-
-    pub(super) const fn delete_count(
-        candidate_rows: SqlWriteCandidateRows,
-        returning: bool,
-    ) -> Self {
-        Self {
-            semantic_candidates: candidate_rows,
-            matched_candidates: candidate_rows,
-            mutated_rows: candidate_rows.len(),
-            returning_rows: if returning { candidate_rows.len() } else { 0 },
-        }
-    }
-
-    pub(super) fn staged_metric(self) -> u64 {
-        usize_to_u64_saturating(self.semantic_candidates.len())
-    }
-
-    pub(super) fn matched_metric(self) -> u64 {
-        usize_to_u64_saturating(self.matched_candidates.len())
-    }
-
-    pub(super) fn mutated_metric(self) -> u64 {
-        usize_to_u64_saturating(self.mutated_rows)
-    }
-
-    pub(super) fn returning_metric(self) -> u64 {
-        usize_to_u64_saturating(self.returning_rows)
-    }
-}
-
 pub(super) struct SqlWriteMutationBatch<K> {
     rows: Vec<(K, AcceptedMutationIntentPatch)>,
 }
@@ -355,8 +295,8 @@ pub(super) fn sql_write_candidate_collection_capacity(projected_rows: &[Vec<Valu
 #[cfg(test)]
 mod tests {
     use super::{
-        SqlWriteCandidateAccounting, SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds,
-        SqlWriteCandidateCollection, SqlWriteCandidateRows, SqlWriteProjectedSourceRows,
+        SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds, SqlWriteCandidateCollection,
+        SqlWriteCandidateRows, SqlWriteProjectedSourceRows,
     };
     use crate::db::data::AcceptedMutationIntentPatch;
     use icydb_diagnostic_code::{DiagnosticDetail, DiagnosticFactTag, SqlWriteBoundaryCode};
@@ -467,20 +407,5 @@ mod tests {
             Some(SqlWriteProjectedSourceRows::from_len(3)),
         );
         assert_eq!(diagnostics.over_limit_at(), None);
-    }
-
-    #[test]
-    fn sql_write_candidate_accounting_counts_delete_rows_and_returning() {
-        let count = SqlWriteCandidateAccounting::delete_count(SqlWriteCandidateRows(3), false);
-        assert_eq!(count.staged_metric(), 3);
-        assert_eq!(count.matched_metric(), 3);
-        assert_eq!(count.mutated_metric(), 3);
-        assert_eq!(count.returning_metric(), 0);
-
-        let returning = SqlWriteCandidateAccounting::delete_count(SqlWriteCandidateRows(3), true);
-        assert_eq!(returning.staged_metric(), 3);
-        assert_eq!(returning.matched_metric(), 3);
-        assert_eq!(returning.mutated_metric(), 3);
-        assert_eq!(returning.returning_metric(), 3);
     }
 }

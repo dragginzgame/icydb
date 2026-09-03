@@ -17,13 +17,12 @@ candid-export = []
 sql = ["icydb/sql"]
 diagnostics = ["icydb/diagnostics"]
 local-sql-query = ["sql"]
-local-extended-metrics = []
 test-admin-api = ["sql"]
 
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { path = "../../../crates/icydb", default-features = false, features = ["metrics"] }
 icydb-testing-demo-rpg-fixtures = { workspace = true }
 
 [build-dependencies]

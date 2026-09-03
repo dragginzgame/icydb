@@ -62,12 +62,9 @@ const APPLICATION_BEHAVIOR_PERF_ITERATIONS: u32 = 256;
 fn measure_sql_query_attribution(
     sql: String,
 ) -> Result<icydb::db::SqlQueryExecutionAttribution, icydb::Error> {
-    icydb::__macro::with_query_metrics_context(|| {
-        icydb::db::with_request_execution(|| {
-            let (_, attribution) =
-                icydb::db!()?.execute_trusted_sql_query_with_attribution(&sql)?;
-            Ok(attribution)
-        })
+    icydb::db::with_request_execution(|| {
+        let (_, attribution) = icydb::db!()?.execute_trusted_sql_query_with_attribution(&sql)?;
+        Ok(attribution)
     })
 }
 
@@ -89,18 +86,15 @@ struct AcceptedSchemaReadInstructionResult {
 #[cfg(all(feature = "test-admin-api", feature = "diagnostics"))]
 #[query]
 fn measure_sql_query_instructions(sql: String) -> SqlExecutionInstructionResult {
-    icydb::__macro::with_query_metrics_context(|| {
-        let start = ic_cdk::api::performance_counter(1);
-        let result = icydb::db::with_request_execution(|| {
-            icydb::db!()?.execute_trusted_sql_query(sql.as_str())
-        });
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let start = ic_cdk::api::performance_counter(1);
+    let result =
+        icydb::db::with_request_execution(|| icydb::db!()?.execute_trusted_sql_query(sql.as_str()));
+    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
 
-        SqlExecutionInstructionResult {
-            result,
-            local_instructions,
-        }
-    })
+    SqlExecutionInstructionResult {
+        result,
+        local_instructions,
+    }
 }
 
 /// Measure administrative DDL admission through the existing catalog owner.
@@ -152,12 +146,10 @@ fn measure_accepted_schema_read_instructions(
     })
 }
 
-#[cfg(feature = "metrics-context-audit")]
+#[cfg(feature = "test-admin-api")]
 #[query]
-fn audit_query_metrics_context_trap() -> Result<(), icydb::Error> {
-    icydb::__macro::with_query_metrics_context(|| {
-        ic_cdk::trap("intentional query-context rollback probe")
-    })
+fn audit_metrics_query_trap() -> Result<(), icydb::Error> {
+    ic_cdk::trap("intentional metrics query rollback probe")
 }
 
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]

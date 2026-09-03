@@ -30,6 +30,7 @@ use crate::{
         },
     },
     error::InternalError,
+    metrics::EntityMetricsSpan,
     traits::CanisterKind,
     value::Value,
 };
@@ -71,6 +72,8 @@ fn execute_structural_aggregate_rows_inner<C>(
 where
     C: CanisterKind,
 {
+    let entity_path = shared_plan.authority_ref().entity_path_handle();
+    let _metrics_span = EntityMetricsSpan::new(entity_path.as_ref());
     let compiled = CompiledStructuralAggregateRequest::compile(&request)?;
     let terminal_count = request.terminals().len();
     let terminals = request

@@ -15,6 +15,7 @@ doctest = false
 default = []
 sql = []
 diagnostics = []
+metrics = []
 migration = []
 
 [dependencies]

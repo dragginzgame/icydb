@@ -11,12 +11,9 @@ mod retained_slots;
 #[cfg(test)]
 mod tests;
 
-use crate::{
-    db::executor::{
-        ExecutionTrace, aggregate::runtime::finalize_path_outcome_for_path,
-        pipeline::contracts::ExecutionOutcomeMetrics, pipeline::contracts::StructuralCursorPage,
-    },
-    metrics::sink::{ExecKind, PathSpan},
+use crate::db::executor::{
+    ExecutionTrace, aggregate::runtime::finalize_path_outcome_for_path,
+    pipeline::contracts::ExecutionOutcomeMetrics, pipeline::contracts::StructuralCursorPage,
 };
 
 pub(in crate::db::executor) use adapter::{
@@ -49,8 +46,5 @@ pub(in crate::db::executor) fn finalize_structural_page_for_path(
         false,
         execution_time_micros,
     );
-    let mut span = PathSpan::new(ExecKind::Load, entity_path);
-    span.set_rows(u64::try_from(page.row_count()).unwrap_or(u64::MAX));
-
     page
 }

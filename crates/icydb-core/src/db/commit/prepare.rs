@@ -26,7 +26,6 @@ use crate::{
         schema::{ConstraintActivationKind, ConstraintId, SchemaInfo, UniqueConstraintProjection},
     },
     error::{AcceptedConstraintFactContext, ErrorClass, InternalError},
-    metrics::sink::{MetricsEvent, record},
     traits::CanisterKind,
     types::EntityTag,
 };
@@ -424,15 +423,7 @@ where
             .map(|slots| slots as &mut dyn CanonicalSlotReader),
     ) {
         Ok(index_plan) => Ok(index_plan),
-        Err(err) => {
-            if let Some(entity_path) = err.unique_violation_entity_path() {
-                record(MetricsEvent::UniqueViolation {
-                    entity_path: entity_path.into(),
-                });
-            }
-
-            Err(err.into_internal_error())
-        }
+        Err(err) => Err(err.into_internal_error()),
     }
 }
 
@@ -647,7 +638,7 @@ fn prepare_candidate_unique_index_commit_ops(
         .transpose()?
         .flatten();
     match (old_key, new_key) {
-        (Some(old_key), None) => Ok(vec![PreparedIndexMutation::unchanged(
+        (Some(old_key), None) => Ok(vec![PreparedIndexMutation::new(
             candidate.index_store,
             old_key,
             None,
@@ -845,7 +836,7 @@ fn build_commit_ops_for_index_delta_pair(
             &mut second,
             remove_delta.key.to_raw()?,
             None,
-            PreparedIndexMutation::index_remove,
+            PreparedIndexMutation::new,
         );
     }
 
@@ -855,7 +846,7 @@ fn build_commit_ops_for_index_delta_pair(
             &mut second,
             insert_delta.key.to_raw()?,
             Some(IndexRowIdentity::new(&insert_delta.primary_key)),
-            PreparedIndexMutation::index_insert,
+            PreparedIndexMutation::new,
         );
     }
 

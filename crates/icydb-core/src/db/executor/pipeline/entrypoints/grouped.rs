@@ -19,8 +19,8 @@ use crate::{
             EntityAuthority, ExecutionPreparation, ExecutionTrace, PreparedGroupedRuntimeResidents,
             PreparedLoadPlan, RetainedSlotLayout,
             aggregate::runtime::{
-                GroupedOutputRuntimeObserverBindings, build_grouped_stream_with_runtime,
-                execute_group_fold_stage, finalize_grouped_output_with_observer,
+                build_grouped_stream_with_runtime, execute_group_fold_stage,
+                finalize_grouped_output,
             },
             budget::{
                 charge_current_execution_budget, charge_runtime_grouped_rows,
@@ -40,6 +40,7 @@ use crate::{
         schema::cardinality_generation::CardinalityAcceptedRootIdentity,
     },
     error::InternalError,
+    metrics::EntityMetricsSpan,
     traits::CanisterKind,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource, DiagnosticExecutionLane};
@@ -70,6 +71,8 @@ fn execute_shared_grouped_plan_for_canister_inner<C>(
 where
     C: CanisterKind,
 {
+    let entity_path = plan.authority_ref().entity_path_handle();
+    let _metrics_span = EntityMetricsSpan::new(entity_path.as_ref());
     charge_grouped_cursor_input(&cursor)?;
     let value_catalog = plan
         .authority_ref()
@@ -215,7 +218,6 @@ struct GroupedPathRuntimeContext {
     traversal_runtime: TraversalRuntime,
     row_store: StoreHandle,
     authority: EntityAuthority,
-    output_observer: GroupedOutputRuntimeObserverBindings,
 }
 
 ///
@@ -533,7 +535,6 @@ impl GroupedPathRuntimeContext {
     // its resolved structural entity authority.
     fn from_store(store: StoreHandle, authority: EntityAuthority) -> Result<Self, InternalError> {
         let entity_tag = authority.entity_tag();
-        let entity_path = authority.entity_path_handle();
         let accepted_schema = authority.accepted_schema_authority()?;
         let accepted_root = CardinalityAcceptedRootIdentity::new(
             accepted_schema.revision(),
@@ -551,7 +552,6 @@ impl GroupedPathRuntimeContext {
             ),
             row_store: store,
             authority,
-            output_observer: GroupedOutputRuntimeObserverBindings::for_path(entity_path),
         })
     }
 
@@ -579,7 +579,6 @@ impl GroupedPathRuntimeContext {
             None
         };
         build_grouped_stream_with_runtime(
-            self.authority.entity_path(),
             route,
             &runtime,
             execution_preparation,
@@ -589,21 +588,6 @@ impl GroupedPathRuntimeContext {
                 grouped_slot_layout,
                 single_grouped_path,
             ),
-        )
-    }
-
-    /// Finalize grouped output payloads and observability after fold completion.
-    fn finalize_grouped_output(
-        &self,
-        route: GroupedRouteStage,
-        folded: GroupedFoldStage,
-        execution_time_micros: u64,
-    ) -> (GroupedCursorPage, Option<ExecutionTrace>) {
-        finalize_grouped_output_with_observer(
-            &self.output_observer,
-            route,
-            folded,
-            execution_time_micros,
         )
     }
 }
@@ -703,7 +687,7 @@ fn execute_grouped_route_path(
     }
     observer.observe_runtime(&folded);
     let (page, trace) =
-        observer.finalize(|| runtime.finalize_grouped_output(route, folded, execution_time_micros));
+        observer.finalize(|| finalize_grouped_output(route, folded, execution_time_micros));
 
     Ok(GroupedRouteExecutionResult {
         page,

@@ -25,7 +25,6 @@ use crate::{
         },
     },
     error::{AcceptedConstraintFactContext, InternalError},
-    metrics::sink::{MetricsEvent, record},
     traits::CanisterKind,
     types::EntityTag,
 };
@@ -152,14 +151,6 @@ where
                 continue;
             };
 
-            // Relation metrics are emitted as operation deltas so sink aggregation
-            // always reflects the exact lookup/block operations performed.
-            record(MetricsEvent::RelationValidation {
-                entity_path: source_path.into(),
-                reverse_lookups: 1,
-                blocked_deletes: 0,
-            });
-
             let bounds = (Bound::Included(reverse_start), Bound::Excluded(reverse_end));
             target_index_store.with_borrow(|store| {
                 store.visit_raw_entries_in_range(
@@ -206,12 +197,6 @@ where
                                     &target_primary_key,
                                 )?;
                             if still_references_target {
-                                record(MetricsEvent::RelationValidation {
-                                    entity_path: source_path.into(),
-                                    reverse_lookups: 0,
-                                    blocked_deletes: 1,
-                                });
-
                                 return Err(relation.write_violation(
                                     accepted_schema_fingerprint,
                                     source_info.entity_tag(),

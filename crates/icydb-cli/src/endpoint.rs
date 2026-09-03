@@ -16,7 +16,6 @@ pub(crate) const SQL_UPDATE_ENDPOINT: Endpoint = Endpoint("icydb_update");
 pub(crate) const FIXTURES_LOAD_ENDPOINT: Endpoint = Endpoint("icydb_fixtures_load");
 pub(crate) const SNAPSHOT_ENDPOINT: Endpoint = Endpoint("icydb_snapshot");
 pub(crate) const METRICS_ENDPOINT: Endpoint = Endpoint("icydb_metrics");
-pub(crate) const METRICS_EXTENDED_ENDPOINT: Endpoint = Endpoint("icydb_metrics_extended");
 pub(crate) const METRICS_RESET_ENDPOINT: Endpoint = Endpoint("icydb_metrics_reset");
 pub(crate) const SCHEMA_ENDPOINT: Endpoint = Endpoint("icydb_schema");
 pub(crate) const SCHEMA_MIGRATE_ENDPOINT: Endpoint = Endpoint("icydb_schema_migrate");

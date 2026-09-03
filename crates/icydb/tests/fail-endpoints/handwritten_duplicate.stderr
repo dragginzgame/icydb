@@ -1,9 +1,9 @@
 error: symbol `canister_query.icydb_metrics` is already defined
-  --> tests/fail-endpoints/handwritten_duplicate.rs:13:1
+  --> tests/fail-endpoints/handwritten_duplicate.rs:11:1
    |
-13 | / icydb::endpoints! {
-14 | |     icydb_metrics(authorization = public);
-15 | | }
+11 | / icydb::endpoints! {
+12 | |     icydb_metrics(authorization = public);
+13 | | }
    | |_^
    |
    = note: this error originates in the attribute macro `$crate::__reexports::ic_cdk::query` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -29,7 +29,7 @@ impl SqlSurfaceTokens {
     fn readonly_dispatch_tokens(&self) -> TokenStream {
         let entity_dispatch = if self.has_entities {
             quote! {
-                db()?.execute_trusted_sql_query_with_perf_attribution(&dispatch)
+                db()?.execute_trusted_sql_query_dispatch(&dispatch)
             }
         } else {
             empty_sql_surface_query_dispatch()
@@ -38,13 +38,7 @@ impl SqlSurfaceTokens {
         quote! {
             fn __icydb_query_dispatch<const INTROSPECTION: bool>(
                 sql: &str,
-            ) -> Result<
-                (
-                    ::icydb::db::sql::SqlQueryResult,
-                    ::icydb::db::SqlQueryPerfAttribution,
-                ),
-                ::icydb::Error,
-            > {
+            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
                 let dispatch = ::icydb::__macro::sql_statement_dispatch(sql)?;
                 if !INTROSPECTION && dispatch.requires_introspection() {
                     return Err(::icydb::Error::from_runtime_boundary(
@@ -157,15 +151,9 @@ impl SqlSurfaceTokens {
         quote! {
             pub(crate) fn __icydb_endpoint_handler_sql_query<const INTROSPECTION: bool>(
                 sql: String,
-            ) -> Result<::icydb::db::sql::SqlQueryPerfResult, ::icydb::Error> {
-                let (result, attribution) =
-                    __icydb_query_dispatch::<INTROSPECTION>(sql.as_str())?;
-
-                ::icydb::db::sql::SqlQueryPerfResult::from_attribution(
-                    result,
-                    attribution,
-                )
-                .into_deliverable_query_reply()
+            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
+                __icydb_query_dispatch::<INTROSPECTION>(sql.as_str())?
+                    .into_deliverable_query_reply()
             }
 
             pub(crate) fn __icydb_endpoint_handler_sql_ddl(
@@ -324,8 +312,7 @@ mod tests {
         surface.push_entity("Character");
         let surface = compact_tokens(quote!(#surface));
 
-        assert!(surface.contains("execute_trusted_sql_query_with_perf_attribution(&dispatch)"));
-        assert!(!surface.contains("execute_trusted_sql_query_with_perf_attribution(sql,"));
+        assert!(surface.contains("execute_trusted_sql_query_dispatch(&dispatch)"));
         assert!(surface.contains("into_deliverable_query_reply()"));
         assert!(surface.contains("execute_admin_sql_ddl(sql)"));
     }
@@ -364,8 +351,8 @@ mod tests {
         let entity = compact_tokens(quote!(#entity));
 
         assert!(empty.contains("SqlQueryNoConfiguredEntities"));
-        assert!(!empty.contains("execute_trusted_sql_query_with_perf_attribution"));
-        assert!(entity.contains("execute_trusted_sql_query_with_perf_attribution"));
+        assert!(!empty.contains("execute_trusted_sql_query_dispatch"));
+        assert!(entity.contains("execute_trusted_sql_query_dispatch"));
         assert!(entity.contains("DELETEFROMCharacter"));
     }
 }

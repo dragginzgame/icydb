@@ -6,11 +6,18 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::SystemTime;
 
-/// Read the current IC local performance counter when diagnostics run on wasm.
+/// Read the current IC local instruction counter.
 #[must_use]
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn performance_counter(counter_type: u32) -> u64 {
-    ic_cdk::api::performance_counter(counter_type)
+pub(crate) fn local_instruction_counter() -> u64 {
+    ic_cdk::api::performance_counter(1)
+}
+
+/// Return zero when local instruction accounting runs outside the IC.
+#[must_use]
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) const fn local_instruction_counter() -> u64 {
+    0
 }
 
 /// Return the current UNIX epoch time in milliseconds.

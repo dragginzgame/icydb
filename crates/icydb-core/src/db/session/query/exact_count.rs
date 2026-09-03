@@ -122,14 +122,12 @@ impl<C: CanisterKind> DbSession<C> {
                 ExactCardinalityTarget::UserIndexPrefixes(prefix_keys)
             }
         };
-        self.with_metrics(|| {
-            execute_exact_cardinality_for_canister(
-                &self.db,
-                authority,
-                DiagnosticExecutionLane::PublicRead,
-                target,
-            )
-        })
+        execute_exact_cardinality_for_canister(
+            &self.db,
+            authority,
+            DiagnosticExecutionLane::PublicRead,
+            target,
+        )
         .map_err(QueryError::execute)?
         .ok_or_else(QueryError::unsupported_query)
     }

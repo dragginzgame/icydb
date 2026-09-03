@@ -53,7 +53,6 @@ pub use attribution::{
 pub(in crate::db) use cache::{SqlCacheAttribution, SqlCompiledCommandCacheKey};
 pub(in crate::db::session::sql) use cache::{
     SqlCompiledCommandCacheContext, SqlCompiledCommandSurface,
-    sql_compiled_command_cache_miss_reason,
 };
 pub(in crate::db::session::sql) use compile::{
     SqlCompileAttributionBuilder, SqlCompilePhaseAttribution,

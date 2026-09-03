@@ -22,7 +22,7 @@ test-admin-api = ["sql"]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
 ic-timers = { workspace = true }
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { path = "../../../crates/icydb", default-features = false, features = ["metrics"] }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 

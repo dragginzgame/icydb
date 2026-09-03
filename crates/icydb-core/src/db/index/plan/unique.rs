@@ -77,7 +77,6 @@ impl UniqueKeyAuthority<'_> {
         &self,
         accepted_schema_fingerprint: CommitSchemaFingerprint,
         mutation: Option<MutationDiagnosticContext>,
-        entity_path: &str,
         entity_tag: EntityTag,
     ) -> Result<IndexPlanError, InternalError> {
         let identity = match self {
@@ -89,7 +88,6 @@ impl UniqueKeyAuthority<'_> {
             accepted_schema_fingerprint,
             mutation,
             identity.id().get(),
-            entity_path,
             entity_tag.value(),
         ))
     }
@@ -245,12 +243,7 @@ fn validate_unique_constraint_structural_impl(
         return Err(InternalError::index_unique_validation_corruption().into());
     }
 
-    Err(key_authority.unique_violation(
-        accepted_schema_fingerprint,
-        mutation,
-        entity_path,
-        entity_tag,
-    )?)
+    Err(key_authority.unique_violation(accepted_schema_fingerprint, mutation, entity_tag)?)
 }
 
 // Decode one stored row through the canonical structural persisted-row scanner

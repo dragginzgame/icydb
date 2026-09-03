@@ -21,12 +21,11 @@ pub(crate) struct PreparedIndexMutation {
     pub(crate) index_store: &'static LocalKey<RefCell<IndexStore>>,
     pub(crate) key: RawIndexStoreKey,
     pub(crate) value: Option<IndexEntryValue>,
-    pub(crate) delta_kind: PreparedIndexDeltaKind,
 }
 
 impl PreparedIndexMutation {
-    /// Build one prepared index mutation without delta counter attribution.
-    pub(crate) const fn unchanged(
+    /// Build one prepared index mutation.
+    pub(crate) const fn new(
         index_store: &'static LocalKey<RefCell<IndexStore>>,
         key: RawIndexStoreKey,
         value: Option<IndexEntryValue>,
@@ -35,123 +34,6 @@ impl PreparedIndexMutation {
             index_store,
             key,
             value,
-            delta_kind: PreparedIndexDeltaKind::None,
-        }
-    }
-
-    /// Build one prepared index mutation that contributes to insert counters.
-    pub(crate) const fn index_insert(
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: RawIndexStoreKey,
-        value: Option<IndexEntryValue>,
-    ) -> Self {
-        Self {
-            index_store,
-            key,
-            value,
-            delta_kind: PreparedIndexDeltaKind::IndexInsert,
-        }
-    }
-
-    /// Build one prepared index mutation that contributes to remove counters.
-    pub(crate) const fn index_remove(
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: RawIndexStoreKey,
-        value: Option<IndexEntryValue>,
-    ) -> Self {
-        Self {
-            index_store,
-            key,
-            value,
-            delta_kind: PreparedIndexDeltaKind::IndexRemove,
-        }
-    }
-
-    /// Build one rollback index mutation without delta counter attribution.
-    #[cfg(test)]
-    pub(crate) const fn rollback_snapshot(
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: RawIndexStoreKey,
-        value: Option<IndexEntryValue>,
-    ) -> Self {
-        Self {
-            index_store,
-            key,
-            value,
-            delta_kind: PreparedIndexDeltaKind::None,
-        }
-    }
-
-    /// Build one reverse-index mutation with derived delta attribution.
-    pub(crate) const fn from_reverse_index_membership(
-        index_store: &'static LocalKey<RefCell<IndexStore>>,
-        key: RawIndexStoreKey,
-        value: Option<IndexEntryValue>,
-        old_contains: bool,
-        new_contains: bool,
-    ) -> Self {
-        Self {
-            index_store,
-            key,
-            value,
-            delta_kind: PreparedIndexDeltaKind::from_reverse_index_membership(
-                old_contains,
-                new_contains,
-            ),
-        }
-    }
-
-    /// Project this mutation into index/reverse-index counter increments.
-    #[must_use]
-    pub(crate) const fn counter_increments(&self) -> (usize, usize, usize, usize) {
-        self.delta_kind.counter_increments()
-    }
-}
-
-///
-/// PreparedIndexDeltaKind
-///
-/// Logical mutation-class annotation used for commit-window delta aggregation.
-/// This is observability metadata and must not affect mutation semantics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum PreparedIndexDeltaKind {
-    /// Mutation does not affect index delta counters.
-    None,
-    /// Secondary-index entry was inserted.
-    IndexInsert,
-    /// Secondary-index entry was removed.
-    IndexRemove,
-    /// Reverse-index membership was inserted.
-    ReverseIndexInsert,
-    /// Reverse-index membership was removed.
-    ReverseIndexRemove,
-}
-
-impl PreparedIndexDeltaKind {
-    /// Resolve one reverse-index delta kind from old/new membership state.
-    #[must_use]
-    pub(crate) const fn from_reverse_index_membership(
-        old_contains: bool,
-        new_contains: bool,
-    ) -> Self {
-        match (old_contains, new_contains) {
-            (true, false) => Self::ReverseIndexRemove,
-            (false, true) => Self::ReverseIndexInsert,
-            _ => Self::None,
-        }
-    }
-
-    /// Project one delta kind into index/reverse-index counter increments.
-    #[must_use]
-    pub(crate) const fn counter_increments(self) -> (usize, usize, usize, usize) {
-        match self {
-            Self::None => (0, 0, 0, 0),
-            Self::IndexInsert => (1, 0, 0, 0),
-            Self::IndexRemove => (0, 1, 0, 0),
-            Self::ReverseIndexInsert => (0, 0, 1, 0),
-            Self::ReverseIndexRemove => (0, 0, 0, 1),
         }
     }
 }
@@ -170,61 +52,4 @@ pub(in crate::db) struct PreparedRowCommitOp {
     pub(crate) data_index_store: &'static LocalKey<RefCell<IndexStore>>,
     pub(crate) data_key: RawDataStoreKey,
     pub(crate) data_value: Option<CanonicalRow>,
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use crate::db::commit::prepared_op::PreparedIndexDeltaKind;
-
-    #[test]
-    fn reverse_index_membership_maps_to_expected_delta_kind() {
-        assert_eq!(
-            PreparedIndexDeltaKind::from_reverse_index_membership(true, false),
-            PreparedIndexDeltaKind::ReverseIndexRemove,
-        );
-        assert_eq!(
-            PreparedIndexDeltaKind::from_reverse_index_membership(false, true),
-            PreparedIndexDeltaKind::ReverseIndexInsert,
-        );
-        assert_eq!(
-            PreparedIndexDeltaKind::from_reverse_index_membership(false, false),
-            PreparedIndexDeltaKind::None,
-        );
-        assert_eq!(
-            PreparedIndexDeltaKind::from_reverse_index_membership(true, true),
-            PreparedIndexDeltaKind::None,
-        );
-    }
-
-    #[test]
-    fn delta_kind_counter_increments_match_index_variants() {
-        assert_eq!(
-            PreparedIndexDeltaKind::IndexInsert.counter_increments(),
-            (1, 0, 0, 0),
-        );
-        assert_eq!(
-            PreparedIndexDeltaKind::IndexRemove.counter_increments(),
-            (0, 1, 0, 0),
-        );
-    }
-
-    #[test]
-    fn delta_kind_counter_increments_match_reverse_index_variants() {
-        assert_eq!(
-            PreparedIndexDeltaKind::ReverseIndexInsert.counter_increments(),
-            (0, 0, 1, 0),
-        );
-        assert_eq!(
-            PreparedIndexDeltaKind::ReverseIndexRemove.counter_increments(),
-            (0, 0, 0, 1),
-        );
-        assert_eq!(
-            PreparedIndexDeltaKind::None.counter_increments(),
-            (0, 0, 0, 0)
-        );
-    }
 }
