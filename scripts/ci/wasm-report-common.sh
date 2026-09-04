@@ -4,6 +4,10 @@ wasm_report_default_canisters() {
     printf '%s\n' \
         default_empty \
         default_empty_metrics \
+        nested_relation_none \
+        nested_relation_direct \
+        nested_relation_shallow \
+        nested_relation_repeated \
         one_entity_dynamic_query \
         one_entity_reachable_operations \
         one_entity_typed_query \
@@ -17,7 +21,7 @@ wasm_report_default_canisters() {
 
 wasm_report_canister_is_maintained_subject() {
     case "$1" in
-        default_empty|default_empty_metrics|group_path_sql_query|one_entity_dynamic_query|one_entity_reachable_operations|one_entity_typed_query|one_entity_sql_query|request_future_scale|ten_entity_typed_query|ten_entity_reachable_operations|sql_perf|sql)
+        default_empty|default_empty_metrics|group_path_sql_query|nested_relation_none|nested_relation_direct|nested_relation_shallow|nested_relation_repeated|one_entity_dynamic_query|one_entity_reachable_operations|one_entity_typed_query|one_entity_sql_query|request_future_scale|ten_entity_typed_query|ten_entity_reachable_operations|sql_perf|sql)
             return 0
             ;;
         *)

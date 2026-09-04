@@ -8,6 +8,7 @@ mod canister_build_cache;
 pub mod canister_artifact;
 pub mod durable_mutation_job_contract;
 pub mod group_path_contract;
+pub mod nested_relation_contract;
 pub mod wasm_measurement;
 pub mod wasm_optimizer;
 

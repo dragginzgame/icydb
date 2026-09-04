@@ -85,6 +85,10 @@ name = "group_path_measurement_contract"
 path = "tests/group_path_measurement_contract.rs"
 
 [[test]]
+name = "nested_relation_measurement_contract"
+path = "tests/nested_relation_measurement_contract.rs"
+
+[[test]]
 name = "durable_mutation_job_scale"
 path = "tests/durable_mutation_job_scale.rs"
 

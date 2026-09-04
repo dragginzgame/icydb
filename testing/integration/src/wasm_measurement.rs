@@ -124,6 +124,10 @@ pub const WASM_MEASUREMENT_SUBJECTS: &[&str] = &[
     "default_empty",
     "default_empty_metrics",
     "group_path_sql_query",
+    "nested_relation_none",
+    "nested_relation_direct",
+    "nested_relation_shallow",
+    "nested_relation_repeated",
     "one_entity_dynamic_query",
     "one_entity_reachable_operations",
     "one_entity_typed_query",
@@ -177,6 +181,13 @@ pub struct WasmComparison {
 /// entity-scale pair is attributable because its endpoint shape is identical
 /// and only its generated schema cardinality differs.
 pub const WASM_MEASUREMENT_COMPARISONS: &[WasmComparison] = &[
+    WasmComparison {
+        id: "direct_relation",
+        baseline: "nested_relation_none",
+        candidate: "nested_relation_direct",
+        disposition: WasmComparisonDisposition::Attributable,
+        reason: "both actors share one endpoint harness and scalar row layout; the candidate adds only the accepted direct relation annotation",
+    },
     WasmComparison {
         id: "metrics_surface",
         baseline: "default_empty",
@@ -248,6 +259,22 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
         minimum_final_raw_reduction_basis_points: 0,
     },
     WasmLineBudget {
+        subject: "nested_relation_none",
+        minimum_final_raw_reduction_basis_points: 0,
+    },
+    WasmLineBudget {
+        subject: "nested_relation_direct",
+        minimum_final_raw_reduction_basis_points: 0,
+    },
+    WasmLineBudget {
+        subject: "nested_relation_shallow",
+        minimum_final_raw_reduction_basis_points: 0,
+    },
+    WasmLineBudget {
+        subject: "nested_relation_repeated",
+        minimum_final_raw_reduction_basis_points: 0,
+    },
+    WasmLineBudget {
         subject: "one_entity_dynamic_query",
         minimum_final_raw_reduction_basis_points: 700,
     },
@@ -293,7 +320,7 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
 pub fn validate_wasm_measurement_contract() -> Result<(), &'static str> {
     if WASM_MEASUREMENT_PROFILE_VERSION != 1
         || WASM_MEASUREMENT_PROFILE_ID != "icydb-wasm-footprint/0.251/v1"
-        || WASM_MEASUREMENT_SUBJECTS.len() != 12
+        || WASM_MEASUREMENT_SUBJECTS.len() != 16
     {
         return Err("Wasm measurement identity or subject count drifted");
     }

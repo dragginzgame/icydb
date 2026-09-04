@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.253.x] 🔗 - 2026-09-04 - Nested Relations
+
+Detailed notes: [docs/changelog/0.253.md](docs/changelog/0.253.md)
+
+- `0.253.0` freezes controlled nested-relation proving actors, exact
+  instruction-derived work limits, and reproducible Wasm/performance baselines
+  without changing production relation behavior.
+
 ## [0.252.x] 📚 - 2026-09-01 - Nested Storage Contract
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)

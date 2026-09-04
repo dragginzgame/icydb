@@ -274,6 +274,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "canister_audit_nested_relation_direct"
+version = "0.252.11"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-audit-nested-relation-fixtures",
+]
+
+[[package]]
+name = "canister_audit_nested_relation_none"
+version = "0.252.11"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-audit-nested-relation-fixtures",
+]
+
+[[package]]
+name = "canister_audit_nested_relation_repeated"
+version = "0.252.11"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-audit-nested-relation-fixtures",
+]
+
+[[package]]
+name = "canister_audit_nested_relation_shallow"
+version = "0.252.11"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "icydb",
+ "icydb-testing-audit-nested-relation-fixtures",
+]
+
+[[package]]
 name = "canister_audit_one_entity_dynamic_query"
 version = "0.252.11"
 dependencies = [
@@ -1630,6 +1670,17 @@ name = "icydb-testing-audit-group-path-fixtures"
 version = "0.252.11"
 dependencies = [
  "candid",
+ "icydb",
+ "icydb-model",
+ "icydb-testing-wasm-helpers",
+]
+
+[[package]]
+name = "icydb-testing-audit-nested-relation-fixtures"
+version = "0.252.11"
+dependencies = [
+ "candid",
+ "ic-cdk",
  "icydb",
  "icydb-model",
  "icydb-testing-wasm-helpers",

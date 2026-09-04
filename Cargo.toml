@@ -3,6 +3,10 @@ members = [
     "canisters/audit/default_empty",
     "canisters/audit/default_empty_metrics",
     "canisters/audit/group_path_sql_query",
+    "canisters/audit/nested_relation_direct",
+    "canisters/audit/nested_relation_none",
+    "canisters/audit/nested_relation_repeated",
+    "canisters/audit/nested_relation_shallow",
     "canisters/audit/one_entity_dynamic_query",
     "canisters/audit/one_entity_reachable_operations",
     "canisters/audit/one_entity_sql_query",
@@ -29,6 +33,7 @@ members = [
     "crates/icydb-schema",
     "schema/audit/default_empty",
     "schema/audit/group_path",
+    "schema/audit/nested_relation",
     "schema/audit/one_simple",
     "schema/audit/sql_perf",
     "schema/audit/ten_simple",
@@ -91,6 +96,7 @@ icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.252.11"
 icydb-schema = { path = "crates/icydb-schema", version = "=0.252.11" }
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
 icydb-testing-audit-group-path-fixtures = { path = "schema/audit/group_path" }
+icydb-testing-audit-nested-relation-fixtures = { path = "schema/audit/nested_relation" }
 icydb-testing-audit-one-simple-fixtures = { path = "schema/audit/one_simple" }
 icydb-testing-audit-sql-perf-fixtures = { path = "schema/audit/sql_perf" }
 icydb-testing-audit-ten-simple-fixtures = { path = "schema/audit/ten_simple" }
