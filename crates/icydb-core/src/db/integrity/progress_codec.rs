@@ -1413,7 +1413,9 @@ mod tests {
         let mut job = current_job_codec_fixture();
         let outcome = IntegrityTerminalOutcome::DeepCompleteWithFindings;
         let finding = IntegrityFinding {
-            diagnostic_code: 225,
+            diagnostic_code:
+                icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_ACTIVATION_WRITE_BLOCKED
+                    .raw(),
             class: IntegrityFindingClass::Corruption,
             severity: IntegritySeverity::Error,
             kind: IntegrityFindingKind::ConstraintViolation,

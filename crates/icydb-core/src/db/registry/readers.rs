@@ -8,14 +8,13 @@ use crate::{
         data::{DecodedDataStoreKey, RawRow},
         direction::Direction,
         index::{
-            IndexEntryValue, IndexReadContract, IndexStore, RawIndexStoreKey,
-            StructuralIndexEntryReader, StructuralPrimaryRowReader,
+            IndexEntryValue, IndexStore, RawIndexStoreKey, StructuralIndexEntryReader,
+            StructuralPrimaryRowReader, push_structural_index_entry_primary_key_values_limited,
         },
         key_taxonomy::PrimaryKeyValue,
         registry::StoreHandle,
     },
     error::InternalError,
-    types::EntityTag,
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 
@@ -38,34 +37,19 @@ impl StructuralIndexEntryReader for StoreHandle {
 
     fn read_index_keys_in_raw_range(
         &self,
-        _entity_path: &str,
-        _entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
         let mut out = Vec::with_capacity(limit.min(32));
         index_store.with_borrow(|store| {
             store.visit_raw_entries_in_range(bounds, Direction::Asc, |raw_key, raw_entry| {
-                push_index_entry_primary_key_values(index, raw_key, raw_entry, &mut out, limit)
+                push_structural_index_entry_primary_key_values_limited(
+                    raw_key, raw_entry, &mut out, limit,
+                )
             })
         })?;
 
         Ok(out)
     }
-}
-
-// Decode one raw index entry into structural primary-key values for
-// non-executor preflight readers.
-fn push_index_entry_primary_key_values(
-    _index: IndexReadContract<'_>,
-    raw_key: &RawIndexStoreKey,
-    raw_entry: &IndexEntryValue,
-    out: &mut Vec<PrimaryKeyValue>,
-    limit: usize,
-) -> Result<bool, InternalError> {
-    raw_entry.push_row_identity_primary_key_values_limited(raw_key, out, limit, |_err| {
-        InternalError::index_plan_index_corruption()
-    })
 }

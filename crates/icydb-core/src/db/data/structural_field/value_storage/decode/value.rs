@@ -8,7 +8,9 @@ use crate::{
         FieldDecodeError,
         binary::{
             TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NAT64, TAG_NULL, TAG_TEXT,
-            TAG_TRUE, TAG_UNIT, parse_binary_head, skip_binary_value,
+            TAG_TRUE, TAG_UNIT, decode_binary_decimal_payload, decode_binary_int_big_payload,
+            decode_binary_nat_big_payload, decode_binary_required_bytes,
+            decode_binary_required_i64, decode_binary_required_u64,
         },
         typed::{
             decode_account_payload_bytes, decode_date_payload_days,
@@ -28,12 +30,7 @@ use crate::{
                 },
             },
             next_value_storage_decode_depth,
-            primitives::{
-                decode_binary_required_bytes, decode_binary_required_i64,
-                decode_binary_required_u64, decode_value_storage_binary_payload,
-                split_binary_tuple_2,
-            },
-            reserve_one_value_storage_item,
+            skip::skip_value_storage_binary_value,
             tags::{
                 VALUE_BINARY_TAG_ACCOUNT, VALUE_BINARY_TAG_DATE, VALUE_BINARY_TAG_DECIMAL,
                 VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_FLOAT32, VALUE_BINARY_TAG_FLOAT64,
@@ -53,7 +50,6 @@ use crate::{
     },
     value::Value,
 };
-use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 
 /// Decode one `FieldStorageDecode::CatalogValue` payload directly from the externally
 /// tagged `Value` wire shape without routing through serde's recursive enum
@@ -95,15 +91,9 @@ pub(in crate::db) fn decode_account(raw_bytes: &[u8]) -> Result<Account, FieldDe
 /// Decode one canonical structural value-storage decimal payload.
 pub(in crate::db) fn decode_decimal(raw_bytes: &[u8]) -> Result<Decimal, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_DECIMAL)?;
-    let [mantissa, scale] = split_binary_tuple_2(payload)?;
-    let mantissa_bytes = decode_binary_required_bytes(mantissa)?;
-    let scale = decode_binary_required_u64(scale)?;
-    let mantissa_buf: [u8; 16] = mantissa_bytes
-        .try_into()
-        .map_err(|_| FieldDecodeError::new())?;
-    let scale = u32::try_from(scale).map_err(|_| FieldDecodeError::new())?;
+    let (mantissa, scale) = decode_binary_decimal_payload(payload)?;
 
-    decode_decimal_payload_mantissa_and_scale(i128::from_be_bytes(mantissa_buf), scale)
+    decode_decimal_payload_mantissa_and_scale(mantissa, scale)
 }
 
 /// Decode one canonical structural value-storage int128 payload.
@@ -129,18 +119,15 @@ pub(in crate::db) fn decode_nat128(raw_bytes: &[u8]) -> Result<u128, FieldDecode
 /// Decode one canonical structural value-storage `Value::IntBig` payload.
 pub(in crate::db) fn decode_int(raw_bytes: &[u8]) -> Result<IntBig, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_INT_BIG)?;
-    let [sign, magnitude] = split_binary_tuple_2(payload)?;
-    let sign = decode_binary_required_i64(sign)?;
-    let magnitude = decode_binary_big_integer_magnitude_digits(magnitude)?;
-    let sign = decode_binary_int_big_sign(sign)?;
+    let value = decode_binary_int_big_payload(payload)?;
 
-    Ok(IntBig::from_bigint(BigInt::from_biguint(sign, magnitude)))
+    Ok(IntBig::from_bigint(value))
 }
 
 /// Decode one canonical structural value-storage `Value::NatBig` payload.
 pub(in crate::db) fn decode_nat(raw_bytes: &[u8]) -> Result<NatBig, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_NAT_BIG)?;
-    let digits = decode_binary_big_integer_magnitude_digits(payload)?;
+    let digits = decode_binary_nat_big_payload(payload)?;
 
     Ok(NatBig::from_biguint(digits))
 }
@@ -351,40 +338,24 @@ fn decode_value_storage_binary_map_bytes(
     Value::from_map(entries).map_err(|_| FieldDecodeError::new())
 }
 
-// Decode one u32-limb magnitude sequence into a `BigUint`.
-fn decode_binary_big_integer_magnitude_digits(
+// Extract the single nested payload carried by one owner-local `Value` tag.
+fn decode_value_storage_binary_payload(
     raw_bytes: &[u8],
-) -> Result<BigUint, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+    expected_tag: u8,
+) -> Result<&[u8], FieldDecodeError> {
+    let Some((&tag, _)) = raw_bytes.split_first() else {
         return Err(FieldDecodeError::new());
     };
-    if tag != TAG_LIST {
+    if tag != expected_tag {
         return Err(FieldDecodeError::new());
     }
 
-    let mut cursor = payload_start;
-    let mut digits = Vec::new();
-    for _ in 0..len {
-        reserve_one_value_storage_item(&mut digits)?;
-        let start = cursor;
-        cursor = skip_binary_value(raw_bytes, cursor)?;
-        let digit = decode_binary_required_u64(&raw_bytes[start..cursor])?;
-        digits.push(u32::try_from(digit).map_err(|_| FieldDecodeError::new())?);
-    }
-    if cursor != raw_bytes.len() {
+    let payload_end = skip_value_storage_binary_value(raw_bytes, 1)?;
+    if payload_end != raw_bytes.len() {
         return Err(FieldDecodeError::new());
     }
 
-    Ok(BigUint::new(digits))
-}
-
-// Decode one `Value::IntBig` sign marker while preserving the fail-closed
-// signed limb contract shared by direct and runtime `Value` decode paths.
-const fn decode_binary_int_big_sign(sign: i64) -> Result<BigIntSign, FieldDecodeError> {
-    match sign {
-        -1 => Ok(BigIntSign::Minus),
-        0 => Ok(BigIntSign::NoSign),
-        1 => Ok(BigIntSign::Plus),
-        _ => Err(FieldDecodeError::new()),
-    }
+    raw_bytes
+        .get(1..payload_end)
+        .ok_or_else(FieldDecodeError::new)
 }

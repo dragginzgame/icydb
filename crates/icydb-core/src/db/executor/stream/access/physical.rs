@@ -529,7 +529,7 @@ impl KeyAccessRuntime {
                     KeyOrderComparator::from_direction(request.continuation.direction()),
                 )
             }
-            PrefixSetExecutionShape::OrderedConcat(_) | PrefixSetExecutionShape::Fallback(_) => {
+            PrefixSetExecutionShape::OrderedConcat(_) | PrefixSetExecutionShape::Fallback => {
                 Err(InternalError::query_executor_invariant())
             }
         }
@@ -567,7 +567,7 @@ impl KeyAccessRuntime {
 
                 Ok(OrderedKeyStreamBox::concat_all(streams))
             }
-            PrefixSetExecutionShape::OrderedMerge(_) | PrefixSetExecutionShape::Fallback(_) => {
+            PrefixSetExecutionShape::OrderedMerge(_) | PrefixSetExecutionShape::Fallback => {
                 Err(InternalError::query_executor_invariant())
             }
         }
@@ -663,7 +663,7 @@ impl KeyAccessRuntime {
 fn charge_prefix_family_construction(
     specs: &[&LoweredIndexPrefixSpec],
 ) -> Result<(), InternalError> {
-    validate_prefix_family_child_count(specs.len())?;
+    IndexPrefixChildExpansionBudget::validate_child_count(specs.len())?;
 
     let mut descriptor_bytes = specs
         .len()
@@ -677,8 +677,8 @@ fn charge_prefix_family_construction(
         }
         let (lower, upper) = spec.raw_bounds()?;
         descriptor_bytes = descriptor_bytes
-            .checked_add(bound_raw_index_key_bytes(lower))
-            .and_then(|bytes| bytes.checked_add(bound_raw_index_key_bytes(upper)))
+            .checked_add(RawIndexStoreKey::bound_backing_bytes(lower))
+            .and_then(|bytes| bytes.checked_add(RawIndexStoreKey::bound_backing_bytes(upper)))
             .ok_or_else(InternalError::executor_invariant)?;
     }
 
@@ -690,20 +690,6 @@ fn charge_prefix_family_construction(
         DiagnosticExecutionBudgetResource::TemporaryBytes,
         u64::try_from(descriptor_bytes).unwrap_or(u64::MAX),
     )
-}
-
-fn validate_prefix_family_child_count(count: usize) -> Result<(), InternalError> {
-    if count > IndexPrefixChildExpansionBudget::MAX_PREFIXES {
-        return Err(InternalError::query_executor_invariant());
-    }
-    Ok(())
-}
-
-fn bound_raw_index_key_bytes(bound: &Bound<RawIndexStoreKey>) -> usize {
-    match bound {
-        Bound::Included(key) | Bound::Excluded(key) => key.as_bytes().len(),
-        Bound::Unbounded => 0,
-    }
 }
 
 fn primary_key_suffix_resume_anchor_for_prefix(
@@ -2341,18 +2327,6 @@ mod physical_seek_tests {
 
             assert_eq!(bounded.value, expected_refill);
         }
-    }
-
-    #[test]
-    fn prefix_family_child_count_rejects_max_plus_one_before_allocation() {
-        assert!(
-            validate_prefix_family_child_count(IndexPrefixChildExpansionBudget::MAX_PREFIXES)
-                .is_ok()
-        );
-        assert!(
-            validate_prefix_family_child_count(IndexPrefixChildExpansionBudget::MAX_PREFIXES + 1,)
-                .is_err()
-        );
     }
 
     #[test]

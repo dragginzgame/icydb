@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
+- `0.252.11` hard-cuts stale diagnostic codes and converges Structural Binary,
+  aggregate, index and prefix execution, and fast-path resolution flows on
+  single owners without changing current storage or query contracts.
 - `0.252.10` converges SQL write and Structural Binary scalar flows on typed
   single owners, removes test-only candidate diagnostics, and hard-cuts
   predecessor-policy cancellation. Five cleanup slices remove 730 net code

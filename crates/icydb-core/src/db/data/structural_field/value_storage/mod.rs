@@ -6,7 +6,6 @@
 mod canonical;
 mod decode;
 mod encode;
-mod primitives;
 mod skip;
 mod tags;
 mod walk;

@@ -582,15 +582,15 @@ fn validate_diagnostic_fact_schema(
 
     let valid_sequence = match code.raw() {
         3 => query_plan_schema(fact_count, &fact_at),
-        6 => cursor_schema(fact_count, &fact_at),
-        16 => store_corruption_schema(fact_count, &fact_at),
-        18 => runtime_corruption_schema(fact_count, &fact_at),
-        19 => incompatible_format_schema(fact_count, &fact_at),
-        20 => runtime_invariant_schema(fact_count, &fact_at),
-        21 => runtime_conflict_schema(fact_count, &fact_at),
-        23 => runtime_unsupported_schema(fact_count, &fact_at),
-        24 => runtime_internal_schema(fact_count, &fact_at),
-        138 => tags_match(
+        5 => cursor_schema(fact_count, &fact_at),
+        15 => store_corruption_schema(fact_count, &fact_at),
+        17 => runtime_corruption_schema(fact_count, &fact_at),
+        18 => incompatible_format_schema(fact_count, &fact_at),
+        19 => runtime_invariant_schema(fact_count, &fact_at),
+        20 => runtime_conflict_schema(fact_count, &fact_at),
+        22 => runtime_unsupported_schema(fact_count, &fact_at),
+        23 => runtime_internal_schema(fact_count, &fact_at),
+        130 => tags_match(
             fact_count,
             &fact_at,
             &[
@@ -598,11 +598,11 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::ActualArity,
             ],
         ),
-        141 | 142 | 169 | 170 => {
+        133 | 134 | 158 | 159 => {
             tags_match(fact_count, &fact_at, &[DiagnosticFactTag::ProjectionIndex])
         }
-        175 => tags_match(fact_count, &fact_at, &[DiagnosticFactTag::ParameterIndex]),
-        177 | 237 => {
+        164 => tags_match(fact_count, &fact_at, &[DiagnosticFactTag::ParameterIndex]),
+        166 | 224 => {
             tags_match(fact_count, &fact_at, &[DiagnosticFactTag::Limit])
                 || tags_match(
                     fact_count,
@@ -610,12 +610,12 @@ fn validate_diagnostic_fact_schema(
                     &[DiagnosticFactTag::ActualLength, DiagnosticFactTag::Limit],
                 )
         }
-        178 | 180 | 202 | 203 | 205 | 236 | 269 | 285 => tags_match(
+        167 | 169 | 191 | 192 | 194 | 223 | 248 | 264 => tags_match(
             fact_count,
             &fact_at,
             &[DiagnosticFactTag::ActualCount, DiagnosticFactTag::Limit],
         ),
-        283 => {
+        262 => {
             tags_match(fact_count, &fact_at, &[DiagnosticFactTag::Limit])
                 || tags_match(
                     fact_count,
@@ -623,7 +623,7 @@ fn validate_diagnostic_fact_schema(
                     &[DiagnosticFactTag::ActualCount, DiagnosticFactTag::Limit],
                 )
         }
-        284 => tags_match(
+        263 => tags_match(
             fact_count,
             &fact_at,
             &[
@@ -633,7 +633,7 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::Limit,
             ],
         ),
-        196 | 234 => tags_match(
+        185 | 221 => tags_match(
             fact_count,
             &fact_at,
             &[
@@ -643,7 +643,7 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::BatchPosition,
             ],
         ),
-        197 => tags_match(
+        186 => tags_match(
             fact_count,
             &fact_at,
             &[
@@ -652,7 +652,7 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::CurrentLayout,
             ],
         ),
-        198 => tags_match(
+        187 => tags_match(
             fact_count,
             &fact_at,
             &[
@@ -661,14 +661,14 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::ActualSlotCount,
             ],
         ),
-        201 => tags_match(
+        190 => tags_match(
             fact_count,
             &fact_at,
             &[DiagnosticFactTag::ActualCount, DiagnosticFactTag::Minimum],
         ),
-        223 => constraint_schema(fact_count, &fact_at, true),
-        225 => constraint_schema(fact_count, &fact_at, false),
-        233 => tags_match(
+        210 => constraint_schema(fact_count, &fact_at, true),
+        212 => constraint_schema(fact_count, &fact_at, false),
+        220 => tags_match(
             fact_count,
             &fact_at,
             &[
@@ -677,15 +677,15 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::BatchPosition,
             ],
         ),
-        235 => {
+        222 => {
             tags_match(fact_count, &fact_at, &[DiagnosticFactTag::ActualCount]) && fact_at(0).1 == 0
         }
-        238 | 270 | 271 | 272 => tags_match(
+        225 | 249 | 250 | 251 => tags_match(
             fact_count,
             &fact_at,
             &[DiagnosticFactTag::ActualLength, DiagnosticFactTag::Limit],
         ),
-        273 => tags_match(
+        252 => tags_match(
             fact_count,
             &fact_at,
             &[
@@ -697,7 +697,7 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::QueryShapeFingerprintPrefix,
             ],
         ),
-        274 => tags_match(
+        253 => tags_match(
             fact_count,
             &fact_at,
             &[
@@ -706,7 +706,7 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::Actual,
             ],
         ),
-        239 => tags_match(
+        226 => tags_match(
             fact_count,
             &fact_at,
             &[
@@ -715,7 +715,7 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::ActualEntityTag,
             ],
         ),
-        240 => tags_match(
+        227 => tags_match(
             fact_count,
             &fact_at,
             &[
@@ -744,15 +744,15 @@ fn validate_diagnostic_fact_schema(
 
 const fn diagnostic_fact_maximum(code: ErrorCode) -> usize {
     match code.raw() {
-        6 | 16 | 18 | 24 | 197 | 198 | 233 | 239 | 240 | 274 => 3,
-        141 | 142 | 169 | 170 | 175 | 235 => 1,
-        19 | 21 | 138 | 177 | 178 | 180 | 201 | 202 | 203 | 205 | 236 | 237 | 238 | 269 | 270
-        | 271 | 272 | 283 | 285 => 2,
-        3 | 20 => 5,
-        23 | 273 => 6,
-        196 | 234 | 284 => 4,
-        223 => 73,
-        225 => 9,
+        5 | 15 | 17 | 23 | 186 | 187 | 220 | 226 | 227 | 253 => 3,
+        133 | 134 | 158 | 159 | 164 | 222 => 1,
+        18 | 20 | 130 | 166 | 167 | 169 | 190 | 191 | 192 | 194 | 223 | 224 | 225 | 248 | 249
+        | 250 | 251 | 262 | 264 => 2,
+        3 | 19 => 5,
+        22 | 252 => 6,
+        185 | 221 | 263 => 4,
+        210 => 73,
+        212 => 9,
         _ => 0,
     }
 }

@@ -10,7 +10,6 @@ use crate::{
         key_taxonomy::PrimaryKeyValue,
     },
     error::InternalError,
-    types::EntityTag,
 };
 use std::ops::Bound;
 
@@ -42,8 +41,6 @@ pub(in crate::db) trait IndexPlanReadView {
     /// index-key range.
     fn read_index_keys_in_raw_range(
         &self,
-        entity_path: &str,
-        entity_tag: EntityTag,
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,

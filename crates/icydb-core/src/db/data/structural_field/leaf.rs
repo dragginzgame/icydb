@@ -6,15 +6,15 @@
 use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{
-        CompleteBinaryValue, TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NAT64, TAG_NULL,
-        parse_binary_head, push_binary_bytes, push_binary_int64, push_binary_list_len,
-        push_binary_nat64, push_binary_null, skip_binary_value,
+        decode_binary_decimal_payload, decode_binary_int_big_payload,
+        decode_binary_nat_big_payload, decode_binary_required_i64, decode_binary_required_null,
+        decode_binary_required_u64, push_binary_decimal_payload, push_binary_int_big_payload,
+        push_binary_int64, push_binary_nat_big_payload, push_binary_nat64, push_binary_null,
     },
     primary_key_component::{
         decode_primary_key_component_binary_value_bytes,
         encode_primary_key_component_binary_value_bytes,
     },
-    primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
     typed::{
         decimal_payload_mantissa_and_scale, decode_date_payload_days,
         decode_decimal_payload_mantissa_and_scale, decode_duration_payload_millis,
@@ -27,7 +27,6 @@ use crate::{
     types::{IntBig, NatBig},
     value::Value,
 };
-use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 
 /// Decode one non-recursive leaf `ByKind` field payload through the canonical
 /// Structural Binary v1 leaf lane.
@@ -142,7 +141,7 @@ pub(super) fn encode_leaf_field_binary_bytes(
 
 // Decode the only supported structured leaf `ByKind` case: explicit null.
 fn decode_structured_leaf_null_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    decode_required_null_payload(raw_bytes)?;
+    decode_binary_required_null(raw_bytes)?;
 
     Ok(Value::Null)
 }
@@ -166,38 +165,30 @@ fn encode_structured_leaf_null_bytes(
 
 // Decode one date payload from its canonical signed day-count form.
 fn decode_date_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    decode_date_payload_days(decode_required_i64_payload(raw_bytes)?).map(Value::Date)
+    decode_date_payload_days(decode_binary_required_i64(raw_bytes)?).map(Value::Date)
 }
 
 // Decode one decimal payload from the canonical `(mantissa_bytes, scale)`
 // tuple.
 fn decode_decimal_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let items = split_binary_tuple_items(raw_bytes, 2)?;
-    let mantissa_bytes: [u8; 16] = decode_required_bytes_payload(items[0])?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new())?;
-    let scale = decode_required_u32_payload(items[1])?;
+    let (mantissa, scale) = decode_binary_decimal_payload(raw_bytes)?;
 
     Ok(Value::Decimal(decode_decimal_payload_mantissa_and_scale(
-        i128::from_be_bytes(mantissa_bytes),
-        scale,
+        mantissa, scale,
     )?))
 }
 
 // Decode one duration payload from its canonical millis form.
 fn decode_duration_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     Ok(Value::Duration(decode_duration_payload_millis(
-        decode_required_u64_payload(raw_bytes)?,
+        decode_binary_required_u64(raw_bytes)?,
     )))
 }
 
 // Decode one bounded signed big-integer payload from the canonical `(sign,
 // limbs)` tuple used by `int_big`.
 fn decode_int_big_value_bytes(raw_bytes: &[u8], max_bytes: u32) -> Result<Value, FieldDecodeError> {
-    let items = split_binary_tuple_items(raw_bytes, 2)?;
-    let sign = decode_big_integer_sign_payload(items[0])?;
-    let magnitude = decode_big_integer_magnitude_payload(items[1])?;
-    let value = IntBig::from_bigint(BigInt::from_biguint(sign, magnitude));
+    let value = IntBig::from_bigint(decode_binary_int_big_payload(raw_bytes)?);
     ensure_int_big_max_bytes(&value, max_bytes)?;
 
     Ok(Value::IntBig(value))
@@ -206,7 +197,7 @@ fn decode_int_big_value_bytes(raw_bytes: &[u8], max_bytes: u32) -> Result<Value,
 // Decode one bounded unsigned big-integer payload from the canonical limb
 // sequence used by `nat_big`.
 fn decode_nat_big_value_bytes(raw_bytes: &[u8], max_bytes: u32) -> Result<Value, FieldDecodeError> {
-    let value = NatBig::from_biguint(decode_big_integer_magnitude_payload(raw_bytes)?);
+    let value = NatBig::from_biguint(decode_binary_nat_big_payload(raw_bytes)?);
     ensure_nat_big_max_bytes(&value, max_bytes)?;
 
     Ok(Value::NatBig(value))
@@ -236,9 +227,7 @@ fn encode_decimal_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>
 
     let (mantissa, scale) = decimal_payload_mantissa_and_scale(*value);
     let mut encoded = Vec::new();
-    push_binary_list_len(&mut encoded, 2);
-    push_binary_bytes(&mut encoded, &mantissa.to_be_bytes());
-    push_binary_nat64(&mut encoded, u64::from(scale));
+    push_binary_decimal_payload(&mut encoded, mantissa, scale);
 
     Ok(encoded)
 }
@@ -271,18 +260,8 @@ fn encode_int_big_value_bytes(
         .map_err(|_| InternalError::persisted_row_field_encode_internal(field_name))?;
 
     let (is_negative, digits) = value.sign_and_u32_digits();
-    let sign = if digits.is_empty() {
-        0
-    } else if is_negative {
-        -1
-    } else {
-        1
-    };
-
     let mut encoded = Vec::new();
-    push_binary_list_len(&mut encoded, 2);
-    push_binary_int64(&mut encoded, sign);
-    push_binary_u32_digit_list(&mut encoded, digits.as_slice());
+    push_binary_int_big_payload(&mut encoded, is_negative, digits.as_slice());
 
     Ok(encoded)
 }
@@ -302,7 +281,7 @@ fn encode_nat_big_value_bytes(
         .map_err(|_| InternalError::persisted_row_field_encode_internal(field_name))?;
 
     let mut encoded = Vec::new();
-    push_binary_u32_digit_list(&mut encoded, value.u32_digits().as_slice());
+    push_binary_nat_big_payload(&mut encoded, value.u32_digits().as_slice());
 
     Ok(encoded)
 }
@@ -325,137 +304,20 @@ fn ensure_nat_big_max_bytes(value: &NatBig, max_bytes: u32) -> Result<(), FieldD
     Ok(())
 }
 
-// Emit one canonical big-integer magnitude limb sequence.
-fn push_binary_u32_digit_list(out: &mut Vec<u8>, digits: &[u32]) {
-    push_binary_list_len(out, digits.len());
-    for digit in digits {
-        push_binary_nat64(out, u64::from(*digit));
-    }
-}
-
-// Decode one `int_big` sign payload serialized as -1, 0, or 1.
-fn decode_big_integer_sign_payload(raw_bytes: &[u8]) -> Result<BigIntSign, FieldDecodeError> {
-    match decode_required_i64_payload(raw_bytes)? {
-        -1 => Ok(BigIntSign::Minus),
-        0 => Ok(BigIntSign::NoSign),
-        1 => Ok(BigIntSign::Plus),
-        _ => Err(FieldDecodeError::new()),
-    }
-}
-
-// Decode one big-integer magnitude payload serialized as a canonical sequence
-// of base-2^32 limbs.
-fn decode_big_integer_magnitude_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    if tag != TAG_LIST {
-        return Err(FieldDecodeError::new());
-    }
-
-    let mut cursor = payload_start;
-    let mut limbs = Vec::new();
-    for _ in 0..len {
-        limbs.try_reserve(1).map_err(|_| FieldDecodeError::new())?;
-        let limb_start = cursor;
-        cursor = skip_binary_value(raw_bytes, cursor)?;
-        limbs.push(decode_required_u32_payload(&raw_bytes[limb_start..cursor])?);
-    }
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
-
-    Ok(BigUint::new(limbs))
-}
-
-// Decode one required top-level `null` payload and enforce full-byte
-// consumption.
-fn decode_required_null_payload(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
-    if CompleteBinaryValue::parse(raw_bytes)?.tag() != TAG_NULL {
-        return Err(FieldDecodeError::new());
-    }
-
-    Ok(())
-}
-
-// Decode one required top-level byte-string payload and enforce full-byte
-// consumption.
-fn decode_required_bytes_payload(raw_bytes: &[u8]) -> Result<&[u8], FieldDecodeError> {
-    let root = CompleteBinaryValue::parse(raw_bytes)?;
-    if root.tag() != TAG_BYTES {
-        return Err(FieldDecodeError::new());
-    }
-
-    root.scalar_payload()
-}
-
-// Decode one required top-level `u32` payload and enforce full-byte
-// consumption.
-fn decode_required_u32_payload(raw_bytes: &[u8]) -> Result<u32, FieldDecodeError> {
-    u32::try_from(decode_required_u64_payload(raw_bytes)?).map_err(|_| FieldDecodeError::new())
-}
-
-// Decode one required top-level `u64` payload and enforce full-byte
-// consumption.
-fn decode_required_u64_payload(raw_bytes: &[u8]) -> Result<u64, FieldDecodeError> {
-    let root = CompleteBinaryValue::parse(raw_bytes)?;
-    if root.tag() != TAG_NAT64 || root.len() != 8 {
-        return Err(FieldDecodeError::new());
-    }
-
-    decode_u64_payload_bytes(root.scalar_payload()?)
-}
-
-// Decode one required top-level `i64` payload and enforce full-byte
-// consumption.
-fn decode_required_i64_payload(raw_bytes: &[u8]) -> Result<i64, FieldDecodeError> {
-    let root = CompleteBinaryValue::parse(raw_bytes)?;
-    if root.tag() != TAG_INT64 || root.len() != 8 {
-        return Err(FieldDecodeError::new());
-    }
-
-    decode_i64_payload_bytes(root.scalar_payload()?)
-}
-
-// Split one fixed-length binary tuple into self-contained item slices.
-fn split_binary_tuple_items(
-    raw_bytes: &[u8],
-    expected_len: u32,
-) -> Result<Vec<&[u8]>, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    if tag != TAG_LIST || len != expected_len {
-        return Err(FieldDecodeError::new());
-    }
-
-    let mut items = Vec::with_capacity(expected_len as usize);
-    let mut cursor = payload_start;
-    for _ in 0..expected_len {
-        let item_start = cursor;
-        cursor = skip_binary_value(raw_bytes, cursor)?;
-        items.push(&raw_bytes[item_start..cursor]);
-    }
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
-
-    Ok(items)
-}
-
 ///
 /// TESTS
 ///
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        decode_leaf_field_by_kind_bytes, encode_leaf_field_binary_bytes, push_binary_bytes,
-        push_binary_int64, push_binary_list_len, push_binary_nat64,
-    };
+    use super::{decode_leaf_field_by_kind_bytes, encode_leaf_field_binary_bytes};
     use crate::{
         db::data::structural_field::{
-            binary::push_binary_text, validate_structural_field_by_accepted_kind_bytes,
+            binary::{
+                push_binary_bytes, push_binary_int64, push_binary_list_len, push_binary_nat64,
+                push_binary_text,
+            },
+            validate_structural_field_by_accepted_kind_bytes,
         },
         db::schema::AcceptedFieldKind,
         types::{Date, Decimal, Duration, IntBig, NatBig},

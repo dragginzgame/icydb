@@ -3280,7 +3280,7 @@ fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
 
     // Exercise online schema retirement after earlier row folds have created
     // canonical-only cardinality keys. Those derived keys are not overlays
-    // owned by this DDL batch and must not cause E17.
+    // owned by this DDL batch and must not cause E16.
     deliver_startup_watchdog_message(&fixture);
     deliver_startup_watchdog_message(&fixture);
     assert_sql_test_user_rank_index(

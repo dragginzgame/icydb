@@ -11,9 +11,9 @@ use icydb::diagnostic::{
     DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
     DiagnosticFactTag, DiagnosticMutationOperation, ErrorClass, ErrorCode, ErrorOrigin,
     QueryErrorKind, QueryFieldRole, QueryFieldSchemaMismatch, QueryProjectionCode,
-    QueryReadAdmissionCode, QueryResultShapeCode, RuntimeBoundaryCode, RuntimeErrorKind,
-    SchemaDdlAdmissionCode, SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode,
-    SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
+    QueryReadAdmissionCode, RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode,
+    SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode,
+    SqlWriteBoundaryCode,
 };
 use std::fmt::Write as _;
 
@@ -798,9 +798,6 @@ fn diagnostic_detail_text(detail: DiagnosticDetail) -> String {
                 query_read_admission_text(reason)
             )
         }
-        DiagnosticDetail::QueryResultShape { reason } => {
-            query_result_shape_text(reason).to_string()
-        }
         DiagnosticDetail::SqlLowering { reason } => {
             format!("unsupported SQL lowering: {}", sql_lowering_text(reason))
         }
@@ -813,7 +810,6 @@ const fn code_label(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::QueryIntent => "E_QUERY_INTENT",
         DiagnosticCode::QueryPlan => "E_QUERY_PLAN",
         DiagnosticCode::QueryReadAdmission => "E_QUERY_READ_ADMISSION",
-        DiagnosticCode::QueryAccessRequirement => "E_QUERY_ACCESS_REQUIREMENT",
         DiagnosticCode::QueryUnorderedPagination => "E_QUERY_UNORDERED_PAGINATION",
         DiagnosticCode::QueryInvalidContinuationCursor => "E_QUERY_INVALID_CONTINUATION_CURSOR",
         DiagnosticCode::QueryNotFound => "E_QUERY_NOT_FOUND",
@@ -824,7 +820,6 @@ const fn code_label(code: DiagnosticCode) -> &'static str {
             "E_QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD"
         }
         DiagnosticCode::QueryUnsupportedProjection => "E_QUERY_UNSUPPORTED_PROJECTION",
-        DiagnosticCode::QueryResultShapeMismatch => "E_QUERY_RESULT_SHAPE_MISMATCH",
         DiagnosticCode::QueryUnsupportedSqlFeature => "E_QUERY_UNSUPPORTED_SQL_FEATURE",
         DiagnosticCode::QuerySqlSurfaceMismatch => "E_QUERY_SQL_SURFACE_MISMATCH",
         DiagnosticCode::QuerySqlWriteBoundary => "E_QUERY_SQL_WRITE_BOUNDARY",
@@ -850,7 +845,6 @@ const fn code_text(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::QueryIntent => "query intent is invalid",
         DiagnosticCode::QueryPlan => "query planning failed",
         DiagnosticCode::QueryReadAdmission => "query read admission rejected",
-        DiagnosticCode::QueryAccessRequirement => "query access requirement was not met",
         DiagnosticCode::QueryUnorderedPagination => "pagination requires deterministic ordering",
         DiagnosticCode::QueryInvalidContinuationCursor => "continuation cursor is invalid",
         DiagnosticCode::QueryNotFound => "query expected one row but found none",
@@ -859,7 +853,6 @@ const fn code_text(code: DiagnosticCode) -> &'static str {
         DiagnosticCode::QueryNumericNotRepresentable => "numeric result is not representable",
         DiagnosticCode::QueryUnknownAggregateTargetField => "unknown aggregate target field",
         DiagnosticCode::QueryUnsupportedProjection => "query projection is not supported",
-        DiagnosticCode::QueryResultShapeMismatch => "query result shape mismatch",
         DiagnosticCode::QueryUnsupportedSqlFeature => "SQL feature is not supported",
         DiagnosticCode::QuerySqlSurfaceMismatch => "SQL statement used the wrong endpoint surface",
         DiagnosticCode::QuerySqlWriteBoundary => "SQL write boundary rejected",
@@ -884,7 +877,6 @@ const fn query_kind_text(kind: QueryErrorKind) -> &'static str {
         QueryErrorKind::Validate => "query validation failed",
         QueryErrorKind::Intent => "query intent is invalid",
         QueryErrorKind::Plan => "query planning failed",
-        QueryErrorKind::AccessRequirement => "query access requirement was not met",
         QueryErrorKind::UnorderedPagination => "pagination requires deterministic ordering",
         QueryErrorKind::InvalidContinuationCursor => "continuation cursor is invalid",
         QueryErrorKind::NotFound => "query expected one row but found none",
@@ -998,17 +990,6 @@ const fn query_read_admission_fix_text(reason: QueryReadAdmissionCode) -> &'stat
     }
 }
 
-const fn query_result_shape_text(reason: QueryResultShapeCode) -> &'static str {
-    match reason {
-        QueryResultShapeCode::ExpectedRows => {
-            "grouped query result cannot be consumed as entity rows"
-        }
-        QueryResultShapeCode::ExpectedGroupedRows => {
-            "scalar query result cannot be consumed as grouped rows"
-        }
-    }
-}
-
 const fn sql_lowering_text(reason: SqlLoweringCode) -> &'static str {
     match reason {
         SqlLoweringCode::EntityMismatch => {
@@ -1100,13 +1081,6 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::SqlDdlTargetRequired => "SQL DDL requires one target entity",
         RuntimeBoundaryCode::SqlDdlEntityNotConfigured => {
             "SQL DDL target entity is not configured for this canister"
-        }
-        RuntimeBoundaryCode::QueryResponseRowsRequired => "query response contains grouped rows",
-        RuntimeBoundaryCode::QueryResponseGroupedRowsRequired => {
-            "query response contains scalar rows"
-        }
-        RuntimeBoundaryCode::RowProjectionFieldNotConfigured => {
-            "requested projection field is not configured for this entity"
         }
         RuntimeBoundaryCode::SqlIntrospectionDisabled => {
             "SQL introspection is disabled for this canister build target"
@@ -1255,28 +1229,16 @@ const fn schema_migration_text(reason: SchemaMigrationCode) -> &'static str {
         SchemaMigrationCode::EmptyEntityVersionBump => {
             "an entity source version changed without a schema change"
         }
-        SchemaMigrationCode::DuplicateEntityTransition => {
-            "the coordinated plan repeats an entity transition"
-        }
         SchemaMigrationCode::StaleAcceptedHead => "the accepted schema head changed",
         SchemaMigrationCode::PlanChanged => "the deployed migration plan changed",
-        SchemaMigrationCode::DuplicateRenameSource => "a rename source is used more than once",
-        SchemaMigrationCode::DuplicateRenameTarget => "a rename target is used more than once",
         SchemaMigrationCode::UnknownFromObject => "a rename source is not accepted",
         SchemaMigrationCode::UnknownToObject => "a rename target is not declared",
         SchemaMigrationCode::KindMismatch => "a migration object kind does not match",
         SchemaMigrationCode::IdentityConflict => "accepted migration identity conflicts",
-        SchemaMigrationCode::IncompleteRenameCoverage => {
-            "the migration does not cover every required rename"
-        }
         SchemaMigrationCode::UnexplainedSchemaDifference => {
             "the proposal contains an unexplained schema difference"
         }
         SchemaMigrationCode::UnsupportedTransform => "the declared transform is unsupported",
-        SchemaMigrationCode::TransformFinding => "a row transform failed validation",
-        SchemaMigrationCode::UniqueIndexFinding => "candidate uniqueness validation failed",
-        SchemaMigrationCode::RelationFinding => "candidate relation validation failed",
-        SchemaMigrationCode::ConstraintFinding => "candidate constraint validation failed",
         SchemaMigrationCode::PhysicalRunnerMissing => {
             "the required physical migration runner is unavailable"
         }
@@ -1345,7 +1307,6 @@ const fn sql_surface_mismatch_text(mismatch: SqlSurfaceMismatchCode) -> &'static
 )]
 const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str {
     match boundary {
-        SqlWriteBoundaryCode::PrimaryKeyLiteralShape => "primary key literal has the wrong shape",
         SqlWriteBoundaryCode::PrimaryKeyLiteralIncompatible => {
             "primary key literal is not compatible with the entity key type"
         }
@@ -1451,14 +1412,8 @@ const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str
         SqlWriteBoundaryCode::ResumableUpdateContinuationBatchPolicyMismatch => {
             "resumable UPDATE continuation uses another engine batch policy"
         }
-        SqlWriteBoundaryCode::ResumableUpdateSingleRowResourceExceeded => {
-            "one resumable UPDATE row cannot fit the engine commit window"
-        }
         SqlWriteBoundaryCode::ResumableUpdateManagedFieldHasGlobalConstraint => {
             "resumable UPDATE cannot refresh a globally constrained managed field"
-        }
-        SqlWriteBoundaryCode::ResumableUpdateContinuationOperationMismatch => {
-            "resumable UPDATE continuation belongs to another application operation"
         }
     }
 }
@@ -1535,9 +1490,6 @@ const fn sql_feature_text(feature: SqlFeatureCode) -> &'static str {
         SqlFeatureCode::ScaleTakingNumericFunctionExpressionPosition => {
             "scale-taking numeric functions in this expression position"
         }
-        SqlFeatureCode::SearchedCaseGroupedOrderBy => {
-            "searched CASE in grouped ORDER BY expressions"
-        }
         SqlFeatureCode::ShowColumnsModifiers => "SHOW COLUMNS modifiers",
         SqlFeatureCode::ShowConstraintsModifiers => "SHOW CONSTRAINTS modifiers",
         SqlFeatureCode::ShowEntitiesModifiers => "SHOW ENTITIES modifiers",
@@ -1548,12 +1500,6 @@ const fn sql_feature_text(feature: SqlFeatureCode) -> &'static str {
         SqlFeatureCode::ShowUnsupportedCommand => "unsupported SHOW command",
         SqlFeatureCode::SimpleCaseExpression => "simple CASE expressions",
         SqlFeatureCode::StandaloneLiteralProjectionItem => "standalone literal projection items",
-        SqlFeatureCode::SupportedGroupedOrderByExpressionFamily => {
-            "unsupported grouped ORDER BY expression family"
-        }
-        SqlFeatureCode::SupportedOrderByExpressionFamily => {
-            "unsupported ORDER BY expression family"
-        }
         SqlFeatureCode::UnionIntersectExcept => "UNION, INTERSECT, or EXCEPT",
         SqlFeatureCode::UnsupportedFunctionNamespace => "unsupported SQL function namespace",
         SqlFeatureCode::Update => "UPDATE",
@@ -1805,9 +1751,9 @@ mod tests {
 
     #[test]
     fn renders_compact_query_not_found_code_report() {
-        let report = render_error_code_report("E7").expect("E7 should parse");
+        let report = render_error_code_report("E6").expect("E6 should parse");
 
-        assert!(report.contains("IcyDB diagnostic E7"), "{report}");
+        assert!(report.contains("IcyDB diagnostic E6"), "{report}");
         assert!(report.contains("known: yes"), "{report}");
         assert!(report.contains("class: not-found"), "{report}");
         assert!(report.contains("default origin: query"), "{report}");
@@ -1954,7 +1900,7 @@ mod tests {
         let artifact = DiagnosticSchemaArtifact::test_fixture();
         let mut notes = Vec::new();
         let report =
-            render_error_code_report_with_facts("E223", facts.as_slice(), &[&artifact], &mut notes)
+            render_error_code_report_with_facts("E210", facts.as_slice(), &[&artifact], &mut notes)
                 .expect("exact diagnostic should render");
         assert!(report.contains("entity_tag=42(Account)"), "{report}");
         assert!(
@@ -1972,7 +1918,7 @@ mod tests {
         stale_facts[1].value = u64::from_be_bytes([8; 8]);
         let mut notes = Vec::new();
         let report = render_error_code_report_with_facts(
-            "E223",
+            "E210",
             stale_facts.as_slice(),
             &[&artifact],
             &mut notes,
@@ -1985,7 +1931,7 @@ mod tests {
         malformed_facts.swap(4, 5);
         let mut notes = Vec::new();
         let report = render_error_code_report_with_facts(
-            "E223",
+            "E210",
             malformed_facts.as_slice(),
             &[&artifact],
             &mut notes,
@@ -2030,7 +1976,7 @@ mod tests {
             },
         ];
         let mut notes = Vec::new();
-        let report = render_error_code_report_with_facts("E223", facts.as_slice(), &[], &mut notes)
+        let report = render_error_code_report_with_facts("E210", facts.as_slice(), &[], &mut notes)
             .expect("numeric diagnostic should render");
 
         assert!(report.contains("entity_tag=3"), "{report}");
@@ -2078,7 +2024,7 @@ mod tests {
         let metadata = DiagnosticSchemaArtifact::test_source_fixture();
         let mut notes = Vec::new();
         let report =
-            render_error_code_report_with_facts("E223", facts.as_slice(), &[&metadata], &mut notes)
+            render_error_code_report_with_facts("E210", facts.as_slice(), &[&metadata], &mut notes)
                 .expect("exact source-bound diagnostic should render");
 
         assert!(report.contains("entity_tag=42(SourceAccount)"), "{report}");
@@ -2090,7 +2036,7 @@ mod tests {
         let deployment = DiagnosticSchemaArtifact::test_fixture();
         let mut notes = Vec::new();
         let report = render_error_code_report_with_facts(
-            "E223",
+            "E210",
             facts.as_slice(),
             &[&deployment, &metadata],
             &mut notes,
@@ -2103,7 +2049,7 @@ mod tests {
         stale_facts[2].value = u64::from_be_bytes([8; 8]);
         let mut notes = Vec::new();
         let report = render_error_code_report_with_facts(
-            "E223",
+            "E210",
             stale_facts.as_slice(),
             &[&metadata],
             &mut notes,
@@ -2179,9 +2125,9 @@ mod tests {
 
     #[test]
     fn renders_compact_read_admission_code_report() {
-        let report = render_error_code_report("184").expect("184 should parse");
+        let report = render_error_code_report("173").expect("173 should parse");
 
-        assert!(report.contains("IcyDB diagnostic E184"), "{report}");
+        assert!(report.contains("IcyDB diagnostic E173"), "{report}");
         assert!(report.contains("E_QUERY_READ_ADMISSION"), "{report}");
         assert!(
             report.contains("public read queries cannot execute an unbounded full scan"),
@@ -2400,22 +2346,6 @@ mod tests {
         assert_eq!(
             render_error(&err),
             "E_QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD: unknown aggregate target field",
-        );
-    }
-
-    #[test]
-    fn renders_query_result_shape_detail() {
-        let err = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
-            icydb::diagnostic::DiagnosticCode::QueryResultShapeMismatch,
-            icydb::diagnostic::ErrorOrigin::Query,
-            Some(icydb::diagnostic::DiagnosticDetail::QueryResultShape {
-                reason: icydb::diagnostic::QueryResultShapeCode::ExpectedRows,
-            }),
-        ));
-
-        assert_eq!(
-            render_error(&err),
-            "E_QUERY_RESULT_SHAPE_MISMATCH: grouped query result cannot be consumed as entity rows",
         );
     }
 

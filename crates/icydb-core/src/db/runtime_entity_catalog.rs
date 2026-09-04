@@ -12,8 +12,8 @@ use crate::{
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         index::{
-            IndexEntryValue, IndexReadContract, IndexStore, RawIndexStoreKey,
-            StructuralIndexEntryReader, StructuralPrimaryRowReader,
+            IndexEntryValue, IndexStore, RawIndexStoreKey, StructuralIndexEntryReader,
+            StructuralPrimaryRowReader, push_structural_index_entry_primary_key_values_limited,
         },
         key_taxonomy::PrimaryKeyValue,
         registry::{StoreHandle, StoreRecoveryCapability},
@@ -85,23 +85,16 @@ impl<C: CanisterKind> StructuralIndexEntryReader for CanonicalCommitReader<'_, C
 
     fn read_index_keys_in_raw_range(
         &self,
-        _entity_path: &str,
-        _entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        _index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
         let mut out = Vec::with_capacity(limit.min(32));
         index_store.with_borrow(|store| {
             store.visit_canonical_raw_entries_in_range(bounds, |raw_key, raw_entry| {
-                raw_entry.push_row_identity_primary_key_values_limited(
-                    raw_key,
-                    &mut out,
-                    limit,
-                    |_err| InternalError::index_plan_index_corruption(),
-                )?;
-                Ok(out.len() >= limit)
+                push_structural_index_entry_primary_key_values_limited(
+                    raw_key, raw_entry, &mut out, limit,
+                )
             })
         })?;
         Ok(out)

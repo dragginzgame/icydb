@@ -67,7 +67,7 @@ fn cli_args_accept_exact_diagnostic_resolver_inputs() {
     let args = CliArgs::try_parse_from([
         "icydb",
         "diagnostic",
-        "E223",
+        "E210",
         "--fact",
         "accepted_schema_fingerprint_method=1",
         "--fact",
@@ -86,7 +86,7 @@ fn cli_args_accept_exact_diagnostic_resolver_inputs() {
         panic!("expected diagnostic command");
     };
 
-    assert_eq!(args.code(), "E223");
+    assert_eq!(args.code(), "E210");
     assert_eq!(args.facts().len(), 2);
     assert_eq!(args.artifact(), Some(Path::new("schema.diagnostic.json")));
     assert_eq!(

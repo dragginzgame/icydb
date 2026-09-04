@@ -12,7 +12,6 @@ use crate::{
     },
     error::InternalError,
     traits::CanisterKind,
-    types::EntityTag,
 };
 use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 
@@ -95,15 +94,25 @@ pub(in crate::db) trait StructuralIndexEntryReader {
         key: &RawIndexStoreKey,
     ) -> Result<Option<IndexEntryValue>, InternalError>;
 
-    /// Return up to `limit` structural primary-key values resolved from
-    /// `index_store` in raw key range.
+    /// Return up to `limit` structural primary-key values resolved from the
+    /// already selected `index_store` in raw key range.
     fn read_index_keys_in_raw_range(
         &self,
-        entity_path: &str,
-        entity_tag: EntityTag,
         index_store: &'static LocalKey<RefCell<IndexStore>>,
-        index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<PrimaryKeyValue>, InternalError>;
+}
+
+/// Decode one raw structural index entry and append its key-owned row identity
+/// under the index-planning corruption boundary.
+pub(in crate::db) fn push_structural_index_entry_primary_key_values_limited(
+    raw_key: &RawIndexStoreKey,
+    raw_entry: &IndexEntryValue,
+    out: &mut Vec<PrimaryKeyValue>,
+    limit: usize,
+) -> Result<bool, InternalError> {
+    raw_entry.push_row_identity_primary_key_values_limited(raw_key, out, limit, |_err| {
+        InternalError::index_plan_index_corruption()
+    })
 }

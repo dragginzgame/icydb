@@ -196,22 +196,14 @@ where
 
     fn read_index_keys_in_raw_range(
         &self,
-        entity_path: &str,
-        entity_tag: EntityTag,
         index: IndexReadContract<'_>,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         limit: usize,
     ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
         let index_store = self.index_store(index.store_path())?;
 
-        self.index_reader.read_index_keys_in_raw_range(
-            entity_path,
-            entity_tag,
-            index_store,
-            index,
-            bounds,
-            limit,
-        )
+        self.index_reader
+            .read_index_keys_in_raw_range(index_store, bounds, limit)
     }
 }
 
@@ -404,7 +396,6 @@ where
     };
 
     match plan_index_mutation_for_slot_reader_structural(
-        authority.entity_path.as_ref(),
         authority.entity_tag,
         authority.schema_fingerprint,
         mutation,

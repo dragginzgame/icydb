@@ -6,9 +6,10 @@
 use crate::{
     db::data::structural_field::{
         binary::{
-            push_binary_bool, push_binary_bytes, push_binary_int64, push_binary_list_len,
-            push_binary_map_len, push_binary_nat64, push_binary_null, push_binary_tag,
-            push_binary_text, push_binary_unit,
+            push_binary_bool, push_binary_bytes, push_binary_decimal_payload,
+            push_binary_int_big_payload, push_binary_int64, push_binary_list_len,
+            push_binary_map_len, push_binary_nat_big_payload, push_binary_nat64, push_binary_null,
+            push_binary_tag, push_binary_text, push_binary_unit,
         },
         typed::{
             decimal_payload_mantissa_and_scale, encode_account_payload_bytes,
@@ -278,9 +279,7 @@ fn push_decimal_payload(out: &mut Vec<u8>, value: Decimal) {
     let (mantissa, scale) = decimal_payload_mantissa_and_scale(value);
 
     push_binary_tag(out, VALUE_BINARY_TAG_DECIMAL);
-    push_binary_list_len(out, 2);
-    push_binary_bytes(out, &mantissa.to_be_bytes());
-    push_binary_nat64(out, u64::from(scale));
+    push_binary_decimal_payload(out, mantissa, scale);
 }
 
 fn push_date_payload(out: &mut Vec<u8>, value: Date) {
@@ -378,18 +377,7 @@ fn push_int_big_payload(out: &mut Vec<u8>, value: &IntBig) {
     let (is_negative, digits) = value.sign_and_u32_digits();
 
     push_binary_tag(out, VALUE_BINARY_TAG_INT_BIG);
-    push_binary_list_len(out, 2);
-    push_binary_int64(
-        out,
-        if digits.is_empty() {
-            0
-        } else if is_negative {
-            -1
-        } else {
-            1
-        },
-    );
-    push_binary_u32_digit_list(out, digits.as_slice());
+    push_binary_int_big_payload(out, is_negative, digits.as_slice());
 }
 
 // Encode one binary `Value::NatBig` payload as a limb sequence.
@@ -397,13 +385,5 @@ fn push_nat_big_payload(out: &mut Vec<u8>, value: &NatBig) {
     let digits = value.u32_digits();
 
     push_binary_tag(out, VALUE_BINARY_TAG_NAT_BIG);
-    push_binary_u32_digit_list(out, digits.as_slice());
-}
-
-// Encode one canonical big-integer limb sequence.
-fn push_binary_u32_digit_list(out: &mut Vec<u8>, digits: &[u32]) {
-    push_binary_list_len(out, digits.len());
-    for digit in digits {
-        push_binary_nat64(out, u64::from(*digit));
-    }
+    push_binary_nat_big_payload(out, digits.as_slice());
 }

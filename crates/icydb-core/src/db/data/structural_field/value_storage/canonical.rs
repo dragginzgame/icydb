@@ -353,6 +353,7 @@ const fn ensure_depth(depth: u16) -> Result<(), FieldDecodeError> {
 mod tests {
     use super::*;
     use crate::db::schema::MAX_ACCEPTED_RECURSIVE_DEPTH;
+    use crate::types::{Decimal, IntBig, NatBig};
     use crate::value::{
         CanonicalEnumBody, CanonicalEnumValue, EnumTypeId, EnumVariantId, ValueEnum,
     };
@@ -418,6 +419,26 @@ mod tests {
                 decode_canonical_value_storage_bytes(&encoded)
                     .expect("canonical U256 should decode"),
                 canonical,
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_value_storage_round_trips_shared_structural_binary_payloads() {
+        let values = [
+            CanonicalValue::Decimal(Decimal::from_i128_with_scale(12_345, 2)),
+            CanonicalValue::IntBig(IntBig::from(-123_456_789_i64)),
+            CanonicalValue::NatBig(NatBig::from(987_654_321_u64)),
+        ];
+
+        for value in values {
+            let encoded = encode_canonical_value_storage_bytes(&value)
+                .expect("canonical value storage should encode");
+
+            assert_eq!(
+                decode_canonical_value_storage_bytes(&encoded)
+                    .expect("canonical value storage should decode"),
+                value,
             );
         }
     }

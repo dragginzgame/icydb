@@ -2214,7 +2214,7 @@ impl ConstraintValidationFindingOutput {
     }
 }
 
-/// Complete bounded numeric authority needed to publish E223 or E225 facts.
+/// Complete bounded numeric authority needed to publish E210 or E212 facts.
 #[derive(Clone)]
 pub(crate) struct AcceptedConstraintFactContext {
     fingerprint_method: u8,
@@ -2502,10 +2502,6 @@ pub enum QueryErrorDetail {
     },
 
     UnknownAggregateTargetField,
-
-    ResultShapeMismatch {
-        reason: diagnostic_code::QueryResultShapeCode,
-    },
 
     QueryReadAdmission {
         reason: diagnostic_code::QueryReadAdmissionCode,
@@ -2973,9 +2969,6 @@ impl QueryErrorDetail {
             Self::UnknownAggregateTargetField => {
                 diagnostic_code::DiagnosticCode::QueryUnknownAggregateTargetField
             }
-            Self::ResultShapeMismatch { .. } => {
-                diagnostic_code::DiagnosticCode::QueryResultShapeMismatch
-            }
             Self::QueryReadAdmission { .. } => diagnostic_code::DiagnosticCode::QueryReadAdmission,
             Self::SqlSurfaceMismatch { .. } => {
                 diagnostic_code::DiagnosticCode::QuerySqlSurfaceMismatch
@@ -2998,9 +2991,6 @@ impl QueryErrorDetail {
             }
             Self::UnsupportedProjection { reason } => {
                 Some(diagnostic_code::DiagnosticDetail::QueryProjection { reason: *reason })
-            }
-            Self::ResultShapeMismatch { reason } => {
-                Some(diagnostic_code::DiagnosticDetail::QueryResultShape { reason: *reason })
             }
             Self::QueryReadAdmission { reason } => {
                 Some(diagnostic_code::DiagnosticDetail::QueryReadAdmission { reason: *reason })

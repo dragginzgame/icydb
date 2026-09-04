@@ -37,7 +37,6 @@ pub use query_field::{
 #[remain::sorted]
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum DiagnosticCode {
-    QueryAccessRequirement,
     QueryIntent,
     QueryInvalidContinuationCursor,
     QueryNotFound,
@@ -46,7 +45,6 @@ pub enum DiagnosticCode {
     QueryNumericOverflow,
     QueryPlan,
     QueryReadAdmission,
-    QueryResultShapeMismatch,
     QuerySqlSurfaceMismatch,
     QuerySqlWriteBoundary,
     QueryUnknownAggregateTargetField,
@@ -81,7 +79,6 @@ impl DiagnosticCode {
             Self::QueryUnsupportedSqlFeature
             | Self::QueryUnknownAggregateTargetField
             | Self::QueryUnsupportedProjection
-            | Self::QueryResultShapeMismatch
             | Self::QuerySqlSurfaceMismatch
             | Self::QuerySqlWriteBoundary
             | Self::RuntimeUnsupported => ErrorClass::Unsupported,
@@ -93,7 +90,6 @@ impl DiagnosticCode {
             | Self::QueryIntent
             | Self::QueryPlan
             | Self::QueryReadAdmission
-            | Self::QueryAccessRequirement
             | Self::QueryUnorderedPagination
             | Self::QueryInvalidContinuationCursor
             | Self::QueryNotUnique
@@ -121,7 +117,6 @@ impl DiagnosticCode {
             | Self::QueryIntent
             | Self::QueryPlan
             | Self::QueryReadAdmission
-            | Self::QueryAccessRequirement
             | Self::QueryUnorderedPagination
             | Self::QueryInvalidContinuationCursor
             | Self::QueryNotFound
@@ -130,7 +125,6 @@ impl DiagnosticCode {
             | Self::QueryNumericNotRepresentable
             | Self::QueryUnknownAggregateTargetField
             | Self::QueryUnsupportedProjection
-            | Self::QueryResultShapeMismatch
             | Self::QueryUnsupportedSqlFeature
             | Self::QuerySqlSurfaceMismatch
             | Self::QuerySqlWriteBoundary
@@ -146,7 +140,6 @@ impl DiagnosticCode {
             Self::QueryIntent => ErrorCode::QUERY_INTENT,
             Self::QueryPlan => ErrorCode::QUERY_PLAN,
             Self::QueryReadAdmission => ErrorCode::QUERY_READ_ADMISSION,
-            Self::QueryAccessRequirement => ErrorCode::QUERY_ACCESS_REQUIREMENT,
             Self::QueryUnorderedPagination => ErrorCode::QUERY_UNORDERED_PAGINATION,
             Self::QueryInvalidContinuationCursor => ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR,
             Self::QueryNotFound => ErrorCode::QUERY_NOT_FOUND,
@@ -157,7 +150,6 @@ impl DiagnosticCode {
                 ErrorCode::QUERY_UNKNOWN_AGGREGATE_TARGET_FIELD
             }
             Self::QueryUnsupportedProjection => ErrorCode::QUERY_UNSUPPORTED_PROJECTION,
-            Self::QueryResultShapeMismatch => ErrorCode::QUERY_RESULT_SHAPE_MISMATCH,
             Self::QueryUnsupportedSqlFeature => ErrorCode::QUERY_UNSUPPORTED_SQL_FEATURE,
             Self::QuerySqlSurfaceMismatch => ErrorCode::QUERY_SQL_SURFACE_MISMATCH,
             Self::QuerySqlWriteBoundary => ErrorCode::QUERY_SQL_WRITE_BOUNDARY,
@@ -372,7 +364,6 @@ pub enum QueryErrorKind {
     Validate,
     Intent,
     Plan,
-    AccessRequirement,
     UnorderedPagination,
     InvalidContinuationCursor,
     NotFound,
@@ -442,26 +433,6 @@ impl fmt::Debug for QueryReadAdmissionCode {
 }
 
 ///
-/// QueryResultShapeCode
-///
-/// Compact query-result shape mismatch identifier.
-/// Variant order is wire-order significant for public error-code offsets.
-///
-
-#[repr(u16)]
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub enum QueryResultShapeCode {
-    ExpectedRows,
-    ExpectedGroupedRows,
-}
-
-impl fmt::Debug for QueryResultShapeCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt_compact_code(f, *self as u16)
-    }
-}
-
-///
 /// RuntimeErrorKind
 ///
 /// Public runtime error category.
@@ -501,9 +472,6 @@ pub enum RuntimeBoundaryCode {
     SqlQueryEntityNotFound,
     SqlDdlTargetRequired,
     SqlDdlEntityNotConfigured,
-    QueryResponseRowsRequired,
-    QueryResponseGroupedRowsRequired,
-    RowProjectionFieldNotConfigured,
     SqlIntrospectionDisabled,
     /// A complete accepted mutation omitted a required field.
     MutationRequiredFieldMissing,
@@ -633,7 +601,6 @@ pub enum SqlFeatureCode {
     ReturningUnsupportedShape,
     ScalarFunctionExpressionPosition,
     ScaleTakingNumericFunctionExpressionPosition,
-    SearchedCaseGroupedOrderBy,
     ShowColumnsModifiers,
     ShowEntitiesModifiers,
     ShowIndexesModifiers,
@@ -642,8 +609,6 @@ pub enum SqlFeatureCode {
     ShowUnsupportedCommand,
     SimpleCaseExpression,
     StandaloneLiteralProjectionItem,
-    SupportedGroupedOrderByExpressionFamily,
-    SupportedOrderByExpressionFamily,
     UnionIntersectExcept,
     UnsupportedFunctionNamespace,
     Update,
@@ -746,7 +711,6 @@ impl fmt::Debug for SqlSurfaceMismatchCode {
 #[repr(u16)]
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum SqlWriteBoundaryCode {
-    PrimaryKeyLiteralShape,
     PrimaryKeyLiteralIncompatible,
     MissingPrimaryKey,
     MissingRequiredFields,
@@ -784,9 +748,7 @@ pub enum SqlWriteBoundaryCode {
     ResumableUpdateContinuationScopeMismatch,
     ResumableUpdateContinuationPatchMismatch,
     ResumableUpdateContinuationBatchPolicyMismatch,
-    ResumableUpdateSingleRowResourceExceeded,
     ResumableUpdateManagedFieldHasGlobalConstraint,
-    ResumableUpdateContinuationOperationMismatch,
 }
 
 impl fmt::Debug for SqlWriteBoundaryCode {
@@ -844,22 +806,14 @@ pub enum SchemaMigrationCode {
     VersionGap,
     Downgrade,
     EmptyEntityVersionBump,
-    DuplicateEntityTransition,
     StaleAcceptedHead,
     PlanChanged,
-    DuplicateRenameSource,
-    DuplicateRenameTarget,
     UnknownFromObject,
     UnknownToObject,
     KindMismatch,
     IdentityConflict,
-    IncompleteRenameCoverage,
     UnexplainedSchemaDifference,
     UnsupportedTransform,
-    TransformFinding,
-    UniqueIndexFinding,
-    RelationFinding,
-    ConstraintFinding,
     PhysicalRunnerMissing,
     MigrationInProgress,
     AbortTooLate,
@@ -885,19 +839,11 @@ impl SchemaMigrationCode {
             | Self::VersionGap
             | Self::Downgrade
             | Self::EmptyEntityVersionBump
-            | Self::DuplicateEntityTransition
-            | Self::DuplicateRenameSource
-            | Self::DuplicateRenameTarget
             | Self::UnknownFromObject
             | Self::UnknownToObject
             | Self::KindMismatch
-            | Self::IncompleteRenameCoverage
             | Self::UnexplainedSchemaDifference
             | Self::UnsupportedTransform
-            | Self::TransformFinding
-            | Self::UniqueIndexFinding
-            | Self::RelationFinding
-            | Self::ConstraintFinding
             | Self::PhysicalRunnerMissing => DiagnosticCode::RuntimeUnsupported,
         }
     }
@@ -921,7 +867,6 @@ pub enum DiagnosticDetail {
     QueryKind { kind: QueryErrorKind },
     QueryProjection { reason: QueryProjectionCode },
     QueryReadAdmission { reason: QueryReadAdmissionCode },
-    QueryResultShape { reason: QueryResultShapeCode },
     RuntimeBoundary { boundary: RuntimeBoundaryCode },
     RuntimeKind { kind: RuntimeErrorKind },
     SchemaDdlAdmission { reason: SchemaDdlAdmissionCode },
@@ -1113,7 +1058,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 285);
+        assert_eq!(last, 264);
     }
 
     #[test]
@@ -1208,7 +1153,7 @@ mod tests {
             detail.diagnostic_code(),
             DiagnosticCode::QueryUnsupportedSqlFeature
         );
-        assert_eq!(format!("{detail:?}"), "65");
+        assert_eq!(format!("{detail:?}"), "61");
     }
 
     #[test]

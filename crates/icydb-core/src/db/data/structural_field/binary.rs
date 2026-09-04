@@ -1,16 +1,17 @@
 //! Module: data::structural_field::binary
-//! Responsibility: low-level bounded Structural Binary v1 parsing and raw-slice walkers.
+//! Responsibility: bounded Structural Binary v1 framing, shared payload codecs, and raw-slice walkers.
 //! Does not own: field semantics, runtime `Value` reconstruction, or row-level policy.
-//! Boundary: higher structural-field owners will move here one contract at a time as the
-//! old structural grammar is retired.
+//! Boundary: structural-field lanes provide admitted semantic parts and consume the
+//! canonical version-1 payload shapes owned here.
 
 use crate::db::data::structural_field::{
     FieldDecodeError,
     primitive::{
-        encode_f32_payload_bytes, encode_f64_payload_bytes, encode_i64_payload_bytes,
-        encode_u64_payload_bytes,
+        decode_i64_payload_bytes, decode_u64_payload_bytes, encode_f32_payload_bytes,
+        encode_f64_payload_bytes, encode_i64_payload_bytes, encode_u64_payload_bytes,
     },
 };
+use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 
 pub(super) const TAG_NULL: u8 = 0x00;
 pub(super) const TAG_UNIT: u8 = 0x01;
@@ -105,6 +106,41 @@ pub(super) fn push_binary_map_len(out: &mut Vec<u8>, len: usize) {
     out.extend_from_slice(&len.to_be_bytes());
 }
 
+/// Append the canonical Structural Binary decimal `(mantissa, scale)` payload.
+pub(super) fn push_binary_decimal_payload(out: &mut Vec<u8>, mantissa: i128, scale: u32) {
+    push_binary_list_len(out, 2);
+    push_binary_bytes(out, &mantissa.to_be_bytes());
+    push_binary_nat64(out, u64::from(scale));
+}
+
+/// Append the canonical Structural Binary signed big-integer payload.
+pub(super) fn push_binary_int_big_payload(out: &mut Vec<u8>, is_negative: bool, digits: &[u32]) {
+    let sign = if digits.is_empty() {
+        0
+    } else if is_negative {
+        -1
+    } else {
+        1
+    };
+
+    push_binary_list_len(out, 2);
+    push_binary_int64(out, sign);
+    push_binary_u32_digit_list(out, digits);
+}
+
+/// Append the canonical Structural Binary unsigned big-integer payload.
+pub(super) fn push_binary_nat_big_payload(out: &mut Vec<u8>, digits: &[u32]) {
+    push_binary_u32_digit_list(out, digits);
+}
+
+// Emit one canonical big-integer magnitude limb sequence.
+fn push_binary_u32_digit_list(out: &mut Vec<u8>, digits: &[u32]) {
+    push_binary_list_len(out, digits.len());
+    for digit in digits {
+        push_binary_nat64(out, u64::from(*digit));
+    }
+}
+
 // Structural values are admitted under smaller runtime bounds before reaching
 // this framing layer. Saturating the host-only impossible overflow keeps this
 // mechanical encoder non-panicking without inventing a second admission rule.
@@ -195,6 +231,132 @@ impl<'a> CompleteBinaryValue<'a> {
     pub(super) fn scalar_payload(&self) -> Result<&'a [u8], FieldDecodeError> {
         payload_bytes(self.bytes, self.len, self.payload_offset())
     }
+}
+
+/// Decode one complete Structural Binary `null` payload.
+pub(super) fn decode_binary_required_null(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
+    parse_required_binary_payload(raw_bytes, TAG_NULL, Some(0)).map(|_| ())
+}
+
+/// Decode one complete Structural Binary byte-string payload.
+pub(super) fn decode_binary_required_bytes(raw_bytes: &[u8]) -> Result<&[u8], FieldDecodeError> {
+    parse_required_binary_payload(raw_bytes, TAG_BYTES, None)?.scalar_payload()
+}
+
+/// Decode one complete Structural Binary signed 64-bit payload.
+pub(super) fn decode_binary_required_i64(raw_bytes: &[u8]) -> Result<i64, FieldDecodeError> {
+    decode_i64_payload_bytes(
+        parse_required_binary_payload(raw_bytes, TAG_INT64, Some(8))?.scalar_payload()?,
+    )
+}
+
+/// Decode one complete Structural Binary unsigned 64-bit payload.
+pub(super) fn decode_binary_required_u64(raw_bytes: &[u8]) -> Result<u64, FieldDecodeError> {
+    decode_u64_payload_bytes(
+        parse_required_binary_payload(raw_bytes, TAG_NAT64, Some(8))?.scalar_payload()?,
+    )
+}
+
+/// Decode the canonical Structural Binary decimal `(mantissa, scale)` payload.
+pub(super) fn decode_binary_decimal_payload(
+    raw_bytes: &[u8],
+) -> Result<(i128, u32), FieldDecodeError> {
+    let [mantissa, scale] = split_binary_tuple_2(raw_bytes)?;
+    let mantissa: [u8; 16] = decode_binary_required_bytes(mantissa)?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new())?;
+    let scale =
+        u32::try_from(decode_binary_required_u64(scale)?).map_err(|_| FieldDecodeError::new())?;
+
+    Ok((i128::from_be_bytes(mantissa), scale))
+}
+
+/// Decode the canonical Structural Binary signed big-integer payload.
+pub(super) fn decode_binary_int_big_payload(raw_bytes: &[u8]) -> Result<BigInt, FieldDecodeError> {
+    let [sign, magnitude] = split_binary_tuple_2(raw_bytes)?;
+    let sign = decode_binary_big_integer_sign(sign)?;
+    let magnitude = decode_binary_big_integer_magnitude(magnitude)?;
+
+    Ok(BigInt::from_biguint(sign, magnitude))
+}
+
+/// Decode the canonical Structural Binary unsigned big-integer payload.
+pub(super) fn decode_binary_nat_big_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
+    decode_binary_big_integer_magnitude(raw_bytes)
+}
+
+// Validate one complete Structural Binary scalar and return its parsed root.
+fn parse_required_binary_payload(
+    raw_bytes: &[u8],
+    expected_tag: u8,
+    expected_len: Option<u32>,
+) -> Result<CompleteBinaryValue<'_>, FieldDecodeError> {
+    let root = CompleteBinaryValue::parse(raw_bytes)?;
+    if root.tag() != expected_tag || expected_len.is_some_and(|len| root.len() != len) {
+        return Err(FieldDecodeError::new());
+    }
+
+    Ok(root)
+}
+
+// Split one fixed two-item Structural Binary tuple without allocating.
+fn split_binary_tuple_2(raw_bytes: &[u8]) -> Result<[&[u8]; 2], FieldDecodeError> {
+    let Some((tag, len, mut cursor)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new());
+    };
+    if tag != TAG_LIST || len != 2 {
+        return Err(FieldDecodeError::new());
+    }
+
+    let first_start = cursor;
+    cursor = skip_binary_value(raw_bytes, cursor)?;
+    let first = &raw_bytes[first_start..cursor];
+
+    let second_start = cursor;
+    cursor = skip_binary_value(raw_bytes, cursor)?;
+    let second = &raw_bytes[second_start..cursor];
+
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new());
+    }
+
+    Ok([first, second])
+}
+
+// Decode one signed big-integer sign payload serialized as -1, 0, or 1.
+fn decode_binary_big_integer_sign(raw_bytes: &[u8]) -> Result<BigIntSign, FieldDecodeError> {
+    match decode_binary_required_i64(raw_bytes)? {
+        -1 => Ok(BigIntSign::Minus),
+        0 => Ok(BigIntSign::NoSign),
+        1 => Ok(BigIntSign::Plus),
+        _ => Err(FieldDecodeError::new()),
+    }
+}
+
+// Decode one canonical sequence of base-2^32 big-integer magnitude limbs.
+fn decode_binary_big_integer_magnitude(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new());
+    };
+    if tag != TAG_LIST {
+        return Err(FieldDecodeError::new());
+    }
+
+    let mut cursor = payload_start;
+    let mut digits = Vec::new();
+    for _ in 0..len {
+        digits.try_reserve(1).map_err(|_| FieldDecodeError::new())?;
+        let digit_start = cursor;
+        cursor = skip_binary_value(raw_bytes, cursor)?;
+        let digit = u32::try_from(decode_binary_required_u64(&raw_bytes[digit_start..cursor])?)
+            .map_err(|_| FieldDecodeError::new())?;
+        digits.push(digit);
+    }
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new());
+    }
+
+    Ok(BigUint::new(digits))
 }
 
 // Parse one Structural Binary v1 head from the provided byte offset.

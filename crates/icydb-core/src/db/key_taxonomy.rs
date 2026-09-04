@@ -22,7 +22,7 @@ use crate::{
     },
     value::Value,
 };
-use std::{cmp::Ordering, fmt};
+use std::{cmp::Ordering, fmt, ops::Bound};
 
 pub use contracts::{
     EntityKey, EntityKeyBytes, EntityKeyBytesError, KeyValueCodec, PrimaryKeyDecode,
@@ -1032,6 +1032,15 @@ impl RawIndexStoreKey {
     #[must_use]
     pub(in crate::db) fn as_bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    /// Return the retained backing bytes owned by one raw index-store bound.
+    #[must_use]
+    pub(in crate::db) fn bound_backing_bytes(bound: &Bound<Self>) -> usize {
+        match bound {
+            Bound::Included(key) | Bound::Excluded(key) => key.as_bytes().len(),
+            Bound::Unbounded => 0,
+        }
     }
 
     #[must_use]

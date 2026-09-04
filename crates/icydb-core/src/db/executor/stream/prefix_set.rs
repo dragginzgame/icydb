@@ -6,7 +6,7 @@
 pub(in crate::db::executor) enum PrefixSetExecutionShape<T> {
     Empty,
     Single(T),
-    Fallback(Vec<T>),
+    Fallback,
     OrderedConcat(Vec<T>),
     OrderedMerge(Vec<T>),
 }
@@ -36,7 +36,7 @@ impl<T> PrefixSetExecutionShape<T> {
             _ if matches!(merge_safety, PrefixSetMergeSafety::OrderedMergeSafe) => {
                 Self::OrderedMerge(prefixes)
             }
-            _ => Self::Fallback(prefixes),
+            _ => Self::Fallback,
         }
     }
 }
@@ -103,11 +103,6 @@ mod tests {
             PrefixSetMergeSafety::RequiresFallback,
         );
 
-        match shape {
-            PrefixSetExecutionShape::Fallback(prefixes) => {
-                assert_eq!(prefixes, vec![1, 2, 3]);
-            }
-            _ => panic!("unsafe sibling prefixes should use the maintained fallback"),
-        }
+        assert!(matches!(shape, PrefixSetExecutionShape::Fallback));
     }
 }

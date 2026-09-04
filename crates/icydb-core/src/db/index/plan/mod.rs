@@ -149,8 +149,6 @@ fn load_structural_accepted_expression_index_key(
 // Prove that the pre-existing old index entry still contains the expected row
 // membership before commit planning becomes purely mechanical.
 fn validate_existing_old_index_membership(
-    _entity_path: &str,
-    _index_is_unique: bool,
     old_primary_key: Option<&PrimaryKeyValue>,
     old_key: Option<&IndexKey>,
     old_entry: Option<&IndexRowIdentity>,
@@ -178,7 +176,6 @@ fn validate_existing_old_index_membership(
 /// entity authority only.
 #[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
-    entity_path: &str,
     entity_tag: EntityTag,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     mutation: Option<MutationDiagnosticContext>,
@@ -191,7 +188,6 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
     new_slots: Option<&mut dyn CanonicalSlotReader>,
 ) -> Result<IndexMutationPlan, IndexPlanError> {
     plan_index_mutation_for_slot_reader_structural_impl(
-        entity_path,
         entity_tag,
         accepted_schema_fingerprint,
         mutation,
@@ -209,7 +205,6 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
 // been lowered onto one index-store callback.
 #[expect(clippy::too_many_arguments)]
 fn plan_index_mutation_for_slot_reader_structural_impl(
-    entity_path: &str,
     entity_tag: EntityTag,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     mutation: Option<MutationDiagnosticContext>,
@@ -231,7 +226,6 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             accepted_index_mutation_predicate_program(accepted_index.predicate_sql(), row_contract);
         plan_accepted_field_path_index_mutation_for_slot_reader_structural(
             &mut groups,
-            entity_path,
             entity_tag,
             accepted_schema_fingerprint,
             mutation,
@@ -255,7 +249,6 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             accepted_index_mutation_predicate_program(accepted_index.predicate_sql(), row_contract);
         plan_accepted_expression_index_mutation_for_slot_reader_structural(
             &mut groups,
-            entity_path,
             entity_tag,
             accepted_schema_fingerprint,
             mutation,
@@ -280,7 +273,6 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
 #[expect(clippy::too_many_arguments)]
 fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
     groups: &mut Vec<IndexDeltaGroup>,
-    entity_path: &str,
     entity_tag: EntityTag,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     mutation: Option<MutationDiagnosticContext>,
@@ -349,21 +341,13 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
         return Ok(());
     }
 
-    let old_entry =
-        load_existing_entry_structural(read_view, read_contract, old_key.as_ref(), entity_path)?;
+    let old_entry = load_existing_entry_structural(read_view, read_contract, old_key.as_ref())?;
 
-    validate_existing_old_index_membership(
-        entity_path,
-        index_is_unique,
-        old_primary_key,
-        old_key.as_ref(),
-        old_entry.as_ref(),
-    )?;
+    validate_existing_old_index_membership(old_primary_key, old_key.as_ref(), old_entry.as_ref())?;
 
     unique::validate_unique_constraint_accepted_field_path_structural(
         accepted_schema_fingerprint,
         mutation,
-        entity_path,
         entity_tag,
         read_view,
         row_contract,
@@ -388,7 +372,6 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
 #[expect(clippy::too_many_arguments)]
 fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
     groups: &mut Vec<IndexDeltaGroup>,
-    entity_path: &str,
     entity_tag: EntityTag,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     mutation: Option<MutationDiagnosticContext>,
@@ -459,21 +442,13 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
         return Ok(());
     }
 
-    let old_entry =
-        load_existing_entry_structural(read_view, read_contract, old_key.as_ref(), entity_path)?;
+    let old_entry = load_existing_entry_structural(read_view, read_contract, old_key.as_ref())?;
 
-    validate_existing_old_index_membership(
-        entity_path,
-        index_is_unique,
-        old_primary_key,
-        old_key.as_ref(),
-        old_entry.as_ref(),
-    )?;
+    validate_existing_old_index_membership(old_primary_key, old_key.as_ref(), old_entry.as_ref())?;
 
     unique::validate_unique_constraint_accepted_expression_structural(
         accepted_schema_fingerprint,
         mutation,
-        entity_path,
         entity_tag,
         read_view,
         row_contract,
@@ -561,7 +536,6 @@ pub(super) fn load_existing_entry_structural(
     read_view: &dyn IndexPlanReadView,
     index: IndexReadContract<'_>,
     key: Option<&IndexKey>,
-    _entity_path: &str,
 ) -> Result<Option<IndexRowIdentity>, InternalError> {
     // No indexed key means no index entry to load.
     let Some(key) = key else {

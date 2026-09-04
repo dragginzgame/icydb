@@ -196,10 +196,7 @@ fn merged_ranges_admit_complete_structural_state_before_reading() {
     let retained_bound_bytes = bounds
         .iter()
         .flat_map(|(lower, upper)| [lower, upper])
-        .map(|bound| match bound {
-            Bound::Included(key) | Bound::Excluded(key) => key.as_bytes().len(),
-            Bound::Unbounded => 0,
-        })
+        .map(RawIndexStoreKey::bound_backing_bytes)
         .sum::<usize>();
     let admitted = Cell::new(0usize);
     let decode_calls = Cell::new(0usize);

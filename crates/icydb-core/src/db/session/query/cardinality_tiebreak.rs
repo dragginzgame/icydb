@@ -8,7 +8,7 @@ use crate::{
         DbSession, QueryError,
         access::{SemanticIndexAccessContract, lower_access_with_schema_info},
         executor::EntityAuthority,
-        index::{IndexId, UserIndexPrefixCardinalityKey},
+        index::{IndexId, RawIndexStoreKey, UserIndexPrefixCardinalityKey},
         query::plan::{
             AccessPlannedQuery, CardinalityTiebreakCandidate, CardinalityTiebreakCandidateEvidence,
             CardinalityTiebreakRoutePin, CardinalityTiebreakState,
@@ -21,7 +21,6 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::ops::Bound;
 
 const MAX_CARDINALITY_TIEBREAK_CANDIDATES: usize = 64;
 const MAX_CARDINALITY_TIEBREAK_PREFIX_PROBES: usize = 256;
@@ -211,8 +210,8 @@ fn prepare_cardinality_candidates(
                 .try_fold(candidate_component_bytes, |total, spec| {
                     let (lower, upper) = spec.raw_bounds().ok()?;
                     total
-                        .checked_add(bound_key_bytes(lower))?
-                        .checked_add(bound_key_bytes(upper))
+                        .checked_add(RawIndexStoreKey::bound_backing_bytes(lower))?
+                        .checked_add(RawIndexStoreKey::bound_backing_bytes(upper))
                 })?;
         (total_probes, total_lowered_bytes) = admit_cardinality_candidate_shape(
             total_probes,
@@ -337,13 +336,6 @@ fn admit_cardinality_candidate_shape(
     }
 
     Some((admitted_probes, admitted_lowered_bytes))
-}
-
-fn bound_key_bytes(bound: &Bound<crate::db::access::LoweredKey>) -> usize {
-    match bound {
-        Bound::Included(key) | Bound::Excluded(key) => key.as_bytes().len(),
-        Bound::Unbounded => 0,
-    }
 }
 
 fn checked_exact_prefix_entries(counts: &[u64]) -> Option<u64> {

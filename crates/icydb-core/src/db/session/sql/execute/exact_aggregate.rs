@@ -36,8 +36,7 @@ use icydb_diagnostic_code::DiagnosticExecutionLane;
 use std::{ops::Bound, rc::Rc};
 
 pub(super) enum ExactTarget {
-    Disabled,
-    FallbackOnly(EntityAuthority),
+    Fallback,
     PreparedPlan(Rc<SqlGlobalAggregatePlanCacheEntry>),
     ExactPlan {
         authority: EntityAuthority,
@@ -48,7 +47,7 @@ pub(super) enum ExactTarget {
 pub(super) enum ExactOutcome {
     Direct(SqlStatementResult),
     Prepared(SharedPreparedExecutionPlan),
-    Fallback { authority: Option<EntityAuthority> },
+    Fallback,
 }
 
 fn exact_aggregate_statement_result(
@@ -75,29 +74,19 @@ impl ExactTarget {
     ) -> Self {
         match entry {
             Some(entry) => Self::ExactPlan { authority, entry },
-            None => Self::FallbackOnly(authority),
+            None => Self::Fallback,
         }
     }
 
     const fn exact_plan_entry(&self) -> Option<&Rc<SqlGlobalAggregatePlanCacheEntry>> {
         match self {
             Self::ExactPlan { entry, .. } => Some(entry),
-            Self::Disabled | Self::FallbackOnly(_) | Self::PreparedPlan(_) => None,
+            Self::Fallback | Self::PreparedPlan(_) => None,
         }
     }
 }
 
 impl ExactOutcome {
-    const fn disabled() -> Self {
-        Self::Fallback { authority: None }
-    }
-
-    const fn fallback(authority: EntityAuthority) -> Self {
-        Self::Fallback {
-            authority: Some(authority),
-        }
-    }
-
     fn from_direct_row(
         catalog: &AcceptedSchemaCatalogContext,
         projection: &ProjectionSpec,
@@ -313,8 +302,7 @@ impl<C: CanisterKind> DbSession<C> {
         target: ExactTarget,
     ) -> Result<ExactOutcome, QueryError> {
         match target {
-            ExactTarget::Disabled => Ok(ExactOutcome::disabled()),
-            ExactTarget::FallbackOnly(authority) => Ok(ExactOutcome::fallback(authority)),
+            ExactTarget::Fallback => Ok(ExactOutcome::Fallback),
             ExactTarget::PreparedPlan(entry) => {
                 let Some(prepared_plan) = entry.prepared_plan() else {
                     return Err(QueryError::invariant());
@@ -324,12 +312,12 @@ impl<C: CanisterKind> DbSession<C> {
             }
             ExactTarget::ExactPlan { authority, entry } => {
                 if let Some(row) =
-                    self.execute_exact_global_aggregate(command, authority.clone(), &entry)?
+                    self.execute_exact_global_aggregate(command, authority, &entry)?
                 {
                     return ExactOutcome::from_direct_row(catalog, command.projection(), row);
                 }
 
-                Ok(ExactOutcome::fallback(authority))
+                Ok(ExactOutcome::Fallback)
             }
         }
     }
@@ -440,7 +428,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<ExactTarget, QueryError> {
         if !exact_metadata_candidate(command) {
-            return Ok(ExactTarget::Disabled);
+            return Ok(ExactTarget::Fallback);
         }
 
         let authority = catalog.accepted_entity_authority();
@@ -457,7 +445,7 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(exact_target_from_cached_entry(catalog, entry));
         }
         if !exact_metadata_candidate(command) {
-            return Ok(ExactTarget::Disabled);
+            return Ok(ExactTarget::Fallback);
         }
 
         let target = self.build_exact_target(command, catalog)?;

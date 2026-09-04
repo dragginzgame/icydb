@@ -274,8 +274,10 @@ impl IndexStore {
         let retained_range_bound_bytes =
             bounds.iter().try_fold(0usize, |bytes, (lower, upper)| {
                 bytes
-                    .checked_add(raw_bound_backing_bytes(lower))
-                    .and_then(|bytes| bytes.checked_add(raw_bound_backing_bytes(upper)))
+                    .checked_add(RawIndexStoreKey::bound_backing_bytes(lower))
+                    .and_then(|bytes| {
+                        bytes.checked_add(RawIndexStoreKey::bound_backing_bytes(upper))
+                    })
                     .ok_or_else(InternalError::executor_invariant)
             })?;
         let contract = MergedRangeContract {
@@ -498,12 +500,5 @@ impl IndexStore {
         }
 
         Ok(())
-    }
-}
-
-fn raw_bound_backing_bytes(bound: &Bound<RawIndexStoreKey>) -> usize {
-    match bound {
-        Bound::Included(key) | Bound::Excluded(key) => key.as_bytes().len(),
-        Bound::Unbounded => 0,
     }
 }

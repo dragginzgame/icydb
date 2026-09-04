@@ -5,6 +5,8 @@
 
 mod strategy;
 
+use strategy::evaluate_fast_path;
+
 use crate::{
     db::{
         executor::{
@@ -18,8 +20,6 @@ use crate::{
     },
     error::InternalError,
 };
-
-use crate::db::executor::pipeline::runtime::fast_path::strategy::FastPathResolutionStrategy;
 
 ///
 /// ResolvedIndexPredicateProgram
@@ -46,78 +46,6 @@ impl<'a> ResolvedIndexPredicateProgram<'a> {
             Self::Borrowed(program) => program,
             Self::Owned(program) => program,
         })
-    }
-}
-
-///
-/// FastPathResolutionContext
-///
-///
-/// FastPathResolutionContext freezes the execution state shared by fast-path
-/// hit handling and canonical fallback stream resolution.
-/// It keeps route-owned fallback hints and index-predicate execution in one
-/// place so stream resolution no longer rethreads them through sibling helpers.
-///
-
-struct FastPathResolutionContext<'a, 'b> {
-    kernel: &'a ExecutionAttemptKernel<'a>,
-    route_plan: &'b ExecutionRoutePlan,
-    index_predicate_execution: Option<IndexPredicateExecution<'a>>,
-}
-
-impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
-    // Build one owner-local resolution context for a single fast-path or
-    // fallback key-stream decision.
-    const fn new(
-        kernel: &'a ExecutionAttemptKernel<'a>,
-        route_plan: &'b ExecutionRoutePlan,
-        index_predicate_execution: Option<IndexPredicateExecution<'a>>,
-    ) -> Self {
-        Self {
-            kernel,
-            route_plan,
-            index_predicate_execution,
-        }
-    }
-
-    // Resolve one canonical key stream from either a fast-path hit or the
-    // fallback stream owned by this execution context.
-    fn resolve_from_decision(
-        &self,
-        fast_path_decision: Option<crate::db::executor::pipeline::contracts::FastPathKeyResult>,
-    ) -> Result<ResolvedExecutionKeyStream, InternalError> {
-        match fast_path_decision {
-            Some(fast) => Ok(ResolvedExecutionKeyStream::new(
-                fast.ordered_key_stream,
-                fast.rows_scanned,
-            )),
-            None => self.resolve_fallback_execution_key_stream(),
-        }
-    }
-
-    // Resolve canonical fallback access stream when no fast path produced rows.
-    fn resolve_fallback_execution_key_stream(
-        &self,
-    ) -> Result<ResolvedExecutionKeyStream, InternalError> {
-        let fallback_fetch_hint = self
-            .route_plan
-            .fallback_physical_fetch_hint(self.kernel.inputs.stream_bindings().direction());
-        let execution_policy = AccessStreamExecutionPolicy::new(
-            fallback_fetch_hint,
-            self.route_plan.index_leaf_order_policy(),
-        );
-        let key_stream = self
-            .kernel
-            .inputs
-            .runtime()
-            .resolve_fallback_execution_key_stream(
-                self.kernel.inputs.executable_access().clone(),
-                *self.kernel.inputs.stream_bindings(),
-                execution_policy,
-                self.index_predicate_execution,
-            )?;
-
-        Ok(ResolvedExecutionKeyStream::new(key_stream, None))
     }
 }
 
@@ -184,6 +112,31 @@ impl ExecutionAttemptKernel<'_> {
         )
     }
 
+    // Resolve the canonical access stream when no fast path produced rows.
+    fn resolve_fallback_execution_key_stream(
+        &self,
+        route_plan: &ExecutionRoutePlan,
+        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
+    ) -> Result<ResolvedExecutionKeyStream, InternalError> {
+        let fallback_fetch_hint =
+            route_plan.fallback_physical_fetch_hint(self.inputs.stream_bindings().direction());
+        let execution_policy = AccessStreamExecutionPolicy::new(
+            fallback_fetch_hint,
+            route_plan.index_leaf_order_policy(),
+        );
+        let key_stream = self
+            .inputs
+            .runtime()
+            .resolve_fallback_execution_key_stream(
+                self.inputs.executable_access().clone(),
+                *self.inputs.stream_bindings(),
+                execution_policy,
+                index_predicate_execution,
+            )?;
+
+        Ok(ResolvedExecutionKeyStream::new(key_stream, None))
+    }
+
     /// Resolve one canonical execution key stream in fast-path precedence order.
     ///
     /// This is the single shared load key-stream resolver boundary.
@@ -198,18 +151,23 @@ impl ExecutionAttemptKernel<'_> {
         let index_predicate_program = self.resolve_index_predicate_program(predicate_compile_mode);
         let index_predicate_execution = index_predicate_program.execution();
 
-        // Phase 1: select fast-path resolution strategy once from route shape.
-        let fast_path_strategy = FastPathResolutionStrategy::for_route(route_plan);
-        let fast_path_decision = fast_path_strategy.resolve_fast_path_decision(
-            self.inputs,
-            route_plan,
-            index_predicate_execution,
-        )?;
+        // Phase 1: streaming routes try canonical fast-path precedence before
+        // falling back; materialized routes proceed directly to fallback.
+        let fast_path_decision = if route_plan.is_streaming() {
+            evaluate_fast_path(self.inputs, route_plan, index_predicate_execution)?
+        } else {
+            None
+        };
 
-        // Phase 2: materialize from fast-path hit or canonical fallback stream.
-        let resolution =
-            FastPathResolutionContext::new(self, route_plan, index_predicate_execution);
-
-        resolution.resolve_from_decision(fast_path_decision)
+        // Phase 2: materialize from a fast-path hit or canonical fallback stream.
+        match fast_path_decision {
+            Some(fast) => Ok(ResolvedExecutionKeyStream::new(
+                fast.ordered_key_stream,
+                fast.rows_scanned,
+            )),
+            None => {
+                self.resolve_fallback_execution_key_stream(route_plan, index_predicate_execution)
+            }
+        }
     }
 }

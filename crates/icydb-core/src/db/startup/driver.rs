@@ -327,7 +327,7 @@ mod tests {
         );
 
         let error = generated_schema_finding_error(&finding)
-            .expect("a generated check finding should map to E223");
+            .expect("a generated check finding should map to E210");
         assert_eq!(
             error.diagnostic().error_code(),
             ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,

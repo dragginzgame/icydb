@@ -9,14 +9,14 @@ typed `query_field` context; the E-code and numeric facts remain authoritative.
 The CLI can always explain a code:
 
 ```console
-icydb diagnostic E223
+icydb diagnostic E210
 ```
 
 Pass the facts printed by the caller as repeated `--fact TAG=VALUE` arguments.
 Tags may use their numeric identity or maintained CLI label:
 
 ```console
-icydb diagnostic E223 \
+icydb diagnostic E210 \
   --fact accepted_schema_fingerprint_method=1 \
   --fact accepted_schema_fingerprint_high=123 \
   --fact accepted_schema_fingerprint_low=456 \
@@ -37,7 +37,7 @@ When the deployed canister explicitly exports `icydb_schema`, add its canister
 name. The CLI uses the selected environment and the deployed endpoint only:
 
 ```console
-icydb diagnostic E223 --canister app --environment production \
+icydb diagnostic E210 --canister app --environment production \
   --fact accepted_schema_fingerprint_method=1 \
   --fact accepted_schema_fingerprint_high=123 \
   --fact accepted_schema_fingerprint_low=456 \
@@ -46,8 +46,8 @@ icydb diagnostic E223 --canister app --environment production \
 ```
 
 Method-not-found, authorization, and replica failures are authoritative. They
-do not cause the CLI to infer names from local source. In particular, E26 means
-the deployed schema method retained controller authority, while E282 means its
+do not cause the CLI to infer names from local source. In particular, E25 means
+the deployed schema method retained controller authority, while E261 means its
 application guard denied this request. Method-not-found means the standard
 schema method is absent. A later request may succeed after application policy
 changes; the CLI emits no endpoint manifest and does not guess the configured
@@ -67,7 +67,7 @@ The output path must be new. Use the artifact later without deploying a schema
 endpoint:
 
 ```console
-icydb diagnostic E223 --artifact app.diagnostic.json \
+icydb diagnostic E210 --artifact app.diagnostic.json \
   --fact accepted_schema_fingerprint_method=1 \
   --fact accepted_schema_fingerprint_high=123 \
   --fact accepted_schema_fingerprint_low=456 \
@@ -102,7 +102,7 @@ Use the bound metadata when neither an exact deployment artifact nor live
 schema introspection is available:
 
 ```console
-icydb diagnostic E223 --source-metadata app.source-diagnostic.json \
+icydb diagnostic E210 --source-metadata app.source-diagnostic.json \
   --fact accepted_schema_fingerprint_method=1 \
   --fact accepted_schema_fingerprint_high=123 \
   --fact accepted_schema_fingerprint_low=456 \

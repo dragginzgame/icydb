@@ -331,7 +331,7 @@ fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
     assert_eq!(constraint_validation, Some(expected));
     assert!(
         rendered.contains(
-            "constraint_finding fingerprint=11111111111111111111111111111111 entity_tag=29 constraint_id=41 primary_key=010203 field_ids=7 class=invariant_violation code=E223"
+            "constraint_finding fingerprint=11111111111111111111111111111111 entity_tag=29 constraint_id=41 primary_key=010203 field_ids=7 class=invariant_violation code=E210"
         ),
         "CLI SQL rendering should retain the compact historical finding",
     );

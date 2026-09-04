@@ -5,7 +5,10 @@
 
 mod plan;
 
-use crate::db::{direction::Direction, query::plan::GroupedPlanStrategy};
+use crate::{
+    db::{direction::Direction, query::plan::GroupedPlanStrategy},
+    error::InternalError,
+};
 
 pub(in crate::db::executor) use plan::ExecutionRoutePlan;
 #[cfg(feature = "sql")]
@@ -279,7 +282,7 @@ pub(in crate::db::executor) struct IndexPrefixChildExpansionBudget {
 
 impl IndexPrefixChildExpansionBudget {
     const DEFAULT_PREFIXES: usize = 32;
-    pub(in crate::db::executor) const MAX_PREFIXES: usize = 128;
+    const MAX_PREFIXES: usize = 128;
 
     #[must_use]
     pub(in crate::db::executor) const fn from_fetch_limit(fetch_limit: Option<usize>) -> Self {
@@ -307,6 +310,14 @@ impl IndexPrefixChildExpansionBudget {
     #[must_use]
     const fn max_child_prefixes(self) -> usize {
         self.max_child_prefixes
+    }
+
+    pub(in crate::db::executor) fn validate_child_count(count: usize) -> Result<(), InternalError> {
+        if count > Self::MAX_PREFIXES {
+            return Err(InternalError::query_executor_invariant());
+        }
+
+        Ok(())
     }
 }
 
@@ -406,5 +417,26 @@ impl TopNSeekSpec {
     #[must_use]
     pub(in crate::db::executor) const fn fetch(self) -> usize {
         self.fetch
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IndexPrefixChildExpansionBudget;
+
+    #[test]
+    fn prefix_child_count_accepts_maximum_and_rejects_next() {
+        assert!(
+            IndexPrefixChildExpansionBudget::validate_child_count(
+                IndexPrefixChildExpansionBudget::MAX_PREFIXES,
+            )
+            .is_ok()
+        );
+        assert!(
+            IndexPrefixChildExpansionBudget::validate_child_count(
+                IndexPrefixChildExpansionBudget::MAX_PREFIXES + 1,
+            )
+            .is_err()
+        );
     }
 }

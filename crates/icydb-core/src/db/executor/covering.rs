@@ -269,7 +269,7 @@ where
             )
             .map(Some)
         }
-        PrefixSetExecutionShape::Fallback(_active_specs) => Ok(None),
+        PrefixSetExecutionShape::Fallback => Ok(None),
         PrefixSetExecutionShape::OrderedConcat(active_specs) => {
             resolve_branch_ordered_covering_projection_components_for_prefix_set(
                 entity_tag,
@@ -332,7 +332,7 @@ where
 fn direct_covering_prefix_merge_bounds(
     active_specs: &[ActiveCoveringPrefixSpec<'_>],
 ) -> Result<Vec<RawIndexBounds>, InternalError> {
-    validate_direct_covering_prefix_child_count(active_specs.len())?;
+    IndexPrefixChildExpansionBudget::validate_child_count(active_specs.len())?;
 
     let slot_bytes = active_specs
         .len()
@@ -341,8 +341,8 @@ fn direct_covering_prefix_merge_bounds(
     let retained_bytes = active_specs.iter().try_fold(slot_bytes, |bytes, active| {
         let (lower, upper) = active.prefix.raw_bounds()?;
         bytes
-            .checked_add(bound_raw_index_key_bytes(lower))
-            .and_then(|bytes| bytes.checked_add(bound_raw_index_key_bytes(upper)))
+            .checked_add(RawIndexStoreKey::bound_backing_bytes(lower))
+            .and_then(|bytes| bytes.checked_add(RawIndexStoreKey::bound_backing_bytes(upper)))
             .ok_or_else(InternalError::executor_invariant)
     })?;
     charge_current_execution_budget(
@@ -364,20 +364,6 @@ fn direct_covering_prefix_merge_bounds(
     }
 
     Ok(bounds)
-}
-
-fn validate_direct_covering_prefix_child_count(count: usize) -> Result<(), InternalError> {
-    if count > IndexPrefixChildExpansionBudget::MAX_PREFIXES {
-        return Err(InternalError::query_executor_invariant());
-    }
-    Ok(())
-}
-
-fn bound_raw_index_key_bytes(bound: &Bound<RawIndexStoreKey>) -> usize {
-    match bound {
-        Bound::Included(key) | Bound::Excluded(key) => key.as_bytes().len(),
-        Bound::Unbounded => 0,
-    }
 }
 
 fn resolve_branch_ordered_covering_projection_components_for_prefix_set(
@@ -1310,21 +1296,5 @@ mod tests {
             .expect("text payload should remain supported");
 
         assert_eq!(decoded, Value::Text(String::from("text")));
-    }
-
-    #[test]
-    fn direct_prefix_merge_rejects_max_plus_one_children() {
-        assert!(
-            validate_direct_covering_prefix_child_count(
-                IndexPrefixChildExpansionBudget::MAX_PREFIXES,
-            )
-            .is_ok()
-        );
-        assert!(
-            validate_direct_covering_prefix_child_count(
-                IndexPrefixChildExpansionBudget::MAX_PREFIXES + 1,
-            )
-            .is_err()
-        );
     }
 }

@@ -6,7 +6,7 @@
 use crate::{
     db::{
         DbSession, QueryError,
-        executor::{EntityAuthority, SharedPreparedExecutionPlan},
+        executor::SharedPreparedExecutionPlan,
         session::{
             AcceptedSchemaCatalogContext,
             query::query_plan_requires_cardinality_lifecycle_recheck,
@@ -39,39 +39,18 @@ fn cache_compiled_global_aggregate_prepared_plan(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    fn global_aggregate_prepared_plan_authority(
-        catalog: &AcceptedSchemaCatalogContext,
-        authority: Option<EntityAuthority>,
-    ) -> EntityAuthority {
-        catalog.accepted_or_provided_entity_authority(authority.as_ref())
-    }
-
-    fn resolve_global_aggregate_prepared_plan_for_authority(
-        &self,
-        command: &SqlGlobalAggregateCommand,
-        catalog: &AcceptedSchemaCatalogContext,
-        authority: EntityAuthority,
-    ) -> PreparedAggregatePlanResolution {
-        let prepared_plan = self.cached_shared_query_plan_for_accepted_authority_with_catalog(
-            authority,
-            catalog,
-            command.query(),
-            DiagnosticExecutionLane::TrustedRead,
-        )?;
-
-        Ok(prepared_plan)
-    }
-
     pub(super) fn resolve_compiled_global_aggregate_prepared_plan(
         &self,
         compiled: &CompiledSqlCommand,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
-        authority: Option<EntityAuthority>,
     ) -> PreparedAggregatePlanResolution {
-        let authority = Self::global_aggregate_prepared_plan_authority(catalog, authority);
-        let prepared_plan =
-            self.resolve_global_aggregate_prepared_plan_for_authority(command, catalog, authority)?;
+        let prepared_plan = self.cached_shared_query_plan_for_accepted_authority_with_catalog(
+            catalog.accepted_entity_authority(),
+            catalog,
+            command.query(),
+            DiagnosticExecutionLane::TrustedRead,
+        )?;
         cache_compiled_global_aggregate_prepared_plan(compiled, catalog, &prepared_plan);
 
         Ok(prepared_plan)

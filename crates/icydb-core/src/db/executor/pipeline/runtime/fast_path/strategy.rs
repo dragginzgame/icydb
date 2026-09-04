@@ -19,42 +19,6 @@ use crate::{
 };
 
 ///
-/// FastPathResolutionStrategy
-///
-/// Strategy selected once from route shape so key-stream resolution does not
-/// branch inline on fast-path eligibility policy.
-///
-
-pub(super) enum FastPathResolutionStrategy {
-    StreamingFastPathFirst,
-    FallbackOnly,
-}
-
-impl FastPathResolutionStrategy {
-    pub(super) const fn for_route(route_plan: &ExecutionRoutePlan) -> Self {
-        if route_plan.is_streaming() {
-            Self::StreamingFastPathFirst
-        } else {
-            Self::FallbackOnly
-        }
-    }
-
-    pub(super) fn resolve_fast_path_decision(
-        self,
-        inputs: &ExecutionInputs<'_>,
-        route_plan: &ExecutionRoutePlan,
-        index_predicate_execution: Option<IndexPredicateExecution<'_>>,
-    ) -> Result<Option<FastPathKeyResult>, InternalError> {
-        match self {
-            Self::StreamingFastPathFirst => {
-                evaluate_fast_path(inputs, route_plan, index_predicate_execution)
-            }
-            Self::FallbackOnly => Ok(None),
-        }
-    }
-}
-
-///
 /// FastPathRouteHandler
 ///
 /// Strategy selected once from verified fast-path route so route-specific stream

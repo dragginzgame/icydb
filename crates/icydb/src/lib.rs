@@ -136,11 +136,10 @@ pub mod diagnostic {
         DiagnosticFactTag, DiagnosticFunctionKind, DiagnosticMutationOperation,
         DiagnosticOperatorKind, DiagnosticTypeFamily, ErrorClass, ErrorCode, ErrorOrigin,
         MAX_PUBLIC_DIAGNOSTIC_FACTS, MAX_PUBLIC_QUERY_FIELD_BYTES, QueryErrorKind, QueryFieldRole,
-        QueryFieldSchemaMismatch, QueryProjectionCode, QueryReadAdmissionCode,
-        QueryResultShapeCode, RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode,
-        SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode,
-        SqlWriteBoundaryCode, pack_u32_pair, unpack_u32_pair,
-        validate_known_diagnostic_fact_schema, validate_query_field_schema,
+        QueryFieldSchemaMismatch, QueryProjectionCode, QueryReadAdmissionCode, RuntimeBoundaryCode,
+        RuntimeErrorKind, SchemaDdlAdmissionCode, SchemaMigrationCode, SqlFeatureCode,
+        SqlLoweringCode, SqlSurfaceMismatchCode, SqlWriteBoundaryCode, pack_u32_pair,
+        unpack_u32_pair, validate_known_diagnostic_fact_schema, validate_query_field_schema,
         validate_raw_diagnostic_fact_schema,
     };
 }

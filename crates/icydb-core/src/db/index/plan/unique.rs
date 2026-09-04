@@ -98,7 +98,6 @@ impl UniqueKeyAuthority<'_> {
 pub(super) fn validate_unique_constraint_accepted_field_path_structural(
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     mutation: Option<MutationDiagnosticContext>,
-    entity_path: &str,
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
@@ -108,7 +107,6 @@ pub(super) fn validate_unique_constraint_accepted_field_path_structural(
     new_index_key: Option<&IndexKey>,
 ) -> Result<(), IndexPlanError> {
     validate_unique_constraint_structural_impl(
-        entity_path,
         accepted_schema_fingerprint,
         mutation,
         entity_tag,
@@ -126,7 +124,6 @@ pub(super) fn validate_unique_constraint_accepted_field_path_structural(
 pub(super) fn validate_unique_constraint_accepted_expression_structural(
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     mutation: Option<MutationDiagnosticContext>,
-    entity_path: &str,
     entity_tag: EntityTag,
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
@@ -136,7 +133,6 @@ pub(super) fn validate_unique_constraint_accepted_expression_structural(
     new_index_key: Option<&IndexKey>,
 ) -> Result<(), IndexPlanError> {
     validate_unique_constraint_structural_impl(
-        entity_path,
         accepted_schema_fingerprint,
         mutation,
         entity_tag,
@@ -151,7 +147,6 @@ pub(super) fn validate_unique_constraint_accepted_expression_structural(
 
 #[expect(clippy::too_many_arguments)]
 fn validate_unique_constraint_structural_impl(
-    entity_path: &str,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     mutation: Option<MutationDiagnosticContext>,
     entity_tag: EntityTag,
@@ -190,8 +185,6 @@ fn validate_unique_constraint_structural_impl(
     // Capping this probe avoids scanning large corrupted buckets.
     let unique_probe_limit = 2usize;
     let matching_primary_keys = read_view.read_index_keys_in_raw_range(
-        entity_path,
-        entity_tag,
         read_contract,
         (&lower, &upper),
         unique_probe_limit,
