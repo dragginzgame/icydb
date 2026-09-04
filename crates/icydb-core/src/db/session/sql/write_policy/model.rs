@@ -1,11 +1,10 @@
 //! Module: db::session::sql::write_policy::model
-//! Responsibility: shared SQL write policy DTOs, proofs, and admission lanes.
+//! Responsibility: shared SQL write policy DTOs, proofs, and exposure bounds.
 //! Does not own: SQL parser expression inspection or statement-family policy.
 //! Boundary: carries proven write shape and execution bounds into UPDATE/DELETE gates.
 
 use super::bounds::{
-    bounded_write_policy_rejection, combined_optional_row_bound,
-    sql_write_execution_bounds_for_staged_kind,
+    bounded_write_policy_rejection, combined_optional_row_bound, sql_write_execution_bounds,
 };
 
 pub(in crate::db::session::sql) const DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT: u32 = 100;
@@ -52,15 +51,6 @@ pub(in crate::db) enum SqlWriteOrderProof {
     Other,
 }
 
-impl SqlWriteOrderProof {
-    /// Return whether the statement has explicit canonical ascending primary-key order.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn is_canonical_primary_key(self) -> bool {
-        matches!(self, Self::CanonicalPrimaryKey)
-    }
-}
-
 /// Shared narrow `RETURNING` classification for SQL write policy gates.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[doc(hidden)]
@@ -97,10 +87,10 @@ pub(in crate::db::session::sql) enum SqlWriteExposureClass {
 }
 
 impl SqlWriteExposureClass {
-    const fn admission_lane(self) -> SqlWriteAdmissionLane {
+    const fn max_staged_rows(self, limit: Option<u32>) -> Option<u32> {
         match self {
-            Self::PublicPrimaryKeyOnly => SqlWriteAdmissionLane::PrimaryKeyOnly,
-            Self::PublicBoundedDeterministic => SqlWriteAdmissionLane::BoundedDeterministic,
+            Self::PublicPrimaryKeyOnly => Some(1),
+            Self::PublicBoundedDeterministic => limit,
         }
     }
 }
@@ -155,20 +145,6 @@ pub(in crate::db) struct SqlWriteStatementShape {
 }
 
 impl SqlWriteStatementShape {
-    /// Return whether the statement has an explicit positive `LIMIT`.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn is_bounded(&self) -> bool {
-        matches!(self.limit, Some(limit) if limit > 0)
-    }
-
-    /// Return whether the statement has explicit canonical ascending primary-key order.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn has_explicit_canonical_primary_key_order(&self) -> bool {
-        self.order_proof.is_canonical_primary_key()
-    }
-
     const fn bounded_policy_rejection(
         &self,
         max_limit: u32,
@@ -219,26 +195,17 @@ impl SqlWriteStatementShape {
         }
     }
 
-    pub(in crate::db::session::sql) const fn execution_bounds_for_admission_lane(
-        &self,
-        admission_lane: SqlWriteAdmissionLane,
-        bounds: SqlWritePolicyBounds,
-    ) -> SqlWriteExecutionBounds {
-        sql_write_execution_bounds_for_staged_kind(
-            admission_lane.staged_row_bound_kind(),
-            self.limit,
-            self.returning_shape.is_requested(),
-            bounds.returning_rows,
-            bounds.returning_response_bytes,
-        )
-    }
-
     pub(in crate::db::session::sql) const fn execution_bounds_for_exposure_class(
         &self,
         exposure_class: SqlWriteExposureClass,
         bounds: SqlWritePolicyBounds,
     ) -> SqlWriteExecutionBounds {
-        self.execution_bounds_for_admission_lane(exposure_class.admission_lane(), bounds)
+        sql_write_execution_bounds(
+            exposure_class.max_staged_rows(self.limit),
+            self.returning_shape.is_requested(),
+            bounds.returning_rows,
+            bounds.returning_response_bytes,
+        )
     }
 }
 
@@ -298,23 +265,23 @@ impl<S: Clone> SqlWritePlanCore<S> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::session::sql) enum SqlWriteAdmissionLane {
-    PrimaryKeyOnly,
-    BoundedDeterministic,
-}
+#[cfg(test)]
+mod tests {
+    use super::SqlWriteExposureClass;
 
-impl SqlWriteAdmissionLane {
-    pub(super) const fn staged_row_bound_kind(self) -> SqlWriteStagedRowBoundKind {
-        match self {
-            Self::PrimaryKeyOnly => SqlWriteStagedRowBoundKind::One,
-            Self::BoundedDeterministic => SqlWriteStagedRowBoundKind::Limit,
-        }
+    #[test]
+    fn exposure_class_owns_its_staged_row_bound() {
+        assert_eq!(
+            SqlWriteExposureClass::PublicPrimaryKeyOnly.max_staged_rows(Some(10)),
+            Some(1),
+        );
+        assert_eq!(
+            SqlWriteExposureClass::PublicBoundedDeterministic.max_staged_rows(Some(10)),
+            Some(10),
+        );
+        assert_eq!(
+            SqlWriteExposureClass::PublicBoundedDeterministic.max_staged_rows(None),
+            None,
+        );
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SqlWriteStagedRowBoundKind {
-    One,
-    Limit,
 }

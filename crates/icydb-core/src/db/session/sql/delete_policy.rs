@@ -17,7 +17,7 @@ pub(in crate::db) use model::{
     SqlPublicPrimaryKeyDeletePlan, SqlValidatedDeletePlan,
 };
 #[cfg(test)]
-pub(in crate::db) use model::{SqlDeletePolicyRejection, SqlDeletePolicyReport};
+pub(in crate::db) use model::{SqlDeletePolicyRejection, SqlDeletePolicyResult};
 #[cfg(test)]
 pub(in crate::db) use planning::classify_sql_delete_policy;
 pub(in crate::db) use planning::classify_sql_delete_statement_policy;

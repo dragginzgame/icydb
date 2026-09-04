@@ -52,7 +52,7 @@ pub(in crate::db) use update_policy::{
     SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
     SqlPublicPrimaryKeyUpdatePlan, SqlResumableUpdatePolicyReport, SqlTrustedExactUpdatePlan,
     SqlTrustedResumableUpdatePlan, SqlUpdateExposurePolicy, SqlUpdatePolicyRejection,
-    SqlUpdatePolicyReport, SqlValidatedUpdatePlan, classify_sql_resumable_update_policy,
+    SqlUpdatePolicyResult, SqlValidatedUpdatePlan, classify_sql_resumable_update_policy,
     classify_sql_update_policy_for_entity, with_accepted_sql_update_policy_context,
 };
 #[cfg(test)]

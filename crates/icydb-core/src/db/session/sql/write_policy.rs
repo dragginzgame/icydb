@@ -9,13 +9,11 @@ mod model;
 mod shape;
 
 pub(in crate::db::session::sql) use bounds::sql_write_execution_bounds_for_exact_update;
+#[cfg(test)]
+pub(in crate::db) use model::SqlWriteBoundedPolicyRejection;
 pub(in crate::db::session::sql) use model::{
     DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
     SqlWriteExposureClass, SqlWritePlanCore, SqlWritePolicyBounds,
-};
-#[cfg(test)]
-pub(in crate::db) use model::{
-    SqlWriteBoundedPolicyRejection, SqlWriteReturningShape, SqlWriteWhereProof,
 };
 pub(in crate::db) use model::{
     SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWriteReturningBounds,

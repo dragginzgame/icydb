@@ -1,4 +1,4 @@
-//! SQL `DELETE` policy model, proofs, bounds, and public DTOs.
+//! SQL `DELETE` policy model, proofs, bounds, and typed outcomes.
 //! Does not own: SQL parsing or policy classification execution.
 
 #[cfg(test)]
@@ -7,7 +7,7 @@ use crate::db::{
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
         SqlWriteExecutionBounds, SqlWriteExposureClass, SqlWritePlanCore, SqlWritePolicyBounds,
-        SqlWriteShapePolicyRejection, SqlWriteStatementShape,
+        SqlWriteShapePolicyRejection,
     },
     sql::parser::SqlDeleteStatement,
 };
@@ -86,16 +86,6 @@ impl<'a> SqlDeletePolicyContext<'a> {
             max_returning_response_bytes: Some(DEFAULT_PUBLIC_DELETE_RETURNING_RESPONSE_BYTES),
         }
     }
-}
-
-/// Parsed `DELETE` classification before a caller-selected exposure policy is applied.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[doc(hidden)]
-pub(in crate::db) struct SqlDeleteStatementClassification {
-    /// Target entity identifier.
-    pub target_entity: String,
-    /// Shared parser write-shape classification.
-    pub write_shape: SqlWriteStatementShape,
 }
 
 pub(super) type SqlDeletePlanCore = SqlWritePlanCore<SqlDeleteStatement>;
@@ -177,53 +167,7 @@ pub(in crate::db) enum SqlDeletePolicyRejection {
     WriteShape(SqlWriteShapePolicyRejection),
 }
 
-/// Result of classifying one SQL statement under a `DELETE` exposure policy.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// Mutually exclusive validated plan or stable rejection for one SQL `DELETE` policy.
 #[doc(hidden)]
-pub(in crate::db) struct SqlDeletePolicyReport {
-    /// Parsed `DELETE` classification when the statement is a `DELETE`.
-    pub classification: Option<SqlDeleteStatementClassification>,
-    /// Typed validated plan when the selected policy admits the statement.
-    pub plan: Option<SqlValidatedDeletePlan>,
-    /// Policy rejection, or `None` when the selected policy admits the statement.
-    pub rejection: Option<SqlDeletePolicyRejection>,
-}
-
-impl SqlDeletePolicyReport {
-    /// Return whether the selected policy admits the statement.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn is_admitted(&self) -> bool {
-        self.rejection.is_none()
-    }
-
-    pub(super) const fn admitted(
-        classification: SqlDeleteStatementClassification,
-        plan: SqlValidatedDeletePlan,
-    ) -> Self {
-        Self {
-            classification: Some(classification),
-            plan: Some(plan),
-            rejection: None,
-        }
-    }
-
-    pub(super) const fn classified_rejection(
-        classification: SqlDeleteStatementClassification,
-        rejection: SqlDeletePolicyRejection,
-    ) -> Self {
-        Self {
-            classification: Some(classification),
-            plan: None,
-            rejection: Some(rejection),
-        }
-    }
-
-    pub(super) const fn rejected(rejection: SqlDeletePolicyRejection) -> Self {
-        Self {
-            classification: None,
-            plan: None,
-            rejection: Some(rejection),
-        }
-    }
-}
+pub(in crate::db) type SqlDeletePolicyResult =
+    Result<SqlValidatedDeletePlan, SqlDeletePolicyRejection>;

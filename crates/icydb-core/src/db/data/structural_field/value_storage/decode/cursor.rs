@@ -101,7 +101,7 @@ pub(super) fn decode_value_storage_binary_value_at(
         | VALUE_BINARY_TAG_ULID
         | VALUE_BINARY_TAG_U256 => {
             let cursor = skip_value_storage_binary_value_at_depth(raw_bytes, offset, depth)?;
-            let slice = ValueStorageSlice::from_skip_bounded_unchecked(&raw_bytes[offset..cursor]);
+            let slice = ValueStorageSlice::from_skip_bounded(&raw_bytes[offset..cursor])?;
             let value = decode_value_storage_slice_at_depth(slice, depth)?;
 
             Ok((value, cursor))

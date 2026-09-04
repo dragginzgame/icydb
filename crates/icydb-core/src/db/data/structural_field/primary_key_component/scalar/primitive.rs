@@ -6,11 +6,7 @@
 use crate::{
     db::data::structural_field::{
         FieldDecodeError,
-        binary::{
-            TAG_BYTES, TAG_INT64, TAG_NAT64, TAG_UNIT,
-            parse_complete_binary_value as parse_complete_structural_binary_value,
-            payload_bytes as binary_payload_bytes,
-        },
+        binary::{CompleteBinaryValue, TAG_BYTES, TAG_INT64, TAG_NAT64, TAG_UNIT},
         primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
         typed::{
             decode_int128_payload_bytes, decode_nat128_payload_bytes,
@@ -22,28 +18,22 @@ use crate::{
 };
 
 // Decode one timestamp relation-key payload from Structural Binary v1.
-pub(in crate::db::data::structural_field::primary_key_component) fn decode_timestamp_primary_key_component_binary_bytes(
-    raw_bytes: &[u8],
+pub(in crate::db::data::structural_field::primary_key_component) fn decode_timestamp_primary_key_component(
+    root: &CompleteBinaryValue<'_>,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
-    if tag != TAG_INT64 || len != 8 {
+    if root.tag() != TAG_INT64 || root.len() != 8 {
         return Err(FieldDecodeError::new());
     }
     Ok(PrimaryKeyComponent::Timestamp(
-        decode_timestamp_payload_millis(decode_i64_payload_bytes(binary_payload_bytes(
-            raw_bytes,
-            len,
-            payload_start,
-        )?)?),
+        decode_timestamp_payload_millis(decode_i64_payload_bytes(root.scalar_payload()?)?),
     ))
 }
 
 // Decode one unit relation-key payload from Structural Binary v1.
-pub(in crate::db::data::structural_field::primary_key_component) fn decode_unit_primary_key_component_binary_bytes(
-    raw_bytes: &[u8],
+pub(in crate::db::data::structural_field::primary_key_component) const fn decode_unit_primary_key_component(
+    root: &CompleteBinaryValue<'_>,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let (tag, _len, _payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
-    if tag != TAG_UNIT {
+    if root.tag() != TAG_UNIT {
         return Err(FieldDecodeError::new());
     }
 
@@ -52,69 +42,65 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_unit_
 
 // Decode one signed primary-key-component integer payload from Structural
 // Binary v1.
-pub(in crate::db::data::structural_field::primary_key_component) fn decode_int_primary_key_component_binary_bytes(
-    raw_bytes: &[u8],
+pub(in crate::db::data::structural_field::primary_key_component) fn decode_int_primary_key_component(
+    root: &CompleteBinaryValue<'_>,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
-    if tag != TAG_INT64 || len != 8 {
+    if root.tag() != TAG_INT64 || root.len() != 8 {
         return Err(FieldDecodeError::new());
     }
     Ok(PrimaryKeyComponent::Int64(decode_i64_payload_bytes(
-        binary_payload_bytes(raw_bytes, len, payload_start)?,
+        root.scalar_payload()?,
     )?))
 }
 
 // Decode one signed 128-bit primary-key-component integer payload from
 // Structural Binary v1.
-pub(in crate::db::data::structural_field::primary_key_component) fn decode_int128_primary_key_component_binary_bytes(
-    raw_bytes: &[u8],
+pub(in crate::db::data::structural_field::primary_key_component) fn decode_int128_primary_key_component(
+    root: &CompleteBinaryValue<'_>,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
-    if tag != TAG_BYTES || len != 16 {
+    if root.tag() != TAG_BYTES || root.len() != 16 {
         return Err(FieldDecodeError::new());
     }
     Ok(PrimaryKeyComponent::Int128(decode_int128_payload_bytes(
-        binary_payload_bytes(raw_bytes, len, payload_start)?,
+        root.scalar_payload()?,
     )?))
 }
 
 // Decode one unsigned primary-key-component integer payload from Structural
 // Binary v1.
-pub(in crate::db::data::structural_field::primary_key_component) fn decode_nat_primary_key_component_binary_bytes(
-    raw_bytes: &[u8],
+pub(in crate::db::data::structural_field::primary_key_component) fn decode_nat_primary_key_component(
+    root: &CompleteBinaryValue<'_>,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
-    if tag != TAG_NAT64 || len != 8 {
+    if root.tag() != TAG_NAT64 || root.len() != 8 {
         return Err(FieldDecodeError::new());
     }
     Ok(PrimaryKeyComponent::Nat64(decode_u64_payload_bytes(
-        binary_payload_bytes(raw_bytes, len, payload_start)?,
+        root.scalar_payload()?,
     )?))
 }
 
 // Decode one unsigned 128-bit primary-key-component integer payload from
 // Structural Binary v1.
-pub(in crate::db::data::structural_field::primary_key_component) fn decode_nat128_primary_key_component_binary_bytes(
-    raw_bytes: &[u8],
+pub(in crate::db::data::structural_field::primary_key_component) fn decode_nat128_primary_key_component(
+    root: &CompleteBinaryValue<'_>,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
-    if tag != TAG_BYTES || len != 16 {
+    if root.tag() != TAG_BYTES || root.len() != 16 {
         return Err(FieldDecodeError::new());
     }
     Ok(PrimaryKeyComponent::Nat128(decode_nat128_payload_bytes(
-        binary_payload_bytes(raw_bytes, len, payload_start)?,
+        root.scalar_payload()?,
     )?))
 }
 
 // Decode one unsigned 256-bit primary-key component from fixed bytes.
-pub(in crate::db::data::structural_field::primary_key_component) fn decode_u256_primary_key_component_binary_bytes(
-    raw_bytes: &[u8],
+pub(in crate::db::data::structural_field::primary_key_component) fn decode_u256_primary_key_component(
+    root: &CompleteBinaryValue<'_>,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
-    if tag != TAG_BYTES || len != 32 {
+    if root.tag() != TAG_BYTES || root.len() != 32 {
         return Err(FieldDecodeError::new());
     }
-    let bytes = binary_payload_bytes(raw_bytes, len, payload_start)?
+    let bytes = root
+        .scalar_payload()?
         .try_into()
         .map_err(|_| FieldDecodeError::new())?;
     Ok(PrimaryKeyComponent::U256(U256::from_be_bytes(bytes)))

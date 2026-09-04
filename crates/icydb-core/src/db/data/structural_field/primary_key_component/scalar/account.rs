@@ -6,13 +6,9 @@
 use crate::{
     db::data::structural_field::{
         FieldDecodeError,
-        binary::{
-            TAG_LIST, parse_binary_head as parse_structural_binary_head,
-            skip_binary_value as skip_structural_binary_value,
-        },
+        binary::{CompleteBinaryValue, TAG_LIST, TAG_NULL, skip_binary_value},
         primary_key_component::scalar::{
-            decode_principal_primary_key_component_binary_bytes,
-            decode_subaccount_primary_key_component_binary_bytes,
+            decode_principal_primary_key_component, decode_subaccount_primary_key_component,
         },
     },
     db::key_taxonomy::PrimaryKeyComponent,
@@ -20,44 +16,36 @@ use crate::{
 
 // Decode one account relation-key payload from Structural Binary v1 without
 // routing through generic value decode.
-pub(in crate::db::data::structural_field::primary_key_component) fn decode_account_primary_key_component_binary_bytes(
-    raw_bytes: &[u8],
+pub(in crate::db::data::structural_field::primary_key_component) fn decode_account_primary_key_component(
+    root: &CompleteBinaryValue<'_>,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    if tag != TAG_LIST || len != 2 {
+    if root.tag() != TAG_LIST || root.len() != 2 {
         return Err(FieldDecodeError::new());
     }
 
-    let owner_start = payload_start;
-    let owner_end = skip_structural_binary_value(raw_bytes, owner_start)?;
+    let raw_bytes = root.bytes();
+    let owner_start = root.payload_offset();
+    let owner_end = skip_binary_value(raw_bytes, owner_start)?;
     let sub_start = owner_end;
-    let sub_end = skip_structural_binary_value(raw_bytes, sub_start)?;
+    let sub_end = skip_binary_value(raw_bytes, sub_start)?;
     if sub_end != raw_bytes.len() {
         return Err(FieldDecodeError::new());
     }
 
+    let owner_root = CompleteBinaryValue::from_skip_bounded(&raw_bytes[owner_start..owner_end])?;
     let PrimaryKeyComponent::Principal(owner) =
-        decode_principal_primary_key_component_binary_bytes(&raw_bytes[owner_start..owner_end])?
+        decode_principal_primary_key_component(&owner_root)?
     else {
         return Err(FieldDecodeError::new());
     };
-    let subaccount = if let Some((tag, _len, _payload_start)) =
-        parse_structural_binary_head(&raw_bytes[sub_start..sub_end], 0)?
-    {
-        if tag == crate::db::data::structural_field::binary::TAG_NULL {
-            None
-        } else {
-            match decode_subaccount_primary_key_component_binary_bytes(
-                &raw_bytes[sub_start..sub_end],
-            )? {
-                PrimaryKeyComponent::Subaccount(value) => Some(value),
-                _ => return Err(FieldDecodeError::new()),
-            }
-        }
+    let sub_root = CompleteBinaryValue::from_skip_bounded(&raw_bytes[sub_start..sub_end])?;
+    let subaccount = if sub_root.tag() == TAG_NULL {
+        None
     } else {
-        return Err(FieldDecodeError::new());
+        match decode_subaccount_primary_key_component(&sub_root)? {
+            PrimaryKeyComponent::Subaccount(value) => Some(value),
+            _ => return Err(FieldDecodeError::new()),
+        }
     };
 
     Ok(PrimaryKeyComponent::Account(

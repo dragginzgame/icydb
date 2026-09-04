@@ -22,7 +22,7 @@ pub(in crate::db) fn classify_sql_delete_policy(
     sql: &str,
     policy: SqlDeleteExposurePolicy,
     context: SqlDeletePolicyContext<'_>,
-) -> Result<SqlDeletePolicyReport, QueryError> {
+) -> Result<SqlDeletePolicyResult, QueryError> {
     let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
 
     Ok(classify_sql_delete_statement_policy(
@@ -34,42 +34,34 @@ pub(in crate::db) fn classify_sql_delete_statement_policy(
     statement: &SqlStatement,
     policy: SqlDeleteExposurePolicy,
     context: SqlDeletePolicyContext<'_>,
-) -> SqlDeletePolicyReport {
+) -> SqlDeletePolicyResult {
     let SqlStatement::Delete(statement) = statement else {
-        return SqlDeletePolicyReport::rejected(SqlDeletePolicyRejection::NotDelete);
+        return Err(SqlDeletePolicyRejection::NotDelete);
     };
 
-    let classification = classify_delete_statement(statement, context);
-    if let Some(rejection) = delete_policy_rejection(policy, &classification, context) {
-        return SqlDeletePolicyReport::classified_rejection(classification, rejection);
+    let write_shape = classify_write_shape(statement, context);
+    if let Some(rejection) = delete_policy_rejection(policy, &write_shape, context) {
+        return Err(rejection);
     }
 
-    let plan = validated_delete_plan(statement, policy, &classification, context);
-    SqlDeletePolicyReport::admitted(classification, plan)
-}
-
-fn classify_delete_statement(
-    statement: &SqlDeleteStatement,
-    context: SqlDeletePolicyContext<'_>,
-) -> SqlDeleteStatementClassification {
-    SqlDeleteStatementClassification {
-        target_entity: statement.entity.clone(),
-        write_shape: classify_write_shape(statement, context),
-    }
+    Ok(validated_delete_plan(
+        statement,
+        policy,
+        &write_shape,
+        context,
+    ))
 }
 
 fn delete_policy_rejection(
     policy: SqlDeleteExposurePolicy,
-    classification: &SqlDeleteStatementClassification,
+    write_shape: &SqlWriteStatementShape,
     context: SqlDeletePolicyContext<'_>,
 ) -> Option<SqlDeletePolicyRejection> {
     let rejection = match policy {
-        SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => {
-            classification.write_shape.primary_key_policy_rejection()
+        SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => write_shape.primary_key_policy_rejection(),
+        SqlDeleteExposurePolicy::PublicBoundedDeterministic => {
+            write_shape.bounded_deterministic_policy_rejection(context.write_bounds())
         }
-        SqlDeleteExposurePolicy::PublicBoundedDeterministic => classification
-            .write_shape
-            .bounded_deterministic_policy_rejection(context.write_bounds()),
     };
 
     rejection.map(SqlDeletePolicyRejection::WriteShape)
@@ -78,10 +70,10 @@ fn delete_policy_rejection(
 fn validated_delete_plan(
     statement: &SqlDeleteStatement,
     policy: SqlDeleteExposurePolicy,
-    classification: &SqlDeleteStatementClassification,
+    write_shape: &SqlWriteStatementShape,
     context: SqlDeletePolicyContext<'_>,
 ) -> SqlValidatedDeletePlan {
-    let execution_bounds = execution_bounds(policy, classification, context);
+    let execution_bounds = execution_bounds(policy, write_shape, context);
     match policy {
         SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => {
             SqlValidatedDeletePlan::PublicPrimaryKeyOnly(SqlPublicPrimaryKeyDeletePlan {
@@ -98,12 +90,10 @@ fn validated_delete_plan(
 
 const fn execution_bounds(
     policy: SqlDeleteExposurePolicy,
-    classification: &SqlDeleteStatementClassification,
+    write_shape: &SqlWriteStatementShape,
     context: SqlDeletePolicyContext<'_>,
 ) -> SqlWriteExecutionBounds {
-    classification
-        .write_shape
-        .execution_bounds_for_exposure_class(policy.exposure_class(), context.write_bounds())
+    write_shape.execution_bounds_for_exposure_class(policy.exposure_class(), context.write_bounds())
 }
 
 fn classify_write_shape(

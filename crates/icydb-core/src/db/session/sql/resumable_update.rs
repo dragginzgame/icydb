@@ -1536,10 +1536,6 @@ fn mutation_job_catalog_authority_matches(
 }
 
 /// Validate the current-format initial continuation used by sequence-zero cancellation.
-///
-/// The retained policy identity is deliberately not compared with today's
-/// identity: cancellation executes no target work and remains available to an
-/// otherwise exact zero-effect predecessor policy.
 pub(in crate::db::session) fn validate_current_initial_mutation_job_continuation(
     bytes: &[u8],
 ) -> Result<(), MutationJobError> {
@@ -1548,6 +1544,7 @@ pub(in crate::db::session) fn validate_current_initial_mutation_job_continuation
     if continuation.phase != MutationJobEnginePhase::Forward
         || continuation.checkpoint.is_some()
         || continuation.retained_verify_revision.is_some()
+        || continuation.batch_policy_identity != RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY
     {
         return Err(MutationJobError::CorruptProgressStore);
     }
@@ -1851,19 +1848,6 @@ mod tests {
             Ok(()),
         );
 
-        let mut predecessor_policy = DecodedMutationJobEngineContinuation::decode(&initial.bytes)
-            .expect("current initial continuation should decode");
-        predecessor_policy.batch_policy_identity =
-            predecessor_policy.batch_policy_identity.wrapping_sub(1);
-        let predecessor_policy = predecessor_policy
-            .encode()
-            .expect("prior policy remains current-format");
-        assert_eq!(
-            validate_current_initial_mutation_job_continuation(&predecessor_policy.bytes),
-            Ok(()),
-            "a zero-effect cancellation must not execute retained page policy",
-        );
-
         let mut verify = DecodedMutationJobEngineContinuation::decode(&initial.bytes)
             .expect("current initial continuation should decode");
         verify.phase = MutationJobEnginePhase::Verify;
@@ -1883,7 +1867,7 @@ mod tests {
     }
 
     #[test]
-    fn resumable_batch_policy_identity_covers_every_compatibility_input() {
+    fn resumable_batch_policy_identity_covers_every_current_policy_input() {
         assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0x3a31_c25a);
         assert_ne!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 1);
 
@@ -1893,7 +1877,7 @@ mod tests {
             assert_ne!(
                 resumable_update_batch_policy_identity(changed),
                 RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY,
-                "compatibility input {index} must participate in the batch-policy identity",
+                "current policy input {index} must participate in the batch-policy identity",
             );
         }
     }

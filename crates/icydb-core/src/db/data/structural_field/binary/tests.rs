@@ -1,6 +1,6 @@
 use super::{
-    TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NAT64, TAG_TEXT, TAG_TRUE, parse_binary_head,
-    parse_complete_binary_value, push_binary_bool, skip_binary_value, walk_binary_list_items,
+    CompleteBinaryValue, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NAT64, TAG_TEXT, TAG_TRUE,
+    parse_binary_head, push_binary_bool, skip_binary_value, walk_binary_list_items,
     walk_binary_map_entries,
 };
 
@@ -76,17 +76,21 @@ fn parse_binary_head_reports_tag_len_and_payload_offset() {
 #[test]
 fn complete_binary_value_rejects_empty_truncated_and_trailing_bytes() {
     let bytes = encode_text("icy");
+    let value = CompleteBinaryValue::parse(&bytes).expect("complete text should parse");
+    assert_eq!(value.tag(), TAG_TEXT);
+    assert_eq!(value.len(), 3);
+    assert_eq!(value.payload_offset(), 5);
     assert_eq!(
-        parse_complete_binary_value(&bytes).expect("complete text should parse"),
-        (TAG_TEXT, 3, 5),
+        value.scalar_payload().expect("text payload should decode"),
+        b"icy",
     );
 
-    assert!(parse_complete_binary_value(&[]).is_err());
-    assert!(parse_complete_binary_value(&bytes[..bytes.len() - 1]).is_err());
+    assert!(CompleteBinaryValue::parse(&[]).is_err());
+    assert!(CompleteBinaryValue::parse(&bytes[..bytes.len() - 1]).is_err());
 
     let mut trailing = bytes;
     trailing.push(TAG_TRUE);
-    assert!(parse_complete_binary_value(&trailing).is_err());
+    assert!(CompleteBinaryValue::parse(&trailing).is_err());
 }
 
 #[test]

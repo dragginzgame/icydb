@@ -6,10 +6,9 @@
 use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{
-        TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NAT64, TAG_NULL, parse_binary_head,
-        parse_complete_binary_value, payload_bytes as binary_payload_bytes, push_binary_bytes,
-        push_binary_int64, push_binary_list_len, push_binary_nat64, push_binary_null,
-        skip_binary_value,
+        CompleteBinaryValue, TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NAT64, TAG_NULL,
+        parse_binary_head, push_binary_bytes, push_binary_int64, push_binary_list_len,
+        push_binary_nat64, push_binary_null, skip_binary_value,
     },
     primary_key_component::{
         decode_primary_key_component_binary_value_bytes,
@@ -372,8 +371,7 @@ fn decode_big_integer_magnitude_payload(raw_bytes: &[u8]) -> Result<BigUint, Fie
 // Decode one required top-level `null` payload and enforce full-byte
 // consumption.
 fn decode_required_null_payload(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
-    let (tag, _, _) = parse_complete_binary_value(raw_bytes)?;
-    if tag != TAG_NULL {
+    if CompleteBinaryValue::parse(raw_bytes)?.tag() != TAG_NULL {
         return Err(FieldDecodeError::new());
     }
 
@@ -383,12 +381,12 @@ fn decode_required_null_payload(raw_bytes: &[u8]) -> Result<(), FieldDecodeError
 // Decode one required top-level byte-string payload and enforce full-byte
 // consumption.
 fn decode_required_bytes_payload(raw_bytes: &[u8]) -> Result<&[u8], FieldDecodeError> {
-    let (tag, len, payload_start) = parse_complete_binary_value(raw_bytes)?;
-    if tag != TAG_BYTES {
+    let root = CompleteBinaryValue::parse(raw_bytes)?;
+    if root.tag() != TAG_BYTES {
         return Err(FieldDecodeError::new());
     }
 
-    binary_payload_bytes(raw_bytes, len, payload_start)
+    root.scalar_payload()
 }
 
 // Decode one required top-level `u32` payload and enforce full-byte
@@ -400,23 +398,23 @@ fn decode_required_u32_payload(raw_bytes: &[u8]) -> Result<u32, FieldDecodeError
 // Decode one required top-level `u64` payload and enforce full-byte
 // consumption.
 fn decode_required_u64_payload(raw_bytes: &[u8]) -> Result<u64, FieldDecodeError> {
-    let (tag, len, payload_start) = parse_complete_binary_value(raw_bytes)?;
-    if tag != TAG_NAT64 || len != 8 {
+    let root = CompleteBinaryValue::parse(raw_bytes)?;
+    if root.tag() != TAG_NAT64 || root.len() != 8 {
         return Err(FieldDecodeError::new());
     }
 
-    decode_u64_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)
+    decode_u64_payload_bytes(root.scalar_payload()?)
 }
 
 // Decode one required top-level `i64` payload and enforce full-byte
 // consumption.
 fn decode_required_i64_payload(raw_bytes: &[u8]) -> Result<i64, FieldDecodeError> {
-    let (tag, len, payload_start) = parse_complete_binary_value(raw_bytes)?;
-    if tag != TAG_INT64 || len != 8 {
+    let root = CompleteBinaryValue::parse(raw_bytes)?;
+    if root.tag() != TAG_INT64 || root.len() != 8 {
         return Err(FieldDecodeError::new());
     }
 
-    decode_i64_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)
+    decode_i64_payload_bytes(root.scalar_payload()?)
 }
 
 // Split one fixed-length binary tuple into self-contained item slices.

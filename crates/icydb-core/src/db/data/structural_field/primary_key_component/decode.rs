@@ -7,21 +7,18 @@ use crate::{
     db::data::structural_field::{
         FieldDecodeError,
         binary::{
-            TAG_LIST, TAG_NULL, parse_binary_head as parse_structural_binary_head,
-            parse_complete_binary_value as parse_complete_structural_binary_value,
+            CompleteBinaryValue, TAG_LIST, TAG_NULL,
+            parse_binary_head as parse_structural_binary_head,
             walk_binary_list_items as walk_structural_binary_list_items,
         },
         primary_key_component::{
             scalar::{
-                decode_account_primary_key_component_binary_bytes,
-                decode_int_primary_key_component_binary_bytes,
-                decode_nat_primary_key_component_binary_bytes,
-                decode_principal_primary_key_component_binary_bytes,
-                decode_subaccount_primary_key_component_binary_bytes,
-                decode_timestamp_primary_key_component_binary_bytes,
-                decode_u256_primary_key_component_binary_bytes,
-                decode_ulid_primary_key_component_binary_bytes,
-                decode_unit_primary_key_component_binary_bytes,
+                decode_account_primary_key_component, decode_int_primary_key_component,
+                decode_int128_primary_key_component, decode_nat_primary_key_component,
+                decode_nat128_primary_key_component, decode_principal_primary_key_component,
+                decode_subaccount_primary_key_component, decode_timestamp_primary_key_component,
+                decode_u256_primary_key_component, decode_ulid_primary_key_component,
+                decode_unit_primary_key_component,
             },
             supports_primary_key_component_binary_kind,
         },
@@ -55,33 +52,40 @@ pub(in crate::db) fn decode_accepted_relation_target_primary_key_components_bina
 
 /// Decode one primary-key-component Structural Binary v1 field payload
 /// directly into its canonical `PrimaryKeyComponent` form.
+#[cfg(test)]
 pub(in crate::db) fn decode_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
     kind: &AcceptedFieldKind,
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
+    decode_primary_key_component_field(&CompleteBinaryValue::parse(raw_bytes)?, kind)
+}
+
+// Decode a scalar component after the complete root has been validated once.
+fn decode_primary_key_component_field(
+    root: &CompleteBinaryValue<'_>,
+    kind: &AcceptedFieldKind,
+) -> Result<PrimaryKeyComponent, FieldDecodeError> {
     match kind {
-        AcceptedFieldKind::Account => decode_account_primary_key_component_binary_bytes(raw_bytes),
-        AcceptedFieldKind::Int8 | AcceptedFieldKind::Int16 | AcceptedFieldKind::Int32 | AcceptedFieldKind::Int64 => {
-            decode_int_primary_key_component_binary_bytes(raw_bytes)
-        }
-        AcceptedFieldKind::Int128 => {
-            crate::db::data::structural_field::primary_key_component::scalar::decode_int128_primary_key_component_binary_bytes(raw_bytes)
-        }
-        AcceptedFieldKind::Principal => decode_principal_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Account => decode_account_primary_key_component(root),
+        AcceptedFieldKind::Int8
+        | AcceptedFieldKind::Int16
+        | AcceptedFieldKind::Int32
+        | AcceptedFieldKind::Int64 => decode_int_primary_key_component(root),
+        AcceptedFieldKind::Int128 => decode_int128_primary_key_component(root),
+        AcceptedFieldKind::Principal => decode_principal_primary_key_component(root),
         AcceptedFieldKind::Relation { key_kind, .. } => {
-            decode_primary_key_component_field_binary_bytes(raw_bytes, key_kind)
+            decode_primary_key_component_field(root, key_kind)
         }
-        AcceptedFieldKind::Subaccount => decode_subaccount_primary_key_component_binary_bytes(raw_bytes),
-        AcceptedFieldKind::Timestamp => decode_timestamp_primary_key_component_binary_bytes(raw_bytes),
-        AcceptedFieldKind::Nat8 | AcceptedFieldKind::Nat16 | AcceptedFieldKind::Nat32 | AcceptedFieldKind::Nat64 => {
-            decode_nat_primary_key_component_binary_bytes(raw_bytes)
-        }
-        AcceptedFieldKind::Nat128 => {
-            crate::db::data::structural_field::primary_key_component::scalar::decode_nat128_primary_key_component_binary_bytes(raw_bytes)
-        }
-        AcceptedFieldKind::Ulid => decode_ulid_primary_key_component_binary_bytes(raw_bytes),
-        AcceptedFieldKind::Unit => decode_unit_primary_key_component_binary_bytes(raw_bytes),
-        AcceptedFieldKind::U256 => decode_u256_primary_key_component_binary_bytes(raw_bytes),
+        AcceptedFieldKind::Subaccount => decode_subaccount_primary_key_component(root),
+        AcceptedFieldKind::Timestamp => decode_timestamp_primary_key_component(root),
+        AcceptedFieldKind::Nat8
+        | AcceptedFieldKind::Nat16
+        | AcceptedFieldKind::Nat32
+        | AcceptedFieldKind::Nat64 => decode_nat_primary_key_component(root),
+        AcceptedFieldKind::Nat128 => decode_nat128_primary_key_component(root),
+        AcceptedFieldKind::Ulid => decode_ulid_primary_key_component(root),
+        AcceptedFieldKind::Unit => decode_unit_primary_key_component(root),
+        AcceptedFieldKind::U256 => decode_u256_primary_key_component(root),
         _ => Err(FieldDecodeError::new()),
     }
 }
@@ -110,8 +114,14 @@ pub(in crate::db) fn decode_primary_key_component_binary_value_bytes(
             ),
             _ => return Err(FieldDecodeError::new()),
         },
-        _ if binary_payload_is_null(raw_bytes)? => Value::Null,
-        _ => decode_primary_key_component_field_binary_bytes(raw_bytes, kind)?.as_runtime_value(),
+        _ => {
+            let root = CompleteBinaryValue::parse(raw_bytes)?;
+            if root.tag() == TAG_NULL {
+                Value::Null
+            } else {
+                decode_primary_key_component_field(&root, kind)?.as_runtime_value()
+            }
+        }
     };
 
     Ok(Some(value))
@@ -133,24 +143,17 @@ pub(in crate::db) fn validate_primary_key_component_binary_value_bytes(
     Ok(true)
 }
 
-// Return whether one Structural Binary v1 payload is the explicit null form.
-fn binary_payload_is_null(raw_bytes: &[u8]) -> Result<bool, FieldDecodeError> {
-    let (tag, _len, _payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
-
-    Ok(tag == TAG_NULL)
-}
-
 // Decode one singular component payload, treating explicit null as "no target".
 pub(in crate::db) fn decode_optional_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
     key_kind: &AcceptedFieldKind,
 ) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
-    let (tag, _len, _payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
-    if tag == TAG_NULL {
+    let root = CompleteBinaryValue::parse(raw_bytes)?;
+    if root.tag() == TAG_NULL {
         return Ok(None);
     }
 
-    decode_primary_key_component_field_binary_bytes(raw_bytes, key_kind).map(Some)
+    decode_primary_key_component_field(&root, key_kind).map(Some)
 }
 
 // Decode one list/set relation payload from Structural Binary v1 into

@@ -31,7 +31,7 @@ use crate::db::data::structural_field::{
 ///
 
 pub(in crate::db) struct ValueStorageView<'a> {
-    bytes: &'a [u8],
+    slice: ValueStorageSlice<'a>,
 }
 
 impl<'a> ValueStorageView<'a> {
@@ -39,26 +39,26 @@ impl<'a> ValueStorageView<'a> {
     pub(in crate::db) fn from_raw_validated(raw: &'a [u8]) -> Result<Self, FieldDecodeError> {
         let slice = ValueStorageSlice::from_raw(raw)?;
 
-        Ok(Self {
-            bytes: slice.as_bytes(),
-        })
+        Ok(Self { slice })
     }
 
     /// Wrap bytes whose exact boundary was already returned by skip traversal.
-    const fn from_skip_bounded_unchecked(bytes: &'a [u8]) -> Self {
-        Self { bytes }
+    fn from_skip_bounded(bytes: &'a [u8]) -> Result<Self, FieldDecodeError> {
+        Ok(Self {
+            slice: ValueStorageSlice::from_skip_bounded(bytes)?,
+        })
     }
 
     /// Return the bytes covered by this view.
     #[inline]
     pub(in crate::db) const fn as_bytes(&self) -> &'a [u8] {
-        self.bytes
+        self.slice.as_bytes()
     }
 
     /// Return the value-storage tag without decoding the payload.
     #[inline]
     const fn tag(&self) -> u8 {
-        self.bytes[0]
+        self.slice.as_bytes()[0]
     }
 
     /// Return whether this view contains a generic null value.
@@ -108,22 +108,22 @@ impl<'a> ValueStorageView<'a> {
 
     /// Decode one i64 directly from the bounded value-storage slice.
     pub(in crate::db::data) fn as_i64(&self) -> Result<i64, FieldDecodeError> {
-        decode_binary_i64_scalar(self.as_bytes())
+        decode_binary_i64_scalar(&self.slice)
     }
 
     /// Decode one u64 directly from the bounded value-storage slice.
     pub(in crate::db::data) fn as_u64(&self) -> Result<u64, FieldDecodeError> {
-        decode_binary_u64_scalar(self.as_bytes())
+        decode_binary_u64_scalar(&self.slice)
     }
 
     /// Decode one borrowed string directly from the bounded value-storage slice.
     pub(in crate::db::data) fn as_text(&self) -> Result<&'a str, FieldDecodeError> {
-        decode_binary_text_scalar(self.as_bytes())
+        decode_binary_text_scalar(&self.slice)
     }
 
     /// Decode one borrowed blob directly from the bounded value-storage slice.
     pub(in crate::db::data) fn as_blob(&self) -> Result<&'a [u8], FieldDecodeError> {
-        decode_binary_blob_scalar(self.as_bytes())
+        decode_binary_blob_scalar(&self.slice)
     }
 
     /// Return the value slice for one text-keyed map entry using byte equality.
@@ -155,9 +155,7 @@ impl<'a> ValueStorageView<'a> {
                 && decode_binary_text_payload_bytes_if_text(&raw_bytes[key_start..value_start])?
                     .is_some_and(|found| found == key)
             {
-                found = Some(Self::from_skip_bounded_unchecked(
-                    &raw_bytes[value_start..cursor],
-                ));
+                found = Some(Self::from_skip_bounded(&raw_bytes[value_start..cursor])?);
             }
         }
         if cursor != raw_bytes.len() {

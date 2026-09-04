@@ -5,12 +5,10 @@
 
 use crate::db::data::structural_field::FieldDecodeError;
 use crate::db::data::structural_field::binary::{
-    TAG_BYTES, TAG_FALSE, TAG_FLOAT32, TAG_FLOAT64, TAG_INT64, TAG_NAT64, TAG_TEXT, TAG_TRUE,
-    decode_text_scalar_bytes as decode_binary_text_scalar_bytes,
-    parse_complete_binary_value as parse_complete_structural_binary_value,
-    payload_bytes as binary_payload_bytes, push_binary_bool, push_binary_bytes,
-    push_binary_float32, push_binary_float64, push_binary_int64, push_binary_nat64,
-    push_binary_null, push_binary_text,
+    CompleteBinaryValue, TAG_BYTES, TAG_FALSE, TAG_FLOAT32, TAG_FLOAT64, TAG_INT64, TAG_NAT64,
+    TAG_TEXT, TAG_TRUE, decode_text_scalar_bytes as decode_binary_text_scalar_bytes,
+    push_binary_bool, push_binary_bytes, push_binary_float32, push_binary_float64,
+    push_binary_int64, push_binary_nat64, push_binary_null, push_binary_text,
 };
 use crate::db::data::structural_field::primitive::{
     decode_i64_payload_bytes, decode_u64_payload_bytes,
@@ -65,8 +63,8 @@ pub(super) fn decode_scalar_fast_path_binary_bytes(
         return Ok(None);
     }
 
-    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
-    if tag == crate::db::data::structural_field::binary::TAG_NULL {
+    let root = CompleteBinaryValue::parse(raw_bytes)?;
+    if root.tag() == crate::db::data::structural_field::binary::TAG_NULL {
         return Ok(Some(Value::Null));
     }
 
@@ -74,12 +72,8 @@ pub(super) fn decode_scalar_fast_path_binary_bytes(
         AcceptedFieldKind::Blob { .. }
         | AcceptedFieldKind::Int128
         | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::Ulid => {
-            decode_scalar_fast_path_binary_bytes_kind(raw_bytes, kind, tag, len, payload_start)?
-        }
-        AcceptedFieldKind::Text { .. } => {
-            decode_scalar_fast_path_binary_text_kind(raw_bytes, kind, tag, len, payload_start)?
-        }
+        | AcceptedFieldKind::Ulid => decode_scalar_fast_path_binary_bytes_kind(&root, kind)?,
+        AcceptedFieldKind::Text { .. } => decode_scalar_fast_path_binary_text_kind(&root, kind)?,
         AcceptedFieldKind::Bool
         | AcceptedFieldKind::Float32
         | AcceptedFieldKind::Float64
@@ -90,9 +84,7 @@ pub(super) fn decode_scalar_fast_path_binary_bytes(
         | AcceptedFieldKind::Nat8
         | AcceptedFieldKind::Nat16
         | AcceptedFieldKind::Nat32
-        | AcceptedFieldKind::Nat64 => {
-            decode_scalar_fast_path_binary_numeric_kind(raw_bytes, kind, tag, len, payload_start)?
-        }
+        | AcceptedFieldKind::Nat64 => decode_scalar_fast_path_binary_numeric_kind(&root, kind)?,
         _ => return Ok(None),
     };
 
@@ -183,28 +175,23 @@ pub(super) fn encode_scalar_fast_path_binary_bytes(
 
 // Decode one binary scalar fast-path payload whose persisted shape is bytes.
 fn decode_scalar_fast_path_binary_bytes_kind(
-    raw_bytes: &[u8],
+    root: &CompleteBinaryValue<'_>,
     kind: &AcceptedFieldKind,
-    tag: u8,
-    len: u32,
-    payload_start: usize,
 ) -> Result<Value, FieldDecodeError> {
-    if tag != TAG_BYTES {
+    if root.tag() != TAG_BYTES {
         return Err(FieldDecodeError::new());
     }
 
     match kind {
-        AcceptedFieldKind::Blob { .. } => Ok(Value::Blob(
-            binary_payload_bytes(raw_bytes, len, payload_start)?.to_vec(),
-        )),
+        AcceptedFieldKind::Blob { .. } => Ok(Value::Blob(root.scalar_payload()?.to_vec())),
         AcceptedFieldKind::Int128 => Ok(Value::Int128(decode_int128_payload_bytes(
-            binary_payload_bytes(raw_bytes, len, payload_start)?,
+            root.scalar_payload()?,
         )?)),
         AcceptedFieldKind::Nat128 => Ok(Value::Nat128(decode_nat128_payload_bytes(
-            binary_payload_bytes(raw_bytes, len, payload_start)?,
+            root.scalar_payload()?,
         )?)),
         AcceptedFieldKind::Ulid => Ok(Value::Ulid(decode_ulid_payload_bytes(
-            binary_payload_bytes(raw_bytes, len, payload_start)?,
+            root.scalar_payload()?,
         )?)),
         _ => Err(FieldDecodeError::new()),
     }
@@ -232,17 +219,14 @@ const fn fixed_nat_kind_accepts_value(kind: &AcceptedFieldKind, value: u64) -> b
 
 // Decode one binary scalar fast-path payload whose persisted shape is text.
 fn decode_scalar_fast_path_binary_text_kind(
-    raw_bytes: &[u8],
+    root: &CompleteBinaryValue<'_>,
     kind: &AcceptedFieldKind,
-    tag: u8,
-    len: u32,
-    payload_start: usize,
 ) -> Result<Value, FieldDecodeError> {
-    if tag != TAG_TEXT {
+    if root.tag() != TAG_TEXT {
         return Err(FieldDecodeError::new());
     }
 
-    let text = decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)?;
+    let text = decode_binary_text_scalar_bytes(root.bytes(), root.len(), root.payload_offset())?;
     match kind {
         AcceptedFieldKind::Text { .. } => Ok(Value::Text(text.to_string())),
         _ => Err(FieldDecodeError::new()),
@@ -252,35 +236,30 @@ fn decode_scalar_fast_path_binary_text_kind(
 // Decode one binary scalar fast-path payload whose persisted shape is numeric
 // or bool.
 fn decode_scalar_fast_path_binary_numeric_kind(
-    raw_bytes: &[u8],
+    root: &CompleteBinaryValue<'_>,
     kind: &AcceptedFieldKind,
-    tag: u8,
-    len: u32,
-    payload_start: usize,
 ) -> Result<Value, FieldDecodeError> {
     match kind {
-        AcceptedFieldKind::Bool => match tag {
+        AcceptedFieldKind::Bool => match root.tag() {
             TAG_FALSE => Ok(Value::Bool(false)),
             TAG_TRUE => Ok(Value::Bool(true)),
             _ => Err(FieldDecodeError::new()),
         },
         AcceptedFieldKind::Float32 => {
-            if tag != TAG_FLOAT32 || len != 4 {
+            if root.tag() != TAG_FLOAT32 || root.len() != 4 {
                 return Err(FieldDecodeError::new());
             }
 
-            let value =
-                decode_float32_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)?;
+            let value = decode_float32_payload_bytes(root.scalar_payload()?)?;
 
             Ok(Value::Float32(value))
         }
         AcceptedFieldKind::Float64 => {
-            if tag != TAG_FLOAT64 || len != 8 {
+            if root.tag() != TAG_FLOAT64 || root.len() != 8 {
                 return Err(FieldDecodeError::new());
             }
 
-            let value =
-                decode_float64_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)?;
+            let value = decode_float64_payload_bytes(root.scalar_payload()?)?;
 
             Ok(Value::Float64(value))
         }
@@ -288,12 +267,11 @@ fn decode_scalar_fast_path_binary_numeric_kind(
         | AcceptedFieldKind::Int16
         | AcceptedFieldKind::Int32
         | AcceptedFieldKind::Int64 => {
-            if tag != TAG_INT64 || len != 8 {
+            if root.tag() != TAG_INT64 || root.len() != 8 {
                 return Err(FieldDecodeError::new());
             }
 
-            let value =
-                decode_i64_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)?;
+            let value = decode_i64_payload_bytes(root.scalar_payload()?)?;
             if !fixed_int_kind_accepts_value(kind, value) {
                 return Err(FieldDecodeError::new());
             }
@@ -304,12 +282,11 @@ fn decode_scalar_fast_path_binary_numeric_kind(
         | AcceptedFieldKind::Nat16
         | AcceptedFieldKind::Nat32
         | AcceptedFieldKind::Nat64 => {
-            if tag != TAG_NAT64 || len != 8 {
+            if root.tag() != TAG_NAT64 || root.len() != 8 {
                 return Err(FieldDecodeError::new());
             }
 
-            let value =
-                decode_u64_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)?;
+            let value = decode_u64_payload_bytes(root.scalar_payload()?)?;
             if !fixed_nat_kind_accepts_value(kind, value) {
                 return Err(FieldDecodeError::new());
             }

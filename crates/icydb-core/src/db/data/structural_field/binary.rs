@@ -131,6 +131,72 @@ struct BinaryHead {
     len: u32,
 }
 
+/// One complete Structural Binary v1 root with its parsed head.
+pub(super) struct CompleteBinaryValue<'a> {
+    bytes: &'a [u8],
+    tag: u8,
+    len: u32,
+}
+
+impl<'a> CompleteBinaryValue<'a> {
+    /// Parse and validate exactly one complete Structural Binary v1 root.
+    #[inline]
+    pub(super) fn parse(bytes: &'a [u8]) -> Result<Self, FieldDecodeError> {
+        let value = Self::from_skip_bounded(bytes)?;
+        let head = BinaryHead {
+            tag: value.tag,
+            len: value.len,
+            payload_offset: value.payload_offset(),
+        };
+        if skip_parsed_binary_value(bytes, head, 0)? != bytes.len() {
+            return Err(FieldDecodeError::new());
+        }
+
+        Ok(value)
+    }
+
+    /// Parse bytes whose complete boundary was already proven by skip traversal.
+    #[inline]
+    pub(super) fn from_skip_bounded(bytes: &'a [u8]) -> Result<Self, FieldDecodeError> {
+        let (tag, len, _) = parse_binary_head(bytes, 0)?.ok_or_else(FieldDecodeError::new)?;
+
+        Ok(Self { bytes, tag, len })
+    }
+
+    /// Return the complete validated root bytes.
+    #[inline]
+    pub(super) const fn bytes(&self) -> &'a [u8] {
+        self.bytes
+    }
+
+    /// Return the parsed root tag.
+    #[inline]
+    pub(super) const fn tag(&self) -> u8 {
+        self.tag
+    }
+
+    /// Return the parsed root length field.
+    #[inline]
+    pub(super) const fn len(&self) -> u32 {
+        self.len
+    }
+
+    /// Return the byte offset where the root payload starts.
+    #[inline]
+    pub(super) const fn payload_offset(&self) -> usize {
+        match self.tag {
+            TAG_TEXT | TAG_BYTES | TAG_LIST | TAG_MAP => 1 + WORD32_LEN,
+            _ => 1,
+        }
+    }
+
+    /// Return a scalar root's bounded payload bytes.
+    #[inline]
+    pub(super) fn scalar_payload(&self) -> Result<&'a [u8], FieldDecodeError> {
+        payload_bytes(self.bytes, self.len, self.payload_offset())
+    }
+}
+
 // Parse one Structural Binary v1 head from the provided byte offset.
 pub(super) fn parse_binary_head(
     bytes: &[u8],
@@ -163,18 +229,6 @@ pub(super) fn parse_binary_head(
     Ok(Some((tag, len, payload_offset)))
 }
 
-/// Parse exactly one complete Structural Binary v1 root envelope.
-#[inline]
-pub(super) fn parse_complete_binary_value(
-    bytes: &[u8],
-) -> Result<(u8, u32, usize), FieldDecodeError> {
-    let head = parse_binary_head(bytes, 0)?.ok_or_else(FieldDecodeError::new)?;
-    if skip_binary_value(bytes, 0)? != bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
-    Ok(head)
-}
-
 // Skip one self-contained Structural Binary v1 value without decoding it.
 pub(super) fn skip_binary_value(bytes: &[u8], offset: usize) -> Result<usize, FieldDecodeError> {
     skip_binary_value_at_depth(bytes, offset, 0)
@@ -185,10 +239,6 @@ fn skip_binary_value_at_depth(
     offset: usize,
     depth: usize,
 ) -> Result<usize, FieldDecodeError> {
-    if depth >= MAX_STRUCTURAL_BINARY_SKIP_DEPTH {
-        return Err(FieldDecodeError::new());
-    }
-    let depth = depth.saturating_add(1);
     let Some((tag, len, payload_offset)) = parse_binary_head(bytes, offset)? else {
         return Err(FieldDecodeError::new());
     };
@@ -197,6 +247,21 @@ fn skip_binary_value_at_depth(
         tag,
         len,
     };
+
+    skip_parsed_binary_value(bytes, head, depth)
+}
+
+// Skip one value whose head is already parsed. Complete-root consumers use
+// this path so validation never reparses the root before decoding it.
+fn skip_parsed_binary_value(
+    bytes: &[u8],
+    head: BinaryHead,
+    depth: usize,
+) -> Result<usize, FieldDecodeError> {
+    if depth >= MAX_STRUCTURAL_BINARY_SKIP_DEPTH {
+        return Err(FieldDecodeError::new());
+    }
+    let depth = depth.saturating_add(1);
 
     match head.tag {
         TAG_NULL | TAG_UNIT | TAG_FALSE | TAG_TRUE => Ok(head.payload_offset),

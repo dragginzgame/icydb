@@ -1,4 +1,4 @@
-use super::{require_sql_write_policy_plan, sql_write_candidate_bounds};
+use super::sql_write_candidate_bounds;
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
@@ -66,26 +66,19 @@ impl<C: CanisterKind> DbSession<C> {
                     .select_fields(primary_names.iter().copied());
                 let bounds = sql_write_candidate_bounds(execution_bounds);
                 let entity_tag = catalog.identity().entity_tag();
-                let collection = self
-                    .collect_bounded_sql_write_candidate_collection_from_structural_query(
-                        catalog.snapshot(),
-                        authority,
-                        &selector,
-                        bounds,
-                        None,
-                        |row| {
-                            let key =
-                                structural_data_key_from_runtime_values(entity_tag, row.to_vec())
-                                    .map_err(QueryError::execute)?;
-                            Ok((key, AcceptedMutationIntentPatch::new()))
-                        },
-                    )?;
-                let keys = collection
-                    .into_batch()
-                    .into_rows()
-                    .into_iter()
-                    .map(|(key, _)| key)
-                    .collect();
+                let rows = self.collect_bounded_sql_write_mutation_batch_from_structural_query(
+                    catalog.snapshot(),
+                    authority,
+                    &selector,
+                    bounds,
+                    None,
+                    |row| {
+                        let key = structural_data_key_from_runtime_values(entity_tag, row.to_vec())
+                            .map_err(QueryError::execute)?;
+                        Ok((key, AcceptedMutationIntentPatch::new()))
+                    },
+                )?;
+                let keys = rows.into_rows().into_iter().map(|(key, _)| key).collect();
                 let columns = projection_labels_from_accepted_write_descriptor(&descriptor);
                 let rows = self
                     .execute_accepted_structural_delete_batch(catalog, &descriptor, keys, |rows| {
@@ -143,9 +136,9 @@ impl<C: CanisterKind> DbSession<C> {
             |_catalog, descriptor| {
                 let context =
                     SqlDeletePolicyContext::public_generated(descriptor.primary_key_names());
-                let report =
+                let result =
                     classify_sql_delete_statement_policy(dispatch.statement(), policy, context);
-                require_sql_write_policy_plan(report.plan)
+                result.map_err(|_| QueryError::unsupported_query())
             },
         )
     }

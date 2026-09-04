@@ -1,8 +1,7 @@
 use super::model::MAX_TRUSTED_EXACT_UPDATE_ROWS;
 use super::*;
 use crate::db::session::sql::write_policy::{
-    SqlWriteBoundedPolicyRejection, SqlWriteReturningBounds, SqlWriteReturningShape,
-    SqlWriteShapePolicyRejection, SqlWriteWhereProof,
+    SqlWriteBoundedPolicyRejection, SqlWriteReturningBounds, SqlWriteShapePolicyRejection,
 };
 
 const PRIMARY_KEY: &[&str] = &["id"];
@@ -11,30 +10,14 @@ fn context() -> SqlUpdatePolicyContext<'static> {
     SqlUpdatePolicyContext::new(PRIMARY_KEY)
 }
 
-fn classify(sql: &str, policy: SqlUpdateExposurePolicy) -> SqlUpdatePolicyReport {
+fn classify(sql: &str, policy: SqlUpdateExposurePolicy) -> SqlUpdatePolicyResult {
     classify_sql_update_policy(sql, policy, context()).expect("SQL should parse")
 }
 
-fn expect_plan(report: &SqlUpdatePolicyReport) -> &SqlValidatedUpdatePlan {
-    assert!(
-        report.rejection.is_none(),
-        "admitted policy must not also carry a rejection",
-    );
-    report
-        .plan
+fn expect_plan(result: &SqlUpdatePolicyResult) -> &SqlValidatedUpdatePlan {
+    result
         .as_ref()
         .expect("admitted policy should produce a validated plan")
-}
-
-fn assert_no_plan(report: &SqlUpdatePolicyReport) {
-    assert!(
-        report.rejection.is_some(),
-        "policy without a plan must carry a typed rejection",
-    );
-    assert!(
-        report.plan.is_none(),
-        "rejected policy should not expose a partially usable plan",
-    );
 }
 
 const fn shape_rejection(rejection: SqlWriteShapePolicyRejection) -> SqlUpdatePolicyRejection {
@@ -52,9 +35,7 @@ fn update_policy_rejects_non_update_statement() {
         SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
     );
 
-    assert_eq!(report.classification, None);
-    assert_eq!(report.rejection, Some(SqlUpdatePolicyRejection::NotUpdate),);
-    assert_no_plan(&report);
+    assert_eq!(report, Err(SqlUpdatePolicyRejection::NotUpdate));
 }
 
 #[test]
@@ -65,19 +46,9 @@ fn update_policy_public_primary_key_rejects_missing_where() {
     );
 
     assert_eq!(
-        report
-            .classification
-            .as_ref()
-            .expect("UPDATE should still classify")
-            .write_shape
-            .where_proof,
-        SqlWriteWhereProof::Missing,
+        report,
+        Err(shape_rejection(SqlWriteShapePolicyRejection::MissingWhere)),
     );
-    assert_eq!(
-        report.rejection,
-        Some(shape_rejection(SqlWriteShapePolicyRejection::MissingWhere)),
-    );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -87,16 +58,7 @@ fn update_policy_public_primary_key_only_accepts_primary_key_equality() {
         SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
     );
 
-    assert!(report.is_admitted());
-    assert_eq!(
-        report
-            .classification
-            .as_ref()
-            .expect("classification should be present")
-            .write_shape
-            .where_proof,
-        SqlWriteWhereProof::PrimaryKeyEquality,
-    );
+    assert!(report.is_ok());
     assert!(matches!(
         expect_plan(&report),
         SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(_),
@@ -110,16 +72,7 @@ fn update_policy_public_primary_key_only_accepts_alias_qualified_primary_key_equ
         SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
     );
 
-    assert!(report.is_admitted());
-    assert_eq!(
-        report
-            .classification
-            .as_ref()
-            .expect("classification should be present")
-            .write_shape
-            .where_proof,
-        SqlWriteWhereProof::PrimaryKeyEquality,
-    );
+    assert!(report.is_ok());
 }
 
 #[test]
@@ -129,23 +82,7 @@ fn update_policy_public_primary_key_only_rejects_primary_key_assignment() {
         SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
     );
 
-    assert_eq!(
-        report
-            .classification
-            .as_ref()
-            .expect("classification should be present")
-            .assignment_policy,
-        SqlUpdateAssignmentPolicy {
-            mutates_primary_key: true,
-            mutates_generated: false,
-            mutates_managed: false,
-        },
-    );
-    assert_eq!(
-        report.rejection,
-        Some(SqlUpdatePolicyRejection::PrimaryKeyMutation),
-    );
-    assert_no_plan(&report);
+    assert_eq!(report, Err(SqlUpdatePolicyRejection::PrimaryKeyMutation),);
 }
 
 #[test]
@@ -156,12 +93,11 @@ fn update_policy_public_primary_key_only_rejects_non_primary_key_where() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(shape_rejection(
+        report,
+        Err(shape_rejection(
             SqlWriteShapePolicyRejection::PrimaryKeyProofFailed,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -172,12 +108,11 @@ fn update_policy_public_primary_key_only_rejects_extra_where_guard() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(shape_rejection(
+        report,
+        Err(shape_rejection(
             SqlWriteShapePolicyRejection::PrimaryKeyProofFailed,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -190,16 +125,7 @@ fn update_policy_public_primary_key_only_accepts_complete_composite_primary_key(
     )
     .expect("SQL should parse");
 
-    assert!(report.is_admitted());
-    assert_eq!(
-        report
-            .classification
-            .as_ref()
-            .expect("classification should be present")
-            .write_shape
-            .where_proof,
-        SqlWriteWhereProof::PrimaryKeyEquality,
-    );
+    assert!(report.is_ok());
     assert!(matches!(
         expect_plan(&report),
         SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(_),
@@ -217,16 +143,15 @@ fn update_policy_public_primary_key_only_rejects_partial_composite_primary_key()
     .expect("SQL should parse");
 
     assert_eq!(
-        report.rejection,
-        Some(shape_rejection(
+        report,
+        Err(shape_rejection(
             SqlWriteShapePolicyRejection::PrimaryKeyProofFailed,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
-fn update_policy_classifies_narrow_returning_shapes() {
+fn update_policy_admits_supported_returning_shapes() {
     let returning_all = classify(
         "UPDATE Character SET age = 22 WHERE id = 1 RETURNING *",
         SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
@@ -236,26 +161,14 @@ fn update_policy_classifies_narrow_returning_shapes() {
         SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
     );
 
-    assert!(returning_all.is_admitted());
-    assert_eq!(
-        returning_all
-            .classification
-            .as_ref()
-            .expect("classification should be present")
-            .write_shape
-            .returning_shape,
-        SqlWriteReturningShape::NarrowAll,
-    );
-    assert!(returning_fields.is_admitted());
-    assert_eq!(
-        returning_fields
-            .classification
-            .as_ref()
-            .expect("classification should be present")
-            .write_shape
-            .returning_shape,
-        SqlWriteReturningShape::NarrowFields,
-    );
+    assert!(matches!(
+        expect_plan(&returning_all),
+        SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(_),
+    ));
+    assert!(matches!(
+        expect_plan(&returning_fields),
+        SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(_),
+    ));
 }
 
 #[test]
@@ -351,17 +264,7 @@ fn update_policy_public_bounded_accepts_explicit_primary_key_order_and_limit() {
         SqlUpdateExposurePolicy::PublicBoundedDeterministic,
     );
 
-    assert!(report.is_admitted());
-    let classification = report
-        .classification
-        .as_ref()
-        .expect("admitted UPDATE should include classification");
-    assert!(classification.write_shape.is_bounded());
-    assert!(
-        classification
-            .write_shape
-            .has_explicit_canonical_primary_key_order()
-    );
+    assert!(report.is_ok());
     assert!(matches!(
         expect_plan(&report),
         SqlValidatedUpdatePlan::PublicBoundedDeterministic(_),
@@ -376,12 +279,11 @@ fn update_policy_public_bounded_rejects_implicit_primary_key_fallback() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(bounded_rejection(
+        report,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -392,12 +294,11 @@ fn update_policy_public_bounded_rejects_missing_limit() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(bounded_rejection(
+        report,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::MissingLimit
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -408,12 +309,11 @@ fn update_policy_public_bounded_rejects_non_primary_key_ordering() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(bounded_rejection(
+        report,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -424,12 +324,11 @@ fn update_policy_public_bounded_rejects_descending_order() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(bounded_rejection(
+        report,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::DescendingOrder,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -447,12 +346,11 @@ fn update_policy_public_bounded_rejects_excessive_limit() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(bounded_rejection(
+        report,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::LimitTooHigh,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -463,12 +361,11 @@ fn update_policy_public_bounded_rejects_offset() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(bounded_rejection(
+        report,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::OffsetUnsupported,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -496,15 +393,10 @@ fn update_policy_rejects_generated_and_managed_assignment() {
     .expect("SQL should parse");
 
     assert_eq!(
-        generated.rejection,
-        Some(SqlUpdatePolicyRejection::GeneratedFieldMutation),
+        generated,
+        Err(SqlUpdatePolicyRejection::GeneratedFieldMutation),
     );
-    assert_eq!(
-        managed.rejection,
-        Some(SqlUpdatePolicyRejection::ManagedFieldMutation),
-    );
-    assert_no_plan(&generated);
-    assert_no_plan(&managed);
+    assert_eq!(managed, Err(SqlUpdatePolicyRejection::ManagedFieldMutation),);
 }
 
 #[test]
@@ -538,7 +430,7 @@ fn update_policy_allows_schema_owned_returning_fields_on_public_surfaces() {
             .expect("schema-owned RETURNING SQL should parse");
 
         assert!(
-            report.is_admitted(),
+            report.is_ok(),
             "public returning follows accepted row projection visibility",
         );
         let _ = expect_plan(&report);
@@ -569,19 +461,17 @@ fn update_policy_preserves_shape_rejections_with_schema_owned_returning_fields()
     .expect("bounded policy rejection SQL should parse");
 
     assert_eq!(
-        primary_key.rejection,
-        Some(shape_rejection(
+        primary_key,
+        Err(shape_rejection(
             SqlWriteShapePolicyRejection::PrimaryKeyProofFailed,
         )),
     );
     assert_eq!(
-        bounded.rejection,
-        Some(bounded_rejection(
+        bounded,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder,
         )),
     );
-    assert_no_plan(&primary_key);
-    assert_no_plan(&bounded);
 }
 
 #[test]
@@ -615,18 +505,17 @@ fn exact_update_policy_rejects_sql_windows_and_noncanonical_order() {
         let report = classify(sql, SqlUpdateExposurePolicy::TrustedExact(policy));
 
         assert_eq!(
-            report.rejection,
-            Some(SqlUpdatePolicyRejection::ExactWindowUnsupported),
+            report,
+            Err(SqlUpdatePolicyRejection::ExactWindowUnsupported),
             "{sql}",
         );
-        assert_no_plan(&report);
     }
 
     let canonical = classify(
         "UPDATE Character SET age = 22 WHERE active = true ORDER BY id ASC",
         SqlUpdateExposurePolicy::TrustedExact(policy),
     );
-    assert!(canonical.is_admitted());
+    assert!(canonical.is_ok());
 }
 
 #[test]

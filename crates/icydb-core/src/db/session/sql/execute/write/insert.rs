@@ -1,9 +1,8 @@
 use super::{
-    SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds, SqlWriteCandidateCollection,
-    SqlWriteCandidateRows, SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
-    reject_explicit_sql_write_to_managed_field, sql_write_candidate_bounds,
-    sql_write_input_for_accepted_field, sql_write_patch_set_accepted_field,
-    sql_write_patch_set_insert_default,
+    SqlWriteCandidateBounds, SqlWriteMutationBatch, SqlWriteMutationExecution,
+    reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
+    sql_write_candidate_bounds, sql_write_input_for_accepted_field,
+    sql_write_patch_set_accepted_field, sql_write_patch_set_insert_default,
 };
 use crate::{
     db::{
@@ -248,9 +247,9 @@ impl<C: CanisterKind> DbSession<C> {
         source_query: &StructuralQuery,
         columns: &[String],
         candidate_bounds: SqlWriteCandidateBounds,
-    ) -> Result<SqlWriteCandidateCollection<AcceptedStructuralMutationTarget>, QueryError> {
+    ) -> Result<SqlWriteMutationBatch<AcceptedStructuralMutationTarget>, QueryError> {
         let (authority, _schema_info) = Self::accepted_sql_write_authority_schema_info(catalog);
-        let rows = self.collect_bounded_sql_write_candidate_collection_from_structural_query(
+        let rows = self.collect_bounded_sql_write_mutation_batch_from_structural_query(
             catalog.snapshot(),
             authority,
             source_query,
@@ -281,7 +280,7 @@ impl<C: CanisterKind> DbSession<C> {
     // whole source row set behind a shared temporary vector.
     fn sql_insert_push_patch_row(
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
-        rows: &mut SqlWriteCandidateCollection<AcceptedStructuralMutationTarget>,
+        rows: &mut SqlWriteMutationBatch<AcceptedStructuralMutationTarget>,
         columns: &[String],
         values: &[SqlWriteValue],
     ) -> Result<(), QueryError> {
@@ -342,16 +341,12 @@ impl<C: CanisterKind> DbSession<C> {
                 }
                 let write_context = AcceptedWriteContext::new(Timestamp::now());
                 let candidate_bounds = sql_write_candidate_bounds(execution_bounds);
-                let mut collection = SqlWriteCandidateCollection::new();
+                let mut rows = SqlWriteMutationBatch::new();
 
                 match &statement.source {
                     SqlInsertSource::Values(values) => {
-                        candidate_bounds.validate_at(
-                            SqlWriteCandidateRows::from_len(values.len()),
-                            SqlWriteCandidateBoundCheck::InsertValuesSource,
-                        )?;
-                        collection
-                            .reserve(values.len().min(SQL_INSERT_VALUES_INITIAL_RESERVE_ROWS));
+                        candidate_bounds.validate_len(values.len())?;
+                        rows.reserve(values.len().min(SQL_INSERT_VALUES_INITIAL_RESERVE_ROWS));
                         for tuple in values {
                             if tuple.len() != columns.len() {
                                 return Err(QueryError::from_sql_parse_error(
@@ -363,25 +358,22 @@ impl<C: CanisterKind> DbSession<C> {
 
                             Self::sql_insert_push_patch_row(
                                 &descriptor,
-                                &mut collection,
+                                &mut rows,
                                 columns.as_slice(),
                                 tuple.as_slice(),
                             )?;
                         }
                     }
                     SqlInsertSource::DefaultValues => {
-                        candidate_bounds.validate_at(
-                            SqlWriteCandidateRows::from_len(1),
-                            SqlWriteCandidateBoundCheck::InsertValuesSource,
-                        )?;
-                        collection.push(
+                        candidate_bounds.validate_len(1)?;
+                        rows.push(
                             AcceptedStructuralMutationTarget::ResolveFromAfterImage,
                             Self::sql_insert_default_values_patch(&descriptor)?,
                         );
                     }
                     SqlInsertSource::Select(_) => {
                         let source_query = source_query.ok_or_else(QueryError::invariant)?;
-                        collection = self.execute_sql_insert_select_source_patches(
+                        rows = self.execute_sql_insert_select_source_patches(
                             catalog,
                             &descriptor,
                             source_query,
@@ -393,8 +385,8 @@ impl<C: CanisterKind> DbSession<C> {
                 self.execute_sql_write_mutation_batch(
                     catalog,
                     &descriptor,
-                    SqlWriteMutationExecution::from_bounded_collection(
-                        collection,
+                    SqlWriteMutationExecution::from_bounded_batch(
+                        rows,
                         candidate_bounds,
                         MutationMode::Insert,
                         write_context,

@@ -6,9 +6,8 @@
 use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{
-        TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NAT64, TAG_TEXT,
-        decode_text_scalar_bytes as decode_binary_text_scalar_bytes, parse_binary_head,
-        parse_complete_binary_value, payload_bytes as binary_payload_bytes, skip_binary_value,
+        CompleteBinaryValue, TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NAT64, parse_binary_head,
+        skip_binary_value,
     },
     primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
     value_storage::skip::skip_value_storage_binary_value,
@@ -24,41 +23,32 @@ fn parse_required_binary_payload(
     raw_bytes: &[u8],
     expected_tag: u8,
     expected_len: Option<u32>,
-) -> Result<(u32, usize), FieldDecodeError> {
-    let (tag, len, payload_start) = parse_complete_binary_value(raw_bytes)?;
-    if tag != expected_tag || expected_len.is_some_and(|v| len != v) {
+) -> Result<CompleteBinaryValue<'_>, FieldDecodeError> {
+    let root = CompleteBinaryValue::parse(raw_bytes)?;
+    if root.tag() != expected_tag || expected_len.is_some_and(|len| root.len() != len) {
         return Err(FieldDecodeError::new());
     }
 
-    Ok((len, payload_start))
+    Ok(root)
 }
 
 // Decode one required binary bytes payload.
 pub(super) fn decode_binary_required_bytes(raw_bytes: &[u8]) -> Result<&[u8], FieldDecodeError> {
-    let (len, payload_start) = parse_required_binary_payload(raw_bytes, TAG_BYTES, None)?;
-
-    binary_payload_bytes(raw_bytes, len, payload_start)
-}
-
-// Decode one required binary text payload.
-pub(super) fn decode_binary_required_text(raw_bytes: &[u8]) -> Result<&str, FieldDecodeError> {
-    let (len, payload_start) = parse_required_binary_payload(raw_bytes, TAG_TEXT, None)?;
-
-    decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)
+    parse_required_binary_payload(raw_bytes, TAG_BYTES, None)?.scalar_payload()
 }
 
 // Decode one required binary i64 payload.
 pub(super) fn decode_binary_required_i64(raw_bytes: &[u8]) -> Result<i64, FieldDecodeError> {
-    let (len, payload_start) = parse_required_binary_payload(raw_bytes, TAG_INT64, Some(8))?;
-
-    decode_i64_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)
+    decode_i64_payload_bytes(
+        parse_required_binary_payload(raw_bytes, TAG_INT64, Some(8))?.scalar_payload()?,
+    )
 }
 
 // Decode one required binary u64 payload.
 pub(super) fn decode_binary_required_u64(raw_bytes: &[u8]) -> Result<u64, FieldDecodeError> {
-    let (len, payload_start) = parse_required_binary_payload(raw_bytes, TAG_NAT64, Some(8))?;
-
-    decode_u64_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start)?)
+    decode_u64_payload_bytes(
+        parse_required_binary_payload(raw_bytes, TAG_NAT64, Some(8))?.scalar_payload()?,
+    )
 }
 
 // === Tuple Splitting Helpers ===

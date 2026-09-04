@@ -1,9 +1,8 @@
 use super::{
     SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
-    reject_explicit_sql_write_to_managed_field, require_sql_write_policy_plan,
-    sql_exact_update_candidate_bounds, sql_write_candidate_bounds,
-    sql_write_input_for_accepted_field, sql_write_patch_set_accepted_field,
-    sql_write_patch_set_update_default,
+    reject_explicit_sql_write_to_managed_field, sql_exact_update_candidate_bounds,
+    sql_write_candidate_bounds, sql_write_input_for_accepted_field,
+    sql_write_patch_set_accepted_field, sql_write_patch_set_update_default,
 };
 use crate::{
     db::{
@@ -18,7 +17,7 @@ use crate::{
                 SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
                 SqlPublicPrimaryKeyUpdatePlan, SqlStatementDispatch, SqlStatementResult,
                 SqlTrustedExactUpdatePlan, SqlUpdateExposurePolicy, SqlUpdatePolicyRejection,
-                SqlUpdatePolicyReport, SqlValidatedUpdatePlan,
+                SqlUpdatePolicyResult, SqlValidatedUpdatePlan,
                 classify_sql_update_policy_for_entity, sql_statement_dispatch,
                 with_accepted_sql_update_policy_context,
                 write_policy::{SqlWriteExecutionBounds, SqlWriteShapePolicyRejection},
@@ -66,35 +65,38 @@ fn sql_exact_update_policy_error(
 }
 
 fn require_sql_exact_update_plan(
-    report: SqlUpdatePolicyReport,
+    result: SqlUpdatePolicyResult,
 ) -> Result<SqlTrustedExactUpdatePlan, QueryError> {
-    if let Some(SqlValidatedUpdatePlan::TrustedExact(plan)) = report.plan {
-        return Ok(plan);
-    }
-
-    let boundary = match report.rejection {
-        Some(SqlUpdatePolicyRejection::WriteShape(SqlWriteShapePolicyRejection::MissingWhere)) => {
+    let rejection = match result {
+        Ok(SqlValidatedUpdatePlan::TrustedExact(plan)) => return Ok(plan),
+        Err(rejection) => rejection,
+        Ok(
+            SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(_)
+            | SqlValidatedUpdatePlan::PublicBoundedDeterministic(_),
+        ) => return Err(QueryError::unsupported_query()),
+    };
+    let boundary = match rejection {
+        SqlUpdatePolicyRejection::WriteShape(SqlWriteShapePolicyRejection::MissingWhere) => {
             SqlWriteBoundaryCode::UpdateMissingWherePredicate
         }
-        Some(SqlUpdatePolicyRejection::PrimaryKeyMutation) => {
+        SqlUpdatePolicyRejection::PrimaryKeyMutation => {
             SqlWriteBoundaryCode::UpdatePrimaryKeyMutation
         }
-        Some(SqlUpdatePolicyRejection::GeneratedFieldMutation) => {
+        SqlUpdatePolicyRejection::GeneratedFieldMutation => {
             SqlWriteBoundaryCode::ExplicitGeneratedField
         }
-        Some(SqlUpdatePolicyRejection::ManagedFieldMutation) => {
+        SqlUpdatePolicyRejection::ManagedFieldMutation => {
             SqlWriteBoundaryCode::ExplicitManagedField
         }
-        Some(SqlUpdatePolicyRejection::ExactWindowUnsupported) => {
+        SqlUpdatePolicyRejection::ExactWindowUnsupported => {
             SqlWriteBoundaryCode::ExactUpdateWindowUnsupported
         }
-        Some(
-            SqlUpdatePolicyRejection::NotUpdate
-            | SqlUpdatePolicyRejection::WriteShape(_)
-            | SqlUpdatePolicyRejection::ResumableWindowUnsupported
-            | SqlUpdatePolicyRejection::ResumableReturningUnsupported,
-        )
-        | None => return Err(QueryError::unsupported_query()),
+        SqlUpdatePolicyRejection::NotUpdate
+        | SqlUpdatePolicyRejection::WriteShape(_)
+        | SqlUpdatePolicyRejection::ResumableWindowUnsupported
+        | SqlUpdatePolicyRejection::ResumableReturningUnsupported => {
+            return Err(QueryError::unsupported_query());
+        }
     };
 
     Err(QueryError::sql_write_boundary(boundary))
@@ -255,31 +257,27 @@ impl<C: CanisterKind> DbSession<C> {
                 let write_context = AcceptedWriteContext::new(Timestamp::now());
                 let candidate_bounds = execution_contract.candidate_bounds();
                 let scan_budget = execution_contract.scan_budget()?;
-                let collection = self
-                    .collect_bounded_sql_write_candidate_collection_from_structural_query(
-                        catalog.snapshot(),
-                        authority,
-                        &selector,
-                        candidate_bounds,
-                        scan_budget,
-                        |row| {
-                            let key = Self::sql_write_key_from_projected_row(
-                                entity_tag,
-                                &descriptor,
-                                row,
-                            )?;
+                let rows = self.collect_bounded_sql_write_mutation_batch_from_structural_query(
+                    catalog.snapshot(),
+                    authority,
+                    &selector,
+                    candidate_bounds,
+                    scan_budget,
+                    |row| {
+                        let key =
+                            Self::sql_write_key_from_projected_row(entity_tag, &descriptor, row)?;
 
-                            Ok((
-                                AcceptedStructuralMutationTarget::expected(key),
-                                patch.clone(),
-                            ))
-                        },
-                    )?;
+                        Ok((
+                            AcceptedStructuralMutationTarget::expected(key),
+                            patch.clone(),
+                        ))
+                    },
+                )?;
                 self.execute_sql_write_mutation_batch(
                     catalog,
                     &descriptor,
-                    SqlWriteMutationExecution::from_bounded_collection(
-                        collection,
+                    SqlWriteMutationExecution::from_bounded_batch(
+                        rows,
                         candidate_bounds,
                         MutationMode::Update,
                         write_context,
@@ -291,11 +289,11 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    fn schema_derived_sql_update_report(
+    fn schema_derived_sql_update_policy_result(
         &self,
         dispatch: &SqlStatementDispatch<'_>,
         policy: SqlUpdateExposurePolicy,
-    ) -> Result<SqlUpdatePolicyReport, QueryError> {
+    ) -> Result<SqlUpdatePolicyResult, QueryError> {
         let entity_name = dispatch.entity_name();
         self.with_checked_accepted_write_descriptor_for_returning(
             None,
@@ -319,9 +317,9 @@ impl<C: CanisterKind> DbSession<C> {
         dispatch: &SqlStatementDispatch<'_>,
         policy: SqlUpdateExposurePolicy,
     ) -> Result<SqlValidatedUpdatePlan, QueryError> {
-        let report = self.schema_derived_sql_update_report(dispatch, policy)?;
+        let result = self.schema_derived_sql_update_policy_result(dispatch, policy)?;
 
-        require_sql_write_policy_plan(report.plan)
+        result.map_err(|_| QueryError::unsupported_query())
     }
 
     /// Execute a policy-validated public primary-key SQL `UPDATE` plan.
@@ -459,11 +457,11 @@ impl<C: CanisterKind> DbSession<C> {
             SqlExactUpdatePolicy::try_new(require_affected_at_most).map_err(|rejection| {
                 sql_exact_update_policy_error(require_affected_at_most, rejection)
             })?;
-        let report = self.schema_derived_sql_update_report(
+        let result = self.schema_derived_sql_update_policy_result(
             dispatch,
             SqlUpdateExposurePolicy::TrustedExact(policy),
         )?;
-        let plan = require_sql_exact_update_plan(report)?;
+        let plan = require_sql_exact_update_plan(result)?;
 
         self.execute_validated_sql_trusted_exact_update(&plan)
     }

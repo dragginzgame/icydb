@@ -7,11 +7,14 @@ use crate::{
     db::data::structural_field::{
         FieldDecodeError,
         binary::{
-            TAG_BYTES, TAG_INT64, TAG_NAT64, TAG_TEXT,
+            CompleteBinaryValue, TAG_BYTES, TAG_INT64, TAG_NAT64, TAG_TEXT,
             decode_text_scalar_bytes as decode_binary_text_scalar_bytes, parse_binary_head,
         },
         primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
-        value_storage::decode::cursor::{enforce_optional_trailing, parsed_value_payload_end},
+        value_storage::decode::{
+            ValueStorageSlice,
+            cursor::{enforce_optional_trailing, parsed_value_payload_end},
+        },
     },
     value::Value,
 };
@@ -71,43 +74,31 @@ pub(super) fn decode_binary_blob_value_at(
 }
 
 // Decode one top-level i64 scalar without wrapping it in a runtime `Value`.
-pub(super) fn decode_binary_i64_scalar(raw_bytes: &[u8]) -> Result<i64, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let (value, _) = decode_binary_i64_from_parsed(raw_bytes, tag, len, payload_start, true)?;
-
-    Ok(value)
+pub(super) fn decode_binary_i64_scalar(
+    slice: &ValueStorageSlice<'_>,
+) -> Result<i64, FieldDecodeError> {
+    decode_i64_payload_bytes(slice.scalar_payload(TAG_INT64, Some(8))?)
 }
 
 // Decode one top-level u64 scalar without wrapping it in a runtime `Value`.
-pub(super) fn decode_binary_u64_scalar(raw_bytes: &[u8]) -> Result<u64, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let (value, _) = decode_binary_u64_from_parsed(raw_bytes, tag, len, payload_start, true)?;
-
-    Ok(value)
+pub(super) fn decode_binary_u64_scalar(
+    slice: &ValueStorageSlice<'_>,
+) -> Result<u64, FieldDecodeError> {
+    decode_u64_payload_bytes(slice.scalar_payload(TAG_NAT64, Some(8))?)
 }
 
 // Decode one top-level text scalar without allocating an owned `String`.
-pub(super) fn decode_binary_text_scalar(raw_bytes: &[u8]) -> Result<&str, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let (value, _) = decode_binary_text_from_parsed(raw_bytes, tag, len, payload_start, true)?;
-
-    Ok(value)
+pub(super) fn decode_binary_text_scalar<'a>(
+    slice: &ValueStorageSlice<'a>,
+) -> Result<&'a str, FieldDecodeError> {
+    std::str::from_utf8(slice.scalar_payload(TAG_TEXT, None)?).map_err(|_| FieldDecodeError::new())
 }
 
 // Decode one top-level blob scalar without allocating owned bytes.
-pub(super) fn decode_binary_blob_scalar(raw_bytes: &[u8]) -> Result<&[u8], FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let (value, _) = decode_binary_blob_from_parsed(raw_bytes, tag, len, payload_start, true)?;
-
-    Ok(value)
+pub(super) fn decode_binary_blob_scalar<'a>(
+    slice: &ValueStorageSlice<'a>,
+) -> Result<&'a [u8], FieldDecodeError> {
+    slice.scalar_payload(TAG_BYTES, None)
 }
 
 // Borrow the payload bytes for one top-level text scalar without validating
@@ -116,19 +107,12 @@ pub(super) fn decode_binary_blob_scalar(raw_bytes: &[u8]) -> Result<&[u8], Field
 pub(super) fn decode_binary_text_payload_bytes_if_text(
     raw_bytes: &[u8],
 ) -> Result<Option<&[u8]>, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    if tag != TAG_TEXT {
+    let root = CompleteBinaryValue::parse(raw_bytes)?;
+    if root.tag() != TAG_TEXT {
         return Ok(None);
     }
-    let cursor = parsed_value_payload_end(raw_bytes, len, payload_start)?;
-    enforce_optional_trailing(cursor, raw_bytes.len(), true)?;
-    let payload = raw_bytes
-        .get(payload_start..cursor)
-        .ok_or_else(FieldDecodeError::new)?;
 
-    Ok(Some(payload))
+    root.scalar_payload().map(Some)
 }
 
 // Decode one parsed i64 scalar after the caller has already read the structural

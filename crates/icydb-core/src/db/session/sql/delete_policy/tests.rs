@@ -1,7 +1,6 @@
 use super::*;
 use crate::db::session::sql::write_policy::{
-    SqlWriteBoundedPolicyRejection, SqlWriteReturningBounds, SqlWriteReturningShape,
-    SqlWriteShapePolicyRejection, SqlWriteWhereProof,
+    SqlWriteBoundedPolicyRejection, SqlWriteReturningBounds, SqlWriteShapePolicyRejection,
 };
 
 const PRIMARY_KEY: &[&str] = &["id"];
@@ -10,30 +9,14 @@ fn context() -> SqlDeletePolicyContext<'static> {
     SqlDeletePolicyContext::new(PRIMARY_KEY)
 }
 
-fn classify(sql: &str, policy: SqlDeleteExposurePolicy) -> SqlDeletePolicyReport {
+fn classify(sql: &str, policy: SqlDeleteExposurePolicy) -> SqlDeletePolicyResult {
     classify_sql_delete_policy(sql, policy, context()).expect("SQL should parse")
 }
 
-fn expect_plan(report: &SqlDeletePolicyReport) -> &SqlValidatedDeletePlan {
-    assert!(
-        report.rejection.is_none(),
-        "admitted policy must not also carry a rejection",
-    );
-    report
-        .plan
+fn expect_plan(result: &SqlDeletePolicyResult) -> &SqlValidatedDeletePlan {
+    result
         .as_ref()
         .expect("admitted policy should produce a validated plan")
-}
-
-fn assert_no_plan(report: &SqlDeletePolicyReport) {
-    assert!(
-        report.rejection.is_some(),
-        "policy without a plan must carry a typed rejection",
-    );
-    assert!(
-        report.plan.is_none(),
-        "rejected policy should not expose a partially usable plan",
-    );
 }
 
 const fn shape_rejection(rejection: SqlWriteShapePolicyRejection) -> SqlDeletePolicyRejection {
@@ -51,9 +34,7 @@ fn delete_policy_rejects_non_delete_statement() {
         SqlDeleteExposurePolicy::PublicPrimaryKeyOnly,
     );
 
-    assert_eq!(report.classification, None);
-    assert_eq!(report.rejection, Some(SqlDeletePolicyRejection::NotDelete),);
-    assert_no_plan(&report);
+    assert_eq!(report, Err(SqlDeletePolicyRejection::NotDelete));
 }
 
 #[test]
@@ -63,16 +44,7 @@ fn delete_policy_public_primary_key_only_accepts_primary_key_equality() {
         SqlDeleteExposurePolicy::PublicPrimaryKeyOnly,
     );
 
-    assert!(report.is_admitted());
-    assert_eq!(
-        report
-            .classification
-            .as_ref()
-            .expect("classification should be present")
-            .write_shape
-            .where_proof,
-        SqlWriteWhereProof::PrimaryKeyEquality,
-    );
+    assert!(report.is_ok());
     assert!(matches!(
         expect_plan(&report),
         SqlValidatedDeletePlan::PublicPrimaryKeyOnly(_),
@@ -86,16 +58,7 @@ fn delete_policy_public_primary_key_only_accepts_alias_qualified_primary_key_equ
         SqlDeleteExposurePolicy::PublicPrimaryKeyOnly,
     );
 
-    assert!(report.is_admitted());
-    assert_eq!(
-        report
-            .classification
-            .as_ref()
-            .expect("classification should be present")
-            .write_shape
-            .where_proof,
-        SqlWriteWhereProof::PrimaryKeyEquality,
-    );
+    assert!(report.is_ok());
 }
 
 #[test]
@@ -106,10 +69,9 @@ fn delete_policy_public_primary_key_only_rejects_missing_where() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(shape_rejection(SqlWriteShapePolicyRejection::MissingWhere)),
+        report,
+        Err(shape_rejection(SqlWriteShapePolicyRejection::MissingWhere)),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -120,12 +82,11 @@ fn delete_policy_public_primary_key_only_rejects_non_primary_key_where() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(shape_rejection(
+        report,
+        Err(shape_rejection(
             SqlWriteShapePolicyRejection::PrimaryKeyProofFailed,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -136,12 +97,11 @@ fn delete_policy_public_primary_key_only_rejects_extra_where_guard() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(shape_rejection(
+        report,
+        Err(shape_rejection(
             SqlWriteShapePolicyRejection::PrimaryKeyProofFailed,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -154,7 +114,7 @@ fn delete_policy_public_primary_key_only_accepts_complete_composite_primary_key(
     )
     .expect("SQL should parse");
 
-    assert!(report.is_admitted());
+    assert!(report.is_ok());
     assert!(matches!(
         expect_plan(&report),
         SqlValidatedDeletePlan::PublicPrimaryKeyOnly(_),
@@ -168,17 +128,7 @@ fn delete_policy_public_bounded_accepts_explicit_primary_key_order_and_limit() {
         SqlDeleteExposurePolicy::PublicBoundedDeterministic,
     );
 
-    assert!(report.is_admitted());
-    let classification = report
-        .classification
-        .as_ref()
-        .expect("admitted DELETE should include classification");
-    assert!(classification.write_shape.is_bounded());
-    assert!(
-        classification
-            .write_shape
-            .has_explicit_canonical_primary_key_order()
-    );
+    assert!(report.is_ok());
     assert!(matches!(
         expect_plan(&report),
         SqlValidatedDeletePlan::PublicBoundedDeterministic(_),
@@ -193,10 +143,9 @@ fn delete_policy_public_bounded_rejects_missing_where() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(shape_rejection(SqlWriteShapePolicyRejection::MissingWhere)),
+        report,
+        Err(shape_rejection(SqlWriteShapePolicyRejection::MissingWhere)),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -207,12 +156,11 @@ fn delete_policy_public_bounded_rejects_implicit_primary_key_fallback() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(bounded_rejection(
+        report,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -223,12 +171,11 @@ fn delete_policy_public_bounded_rejects_missing_limit() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(bounded_rejection(
+        report,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::MissingLimit
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -239,12 +186,11 @@ fn delete_policy_public_bounded_rejects_non_primary_key_ordering() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(bounded_rejection(
+        report,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -255,12 +201,11 @@ fn delete_policy_public_bounded_rejects_descending_order() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(bounded_rejection(
+        report,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::DescendingOrder,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -275,12 +220,11 @@ fn delete_policy_public_bounded_rejects_excessive_limit() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(bounded_rejection(
+        report,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::LimitTooHigh,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
@@ -291,16 +235,15 @@ fn delete_policy_public_bounded_rejects_offset() {
     );
 
     assert_eq!(
-        report.rejection,
-        Some(bounded_rejection(
+        report,
+        Err(bounded_rejection(
             SqlWriteBoundedPolicyRejection::OffsetUnsupported,
         )),
     );
-    assert_no_plan(&report);
 }
 
 #[test]
-fn delete_policy_classifies_narrow_returning_shapes() {
+fn delete_policy_admits_supported_returning_shapes() {
     let returning_all = classify(
         "DELETE FROM Character WHERE id = 1 RETURNING *",
         SqlDeleteExposurePolicy::PublicPrimaryKeyOnly,
@@ -310,26 +253,14 @@ fn delete_policy_classifies_narrow_returning_shapes() {
         SqlDeleteExposurePolicy::PublicPrimaryKeyOnly,
     );
 
-    assert!(returning_all.is_admitted());
-    assert_eq!(
-        returning_all
-            .classification
-            .as_ref()
-            .expect("classification should be present")
-            .write_shape
-            .returning_shape,
-        SqlWriteReturningShape::NarrowAll,
-    );
-    assert!(returning_fields.is_admitted());
-    assert_eq!(
-        returning_fields
-            .classification
-            .as_ref()
-            .expect("classification should be present")
-            .write_shape
-            .returning_shape,
-        SqlWriteReturningShape::NarrowFields,
-    );
+    assert!(matches!(
+        expect_plan(&returning_all),
+        SqlValidatedDeletePlan::PublicPrimaryKeyOnly(_),
+    ));
+    assert!(matches!(
+        expect_plan(&returning_fields),
+        SqlValidatedDeletePlan::PublicPrimaryKeyOnly(_),
+    ));
 }
 
 #[test]

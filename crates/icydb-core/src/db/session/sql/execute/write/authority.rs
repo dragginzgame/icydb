@@ -41,10 +41,6 @@ fn checked_accepted_write_descriptor_for_returning<'a>(
     Ok(descriptor)
 }
 
-pub(super) fn require_sql_write_policy_plan<T>(plan: Option<T>) -> Result<T, QueryError> {
-    plan.ok_or_else(QueryError::unsupported_query)
-}
-
 fn accepted_write_field_slot(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     field_name: &str,

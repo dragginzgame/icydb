@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
+- `0.252.10` converges SQL write and Structural Binary scalar flows on typed
+  single owners, removes test-only candidate diagnostics, and hard-cuts
+  predecessor-policy cancellation. Five cleanup slices remove 730 net code
+  lines and 903 raw Wasm bytes while lowering measured write and row-read cost,
+  without changing interfaces or formats.
 - `0.252.9` completes closeout cleanup by converging persisted-scalar
   conversion, executor budget charging, identity preflight, integrity store
   discovery, Structural Binary parsing, and SQL write policy on their canonical

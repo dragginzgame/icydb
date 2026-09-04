@@ -5,7 +5,7 @@
 
 use super::model::{
     SqlWriteBoundedPolicyRejection, SqlWriteExecutionBounds, SqlWriteOrderProof,
-    SqlWriteReturningBounds, SqlWriteStagedRowBoundKind,
+    SqlWriteReturningBounds,
 };
 
 pub(super) const fn combined_optional_row_bound(
@@ -21,16 +21,6 @@ pub(super) const fn combined_optional_row_bound(
         (Some(policy), None) => Some(policy),
         (None, Some(configured)) => Some(configured),
         (None, None) => None,
-    }
-}
-
-const fn sql_write_staged_row_bound(
-    kind: SqlWriteStagedRowBoundKind,
-    limit: Option<u32>,
-) -> Option<u32> {
-    match kind {
-        SqlWriteStagedRowBoundKind::One => Some(1),
-        SqlWriteStagedRowBoundKind::Limit => limit,
     }
 }
 
@@ -65,7 +55,7 @@ pub(super) const fn bounded_write_policy_rejection(
     }
 }
 
-const fn sql_write_execution_bounds(
+pub(super) const fn sql_write_execution_bounds(
     max_staged_rows: Option<u32>,
     returning_requested: bool,
     max_returning_rows: Option<u32>,
@@ -86,21 +76,6 @@ const fn sql_write_execution_bounds(
     }
 }
 
-pub(super) const fn sql_write_execution_bounds_for_staged_kind(
-    staged_row_bound_kind: SqlWriteStagedRowBoundKind,
-    limit: Option<u32>,
-    returning_requested: bool,
-    max_returning_rows: Option<u32>,
-    max_returning_response_bytes: Option<u32>,
-) -> SqlWriteExecutionBounds {
-    sql_write_execution_bounds(
-        sql_write_staged_row_bound(staged_row_bound_kind, limit),
-        returning_requested,
-        max_returning_rows,
-        max_returning_response_bytes,
-    )
-}
-
 pub(in crate::db::session::sql) const fn sql_write_execution_bounds_for_exact_update(
     require_affected_at_most: u32,
     returning_requested: bool,
@@ -118,49 +93,6 @@ pub(in crate::db::session::sql) const fn sql_write_execution_bounds_for_exact_up
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn sql_write_staged_row_bound_maps_shared_policy_kinds() {
-        assert_eq!(
-            sql_write_staged_row_bound(SqlWriteStagedRowBoundKind::One, Some(10)),
-            Some(1),
-        );
-        assert_eq!(
-            sql_write_staged_row_bound(SqlWriteStagedRowBoundKind::Limit, Some(10)),
-            Some(10),
-        );
-        assert_eq!(
-            sql_write_staged_row_bound(SqlWriteStagedRowBoundKind::Limit, None),
-            None,
-        );
-    }
-
-    #[test]
-    fn sql_write_execution_bounds_for_staged_kind_combines_policy_and_returning_caps() {
-        let bounded = sql_write_execution_bounds_for_staged_kind(
-            SqlWriteStagedRowBoundKind::Limit,
-            Some(10),
-            true,
-            Some(3),
-            Some(1024),
-        );
-
-        assert_eq!(bounded.max_staged_rows, Some(10));
-        assert_eq!(bounded.returning.max_rows, Some(3));
-        assert_eq!(bounded.returning.max_response_bytes, Some(1024));
-
-        let primary_key_only = sql_write_execution_bounds_for_staged_kind(
-            SqlWriteStagedRowBoundKind::One,
-            Some(10),
-            false,
-            Some(3),
-            Some(1024),
-        );
-
-        assert_eq!(primary_key_only.max_staged_rows, Some(1));
-        assert_eq!(primary_key_only.returning.max_rows, None);
-        assert_eq!(primary_key_only.returning.max_response_bytes, Some(1024),);
-    }
 
     #[test]
     fn bounded_write_policy_rejection_keeps_public_priority_order() {

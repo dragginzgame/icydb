@@ -32,15 +32,12 @@ use crate::{
 };
 use authority::{
     reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
-    require_sql_write_policy_plan, sql_write_input_for_accepted_field,
-    sql_write_patch_set_accepted_field, sql_write_patch_set_insert_default,
-    sql_write_patch_set_update_default,
+    sql_write_input_for_accepted_field, sql_write_patch_set_accepted_field,
+    sql_write_patch_set_insert_default, sql_write_patch_set_update_default,
 };
 use candidate::{
-    SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds, SqlWriteCandidateCollection,
-    SqlWriteCandidateRows, SqlWriteMutationBatch, SqlWriteProjectedSourceRows,
-    sql_exact_update_candidate_bounds, sql_write_candidate_bounds,
-    sql_write_candidate_collection_capacity,
+    SqlWriteCandidateBounds, SqlWriteMutationBatch, sql_exact_update_candidate_bounds,
+    sql_write_candidate_bounds, sql_write_mutation_batch_capacity,
 };
 
 pub(super) fn execute_compiled_sql_write<C>(
@@ -119,16 +116,14 @@ struct SqlWriteMutationExecution {
 }
 
 impl SqlWriteMutationExecution {
-    fn from_bounded_collection(
-        mut collection: SqlWriteCandidateCollection<AcceptedStructuralMutationTarget>,
+    fn from_bounded_batch(
+        rows: SqlWriteMutationBatch<AcceptedStructuralMutationTarget>,
         bounds: SqlWriteCandidateBounds,
         mode: MutationMode,
         context: AcceptedWriteContext,
         returning_bounds: Option<SqlWriteReturningBounds>,
     ) -> Result<Self, QueryError> {
-        collection
-            .validate_staged_rows_at(bounds, SqlWriteCandidateBoundCheck::MutationBatchHandoff)?;
-        let rows = collection.into_batch();
+        rows.validate_bounds(bounds)?;
 
         Ok(Self {
             rows,
@@ -140,7 +135,7 @@ impl SqlWriteMutationExecution {
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    fn collect_bounded_sql_write_candidate_collection_from_structural_query<K>(
+    fn collect_bounded_sql_write_mutation_batch_from_structural_query<K>(
         &self,
         schema: &AcceptedSchemaSnapshot,
         authority: EntityAuthority,
@@ -148,8 +143,8 @@ impl<C: CanisterKind> DbSession<C> {
         bounds: SqlWriteCandidateBounds,
         scan_budget: Option<StructuralProjectionScanBudget>,
         mut row_to_patch: impl FnMut(&[Value]) -> Result<(K, AcceptedMutationIntentPatch), QueryError>,
-    ) -> Result<SqlWriteCandidateCollection<K>, QueryError> {
-        self.collect_sql_write_candidate_collection_from_structural_query_with_bounds(
+    ) -> Result<SqlWriteMutationBatch<K>, QueryError> {
+        self.collect_sql_write_mutation_batch_from_structural_query_with_bounds(
             schema,
             authority,
             query,
@@ -159,7 +154,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    fn collect_sql_write_candidate_collection_from_structural_query_with_bounds<K>(
+    fn collect_sql_write_mutation_batch_from_structural_query_with_bounds<K>(
         &self,
         schema: &AcceptedSchemaSnapshot,
         authority: EntityAuthority,
@@ -167,7 +162,7 @@ impl<C: CanisterKind> DbSession<C> {
         bounds: SqlWriteCandidateBounds,
         scan_budget: Option<StructuralProjectionScanBudget>,
         row_to_patch: &mut impl FnMut(&[Value]) -> Result<(K, AcceptedMutationIntentPatch), QueryError>,
-    ) -> Result<SqlWriteCandidateCollection<K>, QueryError> {
+    ) -> Result<SqlWriteMutationBatch<K>, QueryError> {
         let payload = match scan_budget {
             Some(scan_budget) => self
                 .execute_primary_only_sql_projection_from_structural_query_with_scan_budget(
@@ -183,16 +178,13 @@ impl<C: CanisterKind> DbSession<C> {
             ),
         }?;
         let (_, _, projected_rows, _) = payload.into_runtime_components();
-        let mut rows = SqlWriteCandidateCollection::with_capacity(
-            sql_write_candidate_collection_capacity(projected_rows.as_slice()),
-        );
-        rows.record_projected_source_rows(SqlWriteProjectedSourceRows::from_len(
+        let mut rows = SqlWriteMutationBatch::with_capacity(sql_write_mutation_batch_capacity(
             projected_rows.len(),
         ));
         for row in projected_rows {
             let (key, patch) = row_to_patch(row.as_slice())?;
             rows.push(key, patch);
-            rows.validate_staged_rows_at(bounds, SqlWriteCandidateBoundCheck::SelectorSourceBatch)?;
+            rows.validate_bounds(bounds)?;
         }
 
         Ok(rows)

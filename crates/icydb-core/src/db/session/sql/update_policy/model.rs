@@ -1,4 +1,4 @@
-//! SQL `UPDATE` policy model, proofs, bounds, and public DTOs.
+//! SQL `UPDATE` policy model, proofs, bounds, and typed outcomes.
 //! Does not own: SQL parsing or policy classification execution.
 
 #[cfg(test)]
@@ -7,7 +7,7 @@ use crate::db::{
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
         SqlWriteExecutionBounds, SqlWritePlanCore, SqlWritePolicyBounds,
-        SqlWriteShapePolicyRejection, SqlWriteStatementShape,
+        SqlWriteShapePolicyRejection,
     },
     sql::parser::SqlUpdateStatement,
 };
@@ -159,38 +159,6 @@ impl<'a> SqlUpdatePolicyContext<'a> {
     }
 }
 
-/// Assignment ownership classification for one parsed `UPDATE`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[doc(hidden)]
-pub(in crate::db) struct SqlUpdateAssignmentPolicy {
-    /// Whether the statement assigns any primary-key field.
-    pub mutates_primary_key: bool,
-    /// Whether the statement assigns any generated-owned field.
-    pub mutates_generated: bool,
-    /// Whether the statement assigns any managed/internal field.
-    pub mutates_managed: bool,
-}
-
-impl SqlUpdateAssignmentPolicy {
-    pub(super) const fn admitted(self) -> bool {
-        !self.mutates_primary_key && !self.mutates_generated && !self.mutates_managed
-    }
-}
-
-/// Parsed `UPDATE` classification before a caller-selected exposure policy is applied.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[doc(hidden)]
-pub(in crate::db) struct SqlUpdateStatementClassification {
-    /// Target entity identifier.
-    pub target_entity: String,
-    /// Fields assigned by the `SET` list in parser order.
-    pub assigned_fields: Vec<String>,
-    /// Assignment ownership classification.
-    pub assignment_policy: SqlUpdateAssignmentPolicy,
-    /// Shared parser write-shape classification.
-    pub write_shape: SqlWriteStatementShape,
-}
-
 pub(super) type SqlUpdatePlanCore = SqlWritePlanCore<SqlUpdateStatement>;
 
 /// Validated non-executing SQL `UPDATE` plan.
@@ -339,53 +307,7 @@ pub(in crate::db) enum SqlUpdatePolicyRejection {
     ResumableReturningUnsupported,
 }
 
-/// Result of classifying one SQL statement under an `UPDATE` exposure policy.
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// Mutually exclusive validated plan or stable rejection for one SQL `UPDATE` policy.
 #[doc(hidden)]
-pub(in crate::db) struct SqlUpdatePolicyReport {
-    /// Parsed `UPDATE` classification when the statement is an `UPDATE`.
-    pub classification: Option<SqlUpdateStatementClassification>,
-    /// Typed validated plan when the selected policy admits the statement.
-    pub plan: Option<SqlValidatedUpdatePlan>,
-    /// Policy rejection, or `None` when the selected policy admits the statement.
-    pub rejection: Option<SqlUpdatePolicyRejection>,
-}
-
-impl SqlUpdatePolicyReport {
-    /// Return whether the selected policy admits the statement.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) const fn is_admitted(&self) -> bool {
-        self.rejection.is_none()
-    }
-
-    pub(super) const fn admitted(
-        classification: SqlUpdateStatementClassification,
-        plan: SqlValidatedUpdatePlan,
-    ) -> Self {
-        Self {
-            classification: Some(classification),
-            plan: Some(plan),
-            rejection: None,
-        }
-    }
-
-    pub(super) const fn classified_rejection(
-        classification: SqlUpdateStatementClassification,
-        rejection: SqlUpdatePolicyRejection,
-    ) -> Self {
-        Self {
-            classification: Some(classification),
-            plan: None,
-            rejection: Some(rejection),
-        }
-    }
-
-    pub(super) const fn rejected(rejection: SqlUpdatePolicyRejection) -> Self {
-        Self {
-            classification: None,
-            plan: None,
-            rejection: Some(rejection),
-        }
-    }
-}
+pub(in crate::db) type SqlUpdatePolicyResult =
+    Result<SqlValidatedUpdatePlan, SqlUpdatePolicyRejection>;

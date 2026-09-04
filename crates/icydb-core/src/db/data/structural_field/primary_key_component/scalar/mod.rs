@@ -8,18 +8,15 @@ mod bytes;
 mod encode;
 mod primitive;
 
-pub(in crate::db::data::structural_field::primary_key_component) use account::decode_account_primary_key_component_binary_bytes;
+pub(in crate::db::data::structural_field::primary_key_component) use account::decode_account_primary_key_component;
 pub(in crate::db::data::structural_field::primary_key_component) use bytes::{
-    decode_principal_primary_key_component_binary_bytes,
-    decode_subaccount_primary_key_component_binary_bytes,
-    decode_ulid_primary_key_component_binary_bytes,
+    decode_principal_primary_key_component, decode_subaccount_primary_key_component,
+    decode_ulid_primary_key_component,
 };
 pub(in crate::db::data::structural_field::primary_key_component) use encode::encode_scalar_primary_key_component_field_binary_into;
 pub(in crate::db::data::structural_field::primary_key_component) use primitive::{
-    decode_int_primary_key_component_binary_bytes,
-    decode_int128_primary_key_component_binary_bytes,
-    decode_nat_primary_key_component_binary_bytes,
-    decode_nat128_primary_key_component_binary_bytes,
-    decode_timestamp_primary_key_component_binary_bytes,
-    decode_u256_primary_key_component_binary_bytes, decode_unit_primary_key_component_binary_bytes,
+    decode_int_primary_key_component, decode_int128_primary_key_component,
+    decode_nat_primary_key_component, decode_nat128_primary_key_component,
+    decode_timestamp_primary_key_component, decode_u256_primary_key_component,
+    decode_unit_primary_key_component,
 };

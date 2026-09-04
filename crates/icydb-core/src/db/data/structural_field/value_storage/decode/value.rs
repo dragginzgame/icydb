@@ -19,15 +19,21 @@ use crate::{
             decode_timestamp_payload_millis, decode_ulid_payload_bytes,
         },
         value_storage::{
-            decode::{ValueStorageSlice, cursor::decode_value_storage_binary_value_at},
+            decode::{
+                ValueStorageSlice,
+                cursor::decode_value_storage_binary_value_at,
+                scalar::{
+                    decode_binary_blob_scalar, decode_binary_i64_scalar, decode_binary_text_scalar,
+                    decode_binary_u64_scalar,
+                },
+            },
             next_value_storage_decode_depth,
             primitives::{
                 decode_binary_required_bytes, decode_binary_required_i64,
-                decode_binary_required_text, decode_binary_required_u64,
-                decode_value_storage_binary_payload, split_binary_tuple_2,
+                decode_binary_required_u64, decode_value_storage_binary_payload,
+                split_binary_tuple_2,
             },
             reserve_one_value_storage_item,
-            skip::skip_value_storage_binary_value,
             tags::{
                 VALUE_BINARY_TAG_ACCOUNT, VALUE_BINARY_TAG_DATE, VALUE_BINARY_TAG_DECIMAL,
                 VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_FLOAT32, VALUE_BINARY_TAG_FLOAT64,
@@ -73,48 +79,9 @@ pub(in crate::db) fn validate_structural_value_storage_bytes(
 pub(in crate::db) fn value_storage_bytes_are_null(
     raw_bytes: &[u8],
 ) -> Result<bool, FieldDecodeError> {
-    let tag = validated_value_storage_root_tag(raw_bytes)?;
+    let slice = ValueStorageSlice::from_raw(raw_bytes)?;
 
-    Ok(tag == TAG_NULL)
-}
-
-// Validate one complete value-storage root and return the root tag. This helper
-// deliberately uses value-storage skip traversal instead of generic Structural
-// Binary parsing so local tags such as `Ulid` stay valid non-null payloads.
-fn validated_value_storage_root_tag(raw_bytes: &[u8]) -> Result<u8, FieldDecodeError> {
-    let Some(&tag) = raw_bytes.first() else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_value_storage_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
-
-    Ok(tag)
-}
-
-/// Decode one canonical structural value-storage unsigned integer payload
-/// without materializing a runtime `Value`.
-pub(in crate::db) fn decode_structural_value_storage_u64_bytes(
-    raw_bytes: &[u8],
-) -> Result<u64, FieldDecodeError> {
-    decode_binary_required_u64(raw_bytes)
-}
-
-/// Decode one canonical structural value-storage signed integer payload
-/// without materializing a runtime `Value`.
-pub(in crate::db) fn decode_structural_value_storage_i64_bytes(
-    raw_bytes: &[u8],
-) -> Result<i64, FieldDecodeError> {
-    decode_binary_required_i64(raw_bytes)
-}
-
-/// Decode one canonical structural value-storage text payload without
-/// materializing a runtime `Value`.
-pub(in crate::db) fn decode_value_storage_text(
-    raw_bytes: &[u8],
-) -> Result<String, FieldDecodeError> {
-    decode_binary_required_text(raw_bytes).map(str::to_owned)
+    Ok(slice.as_bytes()[0] == TAG_NULL)
 }
 
 /// Decode one canonical structural value-storage account payload.
@@ -185,14 +152,6 @@ pub(in crate::db) fn decode_u256(raw_bytes: &[u8]) -> Result<U256, FieldDecodeEr
         .try_into()
         .map_err(|_| FieldDecodeError::new())?;
     Ok(U256::from_be_bytes(bytes))
-}
-
-/// Decode one canonical structural value-storage bytes payload without
-/// materializing a runtime `Value`.
-pub(in crate::db) fn decode_structural_value_storage_blob_bytes(
-    raw_bytes: &[u8],
-) -> Result<Vec<u8>, FieldDecodeError> {
-    decode_binary_required_bytes(raw_bytes).map(<[u8]>::to_vec)
 }
 
 /// Decode one canonical structural value-storage float32 payload without
@@ -295,9 +254,7 @@ pub(super) fn decode_value_storage_slice_at_depth(
 ) -> Result<Value, FieldDecodeError> {
     let depth = next_value_storage_decode_depth(depth)?;
     let raw_bytes = slice.as_bytes();
-    let Some(&tag) = raw_bytes.first() else {
-        return Err(FieldDecodeError::new());
-    };
+    let tag = raw_bytes[0];
 
     // Phase 1: decode the unambiguous generic root tags directly.
     let generic = match tag {
@@ -305,16 +262,10 @@ pub(super) fn decode_value_storage_slice_at_depth(
         TAG_UNIT => Some(Value::Unit),
         TAG_FALSE => Some(Value::Bool(false)),
         TAG_TRUE => Some(Value::Bool(true)),
-        TAG_INT64 => Some(Value::Int64(decode_structural_value_storage_i64_bytes(
-            raw_bytes,
-        )?)),
-        TAG_NAT64 => Some(Value::Nat64(decode_structural_value_storage_u64_bytes(
-            raw_bytes,
-        )?)),
-        TAG_TEXT => Some(Value::Text(decode_value_storage_text(raw_bytes)?)),
-        TAG_BYTES => Some(Value::Blob(decode_structural_value_storage_blob_bytes(
-            raw_bytes,
-        )?)),
+        TAG_INT64 => Some(Value::Int64(decode_binary_i64_scalar(&slice)?)),
+        TAG_NAT64 => Some(Value::Nat64(decode_binary_u64_scalar(&slice)?)),
+        TAG_TEXT => Some(Value::Text(decode_binary_text_scalar(&slice)?.to_owned())),
+        TAG_BYTES => Some(Value::Blob(decode_binary_blob_scalar(&slice)?.to_vec())),
         TAG_LIST => Some(decode_value_storage_binary_list_bytes(raw_bytes, depth)?),
         TAG_MAP => Some(decode_value_storage_binary_map_bytes(raw_bytes, depth)?),
         _ => None,
