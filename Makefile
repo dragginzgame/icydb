@@ -32,6 +32,8 @@ RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache"
+# Maximum-bound core fixtures must not inherit unbounded host CPU parallelism.
+WORKSPACE_TEST_ENV := RUST_TEST_THREADS=4
 VALIDATION_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-validation-targets.sh"
 POCKET_IC_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-with-pocketic-server.sh"
 ACTIONLINT_VERSION ?= 1.7.12
@@ -289,7 +291,7 @@ _test-core-no-default:
 	$(CARGO_WORK_ENV) cargo test --no-fail-fast -p icydb-core --no-default-features
 
 _test-workspace:
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
+	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
 
 _test-canister-libs:
 	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast -p canister_test_sql -p canister_test_sql_bounded --lib
@@ -535,7 +537,7 @@ _ci-workspace-integration-clippy:
 		--test sql_correctness --test sql_canister -- -D warnings
 
 _ci-workspace-tests:
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		--workspace --all-targets --exclude icydb-testing-integration --verbose
 
 ci-sql-tier-a:

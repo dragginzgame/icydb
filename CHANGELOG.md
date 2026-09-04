@@ -12,8 +12,10 @@ Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 - `0.252.8` seals one parse-once SQL dispatch across read, write, and DDL flows,
   internalizes query diagnostics, and converges persisted-row decoding plus
   generated collection-trait and required DDL entity-binding policy on their
-  canonical owners. The cleanup reduces write cost and removes 5,391 raw Wasm
-  bytes with byte-identical Candid.
+  canonical owners. Release and CI workspace tests now cap host-independent
+  parallelism to prevent maximum-bound fixtures from exhausting memory. The
+  cleanup reduces write cost and removes 5,391 raw Wasm bytes with
+  byte-identical Candid.
 - `0.252.7` hard-cuts the caller-invisible `DbSession::debug()` execution-trace
   and trace-only profiling stack, leaving SQL `EXPLAIN`, on-canister entity-cost
   metrics, Canic endpoint attribution, and execution budgets as the maintained

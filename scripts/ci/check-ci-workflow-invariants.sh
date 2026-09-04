@@ -27,6 +27,22 @@ ci_job_recipe() {
   ' .github/workflows/ci.yml
 }
 
+make_target_recipe() {
+  local target="$1"
+  awk -v target="$target" '
+    $0 == target ":" {
+      in_target = 1
+      next
+    }
+    in_target && /^[^[:space:]#][^=]*:/ {
+      exit
+    }
+    in_target {
+      print
+    }
+  ' Makefile
+}
+
 shopt -s nullglob
 workflow_files=(.github/workflows/*.yml .github/workflows/*.yaml)
 if [[ ${#workflow_files[@]} -eq 0 ]]; then
@@ -115,6 +131,14 @@ done
 if ! rg -q 'run:[[:space:]]+make ci-static' .github/workflows/ci.yml ||
    ! rg -q --fixed-strings 'make "$MAKE_TARGET"' .github/workflows/ci.yml; then
   fail "CI jobs must consume the shared local validation targets"
+fi
+
+if ! rg -q '^WORKSPACE_TEST_ENV := RUST_TEST_THREADS=4$' Makefile ||
+   ! make_target_recipe _test-workspace |
+     rg -q --fixed-strings '$(WORKSPACE_TEST_ENV)' ||
+   ! make_target_recipe _ci-workspace-tests |
+     rg -q --fixed-strings '$(WORKSPACE_TEST_ENV)'; then
+  fail "local release and CI workspace tests must share bounded libtest concurrency"
 fi
 
 if ! rg -q --fixed-strings 'bash scripts/ci/install-pocketic.sh' .github/workflows/ci.yml ||
