@@ -38,7 +38,7 @@ pub(in crate::db) use compiled::{
 };
 pub(in crate::db) use delete_policy::{
     SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
-    SqlPublicPrimaryKeyDeletePlan, SqlValidatedDeletePlan, classify_sql_delete_policy,
+    SqlPublicPrimaryKeyDeletePlan, SqlValidatedDeletePlan, classify_sql_delete_statement_policy,
 };
 pub use integrity::SqlIntegrityError;
 pub use result::SqlStatementResult;
@@ -46,7 +46,7 @@ pub(in crate::db::session) use resumable_update::validate_current_initial_mutati
 pub(in crate::db::session::sql) use surface::sql_statement_entity_name_from_statement;
 pub use surface::{
     SqlStatementDispatch, SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
-    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
+    sql_statement_shell_surface, sql_statement_surface,
 };
 pub(in crate::db) use update_policy::{
     SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
@@ -95,7 +95,18 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         sql: &str,
     ) -> Result<SqlStatementResult, QueryError> {
-        let compiled = self.compile_sql_mutation_with_execution_context(sql)?;
+        let dispatch = sql_statement_dispatch(sql)?;
+
+        self.execute_trusted_sql_mutation_dispatch(&dispatch)
+    }
+
+    /// Execute one trusted mutation from its admitted parsed dispatch artifact.
+    #[doc(hidden)]
+    pub fn execute_trusted_sql_mutation_dispatch(
+        &self,
+        dispatch: &SqlStatementDispatch<'_>,
+    ) -> Result<SqlStatementResult, QueryError> {
+        let compiled = self.compile_sql_mutation_with_execution_context(dispatch)?;
 
         self.execute_compiled_sql_context_owned(compiled)
     }

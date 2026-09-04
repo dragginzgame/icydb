@@ -64,6 +64,16 @@ impl<'sql> SqlStatementDispatch<'sql> {
         sql_statement_requires_introspection_from_statement(&self.statement)
     }
 
+    /// Return the entity identifier targeted by this parsed statement.
+    ///
+    /// `SHOW ENTITIES`, `SHOW STORES`, and `SHOW MEMORY` intentionally have no
+    /// entity target; generated dispatch may route them through any accepted
+    /// entity when the endpoint admits introspection.
+    #[must_use]
+    pub const fn entity_name(&self) -> Option<&str> {
+        sql_statement_entity_name_from_statement(&self.statement)
+    }
+
     // Return the exact text from which `statement` was parsed. This is the sole
     // raw-SQL source for the downstream compiled-command cache key.
     pub(in crate::db::session::sql) const fn sql(&self) -> &'sql str {
@@ -73,18 +83,6 @@ impl<'sql> SqlStatementDispatch<'sql> {
     pub(in crate::db::session::sql) const fn statement(&self) -> &SqlStatement {
         &self.statement
     }
-}
-
-/// Return the entity identifier targeted by one reduced SQL statement.
-///
-/// `SHOW ENTITIES`, `SHOW STORES`, and `SHOW MEMORY` intentionally have no
-/// entity target; callers that dispatch across canister-owned entities may
-/// route them through any accepted entity.
-#[doc(hidden)]
-pub fn sql_statement_entity_name(sql: &str) -> Result<Option<String>, QueryError> {
-    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
-
-    Ok(sql_statement_entity_name_from_statement(&statement).map(str::to_string))
 }
 
 /// Return the generated endpoint surface required by one reduced SQL statement.

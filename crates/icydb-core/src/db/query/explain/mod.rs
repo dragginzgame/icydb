@@ -19,14 +19,11 @@ mod writer;
 
 pub(in crate::db) use access_projection::explain_access_plan;
 #[cfg(feature = "sql")]
-pub use execution::{
-    ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
-    ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
-};
-#[cfg(feature = "sql")]
 pub(in crate::db) use execution::{
-    ExplainPropertyMap, FinalizedQueryDiagnostics,
-    annotate_aggregate_execution_identity_properties, property_keys, property_values,
+    ExplainExecutionDescriptor, ExplainExecutionMode, ExplainExecutionNodeDescriptor,
+    ExplainExecutionNodeType, ExplainExecutionOrderingSource, ExplainPropertyMap,
+    FinalizedQueryDiagnostics, annotate_aggregate_execution_identity_properties, property_keys,
+    property_values,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use plan::ExplainPredicate;

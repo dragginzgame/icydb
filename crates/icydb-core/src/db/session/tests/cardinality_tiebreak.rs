@@ -165,6 +165,22 @@ fn exact_cardinality_resolves_only_final_ties_and_cached_selection_is_advisory()
 }
 
 #[test]
+fn verbose_explain_preserves_internal_plan_cache_reuse_fact() {
+    let session = initialize();
+    seed_rows(&session);
+    let predicate = "common = 'everyone' AND rare = 'group-a'";
+
+    let _ = explain(&session, predicate);
+    let reused = explain(&session, predicate);
+
+    assert!(
+        reused.contains("diag.s.semantic_reuse_artifact=shared_prepared_query_plan"),
+        "{reused}"
+    );
+    assert!(reused.contains("diag.s.semantic_reuse=hit"), "{reused}");
+}
+
+#[test]
 fn exact_cardinality_supports_multi_lookup_and_branch_set_but_excludes_range_and_grouped() {
     let session = initialize();
     seed_rows(&session);
@@ -316,7 +332,7 @@ fn pinned_route_requires_one_current_eligible_index_identity() {
         .order_term(asc("id"))
         .select_fields(["id"])
         .limit(3);
-    let (prepared, _, _) = session
+    let (prepared, _) = session
         .structural_projection_prepared_plan_for_accepted_authority(
             &query,
             catalog.accepted_entity_authority(),

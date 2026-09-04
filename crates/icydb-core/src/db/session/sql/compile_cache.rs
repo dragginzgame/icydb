@@ -15,7 +15,7 @@ use crate::{
                 sql_statement_entity_name_from_statement,
             },
         },
-        sql::parser::{SqlStatement, parse_sql},
+        sql::parser::SqlStatement,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -60,16 +60,16 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub(in crate::db) fn compile_sql_mutation_with_execution_context(
         &self,
-        sql: &str,
+        dispatch: &SqlStatementDispatch<'_>,
     ) -> Result<SqlCompiledCommandExecutionContext, QueryError> {
-        let parsed = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
-        let entity_name = sql_statement_entity_name_from_statement(&parsed).map(str::to_string);
+        let parsed = dispatch.statement();
+        let entity_name = dispatch.entity_name();
         let catalog = self
-            .accepted_schema_catalog_context_for_entity_name(entity_name.as_deref())
+            .accepted_schema_catalog_context_for_entity_name(entity_name)
             .map_err(QueryError::execute)?;
         self.compile_sql_surface_with_catalog(
-            sql,
-            &parsed,
+            dispatch.sql(),
+            parsed,
             SqlCompiledCommandSurface::Mutation,
             catalog,
         )

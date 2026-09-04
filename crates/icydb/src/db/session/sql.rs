@@ -20,6 +20,16 @@ impl<C: CanisterKind> DbSession<C> {
         crate::db::sql::sql_query_result_from_statement(statement, entity)
     }
 
+    fn sql_query_result_from_dispatch(
+        statement: core::db::SqlStatementResult,
+        dispatch: &core::db::SqlStatementDispatch<'_>,
+    ) -> SqlQueryResult {
+        Self::sql_query_result_from_statement(
+            statement,
+            dispatch.entity_name().unwrap_or_default().to_string(),
+        )
+    }
+
     /// Execute one trusted/admin reduced SQL query against accepted catalog authority.
     ///
     /// This helper does not make caller-controlled SQL public-safe. Public
@@ -47,10 +57,11 @@ impl<C: CanisterKind> DbSession<C> {
     /// `UPDATE` requires an explicit exact or prefix contract and is rejected
     /// by this broad mutation surface.
     pub fn execute_trusted_sql_mutation(&self, sql: &str) -> Result<SqlQueryResult, Error> {
-        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
-        Ok(Self::sql_query_result_from_statement(
-            self.inner.execute_trusted_sql_mutation(sql)?,
-            entity,
+        let dispatch = core::db::sql_statement_dispatch(sql)?;
+        Ok(Self::sql_query_result_from_dispatch(
+            self.inner
+                .execute_trusted_sql_mutation_dispatch(&dispatch)?,
+            &dispatch,
         ))
     }
 
@@ -66,11 +77,11 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
         require_affected_at_most: u32,
     ) -> Result<SqlQueryResult, Error> {
-        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
-        Ok(Self::sql_query_result_from_statement(
+        let dispatch = core::db::sql_statement_dispatch(sql)?;
+        Ok(Self::sql_query_result_from_dispatch(
             self.inner
-                .execute_trusted_sql_exact_update(sql, require_affected_at_most)?,
-            entity,
+                .execute_trusted_sql_exact_update_dispatch(&dispatch, require_affected_at_most)?,
+            &dispatch,
         ))
     }
 
@@ -79,33 +90,35 @@ impl<C: CanisterKind> DbSession<C> {
     /// The statement must carry a positive bounded `LIMIT`; only that ordered
     /// prefix is mutated and no complete-target claim is made.
     pub fn execute_trusted_sql_prefix_update(&self, sql: &str) -> Result<SqlQueryResult, Error> {
-        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
-        Ok(Self::sql_query_result_from_statement(
-            self.inner.execute_trusted_sql_prefix_update(sql)?,
-            entity,
+        let dispatch = core::db::sql_statement_dispatch(sql)?;
+        Ok(Self::sql_query_result_from_dispatch(
+            self.inner
+                .execute_trusted_sql_prefix_update_dispatch(&dispatch)?,
+            &dispatch,
         ))
     }
 
-    /// Execute one public primary-key-only SQL `UPDATE` against one entity type.
+    /// Execute one generated primary-key update from its parsed dispatch artifact.
     #[doc(hidden)]
     pub fn execute_sql_public_primary_key_update(
         &self,
-        sql: &str,
+        dispatch: &core::db::SqlStatementDispatch<'_>,
     ) -> Result<SqlQueryResult, Error> {
-        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
-        Ok(Self::sql_query_result_from_statement(
-            self.inner.execute_sql_public_primary_key_update(sql)?,
-            entity,
+        Ok(Self::sql_query_result_from_dispatch(
+            self.inner.execute_sql_public_primary_key_update(dispatch)?,
+            dispatch,
         ))
     }
 
-    /// Execute one bounded deterministic public SQL `UPDATE`.
+    /// Execute one generated bounded update from its parsed dispatch artifact.
     #[doc(hidden)]
-    pub fn execute_sql_public_bounded_update(&self, sql: &str) -> Result<SqlQueryResult, Error> {
-        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
-        Ok(Self::sql_query_result_from_statement(
-            self.inner.execute_sql_public_bounded_update(sql)?,
-            entity,
+    pub fn execute_sql_public_bounded_update(
+        &self,
+        dispatch: &core::db::SqlStatementDispatch<'_>,
+    ) -> Result<SqlQueryResult, Error> {
+        Ok(Self::sql_query_result_from_dispatch(
+            self.inner.execute_sql_public_bounded_update(dispatch)?,
+            dispatch,
         ))
     }
 
@@ -115,20 +128,21 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         sql: &str,
     ) -> Result<SqlQueryResult, Error> {
-        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
-        Ok(Self::sql_query_result_from_statement(
-            self.inner.execute_sql_public_primary_key_delete(sql)?,
-            entity,
+        let dispatch = core::db::sql_statement_dispatch(sql)?;
+        Ok(Self::sql_query_result_from_dispatch(
+            self.inner
+                .execute_sql_public_primary_key_delete(&dispatch)?,
+            &dispatch,
         ))
     }
 
     /// Execute one bounded deterministic public SQL `DELETE`.
     #[doc(hidden)]
     pub fn execute_sql_public_bounded_delete(&self, sql: &str) -> Result<SqlQueryResult, Error> {
-        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
-        Ok(Self::sql_query_result_from_statement(
-            self.inner.execute_sql_public_bounded_delete(sql)?,
-            entity,
+        let dispatch = core::db::sql_statement_dispatch(sql)?;
+        Ok(Self::sql_query_result_from_dispatch(
+            self.inner.execute_sql_public_bounded_delete(&dispatch)?,
+            &dispatch,
         ))
     }
 
@@ -138,10 +152,19 @@ impl<C: CanisterKind> DbSession<C> {
     /// The caller must enforce controller or equivalent administrative
     /// authorization before accepting caller-controlled SQL.
     pub fn execute_admin_sql_ddl(&self, sql: &str) -> Result<SqlQueryResult, Error> {
-        let entity = core::db::sql_statement_entity_name(sql)?.unwrap_or_default();
-        Ok(Self::sql_query_result_from_statement(
-            self.inner.execute_admin_sql_ddl(sql)?,
-            entity,
+        let dispatch = core::db::sql_statement_dispatch(sql)?;
+        self.execute_admin_sql_ddl_dispatch(&dispatch)
+    }
+
+    /// Execute one generated DDL command from its parsed dispatch artifact.
+    #[doc(hidden)]
+    pub fn execute_admin_sql_ddl_dispatch(
+        &self,
+        dispatch: &core::db::SqlStatementDispatch<'_>,
+    ) -> Result<SqlQueryResult, Error> {
+        Ok(Self::sql_query_result_from_dispatch(
+            self.inner.execute_admin_sql_ddl_dispatch(dispatch)?,
+            dispatch,
         ))
     }
 }

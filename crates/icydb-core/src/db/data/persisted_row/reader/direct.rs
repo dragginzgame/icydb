@@ -1,10 +1,13 @@
+//! Module: db::data::persisted_row::reader::direct
+//! Responsibility: dense and sparse persisted-row decode without a slot cache.
+//! Does not own: accepted-field decoding or primary-key semantics.
+//! Boundary: direct readers open row spans, validate identity, and delegate slot decode.
+
 use crate::{
-    db::schema::LeafCodec,
     db::{
         data::{
             RawRow, SparseRequiredRowFieldBytes, StructuralRowContract, StructuralRowFieldBytes,
             persisted_row::{
-                codec::{ScalarSlotValueRef, decode_scalar_slot_value},
                 contract::{
                     decode_runtime_value_from_accepted_field_contract,
                     decode_runtime_value_from_row_contract,
@@ -17,7 +20,6 @@ use crate::{
             },
         },
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
-        schema::AcceptedFieldDecodeContract,
     },
     error::InternalError,
     value::Value,
@@ -272,27 +274,7 @@ fn decode_slot_with_contract(
         return decode_runtime_value_from_row_contract(contract, slot, raw_value);
     }
 
-    decode_slot_with_accepted_field(accepted_field, raw_value)
-}
-
-// Decode one caller-selected slot from raw bytes using accepted row-layout
-// metadata only. Direct readers enter here after the row contract has already
-// selected the accepted branch for the slot.
-fn decode_slot_with_accepted_field(
-    field: AcceptedFieldDecodeContract<'_>,
-    raw_value: &[u8],
-) -> Result<Value, InternalError> {
-    match field.leaf_codec() {
-        LeafCodec::Scalar(codec) => {
-            match decode_scalar_slot_value(raw_value, codec, field.field_name())? {
-                ScalarSlotValueRef::Null => Ok(Value::Null),
-                ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
-            }
-        }
-        LeafCodec::Structural => {
-            decode_runtime_value_from_accepted_field_contract(field, raw_value)
-        }
-    }
+    decode_runtime_value_from_accepted_field_contract(accepted_field, raw_value)
 }
 
 fn expected_primary_key_component_for_slot(

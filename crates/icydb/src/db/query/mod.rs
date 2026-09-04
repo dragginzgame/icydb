@@ -21,8 +21,8 @@ pub use icydb_core::db::{
     ExplainRejectedIndex, ExplainResidualSummary, ExplainSelectedAccess, FieldCompareOperator,
     FieldRef, FilterExpr, FilterValue, JunctionOperator, MissingRowPolicy, NumericProjectionExpr,
     OrderDirection, OrderExpr, OrderTerm, RoundProjectionExpr, SetOperator, StateOperator,
-    TextProjectionExpr, TraceReuseEvent, ValueProjectionExpr, add, asc, avg, contains, count,
-    count_by, desc, div, ends_with, exists, field, first, last, left, length, lower, ltrim, max,
-    max_by, min, min_by, mul, position, replace, right, round, round_expr, rtrim, starts_with, sub,
-    substring, substring_with_length, sum, trim, upper,
+    TextProjectionExpr, ValueProjectionExpr, add, asc, avg, contains, count, count_by, desc, div,
+    ends_with, exists, field, first, last, left, length, lower, ltrim, max, max_by, min, min_by,
+    mul, position, replace, right, round, round_expr, rtrim, starts_with, sub, substring,
+    substring_with_length, sum, trim, upper,
 };

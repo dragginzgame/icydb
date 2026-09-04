@@ -290,6 +290,51 @@ pub trait HasTraits: HasType {
     }
 }
 
+// Keep the identical generated collection baseline and strategy dispatch in
+// the trait owner. Each collection node supplies only its node kind; concrete
+// strategy implementations remain specialized through `Imp<Node>`.
+macro_rules! impl_collection_has_traits {
+    ($node:ty, $kind:ident) => {
+        impl HasTraits for $node {
+            fn application_type_kind(&self) -> Option<ApplicationTypeKind> {
+                Some(ApplicationTypeKind::$kind)
+            }
+
+            fn trait_builder(&self) -> Option<&TraitBuilder> {
+                Some(&self.traits)
+            }
+
+            fn trait_baseline(&self) -> TraitSet {
+                let mut traits = application_type_trait_set();
+                traits.extend([
+                    TraitKind::Default,
+                    TraitKind::Deref,
+                    TraitKind::DerefMut,
+                    TraitKind::From,
+                    TraitKind::FromIterator,
+                    TraitKind::IntoIterator,
+                ]);
+
+                traits
+            }
+
+            fn map_trait(&self, trait_kind: TraitKind) -> Option<TraitStrategy> {
+                match trait_kind {
+                    TraitKind::From => FromTrait::strategy(self),
+                    TraitKind::FromIterator => FromIteratorTrait::strategy(self),
+                    TraitKind::IntoIterator => IntoIteratorTrait::strategy(self),
+                    TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
+                    TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
+                    TraitKind::Visitable => VisitableTrait::strategy(self),
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+pub(crate) use impl_collection_has_traits;
+
 ///
 /// HasSchema
 ///

@@ -34,10 +34,7 @@ pub(in crate::db) fn decode_runtime_value_from_accepted_field_contract(
 ) -> Result<Value, InternalError> {
     match field.leaf_codec() {
         LeafCodec::Scalar(codec) => {
-            match decode_scalar_slot_value(raw_value, codec, field.field_name())? {
-                ScalarSlotValueRef::Null => Ok(Value::Null),
-                ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
-            }
+            Ok(decode_scalar_slot_value(raw_value, codec, field.field_name())?.into_value())
         }
         LeafCodec::Structural => decode_non_scalar_accepted_slot_value(raw_value, field),
     }

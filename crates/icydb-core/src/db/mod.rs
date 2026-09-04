@@ -119,11 +119,6 @@ pub use query::DynamicQuery;
 pub use query::builder::numeric_projection::{
     NumericProjectionExpr, RoundProjectionExpr, add, div, mul, round, round_expr, sub,
 };
-#[cfg(feature = "sql")]
-pub use query::explain::{
-    ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
-    ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
-};
 pub use query::plan::validate::PlanError;
 pub use query::{
     builder::{
@@ -143,8 +138,6 @@ pub use query::{
     },
     intent::{IntentError, QueryError, QueryExecutionError},
     plan::{DeleteSpec, LoadSpec, OrderDirection, QueryMode},
-    read_intent::ReadIntentKind,
-    trace::TraceReuseEvent,
 };
 pub use read_set::{
     ExhaustiveReadError, MAX_READ_SET_PROOF_BYTES, MAX_READ_SET_PROOF_STORES, ReadSetRevisionError,
@@ -190,6 +183,8 @@ pub use schema::{
     SchemaMigrationFindingKind, SchemaMigrationPhase, SchemaMigrationReceipt,
     SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use session::QueryPlanCacheReuse;
 pub use session::{DbSession, RequestExecutionRoot};
 #[doc(hidden)]
 pub use session::{
@@ -202,7 +197,7 @@ pub use session::{
     SqlConstraintValidationState, SqlDdlExecutionStatus, SqlDdlMutationKind,
     SqlDdlPreparationReport, SqlIntegrityError, SqlStatementDispatch, SqlStatementResult,
     SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
-    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
+    sql_statement_shell_surface, sql_statement_surface,
 };
 #[cfg(feature = "sql")]
 pub use sql::identifier::{

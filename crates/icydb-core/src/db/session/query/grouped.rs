@@ -46,13 +46,12 @@ impl<C: CanisterKind> DbSession<C> {
             DiagnosticExecutionLane::TrustedRead
         };
         let authority = catalog.accepted_entity_authority();
-        let (prepared_plan, _) = self
-            .cached_shared_query_plan_for_accepted_authority_with_catalog(
-                authority,
-                catalog,
-                query,
-                execution_lane,
-            )?;
+        let prepared_plan = self.cached_shared_query_plan_for_accepted_authority_with_catalog(
+            authority,
+            catalog,
+            query,
+            execution_lane,
+        )?;
         if let Some(policy) = admission {
             let summary = policy.evaluate(QueryAdmissionSummary::from_plan(
                 policy.lane(),

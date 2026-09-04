@@ -16,9 +16,10 @@ use crate::{
             AcceptedSchemaCatalogContext, AcceptedStructuralMutationTarget,
             sql::{
                 SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
-                SqlPublicPrimaryKeyUpdatePlan, SqlStatementResult, SqlTrustedExactUpdatePlan,
-                SqlUpdateExposurePolicy, SqlUpdatePolicyRejection, SqlUpdatePolicyReport,
-                SqlValidatedUpdatePlan, classify_sql_update_policy_for_entity,
+                SqlPublicPrimaryKeyUpdatePlan, SqlStatementDispatch, SqlStatementResult,
+                SqlTrustedExactUpdatePlan, SqlUpdateExposurePolicy, SqlUpdatePolicyRejection,
+                SqlUpdatePolicyReport, SqlValidatedUpdatePlan,
+                classify_sql_update_policy_for_entity, sql_statement_dispatch,
                 with_accepted_sql_update_policy_context, write_policy::SqlWriteExecutionBounds,
             },
             structural_data_key_from_runtime_values,
@@ -296,18 +297,18 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn schema_derived_sql_update_report(
         &self,
-        sql: &str,
+        dispatch: &SqlStatementDispatch<'_>,
         policy: SqlUpdateExposurePolicy,
     ) -> Result<SqlUpdatePolicyReport, QueryError> {
-        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?;
+        let entity_name = dispatch.entity_name();
         self.with_checked_accepted_write_descriptor_for_returning(
             None,
-            entity_name.as_deref(),
+            entity_name,
             None,
             |catalog, descriptor| {
                 with_accepted_sql_update_policy_context(&descriptor, |context| {
                     classify_sql_update_policy_for_entity(
-                        sql,
+                        dispatch,
                         catalog.snapshot().persisted_snapshot().entity_name(),
                         policy,
                         context,
@@ -319,10 +320,10 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn schema_derived_sql_update_plan(
         &self,
-        sql: &str,
+        dispatch: &SqlStatementDispatch<'_>,
         policy: SqlUpdateExposurePolicy,
     ) -> Result<SqlValidatedUpdatePlan, QueryError> {
-        let report = self.schema_derived_sql_update_report(sql, policy)?;
+        let report = self.schema_derived_sql_update_report(dispatch, policy)?;
 
         require_sql_write_policy_plan(report.plan)
     }
@@ -374,7 +375,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    /// Classify and execute one public primary-key-only SQL `UPDATE`.
+    /// Classify and execute one public primary-key-only update from a parsed dispatch.
     ///
     /// The policy context is derived from the accepted runtime descriptor, so
     /// callers cannot accidentally validate public SQL against generated model
@@ -382,10 +383,12 @@ impl<C: CanisterKind> DbSession<C> {
     #[doc(hidden)]
     pub fn execute_sql_public_primary_key_update(
         &self,
-        sql: &str,
+        dispatch: &SqlStatementDispatch<'_>,
     ) -> Result<SqlStatementResult, QueryError> {
-        let plan = self
-            .schema_derived_sql_update_plan(sql, SqlUpdateExposurePolicy::PublicPrimaryKeyOnly)?;
+        let plan = self.schema_derived_sql_update_plan(
+            dispatch,
+            SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
+        )?;
         let SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(plan) = plan else {
             return Err(QueryError::invariant());
         };
@@ -393,14 +396,14 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_validated_sql_public_primary_key_update(&plan)
     }
 
-    /// Classify and execute one bounded deterministic public SQL `UPDATE`.
+    /// Classify and execute one bounded deterministic public update from a parsed dispatch.
     #[doc(hidden)]
     pub fn execute_sql_public_bounded_update(
         &self,
-        sql: &str,
+        dispatch: &SqlStatementDispatch<'_>,
     ) -> Result<SqlStatementResult, QueryError> {
         let plan = self.schema_derived_sql_update_plan(
-            sql,
+            dispatch,
             SqlUpdateExposurePolicy::PublicBoundedDeterministic,
         )?;
         let SqlValidatedUpdatePlan::PublicBoundedDeterministic(plan) = plan else {
@@ -418,7 +421,18 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         sql: &str,
     ) -> Result<SqlStatementResult, QueryError> {
-        self.execute_sql_public_bounded_update(sql)
+        let dispatch = sql_statement_dispatch(sql)?;
+
+        self.execute_trusted_sql_prefix_update_dispatch(&dispatch)
+    }
+
+    /// Execute one trusted ordered-prefix update from a parsed dispatch.
+    #[doc(hidden)]
+    pub fn execute_trusted_sql_prefix_update_dispatch(
+        &self,
+        dispatch: &SqlStatementDispatch<'_>,
+    ) -> Result<SqlStatementResult, QueryError> {
+        self.execute_sql_public_bounded_update(dispatch)
     }
 
     /// Execute one trusted exact complete-set SQL `UPDATE`.
@@ -433,12 +447,26 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
         require_affected_at_most: u32,
     ) -> Result<SqlStatementResult, QueryError> {
+        let dispatch = sql_statement_dispatch(sql)?;
+
+        self.execute_trusted_sql_exact_update_dispatch(&dispatch, require_affected_at_most)
+    }
+
+    /// Execute one trusted exact update from a parsed dispatch.
+    #[doc(hidden)]
+    pub fn execute_trusted_sql_exact_update_dispatch(
+        &self,
+        dispatch: &SqlStatementDispatch<'_>,
+        require_affected_at_most: u32,
+    ) -> Result<SqlStatementResult, QueryError> {
         let policy =
             SqlExactUpdatePolicy::try_new(require_affected_at_most).map_err(|rejection| {
                 sql_exact_update_policy_error(require_affected_at_most, rejection)
             })?;
-        let report = self
-            .schema_derived_sql_update_report(sql, SqlUpdateExposurePolicy::TrustedExact(policy))?;
+        let report = self.schema_derived_sql_update_report(
+            dispatch,
+            SqlUpdateExposurePolicy::TrustedExact(policy),
+        )?;
         let plan = require_sql_exact_update_plan(report)?;
 
         self.execute_validated_sql_trusted_exact_update(&plan)

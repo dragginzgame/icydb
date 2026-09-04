@@ -6,7 +6,7 @@
 mod descriptor;
 
 use crate::db::{
-    TraceReuseEvent,
+    QueryPlanCacheReuse,
     executor::EntityAuthority,
     query::{
         admission::{QueryAdmissionLane, QueryAdmissionPolicy, QueryAdmissionSummary},
@@ -83,7 +83,7 @@ impl StructuralQuery {
     fn finalized_execution_diagnostics_from_route_facts(
         plan: &AccessPlannedQuery,
         route_facts: &crate::db::executor::explain::descriptor::LoadExecutionRouteFacts,
-        reuse: Option<TraceReuseEvent>,
+        reuse: Option<QueryPlanCacheReuse>,
     ) -> Result<FinalizedQueryDiagnostics, QueryError> {
         let descriptor =
             assemble_load_execution_node_descriptor_from_route_facts(plan, route_facts)
@@ -155,7 +155,7 @@ impl StructuralQuery {
     pub(in crate::db) fn finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
         plan: &AccessPlannedQuery,
         authority: &EntityAuthority,
-        reuse: Option<TraceReuseEvent>,
+        reuse: Option<QueryPlanCacheReuse>,
         mutate_descriptor: impl FnOnce(&mut ExplainExecutionNodeDescriptor),
     ) -> Result<FinalizedQueryDiagnostics, QueryError> {
         let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan)

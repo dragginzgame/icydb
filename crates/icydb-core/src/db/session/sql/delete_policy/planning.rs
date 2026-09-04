@@ -2,13 +2,14 @@
 //! Does not own: public DTO definitions or delete execution.
 
 use super::model::*;
+#[cfg(test)]
+use crate::db::{QueryError, sql::parser::parse_sql};
 use crate::db::{
-    QueryError,
     session::sql::write_policy::{
         SqlWriteExecutionBounds, SqlWritePlanCore, SqlWriteShapePolicyRejection,
         SqlWriteStatementShape, SqlWriteStatementShapeInput, classify_write_statement_shape,
     },
-    sql::parser::{SqlDeleteStatement, SqlStatement, parse_sql},
+    sql::parser::{SqlDeleteStatement, SqlStatement},
 };
 
 /// Classify one SQL statement under an explicit `DELETE` exposure policy.
@@ -16,6 +17,7 @@ use crate::db::{
 /// This helper parses and inspects statement shape only. It does not execute
 /// mutation work or validate field existence beyond the caller-provided primary
 /// key context.
+#[cfg(test)]
 pub(in crate::db) fn classify_sql_delete_policy(
     sql: &str,
     policy: SqlDeleteExposurePolicy,

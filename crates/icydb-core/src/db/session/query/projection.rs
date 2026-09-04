@@ -6,7 +6,7 @@
 
 use crate::{
     db::{
-        DbSession, QueryError, TraceReuseEvent,
+        DbSession, QueryError,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::{
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
@@ -177,16 +177,9 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
         lane: DiagnosticExecutionLane,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            StructuralProjectionContract,
-            TraceReuseEvent,
-        ),
-        QueryError,
-    > {
+    ) -> Result<(SharedPreparedExecutionPlan, StructuralProjectionContract), QueryError> {
         let schema_fingerprint = authority.accepted_schema_fingerprint();
-        let (prepared_plan, reuse) = self
+        let prepared_plan = self
             .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
                 authority.clone(),
                 accepted_schema,
@@ -201,7 +194,7 @@ impl<C: CanisterKind> DbSession<C> {
         );
         let projection = StructuralProjectionContract::from_projection_spec(&projection_spec);
 
-        Ok((prepared_plan, projection, reuse))
+        Ok((prepared_plan, projection))
     }
 
     pub(in crate::db::session) fn structural_projection_prepared_plan_for_accepted_authority_with_route_pin(
@@ -211,24 +204,17 @@ impl<C: CanisterKind> DbSession<C> {
         accepted_schema: &AcceptedSchemaSnapshot,
         lane: DiagnosticExecutionLane,
         route_pin: CardinalityTiebreakRoutePin,
-    ) -> Result<
-        Option<(
-            SharedPreparedExecutionPlan,
-            StructuralProjectionContract,
-            TraceReuseEvent,
-        )>,
-        QueryError,
-    > {
+    ) -> Result<Option<(SharedPreparedExecutionPlan, StructuralProjectionContract)>, QueryError>
+    {
         let schema_fingerprint = authority.accepted_schema_fingerprint();
-        let Some((prepared_plan, reuse)) = self
-            .shared_query_plan_for_accepted_authority_with_route_pin(
-                authority.clone(),
-                accepted_schema,
-                schema_fingerprint,
-                query,
-                lane,
-                route_pin,
-            )?
+        let Some(prepared_plan) = self.shared_query_plan_for_accepted_authority_with_route_pin(
+            authority.clone(),
+            accepted_schema,
+            schema_fingerprint,
+            query,
+            lane,
+            route_pin,
+        )?
         else {
             return Ok(None);
         };
@@ -239,6 +225,6 @@ impl<C: CanisterKind> DbSession<C> {
         );
         let projection = StructuralProjectionContract::from_projection_spec(&projection_spec);
 
-        Ok(Some((prepared_plan, projection, reuse)))
+        Ok(Some((prepared_plan, projection)))
     }
 }

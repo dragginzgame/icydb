@@ -36,15 +36,6 @@ use crate::{
 };
 use std::{borrow::Cow, cell::OnceCell};
 
-// Materialize one borrowed scalar slot view when a caller reaches a boundary
-// that still requires owned runtime `Value` cells.
-fn scalar_slot_value_ref_into_value(value: ScalarSlotValueRef<'_>) -> Value {
-    match value {
-        ScalarSlotValueRef::Null => Value::Null,
-        ScalarSlotValueRef::Value(value) => value.into_value(),
-    }
-}
-
 ///
 /// StructuralSlotReader
 ///
@@ -346,7 +337,7 @@ impl<'a> StructuralSlotReader<'a> {
         // full catalog-backed materialization and validation behavior.
         let accepted_field = self.required_accepted_field_decode_contract(slot)?;
         if let Some(value) = self.required_accepted_value_storage_scalar(slot, accepted_field)? {
-            return Ok(scalar_slot_value_ref_into_value(value));
+            return Ok(value.into_value());
         }
 
         self.required_value_by_contract(slot)

@@ -2,8 +2,10 @@
 //! Does not own: public DTO definitions or update execution.
 
 use super::model::*;
+#[cfg(test)]
+use crate::db::sql::parser::parse_sql;
 use crate::db::{
-    QueryError,
+    QueryError, SqlStatementDispatch,
     schema::{AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField},
     session::sql::write_policy::{
         SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWritePlanCore,
@@ -12,7 +14,7 @@ use crate::db::{
     },
     sql::{
         lowering::prepare_sql_statement,
-        parser::{SqlStatement, SqlUpdateStatement, parse_sql},
+        parser::{SqlStatement, SqlUpdateStatement},
     },
 };
 
@@ -68,12 +70,12 @@ pub(in crate::db) fn classify_sql_update_policy(
 /// Direct typed execution boundaries use this adapter so their generic entity
 /// cannot silently override the entity named by the SQL statement.
 pub(in crate::db) fn classify_sql_update_policy_for_entity(
-    sql: &str,
+    dispatch: &SqlStatementDispatch<'_>,
     expected_entity: &str,
     policy: SqlUpdateExposurePolicy,
     context: SqlUpdatePolicyContext<'_>,
 ) -> Result<SqlUpdatePolicyReport, QueryError> {
-    let statement = parse_prepared_sql_statement(sql, expected_entity)?;
+    let statement = prepare_dispatched_sql_statement(dispatch.statement(), expected_entity)?;
 
     Ok(classify_sql_update_statement_policy(
         &statement, policy, context,
@@ -86,11 +88,11 @@ pub(in crate::db) fn classify_sql_update_policy_for_entity(
 /// constraints and scope dependency closure remain schema-owned and are
 /// checked by the preparation boundary after this function succeeds.
 pub(in crate::db) fn classify_sql_resumable_update_policy(
-    sql: &str,
+    dispatch: &SqlStatementDispatch<'_>,
     expected_entity: &str,
     context: SqlUpdatePolicyContext<'_>,
 ) -> Result<SqlResumableUpdatePolicyReport, QueryError> {
-    let statement = parse_prepared_sql_statement(sql, expected_entity)?;
+    let statement = prepare_dispatched_sql_statement(dispatch.statement(), expected_entity)?;
     let SqlStatement::Update(statement) = statement else {
         return Ok(Err(SqlUpdatePolicyRejection::NotUpdate));
     };
@@ -118,13 +120,11 @@ pub(in crate::db) fn classify_sql_resumable_update_policy(
     Ok(Ok(SqlTrustedResumableUpdatePlan { statement }))
 }
 
-fn parse_prepared_sql_statement(
-    sql: &str,
+fn prepare_dispatched_sql_statement(
+    statement: &SqlStatement,
     expected_entity: &str,
 ) -> Result<SqlStatement, QueryError> {
-    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
-
-    prepare_sql_statement(&statement, expected_entity)
+    prepare_sql_statement(statement, expected_entity)
         .map(crate::db::sql::lowering::PreparedSqlStatement::into_statement)
         .map_err(QueryError::from_sql_lowering_error)
 }

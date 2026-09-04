@@ -27,6 +27,8 @@ use crate::{
 use std::thread::LocalKey;
 
 pub(in crate::db) use accepted_schema::AcceptedSchemaCatalogContext;
+#[cfg(feature = "sql")]
+pub(in crate::db) use query::QueryPlanCacheReuse;
 #[doc(hidden)]
 pub use query::{
     MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,
@@ -42,7 +44,7 @@ pub use sql::{
     SqlConstraintValidationState, SqlDdlExecutionStatus, SqlDdlMutationKind,
     SqlDdlPreparationReport, SqlIntegrityError, SqlStatementDispatch, SqlStatementResult,
     SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
-    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
+    sql_statement_shell_surface, sql_statement_surface,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::session) use write::{

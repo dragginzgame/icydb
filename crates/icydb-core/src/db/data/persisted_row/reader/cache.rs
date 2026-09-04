@@ -1,3 +1,8 @@
+//! Module: db::data::persisted_row::reader::cache
+//! Responsibility: lazy validated and materialized persisted-row slot state.
+//! Does not own: field decode policy or row-envelope validation.
+//! Boundary: `StructuralSlotReader` caches scalar validation and runtime values here.
+
 use crate::{
     db::data::{
         ScalarValueRef, StructuralRowContract, StructuralRowFieldBytes,
@@ -189,8 +194,5 @@ pub(super) fn materialize_validated_scalar_slot_value(
     field_bytes: &StructuralRowFieldBytes<'_>,
     slot: usize,
 ) -> Result<Value, InternalError> {
-    match scalar_slot_value_ref_from_validated(validated, contract, field_bytes, slot)? {
-        ScalarSlotValueRef::Null => Ok(Value::Null),
-        ScalarSlotValueRef::Value(value) => Ok(value.into_value()),
-    }
+    Ok(scalar_slot_value_ref_from_validated(validated, contract, field_bytes, slot)?.into_value())
 }

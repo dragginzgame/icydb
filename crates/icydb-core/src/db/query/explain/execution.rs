@@ -4,12 +4,11 @@
 //! Boundary: execution descriptor types consumed by explain renderers.
 
 use crate::{
+    db::QueryPlanCacheReuse,
     db::query::{
         admission::QueryAdmissionSummary,
-        explain::{ExplainAccessPath, ExplainPlan, ExplainPredicate},
+        explain::{ExplainAccessPath, ExplainPredicate},
         plan::{AggregateKind, ResidualFilterShape},
-        read_intent::ReadIntentKind,
-        trace::TraceReuseEvent,
     },
     value::Value,
 };
@@ -20,21 +19,21 @@ use std::fmt::{self, Debug};
     doc = "ExplainPropertyMap\n\nStable ordered property map for EXPLAIN metadata.\nKeeps deterministic key order without `BTreeMap`."
 )]
 #[derive(Clone, Default, Eq, PartialEq)]
-pub struct ExplainPropertyMap {
+pub(in crate::db) struct ExplainPropertyMap {
     entries: Vec<(&'static str, Value)>,
 }
 
 impl ExplainPropertyMap {
     /// Build an empty EXPLAIN property map.
     #[must_use]
-    pub const fn new() -> Self {
+    pub(in crate::db) const fn new() -> Self {
         Self {
             entries: Vec::new(),
         }
     }
 
     /// Insert or replace one stable property.
-    pub fn insert(&mut self, key: &'static str, value: Value) -> Option<Value> {
+    pub(in crate::db) fn insert(&mut self, key: &'static str, value: Value) -> Option<Value> {
         match self
             .entries
             .binary_search_by_key(&key, |(existing_key, _)| *existing_key)
@@ -49,28 +48,21 @@ impl ExplainPropertyMap {
 
     /// Borrow one property value by key.
     #[must_use]
-    pub fn get(&self, key: &str) -> Option<&Value> {
+    pub(in crate::db) fn get(&self, key: &str) -> Option<&Value> {
         self.entries
             .binary_search_by_key(&key, |(existing_key, _)| *existing_key)
             .ok()
             .map(|index| &self.entries[index].1)
     }
 
-    /// Return whether the property map contains the given key.
-    #[must_use]
-    #[cfg(test)]
-    pub fn contains_key(&self, key: &str) -> bool {
-        self.get(key).is_some()
-    }
-
     /// Return whether the property map is empty.
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
+    pub(in crate::db) const fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
     /// Iterate over all stored properties in deterministic key order.
-    pub fn iter(&self) -> impl Iterator<Item = (&'static str, &Value)> {
+    pub(in crate::db) fn iter(&self) -> impl Iterator<Item = (&'static str, &Value)> {
         self.entries.iter().map(|(key, value)| (*key, value))
     }
 }
@@ -160,22 +152,10 @@ pub(in crate::db) mod property_values {
 
 #[cfg_attr(
     doc,
-    doc = "ExplainAggregateTerminalPlan\n\nCombined EXPLAIN payload for one scalar aggregate request."
-)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExplainAggregateTerminalPlan {
-    pub(in crate::db) query: ExplainPlan,
-    pub(in crate::db) terminal: AggregateKind,
-    pub(in crate::db) execution: ExplainExecutionDescriptor,
-    pub(in crate::db) read_intent: ReadIntentKind,
-}
-
-#[cfg_attr(
-    doc,
     doc = "ExplainExecutionOrderingSource\n\nOrdering-origin label used by execution EXPLAIN output."
 )]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExplainExecutionOrderingSource {
+pub(in crate::db) enum ExplainExecutionOrderingSource {
     AccessOrder,
     Materialized,
     IndexSeekFirst { fetch: usize },
@@ -187,7 +167,7 @@ pub enum ExplainExecutionOrderingSource {
     doc = "ExplainExecutionMode\n\nExecution mode used by EXPLAIN descriptors."
 )]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExplainExecutionMode {
+pub(in crate::db) enum ExplainExecutionMode {
     Streaming,
     Materialized,
 }
@@ -197,7 +177,7 @@ pub enum ExplainExecutionMode {
     doc = "ExplainExecutionDescriptor\n\nScalar execution descriptor consumed by terminal EXPLAIN surfaces.\nKeeps execution projection centralized for renderers."
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExplainExecutionDescriptor {
+pub(in crate::db) struct ExplainExecutionDescriptor {
     pub(in crate::db) access_strategy: ExplainAccessPath,
     pub(in crate::db) covering_projection: bool,
     pub(in crate::db) aggregation: AggregateKind,
@@ -213,7 +193,7 @@ pub struct ExplainExecutionDescriptor {
     doc = "ExplainExecutionNodeType\n\nExecution-node vocabulary for EXPLAIN descriptors."
 )]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExplainExecutionNodeType {
+pub(in crate::db) enum ExplainExecutionNodeType {
     ByKeyLookup,
     ByKeysLookup,
     PrimaryKeyRangeScan,
@@ -230,7 +210,6 @@ pub enum ExplainExecutionNodeType {
     OrderByMaterializedSort,
     DistinctPreOrdered,
     DistinctMaterialized,
-    ProjectionMaterialized,
     CoveringRead,
     LimitOffset,
     CursorResume,
@@ -255,7 +234,7 @@ pub enum ExplainExecutionNodeType {
     doc = "ExplainExecutionNodeDescriptor\n\nCanonical execution-node descriptor for EXPLAIN renderers.\nOptional fields are node-family specific."
 )]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExplainExecutionNodeDescriptor {
+pub(in crate::db) struct ExplainExecutionNodeDescriptor {
     pub(in crate::db) node_type: ExplainExecutionNodeType,
     pub(in crate::db) execution_mode: ExplainExecutionMode,
     pub(in crate::db) access_strategy: Option<ExplainAccessPath>,
@@ -289,99 +268,52 @@ pub(in crate::db) struct FinalizedQueryDiagnostics {
     pub(in crate::db) admission: Option<QueryAdmissionSummary>,
     pub(in crate::db) route_diagnostics: Vec<String>,
     pub(in crate::db) logical_diagnostics: Vec<String>,
-    pub(in crate::db) reuse: Option<TraceReuseEvent>,
-}
-
-impl ExplainAggregateTerminalPlan {
-    /// Borrow the underlying query explain payload.
-    #[must_use]
-    pub const fn query(&self) -> &ExplainPlan {
-        &self.query
-    }
-
-    /// Return terminal aggregate kind.
-    #[must_use]
-    pub const fn terminal(&self) -> AggregateKind {
-        self.terminal
-    }
-
-    /// Borrow projected execution descriptor.
-    #[must_use]
-    pub const fn execution(&self) -> &ExplainExecutionDescriptor {
-        &self.execution
-    }
-
-    /// Return diagnostic read-intent metadata for this terminal explain plan.
-    ///
-    /// This is reporting metadata only. It does not configure admission,
-    /// planning, cursor encoding, or execution semantics.
-    #[must_use]
-    pub const fn read_intent(&self) -> ReadIntentKind {
-        self.read_intent
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn new(
-        query: ExplainPlan,
-        terminal: AggregateKind,
-        execution: ExplainExecutionDescriptor,
-    ) -> Self {
-        Self {
-            query,
-            terminal,
-            execution,
-            read_intent: ReadIntentKind::Unspecified,
-        }
-    }
+    pub(in crate::db) reuse: Option<QueryPlanCacheReuse>,
 }
 
 impl ExplainExecutionDescriptor {
-    /// Borrow projected access strategy.
+    /// Convert one scalar aggregate descriptor into the canonical EXPLAIN tree.
     #[must_use]
-    pub const fn access_strategy(&self) -> &ExplainAccessPath {
-        &self.access_strategy
-    }
+    pub(in crate::db) fn into_execution_node_descriptor(
+        self,
+        terminal: AggregateKind,
+    ) -> ExplainExecutionNodeDescriptor {
+        let ordering_source = self.ordering_source;
+        let mut node_properties = self.node_properties;
+        annotate_aggregate_execution_identity_properties(
+            &mut node_properties,
+            "singleton",
+            scalar_aggregate_physical_label(ordering_source),
+        );
 
-    /// Return whether projection can be served from index payload only.
-    #[must_use]
-    pub const fn covering_projection(&self) -> bool {
-        self.covering_projection
-    }
-
-    /// Return projected aggregate kind.
-    #[must_use]
-    pub const fn aggregation(&self) -> AggregateKind {
-        self.aggregation
-    }
-
-    /// Return projected execution mode.
-    #[must_use]
-    pub const fn execution_mode(&self) -> ExplainExecutionMode {
-        self.execution_mode
-    }
-
-    /// Return projected ordering source.
-    #[must_use]
-    pub const fn ordering_source(&self) -> ExplainExecutionOrderingSource {
-        self.ordering_source
-    }
-
-    /// Return projected execution limit.
-    #[must_use]
-    pub const fn limit(&self) -> Option<u32> {
-        self.limit
-    }
-
-    /// Return whether continuation was applied.
-    #[must_use]
-    pub const fn cursor(&self) -> bool {
-        self.cursor
-    }
-
-    /// Borrow projected execution node properties.
-    #[must_use]
-    pub const fn node_properties(&self) -> &ExplainPropertyMap {
-        &self.node_properties
+        ExplainExecutionNodeDescriptor {
+            node_type: match ordering_source {
+                ExplainExecutionOrderingSource::IndexSeekFirst { .. } => {
+                    ExplainExecutionNodeType::AggregateSeekFirst
+                }
+                ExplainExecutionOrderingSource::IndexSeekLast { .. } => {
+                    ExplainExecutionNodeType::AggregateSeekLast
+                }
+                ExplainExecutionOrderingSource::AccessOrder
+                | ExplainExecutionOrderingSource::Materialized => {
+                    terminal.explain_execution_node_type()
+                }
+            },
+            execution_mode: self.execution_mode,
+            access_strategy: Some(self.access_strategy),
+            predicate_pushdown: None,
+            filter_expr: None,
+            residual_filter_expr: None,
+            residual_filter_predicate: None,
+            projection: None,
+            ordering_source: Some(ordering_source),
+            limit: self.limit,
+            cursor: Some(self.cursor),
+            covering_scan: Some(self.covering_projection),
+            rows_expected: None,
+            children: Vec::new(),
+            node_properties,
+        }
     }
 }
 
@@ -392,7 +324,7 @@ impl FinalizedQueryDiagnostics {
         execution: ExplainExecutionNodeDescriptor,
         route_diagnostics: Vec<String>,
         logical_diagnostics: Vec<String>,
-        reuse: Option<TraceReuseEvent>,
+        reuse: Option<QueryPlanCacheReuse>,
     ) -> Self {
         Self {
             execution,
@@ -434,48 +366,6 @@ pub(in crate::db) fn annotate_aggregate_execution_identity_properties(
     node_properties.insert(property_keys::AGGREGATE_PHYSICAL, Value::from(physical));
 }
 
-impl ExplainAggregateTerminalPlan {
-    /// Build an execution-node descriptor for aggregate terminal plans.
-    #[must_use]
-    pub fn execution_node_descriptor(&self) -> ExplainExecutionNodeDescriptor {
-        let mut node_properties = self.execution.node_properties.clone();
-        annotate_aggregate_execution_identity_properties(
-            &mut node_properties,
-            "singleton",
-            scalar_aggregate_physical_label(self.execution.ordering_source),
-        );
-
-        ExplainExecutionNodeDescriptor {
-            node_type: match self.execution.ordering_source {
-                ExplainExecutionOrderingSource::IndexSeekFirst { .. } => {
-                    ExplainExecutionNodeType::AggregateSeekFirst
-                }
-                ExplainExecutionOrderingSource::IndexSeekLast { .. } => {
-                    ExplainExecutionNodeType::AggregateSeekLast
-                }
-                ExplainExecutionOrderingSource::AccessOrder
-                | ExplainExecutionOrderingSource::Materialized => {
-                    self.terminal.explain_execution_node_type()
-                }
-            },
-            execution_mode: self.execution.execution_mode,
-            access_strategy: Some(self.execution.access_strategy.clone()),
-            predicate_pushdown: None,
-            filter_expr: None,
-            residual_filter_expr: None,
-            residual_filter_predicate: None,
-            projection: None,
-            ordering_source: Some(self.execution.ordering_source),
-            limit: self.execution.limit,
-            cursor: Some(self.execution.cursor),
-            covering_scan: Some(self.execution.covering_projection),
-            rows_expected: None,
-            children: Vec::new(),
-            node_properties,
-        }
-    }
-}
-
 const fn scalar_aggregate_physical_label(
     ordering_source: ExplainExecutionOrderingSource,
 ) -> &'static str {
@@ -507,7 +397,7 @@ impl AggregateKind {
 impl ExplainExecutionNodeType {
     /// Return the stable string label used by explain renderers.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    pub(in crate::db) const fn as_str(self) -> &'static str {
         match self {
             Self::ByKeyLookup => "ByKeyLookup",
             Self::ByKeysLookup => "ByKeysLookup",
@@ -525,7 +415,6 @@ impl ExplainExecutionNodeType {
             Self::OrderByMaterializedSort => "OrderByMaterializedSort",
             Self::DistinctPreOrdered => "DistinctPreOrdered",
             Self::DistinctMaterialized => "DistinctMaterialized",
-            Self::ProjectionMaterialized => "ProjectionMaterialized",
             Self::CoveringRead => "CoveringRead",
             Self::LimitOffset => "LimitOffset",
             Self::CursorResume => "CursorResume",
@@ -548,7 +437,7 @@ impl ExplainExecutionNodeType {
 
     /// Return the owning execution layer label for this node type.
     #[must_use]
-    pub const fn layer_label(self) -> &'static str {
+    pub(in crate::db) const fn layer_label(self) -> &'static str {
         crate::db::query::explain::nodes::layer_label(self)
     }
 }
@@ -579,37 +468,37 @@ impl ExplainExecutionNodeDescriptor {
 
     /// Return node type.
     #[must_use]
-    pub const fn node_type(&self) -> ExplainExecutionNodeType {
+    pub(in crate::db) const fn node_type(&self) -> ExplainExecutionNodeType {
         self.node_type
     }
 
     /// Return execution mode.
     #[must_use]
-    pub const fn execution_mode(&self) -> ExplainExecutionMode {
+    pub(in crate::db) const fn execution_mode(&self) -> ExplainExecutionMode {
         self.execution_mode
     }
 
     /// Borrow optional access strategy annotation.
     #[must_use]
-    pub const fn access_strategy(&self) -> Option<&ExplainAccessPath> {
+    pub(in crate::db) const fn access_strategy(&self) -> Option<&ExplainAccessPath> {
         self.access_strategy.as_ref()
     }
 
     /// Borrow optional predicate pushdown annotation.
     #[must_use]
-    pub fn predicate_pushdown(&self) -> Option<&str> {
+    pub(in crate::db) fn predicate_pushdown(&self) -> Option<&str> {
         self.predicate_pushdown.as_deref()
     }
 
     /// Borrow optional semantic scalar filter expression annotation.
     #[must_use]
-    pub fn filter_expr(&self) -> Option<&str> {
+    pub(in crate::db) fn filter_expr(&self) -> Option<&str> {
         self.filter_expr.as_deref()
     }
 
     /// Borrow the optional explicit residual scalar filter expression.
     #[must_use]
-    pub fn residual_filter_expr(&self) -> Option<&str> {
+    pub(in crate::db) fn residual_filter_expr(&self) -> Option<&str> {
         self.residual_filter_expr.as_deref()
     }
 
@@ -617,7 +506,7 @@ impl ExplainExecutionNodeDescriptor {
     /// alongside `filter_expr` when execution still benefits from predicate
     /// pushdown labeling.
     #[must_use]
-    pub const fn residual_filter_predicate(&self) -> Option<&ExplainPredicate> {
+    pub(in crate::db) const fn residual_filter_predicate(&self) -> Option<&ExplainPredicate> {
         self.residual_filter_predicate.as_ref()
     }
 
@@ -632,55 +521,55 @@ impl ExplainExecutionNodeDescriptor {
 
     /// Return whether this node carries any residual filter annotation.
     #[must_use]
-    pub const fn has_residual_filter(&self) -> bool {
+    pub(in crate::db) const fn has_residual_filter(&self) -> bool {
         !self.residual_filter_shape().is_absent()
     }
 
     /// Borrow optional projection annotation.
     #[must_use]
-    pub fn projection(&self) -> Option<&str> {
+    pub(in crate::db) fn projection(&self) -> Option<&str> {
         self.projection.as_deref()
     }
 
     /// Return optional ordering source annotation.
     #[must_use]
-    pub const fn ordering_source(&self) -> Option<ExplainExecutionOrderingSource> {
+    pub(in crate::db) const fn ordering_source(&self) -> Option<ExplainExecutionOrderingSource> {
         self.ordering_source
     }
 
     /// Return optional limit annotation.
     #[must_use]
-    pub const fn limit(&self) -> Option<u32> {
+    pub(in crate::db) const fn limit(&self) -> Option<u32> {
         self.limit
     }
 
     /// Return optional continuation annotation.
     #[must_use]
-    pub const fn cursor(&self) -> Option<bool> {
+    pub(in crate::db) const fn cursor(&self) -> Option<bool> {
         self.cursor
     }
 
     /// Return optional covering-scan annotation.
     #[must_use]
-    pub const fn covering_scan(&self) -> Option<bool> {
+    pub(in crate::db) const fn covering_scan(&self) -> Option<bool> {
         self.covering_scan
     }
 
     /// Return optional row-count expectation annotation.
     #[must_use]
-    pub const fn rows_expected(&self) -> Option<u64> {
+    pub(in crate::db) const fn rows_expected(&self) -> Option<u64> {
         self.rows_expected
     }
 
     /// Borrow child execution nodes.
     #[must_use]
-    pub const fn children(&self) -> &[Self] {
+    pub(in crate::db) const fn children(&self) -> &[Self] {
         self.children.as_slice()
     }
 
     /// Borrow node properties.
     #[must_use]
-    pub const fn node_properties(&self) -> &ExplainPropertyMap {
+    pub(in crate::db) const fn node_properties(&self) -> &ExplainPropertyMap {
         &self.node_properties
     }
 }

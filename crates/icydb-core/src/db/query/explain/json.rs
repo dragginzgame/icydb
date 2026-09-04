@@ -17,17 +17,6 @@ use crate::db::query::{
     },
 };
 
-impl ExplainExecutionNodeDescriptor {
-    /// Render this execution subtree as canonical JSON.
-    #[must_use]
-    pub fn render_json_canonical(&self) -> String {
-        let mut out = String::new();
-        let mut node_id_counter = 0_u64;
-        write_execution_node_json(self, &mut node_id_counter, &mut out);
-        out
-    }
-}
-
 impl FinalizedQueryDiagnostics {
     /// Render this finalized execution diagnostics artifact as canonical JSON.
     #[must_use]

@@ -786,21 +786,7 @@ fn eval_compare_scalar_slot_pair(
     right: ScalarSlotValueRef<'_>,
     coercion: &CoercionSpec,
 ) -> bool {
-    eval_compare_values(
-        &scalar_slot_value_ref_into_value(left),
-        op,
-        &scalar_slot_value_ref_into_value(right),
-        coercion,
-    )
-}
-
-// Convert one scalar slot ref into the canonical compare-value shape after the
-// fast path has already avoided structural slot loading.
-fn scalar_slot_value_ref_into_value(value: ScalarSlotValueRef<'_>) -> Value {
-    match value {
-        ScalarSlotValueRef::Null => Value::Null,
-        ScalarSlotValueRef::Value(value) => value.into_value(),
-    }
+    eval_compare_values(&left.into_value(), op, &right.into_value(), coercion)
 }
 
 // Evaluate one logical `AND` child list through a shared fallible predicate walker.

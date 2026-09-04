@@ -74,7 +74,7 @@ impl SqlSurfaceTokens {
 
     fn ddl_dispatch_tokens(&self) -> TokenStream {
         let entity_dispatch = if self.has_entities {
-            quote! { db()?.execute_admin_sql_ddl(sql) }
+            quote! { db()?.execute_admin_sql_ddl_dispatch(&dispatch) }
         } else {
             quote! {
                 Err(::icydb::Error::from_runtime_boundary(
@@ -88,7 +88,8 @@ impl SqlSurfaceTokens {
             fn __icydb_sql_surface_ddl_dispatch(
                 sql: &str,
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
-                match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
+                let dispatch = ::icydb::__macro::sql_statement_dispatch(sql)?;
+                match dispatch.entity_name() {
                     None => Err(::icydb::Error::from_runtime_boundary(
                         ::icydb::diagnostic::RuntimeBoundaryCode::SqlDdlTargetRequired,
                         ::icydb::ErrorOrigin::Interface,
@@ -101,12 +102,12 @@ impl SqlSurfaceTokens {
 
     fn update_dispatch_tokens(&self) -> TokenStream {
         let primary_key_dispatch = if self.has_entities {
-            quote! { db()?.execute_sql_public_primary_key_update(sql) }
+            quote! { db()?.execute_sql_public_primary_key_update(&dispatch) }
         } else {
             empty_sql_surface_query_dispatch()
         };
         let bounded_dispatch = if self.has_entities {
-            quote! { db()?.execute_sql_public_bounded_update(sql) }
+            quote! { db()?.execute_sql_public_bounded_update(&dispatch) }
         } else {
             empty_sql_surface_query_dispatch()
         };
@@ -115,7 +116,8 @@ impl SqlSurfaceTokens {
             fn __icydb_sql_surface_update_primary_key_dispatch(
                 sql: &str,
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
-                match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
+                let dispatch = ::icydb::__macro::sql_statement_dispatch(sql)?;
+                match dispatch.entity_name() {
                     None => Err(::icydb::Error::from_runtime_boundary(
                         ::icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
                         ::icydb::ErrorOrigin::Interface,
@@ -127,7 +129,8 @@ impl SqlSurfaceTokens {
             fn __icydb_sql_surface_update_bounded_dispatch(
                 sql: &str,
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
-                match ::icydb::__macro::sql_statement_entity_name(sql)?.as_deref() {
+                let dispatch = ::icydb::__macro::sql_statement_dispatch(sql)?;
+                match dispatch.entity_name() {
                     None => Err(::icydb::Error::from_runtime_boundary(
                         ::icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
                         ::icydb::ErrorOrigin::Interface,
@@ -300,8 +303,8 @@ mod tests {
         surface.push_entity("Character");
         let surface = compact_tokens(quote!(#surface));
 
-        assert!(surface.contains("execute_sql_public_primary_key_update(sql)"));
-        assert!(surface.contains("execute_sql_public_bounded_update(sql)"));
+        assert!(surface.contains("execute_sql_public_primary_key_update(&dispatch)"));
+        assert!(surface.contains("execute_sql_public_bounded_update(&dispatch)"));
         assert!(surface.contains("__icydb_sql_surface_update_primary_key_dispatch"));
         assert!(surface.contains("__icydb_sql_surface_update_bounded_dispatch"));
     }
@@ -314,7 +317,8 @@ mod tests {
 
         assert!(surface.contains("execute_trusted_sql_query_dispatch(&dispatch)"));
         assert!(surface.contains("into_deliverable_query_reply()"));
-        assert!(surface.contains("execute_admin_sql_ddl(sql)"));
+        assert!(surface.contains("execute_admin_sql_ddl_dispatch(&dispatch)"));
+        assert!(!surface.contains("sql_statement_entity_name"));
     }
 
     #[test]

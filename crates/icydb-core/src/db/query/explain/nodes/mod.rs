@@ -82,9 +82,7 @@ const fn aggregate_layer_owns(node_type: ExplainExecutionNodeType) -> bool {
 const fn terminal_layer_owns(node_type: ExplainExecutionNodeType) -> bool {
     matches!(
         node_type,
-        ExplainExecutionNodeType::ProjectionMaterialized
-            | ExplainExecutionNodeType::CoveringRead
-            | ExplainExecutionNodeType::LimitOffset
+        ExplainExecutionNodeType::CoveringRead | ExplainExecutionNodeType::LimitOffset
     )
 }
 

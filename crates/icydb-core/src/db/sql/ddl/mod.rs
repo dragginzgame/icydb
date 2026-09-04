@@ -50,7 +50,10 @@ use crate::db::{
         derive_sql_ddl_field_path_index_accepted_after, derive_sql_ddl_field_rename_accepted_after,
         derive_sql_ddl_secondary_index_drop_accepted_after,
     },
-    sql::parser::{SqlDdlStatement, SqlStatement},
+    sql::{
+        identifier::identifiers_tail_match,
+        parser::{SqlDdlStatement, SqlStatement},
+    },
 };
 
 ///
@@ -332,6 +335,24 @@ pub(in crate::db) enum SqlDdlBindError {
     },
 
     InvalidCheckExpression(AcceptedCheckExprV1Error),
+}
+
+// Required DDL forms must agree with the catalog-selected accepted entity.
+// Targetless `DROP INDEX` retains its separate optional binding in `index`.
+fn bind_required_sql_ddl_entity<'a>(
+    sql_entity: &str,
+    schema: &'a SchemaInfo,
+) -> Result<&'a str, SqlDdlBindError> {
+    let entity_name = schema
+        .entity_name()
+        .ok_or(SqlDdlBindError::MissingEntityName)?;
+    if !identifiers_tail_match(sql_entity, entity_name) {
+        return Err(SqlDdlBindError::EntityMismatch {
+            sql_entity: sql_entity.to_string(),
+            expected_entity: entity_name.to_string(),
+        });
+    }
+    Ok(entity_name)
 }
 
 ///

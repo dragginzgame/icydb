@@ -166,8 +166,6 @@ than union with controller authority.
   total query limit.
 - Ensure filtering and ordering can select an accepted bounded/index route.
 - For grouped reads, include positive group limits within the public ceilings.
-- Use the attributed terminal only when the caller is authorized to observe
-  per-operation cost; it does not weaken public admission.
 - Treat admission rejection as a typed failure, never as an empty result.
 - Bound the final encoded response.
 - Use trusted methods only for explicit admin work.

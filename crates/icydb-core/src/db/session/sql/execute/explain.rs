@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        DbSession, MissingRowPolicy, QueryError, TraceReuseEvent,
+        DbSession, MissingRowPolicy, QueryError, QueryPlanCacheReuse,
         executor::{
             EntityAuthority, assemble_load_execution_node_descriptor_from_route_facts,
             explain::assemble_scalar_aggregate_execution_descriptor_with_projection,
@@ -14,10 +14,7 @@ use crate::{
         query::{
             admission::{QueryAdmissionLane, QueryAdmissionPolicy, QueryAdmissionSummary},
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
-            explain::{
-                ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainPlan,
-                FinalizedQueryDiagnostics, property_keys,
-            },
+            explain::{ExplainExecutionDescriptor, FinalizedQueryDiagnostics, property_keys},
             intent::StructuralQuery,
             plan::AccessPlannedQuery,
         },
@@ -93,9 +90,9 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         structural: &StructuralQuery,
         map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
-    ) -> Result<(T, TraceReuseEvent), QueryError> {
+    ) -> Result<(T, QueryPlanCacheReuse), QueryError> {
         let (prepared_plan, reuse) = self
-            .cached_shared_query_plan_for_accepted_authority_with_catalog(
+            .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
                 authority,
                 catalog,
                 structural,
@@ -113,9 +110,9 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         catalog: &AcceptedSchemaCatalogContext,
         structural: &StructuralQuery,
-    ) -> Result<(AccessPlannedQuery, TraceReuseEvent), QueryError> {
+    ) -> Result<(AccessPlannedQuery, QueryPlanCacheReuse), QueryError> {
         let (prepared_plan, reuse) = self
-            .cached_shared_query_plan_for_accepted_authority_with_catalog(
+            .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
                 authority,
                 catalog,
                 structural,
@@ -400,14 +397,12 @@ impl<C: CanisterKind> DbSession<C> {
         authority: &EntityAuthority,
         schema_info: &SchemaInfo,
     ) -> Result<String, QueryError> {
-        let query_explain = plan.explain();
         let mut rendered = Vec::with_capacity(strategies.len());
 
         for strategy in strategies {
             rendered.push(self.render_global_aggregate_terminal_explain(
                 command,
                 strategy,
-                &query_explain,
                 plan,
                 authority,
                 schema_info,
@@ -425,14 +420,12 @@ impl<C: CanisterKind> DbSession<C> {
         authority: &EntityAuthority,
         schema_info: &SchemaInfo,
     ) -> Result<String, QueryError> {
-        let query_explain = plan.explain();
         let mut rendered = Vec::with_capacity(strategies.len());
 
         for strategy in strategies {
             rendered.push(self.render_global_aggregate_terminal_explain_json(
                 command,
                 strategy,
-                &query_explain,
                 plan,
                 authority,
                 schema_info,
@@ -446,7 +439,6 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         command: &SqlGlobalAggregateCommand,
         strategy: &PreparedSqlScalarAggregateStrategy,
-        query_explain: &ExplainPlan,
         plan: &AccessPlannedQuery,
         authority: &EntityAuthority,
         schema_info: &SchemaInfo,
@@ -458,20 +450,11 @@ impl<C: CanisterKind> DbSession<C> {
             authority,
             schema_info,
         )?;
-        let terminal_plan = ExplainAggregateTerminalPlan::new(
-            query_explain.clone(),
-            strategy.aggregate_kind(),
-            execution,
-        );
+        let execution = execution.into_execution_node_descriptor(strategy.aggregate_kind());
 
         Ok(render_sql_execution_explain(
-            &FinalizedQueryDiagnostics::new(
-                terminal_plan.execution_node_descriptor(),
-                Vec::new(),
-                Vec::new(),
-                None,
-            )
-            .with_admission(diagnostic_explain_admission_for_plan(plan)),
+            &FinalizedQueryDiagnostics::new(execution, Vec::new(), Vec::new(), None)
+                .with_admission(diagnostic_explain_admission_for_plan(plan)),
         ))
     }
 
@@ -479,7 +462,6 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         command: &SqlGlobalAggregateCommand,
         strategy: &PreparedSqlScalarAggregateStrategy,
-        query_explain: &ExplainPlan,
         plan: &AccessPlannedQuery,
         authority: &EntityAuthority,
         schema_info: &SchemaInfo,
@@ -491,13 +473,8 @@ impl<C: CanisterKind> DbSession<C> {
             authority,
             schema_info,
         )?;
-        let terminal_plan = ExplainAggregateTerminalPlan::new(
-            query_explain.clone(),
-            strategy.aggregate_kind(),
-            execution,
-        );
         let diagnostics = FinalizedQueryDiagnostics::new(
-            terminal_plan.execution_node_descriptor(),
+            execution.into_execution_node_descriptor(strategy.aggregate_kind()),
             Vec::new(),
             Vec::new(),
             None,

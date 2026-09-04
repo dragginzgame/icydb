@@ -9,8 +9,9 @@ use crate::{
             AcceptedSchemaCatalogContext,
             sql::{
                 SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
-                SqlPublicPrimaryKeyDeletePlan, SqlStatementResult, SqlValidatedDeletePlan,
-                classify_sql_delete_policy, combined_optional_row_bound,
+                SqlPublicPrimaryKeyDeletePlan, SqlStatementDispatch, SqlStatementResult,
+                SqlValidatedDeletePlan, classify_sql_delete_statement_policy,
+                combined_optional_row_bound,
                 execute::write_returning::{
                     projection_labels_from_accepted_write_descriptor,
                     sql_returning_statement_projection, validate_sql_materialized_returning_bounds,
@@ -150,18 +151,19 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn schema_derived_sql_delete_plan(
         &self,
-        sql: &str,
+        dispatch: &SqlStatementDispatch<'_>,
         policy: SqlDeleteExposurePolicy,
     ) -> Result<SqlValidatedDeletePlan, QueryError> {
-        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?;
+        let entity_name = dispatch.entity_name();
         self.with_checked_accepted_write_descriptor_for_returning(
             None,
-            entity_name.as_deref(),
+            entity_name,
             None,
             |_catalog, descriptor| {
                 let context =
                     SqlDeletePolicyContext::public_generated(descriptor.primary_key_names());
-                let report = classify_sql_delete_policy(sql, policy, context)?;
+                let report =
+                    classify_sql_delete_statement_policy(dispatch.statement(), policy, context);
                 require_sql_write_policy_plan(report.plan)
             },
         )
@@ -209,14 +211,16 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_validated_sql_delete_statement(plan.statement(), plan.execution_bounds())
     }
 
-    /// Classify and execute one public primary-key-only SQL `DELETE`.
+    /// Classify and execute one public primary-key-only delete from a parsed dispatch.
     #[doc(hidden)]
     pub fn execute_sql_public_primary_key_delete(
         &self,
-        sql: &str,
+        dispatch: &SqlStatementDispatch<'_>,
     ) -> Result<SqlStatementResult, QueryError> {
-        let plan = self
-            .schema_derived_sql_delete_plan(sql, SqlDeleteExposurePolicy::PublicPrimaryKeyOnly)?;
+        let plan = self.schema_derived_sql_delete_plan(
+            dispatch,
+            SqlDeleteExposurePolicy::PublicPrimaryKeyOnly,
+        )?;
         let SqlValidatedDeletePlan::PublicPrimaryKeyOnly(plan) = plan else {
             return Err(QueryError::invariant());
         };
@@ -224,14 +228,14 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_validated_sql_public_primary_key_delete(&plan)
     }
 
-    /// Classify and execute one bounded deterministic public SQL `DELETE`.
+    /// Classify and execute one bounded deterministic public delete from a parsed dispatch.
     #[doc(hidden)]
     pub fn execute_sql_public_bounded_delete(
         &self,
-        sql: &str,
+        dispatch: &SqlStatementDispatch<'_>,
     ) -> Result<SqlStatementResult, QueryError> {
         let plan = self.schema_derived_sql_delete_plan(
-            sql,
+            dispatch,
             SqlDeleteExposurePolicy::PublicBoundedDeterministic,
         )?;
         let SqlValidatedDeletePlan::PublicBoundedDeterministic(plan) = plan else {

@@ -420,13 +420,12 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(shortcut);
         }
 
-        let (prepared_plan, _) = self
-            .cached_shared_query_plan_for_accepted_authority_with_catalog(
-                authority.clone(),
-                catalog,
-                command.query(),
-                DiagnosticExecutionLane::TrustedRead,
-            )?;
+        let prepared_plan = self.cached_shared_query_plan_for_accepted_authority_with_catalog(
+            authority.clone(),
+            catalog,
+            command.query(),
+            DiagnosticExecutionLane::TrustedRead,
+        )?;
 
         Ok(Self::exact_target_from_cached_shared_plan(
             catalog,

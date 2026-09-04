@@ -52,13 +52,12 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         authority: EntityAuthority,
     ) -> PreparedAggregatePlanResolution {
-        let (prepared_plan, _) = self
-            .cached_shared_query_plan_for_accepted_authority_with_catalog(
-                authority,
-                catalog,
-                command.query(),
-                DiagnosticExecutionLane::TrustedRead,
-            )?;
+        let prepared_plan = self.cached_shared_query_plan_for_accepted_authority_with_catalog(
+            authority,
+            catalog,
+            command.query(),
+            DiagnosticExecutionLane::TrustedRead,
+        )?;
 
         Ok(prepared_plan)
     }

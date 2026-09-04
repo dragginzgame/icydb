@@ -15,6 +15,8 @@ mod projection;
 use crate::db::{QueryError, executor::ExecutorPlanError};
 
 #[cfg(feature = "sql")]
+pub(in crate::db) use cache::QueryPlanCacheReuse;
+#[cfg(feature = "sql")]
 pub(in crate::db::session) use cache::query_plan_requires_cardinality_lifecycle_recheck;
 #[cfg(feature = "sql")]
 pub(in crate::db::session) use exact_count::exact_count_cardinality_prefix_keys_for_accepted_authority;

@@ -413,11 +413,11 @@ impl<C: CanisterKind> DbSession<C> {
             None
         };
         let initial_is_exact_exhaustion =
-            initial_plan.as_ref().is_some_and(|(prepared_plan, _, _)| {
+            initial_plan.as_ref().is_some_and(|(prepared_plan, _)| {
                 Self::exact_primary_key_candidate_bound(prepared_plan)
                     .is_some_and(|bound| bound == 1 && bound <= page_output_limit)
             });
-        let (prepared_plan, projection, _) = if initial_is_exact_exhaustion {
+        let (prepared_plan, projection) = if initial_is_exact_exhaustion {
             initial_plan.ok_or_else(Self::scalar_page_cursor_error)?
         } else {
             let query = Self::structural_query_from_dynamic_request_with_page_limit(

@@ -108,7 +108,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<(SharedPreparedExecutionPlan, StructuralProjectionContract), QueryError> {
-        let (prepared_plan, projection, _) = self
+        let (prepared_plan, projection) = self
             .structural_projection_prepared_plan_for_accepted_authority(
                 query,
                 authority,
@@ -129,7 +129,7 @@ impl<C: CanisterKind> DbSession<C> {
         accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<(SharedPreparedExecutionPlan, StructuralProjectionContract), QueryError> {
         let schema_fingerprint = authority.accepted_schema_fingerprint();
-        let (prepared_plan, _) = self
+        let prepared_plan = self
             .cached_primary_only_query_plan_for_accepted_authority_with_schema_fingerprint(
                 authority.clone(),
                 accepted_schema,
@@ -156,13 +156,12 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<(SharedPreparedExecutionPlan, StructuralProjectionContract), QueryError> {
-        let (prepared_plan, _) = self
-            .cached_shared_query_plan_for_accepted_authority_with_catalog(
-                authority.clone(),
-                catalog,
-                query,
-                DiagnosticExecutionLane::TrustedRead,
-            )?;
+        let prepared_plan = self.cached_shared_query_plan_for_accepted_authority_with_catalog(
+            authority.clone(),
+            catalog,
+            query,
+            DiagnosticExecutionLane::TrustedRead,
+        )?;
         Self::sql_select_projection_from_prepared_plan(prepared_plan, authority)
     }
 

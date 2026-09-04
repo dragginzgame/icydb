@@ -1,3 +1,8 @@
+//! Module: db::data::persisted_row::codec::scalar
+//! Responsibility: canonical scalar-slot encoding, decoding, and materialization.
+//! Does not own: accepted-field policy or structural value decoding.
+//! Boundary: persisted-row readers and writers use this scalar codec.
+
 use crate::{
     db::schema::ScalarCodec,
     error::InternalError,
@@ -78,6 +83,17 @@ impl ScalarValueRef<'_> {
 pub(crate) enum ScalarSlotValueRef<'a> {
     Null,
     Value(ScalarValueRef<'a>),
+}
+
+impl ScalarSlotValueRef<'_> {
+    /// Materialize this nullable scalar-slot view into the runtime `Value` enum.
+    #[must_use]
+    pub(crate) fn into_value(self) -> Value {
+        match self {
+            Self::Null => Value::Null,
+            Self::Value(value) => value.into_value(),
+        }
+    }
 }
 
 // Copy a fixed-width scalar payload into an array while preserving the exact
@@ -352,6 +368,19 @@ mod tests {
             Ok(ScalarSlotValueRef::Value(ScalarValueRef::Date(Date::MAX))),
         ));
         assert!(decode_scalar_slot_value(&invalid, ScalarCodec::Date, "created_on").is_err());
+    }
+
+    #[test]
+    fn scalar_slot_materialization_preserves_null_and_payload_values() {
+        assert_eq!(ScalarSlotValueRef::Null.into_value(), Value::Null);
+        assert_eq!(
+            ScalarSlotValueRef::Value(ScalarValueRef::Text("current")).into_value(),
+            Value::Text("current".to_string()),
+        );
+        assert_eq!(
+            ScalarSlotValueRef::Value(ScalarValueRef::Nat(42)).into_value(),
+            Value::Nat64(42),
+        );
     }
 
     #[test]

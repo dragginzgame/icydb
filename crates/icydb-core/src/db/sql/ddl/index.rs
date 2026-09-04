@@ -1,6 +1,6 @@
 use super::{
     BoundSqlDdlNoOpRequest, BoundSqlDdlRequest, BoundSqlDdlSchemaVersionContract,
-    BoundSqlDdlStatement, SqlDdlBindError, SqlDdlMutationKind,
+    BoundSqlDdlStatement, SqlDdlBindError, SqlDdlMutationKind, bind_required_sql_ddl_entity,
 };
 use crate::db::{
     predicate::parse_sql_predicate,
@@ -168,16 +168,7 @@ pub(super) fn bind_create_index_statement(
     schema: &SchemaInfo,
     index_store_path: &'static str,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
-    let entity_name = schema
-        .entity_name()
-        .ok_or(SqlDdlBindError::MissingEntityName)?;
-
-    if !identifiers_tail_match(statement.entity.as_str(), entity_name) {
-        return Err(SqlDdlBindError::EntityMismatch {
-            sql_entity: statement.entity.clone(),
-            expected_entity: entity_name.to_string(),
-        });
-    }
+    let entity_name = bind_required_sql_ddl_entity(statement.entity.as_str(), schema)?;
 
     let key_items = statement
         .key_items
@@ -666,6 +657,15 @@ mod tests {
         statement
     }
 
+    fn drop_index_statement(sql: &str) -> SqlDropIndexStatement {
+        let SqlStatement::Ddl(SqlDdlStatement::DropIndex(statement)) =
+            parse_sql(sql).expect("fixture SQL should parse")
+        else {
+            panic!("fixture SQL should be DROP INDEX");
+        };
+        statement
+    }
+
     fn nullable_unique_index_states() -> (
         (AcceptedSchemaSnapshot, SchemaInfo),
         (AcceptedSchemaSnapshot, SchemaInfo),
@@ -755,6 +755,37 @@ mod tests {
             bound.statement(),
             BoundSqlDdlStatement::CreateIndex(create)
                 if create.candidate_index().predicate_sql() == Some("email IS NOT NULL")
+        ));
+    }
+
+    #[test]
+    fn required_create_and_optional_drop_entity_bindings_stay_distinct() {
+        let (accepted, schema) = nullable_email_schema();
+        let create = create_index_statement("CREATE INDEX account_email ON Other (email)");
+        assert!(matches!(
+            bind_create_index_statement(
+                &create,
+                &accepted,
+                &schema,
+                "entities::Account::account_email",
+            ),
+            Err(SqlDdlBindError::EntityMismatch { sql_entity, expected_entity })
+                if sql_entity == "Other" && expected_entity == "Account"
+        ));
+
+        let targetless = drop_index_statement("DROP INDEX IF EXISTS missing");
+        assert!(matches!(
+            bind_drop_index_statement(&targetless, &accepted, &schema)
+                .expect("targetless DROP INDEX IF EXISTS should use the selected catalog")
+                .statement(),
+            BoundSqlDdlStatement::NoOp(no_op) if no_op.entity_name == "Account"
+        ));
+
+        let mismatched = drop_index_statement("DROP INDEX IF EXISTS missing ON Other");
+        assert!(matches!(
+            bind_drop_index_statement(&mismatched, &accepted, &schema),
+            Err(SqlDdlBindError::EntityMismatch { sql_entity, expected_entity })
+                if sql_entity == "Other" && expected_entity == "Account"
         ));
     }
 

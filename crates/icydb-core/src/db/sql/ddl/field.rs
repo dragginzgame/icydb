@@ -1,6 +1,6 @@
 use super::{
     BoundSqlDdlNoOpRequest, BoundSqlDdlRequest, BoundSqlDdlSchemaVersionContract,
-    BoundSqlDdlStatement, SqlDdlBindError, SqlDdlMutationKind,
+    BoundSqlDdlStatement, SqlDdlBindError, SqlDdlMutationKind, bind_required_sql_ddl_entity,
 };
 use crate::db::{
     schema::{
@@ -15,13 +15,9 @@ use crate::db::{
         resolve_sql_ddl_field_set_default_candidate, resolve_sql_ddl_field_type_contract,
         validate_sql_ddl_field_default_change_candidate,
     },
-    sql::{
-        identifier::identifiers_tail_match,
-        parser::{
-            SqlAlterColumnAction, SqlAlterTableAddColumnStatement,
-            SqlAlterTableAlterColumnStatement, SqlAlterTableDropColumnStatement,
-            SqlAlterTableRenameColumnStatement,
-        },
+    sql::parser::{
+        SqlAlterColumnAction, SqlAlterTableAddColumnStatement, SqlAlterTableAlterColumnStatement,
+        SqlAlterTableDropColumnStatement, SqlAlterTableRenameColumnStatement,
     },
 };
 
@@ -205,16 +201,7 @@ pub(super) fn bind_alter_table_add_column_statement(
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
-    let entity_name = schema
-        .entity_name()
-        .ok_or(SqlDdlBindError::MissingEntityName)?;
-
-    if !identifiers_tail_match(statement.entity.as_str(), entity_name) {
-        return Err(SqlDdlBindError::EntityMismatch {
-            sql_entity: statement.entity.clone(),
-            expected_entity: entity_name.to_string(),
-        });
-    }
+    let entity_name = bind_required_sql_ddl_entity(statement.entity.as_str(), schema)?;
 
     resolve_sql_ddl_field_addition_name_candidate(accepted_before, statement.column_name.as_str())
         .map_err(|error| {
@@ -265,16 +252,7 @@ pub(super) fn bind_alter_table_alter_column_statement(
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
-    let Some(entity_name) = schema.entity_name() else {
-        return Err(SqlDdlBindError::MissingEntityName);
-    };
-
-    if !identifiers_tail_match(statement.entity.as_str(), entity_name) {
-        return Err(SqlDdlBindError::EntityMismatch {
-            sql_entity: statement.entity.clone(),
-            expected_entity: entity_name.to_string(),
-        });
-    }
+    let entity_name = bind_required_sql_ddl_entity(statement.entity.as_str(), schema)?;
 
     match &statement.action {
         SqlAlterColumnAction::SetDefault(default) => bind_alter_column_set_default(
@@ -383,16 +361,7 @@ pub(super) fn bind_alter_table_drop_column_statement(
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
-    let entity_name = schema
-        .entity_name()
-        .ok_or(SqlDdlBindError::MissingEntityName)?;
-
-    if !identifiers_tail_match(statement.entity.as_str(), entity_name) {
-        return Err(SqlDdlBindError::EntityMismatch {
-            sql_entity: statement.entity.clone(),
-            expected_entity: entity_name.to_string(),
-        });
-    }
+    let entity_name = bind_required_sql_ddl_entity(statement.entity.as_str(), schema)?;
 
     let field =
         match resolve_sql_ddl_field_drop_candidate(accepted_before, statement.column_name.as_str())
@@ -451,16 +420,7 @@ pub(super) fn bind_alter_table_rename_column_statement(
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
-    let entity_name = schema
-        .entity_name()
-        .ok_or(SqlDdlBindError::MissingEntityName)?;
-
-    if !identifiers_tail_match(statement.entity.as_str(), entity_name) {
-        return Err(SqlDdlBindError::EntityMismatch {
-            sql_entity: statement.entity.clone(),
-            expected_entity: entity_name.to_string(),
-        });
-    }
+    let entity_name = bind_required_sql_ddl_entity(statement.entity.as_str(), schema)?;
 
     let field = resolve_sql_ddl_field_rename_candidate(
         accepted_before,

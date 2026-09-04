@@ -104,42 +104,7 @@ impl HasSchemaPart for Map {
     }
 }
 
-impl HasTraits for Map {
-    fn application_type_kind(&self) -> Option<ApplicationTypeKind> {
-        Some(ApplicationTypeKind::Map)
-    }
-
-    fn trait_builder(&self) -> Option<&TraitBuilder> {
-        Some(&self.traits)
-    }
-
-    fn trait_baseline(&self) -> TraitSet {
-        let mut traits = application_type_trait_set();
-        traits.extend([
-            TraitKind::Default,
-            TraitKind::Deref,
-            TraitKind::DerefMut,
-            TraitKind::From,
-            TraitKind::FromIterator,
-            TraitKind::IntoIterator,
-        ]);
-
-        traits
-    }
-
-    fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
-        match t {
-            TraitKind::From => FromTrait::strategy(self),
-            TraitKind::FromIterator => FromIteratorTrait::strategy(self),
-            TraitKind::IntoIterator => IntoIteratorTrait::strategy(self),
-            TraitKind::NormalizeAuto => NormalizeAutoTrait::strategy(self),
-            TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
-            TraitKind::Visitable => VisitableTrait::strategy(self),
-
-            _ => None,
-        }
-    }
-}
+impl_collection_has_traits!(Map, Map);
 
 impl HasType for Map {
     fn type_part(&self) -> TokenStream {

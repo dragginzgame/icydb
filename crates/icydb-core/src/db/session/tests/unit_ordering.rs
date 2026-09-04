@@ -180,6 +180,7 @@ fn admitted_generated_dispatch_preserves_entity_routing() {
     )
     .expect("generated endpoint dispatch should parse the query");
     assert!(!dispatch.requires_introspection());
+    assert_eq!(dispatch.entity_name(), Some(ENTITY_NAME));
     let (_, entity) = session
         .execute_trusted_sql_query_with_entity_name(&dispatch)
         .expect("admitted generated dispatch should execute");
@@ -193,15 +194,17 @@ fn trusted_sql_response_and_mutation_surface_routing_remain_distinct() {
 
     let dispatch = sql_statement_dispatch("SHOW STORES")
         .expect("entity-less introspection dispatch should parse");
+    assert_eq!(dispatch.entity_name(), None);
     let (_, entity) = session
         .execute_trusted_sql_query_with_entity_name(&dispatch)
         .expect("entity-less introspection should execute");
     assert!(entity.is_empty());
 
+    let mutation_dispatch =
+        sql_statement_dispatch("DELETE FROM Singleton WHERE id = '00000000000000000000000000'")
+            .expect("mutation dispatch should parse");
     session
-        .compile_sql_mutation_with_execution_context(
-            "DELETE FROM Singleton WHERE id = '00000000000000000000000000'",
-        )
+        .compile_sql_mutation_with_execution_context(&mutation_dispatch)
         .expect("mutation SQL should compile through its own surface");
 
     let error = session

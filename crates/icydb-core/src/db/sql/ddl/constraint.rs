@@ -1,6 +1,6 @@
 use super::{
     BoundSqlDdlNoOpRequest, BoundSqlDdlRequest, BoundSqlDdlSchemaVersionContract,
-    BoundSqlDdlStatement, SqlDdlBindError, SqlDdlMutationKind,
+    BoundSqlDdlStatement, SqlDdlBindError, SqlDdlMutationKind, bind_required_sql_ddl_entity,
 };
 use crate::db::{
     schema::{
@@ -8,12 +8,9 @@ use crate::db::{
         ConstraintActivationKind, ConstraintId, ConstraintOrigin, SchemaInfo, bind_sql_check_expr,
         validate_constraint_name,
     },
-    sql::{
-        identifier::identifiers_tail_match,
-        parser::{
-            SqlAlterTableAddCheckConstraintStatement, SqlAlterTableDropConstraintStatement,
-            SqlAlterTableValidateConstraintStatement,
-        },
+    sql::parser::{
+        SqlAlterTableAddCheckConstraintStatement, SqlAlterTableDropConstraintStatement,
+        SqlAlterTableValidateConstraintStatement,
     },
 };
 
@@ -141,7 +138,7 @@ pub(super) fn bind_alter_table_add_check_constraint_statement(
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
-    let entity_name = bound_entity_name(statement.entity.as_str(), schema)?;
+    let entity_name = bind_required_sql_ddl_entity(statement.entity.as_str(), schema)?;
     validate_constraint_name(statement.constraint_name.as_str()).map_err(|_| {
         SqlDdlBindError::InvalidConstraintName {
             constraint_name: statement.constraint_name.clone(),
@@ -186,7 +183,7 @@ pub(super) fn bind_alter_table_drop_constraint_statement(
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
-    let entity_name = bound_entity_name(statement.entity.as_str(), schema)?;
+    let entity_name = bind_required_sql_ddl_entity(statement.entity.as_str(), schema)?;
     let catalog = accepted_before.persisted_snapshot().constraint_catalog();
     if let Some(constraint) = catalog
         .constraints()
@@ -249,7 +246,7 @@ pub(super) fn bind_alter_table_validate_constraint_statement(
     accepted_before: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
 ) -> Result<BoundSqlDdlRequest, SqlDdlBindError> {
-    let entity_name = bound_entity_name(statement.entity.as_str(), schema)?;
+    let entity_name = bind_required_sql_ddl_entity(statement.entity.as_str(), schema)?;
     let catalog = accepted_before.persisted_snapshot().constraint_catalog();
     let (constraint_id, kind, activation_epoch, already_validated) = if let Some(activation) =
         catalog
@@ -337,20 +334,4 @@ fn bound_drop(
         }),
         schema_version_contract: BoundSqlDdlSchemaVersionContract::default(),
     }
-}
-
-fn bound_entity_name<'a>(
-    sql_entity: &str,
-    schema: &'a SchemaInfo,
-) -> Result<&'a str, SqlDdlBindError> {
-    let entity_name = schema
-        .entity_name()
-        .ok_or(SqlDdlBindError::MissingEntityName)?;
-    if !identifiers_tail_match(sql_entity, entity_name) {
-        return Err(SqlDdlBindError::EntityMismatch {
-            sql_entity: sql_entity.to_string(),
-            expected_entity: entity_name.to_string(),
-        });
-    }
-    Ok(entity_name)
 }

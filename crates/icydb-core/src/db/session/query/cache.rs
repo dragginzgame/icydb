@@ -6,7 +6,6 @@
 mod identity;
 mod template;
 
-use crate::db::TraceReuseEvent;
 use crate::db::commit::CommitSchemaFingerprint;
 use crate::{
     db::{
@@ -40,8 +39,21 @@ const SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES: usize = 1024;
 const SHARED_QUERY_TEMPLATE_CACHE_MAX_RETAINED_BYTES: usize = 4 * 1024 * 1024;
 const REQUEST_PLANNING_SHAPE_DOMAIN: u64 = 0x2210_0006_0000_0001;
 
+/// Internal shared-plan cache outcome retained only for verbose `EXPLAIN`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum QueryPlanCacheReuse {
+    Hit,
+    Miss,
+}
+
+impl QueryPlanCacheReuse {
+    pub(in crate::db) const fn is_hit(self) -> bool {
+        matches!(self, Self::Hit)
+    }
+}
+
 type QueryPlanCache = BoundedCache<QueryPlanCacheKey, CachedQueryArtifact>;
-type CachedPreparedPlanLookup = Option<(SharedPreparedExecutionPlan, TraceReuseEvent)>;
+type CachedPreparedPlanLookup = Option<(SharedPreparedExecutionPlan, QueryPlanCacheReuse)>;
 
 #[derive(Clone, Debug)]
 enum CachedQueryArtifact {
@@ -241,7 +253,7 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(prepared_plan) = cached
             && self.cached_cardinality_tiebreak_is_current(authority, &prepared_plan)?
         {
-            return Ok(Some((prepared_plan, TraceReuseEvent::Hit)));
+            return Ok(Some((prepared_plan, QueryPlanCacheReuse::Hit)));
         }
 
         Ok(None)
@@ -267,7 +279,7 @@ impl<C: CanisterKind> DbSession<C> {
         cache_key: QueryPlanCacheKey,
         planning_context: HardExecutionContext,
         build_prepared_plan: impl FnOnce() -> Result<SharedPreparedExecutionPlan, QueryError>,
-    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheReuse), QueryError> {
         let cached_plan = self.lookup_shared_query_plan_for_authority(authority, &cache_key)?;
         if let Some(cached_plan) = cached_plan {
             return Ok(cached_plan);
@@ -281,7 +293,7 @@ impl<C: CanisterKind> DbSession<C> {
         let prepared_plan = build_prepared_plan()?;
         self.insert_shared_query_plan_for_authority(authority, cache_key, &prepared_plan);
 
-        Ok((prepared_plan, TraceReuseEvent::Miss))
+        Ok((prepared_plan, QueryPlanCacheReuse::Miss))
     }
 
     pub(in crate::db::session) fn visible_indexes_for_accepted_schema(
@@ -331,7 +343,7 @@ impl<C: CanisterKind> DbSession<C> {
         schema_fingerprint: CommitSchemaFingerprint,
         query: &StructuralQuery,
         lane: DiagnosticExecutionLane,
-    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
+    ) -> Result<SharedPreparedExecutionPlan, QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let schema = QueryPlanAcceptedSchema::from_accepted_schema_with_fingerprint(
             accepted_schema,
@@ -345,6 +357,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
             authority, schema, visibility, query, lane,
         )
+        .map(|(plan, _reuse)| plan)
     }
 
     /// Compile one authenticated cardinality-selected continuation route without
@@ -357,7 +370,7 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
         lane: DiagnosticExecutionLane,
         route_pin: CardinalityTiebreakRoutePin,
-    ) -> Result<Option<(SharedPreparedExecutionPlan, TraceReuseEvent)>, QueryError> {
+    ) -> Result<Option<SharedPreparedExecutionPlan>, QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let planning_context =
             direct_read_execution_context(&authority, lane, REQUEST_PLANNING_SHAPE_DOMAIN);
@@ -390,7 +403,7 @@ impl<C: CanisterKind> DbSession<C> {
             SharedPreparedExecutionPlan::from_plan(authority, plan, schema_fingerprint)
                 .map_err(QueryError::execute)?;
 
-        Ok(Some((prepared_plan, TraceReuseEvent::Miss)))
+        Ok(Some(prepared_plan))
     }
 
     #[cfg(feature = "sql")]
@@ -401,7 +414,7 @@ impl<C: CanisterKind> DbSession<C> {
         schema_fingerprint: CommitSchemaFingerprint,
         query: &StructuralQuery,
         lane: DiagnosticExecutionLane,
-    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
+    ) -> Result<SharedPreparedExecutionPlan, QueryError> {
         let visibility = match self.query_plan_visibility_for_store_path(authority.store_path())? {
             QueryPlanVisibility::StoreReady | QueryPlanVisibility::PrimaryOnly => {
                 QueryPlanVisibility::PrimaryOnly
@@ -421,6 +434,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
             authority, schema, visibility, query, lane,
         )
+        .map(|(plan, _reuse)| plan)
     }
 
     pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_catalog(
@@ -429,7 +443,20 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         query: &StructuralQuery,
         lane: DiagnosticExecutionLane,
-    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
+    ) -> Result<SharedPreparedExecutionPlan, QueryError> {
+        self.cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+            authority, catalog, query, lane,
+        )
+        .map(|(plan, _reuse)| plan)
+    }
+
+    pub(in crate::db) fn cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+        &self,
+        authority: EntityAuthority,
+        catalog: &AcceptedSchemaCatalogContext,
+        query: &StructuralQuery,
+        lane: DiagnosticExecutionLane,
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheReuse), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let schema = QueryPlanAcceptedSchema::from_catalog(catalog);
 
@@ -445,7 +472,7 @@ impl<C: CanisterKind> DbSession<C> {
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
         lane: DiagnosticExecutionLane,
-    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheReuse), QueryError> {
         let planning_context =
             direct_read_execution_context(&authority, lane, REQUEST_PLANNING_SHAPE_DOMAIN);
         self.charge_request_planning_resource(
@@ -550,7 +577,7 @@ impl<C: CanisterKind> DbSession<C> {
         parameter_contract: PreparedQueryParameterContract,
         bound_predicate_fingerprint: [u8; 32],
         planning_context: HardExecutionContext,
-    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheReuse), QueryError> {
         let cache_key = QueryPlanCacheKey::for_authority_with_parameter_contract(
             authority.clone(),
             schema_identity,
@@ -564,7 +591,7 @@ impl<C: CanisterKind> DbSession<C> {
             if let Some(prepared_plan) = template.reused_bound_plan(bound_predicate_fingerprint)
                 && self.cached_cardinality_tiebreak_is_current(authority, &prepared_plan)?
             {
-                return Ok((prepared_plan, TraceReuseEvent::Hit));
+                return Ok((prepared_plan, QueryPlanCacheReuse::Hit));
             }
             let bound = template.bind(query, planning_state)?;
             let bound = self.apply_exact_cardinality_tiebreak(
@@ -584,7 +611,7 @@ impl<C: CanisterKind> DbSession<C> {
                 prepared_plan.clone(),
             )?;
 
-            return Ok((prepared_plan, TraceReuseEvent::Hit));
+            return Ok((prepared_plan, QueryPlanCacheReuse::Hit));
         }
 
         self.charge_request_planning_resource(
@@ -611,7 +638,7 @@ impl<C: CanisterKind> DbSession<C> {
         template.remember_bound_plan(bound_predicate_fingerprint, prepared_plan.clone());
         self.insert_shared_query_template_for_authority(authority, cache_key, template);
 
-        Ok((prepared_plan, TraceReuseEvent::Miss))
+        Ok((prepared_plan, QueryPlanCacheReuse::Miss))
     }
 
     fn try_cached_filterless_query_plan_for_authority(
@@ -620,7 +647,7 @@ impl<C: CanisterKind> DbSession<C> {
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
-    ) -> Option<(SharedPreparedExecutionPlan, TraceReuseEvent)> {
+    ) -> Option<(SharedPreparedExecutionPlan, QueryPlanCacheReuse)> {
         self.try_cached_filterless_query_plan_for_entity_path(
             authority.entity_path(),
             schema_identity,
@@ -635,7 +662,7 @@ impl<C: CanisterKind> DbSession<C> {
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
-    ) -> Option<(SharedPreparedExecutionPlan, TraceReuseEvent)> {
+    ) -> Option<(SharedPreparedExecutionPlan, QueryPlanCacheReuse)> {
         if query.has_scalar_filter() {
             return None;
         }
@@ -654,7 +681,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .cloned()
         });
         if let Some(prepared_plan) = cached {
-            return Some((prepared_plan, TraceReuseEvent::Hit));
+            return Some((prepared_plan, QueryPlanCacheReuse::Hit));
         }
 
         None
@@ -668,7 +695,7 @@ impl<C: CanisterKind> DbSession<C> {
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
         planning_context: HardExecutionContext,
-    ) -> Result<(SharedPreparedExecutionPlan, TraceReuseEvent), QueryError> {
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheReuse), QueryError> {
         let cache_key = QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
             authority.clone(),
             schema_identity,

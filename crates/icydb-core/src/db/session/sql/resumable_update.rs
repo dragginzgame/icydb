@@ -42,8 +42,9 @@ use crate::{
             AcceptedFieldDependencyError, AcceptedRowLayoutRuntimeContract, PersistedSchemaSnapshot,
         },
         session::sql::{
-            SqlResumableUpdatePolicyReport, SqlUpdatePolicyRejection,
-            classify_sql_resumable_update_policy, with_accepted_sql_update_policy_context,
+            SqlResumableUpdatePolicyReport, SqlStatementDispatch, SqlUpdatePolicyRejection,
+            classify_sql_resumable_update_policy, sql_statement_dispatch,
+            with_accepted_sql_update_policy_context,
         },
         session::{
             AcceptedSchemaCatalogContext, AcceptedStructuralMutation,
@@ -483,10 +484,12 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<PreparedMutationJobStart, MutationJobError> {
         let operation_timestamp = Timestamp::now();
+        let dispatch =
+            sql_statement_dispatch(sql).map_err(|_| MutationJobError::IneligibleIntent)?;
         let prepared = self
             .prepare_resumable_update_start(
                 mutation_job_operation_id(job_id),
-                sql,
+                &dispatch,
                 operation_timestamp,
             )
             .map_err(|_| MutationJobError::IneligibleIntent)?;
@@ -862,13 +865,14 @@ impl<C: CanisterKind> DbSession<C> {
     fn prepare_resumable_update_start(
         &self,
         operation_id: Ulid,
-        sql: &str,
+        dispatch: &SqlStatementDispatch<'_>,
         operation_timestamp: Timestamp,
     ) -> Result<PreparedResumableUpdateStart, QueryError> {
-        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?
+        let entity_name = dispatch
+            .entity_name()
             .ok_or_else(QueryError::unsupported_query)?;
         let catalog = self
-            .accepted_schema_catalog_context_for_entity_name(Some(entity_name.as_str()))
+            .accepted_schema_catalog_context_for_entity_name(Some(entity_name))
             .map_err(QueryError::execute)?;
         let identity = catalog.identity();
         let store = self
@@ -884,7 +888,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)?;
         let report = with_accepted_sql_update_policy_context(&descriptor, |context| {
             classify_sql_resumable_update_policy(
-                sql,
+                dispatch,
                 catalog.snapshot().persisted_snapshot().entity_name(),
                 context,
             )

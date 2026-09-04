@@ -28,15 +28,13 @@ use crate::{
             AcceptedSchemaCatalogContext,
             sql::{
                 SqlConstraintValidationPage, SqlConstraintValidationRevisionStatus,
-                SqlConstraintValidationState, SqlDdlExecutionStatus, SqlStatementResult,
+                SqlConstraintValidationState, SqlDdlExecutionStatus, SqlStatementDispatch,
+                SqlStatementResult, sql_statement_dispatch,
             },
         },
-        sql::{
-            ddl::{
-                BoundSqlCreateIndexRequest, BoundSqlDdlStatement, BoundSqlValidationConstraintKind,
-                PreparedSqlDdlCommand, prepare_sql_ddl_statement,
-            },
-            parser::parse_sql,
+        sql::ddl::{
+            BoundSqlCreateIndexRequest, BoundSqlDdlStatement, BoundSqlValidationConstraintKind,
+            PreparedSqlDdlCommand, prepare_sql_ddl_statement,
         },
     },
     error::InternalError,
@@ -174,17 +172,18 @@ const fn validation_phase_status(
 impl<C: CanisterKind> DbSession<C> {
     fn prepare_sql_ddl_command(
         &self,
-        sql: &str,
+        dispatch: &SqlStatementDispatch<'_>,
     ) -> Result<(AcceptedSchemaCatalogContext, PreparedSqlDdlCommand), QueryError> {
-        let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
-        let entity_name = crate::db::session::sql::sql_statement_entity_name(sql)?
+        let statement = dispatch.statement();
+        let entity_name = dispatch
+            .entity_name()
             .ok_or_else(QueryError::unsupported_query)?;
         let catalog = self
-            .accepted_schema_catalog_context_for_entity_name(Some(entity_name.as_str()))
+            .accepted_schema_catalog_context_for_entity_name(Some(entity_name))
             .map_err(QueryError::execute)?;
         let schema_info = catalog.accepted_schema_info();
         let prepared = match prepare_sql_ddl_statement(
-            &statement,
+            statement,
             catalog.snapshot(),
             schema_info,
             catalog.identity().store_path(),
@@ -202,7 +201,18 @@ impl<C: CanisterKind> DbSession<C> {
     /// accepted-snapshot publication. The caller must own administrative
     /// authorization before accepting caller-controlled SQL.
     pub fn execute_admin_sql_ddl(&self, sql: &str) -> Result<SqlStatementResult, QueryError> {
-        let (accepted_before, prepared) = self.prepare_sql_ddl_command(sql)?;
+        let dispatch = sql_statement_dispatch(sql)?;
+
+        self.execute_admin_sql_ddl_dispatch(&dispatch)
+    }
+
+    /// Execute one administrative DDL command from a parsed dispatch.
+    #[doc(hidden)]
+    pub fn execute_admin_sql_ddl_dispatch(
+        &self,
+        dispatch: &SqlStatementDispatch<'_>,
+    ) -> Result<SqlStatementResult, QueryError> {
+        let (accepted_before, prepared) = self.prepare_sql_ddl_command(dispatch)?;
         if !prepared.mutates_schema() {
             return Ok(SqlStatementResult::Ddl(
                 prepared

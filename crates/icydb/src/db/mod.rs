@@ -100,12 +100,6 @@ pub use icydb_core::db::{
     SqlColumnKey, SqlColumnSummary, SqlDescribeOutput, SqlShowColumnsOutput,
     SqlShowRelationsOutput, StorageReport, StoreCatalogDescription,
 };
-#[cfg(feature = "sql")]
-pub use icydb_core::db::{
-    ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
-    ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
-};
-pub use icydb_core::db::{ReadIntentKind, TraceReuseEvent};
 pub use icydb_schema::{
     EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldSourceKey,
     SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
@@ -121,7 +115,7 @@ pub use icydb_core::db::{
 #[doc(hidden)]
 pub use icydb_core::db::{
     SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
-    sql_statement_entity_name, sql_statement_shell_surface, sql_statement_surface,
+    sql_statement_shell_surface, sql_statement_surface,
 };
 #[doc(hidden)]
 pub use session::generated::execute_generated_storage_report;

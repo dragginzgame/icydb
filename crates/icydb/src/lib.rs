@@ -167,6 +167,8 @@ pub mod __macro {
     };
     pub use crate::guards::{authorize_schema_read, authorize_sql_read};
     pub use ic_memory::{ic_memory_declaration, ic_memory_key, ic_memory_range};
+    #[cfg(feature = "sql")]
+    pub use icydb_core::db::sql_statement_dispatch;
     pub use icydb_core::db::{
         CompositePrimaryKeyValue, DataStore, DbSession as CoreDbSession, EntityKey, EntityKeyBytes,
         EntityKeyBytesError, IndexStore, JournalTailStore, KeyValueCodec, PrimaryKeyDecode,
@@ -174,8 +176,6 @@ pub mod __macro {
         StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
         StoreRuntimeStorageCapabilities, validate_entity_key_bytes_buffer,
     };
-    #[cfg(feature = "sql")]
-    pub use icydb_core::db::{sql_statement_dispatch, sql_statement_entity_name};
     pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use icydb_core::traits::{CanisterKind, Path};
     pub use icydb_core::value::Value;
