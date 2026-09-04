@@ -1733,20 +1733,13 @@ fn lower_existing_entity(
     }
     let fields_changed = field_candidate.changed;
 
-    let provisional = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+    let provisional = rebuild_existing_entity_snapshot(
+        current,
         current.version(),
-        current.entity_path().to_string(),
-        entity.name().as_str().to_string(),
-        current.primary_key_field_ids().to_vec(),
-        current.row_layout().clone(),
+        entity.name().as_str(),
         field_candidate.fields,
         current.indexes().to_vec(),
-    )
-    .with_constraint_catalog(current.constraint_catalog().clone())
-    .with_relations(current.relations().to_vec())
-    .with_constraint_candidates(
-        current.candidate_indexes().to_vec(),
-        current.candidate_relations().to_vec(),
+        current.constraint_catalog().clone(),
     );
     let indexes = lower_existing_indexes(
         bundle,
@@ -1786,23 +1779,40 @@ fn lower_existing_entity(
             .map(SchemaVersion::new)
             .ok_or_else(InternalError::store_unsupported)?
     };
-    Ok(Some(
-        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            version,
-            current.entity_path().to_string(),
-            entity.name().as_str().to_string(),
-            current.primary_key_field_ids().to_vec(),
-            current.row_layout().clone(),
-            provisional.fields().to_vec(),
-            indexes,
-        )
-        .with_constraint_catalog(constraint_catalog)
-        .with_relations(current.relations().to_vec())
-        .with_constraint_candidates(
-            current.candidate_indexes().to_vec(),
-            current.candidate_relations().to_vec(),
-        ),
-    ))
+    Ok(Some(rebuild_existing_entity_snapshot(
+        current,
+        version,
+        entity.name().as_str(),
+        provisional.fields().to_vec(),
+        indexes,
+        constraint_catalog,
+    )))
+}
+
+fn rebuild_existing_entity_snapshot(
+    current: &PersistedSchemaSnapshot,
+    version: SchemaVersion,
+    entity_name: &str,
+    fields: Vec<PersistedFieldSnapshot>,
+    indexes: Vec<PersistedIndexSnapshot>,
+    constraint_catalog: AcceptedConstraintCatalog,
+) -> PersistedSchemaSnapshot {
+    PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+        version,
+        current.entity_path().to_string(),
+        entity_name.to_string(),
+        current.primary_key_field_ids().to_vec(),
+        current.row_layout().clone(),
+        fields,
+        indexes,
+    )
+    .with_constraint_catalog(constraint_catalog)
+    .with_relation_id_allocator(current.relation_id_allocator())
+    .with_relations(current.relations().to_vec())
+    .with_constraint_candidates(
+        current.candidate_indexes().to_vec(),
+        current.candidate_relations().to_vec(),
+    )
 }
 
 /// Re-declared generated fields plus the metadata changes relevant to indexes.
@@ -2200,7 +2210,7 @@ fn verify_existing_relations(
         if target_fields != target.primary_key_field_ids() {
             return Err(InternalError::store_unsupported());
         }
-        let candidate = PersistedRelationEdgeSnapshot::new(
+        let candidate = PersistedRelationEdgeSnapshot::new_direct(
             accepted.id(),
             proposed.name().as_str().to_string(),
             target.entity_path().to_string(),
@@ -3115,7 +3125,7 @@ fn lower_initial_relations(
                 }
             }
             accepted_bindings.insert((entity_tag, relation.source_key().clone()), id);
-            Ok(PersistedRelationEdgeSnapshot::new(
+            Ok(PersistedRelationEdgeSnapshot::new_direct(
                 id,
                 relation.name().as_str().to_string(),
                 target.source_key().as_str().to_string(),

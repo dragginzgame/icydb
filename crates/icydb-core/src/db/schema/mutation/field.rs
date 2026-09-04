@@ -505,6 +505,7 @@ pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
         before.indexes().to_vec(),
     )
     .with_constraint_catalog(constraint_catalog)
+    .with_relation_id_allocator(before.relation_id_allocator())
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
@@ -584,6 +585,7 @@ pub(in crate::db) fn derive_sql_ddl_field_default_accepted_after(
         before.indexes().to_vec(),
     )
     .with_constraint_catalog(before.constraint_catalog().clone())
+    .with_relation_id_allocator(before.relation_id_allocator())
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
@@ -773,6 +775,7 @@ fn build_field_nullability_snapshot(
         indexes,
     )
     .with_constraint_catalog(constraint_catalog)
+    .with_relation_id_allocator(before.relation_id_allocator())
     .with_relations(before.relations().to_vec())
     .with_constraint_candidates(candidate_indexes, before.candidate_relations().to_vec())
 }
@@ -823,6 +826,7 @@ pub(in crate::db) fn derive_sql_ddl_field_rename_accepted_after(
         indexes,
     )
     .with_constraint_catalog(before.constraint_catalog().clone())
+    .with_relation_id_allocator(before.relation_id_allocator())
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;

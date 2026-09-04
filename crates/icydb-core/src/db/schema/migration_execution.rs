@@ -1057,7 +1057,7 @@ fn migration_derived_domains<C: CanisterKind>(
             domains.push(MigrationDerivedDomain {
                 store_path: relation.target_store_path(),
                 store: relation.target_store(),
-                index_id: relation.index_id()?,
+                index_id: relation.index_id(),
             });
         }
     }

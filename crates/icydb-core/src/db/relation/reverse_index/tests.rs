@@ -1,7 +1,7 @@
 use super::{
     AcceptedRelationInfo, AcceptedRelationLocalComponentSpec, AcceptedRelationLocalComponents,
-    AcceptedRelationTargetIdentity, RelationTargetKeys, ReverseRelationSourceInfo,
-    relation_scalar_slot_fast_path_key_kind_supported,
+    AcceptedRelationReverseIdentity, AcceptedRelationTargetIdentity, RelationTargetKeys,
+    ReverseRelationSourceInfo, relation_scalar_slot_fast_path_key_kind_supported,
     reverse_index_key_bounds_for_target_primary_key_value,
     reverse_index_key_for_target_and_source_primary_key_value,
     validate_scalar_relation_target_primary_key_kind,
@@ -70,9 +70,12 @@ fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelation
         constraint: AcceptedConstraintIdentity::new(
             ConstraintId::new(3).expect("test constraint identity should be non-zero"),
         ),
+        reverse_identity: AcceptedRelationReverseIdentity::new(
+            RelationId::new(1).expect("test relation identity should be non-zero"),
+            0,
+        ),
         relation_name: "target_id".to_string(),
-        relation_ordinal: field_index,
-        physical_generation: 0,
+        source_field_index: field_index,
         local_components: AcceptedRelationLocalComponents::scalar(
             field_index,
             test_field_contract("target_id", &field_kind, LeafCodec::Structural),
@@ -203,7 +206,7 @@ fn accepted_relations_require_accepted_target_authority() {
         target_store_path: "TargetStore".to_string(),
         key_kind: Box::new(AcceptedFieldKind::Ulid),
     };
-    let relation = PersistedRelationEdgeSnapshot::new(
+    let relation = PersistedRelationEdgeSnapshot::new_direct(
         RelationId::new(1).expect("test relation identity should be non-zero"),
         "target".to_string(),
         "Target".to_string(),
@@ -330,9 +333,12 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
         constraint: AcceptedConstraintIdentity::new(
             ConstraintId::new(3).expect("test constraint identity should be non-zero"),
         ),
+        reverse_identity: AcceptedRelationReverseIdentity::new(
+            RelationId::new(1).expect("test relation identity should be non-zero"),
+            0,
+        ),
         relation_name: "target_id".to_string(),
-        relation_ordinal: 3,
-        physical_generation: 0,
+        source_field_index: 3,
         local_components: AcceptedRelationLocalComponents::scalar(
             3,
             test_field_contract("target_id", &field_kind, LeafCodec::Structural),
@@ -433,6 +439,8 @@ fn reverse_relation_keys_accept_128_bit_target_primary_key_components() {
                 .as_bytes()
                 .to_vec(),
         );
+        let expected_relation =
+            EncodedIndexComponent::from_canonical_bytes(1_u32.to_be_bytes().to_vec());
 
         assert_eq!(
             decoded.key_kind(),
@@ -441,12 +449,12 @@ fn reverse_relation_keys_accept_128_bit_target_primary_key_components() {
         );
         assert_eq!(
             decoded.index_id(),
-            IndexId::new(
-                EntityTag::new(9),
-                u16::try_from(ordinal).expect("test ordinal fits u16"),
-            )
+            IndexId::new(EntityTag::new(9), u16::MAX)
         );
-        assert_eq!(decoded.components(), &[expected_component]);
+        assert_eq!(
+            decoded.components(),
+            &[expected_relation, expected_component]
+        );
         assert_eq!(
             decoded.primary_key().decode().expect("source key decodes"),
             source_primary_key,
@@ -493,8 +501,13 @@ fn reverse_relation_keys_encode_full_composite_target_primary_key_identity() {
             .as_bytes()
             .to_vec(),
     );
+    let expected_relation =
+        EncodedIndexComponent::from_canonical_bytes(1_u32.to_be_bytes().to_vec());
 
-    assert_eq!(decoded.components(), &[expected_component]);
+    assert_eq!(
+        decoded.components(),
+        &[expected_relation, expected_component]
+    );
     assert_eq!(
         decoded.primary_key().decode().expect("source key decodes"),
         source_primary_key,
@@ -548,32 +561,94 @@ fn reverse_relation_key_size_evidence_is_linear_in_source_and_target_identity() 
 
     assert_eq!(
         raw_len(&scalar_target, &scalar_source),
-        42,
-        "scalar reverse keys include the isolated physical generation"
+        48,
+        "scalar reverse keys include exact relation identity and physical generation"
     );
     assert_eq!(
         raw_len(&composite_target, &scalar_source),
-        53,
+        59,
         "composite target overhead should equal its encoded PK width"
     );
     assert_eq!(
         raw_len(&scalar_target, &composite_source),
-        53,
+        59,
         "composite source overhead should equal its encoded PK suffix width"
     );
     assert_eq!(
         raw_len(&composite_target, &composite_source),
-        64,
+        70,
         "composite target/source overhead should remain additive"
     );
     assert_eq!(
         raw_len(&int128_target, &scalar_source),
-        50,
+        56,
         "fixed 128-bit target lanes should add their fixed encoded width"
     );
     assert_eq!(
         IndexEntryValue::presence().len(),
         1,
         "reverse-index entry values remain presence witnesses; row identity stays key-owned"
+    );
+}
+
+#[test]
+fn reverse_relation_domains_are_owned_by_exact_relation_id_not_source_slot() {
+    let source = ReverseRelationSourceInfo {
+        path: "Source".into(),
+        entity_tag: EntityTag::new(9),
+    };
+    let first = relation(5, AcceptedFieldKind::Nat64);
+    let mut second = relation(5, AcceptedFieldKind::Nat64);
+    second.reverse_identity = AcceptedRelationReverseIdentity::new(
+        RelationId::new(2).expect("test relation identity should be non-zero"),
+        second.physical_generation(),
+    );
+    let target_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(7));
+    let source_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(44));
+
+    let first_key = reverse_index_key_for_target_and_source_primary_key_value(
+        &source,
+        &first,
+        &target_key,
+        &source_key,
+    )
+    .expect("first reverse key should build")
+    .expect("first reverse key should encode");
+    let second_key = reverse_index_key_for_target_and_source_primary_key_value(
+        &source,
+        &second,
+        &target_key,
+        &source_key,
+    )
+    .expect("second reverse key should build")
+    .expect("second reverse key should encode");
+
+    assert_ne!(first_key, second_key);
+    assert_eq!(
+        first_key
+            .decode()
+            .expect("first key should decode")
+            .index_id(),
+        second_key
+            .decode()
+            .expect("second key should decode")
+            .index_id(),
+        "relations share one reserved physical system domain",
+    );
+    assert_eq!(
+        first_key
+            .decode()
+            .expect("first key should decode")
+            .components()[0]
+            .as_bytes(),
+        1_u32.to_be_bytes(),
+    );
+    assert_eq!(
+        second_key
+            .decode()
+            .expect("second key should decode")
+            .components()[0]
+            .as_bytes(),
+        2_u32.to_be_bytes(),
     );
 }

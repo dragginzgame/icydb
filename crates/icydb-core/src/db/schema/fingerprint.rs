@@ -159,6 +159,7 @@ fn schema_with_fingerprint_version_and_indexes(
         indexes,
     )
     .with_constraint_catalog(schema.constraint_catalog().clone())
+    .with_relation_id_allocator(schema.relation_id_allocator())
     .with_relations(schema.relations().to_vec())
     .with_constraint_candidates(
         schema.candidate_indexes().to_vec(),

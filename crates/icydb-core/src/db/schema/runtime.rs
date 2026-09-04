@@ -8,8 +8,8 @@ use crate::{
         AcceptedConstraintIdentity, AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
         AcceptedSchemaSnapshot, AcceptedValueAdmissionContract, AcceptedValueCatalogHandle,
         AcceptedValueContract, FieldId, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
-        RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
-        SchemaInsertDefault, enum_catalog::EnumCatalogBuildError,
+        RelationId, RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy,
+        SchemaHistoricalFill, SchemaInsertDefault, enum_catalog::EnumCatalogBuildError,
     },
     db::schema::{FieldStorageDecode, LeafCodec},
     error::InternalError,
@@ -390,6 +390,7 @@ impl OwnedAcceptedFieldDecodeContract {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct OwnedAcceptedRelationEdgeContract {
     constraint: AcceptedConstraintIdentity,
+    relation_id: RelationId,
     name: String,
     physical_generation: u64,
     target_path: String,
@@ -402,8 +403,9 @@ impl OwnedAcceptedRelationEdgeContract {
         constraint: AcceptedConstraintIdentity,
         fields: &[AcceptedRowLayoutRuntimeField<'_>],
     ) -> Result<Self, InternalError> {
-        let mut local_field_slots = Vec::with_capacity(relation.local_field_ids().len());
-        for field_id in relation.local_field_ids() {
+        let direct_field_ids = relation.source().direct_field_ids();
+        let mut local_field_slots = Vec::with_capacity(direct_field_ids.len());
+        for field_id in direct_field_ids {
             let Some(field) = fields.iter().find(|field| field.field_id() == *field_id) else {
                 return Err(InternalError::store_invariant());
             };
@@ -412,6 +414,7 @@ impl OwnedAcceptedRelationEdgeContract {
 
         Ok(Self {
             constraint,
+            relation_id: relation.id(),
             name: relation.name().to_string(),
             physical_generation: relation.physical_generation(),
             target_path: relation.target_path().to_string(),
@@ -423,6 +426,12 @@ impl OwnedAcceptedRelationEdgeContract {
     #[must_use]
     pub(in crate::db) const fn constraint(&self) -> &AcceptedConstraintIdentity {
         &self.constraint
+    }
+
+    /// Return the stable accepted relation identity.
+    #[must_use]
+    pub(in crate::db) const fn relation_id(&self) -> RelationId {
+        self.relation_id
     }
 
     /// Borrow the accepted relation-edge name.

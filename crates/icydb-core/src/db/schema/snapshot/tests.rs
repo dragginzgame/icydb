@@ -1038,13 +1038,13 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_relation_contract() {
         Vec::new(),
     )
     .with_relations(vec![
-        PersistedRelationEdgeSnapshot::new(
+        PersistedRelationEdgeSnapshot::new_direct(
             RelationId::new(1).expect("test relation identity should be non-zero"),
             "owner".to_string(),
             "schema::snapshot::tests::Owner".to_string(),
             vec![FieldId::new(2)],
         ),
-        PersistedRelationEdgeSnapshot::new(
+        PersistedRelationEdgeSnapshot::new_direct(
             RelationId::new(2).expect("test relation identity should be non-zero"),
             "owner".to_string(),
             "schema::snapshot::tests::Owner".to_string(),
@@ -1083,7 +1083,7 @@ fn accepted_schema_snapshot_try_new_rejects_relation_missing_local_field() {
         )],
         Vec::new(),
     )
-    .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+    .with_relations(vec![PersistedRelationEdgeSnapshot::new_direct(
         RelationId::new(1).expect("test relation identity should be non-zero"),
         "owner".to_string(),
         "schema::snapshot::tests::Owner".to_string(),
@@ -1137,7 +1137,7 @@ fn accepted_schema_snapshot_try_new_rejects_composite_relation_local_field() {
         ],
         Vec::new(),
     )
-    .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+    .with_relations(vec![PersistedRelationEdgeSnapshot::new_direct(
         RelationId::new(1).expect("test relation identity should be non-zero"),
         "owner".to_string(),
         "schema::snapshot::tests::Owner".to_string(),
@@ -1191,13 +1191,13 @@ fn accepted_schema_snapshot_exposes_relation_edges_in_identity_order() {
         Vec::new(),
     )
     .with_relations(vec![
-        PersistedRelationEdgeSnapshot::new(
+        PersistedRelationEdgeSnapshot::new_direct(
             RelationId::new(2).expect("test relation identity should be non-zero"),
             "reviewer".to_string(),
             "schema::snapshot::tests::Reviewer".to_string(),
             vec![FieldId::new(2)],
         ),
-        PersistedRelationEdgeSnapshot::new(
+        PersistedRelationEdgeSnapshot::new_direct(
             RelationId::new(1).expect("test relation identity should be non-zero"),
             "owner".to_string(),
             "schema::snapshot::tests::Owner".to_string(),
@@ -1218,12 +1218,31 @@ fn accepted_schema_snapshot_exposes_relation_edges_in_identity_order() {
     assert_eq!(accepted.persisted_snapshot().relations().len(), 2);
     assert_eq!(accepted.persisted_snapshot().relations()[0].name(), "owner");
     assert_eq!(
-        accepted.persisted_snapshot().relations()[0].local_field_ids(),
+        accepted.persisted_snapshot().relations()[0]
+            .source()
+            .direct_field_ids(),
         &[FieldId::new(2)]
     );
     assert_eq!(
         accepted.persisted_snapshot().relations()[1].name(),
         "reviewer"
+    );
+    assert_eq!(
+        accepted
+            .persisted_snapshot()
+            .relation_id_allocator()
+            .high_water(),
+        2,
+    );
+
+    let invalid = accepted
+        .persisted_snapshot()
+        .clone()
+        .with_relation_id_allocator(RelationIdAllocator::new(1));
+    assert_eq!(
+        AcceptedSchemaSnapshot::try_new_with_acceptance(invalid),
+        Err(SchemaSnapshotAcceptanceError::Structural),
+        "accepted relation IDs must not exceed their persisted high-water",
     );
 }
 

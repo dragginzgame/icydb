@@ -220,7 +220,7 @@ pub(in crate::db::schema) use fingerprint::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use format::show_indexes_for_schema_info_with_runtime_state;
 pub(in crate::db) use identity::{
-    ConstraintId, ConstraintIdAllocator, FieldId, RelationId, SchemaIndexId,
+    ConstraintId, ConstraintIdAllocator, FieldId, RelationId, RelationIdAllocator, SchemaIndexId,
 };
 pub(in crate::db) use identity_state::{
     AcceptedIdentityAllocation, IdentityAdvanceId, IdentityRangeAdvance, IdentityState,
@@ -365,7 +365,8 @@ pub(in crate::db) use snapshot::{
     PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
     PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexOrigin,
     PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
-    PersistedSchemaSnapshot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaInsertDefault,
+    PersistedRelationSourceSnapshot, PersistedSchemaSnapshot, SchemaFieldWritePolicy,
+    SchemaHistoricalFill, SchemaInsertDefault,
 };
 #[cfg(test)]
 pub(in crate::db) use source_binding::AcceptedNamedTypeIdentity;

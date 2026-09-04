@@ -43,6 +43,7 @@ pub(in crate::db) fn validate_schema_snapshot_acceptance(
         .chain(snapshot.candidate_relations())
         .cloned()
         .collect::<Vec<_>>();
+    let relation_id_high_water = snapshot.relation_id_allocator().high_water();
     if schema_snapshot_integrity_detail(
         "persisted schema snapshot",
         snapshot.version(),
@@ -65,6 +66,9 @@ pub(in crate::db) fn validate_schema_snapshot_acceptance(
             all_relations.as_slice(),
         )
         .is_some()
+        || all_relations
+            .iter()
+            .any(|relation| relation.id().get() > relation_id_high_water)
         || schema_snapshot_constraint_integrity_detail(
             snapshot.primary_key_field_ids(),
             snapshot.fields(),

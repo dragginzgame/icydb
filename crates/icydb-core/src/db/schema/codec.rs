@@ -11,8 +11,8 @@ mod mapping;
 use crate::{
     db::schema::{
         AcceptedConstraintCatalog, ConstraintIdAllocator, FieldId, PersistedSchemaSnapshot,
-        RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaSnapshotAcceptanceError,
-        SchemaVersion,
+        RelationIdAllocator, RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout,
+        SchemaSnapshotAcceptanceError, SchemaVersion,
         enum_catalog::MAX_SCHEMA_STORE_PATH_BYTES,
         validate_schema_snapshot_acceptance,
         wire::{SchemaWireReader, SchemaWireWriter},
@@ -89,6 +89,7 @@ fn encode_snapshot(snapshot: &PersistedSchemaSnapshot) -> Result<Vec<u8>, Intern
     );
     encode_row_layout(&mut writer, snapshot.row_layout())?;
     writer.push_u32(snapshot.constraint_id_allocator().high_water());
+    writer.push_u32(snapshot.relation_id_allocator().high_water());
     encode_sequence!(
         writer,
         snapshot.constraints(),
@@ -175,6 +176,7 @@ pub(in crate::db) fn decode_persisted_schema_snapshot(
     });
     let row_layout = decode_row_layout(&mut reader)?;
     let constraint_id_allocator = ConstraintIdAllocator::new(reader.read_u32()?);
+    let relation_id_allocator = RelationIdAllocator::new(reader.read_u32()?);
     let constraints = decode_sequence!(reader, icydb_schema::MAX_FRAGMENT_CONSTRAINTS, {
         decode_constraint(&mut reader)?
     });
@@ -214,7 +216,8 @@ pub(in crate::db) fn decode_persisted_schema_snapshot(
     )
     .with_constraint_catalog(constraint_catalog)
     .with_relations(relations)
-    .with_constraint_candidates(candidate_indexes, candidate_relations);
+    .with_constraint_candidates(candidate_indexes, candidate_relations)
+    .with_relation_id_allocator(relation_id_allocator);
     match validate_schema_snapshot_acceptance(&snapshot) {
         Ok(()) => {}
         Err(SchemaSnapshotAcceptanceError::NullableUnique(_)) => {

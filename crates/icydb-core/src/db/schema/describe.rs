@@ -1206,7 +1206,8 @@ fn describe_accepted_constraint(
             description.kind = "relation".to_string();
             description.relation_id = Some(relation_id.get());
             description.fields = relation
-                .local_field_ids()
+                .source()
+                .direct_field_ids()
                 .iter()
                 .map(|field_id| accepted_field_name(snapshot, *field_id))
                 .collect::<Result<Vec<_>, _>>()?;
@@ -1306,7 +1307,8 @@ fn describe_constraint_activation(
             description.kind = "relation".to_string();
             description.relation_id = Some(relation_id.get());
             description.fields = relation
-                .local_field_ids()
+                .source()
+                .direct_field_ids()
                 .iter()
                 .map(|field_id| accepted_field_name(snapshot, *field_id))
                 .collect::<Result<Vec<_>, _>>()?;
@@ -1496,7 +1498,7 @@ pub(in crate::db) fn describe_compact_columns_with_persisted_schema(
         let relation = snapshot
             .relations()
             .iter()
-            .any(|relation| relation.local_field_ids().contains(&field.id()));
+            .any(|relation| relation.source().direct_field_ids().contains(&field.id()));
         let extra = compact_column_extras(
             runtime_field.write_policy().insert_generation()
                 == Some(FieldInsertGeneration::Identity),
@@ -1863,7 +1865,8 @@ pub(in crate::db) fn describe_entity_relations_with_persisted_schema(
         .iter()
         .map(|relation| {
             let local_fields = relation
-                .local_field_ids()
+                .source()
+                .direct_field_ids()
                 .iter()
                 .map(|field_id| accepted_field_name(snapshot, *field_id))
                 .collect::<Result<Vec<_>, _>>()?;
@@ -1884,7 +1887,7 @@ fn persisted_relation_cardinality(
     snapshot: &PersistedSchemaSnapshot,
     relation: &PersistedRelationEdgeSnapshot,
 ) -> Result<EntityRelationCardinality, InternalError> {
-    let [field_id] = relation.local_field_ids() else {
+    let [field_id] = relation.source().direct_field_ids() else {
         return Ok(EntityRelationCardinality::Single);
     };
     let field = snapshot

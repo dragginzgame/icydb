@@ -13,9 +13,10 @@ use crate::{
         AcceptedConstraintSnapshot, AcceptedFieldKind, ConstraintActivationKind,
         ConstraintActivationSnapshot, ConstraintActivationState, ConstraintId,
         ConstraintIdAllocator, FieldId, FieldInsertGeneration, FieldStorageDecode,
-        FieldWriteManagement, LeafCodec, RelationId, RowLayoutVersion, SchemaFieldSlot,
-        SchemaIndexId, SchemaRowLayout, SchemaSnapshotAcceptanceError, SchemaVersion,
-        constraint::AcceptedConstraintCatalogError, validate_schema_snapshot_acceptance,
+        FieldWriteManagement, LeafCodec, RelationId, RelationIdAllocator, RowLayoutVersion,
+        SchemaFieldSlot, SchemaIndexId, SchemaRowLayout, SchemaSnapshotAcceptanceError,
+        SchemaVersion, constraint::AcceptedConstraintCatalogError,
+        validate_schema_snapshot_acceptance,
     },
     error::InternalError,
 };
@@ -151,6 +152,7 @@ pub(in crate::db) struct PersistedSchemaSnapshot {
     primary_key_field_ids: Vec<FieldId>,
     row_layout: SchemaRowLayout,
     constraint_catalog: AcceptedConstraintCatalog,
+    relation_id_allocator: RelationIdAllocator,
     fields: Vec<PersistedFieldSnapshot>,
     indexes: Vec<PersistedIndexSnapshot>,
     relations: Vec<PersistedRelationEdgeSnapshot>,
@@ -270,6 +272,7 @@ impl PersistedSchemaSnapshot {
             primary_key_field_ids: primary_key_field_ids.into_primary_key_field_ids(),
             row_layout,
             constraint_catalog: AcceptedConstraintCatalog::default(),
+            relation_id_allocator: RelationIdAllocator::default(),
             fields,
             indexes,
             relations: Vec::new(),
@@ -285,6 +288,16 @@ impl PersistedSchemaSnapshot {
         catalog: AcceptedConstraintCatalog,
     ) -> Self {
         self.constraint_catalog = catalog;
+        self
+    }
+
+    /// Attach persisted non-reusing relation-ID allocator state.
+    #[must_use]
+    pub(in crate::db) const fn with_relation_id_allocator(
+        mut self,
+        allocator: RelationIdAllocator,
+    ) -> Self {
+        self.relation_id_allocator = allocator;
         self
     }
 
@@ -389,6 +402,7 @@ impl PersistedSchemaSnapshot {
                 self.row_layout.field_to_slot().to_vec(),
             ),
             constraint_catalog,
+            relation_id_allocator: self.relation_id_allocator,
             fields,
             indexes: self.indexes.clone(),
             relations: self.relations.clone(),
@@ -532,6 +546,7 @@ impl PersistedSchemaSnapshot {
         icydb_schema::compact_sort_unstable_by(&mut relations, |left, right| {
             left.id().cmp(&right.id())
         });
+        self.raise_relation_id_high_water(relations.iter().map(PersistedRelationEdgeSnapshot::id));
         self.relations = relations;
         self
     }
@@ -543,9 +558,19 @@ impl PersistedSchemaSnapshot {
         indexes: Vec<PersistedIndexSnapshot>,
         relations: Vec<PersistedRelationEdgeSnapshot>,
     ) -> Self {
+        self.raise_relation_id_high_water(relations.iter().map(PersistedRelationEdgeSnapshot::id));
         self.candidate_indexes = indexes;
         self.candidate_relations = relations;
         self
+    }
+
+    fn raise_relation_id_high_water(&mut self, ids: impl Iterator<Item = RelationId>) {
+        let high_water = ids
+            .map(RelationId::get)
+            .max()
+            .unwrap_or(0)
+            .max(self.relation_id_allocator.high_water());
+        self.relation_id_allocator = RelationIdAllocator::new(high_water);
     }
 
     /// Return the schema version for this snapshot.
@@ -614,7 +639,7 @@ impl PersistedSchemaSnapshot {
             || self
                 .relations
                 .iter()
-                .any(|relation| relation.local_field_ids().contains(&field_id))
+                .any(|relation| relation.source().direct_field_ids().contains(&field_id))
     }
 
     /// Return whether update-management changes a globally constrained field.
@@ -648,6 +673,12 @@ impl PersistedSchemaSnapshot {
     #[must_use]
     pub(in crate::db) const fn constraint_id_allocator(&self) -> ConstraintIdAllocator {
         self.constraint_catalog.allocator()
+    }
+
+    /// Return persisted non-reusing relation-ID allocator state.
+    #[must_use]
+    pub(in crate::db) const fn relation_id_allocator(&self) -> RelationIdAllocator {
+        self.relation_id_allocator
     }
 
     /// Borrow accepted structural constraints ordered by stable identity.
@@ -800,11 +831,49 @@ impl PersistedSchemaSnapshot {
             self.indexes.clone(),
         )
         .with_constraint_catalog(self.constraint_catalog.clone())
+        .with_relation_id_allocator(self.relation_id_allocator)
         .with_relations(self.relations.clone())
         .with_constraint_candidates(
             self.candidate_indexes.clone(),
             self.candidate_relations.clone(),
         )
+    }
+}
+
+///
+/// PersistedRelationSourceSnapshot
+///
+/// Current-form accepted source locator for one relation edge.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum PersistedRelationSourceSnapshot {
+    /// Ordered accepted entity-root fields for a maintained direct relation.
+    Direct { field_ids: Vec<FieldId> },
+}
+
+impl PersistedRelationSourceSnapshot {
+    /// Borrow direct accepted field identities.
+    #[must_use]
+    pub(in crate::db) const fn direct_field_ids(&self) -> &[FieldId] {
+        match self {
+            Self::Direct { field_ids } => field_ids.as_slice(),
+        }
+    }
+
+    fn clone_with_mapped_field_ids(
+        &self,
+        mut map: impl FnMut(FieldId) -> Option<FieldId>,
+    ) -> Option<Self> {
+        match self {
+            Self::Direct { field_ids } => Some(Self::Direct {
+                field_ids: field_ids
+                    .iter()
+                    .copied()
+                    .map(&mut map)
+                    .collect::<Option<Vec<_>>>()?,
+            }),
+        }
     }
 }
 
@@ -820,24 +889,24 @@ pub(in crate::db) struct PersistedRelationEdgeSnapshot {
     physical_generation: u64,
     name: String,
     target_path: String,
-    local_field_ids: Vec<FieldId>,
+    source: PersistedRelationSourceSnapshot,
 }
 
 impl PersistedRelationEdgeSnapshot {
     /// Build one accepted relation-edge snapshot from already-validated pieces.
     #[must_use]
-    pub(in crate::db) const fn new(
+    pub(in crate::db) const fn new_direct(
         id: RelationId,
         name: String,
         target_path: String,
-        local_field_ids: Vec<FieldId>,
+        field_ids: Vec<FieldId>,
     ) -> Self {
         Self {
             id,
             physical_generation: 0,
             name,
             target_path,
-            local_field_ids,
+            source: PersistedRelationSourceSnapshot::Direct { field_ids },
         }
     }
 
@@ -861,7 +930,7 @@ impl PersistedRelationEdgeSnapshot {
             physical_generation,
             name: self.name.clone(),
             target_path: self.target_path.clone(),
-            local_field_ids: self.local_field_ids.clone(),
+            source: self.source.clone(),
         }
     }
 
@@ -879,7 +948,7 @@ impl PersistedRelationEdgeSnapshot {
             physical_generation: self.physical_generation,
             name,
             target_path,
-            local_field_ids: self.local_field_ids.clone(),
+            source: self.source.clone(),
         }
     }
 
@@ -895,10 +964,10 @@ impl PersistedRelationEdgeSnapshot {
         self.target_path.as_str()
     }
 
-    /// Borrow ordered accepted local field identities for this relation edge.
+    /// Borrow the exact accepted source locator for this relation edge.
     #[must_use]
-    pub(in crate::db) const fn local_field_ids(&self) -> &[FieldId] {
-        self.local_field_ids.as_slice()
+    pub(in crate::db) const fn source(&self) -> &PersistedRelationSourceSnapshot {
+        &self.source
     }
 
     /// Clone this relation after dense field-identity reassignment.
@@ -907,19 +976,12 @@ impl PersistedRelationEdgeSnapshot {
         &self,
         mut map: impl FnMut(FieldId) -> Option<FieldId>,
     ) -> Option<Self> {
-        let local_field_ids = self
-            .local_field_ids
-            .iter()
-            .copied()
-            .map(&mut map)
-            .collect::<Option<Vec<_>>>()?;
-
         Some(Self {
             id: self.id,
             physical_generation: self.physical_generation,
             name: self.name.clone(),
             target_path: self.target_path.clone(),
-            local_field_ids,
+            source: self.source.clone_with_mapped_field_ids(&mut map)?,
         })
     }
 }

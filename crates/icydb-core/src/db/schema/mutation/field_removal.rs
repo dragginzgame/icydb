@@ -152,6 +152,7 @@ pub(in crate::db::schema) fn derive_dense_field_removal_candidate(
         indexes,
     )
     .with_constraint_catalog(constraint_catalog)
+    .with_relation_id_allocator(before.relation_id_allocator())
     .with_relations(relations);
 
     Ok(DenseFieldRemovalCandidate {

@@ -3253,7 +3253,7 @@ mod mixed_relation_batch_tests {
                 LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
         ];
-        let relation = PersistedRelationEdgeSnapshot::new(
+        let relation = PersistedRelationEdgeSnapshot::new_direct(
             RelationId::new(1).expect("mixed relation identity should be non-zero"),
             "parent".to_string(),
             ENTITY_SOURCE.to_string(),
@@ -3333,7 +3333,7 @@ mod mixed_relation_batch_tests {
                 LeafCodec::Scalar(ScalarCodec::Nat64),
             ),
         ];
-        let relation = PersistedRelationEdgeSnapshot::new(
+        let relation = PersistedRelationEdgeSnapshot::new_direct(
             RelationId::new(1).expect("cross-entity relation identity should be non-zero"),
             "node".to_string(),
             ENTITY_SOURCE.to_string(),
@@ -4714,7 +4714,7 @@ mod identity_pre_key_tests {
         let Some(relation_target) = relation_target else {
             return snapshot;
         };
-        let snapshot = snapshot.with_relations(vec![PersistedRelationEdgeSnapshot::new(
+        let snapshot = snapshot.with_relations(vec![PersistedRelationEdgeSnapshot::new_direct(
             RelationId::new(1).expect("mixed recovery relation identity should be non-zero"),
             "target".to_string(),
             relation_target.to_string(),

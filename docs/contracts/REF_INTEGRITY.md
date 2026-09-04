@@ -7,6 +7,8 @@ IcyDB enforces referential integrity for every schema-declared relation.
 Accepted relation edges are the sole live relation authority. References are
 stored as **typed primary-key values**. Declared relations trigger save-time
 target-existence checks and delete-time source-reference checks.
+Each accepted edge owns a non-zero entity-local `RelationId`; that exact ID,
+not a source field slot, identifies its reverse domain.
 The surrounding row strictness and ingress rules are defined in
 `docs/contracts/WRITE_ADMISSION.md`.
 
@@ -83,6 +85,10 @@ Only accepted relation edges explicitly admitted from schema declarations
 participate in RI enforcement. Generated relation metadata is proposal input;
 runtime save, reverse-index, and delete paths do not infer a missing edge from
 raw generated field kinds.
+
+The current accepted source locator is explicitly tagged `Direct` and carries
+the ordered accepted field IDs. Source shape is persisted authority, not an
+interpretation of an untagged field list.
 
 Generated direct scalar-relation write inputs expose `Id<Target>` so the Rust
 facade cannot silently substitute another entity's equal-shaped key. The
@@ -167,6 +173,19 @@ the exact edge and reserved constraint identity into accepted relation state;
 abort removes the activation/job and makes its candidate generation
 unreachable.
 
+### 4.3 Relation identity and reverse domains
+
+`RelationId` is local to one source entity and is allocated monotonically from
+that entity's persisted high-water. Removing the highest live relation does
+not lower the high-water or permit its ID to be reused. Exhaustion fails schema
+admission before candidate publication.
+
+All direct relations use one reserved relation-system index namespace. A
+reverse key carries the source entity, physical generation, exact four-byte
+big-endian `RelationId`, canonical target key, and canonical source primary
+key. Physical generation distinguishes rebuilds of the same semantic relation;
+it does not decide whether two definitions are the same.
+
 ---
 
 ## 5. Enforcement model
@@ -223,6 +242,16 @@ They belong to their source entity scan; the direct target store participates
 in that job's proof vector so target mutation invalidates the sweep. Pending
 candidate generations remain owned by constraint activation and are excluded
 from accepted integrity claims until promotion.
+
+### 5.5 Pre-1.0 recreation boundary
+
+The 0.253 relation snapshot, allocator, source locator, database boot identity,
+and reverse-key form replace their predecessors in place as current version
+`1`. A 0.253 binary rejects 0.252 stable state during database-format admission.
+Rows that must survive require old-binary export followed by a fresh 0.253
+installation and ordinary current-form import. There is no predecessor
+decoder, reverse-key fallback, in-place upgrade, or reverse-only regeneration
+route.
 
 ---
 

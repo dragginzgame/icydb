@@ -405,6 +405,7 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
         indexes,
     )
     .with_constraint_catalog(constraint_catalog)
+    .with_relation_id_allocator(before.relation_id_allocator())
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
@@ -450,6 +451,7 @@ pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
         indexes,
     )
     .with_constraint_catalog(constraint_catalog)
+    .with_relation_id_allocator(before.relation_id_allocator())
     .with_relations(before.relations().to_vec());
     let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;

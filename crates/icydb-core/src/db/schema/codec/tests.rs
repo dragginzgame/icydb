@@ -11,9 +11,9 @@ use crate::{
         PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
         PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
-        RowLayoutVersion, ScalarCodec, SchemaFieldSlot, SchemaFieldWritePolicy,
-        SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
-        accepted_schema_cache_fingerprint_for_persisted_snapshot,
+        RelationIdAllocator, RowLayoutVersion, ScalarCodec, SchemaFieldSlot,
+        SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault,
+        SchemaRowLayout, SchemaVersion, accepted_schema_cache_fingerprint_for_persisted_snapshot,
         composite_catalog::CompositeTypeId, decode_persisted_schema_snapshot,
         encode_persisted_schema_snapshot,
     },
@@ -1392,7 +1392,8 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
         ],
         Vec::new(),
     )
-    .with_relations(vec![PersistedRelationEdgeSnapshot::new(
+    .with_relation_id_allocator(RelationIdAllocator::new(9))
+    .with_relations(vec![PersistedRelationEdgeSnapshot::new_direct(
         RelationId::new(1).expect("test relation identity should be non-zero"),
         "owner".to_string(),
         "entities::Owner".to_string(),
@@ -1416,8 +1417,56 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
     assert_eq!(relation.id().get(), 1);
     assert_eq!(relation.name(), "owner");
     assert_eq!(relation.target_path(), "entities::Owner");
-    assert_eq!(relation.local_field_ids(), &[FieldId::new(2)]);
+    assert_eq!(decoded.relation_id_allocator().high_water(), 9);
+    assert_eq!(relation.source().direct_field_ids(), &[FieldId::new(2)]);
     assert_eq!(decoded.fields()[1].kind(), &relation_kind);
+
+    let inconsistent = snapshot.with_relation_id_allocator(RelationIdAllocator::default());
+    let inconsistent_bytes = encode_persisted_schema_snapshot(&inconsistent)
+        .expect("test should encode the intentionally inconsistent allocator state");
+    let error = decode_persisted_schema_snapshot(&inconsistent_bytes)
+        .expect_err("decoder must reject a relation ID above the persisted high-water");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
+#[test]
+fn relation_decoder_rejects_immutable_predecessor_source_bytes_as_incompatible() {
+    const PREDECESSOR_DIRECT_RELATION: &[u8] = &[
+        0, 0, 0, 1, // relation ID
+        0, 0, 0, 0, 0, 0, 0, 0, // physical generation
+        0, 0, 0, 1, b'a', // name
+        0, 0, 0, 1, b'b', // target path
+        0, 0, 0, 1, // predecessor untagged local-field count
+        0, 0, 0, 2, // local field ID
+    ];
+    let mut reader = super::SnapshotReader::new(PREDECESSOR_DIRECT_RELATION);
+
+    let error = super::index::decode_relation(&mut reader)
+        .expect_err("predecessor untagged relation source must fail closed");
+
+    assert_eq!(error.class(), ErrorClass::IncompatiblePersistedFormat);
+    assert_eq!(error.origin(), ErrorOrigin::Serialize);
+}
+
+#[test]
+fn relation_decoder_rejects_unknown_current_source_tag_as_corruption() {
+    const UNKNOWN_SOURCE_RELATION: &[u8] = &[
+        0, 0, 0, 1, // relation ID
+        0, 0, 0, 0, 0, 0, 0, 0, // physical generation
+        0, 0, 0, 1, b'a', // name
+        0, 0, 0, 1, b'b', // target path
+        2,    // unknown current source tag
+        0, 0, 0, 1, // field count
+        0, 0, 0, 2, // field ID
+    ];
+    let mut reader = super::SnapshotReader::new(UNKNOWN_SOURCE_RELATION);
+
+    let error = super::index::decode_relation(&mut reader)
+        .expect_err("unknown relation source tag must fail closed");
+
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
 }
 
 #[test]

@@ -148,7 +148,8 @@ fn generated_relation_activation_with_appended_fields_only_changed(
         )
         || candidate.physical_generation() != activation.activation_epoch()
         || !candidate
-            .local_field_ids()
+            .source()
+            .direct_field_ids()
             .iter()
             .any(|field_id| !actual.fields().iter().any(|field| field.id() == *field_id))
     {

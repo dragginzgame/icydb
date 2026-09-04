@@ -18,7 +18,7 @@ use crate::{
         AcceptedConstraintSnapshot, AcceptedEnumCatalog, AcceptedNamedTypeIdentity,
         AcceptedSchemaRevisionBundle, AcceptedSourceBindingCatalog, CandidateSchemaRevision,
         ConstraintId, ConstraintOrigin, ExistingProposalStore, PersistedFieldSnapshot,
-        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
+        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
         SchemaFieldSlot, SchemaIndexId, SchemaRowLayout, SchemaVersion, bind_source_check_expr,
         lower_existing_schema_proposal, lower_migration_field, lower_migration_index,
         lower_migration_nested_leaves, lower_new_migration_index,
@@ -801,8 +801,7 @@ fn rebuild_transitioned_snapshots(
             before.relations().to_vec(),
             constraint_catalog,
         );
-        reserve_new_migration_relations(binding, store, &with_indexes)?;
-        store.snapshots.insert(binding.entity_tag, with_indexes);
+        install_reserved_migration_relation_ids(binding, store, with_indexes)?;
     }
 
     for binding in transitions {
@@ -854,6 +853,19 @@ fn rebuild_transitioned_snapshots(
         );
         store.snapshots.insert(binding.entity_tag, target);
     }
+    Ok(())
+}
+
+fn install_reserved_migration_relation_ids(
+    binding: &ResolvedTransition<'_>,
+    store: &mut WorkingStore<'_>,
+    snapshot: PersistedSchemaSnapshot,
+) -> Result<(), SchemaMigrationPlanningError> {
+    let allocator = reserve_new_migration_relations(binding, store, &snapshot)?;
+    store.snapshots.insert(
+        binding.entity_tag,
+        snapshot.with_relation_id_allocator(allocator),
+    );
     Ok(())
 }
 
@@ -995,6 +1007,7 @@ fn rebuild_snapshot_shell(
         indexes,
     )
     .with_constraint_catalog(constraints)
+    .with_relation_id_allocator(before.relation_id_allocator())
     .with_relations(relations)
 }
 
@@ -1330,7 +1343,7 @@ fn rebuild_relations(
                 .find(|relation| relation.id() == id)
             {
                 Some(accepted) => {
-                    if local_fields != accepted.local_field_ids() {
+                    if local_fields != accepted.source().direct_field_ids() {
                         return Err(SchemaMigrationPlanningError::KindMismatch);
                     }
                     accepted.clone_with_metadata(
@@ -1338,7 +1351,7 @@ fn rebuild_relations(
                         target.entity_path().to_string(),
                     )
                 }
-                None if physical => PersistedRelationEdgeSnapshot::new(
+                None if physical => PersistedRelationEdgeSnapshot::new_direct(
                     id,
                     proposed.name().as_str().to_string(),
                     target.entity_path().to_string(),
@@ -1361,16 +1374,11 @@ fn reserve_new_migration_relations(
     binding: &ResolvedTransition<'_>,
     store: &mut WorkingStore<'_>,
     snapshot: &PersistedSchemaSnapshot,
-) -> Result<(), SchemaMigrationPlanningError> {
+) -> Result<crate::db::schema::RelationIdAllocator, SchemaMigrationPlanningError> {
+    let mut allocator = snapshot.relation_id_allocator();
     if binding.transition.transforms().is_empty() {
-        return Ok(());
+        return Ok(allocator);
     }
-    let mut next_relation_id = snapshot
-        .relations()
-        .iter()
-        .map(|relation| relation.id().get())
-        .max()
-        .unwrap_or(0);
     for proposed in binding.entity.relations() {
         if store
             .bindings
@@ -1379,17 +1387,16 @@ fn reserve_new_migration_relations(
         {
             continue;
         }
-        next_relation_id = next_relation_id
-            .checked_add(1)
+        let (reserved, id) = allocator
+            .checked_reserve()
             .ok_or(SchemaMigrationPlanningError::UnsupportedTransform)?;
-        let id = RelationId::new(next_relation_id)
-            .ok_or(SchemaMigrationPlanningError::UnsupportedTransform)?;
+        allocator = reserved;
         store
             .bindings
             .insert_migration_relation(binding.entity_tag, proposed.source_key().clone(), id)
             .map_err(|_| SchemaMigrationPlanningError::IdentityConflict)?;
     }
-    Ok(())
+    Ok(allocator)
 }
 
 fn rebuild_physical_relation_constraints(

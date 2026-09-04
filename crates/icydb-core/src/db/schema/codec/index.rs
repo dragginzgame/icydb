@@ -10,11 +10,13 @@ use crate::{
         FieldId, MAX_ACCEPTED_RECURSIVE_DEPTH, PersistedIndexExpressionOp,
         PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
         PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexOrigin,
-        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, RelationId, SchemaFieldSlot,
-        SchemaIndexId, enum_catalog::MAX_SCHEMA_STORE_PATH_BYTES,
+        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedRelationSourceSnapshot,
+        RelationId, SchemaFieldSlot, SchemaIndexId, enum_catalog::MAX_SCHEMA_STORE_PATH_BYTES,
     },
     error::InternalError,
 };
+
+const RELATION_SOURCE_DIRECT: u8 = 1;
 
 pub(super) fn encode_index(
     writer: &mut SnapshotWriter,
@@ -80,14 +82,19 @@ pub(super) fn encode_relation(
     writer.push_u64(relation.physical_generation());
     writer.push_bounded_string(relation.name(), MAX_NAME_BYTES)?;
     writer.push_bounded_string(relation.target_path(), MAX_SCHEMA_STORE_PATH_BYTES)?;
-    encode_sequence!(
-        writer,
-        relation.local_field_ids(),
-        icydb_schema::MAX_FRAGMENT_FIELDS,
-        |field_id| {
-            writer.push_u32(field_id.get());
+    match relation.source() {
+        PersistedRelationSourceSnapshot::Direct { field_ids } => {
+            writer.push_u8(RELATION_SOURCE_DIRECT);
+            encode_sequence!(
+                writer,
+                field_ids,
+                icydb_schema::MAX_FRAGMENT_FIELDS,
+                |field_id| {
+                    writer.push_u32(field_id.get());
+                }
+            );
         }
-    );
+    }
     Ok(())
 }
 
@@ -98,11 +105,18 @@ pub(super) fn decode_relation(
     let physical_generation = reader.read_u64()?;
     let name = reader.read_bounded_string(MAX_NAME_BYTES)?;
     let target_path = reader.read_bounded_string(MAX_SCHEMA_STORE_PATH_BYTES)?;
-    let local_field_ids = decode_sequence!(reader, icydb_schema::MAX_FRAGMENT_FIELDS, {
-        FieldId::new(reader.read_u32()?)
-    });
+    let source = match reader.read_u8()? {
+        RELATION_SOURCE_DIRECT => PersistedRelationSourceSnapshot::Direct {
+            field_ids: decode_sequence!(reader, icydb_schema::MAX_FRAGMENT_FIELDS, {
+                FieldId::new(reader.read_u32()?)
+            }),
+        },
+        0 => return Err(InternalError::serialize_incompatible_persisted_format()),
+        _ => return Err(InternalError::store_corruption()),
+    };
+    let PersistedRelationSourceSnapshot::Direct { field_ids } = source;
     Ok(
-        PersistedRelationEdgeSnapshot::new(id, name, target_path, local_field_ids)
+        PersistedRelationEdgeSnapshot::new_direct(id, name, target_path, field_ids)
             .clone_with_physical_generation(physical_generation),
     )
 }

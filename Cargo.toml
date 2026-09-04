@@ -54,7 +54,7 @@ resolver = "2"
 [workspace.package]
 rust-version = "1.96.0"
 edition = "2024"
-version = "0.252.11"
+version = "0.253.0"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A schema-first typed query engine and persistence runtime for Internet Computer canisters"
 categories = ["database", "web-programming", "wasm"]
@@ -88,12 +88,12 @@ ic-stable-structures = "0.7.2"
 ic-testkit = "0.9.0"
 ic-timers = "0.7.0"
 icrc-ledger-types = "0.2.0"
-icydb = { path = "crates/icydb", version = "=0.252.11" }
-icydb-core = { path = "crates/icydb-core", version = "=0.252.11" }
-icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.252.11" }
-icydb-model = { path = "crates/icydb-model", version = "=0.252.11" }
-icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.252.11" }
-icydb-schema = { path = "crates/icydb-schema", version = "=0.252.11" }
+icydb = { path = "crates/icydb", version = "=0.253.0" }
+icydb-core = { path = "crates/icydb-core", version = "=0.253.0" }
+icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.253.0" }
+icydb-model = { path = "crates/icydb-model", version = "=0.253.0" }
+icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.253.0" }
+icydb-schema = { path = "crates/icydb-schema", version = "=0.253.0" }
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
 icydb-testing-audit-group-path-fixtures = { path = "schema/audit/group_path" }
 icydb-testing-audit-nested-relation-fixtures = { path = "schema/audit/nested_relation" }

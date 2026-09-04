@@ -157,6 +157,11 @@ A smaller state-dependent capacity, element uniqueness, or cross-entity
 existence rule remains application-owned unless it is represented by an
 existing accepted relational or constraint contract.
 
+Direct relation metadata uses the current tagged accepted-source form and an
+exact relation-owned reverse identity. This does not make composite members or
+repeated items relation-bearing: nested relation discovery and traversal enter
+only with later 0.253 capability slices.
+
 ## Write, Atomicity, And Recovery Boundary
 
 Typed and structural writes replace the complete owning composite or
@@ -195,6 +200,10 @@ found that a dotted or otherwise unknown structural field reached an executor
 invariant. The 0.252 hard cut now routes that failed accepted-root lookup to
 the existing executor-origin `RuntimeUnsupported` diagnostic. It adds no field
 payload, diagnostic variant, or subpath mutation route.
+
+The 0.253 database-format hard cut requires recreation from 0.252 state. It
+changes accepted direct-relation identity and reverse storage but does not
+widen query, index, or partial-mutation behavior.
 
 ## Explicit Non-Goals
 

@@ -19,7 +19,7 @@ use ic_stable_structures::{DefaultMemoryImpl, Memory};
 use std::cell::RefCell;
 
 pub(in crate::db) const DATABASE_BOOT_RECORD_BYTES: usize = 15;
-const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDB001";
+const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDB253";
 // `ic-memory` initializes the control slot as a stable cell before IcyDB writes
 // its database boot record. Treat that pre-boot header as an empty marker.
 const PRE_BOOT_STABLE_CELL_MAGIC: &[u8; 3] = b"SCL";
@@ -317,9 +317,16 @@ fn inspect_boot_record<M: Memory>(
         return Ok(BootInspection::Missing);
     }
 
-    DatabaseBootRecord::decode(&bytes)
-        .map(BootInspection::Present)
-        .map_err(|reason| DatabaseFormatAdmissionError::MalformedFormatMarker { reason })
+    match DatabaseBootRecord::decode(&bytes) {
+        Ok(record) => Ok(BootInspection::Present(record)),
+        Err(RecoveryFormatMarkerError::Magic) => {
+            Err(DatabaseFormatAdmissionError::UnsupportedFormatVersion {
+                found: None,
+                required: DATABASE_FORMAT_VERSION_CURRENT,
+            })
+        }
+        Err(reason) => Err(DatabaseFormatAdmissionError::MalformedFormatMarker { reason }),
+    }
 }
 
 #[cfg(test)]

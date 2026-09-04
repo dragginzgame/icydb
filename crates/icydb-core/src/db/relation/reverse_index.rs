@@ -35,7 +35,7 @@ use crate::{
         schema::{
             AcceptedConstraintIdentity, AcceptedFieldDecodeContract,
             MAX_SCHEMA_PROJECTION_WORK_UNITS, OwnedAcceptedRelationEdgeContract,
-            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
+            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
         },
     },
     error::{
@@ -45,9 +45,13 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::{cell::RefCell, ops::Bound, rc::Rc, thread::LocalKey};
+use std::{cell::RefCell, mem::size_of, ops::Bound, rc::Rc, thread::LocalKey};
 
 use target_keys::RelationTargetKeys;
+
+// All reverse relations share one reserved system-index ordinal. Exact
+// RelationId bytes inside each key own semantic reverse-domain identity.
+const RELATION_SYSTEM_INDEX_ORDINAL: u16 = u16::MAX;
 
 ///
 /// ReverseRelationSourceInfo
@@ -88,12 +92,27 @@ impl ReverseRelationSourceInfo {
 #[derive(Clone, Debug)]
 pub(in crate::db::relation) struct AcceptedRelationInfo {
     constraint: AcceptedConstraintIdentity,
+    reverse_identity: AcceptedRelationReverseIdentity,
     relation_name: String,
-    relation_ordinal: usize,
-    physical_generation: u64,
+    source_field_index: usize,
     local_components: AcceptedRelationLocalComponents,
     target: AcceptedRelationTargetIdentity,
     cardinality: AcceptedRelationCardinality,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AcceptedRelationReverseIdentity {
+    relation_id: RelationId,
+    physical_generation: u64,
+}
+
+impl AcceptedRelationReverseIdentity {
+    const fn new(relation_id: RelationId, physical_generation: u64) -> Self {
+        Self {
+            relation_id,
+            physical_generation,
+        }
+    }
 }
 
 /// Accepted-schema relation projection bound to one exact reverse generation.
@@ -103,7 +122,6 @@ pub(in crate::db::relation) struct AcceptedRelationInfo {
 #[derive(Clone, Debug)]
 pub(in crate::db) struct RelationConstraintProjection {
     source: ReverseRelationSourceInfo,
-    relation_id: crate::db::schema::RelationId,
     relation: AcceptedRelationInfo,
     target_store_path: &'static str,
     target_store: StoreHandle,
@@ -126,18 +144,18 @@ pub(in crate::db) struct RelationConstraintRowProjection {
 impl AcceptedRelationInfo {
     fn new(
         constraint: AcceptedConstraintIdentity,
+        reverse_identity: AcceptedRelationReverseIdentity,
         relation_name: impl Into<String>,
-        relation_ordinal: usize,
-        physical_generation: u64,
+        source_field_index: usize,
         local_components: AcceptedRelationLocalComponents,
         target_contract: AcceptedRelationTargetContract,
         cardinality: AcceptedRelationCardinality,
     ) -> Result<Self, InternalError> {
         Ok(Self {
             constraint,
+            reverse_identity,
             relation_name: relation_name.into(),
-            relation_ordinal,
-            physical_generation,
+            source_field_index,
             local_components,
             target: AcceptedRelationTargetIdentity::from_target_contract(target_contract)?,
             cardinality,
@@ -151,12 +169,17 @@ impl AcceptedRelationInfo {
 
     #[must_use]
     pub(in crate::db::relation) const fn field_index(&self) -> usize {
-        self.relation_ordinal
+        self.source_field_index
+    }
+
+    #[must_use]
+    pub(in crate::db::relation) const fn relation_id(&self) -> RelationId {
+        self.reverse_identity.relation_id
     }
 
     #[must_use]
     pub(in crate::db::relation) const fn physical_generation(&self) -> u64 {
-        self.physical_generation
+        self.reverse_identity.physical_generation
     }
 
     #[must_use]
@@ -206,7 +229,7 @@ impl AcceptedRelationInfo {
 impl RelationConstraintProjection {
     /// Return the exact planner-invisible reverse-index generation.
     #[cfg(any(test, feature = "migration"))]
-    pub(in crate::db) fn index_id(&self) -> Result<IndexId, InternalError> {
+    pub(in crate::db) const fn index_id(&self) -> IndexId {
         reverse_index_id_for_relation(&self.source, &self.relation)
     }
     /// Bind one isolated activation candidate to row and target-store authority.
@@ -251,7 +274,6 @@ impl RelationConstraintProjection {
             relation_target_store_binding(db, &source, &relation)?;
         Ok(Self {
             source,
-            relation_id: edge.id(),
             relation,
             target_store_path,
             target_store,
@@ -260,8 +282,8 @@ impl RelationConstraintProjection {
 
     /// Return the stable accepted logical relation identity.
     #[must_use]
-    pub(in crate::db) const fn relation_id(&self) -> crate::db::schema::RelationId {
-        self.relation_id
+    pub(in crate::db) const fn relation_id(&self) -> RelationId {
+        self.relation.relation_id()
     }
 
     /// Return the exact generation carried by every projected reverse key.
@@ -286,12 +308,13 @@ impl RelationConstraintProjection {
     pub(in crate::db) fn raw_bounds(
         &self,
     ) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), InternalError> {
-        let index_id = reverse_index_id_for_relation(&self.source, &self.relation)?;
+        let index_id = reverse_index_id_for_relation(&self.source, &self.relation);
+        let relation_id = relation_id_component(&self.relation);
         let (lower, upper) = raw_keys_for_component_prefix_with_kind::<Vec<u8>>(
             &index_id,
             IndexKeyKind::System,
-            1,
-            &[],
+            2,
+            &[relation_id.to_vec()],
         )
         .map_err(|_| InternalError::store_corruption())?;
 
@@ -301,10 +324,11 @@ impl RelationConstraintProjection {
     /// Prove that one decoded key names this exact active reverse generation.
     #[must_use]
     pub(in crate::db) fn contains_decoded_key(&self, key: &IndexKey) -> bool {
-        let Ok(expected) = reverse_index_id_for_relation(&self.source, &self.relation) else {
-            return false;
-        };
-        key.key_kind() == IndexKeyKind::System && key.index_id() == &expected
+        let expected = reverse_index_id_for_relation(&self.source, &self.relation);
+        key.key_kind() == IndexKeyKind::System
+            && key.index_id() == &expected
+            && key.component_count() == 2
+            && key.component(0) == Some(relation_id_component(&self.relation).as_slice())
     }
 
     /// Project one source row and classify target existence deterministically.
@@ -853,9 +877,9 @@ where
         let cardinality = descriptor.cardinality();
         return Ok(Some(AcceptedRelationInfo::new(
             edge.constraint().clone(),
+            AcceptedRelationReverseIdentity::new(edge.relation_id(), edge.physical_generation()),
             field.field_name(),
             edge.local_field_slots()[0],
-            edge.physical_generation(),
             AcceptedRelationLocalComponents::scalar(edge.local_field_slots()[0], *field)?,
             descriptor.into_target_contract(),
             cardinality,
@@ -885,9 +909,9 @@ where
 
     Ok(Some(AcceptedRelationInfo::new(
         edge.constraint().clone(),
+        AcceptedRelationReverseIdentity::new(edge.relation_id(), edge.physical_generation()),
         edge.name(),
         edge.local_field_slots()[0],
-        edge.physical_generation(),
         AcceptedRelationLocalComponents::try_from_component_specs(component_specs.as_slice())?,
         tuple_descriptor.into_target_contract(),
         AcceptedRelationCardinality::Single,
@@ -908,7 +932,8 @@ where
         .relation_enforcement_identity(edge.id())
         .ok_or_else(InternalError::store_corruption)?;
     let local_fields = edge
-        .local_field_ids()
+        .source()
+        .direct_field_ids()
         .iter()
         .map(|field_id| {
             let field = snapshot
@@ -936,9 +961,9 @@ where
         let cardinality = descriptor.cardinality();
         return AcceptedRelationInfo::new(
             constraint,
+            AcceptedRelationReverseIdentity::new(edge.id(), edge.physical_generation()),
             edge.name(),
             *slot,
-            edge.physical_generation(),
             AcceptedRelationLocalComponents::scalar(*slot, *field)?,
             descriptor.into_target_contract(),
             cardinality,
@@ -966,40 +991,35 @@ where
         })
         .collect::<Vec<_>>();
 
-    let relation_ordinal = local_fields
+    let source_field_index = local_fields
         .first()
         .map(|(slot, _)| *slot)
         .ok_or_else(InternalError::store_corruption)?;
     AcceptedRelationInfo::new(
         constraint,
+        AcceptedRelationReverseIdentity::new(edge.id(), edge.physical_generation()),
         edge.name(),
-        relation_ordinal,
-        edge.physical_generation(),
+        source_field_index,
         AcceptedRelationLocalComponents::try_from_component_specs(component_specs.as_slice())?,
         tuple_descriptor.into_target_contract(),
         AcceptedRelationCardinality::Single,
     )
 }
 
-/// Build the canonical reverse-index id for a `(source entity, relation field)` pair.
-fn reverse_index_id_for_relation(
+/// Build the shared relation-system index identity for one physical generation.
+const fn reverse_index_id_for_relation(
     source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
-) -> Result<IndexId, InternalError> {
-    let ordinal = u16::try_from(relation.field_index()).map_err(|err| {
-        InternalError::reverse_index_ordinal_overflow(
-            source.path(),
-            relation.field_name(),
-            relation.target().path(),
-            err,
-        )
-    })?;
-
-    Ok(IndexId::new_with_generation(
+) -> IndexId {
+    IndexId::new_with_generation(
         source.entity_tag,
-        ordinal,
+        RELATION_SYSTEM_INDEX_ORDINAL,
         relation.physical_generation(),
-    ))
+    )
+}
+
+const fn relation_id_component(relation: &AcceptedRelationInfo) -> [u8; size_of::<u32>()] {
+    relation.relation_id().get().to_be_bytes()
 }
 
 /// Prove that one removed relation owns no surviving reverse physical entry.
@@ -1016,21 +1036,19 @@ pub(in crate::db) fn prove_empty_reverse_relation_domain(
     if index_store.state() != IndexState::Ready {
         return Err(InternalError::store_unsupported());
     }
-    let local_field = relation
-        .local_field_ids()
-        .first()
-        .and_then(|field_id| {
-            source_snapshot
-                .fields()
-                .iter()
-                .find(|field| field.id() == *field_id)
-        })
-        .ok_or_else(InternalError::store_corruption)?;
+    if !source_snapshot
+        .relations()
+        .iter()
+        .any(|accepted| accepted == relation)
+    {
+        return Err(InternalError::store_corruption());
+    }
     let expected = IndexId::new_with_generation(
         source_entity,
-        local_field.slot().get(),
+        RELATION_SYSTEM_INDEX_ORDINAL,
         relation.physical_generation(),
     );
+    let expected_relation_id = relation.id().get().to_be_bytes();
     let mut work_units = 0_usize;
     index_store.visit_entries(|raw_key, _| {
         work_units = work_units.checked_add(1).ok_or_else(|| {
@@ -1044,7 +1062,10 @@ pub(in crate::db) fn prove_empty_reverse_relation_domain(
             ));
         }
         let key = IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::store_corruption())?;
-        if key.key_kind() == IndexKeyKind::System && key.index_id() == &expected {
+        if key.key_kind() == IndexKeyKind::System
+            && key.index_id() == &expected
+            && key.component(0) == Some(expected_relation_id.as_slice())
+        {
             return Err(InternalError::store_unsupported());
         }
         Ok(IndexStoreVisit::Continue)
@@ -1059,13 +1080,14 @@ pub(super) fn reverse_index_key_bounds_for_target_primary_key_value(
 ) -> Result<Option<(RawIndexStoreKey, RawIndexStoreKey)>, InternalError> {
     let encoded_value =
         encode_reverse_relation_target_identity_component(source, relation, target_key_value)?;
+    let relation_id = relation_id_component(relation);
 
-    let index_id = reverse_index_id_for_relation(source, relation)?;
+    let index_id = reverse_index_id_for_relation(source, relation);
     let (start, end) = raw_keys_for_component_prefix_with_kind(
         &index_id,
         IndexKeyKind::System,
-        1,
-        std::slice::from_ref(&encoded_value),
+        2,
+        &[relation_id.to_vec(), encoded_value],
     )
     .map_err(|_| InternalError::query_executor_invariant())?;
 
@@ -1081,12 +1103,13 @@ fn reverse_index_key_for_target_and_source_primary_key_value(
 ) -> Result<Option<RawIndexStoreKey>, InternalError> {
     let encoded_value =
         encode_reverse_relation_target_identity_component(source, relation, target_key_value)?;
+    let relation_id = relation_id_component(relation);
 
-    let index_id = reverse_index_id_for_relation(source, relation)?;
+    let index_id = reverse_index_id_for_relation(source, relation);
     let key = IndexKey::new_from_components_with_primary_key_value(
         &index_id,
         IndexKeyKind::System,
-        std::slice::from_ref(&encoded_value),
+        &[relation_id.to_vec(), encoded_value],
         source_key_value,
     )?;
 

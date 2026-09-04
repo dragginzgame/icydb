@@ -34,12 +34,13 @@ pub(in crate::db::schema) fn schema_snapshot_relation_integrity_detail(
             }
         }
 
-        if relation.local_field_ids().is_empty() {
+        let direct_field_ids = relation.source().direct_field_ids();
+        if direct_field_ids.is_empty() {
             return Some(());
         }
 
-        for (field_offset, field_id) in relation.local_field_ids().iter().enumerate() {
-            if relation.local_field_ids()[..field_offset].contains(field_id) {
+        for (field_offset, field_id) in direct_field_ids.iter().enumerate() {
+            if direct_field_ids[..field_offset].contains(field_id) {
                 return Some(());
             }
 

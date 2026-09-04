@@ -9,9 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.253.md](docs/changelog/0.253.md)
 
-- `0.253.0` freezes controlled nested-relation proving actors, exact
-  instruction-derived work limits, and reproducible Wasm/performance baselines
-  without changing production relation behavior.
+- `0.253.0` freezes nested-relation limits and hard-cuts direct relation state
+  to exact non-reusing identities; upgrading from 0.252 requires recreation.
 
 ## [0.252.x] 📚 - 2026-09-01 - Nested Storage Contract
 

@@ -119,7 +119,7 @@ impl SchemaIndexId {
 /// RelationId
 ///
 /// Stable non-zero logical identity for one accepted relation definition.
-/// Relation key encoding remains owned by the existing relation contract.
+/// The exact ID is also the persisted reverse-domain identity.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -139,6 +139,62 @@ impl RelationId {
     #[must_use]
     pub(in crate::db) const fn get(self) -> u32 {
         self.0.get()
+    }
+}
+
+///
+/// RelationIdAllocator
+///
+/// Persisted non-reusing high-water state for entity-local relation IDs.
+/// Removing a relation never lowers this value.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct RelationIdAllocator {
+    high_water: Option<RelationId>,
+}
+
+impl RelationIdAllocator {
+    /// Build allocator state from its trusted persisted high-water value.
+    #[must_use]
+    pub(in crate::db) const fn new(high_water: u32) -> Self {
+        Self {
+            high_water: RelationId::new(high_water),
+        }
+    }
+
+    /// Return the greatest relation ID ever reserved by this entity.
+    #[must_use]
+    pub(in crate::db) const fn high_water(self) -> u32 {
+        match self.high_water {
+            Some(high_water) => high_water.get(),
+            None => 0,
+        }
+    }
+
+    /// Reserve the next non-reusing relation identity in candidate state.
+    ///
+    /// The returned allocator becomes authoritative only when its containing
+    /// schema candidate publishes. Exhaustion leaves accepted state unchanged.
+    #[must_use]
+    pub(in crate::db) const fn checked_reserve(self) -> Option<(Self, RelationId)> {
+        let next = match self.high_water {
+            Some(high_water) => match high_water.get().checked_add(1) {
+                Some(next) => next,
+                None => return None,
+            },
+            None => 1,
+        };
+        let Some(id) = RelationId::new(next) else {
+            return None;
+        };
+
+        Some((
+            Self {
+                high_water: Some(id),
+            },
+            id,
+        ))
     }
 }
 
@@ -194,6 +250,21 @@ mod tests {
         assert_eq!(second_id.get(), 2);
         assert_eq!(second.high_water(), 2);
         assert_eq!(ConstraintIdAllocator::new(u32::MAX).checked_reserve(), None,);
+    }
+
+    #[test]
+    fn relation_allocator_reserves_monotonically_and_fails_closed_at_exhaustion() {
+        let (first, first_id) = RelationIdAllocator::default()
+            .checked_reserve()
+            .expect("empty allocator should reserve its first identity");
+        let (second, second_id) = first
+            .checked_reserve()
+            .expect("allocator should reserve its next identity");
+
+        assert_eq!(first_id.get(), 1);
+        assert_eq!(second_id.get(), 2);
+        assert_eq!(second.high_water(), 2);
+        assert_eq!(RelationIdAllocator::new(u32::MAX).checked_reserve(), None);
     }
 
     #[test]

@@ -1485,16 +1485,6 @@ impl InternalError {
         Self::persisted_row_field_decode_corruption(field_name)
     }
 
-    /// Construct the canonical reverse-index ordinal overflow internal error.
-    pub(crate) fn reverse_index_ordinal_overflow(
-        _source_path: &str,
-        _field_name: &str,
-        _target_path: &str,
-        _detail: impl Sized,
-    ) -> Self {
-        Self::index_internal()
-    }
-
     /// Construct the canonical reverse-index entry corruption error.
     pub(crate) fn reverse_index_entry_corrupted(
         _source_path: &str,

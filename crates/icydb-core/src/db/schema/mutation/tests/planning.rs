@@ -1,7 +1,7 @@
 use super::*;
 use crate::db::schema::{
     AcceptedConstraintCatalog, AcceptedConstraintKind, ConstraintIdAllocator, ConstraintOrigin,
-    PersistedRelationEdgeSnapshot, RelationId,
+    PersistedRelationEdgeSnapshot, RelationId, RelationIdAllocator,
     mutation::delta::{SchemaMutationDelta, classify_schema_mutation_delta},
 };
 
@@ -358,12 +358,14 @@ fn metadata_default_changes_remain_available_at_row_layout_exhaustion() {
 #[test]
 #[cfg(feature = "sql")]
 fn accepted_after_derivations_preserve_structural_identity_state() {
-    let before = base_snapshot().with_relations(vec![PersistedRelationEdgeSnapshot::new(
-        RelationId::new(9).expect("test relation identity should be non-zero"),
-        "owner".to_string(),
-        "test::Owner".to_string(),
-        vec![FieldId::new(2)],
-    )]);
+    let before = base_snapshot()
+        .with_relation_id_allocator(RelationIdAllocator::new(23))
+        .with_relations(vec![PersistedRelationEdgeSnapshot::new_direct(
+            RelationId::new(9).expect("test relation identity should be non-zero"),
+            "owner".to_string(),
+            "test::Owner".to_string(),
+            vec![FieldId::new(2)],
+        )]);
     let initial_catalog =
         AcceptedConstraintCatalog::initial(before.fields(), before.indexes(), before.relations())
             .expect("test structural constraints should build");
@@ -379,6 +381,7 @@ fn accepted_after_derivations_preserve_structural_identity_state() {
         .expect("field rename should derive an accepted-after snapshot");
     let renamed_snapshot = renamed.accepted_after().persisted_snapshot();
     assert_eq!(renamed_snapshot.constraint_id_allocator().high_water(), 17);
+    assert_eq!(renamed_snapshot.relation_id_allocator().high_water(), 23);
     assert_eq!(renamed_snapshot.relations()[0].id().get(), 9);
     assert_eq!(
         renamed_snapshot
@@ -402,7 +405,21 @@ fn accepted_after_derivations_preserve_structural_identity_state() {
             .expect("index addition should derive an accepted-after snapshot");
     let indexed_snapshot = indexed.accepted_after().persisted_snapshot();
     assert_eq!(indexed_snapshot.constraint_id_allocator().high_water(), 17);
+    assert_eq!(indexed_snapshot.relation_id_allocator().high_water(), 23);
     assert_eq!(indexed_snapshot.relations()[0].id().get(), 9);
+
+    let removed = derive_relation_removal_candidate(
+        accepted.persisted_snapshot(),
+        RelationId::new(9).expect("test relation identity should be non-zero"),
+    )
+    .expect("relation removal should preserve retired allocator state");
+    assert!(removed.relations().is_empty());
+    assert_eq!(removed.relation_id_allocator().high_water(), 23);
+    let (_, next) = removed
+        .relation_id_allocator()
+        .checked_reserve()
+        .expect("retired relation allocator should reserve after its high-water");
+    assert_eq!(next.get(), 24, "removed relation IDs must never be reused");
 }
 
 #[test]
