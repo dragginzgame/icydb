@@ -1,6 +1,7 @@
 use super::*;
 use crate::db::session::sql::write_policy::{
-    SqlWriteReturningBounds, SqlWriteReturningShape, SqlWriteWhereProof,
+    SqlWriteBoundedPolicyRejection, SqlWriteReturningBounds, SqlWriteReturningShape,
+    SqlWriteShapePolicyRejection, SqlWriteWhereProof,
 };
 
 const PRIMARY_KEY: &[&str] = &["id"];
@@ -33,6 +34,14 @@ fn assert_no_plan(report: &SqlDeletePolicyReport) {
         report.plan.is_none(),
         "rejected policy should not expose a partially usable plan",
     );
+}
+
+const fn shape_rejection(rejection: SqlWriteShapePolicyRejection) -> SqlDeletePolicyRejection {
+    SqlDeletePolicyRejection::WriteShape(rejection)
+}
+
+const fn bounded_rejection(rejection: SqlWriteBoundedPolicyRejection) -> SqlDeletePolicyRejection {
+    shape_rejection(SqlWriteShapePolicyRejection::Bounded(rejection))
 }
 
 #[test]
@@ -98,7 +107,7 @@ fn delete_policy_public_primary_key_only_rejects_missing_where() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlDeletePolicyRejection::MissingWhere),
+        Some(shape_rejection(SqlWriteShapePolicyRejection::MissingWhere)),
     );
     assert_no_plan(&report);
 }
@@ -112,7 +121,9 @@ fn delete_policy_public_primary_key_only_rejects_non_primary_key_where() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlDeletePolicyRejection::PrimaryKeyProofFailed),
+        Some(shape_rejection(
+            SqlWriteShapePolicyRejection::PrimaryKeyProofFailed,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -126,7 +137,9 @@ fn delete_policy_public_primary_key_only_rejects_extra_where_guard() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlDeletePolicyRejection::PrimaryKeyProofFailed),
+        Some(shape_rejection(
+            SqlWriteShapePolicyRejection::PrimaryKeyProofFailed,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -181,7 +194,7 @@ fn delete_policy_public_bounded_rejects_missing_where() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlDeletePolicyRejection::MissingWhere),
+        Some(shape_rejection(SqlWriteShapePolicyRejection::MissingWhere)),
     );
     assert_no_plan(&report);
 }
@@ -195,7 +208,9 @@ fn delete_policy_public_bounded_rejects_implicit_primary_key_fallback() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlDeletePolicyRejection::MissingCanonicalPrimaryKeyOrder),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -209,7 +224,9 @@ fn delete_policy_public_bounded_rejects_missing_limit() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlDeletePolicyRejection::MissingLimit),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::MissingLimit
+        )),
     );
     assert_no_plan(&report);
 }
@@ -223,7 +240,9 @@ fn delete_policy_public_bounded_rejects_non_primary_key_ordering() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlDeletePolicyRejection::MissingCanonicalPrimaryKeyOrder),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -237,7 +256,9 @@ fn delete_policy_public_bounded_rejects_descending_order() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlDeletePolicyRejection::DescendingOrder),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::DescendingOrder,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -255,7 +276,9 @@ fn delete_policy_public_bounded_rejects_excessive_limit() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlDeletePolicyRejection::LimitTooHigh),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::LimitTooHigh,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -269,7 +292,9 @@ fn delete_policy_public_bounded_rejects_offset() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlDeletePolicyRejection::OffsetUnsupported),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::OffsetUnsupported,
+        )),
     );
     assert_no_plan(&report);
 }

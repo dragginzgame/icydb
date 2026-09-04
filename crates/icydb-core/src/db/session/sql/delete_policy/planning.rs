@@ -6,8 +6,8 @@ use super::model::*;
 use crate::db::{QueryError, sql::parser::parse_sql};
 use crate::db::{
     session::sql::write_policy::{
-        SqlWriteExecutionBounds, SqlWritePlanCore, SqlWriteShapePolicyRejection,
-        SqlWriteStatementShape, SqlWriteStatementShapeInput, classify_write_statement_shape,
+        SqlWriteExecutionBounds, SqlWritePlanCore, SqlWriteStatementShape,
+        SqlWriteStatementShapeInput, classify_write_statement_shape,
     },
     sql::parser::{SqlDeleteStatement, SqlStatement},
 };
@@ -58,32 +58,21 @@ fn classify_delete_statement(
     }
 }
 
-const fn delete_policy_rejection(
+fn delete_policy_rejection(
     policy: SqlDeleteExposurePolicy,
     classification: &SqlDeleteStatementClassification,
     context: SqlDeletePolicyContext<'_>,
 ) -> Option<SqlDeletePolicyRejection> {
-    match policy {
+    let rejection = match policy {
         SqlDeleteExposurePolicy::PublicPrimaryKeyOnly => {
-            write_shape_policy_rejection(classification.write_shape.primary_key_policy_rejection())
+            classification.write_shape.primary_key_policy_rejection()
         }
-        SqlDeleteExposurePolicy::PublicBoundedDeterministic => write_shape_policy_rejection(
-            classification
-                .write_shape
-                .bounded_deterministic_policy_rejection(context.write_bounds()),
-        ),
-    }
-}
+        SqlDeleteExposurePolicy::PublicBoundedDeterministic => classification
+            .write_shape
+            .bounded_deterministic_policy_rejection(context.write_bounds()),
+    };
 
-const fn write_shape_policy_rejection(
-    rejection: Option<SqlWriteShapePolicyRejection>,
-) -> Option<SqlDeletePolicyRejection> {
-    match rejection {
-        Some(rejection) => Some(SqlDeletePolicyRejection::from_write_shape_rejection(
-            rejection,
-        )),
-        None => None,
-    }
+    rejection.map(SqlDeletePolicyRejection::WriteShape)
 }
 
 fn validated_delete_plan(

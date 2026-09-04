@@ -8,19 +8,19 @@ mod bounds;
 mod model;
 mod shape;
 
-pub(in crate::db::session::sql) use bounds::{
-    combined_optional_row_bound, sql_write_execution_bounds_for_exact_update,
-};
+pub(in crate::db::session::sql) use bounds::sql_write_execution_bounds_for_exact_update;
 pub(in crate::db::session::sql) use model::{
     DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
-    SqlWriteBoundedPolicyRejection, SqlWriteExposureClass, SqlWritePlanCore, SqlWritePolicyBounds,
-    SqlWriteShapePolicyRejection,
-};
-pub(in crate::db) use model::{
-    SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWriteReturningBounds, SqlWriteStatementShape,
+    SqlWriteExposureClass, SqlWritePlanCore, SqlWritePolicyBounds,
 };
 #[cfg(test)]
-pub(in crate::db) use model::{SqlWriteReturningShape, SqlWriteWhereProof};
+pub(in crate::db) use model::{
+    SqlWriteBoundedPolicyRejection, SqlWriteReturningShape, SqlWriteWhereProof,
+};
+pub(in crate::db) use model::{
+    SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWriteReturningBounds,
+    SqlWriteShapePolicyRejection, SqlWriteStatementShape,
+};
 pub(in crate::db::session::sql) use shape::{
     SqlWriteStatementShapeInput, classify_write_statement_shape, contains_field,
     current_table_field_name,

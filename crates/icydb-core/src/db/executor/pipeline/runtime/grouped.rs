@@ -13,7 +13,7 @@ use crate::{
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, extract_orderable_field_value_with_slot_reader,
             },
-            budget::charge_current_execution_budget,
+            budget::{charge_current_execution_budget, charge_materialized_data_row},
             pipeline::contracts::{GroupedCursorPage, ResolvedExecutionKeyStream},
             projection::{
                 eval_effective_runtime_filter_program_with_value_cow_reader, resolve_path_segments,
@@ -532,15 +532,7 @@ impl StructuralGroupedRowRuntime {
         let row = self.store.with_data(|store| store.get(&raw_key));
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
         if let Some(row) = row.as_ref() {
-            let row_bytes = u64::try_from(row.len()).unwrap_or(u64::MAX);
-            charge_current_execution_budget(
-                DiagnosticExecutionBudgetResource::StoredBytesRead,
-                row_bytes,
-            )?;
-            charge_current_execution_budget(
-                DiagnosticExecutionBudgetResource::MaterializedBytes,
-                row_bytes,
-            )?;
+            charge_materialized_data_row!(row)?;
         }
 
         match (consistency, row) {

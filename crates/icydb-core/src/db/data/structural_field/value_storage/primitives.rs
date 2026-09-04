@@ -8,7 +8,7 @@ use crate::db::data::structural_field::{
     binary::{
         TAG_BYTES, TAG_INT64, TAG_LIST, TAG_NAT64, TAG_TEXT,
         decode_text_scalar_bytes as decode_binary_text_scalar_bytes, parse_binary_head,
-        payload_bytes as binary_payload_bytes, skip_binary_value,
+        parse_complete_binary_value, payload_bytes as binary_payload_bytes, skip_binary_value,
     },
     primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
     value_storage::skip::skip_value_storage_binary_value,
@@ -25,11 +25,8 @@ fn parse_required_binary_payload(
     expected_tag: u8,
     expected_len: Option<u32>,
 ) -> Result<(u32, usize), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() || tag != expected_tag || expected_len.is_some_and(|v| len != v) {
+    let (tag, len, payload_start) = parse_complete_binary_value(raw_bytes)?;
+    if tag != expected_tag || expected_len.is_some_and(|v| len != v) {
         return Err(FieldDecodeError::new());
     }
 

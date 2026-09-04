@@ -1,7 +1,7 @@
 use super::{
     SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
     reject_explicit_sql_write_to_managed_field, require_sql_write_policy_plan,
-    sql_exact_update_candidate_bounds, sql_update_candidate_bounds,
+    sql_exact_update_candidate_bounds, sql_write_candidate_bounds,
     sql_write_input_for_accepted_field, sql_write_patch_set_accepted_field,
     sql_write_patch_set_update_default,
 };
@@ -20,7 +20,8 @@ use crate::{
                 SqlTrustedExactUpdatePlan, SqlUpdateExposurePolicy, SqlUpdatePolicyRejection,
                 SqlUpdatePolicyReport, SqlValidatedUpdatePlan,
                 classify_sql_update_policy_for_entity, sql_statement_dispatch,
-                with_accepted_sql_update_policy_context, write_policy::SqlWriteExecutionBounds,
+                with_accepted_sql_update_policy_context,
+                write_policy::{SqlWriteExecutionBounds, SqlWriteShapePolicyRejection},
             },
             structural_data_key_from_runtime_values,
         },
@@ -72,7 +73,7 @@ fn require_sql_exact_update_plan(
     }
 
     let boundary = match report.rejection {
-        Some(SqlUpdatePolicyRejection::MissingWhere) => {
+        Some(SqlUpdatePolicyRejection::WriteShape(SqlWriteShapePolicyRejection::MissingWhere)) => {
             SqlWriteBoundaryCode::UpdateMissingWherePredicate
         }
         Some(SqlUpdatePolicyRejection::PrimaryKeyMutation) => {
@@ -89,12 +90,7 @@ fn require_sql_exact_update_plan(
         }
         Some(
             SqlUpdatePolicyRejection::NotUpdate
-            | SqlUpdatePolicyRejection::PrimaryKeyProofFailed
-            | SqlUpdatePolicyRejection::MissingCanonicalPrimaryKeyOrder
-            | SqlUpdatePolicyRejection::DescendingOrder
-            | SqlUpdatePolicyRejection::MissingLimit
-            | SqlUpdatePolicyRejection::OffsetUnsupported
-            | SqlUpdatePolicyRejection::LimitTooHigh
+            | SqlUpdatePolicyRejection::WriteShape(_)
             | SqlUpdatePolicyRejection::ResumableWindowUnsupported
             | SqlUpdatePolicyRejection::ResumableReturningUnsupported,
         )
@@ -122,7 +118,7 @@ enum SqlUpdateExecutionContract {
 impl SqlUpdateExecutionContract {
     const fn candidate_bounds(self) -> super::SqlWriteCandidateBounds {
         match self {
-            Self::Validated(bounds) => sql_update_candidate_bounds(bounds),
+            Self::Validated(bounds) => sql_write_candidate_bounds(Some(bounds)),
             Self::Exact { policy, .. } => sql_exact_update_candidate_bounds(policy),
         }
     }

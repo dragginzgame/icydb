@@ -8,9 +8,8 @@ use crate::{
         FieldDecodeError,
         binary::{
             TAG_BYTES, TAG_INT64, TAG_NAT64, TAG_UNIT,
-            parse_binary_head as parse_structural_binary_head,
+            parse_complete_binary_value as parse_complete_structural_binary_value,
             payload_bytes as binary_payload_bytes,
-            skip_binary_value as skip_structural_binary_value,
         },
         primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
         typed::{
@@ -26,13 +25,7 @@ use crate::{
 pub(in crate::db::data::structural_field::primary_key_component) fn decode_timestamp_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
+    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
     if tag != TAG_INT64 || len != 8 {
         return Err(FieldDecodeError::new());
     }
@@ -49,13 +42,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_times
 pub(in crate::db::data::structural_field::primary_key_component) fn decode_unit_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
+    let (tag, _len, _payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
     if tag != TAG_UNIT {
         return Err(FieldDecodeError::new());
     }
@@ -68,13 +55,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_unit_
 pub(in crate::db::data::structural_field::primary_key_component) fn decode_int_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
+    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
     if tag != TAG_INT64 || len != 8 {
         return Err(FieldDecodeError::new());
     }
@@ -88,13 +69,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_int_p
 pub(in crate::db::data::structural_field::primary_key_component) fn decode_int128_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
+    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
     if tag != TAG_BYTES || len != 16 {
         return Err(FieldDecodeError::new());
     }
@@ -108,13 +83,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_int12
 pub(in crate::db::data::structural_field::primary_key_component) fn decode_nat_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
+    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
     if tag != TAG_NAT64 || len != 8 {
         return Err(FieldDecodeError::new());
     }
@@ -128,13 +97,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_nat_p
 pub(in crate::db::data::structural_field::primary_key_component) fn decode_nat128_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
+    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
     if tag != TAG_BYTES || len != 16 {
         return Err(FieldDecodeError::new());
     }
@@ -147,11 +110,8 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_nat12
 pub(in crate::db::data::structural_field::primary_key_component) fn decode_u256_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() || tag != TAG_BYTES || len != 32 {
+    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
+    if tag != TAG_BYTES || len != 32 {
         return Err(FieldDecodeError::new());
     }
     let bytes = binary_payload_bytes(raw_bytes, len, payload_start)?

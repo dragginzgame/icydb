@@ -310,6 +310,25 @@ impl IdentityState {
         self.last_applied_advance
     }
 
+    /// Revalidate one tentative allocation range against this quiescent state.
+    pub(in crate::db) fn preflight_range_advance(
+        &self,
+        range: IdentityRangeAdvance,
+    ) -> Result<(), InternalError> {
+        if self.lifecycle != IdentityStateLifecycle::Active
+            || self.owner != range.owner()
+            || range.new_high_water()
+                > identity_kind_maximum(&self.accepted_kind)
+                    .ok_or_else(InternalError::identity_state_corruption)?
+        {
+            return Err(InternalError::identity_state_corruption());
+        }
+        if self.materialized_high_water != range.expected_high_water() {
+            return Err(InternalError::identity_state_conflict());
+        }
+        Ok(())
+    }
+
     pub(in crate::db) fn apply_range_advance(
         &self,
         range: IdentityRangeAdvance,
@@ -1166,5 +1185,46 @@ mod tests {
                 .is_err(),
             "numeric equality without the exact advance identity is corruption",
         );
+    }
+
+    #[test]
+    fn tentative_range_preflight_classifies_conflict_and_corruption() {
+        let identity_state = IdentityState::new_active(owner(), AcceptedFieldKind::Nat8)
+            .expect("active state should admit");
+        let current =
+            IdentityRangeAdvance::try_new(owner(), 0, 2, 2).expect("current range should admit");
+        identity_state
+            .preflight_range_advance(current)
+            .expect("current range should preflight");
+
+        let stale = IdentityRangeAdvance::try_new(owner(), 1, 2, 1)
+            .expect("stale range should remain structurally valid");
+        let error = identity_state
+            .preflight_range_advance(stale)
+            .expect_err("stale high-water must conflict");
+        assert_eq!(error.class(), ErrorClass::Conflict);
+        assert_eq!(error.origin(), ErrorOrigin::Identity);
+
+        let other_owner = IdentityStateOwner::try_new(
+            owner().database_incarnation_id(),
+            EntityTag::new(8),
+            owner().field_id(),
+        )
+        .expect("other owner should admit");
+        let wrong_owner = IdentityRangeAdvance::try_new(other_owner, 0, 1, 1)
+            .expect("other-owner range should admit");
+        let exhausted = IdentityRangeAdvance::try_new(owner(), 0, 256, 256)
+            .expect("width-exhausting range should remain structurally valid");
+        let retired = identity_state.retire().expect("active state should retire");
+
+        for result in [
+            identity_state.preflight_range_advance(wrong_owner),
+            identity_state.preflight_range_advance(exhausted),
+            retired.preflight_range_advance(current),
+        ] {
+            let error = result.expect_err("invalid state/range pairing must be corruption");
+            assert_eq!(error.class(), ErrorClass::Corruption);
+            assert_eq!(error.origin(), ErrorOrigin::Identity);
+        }
     }
 }

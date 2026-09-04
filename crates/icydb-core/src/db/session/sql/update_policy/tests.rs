@@ -1,7 +1,8 @@
 use super::model::MAX_TRUSTED_EXACT_UPDATE_ROWS;
 use super::*;
 use crate::db::session::sql::write_policy::{
-    SqlWriteReturningBounds, SqlWriteReturningShape, SqlWriteWhereProof,
+    SqlWriteBoundedPolicyRejection, SqlWriteReturningBounds, SqlWriteReturningShape,
+    SqlWriteShapePolicyRejection, SqlWriteWhereProof,
 };
 
 const PRIMARY_KEY: &[&str] = &["id"];
@@ -36,6 +37,14 @@ fn assert_no_plan(report: &SqlUpdatePolicyReport) {
     );
 }
 
+const fn shape_rejection(rejection: SqlWriteShapePolicyRejection) -> SqlUpdatePolicyRejection {
+    SqlUpdatePolicyRejection::WriteShape(rejection)
+}
+
+const fn bounded_rejection(rejection: SqlWriteBoundedPolicyRejection) -> SqlUpdatePolicyRejection {
+    shape_rejection(SqlWriteShapePolicyRejection::Bounded(rejection))
+}
+
 #[test]
 fn update_policy_rejects_non_update_statement() {
     let report = classify(
@@ -66,7 +75,7 @@ fn update_policy_public_primary_key_rejects_missing_where() {
     );
     assert_eq!(
         report.rejection,
-        Some(SqlUpdatePolicyRejection::MissingWhere),
+        Some(shape_rejection(SqlWriteShapePolicyRejection::MissingWhere)),
     );
     assert_no_plan(&report);
 }
@@ -148,7 +157,9 @@ fn update_policy_public_primary_key_only_rejects_non_primary_key_where() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlUpdatePolicyRejection::PrimaryKeyProofFailed),
+        Some(shape_rejection(
+            SqlWriteShapePolicyRejection::PrimaryKeyProofFailed,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -162,7 +173,9 @@ fn update_policy_public_primary_key_only_rejects_extra_where_guard() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlUpdatePolicyRejection::PrimaryKeyProofFailed),
+        Some(shape_rejection(
+            SqlWriteShapePolicyRejection::PrimaryKeyProofFailed,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -205,7 +218,9 @@ fn update_policy_public_primary_key_only_rejects_partial_composite_primary_key()
 
     assert_eq!(
         report.rejection,
-        Some(SqlUpdatePolicyRejection::PrimaryKeyProofFailed),
+        Some(shape_rejection(
+            SqlWriteShapePolicyRejection::PrimaryKeyProofFailed,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -362,7 +377,9 @@ fn update_policy_public_bounded_rejects_implicit_primary_key_fallback() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlUpdatePolicyRejection::MissingCanonicalPrimaryKeyOrder),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -376,7 +393,9 @@ fn update_policy_public_bounded_rejects_missing_limit() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlUpdatePolicyRejection::MissingLimit),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::MissingLimit
+        )),
     );
     assert_no_plan(&report);
 }
@@ -390,7 +409,9 @@ fn update_policy_public_bounded_rejects_non_primary_key_ordering() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlUpdatePolicyRejection::MissingCanonicalPrimaryKeyOrder),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -404,7 +425,9 @@ fn update_policy_public_bounded_rejects_descending_order() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlUpdatePolicyRejection::DescendingOrder),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::DescendingOrder,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -425,7 +448,9 @@ fn update_policy_public_bounded_rejects_excessive_limit() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlUpdatePolicyRejection::LimitTooHigh),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::LimitTooHigh,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -439,7 +464,9 @@ fn update_policy_public_bounded_rejects_offset() {
 
     assert_eq!(
         report.rejection,
-        Some(SqlUpdatePolicyRejection::OffsetUnsupported),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::OffsetUnsupported,
+        )),
     );
     assert_no_plan(&report);
 }
@@ -543,11 +570,15 @@ fn update_policy_preserves_shape_rejections_with_schema_owned_returning_fields()
 
     assert_eq!(
         primary_key.rejection,
-        Some(SqlUpdatePolicyRejection::PrimaryKeyProofFailed),
+        Some(shape_rejection(
+            SqlWriteShapePolicyRejection::PrimaryKeyProofFailed,
+        )),
     );
     assert_eq!(
         bounded.rejection,
-        Some(SqlUpdatePolicyRejection::MissingCanonicalPrimaryKeyOrder),
+        Some(bounded_rejection(
+            SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder,
+        )),
     );
     assert_no_plan(&primary_key);
     assert_no_plan(&bounded);

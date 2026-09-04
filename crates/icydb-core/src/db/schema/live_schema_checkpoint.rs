@@ -18,9 +18,8 @@ use crate::{
             },
             identity_state::{
                 IDENTITY_STATE_RECORD_BYTES, IdentityAdvanceId, IdentityRangeAdvance,
-                IdentityStateInventory, IdentityStateLifecycle,
-                MAX_IDENTITY_STATE_RECORDS_PER_DATABASE, decode_identity_state,
-                encode_identity_state, identity_kind_maximum, prepare_identity_state_transition,
+                IdentityStateInventory, MAX_IDENTITY_STATE_RECORDS_PER_DATABASE,
+                decode_identity_state, encode_identity_state, prepare_identity_state_transition,
             },
             migration_record::{SchemaMigrationRecord, decode_schema_migration_record},
             wire::{SchemaWireReader, SchemaWireWriter},
@@ -422,18 +421,7 @@ impl LiveSchemaCheckpointStore {
             .identity_states()
             .get(&(range.owner().entity_tag(), range.owner().field_id()))
             .ok_or_else(InternalError::identity_state_corruption)?;
-        if state.owner() != range.owner()
-            || state.lifecycle() != IdentityStateLifecycle::Active
-            || range.new_high_water()
-                > identity_kind_maximum(state.accepted_kind())
-                    .ok_or_else(InternalError::identity_state_corruption)?
-        {
-            return Err(InternalError::identity_state_corruption());
-        }
-        if state.materialized_high_water() != range.expected_high_water() {
-            return Err(InternalError::identity_state_conflict());
-        }
-        Ok(())
+        state.preflight_range_advance(range)
     }
 
     fn apply_identity_range(

@@ -6,9 +6,8 @@ use crate::db::session::sql::write_policy::SqlWriteReturningBounds;
 use crate::db::{
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
-        SqlWriteBoundedPolicyRejection, SqlWriteExecutionBounds, SqlWriteExposureClass,
-        SqlWritePlanCore, SqlWritePolicyBounds, SqlWriteShapePolicyRejection,
-        SqlWriteStatementShape,
+        SqlWriteExecutionBounds, SqlWriteExposureClass, SqlWritePlanCore, SqlWritePolicyBounds,
+        SqlWriteShapePolicyRejection, SqlWriteStatementShape,
     },
     sql::parser::SqlDeleteStatement,
 };
@@ -174,46 +173,8 @@ impl SqlPublicBoundedDeletePlan {
 pub(in crate::db) enum SqlDeletePolicyRejection {
     /// The parsed statement is not `DELETE`.
     NotDelete,
-    /// This public policy requires a `WHERE` clause.
-    MissingWhere,
-    /// The `WHERE` clause did not prove complete primary-key equality.
-    PrimaryKeyProofFailed,
-    /// This public policy requires explicit canonical primary-key ordering.
-    MissingCanonicalPrimaryKeyOrder,
-    /// This public policy rejects descending ordering.
-    DescendingOrder,
-    /// This public policy requires a positive `LIMIT`.
-    MissingLimit,
-    /// This public policy rejects `OFFSET`.
-    OffsetUnsupported,
-    /// The supplied `LIMIT` exceeds the policy maximum.
-    LimitTooHigh,
-}
-
-impl SqlDeletePolicyRejection {
-    const fn from_bounded_write_rejection(rejection: SqlWriteBoundedPolicyRejection) -> Self {
-        match rejection {
-            SqlWriteBoundedPolicyRejection::MissingCanonicalPrimaryKeyOrder => {
-                Self::MissingCanonicalPrimaryKeyOrder
-            }
-            SqlWriteBoundedPolicyRejection::DescendingOrder => Self::DescendingOrder,
-            SqlWriteBoundedPolicyRejection::MissingLimit => Self::MissingLimit,
-            SqlWriteBoundedPolicyRejection::OffsetUnsupported => Self::OffsetUnsupported,
-            SqlWriteBoundedPolicyRejection::LimitTooHigh => Self::LimitTooHigh,
-        }
-    }
-
-    pub(super) const fn from_write_shape_rejection(
-        rejection: SqlWriteShapePolicyRejection,
-    ) -> Self {
-        match rejection {
-            SqlWriteShapePolicyRejection::MissingWhere => Self::MissingWhere,
-            SqlWriteShapePolicyRejection::PrimaryKeyProofFailed => Self::PrimaryKeyProofFailed,
-            SqlWriteShapePolicyRejection::Bounded(rejection) => {
-                Self::from_bounded_write_rejection(rejection)
-            }
-        }
-    }
+    /// Shared write-shape policy rejected the statement.
+    WriteShape(SqlWriteShapePolicyRejection),
 }
 
 /// Result of classifying one SQL statement under a `DELETE` exposure policy.

@@ -19,7 +19,7 @@ use crate::{
 };
 #[cfg(test)]
 use std::cell::Cell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 #[cfg(test)]
 thread_local! {
@@ -173,15 +173,8 @@ pub(in crate::db) fn capture_integrity_proof_vector<C: CanisterKind>(
     ensure_recovery_admitted(db)?;
 
     let identity = plan.identity();
-    let source_store = db.store_handle(identity.store_path())?;
     let relations = plan.relation_inspection();
-    let mut participating_stores =
-        BTreeMap::from([(identity.store_path().to_string(), source_store)]);
-    for relation in relations {
-        participating_stores
-            .entry(relation.target_store_path().to_string())
-            .or_insert_with(|| relation.target_store());
-    }
+    let participating_stores = super::resolve_integrity_participating_stores(db, plan)?;
 
     let stores = participating_stores
         .into_iter()

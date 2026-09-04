@@ -8,7 +8,7 @@ use super::model::{
     SqlWriteReturningBounds, SqlWriteStagedRowBoundKind,
 };
 
-pub(in crate::db::session::sql) const fn combined_optional_row_bound(
+pub(super) const fn combined_optional_row_bound(
     policy_max_rows: Option<u32>,
     configured_max_rows: Option<u32>,
 ) -> Option<u32> {

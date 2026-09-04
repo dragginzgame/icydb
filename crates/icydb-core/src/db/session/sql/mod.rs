@@ -55,7 +55,6 @@ pub(in crate::db) use update_policy::{
     SqlUpdatePolicyReport, SqlValidatedUpdatePlan, classify_sql_resumable_update_policy,
     classify_sql_update_policy_for_entity, with_accepted_sql_update_policy_context,
 };
-pub(in crate::db::session::sql) use write_policy::combined_optional_row_bound;
 #[cfg(test)]
 pub(in crate::db) use write_policy::{SqlWriteExecutionBounds, SqlWriteReturningBounds};
 

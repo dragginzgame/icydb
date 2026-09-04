@@ -8,7 +8,7 @@ use crate::{
         FieldDecodeError,
         binary::{
             TAG_LIST, TAG_NULL, parse_binary_head as parse_structural_binary_head,
-            skip_binary_value as skip_structural_binary_value,
+            parse_complete_binary_value as parse_complete_structural_binary_value,
             walk_binary_list_items as walk_structural_binary_list_items,
         },
         primary_key_component::{
@@ -135,13 +135,7 @@ pub(in crate::db) fn validate_primary_key_component_binary_value_bytes(
 
 // Return whether one Structural Binary v1 payload is the explicit null form.
 fn binary_payload_is_null(raw_bytes: &[u8]) -> Result<bool, FieldDecodeError> {
-    let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
+    let (tag, _len, _payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
 
     Ok(tag == TAG_NULL)
 }
@@ -151,13 +145,7 @@ pub(in crate::db) fn decode_optional_primary_key_component_field_binary_bytes(
     raw_bytes: &[u8],
     key_kind: &AcceptedFieldKind,
 ) -> Result<Option<PrimaryKeyComponent>, FieldDecodeError> {
-    let Some((tag, _len, _payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
+    let (tag, _len, _payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
     if tag == TAG_NULL {
         return Ok(None);
     }

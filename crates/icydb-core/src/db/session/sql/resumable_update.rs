@@ -44,7 +44,7 @@ use crate::{
         session::sql::{
             SqlResumableUpdatePolicyReport, SqlStatementDispatch, SqlUpdatePolicyRejection,
             classify_sql_resumable_update_policy, sql_statement_dispatch,
-            with_accepted_sql_update_policy_context,
+            with_accepted_sql_update_policy_context, write_policy::SqlWriteShapePolicyRejection,
         },
         session::{
             AcceptedSchemaCatalogContext, AcceptedStructuralMutation,
@@ -1700,7 +1700,9 @@ fn require_resumable_update_plan(
     };
 
     let boundary = match rejection {
-        SqlUpdatePolicyRejection::MissingWhere => SqlWriteBoundaryCode::UpdateMissingWherePredicate,
+        SqlUpdatePolicyRejection::WriteShape(SqlWriteShapePolicyRejection::MissingWhere) => {
+            SqlWriteBoundaryCode::UpdateMissingWherePredicate
+        }
         SqlUpdatePolicyRejection::PrimaryKeyMutation => {
             SqlWriteBoundaryCode::UpdatePrimaryKeyMutation
         }
@@ -1717,12 +1719,7 @@ fn require_resumable_update_plan(
             SqlWriteBoundaryCode::ResumableUpdateReturningUnsupported
         }
         SqlUpdatePolicyRejection::NotUpdate
-        | SqlUpdatePolicyRejection::PrimaryKeyProofFailed
-        | SqlUpdatePolicyRejection::MissingCanonicalPrimaryKeyOrder
-        | SqlUpdatePolicyRejection::DescendingOrder
-        | SqlUpdatePolicyRejection::MissingLimit
-        | SqlUpdatePolicyRejection::OffsetUnsupported
-        | SqlUpdatePolicyRejection::LimitTooHigh
+        | SqlUpdatePolicyRejection::WriteShape(_)
         | SqlUpdatePolicyRejection::ExactWindowUnsupported => {
             return Err(QueryError::unsupported_query());
         }

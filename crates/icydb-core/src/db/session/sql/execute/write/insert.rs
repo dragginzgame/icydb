@@ -1,7 +1,7 @@
 use super::{
     SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds, SqlWriteCandidateCollection,
     SqlWriteCandidateRows, SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
-    reject_explicit_sql_write_to_managed_field, sql_insert_candidate_bounds,
+    reject_explicit_sql_write_to_managed_field, sql_write_candidate_bounds,
     sql_write_input_for_accepted_field, sql_write_patch_set_accepted_field,
     sql_write_patch_set_insert_default,
 };
@@ -341,8 +341,7 @@ impl<C: CanisterKind> DbSession<C> {
                     ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
                 }
                 let write_context = AcceptedWriteContext::new(Timestamp::now());
-                let candidate_bounds =
-                    sql_insert_candidate_bounds(execution_bounds, statement.returning.is_some());
+                let candidate_bounds = sql_write_candidate_bounds(execution_bounds);
                 let mut collection = SqlWriteCandidateCollection::new();
 
                 match &statement.source {

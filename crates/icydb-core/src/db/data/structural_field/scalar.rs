@@ -7,10 +7,10 @@ use crate::db::data::structural_field::FieldDecodeError;
 use crate::db::data::structural_field::binary::{
     TAG_BYTES, TAG_FALSE, TAG_FLOAT32, TAG_FLOAT64, TAG_INT64, TAG_NAT64, TAG_TEXT, TAG_TRUE,
     decode_text_scalar_bytes as decode_binary_text_scalar_bytes,
-    parse_binary_head as parse_structural_binary_head, payload_bytes as binary_payload_bytes,
-    push_binary_bool, push_binary_bytes, push_binary_float32, push_binary_float64,
-    push_binary_int64, push_binary_nat64, push_binary_null, push_binary_text,
-    skip_binary_value as skip_structural_binary_value,
+    parse_complete_binary_value as parse_complete_structural_binary_value,
+    payload_bytes as binary_payload_bytes, push_binary_bool, push_binary_bytes,
+    push_binary_float32, push_binary_float64, push_binary_int64, push_binary_nat64,
+    push_binary_null, push_binary_text,
 };
 use crate::db::data::structural_field::primitive::{
     decode_i64_payload_bytes, decode_u64_payload_bytes,
@@ -65,13 +65,7 @@ pub(super) fn decode_scalar_fast_path_binary_bytes(
         return Ok(None);
     }
 
-    let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
+    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
     if tag == crate::db::data::structural_field::binary::TAG_NULL {
         return Ok(Some(Value::Null));
     }

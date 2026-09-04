@@ -6,7 +6,7 @@ use crate::{
     db::{
         data::{
             StructuralRowContract, decode_runtime_value_from_accepted_field_contract,
-            persisted_row::codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
+            persisted_row::codec::{ScalarSlotValueRef, decode_scalar_slot_value},
         },
         key_taxonomy::PrimaryKeyComponent,
         schema::AcceptedFieldDecodeContract,
@@ -14,24 +14,6 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-
-// Convert one scalar slot fast-path value into its decoded primary-key value
-// when the field kind is primary-key compatible.
-const fn primary_key_component_from_scalar_ref(
-    value: ScalarValueRef<'_>,
-) -> Option<PrimaryKeyComponent> {
-    match value {
-        ScalarValueRef::Int(value) => Some(PrimaryKeyComponent::Int64(value)),
-        ScalarValueRef::Principal(value) => Some(PrimaryKeyComponent::Principal(value)),
-        ScalarValueRef::Subaccount(value) => Some(PrimaryKeyComponent::Subaccount(value)),
-        ScalarValueRef::Timestamp(value) => Some(PrimaryKeyComponent::Timestamp(value)),
-        ScalarValueRef::Nat(value) => Some(PrimaryKeyComponent::Nat64(value)),
-        ScalarValueRef::Ulid(value) => Some(PrimaryKeyComponent::Ulid(value)),
-        ScalarValueRef::Unit => Some(PrimaryKeyComponent::Unit),
-        ScalarValueRef::U256(value) => Some(PrimaryKeyComponent::U256(value)),
-        _ => None,
-    }
-}
 
 const fn primary_key_component_from_runtime_value(value: &Value) -> Option<PrimaryKeyComponent> {
     PrimaryKeyComponent::from_runtime_value(value)
@@ -112,13 +94,14 @@ fn validate_primary_key_value_from_slot_bytes_with_accepted_field(
                         expected_key,
                     ));
                 }
-                ScalarSlotValueRef::Value(value) => primary_key_component_from_scalar_ref(value)
-                    .ok_or_else(|| {
+                ScalarSlotValueRef::Value(value) => {
+                    value.into_primary_key_component().ok_or_else(|| {
                         InternalError::persisted_row_primary_key_not_primary_key_encodable(
                             expected_key,
                             "",
                         )
-                    })?,
+                    })?
+                }
             }
         }
         LeafCodec::Structural => {

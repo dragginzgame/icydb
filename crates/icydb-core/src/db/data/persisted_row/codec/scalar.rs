@@ -4,7 +4,7 @@
 //! Boundary: persisted-row readers and writers use this scalar codec.
 
 use crate::{
-    db::schema::ScalarCodec,
+    db::{key_taxonomy::PrimaryKeyComponent, schema::ScalarCodec},
     error::InternalError,
     types::{Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256, Ulid},
     value::Value,
@@ -47,6 +47,29 @@ pub(crate) enum ScalarValueRef<'a> {
 }
 
 impl ScalarValueRef<'_> {
+    /// Convert this scalar view into the canonical primary-key representation
+    /// when its scalar family is primary-key compatible.
+    #[must_use]
+    pub(crate) const fn into_primary_key_component(self) -> Option<PrimaryKeyComponent> {
+        match self {
+            Self::Int(value) => Some(PrimaryKeyComponent::Int64(value)),
+            Self::Principal(value) => Some(PrimaryKeyComponent::Principal(value)),
+            Self::Subaccount(value) => Some(PrimaryKeyComponent::Subaccount(value)),
+            Self::Timestamp(value) => Some(PrimaryKeyComponent::Timestamp(value)),
+            Self::Nat(value) => Some(PrimaryKeyComponent::Nat64(value)),
+            Self::Ulid(value) => Some(PrimaryKeyComponent::Ulid(value)),
+            Self::Unit => Some(PrimaryKeyComponent::Unit),
+            Self::U256(value) => Some(PrimaryKeyComponent::U256(value)),
+            Self::Blob(_)
+            | Self::Bool(_)
+            | Self::Date(_)
+            | Self::Duration(_)
+            | Self::Float32(_)
+            | Self::Float64(_)
+            | Self::Text(_) => None,
+        }
+    }
+
     /// Materialize this scalar view into the runtime `Value` enum.
     #[must_use]
     pub(crate) fn into_value(self) -> Value {
@@ -380,6 +403,30 @@ mod tests {
         assert_eq!(
             ScalarSlotValueRef::Value(ScalarValueRef::Nat(42)).into_value(),
             Value::Nat64(42),
+        );
+    }
+
+    #[test]
+    fn scalar_primary_key_conversion_keeps_one_supported_family_authority() {
+        assert_eq!(
+            ScalarValueRef::Int(-7).into_primary_key_component(),
+            Some(PrimaryKeyComponent::Int64(-7)),
+        );
+        assert_eq!(
+            ScalarValueRef::Nat(42).into_primary_key_component(),
+            Some(PrimaryKeyComponent::Nat64(42)),
+        );
+        assert_eq!(
+            ScalarValueRef::Unit.into_primary_key_component(),
+            Some(PrimaryKeyComponent::Unit),
+        );
+        assert_eq!(
+            ScalarValueRef::U256(U256::ONE).into_primary_key_component(),
+            Some(PrimaryKeyComponent::U256(U256::ONE)),
+        );
+        assert_eq!(
+            ScalarValueRef::Text("not-a-key").into_primary_key_component(),
+            None,
         );
     }
 

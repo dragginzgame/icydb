@@ -12,7 +12,7 @@ use crate::{
         commit::PreparedIndexMutation,
         data::{
             CanonicalSlotReader, DecodedDataStoreKey, RawDataStoreKey, RawRow, ScalarSlotValueRef,
-            ScalarValueRef, SlotReader, StructuralRowContract, StructuralSlotReader,
+            SlotReader, StructuralRowContract, StructuralSlotReader,
             decode_accepted_relation_target_primary_key_components_bytes,
             decode_runtime_value_from_accepted_field_contract,
         },
@@ -1459,14 +1459,13 @@ fn relation_target_keys_from_scalar_slot(
     match row_fields.required_scalar(relation.field_index())? {
         ScalarSlotValueRef::Null => Ok(Some(RelationTargetKeys::none())),
         ScalarSlotValueRef::Value(value) => {
-            let primary_key_value =
-                primary_key_value_from_relation_scalar(value).ok_or_else(|| {
-                    InternalError::relation_source_row_unsupported_scalar_relation_key(
-                        source.path(),
-                        relation.field_name(),
-                        relation.target().path(),
-                    )
-                })?;
+            let primary_key_value = value.into_primary_key_component().ok_or_else(|| {
+                InternalError::relation_source_row_unsupported_scalar_relation_key(
+                    source.path(),
+                    relation.field_name(),
+                    relation.target().path(),
+                )
+            })?;
 
             let key = PrimaryKeyValue::Scalar(primary_key_value);
 
@@ -1497,30 +1496,6 @@ fn relation_scalar_slot_fast_path_key_kind_supported(kind: &AcceptedFieldKind) -
             | AcceptedFieldKind::Unit
             | AcceptedFieldKind::U256
     )
-}
-
-// Convert one scalar relation payload into the decoded primary-key
-// representation used by reverse-index and target-row identities.
-const fn primary_key_value_from_relation_scalar(
-    value: ScalarValueRef<'_>,
-) -> Option<PrimaryKeyComponent> {
-    match value {
-        ScalarValueRef::Int(value) => Some(PrimaryKeyComponent::Int64(value)),
-        ScalarValueRef::Principal(value) => Some(PrimaryKeyComponent::Principal(value)),
-        ScalarValueRef::Subaccount(value) => Some(PrimaryKeyComponent::Subaccount(value)),
-        ScalarValueRef::Timestamp(value) => Some(PrimaryKeyComponent::Timestamp(value)),
-        ScalarValueRef::Nat(value) => Some(PrimaryKeyComponent::Nat64(value)),
-        ScalarValueRef::Ulid(value) => Some(PrimaryKeyComponent::Ulid(value)),
-        ScalarValueRef::Unit => Some(PrimaryKeyComponent::Unit),
-        ScalarValueRef::U256(value) => Some(PrimaryKeyComponent::U256(value)),
-        ScalarValueRef::Blob(_)
-        | ScalarValueRef::Bool(_)
-        | ScalarValueRef::Date(_)
-        | ScalarValueRef::Duration(_)
-        | ScalarValueRef::Float32(_)
-        | ScalarValueRef::Float64(_)
-        | ScalarValueRef::Text(_) => None,
-    }
 }
 
 // Encode one decoded relation primary-key value directly into the target raw-key

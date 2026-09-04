@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.252.md](docs/changelog/0.252.md)
 
+- `0.252.9` completes closeout cleanup by converging persisted-scalar
+  conversion, executor budget charging, identity preflight, integrity store
+  discovery, Structural Binary parsing, and SQL write policy on their canonical
+  owners. The simpler flows remove 1,069 raw Wasm bytes versus `0.252.8`
+  without changing interfaces or formats.
 - `0.252.8` seals one parse-once SQL dispatch across read, write, and DDL flows,
   internalizes query diagnostics, and converges persisted-row decoding plus
   generated collection-trait and required DDL entity-binding policy on their

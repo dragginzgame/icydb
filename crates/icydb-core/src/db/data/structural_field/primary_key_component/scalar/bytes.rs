@@ -7,9 +7,8 @@ use crate::{
     db::data::structural_field::{
         FieldDecodeError,
         binary::{
-            TAG_BYTES, parse_binary_head as parse_structural_binary_head,
+            TAG_BYTES, parse_complete_binary_value as parse_complete_structural_binary_value,
             payload_bytes as binary_payload_bytes,
-            skip_binary_value as skip_structural_binary_value,
         },
         typed::{
             decode_principal_payload_bytes, decode_subaccount_payload_bytes,
@@ -23,13 +22,7 @@ use crate::{
 pub(in crate::db::data::structural_field::primary_key_component) fn decode_principal_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
+    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
     if tag != TAG_BYTES {
         return Err(FieldDecodeError::new());
     }
@@ -42,13 +35,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_princ
 pub(in crate::db::data::structural_field::primary_key_component) fn decode_subaccount_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
+    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
     if tag != TAG_BYTES {
         return Err(FieldDecodeError::new());
     }
@@ -61,13 +48,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn decode_subac
 pub(in crate::db::data::structural_field::primary_key_component) fn decode_ulid_primary_key_component_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<PrimaryKeyComponent, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_structural_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let end = skip_structural_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
+    let (tag, len, payload_start) = parse_complete_structural_binary_value(raw_bytes)?;
     if tag != TAG_BYTES {
         return Err(FieldDecodeError::new());
     }

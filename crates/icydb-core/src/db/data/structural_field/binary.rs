@@ -163,6 +163,18 @@ pub(super) fn parse_binary_head(
     Ok(Some((tag, len, payload_offset)))
 }
 
+/// Parse exactly one complete Structural Binary v1 root envelope.
+#[inline]
+pub(super) fn parse_complete_binary_value(
+    bytes: &[u8],
+) -> Result<(u8, u32, usize), FieldDecodeError> {
+    let head = parse_binary_head(bytes, 0)?.ok_or_else(FieldDecodeError::new)?;
+    if skip_binary_value(bytes, 0)? != bytes.len() {
+        return Err(FieldDecodeError::new());
+    }
+    Ok(head)
+}
+
 // Skip one self-contained Structural Binary v1 value without decoding it.
 pub(super) fn skip_binary_value(bytes: &[u8], offset: usize) -> Result<usize, FieldDecodeError> {
     skip_binary_value_at_depth(bytes, offset, 0)

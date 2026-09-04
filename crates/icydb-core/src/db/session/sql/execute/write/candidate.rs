@@ -10,10 +10,7 @@ use crate::{
     db::{
         QueryError,
         data::AcceptedMutationIntentPatch,
-        session::sql::{
-            SqlExactUpdatePolicy, combined_optional_row_bound,
-            write_policy::SqlWriteExecutionBounds,
-        },
+        session::sql::{SqlExactUpdatePolicy, write_policy::SqlWriteExecutionBounds},
     },
     value::Value,
 };
@@ -161,34 +158,20 @@ impl SqlWriteCandidateBounds {
     }
 }
 
-pub(super) const fn sql_update_candidate_bounds(
-    execution_bounds: SqlWriteExecutionBounds,
-) -> SqlWriteCandidateBounds {
-    SqlWriteCandidateBounds::from_max_rows(execution_bounds.max_staged_rows)
-}
-
 pub(super) const fn sql_exact_update_candidate_bounds(
     policy: SqlExactUpdatePolicy,
 ) -> SqlWriteCandidateBounds {
     SqlWriteCandidateBounds::exact_update(policy)
 }
 
-pub(super) const fn sql_insert_candidate_bounds(
+pub(super) const fn sql_write_candidate_bounds(
     execution_bounds: Option<SqlWriteExecutionBounds>,
-    returning: bool,
 ) -> SqlWriteCandidateBounds {
     let Some(execution_bounds) = execution_bounds else {
         return SqlWriteCandidateBounds::from_max_rows(None);
     };
 
-    if !returning {
-        return SqlWriteCandidateBounds::from_max_rows(execution_bounds.max_staged_rows);
-    }
-
-    SqlWriteCandidateBounds::from_max_rows(combined_optional_row_bound(
-        execution_bounds.max_staged_rows,
-        execution_bounds.returning.max_rows,
-    ))
+    SqlWriteCandidateBounds::from_max_rows(execution_bounds.max_candidate_rows())
 }
 
 pub(super) struct SqlWriteMutationBatch<K> {
@@ -296,9 +279,12 @@ pub(super) fn sql_write_candidate_collection_capacity(projected_rows: &[Vec<Valu
 mod tests {
     use super::{
         SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds, SqlWriteCandidateCollection,
-        SqlWriteCandidateRows, SqlWriteProjectedSourceRows,
+        SqlWriteCandidateRows, SqlWriteProjectedSourceRows, sql_write_candidate_bounds,
     };
-    use crate::db::data::AcceptedMutationIntentPatch;
+    use crate::db::{
+        data::AcceptedMutationIntentPatch,
+        session::sql::{SqlWriteExecutionBounds, SqlWriteReturningBounds},
+    };
     use icydb_diagnostic_code::{DiagnosticDetail, DiagnosticFactTag, SqlWriteBoundaryCode};
 
     #[test]
@@ -339,6 +325,34 @@ mod tests {
                 (DiagnosticFactTag::Limit, 1),
             ],
         );
+    }
+
+    #[test]
+    fn sql_write_candidate_bounds_use_tighter_staged_or_returning_cap() {
+        let returning_is_tighter = SqlWriteExecutionBounds {
+            max_staged_rows: Some(5),
+            returning: SqlWriteReturningBounds {
+                max_rows: Some(3),
+                max_response_bytes: None,
+            },
+        };
+        assert_eq!(
+            sql_write_candidate_bounds(Some(returning_is_tighter)).max_rows(),
+            Some(3),
+        );
+
+        let staged_is_tighter = SqlWriteExecutionBounds {
+            max_staged_rows: Some(2),
+            returning: SqlWriteReturningBounds {
+                max_rows: Some(4),
+                max_response_bytes: None,
+            },
+        };
+        assert_eq!(
+            sql_write_candidate_bounds(Some(staged_is_tighter)).max_rows(),
+            Some(2),
+        );
+        assert_eq!(sql_write_candidate_bounds(None).max_rows(), None);
     }
 
     #[test]

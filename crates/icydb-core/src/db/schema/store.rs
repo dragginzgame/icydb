@@ -7,8 +7,7 @@ use crate::db::schema::identity_state::{
     IdentityAdvanceId, IdentityRangeAdvance, IdentityRangeCommitState, IdentityState,
     IdentityStateInventory, IdentityStateLifecycle, IdentityStateTransition,
     IdentityStatementCursor, MAX_IDENTITY_STATE_RECORDS_PER_DATABASE, decode_identity_state,
-    encode_identity_state, identity_kind_maximum, prepare_identity_state_transition,
-    validate_identity_state_closure,
+    encode_identity_state, prepare_identity_state_transition, validate_identity_state_closure,
 };
 use crate::db::schema::{
     cardinality_build::{
@@ -1538,17 +1537,7 @@ impl SchemaStore {
     ) -> Result<(), InternalError> {
         let state =
             self.identity_state_for_owner(range.owner(), IdentityStateStorageView::Effective)?;
-        if state.lifecycle() != IdentityStateLifecycle::Active
-            || range.new_high_water()
-                > identity_kind_maximum(state.accepted_kind())
-                    .ok_or_else(InternalError::identity_state_corruption)?
-        {
-            return Err(InternalError::identity_state_corruption());
-        }
-        if state.materialized_high_water() != range.expected_high_water() {
-            return Err(InternalError::identity_state_conflict());
-        }
-        Ok(())
+        state.preflight_range_advance(range)
     }
 
     /// Materialize one marker-owned range in the effective live projection.

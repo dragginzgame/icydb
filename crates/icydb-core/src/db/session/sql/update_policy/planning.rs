@@ -8,9 +8,9 @@ use crate::db::{
     QueryError, SqlStatementDispatch,
     schema::{AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField},
     session::sql::write_policy::{
-        SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWritePlanCore,
-        SqlWriteShapePolicyRejection, SqlWriteStatementShape, SqlWriteStatementShapeInput,
-        classify_write_statement_shape, contains_field, current_table_field_name,
+        SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWritePlanCore, SqlWriteStatementShape,
+        SqlWriteStatementShapeInput, classify_write_statement_shape, contains_field,
+        current_table_field_name,
     },
     sql::{
         lowering::prepare_sql_statement,
@@ -98,12 +98,8 @@ pub(in crate::db) fn classify_sql_resumable_update_policy(
     };
     let classification = classify_update_statement(&statement, context);
 
-    if classification
-        .write_shape
-        .required_where_rejection()
-        .is_some()
-    {
-        return Ok(Err(SqlUpdatePolicyRejection::MissingWhere));
+    if let Some(rejection) = classification.write_shape.required_where_rejection() {
+        return Ok(Err(SqlUpdatePolicyRejection::WriteShape(rejection)));
     }
     if !classification.assignment_policy.admitted() {
         let rejection = unsafe_assignment_rejection(classification.assignment_policy)
@@ -165,15 +161,13 @@ fn classify_update_statement(
     }
 }
 
-const fn update_policy_rejection(
+fn update_policy_rejection(
     policy: SqlUpdateExposurePolicy,
     classification: &SqlUpdateStatementClassification,
     context: SqlUpdatePolicyContext<'_>,
 ) -> Option<SqlUpdatePolicyRejection> {
-    if let Some(rejection) =
-        write_shape_policy_rejection(classification.write_shape.required_where_rejection())
-    {
-        return Some(rejection);
+    if let Some(rejection) = classification.write_shape.required_where_rejection() {
+        return Some(SqlUpdatePolicyRejection::WriteShape(rejection));
     }
 
     if !classification.assignment_policy.admitted() {
@@ -181,14 +175,14 @@ const fn update_policy_rejection(
     }
 
     match policy {
-        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => {
-            write_shape_policy_rejection(classification.write_shape.primary_key_policy_rejection())
-        }
-        SqlUpdateExposurePolicy::PublicBoundedDeterministic => write_shape_policy_rejection(
-            classification
-                .write_shape
-                .bounded_deterministic_policy_rejection(context.write_bounds()),
-        ),
+        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly => classification
+            .write_shape
+            .primary_key_policy_rejection()
+            .map(SqlUpdatePolicyRejection::WriteShape),
+        SqlUpdateExposurePolicy::PublicBoundedDeterministic => classification
+            .write_shape
+            .bounded_deterministic_policy_rejection(context.write_bounds())
+            .map(SqlUpdatePolicyRejection::WriteShape),
         SqlUpdateExposurePolicy::TrustedExact(_) => {
             if exact_update_window_supported(&classification.write_shape) {
                 None
@@ -261,17 +255,6 @@ const fn execution_bounds(
                 context.max_returning_response_bytes,
             )
         }
-    }
-}
-
-const fn write_shape_policy_rejection(
-    rejection: Option<SqlWriteShapePolicyRejection>,
-) -> Option<SqlUpdatePolicyRejection> {
-    match rejection {
-        Some(rejection) => Some(SqlUpdatePolicyRejection::from_write_shape_rejection(
-            rejection,
-        )),
-        None => None,
     }
 }
 

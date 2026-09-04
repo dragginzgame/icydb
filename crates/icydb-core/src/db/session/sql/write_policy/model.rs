@@ -3,7 +3,10 @@
 //! Does not own: SQL parser expression inspection or statement-family policy.
 //! Boundary: carries proven write shape and execution bounds into UPDATE/DELETE gates.
 
-use super::bounds::{bounded_write_policy_rejection, sql_write_execution_bounds_for_staged_kind};
+use super::bounds::{
+    bounded_write_policy_rejection, combined_optional_row_bound,
+    sql_write_execution_bounds_for_staged_kind,
+};
 
 pub(in crate::db::session::sql) const DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT: u32 = 100;
 pub(in crate::db::session::sql) const DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES: u32 =
@@ -79,7 +82,7 @@ impl SqlWriteReturningShape {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::session::sql) enum SqlWriteBoundedPolicyRejection {
+pub(in crate::db) enum SqlWriteBoundedPolicyRejection {
     MissingCanonicalPrimaryKeyOrder,
     DescendingOrder,
     MissingLimit,
@@ -103,7 +106,7 @@ impl SqlWriteExposureClass {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::session::sql) enum SqlWriteShapePolicyRejection {
+pub(in crate::db) enum SqlWriteShapePolicyRejection {
     MissingWhere,
     PrimaryKeyProofFailed,
     Bounded(SqlWriteBoundedPolicyRejection),
@@ -127,6 +130,12 @@ pub(in crate::db) struct SqlWriteExecutionBounds {
     pub max_staged_rows: Option<u32>,
     /// Optional `RETURNING` row and response-size bounds.
     pub returning: SqlWriteReturningBounds,
+}
+
+impl SqlWriteExecutionBounds {
+    pub(in crate::db::session::sql) const fn max_candidate_rows(self) -> Option<u32> {
+        combined_optional_row_bound(self.max_staged_rows, self.returning.max_rows)
+    }
 }
 
 /// Shared parsed write shape used by UPDATE and DELETE exposure policies.

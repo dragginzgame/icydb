@@ -751,6 +751,23 @@ pub(in crate::db::executor) fn charge_current_execution_budget_pair(
     })
 }
 
+/// Charge the stored and materialized bytes for one owned data-row payload.
+macro_rules! charge_materialized_data_row {
+    ($row:expr) => {{
+        let row_bytes = u64::try_from($row.len()).unwrap_or(u64::MAX);
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::StoredBytesRead,
+            row_bytes,
+        )?;
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::MaterializedBytes,
+            row_bytes,
+        )
+    }};
+}
+
+pub(in crate::db::executor) use charge_materialized_data_row;
+
 /// Build one typed budget failure from a stricter operator-local hard limit.
 ///
 /// Grouped planning can impose a lower retained-state ceiling than the root
@@ -1087,7 +1104,7 @@ pub(in crate::db) const fn resource_index(resource: DiagnosticExecutionBudgetRes
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::RequestExecutionRoot;
+    use crate::db::{RequestExecutionRoot, data::RawRow};
     use icydb_diagnostic_code::{DiagnosticDetail, DiagnosticFactTag, RuntimeBoundaryCode};
 
     const TEST_HEADROOM: HardExecutionFailureHeadroom = HardExecutionFailureHeadroom::new(500, 256);
@@ -1256,6 +1273,33 @@ mod tests {
             0,
             "the second charge must not run after the first fails",
         );
+    }
+
+    #[test]
+    fn materialized_data_row_charge_owns_byte_resources() {
+        let row = RawRow::try_new(vec![0; 7]).expect("bounded test row");
+        let budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM);
+
+        with_execution_budget(
+            HardExecutionBudgetTracker::new_for_tests(budget, TEST_CONTEXT),
+            || {
+                charge_materialized_data_row!(&row)?;
+
+                let usage = current_execution_budget_usage()?;
+                assert_eq!(
+                    usage.observed(DiagnosticExecutionBudgetResource::StoredBytesRead),
+                    7,
+                );
+                assert_eq!(
+                    usage.observed(DiagnosticExecutionBudgetResource::MaterializedBytes),
+                    7,
+                );
+                Ok::<_, InternalError>(())
+            },
+            std::convert::identity,
+            ExecutionBudgetFinish::Automatic,
+        )
+        .expect("materialized row accounting should complete");
     }
 
     #[test]

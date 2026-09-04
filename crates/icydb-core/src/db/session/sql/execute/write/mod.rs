@@ -39,7 +39,7 @@ use authority::{
 use candidate::{
     SqlWriteCandidateBoundCheck, SqlWriteCandidateBounds, SqlWriteCandidateCollection,
     SqlWriteCandidateRows, SqlWriteMutationBatch, SqlWriteProjectedSourceRows,
-    sql_exact_update_candidate_bounds, sql_insert_candidate_bounds, sql_update_candidate_bounds,
+    sql_exact_update_candidate_bounds, sql_write_candidate_bounds,
     sql_write_candidate_collection_capacity,
 };
 

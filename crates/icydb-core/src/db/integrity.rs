@@ -130,21 +130,29 @@ pub enum IntegrityCheckResult {
     Deep(IntegrityJobReceipt),
 }
 
+/// Resolve the canonical source-plus-relation store set for one inspection.
+fn resolve_integrity_participating_stores<C: CanisterKind>(
+    db: &crate::db::Db<C>,
+    plan: &AcceptedInspectionPlan,
+) -> Result<BTreeMap<String, StoreHandle>, InternalError> {
+    let identity = plan.identity();
+    let source_store = db.store_handle(identity.store_path())?;
+    let mut stores = BTreeMap::from([(identity.store_path().to_string(), source_store)]);
+    for relation in plan.relation_inspection() {
+        stores
+            .entry(relation.target_store_path().to_string())
+            .or_insert_with(|| relation.target_store());
+    }
+    Ok(stores)
+}
+
 fn validate_quick_integrity_control<C: CanisterKind>(
     db: &crate::db::Db<C>,
     plan: &AcceptedInspectionPlan,
     incarnation: DatabaseIncarnationId,
 ) -> Result<Vec<IntegrityFinding>, InternalError> {
     let identity = plan.identity();
-    let source_store = db.store_handle(identity.store_path())?;
-    let relations = plan.relation_inspection();
-    let mut participating_stores =
-        BTreeMap::from([(identity.store_path().to_string(), source_store)]);
-    for relation in relations {
-        participating_stores
-            .entry(relation.target_store_path().to_string())
-            .or_insert_with(|| relation.target_store());
-    }
+    let participating_stores = resolve_integrity_participating_stores(db, plan)?;
 
     // The session's accepted-root capture or the Deep job's proof capture has
     // already validated the database-control envelope that supplied this
