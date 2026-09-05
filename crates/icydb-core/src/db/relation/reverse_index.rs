@@ -75,7 +75,9 @@ pub(in crate::db) struct RelationProjectionBudget {
 pub(in crate::db) struct RelationCommitBudget {
     traversal_work: u64,
     raw_references: u64,
-    validated_target_keys: Vec<RawDataStoreKey>,
+    // One immutable final-row view per batch: cache misses as misses, while
+    // counting every distinct lookup rather than only successful validation.
+    target_lookup_results: Vec<(RawDataStoreKey, bool)>,
     reverse_deltas: u64,
 }
 
@@ -156,10 +158,14 @@ impl RelationCommitBudget {
         key: RawDataStoreKey,
         validate: impl FnOnce(&RawDataStoreKey) -> Result<bool, InternalError>,
     ) -> Result<Option<RawDataStoreKey>, InternalError> {
-        let Err(insertion_index) = self.validated_target_keys.binary_search(&key) else {
-            return Ok(None);
+        let insertion_index = match self
+            .target_lookup_results
+            .binary_search_by(|(target, _)| target.cmp(&key))
+        {
+            Ok(index) => return Ok((!self.target_lookup_results[index].1).then_some(key)),
+            Err(index) => index,
         };
-        let observed = u64::try_from(self.validated_target_keys.len())
+        let observed = u64::try_from(self.target_lookup_results.len())
             .map_or(u64::MAX, |count| count.saturating_add(1));
         if observed > MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS {
             return Err(relation_budget_error(
@@ -168,11 +174,11 @@ impl RelationCommitBudget {
                 MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS.saturating_add(1),
             ));
         }
-        if !validate(&key)? {
-            return Ok(Some(key));
-        }
-        self.validated_target_keys.insert(insertion_index, key);
-        Ok(None)
+        let exists = validate(&key)?;
+        let missing = (!exists).then(|| key.clone());
+        self.target_lookup_results
+            .insert(insertion_index, (key, exists));
+        Ok(missing)
     }
 
     fn charge_reverse_delta(&mut self) -> Result<(), InternalError> {

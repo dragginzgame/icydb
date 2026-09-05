@@ -195,11 +195,14 @@ path.
 
 Constraint activation is a bounded multi-message workflow made from
 individually atomic IcyDB operations; it is not one transaction spanning
-messages.
+messages. Current entrypoints cover checks, targeted rules, NOT NULL, and
+UNIQUE. Relation additions use the supported physical-migration lifecycle in
+[REF_INTEGRITY.md](REF_INTEGRITY.md#42-relation-publication-and-migration), not
+a standalone activation job.
 
 Publishing an activation atomically installs its accepted new-write gate.
 Starting or advancing validation atomically couples the durable job checkpoint,
-finding receipt, and any candidate unique-index or reverse-relation generation
+finding receipt, and any candidate unique-index generation
 effects produced by that page. A page that exceeds its row, decoded-byte,
 finding, or staging bound rejects or remains incomplete; it cannot report a
 clean proof.
@@ -326,7 +329,7 @@ The following invariants are **mandatory and non-negotiable**:
 * No activation progress may be separated from its marker-bound checkpoint,
   finding receipt, or staged derived-state effects
 * No candidate unique-index or relation generation may become planner or
-  delete-safety authority before atomic promotion
+  delete-safety authority before its atomic accepted-schema publication
 * No constraint promotion may publish from an incomplete or revision-invalid
   validation proof
 * No fallible work after the commit boundary

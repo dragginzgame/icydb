@@ -3112,6 +3112,9 @@ fn write_allocation_identity(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "migration")]
+    mod nested_migration;
+
     use super::{
         AcceptedSchemaPublication, AcceptedStoreHead, DirectGeneratedRowLocalProof,
         PendingGeneratedRowLocalConstraint, abort_schema_application,

@@ -4353,6 +4353,8 @@ mod mixed_relation_batch_tests {
 
 #[cfg(test)]
 mod identity_pre_key_tests {
+    mod nested_relation_tests;
+
     use super::DynamicTypedEntityBinding;
     use super::{
         AcceptedMutationIntentPatch, AcceptedRowLayoutRuntimeContract, AcceptedStructuralMutation,

@@ -109,8 +109,9 @@ complete all fallible work required by that mutation, including:
   collection, and deterministic-encoding validation;
 - validated accepted checks, targeted durable rules, and pending row-local
   activation gates over the complete final after-image;
-- pending unique and relation activation write barriers where the authored
-  change intersects an incompletely validated candidate;
+- pending unique activation barriers and catalog-bound candidate-relation
+  write/delete checks where applicable; candidate checks do not expose a
+  standalone relation-activation workflow;
 - relation target-existence or delete-safety validation;
 - uniqueness, index, reverse-relation, and commit-row preparation;
 - request and response bounds that are part of the mutation's atomic result.

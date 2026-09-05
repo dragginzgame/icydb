@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.253.md](docs/changelog/0.253.md)
 
+- `0.253.2` hardens nested-relation lookup, migration, and recovery guarantees
+  and corrects the documented relation-publication boundary.
 - `0.253.1` strengthens Wasm audit evidence with verified artifact identity,
   immutable report runs, and chronological baseline selection.
 - `0.253.0` freezes nested-relation limits, hard-cuts relation identity, and

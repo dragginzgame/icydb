@@ -1,0 +1,29 @@
+{
+  "head": "2e156dce34adedbf9981e473f1f16c3ebf267752",
+  "tree": "7eb88137093e4cd5ecb97a852967002480ee0416",
+  "runtime_worktree_clean": true,
+  "probe_method_matches_source": true,
+  "files": {
+    "Cargo.lock": "ef853f31e48aeb1d77e76dfc45aec347818675f80ba51dba471a827c534dbca4",
+    "rust-toolchain.toml": "559f488c181e0e9e77cf17c29de663977f036ec7ff2e2060585714bf53c52d62",
+    "crates/icydb-core/Cargo.toml": "4a711a512be38bd2e8b8b563f1e3981a0e73cab53bff51af8ddb9256f7d40dfc",
+    "crates/icydb-core/src/db/relation/reverse_index.rs": "3e8ae22afa673348201d3aee9af61b605f0c30d844227d9397c068036bf88eb7",
+    "crates/icydb-core/src/db/relation/reverse_index/target_keys.rs": "1e52ed72d9b97e8fde9ad133f8d0f4d8574a7d9263143225e1defcfe4130df3a",
+    "crates/icydb-core/src/db/relation/reverse_index/tests.rs": "fb8203f3baf420b4d1f3e35f7c2790c510a1c4e8f84db5c4452dfb61f22cb4f6",
+    "crates/icydb-core/src/db/relation/validate.rs": "7bea0ce57be0bffb9d87c9202f2b34cc1bdbcee132390eba63c367bf7a172599",
+    "crates/icydb-core/src/db/executor/mutation/commit_window.rs": "f26ef9015d95de5ad9c9be18f7b9a34e061b16266f1aa2ffabef70e2a6347450",
+    "crates/icydb-core/src/db/commit/prepare.rs": "a6bb09c204227aec584e1fecc726cab737e63323dfa8f5fb278d5a56e1fd8ec0",
+    "crates/icydb-core/src/db/commit/recovery.rs": "a8be8013c1a693b93c9fbda1d9d2883522c1d95c4d0d4404f133ab415032d5d5",
+    "crates/icydb-core/src/db/commit/guard.rs": "b7ac2134175879b33ca416c8c159fea83375780f58399dd691c118b263b480e9",
+    "crates/icydb-core/src/db/runtime_entity_catalog.rs": "6b54fc7e309c23eefb5b3496c834809cf2a716e321d6db3aa856bfbb09082d9d",
+    "crates/icydb-core/src/db/session/write.rs": "0d6c6a53f7e0d3c261760ceafe850b2282fb2662afd1c5146cf6867357433773",
+    "crates/icydb-core/src/db/journal/store.rs": "de6e197e7f592710a5b06d0f508579bca2df1b9c248add8e1b4cb7a726e11a2c",
+    "crates/icydb-core/src/db/schema/store/tests.rs": "fa8975614dcdfd773efe7f21793976ebe59509baca83c1ca4979d577d9006716",
+    "schema/audit/nested_relation/src/harness.rs": "31c370ffa6121da72931fa86741bb267a29c2874ce84077d2b44a1a4d0850f0f",
+    "testing/integration/Cargo.toml": "d2cc2400a078475981f1384630a34a4cac567f3bbb306eadd6b349497e6059c5",
+    "testing/integration/tests/nested_relation_measurement_contract.rs": "6681394052800e4c86c03c58daabab05193224ed5d567e7f93d678fc882e28a7",
+    "testing/integration/src/nested_relation_contract.rs": "08f11ecb5af61440efaee4c08f4304722a99027ae07f761d5301da0af8f75ac1",
+    "docs/design/0.253-nested-relations/0.253-design.md": "dd39c58343e1d119b36041163044560c6051e74778c78a9904aa675f935a2ee3",
+    "docs/audits/recurring/storage/storage-recovery-consistency.md": "66d1885d81954a3eea826157279d68bdbd3ceb45a5c866c1f86c41c511992f5d"
+  }
+}

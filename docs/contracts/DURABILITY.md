@@ -136,15 +136,17 @@ before the original marker and recovery replays their complete row bytes.
 
 Constraint activations and validation jobs use the same marker authority.
 Recovery restores the accepted activation/job pair and reconstructs only the
-candidate unique-index or reverse-relation generation authorized by the durable
-checkpoint. Candidate generations remain planner-invisible, and incomplete
-reverse generations never become delete-safety authority. A retained finding
+candidate unique-index generation authorized by the durable checkpoint.
+Candidate generations remain planner-invisible. A retained finding
 receipt remains stable until its exact sequence is acknowledged; recovery does
 not discard it or independently rescan policy.
 
 Offline schema-migration validation uses the same ordering rule without
 publishing candidate authority. A bounded page decodes rows under the exact
-accepted-before contract and may write only candidate-generation index keys.
+accepted-before contract and may write only candidate-generation user-index and
+reverse-relation keys. Relation additions use this migration lifecycle, not a
+standalone constraint-activation job. Incomplete reverse generations never
+become delete-safety authority.
 Those keys are folded in their journaled store before the migration-progress
 compare-and-replace is marker-published. Interruption before that marker leaves
 the old cursor authoritative, so reentry repeats the same accepted-ID program

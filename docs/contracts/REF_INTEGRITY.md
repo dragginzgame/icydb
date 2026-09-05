@@ -171,20 +171,35 @@ leaves that would need to assemble a composite target key are not relation
 sources. Nested traversal and raw occurrences are subject to the fixed
 per-image and per-atomic-batch relation-work budgets.
 
-### 4.2 Relation activation
+### 4.2 Relation publication and migration
 
-Adding a relation when historical rows exist publishes a planner-invisible
-candidate edge and an accepted activation. Relevant future source writes
-validate targets and maintain the isolated reverse generation immediately.
-The bounded Forward/Verify job then proves historical target existence and
-complete reverse state under stable source and target revisions.
+Initial schema publication accepts declared relations before source rows are
+inserted. Ordinary schema application does not add or redefine relations on
+an existing entity; adding an annotation does not start a historical validation
+job. There is no public standalone relation-activation workflow.
 
-Until atomic promotion, the candidate generation is not accepted reverse-index
-authority. Target deletes are conservatively blocked for the affected target
-entity so incomplete reverse state cannot authorize deletion. Promotion moves
-the exact edge and reserved constraint identity into accepted relation state;
-abort removes the activation/job and makes its candidate generation
-unreachable.
+An explicit supported physical migration may add a relation while transforming
+an existing entity. The current planner requires a supported physical transform;
+a relation addition alone is not such a migration. Bounded validation checks
+candidate row images and target existence, then stages isolated reverse keys.
+From validation onward, the migration gate blocks ordinary database work until
+completion or pre-rewrite abort. Rewrite and final validation must finish before
+marker-bound publication makes the candidate schema and reverse generation authoritative.
+A pre-rewrite abort leaves accepted rows unchanged and removes staged candidate
+keys through bounded cleanup.
+
+Transforms of an existing relation's source root also require an isolated
+candidate reverse generation, even when its accepted path and relation ID stay
+unchanged. The migration planner resolves transform targets to accepted field
+IDs; affected direct components and nested roots get a fresh physical generation,
+while unaffected relations retain theirs. Rewrite and final validation use that
+candidate generation before publication switches accepted authority. Retired
+physical generations are not live reverse-edge authority.
+
+Accepted candidate-relation metadata and defensive write/delete checks do not
+by themselves provide a workflow that starts, advances, promotes, or aborts a
+standalone relation activation. Physical migration uses its own progress record
+and publication lifecycle, not a relation Forward/Verify job.
 
 ### 4.3 Relation identity and reverse domains
 
@@ -230,9 +245,9 @@ There is no runtime relation discovery from decoded value shape. Unsupported
 nested source shapes reject during schema admission rather than becoming
 unchecked references.
 
-Pending relation activation is not a weak relation mode. Its new-write gate is
-already authoritative, while historical findings remain migration evidence
-rather than accepted-state corruption.
+Historical findings during physical-migration validation describe rejected
+candidate state, not accepted-state corruption. A candidate relation is not a
+weak relation mode and cannot become authoritative before migration publication.
 
 ### 5.3 What is not enforced
 

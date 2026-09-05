@@ -695,15 +695,6 @@ fn relation_projection_and_batch_counters_accept_exact_limits_and_reject_next_un
 #[test]
 fn relation_batch_bounds_unique_target_lookups_and_coalesced_reverse_deltas() {
     let mut budget = RelationCommitBudget::default();
-    let missing = RawDataStoreKey::from_persisted_bytes(77_u64.to_be_bytes().to_vec());
-    assert_eq!(
-        budget
-            .validate_target_once(missing.clone(), |_| Ok(false))
-            .expect("a missing target should remain reportable"),
-        Some(missing),
-    );
-    assert!(budget.validated_target_keys.is_empty());
-
     for value in 0..MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS {
         let key = RawDataStoreKey::from_persisted_bytes(value.to_be_bytes().to_vec());
         assert!(
@@ -725,7 +716,7 @@ fn relation_batch_bounds_unique_target_lookups_and_coalesced_reverse_deltas() {
             .is_none()
     );
     assert_eq!(
-        budget.validated_target_keys.len(),
+        budget.target_lookup_results.len(),
         usize::try_from(MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS).expect("lookup limit fits usize")
     );
     let over = RawDataStoreKey::from_persisted_bytes(
@@ -742,4 +733,53 @@ fn relation_batch_bounds_unique_target_lookups_and_coalesced_reverse_deltas() {
             .expect("each distinct reverse delta through the exact limit should pass");
     }
     assert!(budget.charge_reverse_delta().is_err());
+}
+
+#[test]
+fn relation_batch_counts_missing_and_present_targets_once_at_the_lookup_limit() {
+    for all_missing in [true, false] {
+        let mut budget = RelationCommitBudget::default();
+        let mut lookups = 0;
+        for value in 0..MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS {
+            let key = RawDataStoreKey::from_persisted_bytes(value.to_be_bytes().to_vec());
+            let exists = !all_missing && value % 2 == 0;
+            let expected = (!exists).then(|| key.clone());
+            assert_eq!(
+                budget
+                    .validate_target_once(key.clone(), |_| {
+                        lookups += 1;
+                        Ok(exists)
+                    })
+                    .expect("every distinct request through the limit should admit"),
+                expected,
+            );
+            assert_eq!(
+                budget
+                    .validate_target_once(key, |_| panic!("cached result must avoid another read"))
+                    .expect("cached misses must remain reportable without another charge"),
+                expected,
+            );
+        }
+        assert_eq!(lookups, MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS);
+        let error = budget
+            .validate_target_once(
+                RawDataStoreKey::from_persisted_bytes(
+                    MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS
+                        .to_be_bytes()
+                        .to_vec(),
+                ),
+                |_| panic!("over-budget request must reject before reading"),
+            )
+            .expect_err("the first excess distinct request must fail closed");
+        let expected = super::relation_budget_error(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::RowsVisited,
+            MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS,
+            MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS + 1,
+        );
+        assert_eq!(
+            error.diagnostic().error_code(),
+            expected.diagnostic().error_code()
+        );
+        assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
+    }
 }

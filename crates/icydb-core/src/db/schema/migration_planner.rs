@@ -1340,10 +1340,25 @@ fn rebuild_relations(
                     if &source != accepted.source() {
                         return Err(SchemaMigrationPlanningError::KindMismatch);
                     }
-                    accepted.clone_with_metadata(
+                    let replacement = accepted.clone_with_metadata(
                         proposed.name().as_str().to_string(),
                         target.entity_path().to_string(),
-                    )
+                    );
+                    // Source identity can stay fixed while a transform replaces
+                    // its values. Isolate those reverse edges in the candidate
+                    // generation, just as for a newly declared relation.
+                    let source_transformed =
+                        binding.transition.transforms().iter().any(|transform| {
+                            store
+                                .bindings
+                                .field(binding.entity_tag, transform.target())
+                                .is_some_and(|field| source.uses_root_field(field))
+                        });
+                    if source_transformed {
+                        replacement.clone_with_physical_generation(generation)
+                    } else {
+                        replacement
+                    }
                 }
                 None if physical => relation_edge_from_source(
                     id,
