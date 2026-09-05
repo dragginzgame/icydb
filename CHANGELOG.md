@@ -11,7 +11,8 @@ Detailed notes: [docs/changelog/0.253.md](docs/changelog/0.253.md)
 
 - `0.253.0` freezes nested-relation limits, hard-cuts relation identity, and
   admits single-valued plus bounded list-, set-, and map-value sources through
-  one accepted path interpreter; upgrading from 0.252 requires recreation.
+  one accepted path interpreter; upgrading from 0.252 requires recreation,
+  and release validation now bounds core-test parallelism on high-core hosts.
 
 ## [0.252.x] 📚 - 2026-09-01 - Nested Storage Contract
 

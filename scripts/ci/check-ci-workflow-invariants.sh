@@ -133,12 +133,17 @@ if ! rg -q 'run:[[:space:]]+make ci-static' .github/workflows/ci.yml ||
   fail "CI jobs must consume the shared local validation targets"
 fi
 
-if ! rg -q '^WORKSPACE_TEST_ENV := RUST_TEST_THREADS=4$' Makefile ||
+if ! rg -q '^CORE_TEST_ENV := RUST_TEST_THREADS=8$' Makefile ||
+   ! make_target_recipe _test-core-no-default |
+     rg -q --fixed-strings '$(CORE_TEST_ENV)' ||
+   ! make_target_recipe _ci-core-no-default-test |
+     rg -q --fixed-strings '$(CORE_TEST_ENV)' ||
+   ! rg -q '^WORKSPACE_TEST_ENV := RUST_TEST_THREADS=4$' Makefile ||
    ! make_target_recipe _test-workspace |
      rg -q --fixed-strings '$(WORKSPACE_TEST_ENV)' ||
    ! make_target_recipe _ci-workspace-tests |
      rg -q --fixed-strings '$(WORKSPACE_TEST_ENV)'; then
-  fail "local release and CI workspace tests must share bounded libtest concurrency"
+  fail "local release and CI core/workspace tests must retain bounded libtest concurrency"
 fi
 
 if ! rg -q --fixed-strings 'bash scripts/ci/install-pocketic.sh' .github/workflows/ci.yml ||

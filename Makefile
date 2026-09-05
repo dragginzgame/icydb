@@ -32,7 +32,9 @@ RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache"
-# Maximum-bound core fixtures must not inherit unbounded host CPU parallelism.
+# Core-only and workspace lanes have different measured memory envelopes, but
+# neither may inherit unbounded host CPU parallelism.
+CORE_TEST_ENV := RUST_TEST_THREADS=8
 WORKSPACE_TEST_ENV := RUST_TEST_THREADS=4
 VALIDATION_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-validation-targets.sh"
 POCKET_IC_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-with-pocketic-server.sh"
@@ -288,7 +290,7 @@ _test-icydb-no-default:
 	$(CARGO_WORK_ENV) cargo test --no-fail-fast -p icydb --no-default-features
 
 _test-core-no-default:
-	$(CARGO_WORK_ENV) cargo test --no-fail-fast -p icydb-core --no-default-features
+	$(CORE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast -p icydb-core --no-default-features
 
 _test-workspace:
 	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
@@ -511,7 +513,7 @@ _ci-core-no-default-check:
 	$(CARGO_WORK_ENV) cargo check --locked --workspace --no-default-features
 
 _ci-core-no-default-test:
-	$(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	$(CORE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		-p icydb -p icydb-core --no-default-features
 
 _ci-core-sql-check:
