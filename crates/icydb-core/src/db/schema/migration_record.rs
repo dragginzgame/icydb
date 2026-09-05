@@ -883,6 +883,18 @@ impl SchemaMigrationRecordOp {
         let after = decode_schema_migration_record(&self.after)?;
         if let Some(before) = self.before.as_deref() {
             let before = decode_schema_migration_record(before)?;
+            // The application owner drains the old journal before handing the
+            // singleton to a fresh plan. This is an exact terminal CAS, not a
+            // phase transition within the old plan or a reset of active work.
+            if before.phase.terminal() && after.phase == PersistedSchemaMigrationPhase::Prepared {
+                if before.database_identity != after.database_identity
+                    || before.submission_digest == after.submission_digest
+                    || after.progress != PersistedSchemaMigrationProgress::default()
+                {
+                    return Err(InternalError::store_corruption());
+                }
+                return Ok(());
+            }
             if before == after
                 || before.database_identity != after.database_identity
                 || before.accepted_before != after.accepted_before
@@ -1516,6 +1528,39 @@ mod tests {
             .expect("phase replacement should admit");
         assert!(SchemaMigrationRecordOp::insert(&validating).is_err());
         assert!(SchemaMigrationRecordOp::replace(&validating, &prepared).is_err());
+    }
+
+    #[test]
+    fn terminal_handoff_record_rejects_active_reset_wrong_database_and_carried_progress() {
+        let original = record();
+        let mut next = original.clone();
+        next.submission_digest = SchemaProposalDigest::from_bytes([0x71; 32]);
+        for phase in [
+            PersistedSchemaMigrationPhase::Applied,
+            PersistedSchemaMigrationPhase::Aborted,
+        ] {
+            let mut terminal = original.clone();
+            terminal.phase = phase;
+            let operation = SchemaMigrationRecordOp::replace(&terminal, &next)
+                .expect("fresh terminal handoff should admit");
+            let marker = CommitMarker::from_parts_with_database_control(
+                [0x72; 16],
+                Vec::new(),
+                vec![DatabaseControlOp::SchemaMigration(operation)],
+            )
+            .expect("handoff marker should admit");
+            let encoded =
+                encode_commit_marker_payload(&marker).expect("handoff marker should encode");
+            decode_commit_marker_payload(&encoded).expect("handoff marker should decode");
+            let mut invalid = next.clone();
+            invalid.database_identity = TargetDatabaseIdentity::from_bytes([0x73; 32]);
+            assert!(SchemaMigrationRecordOp::replace(&terminal, &invalid).is_err());
+            invalid = next.clone();
+            invalid.progress.rows_validated = 1;
+            assert!(SchemaMigrationRecordOp::replace(&terminal, &invalid).is_err());
+            assert!(SchemaMigrationRecordOp::replace(&terminal, &original).is_err());
+        }
+        assert!(SchemaMigrationRecordOp::replace(&original, &next).is_err());
     }
 
     #[test]

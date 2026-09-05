@@ -247,7 +247,6 @@ pub(in crate::db) use integrity::{
     validate_schema_snapshot_acceptance,
 };
 pub(in crate::db) use layout::{RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
-pub(in crate::db) use live_schema_checkpoint::ensure_schema_migration_ready_for_ordinary_operations;
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use live_schema_checkpoint::load_schema_migration_record;
 #[cfg(test)]
@@ -271,6 +270,10 @@ pub(in crate::db) use live_schema_checkpoint::{
 #[cfg(test)]
 pub(in crate::db) use live_schema_checkpoint::{
     corrupt_live_schema_checkpoint_header_for_tests, entity_source_lineage_matches_for_tests,
+};
+pub(in crate::db) use live_schema_checkpoint::{
+    ensure_schema_migration_ready_for_ordinary_operations,
+    ensure_schema_migration_ready_for_schema_changes,
 };
 #[cfg(all(test, feature = "migration"))]
 pub(in crate::db::schema) use migration_execution::{

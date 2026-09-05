@@ -176,6 +176,25 @@ fallback authority. A pre-rewrite abort scans and removes only exact candidate
 generation identities in bounded pages, leaves all rows unchanged, and clears
 the gate only with its terminal record.
 
+A new migration submission may replace an `Applied` or `Aborted` singleton only
+after outstanding journals have converged. Each successor `Advance` folds at
+most one existing journal batch and reports the new plan as `Idle` while more
+remain; the prior record continues to authorize its private journal effects.
+Once drained, a marker-bound exact terminal-to-`Prepared` replacement installs
+the successor with fresh progress. Recovery accepts either the prior record or
+the exact already-applied replacement. Exact retries of the current terminal
+submission remain terminal; retrying a corrected aborted plan requires a new
+submission identity. Active records cannot be superseded this way.
+
+Every nonterminal migration reserves its exact predecessor accepted head.
+`Prepared` permits ordinary row reads and writes, but not unrelated schema
+application, SQL DDL, or accepted-schema publication. These schema changes
+reject with typed `MigrationInProgress` until the migration becomes terminal.
+The publication boundary independently enforces this reservation; only the
+migration's own exact record transaction may publish its candidate authority.
+Recovery retains the reservation, so an admitted schema edit cannot strand
+advance or pre-rewrite abort on a changed head.
+
 Schema-application receipts use a checksummed BTreeMap region after the
 bounded commit-control region in the same database-control allocation. The
 restricted regions cannot overlap. The current version-1 marker carries at most four

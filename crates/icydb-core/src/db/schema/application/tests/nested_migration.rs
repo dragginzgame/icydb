@@ -1,6 +1,9 @@
 //! Physical migration proofs for retained nested relations and isolated generations.
 //! Reuses the application boundary's journaled store and recovery fixture.
 
+mod schema_admission;
+mod terminal_handoff;
+
 use super::*;
 use crate::{
     db::{
@@ -26,20 +29,30 @@ fn field(value: &str) -> FieldSourceKey {
     FieldSourceKey::try_new(value).expect("fixture field should admit")
 }
 
-// A copied repeated root changes targets without changing relation identity.
-// Renaming that root also proves the planner uses resolved field IDs.
-#[expect(
-    clippy::too_many_lines,
-    reason = "the predecessor and candidate fixture share one exact relation contract"
-)]
 fn proposal(
     current: bool,
     head: ExpectedAcceptedHead,
     database: TargetDatabaseIdentity,
     store: TargetStoreIdentity,
 ) -> SchemaProposal {
+    proposal_for_version(if current { 2 } else { 1 }, head, database, store)
+}
+
+// A copied repeated root changes targets without changing relation identity.
+// Renaming that root also proves the planner uses resolved field IDs.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the predecessor and candidate fixture share one exact relation contract"
+)]
+fn proposal_for_version(
+    version: u32,
+    head: ExpectedAcceptedHead,
+    database: TargetDatabaseIdentity,
+    store: TargetStoreIdentity,
+) -> SchemaProposal {
     let source = EntitySourceKey::try_new("Source").expect("source key should admit");
     let target = EntitySourceKey::try_new("Target").expect("target key should admit");
+    let current = version > 1;
     let root = if current { "links" } else { "refs" };
     let scalar = FieldType::Scalar(ScalarType::Nat64);
     let nested = FieldType::List(Box::new(FieldType::List(Box::new(scalar.clone()))));
@@ -82,8 +95,7 @@ fn proposal(
     let entities = vec![
         EntityFragment::try_new(
             name("Source"),
-            DeclaredEntityVersion::try_new(if current { 2 } else { 1 })
-                .expect("version should admit"),
+            DeclaredEntityVersion::try_new(version).expect("version should admit"),
             fields,
             vec![field("id")],
             Vec::new(),
@@ -112,12 +124,16 @@ fn proposal(
         SchemaMigrationPlan::try_new(vec![
             EntityMigration::try_new(
                 source.clone(),
-                version_one(),
+                DeclaredEntityVersion::try_new(version - 1)
+                    .expect("predecessor version should admit"),
                 None,
-                vec![SchemaMigrationRename::Field {
-                    from: field("refs"),
-                    to: field("links"),
-                }],
+                (version == 2)
+                    .then(|| SchemaMigrationRename::Field {
+                        from: field("refs"),
+                        to: field("links"),
+                    })
+                    .into_iter()
+                    .collect(),
                 vec![SchemaMigrationTransform::Copy {
                     from: field("backup"),
                     to: field("links"),

@@ -736,6 +736,18 @@ pub(in crate::db) fn ensure_schema_migration_ready_for_ordinary_operations()
     Ok(())
 }
 
+/// Preserve the exact predecessor head for every nonterminal migration,
+/// including `Prepared`, which still admits ordinary row reads and writes.
+pub(in crate::db) fn ensure_schema_migration_ready_for_schema_changes() -> Result<(), InternalError>
+{
+    if load_schema_migration_record()?.is_some_and(|record| !record.phase().terminal()) {
+        return Err(InternalError::schema_migration(
+            icydb_diagnostic_code::SchemaMigrationCode::MigrationInProgress,
+        ));
+    }
+    Ok(())
+}
+
 const fn schema_migration_record_blocks_ordinary_operations(
     record: &SchemaMigrationRecord,
     migration_capability_compiled: bool,

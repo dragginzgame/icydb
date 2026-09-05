@@ -28,7 +28,7 @@ use crate::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, ConstraintValidationJob,
             PreparedSchemaPositionPublication, SchemaApplicationRecordOp,
             apply_live_schema_checkpoint, apply_schema_application_record_op,
-            preflight_live_schema_checkpoint,
+            ensure_schema_migration_ready_for_schema_changes, preflight_live_schema_checkpoint,
         },
     },
     error::InternalError,
@@ -184,6 +184,19 @@ pub(in crate::db) fn publish_accepted_schema_candidates_with_database_control(
     mut publications: Vec<AcceptedSchemaPublication<'_>>,
     database_control: Vec<DatabaseControlOp>,
 ) -> Result<(), InternalError> {
+    // Only an exact migration record operation may accompany publication
+    // while that migration owns the predecessor head. Marker validation owns
+    // the operation's CAS and legal transition; ordinary publishers cannot
+    // change the head merely because Prepared still permits row operations.
+    #[cfg(any(test, feature = "migration"))]
+    let migration_publication = database_control
+        .iter()
+        .any(|operation| matches!(operation, DatabaseControlOp::SchemaMigration(_)));
+    #[cfg(not(any(test, feature = "migration")))]
+    let migration_publication = false;
+    if !migration_publication {
+        ensure_schema_migration_ready_for_schema_changes()?;
+    }
     if publications.is_empty() {
         if database_control.is_empty() {
             return Err(InternalError::store_invariant());
@@ -419,6 +432,7 @@ fn publish_accepted_schema_candidate_with_prepared_domains(
     job_change: ConstraintValidationJobChange<'_>,
     application_record: Option<SchemaApplicationRecordOp>,
 ) -> Result<(), InternalError> {
+    ensure_schema_migration_ready_for_schema_changes()?;
     validate_constraint_validation_job_change(store, candidate, job_change)?;
     match store.storage_capabilities().recovery() {
         StoreRecoveryCapability::None => publish_live_candidate_with_prepared_domains(

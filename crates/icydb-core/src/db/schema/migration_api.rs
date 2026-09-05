@@ -22,7 +22,8 @@ pub enum SchemaMigrationCommand {
         /// Exact accepted head observed before confirmation.
         expected_head: ExpectedAcceptedHead,
     },
-    /// Prepare, resume, or complete one bounded migration step.
+    /// Prepare, resume, or complete one bounded migration step. A new plan may
+    /// remain `Idle` while this step drains a prior terminal plan's journal.
     Advance {
         /// Exact target database identity observed by the caller.
         expected_database: TargetDatabaseIdentity,

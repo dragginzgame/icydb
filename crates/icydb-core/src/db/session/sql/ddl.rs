@@ -14,10 +14,10 @@ use crate::{
             SchemaDdlAcceptedSnapshotDerivation, SqlDdlFieldNullabilityOutcome,
             advance_check_constraint_activation, advance_not_null_constraint_activation,
             advance_unique_constraint_activation, constraint_validation_finding_output,
-            execute_admin_sql_ddl_check_addition, execute_admin_sql_ddl_check_drop,
-            execute_admin_sql_ddl_expression_index_addition, execute_admin_sql_ddl_field_addition,
-            execute_admin_sql_ddl_field_default_change, execute_admin_sql_ddl_field_drop,
-            execute_admin_sql_ddl_field_nullability_change,
+            ensure_schema_migration_ready_for_schema_changes, execute_admin_sql_ddl_check_addition,
+            execute_admin_sql_ddl_check_drop, execute_admin_sql_ddl_expression_index_addition,
+            execute_admin_sql_ddl_field_addition, execute_admin_sql_ddl_field_default_change,
+            execute_admin_sql_ddl_field_drop, execute_admin_sql_ddl_field_nullability_change,
             execute_admin_sql_ddl_field_path_index_addition, execute_admin_sql_ddl_field_rename,
             execute_admin_sql_ddl_not_null_activation_abort,
             execute_admin_sql_ddl_secondary_index_drop,
@@ -226,6 +226,7 @@ impl<C: CanisterKind> DbSession<C> {
             .db
             .recovered_store(accepted_before.identity().store_path())
             .map_err(QueryError::execute)?;
+        ensure_schema_migration_ready_for_schema_changes().map_err(QueryError::execute)?;
 
         if let Some(result) =
             self.execute_prepared_constraint_ddl(store, &accepted_before, &prepared)

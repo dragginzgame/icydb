@@ -25,7 +25,7 @@ use crate::{
             StoreRelationTargetCapability, StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
         },
         relation::prove_empty_reverse_relation_domain,
-        schema::ensure_schema_migration_ready_for_ordinary_operations,
+        schema::ensure_schema_migration_ready_for_schema_changes,
         schema::{
             AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, CandidateSchemaRevision,
             ConstraintActivationKind, ConstraintActivationState, ConstraintId, ConstraintOrigin,
@@ -56,6 +56,11 @@ use sha2::Digest;
 use std::cell::Cell;
 #[cfg(feature = "migration")]
 use std::collections::BTreeMap;
+
+#[cfg(feature = "migration")]
+use crate::db::commit::{
+    RecoveryProgress, StartupRecoveryFailure, continue_recovery_with_failure_authority,
+};
 
 #[cfg(feature = "migration")]
 use crate::db::schema::{
@@ -313,7 +318,7 @@ pub(in crate::db) fn continue_schema_application<C: CanisterKind>(
     acknowledged_receipt: Option<u64>,
 ) -> Result<SchemaChangeProgress, InternalError> {
     ensure_recovery_admitted(db)?;
-    ensure_schema_migration_ready_for_ordinary_operations()?;
+    ensure_schema_migration_ready_for_schema_changes()?;
     let record = with_schema_application_store(|store| store.load_job(job_id))?
         .ok_or_else(InternalError::schema_application_conflict)?;
     let target = schema_application_target(db)?;
@@ -423,7 +428,7 @@ pub(in crate::db) fn abort_schema_application<C: CanisterKind>(
     acknowledged_receipt: Option<u64>,
 ) -> Result<SchemaChangeProgress, InternalError> {
     ensure_recovery_admitted(db)?;
-    ensure_schema_migration_ready_for_ordinary_operations()?;
+    ensure_schema_migration_ready_for_schema_changes()?;
     let record = with_schema_application_store(|store| store.load_job(job_id))?
         .ok_or_else(InternalError::schema_application_conflict)?;
     let target = schema_application_target(db)?;
@@ -657,7 +662,7 @@ fn apply_schema_with_contract<C: CanisterKind, const ALLOW_REMOVALS: bool>(
     proposal: &SchemaProposal,
 ) -> Result<SchemaChangeReceipt, InternalError> {
     ensure_recovery_admitted(db)?;
-    ensure_schema_migration_ready_for_ordinary_operations()?;
+    ensure_schema_migration_ready_for_schema_changes()?;
     let proposal_digest = proposal
         .digest()
         .map_err(|_| InternalError::store_unsupported())?;
@@ -1103,7 +1108,22 @@ fn advance_metadata_schema_migration<C: CanisterKind>(
             expected_plan,
             stores.as_slice(),
         )?;
-        let operation = SchemaMigrationRecordOp::insert(&record)?;
+        // A terminal record remains the authority for its private journal
+        // effects. Drain at most one existing convergence page per request
+        // before changing that authority; the new plan stays Idle meanwhile.
+        let prior = load_schema_migration_record()?;
+        if prior.is_some()
+            && continue_recovery_with_failure_authority(db)
+                .map_err(StartupRecoveryFailure::into_error)?
+                == RecoveryProgress::Pending
+        {
+            let target = schema_application_target(db)?;
+            return schema_migration_status_for_target(db, proposal, &target);
+        }
+        let operation = match prior.as_ref() {
+            Some(prior) => SchemaMigrationRecordOp::replace(prior, &record)?,
+            None => SchemaMigrationRecordOp::insert(&record)?,
+        };
         publish_accepted_schema_candidates_with_database_control(
             Vec::new(),
             vec![DatabaseControlOp::SchemaMigration(operation)],
@@ -1574,7 +1594,13 @@ fn schema_migration_status_for_target<C: CanisterKind>(
     proposal: &SchemaProposal,
     target: &SchemaApplicationTarget,
 ) -> Result<SchemaMigrationStatusPage, InternalError> {
-    if let Some(record) = load_schema_migration_record()? {
+    if let Some(record) = load_schema_migration_record()?
+        && (!record.phase().terminal()
+            || proposal
+                .digest()
+                .map_err(|_| InternalError::store_unsupported())?
+                == record.submission_digest())
+    {
         validate_active_migration_deployment(proposal, &record)?;
         validate_active_migration_target(&record, target)?;
         return active_migration_status(proposal, target, &record);
@@ -1636,6 +1662,18 @@ fn exact_active_migration_record(
     let Some(record) = load_schema_migration_record()? else {
         return Ok(None);
     };
+    // Terminal retries retain their exact result, but a new submission must
+    // reach ordinary target/planner admission and the journal-safe handoff.
+    if record.phase().terminal()
+        && (record.accepted_before() != expected_head
+            || record.plan_digest() != expected_plan
+            || proposal
+                .digest()
+                .map_err(|_| InternalError::store_unsupported())?
+                != record.submission_digest())
+    {
+        return Ok(None);
+    }
     if record.database_identity() != expected_database
         || record.accepted_before() != expected_head
         || record.plan_digest() != expected_plan
