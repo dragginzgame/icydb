@@ -176,6 +176,7 @@ impl RelationIdAllocator {
     ///
     /// The returned allocator becomes authoritative only when its containing
     /// schema candidate publishes. Exhaustion leaves accepted state unchanged.
+    #[cfg(any(test, feature = "migration"))]
     #[must_use]
     pub(in crate::db) const fn checked_reserve(self) -> Option<(Self, RelationId)> {
         let next = match self.high_water {

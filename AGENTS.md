@@ -107,6 +107,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
   the tracker instead of folding it into the active landing slice.
 - Run `cargo fmt --all` after code edits; reserve `cargo fmt --all --check` for non-mutating release/readiness verification.
 - Run focused checks after edits; run broader checks only when the slice is otherwise ready.
+- When validation reports a clippy failure, stop later validation work, run `make clippy`, fix every warning, and rerun the focused gate before handing back to the user.
 - Do not repeatedly rerun expensive failing commands; capture the first failure and report it.
 - Report perf and wasm-size deltas alongside a complexity delta: files touched,
   approximate line delta, and whether the implementation shape got simpler,

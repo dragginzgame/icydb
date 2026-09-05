@@ -170,6 +170,7 @@ if [[ ! -x scripts/ci/run-validation-targets.sh ]] ||
    ! rg -q --fixed-strings 'GITHUB_STEP_SUMMARY' scripts/ci/run-validation-targets.sh ||
    ! rg -q --fixed-strings 'ICYDB_VALIDATION_RUNNER_DEPTH' scripts/ci/run-validation-targets.sh ||
    ! rg -q --fixed-strings -- '--fail-fast' scripts/ci/run-validation-targets.sh ||
+   ! rg -q --fixed-strings 'fix every cargo clippy warning' scripts/ci/run-validation-targets.sh ||
    ! rg -q '^validate-fast:$' Makefile ||
    ! rg -q '^test-integration-feedback:$' Makefile ||
    ! rg -q '^test-durability:$' Makefile; then

@@ -80,23 +80,27 @@ print_failure_detail() {
     printf '%s\n' "$inherited" |
       awk '!seen[$0]++' |
       tail -n "$MAX_FAILURE_DETAIL_LINES"
-    return
-  fi
-
-  printf '[validation-detail] Target: %s\n' "$target"
-
-  if command -v rg >/dev/null 2>&1; then
-    details="$(rg --color never --no-heading -C 4 -- "$FAILURE_PATTERN" "$clean_log" || true)"
   else
-    details="$(grep -E -C 4 -- "$FAILURE_PATTERN" "$clean_log" || true)"
-  fi
-  if [[ -z "$details" ]]; then
-    details="$(tail -n 80 "$clean_log")"
+    printf '[validation-detail] Target: %s\n' "$target"
+
+    if command -v rg >/dev/null 2>&1; then
+      details="$(rg --color never --no-heading -C 4 -- "$FAILURE_PATTERN" "$clean_log" || true)"
+    else
+      details="$(grep -E -C 4 -- "$FAILURE_PATTERN" "$clean_log" || true)"
+    fi
+    if [[ -z "$details" ]]; then
+      details="$(tail -n 80 "$clean_log")"
+    fi
+
+    while IFS= read -r line; do
+      printf '[validation-detail] %s\n' "$line"
+    done < <(printf '%s\n' "$details" | tail -n "$((MAX_FAILURE_DETAIL_LINES - 1))")
   fi
 
-  while IFS= read -r line; do
-    printf '[validation-detail] %s\n' "$line"
-  done < <(printf '%s\n' "$details" | tail -n "$((MAX_FAILURE_DETAIL_LINES - 1))")
+  if [[ "$target" == "clippy" ]]; then
+    printf '%s\n' \
+      '[validation-next] Run `make clippy`, fix every cargo clippy warning, then rerun validation.'
+  fi
 }
 
 write_github_summary() {

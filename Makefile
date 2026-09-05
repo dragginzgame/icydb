@@ -107,7 +107,7 @@ help:
 	@echo "  build            Build all crates"
 	@echo "  check            Run cargo check"
 	@echo "  clippy           Run clippy checks"
-	@echo "  validate         Fail fast on preflights, then accumulate long-check failures"
+	@echo "  validate         Fail fast through clippy, then accumulate test failures"
 	@echo "  validate-fast    Run the quick formatting, automation, invariant, and workspace-check preflight"
 	@echo "  fetch            Fetch locked dependencies into the repo-local Cargo cache"
 	@echo "  fmt              Format code"
@@ -410,16 +410,16 @@ fmt-check:
 	$(CARGO_WORK_ENV) cargo fmt --all -- --check
 
 validate:
-	# Do not spend minutes on Cargo lanes after a deterministic preflight failure.
+	# Do not run feature or test lanes until every clippy warning is repaired.
 	$(VALIDATION_RUNNER) --fail-fast \
 		fmt-check \
 		lint-workflows \
 		shellcheck \
 		check-invariants \
-		check
-	# Once preflights pass, retain every long-lane failure in one combined log.
+		check \
+		clippy
+	# Once clippy passes, retain every later long-lane failure in one combined log.
 	$(VALIDATION_RUNNER) \
-		clippy \
 		check-feature-matrix \
 		test
 
