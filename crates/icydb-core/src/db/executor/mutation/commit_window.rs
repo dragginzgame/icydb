@@ -25,6 +25,7 @@ use crate::{
         key_taxonomy::PrimaryKeyValue,
         positioned_overlay::JournalOverlayPosition,
         registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
+        relation::RelationCommitBudget,
         schema::{
             IdentityAdvanceId, IdentityRangeAdvance, PreparedSchemaPositionPublication,
             SchemaStore, apply_live_identity_range_checkpoint,
@@ -501,6 +502,7 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
     row_ops: &[CommitRowOp],
     overlay: &mut PreflightStoreOverlay<'_, C>,
     fixed_commit_work_units: usize,
+    relation_budget: &mut RelationCommitBudget,
 ) -> Result<PreparedRowOpBatch, InternalError> {
     if row_ops.is_empty() {
         return PreparedRowOpBatch::with_row_capacity(0, fixed_commit_work_units);
@@ -548,6 +550,7 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
             &contexts[context_index].3,
             overlay,
             overlay,
+            relation_budget,
         )?;
         overlay.stage_prepared_row_op(&row);
         batch.push(row)?;
@@ -576,8 +579,14 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
     let fixed_commit_work_units =
         fixed_mutation_commit_work_units(identity_ranges.len(), mutation_progress.is_some())?;
     let mut overlay = PreflightStoreOverlay::<C>::from_row_ops(db, &row_ops)?;
+    let mut relation_budget = RelationCommitBudget::default();
     for (entity_path, deleted_keys) in deleted_key_groups {
-        db.validate_delete_relations_with_reader(entity_path, deleted_keys, &overlay)?;
+        db.validate_delete_relations_with_reader(
+            entity_path,
+            deleted_keys,
+            &overlay,
+            &mut relation_budget,
+        )?;
     }
     let PreparedRowOpBatch {
         prepared_row_ops,
@@ -588,6 +597,7 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
         &row_ops,
         &mut overlay,
         fixed_commit_work_units,
+        &mut relation_budget,
     )?;
     let CommitWindowPayload { marker, effects } = commit_window_payload_for_prepared_row_ops(
         db,

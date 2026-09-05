@@ -373,12 +373,14 @@ impl<C: CanisterKind> Db<C> {
         target_path: &str,
         deleted_target_keys: &BTreeSet<RawDataStoreKey>,
         source_reader: &dyn index::StructuralPrimaryRowReader,
+        relation_budget: &mut relation::RelationCommitBudget,
     ) -> Result<(), InternalError> {
         runtime_entity_catalog::validate_delete_relations(
             self,
             target_path,
             deleted_target_keys,
             source_reader,
+            relation_budget,
         )
     }
 }

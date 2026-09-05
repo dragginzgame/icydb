@@ -71,7 +71,7 @@ pub const RELATION_PROVING_ACTORS: &[RelationProvingActor] = &[
     },
     RelationProvingActor {
         name: "nested_relation_repeated",
-        direct_relations: 1,
+        direct_relations: 0,
         planned_nested_relations: 3,
     },
 ];
@@ -117,6 +117,7 @@ const REPEATED_MAP_STEPS: &[&str] = &[
     "OptionalSome",
     "EnterNamed(RelationCostTargetMap)",
     "MapValues",
+    "ListItems",
 ];
 const REPEATED_SET_STEPS: &[&str] = &[
     "OptionalSome",
@@ -153,25 +154,19 @@ pub const RELATION_PATH_FIXTURES: &[RelationPathFixture] = &[
     RelationPathFixture {
         actor: "nested_relation_repeated",
         relation_id: 1,
-        display_path: "target_id",
-        steps: DIRECT_STEPS,
-    },
-    RelationPathFixture {
-        actor: "nested_relation_repeated",
-        relation_id: 2,
-        display_path: "target_list[]",
+        display_path: "target_list.items",
         steps: REPEATED_LIST_STEPS,
     },
     RelationPathFixture {
         actor: "nested_relation_repeated",
-        relation_id: 3,
-        display_path: "target_map{value}",
+        relation_id: 2,
+        display_path: "target_map.values",
         steps: REPEATED_MAP_STEPS,
     },
     RelationPathFixture {
         actor: "nested_relation_repeated",
-        relation_id: 4,
-        display_path: "target_set{}",
+        relation_id: 3,
+        display_path: "target_set.items",
         steps: REPEATED_SET_STEPS,
     },
 ];
@@ -215,13 +210,16 @@ pub fn validate_nested_relation_contract() -> Result<(), &'static str> {
     }) {
         return Err("nested relation identity/path fixture is invalid");
     }
-    for actor in ["nested_relation_shallow", "nested_relation_repeated"] {
+    for (actor, expected) in [
+        ("nested_relation_shallow", &[1, 2, 3, 4][..]),
+        ("nested_relation_repeated", &[1, 2, 3][..]),
+    ] {
         let identities = RELATION_PATH_FIXTURES
             .iter()
             .filter(|fixture| fixture.actor == actor)
             .map(|fixture| fixture.relation_id)
             .collect::<Vec<_>>();
-        if identities != [1, 2, 3, 4] {
+        if identities != expected {
             return Err("nested relation fixture identities must be canonical and monotonic");
         }
     }

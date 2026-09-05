@@ -10,13 +10,16 @@ use crate::{
         FieldId, MAX_ACCEPTED_RECURSIVE_DEPTH, PersistedIndexExpressionOp,
         PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
         PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexOrigin,
-        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedRelationSourceSnapshot,
-        RelationId, SchemaFieldSlot, SchemaIndexId, enum_catalog::MAX_SCHEMA_STORE_PATH_BYTES,
+        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedRelationPathStepSnapshot,
+        PersistedRelationSourceSnapshot, RelationId, SchemaFieldSlot, SchemaIndexId,
+        composite_catalog::{CompositeFieldId, CompositeTypeId},
+        enum_catalog::{EnumTypeId, EnumVariantId, MAX_SCHEMA_STORE_PATH_BYTES},
     },
     error::InternalError,
 };
 
 const RELATION_SOURCE_DIRECT: u8 = 1;
+const RELATION_SOURCE_NESTED: u8 = 2;
 
 pub(super) fn encode_index(
     writer: &mut SnapshotWriter,
@@ -94,6 +97,21 @@ pub(super) fn encode_relation(
                 }
             );
         }
+        PersistedRelationSourceSnapshot::Nested {
+            root_field_id,
+            steps,
+        } => {
+            writer.push_u8(RELATION_SOURCE_NESTED);
+            writer.push_u32(root_field_id.get());
+            encode_sequence!(
+                writer,
+                steps,
+                icydb_schema::MAX_RELATION_PATH_STEPS,
+                |step| {
+                    encode_relation_path_step(writer, step);
+                }
+            );
+        }
     }
     Ok(())
 }
@@ -105,20 +123,86 @@ pub(super) fn decode_relation(
     let physical_generation = reader.read_u64()?;
     let name = reader.read_bounded_string(MAX_NAME_BYTES)?;
     let target_path = reader.read_bounded_string(MAX_SCHEMA_STORE_PATH_BYTES)?;
-    let source = match reader.read_u8()? {
-        RELATION_SOURCE_DIRECT => PersistedRelationSourceSnapshot::Direct {
-            field_ids: decode_sequence!(reader, icydb_schema::MAX_FRAGMENT_FIELDS, {
+    let relation = match reader.read_u8()? {
+        RELATION_SOURCE_DIRECT => PersistedRelationEdgeSnapshot::new_direct(
+            id,
+            name,
+            target_path,
+            decode_sequence!(reader, icydb_schema::MAX_FRAGMENT_FIELDS, {
                 FieldId::new(reader.read_u32()?)
             }),
-        },
+        ),
+        RELATION_SOURCE_NESTED => PersistedRelationEdgeSnapshot::new_nested(
+            id,
+            name,
+            target_path,
+            FieldId::new(reader.read_u32()?),
+            decode_sequence!(reader, icydb_schema::MAX_RELATION_PATH_STEPS, {
+                decode_relation_path_step(reader)?
+            }),
+        ),
         0 => return Err(InternalError::serialize_incompatible_persisted_format()),
         _ => return Err(InternalError::store_corruption()),
     };
-    let PersistedRelationSourceSnapshot::Direct { field_ids } = source;
-    Ok(
-        PersistedRelationEdgeSnapshot::new_direct(id, name, target_path, field_ids)
-            .clone_with_physical_generation(physical_generation),
-    )
+    Ok(relation.clone_with_physical_generation(physical_generation))
+}
+
+fn encode_relation_path_step(
+    writer: &mut SnapshotWriter,
+    step: &PersistedRelationPathStepSnapshot,
+) {
+    match step {
+        PersistedRelationPathStepSnapshot::EnterNamed => {
+            writer.push_u8(1);
+        }
+        PersistedRelationPathStepSnapshot::OptionalSome => {
+            writer.push_u8(2);
+        }
+        PersistedRelationPathStepSnapshot::RecordMember {
+            composite_type_id,
+            member_id,
+        } => {
+            writer.push_u8(3);
+            writer.push_u32(composite_type_id.get());
+            writer.push_u32(member_id.get());
+        }
+        PersistedRelationPathStepSnapshot::EnumVariantPayload {
+            enum_type_id,
+            variant_id,
+        } => {
+            writer.push_u8(4);
+            writer.push_u32(enum_type_id.get());
+            writer.push_u32(variant_id.get());
+        }
+        PersistedRelationPathStepSnapshot::ListItems => writer.push_u8(5),
+        PersistedRelationPathStepSnapshot::SetItems => writer.push_u8(6),
+        PersistedRelationPathStepSnapshot::MapValues => writer.push_u8(7),
+    }
+}
+
+fn decode_relation_path_step(
+    reader: &mut SnapshotReader<'_>,
+) -> Result<PersistedRelationPathStepSnapshot, InternalError> {
+    match reader.read_u8()? {
+        1 => Ok(PersistedRelationPathStepSnapshot::EnterNamed),
+        2 => Ok(PersistedRelationPathStepSnapshot::OptionalSome),
+        3 => Ok(PersistedRelationPathStepSnapshot::RecordMember {
+            composite_type_id: CompositeTypeId::new(reader.read_u32()?)
+                .ok_or_else(InternalError::store_corruption)?,
+            member_id: CompositeFieldId::new(reader.read_u32()?)
+                .ok_or_else(InternalError::store_corruption)?,
+        }),
+        4 => Ok(PersistedRelationPathStepSnapshot::EnumVariantPayload {
+            enum_type_id: EnumTypeId::new(reader.read_u32()?)
+                .ok_or_else(InternalError::store_corruption)?,
+            variant_id: EnumVariantId::new(reader.read_u32()?)
+                .ok_or_else(InternalError::store_corruption)?,
+        }),
+        5 => Ok(PersistedRelationPathStepSnapshot::ListItems),
+        6 => Ok(PersistedRelationPathStepSnapshot::SetItems),
+        7 => Ok(PersistedRelationPathStepSnapshot::MapValues),
+        _ => Err(InternalError::store_corruption()),
+    }
 }
 
 fn encode_index_key(

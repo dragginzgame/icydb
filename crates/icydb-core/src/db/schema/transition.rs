@@ -970,9 +970,13 @@ fn field_snapshot_storage_mismatch_detail(
 mod tests {
     use super::*;
     use crate::db::schema::{
-        AcceptedFieldKind, AcceptedNamedTypeIdentity, AcceptedRuleOperation, AcceptedRuleTarget,
-        AcceptedSchemaFingerprint, ConstraintOrigin, FieldInsertGeneration, FieldStorageDecode,
-        LeafCodec, ScalarCodec, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaInsertDefault,
+        AcceptedConstraintCatalog, AcceptedFieldKind, AcceptedNamedTypeIdentity,
+        AcceptedRuleOperation, AcceptedRuleTarget, AcceptedSchemaFingerprint,
+        ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
+        ConstraintId, ConstraintIdAllocator, ConstraintOrigin, FieldInsertGeneration,
+        FieldStorageDecode, LeafCodec, PersistedFieldOrigin, PersistedRelationEdgeSnapshot,
+        PersistedRelationPathStepSnapshot, RelationId, RowLayoutVersion, ScalarCodec,
+        SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaInsertDefault,
         SchemaRowLayout, SchemaVersion, composite_catalog::CompositeTypeId,
     };
 
@@ -1058,6 +1062,86 @@ mod tests {
         let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&actual, &expected)
         else {
             panic!("stable-identity semantic replacement should use constraint activation");
+        };
+        assert_eq!(plan.kind(), SchemaTransitionPlanKind::ConstraintActivation);
+    }
+
+    #[test]
+    fn generated_transition_accepts_nested_relation_rooted_in_one_appended_field() {
+        let actual = snapshot(None);
+        let current_layout = RowLayoutVersion::INITIAL
+            .checked_next()
+            .expect("test layout should advance");
+        let mut fields = actual.fields().to_vec();
+        fields.push(PersistedFieldSnapshot::new_with_write_policy_and_origin(
+            FieldId::new(2),
+            "target_id".to_string(),
+            SchemaFieldSlot::new(1),
+            AcceptedFieldKind::Nat64,
+            Vec::new(),
+            true,
+            current_layout,
+            SchemaInsertDefault::None,
+            SchemaHistoricalFill::Null,
+            SchemaFieldWritePolicy::none(),
+            PersistedFieldOrigin::Generated,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Nat64),
+        ));
+        let relation = PersistedRelationEdgeSnapshot::new_nested(
+            RelationId::new(1).expect("test relation identity should be non-zero"),
+            "target_id".to_string(),
+            "schema::transition::Target".to_string(),
+            FieldId::new(2),
+            vec![PersistedRelationPathStepSnapshot::OptionalSome],
+        )
+        .clone_with_physical_generation(7);
+        let activation_id = ConstraintId::new(
+            actual
+                .constraint_catalog()
+                .allocator()
+                .high_water()
+                .checked_add(1)
+                .expect("test constraint identity should advance"),
+        )
+        .expect("test constraint identity should be non-zero");
+        let activation = ConstraintActivationSnapshot::new(
+            activation_id,
+            relation.name().to_string(),
+            ConstraintOrigin::Generated,
+            ConstraintActivationKind::Relation {
+                relation_id: relation.id(),
+            },
+            ConstraintActivationState::EnforcingNewWrites,
+            AcceptedSchemaFingerprint::new([0x53; 32]),
+            relation.physical_generation(),
+        );
+        let catalog = AcceptedConstraintCatalog::from_persisted_parts(
+            ConstraintIdAllocator::new(activation_id.get()),
+            actual.constraints().to_vec(),
+            vec![activation],
+        );
+        let expected = PersistedSchemaSnapshot::new(
+            actual.version(),
+            actual.entity_path().to_string(),
+            actual.entity_name().to_string(),
+            actual.primary_key_field_ids().to_vec(),
+            SchemaRowLayout::new(
+                current_layout,
+                RowLayoutVersion::INITIAL,
+                vec![
+                    (FieldId::new(1), SchemaFieldSlot::new(0)),
+                    (FieldId::new(2), SchemaFieldSlot::new(1)),
+                ],
+            ),
+            fields,
+        )
+        .with_constraint_catalog(catalog)
+        .with_constraint_candidates(Vec::new(), vec![relation]);
+
+        let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(&actual, &expected)
+        else {
+            panic!("nested relation on one appended field should use constraint activation");
         };
         assert_eq!(plan.kind(), SchemaTransitionPlanKind::ConstraintActivation);
     }

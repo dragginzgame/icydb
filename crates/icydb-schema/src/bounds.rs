@@ -42,6 +42,9 @@ pub const MAX_FRAGMENT_INDEXES: usize = 64;
 /// Maximum number of relations in one entity definition.
 pub const MAX_FRAGMENT_RELATIONS: usize = 64;
 
+/// Maximum number of deterministic steps in one nested relation source path.
+pub const MAX_RELATION_PATH_STEPS: usize = MAX_SCHEMA_FIELD_TYPE_DEPTH;
+
 /// Maximum number of accepted constraints in one entity definition.
 pub const MAX_FRAGMENT_CONSTRAINTS: usize = 256;
 

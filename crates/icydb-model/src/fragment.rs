@@ -17,10 +17,10 @@ use icydb_schema::{
     EnumVariantFragment, FieldFragment, FieldInsertPolicy, FieldManagementPolicy, FieldSourceKey,
     FieldType, Float32, Float64, IndexFragment, IndexKeyFragment, IntBig,
     MAX_PROPOSAL_LITERAL_BYTES, NamedTypeFragment, NatBig, Principal, RecordFieldFragment,
-    RecordTypeFragment, RelationDeleteAction, RelationFragment, RuleSourceKey, ScalarLiteral,
-    ScalarType, SchemaContractError, SchemaFragment, SchemaName,
-    SourceRuleOperation as ProposalSourceRuleOperation, Subaccount, TargetedRuleFragment,
-    Timestamp, TupleElementFragment, TypeSourceKey, U256, Ulid, Unit,
+    RecordTypeFragment, RelationDeleteAction, RelationFragment, RelationPathStepFragment,
+    RelationSourceFragment, RuleSourceKey, ScalarLiteral, ScalarType, SchemaContractError,
+    SchemaFragment, SchemaName, SourceRuleOperation as ProposalSourceRuleOperation, Subaccount,
+    TargetedRuleFragment, Timestamp, TupleElementFragment, TypeSourceKey, U256, Ulid, Unit,
 };
 use thiserror::Error;
 
@@ -130,13 +130,20 @@ fn ensure_relation_targets_in_database(
     entity: &Entity,
     selected_entities: &BTreeSet<String>,
 ) -> Result<(), FragmentLoweringError> {
-    for target in entity
-        .fields()
-        .fields()
+    let mut targets = entity
+        .relations()
         .iter()
-        .filter_map(|field| field.value().item().relation())
-        .chain(entity.relations().iter().map(RelationEdge::target))
-    {
+        .map(RelationEdge::target)
+        .collect::<Vec<_>>();
+    for field in entity.fields().fields() {
+        collect_relation_targets(
+            schema,
+            field.value().item(),
+            &mut BTreeSet::new(),
+            &mut targets,
+        )?;
+    }
+    for target in targets {
         schema
             .cast_node::<Entity>(target)
             .map_err(|_| FragmentLoweringError::InvalidReference(target.to_string()))?;
@@ -146,6 +153,65 @@ fn ensure_relation_targets_in_database(
             )));
         }
     }
+    Ok(())
+}
+
+fn collect_relation_targets<'schema>(
+    schema: &'schema Schema,
+    item: &'schema Item,
+    visiting: &mut BTreeSet<String>,
+    targets: &mut Vec<&'schema str>,
+) -> Result<(), FragmentLoweringError> {
+    if let Some(target) = item.relation() {
+        targets.push(target);
+    }
+    let ItemTarget::Is(path) = item.target() else {
+        return Ok(());
+    };
+    if !visiting.insert((*path).to_string()) {
+        return Ok(());
+    }
+    let node = schema
+        .get_node(path)
+        .ok_or_else(|| FragmentLoweringError::InvalidReference((*path).to_string()))?;
+    match node {
+        SchemaNode::Newtype(value) => {
+            collect_relation_targets(schema, value.item(), visiting, targets)?;
+        }
+        SchemaNode::Record(value) => {
+            for field in value.fields().fields() {
+                collect_relation_targets(schema, field.value().item(), visiting, targets)?;
+            }
+        }
+        SchemaNode::Enum(value) => {
+            for variant in value.variants() {
+                if let Some(value) = variant.value() {
+                    collect_relation_targets(schema, value.item(), visiting, targets)?;
+                }
+            }
+        }
+        SchemaNode::List(value) => {
+            collect_relation_targets(schema, value.item(), visiting, targets)?;
+        }
+        SchemaNode::Set(value) => {
+            collect_relation_targets(schema, value.item(), visiting, targets)?;
+        }
+        SchemaNode::Map(value) => {
+            collect_relation_targets(schema, value.key(), visiting, targets)?;
+            collect_relation_targets(schema, value.value().item(), visiting, targets)?;
+        }
+        SchemaNode::Tuple(value) => {
+            for member in value.values() {
+                collect_relation_targets(schema, member.item(), visiting, targets)?;
+            }
+        }
+        SchemaNode::Canister(_)
+        | SchemaNode::Entity(_)
+        | SchemaNode::Normalizer(_)
+        | SchemaNode::Store(_)
+        | SchemaNode::Validator(_) => {}
+    }
+    visiting.remove(*path);
     Ok(())
 }
 
@@ -178,6 +244,9 @@ fn lower_entity(
         .filter(|field| field.value().item().relation().is_some())
         .map(|field| lower_scalar_relation(schema, entity, field))
         .collect::<Result<Vec<_>, _>>()?;
+    for field in entity.fields().fields() {
+        relations.extend(lower_nested_relations(schema, entity, field)?);
+    }
     relations.extend(
         entity
             .relations()
@@ -204,6 +273,244 @@ fn lower_entity(
         constraints,
     )
     .map_err(Into::into)
+}
+
+struct NestedRelationCandidate<'schema> {
+    path_name: String,
+    steps: Vec<RelationPathStepFragment>,
+    target: &'schema str,
+}
+
+fn lower_nested_relations(
+    schema: &Schema,
+    entity: &Entity,
+    root: &Field,
+) -> Result<Vec<RelationFragment>, FragmentLoweringError> {
+    if root.value().item().relation().is_some() {
+        return Ok(Vec::new());
+    }
+    let mut steps = Vec::new();
+    if root.value().cardinality() == Cardinality::Opt {
+        steps.push(RelationPathStepFragment::OptionalSome);
+    } else if root.value().cardinality() == Cardinality::Many {
+        steps.push(RelationPathStepFragment::ListItems);
+    }
+    let mut candidates = Vec::new();
+    collect_nested_relation_candidates(
+        schema,
+        root.value().item(),
+        root.name().to_string(),
+        steps,
+        &mut BTreeSet::new(),
+        &mut candidates,
+    )?;
+    candidates
+        .into_iter()
+        .map(|candidate| {
+            let target = schema.cast_node::<Entity>(candidate.target).map_err(|_| {
+                FragmentLoweringError::InvalidReference(candidate.target.to_string())
+            })?;
+            RelationFragment::try_new(
+                SchemaName::try_new(candidate.path_name)?,
+                RelationSourceFragment::Nested {
+                    root: entity_field_source_key(entity, root.name())?,
+                    steps: candidate.steps,
+                },
+                EntitySourceKey::try_new(target.name())?,
+                target
+                    .primary_key()
+                    .fields()
+                    .iter()
+                    .map(|field| entity_field_source_key(target, field))
+                    .collect::<Result<Vec<_>, _>>()?,
+                RelationDeleteAction::Restrict,
+            )
+            .map_err(Into::into)
+        })
+        .collect()
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "one bounded recursive walk keeps every admitted structural node and exclusion adjacent"
+)]
+fn collect_nested_relation_candidates<'schema>(
+    schema: &'schema Schema,
+    item: &'schema Item,
+    path_name: String,
+    steps: Vec<RelationPathStepFragment>,
+    visiting: &mut BTreeSet<String>,
+    candidates: &mut Vec<NestedRelationCandidate<'schema>>,
+) -> Result<(), FragmentLoweringError> {
+    if let Some(target) = item.relation() {
+        let ItemTarget::Primitive(_) = item.target() else {
+            return Err(FragmentLoweringError::InvalidReference(path_name));
+        };
+        candidates.push(NestedRelationCandidate {
+            path_name,
+            steps,
+            target,
+        });
+        return Ok(());
+    }
+    let ItemTarget::Is(path) = item.target() else {
+        return Ok(());
+    };
+    if !visiting.insert((*path).to_string()) {
+        // A relation source is one finite path through a value. Stop at a
+        // recursive edge: any finite relation-bearing sibling was already
+        // visited, while a relation reachable only by cycling has no bounded
+        // single-valued source path to lower.
+        return Ok(());
+    }
+    let node = schema
+        .get_node(path)
+        .ok_or_else(|| FragmentLoweringError::InvalidReference((*path).to_string()))?;
+    let type_key = TypeSourceKey::try_new(
+        named_type_name(node)
+            .ok_or_else(|| FragmentLoweringError::InvalidReference((*path).to_string()))?,
+    )?;
+    let mut entered = steps;
+    entered.push(RelationPathStepFragment::EnterNamed {
+        r#type: type_key.clone(),
+    });
+    match node {
+        SchemaNode::Newtype(value) => collect_nested_relation_candidates(
+            schema,
+            value.item(),
+            path_name,
+            entered,
+            visiting,
+            candidates,
+        )?,
+        SchemaNode::Record(value) => {
+            for field in value.fields().fields() {
+                let mut member_steps = entered.clone();
+                member_steps.push(RelationPathStepFragment::RecordMember {
+                    record: type_key.clone(),
+                    field: FieldSourceKey::try_new(field.name())?,
+                });
+                match field.value().cardinality() {
+                    Cardinality::One => {}
+                    Cardinality::Opt => {
+                        member_steps.push(RelationPathStepFragment::OptionalSome);
+                    }
+                    Cardinality::Many => {
+                        member_steps.push(RelationPathStepFragment::ListItems);
+                    }
+                }
+                collect_nested_relation_candidates(
+                    schema,
+                    field.value().item(),
+                    format!("{path_name}.{}", field.name()),
+                    member_steps,
+                    visiting,
+                    candidates,
+                )?;
+            }
+        }
+        SchemaNode::Enum(value) => {
+            for variant in value.variants() {
+                let Some(payload) = variant.value() else {
+                    continue;
+                };
+                let mut variant_steps = entered.clone();
+                variant_steps.push(RelationPathStepFragment::EnumVariantPayload {
+                    r#enum: type_key.clone(),
+                    variant: TypeSourceKey::try_new(variant.name())?,
+                });
+                match payload.cardinality() {
+                    Cardinality::One => {}
+                    Cardinality::Opt => {
+                        variant_steps.push(RelationPathStepFragment::OptionalSome);
+                    }
+                    Cardinality::Many => {
+                        variant_steps.push(RelationPathStepFragment::ListItems);
+                    }
+                }
+                collect_nested_relation_candidates(
+                    schema,
+                    payload.item(),
+                    format!("{path_name}.{}", variant.name()),
+                    variant_steps,
+                    visiting,
+                    candidates,
+                )?;
+            }
+        }
+        SchemaNode::List(list) => {
+            let mut item_steps = entered;
+            item_steps.push(RelationPathStepFragment::ListItems);
+            collect_nested_relation_candidates(
+                schema,
+                list.item(),
+                format!("{path_name}.items"),
+                item_steps,
+                visiting,
+                candidates,
+            )?;
+        }
+        SchemaNode::Set(set) => {
+            let mut item_steps = entered;
+            item_steps.push(RelationPathStepFragment::SetItems);
+            collect_nested_relation_candidates(
+                schema,
+                set.item(),
+                format!("{path_name}.items"),
+                item_steps,
+                visiting,
+                candidates,
+            )?;
+        }
+        SchemaNode::Map(map) => {
+            let mut value_steps = entered;
+            value_steps.push(RelationPathStepFragment::MapValues);
+            match map.value().cardinality() {
+                Cardinality::One => {}
+                Cardinality::Opt => {
+                    value_steps.push(RelationPathStepFragment::OptionalSome);
+                }
+                Cardinality::Many => {
+                    value_steps.push(RelationPathStepFragment::ListItems);
+                }
+            }
+            collect_nested_relation_candidates(
+                schema,
+                map.value().item(),
+                format!("{path_name}.values"),
+                value_steps,
+                visiting,
+                candidates,
+            )?;
+        }
+        SchemaNode::Tuple(_) => {
+            if item_reaches_relation(schema, item, &mut BTreeSet::new())? {
+                return Err(FragmentLoweringError::UnsupportedCardinality(path_name));
+            }
+        }
+        SchemaNode::Canister(_)
+        | SchemaNode::Entity(_)
+        | SchemaNode::Normalizer(_)
+        | SchemaNode::Store(_)
+        | SchemaNode::Validator(_) => {
+            return Err(FragmentLoweringError::InvalidReference((*path).to_string()));
+        }
+    }
+    visiting.remove(*path);
+    Ok(())
+}
+
+fn item_reaches_relation(
+    schema: &Schema,
+    item: &Item,
+    visiting: &mut BTreeSet<String>,
+) -> Result<bool, FragmentLoweringError> {
+    if item.relation().is_some() {
+        return Ok(true);
+    }
+    let mut targets = Vec::new();
+    collect_relation_targets(schema, item, visiting, &mut targets)?;
+    Ok(!targets.is_empty())
 }
 
 fn lower_entity_field(
@@ -295,7 +602,7 @@ fn lower_scalar_relation(
         .map_err(|_| FragmentLoweringError::InvalidReference(target_path.to_string()))?;
     RelationFragment::try_new(
         SchemaName::try_new(field.name())?,
-        vec![entity_field_source_key(entity, field.name())?],
+        RelationSourceFragment::direct(vec![entity_field_source_key(entity, field.name())?]),
         EntitySourceKey::try_new(target.name())?,
         target
             .primary_key()
@@ -318,11 +625,13 @@ fn lower_composite_relation(
         .map_err(|_| FragmentLoweringError::InvalidReference(relation.target().to_string()))?;
     RelationFragment::try_new(
         SchemaName::try_new(relation.name())?,
-        relation
-            .local_fields()
-            .iter()
-            .map(|field| entity_field_source_key(entity, field))
-            .collect::<Result<Vec<_>, _>>()?,
+        RelationSourceFragment::direct(
+            relation
+                .local_fields()
+                .iter()
+                .map(|field| entity_field_source_key(entity, field))
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
         EntitySourceKey::try_new(target.name())?,
         target
             .primary_key()
@@ -1215,7 +1524,9 @@ mod tests {
         SourceRuleOperation, TypeSourceKey,
     };
 
-    use super::{Schema, lower_blob_default, lower_field_rules, lower_scalar_default};
+    use super::{
+        Schema, lower_blob_default, lower_field_rules, lower_nested_relations, lower_scalar_default,
+    };
     use crate::{
         node::{
             Arg, Args, Canister, Def, Entity, Enum, EnumVariant, Field, FieldList, Item,
@@ -1383,6 +1694,72 @@ mod tests {
             )),
         ),
     ];
+    static RECURSIVE_RECORD_FIELDS: [Field; 1] = [Field::new(
+        "next",
+        Value::new(
+            Cardinality::Opt,
+            Item::new(
+                ItemTarget::Is("test::Recursive"),
+                None,
+                None,
+                None,
+                None,
+                &[],
+                &[],
+                false,
+            ),
+        ),
+        None,
+        None,
+        None,
+    )];
+    static RECURSIVE_ENTITY_FIELDS: [Field; 1] = [Field::new(
+        "root",
+        Value::new(
+            Cardinality::One,
+            Item::new(
+                ItemTarget::Is("test::Recursive"),
+                None,
+                None,
+                None,
+                None,
+                &[],
+                &[],
+                false,
+            ),
+        ),
+        None,
+        None,
+        None,
+    )];
+
+    #[test]
+    fn recursive_structural_type_without_a_finite_relation_path_is_ignored() {
+        let mut schema = Schema::new();
+        schema.insert_node(SchemaNode::Record(Record::new(
+            Def::new("test", "Recursive"),
+            "Recursive",
+            FieldList::new(&RECURSIVE_RECORD_FIELDS),
+            EMPTY_TYPE.clone(),
+        )));
+        let entity = Entity::new(
+            Def::new("test", "RecursiveOwner"),
+            "test::Store",
+            1,
+            PrimaryKey::new(&["root"], PrimaryKeySource::External),
+            &[],
+            &[],
+            &[],
+            FieldList::new(&RECURSIVE_ENTITY_FIELDS),
+            EMPTY_TYPE.clone(),
+        );
+
+        assert!(
+            lower_nested_relations(&schema, &entity, &RECURSIVE_ENTITY_FIELDS[0])
+                .expect("recursive structural types without finite relations should lower")
+                .is_empty(),
+        );
+    }
 
     fn application_behavior_fragment(
         normalizers: &'static [TypeNormalizer],

@@ -17,6 +17,8 @@ pub(in crate::db::schema) use constraint::schema_snapshot_constraint_integrity_d
 pub(in crate::db::schema) use index::schema_snapshot_index_integrity_detail;
 pub(in crate::db) use nullable_unique::NullableUniqueIndexContractError;
 pub(in crate::db) use nullable_unique::validate_nullable_unique_index_contract;
+pub(in crate::db) use relation::accepted_relation_path_terminal;
+pub(in crate::db::schema) use relation::accepted_relation_sources_match_catalogs;
 pub(in crate::db::schema) use relation::schema_snapshot_relation_integrity_detail;
 
 /// The smallest acceptance taxonomy required beyond historical structure.

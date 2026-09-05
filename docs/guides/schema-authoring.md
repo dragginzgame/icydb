@@ -78,6 +78,43 @@ Fields, variants, relations, constraints, and rules use their explicit authored
 names; indexes derive their canonical names. Do not create a second name map in
 application code.
 
+## Nested Strong Relations
+
+Place `rel` on the scalar leaf whose target must exist for the entire lifetime
+of every source state containing it. IcyDB instantiates that annotation once
+for each accepted entity root that reaches the reusable value:
+
+```rust
+#[record(fields(field(
+    name = "asset_id",
+    value(item(prim = "Ulid", rel = "Asset"))
+)))]
+pub struct StorefrontImage {}
+
+#[entity(
+    store = "DataStore",
+    version = 1,
+    pk(field = "id"),
+    fields(
+        field(name = "id", value(item(prim = "Ulid"))),
+        field(name = "images", value(many, item(is = "StorefrontImage")))
+    )
+)]
+pub struct Storefront {}
+```
+
+Required and optional named records, enum-variant payloads, list items, set
+items, map values, and bounded combinations are supported source paths. Map
+keys, tuple positions, opaque payloads, recursive cycles, and nested assembly
+of a composite target key are rejected.
+
+Nested means only that the source key is embedded. It is still the ordinary
+strong relation contract: writes require every target in the final atomic
+image, and a surviving source blocks target deletion. Do not use `rel` for
+historical IDs, conditional references, external or cross-canister IDs, or
+values allowed to dangle. Nested relations add no member query, join,
+multikey-index, or partial-update surface.
+
 ## Generated Source References
 
 When the declaring crate depends directly on the `icydb` runtime facade,
@@ -154,10 +191,11 @@ member names through accepted source identities and returns one ordinary
 `InputValue`; applications do not need to reconstruct each stack as a named
 map. Complete-field accepted admission still enforces the named list rule.
 
-If collection members need independent queries, indexes, relations, or
+If collection members need independent queries, indexes, reverse traversal, or
 mutation, model them as entities with an owner key. Lists, sets, and maps stored
-in a row are whole-field aggregates. The exact decision matrix is maintained
-in the [nested storage contract](../contracts/NESTED_STORAGE.md).
+in a row remain whole-field aggregates even when an explicit nested scalar
+relation enforces target lifetime. The exact decision matrix is maintained in
+the [nested storage contract](../contracts/NESTED_STORAGE.md).
 
 ## Host Build And Runtime Model Boundary
 

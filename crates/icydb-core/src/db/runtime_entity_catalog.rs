@@ -17,6 +17,7 @@ use crate::{
         },
         key_taxonomy::PrimaryKeyValue,
         registry::{StoreHandle, StoreRecoveryCapability},
+        relation::RelationCommitBudget,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -395,11 +396,12 @@ pub(in crate::db) fn prepare_row_commit<C: CanisterKind>(
     };
     let store = entity.store(db)?;
     let context = entity.prepare_commit_context(db, op.schema_fingerprint, mode)?;
+    let mut relation_budget = RelationCommitBudget::default();
     if matches!(mode, crate::db::commit::CommitPrepareMode::RecoveryReplay) {
         let reader = CanonicalCommitReader::from_row_ops(db, std::slice::from_ref(op))?;
-        prepare_row_commit_with_context(db, op, &context, &reader, &reader)
+        prepare_row_commit_with_context(db, op, &context, &reader, &reader, &mut relation_budget)
     } else {
-        prepare_row_commit_with_context(db, op, &context, db, &store)
+        prepare_row_commit_with_context(db, op, &context, db, &store, &mut relation_budget)
     }
 }
 
@@ -416,6 +418,7 @@ pub(in crate::db) fn prepare_row_commit_batch_for_replay<C: CanisterKind>(
         CommitPrepareContext,
     )> = Vec::new();
     let mut prepared = Vec::with_capacity(ops.len());
+    let mut relation_budget = RelationCommitBudget::default();
     for op in ops {
         let context_index = contexts
             .iter()
@@ -455,6 +458,7 @@ pub(in crate::db) fn prepare_row_commit_batch_for_replay<C: CanisterKind>(
             &contexts[context_index].3,
             &reader,
             &reader,
+            &mut relation_budget,
         )?);
     }
     Ok(prepared)
@@ -465,6 +469,7 @@ pub(in crate::db) fn validate_delete_relations<C: CanisterKind>(
     target_path: &str,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
     source_reader: &dyn crate::db::index::StructuralPrimaryRowReader,
+    relation_budget: &mut RelationCommitBudget,
 ) -> Result<(), InternalError> {
     if deleted_target_keys.is_empty() {
         return Ok(());
@@ -485,12 +490,11 @@ pub(in crate::db) fn validate_delete_relations<C: CanisterKind>(
         }
         crate::db::relation::validate_delete_relations_for_accepted_source(
             db,
-            source.entity_tag(),
-            source.entity_path(),
-            source.store_path(),
+            &source,
             target_path,
             deleted_target_keys,
             source_reader,
+            relation_budget,
         )?;
     }
 

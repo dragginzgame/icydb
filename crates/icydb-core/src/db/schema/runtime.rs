@@ -8,8 +8,9 @@ use crate::{
         AcceptedConstraintIdentity, AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
         AcceptedSchemaSnapshot, AcceptedValueAdmissionContract, AcceptedValueCatalogHandle,
         AcceptedValueContract, FieldId, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
-        RelationId, RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy,
-        SchemaHistoricalFill, SchemaInsertDefault, enum_catalog::EnumCatalogBuildError,
+        PersistedRelationPathStepSnapshot, PersistedRelationSourceSnapshot, RelationId,
+        RowLayoutVersion, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
+        SchemaInsertDefault, enum_catalog::EnumCatalogBuildError,
     },
     db::schema::{FieldStorageDecode, LeafCodec},
     error::InternalError,
@@ -394,7 +395,18 @@ pub(in crate::db) struct OwnedAcceptedRelationEdgeContract {
     name: String,
     physical_generation: u64,
     target_path: String,
-    local_field_slots: Vec<usize>,
+    source: OwnedAcceptedRelationSourceContract,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum OwnedAcceptedRelationSourceContract {
+    Direct {
+        field_slots: Vec<usize>,
+    },
+    Nested {
+        root_slot: usize,
+        steps: Vec<PersistedRelationPathStepSnapshot>,
+    },
 }
 
 impl OwnedAcceptedRelationEdgeContract {
@@ -403,14 +415,34 @@ impl OwnedAcceptedRelationEdgeContract {
         constraint: AcceptedConstraintIdentity,
         fields: &[AcceptedRowLayoutRuntimeField<'_>],
     ) -> Result<Self, InternalError> {
-        let direct_field_ids = relation.source().direct_field_ids();
-        let mut local_field_slots = Vec::with_capacity(direct_field_ids.len());
-        for field_id in direct_field_ids {
-            let Some(field) = fields.iter().find(|field| field.field_id() == *field_id) else {
-                return Err(InternalError::store_invariant());
-            };
-            local_field_slots.push(usize::from(field.slot().get()));
-        }
+        let source = match relation.source() {
+            PersistedRelationSourceSnapshot::Direct { field_ids } => {
+                let mut field_slots = Vec::with_capacity(field_ids.len());
+                for field_id in field_ids {
+                    let Some(field) = fields.iter().find(|field| field.field_id() == *field_id)
+                    else {
+                        return Err(InternalError::store_invariant());
+                    };
+                    field_slots.push(usize::from(field.slot().get()));
+                }
+                OwnedAcceptedRelationSourceContract::Direct { field_slots }
+            }
+            PersistedRelationSourceSnapshot::Nested {
+                root_field_id,
+                steps,
+            } => {
+                let Some(root) = fields
+                    .iter()
+                    .find(|field| field.field_id() == *root_field_id)
+                else {
+                    return Err(InternalError::store_invariant());
+                };
+                OwnedAcceptedRelationSourceContract::Nested {
+                    root_slot: usize::from(root.slot().get()),
+                    steps: steps.clone(),
+                }
+            }
+        };
 
         Ok(Self {
             constraint,
@@ -418,7 +450,7 @@ impl OwnedAcceptedRelationEdgeContract {
             name: relation.name().to_string(),
             physical_generation: relation.physical_generation(),
             target_path: relation.target_path().to_string(),
-            local_field_slots,
+            source,
         })
     }
 
@@ -452,10 +484,9 @@ impl OwnedAcceptedRelationEdgeContract {
         self.target_path.as_str()
     }
 
-    /// Borrow ordered accepted local physical slots for this relation edge.
     #[must_use]
-    pub(in crate::db) const fn local_field_slots(&self) -> &[usize] {
-        self.local_field_slots.as_slice()
+    pub(in crate::db) const fn source(&self) -> &OwnedAcceptedRelationSourceContract {
+        &self.source
     }
 }
 

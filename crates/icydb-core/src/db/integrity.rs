@@ -299,7 +299,7 @@ fn relation_field_paths(plan: &AcceptedInspectionPlan, relation_id: u32) -> Vec<
 
     relation
         .source()
-        .direct_field_ids()
+        .root_field_ids()
         .iter()
         .filter_map(|field_id| {
             snapshot

@@ -358,11 +358,17 @@ fn validate_entity_page<C: CanisterKind>(
                 }
                 let mut row_staged_entries = Vec::new();
                 let mut row_staged_bytes = 0usize;
+                let mut relation_projection_budget =
+                    crate::db::relation::RelationProjectionBudget::default();
+                let mut relation_commit_budget =
+                    crate::db::relation::RelationCommitBudget::default();
                 for (relation, stage_relation) in &relations {
-                    let projected = relation.project_row(
+                    let projected = relation.project_row_with_budgets(
                         &decoded.primary_key_value(),
                         &candidate_reader,
                         true,
+                        &mut relation_projection_budget,
+                        &mut relation_commit_budget,
                     )?;
                     if !projected.missing_targets().is_empty() {
                         page.findings.push(migration_finding(

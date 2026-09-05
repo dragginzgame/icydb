@@ -14,7 +14,9 @@ use crate::{
     db::schema::FieldStorageDecode,
     db::schema::{
         AcceptedFieldKind, MAX_ACCEPTED_RECURSIVE_DEPTH,
-        composite_catalog::AcceptedCompositeCatalog,
+        composite_catalog::{
+            AcceptedCompositeCatalog, AcceptedCompositeShape, CompositeFieldId, CompositeTypeId,
+        },
     },
     value::{CanonicalEnumBody, CanonicalEnumValue},
 };
@@ -184,6 +186,23 @@ impl AcceptedValueCatalogHandle {
     #[must_use]
     pub(in crate::db) fn composite_catalog(&self) -> &AcceptedCompositeCatalog {
         self.composite_catalog.as_ref()
+    }
+
+    /// Resolve one accepted record member's current storage name by stable identity.
+    #[must_use]
+    pub(in crate::db) fn record_member_name(
+        &self,
+        type_id: CompositeTypeId,
+        member_id: CompositeFieldId,
+    ) -> Option<&str> {
+        let definition = self.composite_catalog.composite_type(type_id)?;
+        let AcceptedCompositeShape::Record(members) = definition.shape() else {
+            return None;
+        };
+        members
+            .iter()
+            .find(|member| member.id() == member_id)
+            .map(super::composite_catalog::AcceptedCompositeField::name)
     }
 
     #[must_use]

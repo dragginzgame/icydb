@@ -21,12 +21,13 @@ use crate::{
         PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
         SchemaFieldSlot, SchemaIndexId, SchemaRowLayout, SchemaVersion, bind_source_check_expr,
         lower_existing_schema_proposal, lower_migration_field, lower_migration_index,
-        lower_migration_nested_leaves, lower_new_migration_index,
+        lower_migration_nested_leaves, lower_new_migration_index, lower_relation_source,
         migration_lineage::{
             AcceptedEntitySourceLineageCatalog, AcceptedEntitySourceLineageState,
             AcceptedEntitySourceVersion,
         },
         migration_transform::{CompiledMigrationEntityProgram, compile_migration_programs},
+        relation_edge_from_source,
     },
     types::EntityTag,
 };
@@ -1311,16 +1312,9 @@ fn rebuild_relations(
             continue;
         };
         let replacement = {
-            let local_fields = proposed
-                .local_fields()
-                .iter()
-                .map(|source| {
-                    store
-                        .bindings
-                        .field(binding.entity_tag, source)
-                        .ok_or(SchemaMigrationPlanningError::UnknownToObject)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+            let source =
+                lower_relation_source(proposed.source(), binding.entity_tag, &store.bindings)
+                    .map_err(|_| SchemaMigrationPlanningError::KindMismatch)?;
             let (target_store, target_tag, target) =
                 resolve_working_entity(stores, proposed.target_entity())
                     .ok_or(SchemaMigrationPlanningError::UnknownToObject)?;
@@ -1343,7 +1337,7 @@ fn rebuild_relations(
                 .find(|relation| relation.id() == id)
             {
                 Some(accepted) => {
-                    if local_fields != accepted.source().direct_field_ids() {
+                    if &source != accepted.source() {
                         return Err(SchemaMigrationPlanningError::KindMismatch);
                     }
                     accepted.clone_with_metadata(
@@ -1351,11 +1345,11 @@ fn rebuild_relations(
                         target.entity_path().to_string(),
                     )
                 }
-                None if physical => PersistedRelationEdgeSnapshot::new_direct(
+                None if physical => relation_edge_from_source(
                     id,
                     proposed.name().as_str().to_string(),
                     target.entity_path().to_string(),
-                    local_fields,
+                    source,
                 )
                 .clone_with_physical_generation(generation),
                 None => return Err(SchemaMigrationPlanningError::IdentityConflict),
@@ -1670,10 +1664,11 @@ mod tests {
         EnumVariantFragment, ExpectedAcceptedHead, ExpectedSchemaFingerprint, FieldFragment,
         FieldInsertPolicy, FieldManagementPolicy, FieldType, IndexFragment, IndexKeyFragment,
         IndexSourceKey, NamedTypeFragment, RecordFieldFragment, RecordTypeFragment,
-        RelationDeleteAction, RelationFragment, RelationSourceKey, RuleSourceKey, ScalarLiteral,
-        ScalarType, SchemaCapability, SchemaFragment, SchemaMigrationRename,
-        SchemaMigrationTransform, SchemaName, SchemaSubmissionKey, SourceCheckExpr,
-        SourceCheckInstruction, SourceRuleOperation, TargetDatabaseIdentity, TargetedRuleFragment,
+        RelationDeleteAction, RelationFragment, RelationPathStepFragment, RelationSourceFragment,
+        RelationSourceKey, RuleSourceKey, ScalarLiteral, ScalarType, SchemaCapability,
+        SchemaFragment, SchemaMigrationRename, SchemaMigrationTransform, SchemaName,
+        SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation,
+        TargetDatabaseIdentity, TargetedRuleFragment,
     };
 
     use crate::db::schema::{
@@ -2105,7 +2100,18 @@ mod tests {
             vec![
                 RelationFragment::try_new(
                     name(relation_name),
-                    vec![field(parent_field)],
+                    RelationSourceFragment::Nested {
+                        root: field("profile"),
+                        steps: vec![
+                            RelationPathStepFragment::EnterNamed {
+                                r#type: r#type(profile_type),
+                            },
+                            RelationPathStepFragment::RecordMember {
+                                record: r#type(profile_type),
+                                field: field("owner_id"),
+                            },
+                        ],
+                    },
                     EntitySourceKey::try_new(entity_name).expect("entity should admit"),
                     vec![field("id")],
                     RelationDeleteAction::Restrict,
@@ -2139,11 +2145,18 @@ mod tests {
                 NamedTypeFragment::Record(
                     RecordTypeFragment::try_new(
                         name(profile_type),
-                        vec![RecordFieldFragment::new(
-                            name(profile_member),
-                            FieldType::Scalar(ScalarType::Text { max_len: Some(64) }),
-                            false,
-                        )],
+                        vec![
+                            RecordFieldFragment::new(
+                                name(profile_member),
+                                FieldType::Scalar(ScalarType::Text { max_len: Some(64) }),
+                                false,
+                            ),
+                            RecordFieldFragment::new(
+                                name("owner_id"),
+                                FieldType::Scalar(ScalarType::Nat64),
+                                false,
+                            ),
+                        ],
                     )
                     .expect("record should admit"),
                 ),

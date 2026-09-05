@@ -5,13 +5,13 @@ use crate::{
     ExpectedSchemaFingerprint, FieldFragment, FieldInsertPolicy, FieldSourceKey, FieldType,
     Float32, Float64, IntBig, MAX_SCHEMA_FIELD_TYPE_DEPTH, MAX_SCHEMA_PROPOSAL_BYTES,
     MAX_SOURCE_KEY_BYTES, NamedTypeFragment, NatBig, ProposalContractVersion, RecordFieldFragment,
-    RecordTypeFragment, RelationDeleteAction, RelationFragment, RuleSourceKey, ScalarLiteral,
-    ScalarType, SchemaCapability, SchemaContractError, SchemaFragment, SchemaMigrationPlan,
-    SchemaMigrationRename, SchemaName, SchemaProposal, SchemaRemoval, SchemaSubmissionKey,
-    SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation, Subaccount,
-    TargetDatabaseIdentity, TargetStoreIdentity, TargetedRuleFragment, Timestamp,
-    TupleElementFragment, TypeSourceKey, U256, Ulid, Unit, decode_schema_fragment,
-    decode_schema_proposal, encode_schema_fragment, encode_schema_proposal,
+    RecordTypeFragment, RelationDeleteAction, RelationFragment, RelationSourceFragment,
+    RuleSourceKey, ScalarLiteral, ScalarType, SchemaCapability, SchemaContractError,
+    SchemaFragment, SchemaMigrationPlan, SchemaMigrationRename, SchemaName, SchemaProposal,
+    SchemaRemoval, SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction,
+    SourceRuleOperation, Subaccount, TargetDatabaseIdentity, TargetStoreIdentity,
+    TargetedRuleFragment, Timestamp, TupleElementFragment, TypeSourceKey, U256, Ulid, Unit,
+    decode_schema_fragment, decode_schema_proposal, encode_schema_fragment, encode_schema_proposal,
 };
 
 fn source<T>(value: &str, constructor: impl FnOnce(String) -> Result<T, SchemaContractError>) -> T {
@@ -1000,7 +1000,7 @@ fn relation_entities(
     let source_target = source("target", FieldSourceKey::try_new);
     let relation = RelationFragment::try_new(
         SchemaName::try_new("target").expect("name should admit"),
-        vec![source_target],
+        RelationSourceFragment::direct(vec![source_target]),
         target_entity.clone(),
         vec![target_id.clone()],
         RelationDeleteAction::Restrict,

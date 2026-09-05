@@ -14,8 +14,8 @@ use crate::{
             ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
             ConstraintOrigin, ConstraintValidationJob, FieldId, FieldInsertGeneration,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot,
-            SchemaHistoricalFill,
+            PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
+            PersistedRelationSourceSnapshot, PersistedSchemaSnapshot, SchemaHistoricalFill,
             composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
             field_type_from_persisted_kind, identity_kind_maximum, output_value_from_runtime,
             query_field_kind_from_persisted_kind, render_accepted_check_expr_sql,
@@ -1207,7 +1207,7 @@ fn describe_accepted_constraint(
             description.relation_id = Some(relation_id.get());
             description.fields = relation
                 .source()
-                .direct_field_ids()
+                .root_field_ids()
                 .iter()
                 .map(|field_id| accepted_field_name(snapshot, *field_id))
                 .collect::<Result<Vec<_>, _>>()?;
@@ -1308,7 +1308,7 @@ fn describe_constraint_activation(
             description.relation_id = Some(relation_id.get());
             description.fields = relation
                 .source()
-                .direct_field_ids()
+                .root_field_ids()
                 .iter()
                 .map(|field_id| accepted_field_name(snapshot, *field_id))
                 .collect::<Result<Vec<_>, _>>()?;
@@ -1498,7 +1498,7 @@ pub(in crate::db) fn describe_compact_columns_with_persisted_schema(
         let relation = snapshot
             .relations()
             .iter()
-            .any(|relation| relation.source().direct_field_ids().contains(&field.id()));
+            .any(|relation| relation.source().uses_root_field(field.id()));
         let extra = compact_column_extras(
             runtime_field.write_policy().insert_generation()
                 == Some(FieldInsertGeneration::Identity),
@@ -1866,7 +1866,7 @@ pub(in crate::db) fn describe_entity_relations_with_persisted_schema(
         .map(|relation| {
             let local_fields = relation
                 .source()
-                .direct_field_ids()
+                .root_field_ids()
                 .iter()
                 .map(|field_id| accepted_field_name(snapshot, *field_id))
                 .collect::<Result<Vec<_>, _>>()?;
@@ -1887,7 +1887,10 @@ fn persisted_relation_cardinality(
     snapshot: &PersistedSchemaSnapshot,
     relation: &PersistedRelationEdgeSnapshot,
 ) -> Result<EntityRelationCardinality, InternalError> {
-    let [field_id] = relation.source().direct_field_ids() else {
+    let PersistedRelationSourceSnapshot::Direct { field_ids } = relation.source() else {
+        return Ok(EntityRelationCardinality::Single);
+    };
+    let [field_id] = field_ids.as_slice() else {
         return Ok(EntityRelationCardinality::Single);
     };
     let field = snapshot

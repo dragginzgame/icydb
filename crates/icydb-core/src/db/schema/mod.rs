@@ -111,6 +111,10 @@ pub(in crate::db::schema) use application_lowering::{
     lower_migration_field, lower_migration_index, lower_migration_nested_leaves,
     lower_new_migration_index,
 };
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db::schema) use application_lowering::{
+    lower_relation_source, relation_edge_from_source,
+};
 pub(in crate::db) use application_receipt::SchemaApplicationRecord;
 pub(in crate::db) use application_receipt::{SchemaChangeActivation, derive_schema_change_job_id};
 pub use application_receipt::{
@@ -239,7 +243,8 @@ pub(in crate::db::schema) use integrity::schema_snapshot_integrity_detail;
 #[cfg(feature = "sql")]
 pub(in crate::db) use integrity::validate_nullable_unique_index_contract;
 pub(in crate::db) use integrity::{
-    SchemaSnapshotAcceptanceError, validate_schema_snapshot_acceptance,
+    SchemaSnapshotAcceptanceError, accepted_relation_path_terminal,
+    validate_schema_snapshot_acceptance,
 };
 pub(in crate::db) use layout::{RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
 pub(in crate::db) use live_schema_checkpoint::ensure_schema_migration_ready_for_ordinary_operations;
@@ -354,6 +359,7 @@ pub(in crate::db) use runtime::{
     AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract, AcceptedInsertOmissionPolicy,
     AcceptedRowDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
     OwnedAcceptedFieldDecodeContract, OwnedAcceptedRelationEdgeContract,
+    OwnedAcceptedRelationSourceContract,
 };
 pub(in crate::db) use runtime_root::{
     AcceptedSchemaRuntimeRootIdentity, AcceptedSchemaRuntimeStoreRoot,
@@ -361,10 +367,11 @@ pub(in crate::db) use runtime_root::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use snapshot::AcceptedFieldDependencyError;
 pub(in crate::db) use snapshot::{
-    AcceptedSchemaSnapshot, PersistedFieldOrigin, PersistedFieldSnapshot,
-    PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexOrigin,
-    PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
+    AcceptedRelationValueContract, AcceptedSchemaSnapshot, PersistedFieldOrigin,
+    PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+    PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+    PersistedIndexOrigin, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
+    PersistedRelationEdgeSnapshot, PersistedRelationPathStepSnapshot,
     PersistedRelationSourceSnapshot, PersistedSchemaSnapshot, SchemaFieldWritePolicy,
     SchemaHistoricalFill, SchemaInsertDefault,
 };

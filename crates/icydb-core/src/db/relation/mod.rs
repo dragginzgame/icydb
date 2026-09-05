@@ -21,7 +21,8 @@ use std::fmt::{Debug, Display};
 
 pub(crate) use reverse_index::ReverseRelationSourceInfo;
 pub(in crate::db) use reverse_index::{
-    RelationConstraintProjection, prove_empty_reverse_relation_domain,
+    RelationCommitBudget, RelationConstraintProjection, RelationProjectionBudget,
+    prove_empty_reverse_relation_domain,
 };
 pub(in crate::db) use validate::{
     validate_candidate_relation_target_delete_barrier,

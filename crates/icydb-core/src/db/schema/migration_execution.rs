@@ -345,11 +345,17 @@ fn rewrite_entity_page(
                         )?,
                     });
                 }
+                let mut relation_projection_budget =
+                    crate::db::relation::RelationProjectionBudget::default();
+                let mut relation_commit_budget =
+                    crate::db::relation::RelationCommitBudget::default();
                 for relation in &prepared.relations {
-                    let projected = relation.project_row(
+                    let projected = relation.project_row_with_budgets(
                         &decoded.primary_key_value(),
                         &candidate_reader,
                         true,
+                        &mut relation_projection_budget,
+                        &mut relation_commit_budget,
                     )?;
                     if !projected.missing_targets().is_empty() {
                         return Err(InternalError::schema_migration(
@@ -758,8 +764,17 @@ fn final_validate_entity_page(
                     ));
                 }
             }
+            let mut relation_projection_budget =
+                crate::db::relation::RelationProjectionBudget::default();
+            let mut relation_commit_budget = crate::db::relation::RelationCommitBudget::default();
             for relation in &prepared.relations {
-                let projected = relation.project_row(&decoded.primary_key_value(), &row, true)?;
+                let projected = relation.project_row_with_budgets(
+                    &decoded.primary_key_value(),
+                    &row,
+                    true,
+                    &mut relation_projection_budget,
+                    &mut relation_commit_budget,
+                )?;
                 if !projected.missing_targets().is_empty()
                     || projected.into_entries().iter().any(|entry| {
                         entry

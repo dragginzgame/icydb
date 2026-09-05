@@ -7,14 +7,15 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    ConstraintFragmentKind, ConstraintSourceKey, EntityFragment, EntitySourceKey, FieldFragment,
-    FieldSourceKey, FieldType, IndexSourceKey, MAX_SCHEMA_ASSIGNMENTS, MAX_SCHEMA_CAPABILITIES,
-    MAX_SCHEMA_PROPOSAL_FRAGMENTS, MAX_SCHEMA_REMOVALS, NamedTypeFragment, RelationSourceKey,
-    ScalarLiteral, ScalarType, SchemaContractError, SchemaFragment, SchemaMigrationPlan,
-    SchemaMigrationRename, SchemaMigrationTransform, SchemaProposalDigest, SchemaSubmissionKey,
-    SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation, TargetDatabaseIdentity,
-    TargetStoreIdentity, TargetedRuleFragment, TypeSourceKey, check_len, encode_schema_fragment,
-    encode_schema_proposal,
+    ConstraintFragmentKind, ConstraintSourceKey, EntityFragment, EntitySourceKey,
+    EnumVariantFragment, FieldFragment, FieldSourceKey, FieldType, IndexSourceKey,
+    MAX_SCHEMA_ASSIGNMENTS, MAX_SCHEMA_CAPABILITIES, MAX_SCHEMA_PROPOSAL_FRAGMENTS,
+    MAX_SCHEMA_REMOVALS, NamedTypeFragment, RelationFragment, RelationPathStepFragment,
+    RelationSourceFragment, RelationSourceKey, ScalarLiteral, ScalarType, SchemaContractError,
+    SchemaFragment, SchemaMigrationPlan, SchemaMigrationRename, SchemaMigrationTransform,
+    SchemaProposalDigest, SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction,
+    SourceRuleOperation, TargetDatabaseIdentity, TargetStoreIdentity, TargetedRuleFragment,
+    TypeSourceKey, check_len, encode_schema_fragment, encode_schema_proposal,
 };
 
 /// Sole maintained proposal contract version.
@@ -714,7 +715,7 @@ fn validate_proposal_closure(
     let mut references = ProposalReferences::default();
     for entity in entities.values() {
         collect_entity_references(entity, types, &mut references)?;
-        validate_local_relation_targets(entity, entities)?;
+        validate_local_relation_targets(entity, entities, types)?;
     }
     for r#type in types.values() {
         collect_named_type_references(r#type, &mut references);
@@ -768,6 +769,21 @@ fn collect_entity_references(
                 .cloned()
                 .map(|field| (relation.target_entity().clone(), field)),
         );
+        if let RelationSourceFragment::Nested { steps, .. } = relation.source() {
+            references
+                .types
+                .extend(steps.iter().filter_map(|step| match step {
+                    RelationPathStepFragment::EnterNamed { r#type } => Some(r#type.clone()),
+                    RelationPathStepFragment::RecordMember { record, .. } => Some(record.clone()),
+                    RelationPathStepFragment::EnumVariantPayload { r#enum, .. } => {
+                        Some(r#enum.clone())
+                    }
+                    RelationPathStepFragment::OptionalSome
+                    | RelationPathStepFragment::ListItems
+                    | RelationPathStepFragment::SetItems
+                    | RelationPathStepFragment::MapValues => None,
+                }));
+        }
     }
     for index in entity.indexes() {
         if let Some(predicate) = index.predicate() {
@@ -1117,33 +1133,187 @@ fn collect_enum_literal_reference(
 fn validate_local_relation_targets(
     source: &EntityFragment,
     entities: &BTreeMap<EntitySourceKey, &EntityFragment>,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
 ) -> Result<(), SchemaContractError> {
     for relation in source.relations() {
         let Some(target) = entities.get(relation.target_entity()) else {
             continue;
         };
-        for (source_key, target_key) in relation.local_fields().iter().zip(relation.target_fields())
-        {
-            let source_field = source
-                .fields()
-                .iter()
-                .find(|field| field.source_key() == source_key)
-                .ok_or(SchemaContractError::InvalidLocalReference)?;
-            let target_field = target
-                .fields()
-                .iter()
-                .find(|field| field.source_key() == target_key)
-                .ok_or(SchemaContractError::InvalidLocalReference)?;
-            let source_type = match source_field.field_type() {
-                FieldType::List(item) => item.as_ref(),
-                field_type => field_type,
-            };
-            if source_type != target_field.field_type() {
-                return Err(SchemaContractError::RelationTypeMismatch);
+        match relation.source() {
+            RelationSourceFragment::Direct { fields } => {
+                for (source_key, target_key) in fields.iter().zip(relation.target_fields()) {
+                    let source_field = source
+                        .fields()
+                        .iter()
+                        .find(|field| field.source_key() == source_key)
+                        .ok_or(SchemaContractError::InvalidLocalReference)?;
+                    let target_field = target
+                        .fields()
+                        .iter()
+                        .find(|field| field.source_key() == target_key)
+                        .ok_or(SchemaContractError::InvalidLocalReference)?;
+                    let source_type = match source_field.field_type() {
+                        FieldType::List(item) => item.as_ref(),
+                        field_type => field_type,
+                    };
+                    if source_type != target_field.field_type() {
+                        return Err(SchemaContractError::RelationTypeMismatch);
+                    }
+                }
+            }
+            RelationSourceFragment::Nested { .. } => {
+                let terminal = validate_nested_relation_path(source, relation, types)?;
+                let target_key = relation
+                    .target_fields()
+                    .first()
+                    .ok_or(SchemaContractError::InvalidReferenceList)?;
+                let target_field = target
+                    .fields()
+                    .iter()
+                    .find(|field| field.source_key() == target_key)
+                    .ok_or(SchemaContractError::InvalidLocalReference)?;
+                if terminal != target_field.field_type() {
+                    return Err(SchemaContractError::RelationTypeMismatch);
+                }
             }
         }
     }
     Ok(())
+}
+
+fn validate_nested_relation_path<'schema>(
+    source: &'schema EntityFragment,
+    relation: &RelationFragment,
+    types: &BTreeMap<TypeSourceKey, &'schema NamedTypeFragment>,
+) -> Result<&'schema FieldType, SchemaContractError> {
+    let RelationSourceFragment::Nested { root, steps } = relation.source() else {
+        return Err(SchemaContractError::RelationTypeMismatch);
+    };
+    let root = source
+        .fields()
+        .iter()
+        .find(|field| field.source_key() == root)
+        .ok_or(SchemaContractError::InvalidLocalReference)?;
+    let mut kind = root.field_type();
+    let mut nullable = root.nullable();
+    let mut entered = None;
+    for step in steps {
+        match step {
+            RelationPathStepFragment::OptionalSome => {
+                if !nullable || entered.is_some() {
+                    return Err(SchemaContractError::RelationTypeMismatch);
+                }
+                nullable = false;
+            }
+            RelationPathStepFragment::EnterNamed { r#type } => {
+                let FieldType::Named(named) = kind else {
+                    return Err(SchemaContractError::RelationTypeMismatch);
+                };
+                if nullable || entered.is_some() || named != r#type {
+                    return Err(SchemaContractError::RelationTypeMismatch);
+                }
+                match types.get(named).copied() {
+                    Some(
+                        NamedTypeFragment::Record(_)
+                        | NamedTypeFragment::Enum(_)
+                        | NamedTypeFragment::List { .. }
+                        | NamedTypeFragment::Set { .. }
+                        | NamedTypeFragment::Map { .. },
+                    ) => {
+                        entered = Some(named);
+                    }
+                    Some(NamedTypeFragment::Newtype { inner, .. }) => {
+                        kind = inner;
+                    }
+                    Some(NamedTypeFragment::Tuple { .. }) | None => {
+                        return Err(SchemaContractError::RelationTypeMismatch);
+                    }
+                }
+            }
+            RelationPathStepFragment::RecordMember { record, field } => {
+                if nullable || entered != Some(record) {
+                    return Err(SchemaContractError::RelationTypeMismatch);
+                }
+                let Some(NamedTypeFragment::Record(definition)) = types.get(record).copied() else {
+                    return Err(SchemaContractError::RelationTypeMismatch);
+                };
+                let member = definition
+                    .fields()
+                    .iter()
+                    .find(|member| member.source_key() == field)
+                    .ok_or(SchemaContractError::InvalidLocalReference)?;
+                kind = member.field_type();
+                nullable = member.nullable();
+                entered = None;
+            }
+            RelationPathStepFragment::EnumVariantPayload { r#enum, variant } => {
+                if nullable || entered != Some(r#enum) {
+                    return Err(SchemaContractError::RelationTypeMismatch);
+                }
+                let Some(NamedTypeFragment::Enum(definition)) = types.get(r#enum).copied() else {
+                    return Err(SchemaContractError::RelationTypeMismatch);
+                };
+                let payload = definition
+                    .variants()
+                    .iter()
+                    .find(|candidate| candidate.source_key() == variant)
+                    .and_then(EnumVariantFragment::payload)
+                    .ok_or(SchemaContractError::InvalidLocalReference)?;
+                kind = payload;
+                nullable = false;
+                entered = None;
+            }
+            RelationPathStepFragment::ListItems
+            | RelationPathStepFragment::SetItems
+            | RelationPathStepFragment::MapValues => {
+                if nullable {
+                    return Err(SchemaContractError::RelationTypeMismatch);
+                }
+                kind = relation_collection_step_output(kind, entered.take(), step, types)?;
+                nullable = false;
+            }
+        }
+    }
+    if nullable || entered.is_some() || !matches!(kind, FieldType::Scalar(_)) {
+        return Err(SchemaContractError::RelationTypeMismatch);
+    }
+    Ok(kind)
+}
+
+fn relation_collection_step_output<'schema>(
+    kind: &'schema FieldType,
+    entered: Option<&TypeSourceKey>,
+    step: &RelationPathStepFragment,
+    types: &BTreeMap<TypeSourceKey, &'schema NamedTypeFragment>,
+) -> Result<&'schema FieldType, SchemaContractError> {
+    match (step, entered, kind) {
+        (RelationPathStepFragment::ListItems, None, FieldType::List(item)) => Ok(item),
+        (RelationPathStepFragment::ListItems, Some(named), FieldType::Named(current))
+            if named == current =>
+        {
+            let Some(NamedTypeFragment::List { item, .. }) = types.get(current).copied() else {
+                return Err(SchemaContractError::RelationTypeMismatch);
+            };
+            Ok(item)
+        }
+        (RelationPathStepFragment::SetItems, Some(named), FieldType::Named(current))
+            if named == current =>
+        {
+            let Some(NamedTypeFragment::Set { item, .. }) = types.get(current).copied() else {
+                return Err(SchemaContractError::RelationTypeMismatch);
+            };
+            Ok(item)
+        }
+        (RelationPathStepFragment::MapValues, Some(named), FieldType::Named(current))
+            if named == current =>
+        {
+            let Some(NamedTypeFragment::Map { value, .. }) = types.get(current).copied() else {
+                return Err(SchemaContractError::RelationTypeMismatch);
+            };
+            Ok(value)
+        }
+        _ => Err(SchemaContractError::RelationTypeMismatch),
+    }
 }
 
 fn ensure_no_adjacent_duplicates<T>(values: &[T]) -> Result<(), SchemaContractError>

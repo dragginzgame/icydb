@@ -22,7 +22,10 @@ use crate::{
         },
         key_taxonomy::PrimaryKeyValue,
         registry::StoreRecoveryCapability,
-        relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
+        relation::{
+            RelationCommitBudget, RelationConstraintProjection, RelationProjectionBudget,
+            ReverseRelationSourceInfo,
+        },
         schema::{ConstraintActivationKind, ConstraintId, SchemaInfo, UniqueConstraintProjection},
     },
     error::{AcceptedConstraintFactContext, ErrorClass, InternalError},
@@ -250,8 +253,9 @@ pub(in crate::db) fn prepare_row_commit_with_context<C: CanisterKind>(
     context: &CommitPrepareContext,
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
+    relation_budget: &mut RelationCommitBudget,
 ) -> Result<PreparedRowCommitOp, InternalError> {
-    prepare_row_commit_for_entity_impl(db, op, context, row_reader, index_reader)
+    prepare_row_commit_for_entity_impl(db, op, context, row_reader, index_reader, relation_budget)
 }
 
 // Decode both optional commit-marker row images through the structural row
@@ -282,6 +286,7 @@ fn prepare_row_commit_for_entity_impl<C>(
     context: &CommitPrepareContext,
     row_reader: &dyn StructuralPrimaryRowReader,
     index_reader: &dyn StructuralIndexEntryReader,
+    relation_budget: &mut RelationCommitBudget,
 ) -> Result<PreparedRowCommitOp, InternalError>
 where
     C: crate::traits::CanisterKind,
@@ -333,6 +338,8 @@ where
 
     let source_primary_key = structural.data_key.primary_key_value();
     let mut reverse_index_ops = Vec::new();
+    let mut old_relation_budget = RelationProjectionBudget::default();
+    let mut new_relation_budget = RelationProjectionBudget::default();
     for relation in &constraint_schedule.relations {
         reverse_index_ops.extend(relation.prepare_source_transition(
             row_reader,
@@ -342,6 +349,9 @@ where
             &source_primary_key,
             decoded.old_slots.as_ref(),
             decoded.new_slots.as_ref(),
+            &mut old_relation_budget,
+            &mut new_relation_budget,
+            relation_budget,
         )?);
     }
     let data_value = decoded

@@ -8,8 +8,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use icydb_schema::{
     ConstraintSourceKey, EntityFragment, EntitySourceKey, FieldInsertPolicy, FieldManagementPolicy,
     FieldSourceKey, FieldType, IndexKeyFragment, IndexSourceKey, NamedTypeFragment,
-    RelationSourceKey, ScalarLiteral, ScalarType, SchemaProposal, SchemaRemoval,
-    SourceRuleOperation, TargetStoreIdentity, TargetedRuleFragment, TypeSourceKey,
+    RelationPathStepFragment, RelationSourceFragment, RelationSourceKey, ScalarLiteral, ScalarType,
+    SchemaProposal, SchemaRemoval, SourceRuleOperation, TargetStoreIdentity, TargetedRuleFragment,
+    TypeSourceKey,
 };
 
 use crate::{
@@ -27,7 +28,8 @@ use crate::{
             PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot,
             PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId, RowLayoutVersion,
+            PersistedRelationEdgeSnapshot, PersistedRelationPathStepSnapshot,
+            PersistedRelationSourceSnapshot, PersistedSchemaSnapshot, RelationId, RowLayoutVersion,
             SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId,
             SchemaInsertDefault, SchemaRowLayout, SchemaVersion, ValueAdmissionBudget,
             accepted_rule_exact_numeric_kind_is_supported, accepted_rule_length_kind_is_supported,
@@ -2186,15 +2188,6 @@ fn verify_existing_relations(
             .iter()
             .find(|relation| relation.id() == relation_id)
             .ok_or_else(InternalError::store_invariant)?;
-        let local_fields = proposed
-            .local_fields()
-            .iter()
-            .map(|source| {
-                bindings
-                    .field(entity_tag, source)
-                    .ok_or_else(InternalError::store_unsupported)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
         let (target_bundle, target_tag, target) =
             resolve_existing_entity(stores, proposed.target_entity())?;
         let target_fields = proposed
@@ -2210,11 +2203,12 @@ fn verify_existing_relations(
         if target_fields != target.primary_key_field_ids() {
             return Err(InternalError::store_unsupported());
         }
-        let candidate = PersistedRelationEdgeSnapshot::new_direct(
+        let source = lower_relation_source(proposed.source(), entity_tag, bindings)?;
+        let candidate = relation_edge_from_source(
             accepted.id(),
             proposed.name().as_str().to_string(),
             target.entity_path().to_string(),
-            local_fields,
+            source,
         )
         .clone_with_physical_generation(accepted.physical_generation());
         if candidate != *accepted {
@@ -3094,45 +3088,106 @@ fn lower_initial_relations(
             {
                 return Err(InternalError::store_invariant());
             }
-            let local_fields = relation
-                .local_fields()
-                .iter()
-                .map(|source| {
-                    bindings
-                        .field(entity_tag, source)
-                        .ok_or_else(InternalError::store_invariant)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            for (local, target_source) in
-                relation.local_fields().iter().zip(relation.target_fields())
-            {
-                let local = entity
-                    .fields()
-                    .iter()
-                    .find(|field| field.source_key() == local)
-                    .ok_or_else(InternalError::store_invariant)?;
-                let target_field = target
-                    .fields()
-                    .iter()
-                    .find(|field| field.source_key() == target_source)
-                    .ok_or_else(InternalError::store_invariant)?;
-                let local_type = match local.field_type() {
-                    FieldType::List(item) => item.as_ref(),
-                    field_type => field_type,
-                };
-                if local_type != target_field.field_type() {
-                    return Err(InternalError::store_unsupported());
-                }
-            }
+            let source = lower_relation_source(relation.source(), entity_tag, bindings)?;
             accepted_bindings.insert((entity_tag, relation.source_key().clone()), id);
-            Ok(PersistedRelationEdgeSnapshot::new_direct(
+            Ok(relation_edge_from_source(
                 id,
                 relation.name().as_str().to_string(),
                 target.source_key().as_str().to_string(),
-                local_fields,
+                source,
             ))
         })
         .collect()
+}
+
+pub(in crate::db::schema) fn relation_edge_from_source(
+    id: RelationId,
+    name: String,
+    target_path: String,
+    source: PersistedRelationSourceSnapshot,
+) -> PersistedRelationEdgeSnapshot {
+    match source {
+        PersistedRelationSourceSnapshot::Direct { field_ids } => {
+            PersistedRelationEdgeSnapshot::new_direct(id, name, target_path, field_ids)
+        }
+        PersistedRelationSourceSnapshot::Nested {
+            root_field_id,
+            steps,
+        } => PersistedRelationEdgeSnapshot::new_nested(id, name, target_path, root_field_id, steps),
+    }
+}
+
+pub(in crate::db::schema) fn lower_relation_source(
+    source: &RelationSourceFragment,
+    entity_tag: EntityTag,
+    bindings: &AcceptedSourceBindingCatalog,
+) -> Result<PersistedRelationSourceSnapshot, InternalError> {
+    let RelationSourceFragment::Nested { root, steps } = source else {
+        let RelationSourceFragment::Direct { fields } = source else {
+            return Err(InternalError::store_invariant());
+        };
+        return fields
+            .iter()
+            .map(|field| {
+                bindings
+                    .field(entity_tag, field)
+                    .ok_or_else(InternalError::store_unsupported)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|field_ids| PersistedRelationSourceSnapshot::Direct { field_ids });
+    };
+
+    let root_field_id = bindings
+        .field(entity_tag, root)
+        .ok_or_else(InternalError::store_unsupported)?;
+    let mut accepted_steps = Vec::with_capacity(steps.len());
+    for step in steps {
+        accepted_steps.push(match step {
+            RelationPathStepFragment::OptionalSome => {
+                PersistedRelationPathStepSnapshot::OptionalSome
+            }
+            RelationPathStepFragment::EnterNamed { .. } => {
+                PersistedRelationPathStepSnapshot::EnterNamed
+            }
+            RelationPathStepFragment::RecordMember { record, field } => {
+                let AcceptedNamedTypeIdentity::Composite(type_id) = bindings
+                    .named_type(record)
+                    .ok_or_else(InternalError::store_unsupported)?
+                else {
+                    return Err(InternalError::store_unsupported());
+                };
+                let member_id = bindings
+                    .composite_field(type_id, field)
+                    .ok_or_else(InternalError::store_unsupported)?;
+                PersistedRelationPathStepSnapshot::RecordMember {
+                    composite_type_id: type_id,
+                    member_id,
+                }
+            }
+            RelationPathStepFragment::EnumVariantPayload { r#enum, variant } => {
+                let AcceptedNamedTypeIdentity::Enum(type_id) = bindings
+                    .named_type(r#enum)
+                    .ok_or_else(InternalError::store_unsupported)?
+                else {
+                    return Err(InternalError::store_unsupported());
+                };
+                let variant_id = bindings
+                    .enum_variant(type_id, variant)
+                    .ok_or_else(InternalError::store_unsupported)?;
+                PersistedRelationPathStepSnapshot::EnumVariantPayload {
+                    enum_type_id: type_id,
+                    variant_id,
+                }
+            }
+            RelationPathStepFragment::ListItems => PersistedRelationPathStepSnapshot::ListItems,
+            RelationPathStepFragment::SetItems => PersistedRelationPathStepSnapshot::SetItems,
+            RelationPathStepFragment::MapValues => PersistedRelationPathStepSnapshot::MapValues,
+        });
+    }
+    Ok(PersistedRelationSourceSnapshot::Nested {
+        root_field_id,
+        steps: accepted_steps,
+    })
 }
 
 fn lower_write_policy(

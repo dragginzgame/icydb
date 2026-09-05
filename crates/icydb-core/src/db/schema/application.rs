@@ -3668,7 +3668,7 @@ mod tests {
                 .then(|| {
                     RelationFragment::try_new(
                         name("value_target"),
-                        vec![current_value.clone()],
+                        icydb_schema::RelationSourceFragment::direct(vec![current_value.clone()]),
                         target_entity.clone(),
                         vec![target_id.clone()],
                         RelationDeleteAction::Restrict,

@@ -54,25 +54,11 @@ impl ValidateNode for Map {
             return Err(DarlingError::custom("map key cannot be Unit"));
         }
 
-        // Map values are intentionally non-nested in 0.7.
-        if self.value.cardinality() == Cardinality::Many {
-            return Err(DarlingError::custom(
-                "map value cardinality cannot be many in icydb 0.7",
-            ));
-        }
-
         if matches!(
             self.value.item.target(),
             ItemTarget::Primitive(Primitive::Unit)
         ) {
             return Err(DarlingError::custom("map value cannot be Unit"));
-        }
-
-        // Relations inside map values are currently unsupported.
-        if self.value.item.relation.is_some() {
-            return Err(DarlingError::custom(
-                "map value cannot be a relation in icydb 0.7",
-            ));
         }
 
         if self.value.item.indirect {
@@ -159,17 +145,12 @@ mod tests {
     }
 
     #[test]
-    fn map_value_relation_is_rejected() {
+    fn map_value_relation_is_admitted() {
         let mut node = map_node();
         node.value.item.relation = Some(syn::parse_quote!(SomeEntity));
 
-        let err = node
-            .validate()
-            .expect_err("map relation values should fail");
-        assert!(
-            err.to_string().contains("map value cannot be a relation"),
-            "unexpected error: {err}"
-        );
+        node.validate()
+            .expect("map relation values should validate");
     }
 
     #[test]

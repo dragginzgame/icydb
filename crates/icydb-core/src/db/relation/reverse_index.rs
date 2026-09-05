@@ -33,9 +33,12 @@ use crate::{
         },
         schema::AcceptedFieldKind,
         schema::{
-            AcceptedConstraintIdentity, AcceptedFieldDecodeContract,
-            MAX_SCHEMA_PROJECTION_WORK_UNITS, OwnedAcceptedRelationEdgeContract,
-            PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
+            AcceptedConstraintIdentity, AcceptedFieldDecodeContract, AcceptedRelationValueContract,
+            AcceptedValueCatalogHandle, MAX_SCHEMA_PROJECTION_WORK_UNITS,
+            OwnedAcceptedRelationEdgeContract, OwnedAcceptedRelationSourceContract,
+            PersistedRelationEdgeSnapshot, PersistedRelationPathStepSnapshot,
+            PersistedRelationSourceSnapshot, PersistedSchemaSnapshot, RelationId,
+            accepted_relation_path_terminal,
         },
     },
     error::{
@@ -52,6 +55,157 @@ use target_keys::RelationTargetKeys;
 // All reverse relations share one reserved system-index ordinal. Exact
 // RelationId bytes inside each key own semantic reverse-domain identity.
 const RELATION_SYSTEM_INDEX_ORDINAL: u16 = u16::MAX;
+
+const MAX_NESTED_RELATION_IMAGE_TRAVERSAL_WORK: u64 = 349_440;
+const MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES: u64 = 5_460;
+const MAX_RELATION_BATCH_TRAVERSAL_WORK: u64 = 349_440;
+const MAX_RELATION_BATCH_RAW_REFERENCES: u64 = 5_460;
+const MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS: u64 = 3_276;
+const MAX_RELATION_BATCH_REVERSE_DELTAS: u64 = 5_460;
+
+/// Per-row-image counters shared by every nested relation projected in scope.
+#[derive(Default)]
+pub(in crate::db) struct RelationProjectionBudget {
+    traversal_work: u64,
+    raw_references: u64,
+}
+
+/// Cumulative relation counters shared by one complete atomic batch.
+#[derive(Default)]
+pub(in crate::db) struct RelationCommitBudget {
+    traversal_work: u64,
+    raw_references: u64,
+    validated_target_keys: Vec<RawDataStoreKey>,
+    reverse_deltas: u64,
+}
+
+impl RelationProjectionBudget {
+    fn charge_traversal(
+        &mut self,
+        batch: &mut RelationCommitBudget,
+        amount: usize,
+    ) -> Result<(), InternalError> {
+        let amount = u64::try_from(amount).map_err(|_| {
+            relation_budget_error(
+                icydb_diagnostic_code::DiagnosticExecutionBudgetResource::NestedValueSteps,
+                MAX_NESTED_RELATION_IMAGE_TRAVERSAL_WORK,
+                u64::MAX,
+            )
+        })?;
+        self.traversal_work = charge_relation_counter(
+            self.traversal_work,
+            amount,
+            MAX_NESTED_RELATION_IMAGE_TRAVERSAL_WORK,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::NestedValueSteps,
+        )?;
+        batch.traversal_work = charge_relation_counter(
+            batch.traversal_work,
+            amount,
+            MAX_RELATION_BATCH_TRAVERSAL_WORK,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::NestedValueSteps,
+        )?;
+        Ok(())
+    }
+
+    fn charge_nested_references(
+        &mut self,
+        batch: &mut RelationCommitBudget,
+        amount: usize,
+    ) -> Result<(), InternalError> {
+        let amount = u64::try_from(amount).map_err(|_| {
+            relation_budget_error(
+                icydb_diagnostic_code::DiagnosticExecutionBudgetResource::ResultRows,
+                MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES,
+                u64::MAX,
+            )
+        })?;
+        self.raw_references = charge_relation_counter(
+            self.raw_references,
+            amount,
+            MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::ResultRows,
+        )?;
+        batch.charge_raw_references_u64(amount)
+    }
+}
+
+impl RelationCommitBudget {
+    fn charge_raw_references(&mut self, amount: usize) -> Result<(), InternalError> {
+        let amount = u64::try_from(amount).map_err(|_| {
+            relation_budget_error(
+                icydb_diagnostic_code::DiagnosticExecutionBudgetResource::ResultRows,
+                MAX_RELATION_BATCH_RAW_REFERENCES,
+                u64::MAX,
+            )
+        })?;
+        self.charge_raw_references_u64(amount)
+    }
+
+    fn charge_raw_references_u64(&mut self, amount: u64) -> Result<(), InternalError> {
+        self.raw_references = charge_relation_counter(
+            self.raw_references,
+            amount,
+            MAX_RELATION_BATCH_RAW_REFERENCES,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::ResultRows,
+        )?;
+        Ok(())
+    }
+
+    fn validate_target_once(
+        &mut self,
+        key: RawDataStoreKey,
+        validate: impl FnOnce(&RawDataStoreKey) -> Result<bool, InternalError>,
+    ) -> Result<Option<RawDataStoreKey>, InternalError> {
+        let Err(insertion_index) = self.validated_target_keys.binary_search(&key) else {
+            return Ok(None);
+        };
+        let observed = u64::try_from(self.validated_target_keys.len())
+            .map_or(u64::MAX, |count| count.saturating_add(1));
+        if observed > MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS {
+            return Err(relation_budget_error(
+                icydb_diagnostic_code::DiagnosticExecutionBudgetResource::RowsVisited,
+                MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS,
+                MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS.saturating_add(1),
+            ));
+        }
+        if !validate(&key)? {
+            return Ok(Some(key));
+        }
+        self.validated_target_keys.insert(insertion_index, key);
+        Ok(None)
+    }
+
+    fn charge_reverse_delta(&mut self) -> Result<(), InternalError> {
+        self.reverse_deltas = charge_relation_counter(
+            self.reverse_deltas,
+            1,
+            MAX_RELATION_BATCH_REVERSE_DELTAS,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+        )?;
+        Ok(())
+    }
+}
+
+fn charge_relation_counter(
+    current: u64,
+    amount: u64,
+    limit: u64,
+    resource: icydb_diagnostic_code::DiagnosticExecutionBudgetResource,
+) -> Result<u64, InternalError> {
+    let observed = current.saturating_add(amount);
+    if observed > limit {
+        return Err(relation_budget_error(resource, limit, observed));
+    }
+    Ok(observed)
+}
+
+fn relation_budget_error(
+    resource: icydb_diagnostic_code::DiagnosticExecutionBudgetResource,
+    limit: u64,
+    observed: u64,
+) -> InternalError {
+    InternalError::relation_budget_exceeded(resource, limit, observed)
+}
 
 ///
 /// ReverseRelationSourceInfo
@@ -95,9 +249,38 @@ pub(in crate::db::relation) struct AcceptedRelationInfo {
     reverse_identity: AcceptedRelationReverseIdentity,
     relation_name: String,
     source_field_index: usize,
-    local_components: AcceptedRelationLocalComponents,
+    source: AcceptedRelationSource,
     target: AcceptedRelationTargetIdentity,
     cardinality: AcceptedRelationCardinality,
+}
+
+#[derive(Clone, Debug)]
+enum AcceptedRelationSource {
+    Direct(AcceptedRelationLocalComponents),
+    Nested(AcceptedNestedRelationSource),
+}
+
+enum AcceptedRelationBindingSource<'a> {
+    Direct(&'a [usize]),
+    Nested {
+        root_slot: usize,
+        steps: &'a [PersistedRelationPathStepSnapshot],
+    },
+}
+
+struct AcceptedRelationBinding<'a> {
+    constraint: AcceptedConstraintIdentity,
+    reverse_identity: AcceptedRelationReverseIdentity,
+    name: &'a str,
+    target_path: &'a str,
+    source: AcceptedRelationBindingSource<'a>,
+}
+
+#[derive(Clone, Debug)]
+struct AcceptedNestedRelationSource {
+    root_slot: usize,
+    steps: Vec<PersistedRelationPathStepSnapshot>,
+    value_catalog: AcceptedValueCatalogHandle,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -156,9 +339,27 @@ impl AcceptedRelationInfo {
             reverse_identity,
             relation_name: relation_name.into(),
             source_field_index,
-            local_components,
+            source: AcceptedRelationSource::Direct(local_components),
             target: AcceptedRelationTargetIdentity::from_target_contract(target_contract)?,
             cardinality,
+        })
+    }
+
+    fn new_nested(
+        constraint: AcceptedConstraintIdentity,
+        reverse_identity: AcceptedRelationReverseIdentity,
+        relation_name: impl Into<String>,
+        nested: AcceptedNestedRelationSource,
+        target_contract: AcceptedRelationTargetContract,
+    ) -> Result<Self, InternalError> {
+        Ok(Self {
+            constraint,
+            reverse_identity,
+            relation_name: relation_name.into(),
+            source_field_index: nested.root_slot,
+            source: AcceptedRelationSource::Nested(nested),
+            target: AcceptedRelationTargetIdentity::from_target_contract(target_contract)?,
+            cardinality: AcceptedRelationCardinality::Single,
         })
     }
 
@@ -189,8 +390,11 @@ impl AcceptedRelationInfo {
     }
 
     #[must_use]
-    const fn local_components(&self) -> &AcceptedRelationLocalComponents {
-        &self.local_components
+    const fn local_components(&self) -> Option<&AcceptedRelationLocalComponents> {
+        match &self.source {
+            AcceptedRelationSource::Direct(components) => Some(components),
+            AcceptedRelationSource::Nested(_) => None,
+        }
     }
 
     #[must_use]
@@ -203,7 +407,17 @@ impl AcceptedRelationInfo {
     }
 
     fn scalar_local_component(&self) -> Option<&AcceptedRelationLocalComponent> {
-        self.local_components.scalar_component()
+        match &self.source {
+            AcceptedRelationSource::Direct(components) => components.scalar_component(),
+            AcceptedRelationSource::Nested(_) => None,
+        }
+    }
+
+    const fn nested_source(&self) -> Option<&AcceptedNestedRelationSource> {
+        match &self.source {
+            AcceptedRelationSource::Nested(nested) => Some(nested),
+            AcceptedRelationSource::Direct(_) => None,
+        }
     }
 
     pub(in crate::db::relation) fn write_violation(
@@ -338,10 +552,32 @@ impl RelationConstraintProjection {
         row: &StructuralSlotReader<'_>,
         validate_targets: bool,
     ) -> Result<RelationConstraintRowProjection, InternalError> {
+        let mut projection_budget = RelationProjectionBudget::default();
+        let mut commit_budget = RelationCommitBudget::default();
+        self.project_row_with_budgets(
+            source_primary_key,
+            row,
+            validate_targets,
+            &mut projection_budget,
+            &mut commit_budget,
+        )
+    }
+
+    /// Project one relation while sharing row-image and lifecycle counters.
+    pub(in crate::db) fn project_row_with_budgets(
+        &self,
+        source_primary_key: &PrimaryKeyValue,
+        row: &StructuralSlotReader<'_>,
+        validate_targets: bool,
+        projection_budget: &mut RelationProjectionBudget,
+        commit_budget: &mut RelationCommitBudget,
+    ) -> Result<RelationConstraintRowProjection, InternalError> {
         self.project_row_with_target_lookup(
             source_primary_key,
             row,
             validate_targets,
+            projection_budget,
+            commit_budget,
             |target, raw_target| {
                 Ok(self
                     .target_store
@@ -356,12 +592,16 @@ impl RelationConstraintProjection {
         source_primary_key: &PrimaryKeyValue,
         row: &StructuralSlotReader<'_>,
         validate_targets: bool,
+        projection_budget: &mut RelationProjectionBudget,
+        commit_budget: &mut RelationCommitBudget,
         target_reader: &dyn StructuralPrimaryRowReader,
     ) -> Result<RelationConstraintRowProjection, InternalError> {
         self.project_row_with_target_lookup(
             source_primary_key,
             row,
             validate_targets,
+            projection_budget,
+            commit_budget,
             |target, _| Ok(target_reader.read_primary_row(target)?.is_some()),
         )
     }
@@ -371,13 +611,20 @@ impl RelationConstraintProjection {
         source_primary_key: &PrimaryKeyValue,
         row: &StructuralSlotReader<'_>,
         validate_targets: bool,
+        projection_budget: &mut RelationProjectionBudget,
+        commit_budget: &mut RelationCommitBudget,
         mut target_exists: impl FnMut(
             &DecodedDataStoreKey,
             &RawDataStoreKey,
         ) -> Result<bool, InternalError>,
     ) -> Result<RelationConstraintRowProjection, InternalError> {
-        let target_keys =
-            relation_target_raw_keys_for_source_slots(row, &self.source, &self.relation)?;
+        let target_keys = relation_target_raw_keys_for_source_slots(
+            row,
+            &self.source,
+            &self.relation,
+            projection_budget,
+            commit_budget,
+        )?;
         let mut entries = Vec::with_capacity(target_keys.len());
         let mut missing_targets = Vec::new();
         for target_key in target_keys {
@@ -389,8 +636,13 @@ impl RelationConstraintProjection {
                 RelationTargetMismatchPolicy::Reject,
             )?
             .ok_or_else(InternalError::store_invariant)?;
-            if validate_targets && !target_exists(&target, &target_key)? {
-                missing_targets.push(target_key);
+            if validate_targets
+                && let Some(missing_target) = commit_budget
+                    .validate_target_once(target_key, |raw_target| {
+                        target_exists(&target, raw_target)
+                    })?
+            {
+                missing_targets.push(missing_target);
                 continue;
             }
             let Some(key) = reverse_index_key_for_target_and_source_primary_key_value(
@@ -445,10 +697,20 @@ impl RelationConstraintProjection {
         source_primary_key: &PrimaryKeyValue,
         old_row: Option<&StructuralSlotReader<'_>>,
         new_row: Option<&StructuralSlotReader<'_>>,
+        old_budget: &mut RelationProjectionBudget,
+        new_budget: &mut RelationProjectionBudget,
+        commit_budget: &mut RelationCommitBudget,
     ) -> Result<Vec<PreparedIndexMutation>, InternalError> {
         let old_entries = old_row
             .map(|row| {
-                self.project_row_with_target_reader(source_primary_key, row, false, target_reader)
+                self.project_row_with_target_reader(
+                    source_primary_key,
+                    row,
+                    false,
+                    old_budget,
+                    commit_budget,
+                    target_reader,
+                )
             })
             .transpose()?
             .map(RelationConstraintRowProjection::into_entries)
@@ -459,6 +721,8 @@ impl RelationConstraintProjection {
                     source_primary_key,
                     row,
                     validate_targets,
+                    new_budget,
+                    commit_budget,
                     target_reader,
                 )
             })
@@ -477,7 +741,7 @@ impl RelationConstraintProjection {
             .map(RelationConstraintRowProjection::into_entries)
             .unwrap_or_default();
 
-        Ok(merge_relation_entries(old_entries, new_entries))
+        merge_relation_entries(old_entries, new_entries, commit_budget)
     }
 }
 
@@ -504,7 +768,8 @@ impl RelationConstraintIndexEntry {
 fn merge_relation_entries(
     old_entries: Vec<RelationConstraintIndexEntry>,
     new_entries: Vec<RelationConstraintIndexEntry>,
-) -> Vec<PreparedIndexMutation> {
+    commit_budget: &mut RelationCommitBudget,
+) -> Result<Vec<PreparedIndexMutation>, InternalError> {
     let mut effects = Vec::new();
     let mut old_index = 0usize;
     let mut new_index = 0usize;
@@ -541,13 +806,17 @@ fn merge_relation_entries(
         if old_contains == new_contains {
             continue;
         }
+        // One prepared row transition is already old/new coalesced, and the
+        // batch owns one final transition per source key. Its remaining
+        // physical reverse operations are therefore distinct here.
+        commit_budget.charge_reverse_delta()?;
         effects.push(PreparedIndexMutation::new(
             entry.target_store.index_store(),
             entry.key.clone(),
             new_contains.then(IndexEntryValue::presence),
         ));
     }
-    effects
+    Ok(effects)
 }
 
 const fn relation_entry_identity(
@@ -833,11 +1102,7 @@ where
     let mut relations = Vec::new();
 
     for edge in source_row_contract.accepted_relation_edges() {
-        let Some(relation) =
-            accepted_relation_from_edge(db, source_path, source_row_contract, edge)?
-        else {
-            continue;
-        };
+        let relation = accepted_relation_from_edge(db, source_path, source_row_contract, edge)?;
 
         if target_path_filter.is_some_and(|filter| filter != relation.target().path()) {
             continue;
@@ -854,97 +1119,83 @@ fn accepted_relation_from_edge<C>(
     source_path: &str,
     source_row_contract: &StructuralRowContract,
     edge: &OwnedAcceptedRelationEdgeContract,
-) -> Result<Option<AcceptedRelationInfo>, InternalError>
-where
-    C: CanisterKind,
-{
-    let local_fields = edge
-        .local_field_slots()
-        .iter()
-        .map(|slot| source_row_contract.required_accepted_field_decode_contract(*slot))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    if let [field] = local_fields.as_slice()
-        && let Some(descriptor) = accepted_scalar_relation_target_descriptor(
-            db,
-            source_path,
-            edge.name(),
-            field.field_name(),
-            field.kind(),
-            Some(edge.target_path()),
-        )?
-    {
-        let cardinality = descriptor.cardinality();
-        return Ok(Some(AcceptedRelationInfo::new(
-            edge.constraint().clone(),
-            AcceptedRelationReverseIdentity::new(edge.relation_id(), edge.physical_generation()),
-            field.field_name(),
-            edge.local_field_slots()[0],
-            AcceptedRelationLocalComponents::scalar(edge.local_field_slots()[0], *field)?,
-            descriptor.into_target_contract(),
-            cardinality,
-        )?));
-    }
-
-    let local_component_facts = local_fields
-        .iter()
-        .map(|field| AcceptedRelationTupleEdgeLocalComponent::new(field.field_name(), field.kind()))
-        .collect::<Vec<_>>();
-    let tuple_descriptor = accepted_relation_tuple_edge_descriptor(
-        db,
-        source_path,
-        edge.name(),
-        edge.target_path(),
-        local_component_facts.as_slice(),
-    )?;
-
-    let component_specs = local_fields
-        .iter()
-        .enumerate()
-        .map(|(offset, field)| AcceptedRelationLocalComponentSpec {
-            index: edge.local_field_slots()[offset],
-            field: *field,
-        })
-        .collect::<Vec<_>>();
-
-    Ok(Some(AcceptedRelationInfo::new(
-        edge.constraint().clone(),
-        AcceptedRelationReverseIdentity::new(edge.relation_id(), edge.physical_generation()),
-        edge.name(),
-        edge.local_field_slots()[0],
-        AcceptedRelationLocalComponents::try_from_component_specs(component_specs.as_slice())?,
-        tuple_descriptor.into_target_contract(),
-        AcceptedRelationCardinality::Single,
-    )?))
-}
-
-fn relation_info_from_snapshot_edge<C>(
-    db: &Db<C>,
-    source_path: &str,
-    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
-    row_contract: &StructuralRowContract,
-    edge: &crate::db::schema::PersistedRelationEdgeSnapshot,
 ) -> Result<AcceptedRelationInfo, InternalError>
 where
     C: CanisterKind,
 {
-    let constraint = snapshot
-        .relation_enforcement_identity(edge.id())
-        .ok_or_else(InternalError::store_corruption)?;
-    let local_fields = edge
-        .source()
-        .direct_field_ids()
+    let source = match edge.source() {
+        OwnedAcceptedRelationSourceContract::Direct { field_slots } => {
+            AcceptedRelationBindingSource::Direct(field_slots)
+        }
+        OwnedAcceptedRelationSourceContract::Nested { root_slot, steps } => {
+            AcceptedRelationBindingSource::Nested {
+                root_slot: *root_slot,
+                steps,
+            }
+        }
+    };
+    accepted_relation_from_binding(
+        db,
+        source_path,
+        source_row_contract,
+        AcceptedRelationBinding {
+            constraint: edge.constraint().clone(),
+            reverse_identity: AcceptedRelationReverseIdentity::new(
+                edge.relation_id(),
+                edge.physical_generation(),
+            ),
+            name: edge.name(),
+            target_path: edge.target_path(),
+            source,
+        },
+    )
+}
+
+fn accepted_relation_from_binding<C>(
+    db: &Db<C>,
+    source_path: &str,
+    source_row_contract: &StructuralRowContract,
+    binding: AcceptedRelationBinding<'_>,
+) -> Result<AcceptedRelationInfo, InternalError>
+where
+    C: CanisterKind,
+{
+    let AcceptedRelationBinding {
+        constraint,
+        reverse_identity,
+        name,
+        target_path,
+        source,
+    } = binding;
+    let slots = match source {
+        AcceptedRelationBindingSource::Direct(slots) => slots,
+        AcceptedRelationBindingSource::Nested { root_slot, steps } => {
+            let (nested, terminal) =
+                accepted_nested_relation_source(root_slot, steps, source_row_contract)?;
+            let local_component =
+                AcceptedRelationTupleEdgeLocalComponent::new(name, terminal.kind());
+            let descriptor = accepted_relation_tuple_edge_descriptor(
+                db,
+                source_path,
+                name,
+                target_path,
+                std::slice::from_ref(&local_component),
+            )?;
+            return AcceptedRelationInfo::new_nested(
+                constraint,
+                reverse_identity,
+                name,
+                nested,
+                descriptor.into_target_contract(),
+            );
+        }
+    };
+    let local_fields = slots
         .iter()
-        .map(|field_id| {
-            let field = snapshot
-                .fields()
-                .iter()
-                .find(|field| field.id() == *field_id)
-                .ok_or_else(InternalError::store_corruption)?;
-            let slot = usize::from(field.slot().get());
-            row_contract
-                .required_accepted_field_decode_contract(slot)
-                .map(|contract| (slot, contract))
+        .map(|slot| {
+            source_row_contract
+                .required_accepted_field_decode_contract(*slot)
+                .map(|field| (*slot, field))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -952,17 +1203,17 @@ where
         && let Some(descriptor) = accepted_scalar_relation_target_descriptor(
             db,
             source_path,
-            edge.name(),
+            name,
             field.field_name(),
             field.kind(),
-            Some(edge.target_path()),
+            Some(target_path),
         )?
     {
         let cardinality = descriptor.cardinality();
         return AcceptedRelationInfo::new(
             constraint,
-            AcceptedRelationReverseIdentity::new(edge.id(), edge.physical_generation()),
-            edge.name(),
+            reverse_identity,
+            field.field_name(),
             *slot,
             AcceptedRelationLocalComponents::scalar(*slot, *field)?,
             descriptor.into_target_contract(),
@@ -979,8 +1230,8 @@ where
     let tuple_descriptor = accepted_relation_tuple_edge_descriptor(
         db,
         source_path,
-        edge.name(),
-        edge.target_path(),
+        name,
+        target_path,
         local_component_facts.as_slice(),
     )?;
     let component_specs = local_fields
@@ -990,20 +1241,110 @@ where
             field: *field,
         })
         .collect::<Vec<_>>();
-
-    let source_field_index = local_fields
+    let source_field_index = slots
         .first()
-        .map(|(slot, _)| *slot)
+        .copied()
         .ok_or_else(InternalError::store_corruption)?;
     AcceptedRelationInfo::new(
         constraint,
-        AcceptedRelationReverseIdentity::new(edge.id(), edge.physical_generation()),
-        edge.name(),
+        reverse_identity,
+        name,
         source_field_index,
         AcceptedRelationLocalComponents::try_from_component_specs(component_specs.as_slice())?,
         tuple_descriptor.into_target_contract(),
         AcceptedRelationCardinality::Single,
     )
+}
+
+fn relation_info_from_snapshot_edge<C>(
+    db: &Db<C>,
+    source_path: &str,
+    snapshot: &crate::db::schema::PersistedSchemaSnapshot,
+    row_contract: &StructuralRowContract,
+    edge: &crate::db::schema::PersistedRelationEdgeSnapshot,
+) -> Result<AcceptedRelationInfo, InternalError>
+where
+    C: CanisterKind,
+{
+    let constraint = snapshot
+        .relation_enforcement_identity(edge.id())
+        .ok_or_else(InternalError::store_corruption)?;
+    let reverse_identity =
+        AcceptedRelationReverseIdentity::new(edge.id(), edge.physical_generation());
+    match edge.source() {
+        PersistedRelationSourceSnapshot::Direct { field_ids } => {
+            let slots = field_ids
+                .iter()
+                .map(|field_id| {
+                    snapshot
+                        .fields()
+                        .iter()
+                        .find(|field| field.id() == *field_id)
+                        .map(|field| usize::from(field.slot().get()))
+                        .ok_or_else(InternalError::store_corruption)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            accepted_relation_from_binding(
+                db,
+                source_path,
+                row_contract,
+                AcceptedRelationBinding {
+                    constraint,
+                    reverse_identity,
+                    name: edge.name(),
+                    target_path: edge.target_path(),
+                    source: AcceptedRelationBindingSource::Direct(&slots),
+                },
+            )
+        }
+        PersistedRelationSourceSnapshot::Nested {
+            root_field_id,
+            steps,
+        } => {
+            let root_slot = snapshot
+                .fields()
+                .iter()
+                .find(|field| field.id() == *root_field_id)
+                .map(|field| usize::from(field.slot().get()))
+                .ok_or_else(InternalError::store_corruption)?;
+            accepted_relation_from_binding(
+                db,
+                source_path,
+                row_contract,
+                AcceptedRelationBinding {
+                    constraint,
+                    reverse_identity,
+                    name: edge.name(),
+                    target_path: edge.target_path(),
+                    source: AcceptedRelationBindingSource::Nested { root_slot, steps },
+                },
+            )
+        }
+    }
+}
+
+fn accepted_nested_relation_source(
+    root_slot: usize,
+    steps: &[PersistedRelationPathStepSnapshot],
+    row_contract: &StructuralRowContract,
+) -> Result<(AcceptedNestedRelationSource, AcceptedRelationValueContract), InternalError> {
+    let root = row_contract.required_accepted_field_decode_contract(root_slot)?;
+    let value_catalog = row_contract.accepted_value_catalog_handle();
+    let terminal = accepted_relation_path_terminal(
+        AcceptedRelationValueContract::new(root.kind().clone(), root.nullable()),
+        steps,
+        value_catalog.enum_catalog(),
+        value_catalog.composite_catalog(),
+    )
+    .ok_or_else(InternalError::store_corruption)?;
+    Ok((
+        AcceptedNestedRelationSource {
+            root_slot,
+            steps: steps.to_vec(),
+            value_catalog: value_catalog.clone(),
+        },
+        terminal,
+    ))
 }
 
 /// Build the shared relation-system index identity for one physical generation.
@@ -1143,8 +1484,16 @@ fn relation_target_raw_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
     source_info: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
+    projection_budget: &mut RelationProjectionBudget,
+    commit_budget: &mut RelationCommitBudget,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
-    let keys = relation_target_keys_for_source_slots(row_fields, source_info, relation)?;
+    let keys = relation_target_keys_for_source_slots(
+        row_fields,
+        source_info,
+        relation,
+        projection_budget,
+        commit_budget,
+    )?;
 
     relation_target_raw_keys_from_relation_target_keys(source_info, relation, keys)
 }
@@ -1157,11 +1506,20 @@ pub(in crate::db::relation) fn source_row_references_relation_target_primary_key
     source_info: ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     target_key: &PrimaryKeyValue,
+    commit_budget: &mut RelationCommitBudget,
 ) -> Result<bool, InternalError> {
     let row_fields =
         StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, source_row_contract)?;
 
-    source_slots_reference_relation_target(&row_fields, &source_info, relation, target_key)
+    let mut projection_budget = RelationProjectionBudget::default();
+    source_slots_reference_relation_target(
+        &row_fields,
+        &source_info,
+        relation,
+        target_key,
+        &mut projection_budget,
+        commit_budget,
+    )
 }
 
 // Check one already-decoded structural source row for membership of one target
@@ -1171,8 +1529,16 @@ fn source_slots_reference_relation_target(
     source_info: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     target_key: &PrimaryKeyValue,
+    projection_budget: &mut RelationProjectionBudget,
+    commit_budget: &mut RelationCommitBudget,
 ) -> Result<bool, InternalError> {
-    let keys = relation_target_keys_for_source_slots(row_fields, source_info, relation)?;
+    let keys = relation_target_keys_for_source_slots(
+        row_fields,
+        source_info,
+        relation,
+        projection_budget,
+        commit_budget,
+    )?;
 
     Ok(keys.contains(target_key))
 }
@@ -1300,11 +1666,13 @@ fn relation_target_raw_keys_from_relation_target_keys(
     relation: &AcceptedRelationInfo,
     keys: RelationTargetKeys,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
-    let mut keys = keys
-        .into_values()
-        .into_iter()
-        .map(|value| raw_relation_target_key_from_primary_key_value(source, relation, &value))
-        .collect::<Result<Vec<_>, _>>()?;
+    let values = keys.into_values();
+    let mut keys = Vec::with_capacity(values.len());
+    for value in values {
+        keys.push(raw_relation_target_key_from_primary_key_value(
+            source, relation, &value,
+        )?);
+    }
     canonicalize_relation_target_keys(&mut keys);
 
     Ok(keys)
@@ -1317,24 +1685,158 @@ fn relation_target_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
     source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
+    projection_budget: &mut RelationProjectionBudget,
+    commit_budget: &mut RelationCommitBudget,
 ) -> Result<RelationTargetKeys, InternalError> {
-    if relation
+    if let Some(nested) = relation.nested_source() {
+        return relation_target_keys_from_nested_source(
+            row_fields,
+            source,
+            relation,
+            nested,
+            projection_budget,
+            commit_budget,
+        );
+    }
+    let keys = if relation
         .scalar_relation_field_kind()
         .and_then(accepted_relation_target_metadata_from_kind)
         .is_none()
     {
-        return relation_target_keys_from_component_slots(row_fields, source, relation);
-    }
+        relation_target_keys_from_component_slots(row_fields, source, relation)?
+    } else if let Some(keys) = relation_target_keys_from_scalar_slot(row_fields, source, relation)?
+    {
+        // Keep single relation slots on the scalar fast path when the persisted
+        // field already uses a primary-key-compatible leaf codec.
+        keys
+    } else {
+        // Decode the declared relation field payload directly into target keys
+        // without rebuilding a runtime `Value` container.
+        relation_target_keys_from_field_bytes(row_fields, source, relation)?
+    };
+    commit_budget.charge_raw_references(keys.len())?;
+    Ok(keys)
+}
 
-    // Phase 1: keep single relation slots on the scalar fast path when the
-    // persisted field already uses a primary-key-compatible leaf codec.
-    if let Some(keys) = relation_target_keys_from_scalar_slot(row_fields, source, relation)? {
-        return Ok(keys);
+fn relation_target_keys_from_nested_source(
+    row_fields: &StructuralSlotReader<'_>,
+    source: &ReverseRelationSourceInfo,
+    relation: &AcceptedRelationInfo,
+    nested: &AcceptedNestedRelationSource,
+    projection_budget: &mut RelationProjectionBudget,
+    commit_budget: &mut RelationCommitBudget,
+) -> Result<RelationTargetKeys, InternalError> {
+    let root = row_fields.required_value_by_contract(nested.root_slot)?;
+    let mut values = vec![&root];
+    for step in &nested.steps {
+        projection_budget.charge_traversal(commit_budget, values.len())?;
+        match step {
+            PersistedRelationPathStepSnapshot::OptionalSome => {
+                let mut present = Vec::with_capacity(values.len());
+                for value in values {
+                    if !matches!(value, crate::value::Value::Null) {
+                        present.push(value);
+                    }
+                }
+                values = present;
+            }
+            PersistedRelationPathStepSnapshot::EnterNamed => {}
+            PersistedRelationPathStepSnapshot::RecordMember {
+                composite_type_id,
+                member_id,
+                ..
+            } => {
+                let member_name = nested
+                    .value_catalog
+                    .record_member_name(*composite_type_id, *member_id)
+                    .ok_or_else(InternalError::store_corruption)?;
+                let mut members = Vec::with_capacity(values.len());
+                for value in values {
+                    let crate::value::Value::Map(entries) = value else {
+                        return Err(nested_relation_value_mismatch(source, relation));
+                    };
+                    members.push(
+                        entries
+                            .iter()
+                            .find_map(|(key, value)| {
+                                matches!(key, crate::value::Value::Text(name) if name == member_name)
+                                    .then_some(value)
+                            })
+                            .ok_or_else(|| nested_relation_value_mismatch(source, relation))?,
+                    );
+                }
+                values = members;
+            }
+            PersistedRelationPathStepSnapshot::EnumVariantPayload {
+                enum_type_id,
+                variant_id,
+                ..
+            } => {
+                let mut payloads = Vec::with_capacity(values.len());
+                for value in values {
+                    let crate::value::Value::Enum(enum_value) = value else {
+                        return Err(nested_relation_value_mismatch(source, relation));
+                    };
+                    if enum_value.type_id() != *enum_type_id {
+                        return Err(nested_relation_value_mismatch(source, relation));
+                    }
+                    if enum_value.variant_id() != *variant_id {
+                        continue;
+                    }
+                    let crate::value::CanonicalEnumBody::Payload(payload) = enum_value.body()
+                    else {
+                        return Err(nested_relation_value_mismatch(source, relation));
+                    };
+                    payloads.push(payload.as_ref());
+                }
+                values = payloads;
+            }
+            PersistedRelationPathStepSnapshot::ListItems
+            | PersistedRelationPathStepSnapshot::SetItems => {
+                let mut items = Vec::new();
+                for value in values {
+                    let crate::value::Value::List(nested_items) = value else {
+                        return Err(nested_relation_value_mismatch(source, relation));
+                    };
+                    items.extend(nested_items);
+                }
+                values = items;
+            }
+            PersistedRelationPathStepSnapshot::MapValues => {
+                let mut map_values = Vec::new();
+                for value in values {
+                    let crate::value::Value::Map(entries) = value else {
+                        return Err(nested_relation_value_mismatch(source, relation));
+                    };
+                    for (_, value) in entries {
+                        map_values.push(value);
+                    }
+                }
+                values = map_values;
+            }
+        }
     }
+    projection_budget.charge_nested_references(commit_budget, values.len())?;
+    let mut components = Vec::with_capacity(values.len());
+    for value in values {
+        components.push(
+            PrimaryKeyComponent::from_runtime_value(value)
+                .ok_or_else(|| nested_relation_value_mismatch(source, relation))?,
+        );
+    }
+    Ok(RelationTargetKeys::from_scalar_components(components))
+}
 
-    // Phase 2: decode the declared relation field payload directly into target
-    // keys without rebuilding a runtime `Value` container.
-    relation_target_keys_from_field_bytes(row_fields, source, relation)
+fn nested_relation_value_mismatch(
+    source: &ReverseRelationSourceInfo,
+    relation: &AcceptedRelationInfo,
+) -> InternalError {
+    InternalError::relation_source_row_decode_failed(
+        source.path(),
+        relation.field_name(),
+        relation.target().path(),
+        "nested relation value does not match its accepted path",
+    )
 }
 
 fn relation_target_keys_from_component_slots(
@@ -1342,10 +1844,13 @@ fn relation_target_keys_from_component_slots(
     source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> Result<RelationTargetKeys, InternalError> {
-    let mut components = Vec::with_capacity(relation.local_components().component_count());
+    let local_components = relation
+        .local_components()
+        .ok_or_else(InternalError::store_invariant)?;
+    let mut components = Vec::with_capacity(local_components.component_count());
     let mut null_count = 0usize;
 
-    for local_component in relation.local_components().components() {
+    for local_component in local_components.components() {
         let bytes = row_fields
             .required_field_bytes(local_component.field_index(), local_component.field_name())?;
         let value = decode_runtime_value_from_accepted_field_contract(
@@ -1375,7 +1880,7 @@ fn relation_target_keys_from_component_slots(
         components.push(component);
     }
 
-    if null_count == relation.local_components().component_count() {
+    if null_count == local_components.component_count() {
         return Ok(RelationTargetKeys::none());
     }
     if null_count != 0 {
@@ -1557,8 +2062,10 @@ fn validate_relation_field_kind(relation: &AcceptedRelationInfo) -> Result<(), I
 fn validate_scalar_relation_target_primary_key_kind(
     relation: &AcceptedRelationInfo,
 ) -> Result<(), InternalError> {
-    if relation.local_components().component_count()
-        != relation.target().primary_key().component_kinds().len()
+    let local_components = relation
+        .local_components()
+        .ok_or_else(InternalError::store_invariant)?;
+    if local_components.component_count() != relation.target().primary_key().component_kinds().len()
     {
         return Err(InternalError::relation_source_row_unsupported_key_kind(
             relation.target().primary_key().component_kinds(),

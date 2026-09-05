@@ -322,6 +322,17 @@ impl AcceptedSchemaRevisionBundle {
             ) {
                 return Err(InternalError::store_invariant());
             }
+            if !crate::db::schema::integrity::accepted_relation_sources_match_catalogs(
+                snapshot.fields(),
+                snapshot
+                    .relations()
+                    .iter()
+                    .chain(snapshot.candidate_relations()),
+                &self.enum_catalog,
+                &self.composite_catalog,
+            ) {
+                return Err(InternalError::store_invariant());
+            }
         }
         Ok(())
     }

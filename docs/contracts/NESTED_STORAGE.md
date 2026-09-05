@@ -23,9 +23,11 @@ an open document, and a stored collection does not create child rows.
 - Subpath mutation targets a member or element without supplying that complete
   root value and is unsupported.
 
-When repeated children need independent queries, indexes, relations, or
-mutation, model them as entities with an owner key. Do not maintain an embedded
-aggregate and shadow child entities as competing authorities.
+When repeated children need independent queries, indexes, reverse traversal,
+or mutation, model them as entities with an owner key. A scalar relation leaf
+inside an embedded value may enforce target lifetime, but it does not create a
+queryable child row. Do not maintain an embedded aggregate and shadow child
+entities as competing authorities.
 
 ## Shape Matrix
 
@@ -157,10 +159,17 @@ A smaller state-dependent capacity, element uniqueness, or cross-entity
 existence rule remains application-owned unless it is represented by an
 existing accepted relational or constraint contract.
 
-Direct relation metadata uses the current tagged accepted-source form and an
-exact relation-owned reverse identity. This does not make composite members or
-repeated items relation-bearing: nested relation discovery and traversal enter
-only with later 0.253 capability slices.
+Direct and nested relation metadata use the current tagged accepted-source form
+and an exact relation-owned reverse identity. An explicit scalar `rel` leaf may
+be reached through required or optional named records, enum payloads, list
+items, set items, map values, and bounded combinations. Each rooted occurrence
+is a separate strong relation; repeated duplicate target keys produce one
+logical reverse edge after raw occurrences have been charged.
+
+Nested relations do not add member queries, multikey indexes, child identity,
+or partial mutation. Map keys, tuple positions, opaque payloads, recursive
+cycles, and nested composite-target assembly remain unsupported relation
+sources.
 
 ## Write, Atomicity, And Recovery Boundary
 
@@ -202,12 +211,13 @@ the existing executor-origin `RuntimeUnsupported` diagnostic. It adds no field
 payload, diagnostic variant, or subpath mutation route.
 
 The 0.253 database-format hard cut requires recreation from 0.252 state. It
-changes accepted direct-relation identity and reverse storage but does not
-widen query, index, or partial-mutation behavior.
+changes accepted relation identity and reverse storage and admits the bounded
+nested strong-relation sources above, without widening query, index, or
+partial-mutation behavior.
 
 ## Explicit Non-Goals
 
 This contract adds no collection expansion, repeated-member predicate,
-multikey index, nested relation or uniqueness, subpath mutation, capability
-tier, runtime mode, planner route, cursor format, persisted state, or legacy
-compatibility path.
+multikey index, nested-relation query, nested uniqueness, weak or conditional
+relation mode, subpath mutation, capability tier, runtime mode, planner route,
+cursor format, alternate persisted state, or legacy compatibility path.

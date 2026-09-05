@@ -5,9 +5,9 @@ use std::collections::BTreeSet;
 use crate::{
     ConstraintSourceKey, Decimal, DeclaredEntityVersion, EntitySourceKey, FieldSourceKey,
     IndexSourceKey, MAX_FRAGMENT_CONSTRAINTS, MAX_FRAGMENT_ENTITIES, MAX_FRAGMENT_FIELDS,
-    MAX_FRAGMENT_INDEXES, MAX_FRAGMENT_RELATIONS, MAX_FRAGMENT_TYPES, MAX_SCHEMA_FIELD_TYPE_DEPTH,
-    RelationSourceKey, RuleSourceKey, ScalarKind, ScalarLiteral, SchemaContractError, SchemaName,
-    SourceCheckExpr, SourceRuleOperation, TypeSourceKey,
+    MAX_FRAGMENT_INDEXES, MAX_FRAGMENT_RELATIONS, MAX_FRAGMENT_TYPES, MAX_RELATION_PATH_STEPS,
+    MAX_SCHEMA_FIELD_TYPE_DEPTH, RelationSourceKey, RuleSourceKey, ScalarKind, ScalarLiteral,
+    SchemaContractError, SchemaName, SourceCheckExpr, SourceRuleOperation, TypeSourceKey,
 };
 
 /// Logical type reference in a proposal fragment.
@@ -442,19 +442,103 @@ pub enum RelationDeleteAction {
     Restrict,
 }
 
+/// One deterministic step below an entity-root relation field.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RelationPathStepFragment {
+    /// Enter one accepted named record, enum, or transparent newtype.
+    EnterNamed { r#type: TypeSourceKey },
+    /// Continue through a present optional value; `NULL` means no target.
+    OptionalSome,
+    /// Select one accepted member of an accepted record.
+    RecordMember {
+        /// Record declaration containing the member.
+        record: TypeSourceKey,
+        /// Stable proposal key for the member.
+        field: FieldSourceKey,
+    },
+    /// Select one payload-bearing accepted enum variant.
+    EnumVariantPayload {
+        /// Enum declaration containing the variant.
+        r#enum: TypeSourceKey,
+        /// Stable proposal key for the variant.
+        variant: TypeSourceKey,
+    },
+    /// Traverse every item of an accepted ordered collection.
+    ListItems,
+    /// Traverse every item of an accepted unique collection.
+    SetItems,
+    /// Traverse every value of an accepted map in canonical key order.
+    MapValues,
+}
+
+/// Current source program for one relation edge.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RelationSourceFragment {
+    /// Ordered entity-root fields for the direct relation fast path.
+    Direct { fields: Vec<FieldSourceKey> },
+    /// One deterministic path from an entity-root field to scalar targets.
+    Nested {
+        /// Entity-root field that owns the finite nested value.
+        root: FieldSourceKey,
+        /// Complete ordered traversal program below `root`.
+        steps: Vec<RelationPathStepFragment>,
+    },
+}
+
+impl RelationSourceFragment {
+    /// Construct a direct relation source from ordered root fields.
+    #[must_use]
+    pub const fn direct(fields: Vec<FieldSourceKey>) -> Self {
+        Self::Direct { fields }
+    }
+
+    /// Borrow every entity-root field owned by this relation source.
+    pub fn root_fields(&self) -> impl Iterator<Item = &FieldSourceKey> {
+        let direct = match self {
+            Self::Direct { fields } => fields.as_slice(),
+            Self::Nested { .. } => &[],
+        };
+        let nested = match self {
+            Self::Nested { root, .. } => Some(root),
+            Self::Direct { .. } => None,
+        };
+        direct.iter().chain(nested)
+    }
+
+    fn validate(&self, target_field_count: usize) -> Result<(), SchemaContractError> {
+        match self {
+            Self::Direct { fields } => {
+                if fields.is_empty() || fields.len() != target_field_count {
+                    return Err(SchemaContractError::InvalidReferenceList);
+                }
+                ensure_unique(fields)
+            }
+            Self::Nested { steps, .. } => {
+                if steps.is_empty()
+                    || steps.len() > MAX_RELATION_PATH_STEPS
+                    || target_field_count != 1
+                {
+                    return Err(SchemaContractError::InvalidReferenceList);
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
 /// One source-owned relation definition.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RelationFragment {
     source_key: RelationSourceKey,
     name: SchemaName,
-    local_fields: Vec<FieldSourceKey>,
+    source: RelationSourceFragment,
     target_entity: EntitySourceKey,
     target_fields: Vec<FieldSourceKey>,
     on_delete: RelationDeleteAction,
 }
 
 impl RelationFragment {
-    /// Construct one relation with ordered source/target components.
+    /// Construct one relation with one bounded source program and ordered target components.
     ///
     /// # Errors
     ///
@@ -462,20 +546,20 @@ impl RelationFragment {
     /// components.
     pub fn try_new(
         name: SchemaName,
-        local_fields: Vec<FieldSourceKey>,
+        source: RelationSourceFragment,
         target_entity: EntitySourceKey,
         target_fields: Vec<FieldSourceKey>,
         on_delete: RelationDeleteAction,
     ) -> Result<Self, SchemaContractError> {
-        if local_fields.is_empty() || local_fields.len() != target_fields.len() {
+        if target_fields.is_empty() {
             return Err(SchemaContractError::InvalidReferenceList);
         }
-        ensure_unique(&local_fields)?;
+        source.validate(target_fields.len())?;
         ensure_unique(&target_fields)?;
         Ok(Self {
             source_key: RelationSourceKey::from_name(&name),
             name,
-            local_fields,
+            source,
             target_entity,
             target_fields,
             on_delete,
@@ -494,10 +578,10 @@ impl RelationFragment {
         &self.name
     }
 
-    /// Borrow ordered source fields.
+    /// Borrow the complete current relation source program.
     #[must_use]
-    pub fn local_fields(&self) -> &[FieldSourceKey] {
-        &self.local_fields
+    pub const fn source(&self) -> &RelationSourceFragment {
+        &self.source
     }
 
     /// Borrow the target entity source key.
@@ -521,7 +605,7 @@ impl RelationFragment {
     fn validate(&self) -> Result<(), SchemaContractError> {
         let rebuilt = Self::try_new(
             self.name.clone(),
-            self.local_fields.clone(),
+            self.source.clone(),
             self.target_entity.clone(),
             self.target_fields.clone(),
             self.on_delete,
@@ -762,8 +846,8 @@ impl EntityFragment {
         }
         for relation in &relations {
             if relation
-                .local_fields()
-                .iter()
+                .source()
+                .root_fields()
                 .any(|field| !field_keys.contains(field))
                 || (relation.target_entity() == &source_key
                     && relation

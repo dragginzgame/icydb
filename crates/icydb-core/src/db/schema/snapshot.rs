@@ -15,7 +15,10 @@ use crate::{
         ConstraintIdAllocator, FieldId, FieldInsertGeneration, FieldStorageDecode,
         FieldWriteManagement, LeafCodec, RelationId, RelationIdAllocator, RowLayoutVersion,
         SchemaFieldSlot, SchemaIndexId, SchemaRowLayout, SchemaSnapshotAcceptanceError,
-        SchemaVersion, constraint::AcceptedConstraintCatalogError,
+        SchemaVersion,
+        composite_catalog::{CompositeFieldId, CompositeTypeId},
+        constraint::AcceptedConstraintCatalogError,
+        enum_catalog::{EnumTypeId, EnumVariantId},
         validate_schema_snapshot_acceptance,
     },
     error::InternalError,
@@ -639,7 +642,7 @@ impl PersistedSchemaSnapshot {
             || self
                 .relations
                 .iter()
-                .any(|relation| relation.source().direct_field_ids().contains(&field_id))
+                .any(|relation| relation.source().uses_root_field(field_id))
     }
 
     /// Return whether update-management changes a globally constrained field.
@@ -850,14 +853,29 @@ impl PersistedSchemaSnapshot {
 pub(in crate::db) enum PersistedRelationSourceSnapshot {
     /// Ordered accepted entity-root fields for a maintained direct relation.
     Direct { field_ids: Vec<FieldId> },
+    /// One bounded deterministic path from an entity-root field to one scalar target.
+    Nested {
+        root_field_id: FieldId,
+        steps: Vec<PersistedRelationPathStepSnapshot>,
+    },
 }
 
 impl PersistedRelationSourceSnapshot {
-    /// Borrow direct accepted field identities.
+    /// Borrow every accepted entity-root field required to project this source.
     #[must_use]
-    pub(in crate::db) const fn direct_field_ids(&self) -> &[FieldId] {
+    pub(in crate::db) const fn root_field_ids(&self) -> &[FieldId] {
         match self {
             Self::Direct { field_ids } => field_ids.as_slice(),
+            Self::Nested { root_field_id, .. } => std::slice::from_ref(root_field_id),
+        }
+    }
+
+    /// Return whether this source depends on one accepted entity-root field.
+    #[must_use]
+    pub(in crate::db) fn uses_root_field(&self, field_id: FieldId) -> bool {
+        match self {
+            Self::Direct { field_ids } => field_ids.contains(&field_id),
+            Self::Nested { root_field_id, .. } => *root_field_id == field_id,
         }
     }
 
@@ -873,8 +891,57 @@ impl PersistedRelationSourceSnapshot {
                     .map(&mut map)
                     .collect::<Option<Vec<_>>>()?,
             }),
+            Self::Nested {
+                root_field_id,
+                steps,
+            } => Some(Self::Nested {
+                root_field_id: map(*root_field_id)?,
+                steps: steps.clone(),
+            }),
         }
     }
+}
+
+/// Exact kind and explicit-null policy derived from accepted relation path authority.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AcceptedRelationValueContract {
+    kind: AcceptedFieldKind,
+    nullable: bool,
+}
+
+impl AcceptedRelationValueContract {
+    #[must_use]
+    pub(in crate::db) const fn new(kind: AcceptedFieldKind, nullable: bool) -> Self {
+        Self { kind, nullable }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn kind(&self) -> &AcceptedFieldKind {
+        &self.kind
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn nullable(&self) -> bool {
+        self.nullable
+    }
+}
+
+/// One accepted identity-backed step in a deterministic nested relation path.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum PersistedRelationPathStepSnapshot {
+    EnterNamed,
+    OptionalSome,
+    RecordMember {
+        composite_type_id: CompositeTypeId,
+        member_id: CompositeFieldId,
+    },
+    EnumVariantPayload {
+        enum_type_id: EnumTypeId,
+        variant_id: EnumVariantId,
+    },
+    ListItems,
+    SetItems,
+    MapValues,
 }
 
 ///
@@ -907,6 +974,27 @@ impl PersistedRelationEdgeSnapshot {
             name,
             target_path,
             source: PersistedRelationSourceSnapshot::Direct { field_ids },
+        }
+    }
+
+    /// Build one accepted nested relation-edge snapshot from validated path parts.
+    #[must_use]
+    pub(in crate::db) const fn new_nested(
+        id: RelationId,
+        name: String,
+        target_path: String,
+        root_field_id: FieldId,
+        steps: Vec<PersistedRelationPathStepSnapshot>,
+    ) -> Self {
+        Self {
+            id,
+            physical_generation: 0,
+            name,
+            target_path,
+            source: PersistedRelationSourceSnapshot::Nested {
+                root_field_id,
+                steps,
+            },
         }
     }
 

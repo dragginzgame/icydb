@@ -314,10 +314,13 @@ inside every entity-generic mutation helper.
 Generated authored scalar primary keys and direct scalar relations retain
 their entity identity as `Id<E>` in write inputs. Optional and many direct
 relations use nullable `WriteCell<Id<E>>` and `WriteCell<Vec<Id<E>>>` intent.
-Ordinary non-relation key fields and composite-relation components retain their
-declared primitive types. Row storage, output, and Candid encoding remain the
-declared raw key shape. A schema-generated primary key is still omitted from
-its generated insert input and cannot be authored through the structural lane.
+Nested relation leaves retain their declaring composite value's generated
+scalar representation; their accepted rooted relation metadata supplies the
+runtime target contract. Ordinary non-relation key fields and
+composite-relation components retain their declared primitive types. Row
+storage, output, and Candid encoding remain the declared raw key shape. A
+schema-generated primary key is still omitted from its generated insert input
+and cannot be authored through the structural lane.
 
 Use the mixed typed builder when generated inputs for several entities must
 commit in one same-store batch. The builder resolves each exact binding,

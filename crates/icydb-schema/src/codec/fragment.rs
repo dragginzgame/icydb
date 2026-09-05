@@ -3,9 +3,10 @@ use crate::{
     EnumTypeFragment, EnumVariantFragment, FieldFragment, FieldInsertPolicy, FieldManagementPolicy,
     IndexFragment, IndexKeyFragment, MAX_FRAGMENT_CONSTRAINTS, MAX_FRAGMENT_ENTITIES,
     MAX_FRAGMENT_FIELDS, MAX_FRAGMENT_INDEXES, MAX_FRAGMENT_RELATIONS, MAX_FRAGMENT_TYPES,
-    MAX_SCHEMA_FRAGMENT_BYTES, NamedTypeFragment, RecordFieldFragment, RecordTypeFragment,
-    RelationDeleteAction, RelationFragment, SchemaContractError, SchemaFragment,
-    TargetedRuleFragment, TupleElementFragment,
+    MAX_RELATION_PATH_STEPS, MAX_SCHEMA_FRAGMENT_BYTES, NamedTypeFragment, RecordFieldFragment,
+    RecordTypeFragment, RelationDeleteAction, RelationFragment, RelationPathStepFragment,
+    RelationSourceFragment, SchemaContractError, SchemaFragment, TargetedRuleFragment,
+    TupleElementFragment,
 };
 
 use super::{
@@ -256,7 +257,39 @@ fn encode_relation(
     relation: &RelationFragment,
 ) -> Result<(), SchemaContractError> {
     encode_schema_name(writer, relation.name())?;
-    encode_field_keys(writer, relation.local_fields())?;
+    match relation.source() {
+        RelationSourceFragment::Direct { fields } => {
+            writer.push_u8(1)?;
+            encode_field_keys(writer, fields)?;
+        }
+        RelationSourceFragment::Nested { root, steps } => {
+            writer.push_u8(2)?;
+            encode_source_key(writer, root.as_str())?;
+            writer.push_len(steps.len())?;
+            for step in steps {
+                match step {
+                    RelationPathStepFragment::EnterNamed { r#type } => {
+                        writer.push_u8(1)?;
+                        encode_source_key(writer, r#type.as_str())?;
+                    }
+                    RelationPathStepFragment::OptionalSome => writer.push_u8(2)?,
+                    RelationPathStepFragment::RecordMember { record, field } => {
+                        writer.push_u8(3)?;
+                        encode_source_key(writer, record.as_str())?;
+                        encode_source_key(writer, field.as_str())?;
+                    }
+                    RelationPathStepFragment::EnumVariantPayload { r#enum, variant } => {
+                        writer.push_u8(4)?;
+                        encode_source_key(writer, r#enum.as_str())?;
+                        encode_source_key(writer, variant.as_str())?;
+                    }
+                    RelationPathStepFragment::ListItems => writer.push_u8(5)?,
+                    RelationPathStepFragment::SetItems => writer.push_u8(6)?,
+                    RelationPathStepFragment::MapValues => writer.push_u8(7)?,
+                }
+            }
+        }
+    }
     encode_source_key(writer, relation.target_entity().as_str())?;
     encode_field_keys(writer, relation.target_fields())?;
     match relation.on_delete() {
@@ -275,7 +308,42 @@ fn decode_relations(
         .map_err(|_| SchemaContractError::Decode)?;
     for _ in 0..len {
         let name = decode_schema_name(reader)?;
-        let local_fields = decode_field_keys(reader, "relation local fields", MAX_FRAGMENT_FIELDS)?;
+        let source = match reader.read_u8()? {
+            1 => RelationSourceFragment::Direct {
+                fields: decode_field_keys(reader, "relation local fields", MAX_FRAGMENT_FIELDS)?,
+            },
+            2 => {
+                let root = decode_field_key(reader)?;
+                let step_count =
+                    reader.read_count("relation path steps", MAX_RELATION_PATH_STEPS)?;
+                let mut steps = Vec::new();
+                steps
+                    .try_reserve_exact(step_count)
+                    .map_err(|_| SchemaContractError::Decode)?;
+                for _ in 0..step_count {
+                    steps.push(match reader.read_u8()? {
+                        1 => RelationPathStepFragment::EnterNamed {
+                            r#type: decode_type_key(reader)?,
+                        },
+                        2 => RelationPathStepFragment::OptionalSome,
+                        3 => RelationPathStepFragment::RecordMember {
+                            record: decode_type_key(reader)?,
+                            field: decode_field_key(reader)?,
+                        },
+                        4 => RelationPathStepFragment::EnumVariantPayload {
+                            r#enum: decode_type_key(reader)?,
+                            variant: decode_type_key(reader)?,
+                        },
+                        5 => RelationPathStepFragment::ListItems,
+                        6 => RelationPathStepFragment::SetItems,
+                        7 => RelationPathStepFragment::MapValues,
+                        _ => return Err(SchemaContractError::Decode),
+                    });
+                }
+                RelationSourceFragment::Nested { root, steps }
+            }
+            _ => return Err(SchemaContractError::Decode),
+        };
         let target_entity = decode_entity_key(reader)?;
         let target_fields =
             decode_field_keys(reader, "relation target fields", MAX_FRAGMENT_FIELDS)?;
@@ -285,7 +353,7 @@ fn decode_relations(
         };
         relations.push(RelationFragment::try_new(
             name,
-            local_fields,
+            source,
             target_entity,
             target_fields,
             on_delete,

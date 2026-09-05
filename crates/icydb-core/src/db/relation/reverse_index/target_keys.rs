@@ -25,16 +25,19 @@ impl RelationTargetKeys {
     }
 
     pub(super) fn from_scalar_components(components: Vec<PrimaryKeyComponent>) -> Self {
-        Self::from_values(
-            components
-                .into_iter()
-                .map(PrimaryKeyValue::Scalar)
-                .collect(),
-        )
+        let mut values = Vec::with_capacity(components.len());
+        for component in components {
+            values.push(PrimaryKeyValue::Scalar(component));
+        }
+        Self::from_values(values)
     }
 
     pub(super) fn contains(&self, target_key: &PrimaryKeyValue) -> bool {
         self.values.iter().any(|key| key == target_key)
+    }
+
+    pub(super) const fn len(&self) -> usize {
+        self.values.len()
     }
 
     pub(super) fn into_values(self) -> Vec<PrimaryKeyValue> {

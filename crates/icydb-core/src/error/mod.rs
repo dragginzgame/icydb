@@ -441,6 +441,24 @@ impl InternalError {
         )
     }
 
+    /// Construct a deterministic mutation relation-budget rejection.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn relation_budget_exceeded(
+        resource: diagnostic_code::DiagnosticExecutionBudgetResource,
+        limit: u64,
+        observed: u64,
+    ) -> Self {
+        Self::execution_budget_exceeded(
+            resource,
+            limit,
+            observed,
+            diagnostic_code::DiagnosticExecutionBudgetScope::Execution,
+            diagnostic_code::DiagnosticExecutionLane::Mutation,
+            0,
+        )
+    }
+
     /// Construct an executor-origin rejection for one indivisible page unit.
     #[cold]
     #[inline(never)]

@@ -10,12 +10,13 @@ use crate::{
         LeafCodec, MAX_ACCEPTED_RECURSIVE_DEPTH, MAX_SCHEMA_SNAPSHOT_BYTES, PersistedFieldOrigin,
         PersistedFieldSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
         PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedSchemaSnapshot, RelationId,
-        RelationIdAllocator, RowLayoutVersion, ScalarCodec, SchemaFieldSlot,
-        SchemaFieldWritePolicy, SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault,
-        SchemaRowLayout, SchemaVersion, accepted_schema_cache_fingerprint_for_persisted_snapshot,
-        composite_catalog::CompositeTypeId, decode_persisted_schema_snapshot,
-        encode_persisted_schema_snapshot,
+        PersistedIndexSnapshot, PersistedRelationEdgeSnapshot, PersistedRelationPathStepSnapshot,
+        PersistedRelationSourceSnapshot, PersistedSchemaSnapshot, RelationId, RelationIdAllocator,
+        RowLayoutVersion, ScalarCodec, SchemaFieldSlot, SchemaFieldWritePolicy,
+        SchemaHistoricalFill, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+        accepted_schema_cache_fingerprint_for_persisted_snapshot,
+        composite_catalog::{CompositeFieldId, CompositeTypeId},
+        decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
     },
     error::{ErrorClass, ErrorOrigin},
     types::EntityTag,
@@ -1418,16 +1419,89 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
     assert_eq!(relation.name(), "owner");
     assert_eq!(relation.target_path(), "entities::Owner");
     assert_eq!(decoded.relation_id_allocator().high_water(), 9);
-    assert_eq!(relation.source().direct_field_ids(), &[FieldId::new(2)]);
+    let PersistedRelationSourceSnapshot::Direct { field_ids } = relation.source() else {
+        panic!("decoded direct relation should retain its direct source shape");
+    };
+    assert_eq!(field_ids, &[FieldId::new(2)]);
     assert_eq!(decoded.fields()[1].kind(), &relation_kind);
 
     let inconsistent = snapshot.with_relation_id_allocator(RelationIdAllocator::default());
-    let inconsistent_bytes = encode_persisted_schema_snapshot(&inconsistent)
-        .expect("test should encode the intentionally inconsistent allocator state");
+    let inconsistent_bytes = encode_unchecked_schema_fixture(&inconsistent);
     let error = decode_persisted_schema_snapshot(&inconsistent_bytes)
         .expect_err("decoder must reject a relation ID above the persisted high-water");
     assert_eq!(error.class(), ErrorClass::Corruption);
     assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
+#[test]
+fn persisted_schema_snapshot_round_trips_nested_relation_path_identities() {
+    let composite_type_id = CompositeTypeId::new(1).expect("composite type ID should admit");
+    let root_kind = AcceptedFieldKind::Composite {
+        type_id: composite_type_id,
+    };
+    let relation = PersistedRelationEdgeSnapshot::new_nested(
+        RelationId::new(1).expect("relation ID should admit"),
+        "wrapper.required_target_id".to_string(),
+        "RelationCostTarget".to_string(),
+        FieldId::new(2),
+        vec![
+            PersistedRelationPathStepSnapshot::OptionalSome,
+            PersistedRelationPathStepSnapshot::EnterNamed,
+            PersistedRelationPathStepSnapshot::RecordMember {
+                composite_type_id,
+                member_id: CompositeFieldId::new(3).expect("member ID should admit"),
+            },
+        ],
+    );
+    let snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "RelationCostSource".to_string(),
+        "RelationCostSource".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(vec![
+            (FieldId::new(1), SchemaFieldSlot::new(0)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
+        ]),
+        vec![
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                AcceptedFieldKind::Int32,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Int64),
+            ),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(2),
+                "wrapper".to_string(),
+                SchemaFieldSlot::new(1),
+                root_kind,
+                Vec::new(),
+                true,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::CatalogValue,
+                LeafCodec::Structural,
+            ),
+        ],
+    )
+    .with_relations(vec![relation]);
+    let catalog = AcceptedConstraintCatalog::initial(
+        snapshot.fields(),
+        snapshot.indexes(),
+        snapshot.relations(),
+    )
+    .expect("nested relation constraint should close");
+    let snapshot = snapshot.with_constraint_catalog(catalog);
+
+    let encoded = encode_persisted_schema_snapshot(&snapshot)
+        .expect("nested relation snapshot should encode");
+    let decoded =
+        decode_persisted_schema_snapshot(&encoded).expect("nested relation snapshot should decode");
+
+    assert_eq!(decoded, snapshot);
 }
 
 #[test]
@@ -1456,7 +1530,7 @@ fn relation_decoder_rejects_unknown_current_source_tag_as_corruption() {
         0, 0, 0, 0, 0, 0, 0, 0, // physical generation
         0, 0, 0, 1, b'a', // name
         0, 0, 0, 1, b'b', // target path
-        2,    // unknown current source tag
+        3,    // unknown current source tag
         0, 0, 0, 1, // field count
         0, 0, 0, 2, // field ID
     ];

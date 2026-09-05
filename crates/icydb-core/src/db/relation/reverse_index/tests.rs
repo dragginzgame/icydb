@@ -1,7 +1,11 @@
 use super::{
     AcceptedRelationInfo, AcceptedRelationLocalComponentSpec, AcceptedRelationLocalComponents,
-    AcceptedRelationReverseIdentity, AcceptedRelationTargetIdentity, RelationTargetKeys,
-    ReverseRelationSourceInfo, relation_scalar_slot_fast_path_key_kind_supported,
+    AcceptedRelationReverseIdentity, AcceptedRelationSource, AcceptedRelationTargetIdentity,
+    MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES, MAX_NESTED_RELATION_IMAGE_TRAVERSAL_WORK,
+    MAX_RELATION_BATCH_RAW_REFERENCES, MAX_RELATION_BATCH_REVERSE_DELTAS,
+    MAX_RELATION_BATCH_TRAVERSAL_WORK, MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS,
+    RelationCommitBudget, RelationProjectionBudget, RelationTargetKeys, ReverseRelationSourceInfo,
+    relation_scalar_slot_fast_path_key_kind_supported,
     reverse_index_key_bounds_for_target_primary_key_value,
     reverse_index_key_for_target_and_source_primary_key_value,
     validate_scalar_relation_target_primary_key_kind,
@@ -10,7 +14,7 @@ use crate::db::relation::AcceptedRelationCardinality;
 use crate::db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec};
 use crate::db::{
     Db,
-    data::StructuralRowContract,
+    data::{RawDataStoreKey, StructuralRowContract},
     index::{IndexEntryValue, IndexId},
     key_taxonomy::{
         CompositePrimaryKeyValue, EncodedIndexComponent, EncodedPrimaryKey, IndexStoreKeyKind,
@@ -76,11 +80,13 @@ fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelation
         ),
         relation_name: "target_id".to_string(),
         source_field_index: field_index,
-        local_components: AcceptedRelationLocalComponents::scalar(
-            field_index,
-            test_field_contract("target_id", &field_kind, LeafCodec::Structural),
-        )
-        .expect("test scalar relation component should build"),
+        source: AcceptedRelationSource::Direct(
+            AcceptedRelationLocalComponents::scalar(
+                field_index,
+                test_field_contract("target_id", &field_kind, LeafCodec::Structural),
+            )
+            .expect("test scalar relation component should build"),
+        ),
         target: AcceptedRelationTargetIdentity::try_new(
             "Source",
             "target_id",
@@ -162,7 +168,11 @@ fn relation_target_keys_make_none_one_and_many_explicit() {
 #[test]
 fn accepted_relation_info_carries_ordered_local_component_metadata() {
     let relation = relation(3, AcceptedFieldKind::Nat64);
-    let [component] = relation.local_components().components() else {
+    let [component] = relation
+        .local_components()
+        .expect("direct relation should expose local components")
+        .components()
+    else {
         panic!("scalar relation metadata should expose one local component");
     };
 
@@ -339,11 +349,13 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
         ),
         relation_name: "target_id".to_string(),
         source_field_index: 3,
-        local_components: AcceptedRelationLocalComponents::scalar(
-            3,
-            test_field_contract("target_id", &field_kind, LeafCodec::Structural),
-        )
-        .expect("test scalar relation component should build"),
+        source: AcceptedRelationSource::Direct(
+            AcceptedRelationLocalComponents::scalar(
+                3,
+                test_field_contract("target_id", &field_kind, LeafCodec::Structural),
+            )
+            .expect("test scalar relation component should build"),
+        ),
         target: AcceptedRelationTargetIdentity::try_new(
             "Source",
             "target_id",
@@ -651,4 +663,83 @@ fn reverse_relation_domains_are_owned_by_exact_relation_id_not_source_slot() {
             .as_bytes(),
         2_u32.to_be_bytes(),
     );
+}
+
+#[test]
+fn relation_projection_and_batch_counters_accept_exact_limits_and_reject_next_unit() {
+    let mut projection = RelationProjectionBudget::default();
+    let mut batch = RelationCommitBudget::default();
+    projection
+        .charge_traversal(
+            &mut batch,
+            usize::try_from(MAX_NESTED_RELATION_IMAGE_TRAVERSAL_WORK)
+                .expect("traversal limit fits usize"),
+        )
+        .expect("exact image and batch traversal limit should pass");
+    assert_eq!(batch.traversal_work, MAX_RELATION_BATCH_TRAVERSAL_WORK);
+    assert!(projection.charge_traversal(&mut batch, 1).is_err());
+
+    let mut projection = RelationProjectionBudget::default();
+    let mut batch = RelationCommitBudget::default();
+    projection
+        .charge_nested_references(
+            &mut batch,
+            usize::try_from(MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES)
+                .expect("reference limit fits usize"),
+        )
+        .expect("exact image and batch reference limit should pass");
+    assert_eq!(batch.raw_references, MAX_RELATION_BATCH_RAW_REFERENCES);
+    assert!(projection.charge_nested_references(&mut batch, 1).is_err());
+}
+
+#[test]
+fn relation_batch_bounds_unique_target_lookups_and_coalesced_reverse_deltas() {
+    let mut budget = RelationCommitBudget::default();
+    let missing = RawDataStoreKey::from_persisted_bytes(77_u64.to_be_bytes().to_vec());
+    assert_eq!(
+        budget
+            .validate_target_once(missing.clone(), |_| Ok(false))
+            .expect("a missing target should remain reportable"),
+        Some(missing),
+    );
+    assert!(budget.validated_target_keys.is_empty());
+
+    for value in 0..MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS {
+        let key = RawDataStoreKey::from_persisted_bytes(value.to_be_bytes().to_vec());
+        assert!(
+            budget
+                .validate_target_once(key, |_| Ok(true))
+                .expect("each distinct lookup through the exact limit should pass")
+                .is_none()
+        );
+    }
+    let duplicate = RawDataStoreKey::from_persisted_bytes(
+        (MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS - 1)
+            .to_be_bytes()
+            .to_vec(),
+    );
+    assert!(
+        budget
+            .validate_target_once(duplicate, |_| Ok(true))
+            .expect("a previously validated target should not consume another lookup")
+            .is_none()
+    );
+    assert_eq!(
+        budget.validated_target_keys.len(),
+        usize::try_from(MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS).expect("lookup limit fits usize")
+    );
+    let over = RawDataStoreKey::from_persisted_bytes(
+        MAX_RELATION_BATCH_UNIQUE_TARGET_LOOKUPS
+            .to_be_bytes()
+            .to_vec(),
+    );
+    assert!(budget.validate_target_once(over, |_| Ok(true)).is_err());
+
+    let mut budget = RelationCommitBudget::default();
+    for _ in 0..MAX_RELATION_BATCH_REVERSE_DELTAS {
+        budget
+            .charge_reverse_delta()
+            .expect("each distinct reverse delta through the exact limit should pass");
+    }
+    assert!(budget.charge_reverse_delta().is_err());
 }

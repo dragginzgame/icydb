@@ -78,6 +78,19 @@ macro_rules! define_relation_cost_source {
         )]
         pub struct RelationCostSource {}
     };
+    (plain, $($extra:tt)*) => {
+        #[entity(
+            store = "RelationCostStore",
+            version = 1,
+            pk(fields = ["id"]),
+            fields(
+                field(name = "id", value(item(prim = "Int32"))),
+                field(name = "target_id", value(item(prim = "Int32"))),
+                $($extra)*
+            )
+        )]
+        pub struct RelationCostSource {}
+    };
 }
 
 /// Scalar control with the same actor code and row layout but no relation.
@@ -113,13 +126,22 @@ pub mod shallow {
 
     #[enum_(
         variant(name = "Absent"),
-        variant(name = "Target", value(item(prim = "Int32")))
+        variant(
+            name = "Target",
+            value(item(rel = "RelationCostTarget", prim = "Int32"))
+        )
     )]
     pub struct RelationCostChoice {}
 
     #[record(fields(
-        field(name = "required_target_id", value(item(prim = "Int32"))),
-        field(name = "optional_target_id", value(opt, item(prim = "Int32"))),
+        field(
+            name = "required_target_id",
+            value(item(rel = "RelationCostTarget", prim = "Int32"))
+        ),
+        field(
+            name = "optional_target_id",
+            value(opt, item(rel = "RelationCostTarget", prim = "Int32"))
+        ),
         field(name = "choice", value(item(is = "RelationCostChoice")))
     ))]
     pub struct RelationCostWrapper {}
@@ -142,17 +164,20 @@ pub mod repeated {
         "relation_cost_repeated"
     );
 
-    #[list(item(prim = "Int32"))]
+    #[list(item(rel = "RelationCostTarget", prim = "Int32"))]
     pub struct RelationCostTargetList {}
 
-    #[set(item(prim = "Int32"))]
+    #[set(item(rel = "RelationCostTarget", prim = "Int32"))]
     pub struct RelationCostTargetSet {}
 
-    #[map(key(prim = "Nat32"), value(item(prim = "Int32")))]
+    #[map(
+        key(prim = "Nat32"),
+        value(many, item(rel = "RelationCostTarget", prim = "Int32"))
+    )]
     pub struct RelationCostTargetMap {}
 
     define_relation_cost_source!(
-        direct,
+        plain,
         field(
             name = "target_list",
             value(opt, item(is = "RelationCostTargetList"))

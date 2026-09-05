@@ -16,13 +16,14 @@ use crate::{
         relation::{
             RelationTargetDecodeContext, RelationTargetMismatchPolicy,
             reverse_index::{
-                AcceptedRelationInfo, ReverseRelationSourceInfo,
+                AcceptedRelationInfo, RelationCommitBudget, ReverseRelationSourceInfo,
                 accepted_relations_for_row_contract, decode_relation_target_data_key,
                 decode_reverse_entry, relation_target_store,
                 reverse_index_key_bounds_for_target_primary_key_value,
                 source_row_references_relation_target_primary_key_value,
             },
         },
+        runtime_entity_catalog::AcceptedRuntimeEntity,
     },
     error::{AcceptedConstraintFactContext, InternalError},
     traits::CanisterKind,
@@ -34,28 +35,32 @@ use std::{collections::BTreeSet, ops::Bound};
 /// target keys selected for deletion.
 pub(in crate::db) fn validate_delete_relations_for_accepted_source<C>(
     db: &Db<C>,
-    source_tag: EntityTag,
-    source_path: &str,
-    source_store_path: &'static str,
+    source: &AcceptedRuntimeEntity,
     target_path: &str,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
     source_reader: &dyn StructuralPrimaryRowReader,
+    relation_budget: &mut RelationCommitBudget,
 ) -> Result<(), InternalError>
 where
     C: CanisterKind,
 {
-    let source_info = ReverseRelationSourceInfo::new(source_path.to_string(), source_tag);
+    let source_info =
+        ReverseRelationSourceInfo::new(source.entity_path_handle(), source.entity_tag());
 
     if deleted_target_keys.is_empty() {
         return Ok(());
     }
 
-    let source_store = db.store_handle(source_store_path)?;
-    let (source_row_contract, accepted_schema_fingerprint) =
-        accepted_source_row_contract(source_store, source_tag, source_path, source_store_path)?;
+    let source_store = source.store(db)?;
+    let (source_row_contract, accepted_schema_fingerprint) = accepted_source_row_contract(
+        source_store,
+        source.entity_tag(),
+        source.entity_path(),
+        source.store_path(),
+    )?;
     let relations = accepted_relations_for_row_contract(
         db,
-        source_path,
+        source.entity_path(),
         &source_row_contract,
         Some(target_path),
     )?;
@@ -66,12 +71,13 @@ where
     validate_delete_relations_structural(
         db,
         source_info,
-        source_path,
+        source.entity_path(),
         source_row_contract,
         accepted_schema_fingerprint,
         relations,
         deleted_target_keys,
         source_reader,
+        relation_budget,
     )
 }
 
@@ -120,6 +126,7 @@ fn validate_delete_relations_structural<C>(
     relations: Vec<AcceptedRelationInfo>,
     deleted_target_keys: &BTreeSet<RawDataStoreKey>,
     source_reader: &dyn StructuralPrimaryRowReader,
+    relation_budget: &mut RelationCommitBudget,
 ) -> Result<(), InternalError>
 where
     C: CanisterKind,
@@ -195,6 +202,7 @@ where
                                     source_info.clone(),
                                     &relation,
                                     &target_primary_key,
+                                    relation_budget,
                                 )?;
                             if still_references_target {
                                 return Err(relation.write_violation(

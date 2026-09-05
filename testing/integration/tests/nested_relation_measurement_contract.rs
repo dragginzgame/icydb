@@ -65,7 +65,7 @@ fn prove_commit_work_boundaries(fixture: &ic_testkit::pic::StandaloneCanisterFix
         .expect_err("the first row above the two-delta mixed boundary should reject");
     assert_eq!(
         mixed_boundary.code(),
-        icydb::ErrorCode::RUNTIME_BOUNDARY_MUTATION_BATCH_COMMIT_WORK_EXCEEDED,
+        icydb::ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED,
     );
     drain_convergence(fixture);
 
@@ -75,7 +75,7 @@ fn prove_commit_work_boundaries(fixture: &ic_testkit::pic::StandaloneCanisterFix
         .expect_err("the first row above the one-delta lookup boundary should reject");
     assert_eq!(
         lookup_boundary.code(),
-        icydb::ErrorCode::RUNTIME_BOUNDARY_MUTATION_BATCH_COMMIT_WORK_EXCEEDED,
+        icydb::ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED,
     );
     drain_convergence(fixture);
 }
@@ -138,7 +138,7 @@ fn controlled_actors_exercise_the_frozen_direct_relation_flow() {
         ("nested_relation_none", false),
         ("nested_relation_direct", true),
         ("nested_relation_shallow", true),
-        ("nested_relation_repeated", true),
+        ("nested_relation_repeated", false),
     ] {
         let fixture = install_fixture_canister(actor);
         for operation in 0_u8..=6 {
@@ -156,6 +156,74 @@ fn controlled_actors_exercise_the_frozen_direct_relation_flow() {
             );
         }
     }
+}
+
+#[test]
+fn shallow_actor_exercises_every_single_valued_nested_relation_flow() {
+    let fixture = install_fixture_canister("nested_relation_shallow");
+    for operation in 0_u8..=5 {
+        let ((succeeded, instructions),): ((bool, u64),) = fixture
+            .update_candid("exercise_shallow_relation_flow", (operation,))
+            .expect("shallow nested relation operation should decode");
+        assert!(
+            succeeded,
+            "shallow nested relation operation {operation} failed"
+        );
+        assert!(instructions > 0);
+        println!(
+            "icydb_0253_shallow_relation_flow operation={operation} instructions={instructions}",
+        );
+    }
+}
+
+#[test]
+fn repeated_actor_exercises_every_collection_nested_relation_flow() {
+    let fixture = install_fixture_canister("nested_relation_repeated");
+    for operation in 0_u8..=5 {
+        let ((succeeded, instructions),): ((bool, u64),) = fixture
+            .update_candid("exercise_repeated_relation_flow", (operation,))
+            .expect("repeated nested relation operation should decode");
+        assert!(
+            succeeded,
+            "repeated nested relation operation {operation} failed"
+        );
+        assert!(instructions > 0);
+        println!(
+            "icydb_0253_repeated_relation_flow operation={operation} instructions={instructions}",
+        );
+    }
+}
+
+#[test]
+fn repeated_actor_charges_raw_occurrences_before_deduplication() {
+    let fixture = install_fixture_canister("nested_relation_repeated");
+    let exact: Result<(), icydb::Error> = fixture
+        .update_candid(
+            "commit_repeated_relation_boundary",
+            (
+                40_000_i32,
+                u16::try_from(MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES)
+                    .expect("reference limit fits u16"),
+            ),
+        )
+        .expect("exact repeated relation boundary should decode");
+    exact.expect("exact raw-occurrence boundary should commit");
+
+    let over: Result<(), icydb::Error> = fixture
+        .update_candid(
+            "commit_repeated_relation_boundary",
+            (
+                40_001_i32,
+                u16::try_from(MAX_NESTED_RELATION_IMAGE_RAW_REFERENCES + 1)
+                    .expect("first rejected reference count fits u16"),
+            ),
+        )
+        .expect("over-limit repeated relation boundary should decode");
+    assert_eq!(
+        over.expect_err("first raw occurrence above the limit should reject")
+            .code(),
+        icydb::ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED,
+    );
 }
 
 #[test]

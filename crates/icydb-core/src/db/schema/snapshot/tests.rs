@@ -1217,12 +1217,12 @@ fn accepted_schema_snapshot_exposes_relation_edges_in_identity_order() {
 
     assert_eq!(accepted.persisted_snapshot().relations().len(), 2);
     assert_eq!(accepted.persisted_snapshot().relations()[0].name(), "owner");
-    assert_eq!(
-        accepted.persisted_snapshot().relations()[0]
-            .source()
-            .direct_field_ids(),
-        &[FieldId::new(2)]
-    );
+    let PersistedRelationSourceSnapshot::Direct { field_ids } =
+        accepted.persisted_snapshot().relations()[0].source()
+    else {
+        panic!("accepted owner relation should retain its direct source shape");
+    };
+    assert_eq!(field_ids, &[FieldId::new(2)]);
     assert_eq!(
         accepted.persisted_snapshot().relations()[1].name(),
         "reviewer"

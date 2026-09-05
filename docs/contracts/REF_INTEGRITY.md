@@ -63,10 +63,11 @@ A reference:
 
 References are **identity values**, not relationships in the relational sense.
 
-A composite relation uses an explicitly declared ordered set of top-level local
-fields that exactly matches the target's accepted composite primary-key
-components. Collection relations to composite targets are not part of the
-current contract.
+A direct composite relation uses an explicitly declared ordered set of
+top-level local fields that exactly matches the target's accepted composite
+primary-key components. A nested relation terminates at one scalar key;
+collection relations to composite targets are not part of the current
+contract.
 
 `Id<T>` is a *boundary type* used for entity-kind correctness. It is **not** automatically validated for existence.
 `Id<T>` values may be deserialized from untrusted input; validation is explicit and contextual.
@@ -86,9 +87,12 @@ participate in RI enforcement. Generated relation metadata is proposal input;
 runtime save, reverse-index, and delete paths do not infer a missing edge from
 raw generated field kinds.
 
-The current accepted source locator is explicitly tagged `Direct` and carries
-the ordered accepted field IDs. Source shape is persisted authority, not an
-interpretation of an untagged field list.
+The current accepted source locator is explicitly tagged `Direct` or `Nested`.
+A direct locator carries ordered accepted field IDs. A nested locator carries
+one accepted root-field ID plus an identity-based path through named wrappers,
+optional boundaries, record members, enum-variant payloads, list items, set
+items, or map values. Source shape is persisted authority, not an
+interpretation of names or an untagged field list.
 
 Generated direct scalar-relation write inputs expose `Id<Target>` so the Rust
 facade cannot silently substitute another entity's equal-shaped key. The
@@ -96,13 +100,14 @@ adapter lowers it to the declared primitive key before accepted relation
 validation. This facade typing does not replace the runtime existence check;
 composite relation components remain their declared component types.
 
-There is:
+There is no inference from an identifier's type, name, or cardinality. Model
+lowering discovers only explicit `rel` annotations, once per reachable entity
+root. Runtime traversal follows only the accepted locator and exact accepted
+enum/composite catalogs; generated models are never runtime fallback
+authority.
 
-* no inference from type shape or cardinality
-* no discovery inside nested structures
-* no traversal beyond the field boundary
-
-RI applies **only** to top-level entity fields declared as relations.
+RI applies to accepted direct relation fields and to explicitly annotated
+scalar relation leaves reached through the supported nested source shapes.
 
 ---
 
@@ -146,6 +151,9 @@ Supported relation shapes in the current contract:
 * `Option<Id<T>>`
 * Collections of `Id<T>`
 * explicitly declared ordered top-level fields matching a composite target key
+* scalar relation leaves below required or optional named records
+* scalar enum-variant payloads
+* scalar list items, set items, and map values, including bounded combinations
 
 Supported collection forms:
 
@@ -157,6 +165,11 @@ Collection validation is **aggregate**:
 * every referenced target must exist
 * empty collections are valid
 * a single missing target fails the save
+
+Map keys, tuple positions, opaque payloads, recursive value cycles, and nested
+leaves that would need to assemble a composite target key are not relation
+sources. Nested traversal and raw occurrences are subject to the fixed
+per-image and per-atomic-batch relation-work budgets.
 
 ### 4.2 Relation activation
 
@@ -210,10 +223,12 @@ RI enforcement is skipped when:
 
 * the value is explicitly absent (`None`)
 * the field is not a schema-declared relation
-* the reference is nested beyond the field boundary
-  (records, enums, tuples, maps, etc.)
+* an accepted enum value selects a different variant from the annotated payload
+* an accepted repeated source contains no terminal values
 
-There is no recursive discovery.
+There is no runtime relation discovery from decoded value shape. Unsupported
+nested source shapes reject during schema admission rather than becoming
+unchecked references.
 
 Pending relation activation is not a weak relation mode. Its new-write gate is
 already authoritative, while historical findings remain migration evidence
