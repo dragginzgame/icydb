@@ -12,6 +12,12 @@ attribution format, or report artifact.
 
 ## Authoritative Surface
 
+Apply [Authorization And Read-Only Work](../../README.md#authorization-and-read-only-work).
+Inspection uses the existing metrics window and available endpoint evidence.
+Resetting the window, generating measurement traffic, rebuilding, or deploying
+requires that action to be within the requested measurement work. The presence
+of a metrics endpoint alone does not authorize changing canister state.
+
 Build the canister with the single `metrics` feature. Generated endpoints own
 the complete observation surface:
 

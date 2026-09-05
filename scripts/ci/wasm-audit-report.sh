@@ -10,6 +10,7 @@ report_run=""
 report_scope_dir=""
 canister_names=()
 skip_build=0
+batch_identity=""
 REPORT_SCOPE="wasm-footprint"
 
 # shellcheck source=scripts/ci/wasm-report-common.sh
@@ -22,6 +23,8 @@ usage: wasm-audit-report.sh [--profile debug|release|wasm-release] [--sql-varian
 Defaults to wasm-release, sql-on, today's date, and the standard audit canister set.
 Default output uses docs/reports/recurring/YYYY/MM/DD/wasm-footprint/<run>/.
 Repeat --canister to audit more than one specific canister.
+Every invocation writes a new report directory, including --skip-build.
+An existing --report-dir is rejected; use a new path for each run.
 EOF
 }
 
@@ -88,8 +91,8 @@ fi
 audit_year="${audit_date:0:4}"
 audit_month="${audit_date:5:2}"
 audit_day="${audit_date:8:2}"
+report_scope_dir="$ROOT/docs/reports/recurring/$audit_year/$audit_month/$audit_day/$REPORT_SCOPE"
 if [[ -z "$report_dir" ]]; then
-    report_scope_dir="$ROOT/docs/reports/recurring/$audit_year/$audit_month/$audit_day/$REPORT_SCOPE"
     report_run="01"
     while [[ -e "$report_scope_dir/$report_run" ]]; do
         report_run_number=$((10#$report_run + 1))
@@ -128,6 +131,113 @@ display_path() {
     esac
 }
 
+# Validate the captured bytes before attribution, and require one recorded
+# source/build identity across the batch. Dirty sources remain non-comparable.
+validate_capture() {
+    local report="$1" wasm="$2" gz="$3" canister="$4"
+    local wasm_hash gz_hash identity
+    wasm_hash="$(sha256sum "$wasm")"
+    gz_hash="$(sha256sum "$gz")"
+    if ! jq -e \
+        --arg canister "$canister" --arg profile "$profile" --arg sql "$SQL_VARIANT" \
+        --arg wasm_hash "${wasm_hash%% *}" --arg gz_hash "${gz_hash%% *}" \
+        --argjson wasm_bytes "$(wc -c < "$wasm")" --argjson gz_bytes "$(wc -c < "$gz")" '
+        def git_id: type == "string" and test("^[0-9a-f]{40}([0-9a-f]{24})?$");
+        def sha256: type == "string" and test("^[0-9a-f]{64}$");
+        def nonempty: type == "string" and length > 0;
+        .format_version == 1
+        and .measurement_profile.identity == "icydb-wasm-footprint/0.251/v1"
+        and .canister == $canister and .profile == $profile and .sql_variant == $sql
+        and (.provenance.source_revision | git_id)
+        and (.provenance.source_tree | git_id)
+        and (.provenance.source_dirty | type == "boolean")
+        and (.provenance.lockfile_sha256 | sha256)
+        and (.provenance.workspace_root | nonempty)
+        and (.provenance.cargo_target_dir | nonempty)
+        and (.provenance.rust_toolchain | nonempty)
+        and .pipeline.build_profile == "production"
+        and .pipeline.candid_metadata == "enabled"
+        and .pipeline.post_link_transform == "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1"
+        and .pipeline.final_deployable_stage == "binaryen_oz_wasm"
+        and .pipeline.path_remapping == "workspace=/w;cargo-registry=/c;rust-library=/r"
+        and (.tools.ic_wasm_sha256 | sha256)
+        and (.tools.wasm_opt_sha256 | sha256)
+        and .artifacts.final_deployable_wasm.sha256 == $wasm_hash
+        and .artifacts.final_deployable_wasm.bytes == $wasm_bytes
+        and .artifacts.final_deployable_wasm_gz.sha256 == $gz_hash
+        and .artifacts.final_deployable_wasm_gz.bytes == $gz_bytes
+    ' "$report" >/dev/null; then
+        echo "[wasm-audit] captured artifact identity or measurement contract failed: $report" >&2
+        exit 1
+    fi
+    identity="$(jq -cS '{provenance, tools, pipeline}' "$report")"
+    if [[ -n "$batch_identity" && "$identity" != "$batch_identity" ]]; then
+        echo "[wasm-audit] mixed source/build provenance in batch: $report" >&2
+        exit 1
+    fi
+    batch_identity="$identity"
+}
+
+# Selection and summary rendering use the same per-actor comparison contract.
+baseline_artifact_matches() {
+    local baseline="$1" current="$2"
+    [[ -f "$baseline" ]] && jq -e --slurpfile current "$current" '
+        .format_version == 1
+        and .measurement_profile.identity == "icydb-wasm-footprint/0.251/v1"
+        and .provenance.source_dirty == false
+        and $current[0].provenance.source_dirty == false
+        and .pipeline.final_deployable_stage == "binaryen_oz_wasm"
+        and .artifacts.final_deployable_wasm.bytes
+        and .artifacts.final_deployable_wasm_gz.bytes
+        and .provenance.workspace_root == $current[0].provenance.workspace_root
+        and .provenance.cargo_target_dir == $current[0].provenance.cargo_target_dir
+        and .provenance.rust_toolchain == $current[0].provenance.rust_toolchain
+        and .tools == $current[0].tools
+        and .pipeline == $current[0].pipeline
+        and .profile == $current[0].profile
+        and .sql_variant == $current[0].sql_variant
+        and .build.exact_features == $current[0].build.exact_features
+    ' "$baseline" >/dev/null
+}
+
+select_baseline() {
+    local report_dir_abs="$1"
+    shift
+    local daily="$report_scope_dir/01/report.md"
+    local candidate relative candidate_date canister artifact compatible
+
+    # A day's canonical baseline stays pinned even if it is non-comparable.
+    if [[ -f "$daily" && "$(cd "${daily%/*}" && pwd)" != "$report_dir_abs" ]]; then
+        display_path "$daily"
+        return
+    fi
+    # A reserved/failed run 01 is a missing daily baseline, not permission to
+    # substitute an older day's report for a numbered same-day rerun.
+    if [[ -n "$report_run" && "$report_run" != "01" ]]; then
+        return 0
+    fi
+
+    [[ -d "$ROOT/docs/reports/recurring" ]] || return 0
+    while IFS= read -r candidate; do
+        relative="${candidate#"$ROOT/docs/reports/recurring/"}"
+        [[ "$relative" =~ ^([0-9]{4})/([0-9]{2})/([0-9]{2})/wasm-footprint/[0-9]{2}/report\.md$ ]] || continue
+        candidate_date="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
+        [[ "$candidate_date" < "$audit_date" ]] || continue
+        compatible=1
+        for canister in "$@"; do
+            artifact="$REPORT_SCOPE.$canister.$profile.$SQL_VARIANT.size-report.json"
+            if ! baseline_artifact_matches "${candidate%/*}/artifacts/$artifact" "$artifact_scope_dir/$artifact"; then
+                compatible=0
+                break
+            fi
+        done
+        if [[ "$compatible" == "1" ]]; then
+            display_path "$candidate"
+            return
+        fi
+    done < <(find "$ROOT/docs/reports/recurring" -path '*/wasm-footprint/[0-9][0-9]/report.md' -type f | LC_ALL=C sort -r)
+}
+
 write_summary_report() {
     local canisters=("$@")
     local report_path="$report_dir/report.md"
@@ -139,26 +249,10 @@ write_summary_report() {
     local rows=()
     local canister_list=""
 
-    mkdir -p "$report_dir" "$artifact_scope_dir"
-
     report_dir_abs="$(cd "$report_dir" && pwd)"
-    if [[ -n "$report_run" && "$report_run" != "01" && -f "$report_scope_dir/01/report.md" ]]; then
-        baseline_path="$(display_path "$report_scope_dir/01/report.md")"
-    else
-        baseline_path="$(
-            find "$ROOT/docs/reports/recurring" \
-                -path '*/wasm-footprint/[0-9][0-9]/report.md' -type f 2>/dev/null \
-                | while IFS= read -r path; do
-                    if [[ "$(cd "$(dirname "$path")" && pwd)" != "$report_dir_abs" ]]; then
-                        display_path "$path"
-                    fi
-                done \
-                | sort \
-                | tail -n 1
-        )"
-    fi
+    baseline_path="$(select_baseline "$report_dir_abs" "${canisters[@]}")"
     baseline_path="${baseline_path:-N/A}"
-    snapshot="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || printf 'N/A')"
+    snapshot="$(jq -r '.provenance.source_revision' <<< "$batch_identity")"
 
     for canister_name in "${canisters[@]}"; do
         local size_report_path="$artifact_scope_dir/$REPORT_SCOPE.$canister_name.$profile.$SQL_VARIANT.size-report.json"
@@ -178,20 +272,6 @@ write_summary_report() {
 
         current_final="$(jq -er '.artifacts.final_deployable_wasm.bytes' "$size_report_path")"
         current_gz="$(jq -er '.artifacts.final_deployable_wasm_gz.bytes' "$size_report_path")"
-        if ! jq -e '
-            .format_version == 1
-            and .measurement_profile.identity == "icydb-wasm-footprint/0.251/v1"
-            and .pipeline.build_profile == "production"
-            and .pipeline.candid_metadata == "enabled"
-            and .pipeline.post_link_transform == "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1"
-            and .pipeline.final_deployable_stage == "binaryen_oz_wasm"
-            and .pipeline.path_remapping == "workspace=/w;cargo-registry=/c;rust-library=/r"
-            and (.tools.ic_wasm_sha256 | length) == 64
-            and (.tools.wasm_opt_sha256 | length) == 64
-        ' "$size_report_path" >/dev/null; then
-            echo "[wasm-audit] current-format measurement contract failed: $size_report_path" >&2
-            exit 1
-        fi
         if ! jq -e '.provenance.source_dirty == false' "$size_report_path" >/dev/null; then
             all_current_sources_clean=0
             status="PARTIAL"
@@ -199,23 +279,7 @@ write_summary_report() {
 
         if [[ "$baseline_path" != "N/A" && "$all_current_sources_clean" == "1" ]]; then
             baseline_artifact="$ROOT/${baseline_path%/*}/artifacts/$REPORT_SCOPE.$canister_name.$profile.$SQL_VARIANT.size-report.json"
-            if [[ -f "$baseline_artifact" ]] \
-                && jq -e --slurpfile current "$size_report_path" '
-                    .format_version == 1
-                    and .measurement_profile.identity == "icydb-wasm-footprint/0.251/v1"
-                    and .provenance.source_dirty == false
-                    and .pipeline.final_deployable_stage == "binaryen_oz_wasm"
-                    and .artifacts.final_deployable_wasm.bytes
-                    and .artifacts.final_deployable_wasm_gz.bytes
-                    and .provenance.workspace_root == $current[0].provenance.workspace_root
-                    and .provenance.cargo_target_dir == $current[0].provenance.cargo_target_dir
-                    and .provenance.rust_toolchain == $current[0].provenance.rust_toolchain
-                    and .tools == $current[0].tools
-                    and .pipeline == $current[0].pipeline
-                    and .profile == $current[0].profile
-                    and .sql_variant == $current[0].sql_variant
-                    and .build.exact_features == $current[0].build.exact_features
-                ' "$baseline_artifact" >/dev/null; then
+            if baseline_artifact_matches "$baseline_artifact" "$size_report_path"; then
                 previous_final="$(jq -er '.artifacts.final_deployable_wasm.bytes' "$baseline_artifact")"
                 previous_gz="$(jq -er '.artifacts.final_deployable_wasm_gz.bytes' "$baseline_artifact")"
                 status="PASS"
@@ -237,8 +301,8 @@ write_summary_report() {
         baseline_status_row="| Baseline delta availability | PARTIAL | current artifacts record dirty source state and cannot become baseline authority |"
         pass_counts="PASS=4, PARTIAL=1, FAIL=0"
     elif [[ "$baseline_path" == "N/A" ]]; then
-        comparability="non-comparable (first tracked summary-layout run)"
-        baseline_status_row="| Baseline delta availability | PARTIAL | first tracked summary-layout run; establishes new baseline layout |"
+        comparability="non-comparable (no eligible baseline)"
+        baseline_status_row="| Baseline delta availability | PARTIAL | daily baseline is absent or no earlier comparable report is available |"
         pass_counts="PASS=4, PARTIAL=1, FAIL=0"
     elif [[ "$all_baselines_available" == "1" ]]; then
         comparability="comparable"
@@ -256,7 +320,10 @@ write_summary_report() {
         printf -- '- scope: recurring wasm footprint audit for `%s` with profile `%s` and SQL variant `%s`\n' "$canister_list" "$profile" "$SQL_VARIANT"
         printf -- '- compared baseline report path: `%s`\n' "$baseline_path"
         printf -- '- code snapshot identifier: `%s`\n' "$snapshot"
-        printf -- '- method tag/version: `WASM-3.0`\n'
+        printf -- '- source tree: `%s`\n' "$(jq -r '.provenance.source_tree' <<< "$batch_identity")"
+        printf -- '- source dirty: `%s`\n' "$(jq -r '.provenance.source_dirty' <<< "$batch_identity")"
+        printf -- '- lockfile SHA-256: `%s`\n' "$(jq -r '.provenance.lockfile_sha256' <<< "$batch_identity")"
+        printf -- '- method tag/version: `WASM-4.0`\n'
         printf -- '- comparability status: `%s`\n\n' "$comparability"
         printf '## Checklist Results\n\n'
         printf '| Requirement | Status | Evidence |\n'
@@ -282,7 +349,7 @@ write_summary_report() {
         if [[ "$all_current_sources_clean" != "1" ]]; then
             printf -- '- owner boundary: `wasm-audit provenance`; action: rebuild the complete matrix from one clean source identity before accepting a baseline or delta.\n'
         elif [[ "$baseline_path" == "N/A" ]]; then
-            printf -- '- owner boundary: `wasm-audit`; action: treat this report as the baseline for the consolidated summary layout and compare deltas on the next run.\n'
+            printf -- '- owner boundary: `wasm-audit`; action: preserve this capture; use a completed canonical run 01 for same-day comparisons and record missing baseline evidence explicitly.\n'
         elif [[ "$all_baselines_available" == "1" ]]; then
             printf -- '- No follow-up actions required for this run.\n'
         else
@@ -290,7 +357,8 @@ write_summary_report() {
         fi
 
         printf '\n## Verification Readout\n\n'
-        printf -- '- `bash scripts/ci/wasm-audit-report.sh --date %s` -> PASS\n' "$audit_date"
+        printf -- '- captured Wasm/gzip hashes, byte counts, and batch provenance -> PASS\n'
+        printf -- '- reused build artifacts (`--skip-build`): `%s`\n' "$skip_build"
         printf -- '- per-canister size-report JSON + Twiggy artifacts -> PASS\n'
     } > "$report_path"
 
@@ -303,7 +371,28 @@ if ! command -v twiggy >/dev/null 2>&1; then
     exit 1
 fi
 
-mkdir -p "$artifact_scope_dir"
+# Reserve the run atomically before copying evidence. This also rejects a
+# caller-supplied existing directory and concurrent selection of the same run.
+mkdir -p -- "$(dirname "$report_dir")"
+if ! mkdir -- "$report_dir"; then
+    echo "[wasm-audit] cannot reserve a new report directory: $report_dir" >&2
+    exit 1
+fi
+mkdir -- "$artifact_scope_dir"
+
+# Canonical explicit paths carry the same date/run identity as automatic paths.
+# Outside that hierarchy, --date supplies the comparison day.
+resolved_report_dir="$(cd "$report_dir" && pwd)"
+relative_report_dir="${resolved_report_dir#"$ROOT/docs/reports/recurring/"}"
+if [[ "$relative_report_dir" =~ ^([0-9]{4})/([0-9]{2})/([0-9]{2})/wasm-footprint/([0-9]{2})$ ]]; then
+    audit_date="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
+    report_run="${BASH_REMATCH[4]}"
+    report_scope_dir="${resolved_report_dir%/*}"
+fi
+
+# Attribution reads these private copies, never mutable shared build outputs.
+capture_dir="$(mktemp -d)"
+trap 'rm -f -- "$capture_dir/final.wasm" "$capture_dir/final.wasm.gz"; rmdir -- "$capture_dir"' EXIT
 
 write_twiggy_artifact() {
     local output="$1"
@@ -335,6 +424,7 @@ write_canister_artifacts() {
     local size_report_json="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.report.json"
     local size_summary_md="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.summary.md"
     local final_wasm="$artifact_dir/${canister_name}.${profile}${SIZE_REPORT_SUFFIX}.final-deployable.wasm"
+    local final_gz="$final_wasm.gz"
     local report_stem="$REPORT_SCOPE"
     local size_report_copy="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.size-report.json"
     local size_summary_copy="$artifact_scope_dir/${report_stem}.${canister_name}.${profile}.${SQL_VARIANT}.size-summary.md"
@@ -352,7 +442,7 @@ write_canister_artifacts() {
         echo "[wasm-audit] skipping wasm build and size capture (--skip-build)"
     fi
 
-    for required in "$size_report_json" "$size_summary_md" "$final_wasm"; do
+    for required in "$size_report_json" "$size_summary_md" "$final_wasm" "$final_gz"; do
         if [[ ! -f "$required" ]]; then
             echo "[wasm-audit] expected artifact missing: $required" >&2
             exit 1
@@ -361,11 +451,14 @@ write_canister_artifacts() {
 
     cp "$size_report_json" "$size_report_copy"
     cp "$size_summary_md" "$size_summary_copy"
+    cp "$final_wasm" "$capture_dir/final.wasm"
+    cp "$final_gz" "$capture_dir/final.wasm.gz"
+    validate_capture "$size_report_copy" "$capture_dir/final.wasm" "$capture_dir/final.wasm.gz" "$canister_name"
 
-    write_twiggy_artifact "$twiggy_top_txt" twiggy top -n 40 "$final_wasm"
-    write_twiggy_artifact "$twiggy_dominators_txt" twiggy dominators -r 160 "$final_wasm"
-    write_twiggy_artifact "$twiggy_retained_csv" twiggy top --retained -n 40 -f csv "$final_wasm"
-    write_twiggy_artifact "$twiggy_monos_txt" twiggy monos "$final_wasm"
+    write_twiggy_artifact "$twiggy_top_txt" twiggy top -n 40 "$capture_dir/final.wasm"
+    write_twiggy_artifact "$twiggy_dominators_txt" twiggy dominators -r 160 "$capture_dir/final.wasm"
+    write_twiggy_artifact "$twiggy_retained_csv" twiggy top --retained -n 40 -f csv "$capture_dir/final.wasm"
+    write_twiggy_artifact "$twiggy_monos_txt" twiggy monos "$capture_dir/final.wasm"
 
     echo "[wasm-audit] Wrote artifacts for $canister_name"
 }

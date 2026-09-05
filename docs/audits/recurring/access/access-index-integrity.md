@@ -1,4 +1,8 @@
-# WEEKLY AUDIT — Index Integrity
+# Recurring Audit — Index Integrity
+
+Apply [Domain Scope And Change Triggers](../../README.md#domain-scope-and-change-triggers)
+to all inventories, checks, and output sections below. Record selected and
+excluded obligations before analysis; broad coverage requires a requested baseline.
 
 `icydb-core`
 
@@ -15,9 +19,14 @@ Do not introduce alternate names such as `access-index-integrity`,
 
 Current method tag/version:
 
-* `Method V5`
+* `Method V6`
 
-Method V5 keeps the Method V4 index ordering, namespace, accepted-authority, and
+Method V6 uses owner-based proof selection, shared executed-test evidence, and
+qualitative findings/verdicts. Reports comparing with fixed-selector baselines
+must describe the proof changes and mark affected verification deltas
+non-comparable.
+
+It retains index ordering, namespace, accepted-authority, and
 replay checks, but updates catalog mutation readiness for the current split
 between startup reconciliation and SQL DDL execution:
 
@@ -72,7 +81,7 @@ acceptance, catalog authority is compromised.
 
 # STEP 0 — Index Invariant Registry
 
-Enumerate all index-level invariants before analysis.
+Enumerate all index-level invariants affected by the declared scope before analysis.
 
 Categories:
 
@@ -550,48 +559,37 @@ Produce:
 
 ---
 
-# STEP 16 — Required Verification Commands
+# STEP 16 — Required Verification Selection
 
-Run focused checks first. If one fails, record it as `FAIL` or `BLOCKED` and do
-not keep rerunning the same failing suite in the same audit pass.
+Apply [Executed-Test Evidence](../../README.md#executed-test-evidence) before
+accepting any test result. Select current tests by the obligations below; these
+paths locate owners and candidate proofs, and do not themselves establish coverage.
+Record missing behavioral proof explicitly rather than dropping a required row.
 
-Minimum verification set:
+Paths beginning with `db/` are relative to `crates/icydb-core/src/`.
+Core unit selections use `-p icydb-core --lib --features sql`; physical migration
+proof also enables `migration`. Select a named integration target separately
+when the obligation crosses the canister boundary.
 
-* `cargo test -p icydb-core load_cursor_pagination_pk_order_inverted_key_range_returns_empty_without_scan --features sql -- --nocapture`
-* `cargo test -p icydb-core index_range_aggregate_fast_path_specs_reject_non_exact_range_arity --features sql -- --nocapture`
-* `cargo test -p icydb-core index_range_aggregate_fast_path_specs_reject_prefix_spec_presence --features sql -- --nocapture`
-* `cargo test -p icydb-core cross_layer_canonical_ordering_is_consistent --features sql -- --nocapture`
-* `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay --features sql -- --nocapture`
-* `cargo test -p icydb-core recovery_replay_interrupted_conflicting_unique_batch_fails_closed --features sql -- --nocapture`
-* `cargo test -p icydb-core load_cursor_live_state_delete_between_pages_can_shrink_remaining_results --features sql -- --nocapture`
-* `cargo test -p icydb-core accepted_snapshot_schema_info_uses_persisted_index_membership --features sql -- --nocapture`
-* `cargo test -p icydb-core accepted_snapshot_schema_info_exposes_persisted_expression_indexes --features sql -- --nocapture`
-* `cargo test -p icydb-core accepted_snapshot_schema_info_uses_persisted_relation_authority --features sql -- --nocapture`
-* `cargo test -p icydb-core schema_transition_policy_accepts_supported_ddl_indexes_absent_from_generated_model --features sql -- --nocapture`
-* `cargo test -p icydb-core reconcile_staged_schema_snapshot_preserves_ddl_indexes_during_generated_index_rename --features sql -- --nocapture`
-* `cargo test -p icydb-core sql_ddl_frontend_does_not_take_schema_store_or_generated_index_authority --features sql -- --nocapture`
-* `cargo test -p icydb-core expression_index_store_batch_rolls_back_on_post_insert_validation_failure --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_admin_sql_ddl_publishes_supported_field_path_index --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_admin_sql_ddl_publishes_supported_expression_index --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_admin_sql_ddl_publishes_supported_unique_field_path_index --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_admin_sql_ddl_publishes_supported_unique_expression_index --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_admin_sql_ddl_rejects_duplicate_unique_field_path_values_without_publication --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_admin_sql_ddl_rejects_duplicate_unique_expression_values_without_publication --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_admin_sql_ddl_drops_supported_ddl_published_index --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_admin_sql_ddl_rejects_generated_index_drop_with_structured_detail --features sql -- --nocapture`
-* `cargo test -p icydb-core execute_admin_sql_ddl_publication_invalidates_shared_query_plan_cache_key --features sql -- --nocapture`
+| Proof obligation | Current source/test owners |
+| --- | --- |
+| Encoded/logical key ordering and component arity | `db/index/key/codec/tests.rs` |
+| Range inclusivity, strict resume, and containment | `db/index/envelope/tests.rs`, `db/executor/stream/access/tests/` |
+| Accepted index membership and accessed orphan classification | `db/session/tests/unit_ordering.rs`, `db/schema/snapshot/tests.rs` |
+| Forward/reverse index consistency across interrupted mutation | `db/session/write.rs` (`mixed_entity_recovery_after_` family), `db/relation/reverse_index/tests.rs` |
+| Field/expression/unique domain projection and collision rejection | `db/schema/mutation/tests/user_index_domain.rs`, `db/schema/mutation/tests/planning.rs` |
+| Index publication, drop, accepted authority, and subsequent query visibility | `db/schema/sql_ddl/`, `db/commit/schema_publication.rs`, `testing/integration/tests/sql_canister.rs` |
+| Recovery before schema reconciliation and migration publication | `db/startup/mod.rs`, `db/schema/application.rs` |
 
-If the audit touches mutation-readiness claims, also run:
+For publication claims, verify both catalog-native behavior and frontend
+integration. A domain-projection unit test does not establish SQL endpoint or
+cache-invalidation behavior. For live-state pagination, select an explicit
+between-pages mutation proof; static envelope tests alone are insufficient.
 
-* `cargo test -p icydb-core schema::mutation --features sql -- --nocapture`
-* `cargo test -p icydb-core schema::reconcile --features sql -- --nocapture`
-* `git diff --check`
-
-Read-only runs may update only this recurring definition and the matching report
-artifact. Do not edit product code, generated artifacts, package manifests,
-lockfiles, or release metadata. Do not start or stop external services. Mark
-service-dependent or mutating checks `BLOCKED` when they cannot be run under
-read-only constraints.
+Apply [Authorization And Read-Only Work](../../README.md#authorization-and-read-only-work)
+before running these checks or writing output. Under a read-only constraint,
+inspect existing evidence and report blocked proof; do not edit this definition
+or write a report unless that action is also authorized.
 
 ---
 
@@ -614,7 +612,7 @@ read-only constraints.
 14. Cross-Layer Continuation Stability
 15. High Risk Mutation Paths
 16. Storage-Layer Assumptions
-17. Overall Index Risk Index (1–10, lower is better)
+17. Verdict And Findings
 18. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
 
 Run metadata must include:
@@ -633,13 +631,12 @@ Verification readouts must use only:
 
 ---
 
-# Scoring Model
+# Verdict And Findings
 
-Interpretation:
-1–3  = Low risk / structurally healthy
-4–6  = Moderate risk / manageable pressure
-7–8  = High risk / requires monitoring
-9–10 = Critical risk / structural instability
+Apply [Findings And Verdicts](../../README.md#findings-and-verdicts).
+Summarize the supported verdict, each finding's consequence and severity, and
+any unresolved verification. Keep owner, disposition, and action trigger with
+the finding.
 
 ---
 

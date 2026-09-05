@@ -1,4 +1,8 @@
-# Weekly Audit: Cursor Ordering & Continuation Correctness
+# Recurring Audit: Cursor Ordering & Continuation Correctness
+
+Apply [Domain Scope And Change Triggers](../../README.md#domain-scope-and-change-triggers)
+to all inventories, checks, and output sections below. Record selected and
+excluded obligations before analysis; broad coverage requires a requested baseline.
 
 ## Audit Identity
 
@@ -18,9 +22,14 @@ Do not introduce alternate names such as `continuation-cursors`,
 
 Current method tag/version:
 
-* `Method V5`
+* `Method V6`
 
-Method V5 keeps the Method V4 scalar/grouped cursor, envelope, accepted
+Method V6 uses owner-based proof selection, shared executed-test evidence, and
+qualitative findings/verdicts. Reports comparing with fixed-selector baselines
+must describe the proof changes and mark affected verification deltas
+non-comparable.
+
+It retains scalar/grouped cursor, envelope, accepted
 authority, and live-state checks, but updates the verification surface for the
 current source tree:
 
@@ -266,7 +275,7 @@ Be explicit about whether each protection is:
 
 # Required Attack Scenarios
 
-Every run must reason through these scenarios explicitly:
+For each scenario applicable to the declared scope, reason through it explicitly:
 
 1. Cursor text is invalid hex.
 2. Cursor payload decodes as malformed bytes.
@@ -304,33 +313,28 @@ State explicitly whether each is:
 
 # Required Verification Baseline
 
-Every run must include evidence from current tests and live source inspection.
+Apply [Executed-Test Evidence](../../README.md#executed-test-evidence) before
+accepting any test result. Select current tests by the obligations below; these
+paths locate owners and candidate proofs, and do not themselves establish coverage.
+Record missing behavioral proof explicitly rather than dropping a required row.
 
-Use current tests from:
+Paths beginning with `db/` are relative to `crates/icydb-core/src/`.
+Core unit selections use `-p icydb-core --lib --features sql`; physical migration
+proof also enables `migration`. Select a named integration target separately
+when the obligation crosses the canister boundary.
 
-* `db/cursor/tests/mod.rs`
-* `db/executor/terminal/page/tests.rs`
-* `db/index/envelope/tests.rs`
-* `db/executor/authority/entity.rs`
-* `db/query/fingerprint/hash_sections/tests.rs`
-* `testing/integration/tests/sql_canister.rs`
+| Proof obligation | Current source/test owners |
+| --- | --- |
+| Scalar/grouped token decode, signature, direction, and offset validation | `db/cursor/tests/mod.rs`, `db/cursor/token/` |
+| Inclusive/exclusive bounds and strict ascending/descending resume | `db/index/envelope/tests.rs` |
+| Page limit/offset, duplicate suppression, and terminal continuation | `db/executor/terminal/page/tests.rs`, `db/executor/stream/access/tests/` |
+| Accepted schema and query shape remain bound to continuation identity | `db/cursor/signature.rs`, `db/query/fingerprint/hash_sections/tests.rs` |
+| Composite-key pagination and changes between pages | `db/session/tests/unit_ordering.rs`, `testing/integration/tests/sql_canister.rs` |
 
-Required live command baseline:
-
-* `cargo test -p icydb-core cursor --features sql -- --nocapture`
-* `cargo test -p icydb-core pk_cursor_decode_error_mapping_is_explicit_for_all_cursor_variants --features sql -- --nocapture`
-* `cargo test -p icydb-core anchor_containment_guard_rejects_out_of_envelope_anchor --features sql -- --nocapture`
-* `cargo test -p icydb-core anchor_equal_to_upper_resumes_to_empty_envelope --features sql -- --nocapture`
-* `cargo test -p icydb-core desc_anchor_equal_to_lower_resumes_to_empty_envelope --features sql -- --nocapture`
-* `cargo test -p icydb-core load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strictly_monotonic --features sql -- --nocapture`
-* `cargo test -p icydb-core load_cursor_live_state_delete_between_pages_can_shrink_remaining_results --features sql -- --nocapture`
-* `cargo test -p icydb-core runtime_continuation_semantic_definitions_stay_cursor_owned --features sql -- --nocapture`
-* `cargo test -p icydb-core runtime_cursor_signature_validation_internals_stay_cursor_owned --features sql -- --nocapture`
-* `cargo test -p icydb-core authority_finalization_uses_authority_schema_when_shape_is_missing --features sql -- --nocapture`
-* `cargo test -p icydb-core shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed --features sql -- --nocapture`
-
-If a critical scenario is not covered by an existing test, call that out
-explicitly as a coverage gap.
+Select tests whose assertions cover the named scalar and grouped obligations,
+including live-state mutation between pages where claimed. Neither an envelope
+unit test nor a broad `cursor` filter alone proves complete pagination behavior.
+If a critical scenario has no executable proof, record the coverage gap.
 
 ---
 
@@ -404,13 +408,12 @@ Provide:
 * low-risk observations
 * tests that should be added if coverage is thin
 
-Be strict. If something is not explicitly guarded, mark it as risk.
+If a required guard has no evidence, report the verification gap and needed
+proof. A missing proof alone does not establish a runtime violation.
 
-## 8. Overall Cursor/Ordering Risk Index (1-10, lower is better)
+## 8. Verdict
 
-Interpretation:
-
-* `1-3` = Low risk / structurally healthy
-* `4-6` = Moderate risk / manageable pressure
-* `7-8` = High risk / requires monitoring
-* `9-10` = Critical risk / structural instability
+Apply [Findings And Verdicts](../../README.md#findings-and-verdicts).
+Summarize the supported verdict, each finding's consequence and severity, and
+any unresolved verification. Keep owner, disposition, and action trigger with
+the finding.

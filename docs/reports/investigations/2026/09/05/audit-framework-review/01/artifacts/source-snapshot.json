@@ -1,0 +1,32 @@
+{
+  "head": "6c17ea4a14c0b7a41b37bdf2cc80ee5ce7d22806",
+  "dirty": true,
+  "manifest_sha256": "b0854a2ec35077ef4ff625be854a351664b450d5482555d1e47e9ce7b4747202",
+  "files": {
+    "crates/icydb-core/src/db/commit/guard.rs": "b7ac2134175879b33ca416c8c159fea83375780f58399dd691c118b263b480e9",
+    "crates/icydb-core/src/db/commit/recovery.rs": "a8be8013c1a693b93c9fbda1d9d2883522c1d95c4d0d4404f133ab415032d5d5",
+    "docs/audits/README.md": "77039a8cf0978e2dc590f83c276cf0d546350ee72c4b9c0671d08525ea31d1d8",
+    "docs/audits/architecture-contracts.md": "b8e73b1cf6b8a64f8ed29f461d64a34754f85f6b68205c3452dab927d3e98b85",
+    "docs/audits/recurring/access/access-index-integrity.md": "470d2d2a16e3e6f3322a39fa29d7cd65481ee78a6baeab548cea81d9c3bba379",
+    "docs/audits/recurring/contracts/error-taxonomy.md": "c3816bab02faeceb3e90535bd07528d93ac00b957f4af4b79418c06b16f4afb6",
+    "docs/audits/recurring/contracts/resource-model-compliance.md": "57f3a21be1c5c1a48c4e35cca3629b4d6533f4c31cede125fffa524b6d41f15d",
+    "docs/audits/recurring/crosscutting/crosscutting-completeness.md": "89ba2aae56ed12c3b75d8b471d44206db31532ae5bd60d71d3503f229713eca8",
+    "docs/audits/recurring/crosscutting/crosscutting-complexity-and-technical-debt.md": "32dd84cb8c995f54b73e1b60e89245cbf134cfc866daae2e97ea7ca23bde9794",
+    "docs/audits/recurring/crosscutting/crosscutting-flow-convergence-and-duplication.md": "4b22751edd226a5823e4ed59c8df2fdfc9a5c4b1bfee4f77dcd336db007dbe01",
+    "docs/audits/recurring/crosscutting/crosscutting-perf-audit.md": "69f2c630bf6fbedc7238f899b6055b1b70ed707e74c92607ba8e7ad7cda28260",
+    "docs/audits/recurring/crosscutting/crosscutting-wasm-footprint.md": "5746d15d378023896b698b12ed7510061fde87023fe821b3f5b0da3c2477312e",
+    "docs/audits/recurring/executor/cursor-ordering.md": "956c417f5fde344158e8ec568f81834b5ea260d96b498c03ef559399da2a9d95",
+    "docs/audits/recurring/executor/executor-state-machine-integrity.md": "b9b92ec4ec46387288ec1beb277a3d0654b63ca1f1d28fbb6a8ef0f4390501e0",
+    "docs/audits/recurring/integrity/invariant-preservation.md": "424d02e65882d341d88243a7fa5d305c0519fce12c82f71b9cb969dff3db1716",
+    "docs/audits/recurring/range/boundary-envelope-semantics.md": "e9704afa26f3f3ade071fd94cb0bf49b4dfe32cba5cbaa47bc92368e121b5879",
+    "docs/audits/recurring/security/security-audit.md": "bd12c0d12a78dcc7a7759c1be5c780a158b2d58e5c56fd9fe7bf46fb2430d59d",
+    "docs/audits/recurring/storage/storage-recovery-consistency.md": "66d1885d81954a3eea826157279d68bdbd3ceb45a5c866c1f86c41c511992f5d",
+    "docs/audits/targeted/modules/module-cleanup-runner.md": "46ead433a8756399875b2bdd73686491f4794f1d2f77f4063e04a94a11fd4b38",
+    "docs/audits/targeted/modules/module-surface-hardening.md": "0a97c03ee38e3138223432af01a26590933e1564391c4936a5aae4a0479c0043",
+    "docs/reports/README.md": "63428b8225cf4a2860f2850f74f3daf8f1228d38a4c4cbcc0fb0479d0f0557a3",
+    "scripts/ci/check-wasm-post-link-invariants.sh": "29dd6a8cbefb3113738218f05261a1fc578949c63e36ee9e69ead9afeef1191f",
+    "scripts/ci/test-wasm-audit-report.sh": "7f38321c3f1e28d49e16ecc6b8c72ce1eafced0e9799e740b655fb9065d0e27a",
+    "scripts/ci/wasm-audit-report.sh": "a79e28675fd0e67a3d1b408e77da0a8b9e3667286d857cf201b1261fafc8223d",
+    "scripts/ci/wasm-report-common.sh": "987d2a103055ed0f3f1c7875268db30c1b75a4cb4955fb2937d3ef5600f2ca17"
+  }
+}

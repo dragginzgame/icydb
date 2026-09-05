@@ -45,7 +45,10 @@ The following edges are forbidden unless explicitly approved and documented:
 
 ## 4. Required Audit Coverage
 
-Recurring definitions under `docs/audits/recurring/` must continuously cover:
+Recurring definitions under `docs/audits/recurring/` must collectively cover
+the following contracts. Individual runs follow
+[Domain Scope And Change Triggers](README.md#domain-scope-and-change-triggers),
+not a mandatory whole-system sweep:
 
 - range/boundary contracts
 - executor boundaries
@@ -59,7 +62,11 @@ Recurring definitions under `docs/audits/recurring/` must continuously cover:
   planner, runtime, explain, and replay
 - wasm footprint continuity with attribution output for size-growth attribution
 
-Cross-domain findings belong in `recurring/crosscutting/`.
+Assign findings to the audit owning the violated contract, even when the
+defect crosses domains. Apply
+[Finding Ownership And Shared Evidence](README.md#finding-ownership-and-shared-evidence)
+to link adjacent reports without duplicating findings or proof. Executed results
+belong under `docs/reports/`, not beside audit definitions.
 
 ## 5. Governance Enforcement
 
@@ -67,7 +74,11 @@ Recurring audits are contract enforcement, not advisory style review.
 
 Required:
 
+- apply [Authorization And Read-Only Work](README.md#authorization-and-read-only-work)
+  before executing verification or writing report output
 - classify violations as `LOW`, `MEDIUM`, or `HIGH` architectural risk
+- use [Findings And Verdicts](README.md#findings-and-verdicts) for severity,
+  overall verdicts, and follow-up; do not derive composite scores
 - identify broken boundary or invariant
 - record concrete evidence path
 - preserve all historical reports

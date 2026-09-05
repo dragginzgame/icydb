@@ -1,4 +1,8 @@
-# WEEKLY AUDIT - Strict Error Taxonomy
+# Recurring Audit — Strict Error Taxonomy
+
+Apply [Domain Scope And Change Triggers](../../README.md#domain-scope-and-change-triggers)
+to all inventories, checks, and output sections below. Record selected and
+excluded obligations before analysis; broad coverage requires a requested baseline.
 
 `icydb-core` plus the public `icydb` facade.
 
@@ -238,14 +242,12 @@ List:
 
 If none are found, state that explicitly.
 
-### 11. Overall Taxonomy Risk Index
+### 11. Verdict And Findings
 
-Taxonomy Risk Index:
-
-- `1-3` = low risk / structurally healthy
-- `4-6` = moderate risk / manageable pressure
-- `7-8` = high risk / requires monitoring
-- `9-10` = critical risk / structural instability
+Apply [Findings And Verdicts](../../README.md#findings-and-verdicts).
+Tie each finding to the affected error class, origin, or public boundary and
+its observed consequence. Identify unresolved proof separately from a confirmed
+misclassification.
 
 ---
 
@@ -269,7 +271,7 @@ Report sections:
 10. Layer Violation Detection
 11. Mixed-Domain Pressure
 12. Incorrect Classification List
-13. Overall Taxonomy Risk Index
+13. Verdict And Findings
 14. Verification Readout
 15. Follow-Up Actions
 
@@ -284,23 +286,28 @@ Do not overwrite prior dated results.
 
 ---
 
-## Baseline Verification Commands
+## Baseline Verification Selection
 
-Start with:
+Apply [Executed-Test Evidence](../../README.md#executed-test-evidence) before
+accepting any test result. Select current tests by the obligations below; these
+paths locate owners and candidate proofs, and do not themselves establish coverage.
+Record missing behavioral proof explicitly rather than dropping a required row.
 
-- `cargo test -p icydb-core error::tests -- --nocapture`
-- `cargo test -p icydb error::tests -- --nocapture`
-- `cargo test -p icydb-core db::query::intent::errors::tests -- --nocapture`
-- `cargo test -p icydb-core db::cursor::tests -- --nocapture`
-- `cargo test -p icydb-core db::commit::store::tests::commit_marker -- --nocapture`
-- `cargo test -p icydb-core recovery_rejects_corrupt_marker_data_key_decode -- --nocapture`
-- `cargo test -p icydb-core recovery_rejects_incompatible_marker_format_version_fail_closed -- --nocapture`
-- `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
-- `cargo test -p icydb-core unique_expression_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
-- `cargo test -p icydb-core db::schema::mutation::tests::planning::field_path_index_request_lowering_fails_closed_for_unsupported_indexes -- --nocapture`
-- `cargo test -p icydb-core db::schema::mutation::tests::planning::index_mutation_plans_preserve_the_current_physical_target --features sql -- --nocapture`
-- `bash scripts/ci/check-layer-authority-invariants.sh`
+Paths beginning with `db/` are relative to `crates/icydb-core/src/`.
+Core unit selections use `-p icydb-core --lib --features sql`; physical migration
+proof also enables `migration`. Select a named integration target separately
+when the obligation crosses the canister boundary.
 
-Add targeted tests for any new public error kind, internal error class,
-origin, schema mutation publication failure, persisted decode path, recovery replay
-path, or facade mapping.
+| Proof obligation | Current source/test owners |
+| --- | --- |
+| Internal class/origin preservation and public facade projection | `crates/icydb-core/src/error/tests.rs`, `crates/icydb/src/error/tests.rs` |
+| Query admission and cursor failure classification | `db/query/intent/errors/`, `db/cursor/tests/mod.rs` |
+| Malformed persisted rows and markers fail with typed corruption errors | `db/tests/persisted_format_corpus.rs`, `db/commit/store/tests.rs` |
+| Live mutation and recovery preserve uniqueness/relation error meaning | `db/session/write.rs`, `db/commit/recovery.rs`, `db/schema/mutation/tests/user_index_domain.rs` |
+| Unsupported index lowering and physical-target validation | `db/schema/mutation/tests/planning.rs` |
+| Accepted-index corruption reaches the public query boundary | `db/session/tests/unit_ordering.rs` |
+
+Facade unit tests use `-p icydb --lib --features sql`. The layer-authority
+invariant script remains useful static evidence, separate from executed tests.
+Add focused proof for any new public error kind, internal class, origin,
+publication failure, persisted decoder, replay path, or facade mapping.

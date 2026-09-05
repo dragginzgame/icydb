@@ -3,6 +3,12 @@
 This directory contains immutable outputs from executed audits. Audit
 definitions and reusable playbooks live under `docs/audits/`.
 
+Report creation follows
+[Authorization And Read-Only Work](../audits/README.md#authorization-and-read-only-work).
+An inspection-only request does not create a report here. When report writing
+is authorized, use a new run directory; corrections and reruns never replace a
+prior run's report, findings, or supporting evidence.
+
 ## Ownership Hierarchy
 
 ```text

@@ -1,4 +1,8 @@
-# Weekly Audit: Security Boundary & Fail-Closed Behavior
+# Recurring Audit: Security Boundary & Fail-Closed Behavior
+
+Apply [Domain Scope And Change Triggers](../../README.md#domain-scope-and-change-triggers)
+to all inventories, checks, and output sections below. Record selected and
+excluded obligations before analysis; broad coverage requires a requested baseline.
 
 ## Purpose
 
@@ -33,13 +37,16 @@ Definition path: `docs/audits/recurring/security/security-audit.md`
 
 Report scope: `security-boundary`
 
-Current method tag: `Security Boundary Method V2`
+Current method tag: `Security Boundary Method V3`
 
 Use `docs/reports/recurring/YYYY/MM/DD/security-boundary/<run>/report.md`.
 Run `01` is the daily baseline; same-day reruns use `02`, `03`, and so on.
 
-Method V2 refreshes the owner paths, grouped resource-policy checks, cache
-fail-closed checks, and read-only run discipline from the original V1 report.
+Method V3 uses owner-based proof selection, shared executed-test evidence, and
+qualitative findings/verdicts. It retains public-boundary, resource-policy,
+cache, and fail-closed obligations. Reports comparing with fixed-selector
+baselines must describe the proof changes and mark affected verification deltas
+non-comparable.
 
 ---
 
@@ -138,7 +145,7 @@ Out of scope unless IcyDB later adds them:
 * capability scopes
 * token trust chains
 
-Do not score the system down for lacking auth/tenant features that are not part
+Do not report missing auth/tenant features as defects when they are not part
 of the current product contract.
 
 ---
@@ -496,9 +503,11 @@ Examples:
 * error-domain flattening
 * new public entrypoints without invariant coverage
 
-## 5. Risk Score
+## 5. Verdict And Findings
 
-Normalized `X / 10` score.
+Apply [Findings And Verdicts](../../README.md#findings-and-verdicts).
+Justify each finding's severity with the affected trust boundary, reachable
+failure or exposure, and current evidence.
 
 ## 6. Verification Readout
 
@@ -513,8 +522,10 @@ evidence. Verification commands must resolve to `PASS`, `FAIL`, or `BLOCKED`.
 
 ## 7. Follow-Up Actions
 
-If any finding is `FAIL`/`PARTIAL`, any verification is `FAIL`/`BLOCKED`, or
-risk score is `>= 5`, include owner, action, and target report run.
+For every actionable finding or unresolved `FAIL`/`BLOCKED` verification,
+include the owner, action or accepted disposition, and reconsideration trigger.
+An unknown boundary needs a proof action; do not present it as an established
+security failure without evidence.
 
 If not needed, state:
 
@@ -522,27 +533,31 @@ If not needed, state:
 
 ---
 
-## Baseline Verification Commands
+## Baseline Verification Selection
 
-Start with the checks IcyDB already uses as security-adjacent evidence:
+Apply [Executed-Test Evidence](../../README.md#executed-test-evidence) before
+accepting any test result. Select current tests by the obligations below; these
+paths locate owners and candidate proofs, and do not themselves establish coverage.
+Record missing behavioral proof explicitly rather than dropping a required row.
 
-* `bash scripts/ci/check-index-range-spec-invariants.sh`
-* `bash scripts/ci/check-memory-id-invariants.sh`
-* `bash scripts/ci/check-layer-authority-invariants.sh`
-* `cargo test -p icydb-core --features sql sql_query_surfaces_reject_non_query_statement_lanes_matrix -- --nocapture`
-* `cargo test -p icydb-core --features sql execute_trusted_sql_query_rejects_invalid_grouped_projection_shapes -- --nocapture`
-* `cargo test -p icydb-core --features sql db::query::plan::tests::group::grouped_plan_rejects_validation_shape_matrix -- --nocapture`
-* `cargo test -p icydb-core --features sql db::query::plan::tests::group::grouped_plan_having_order_limit_composition_enforces_bounded_policy -- --nocapture`
-* `cargo test -p icydb-core --features sql db::executor::planning::route::tests::grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_route -- --nocapture`
-* `cargo test -p icydb-core --features sql grouped_select_helper_cursor_rejection_matrix_preserves_cursor_plan_taxonomy -- --nocapture`
-* `cargo test -p icydb-core --features sql anchor_containment_guard_rejects_out_of_envelope_anchor -- --nocapture`
-* `cargo test -p icydb-core --features sql recovery_replay_is_idempotent -- --nocapture`
-* `cargo test -p icydb-core --features sql unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
-* `cargo test -p icydb-core --features sql recovery_replay_interrupted_conflicting_unique_batch_fails_closed -- --nocapture`
-* `cargo test -p icydb-core --features sql shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces -- --nocapture`
-* `cargo test -p icydb-core --features sql shared_query_plan_cache_schema_fingerprint_method_mismatch_fails_closed -- --nocapture`
-* `cargo test -p icydb-core --features sql shared_query_plan_cache_schema_version_mismatch_fails_closed -- --nocapture`
-* `cargo test -p icydb-core --features sql sql_compile_cache_keeps_query_and_update_surfaces_separate -- --nocapture`
+Paths beginning with `db/` are relative to `crates/icydb-core/src/`.
+Core unit selections use `-p icydb-core --lib --features sql`; physical migration
+proof also enables `migration`. Select a named integration target separately
+when the obligation crosses the canister boundary.
+
+| Proof obligation | Current source/test owners |
+| --- | --- |
+| Query/update lane separation and rejected SQL field roles | `db/session/tests/unit_ordering.rs`, `db/session/sql/` |
+| Grouped admission cannot bypass resource policy | `db/query/plan/validate/grouped/`, `db/executor/group/tests.rs` |
+| Forged cursor identity, direction, offset, and envelope bounds reject | `db/cursor/tests/mod.rs`, `db/index/envelope/tests.rs` |
+| Corrupt persisted rows/markers fail closed | `db/tests/persisted_format_corpus.rs`, `db/commit/store/tests.rs` |
+| Interrupted mutation/recovery preserves final row and relation state | `db/session/write.rs` (`mixed_entity_recovery_after_` family) |
+| Query reuse remains bound to accepted authority and current parameters | `db/session/tests/unit_ordering.rs` |
+| Public endpoint authorization and read authority | `testing/integration/tests/sql_guard.rs`, `testing/integration/tests/read_authority.rs` |
+
+The memory-id, layer-authority, and index-range invariant scripts remain static
+boundary evidence. A cache parameter-rebinding test does not by itself prove
+schema invalidation or query/update isolation: select evidence for each claim.
 
 Then add targeted checks for any newly widened public surface.
 
@@ -558,22 +573,14 @@ for:
 * update-warms-query cache reuse without standalone query persistence claims
 * query-lane mutation rejection at the public SQL canister boundary
 
-Run live canister checks only when the user-managed local ICP network is
-already available. Do not start or stop that network as part of this audit; mark
-the live checks `BLOCKED` with the concrete reason when the environment is not
-available.
-
 ### Read-Only Run Mode
 
-When asked to run this audit read-only:
-
-* do not modify product code or generated artifacts as a result of findings
-* write only the requested audit report and any explicitly required report
-  artifacts
-* prefer static evidence and focused verification over broad mutation-heavy
-  commands
-* do not start, stop, reset, or reconfigure external services
-* record skipped environment-dependent checks as `BLOCKED`, not as failures
+Apply [Authorization And Read-Only Work](../../README.md#authorization-and-read-only-work).
+Live canister tests may mutate fixtures or warm caches even when their purpose
+is to verify read behavior. Run them only within authorized validation scope.
+An existing network does not authorize such effects during inspection-only work.
+Record unavailable or unauthorized proof as `BLOCKED` and continue static
+inspection without weakening the security claim's evidence requirements.
 
 ---
 

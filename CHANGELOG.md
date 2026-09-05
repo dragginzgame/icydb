@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.253.md](docs/changelog/0.253.md)
 
+- `0.253.1` strengthens Wasm audit evidence with verified artifact identity,
+  immutable report runs, and chronological baseline selection.
 - `0.253.0` freezes nested-relation limits, hard-cuts relation identity, and
   admits single-valued plus bounded list-, set-, and map-value sources through
   one accepted path interpreter; upgrading from 0.252 requires recreation,

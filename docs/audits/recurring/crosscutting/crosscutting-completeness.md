@@ -33,14 +33,19 @@ That means the method must optimize for:
 - Definition path:
   `docs/audits/recurring/crosscutting/crosscutting-completeness.md`
 - Report scope: `completeness`
-- Current method tag: `Completeness Method V2`
+- Current method tag: `Completeness Method V3`
 - Report naming:
   `docs/reports/recurring/YYYY/MM/DD/completeness/<run>/report.md`
 
 Run `01` remains the canonical daily baseline. Same-day reruns use the next run
 number and compare directly against run `01`.
 
-`Completeness Method V2` keeps the original feature-breadth and pipeline-depth
+`Completeness Method V3` uses owner-based proof selection, shared executed-test
+evidence, and qualitative findings/verdicts. Reports comparing with fixed-selector
+baselines must describe the proof changes and mark affected verification deltas
+non-comparable.
+
+It retains the feature-breadth and pipeline-depth
 model, but refreshes the required proof surface for the current public contract:
 
 - the current SQL contract in `docs/contracts/SQL_SUBSET.md`
@@ -54,8 +59,8 @@ model, but refreshes the required proof surface for the current public contract:
   identity stability
 - read-only validation discipline and normalized verification statuses
 
-Reports using V2 should explicitly say whether they are comparable with older
-V1 reports. A material public-contract expansion should be marked as a method
+Reports using V3 should explicitly say whether they are comparable with older
+reports. A material public-contract expansion should be marked as a method
 refresh rather than a direct feature-state regression.
 
 ---
@@ -72,7 +77,7 @@ A completeness audit using this method should produce:
 6. a list of major architectural seams
 7. a prioritized next-step recommendation set
 
-The output may be qualitative, scored, or both.
+The output uses feature/stage labels and evidence-backed findings.
 
 ---
 
@@ -213,12 +218,12 @@ Examples:
 The exact feature list may be expanded for the audited code state, but the audit
 should always make the chosen taxonomy explicit.
 
-When the audit uses numeric scoring or a headline maturity summary, taxonomy
-must be split into two tiers:
+Keep the taxonomy split into primary features and supporting capabilities so
+the maturity narrative does not count overlapping rows as separate features:
 
 ### Primary feature rows
 
-These are the rows that count toward the headline completeness read.
+These rows describe the admitted product features in the completeness read.
 
 Examples:
 
@@ -232,8 +237,8 @@ Examples:
 
 ### Supporting rows
 
-These rows provide context, seams, and enabling-system readouts, but do not
-count as independent headline feature rows unless the audit explicitly says so.
+These rows provide context, seams, and enabling-system readouts. Do not count
+them again as independent product features.
 
 Examples:
 
@@ -352,8 +357,7 @@ Suggested stage model:
 - Proof
 
 Not every stage applies equally to every feature. When a stage is structurally
-not applicable, mark it as `N/A` rather than forcing a positive or negative
-score.
+not applicable, mark it as `N/A` rather than inventing a maturity assessment.
 
 ### Stage Read Definitions
 
@@ -385,7 +389,7 @@ Examples:
 - mutation rows must not claim `Canonical` unless the audit defines a real
   canonical-identity boundary for that mutation feature
 
-This rule prevents inflated time-series scores.
+This rule prevents unsupported claims of completeness across runs.
 
 ---
 
@@ -495,62 +499,32 @@ Prioritize the next slices implied by the inventory.
 
 ---
 
-## Step 9. Optional Scoring Layer
+## Step 9. Verdict And Feature-State Changes
 
-This method may be used with or without numeric scoring.
+Apply [Findings And Verdicts](../../README.md#findings-and-verdicts).
+Retain the per-feature `Complete`, `Bounded`, `Partial`, `Missing`, and
+`Out Of Scope` states and the stage-level evidence that supports them.
+Do not convert those labels to numeric values or average them into maturity.
 
-When numeric scoring is used, keep these rules explicit:
+Compare changes within the same admitted boundary. Explain which feature or
+stage changed, the supporting evidence, and the resulting user-visible gap or
+capability. `Out Of Scope` and `N/A` remain exclusions; overlapping feature
+rows must not inflate the apparent breadth of a change.
 
-- scores describe the audited boundary only
-- `Out Of Scope` must not be treated as `0`
-- `N/A` stages must not be averaged as positive or negative values
-- broad overlapping feature rows should be identified as overlapping
-- scores are only as trustworthy as their evidence
-
-### Default Numeric Mapping
-
-If numeric scoring is used, use one stable default mapping unless the audit
-explicitly says otherwise:
-
-- `Strong = 1.0`
-- `Partial = 0.5`
-- `Weak = 0.25`
-- `Missing = 0.0`
-- `N/A = excluded from averages`
-
-Feature-state labels such as `Complete`, `Bounded`, and `Partial` remain
-qualitative outputs derived from the stage pattern. They are not separate
-numeric values.
-
-### Headline Score Rule
-
-If one headline completeness score is reported:
-
-- compute it from primary feature rows only
-- exclude supporting rows from the headline average
-- report supporting rows separately as context or seam indicators
-
-This keeps repeated audits comparable instead of letting subsystem-count drift
-change the score without any real product movement.
-
-Numeric scoring is optional. A qualitative audit is still valid if it clearly
-distinguishes complete, partial, bounded, missing, and out-of-scope areas.
+A deliberately bounded feature is not a defect. Actionable gaps need an owner,
+consequence, and disposition. An unavailable proof limits the verdict rather
+than supplying a positive completeness claim.
 
 ---
 
 ## Read-Only Run Mode
 
-When the user asks to run this audit read-only:
-
-- do not modify product code, generated artifacts, lockfiles, package manifests,
-  or release metadata
-- only update the audit definition when the audit method itself is stale
-- only create or update the matching audit report artifact
-- do not start or stop external services
-- treat live canister or network-dependent checks as `BLOCKED` unless the
-  required service is already running and the check is explicitly read-only
-- record broad checks that would mutate state or require unavailable services as
-  `BLOCKED`, not as failures
+Apply [Authorization And Read-Only Work](../../README.md#authorization-and-read-only-work).
+An explicit read-only constraint limits the audit to source inspection and
+existing evidence unless particular output or verification is also requested.
+Return findings in the conversation when report writing is not authorized.
+Report stale definitions and missing proof; do not repair either as an implicit
+part of a read-only run.
 
 Existing dirty worktree changes may be inspected for context, but the report
 must distinguish them from stable evidence unless the relevant checks pass on
@@ -558,26 +532,31 @@ the current snapshot.
 
 ---
 
-## Recommended Read-Only Baseline
+## Verification Selection
 
-Use focused checks that exercise breadth across the admitted public surface
-without mutating repository state beyond normal build/test artifacts:
+Apply [Executed-Test Evidence](../../README.md#executed-test-evidence) before
+accepting any test result. Select current tests by the obligations below; these
+paths locate owners and candidate proofs, and do not themselves establish coverage.
+Record missing behavioral proof explicitly rather than dropping a required row.
 
-- `make check-invariants`
-- `cargo test -p icydb-core --features sql query_lowering -- --nocapture`
-- `cargo test -p icydb-core --features sql predicate_convergence -- --nocapture`
-- `cargo test -p icydb-core --features sql execution_convergence -- --nocapture`
-- `cargo test -p icydb-core --features sql explain_cache_convergence -- --nocapture`
-- `cargo test -p icydb-core --features sql sql_blob -- --nocapture`
-- `cargo test -p icydb-core --features sql execute_trusted_sql_query_admits_supported_single_entity_read_shapes -- --nocapture`
-- `cargo test -p icydb-core --features sql compile_sql_query_and_execute_compiled_preserve_supported_read_families -- --nocapture`
-- `cargo test -p icydb-core --features sql execute_sql_statement_admits_supported_single_entity_mutation_shapes -- --nocapture`
-- `cargo test -p icydb-core --features sql execute_admin_sql_ddl_publishes_supported_expression_index -- --nocapture`
-- `cargo test -p icydb-core --features sql execute_admin_sql_ddl_rename_column_updates_expression_index_metadata -- --nocapture`
-- `git diff --check`
+Paths beginning with `db/` are relative to `crates/icydb-core/src/`.
+Core unit selections use `-p icydb-core --lib --features sql`; physical migration
+proof also enables `migration`. Select a named integration target separately
+when the obligation crosses the canister boundary.
 
-The report may substitute nearby focused filters when names drift, but it should
-record the substitution and why it preserves the same proof intent.
+| Proof obligation | Current source/test owners |
+| --- | --- |
+| SQL parsing, predicate lowering, and normalization | `db/sql/parser/tests/mod.rs`, `db/sql/lowering/predicate/tests.rs`, `db/sql/lowering/normalize/tests.rs` |
+| Typed/dynamic/SQL read parity and prepared parameter reuse | `db/session/tests/unit_ordering.rs` |
+| SQL mutation admission and current write behavior | `db/session/sql/update_policy/tests.rs`, `db/session/sql/delete_policy/tests.rs`, `db/session/write.rs` |
+| DDL field/expression indexes, field changes, and accepted publication | `db/schema/mutation/tests/`, `db/schema/sql_ddl/`, `testing/integration/tests/sql_canister.rs` |
+| Public result, blob, introspection, and EXPLAIN behavior | `db/session/sql/`, `testing/integration/tests/sql_canister.rs`, `testing/integration/tests/sql_correctness.rs` |
+| Persisted decode and recovery for admitted mutation families | `db/tests/persisted_format_corpus.rs`, `db/session/write.rs`, `db/schema/application.rs` |
+
+Select focused cases for the feature rows actually in scope. Do not run entire
+integration targets merely because they contain candidate proofs. Parsing,
+strategy mapping, or source inspection alone cannot mark execution, reuse,
+publication, or public-boundary proof as complete.
 
 ---
 

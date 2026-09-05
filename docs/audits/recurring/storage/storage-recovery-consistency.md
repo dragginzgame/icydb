@@ -1,4 +1,8 @@
-# Weekly Audit: Recovery Consistency & Replay Equivalence
+# Recurring Audit: Recovery Consistency & Replay Equivalence
+
+Apply [Domain Scope And Change Triggers](../../README.md#domain-scope-and-change-triggers)
+to all inventories, checks, and output sections below. Record selected and
+excluded obligations before analysis; broad coverage requires a requested baseline.
 
 ## Purpose
 
@@ -126,7 +130,7 @@ Analyze:
 
 ### 1. Mutation Inventory
 
-Enumerate all mutation types:
+Enumerate the mutation types affected by the declared scope:
 
 * insert
 * replace
@@ -331,7 +335,7 @@ Produce:
 
 ## Attack and Boundary Questions
 
-Every run must answer these explicitly:
+Answer each question applicable to the declared scope explicitly:
 
 * Is commit-marker durability the sole durable authority, or does any
   in-process rollback path incorrectly act like a second authority?
@@ -369,11 +373,12 @@ If any answer is unclear, mark it as risk.
 8. Partial Failure Symmetry Table
 9. Schema Mutation Startup Recovery Table
 10. Attack and Boundary Answers
-11. Overall Recovery Risk Index (1-10, lower is better)
-12. Verification Readout (`PASS` / `FAIL` / `PARTIAL` / `BLOCKED`)
+11. Verdict And Findings
+12. Verification Readout (`PASS` / `FAIL` / `BLOCKED`)
 
-Reports must include all required sections even when the verification commands
-pass. Do not collapse the report into a smoke-test-only summary.
+Reports must include all applicable sections even when the verification commands
+pass; summarize excluded sections and their reasons once. Do not collapse the
+report into a smoke-test-only summary.
 
 Run metadata must include:
 
@@ -385,29 +390,37 @@ Run metadata must include:
 * method tag/version
 * comparability status (`comparable` or `non-comparable` with reason)
 
-Interpretation:
-
-* `1-3` = Low risk / structurally healthy
-* `4-6` = Moderate risk / manageable pressure
-* `7-8` = High risk / requires monitoring
-* `9-10` = Critical risk / structural instability
+Apply [Findings And Verdicts](../../README.md#findings-and-verdicts).
+Summarize the supported verdict, each finding's consequence and severity, and
+any unresolved verification. Keep owner, disposition, and action trigger with
+the finding.
 
 ---
 
-## Baseline Verification Commands
+## Baseline Verification Selection
 
-Start with:
+Apply [Executed-Test Evidence](../../README.md#executed-test-evidence) before
+accepting any test result. Select current tests by the obligations below; these
+paths locate owners and candidate proofs, and do not themselves establish coverage.
+Record missing behavioral proof explicitly rather than dropping a required row.
 
-* `cargo test -p icydb-core recovery_replay_is_idempotent -- --nocapture`
-* `cargo test -p icydb-core recovery_replay_interrupted_conflicting_unique_batch_fails_closed -- --nocapture`
-* `cargo test -p icydb-core unique_conflict_classification_parity_holds_between_live_apply_and_replay -- --nocapture`
-* `cargo test -p icydb-core db::commit::store::tests::commit_marker -- --nocapture`
-* `cargo test -p icydb-core commit_forward_apply_and_replay_preserve_identical_store_state_for_mixed_marker_sequence -- --nocapture`
-* `cargo test -p icydb-core conditional_index_forward_apply_and_replay_preserve_identical_store_state_for_membership_matrix -- --nocapture`
-* `cargo test -p icydb-core recovery_replay_updates_old_nullable_row_before_image_with_accepted_contract -- --nocapture`
-* `cargo test -p icydb-core schema::reconcile --features sql -- --nocapture`
-* `cargo test -p icydb-core db::schema::mutation::tests::planning::index_mutation_plans_preserve_the_current_physical_target --features sql -- --nocapture`
+Paths beginning with `db/` are relative to `crates/icydb-core/src/`.
+Core unit selections use `-p icydb-core --lib --features sql`; physical migration
+proof also enables `migration`. Select a named integration target separately
+when the obligation crosses the canister boundary.
 
-Add targeted replay/apply tests for any newly widened mutation surface. Add
-targeted schema mutation startup tests when supported physical mutation
-publication changes.
+| Proof obligation | Current source/test owners |
+| --- | --- |
+| Mixed-entity row/reverse state after each of five interruption points | `db/session/write.rs` (`mixed_entity_recovery_after_` family) |
+| Journal replay, retirement, and reopen preserve exact control state | `db/journal/store.rs` (`exact_controls_append_replay_retire_and_reopen`) |
+| Accepted schema replay/fold is idempotent | `db/schema/store/tests.rs` (`journaled_schema_candidate_replay_and_fold_are_idempotent`) |
+| Recovery gates readiness until the exact schema receipt | `db/startup/mod.rs` |
+| Malformed marker/row state fails closed | `db/tests/persisted_format_corpus.rs`, `db/commit/store/tests.rs` |
+| Field/expression/unique index replacement preserves accepted domain truth | `db/schema/mutation/tests/user_index_domain.rs`, `db/schema/mutation/tests/planning.rs` |
+| Physical migration resumes and publishes one complete candidate | `db/schema/application.rs` (`physical_migration_rewrite_recovers_and_publishes_one_complete_candidate`) |
+
+The mixed-entity interruption family must execute all five maintained cases.
+Index-domain staging tests do not alone prove interrupted publication: trace
+`db/commit/schema_publication.rs` and `db/commit/recovery.rs` and select the
+corresponding interruption proof as well. Add focused replay/apply evidence for
+new mutation families, including nested relation projection when affected.

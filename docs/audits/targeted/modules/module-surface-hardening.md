@@ -20,7 +20,7 @@ Historical name: **Complexity / Surface Hygiene** (`CSH`).
 Canonical report scope: `module-surface-hardening`.
 
 Old reports using `complexity-surface-hygiene` remain valid historical reports,
-but they are non-comparable with `MSH-2.0` unless the hot-path and wasm
+but they are non-comparable with `MSH-3.0` unless the hot-path and wasm
 regression gates are backfilled.
 
 Use `docs/audits/targeted/modules/module-cleanup-runner.md` for implementation slices
@@ -110,29 +110,31 @@ production dead surface`.
 
 Include this manifest in each report:
 
-* `method_version = MSH-2.0`
+* `method_version = MSH-3.0`
 * `surface_taxonomy = ST-1`
 * `authority_taxonomy = AT-1`
 * `deletion_confidence_model = DC-1`
 * `compatibility_policy = pre-1.0-hard-cut`
 * `wasm_signal_rule = raw-wasm-primary`
 * `hot_path_risk_model = HP-1`
-* `proof_policy = read-only-first`
+* `proof_policy = inspect-before-change`
 
 Mark the run `non-comparable` if any manifest item changes, if in-scope roots
 change, or if test/generated-code inclusion rules change.
 
-`MSH-2.0` supersedes `CSH-1.2`. It keeps the deletion-pressure standard and adds
-two release-quality gates:
+`MSH-3.0` uses the shared findings/verdict contract instead of an overall risk
+index. Score comparisons are non-comparable; name any unchanged inventory or
+measured anchors separately. It retains the deletion-pressure standard and
+these release-quality gates:
 
 * cleanup in hot or wasm-sensitive code must include an optimization-risk
   classification before a patch is recommended.
-* audits are read-only by default; they produce findings first. Code changes
-  require an explicit implementation request or an already-approved cleanup
-  slice.
+* audits produce findings before implementation; existing authorization for a
+  bounded cleanup slice remains valid under the shared authorization contract.
 
-Reports using `MSH-2.0` are non-comparable with `CSH-1.2` unless they explicitly
-explain how the hot-path, wasm, and read-only-first standards were backfilled.
+Reports using `MSH-3.0` are non-comparable with `CSH-1.2` unless they explicitly
+explain how the hot-path, wasm, and inspection-before-change standards were
+backfilled.
 
 ## Evidence Classes
 
@@ -164,7 +166,7 @@ Then ask the deletion-pressure follow-up:
 > Is that failure desirable because it removes an obsolete consumer, broad
 > surface, or old vocabulary?
 
-Then ask the MSH-2.0 runtime-shape follow-up:
+Then ask the MSH-3.0 runtime-shape follow-up:
 
 > Would the simpler shape add allocation, cloning, formatting, dynamic dispatch,
 > generic monomorphization, or wasm size/instruction risk in a hot path?
@@ -308,19 +310,19 @@ Every retained or candidate item gets exactly one disposition:
 
 Avoid bare "defer". A deferral without a trigger is just retention by default.
 
-## Read-Only-First Rule
+## Inspection Before Implementation
 
-MSH reports are read-only by default. The auditor should produce findings,
-classifications, dispositions, and proof requirements before changing code.
+Apply [Authorization And Read-Only Work](../../README.md#authorization-and-read-only-work).
+Produce findings, classifications, dispositions, and proof requirements before
+changing code. A request to run the audit permits its new report and scoped
+verification outputs unless the user restricts writes; it does not authorize
+implementing the findings or changing this definition.
 
-Code changes are allowed only when the user explicitly asks to implement a
-cleanup, or when the current task is already an implementation slice. Even then,
-the patch should be the smallest change that satisfies the report disposition
-and required proof.
-
-When the task says to "run the audit", use this read-only mode. When the task
-says to "clean up" or "run MSH cleanup", use the module cleanup runner and patch
-only the safe dispositions allowed there.
+When the task says to "clean up" or "run MSH cleanup", use the module cleanup
+runner within that implementation scope. Do not request the same authority
+again. Make the smallest change that satisfies the disposition and required
+proof. Under an explicit read-only constraint, return findings without edits
+or report files unless those outputs are also authorized.
 
 ## Surface Taxonomy
 
@@ -364,7 +366,7 @@ Capture:
 
 | Field [M/C] | Value |
 | ---- | ---- |
-| `method_version` | `MSH-2.0` |
+| `method_version` | `MSH-3.0` |
 | `baseline_report` | path or `N/A` |
 | `comparability_status` | `comparable` / `non-comparable` |
 | `code_snapshot` | git short SHA or `N/A` |
@@ -372,7 +374,7 @@ Capture:
 | `excluded_roots` | roots excluded |
 | `generated_code_inclusion` | included / excluded / sampled |
 | `test_surface_inclusion` | included / excluded / sampled |
-| `patch_mode` | `read-only` / `implementation-requested` |
+| `patch_mode` | `audit-only` / `implementation-requested` |
 
 ## STEP 1 - Reachable Surface And Retention Inventory
 
@@ -558,19 +560,15 @@ Produce:
 | Candidate [M] | Hotness [C] | Runtime Shape Today [C] | Proposed Shape [C] | Risk Signal [C] | Required Proof [C] | Disposition [C] |
 | ---- | ---- | ---- | ---- | ---- | ---- | ---- |
 
-## STEP 9 - Risk Scoring
+## STEP 9 - Verdict And Findings
 
 Evidence mode: `classified`
 
-Score only removable/narrowable surface, not the whole architecture.
-
-Risk index:
-
-* `0-2`: low dead-surface pressure
-* `3-5`: moderate cleanup queue; track follow-ups
-* `6-8`: high complexity retained by stale surface
-* `9-10`: critical; obsolete authority or fallback path can distort runtime
-  behavior or block pre-`1.0.0` hard cuts
+Apply [Findings And Verdicts](../../README.md#findings-and-verdicts).
+Classify each removable/narrowable surface by its current consequence and
+owner. Keep the risk of retaining a defect distinct from the risk of the
+proposed cleanup; neither is a numerical rating of the whole architecture.
+Counts below describe the inspected inventory, not cleanup quotas or severity.
 
 Produce:
 
@@ -596,7 +594,7 @@ Every report must include:
 6. facade/generated-boundary findings
 7. removal safety plan
 8. runtime shape / optimization risk findings
-9. risk score
+9. verdict and findings
 10. verification readout
 11. disposition summary
 12. follow-up actions or explicit "none"
@@ -653,4 +651,6 @@ Suggested deletion-pressure prompts:
   explicit state/callback loop with a generic closure, iterator stack, or
   allocation-heavy helper
 
-Do not start or stop the local ICP network for this audit.
+Apply the shared authorization contract to network-dependent proof. Required
+local validation may use existing `AGENTS.md` lifecycle permission; an
+inspection-only run cannot mutate or reconfigure a running network.

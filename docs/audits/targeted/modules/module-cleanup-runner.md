@@ -3,6 +3,11 @@
 Use this workflow when the user asks to clean up a named module or crate using
 Module Surface Hardening rules.
 
+Apply [Authorization And Read-Only Work](../../README.md#authorization-and-read-only-work).
+The cleanup request supplies implementation authority for the named scope.
+Do not turn an inspection-only audit into a cleanup, or ask for the same
+implementation approval again when it is already present in the session.
+
 This is the implementation runner for
 `docs/audits/targeted/modules/module-surface-hardening.md`. The MSH document owns policy,
 taxonomy, authority rules, and full audit reporting. This runner owns the short,
@@ -113,11 +118,15 @@ fix the direct cause when it belongs to the slice, and report anything broader.
 
 Use this report shape for ordinary module cleanup:
 
+Apply [Findings And Verdicts](../../README.md#findings-and-verdicts); justify
+severity per finding and retain accepted/no-action dispositions explicitly.
+
 ```markdown
 # MSH Module Cleanup: <module>
 
 ## Verdict
-- Risk score:
+
+- Verdict: PASS / PASS WITH FINDINGS / FAIL / BLOCKED
 - Patch mode:
 - Cleanup result:
 

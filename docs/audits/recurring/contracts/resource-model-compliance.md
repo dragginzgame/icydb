@@ -1,5 +1,9 @@
 # RECURRING AUDIT — Resource Model Compliance
 
+Apply [Domain Scope And Change Triggers](../../README.md#domain-scope-and-change-triggers)
+to all inventories, checks, and output sections below. Record selected and
+excluded obligations before analysis; broad coverage requires a requested baseline.
+
 ## Purpose
 
 Verify executor/planner behavior remains compliant with
@@ -69,8 +73,9 @@ evidence paths.
 20. All grouped operators are explicitly classified under the resource model.
 21. Grouped continuation signatures include budget-relevant shape so cursor
     reuse cannot cross incompatible grouped limits.
-22. Runtime metrics counters such as `rows_scanned` and `rows_aggregated` stay
-    diagnostic-only and do not affect planner, route, or executor behavior.
+22. Optional entity metrics (`hits`, `instructions_total`, and
+    `instructions_max`) stay diagnostic-only and do not affect planner, route,
+    or executor behavior.
 
 ---
 
@@ -103,26 +108,30 @@ Result must include:
 
 Do not overwrite prior dated results.
 
-## Baseline Verification Commands
+## Baseline Verification Selection
 
-Start with:
+Apply [Executed-Test Evidence](../../README.md#executed-test-evidence) before
+accepting any test result. Select current tests by the obligations below; these
+paths locate owners and candidate proofs, and do not themselves establish coverage.
+Record missing behavioral proof explicitly rather than dropping a required row.
 
-- `cargo test -p icydb-core db::executor::aggregate::contracts::grouped::tests::budget -- --nocapture`
-- `cargo test -p icydb-core db::executor::group::tests::grouped_budget_observability_projects_budget_and_limits -- --nocapture`
-- `cargo test -p icydb-core db::query::plan::tests::group::grouped_plan_rejects_validation_shape_matrix -- --nocapture`
-- `cargo test -p icydb-core db::query::plan::tests::group::grouped_plan_having_order_limit_composition_enforces_bounded_policy -- --nocapture`
-- `cargo test -p icydb-core db::query::plan::tests::group::grouped_plan_accepts_global_distinct_field_without_group_keys_matrix -- --nocapture`
-- `cargo test -p icydb-core db::executor::aggregate::materialized_distinct::tests::insert_materialized_distinct_value_dedups_repeated_values -- --nocapture`
-- `cargo test -p icydb-core db::executor::tests::aggregate_execution::aggregate_execution_sum_distinct_uses_grouped_global_distinct_path -- --nocapture`
-- `cargo test -p icydb-core db::executor::tests::aggregate_execution::aggregate_execution_avg_distinct_uses_grouped_global_distinct_path -- --nocapture`
-- `cargo test -p icydb-core db::executor::tests::aggregate_execution::aggregate_execution_grouped_scalar_distinct_policy_violation_fails_without_scan -- --nocapture`
-- `cargo test -p icydb-core db::executor::planning::route::tests::route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_hint -- --nocapture`
-- `cargo test -p icydb-core db::executor::planning::route::tests::route_matrix_load_non_pk_order_disables_scan_budget_hint -- --nocapture`
-- `cargo test -p icydb-core db::executor::planning::route::tests::grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_route -- --nocapture`
-- `cargo test -p icydb-core db::executor::planning::route::tests::route_feature_budget_shape_kinds_stay_within_soft_delta -- --nocapture`
-- `cargo test -p icydb-core db::query::fingerprint::shape_signature::tests::signature_changes_when_grouped_limits_change -- --nocapture`
-- `cargo test -p icydb-core db::executor::tests::metrics::grouped_load_emits_rows_aggregated_metrics -- --nocapture`
+Paths beginning with `db/` are relative to `crates/icydb-core/src/`.
+Core unit selections use `-p icydb-core --lib --features sql`; physical migration
+proof also enables `migration`. Select a named integration target separately
+when the obligation crosses the canister boundary.
 
-Add targeted commands for any newly introduced Class B operator, scalar
-scan-budget route, grouped continuation shape, or resource observability
-surface.
+| Proof obligation | Current source/test owners |
+| --- | --- |
+| Finite grouped defaults, planner-limit handoff, and fresh per-query counters | `db/executor/group/tests.rs`, `db/executor/budget.rs` |
+| Exact group/distinct limits and first over-limit rejection without unbounded fallback | `db/executor/budget.rs`, `db/executor/aggregate/runtime/grouped_distinct/` |
+| Global aggregate DISTINCT routing, including COUNT, SUM, and AVG | `db/query/plan/group.rs`, `db/executor/aggregate/runtime/grouped_distinct/tests.rs` |
+| Materialized DISTINCT window and state bounds | `db/executor/pipeline/operators/distinct/`, `db/executor/terminal/page/` |
+| Grouped HAVING/order/limit admission and ordered-proof handoff | `db/query/plan/validate/grouped/`, `db/query/plan/group.rs` |
+| Scalar scan admission and continuation-sensitive budgets | `db/query/plan/primary_key_input_resource.rs`, `db/query/plan/continuation.rs`, `db/executor/stream/access/` |
+| Cursor identity and budget-relevant grouped shape | `db/cursor/tests/mod.rs`, `db/cursor/signature.rs` |
+| Metrics cannot affect execution or admission | `crates/icydb-core/src/metrics/`, `db/executor/budget.rs` |
+
+For the metrics obligation, inspect the diagnostic-only boundary and enable
+`metrics` when executing a metrics-gated test. Strategy-mapping tests alone do
+not prove runtime budget exhaustion; retain both obligations in the readout.
+Add focused proof for any newly introduced operator or budget interaction.

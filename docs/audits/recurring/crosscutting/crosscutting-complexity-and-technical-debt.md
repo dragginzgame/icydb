@@ -163,8 +163,9 @@ signals may be summarized without creating follow-up work.
 If no action is warranted, say so. Do not manufacture debt or cleanup work to
 populate the report.
 
-## Read-Only Default
+## Authorization
 
-The audit is read-only by default. It does not modify production code, turn
-feature probes into designs, create an active debt ledger, or start external
-services. Implementation requires a separately authorized bounded patch.
+Apply [Authorization And Read-Only Work](../../README.md#authorization-and-read-only-work).
+An audit produces evidence; feature probes do not authorize designs, production
+edits, or a new active debt ledger. A bounded implementation request already
+given in the session remains authoritative.

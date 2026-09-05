@@ -1,4 +1,8 @@
-# WEEKLY AUDIT — Planner Boundary & Envelope Semantics
+# Recurring Audit — Planner Boundary & Envelope Semantics
+
+Apply [Domain Scope And Change Triggers](../../README.md#domain-scope-and-change-triggers)
+to all inventories, checks, and output sections below. Record selected and
+excluded obligations before analysis; broad coverage requires a requested baseline.
 
 `icydb-core`
 
@@ -299,7 +303,7 @@ Produce:
 10. Duplication/Omission Proof
 11. Canonical Envelope Definition
 12. Drift Sensitivity
-13. Overall Envelope Risk Index (1–10, lower is better)
+13. Verdict And Findings
 14. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
 
 Run metadata must include:
@@ -312,13 +316,12 @@ Run metadata must include:
 
 ---
 
-# Scoring Model
+# Verdict And Findings
 
-Interpretation:
-1–3  = Low risk / structurally healthy
-4–6  = Moderate risk / manageable pressure
-7–8  = High risk / requires monitoring
-9–10 = Critical risk / structural instability
+Apply [Findings And Verdicts](../../README.md#findings-and-verdicts).
+Summarize the supported verdict, each finding's consequence and severity, and
+any unresolved verification. Keep owner, disposition, and action trigger with
+the finding.
 
 ---
 

@@ -1,8 +1,19 @@
-# Weekly Audit: State Machine & Transition Integrity
+# Recurring Audit: State Machine & Transition Integrity
+
+Apply [Domain Scope And Change Triggers](../../README.md#domain-scope-and-change-triggers)
+to all inventories, checks, and output sections below. Record selected and
+excluded obligations before analysis; broad coverage requires a requested baseline.
+
+Current method tag: `STATE-1.1`, alongside the shared scope contract tag.
+This method checks recovery-contained failure state rather than universal
+rollback, including both marker-owned application and marker-free journal-tail
+folding. Comparisons with earlier failure/exclusivity or marker-only criteria must describe
+the change and mark affected deltas `N/A (method change)`.
 
 ## Scope
 
-This audit verifies that all execution flows preserve invariants across state transitions:
+This audit verifies that affected execution flows preserve invariants across
+state transitions:
 
 * Plan → Execute
 * Execute → Commit
@@ -46,13 +57,16 @@ that state ownership remains explicit and fail-closed.
 
 ## Current Source Map
 
-Every run must re-check this map and update the report when ownership moved.
+Re-check the selected boundaries in this map and record moved ownership in the
+new report or conversational findings under
+[Authorization And Read-Only Work](../../README.md#authorization-and-read-only-work).
+Do not rewrite an earlier report to reflect the current source tree.
 
 | State Boundary | Current Owner Paths | Adjacent Audit |
 | -------------- | ------------------- | -------------- |
-| schema transition admission | `crates/icydb-core/src/db/schema/transition.rs`, `crates/icydb-core/src/db/schema/transition/admission.rs` | canonical semantic authority |
+| schema transition admission | `crates/icydb-core/src/db/schema/transition.rs`, `crates/icydb-core/src/db/schema/transition/admission.rs` | flow convergence and duplication (semantic ownership) |
 | schema DDL admission and publication | `crates/icydb-core/src/db/schema/mutation/ddl_admission.rs`, `crates/icydb-core/src/db/schema/mutation/user_index_domain.rs`, `crates/icydb-core/src/db/schema/sql_ddl/user_index_domain.rs` | invariant preservation |
-| route-plan validation handoff | `crates/icydb-core/src/db/executor/planning/route/*` | layer violation |
+| route-plan validation handoff | `crates/icydb-core/src/db/executor/planning/route/*` | flow convergence and duplication (boundary ownership) |
 | commit-window open/apply/finish | `crates/icydb-core/src/db/executor/mutation/commit_window.rs`, `crates/icydb-core/src/db/commit/guard.rs` | recovery consistency |
 | SQL/structural write transition barrier | `crates/icydb-core/src/db/session/sql/*`, `crates/icydb-core/src/db/session/write.rs` | completeness |
 | recovery write gate handoff | `crates/icydb-core/src/db/commit/recovery.rs`, `crates/icydb-core/src/db/mod.rs` | recovery consistency |
@@ -61,8 +75,10 @@ Every run must re-check this map and update the report when ownership moved.
 
 ## Required Modern Transition Samples
 
-Every run must include at least one concrete evidence row for each of these
-families. A row may be source-audit evidence, a focused test, or both.
+Include at least one concrete evidence row for each affected family below,
+including adjacent gates needed to prove its safety. A broad baseline covers
+all families. A row may be source-audit evidence, a focused test, or both;
+distinguish inspection from executed behavioral proof.
 
 | Family | Required Question | Minimum Evidence |
 | ------ | ----------------- | ---------------- |
@@ -72,8 +88,8 @@ families. A row may be source-audit evidence, a focused test, or both.
 | commit-window lifecycle | Can apply/finish occur without a persisted marker-backed commit window? | commit guard or commit-window test |
 | recovery handoff | Are writes blocked or rebuilt before recovery completion? | focused recovery gate test or source guard |
 
-If one family has no live evidence, the report must mark it `PARTIAL` and name
-the missing probe.
+If a selected family has no current applicable evidence, mark it `PARTIAL`
+and name the missing probe. Justify excluded families separately; they do not pass.
 
 ---
 
@@ -83,9 +99,14 @@ The database must behave as a deterministic state machine.
 
 At every transition boundary:
 
-1. All invariants must hold before proceeding.
+1. Each transition's required preconditions must hold before proceeding.
 2. No partial invariant violation may be externally visible.
-3. Errors must not leave mutated state.
+3. Preflight rejection must leave protected durable state unchanged. After
+   marker persistence, a normally returned apply error may retain partial work,
+   but must retain durable recovery authority and its required recovery wake-up.
+   Admission and publication guards must prevent incomplete state from becoming
+   accepted runtime-visible state, and recovery must finish forward before
+   normal access resumes. A best-effort local rollback is not durable authority.
 4. Planner decisions must not be reinterpreted differently at execution time.
 5. Execution must not widen or alter plan shape.
 6. Recovery must restore exact structural invariants.
@@ -102,7 +123,8 @@ Produce:
 | State | Owner | Entry Condition | Exit Condition | Notes |
 | ----- | ----- | --------------- | -------------- | ----- |
 
-Required minimum state families (rename allowed if equivalent and explicit):
+Model the applicable lifecycle facts below using current owner predicates
+(rename allowed if equivalent and explicit):
 
 * unplanned / accepted-intent
 * planned
@@ -114,7 +136,9 @@ Required minimum state families (rename allowed if equivalent and explicit):
 
 State-model invariants to verify:
 
-* states are mutually exclusive for a given execution context
+* exclusive phases are distinguished from overlapping lifecycle facts;
+  a persisted marker can coexist with partially or fully applied work before
+  marker retirement
 * entry/exit conditions are explicit and testable
 * no implicit transitional state is relied on without declaration
 
@@ -132,12 +156,11 @@ Produce:
 | State Pair | Can Coexist? | Expected Result | Observed | Risk |
 | ---------- | ------------ | --------------- | -------- | ---- |
 
-Required minimum exclusivity pairs:
-
-* executing / commit-window-open -> No
-* commit-marker-persisted / recovered -> No
-* executing / recovered -> No
-* commit-window-open / applied -> No
+Derive incompatible pairs from current guards rather than treating all phase
+labels as disjoint. In particular, check that pending recovery cannot coexist
+with normal write admission or publication of incomplete state. Do not flag
+applied work plus a retained marker as a violation by itself; verify recovery
+ownership, visibility containment, and eventual safe retirement instead.
 
 ---
 
@@ -155,9 +178,10 @@ Required minimum transitions:
 
 * unplanned -> planned
 * planned -> executing
-* executing -> commit-window-open / cursor-continuation
-* commit-window-open -> commit-marker-persisted
-* commit-marker-persisted -> applied / replayed-apply
+* executing -> marker-backed commit-window-open / cursor-continuation
+* commit-window-open (marker persisted) -> applied / replayed-apply
+* apply failure -> retained marker / recovery-pending
+* recovery-pending -> replayed-apply
 * applied -> marker-cleared
 * recovered -> writes-allowed
 
@@ -194,17 +218,18 @@ Verify:
 
 Validate sequence:
 
-1. Validation
-2. Index mutation
-3. Store mutation
-4. Commit
+1. Validation and preparation
+2. Durable marker persistence and commit-window admission
+3. Marker-owned row/index application in the current owner's order
+4. Successful completion and marker retirement, or retained authority for recovery
 
 Verify:
 
 * Invariants validated before mutation.
 * Unique constraints validated before commit.
 * No mutation occurs before validation completes.
-* Failure at any step does not leave inconsistent state.
+* Failure before marker authority leaves protected durable state unchanged;
+  later failures retain recovery authority and contain incomplete state.
 * Mutation path is unreachable without commit window.
 
 ---
@@ -215,15 +240,16 @@ Validate:
 
 1. Existence check
 2. Referential integrity validation
-3. Index removal
-4. Store removal
+3. Durable marker persistence and commit-window admission
+4. Marker-owned index/store removal
+5. Successful completion and marker retirement, or retained authority for recovery
 
 Verify:
 
 * Strong RI checked before mutation.
 * Index and store removal are consistent.
-* No orphaned index entries.
-* No orphaned data rows.
+* No orphaned index entries or data rows are exposed as accepted completed state.
+* Interrupted removal remains marker-owned until recovery restores consistency.
 * Delete mutation path is unreachable without commit window.
 
 ---
@@ -316,10 +342,12 @@ Produce:
 
 ---
 
-# Commit Marker Authority Check
+# Durable Recovery Authority Check
 
-Verify commit marker remains the sole durable handoff authority between execute
-and replay paths.
+Distinguish incomplete marker-owned application from committed journal-tail
+folding. Both are maintained startup recovery work; marker absence alone does
+not prove recovery is complete. Use `recover_domain` and `perform_recovery_page`
+in `crates/icydb-core/src/db/commit/recovery.rs` as the current owner boundary.
 
 Produce:
 
@@ -329,8 +357,13 @@ Produce:
 Required checks:
 
 * marker persistence occurs before mutation visibility
-* marker absence prevents replay path activation
-* marker ownership is confined to commit/recovery authority boundary
+* incomplete marker-owned work retains its marker until replay, fold, and effect
+  validation permit retirement
+* an absent marker with nonempty journal tails still enters bounded recovery
+* journal batches validate before canonical effects and watermarks retire
+* normal access and Ready publication remain gated until startup recovery completes
+* marker and journal authority stay within the commit/recovery and journal owners;
+  ordinary read/write admission observes readiness without driving recovery
 
 ---
 
@@ -338,17 +371,27 @@ Required checks:
 
 Validate deterministic state ownership at failure cut points.
 
+Use the durable failure contract in
+`crates/icydb-core/src/db/commit/guard.rs` (`finish_commit`) and the scoped
+apply path as authority. Verify preflight rejection is zero-write; an apply
+error retains the marker and recovery wake-up; partial work stays behind
+admission/publication gates; and successful recovery restores consistency
+before normal access resumes. Distinguish normally returned errors from traps
+and their message rollback semantics. Do not infer a defect solely from retained
+durable state or use test-only rollback helpers as the production contract.
+
 Required failure cut points:
 
 * before marker persistence
 * after marker persistence before full apply
 * mid-apply
 * during delete mutation
+* after apply, before successful marker retirement
 
 Produce:
 
-| Failure Point | Expected Durable State | Recovery Owner | Result | Risk |
-| ------------- | ---------------------- | -------------- | ------ | ---- |
+| Failure Point | Expected Durable State | Recovery Owner | Visibility/Admission Gate | Result | Risk |
+| ------------- | ---------------------- | -------------- | ------------------------- | ------ | ---- |
 
 ---
 
@@ -472,7 +515,7 @@ For each, state:
 
 ---
 
-## 8. Commit Marker Authority Table
+## 8. Durable Recovery Authority Table
 
 | Requirement | Evidence | Result | Risk |
 | ----------- | -------- | ------ | ---- |
@@ -481,8 +524,8 @@ For each, state:
 
 ## 9. Failure-Point Safety Table
 
-| Failure Point | Expected Durable State | Recovery Owner | Result | Risk |
-| ------------- | ---------------------- | -------------- | ------ | ---- |
+| Failure Point | Expected Durable State | Recovery Owner | Visibility/Admission Gate | Result | Risk |
+| ------------- | ---------------------- | -------------- | ------------------------- | ------ | ---- |
 
 ---
 
@@ -531,18 +574,19 @@ Include a compact transition graph when useful for reviewer comparability.
 
 Example shape:
 
-* query -> plan -> execute -> open commit window -> persist marker -> apply -> clear marker
+* query -> plan -> execute -> persist marker/open commit window -> apply -> clear marker
+* apply failure -> retain marker and wake-up -> recovery gate -> replay apply -> clear marker
 * startup -> ensure recovered -> replay marker -> apply -> clear marker
+* startup with no marker and nonempty journal -> validate/fold batches -> verify effects -> Ready
 
 ---
 
-## Overall State-Machine Risk Index (1–10, lower is better)
+## Verdict And Findings
 
-Interpretation:
-1–3  = Low risk / structurally healthy
-4–6  = Moderate risk / manageable pressure
-7–8  = High risk / requires monitoring
-9–10 = Critical risk / structural instability
+Apply [Findings And Verdicts](../../README.md#findings-and-verdicts).
+Summarize the supported verdict, each finding's consequence and severity, and
+any unresolved verification. Keep owner, disposition, and action trigger with
+the finding.
 
 ## Verification Readout
 

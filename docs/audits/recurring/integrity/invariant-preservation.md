@@ -1,4 +1,8 @@
-# WEEKLY AUDIT — Invariant Preservation (icydb-core)
+# Recurring Audit — Invariant Preservation (icydb-core)
+
+Apply [Domain Scope And Change Triggers](../../README.md#domain-scope-and-change-triggers)
+to all inventories, checks, and output sections below. Record selected and
+excluded obligations before analysis; broad coverage requires a requested baseline.
 
 Canonical report scope:
 
@@ -13,7 +17,8 @@ Do not introduce alternate names such as `core-invariants`,
 
 ## Purpose
 
-Verify that **all structural, ordering, identity, and mutation invariants** in `icydb-core`:
+Verify that all structural, ordering, identity, and mutation invariants affected
+by the declared scope in `icydb-core`:
 
 * Exist explicitly
 * Are enforced exactly once
@@ -35,7 +40,9 @@ Do NOT discuss:
 
 # Phase 0 — Establish the Invariant Registry
 
-Before analysis, enumerate all invariants in the system.
+Before analysis, enumerate the affected invariants and their enforcement
+boundaries, including consumers and recovery paths. A complete system inventory
+is required only for an explicitly requested broad baseline.
 
 You must not assume them.
 You must list them explicitly.
@@ -327,9 +334,17 @@ This anticipates silent invariant erosion.
 
 # Required Verification Baseline
 
-Every run must include source inspection plus current live verification.
+Every run must include source inspection and behavioral evidence for the
+selected obligations. Reuse attributable, applicable evidence under
+[Finding Ownership And Shared Evidence](../../README.md#finding-ownership-and-shared-evidence)
+or execute focused verification. Missing required proof remains a gap.
 
-Required commands:
+Apply [Executed-Test Evidence](../../README.md#executed-test-evidence) to every
+selection below, including feature/target preflight and executed-test counts.
+
+Select the commands that prove the scoped obligations; record the mapping and
+justify excluded families. For a broad baseline, all applicable families below
+remain required:
 
 * `bash scripts/ci/check-memory-id-invariants.sh`
 * `bash scripts/ci/check-layer-authority-invariants.sh`
@@ -341,27 +356,22 @@ Required commands:
 * `cargo test -p icydb-core --lib persisted_row_envelope_malformed_corpus_fails_closed --features sql -- --nocapture`
 * `cargo test -p icydb-core --lib schema::mutation --features sql -- --nocapture`
 * `cargo test -p icydb-core --lib physical_migration_rewrite_recovers_and_publishes_one_complete_candidate --features "sql migration" -- --nocapture`
-* `cargo test -p icydb-core --lib accepted_index_missing_row_is_typed_store_corruption --features "sql diagnostics" -- --nocapture`
+* `cargo test -p icydb-core --lib accepted_index_missing_row_is_typed_store_corruption --features sql -- --nocapture`
 * `cargo test -p icydb-core --lib index::envelope::tests --features sql -- --nocapture`
 * `cargo test -p icydb-core --lib index_key_ordering_ --features sql -- --nocapture`
 * `cargo test -p icydb-core --lib mixed_relation_validation_uses_the_complete_final_row_overlay --features sql -- --nocapture`
 
-Every required test command must execute at least one test. The
-`mixed_entity_recovery_after_` family must execute all five maintained
-interruption points. A successful command that reports `running 0 tests` is an
-audit failure, not verification evidence. Record the executed count for every
-selector in the report.
-
-If a required selector no longer matches live tests, stop the run, mark that
-verification `FAIL`, and revise this definition before rerunning the audit. Do
-not substitute an unrecorded replacement inside a report.
+When selected, the `mixed_entity_recovery_after_` family must cover all five
+maintained interruption points. Resolve any stale selection under the shared
+contract; preserve failed attempts and explicitly justify replacement proof. Do not
+change this definition during an audit unless editing it is authorized.
 
 ---
 
 # Final Output Structure
 
 0. Run Metadata + Comparability Note
-1. Invariant Registry (complete list)
+1. Invariant Registry (complete for the declared scope)
 2. Boundary Map
 3. Enforcement Mapping Table
 4. Recovery Symmetry Table
@@ -371,7 +381,7 @@ not substitute an unrecorded replacement inside a report.
 8. Redundant Enforcement
 9. Missing Enforcement
 10. Drift Sensitivity Summary
-11. Overall Invariant Risk Index (1–10, lower is better)
+11. Verdict And Findings
 12. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
 
 Run metadata must include:
@@ -382,11 +392,10 @@ Run metadata must include:
 - method tag/version
 - comparability status (`comparable` or `non-comparable` with reason)
 
-Interpretation:
-1–3  = Low risk / structurally healthy
-4–6  = Moderate risk / manageable pressure
-7–8  = High risk / requires monitoring
-9–10 = Critical risk / structural instability
+Apply [Findings And Verdicts](../../README.md#findings-and-verdicts).
+Summarize the supported verdict, each finding's consequence and severity, and
+any unresolved verification. Keep owner, disposition, and action trigger with
+the finding.
 
 ---
 

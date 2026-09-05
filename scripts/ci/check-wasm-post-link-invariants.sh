@@ -117,4 +117,6 @@ if [[ "$failures" -ne 0 ]]; then
     exit 1
 fi
 
+bash "$ROOT/scripts/ci/test-wasm-audit-report.sh"
+
 echo "[OK] Wasm post-link invariants verified."
