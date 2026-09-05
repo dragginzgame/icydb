@@ -487,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_fixed_boot_control_surfaces_directly_without_a_failure_receipt() {
+    fn non_current_fixed_boot_magic_surfaces_directly_without_a_failure_receipt() {
         configure_commit_memory_id(
             CorruptCanister::COMMIT_MEMORY_ID,
             CorruptCanister::COMMIT_STABLE_KEY,
@@ -504,11 +504,11 @@ mod tests {
             &CORRUPT_STORES,
             "generated/0123456789abcdef",
         )
-        .expect_err("malformed boot control must fail directly");
+        .expect_err("non-current boot magic must fail directly");
         assert_eq!(failure.kind(), StartupFailureKind::DatabaseControl);
         assert_eq!(
             failure.diagnostic().class(),
-            icydb_diagnostic_code::ErrorClass::Corruption,
+            icydb_diagnostic_code::ErrorClass::IncompatiblePersistedFormat,
         );
         assert_eq!(
             receipt::startup_memory::<CorruptCanister>()

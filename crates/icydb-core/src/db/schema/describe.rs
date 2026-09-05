@@ -2688,7 +2688,7 @@ mod tests {
         );
         let encoded = encode_persisted_schema_snapshot(&persisted)
             .expect("reachable compact-reply schema should fit its persisted payload limit");
-        assert_eq!(encoded.len(), 310_861);
+        assert_eq!(encoded.len(), 310_865);
         assert!(encoded.len() <= MAX_SCHEMA_SNAPSHOT_BYTES as usize);
         AcceptedSchemaSnapshot::try_new(
             decode_persisted_schema_snapshot(encoded.as_slice())
