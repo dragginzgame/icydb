@@ -5,7 +5,7 @@
 
 mod compile;
 
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use compile::compile_bool_compare_expr;
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use compile::compile_normalized_bool_expr_to_predicate;

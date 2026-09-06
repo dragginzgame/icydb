@@ -114,7 +114,7 @@ pub(in crate::db::query::plan::expr) use function_semantics::{
 };
 pub(in crate::db) use function_semantics::{NumericSubtype, TextPredicateFunctionKind};
 pub(in crate::db) use path::CompiledPath;
-#[cfg(any(test, feature = "sql"))]
+#[cfg(feature = "sql")]
 pub(in crate::db) use predicate::compile_bool_compare_expr;
 #[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use predicate::compile_normalized_bool_expr_to_predicate;
