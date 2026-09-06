@@ -855,39 +855,45 @@ impl<C: CanisterKind> DbSession<C> {
         let entity_source = EntitySourceKey::try_new(binding.entity_source.clone())
             .map_err(|_| InternalError::store_invariant())?;
         let store = self.db.recovered_store(identity.store_path())?;
-        let bundle = store
-            .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
-            .ok_or_else(InternalError::store_invariant)?;
-        if bundle.revision() != catalog.revision()
-            || bundle.source_bindings().entity(&entity_source) != Some(identity.entity_tag())
-        {
-            return Ok(false);
-        }
-        let snapshot = bundle
-            .entity_snapshots()
-            .get(&identity.entity_tag())
-            .ok_or_else(InternalError::store_invariant)?;
-        for (source_key, expected_field_id, expected_slot) in binding.field_identity_bindings() {
-            let source = FieldSourceKey::try_new(source_key)
-                .map_err(|_| InternalError::store_invariant())?;
-            let Some(field_id) = bundle
-                .source_bindings()
-                .field(identity.entity_tag(), &source)
-            else {
-                return Ok(false);
-            };
-            let Some(field) = snapshot
-                .fields()
-                .iter()
-                .find(|field| field.id() == field_id)
-            else {
-                return Err(InternalError::store_invariant());
-            };
-            if field_id.get() != expected_field_id || field.slot().get() != expected_slot {
+        // Only inspect the bundle here; keep its schema-owned validation and
+        // release the borrow before the caller can prepare or commit writes.
+        store.with_schema(|schema| {
+            let bundle = schema
+                .borrow_current_accepted_schema_bundle()?
+                .ok_or_else(InternalError::store_invariant)?;
+            if bundle.revision() != catalog.revision()
+                || bundle.source_bindings().entity(&entity_source) != Some(identity.entity_tag())
+            {
                 return Ok(false);
             }
-        }
-        Ok(true)
+            let snapshot = bundle
+                .entity_snapshots()
+                .get(&identity.entity_tag())
+                .ok_or_else(InternalError::store_invariant)?;
+            for (source_key, expected_field_id, expected_slot) in binding.field_identity_bindings()
+            {
+                let source = FieldSourceKey::try_new(source_key)
+                    .map_err(|_| InternalError::store_invariant())?;
+                let Some(field_id) = bundle
+                    .source_bindings()
+                    .field(identity.entity_tag(), &source)
+                else {
+                    return Ok(false);
+                };
+                let Some(field) = snapshot
+                    .fields()
+                    .iter()
+                    .find(|field| field.id() == field_id)
+                else {
+                    return Err(InternalError::store_invariant());
+                };
+                if field_id.get() != expected_field_id || field.slot().get() != expected_slot {
+                    return Ok(false);
+                }
+            }
+
+            Ok(true)
+        })
     }
 
     /// Verify that an opaque typed binding still names the exact accepted authority.
@@ -2601,6 +2607,58 @@ mod typed_adapter_tests {
                 .expect("cross-store rejection should leave both entities readable");
             assert!(rows.rows.is_empty());
         }
+    }
+
+    #[test]
+    fn typed_mutation_batch_rechecks_late_field_identity_under_current_authority() {
+        let session = initialize_typed_session();
+        let binding = session
+            .issue_typed_entity_binding(&ENTITY_DESCRIPTOR)
+            .expect("entity should bind");
+
+        // Matching entity/revision/fingerprint is insufficient: every supplied
+        // field mapping must still agree with the accepted source binding.
+        for (field_id, slot) in [(3, 1), (2, 2)] {
+            let mismatched = DynamicTypedEntityBinding::new(
+                binding.database_incarnation,
+                binding.entity_source.clone(),
+                binding.entity_label.clone(),
+                binding.entity_tag,
+                binding.accepted_revision,
+                binding.accepted_fingerprint,
+                binding.entity_generation,
+                vec![
+                    (ID_SOURCE.to_string(), 1, 0, "id".to_string()),
+                    (
+                        VALUE_SOURCE.to_string(),
+                        field_id,
+                        slot,
+                        "value".to_string(),
+                    ),
+                ],
+                binding.named_types.clone(),
+                binding.enum_variants.clone(),
+                binding.composite_fields.clone(),
+            )
+            .expect("distinct field mapping should form an opaque binding");
+            let result = session
+                .execute_trusted_typed_mutation_batch(vec![
+                    (binding.clone(), typed_insert(&binding, 1, 10)),
+                    (mismatched, typed_insert(&binding, 2, 20)),
+                ])
+                .expect("mismatched mapping should remain an adapter rejection");
+            assert!(result.is_none());
+            DATA_STORE.with(|store| assert_eq!(store.borrow().len(), 0));
+        }
+
+        let result = session
+            .execute_trusted_typed_mutation_batch(vec![
+                (binding.clone(), typed_insert(&binding, 1, 10)),
+                (binding.clone(), typed_insert(&binding, 2, 20)),
+            ])
+            .expect("corrected batch should execute after rejected borrows")
+            .expect("current binding should remain valid");
+        assert_eq!(result.len(), 2);
     }
 
     #[test]
@@ -4354,6 +4412,7 @@ mod mixed_relation_batch_tests {
 #[cfg(test)]
 mod identity_pre_key_tests {
     mod nested_relation_tests;
+    mod result_boundary_tests;
 
     use super::DynamicTypedEntityBinding;
     use super::{

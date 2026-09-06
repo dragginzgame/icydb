@@ -215,6 +215,10 @@ fn schema_store_matches_only_its_current_root_authority() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one activation fixture proves owned and borrowed warm-cache job closure"
+)]
 fn schema_store_requires_exact_job_closure_for_validating_activation() {
     let entity = EntityTag::new(0xCAFE);
     let empty = empty_accepted_schema_candidate_for_tests(
@@ -306,6 +310,31 @@ fn schema_store_requires_exact_job_closure_for_validating_activation() {
             None,
         )
         .expect("candidate plus exact job should close");
+
+    // Job records can change without replacing the accepted root. A cached
+    // bundle must not suppress the live activation/job closure check.
+    let borrowed = store
+        .borrow_current_accepted_schema_bundle()
+        .expect("current enforcing authority should validate")
+        .expect("accepted bundle should exist");
+    assert_eq!(*borrowed, *initial.bundle());
+    drop(borrowed);
+    let misses = accepted_schema_bundle_cache_miss_count_for_tests();
+    store
+        .apply_constraint_validation_job(&job)
+        .expect("test should install an inconsistent job record");
+    let borrowed_error = store
+        .borrow_current_accepted_schema_bundle()
+        .expect_err("warm borrowed authority must reject the inconsistent job");
+    let owned_error = store
+        .current_accepted_schema_bundle()
+        .expect_err("owned authority must enforce the same job closure");
+    assert_eq!(borrowed_error.class(), ErrorClass::Corruption);
+    assert_eq!(
+        borrowed_error.diagnostic_code(),
+        owned_error.diagnostic_code()
+    );
+    assert_eq!(accepted_schema_bundle_cache_miss_count_for_tests(), misses);
 }
 
 #[test]

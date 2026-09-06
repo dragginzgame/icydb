@@ -2220,11 +2220,21 @@ impl SchemaStore {
     pub(in crate::db) fn current_accepted_schema_bundle(
         &self,
     ) -> Result<Option<AcceptedSchemaRevisionBundle>, InternalError> {
+        self.borrow_current_accepted_schema_bundle()
+            .map(|bundle| bundle.map(|bundle| bundle.clone()))
+    }
+
+    /// Borrow the current verified bundle, rechecking durable job closure even
+    /// on a cache hit. The borrow must end before mutating schema authority.
+    pub(in crate::db) fn borrow_current_accepted_schema_bundle(
+        &self,
+    ) -> Result<Option<Ref<'_, AcceptedSchemaRevisionBundle>>, InternalError> {
         let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
             return Ok(None);
         };
         self.validate_constraint_validation_job_closure(&bundle)?;
-        Ok(Some(bundle.clone()))
+
+        Ok(Some(bundle))
     }
 
     /// Project current accepted entity identity onto one registry-owned store path.
