@@ -26,7 +26,7 @@ use crate::{
                 with_read_execution_budget,
             },
             pipeline::entrypoints::execute_prepared_scalar_aggregate_kernel_row_sink_for_canister,
-            projection::{GroupedRowView, evaluate_grouped_having_expr},
+            projection::{GroupedRowView, ProjectionEvalError, evaluate_grouped_having_expr},
         },
     },
     error::InternalError,
@@ -89,7 +89,7 @@ where
     let grouped_row = GroupedRowView::new(&[], ordered_values.as_slice());
     if let Some(expr) = compiled.having()
         && !evaluate_grouped_having_expr(expr, &grouped_row)
-            .map_err(|_err| InternalError::query_executor_invariant())?
+            .map_err(ProjectionEvalError::into_internal_error)?
     {
         let rows = Vec::new();
         charge_runtime_value_rows(&rows)?;
@@ -101,7 +101,7 @@ where
         row.push(
             expr.evaluate(&grouped_row)
                 .map(Cow::into_owned)
-                .map_err(|_err| InternalError::query_executor_invariant())?,
+                .map_err(ProjectionEvalError::into_internal_error)?,
         );
     }
 

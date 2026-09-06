@@ -44,10 +44,10 @@ pub(in crate::db::executor::aggregate) enum SumAccumulator {
 }
 
 impl SumAccumulator {
-    fn from_value(value: &Value) -> Option<Self> {
+    fn from_value(value: &Value) -> Result<Self, InternalError> {
         match value {
-            Value::U256(value) => Some(Self::U256(*value)),
-            value => coerce_numeric_decimal(value).map(Self::Decimal),
+            Value::U256(value) => Ok(Self::U256(*value)),
+            value => coerce_aggregate_decimal(value).map(Self::Decimal),
         }
     }
 
@@ -119,8 +119,7 @@ impl ValueReducerState {
             Self::Count { .. } => self.increment_count(),
             Self::Sum { .. } => self.ingest_sum_value(value),
             Self::Avg { .. } => {
-                let decimal = coerce_numeric_decimal(value)
-                    .ok_or_else(InternalError::query_executor_invariant)?;
+                let decimal = coerce_aggregate_decimal(value)?;
 
                 self.ingest_decimal(decimal)
             }
@@ -154,8 +153,7 @@ impl ValueReducerState {
             Self::Count { .. } => self.increment_count(),
             Self::Sum { .. } => self.ingest_sum_value(&value),
             Self::Avg { .. } => {
-                let decimal = coerce_numeric_decimal(&value)
-                    .ok_or_else(InternalError::query_executor_invariant)?;
+                let decimal = coerce_aggregate_decimal(&value)?;
 
                 self.ingest_decimal(decimal)
             }
@@ -190,10 +188,7 @@ impl ValueReducerState {
         }
     }
 
-    pub(in crate::db::executor::aggregate) fn ingest_decimal(
-        &mut self,
-        value: Decimal,
-    ) -> Result<(), InternalError> {
+    fn ingest_decimal(&mut self, value: Decimal) -> Result<(), InternalError> {
         match self {
             Self::Sum { .. } => self.ingest_sum_accumulator(SumAccumulator::Decimal(value)),
             Self::Avg { sum, count } => {
@@ -213,8 +208,7 @@ impl ValueReducerState {
         &mut self,
         value: &Value,
     ) -> Result<(), InternalError> {
-        let value = SumAccumulator::from_value(value)
-            .ok_or_else(InternalError::query_executor_invariant)?;
+        let value = SumAccumulator::from_value(value)?;
         self.ingest_sum_accumulator(value)
     }
 
@@ -351,6 +345,20 @@ fn selected_value_should_replace(
     })
 }
 
+// Admission owns the numeric family; values may exceed Decimal's range, and
+// big integers deliberately do not participate in its coercion policy at any
+// magnitude. Keep those domain failures distinct from invalid reducer inputs.
+fn coerce_aggregate_decimal(value: &Value) -> Result<Decimal, InternalError> {
+    coerce_numeric_decimal(value).ok_or_else(|| {
+        if value.supports_numeric_coercion() || matches!(value, Value::NatBig(_) | Value::IntBig(_))
+        {
+            InternalError::query_numeric_not_representable()
+        } else {
+            InternalError::query_executor_invariant()
+        }
+    })
+}
+
 fn reducer_state_mismatch(_kind: &'static str) -> InternalError {
     InternalError::query_executor_invariant()
 }
@@ -360,6 +368,74 @@ mod tests {
     use super::ValueReducerState;
     use crate::{types::U256, value::Value};
     use icydb_diagnostic_code::DiagnosticCode;
+
+    #[test]
+    fn aggregate_coercion_distinguishes_numeric_domain_from_invalid_input() {
+        for (value, expected) in [
+            (
+                Value::Nat128(u128::MAX),
+                DiagnosticCode::QueryNumericNotRepresentable,
+            ),
+            (
+                Value::Text("not numeric".into()),
+                DiagnosticCode::RuntimeInvariantViolation,
+            ),
+        ] {
+            for owned in [false, true] {
+                for mut reducer in [ValueReducerState::sum(), ValueReducerState::avg()] {
+                    let error = if owned {
+                        reducer.ingest_owned(value.clone())
+                    } else {
+                        reducer.ingest(&value)
+                    }
+                    .expect_err("invalid reducer operand");
+                    assert_eq!(error.diagnostic().code(), expected);
+                }
+            }
+        }
+        let error = ValueReducerState::avg()
+            .ingest(&Value::U256(U256::ONE))
+            .expect_err("AVG does not admit U256");
+        assert_eq!(
+            error.diagnostic().code(),
+            DiagnosticCode::RuntimeInvariantViolation
+        );
+    }
+
+    #[test]
+    fn aggregate_decimal_bounds_and_nulls_preserve_current_results() {
+        use crate::types::Decimal;
+
+        for owned in [false, true] {
+            for mut reducer in [ValueReducerState::sum(), ValueReducerState::avg()] {
+                reducer.ingest(&Value::Null).unwrap();
+                let maximum = Value::Int128(i128::MAX);
+                if owned {
+                    reducer.ingest_owned(maximum).unwrap();
+                } else {
+                    reducer.ingest(&maximum).unwrap();
+                }
+                let error = reducer
+                    .ingest(&Value::Int128(1))
+                    .expect_err("bounded running sum");
+                assert_eq!(
+                    error.diagnostic().code(),
+                    DiagnosticCode::QueryNumericOverflow
+                );
+            }
+        }
+        for mut reducer in [ValueReducerState::sum(), ValueReducerState::avg()] {
+            reducer.ingest(&Value::Null).unwrap();
+            assert_eq!(reducer.into_final_value().unwrap(), Value::Null);
+        }
+        let mut average = ValueReducerState::avg();
+        average.ingest(&Value::Nat64(1)).unwrap();
+        average.ingest_owned(Value::Nat64(2)).unwrap();
+        assert_eq!(
+            average.into_final_value().unwrap(),
+            Value::Decimal(Decimal::new(15, 1))
+        );
+    }
 
     #[test]
     fn u256_sum_stays_inline_and_returns_u256() {

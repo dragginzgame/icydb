@@ -29,7 +29,6 @@ use crate::{
             projection::ProjectionEvalError,
         },
         key_taxonomy::PrimaryKeyValue,
-        numeric::coerce_numeric_decimal,
     },
     error::InternalError,
     value::Value,
@@ -97,11 +96,7 @@ impl SumLikeKind {
     ) -> Result<(), InternalError> {
         match self {
             Self::Sum => reducer.add_sum_value(value),
-            Self::Avg => {
-                let decimal = coerce_numeric_decimal(value)
-                    .ok_or_else(InternalError::query_executor_invariant)?;
-                reducer.add_average_value(decimal)
-            }
+            Self::Avg => reducer.add_average_value(value),
         }
     }
 }

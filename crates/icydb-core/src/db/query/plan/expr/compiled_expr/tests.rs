@@ -9,6 +9,55 @@ use std::{borrow::Cow, cell::RefCell, cmp::Ordering};
 
 use super::ProjectionAccessKind;
 
+#[test]
+fn compiled_expression_errors_preserve_user_diagnostics_and_internal_failures() {
+    use crate::error::{ErrorClass, ErrorOrigin};
+    use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail};
+
+    for (error, reason) in [
+        (
+            ProjectionEvalError::invalid_binary_operands(
+                BinaryOp::Eq,
+                &Value::U256(crate::types::U256::ONE),
+                &Value::Nat64(1),
+            ),
+            QueryProjectionCode::BinaryOperandsIncompatible,
+        ),
+        (
+            ProjectionEvalError::invalid_unary_operand(UnaryOp::Not, &Value::Nat64(1)),
+            QueryProjectionCode::UnaryOperandIncompatible,
+        ),
+        (
+            ProjectionEvalError::invalid_case_condition(None, &Value::Nat64(1)),
+            QueryProjectionCode::CaseConditionBooleanRequired,
+        ),
+        (
+            ProjectionEvalError::invalid_projection(QueryProjectionCode::NumericInputRequired),
+            QueryProjectionCode::NumericInputRequired,
+        ),
+    ] {
+        let error = error.into_internal_error();
+        assert_eq!(error.class, ErrorClass::Unsupported);
+        assert_eq!(
+            error.diagnostic().code(),
+            DiagnosticCode::QueryUnsupportedProjection
+        );
+        assert_eq!(
+            error.diagnostic().detail(),
+            Some(&DiagnosticDetail::QueryProjection { reason })
+        );
+    }
+    let missing = ProjectionEvalError::missing_grouped_aggregate_value(0).into_internal_error();
+    assert_eq!(missing.class, ErrorClass::InvariantViolation);
+    let reader = ProjectionEvalError::ReaderFailed {
+        class: ErrorClass::Corruption,
+        origin: ErrorOrigin::Store,
+    }
+    .into_internal_error();
+    assert_eq!(reader.class, ErrorClass::Corruption);
+    assert_eq!(reader.origin, ErrorOrigin::Store);
+}
+
 struct TestRowView {
     slots: Vec<Option<Value>>,
 }

@@ -2,7 +2,11 @@
 
 ## Status
 
-Tentative follow-up design. Not scoped to 0.178.x.
+Historical, unpromoted owner-transfer question; not implementation authority.
+
+The maintained source-migration `Adopt` command establishes exact generated
+schema lineage; it is not an arbitrary generated-to-DDL ownership transfer.
+Require a concrete transfer workload before adding any new policy or state.
 
 ## Purpose
 
@@ -19,7 +23,6 @@ Accepted schemas can contain facts with different owners:
 - generated facts proposed by Rust models;
 - DDL-owned facts authored after deployment;
 - managed facts controlled by IcyDB internals or future policy surfaces;
-- legacy facts that may lack explicit ownership metadata.
 
 DDL must not accidentally take control of generated or managed facts. But future
 users may need explicit adoption workflows, such as taking over a generated
@@ -41,11 +44,10 @@ Candidate owner kinds:
 Generated
 Ddl
 Managed
-LegacyUnknown
 ```
 
-`LegacyUnknown` is not DDL-owned. It rejects unless a hard-cut adoption policy
-has assigned explicit ownership.
+Missing ownership metadata must fail current-format validation. It is not an
+additional ownership class or an implicit adoption route.
 
 ## Adoption Rules
 
@@ -72,7 +74,7 @@ defines a transfer.
 
 ## Fail-Closed Rules
 
-- Missing ownership metadata rejects as `LegacyUnknown`.
+- Missing ownership metadata rejects through current-format validation.
 - Generated-owned fields reject DDL drop/rename/default/nullability changes.
 - Generated-owned indexes reject DDL drop unless explicitly adopted.
 - Managed-owned facts reject all DDL mutation by default.
@@ -92,6 +94,6 @@ Add a schema-owned adoption classifier with no live adoption path.
 
 Tests should prove:
 
-- legacy unknown ownership is not treated as DDL-owned;
+- missing ownership metadata fails current-format validation;
 - generated and managed facts reject normal DDL mutations;
 - adoption requests fail closed until a concrete owner-transfer policy exists.

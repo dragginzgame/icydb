@@ -2,7 +2,13 @@
 
 ## Status
 
-Tentative follow-up design. Not scoped to 0.178.x.
+Historical, unpromoted proposal; not implementation authority.
+
+The maintained [source-migration design](../archive/0.218-explicit-versioned-schema-migrations/0.218-design.md)
+already owns coordinated candidates, bounded physical work and publication.
+Reconsider this idea only for a demonstrated interactive multi-edit workflow
+that cannot use that owner. The draft fields and first-slice sketch below are
+historical alternatives, not a second migration lifecycle to implement.
 
 ## Purpose
 

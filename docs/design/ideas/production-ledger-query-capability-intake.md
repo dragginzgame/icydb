@@ -4,7 +4,7 @@
 >
 > # NOT A NUMBERED MINOR LINE OR IMPLEMENTATION AUTHORITY
 >
-> # CURRENT DISPOSITIONS LIVE IN THE QUERY-CAPABILITY ROADMAP
+> # HISTORICAL WORKLOAD EVIDENCE, NOT CURRENT FEATURE STATUS
 >
 > This file preserves the 2026-08-10 production evidence and candidate findings
 > from the former proposed 0.225 umbrella. It has no version number, predecessor
@@ -15,11 +15,12 @@ prohibited
 
 Audit cut: 2026-08-10
 
-Current disposition authority:
-[query capability roadmap](query-capability-roadmap.md)
-
-Immediate recovery programme:
-[post-0.224 programme disposition](post-0.224-design-programme.md)
+Check maintained code, contracts and numbered design receipts before treating
+any candidate below as a current gap. Release ordering is not maintained in
+this intake. Application-owned typed SQL is implemented in
+[0.254](../0.254-typed-sql-bindings/0.254-status.md); its endpoint transport remains
+out of scope. Existing atomic batches and exact `SUM(U256)` likewise mean the
+historical batch and numeric findings require current-surface qualification.
 
 ## Document Purpose
 
@@ -342,6 +343,10 @@ generated expression must have one canonical, versioned semantic definition.
 
 ## Candidate 8: Exact NatBig Aggregation Semantics
 
+Current-surface evidence: [2026-09-06 aggregate-contract audit](../../reports/investigations/2026/09/06/aggregate-contracts/01/report.md).
+That audit distinguishes numeric-domain diagnostics and result typing from
+an independently justified arbitrary-precision accumulator feature.
+
 ### Production problem
 
 Token amounts and fees can exceed machine-width integer assumptions. `SUM`,
@@ -580,11 +585,9 @@ remain deferred pending their required audits.
 ## Superseded Decomposition And Ordering
 
 The intake's original multi-document grouping and dependency sketch are
-retired. The exact candidate dispositions, Candidate 5 split, 0.231–0.242
-order, dependencies, and promotion questions now live only in the
-[query-capability roadmap](query-capability-roadmap.md). Every promoted minor
-still requires its own substantive landing-patch tracker; this intake cannot
-satisfy that requirement.
+retired. Numbered designs and release receipts own delivered outcomes; this
+intake assigns no future versions or dependency order. Every promoted minor
+requires explicit authorization and its own substantive landing-slice tracker.
 
 ## Cross-Cutting Invariants
 

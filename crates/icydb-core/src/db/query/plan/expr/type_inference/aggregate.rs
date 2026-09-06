@@ -51,7 +51,13 @@ fn infer_sum_aggregate_type(
         ));
     }
 
-    Ok(inferred)
+    // Input admission and result typing are separate: the shared reducer emits
+    // Decimal for broad numeric SUM/AVG, but preserves the exact U256 SUM domain.
+    Ok(if matches!(inferred, ExprType::U256) {
+        ExprType::U256
+    } else {
+        ExprType::Numeric(NumericSubtype::Decimal)
+    })
 }
 
 const fn sum_like_input_type_supported(kind: AggregateKind, inferred: &ExprType) -> bool {

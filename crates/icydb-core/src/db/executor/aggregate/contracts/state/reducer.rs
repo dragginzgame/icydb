@@ -9,7 +9,6 @@ use crate::{
         key_taxonomy::PrimaryKeyValue,
     },
     error::InternalError,
-    types::Decimal,
     value::Value,
 };
 
@@ -76,13 +75,13 @@ impl GroupedAggregateReducerState {
         }
     }
 
-    // Apply one AVG reducer update.
+    // Keep AVG input coercion and domain failures at the shared value reducer.
     pub(in crate::db::executor::aggregate::contracts::state) fn add_average_value(
         &mut self,
-        value: Decimal,
+        value: &Value,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Avg(reducer) => reducer.ingest_decimal(value),
+            Self::Avg(reducer) => reducer.ingest(value),
             _ => Err(Self::state_mismatch("AVG")),
         }
     }
@@ -270,8 +269,10 @@ mod tests {
         );
 
         let mut avg = GroupedAggregateReducerState::for_kind(AggregateKind::Avg);
-        avg.add_average_value(one).expect("avg ingest");
-        avg.add_average_value(three).expect("avg ingest");
+        avg.add_average_value(&Value::Decimal(one))
+            .expect("avg ingest");
+        avg.add_average_value(&Value::Decimal(three))
+            .expect("avg ingest");
         assert_eq!(
             avg.into_value().expect("avg finalize"),
             Value::Decimal(Decimal::from_i64(2).expect("decimal two")),

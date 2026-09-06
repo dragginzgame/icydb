@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.254.md](docs/changelog/0.254.md)
 
+- `0.254.2` fixes aggregate diagnostics and result typing and cleans up design documentation; error classification and type admission are potentially breaking.
 - `0.254.1` reduces typed-write schema copying, strengthens atomic batch boundary coverage, and fixes a SQL-disabled test-build warning.
 - `0.254.0` adds reusable application-owned typed SQL and bounded shared-plan retention;
   breaking Rust API change: parsed execution requires a bindings slice (`&[]` for literal-only calls).

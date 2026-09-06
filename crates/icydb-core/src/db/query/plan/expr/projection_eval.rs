@@ -24,7 +24,7 @@ use crate::{
             compare_numeric_eq, compare_numeric_or_strict_order,
         },
         query::plan::expr::{
-            BinaryOp, CompiledExpr, CompiledExprValueReader, Expr, Function, ProjectionEvalError,
+            BinaryOp, CompiledExpr, CompiledExprValueReader, Expr, Function,
             ScalarEvalFunctionShape, ScalarProjectionCaseArm, ScalarProjectionExpr,
         },
     },
@@ -76,7 +76,7 @@ impl ProjectionFunctionEvalError {
         match self {
             Self::InvalidCall => QueryError::invariant(),
             Self::InvalidProjection(reason) => QueryError::unsupported_projection(reason),
-            Self::Numeric(err) => QueryError::from_numeric_eval_error(err),
+            Self::Numeric(err) => QueryError::execute(err.into_internal_error()),
         }
     }
 }
@@ -145,7 +145,7 @@ pub(in crate::db) fn eval_builder_expr_for_value_preview(
     compiled
         .evaluate(&reader)
         .map(Cow::into_owned)
-        .map_err(preview_eval_error_into_query_error)
+        .map_err(|err| QueryError::execute(err.into_internal_error()))
 }
 
 fn compile_builder_preview_expr(
@@ -219,33 +219,6 @@ fn compile_builder_preview_expr(
         }
         #[cfg(test)]
         Expr::Alias { expr, .. } => compile_builder_preview_expr(expr, field_name),
-    }
-}
-
-fn preview_eval_error_into_query_error(err: ProjectionEvalError) -> QueryError {
-    match err {
-        ProjectionEvalError::Numeric(err) => QueryError::from_numeric_eval_error(err),
-        ProjectionEvalError::InvalidProjection { reason } => {
-            QueryError::unsupported_projection(reason)
-        }
-        ProjectionEvalError::InvalidUnaryOperand { .. } => {
-            QueryError::unsupported_projection(QueryProjectionCode::UnaryOperandIncompatible)
-        }
-        ProjectionEvalError::InvalidCaseCondition { .. } => {
-            QueryError::unsupported_projection(QueryProjectionCode::CaseConditionBooleanRequired)
-        }
-        ProjectionEvalError::InvalidBinaryOperands { .. } => {
-            QueryError::unsupported_projection(QueryProjectionCode::BinaryOperandsIncompatible)
-        }
-        ProjectionEvalError::UnknownField { .. }
-        | ProjectionEvalError::MissingFieldValue { .. }
-        | ProjectionEvalError::MissingFieldPathValue { .. }
-        | ProjectionEvalError::FieldPathEvaluationFailed { .. }
-        | ProjectionEvalError::ReaderFailed { .. }
-        | ProjectionEvalError::UnknownGroupedAggregateExpression { .. }
-        | ProjectionEvalError::MissingGroupedAggregateValue { .. }
-        | ProjectionEvalError::InvalidFunctionCall { .. }
-        | ProjectionEvalError::InvalidGroupedHavingResult { .. } => QueryError::invariant(),
     }
 }
 

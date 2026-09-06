@@ -679,6 +679,25 @@ Supported aggregate projection forms are:
 - grouped projection where grouped key items come first and aggregate or
   post-aggregate computed items come after them
 
+Numeric aggregate results use the shared reducer contract. Admitted non-U256
+`SUM` and `AVG` return Decimal, not the input field's integer or floating subtype.
+`SUM(U256)` returns U256; `AVG(U256)` is unsupported. Empty/all-NULL SUM and AVG
+return NULL. Integer-subtype expression positions do not accept these Decimal
+aggregate results merely because the source field is integral.
+
+Decimal uses a bounded i128 mantissa. Numeric inputs outside its representable
+domain report a numeric non-representability error; running-sum overflow reports
+a numeric overflow error. NatBig and IntBig do not participate in Decimal
+coercion, even at small magnitudes: SUM/AVG over their non-NULL values report
+numeric non-representability. Storage support does not imply aggregation support.
+AVG uses the current rounded Decimal division policy:
+up to 18 fractional places, reduced when intermediate scaling cannot fit.
+It can round a stored `10^-28` value to zero or reject an overflowing sum even
+when the mathematical mean would fit. These are not exact-average guarantees.
+
+Unsupported operand comparisons, including implicit U256/numeric mixing in
+HAVING, report typed projection errors. They do not imply damaged stored data.
+
 Supported grouped projection examples:
 
 - `SELECT age, COUNT(*) FROM Customer GROUP BY age`

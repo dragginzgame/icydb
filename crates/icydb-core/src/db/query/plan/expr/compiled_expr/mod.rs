@@ -222,6 +222,20 @@ impl ProjectionEvalError {
     pub(in crate::db) fn into_internal_error(self) -> InternalError {
         match self {
             Self::Numeric(err) => err.into_internal_error(),
+            // Data-dependent operand errors have the same typed projection
+            // meaning in preview, aggregate inputs, grouped output and HAVING.
+            Self::InvalidProjection { reason } => {
+                InternalError::query_unsupported_projection(reason)
+            }
+            Self::InvalidUnaryOperand { .. } => InternalError::query_unsupported_projection(
+                QueryProjectionCode::UnaryOperandIncompatible,
+            ),
+            Self::InvalidCaseCondition { .. } => InternalError::query_unsupported_projection(
+                QueryProjectionCode::CaseConditionBooleanRequired,
+            ),
+            Self::InvalidBinaryOperands { .. } => InternalError::query_unsupported_projection(
+                QueryProjectionCode::BinaryOperandsIncompatible,
+            ),
             Self::FieldPathEvaluationFailed { class, origin }
             | Self::ReaderFailed { class, origin } => InternalError::classified(class, origin),
             _ => InternalError::query_invalid_logical_plan(),

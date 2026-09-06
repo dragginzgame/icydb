@@ -1,5 +1,6 @@
 //! End-to-end accepted-schema coverage for the trivial total order of `Unit`.
 
+mod aggregate_contracts;
 mod bindings_parity;
 
 use crate::{

@@ -2,7 +2,13 @@
 
 ## Status
 
-Tentative follow-up design. Not scoped to 0.178.x.
+Historical, unpromoted external-import question; not implementation authority.
+
+The maintained [source-migration design](../archive/0.218-explicit-versioned-schema-migrations/0.218-design.md)
+already owns explicit coordinated version transitions. Reconsider this note
+only for external import or restore provenance that the existing owner cannot
+express. Its proposed modes are not maintained APIs or a release plan, and
+pre-1.0 hard cuts do not authorize predecessor-format translation.
 
 ## Purpose
 

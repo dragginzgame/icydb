@@ -27,6 +27,13 @@ batch; it is merely the next item after aggregate request work is exhausted.
 
 ## Maintained Current Surface
 
+The original incident predates the maintained structural, mixed typed and
+same-entity atomic batch APIs and the 0.254 preparation follow-up. It is not
+evidence that atomic batching is absent or that its current limits are broken.
+Any remaining need is application-owned read/validate/write progress across
+requests; reproduce it using the maintained batch APIs before designing a
+coordinator.
+
 The current system already has three relevant authorities:
 
 1. The request execution root owns one monotonic multi-resource hard budget.
@@ -152,18 +159,12 @@ typed versus structural frontends, item validation failure, schema drift,
 lost responses, and application retries. Invalid combinations should be
 rejected at admission rather than discovered after partial item work.
 
-## Relationship To Provisional 0.239
+## Scope Boundary
 
-The query-capability roadmap's provisional 0.239 owns only a possible bounded
-idempotent append-only ingestion primitive. This note may become evidence for
-that line only if a current-surface audit narrows the reported workload to the
-same catalog-native ingestion semantics.
-
-General application validation followed by typed mutation must not broaden
-0.239 incidentally. The immediate programme through 0.230 is now closed, so
-that predecessor condition is satisfied. If the maintained gap remains
-broader, this note still requires a separate future roadmap disposition. No
-minor number is assigned and no implementation is authorized here.
+Application validation followed by typed mutation is not automatically an
+append-only ingestion problem. Establish the remaining workload and compare
+maintained atomic batches before selecting either outcome. No minor number is
+assigned and no implementation is authorized here.
 
 ## Promotion Questions
 
@@ -179,19 +180,18 @@ Before promotion, answer:
    must IcyDB prove independently?
 6. Does a narrower prepared mutation batch or application-side `get_many` plus
    structural batch remove the measured gap without a new public protocol?
-7. Is the workload append-only ingestion owned by provisional 0.239, or a
-   distinct application-batch progress capability?
+7. Is the workload append-only ingestion or a distinct application-batch
+   progress capability?
 8. What are the raw non-gzipped Wasm, instruction, file/line, and complexity
    deltas for the smallest complete implementation?
 
 ## Promotion Gate
 
-The predecessor condition is satisfied by the completed 0.230 closeout. This
-note remains non-authoritative until the remaining gates are satisfied:
+This note remains non-authoritative until these gates are satisfied:
 
 1. a current-surface audit reproduces the gap and identifies the exhausted
    E273 resource from typed facts;
 2. the no-build alternatives above are measured against the real workload;
 3. one focused numbered design and status tracker define a practical initial
-   set of substantive landing patches; and
+   set of substantive landing slices; and
 4. the user explicitly authorizes that minor-version line.

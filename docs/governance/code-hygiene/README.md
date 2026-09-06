@@ -227,8 +227,9 @@ Production executor code has the stricter canister-runtime rule: no panicking
 documenting invariants that are already enforced by fallible code. Test and
 benchmark-only code may still use panicking assertions for clarity.
 
-Workspace lint policy for panic docs is tracked in
-[`panic-docs-clippy-lint.md`](../../design/ideas/panic-docs-clippy-lint.md).
+The workspace enables `missing_panics_doc = "warn"` in
+[`Cargo.toml`](../../../Cargo.toml). Prefer fallible APIs over adding panic
+documentation merely to satisfy the lint.
 
 Comments should state intent, ownership, invariants, or non-obvious tradeoffs.
 Remove comments that restate the next line, describe obsolete behavior, or name

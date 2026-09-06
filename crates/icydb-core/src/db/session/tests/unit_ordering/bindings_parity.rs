@@ -121,7 +121,7 @@ fn assert_stored_operand_parity(kind: AcceptedFieldKind, input: InputValue) {
 
 // Reuse the heap-only fixture, replacing its empty accepted catalog before
 // writes. No generated model supplies runtime authority or operand meaning.
-fn publish_operand_schema(session: &DbSession<TestCanister>, kind: AcceptedFieldKind) {
+pub(super) fn publish_operand_schema(session: &DbSession<TestCanister>, kind: AcceptedFieldKind) {
     let fields = vec![
         field(1, "id", 0, AcceptedFieldKind::Unit),
         field(2, "operand", 1, kind),

@@ -10,7 +10,6 @@ use crate::error::{ErrorDetail, SchemaDdlAdmissionError, StoreError};
 use crate::{
     db::{
         cursor::CursorPlanError,
-        numeric::NumericEvalError,
         query::plan::{PlanError, PlannerError, PolicyPlanError},
         schema::ValidateError,
     },
@@ -184,11 +183,6 @@ impl QueryError {
         Self::execute(InternalError::query_sql_write_boundary_with_facts(
             boundary, facts,
         ))
-    }
-
-    /// Construct one query execution error from a checked numeric evaluation failure.
-    pub(in crate::db) fn from_numeric_eval_error(err: NumericEvalError) -> Self {
-        Self::execute(err.into_internal_error())
     }
 
     /// Construct one serialize-origin internal execution error.
