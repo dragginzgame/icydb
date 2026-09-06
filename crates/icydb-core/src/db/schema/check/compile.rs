@@ -420,7 +420,7 @@ impl CompiledAcceptedRowConstraints {
         &self,
         ordinal: usize,
         current_fingerprint: CommitSchemaFingerprint,
-        values_by_slot: &[Option<Value>],
+        values_by_slot: &[Option<Cow<'_, Value>>],
     ) -> Result<(), AcceptedRowConstraintEvaluationError> {
         if current_fingerprint != self.fingerprint {
             return Err(AcceptedRowConstraintEvaluationError::FingerprintMismatch);
@@ -493,10 +493,12 @@ impl CompiledAcceptedRowConstraints {
     }
 
     /// Evaluate row constraints in stable ID order and reject the first violation.
+    /// Slot ownership is immaterial: readers lend cached values, while integrity
+    /// inspection owns its snapshot. Neither path copies operands during evaluation.
     pub(in crate::db) fn evaluate(
         &self,
         current_fingerprint: CommitSchemaFingerprint,
-        values_by_slot: &[Option<Value>],
+        values_by_slot: &[Option<Cow<'_, Value>>],
     ) -> Result<(), AcceptedRowConstraintEvaluationError> {
         if current_fingerprint != self.fingerprint {
             return Err(AcceptedRowConstraintEvaluationError::FingerprintMismatch);
@@ -544,7 +546,7 @@ impl CompiledAcceptedRowConstraints {
                 CompiledAcceptedRowConstraint::NotNull { id, slot, .. } => {
                     let value = values_by_slot
                         .get(*slot)
-                        .and_then(Option::as_ref)
+                        .and_then(Option::as_deref)
                         .ok_or(AcceptedRowConstraintEvaluationError::MissingSlot)?;
                     if matches!(value, Value::Null) {
                         return Err(AcceptedRowConstraintEvaluationError::Violation {
@@ -565,7 +567,7 @@ impl CompiledAcceptedRowConstraints {
     pub(in crate::db) fn evaluate_targeted_rules_with_limits(
         &self,
         current_fingerprint: CommitSchemaFingerprint,
-        values_by_slot: &[Option<Value>],
+        values_by_slot: &[Option<Cow<'_, Value>>],
         limits: super::targeted::TargetedEvaluationLimits,
     ) -> Result<(), AcceptedRowConstraintEvaluationError> {
         if current_fingerprint != self.fingerprint {
@@ -938,7 +940,7 @@ fn decode_literal_from_catalogs(
 
 fn evaluate_expr(
     expression: &CompiledCheckExprV1,
-    values: &[Option<Value>],
+    values: &[Option<Cow<'_, Value>>],
     remaining_work: &mut u32,
 ) -> Result<AcceptedCheckTruth, AcceptedRowConstraintEvaluationError> {
     *remaining_work = remaining_work
@@ -996,12 +998,12 @@ fn evaluate_expr(
 
 fn evaluate_value<'a>(
     expression: &'a CompiledCheckValueExprV1,
-    values: &'a [Option<Value>],
+    values: &'a [Option<Cow<'_, Value>>],
 ) -> Result<Cow<'a, Value>, AcceptedRowConstraintEvaluationError> {
     let value_at = |slot: usize| {
         values
             .get(slot)
-            .and_then(Option::as_ref)
+            .and_then(Option::as_deref)
             .map(Cow::Borrowed)
             .ok_or(AcceptedRowConstraintEvaluationError::MissingSlot)
     };

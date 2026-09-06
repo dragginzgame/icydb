@@ -27,9 +27,16 @@ use crate::{
 };
 use icydb_diagnostic_code::DiagnosticFactTag;
 use icydb_schema::{Decimal, IntBig, NatBig, ScalarLiteral};
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 const FINGERPRINT: CommitSchemaFingerprint = [7; 16];
+
+fn borrowed_values(values: &[Option<Value>]) -> Vec<Option<Cow<'_, Value>>> {
+    values
+        .iter()
+        .map(|value| value.as_ref().map(Cow::Borrowed))
+        .collect()
+}
 
 #[test]
 fn exact_multiple_of_covers_every_runtime_integer_width_and_decimal() {
@@ -694,6 +701,33 @@ fn targeted_path(error: AcceptedRowConstraintEvaluationError) -> Vec<AcceptedTar
 }
 
 #[test]
+fn constraint_operand_ownership_preserves_results_and_integrity_violations() {
+    let fixture = targeted_rule_fixture();
+    for degree in [5, 15] {
+        let mut values = fixture.values.clone();
+        values[10] = Some(Value::Nat64(degree));
+        let borrowed = borrowed_values(&values);
+        let owned = values
+            .iter()
+            .map(|value| value.clone().map(Cow::Owned))
+            .collect::<Vec<_>>();
+        let result = fixture.program.evaluate(FINGERPRINT, &borrowed);
+        assert_eq!(result.is_ok(), degree == 5);
+        assert_eq!(result, fixture.program.evaluate(FINGERPRINT, &owned));
+        for ordinal in 0..fixture.program.integrity_constraint_count() {
+            assert_eq!(
+                fixture
+                    .program
+                    .evaluate_integrity_constraint(ordinal, FINGERPRINT, &borrowed),
+                fixture
+                    .program
+                    .evaluate_integrity_constraint(ordinal, FINGERPRINT, &owned),
+            );
+        }
+    }
+}
+
+#[test]
 fn integrity_uses_the_same_targeted_artifact_and_first_occurrence() {
     let fixture = targeted_rule_fixture();
     let mut values = fixture.values.clone();
@@ -701,14 +735,14 @@ fn integrity_uses_the_same_targeted_artifact_and_first_occurrence() {
     let mutation_path = targeted_path(
         fixture
             .program
-            .evaluate(FINGERPRINT, &values)
+            .evaluate(FINGERPRINT, &borrowed_values(&values))
             .expect_err("mutation evaluation should reject the nested value"),
     );
     let integrity_violations = (0..fixture.program.integrity_constraint_count())
         .filter_map(|ordinal| {
             fixture
                 .program
-                .evaluate_integrity_constraint(ordinal, FINGERPRINT, &values)
+                .evaluate_integrity_constraint(ordinal, FINGERPRINT, &borrowed_values(&values))
                 .err()
         })
         .collect::<Vec<_>>();
@@ -777,12 +811,12 @@ fn pending_targeted_activation_uses_the_same_compiled_artifact_as_write_admissio
     assert_eq!(
         targeted_path(
             activation_program
-                .evaluate(FINGERPRINT, &values)
+                .evaluate(FINGERPRINT, &borrowed_values(&values))
                 .expect_err("historical activation should reject the nested value"),
         ),
         targeted_path(
             write_program
-                .evaluate(FINGERPRINT, &values)
+                .evaluate(FINGERPRINT, &borrowed_values(&values))
                 .expect_err("pending new-write gate should reject the same value"),
         ),
     );
@@ -798,7 +832,7 @@ fn targeted_rules_walk_every_structural_edge_with_typed_deterministic_paths() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &values)
+                .evaluate(FINGERPRINT, &borrowed_values(&values))
                 .expect_err("nested newtype target should violate"),
         ),
         vec![
@@ -815,7 +849,7 @@ fn targeted_rules_walk_every_structural_edge_with_typed_deterministic_paths() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &values)
+                .evaluate(FINGERPRINT, &borrowed_values(&values))
                 .expect_err("tuple target should violate"),
         ),
         vec![
@@ -837,7 +871,7 @@ fn targeted_rules_walk_every_structural_edge_with_typed_deterministic_paths() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &values)
+                .evaluate(FINGERPRINT, &borrowed_values(&values))
                 .expect_err("enum payload target should violate"),
         ),
         vec![
@@ -855,7 +889,7 @@ fn targeted_rules_walk_every_structural_edge_with_typed_deterministic_paths() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &values)
+                .evaluate(FINGERPRINT, &borrowed_values(&values))
                 .expect_err("list target should violate"),
         ),
         vec![
@@ -870,7 +904,7 @@ fn targeted_rules_walk_every_structural_edge_with_typed_deterministic_paths() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &values)
+                .evaluate(FINGERPRINT, &borrowed_values(&values))
                 .expect_err("set target should violate"),
         ),
         vec![
@@ -885,7 +919,7 @@ fn targeted_rules_walk_every_structural_edge_with_typed_deterministic_paths() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &values)
+                .evaluate(FINGERPRINT, &borrowed_values(&values))
                 .expect_err("map key should be visited before its value"),
         ),
         vec![
@@ -907,7 +941,7 @@ fn targeted_rules_terminate_on_finite_values_of_a_cyclic_schema_graph() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &identity_order)
+                .evaluate(FINGERPRINT, &borrowed_values(&identity_order))
                 .expect_err("record members should visit stable member identity order"),
         ),
         vec![
@@ -927,7 +961,7 @@ fn targeted_rules_terminate_on_finite_values_of_a_cyclic_schema_graph() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &values)
+                .evaluate(FINGERPRINT, &borrowed_values(&values))
                 .expect_err("nested recursive occurrence should violate"),
         ),
         vec![
@@ -950,7 +984,7 @@ fn targeted_rules_share_exact_numeric_and_length_semantics_and_skip_null() {
     let fixture = targeted_rule_fixture();
     fixture
         .program
-        .evaluate(FINGERPRINT, &fixture.values)
+        .evaluate(FINGERPRINT, &borrowed_values(&fixture.values))
         .expect("compliant targeted values should pass mutation admission");
 
     let mut unicode = fixture.values.clone();
@@ -959,7 +993,7 @@ fn targeted_rules_share_exact_numeric_and_length_semantics_and_skip_null() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &unicode)
+                .evaluate(FINGERPRINT, &borrowed_values(&unicode))
                 .expect_err("text length should use Unicode scalar count"),
         ),
         vec![AcceptedTargetPathComponent::RootField(FieldId::new(8))],
@@ -969,7 +1003,7 @@ fn targeted_rules_share_exact_numeric_and_length_semantics_and_skip_null() {
     null[7] = Some(Value::Null);
     fixture
         .program
-        .evaluate(FINGERPRINT, &null)
+        .evaluate(FINGERPRINT, &borrowed_values(&null))
         .expect("nullable targeted values should pass vacuously");
 
     let mut minimum = fixture.values.clone();
@@ -978,7 +1012,7 @@ fn targeted_rules_share_exact_numeric_and_length_semantics_and_skip_null() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &minimum)
+                .evaluate(FINGERPRINT, &borrowed_values(&minimum))
                 .expect_err("inclusive numeric minimum should reject a smaller value"),
         ),
         vec![
@@ -995,7 +1029,7 @@ fn targeted_rules_share_exact_numeric_and_length_semantics_and_skip_null() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &maximum)
+                .evaluate(FINGERPRINT, &borrowed_values(&maximum))
                 .expect_err("inclusive numeric maximum should reject a larger value"),
         ),
         vec![
@@ -1012,7 +1046,7 @@ fn targeted_rules_share_exact_numeric_and_length_semantics_and_skip_null() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &multiple)
+                .evaluate(FINGERPRINT, &borrowed_values(&multiple))
                 .expect_err("exact multiple-of should reject a remainder"),
         ),
         vec![
@@ -1029,7 +1063,7 @@ fn targeted_rules_share_exact_numeric_and_length_semantics_and_skip_null() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &cardinality)
+                .evaluate(FINGERPRINT, &borrowed_values(&cardinality))
                 .expect_err("empty nominal collection should violate its own length minimum"),
         ),
         vec![AcceptedTargetPathComponent::RootField(FieldId::new(9))],
@@ -1041,7 +1075,7 @@ fn targeted_rules_share_exact_numeric_and_length_semantics_and_skip_null() {
         targeted_path(
             fixture
                 .program
-                .evaluate(FINGERPRINT, &octets)
+                .evaluate(FINGERPRINT, &borrowed_values(&octets))
                 .expect_err("blob length should use octets"),
         ),
         vec![AcceptedTargetPathComponent::RootField(FieldId::new(10))],
@@ -1071,7 +1105,9 @@ fn targeted_rules_share_stable_constraint_id_order() {
         })
         .expect("bag not-null identity should exist");
     assert_eq!(
-        fixture.program.evaluate(FINGERPRINT, &earlier_not_null),
+        fixture
+            .program
+            .evaluate(FINGERPRINT, &borrowed_values(&earlier_not_null)),
         Err(AcceptedRowConstraintEvaluationError::Violation {
             constraint_id: bag_not_null.id(),
             kind: AcceptedRowConstraintViolationKind::NotNull,
@@ -1109,7 +1145,7 @@ fn targeted_rules_share_stable_constraint_id_order() {
     let mut targeted_first = fixture.values.clone();
     targeted_first[1] = Some(TargetedRuleFixture::node(12, Vec::new()));
     let error = late_program
-        .evaluate(FINGERPRINT, &targeted_first)
+        .evaluate(FINGERPRINT, &borrowed_values(&targeted_first))
         .expect_err("the earlier targeted rule should reject before the late check");
     let AcceptedRowConstraintEvaluationError::TargetedRuleViolation {
         constraint_id,
@@ -1138,7 +1174,7 @@ fn targeted_rule_write_diagnostic_preserves_the_typed_occurrence_path() {
     values[1] = Some(TargetedRuleFixture::node(12, Vec::new()));
     let evaluation_error = fixture
         .program
-        .evaluate(FINGERPRINT, &values)
+        .evaluate(FINGERPRINT, &borrowed_values(&values))
         .expect_err("invalid targeted value should reject");
     let write_error =
         accepted_row_constraint_write_error(1, FINGERPRINT, 41, None, evaluation_error);
@@ -1183,7 +1219,7 @@ fn targeted_rule_evaluation_reports_each_resource_and_shape_boundary() {
     assert_eq!(
         fixture.program.evaluate_targeted_rules_with_limits(
             FINGERPRINT,
-            &fixture.values,
+            &borrowed_values(&fixture.values),
             limits(64, 0, 64, 64),
         ),
         Err(AcceptedRowConstraintEvaluationError::ValueNodeBudgetExceeded),
@@ -1191,7 +1227,7 @@ fn targeted_rule_evaluation_reports_each_resource_and_shape_boundary() {
     assert_eq!(
         fixture.program.evaluate_targeted_rules_with_limits(
             FINGERPRINT,
-            &fixture.values,
+            &borrowed_values(&fixture.values),
             limits(1, 64, 64, 64),
         ),
         Err(AcceptedRowConstraintEvaluationError::ValueDepthExceeded),
@@ -1199,7 +1235,7 @@ fn targeted_rule_evaluation_reports_each_resource_and_shape_boundary() {
     assert_eq!(
         fixture.program.evaluate_targeted_rules_with_limits(
             FINGERPRINT,
-            &fixture.values,
+            &borrowed_values(&fixture.values),
             limits(64, 64, 0, 64),
         ),
         Err(AcceptedRowConstraintEvaluationError::OperationBudgetExceeded),
@@ -1207,7 +1243,7 @@ fn targeted_rule_evaluation_reports_each_resource_and_shape_boundary() {
     assert_eq!(
         fixture.program.evaluate_targeted_rules_with_limits(
             FINGERPRINT,
-            &fixture.values,
+            &borrowed_values(&fixture.values),
             limits(64, 64, 64, 1),
         ),
         Err(AcceptedRowConstraintEvaluationError::PathBudgetExceeded),
@@ -1218,7 +1254,7 @@ fn targeted_rule_evaluation_reports_each_resource_and_shape_boundary() {
     assert_eq!(
         fixture.program.evaluate_targeted_rules_with_limits(
             FINGERPRINT,
-            &malformed,
+            &borrowed_values(&malformed),
             limits(64, 64, 64, 64),
         ),
         Err(AcceptedRowConstraintEvaluationError::RuntimeValueMismatch),
@@ -1343,12 +1379,15 @@ fn compiled_checks_apply_sql_three_valued_semantics_and_stable_violation_identit
         .expect("accepted checks should compile");
 
     program
-        .evaluate(FINGERPRINT, &values(1, Value::Null, Vec::new()))
+        .evaluate(
+            FINGERPRINT,
+            &borrowed_values(&values(1, Value::Null, Vec::new())),
+        )
         .expect("UNKNOWN nickname comparison should satisfy CHECK");
     let error = program
         .evaluate(
             FINGERPRINT,
-            &values(-1, Value::Text("allowed".to_string()), Vec::new()),
+            &borrowed_values(&values(-1, Value::Text("allowed".to_string()), Vec::new())),
         )
         .expect_err("false score comparison should reject");
     assert_eq!(
@@ -1394,7 +1433,10 @@ fn compiled_checks_include_pending_check_activation_gates() {
         .expect("pending gate should compile");
 
     assert_eq!(
-        program.evaluate(FINGERPRINT, &values(-1, Value::Null, Vec::new()),),
+        program.evaluate(
+            FINGERPRINT,
+            &borrowed_values(&values(-1, Value::Null, Vec::new())),
+        ),
         Err(AcceptedRowConstraintEvaluationError::Violation {
             constraint_id: activation_id,
             kind: AcceptedRowConstraintViolationKind::Check,
@@ -1488,7 +1530,11 @@ fn integrity_check_program_evaluates_each_validated_check_by_stable_ordinal() {
     assert_eq!(program.integrity_constraint_count(), 2);
     for ordinal in 0..program.integrity_constraint_count() {
         assert!(matches!(
-            program.evaluate_integrity_constraint(ordinal, FINGERPRINT, row.as_slice()),
+            program.evaluate_integrity_constraint(
+                ordinal,
+                FINGERPRINT,
+                &borrowed_values(row.as_slice())
+            ),
             Err(AcceptedRowConstraintEvaluationError::Violation { .. }),
         ));
     }
@@ -1521,7 +1567,10 @@ fn compiled_row_constraints_include_pending_not_null_activation_gates() {
 
     assert_eq!(program.required_slots(), &[0, 1, 2, 3, 4]);
     assert_eq!(
-        program.evaluate(FINGERPRINT, &values(1, Value::Null, Vec::new())),
+        program.evaluate(
+            FINGERPRINT,
+            &borrowed_values(&values(1, Value::Null, Vec::new()))
+        ),
         Err(AcceptedRowConstraintEvaluationError::Violation {
             constraint_id: activation_id,
             kind: AcceptedRowConstraintViolationKind::NotNull,
@@ -1530,7 +1579,7 @@ fn compiled_row_constraints_include_pending_not_null_activation_gates() {
     program
         .evaluate(
             FINGERPRINT,
-            &values(1, Value::Text("Ada".to_string()), Vec::new()),
+            &borrowed_values(&values(1, Value::Text("Ada".to_string()), Vec::new())),
         )
         .expect("non-null final value should pass the pending gate");
 }
@@ -1564,7 +1613,11 @@ fn compiled_row_constraints_include_accepted_not_null_identity_before_encoding()
     program
         .evaluate(
             FINGERPRINT,
-            &values(1, Value::Null, vec![Value::Text("tag".to_string())]),
+            &borrowed_values(&values(
+                1,
+                Value::Null,
+                vec![Value::Text("tag".to_string())],
+            )),
         )
         .expect("non-null accepted fields and nullable nickname should pass");
 }
@@ -1655,11 +1708,11 @@ fn length_and_cardinality_use_one_prebound_slot_set() {
     program
         .evaluate(
             FINGERPRINT,
-            &values(
+            &borrowed_values(&values(
                 10,
                 Value::Text("éé".to_string()),
                 vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
-            ),
+            )),
         )
         .expect("valid length and cardinality should pass");
 }
@@ -1675,11 +1728,14 @@ fn compiled_checks_reject_stale_fingerprint_and_missing_required_slot() {
         .expect("accepted checks should compile");
 
     assert_eq!(
-        program.evaluate([8; 16], &values(1, Value::Null, Vec::new())),
+        program.evaluate(
+            [8; 16],
+            &borrowed_values(&values(1, Value::Null, Vec::new()))
+        ),
         Err(AcceptedRowConstraintEvaluationError::FingerprintMismatch)
     );
     assert_eq!(
-        program.evaluate(FINGERPRINT, &[None]),
+        program.evaluate(FINGERPRINT, &borrowed_values(&[None])),
         Err(AcceptedRowConstraintEvaluationError::MissingSlot)
     );
 }
@@ -1912,47 +1968,47 @@ fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
     program
         .evaluate(
             FINGERPRINT,
-            &[
+            &borrowed_values(&[
                 Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
                 Some(Value::Nat64(360)),
                 Some(Value::Text("ok".to_string())),
                 Some(Value::Decimal(Decimal::from_i128_with_scale(1, 8))),
-            ],
+            ]),
         )
         .expect("inclusive newtype bound should pass");
     assert!(matches!(
         program.evaluate(
             FINGERPRINT,
-            &[
+            &borrowed_values(&[
                 Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
                 Some(Value::Nat64(361)),
                 Some(Value::Text("ok".to_string())),
                 Some(Value::Decimal(Decimal::from_i128_with_scale(1, 8))),
-            ],
+            ]),
         ),
         Err(AcceptedRowConstraintEvaluationError::Violation { .. })
     ));
     assert!(matches!(
         program.evaluate(
             FINGERPRINT,
-            &[
+            &borrowed_values(&[
                 Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
                 Some(Value::Nat64(360)),
                 Some(Value::Text("x".to_string())),
                 Some(Value::Decimal(Decimal::from_i128_with_scale(1, 8))),
-            ],
+            ]),
         ),
         Err(AcceptedRowConstraintEvaluationError::Violation { .. })
     ));
     assert!(matches!(
         program.evaluate(
             FINGERPRINT,
-            &[
+            &borrowed_values(&[
                 Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
                 Some(Value::Nat64(360)),
                 Some(Value::Text("ok".to_string())),
                 Some(Value::Decimal(Decimal::from_i128_with_scale(-1, 8))),
-            ],
+            ]),
         ),
         Err(AcceptedRowConstraintEvaluationError::Violation { .. })
     ));

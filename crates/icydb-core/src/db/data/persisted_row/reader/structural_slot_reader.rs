@@ -129,13 +129,15 @@ impl<'a> StructuralSlotReader<'a> {
     ///
     /// The data boundary owns lazy slot decoding; semantic consumers supply
     /// only the precompiled slot set and never reopen field-name projection.
+    /// All selected slots decode before return; values borrow the reader cache
+    /// and remain valid only while this reader is alive.
     pub(in crate::db) fn decode_selected_slot_values(
         &self,
         required_slots: &[usize],
-    ) -> Result<Vec<Option<Value>>, InternalError> {
+    ) -> Result<Vec<Option<Cow<'_, Value>>>, InternalError> {
         let mut values = vec![None; self.contract.field_count()];
         for &slot in required_slots {
-            let value = self.required_cached_value(slot)?.clone();
+            let value = Cow::Borrowed(self.required_cached_value(slot)?);
             let target = values.get_mut(slot).ok_or_else(|| {
                 InternalError::persisted_row_slot_cache_lookup_out_of_bounds(
                     self.contract.entity_path(),
@@ -146,6 +148,34 @@ impl<'a> StructuralSlotReader<'a> {
         }
 
         Ok(values)
+    }
+
+    /// Consume this reader into a full owned row, reusing the output buffer.
+    /// All slots materialize through the existing accepted contract before
+    /// their cached values move; no borrowed reader can survive this handoff.
+    pub(in crate::db) fn decode_all_values_into(
+        self,
+        values: &mut Vec<Value>,
+    ) -> Result<(), InternalError> {
+        values.clear();
+        values.reserve(self.field_count());
+        for slot in 0..self.field_count() {
+            self.required_cached_value(slot)?;
+        }
+
+        // Each cell is populated above. Consuming the cache avoids duplicating
+        // heap-owning payloads and cannot expose emptied cells to later readers.
+        for cached in self.cached_values {
+            let (CachedSlotValue::Scalar { materialized, .. }
+            | CachedSlotValue::Deferred { materialized }) = cached;
+            values.push(
+                materialized
+                    .into_inner()
+                    .ok_or_else(InternalError::persisted_row_decode_corruption)?,
+            );
+        }
+
+        Ok(())
     }
 
     /// Borrow the structural row contract selected for this reader.
@@ -313,7 +343,8 @@ impl<'a> StructuralSlotReader<'a> {
                 let field_name = self.contract.field_name(slot)?;
                 let raw_value = self.required_field_bytes(slot, field_name)?;
                 if materialized.get().is_none() {
-                    self.validate_non_scalar_slot_for_contract(slot, raw_value)?;
+                    // The row-contract decoder owns storage selection and payload
+                    // validation; the reader only retains the resulting value.
                     let value =
                         decode_runtime_value_from_row_contract(&self.contract, slot, raw_value)?;
                     let _ = materialized.set(value);
@@ -326,9 +357,11 @@ impl<'a> StructuralSlotReader<'a> {
         }
     }
 
-    /// Materialize one slot for a direct projection with a scalar value-storage fast path.
-    pub(in crate::db) fn required_direct_projection_value(
-        &self,
+    /// Move one slot into direct projection output, preserving scalar fast paths.
+    /// An exclusive borrow permits taking the cached value; any later read
+    /// materializes it again through the same accepted contract.
+    pub(in crate::db) fn take_direct_projection_value(
+        &mut self,
         slot: usize,
     ) -> Result<Value, InternalError> {
         // Phase 1: value-storage scalar fields can project directly from the
@@ -340,7 +373,27 @@ impl<'a> StructuralSlotReader<'a> {
             return Ok(value.into_value());
         }
 
-        self.required_value_by_contract(slot)
+        self.take_required_value(slot)
+    }
+
+    /// Move a required value through ordinary cached materialization, without
+    /// direct projection's scalar-storage shortcut. Later reads refill the
+    /// same cell through the accepted contract.
+    pub(in crate::db) fn take_required_value(
+        &mut self,
+        slot: usize,
+    ) -> Result<Value, InternalError> {
+        self.required_cached_value(slot)?;
+        let cached = self
+            .cached_values
+            .get_mut(slot)
+            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+        let (CachedSlotValue::Scalar { materialized, .. }
+        | CachedSlotValue::Deferred { materialized }) = cached;
+
+        materialized
+            .take()
+            .ok_or_else(InternalError::persisted_row_decode_corruption)
     }
 
     // Decode one scalar slot for eager all-slot validation through accepted
@@ -611,8 +664,16 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
     }
 }
 
+///
+/// TESTS
+///
+
 #[cfg(test)]
 mod tests {
+    mod canonical_materialization;
+    mod direct_projection;
+    mod full_row;
+
     use super::{CachedSlotValue, StructuralSlotReader};
     use crate::{
         db::{
@@ -634,6 +695,20 @@ mod tests {
     use std::borrow::Cow;
 
     fn selective_payload_contract() -> StructuralRowContract {
+        payload_contract(
+            AcceptedFieldKind::Blob {
+                max_len: Some(512 * 1_024),
+            },
+            LeafCodec::Scalar(ScalarCodec::Blob),
+            false,
+        )
+    }
+
+    fn payload_contract(
+        kind: AcceptedFieldKind,
+        codec: LeafCodec,
+        nullable: bool,
+    ) -> StructuralRowContract {
         let fields = vec![
             PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
@@ -661,14 +736,15 @@ mod tests {
                 FieldId::new(3),
                 "snapshot".to_string(),
                 SchemaFieldSlot::new(2),
-                AcceptedFieldKind::Blob {
-                    max_len: Some(512 * 1_024),
-                },
+                kind,
                 Vec::new(),
-                false,
+                nullable,
                 SchemaInsertDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Scalar(ScalarCodec::Blob),
+                match codec {
+                    LeafCodec::Scalar(_) => FieldStorageDecode::ByKind,
+                    LeafCodec::Structural => FieldStorageDecode::CatalogValue,
+                },
+                codec,
             ),
         ];
         let accepted = AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
@@ -706,6 +782,50 @@ mod tests {
                 materialized,
             } if validated.get().is_none() && materialized.get().is_none()
         )
+    }
+
+    #[test]
+    fn selected_constraint_slots_borrow_cached_values_in_full_layout_positions() {
+        let contract = selective_payload_contract();
+        let values = [
+            Value::Nat64(7),
+            Value::Bool(true),
+            Value::Blob(vec![9; 1024]),
+        ];
+        let row =
+            canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
+                Ok(Cow::Borrowed(&values[slot]))
+            })
+            .unwrap()
+            .into_raw_row();
+        let reader =
+            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&row, &contract)
+                .unwrap();
+
+        let selected = reader.decode_selected_slot_values(&[2, 0]).unwrap();
+        assert_eq!(selected.len(), 3);
+        assert!(selected[1].is_none());
+        for slot in [0, 2] {
+            let Some(Cow::Borrowed(value)) = &selected[slot] else {
+                panic!("borrowed cached value")
+            };
+            assert!(std::ptr::eq(
+                *value,
+                reader.required_cached_value(slot).unwrap()
+            ));
+            assert_eq!(**value, values[slot]);
+        }
+        assert!(
+            reader
+                .decode_selected_slot_values(&[])
+                .unwrap()
+                .iter()
+                .all(Option::is_none)
+        );
+        assert!(reader.decode_selected_slot_values(&[2, 3]).is_err());
+        // Constraint evaluation does not consume the reader: migration callers
+        // still use the same accepted row for index/relation validation afterward.
+        assert_eq!(reader.required_cached_value(2).unwrap(), &values[2]);
     }
 
     fn accepted_enum_contract() -> (StructuralRowContract, Value) {
@@ -805,7 +925,7 @@ mod tests {
     }
 
     #[test]
-    fn direct_projection_uses_accepted_enum_wire_instead_of_scalar_value_storage() {
+    fn projection_and_full_row_use_accepted_enum_wire() {
         let (contract, status) = accepted_enum_contract();
         let values = [Value::Nat64(7), status.clone()];
         let row =
@@ -814,14 +934,17 @@ mod tests {
             })
             .expect("accepted enum fixture row should encode")
             .into_raw_row();
-        let reader = StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract)
+        let mut reader = StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract)
             .expect("accepted enum fixture row should open lazily");
 
         assert_eq!(
             reader
-                .required_direct_projection_value(1)
+                .take_direct_projection_value(1)
                 .expect("accepted enum direct projection should decode"),
             status,
         );
+        let mut output = Vec::new();
+        reader.decode_all_values_into(&mut output).unwrap();
+        assert_eq!(output, values);
     }
 }

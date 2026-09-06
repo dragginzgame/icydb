@@ -288,7 +288,7 @@ impl ScalarRowRuntimeState {
 
         Ok(Some(RetainedSlotRow::from_indexed_values(
             retained_slot_layout,
-            RowDecoder::decode_indexed_slot_values_from_reader(&row_fields, retained_slot_layout)?,
+            RowDecoder::decode_indexed_slot_values_from_reader(row_fields, retained_slot_layout)?,
         )))
     }
 

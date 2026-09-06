@@ -3,7 +3,6 @@
 //! Does not own: typed response reconstruction or access-path iteration policy.
 //! Boundary: scalar runtime row production consumes this structural decode contract.
 
-use crate::db::data::SlotReader;
 use crate::{
     db::{
         data::{
@@ -119,22 +118,13 @@ impl RowLayout {
     ) -> Result<(), InternalError> {
         values.clear();
 
-        let mut slots = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+        let slots = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
             row,
             &self.contract,
         )?;
         slots.validate_primary_key(data_key)?;
-        values.reserve(slots.field_count());
 
-        for slot in 0..slots.field_count() {
-            let Some(value) = slots.get_value(slot)? else {
-                let field = self.contract.field_name(slot)?;
-                return Err(InternalError::persisted_row_declared_field_missing(field));
-            };
-            values.push(value);
-        }
-
-        Ok(())
+        slots.decode_all_values_into(values)
     }
 }
 
@@ -164,7 +154,7 @@ impl RowDecoder {
 
             return Ok(RetainedSlotRow::from_indexed_values(
                 retained_slot_layout,
-                Self::decode_indexed_slot_values_from_reader(&row_fields, retained_slot_layout)?,
+                Self::decode_indexed_slot_values_from_reader(row_fields, retained_slot_layout)?,
             ));
         }
 
@@ -235,12 +225,12 @@ impl RowDecoder {
         )
     }
 
-    /// Decode one compact retained-slot value buffer from an already-opened
-    /// structural slot reader. Filtered retained scans use this after
+    /// Consume an already-opened reader into one compact retained-slot buffer.
+    /// Filtered retained scans use this after
     /// scan-time predicate evaluation so accepted rows do not reopen the same
-    /// raw row just to build retained projection/order slots.
+    /// raw row or copy cached values into retained projection/order slots.
     pub(in crate::db::executor) fn decode_indexed_slot_values_from_reader(
-        row_fields: &StructuralSlotReader<'_>,
+        mut row_fields: StructuralSlotReader<'_>,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Vec<Option<Value>>, InternalError> {
         let required_slots = retained_slot_layout.required_slots();
@@ -248,7 +238,7 @@ impl RowDecoder {
 
         let Some(value_modes) = retained_slot_layout.override_value_modes() else {
             for &slot in required_slots {
-                values.push(Some(row_fields.required_value_by_contract(slot)?));
+                values.push(Some(row_fields.take_required_value(slot)?));
             }
 
             return Ok(values);
@@ -257,9 +247,9 @@ impl RowDecoder {
 
         for (&slot, mode) in required_slots.iter().zip(value_modes) {
             let value = match mode {
-                RetainedSlotValueMode::Normal => row_fields.required_value_by_contract(slot)?,
+                RetainedSlotValueMode::Normal => row_fields.take_required_value(slot)?,
                 RetainedSlotValueMode::ScalarOctetLength => {
-                    decode_scalar_octet_length_value(row_fields, slot)?
+                    decode_scalar_octet_length_value(&row_fields, slot)?
                 }
             };
             values.push(Some(value));
@@ -270,7 +260,7 @@ impl RowDecoder {
 }
 
 // Decode retained slots that mix normal value materialization with specialized
-// scalar byte-length slots. Normal slots keep the canonical sparse decoder;
+// scalar byte-length slots. Normal slots keep ordinary required-value admission;
 // byte-length slots use the row reader's scalar borrowed view so blob/text bytes
 // do not become owned `Value::Blob` or `Value::Text` instances.
 fn decode_indexed_slot_values_with_value_modes(
@@ -282,7 +272,7 @@ fn decode_indexed_slot_values_with_value_modes(
     let row_fields = layout.open_raw_row_with_contract(row)?;
     row_fields.validate_primary_key_value(expected_key)?;
 
-    RowDecoder::decode_indexed_slot_values_from_reader(&row_fields, retained_slot_layout)
+    RowDecoder::decode_indexed_slot_values_from_reader(row_fields, retained_slot_layout)
 }
 
 fn decode_scalar_octet_length_value(

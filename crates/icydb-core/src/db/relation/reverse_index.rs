@@ -1732,8 +1732,9 @@ fn relation_target_keys_from_nested_source(
     projection_budget: &mut RelationProjectionBudget,
     commit_budget: &mut RelationCommitBudget,
 ) -> Result<RelationTargetKeys, InternalError> {
-    let root = row_fields.required_value_by_contract(nested.root_slot)?;
-    let mut values = vec![&root];
+    // The reader owns the decoded root; traversal borrows it and emits owned keys.
+    let root = row_fields.required_value_by_contract_cow(nested.root_slot)?;
+    let mut values = vec![root.as_ref()];
     for step in &nested.steps {
         projection_budget.charge_traversal(commit_budget, values.len())?;
         match step {

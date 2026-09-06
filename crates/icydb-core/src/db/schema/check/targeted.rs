@@ -23,7 +23,7 @@ use crate::{
     error::{ConstraintValuePath, ConstraintValuePathComponent},
     value::{CanonicalEnumBody, Value},
 };
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
 pub(in crate::db) const MAX_ACCEPTED_TARGET_PATH_COMPONENTS: usize =
     MAX_ACCEPTED_RECURSIVE_DEPTH_U16 as usize;
@@ -345,7 +345,7 @@ impl CompiledAcceptedTargetedRules {
 
     pub(super) fn evaluate(
         &self,
-        values_by_slot: &[Option<Value>],
+        values_by_slot: &[Option<Cow<'_, Value>>],
     ) -> Result<Option<AcceptedTargetedRuleViolation>, AcceptedTargetedRuleEvaluationError> {
         self.evaluate_with_limits(values_by_slot, TargetedEvaluationLimits::standard(), None)
     }
@@ -353,7 +353,7 @@ impl CompiledAcceptedTargetedRules {
     pub(super) fn evaluate_constraint(
         &self,
         constraint_id: ConstraintId,
-        values_by_slot: &[Option<Value>],
+        values_by_slot: &[Option<Cow<'_, Value>>],
     ) -> Result<Option<AcceptedTargetedRuleViolation>, AcceptedTargetedRuleEvaluationError> {
         self.evaluate_with_limits(
             values_by_slot,
@@ -365,7 +365,7 @@ impl CompiledAcceptedTargetedRules {
     #[cfg(test)]
     pub(super) fn evaluate_with_limits_for_tests(
         &self,
-        values_by_slot: &[Option<Value>],
+        values_by_slot: &[Option<Cow<'_, Value>>],
         limits: TargetedEvaluationLimits,
     ) -> Result<Option<AcceptedTargetedRuleViolation>, AcceptedTargetedRuleEvaluationError> {
         self.evaluate_with_limits(values_by_slot, limits, None)
@@ -373,7 +373,7 @@ impl CompiledAcceptedTargetedRules {
 
     fn evaluate_with_limits(
         &self,
-        values_by_slot: &[Option<Value>],
+        values_by_slot: &[Option<Cow<'_, Value>>],
         limits: TargetedEvaluationLimits,
         only_constraint: Option<ConstraintId>,
     ) -> Result<Option<AcceptedTargetedRuleViolation>, AcceptedTargetedRuleEvaluationError> {
@@ -389,7 +389,7 @@ impl CompiledAcceptedTargetedRules {
         for root in &self.roots {
             let value = values_by_slot
                 .get(root.slot)
-                .and_then(Option::as_ref)
+                .and_then(Option::as_deref)
                 .ok_or(AcceptedTargetedRuleEvaluationError::MissingSlot)?;
             let violations =
                 self.evaluate_root(root, value_catalog, value, &mut budget, only_constraint)?;

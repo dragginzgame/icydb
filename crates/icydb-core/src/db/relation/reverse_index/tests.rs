@@ -1,3 +1,5 @@
+mod nested_borrow;
+
 use super::{
     AcceptedRelationInfo, AcceptedRelationLocalComponentSpec, AcceptedRelationLocalComponents,
     AcceptedRelationReverseIdentity, AcceptedRelationSource, AcceptedRelationTargetIdentity,

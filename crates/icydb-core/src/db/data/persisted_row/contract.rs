@@ -40,10 +40,11 @@ pub(in crate::db) fn decode_runtime_value_from_accepted_field_contract(
     }
 }
 
-/// Decode one slot payload through the accepted row contract.
+/// Decode and validate one slot payload through the accepted row contract.
 ///
 /// This is the row-contract authority boundary for decode sites that know the
-/// physical slot.
+/// physical slot. Canonical admission and by-kind codec validation are owned
+/// here; callers materializing a value must not prevalidate the payload again.
 pub(in crate::db) fn decode_runtime_value_from_row_contract(
     contract: &StructuralRowContract,
     slot: usize,
@@ -57,7 +58,7 @@ pub(in crate::db) fn decode_runtime_value_from_row_contract(
             persistence,
             raw_value,
         )?;
-        return Ok(admitted.value().clone());
+        return Ok(admitted.into_value());
     }
 
     decode_runtime_value_from_accepted_field_contract(accepted_field, raw_value)

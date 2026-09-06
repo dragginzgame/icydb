@@ -2,6 +2,8 @@
 
 mod aggregate_contracts;
 mod bindings_parity;
+mod collection_emptiness;
+mod direct_projection;
 
 use crate::{
     db::{

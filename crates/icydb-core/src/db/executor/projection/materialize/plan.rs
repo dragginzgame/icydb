@@ -30,8 +30,9 @@ pub(in crate::db) struct PreparedDirectProjectionSlot {
 }
 
 impl PreparedDirectProjectionSlots {
+    /// Build source-slot metadata, retaining prior output indices for repeats.
     #[must_use]
-    fn from_slots(slots: Vec<usize>) -> Self {
+    pub(super) fn from_slots(slots: Vec<usize>) -> Self {
         let mut projections: Vec<PreparedDirectProjectionSlot> = Vec::with_capacity(slots.len());
         let mut has_repeated_source = false;
 

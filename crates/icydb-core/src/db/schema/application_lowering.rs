@@ -3382,7 +3382,7 @@ fn index_expression_text(op: PersistedIndexExpressionOp, field: &str) -> String 
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{borrow::Cow, collections::BTreeMap};
 
     use super::{
         ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
@@ -4105,9 +4105,9 @@ mod tests {
             .evaluate(
                 [0xA3; 16],
                 &[
-                    Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
-                    Some(Value::Nat64(5)),
-                    Some(Value::Nat64(0)),
+                    Some(Cow::Owned(Value::Ulid(crate::types::Ulid::from_u128(1)))),
+                    Some(Cow::Owned(Value::Nat64(5))),
+                    Some(Cow::Owned(Value::Nat64(0))),
                 ],
             )
             .expect("N5 should admit a compliant targeted value");
@@ -4396,7 +4396,15 @@ mod tests {
         let mut values = vec![Some(Value::Nat64(0)); staged.row_layout().allocated_slot_count()];
         values[usize::from(target_slot.get())] = Some(Value::Nat64(9));
         assert!(
-            program.evaluate([0xA4; 16], &values).is_err(),
+            program
+                .evaluate(
+                    [0xA4; 16],
+                    &values
+                        .iter()
+                        .map(|value| value.as_ref().map(Cow::Borrowed))
+                        .collect::<Vec<_>>()
+                )
+                .is_err(),
             "a row admitted by the old range must still be rejected by the staged maximum",
         );
 

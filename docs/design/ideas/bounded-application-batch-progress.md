@@ -8,22 +8,22 @@ Evidence: [GitHub issue 7](https://github.com/dragginzgame/icydb/issues/7)
 
 ## Purpose
 
-Record the demonstrated gap between IcyDB's hard request-execution budget and
+Record a historical gap between IcyDB's hard request-execution budget and
 application entry points that perform repeated, individually valid database
 work. This note preserves the candidate outcome and its ownership boundaries
 without assigning a minor version, freezing a public API, or authorizing
 implementation.
 
-The reported canister update validates and writes a caller-supplied batch. Each
-item performs several exact-key reads followed by one typed write under one
-`#[icydb::request_execution]` scope. Batches of 16 succeed, while larger inputs
-reliably reach E273 around item 24. Moving most exact-key reads from planned
+The reported canister update validated and wrote a caller-supplied batch. Each
+item performed several exact-key reads followed by one typed write under one
+`#[icydb::request_execution]` scope. Batches of 16 succeeded, while larger inputs
+reliably reached E273 around item 24. Moving most exact-key reads from planned
 `IN` filters to native `get`/`get_many` reduced instruction cost but did not
 move the observed boundary.
 
-The application can therefore discover a safe batch size only empirically.
-The item named by the failing read is ordinary data and succeeds in a smaller
-batch; it is merely the next item after aggregate request work is exhausted.
+That application discovered a safe batch size empirically. The item named by
+the failing read succeeded in a smaller batch; it was the next item after
+aggregate request work was exhausted. This is not a current-surface benchmark.
 
 ## Maintained Current Surface
 
@@ -116,12 +116,15 @@ by this note.
 
 ## No-Build And Alternatives Gate
 
-### Demonstrated need
+### Historical evidence and remaining proof
 
-The stable 23-24-item E273 boundary proves that a real application batch cannot
-derive clean progress from the maintained request contract. A fixed application
-maximum works only as an empirical deployment convention and may silently
-become invalid when database work changes.
+The reported 23-24-item E273 boundary demonstrates a limitation of that
+application and implementation at the time. It does not establish a remaining
+gap after the maintained atomic batch APIs and preparation improvements.
+Reproduce the read/validate/write workload with those APIs, record the exact
+baseline and exhausted resource, and compare application-owned chunking before
+proposing an engine coordinator. A fixed batch maximum needs requalification
+when its database work changes, but that alone does not justify a new protocol.
 
 ### Simpler alternatives
 
@@ -132,8 +135,10 @@ become invalid when database work changes.
   is data- and operation-dependent.
 - **Use E273 as loop control:** rejected. Hard-budget attempts remain charged,
   and E273 intentionally returns no successful partial database result.
-- **Keep a fixed application batch size:** acceptable as a temporary
-  workaround, but it retains the demonstrated silent-rot problem.
+- **Use maintained batches with application-owned chunking:** measure this
+  first, including `get_many`, validation, response bounds, and retry behavior.
+  Retain it if it meets the workload; qualify the chosen size against changes
+  in per-item database work.
 - **Use the existing durable mutation job:** correct only when the work can be
   lowered to its catalog-native fixed-update intent. It does not cover
   arbitrary application validation plus typed writes.

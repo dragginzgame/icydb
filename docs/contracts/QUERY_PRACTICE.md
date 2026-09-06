@@ -189,7 +189,11 @@ Given a row `R` and predicate `P`:
 4. `IsNull(field)` → `true` iff the field is `Present(Null)`.
 5. `IsEmpty` / `IsNotEmpty`:
 
-   * valid only for text or collection fields
+   * valid only for queryable text, list or set fields; an empty string or
+     zero-element root collection is empty
+   * map fields are rejected by the shared field-admission gate before the
+     operator-specific collection check; being a collection does not make a
+     map queryable
    * otherwise rejected by validation.
 6. `Compare`:
 
@@ -200,11 +204,14 @@ Given a row `R` and predicate `P`:
      * apply the operator to coerced values.
    * if coercion fails at runtime, return false; this condition must be
      unreachable after successful validation and is treated as a validation bug.
-7. `MapContains*`:
+7. Map fields:
 
-   * in the current contract, validation rejects map predicates
-     unconditionally.
-   * map query/index semantics are deferred until map encoding is stabilized.
+   * validation rejects field predicates on maps, including emptiness checks;
+     there is no map-key/value predicate or index surface.
+
+These are structural predicate contracts, not SQL function spellings. SQL
+`LENGTH` measures text, not list, set or map cardinality; SQL does not expose
+the structural `IsEmpty` / `IsNotEmpty` operators as functions.
 
 #### Missing Semantics (Non-Negotiable)
 

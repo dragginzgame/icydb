@@ -84,7 +84,12 @@ is a declared group key.
 ## Whole-Collection Predicates
 
 The maintained fluent/structural list and set predicates operate on the root
-collection. They do not traverse record-valued elements:
+collection. They do not traverse record-valued elements.
+
+Maps remain excluded by accepted query admission, including `is_empty` and
+`is_not_empty`; their storage support does not imply predicate support. This
+section does not add SQL collection functions: SQL `LENGTH` accepts text, not
+collection cardinality, and SQL has no `IS_EMPTY` / `IS_NOT_EMPTY` functions.
 
 | Predicate | Meaning |
 | --- | --- |

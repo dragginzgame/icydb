@@ -3,6 +3,9 @@
 //! Does not own: DISTINCT key storage or structural cursor page dispatch.
 //! Boundary: converts retained-slot and data-row inputs into local row views.
 
+#[cfg(test)]
+mod tests;
+
 use super::contracts::CompiledExpr;
 use crate::{
     db::{
@@ -240,12 +243,12 @@ fn project_data_row_from_direct_slots_into(
     charge_projection_steps(projections.len())?;
     shaped.clear();
     let (data_key, raw_row) = row;
-    let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
+    let mut row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_primary_key(data_key)?;
 
     for projection in projections {
         let slot = projection.source_slot();
-        let value = row_fields.required_direct_projection_value(slot)?;
+        let value = row_fields.take_direct_projection_value(slot)?;
         shaped.push(value);
     }
 
@@ -261,7 +264,7 @@ fn project_repeated_data_row_from_direct_slots_into(
     charge_projection_steps(projections.len())?;
     shaped.clear();
     let (data_key, raw_row) = row;
-    let row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
+    let mut row_fields = row_layout.open_raw_row_with_contract(raw_row)?;
     row_fields.validate_primary_key(data_key)?;
 
     for projection in projections {
@@ -273,7 +276,7 @@ fn project_repeated_data_row_from_direct_slots_into(
                 .ok_or_else(InternalError::query_executor_invariant)?
         } else {
             let slot = projection.source_slot();
-            row_fields.required_direct_projection_value(slot)?
+            row_fields.take_direct_projection_value(slot)?
         };
 
         shaped.push(value);

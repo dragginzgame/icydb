@@ -122,7 +122,7 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
         budget: &mut ValueAdmissionBudget,
     ) -> Result<Value, ValueAdmissionError> {
         self.normalize_and_admit(input, budget)
-            .map(|admitted| admitted.value().clone())
+            .map(AdmittedOwnedValue::into_value)
     }
 
     /// Normalize authored input and expose its short-lived accepted proof.

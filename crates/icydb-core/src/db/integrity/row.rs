@@ -27,7 +27,7 @@ use crate::{
     error::{ErrorClass, InternalError},
     traits::CanisterKind,
 };
-use std::ops::Bound;
+use std::{borrow::Cow, ops::Bound};
 
 const MAX_ROW_INSPECTION_ROWS_PER_PAGE: usize = 32;
 const MAX_ROW_INSPECTION_ATOMS_PER_PAGE: usize = 64;
@@ -178,7 +178,7 @@ enum RowAtomOutcome {
 enum DecodedRowValues {
     Unknown,
     Invalid,
-    Valid(Vec<Option<crate::value::Value>>),
+    Valid(Vec<Option<Cow<'static, crate::value::Value>>>),
 }
 
 struct RowPageAccumulator {
@@ -743,7 +743,7 @@ fn decode_all_fields<'a>(
     reader: &mut StructuralSlotReader<'_>,
     plan: &AcceptedInspectionPlan,
     decoded_values: &'a mut DecodedRowValues,
-) -> Result<Option<&'a [Option<crate::value::Value>]>, InternalError> {
+) -> Result<Option<&'a [Option<Cow<'static, crate::value::Value>>]>, InternalError> {
     match decoded_values {
         DecodedRowValues::Invalid => return Ok(None),
         DecodedRowValues::Valid(values) => return Ok(Some(values.as_slice())),
@@ -756,7 +756,7 @@ fn decode_all_fields<'a>(
             continue;
         }
         match reader.get_value(slot) {
-            Ok(value) => values.push(value),
+            Ok(value) => values.push(value.map(Cow::Owned)),
             Err(error)
                 if matches!(
                     error.class(),
