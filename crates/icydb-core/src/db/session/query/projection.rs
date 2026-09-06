@@ -88,7 +88,7 @@ impl StructuralProjectionPayload {
             .rows
             .into_iter()
             .map(|row| {
-                row.iter()
+                row.into_iter()
                     .map(|value| {
                         output_value_from_runtime(catalog, value)
                             .map_err(|_error| QueryError::invariant())

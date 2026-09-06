@@ -50,7 +50,6 @@ pub use sql::{
 #[cfg(feature = "sql")]
 pub(in crate::db::session) use write::{
     AcceptedStructuralMutation, AcceptedStructuralMutationTarget,
-    structural_data_key_from_runtime_values,
 };
 
 ///

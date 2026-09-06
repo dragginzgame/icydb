@@ -460,7 +460,7 @@ pub(in crate::db) struct AcceptedEnumValueSelection<'catalog, 'value, V> {
     body: &'value CanonicalEnumBody<V>,
 }
 
-impl<V> AcceptedEnumValueSelection<'_, '_, V> {
+impl<'catalog, V> AcceptedEnumValueSelection<'catalog, '_, V> {
     #[must_use]
     pub(in crate::db) const fn type_id(&self) -> EnumTypeId {
         self.type_id
@@ -472,12 +472,12 @@ impl<V> AcceptedEnumValueSelection<'_, '_, V> {
     }
 
     #[must_use]
-    pub(in crate::db) const fn path(&self) -> &str {
+    pub(in crate::db) const fn path(&self) -> &'catalog str {
         self.definition.path.as_str()
     }
 
     #[must_use]
-    pub(in crate::db) const fn variant_name(&self) -> &str {
+    pub(in crate::db) const fn variant_name(&self) -> &'catalog str {
         self.variant.name.as_str()
     }
 

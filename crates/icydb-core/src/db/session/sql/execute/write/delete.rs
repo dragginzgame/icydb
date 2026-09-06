@@ -2,7 +2,7 @@ use super::sql_write_candidate_bounds;
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
-        data::AcceptedMutationIntentPatch,
+        data::{AcceptedMutationIntentPatch, DecodedDataStoreKey},
         query::intent::StructuralQuery,
         schema::SchemaInfo,
         session::{
@@ -17,7 +17,6 @@ use crate::{
                 },
                 write_policy::SqlWriteExecutionBounds,
             },
-            structural_data_key_from_runtime_values,
         },
         sql::{
             lowering::bind_sql_delete_statement_structural_with_schema,
@@ -73,8 +72,9 @@ impl<C: CanisterKind> DbSession<C> {
                     bounds,
                     None,
                     |row| {
-                        let key = structural_data_key_from_runtime_values(entity_tag, row.to_vec())
-                            .map_err(QueryError::execute)?;
+                        let key =
+                            DecodedDataStoreKey::try_from_structural_key_values(entity_tag, row)
+                                .map_err(QueryError::execute)?;
                         Ok((key, AcceptedMutationIntentPatch::new()))
                     },
                 )?;

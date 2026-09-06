@@ -4,6 +4,9 @@
 //! Does not own: commit staging, mutation execution, or persistence encoding.
 //! Boundary: keeps public session write semantics above the executor save surface.
 
+#[cfg(test)]
+mod key_handoff_tests;
+
 use super::AcceptedSchemaCatalogContext;
 use crate::{
     db::{
@@ -598,35 +601,20 @@ fn validate_identity_materialization(
     Ok(())
 }
 
-fn data_key_from_row(
+// The write owner validates the whole after-image before selecting its key.
+// Borrow that reader and retain cached components for subsequent Identity checks.
+fn data_key_from_validated_reader(
     entity_tag: crate::types::EntityTag,
-    contract: &StructuralRowContract,
-    row: &RawRow,
+    reader: &StructuralSlotReader<'_>,
 ) -> Result<DecodedDataStoreKey, InternalError> {
-    let reader =
-        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, contract)?;
-    let values = contract
+    let values = reader
+        .contract()
         .primary_key_slot_indices()
         .iter()
         .map(|slot| reader.required_cached_value(*slot).cloned())
         .collect::<Result<Vec<_>, _>>()?;
-    let value = match values.as_slice() {
-        [value] => value.clone(),
-        _ => Value::List(values),
-    };
-    DecodedDataStoreKey::try_from_structural_key(entity_tag, &value)
-}
 
-#[cfg(feature = "sql")]
-pub(in crate::db::session) fn structural_data_key_from_runtime_values(
-    entity_tag: crate::types::EntityTag,
-    values: Vec<Value>,
-) -> Result<DecodedDataStoreKey, InternalError> {
-    let value = match values.as_slice() {
-        [value] => value.clone(),
-        _ => Value::List(values),
-    };
-    DecodedDataStoreKey::try_from_structural_key(entity_tag, &value)
+    DecodedDataStoreKey::try_from_structural_key_values(entity_tag, &values)
 }
 
 fn validated_existing_row(
@@ -664,7 +652,7 @@ fn prepare_dynamic_mutation_result(
         .into_iter()
         .map(|row| {
             row.values
-                .iter()
+                .into_iter()
                 .map(|value| {
                     output_value_from_runtime(catalog.enum_catalog(), value)
                         .map_err(|_| InternalError::store_invariant())
@@ -1422,9 +1410,7 @@ impl<C: CanisterKind> DbSession<C> {
                     reader.validate_primary_key(&key)?;
                     key
                 }
-                None => {
-                    data_key_from_row(identity.entity_tag(), &row_contract, after.as_raw_row())?
-                }
+                None => data_key_from_validated_reader(identity.entity_tag(), &reader)?,
             };
             if let Some(allocation) = identity_allocation.as_ref() {
                 validate_identity_materialization(

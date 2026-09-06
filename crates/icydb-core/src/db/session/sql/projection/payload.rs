@@ -81,7 +81,7 @@ fn sql_output_row_from_value_row(
     catalog: &AcceptedEnumCatalog,
     row: Vec<Value>,
 ) -> Result<Vec<OutputValue>, QueryError> {
-    row.iter()
+    row.into_iter()
         .map(|value| {
             output_value_from_runtime(catalog, value).map_err(|_error| QueryError::invariant())
         })

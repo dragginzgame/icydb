@@ -4,12 +4,25 @@ set -euo pipefail
 # Exercise capture/provenance decisions without Cargo, a replica, or Twiggy.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TEST_ROOT="$(mktemp -d)"
-trap 'find "$TEST_ROOT" -depth -delete' EXIT
+cleanup() {
+    local status=$?
+    if [[ "$status" -ne 0 ]]; then
+        printf '[ERROR] Wasm audit capture checks failed at run %s\n' "${run:-0}" >&2
+        if [[ -f "$TEST_ROOT/output" ]]; then
+            cat "$TEST_ROOT/output" >&2
+        fi
+    fi
+    find "$TEST_ROOT" -depth -delete
+    return "$status"
+}
+trap cleanup EXIT
 FIXTURE="$TEST_ROOT/repository"
 ARTIFACTS="$FIXTURE/artifacts/wasm-size"
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/docs/reports/recurring" "$ARTIFACTS" "$TEST_ROOT/bin"
 cp "$ROOT/scripts/ci/wasm-audit-report.sh" "$ROOT/scripts/ci/wasm-report-common.sh" "$FIXTURE/scripts/ci/"
-ln -s "$(command -v true)" "$TEST_ROOT/bin/twiggy"
+# A real executable stub keeps the test independent of installed Wasm tools.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TEST_ROOT/bin/twiggy"
+chmod +x "$TEST_ROOT/bin/twiggy"
 export PATH="$TEST_ROOT/bin:$PATH"
 
 revision="1111111111111111111111111111111111111111"

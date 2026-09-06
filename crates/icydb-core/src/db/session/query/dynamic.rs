@@ -520,7 +520,7 @@ impl<C: CanisterKind> DbSession<C> {
             .into_value_rows()
             .into_iter()
             .map(|row| {
-                row.iter()
+                row.into_iter()
                     .map(|value| {
                         crate::db::schema::output_value_from_runtime(
                             value_catalog.enum_catalog(),

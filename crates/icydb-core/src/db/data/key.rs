@@ -104,6 +104,21 @@ impl DecodedDataStoreKey {
         Ok(Self::new_primary_key_value(entity, &key))
     }
 
+    /// Reconstruct a key from selected runtime values without an owned list
+    /// wrapper. A singleton carries one structural key; multiple values carry
+    /// ordered composite components through the same key codec.
+    pub(in crate::db) fn try_from_structural_key_values(
+        entity: EntityTag,
+        values: &[Value],
+    ) -> Result<Self, InternalError> {
+        let key = match values {
+            [value] => primary_key_value_from_structural_value(value)?,
+            _ => composite_primary_key_value_from_structural_values(values)?,
+        };
+
+        Ok(Self::new_primary_key_value(entity, &key))
+    }
+
     // ------------------------------------------------------------------
     // Accessors
     // ------------------------------------------------------------------

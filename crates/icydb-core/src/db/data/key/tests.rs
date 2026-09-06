@@ -310,6 +310,68 @@ fn data_key_constructors_reject_non_primary_key_values_consistently() {
 }
 
 #[test]
+fn projected_key_values_preserve_scalar_composite_and_wire_contracts() {
+    let entity = EntityTag::new(23);
+    for value in [
+        Value::Account(Account::from_owner_and_subaccount(
+            Principal::MAX,
+            Some(Subaccount::MAX),
+        )),
+        Value::Int64(-17),
+        Value::Principal(Principal::MAX),
+        Value::Subaccount(Subaccount::MAX),
+        Value::Timestamp(Timestamp::from_secs(7)),
+        Value::Nat64(42),
+        Value::Ulid(Ulid::from_u128(99)),
+        Value::Unit,
+        composite_value_list_fixture(),
+        Value::List(vec![
+            Value::Nat64(4),
+            Value::Nat64(3),
+            Value::Nat64(2),
+            Value::Nat64(1),
+        ]),
+    ] {
+        let values = match &value {
+            Value::List(values) => values.as_slice(),
+            value => std::slice::from_ref(value),
+        };
+        let projected =
+            DecodedDataStoreKey::try_from_structural_key_values(entity, values).unwrap();
+        let structural = DecodedDataStoreKey::try_from_structural_key(entity, &value).unwrap();
+        assert_eq!(projected, structural);
+        assert_eq!(projected.to_raw().unwrap(), structural.to_raw().unwrap());
+    }
+}
+
+#[test]
+fn projected_key_values_preserve_arity_kind_and_error_precedence() {
+    let entity = EntityTag::new(23);
+    for values in [
+        vec![],
+        vec![Value::Null],
+        vec![Value::Text("unsupported".into())],
+        vec![Value::Nat64(1), Value::Bool(true)],
+        vec![Value::List(vec![])],
+        vec![Value::List(vec![Value::Nat64(1)]), Value::Nat64(2)],
+        vec![Value::Null; MAX_PRIMARY_KEY_FIELDS + 1],
+    ] {
+        let projected =
+            DecodedDataStoreKey::try_from_structural_key_values(entity, &values).unwrap_err();
+        let structural = match values.as_slice() {
+            [value] => value.clone(),
+            _ => Value::List(values),
+        };
+        let expected =
+            DecodedDataStoreKey::try_from_structural_key(entity, &structural).unwrap_err();
+        assert_eq!(projected.class(), expected.class());
+        assert_eq!(projected.origin(), expected.origin());
+        assert_eq!(projected.diagnostic_code(), expected.diagnostic_code());
+        assert_eq!(projected.diagnostic_facts(), expected.diagnostic_facts());
+    }
+}
+
+#[test]
 fn data_key_raw_prefix_bounds_cover_supported_structural_key_domain() {
     let entity = EntityTag::new(29);
     let range = RawDataStoreKeyRange::entity_prefix(entity);

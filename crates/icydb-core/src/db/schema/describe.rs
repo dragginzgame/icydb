@@ -2063,7 +2063,7 @@ fn accepted_payload_facts(
     let persistence = AcceptedFieldPersistenceContract::new(value_catalog, field.decode_contract())
         .map_err(|_| InternalError::store_invariant())?;
     let admitted = decode_admitted_value_from_accepted_field_contract(persistence, payload)?;
-    let output = output_value_from_runtime(value_catalog.enum_catalog(), admitted.value())
+    let output = output_value_from_runtime(value_catalog.enum_catalog(), admitted.into_value())
         .map_err(|_| InternalError::store_invariant())?;
     let hash = short_default_payload_fingerprint(payload);
     let rendered = bounded_schema_value_rendering(&output, payload, hash.as_str());

@@ -139,13 +139,13 @@ fn project_distinct_row(
         )
         .map_err(InternalError::from)?;
     let contract = catalog.inspection_plan().row_contract();
-    let reader =
+    let mut reader =
         StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, contract)?;
     reader.validate_primary_key(data_key)?;
     slots
         .iter()
         .map(|slot| {
-            output_value_from_runtime(catalog.enum_catalog(), reader.required_cached_value(*slot)?)
+            output_value_from_runtime(catalog.enum_catalog(), reader.take_required_value(*slot)?)
                 .map_err(|_| InternalError::store_invariant())
         })
         .collect()

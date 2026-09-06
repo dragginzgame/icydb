@@ -98,7 +98,7 @@ pub(super) fn sql_returning_output_value_row(
     enum_catalog: &AcceptedEnumCatalog,
     row: Vec<Value>,
 ) -> Result<Vec<OutputValue>, QueryError> {
-    row.iter()
+    row.into_iter()
         .map(|value| {
             output_value_from_runtime(enum_catalog, value).map_err(|_error| QueryError::invariant())
         })

@@ -38,13 +38,13 @@ fn grouped_row_from_runtime_row(
 ) -> Result<GroupedRow, QueryError> {
     let (group_key, aggregate_values) = row.into_group_key_and_aggregate_values();
     let group_key = group_key
-        .iter()
+        .into_iter()
         .map(|value| {
             output_value_from_runtime(catalog, value).map_err(|_error| QueryError::invariant())
         })
         .collect::<Result<Vec<_>, _>>()?;
     let aggregate_values = aggregate_values
-        .iter()
+        .into_iter()
         .map(|value| {
             output_value_from_runtime(catalog, value).map_err(|_error| QueryError::invariant())
         })

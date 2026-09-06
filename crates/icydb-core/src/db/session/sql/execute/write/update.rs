@@ -7,7 +7,7 @@ use super::{
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
-        data::AcceptedMutationIntentPatch,
+        data::{AcceptedMutationIntentPatch, DecodedDataStoreKey},
         executor::StructuralProjectionScanBudget,
         query::intent::StructuralQuery,
         schema::AcceptedRowLayoutRuntimeContract,
@@ -22,7 +22,6 @@ use crate::{
                 with_accepted_sql_update_policy_context,
                 write_policy::{SqlWriteExecutionBounds, SqlWriteShapePolicyRejection},
             },
-            structural_data_key_from_runtime_values,
         },
         sql::{
             lowering::bind_sql_update_selector_query_structural_with_schema,
@@ -227,13 +226,13 @@ impl<C: CanisterKind> DbSession<C> {
         entity_tag: crate::types::EntityTag,
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         row: &[Value],
-    ) -> Result<crate::db::data::DecodedDataStoreKey, QueryError> {
+    ) -> Result<DecodedDataStoreKey, QueryError> {
         let primary_key_names = descriptor.primary_key_names();
         if row.len() != primary_key_names.len() {
             return Err(QueryError::invariant());
         }
 
-        structural_data_key_from_runtime_values(entity_tag, row.to_vec())
+        DecodedDataStoreKey::try_from_structural_key_values(entity_tag, row)
             .map_err(QueryError::execute)
     }
 

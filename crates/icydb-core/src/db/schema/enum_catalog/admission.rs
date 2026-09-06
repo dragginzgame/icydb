@@ -105,12 +105,6 @@ pub(in crate::db) struct AdmittedOwnedValue {
 }
 
 impl AdmittedOwnedValue {
-    /// Borrow the admitted value for schema payload rendering.
-    #[must_use]
-    pub(in crate::db) const fn value(&self) -> &CanonicalValue {
-        &self.value
-    }
-
     /// Consume the proof and move out its value, discarding its authority handle.
     /// The returned value is not reusable proof of admission against any schema.
     #[must_use]

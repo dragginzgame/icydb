@@ -76,6 +76,12 @@ impl<V> CanonicalEnumValue<V> {
     pub(crate) const fn body(&self) -> &CanonicalEnumBody<V> {
         &self.body
     }
+
+    /// Consume the canonical identity and transfer its owned body.
+    #[must_use]
+    pub(crate) fn into_body(self) -> CanonicalEnumBody<V> {
+        self.body
+    }
 }
 
 /// Canonical unit or payload-bearing enum body.

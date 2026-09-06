@@ -489,6 +489,12 @@ impl ValueEnum {
         self.0.body()
     }
 
+    /// Transfer the owned body after a consumer resolves the canonical identity.
+    #[must_use]
+    pub(crate) fn into_body(self) -> CanonicalEnumBody<Value> {
+        self.0.into_body()
+    }
+
     #[must_use]
     pub(crate) fn payload(&self) -> Option<&Value> {
         match self.body() {
