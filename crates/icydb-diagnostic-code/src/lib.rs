@@ -661,6 +661,9 @@ pub enum SqlLoweringCode {
     WhereExpressionShape,
     ParameterPlacement,
     SqlDdlExecutionUnsupported,
+    BindingCount,
+    BindingFamily,
+    BindingLimit,
 }
 
 impl fmt::Debug for SqlLoweringCode {
@@ -1058,7 +1061,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 264);
+        assert_eq!(last, 267);
     }
 
     #[test]

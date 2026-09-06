@@ -199,3 +199,16 @@ impl SecondaryOrderPushdownRejection {
         }
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(PushdownApplicability {
+Self::NotApplicable => [],
+Self::Eligible{index,prefix_len} => [index,prefix_len],
+Self::Rejected(field_0) => [field_0],
+});
+crate::retained::retained_fields!(SecondaryOrderPushdownRejection {
+Self::AccessPathIndexRangeUnsupported{index,prefix_len} => [index,prefix_len],
+Self::InvalidIndexPrefixBounds{prefix_len,index_field_len} => [prefix_len,index_field_len],
+Self::OrderFieldsDoNotMatchIndex{index,prefix_len,expected_suffix,expected_full,actual} => [index,prefix_len,expected_suffix,expected_full,actual],
+Self::VariablePrefixSuffixOrderUnsupported{index,prefix_len,expected_full,actual} => [index,prefix_len,expected_full,actual],
+});

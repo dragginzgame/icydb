@@ -23,9 +23,10 @@ use crate::{
             AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
             SchemaInfo,
         },
-        session::{AcceptedSchemaCatalogContext, bounded_cache::BoundedCache},
+        session::{AcceptedSchemaCatalogContext, CacheEntryWeight, bounded_cache::BoundedCache},
     },
     error::InternalError,
+    retained::RetainedBytes,
     traits::CanisterKind,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource, DiagnosticExecutionLane};
@@ -36,7 +37,7 @@ use identity::{QueryPlanAcceptedSchema, QueryPlanCacheKey, SchemaCacheIdentity};
 use template::PreparedQueryTemplate;
 
 const SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES: usize = 1024;
-const SHARED_QUERY_TEMPLATE_CACHE_MAX_RETAINED_BYTES: usize = 4 * 1024 * 1024;
+const SHARED_QUERY_PLAN_CACHE_MAX_RETAINED_BYTES: usize = 4 * 1024 * 1024;
 const REQUEST_PLANNING_SHAPE_DOMAIN: u64 = 0x2210_0006_0000_0001;
 
 /// Internal shared-plan cache outcome retained only for verbose `EXPLAIN`.
@@ -76,12 +77,37 @@ impl CachedQueryArtifact {
         }
     }
 
-    const fn parameterized_template_mut(&mut self) -> Option<&mut PreparedQueryTemplate> {
+    fn retained_plan(&self) -> Option<&SharedPreparedExecutionPlan> {
         match self {
-            Self::PreparedPlan(_) => None,
-            Self::ParameterizedTemplate(template) => Some(template),
+            Self::PreparedPlan(plan) => Some(plan),
+            Self::ParameterizedTemplate(template) => template.retained_plan(),
         }
     }
+}
+
+crate::retained::retained_fields!(CachedQueryArtifact {
+    Self::PreparedPlan(plan) => [plan],
+    Self::ParameterizedTemplate(template) => [template],
+});
+
+// Account both the map key and its FIFO copy. Shared subgraphs may be counted
+// repeatedly, conservatively; HashMap/VecDeque spare buckets and allocator
+// metadata are separate entry-count-bounded bookkeeping, not this payload cap.
+fn artifact_retained_bytes(
+    key: &QueryPlanCacheKey,
+    artifact: &CachedQueryArtifact,
+) -> Option<usize> {
+    let mut bytes = RetainedBytes::new(SHARED_QUERY_PLAN_CACHE_MAX_RETAINED_BYTES);
+    bytes.add(
+        2 * size_of::<QueryPlanCacheKey>()
+            + size_of::<CachedQueryArtifact>()
+            + size_of::<CacheEntryWeight>()
+            + 3 * size_of::<usize>(),
+    )?;
+    bytes.visit(key)?;
+    bytes.visit(key)?;
+    bytes.visit(artifact)?;
+    Some(bytes.total())
 }
 
 thread_local! {
@@ -143,6 +169,31 @@ pub(in crate::db::session) fn query_plan_requires_cardinality_lifecycle_recheck(
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    #[cfg(test)]
+    pub(in crate::db::session) fn shared_query_cache_usage_for_tests(&self) -> (usize, usize) {
+        self.with_query_plan_cache(|cache| {
+            for (key, artifact, charged) in cache.retained_entries() {
+                let key_bytes = RetainedBytes::measure(key, usize::MAX).expect("accountable key");
+                let value_bytes =
+                    RetainedBytes::measure(artifact, usize::MAX).expect("accountable artifact");
+                // Independent composition includes the FIFO key copy and the
+                // entry's reference-counted bookkeeping after lazy execution.
+                let expected = 2 * key_bytes
+                    + value_bytes
+                    + size_of::<CacheEntryWeight>()
+                    + 3 * size_of::<usize>();
+                assert!(charged >= expected);
+            }
+            (cache.len(), cache.retained_weight())
+        })
+    }
+
+    #[cfg(test)]
+    pub(in crate::db::session) fn clear_shared_query_cache_for_tests(&self, limit: usize) {
+        self.with_query_plan_cache(|cache| {
+            *cache = QueryPlanCache::new_weighted(SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES, limit);
+        });
+    }
     fn cached_cardinality_tiebreak_is_current(
         &self,
         authority: &EntityAuthority,
@@ -184,7 +235,7 @@ impl<C: CanisterKind> DbSession<C> {
             let cache = caches.entry(scope_id).or_insert_with(|| {
                 QueryPlanCache::new_weighted(
                     SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES,
-                    SHARED_QUERY_TEMPLATE_CACHE_MAX_RETAINED_BYTES,
+                    SHARED_QUERY_PLAN_CACHE_MAX_RETAINED_BYTES,
                 )
             });
 
@@ -211,15 +262,36 @@ impl<C: CanisterKind> DbSession<C> {
         cache_key: QueryPlanCacheKey,
         template: PreparedQueryTemplate,
     ) {
-        let weight = cache_key
-            .estimated_retained_bytes()
-            .saturating_add(template.estimated_retained_bytes());
+        self.insert_shared_query_artifact(
+            cache_key,
+            CachedQueryArtifact::ParameterizedTemplate(template),
+        );
+    }
+
+    fn insert_shared_query_artifact(
+        &self,
+        cache_key: QueryPlanCacheKey,
+        artifact: CachedQueryArtifact,
+    ) {
+        let retained_plan = artifact.retained_plan().cloned();
+        // An already attached core must not acquire a second independently
+        // charged cache owner whose lazy growth the first entry cannot observe.
+        if retained_plan
+            .as_ref()
+            .is_some_and(|plan| !plan.cache_retention_available())
+        {
+            return;
+        }
+        let Some(weight) = artifact_retained_bytes(&cache_key, &artifact) else {
+            return;
+        };
         self.with_query_plan_cache(|cache| {
-            cache.insert_weighted(
-                cache_key,
-                CachedQueryArtifact::ParameterizedTemplate(template),
-                weight,
-            );
+            cache.insert_weighted(cache_key.clone(), artifact, weight);
+            if let Some(plan) = retained_plan
+                && let Some(entry) = cache.entry_weight(&cache_key)
+            {
+                plan.attach_cache_retention(&entry);
+            }
         });
     }
 
@@ -228,15 +300,20 @@ impl<C: CanisterKind> DbSession<C> {
         cache_key: &QueryPlanCacheKey,
         predicate_fingerprint: [u8; 32],
         prepared_plan: SharedPreparedExecutionPlan,
-    ) -> Result<(), QueryError> {
-        self.with_query_plan_cache(|cache| {
-            let template = cache
-                .get_mut(cache_key)
-                .and_then(CachedQueryArtifact::parameterized_template_mut)
-                .ok_or_else(QueryError::invariant)?;
+    ) {
+        let template = self.with_query_plan_cache(|cache| {
+            cache
+                .get(cache_key)
+                .and_then(CachedQueryArtifact::parameterized_template)
+                .cloned()
+        });
+        if let Some(mut template) = template {
             template.remember_bound_plan(predicate_fingerprint, prepared_plan);
-            Ok(())
-        })
+            self.insert_shared_query_artifact(
+                cache_key.clone(),
+                CachedQueryArtifact::ParameterizedTemplate(template),
+            );
+        }
     }
 
     fn lookup_shared_query_plan_for_authority(
@@ -265,12 +342,10 @@ impl<C: CanisterKind> DbSession<C> {
         cache_key: QueryPlanCacheKey,
         prepared_plan: &SharedPreparedExecutionPlan,
     ) {
-        self.with_query_plan_cache(|cache| {
-            cache.insert(
-                cache_key,
-                CachedQueryArtifact::PreparedPlan(prepared_plan.clone()),
-            );
-        });
+        self.insert_shared_query_artifact(
+            cache_key,
+            CachedQueryArtifact::PreparedPlan(prepared_plan.clone()),
+        );
     }
 
     fn resolve_shared_query_plan_for_authority(
@@ -609,7 +684,7 @@ impl<C: CanisterKind> DbSession<C> {
                 &cache_key,
                 bound_predicate_fingerprint,
                 prepared_plan.clone(),
-            )?;
+            );
 
             return Ok((prepared_plan, QueryPlanCacheReuse::Hit));
         }

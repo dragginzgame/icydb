@@ -310,3 +310,6 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
         ))
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(FieldSlot);

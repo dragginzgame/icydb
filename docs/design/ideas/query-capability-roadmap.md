@@ -64,8 +64,17 @@ entrypoint accepts only `&str`, and the generated SQL endpoint accepts a SQL
 string. No typed external binding envelope was found across the facade,
 generated endpoint, Candid, or CLI surface.
 
-The provisional 0.233 assignment was not adopted. Any remaining public bound
-invocation gap is unnumbered and requires a fresh current-surface audit.
+The provisional 0.233 assignment was not adopted. A 2026-09-05 source review
+confirmed the remaining public bound-invocation gap and led to the proposed
+[0.254 Typed SQL Bindings design](../0.254-typed-sql-bindings/0.254-design.md).
+The user subsequently narrowed 0.254 to internal Rust SQL invocation with typed
+bindings and reuse of the existing parsed-dispatch artifact. Reduced parsing,
+idiomatic application use and overall complexity are the acceptance criteria;
+SQL endpoint/Candid/CLI binding work is not in the short-term scope. The initial
+contract is WHERE-only, with bound invocations bypassing SQL concrete-command
+cache lookup and insertion; no binding digest or bound HAVING is planned.
+Downstream shared-plan retention still needs evidence. This remains design
+authority only, not implementation or release evidence.
 
 ### Candidate 2: engine authority supported; public SQL gap confirmed
 
@@ -102,7 +111,7 @@ without widening all numeric operations or using lossy conversion.
 
 | Candidate | One disposition | Current owner or outcome |
 | --- | --- | --- |
-| 1. Public Parameterized And Prepared SQL | Unnumbered after the provisional assignment was not adopted | Requires a fresh current-surface audit; current internal parameterization is predecessor evidence, not a public substitute |
+| 1. Public Parameterized And Prepared SQL | Internal-library 0.254 design; not implemented | [Typed SQL Bindings](../0.254-typed-sql-bindings/0.254-design.md); reuse existing parsed syntax with typed inputs, no endpoint binding transport or remote prepared handles |
 | 2. Authenticated, Snapshot-Safe SQL Pagination | Unnumbered after the provisional assignment was not adopted; true snapshot expansion remains rejected | Any public SQL gap must reuse existing authenticated live/exhaustive continuation authority and add no MVCC cursor |
 | 3. Explicit Covering Index Payloads | Unnumbered after the provisional assignment was not adopted | Requires a fresh physical representation and workload audit |
 | 4. Statistics-Aware Index Selection | Narrowed current design, not implementation authority | [0.236 exact-cardinality planner tie-breaking](../0.236-exact-cardinality-planner-tiebreak/0.236-design.md); no new persisted statistics |

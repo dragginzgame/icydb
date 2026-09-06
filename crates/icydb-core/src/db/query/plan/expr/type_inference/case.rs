@@ -20,7 +20,9 @@ pub(super) fn infer_case_expr_type(
 
     for (arm_index, arm) in when_then_arms.iter().enumerate() {
         let condition_type = infer_expr_type(arm.condition(), schema)?;
-        if !matches!(condition_type, ExprType::Bool) {
+        // A known null is UNKNOWN in a boolean condition, not a cast
+        // into the CASE result family. Every result branch is still checked.
+        if !matches!(condition_type, ExprType::Bool | ExprType::Null) {
             return Err(PlanError::from(ExprPlanError::invalid_case_condition_type(
                 arm_index,
                 &condition_type,
@@ -29,8 +31,8 @@ pub(super) fn infer_case_expr_type(
 
         let branch_type = infer_expr_type(arm.result(), schema)?;
         result_type = unify_case_branch_types(
-            (Some(arm_index), &branch_type, arm.result()),
-            (result_branch_index, &result_type, else_expr),
+            (Some(arm_index), &branch_type),
+            (result_branch_index, &result_type),
         )?;
         result_branch_index = Some(arm_index);
     }

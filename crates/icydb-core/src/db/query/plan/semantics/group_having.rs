@@ -121,3 +121,6 @@ const fn grouped_having_compare_kind(op: CompareOp) -> Option<GroupedHavingCompa
         | CompareOp::EndsWith => None,
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(GroupedCursorPolicyViolation);

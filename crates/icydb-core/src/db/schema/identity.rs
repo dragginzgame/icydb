@@ -274,3 +274,8 @@ mod tests {
         assert_eq!(RelationId::new(0), None);
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(ConstraintId);
+crate::retained::retained_copy!(FieldId);
+crate::retained::retained_copy!(RelationId);

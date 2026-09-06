@@ -670,4 +670,10 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::ConvergenceBacklogPressure });
     RUNTIME_BOUNDARY_MUTATION_BATCH_TOO_MANY_ENTITIES = 264 => RuntimeUnsupported,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MutationBatchTooManyEntities });
+    SQL_LOWERING_BINDING_COUNT = 265 => QueryUnsupportedSqlFeature,
+        detail(SqlLowering { reason: SqlLoweringCode::BindingCount });
+    SQL_LOWERING_BINDING_FAMILY = 266 => QueryUnsupportedSqlFeature,
+        detail(SqlLowering { reason: SqlLoweringCode::BindingFamily });
+    SQL_LOWERING_BINDING_LIMIT = 267 => QueryUnsupportedSqlFeature,
+        detail(SqlLowering { reason: SqlLoweringCode::BindingLimit });
 }

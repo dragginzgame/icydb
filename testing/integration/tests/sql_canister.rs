@@ -125,6 +125,30 @@ fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
 }
 
 #[test]
+fn bound_null_functions_match_literals_in_non_test_wasm() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+    let results: Vec<Result<SqlQueryResult, Error>> = fixture
+        .query_candid("check_bound_sql_null_parity", ())
+        .expect("fixed binding probe should decode");
+    assert_eq!(results.len(), 25);
+    for (index, pair) in results[..22].chunks_exact(2).enumerate() {
+        let literal = pair[0].as_ref().expect("literal NULL control");
+        let SqlQueryResult::Projection(output) = literal else {
+            panic!("literal control should project rows");
+        };
+        assert!(output.row_count > 0, "control must match stored rows");
+        let bound = pair[1]
+            .as_ref()
+            .unwrap_or_else(|error| panic!("bound NULL case {index}: {error:?}"));
+        assert_eq!(bound, literal, "NULL parity case {index}");
+    }
+    for rejected in &results[22..] {
+        assert!(rejected.is_err(), "invalid original context must reject");
+    }
+}
+
+#[test]
 fn sql_canister_schema_endpoint_exposes_exact_diagnostic_identity() {
     let fixture = install_sql_canister_fixture();
     let response: Result<Vec<EntitySchemaDescription>, Error> = fixture

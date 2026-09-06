@@ -192,3 +192,6 @@ impl SchemaRowLayout {
             .find_map(|(id, slot)| (*id == field_id).then_some(*slot))
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(RowLayoutVersion);

@@ -385,7 +385,11 @@ fn compile_bool_compare_truth_predicate(
 
 // Compile one compare-ready boolean expression leaf onto the corresponding
 // runtime compare predicate.
-fn compile_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> Option<Predicate> {
+pub(in crate::db) fn compile_bool_compare_expr(
+    op: BinaryOp,
+    left: &Expr,
+    right: &Expr,
+) -> Option<Predicate> {
     let op = truth_condition_binary_compare_op(op)?;
 
     match (left, right) {

@@ -67,3 +67,6 @@ pub(in crate::db) const fn derive_logical_pushdown_eligibility(
         false,
     )
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(LogicalPushdownEligibility);

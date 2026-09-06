@@ -850,3 +850,19 @@ const fn accepted_insert_omission_policy(
         (_, SchemaInsertDefault::SlotPayload(_)) => AcceptedInsertOmissionPolicy::DefaultIfMissing,
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(AcceptedInsertOmissionPolicy);
+crate::retained::retained_fields!(AcceptedRowDecodeContract {
+Self{current_layout_version,history_floor,required_slot_count,primary_key_slot_index,primary_key_slot_indices,fields_by_slot,relation_edges,value_catalog} => [current_layout_version,history_floor,required_slot_count,primary_key_slot_index,primary_key_slot_indices,fields_by_slot,relation_edges,value_catalog],
+});
+crate::retained::retained_fields!(OwnedAcceptedFieldDecodeContract {
+Self{field_id,field_name,kind,nullable,storage_decode,leaf_codec,write_policy,insert_omission_policy,introduced_in_layout,insert_default,historical_fill,generated} => [field_id,field_name,kind,nullable,storage_decode,leaf_codec,write_policy,insert_omission_policy,introduced_in_layout,insert_default,historical_fill,generated],
+});
+crate::retained::retained_fields!(OwnedAcceptedRelationEdgeContract {
+Self{constraint,relation_id,name,physical_generation,target_path,source} => [constraint,relation_id,name,physical_generation,target_path,source],
+});
+crate::retained::retained_fields!(OwnedAcceptedRelationSourceContract {
+Self::Direct{field_slots} => [field_slots],
+Self::Nested{root_slot,steps} => [root_slot,steps],
+});

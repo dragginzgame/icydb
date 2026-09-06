@@ -136,6 +136,11 @@ impl SqlCompiledCommandCacheKey {
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    #[cfg(test)]
+    pub(in crate::db::session) fn sql_compiled_cache_len_for_tests(&self) -> usize {
+        self.with_sql_compiled_command_cache(|cache| cache.len())
+    }
+
     pub(in crate::db::session::sql) fn with_sql_compiled_command_cache<R>(
         &self,
         f: impl FnOnce(&mut SqlCompiledCommandCache) -> R,

@@ -64,3 +64,8 @@ impl SemanticIndexExpression {
         }
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(SemanticIndexExpression {
+Self{op,field} => [op,field],
+});

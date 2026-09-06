@@ -422,15 +422,14 @@ pub(crate) struct SqlCaseArm {
     pub(crate) result: SqlExpr,
 }
 
-///
-/// SqlExpr
-///
-/// Parser-owned SQL scalar expression tree shared across existing scalar
-/// positions before planner lowering maps onto canonical planner expressions.
-/// This keeps clause-specific parsing models from becoming the semantic owner
-/// for CASE or future scalar-expression widening.
-///
+/// One literal or lexical slot in an IN list; not a general expression list.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlMembershipValue {
+    Literal(Value),
+    Param { index: usize },
+}
 
+/// Parser-owned scalar expression tree, lowered through the shared planner owners.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SqlExpr {
     Field(String),
@@ -445,7 +444,7 @@ pub(crate) enum SqlExpr {
     },
     Membership {
         expr: Box<Self>,
-        values: Vec<Value>,
+        values: Vec<SqlMembershipValue>,
         negated: bool,
     },
     NullTest {
@@ -478,6 +477,29 @@ pub(crate) enum SqlExpr {
 }
 
 impl SqlExpr {
+    /// Visit lexical parameter identities, including membership and aggregate inputs.
+    pub(in crate::db::sql) fn for_each_parameter(&self, visit: &mut impl FnMut(usize)) {
+        self.for_each_tree_expr(&mut |expr| match expr {
+            Self::Param { index } => visit(*index),
+            Self::Membership { values, .. } => {
+                for value in values {
+                    if let SqlMembershipValue::Param { index } = value {
+                        visit(*index);
+                    }
+                }
+            }
+            Self::Aggregate(aggregate) => {
+                if let Some(input) = &aggregate.input {
+                    input.for_each_parameter(visit);
+                }
+                if let Some(filter) = &aggregate.filter_expr {
+                    filter.for_each_parameter(visit);
+                }
+            }
+            _ => {}
+        });
+    }
+
     /// Convert one parsed select item into the shared SQL expression tree.
     #[must_use]
     pub(crate) fn from_select_item(item: &SqlSelectItem) -> Self {
@@ -526,9 +548,12 @@ impl SqlExpr {
             | Self::Like { .. }
             | Self::Unary { .. }
             | Self::Binary { .. } => true,
-            Self::Membership { values, .. } => values
-                .iter()
-                .all(|value| !matches!(value, Value::List(_) | Value::Map(_))),
+            Self::Membership { values, .. } => values.iter().all(|value| {
+                !matches!(
+                    value,
+                    SqlMembershipValue::Literal(Value::List(_) | Value::Map(_))
+                )
+            }),
             Self::FieldPath { .. }
             | Self::Aggregate(_)
             | Self::FunctionCall { .. }

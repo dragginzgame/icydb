@@ -719,3 +719,16 @@ mod tests {
         }
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(DeterministicSecondaryOrderContract {
+Self{non_primary_key_terms,primary_key_terms,direction} => [non_primary_key_terms,primary_key_terms,direction],
+});
+crate::retained::retained_fields!(ExecutionOrderContract {
+Self{ordering,direction,supports_cursor} => [ordering,direction,supports_cursor],
+});
+crate::retained::retained_fields!(ExecutionOrdering {
+Self::PrimaryKey => [],
+Self::Explicit(field_0) => [field_0],
+Self::Grouped(field_0) => [field_0],
+});

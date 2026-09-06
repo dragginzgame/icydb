@@ -128,7 +128,6 @@ const fn diagnostic_expr_type_family(expr_type: &ExprType) -> DiagnosticTypeFami
         ExprType::Blob => DiagnosticTypeFamily::Blob,
         ExprType::Bool => DiagnosticTypeFamily::Bool,
         ExprType::Collection => DiagnosticTypeFamily::Collection,
-        #[cfg(test)]
         ExprType::Null => DiagnosticTypeFamily::Null,
         ExprType::Numeric(_) => DiagnosticTypeFamily::Numeric,
         ExprType::Opaque | ExprType::U256 => DiagnosticTypeFamily::Opaque,
@@ -195,7 +194,7 @@ impl PlanError {
             .map(|context| (context.role, context.field.as_str()))
     }
 
-    pub(in crate::db::query) fn attach_query_field(mut self, role: QueryFieldRole) -> Self {
+    pub(in crate::db) fn attach_query_field(mut self, role: QueryFieldRole) -> Self {
         if self.query_field.is_some() {
             return self;
         }

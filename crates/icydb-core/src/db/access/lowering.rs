@@ -864,3 +864,83 @@ fn encode_index_component(
 
     Ok(EncodedValue::from_canonical_bytes(bytes))
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(DeferredIndexPrefixRawBoundsSource);
+
+#[cfg(test)]
+mod retention_tests {
+    use super::{
+        EntityTag, IndexId, IndexKeyKind, LoweredIndexPrefixRawBounds, LoweredIndexPrefixSpec,
+        LoweredIndexScanContract,
+    };
+    use crate::{MAX_INDEX_FIELDS, db::index::IndexKey, retained::RetainedBytes};
+    use std::sync::Arc;
+
+    #[test]
+    fn retained_deferred_bounds_reserve_encoder_capacity_before_materialization() {
+        for arity in 1..=MAX_INDEX_FIELDS {
+            for prefix_len in 0..=arity {
+                let prefix_components = vec![vec![1_u8; 8]; prefix_len];
+                let expected =
+                    IndexKey::raw_prefix_bounds_retained_capacity(arity, &prefix_components);
+                let spec = LoweredIndexPrefixSpec {
+                    scan_contract: LoweredIndexScanContract {
+                        name: Arc::from("index"),
+                        store_path: Arc::from("store"),
+                    },
+                    raw_bounds: LoweredIndexPrefixRawBounds::deferred_component_prefix(
+                        IndexId::new(EntityTag::new(254), 1),
+                        IndexKeyKind::User,
+                        arity,
+                    ),
+                    prefix_components,
+                };
+                let before =
+                    RetainedBytes::measure(&spec, usize::MAX).expect("reserved bound capacity");
+                let (lower, upper) = spec.raw_bounds().expect("valid prefix");
+                let mut materialized = RetainedBytes::new(usize::MAX);
+                materialized.visit(lower).expect("known lower allocation");
+                materialized.visit(upper).expect("known upper allocation");
+                assert_eq!(materialized.total(), expected);
+                assert_eq!(RetainedBytes::measure(&spec, usize::MAX), Some(before));
+            }
+        }
+    }
+}
+impl crate::retained::Retained for LoweredIndexPrefixSpec {
+    fn visit_retained(&self, bytes: &mut crate::retained::RetainedBytes) -> Option<()> {
+        let Self {
+            scan_contract,
+            raw_bounds,
+            prefix_components,
+        } = self;
+        bytes.visit(scan_contract)?;
+        bytes.visit(prefix_components)?;
+        match raw_bounds {
+            LoweredIndexPrefixRawBounds::Materialized { lower, upper } => {
+                bytes.visit(lower)?;
+                bytes.visit(upper)
+            }
+            LoweredIndexPrefixRawBounds::DeferredComponentPrefix { source, raw_bounds } => {
+                // Borrowed bounds must remain retained once materialized. Reserve
+                // their encoder-owned capacity before admitting the shared plan.
+                if let Some(bounds) = raw_bounds.get() {
+                    return bytes.visit(bounds);
+                }
+                bytes.add(
+                    crate::db::index::IndexKey::raw_prefix_bounds_retained_capacity(
+                        source.key_arity,
+                        prefix_components,
+                    ),
+                )
+            }
+        }
+    }
+}
+crate::retained::retained_fields!(LoweredIndexRangeSpec {
+Self{scan_contract,lower,upper,prefix_components} => [scan_contract,lower,upper,prefix_components],
+});
+crate::retained::retained_fields!(LoweredIndexScanContract {
+Self{name,store_path} => [name,store_path],
+});

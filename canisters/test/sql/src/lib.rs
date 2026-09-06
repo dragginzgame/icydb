@@ -86,6 +86,60 @@ fn measure_sql_query_instructions(sql: String) -> SqlExecutionInstructionResult 
     }
 }
 
+/// Exercise fixed NULL-binding cases against the non-test library in Wasm.
+/// This fixture accepts neither SQL nor bindings from its caller.
+#[cfg(feature = "test-admin-api")]
+#[query]
+fn check_bound_sql_null_parity() -> Vec<Result<icydb::db::sql::SqlQueryResult, icydb::Error>> {
+    let mut results = Vec::new();
+    for (bound, literal) in [
+        ("(? + 1)", "(NULL + 1)"),
+        ("(1 - ?)", "(1 - NULL)"),
+        ("(? * 1)", "(NULL * 1)"),
+        ("(1 / ?)", "(1 / NULL)"),
+        ("LOWER(?)", "LOWER(NULL)"),
+        ("ABS(?)", "ABS(NULL)"),
+        ("OCTET_LENGTH(?)", "OCTET_LENGTH(NULL)"),
+        ("ROUND(?, 2)", "ROUND(NULL, 2)"),
+        ("LOWER(COALESCE(?, NULL))", "LOWER(COALESCE(NULL, NULL))"),
+        ("LOWER(NULLIF(?, 'x'))", "LOWER(NULLIF(NULL, 'x'))"),
+        (
+            "LOWER(CASE WHEN FALSE THEN 'x' ELSE ? END)",
+            "LOWER(CASE WHEN FALSE THEN 'x' ELSE NULL END)",
+        ),
+    ] {
+        let literal =
+            format!("SELECT id FROM SqlTestUser WHERE {literal} IS NULL ORDER BY id LIMIT 3");
+        results.push(measure_sql_query_instructions(literal).result);
+        let bound = format!("SELECT id FROM SqlTestUser WHERE {bound} IS NULL ORDER BY id LIMIT 3");
+        results.push(icydb::db::with_request_execution(|| {
+            let dispatch = icydb::db::sql_statement_dispatch(&bound)?;
+            icydb::db!()?.execute_trusted_sql_query_dispatch(&dispatch, &[InputValue::null()])
+        }));
+    }
+    // NULL and eliminated branches must not suppress another operand's type error.
+    for (sql, input) in [
+        (
+            "SELECT id FROM SqlTestUser WHERE TRUE OR (? + 'invalid') IS NULL",
+            InputValue::null(),
+        ),
+        (
+            "SELECT id FROM SqlTestUser WHERE FALSE AND SUBSTRING(?, 'invalid') = 'x'",
+            InputValue::null(),
+        ),
+        (
+            "SELECT id FROM SqlTestUser WHERE TRUE OR (CASE WHEN FALSE THEN ? WHEN TRUE THEN 1 END) = 1",
+            InputValue::text("invalid numeric branch".into()),
+        ),
+    ] {
+        results.push(icydb::db::with_request_execution(|| {
+            let dispatch = icydb::db::sql_statement_dispatch(sql)?;
+            icydb::db!()?.execute_trusted_sql_query_dispatch(&dispatch, &[input])
+        }));
+    }
+    results
+}
+
 /// Measure administrative DDL admission through the existing catalog owner.
 #[cfg(feature = "test-admin-api")]
 #[update]

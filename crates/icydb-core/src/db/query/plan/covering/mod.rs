@@ -1067,3 +1067,24 @@ fn unary_field_function_expr(function: Function, field: &str) -> Expr {
         args: vec![Expr::Field(FieldId::new(field.to_string()))],
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(CoveringExistingRowMode);
+crate::retained::retained_fields!(CoveringHybridReadExecutionPlan {
+Self{fields,prefix_len,order_contract,existing_row_mode,strict_predicate_compatible} => [fields,prefix_len,order_contract,existing_row_mode,strict_predicate_compatible],
+});
+crate::retained::retained_copy!(CoveringProjectionOrder);
+crate::retained::retained_fields!(CoveringReadExecutionPlan {
+Self{fields,prefix_len,order_contract,existing_row_mode,strict_predicate_compatible,ordered_distinct_group_seek} => [fields,prefix_len,order_contract,existing_row_mode,strict_predicate_compatible,ordered_distinct_group_seek],
+});
+crate::retained::retained_fields!(CoveringReadField {
+Self{field_slot,source} => [field_slot,source],
+});
+crate::retained::retained_fields!(CoveringReadFieldSource {
+Self::IndexComponent{component_index} => [component_index],
+Self::IndexExpressionComponent{component_index} => [component_index],
+Self::PrimaryKey{component_index} => [component_index],
+Self::Constant(field_0) => [field_0],
+Self::RowField => [],
+});
+crate::retained::retained_copy!(OrderedDistinctGroupSeekContract);

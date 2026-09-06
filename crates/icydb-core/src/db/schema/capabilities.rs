@@ -323,3 +323,6 @@ mod tests {
         assert!(!relation.aggregate_input().count());
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(SqlCapabilities);

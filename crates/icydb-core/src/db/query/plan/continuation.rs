@@ -561,3 +561,9 @@ mod authority_signature_tests {
         );
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(AcceptedContinuationIdentity);
+crate::retained::retained_fields!(PlannedContinuationContract {
+Self{shape_signature,accepted_identity,boundary_arity,window_size,order_contract,page_limit,access,grouped_cursor_policy_violation} => [shape_signature,accepted_identity,boundary_arity,window_size,order_contract,page_limit,access,grouped_cursor_policy_violation],
+});

@@ -4,13 +4,10 @@
 //! Does not own: parser syntax, expression lowering, or runtime evaluation.
 //! Boundary: converts inferred expression classes into planner type contracts.
 
-use crate::{
-    db::query::plan::{
-        PlanError,
-        expr::{BinaryOp, Expr, NumericSubtype, type_inference::ExprType},
-        validate::ExprPlanError,
-    },
-    value::Value,
+use crate::db::query::plan::{
+    PlanError,
+    expr::{BinaryOp, NumericSubtype, type_inference::ExprType},
+    validate::ExprPlanError,
 };
 
 pub(super) fn unify_coalesce_expr_types<F>(
@@ -42,28 +39,29 @@ where
         (ExprType::Blob, ExprType::Opaque) | (ExprType::Opaque, ExprType::Blob) => {
             Ok(ExprType::Opaque)
         }
-        (ExprType::Unknown, other) | (other, ExprType::Unknown) => Ok(other),
-        #[cfg(test)]
-        (ExprType::Null, other) | (other, ExprType::Null) => Ok(other),
+        (ExprType::Unknown | ExprType::Null, other)
+        | (other, ExprType::Unknown | ExprType::Null) => Ok(other),
         (left, right) => Err(mismatch(left, right)),
     }
 }
 
 pub(super) fn unify_case_branch_types(
-    left: (Option<usize>, &ExprType, &Expr),
-    right: (Option<usize>, &ExprType, &Expr),
+    left: (Option<usize>, &ExprType),
+    right: (Option<usize>, &ExprType),
 ) -> Result<ExprType, PlanError> {
-    let (left_index, left_type, left_expr) = left;
-    let (right_index, right_type, right_expr) = right;
+    let (left_index, left_type) = left;
+    let (right_index, right_type) = right;
 
     if left_type == right_type {
         return Ok(left_type.clone());
     }
 
-    if case_branch_is_null_only(left_type, left_expr) {
+    // Use the accumulated type, not the original ELSE expression: an implicit
+    // NULL ELSE must not erase the type established by a previous result arm.
+    if matches!(left_type, ExprType::Null) {
         return Ok(right_type.clone());
     }
-    if case_branch_is_null_only(right_type, right_expr) {
+    if matches!(right_type, ExprType::Null) {
         return Ok(left_type.clone());
     }
 
@@ -123,14 +121,4 @@ pub(super) const fn infer_numeric_result_subtype(
         (NumericSubtype::Decimal, NumericSubtype::Decimal) => NumericSubtype::Decimal,
         _ => NumericSubtype::Unknown,
     }
-}
-
-#[cfg(test)]
-const fn case_branch_is_null_only(branch_type: &ExprType, expr: &Expr) -> bool {
-    matches!(expr, Expr::Literal(Value::Null)) || matches!(branch_type, ExprType::Null)
-}
-
-#[cfg(not(test))]
-const fn case_branch_is_null_only(_branch_type: &ExprType, expr: &Expr) -> bool {
-    matches!(expr, Expr::Literal(Value::Null))
 }

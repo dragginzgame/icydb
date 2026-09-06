@@ -301,3 +301,15 @@ mod tests {
         ));
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(AggregateIdentity {
+Self::Count{input_expr,distinct} => [input_expr,distinct],
+Self::Sum{input_expr,distinct} => [input_expr,distinct],
+Self::Avg{input_expr,distinct} => [input_expr,distinct],
+Self::Min{input_expr} => [input_expr],
+Self::Max{input_expr} => [input_expr],
+Self::Exists{input_expr,distinct} => [input_expr,distinct],
+Self::First{input_expr,distinct} => [input_expr,distinct],
+Self::Last{input_expr,distinct} => [input_expr,distinct],
+});

@@ -1469,3 +1469,8 @@ const fn max_encoded_primary_key_len(kind: PrimaryKeyKind) -> usize {
 
 #[cfg(test)]
 mod tests;
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(RawIndexStoreKey {
+Self{bytes} => [bytes],
+});

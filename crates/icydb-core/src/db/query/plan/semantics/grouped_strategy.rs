@@ -427,3 +427,6 @@ fn grouped_access_path_proves_group_order<K>(
 
     true
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(GroupedPlanStrategy);

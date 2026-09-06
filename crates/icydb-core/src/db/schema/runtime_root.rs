@@ -194,3 +194,6 @@ mod tests {
         );
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(AcceptedSchemaRuntimeRootIdentity);

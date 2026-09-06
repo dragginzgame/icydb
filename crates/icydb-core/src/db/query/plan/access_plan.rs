@@ -959,3 +959,32 @@ impl AccessPlannedQuery {
         self.planner_route_profile = planner_route_profile;
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(AccessPlannedQuery {
+Self{logical,access,projection_selection,access_choice,cardinality_tiebreak,planner_route_profile,static_execution_planning_contract} => [logical,access,projection_selection,access_choice,cardinality_tiebreak,planner_route_profile,static_execution_planning_contract],
+});
+crate::retained::retained_fields!(EffectiveRuntimeFilterKind {
+Self::Predicate(field_0) => [field_0],
+Self::Expr(field_0) => [field_0],
+});
+crate::retained::retained_fields!(EffectiveRuntimeFilterProgram {
+Self{kind} => [kind],
+});
+crate::retained::retained_copy!(PredicatePushdownDiagnostics);
+crate::retained::retained_fields!(ResidualFilterContract {
+Self{residual_filter_expr,residual_filter_predicate,effective_runtime_filter_program} => [residual_filter_expr,residual_filter_predicate,effective_runtime_filter_program],
+});
+crate::retained::retained_fields!(ResolvedOrder {
+Self{fields} => [fields],
+});
+crate::retained::retained_fields!(ResolvedOrderField {
+Self{source,direction} => [source,direction],
+});
+crate::retained::retained_fields!(ResolvedOrderValueSource {
+Self::DirectField(field_0) => [field_0],
+Self::Expression(field_0) => [field_0],
+});
+crate::retained::retained_fields!(StaticExecutionPlanningContract {
+Self{primary_key_names,projection_spec,execution_preparation_predicate,execution_preparation_compiled_predicate,residual_filter_contract,predicate_pushdown_diagnostics,scalar_projection_plan,grouped_aggregate_execution_specs,grouped_distinct_execution_strategy,projection_direct_slots,projection_data_row_direct_slots,projection_referenced_slots,projection_is_model_identity,resolved_order,order_referenced_slots,slot_map,index_compile_targets} => [primary_key_names,projection_spec,execution_preparation_predicate,execution_preparation_compiled_predicate,residual_filter_contract,predicate_pushdown_diagnostics,scalar_projection_plan,grouped_aggregate_execution_specs,grouped_distinct_execution_strategy,projection_direct_slots,projection_data_row_direct_slots,projection_referenced_slots,projection_is_model_identity,resolved_order,order_referenced_slots,slot_map,index_compile_targets],
+});

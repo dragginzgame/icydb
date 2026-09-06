@@ -701,3 +701,31 @@ mod tests {
         assert!(contract.has_expression_key_items());
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(AccessPath<K> {
+Self::ByKey(field_0) => [field_0],
+Self::ByKeys(field_0) => [field_0],
+Self::KeyRange{start,end} => [start,end],
+Self::IndexPrefix{index,values} => [index,values],
+Self::IndexMultiLookup{index,values} => [index,values],
+Self::IndexBranchSet{spec} => [spec],
+Self::IndexRange{spec} => [spec],
+Self::FullScan => [],
+});
+crate::retained::retained_fields!(IndexBranchSetSpec {
+Self{index,fixed_values,branch_values} => [index,fixed_values,branch_values],
+});
+crate::retained::retained_fields!(SemanticIndexAccessContract {
+Self{inner} => [inner],
+});
+crate::retained::retained_fields!(SemanticIndexAccessContractInner {
+Self{ordinal,physical_generation,name,store_path,key_items,unique,predicate_semantics} => [ordinal,physical_generation,name,store_path,key_items,unique,predicate_semantics],
+});
+crate::retained::retained_fields!(SemanticIndexKeyItem {
+Self::Field(field_0) => [field_0],
+Self::Expression(field_0) => [field_0],
+});
+crate::retained::retained_fields!(SemanticIndexRangeSpec {
+Self{index,field_slots,prefix_values,lower,upper} => [index,field_slots,prefix_values,lower,upper],
+});

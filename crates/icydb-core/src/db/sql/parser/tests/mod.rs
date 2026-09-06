@@ -217,7 +217,10 @@ fn sql_expr_from_compare(compare: ComparePredicate) -> SqlExpr {
 
             SqlExpr::Membership {
                 expr: Box::new(SqlExpr::Field(compare.field().to_string())),
-                values,
+                values: values
+                    .into_iter()
+                    .map(crate::db::sql::parser::SqlMembershipValue::Literal)
+                    .collect(),
                 negated: compare.op() == CompareOp::NotIn,
             }
         }

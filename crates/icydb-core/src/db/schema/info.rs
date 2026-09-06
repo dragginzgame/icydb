@@ -1000,6 +1000,34 @@ mod tests {
 
     use super::SchemaInfo;
 
+    #[test]
+    fn binding_preflight_query_operand_is_not_a_stored_field_value() {
+        use crate::{db::schema::enum_catalog::ValueAdmissionBudget, value::InputValue};
+        let schema = newtype_query_schema();
+        let input = Value::Int64(-1);
+        let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+            "id",
+            CompareOp::Gte,
+            input,
+            CoercionId::NumericWiden,
+        ));
+        let normalized = normalize_enum_literals(&schema, &predicate)
+            .expect("query normalization admits the comparison operand");
+        validate_predicate(&schema, &normalized)
+            .expect("a negative comparison boundary is valid for a Nat64 field");
+        assert_eq!(normalized, predicate);
+        assert!(
+            schema
+                .accepted_field_contract("id")
+                .expect("accepted Nat64 field")
+                .normalize_input_to_runtime(
+                    InputValue::int64(-1),
+                    &mut ValueAdmissionBudget::standard()
+                )
+                .is_err()
+        );
+    }
+
     fn newtype_query_schema() -> SchemaInfo {
         let enums = empty_accepted_enum_catalog_for_tests();
         let (composites, record_type, name_type, _) =
@@ -1260,3 +1288,27 @@ mod tests {
             .expect("normalized collection newtype predicate should validate");
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(SchemaExpressionIndexInfo {
+Self{ordinal,physical_generation,name,store,unique,unique_constraint,key_items,predicate_sql,value_catalog} => [ordinal,physical_generation,name,store,unique,unique_constraint,key_items,predicate_sql,value_catalog],
+});
+crate::retained::retained_fields!(SchemaExpressionIndexKeyItemInfo {
+Self::FieldPath(field_0) => [field_0],
+Self::Expression(field_0) => [field_0],
+});
+crate::retained::retained_fields!(SchemaFieldInfo {
+Self{slot,ty,nullable,leaf_codec,# [cfg (feature = "sql")] sql_capabilities,query_kind,accepted_value_contract,indexed,nested_leaves} => [slot,ty,nullable,leaf_codec,# [cfg (feature = "sql")] sql_capabilities,query_kind,accepted_value_contract,indexed,nested_leaves],
+});
+crate::retained::retained_fields!(SchemaIndexExpressionInfo {
+Self{op,source,canonical_text} => [op,source,canonical_text],
+});
+crate::retained::retained_fields!(SchemaIndexFieldPathInfo {
+Self{field_name,slot,path,persisted_kind,accepted_value_contract,nullable} => [field_name,slot,path,persisted_kind,accepted_value_contract,nullable],
+});
+crate::retained::retained_fields!(SchemaIndexInfo {
+Self{ordinal,physical_generation,name,store,unique,unique_constraint,fields,predicate_sql,value_catalog} => [ordinal,physical_generation,name,store,unique,unique_constraint,fields,predicate_sql,value_catalog],
+});
+crate::retained::retained_fields!(SchemaInfo {
+Self{fields,indexes,expression_indexes,value_catalog,entity_name,primary_key_names} => [fields,indexes,expression_indexes,value_catalog,entity_name,primary_key_names],
+});

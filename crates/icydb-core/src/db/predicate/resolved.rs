@@ -140,3 +140,27 @@ pub(in crate::db) enum ExecutablePredicate {
         value: Value,
     },
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(ExecutableCompareOperand {
+Self::FieldSlot(field_0) => [field_0],
+Self::Literal(field_0) => [field_0],
+});
+crate::retained::retained_fields!(ExecutableComparePredicate {
+Self{left,op,right,coercion} => [left,op,right,coercion],
+});
+crate::retained::retained_fields!(ExecutablePredicate {
+Self::True => [],
+Self::False => [],
+Self::And(field_0) => [field_0],
+Self::Or(field_0) => [field_0],
+Self::Not(field_0) => [field_0],
+Self::Compare(field_0) => [field_0],
+Self::IsNull{field_slot} => [field_slot],
+Self::IsNotNull{field_slot} => [field_slot],
+Self::IsMissing{field_slot} => [field_slot],
+Self::IsEmpty{field_slot} => [field_slot],
+Self::IsNotEmpty{field_slot} => [field_slot],
+Self::TextContains{field_slot,value} => [field_slot,value],
+Self::TextContainsCi{field_slot,value} => [field_slot,value],
+});

@@ -597,3 +597,16 @@ pub(in crate::db) fn grouped_top_k_order_term_requires_heap(expr: &Expr) -> bool
     let analysis = GroupedOrderExprAnalysis::from_expr(expr, None, None);
     analysis.flags.contains_aggregate() || analysis.flags.contains_case()
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(ProjectionField {
+Self::Scalar{expr,alias} => [expr,alias],
+});
+crate::retained::retained_fields!(ProjectionSelection {
+Self::All => [],
+Self::Fields(field_0) => [field_0],
+Self::Exprs(field_0) => [field_0],
+});
+crate::retained::retained_fields!(ProjectionSpec {
+Self{fields} => [fields],
+});

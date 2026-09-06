@@ -41,12 +41,11 @@ pub enum SqlStatementShellSurface {
     Update,
 }
 
-/// Parsed SQL dispatch facts used by generated query endpoint glue.
+/// Immutable application-owned parsed SQL, reusable across executions.
 ///
 /// The artifact binds its syntax tree to the exact borrowed input used by the
 /// compiled-command cache. Downstream consumers cannot pair one statement
 /// with another statement's cache text.
-#[doc(hidden)]
 pub struct SqlStatementDispatch<'sql> {
     sql: &'sql str,
     statement: SqlStatement,
@@ -101,8 +100,10 @@ pub fn sql_statement_shell_surface(sql: &str) -> Result<SqlStatementShellSurface
     Ok(sql_statement_shell_surface_from_statement(&statement))
 }
 
-/// Return generated query-endpoint routing facts for one reduced SQL statement.
-#[doc(hidden)]
+/// Parse one SQL statement for repeated trusted execution with typed operands.
+///
+/// The result borrows its source text, but owns no session, accepted authority,
+/// or execution operands. Retaining it avoids parsing again on each invocation.
 pub fn sql_statement_dispatch(sql: &str) -> Result<SqlStatementDispatch<'_>, QueryError> {
     let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
 

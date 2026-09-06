@@ -713,3 +713,35 @@ mod tests {
         assert_eq!(path.dotted_label(), "profile.location.country");
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(Alias {
+Self(field_0) => [field_0],
+});
+crate::retained::retained_copy!(BinaryOp);
+crate::retained::retained_fields!(CaseWhenArm {
+Self{condition,result} => [condition,result],
+});
+crate::retained::retained_fields!(Expr {
+Self::Field(field_0) => [field_0],
+Self::FieldPath(field_0) => [field_0],
+Self::Literal(field_0) => [field_0],
+Self::FunctionCall{function,args} => [function,args],
+Self::Unary{op,expr} => [op,expr],
+Self::Binary{op,left,right} => [op,left,right],
+Self::Case{when_then_arms,else_expr} => [when_then_arms,else_expr],
+Self::Aggregate(field_0) => [field_0],
+# [cfg (test)]
+Self::Alias{expr,name} => [expr,name],
+});
+crate::retained::retained_fields!(FieldId {
+Self(field_0) => [field_0],
+});
+crate::retained::retained_fields!(FieldPath {
+Self{path} => [path],
+});
+crate::retained::retained_copy!(Function);
+crate::retained::retained_fields!(PathSpec {
+Self{root,path} => [root,path],
+});
+crate::retained::retained_copy!(UnaryOp);

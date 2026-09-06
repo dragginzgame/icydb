@@ -440,3 +440,11 @@ mod tests {
         );
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(AggregateSeekSpec);
+crate::retained::retained_copy!(GroupedExecutionMode);
+crate::retained::retained_copy!(IndexRangeLimitSpec);
+crate::retained::retained_copy!(RouteExecutionMode);
+crate::retained::retained_copy!(ScanHintPlan);
+crate::retained::retained_copy!(TopNSeekSpec);

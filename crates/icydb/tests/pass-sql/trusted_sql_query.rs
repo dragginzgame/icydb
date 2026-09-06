@@ -1,4 +1,35 @@
-use icydb::{db::DbSession, traits::CanisterKind};
+use icydb::{
+    Error,
+    db::{DbSession, SqlStatementDispatch, sql::SqlQueryResult, sql_statement_dispatch},
+    traits::CanisterKind,
+    types::Ulid,
+    value::InputValue,
+};
+
+// The application owns syntax independently of any session or binding values.
+fn application_owned_query() -> Result<SqlStatementDispatch<'static>, Error> {
+    Ok(sql_statement_dispatch(
+        "SELECT id FROM Transfers WHERE id = ? AND amount >= ?",
+    )?)
+}
+
+#[allow(dead_code)]
+fn execute_application_query<C: CanisterKind>(
+    db: &DbSession<C>,
+    dispatch: &SqlStatementDispatch<'_>,
+    id: Ulid,
+    minimum_amount: u64,
+) -> Result<SqlQueryResult, Error> {
+    // The caller authorizes its domain operation before entering this helper.
+    let bindings = [InputValue::ulid(id), InputValue::nat64(minimum_amount)];
+    db.execute_trusted_sql_query_dispatch(dispatch, &bindings)
+}
+
+#[test]
+fn application_owned_syntax_needs_no_session() {
+    let dispatch = application_owned_query().expect("fixed application SQL should parse");
+    assert_eq!(dispatch.entity_name(), Some("Transfers"));
+}
 
 #[allow(dead_code)]
 fn trusted_sql_query_compiles<C>(db: &DbSession<C>, sql: &str)

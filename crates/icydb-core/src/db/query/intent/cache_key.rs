@@ -536,3 +536,48 @@ mod tests {
         );
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(AggregateCacheKey {
+Self{kind_tag,target_field,input_expr,filter_expr,distinct} => [kind_tag,target_field,input_expr,filter_expr,distinct],
+});
+crate::retained::retained_copy!(BinaryOpCacheKey);
+crate::retained::retained_fields!(CaseWhenArmCacheKey {
+Self{condition,result} => [condition,result],
+});
+crate::retained::retained_copy!(ConsistencyCacheKey);
+crate::retained::retained_copy!(DiagnosticCacheKey);
+crate::retained::retained_fields!(GroupingCacheKey {
+Self{group_fields,aggregates,having_expr,max_groups,max_group_bytes} => [group_fields,aggregates,having_expr,max_groups,max_group_bytes],
+});
+crate::retained::retained_copy!(OrderDirectionCacheKey);
+crate::retained::retained_fields!(OrderFieldCacheKey {
+Self{field,direction} => [field,direction],
+});
+crate::retained::retained_fields!(ProjectionCacheKey {
+Self::All => [],
+Self::Fields(field_0) => [field_0],
+Self::Exprs(field_0) => [field_0],
+});
+crate::retained::retained_fields!(ProjectionExprCacheKey {
+Self::Field(field_0) => [field_0],
+Self::FieldPath{root,segments} => [root,segments],
+Self::Literal(field_0) => [field_0],
+Self::FunctionCall{function,args} => [function,args],
+Self::Unary{op,expr} => [op,expr],
+Self::Case{when_then_arms,else_expr} => [when_then_arms,else_expr],
+Self::Binary{op,left,right} => [op,left,right],
+Self::Aggregate(field_0) => [field_0],
+});
+crate::retained::retained_fields!(QueryModeCacheKey {
+Self::Load{limit,offset} => [limit,offset],
+Self::Delete{limit,offset} => [limit,offset],
+});
+crate::retained::retained_fields!(StructuralQueryCacheKey {
+Self{mode,predicate,parameter_contract,filter_expr,order,distinct,projection,grouping,consistency} => [mode,predicate,parameter_contract,filter_expr,order,distinct,projection,grouping,consistency],
+});
+crate::retained::retained_copy!(UnaryOpCacheKey);
+crate::retained::retained_fields!(ValueCacheKey {
+Self::Canonical(field_0) => [field_0],
+Self::HashError(field_0) => [field_0],
+});

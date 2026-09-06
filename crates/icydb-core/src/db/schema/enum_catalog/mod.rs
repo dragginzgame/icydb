@@ -1041,3 +1041,31 @@ fn accepted_kind_composites_are_resolved(
         | AcceptedFieldKind::U256 => true,
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(AcceptedEnumCatalog {
+Self{by_id,id_by_path} => [by_id,id_by_path],
+});
+crate::retained::retained_fields!(AcceptedEnumType {
+Self{path,variants_by_id,variant_id_by_name,ordering} => [path,variants_by_id,variant_id_by_name,ordering],
+});
+crate::retained::retained_fields!(AcceptedEnumVariant {
+Self{name,body} => [name,body],
+});
+crate::retained::retained_fields!(AcceptedEnumVariantBody {
+Self::Unit => [],
+Self::Payload{contract} => [contract],
+});
+crate::retained::retained_fields!(AcceptedSchemaAuthority {
+Self{store_scope,revision,fingerprint} => [store_scope,revision,fingerprint],
+});
+crate::retained::retained_fields!(AcceptedStoreCatalogScope {
+Self(field_0) => [field_0],
+});
+crate::retained::retained_fields!(AcceptedValueCatalogHandle {
+Self{enum_catalog,composite_catalog,authority} => [enum_catalog,composite_catalog,authority],
+});
+crate::retained::retained_fields!(AcceptedValueContract {
+Self{kind,storage_decode} => [kind,storage_decode],
+});
+crate::retained::retained_copy!(EnumOrderingPolicy);

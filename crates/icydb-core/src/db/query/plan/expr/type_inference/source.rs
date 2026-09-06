@@ -64,16 +64,7 @@ pub(super) const fn infer_literal_type(value: &Value) -> ExprType {
         Value::Float32(_) | Value::Float64(_) => ExprType::Numeric(NumericSubtype::Float),
         Value::Decimal(_) => ExprType::Numeric(NumericSubtype::Decimal),
         Value::List(_) | Value::Map(_) => ExprType::Collection,
-        Value::Null => {
-            #[cfg(test)]
-            {
-                ExprType::Null
-            }
-            #[cfg(not(test))]
-            {
-                ExprType::Unknown
-            }
-        }
+        Value::Null => ExprType::Null,
         Value::U256(_) => ExprType::U256,
         Value::Account(_)
         | Value::Date(_)

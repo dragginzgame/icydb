@@ -178,3 +178,8 @@ pub const fn max() -> AggregateExpr {
 pub fn max_by(field: impl AsRef<str>) -> AggregateExpr {
     AggregateExpr::field_target(AggregateKind::Max, field.as_ref().to_string())
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(AggregateExpr {
+Self{shape} => [shape],
+});

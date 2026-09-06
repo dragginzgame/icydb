@@ -27,6 +27,7 @@ use crate::{
 use std::thread::LocalKey;
 
 pub(in crate::db) use accepted_schema::AcceptedSchemaCatalogContext;
+pub(in crate::db) use bounded_cache::CacheEntryWeight;
 #[cfg(feature = "sql")]
 pub(in crate::db) use query::QueryPlanCacheReuse;
 #[doc(hidden)]

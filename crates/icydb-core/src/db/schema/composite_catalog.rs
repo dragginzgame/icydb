@@ -449,3 +449,24 @@ fn unique_values<T: Ord>(values: impl Iterator<Item = T>) -> bool {
     let mut seen = BTreeSet::new();
     values.into_iter().all(|value| seen.insert(value))
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(AcceptedCompositeCatalog {
+Self{by_id,id_by_path} => [by_id,id_by_path],
+});
+crate::retained::retained_fields!(AcceptedCompositeElement {
+Self{kind,nullable} => [kind,nullable],
+});
+crate::retained::retained_fields!(AcceptedCompositeField {
+Self{id,name,contract} => [id,name,contract],
+});
+crate::retained::retained_fields!(AcceptedCompositeShape {
+Self::Record(field_0) => [field_0],
+Self::Tuple(field_0) => [field_0],
+Self::Newtype(field_0) => [field_0],
+});
+crate::retained::retained_fields!(AcceptedCompositeType {
+Self{path,codec,shape} => [path,codec,shape],
+});
+crate::retained::retained_copy!(CompositeFieldId);
+crate::retained::retained_copy!(CompositeTypeId);

@@ -823,3 +823,47 @@ pub(in crate::db) enum LogicalPlan {
     Scalar(ScalarPlan),
     Grouped(GroupPlan),
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(AggregateKind);
+crate::retained::retained_copy!(ContinuationPolicy);
+crate::retained::retained_copy!(DeleteLimitSpec);
+crate::retained::retained_copy!(ExecutionShapeSignature);
+crate::retained::retained_fields!(FieldSlot {
+Self{index,field,authority} => [index,field,authority],
+});
+crate::retained::retained_fields!(FieldSlotAuthority {
+Self::Unresolved => [],
+Self::Accepted(field_0) => [field_0],
+});
+crate::retained::retained_fields!(GroupAggregateSpec {
+Self{shape} => [shape],
+});
+crate::retained::retained_fields!(GroupPlan {
+Self{scalar,group,having_expr} => [scalar,group,having_expr],
+});
+crate::retained::retained_fields!(GroupSpec {
+Self{group_fields,aggregates,execution} => [group_fields,aggregates,execution],
+});
+crate::retained::retained_copy!(GroupedExecutionConfig);
+crate::retained::retained_fields!(LogicalPlan {
+Self::Scalar(field_0) => [field_0],
+Self::Grouped(field_0) => [field_0],
+});
+crate::retained::retained_copy!(OrderDirection);
+crate::retained::retained_fields!(OrderSpec {
+Self{fields} => [fields],
+});
+crate::retained::retained_fields!(OrderTerm {
+Self{expr,direction} => [expr,direction],
+});
+crate::retained::retained_fields!(PageSpec {
+Self{limit,offset} => [limit,offset],
+});
+crate::retained::retained_fields!(PlannerRouteProfile {
+Self{continuation_policy,logical_pushdown_eligibility,secondary_order_contract} => [continuation_policy,logical_pushdown_eligibility,secondary_order_contract],
+});
+crate::retained::retained_copy!(QueryMode);
+crate::retained::retained_fields!(ScalarPlan {
+Self{mode,filter_expr,predicate_covers_filter_expr,predicate,order,distinct,delete_limit,page,consistency} => [mode,filter_expr,predicate_covers_filter_expr,predicate,order,distinct,delete_limit,page,consistency],
+});

@@ -2309,3 +2309,28 @@ impl SchemaFieldWritePolicy {
 
 #[cfg(test)]
 mod tests;
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(PersistedIndexExpressionOp);
+crate::retained::retained_fields!(PersistedNestedLeafSnapshot {
+Self{path,kind,nullable} => [path,kind,nullable],
+});
+crate::retained::retained_fields!(PersistedRelationPathStepSnapshot {
+Self::EnterNamed => [],
+Self::OptionalSome => [],
+Self::RecordMember{composite_type_id,member_id} => [composite_type_id,member_id],
+Self::EnumVariantPayload{enum_type_id,variant_id} => [enum_type_id,variant_id],
+Self::ListItems => [],
+Self::SetItems => [],
+Self::MapValues => [],
+});
+crate::retained::retained_copy!(SchemaFieldWritePolicy);
+crate::retained::retained_fields!(SchemaHistoricalFill {
+Self::Reject => [],
+Self::Null => [],
+Self::SlotPayload(field_0) => [field_0],
+});
+crate::retained::retained_fields!(SchemaInsertDefault {
+Self::None => [],
+Self::SlotPayload(field_0) => [field_0],
+});

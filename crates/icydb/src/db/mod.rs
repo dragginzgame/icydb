@@ -112,10 +112,12 @@ pub use icydb_core::db::{
     CompositePrimaryKeyValueError, Predicate, PrimaryKeyComponent, PrimaryKeyValue,
 };
 #[cfg(feature = "sql")]
+pub use icydb_core::db::{SqlStatementDispatch, sql_statement_dispatch};
+#[cfg(feature = "sql")]
 #[doc(hidden)]
 pub use icydb_core::db::{
-    SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
-    sql_statement_shell_surface, sql_statement_surface,
+    SqlStatementShellSurface, SqlStatementSurface, sql_statement_shell_surface,
+    sql_statement_surface,
 };
 #[doc(hidden)]
 pub use session::generated::execute_generated_storage_report;

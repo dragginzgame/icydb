@@ -303,3 +303,12 @@ impl OrderReadableRow for RetainedSlotRow {
         true
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(RetainedSlotLayout {
+Self{data} => [data],
+});
+crate::retained::retained_fields!(RetainedSlotLayoutData {
+Self{required_slots,value_modes,has_value_mode_overrides,slot_to_value_index} => [required_slots,value_modes,has_value_mode_overrides,slot_to_value_index],
+});
+crate::retained::retained_copy!(RetainedSlotValueMode);

@@ -1118,3 +1118,12 @@ mod tests {
         }
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(FieldType {
+Self::Scalar(field_0) => [field_0],
+Self::List(field_0) => [field_0],
+Self::Set(field_0) => [field_0],
+Self::Map{key,value} => [key,value],
+Self::Composite => [],
+});

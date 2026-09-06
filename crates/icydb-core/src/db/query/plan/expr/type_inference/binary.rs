@@ -22,8 +22,33 @@ pub(super) fn infer_binary_expr_type(
     let left_ty = infer_expr_type(left, schema)?;
     let right_ty = infer_expr_type(right, schema)?;
 
+    // Comparisons with a known null have a boolean (possibly UNKNOWN)
+    // result. Still infer both children first so null cannot hide bad operands
+    // or missing fields. This is shared expression typing, not a SQL cast.
+    if matches!(
+        op,
+        BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte
+    ) && (matches!(left_ty, ExprType::Null) || matches!(right_ty, ExprType::Null))
+    {
+        return Ok(ExprType::Bool);
+    }
+
     match op {
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+            // NULL propagates only after both subtrees and the other operand's
+            // numeric family have been checked; it cannot hide a bad sibling.
+            if matches!(left_ty, ExprType::Null) || matches!(right_ty, ExprType::Null) {
+                if matches!(
+                    left_ty,
+                    ExprType::Null | ExprType::Numeric(_) | ExprType::U256
+                ) && matches!(
+                    right_ty,
+                    ExprType::Null | ExprType::Numeric(_) | ExprType::U256
+                ) {
+                    return Ok(ExprType::Null);
+                }
+                return Err(invalid_binary_operands(op, &left_ty, &right_ty));
+            }
             if matches!((&left_ty, &right_ty), (ExprType::U256, ExprType::U256)) {
                 return Ok(ExprType::U256);
             }
@@ -36,7 +61,9 @@ pub(super) fn infer_binary_expr_type(
             )))
         }
         BinaryOp::Or | BinaryOp::And => {
-            if !matches!(left_ty, ExprType::Bool) || !matches!(right_ty, ExprType::Bool) {
+            if !matches!(left_ty, ExprType::Bool | ExprType::Null)
+                || !matches!(right_ty, ExprType::Bool | ExprType::Null)
+            {
                 return Err(invalid_binary_operands(op, &left_ty, &right_ty));
             }
 
@@ -67,11 +94,6 @@ fn invalid_binary_operands(op: BinaryOp, left: &ExprType, right: &ExprType) -> P
 
 const fn binary_equality_comparable(left: &ExprType, right: &ExprType) -> bool {
     if left.is_numeric_eligible() && right.is_numeric_eligible() {
-        return true;
-    }
-
-    #[cfg(test)]
-    if matches!((left, right), (ExprType::Null, ExprType::Null)) {
         return true;
     }
 

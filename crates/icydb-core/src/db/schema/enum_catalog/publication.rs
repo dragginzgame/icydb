@@ -1145,3 +1145,7 @@ pub(in crate::db) fn accepted_schema_candidate_with_catalogs_for_tests(
     .expect("accepted schema candidate fixture should build");
     CandidateSchemaRevision::new(bundle).expect("accepted schema candidate fixture should encode")
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(AcceptedSchemaFingerprint);
+crate::retained::retained_copy!(AcceptedSchemaRevision);

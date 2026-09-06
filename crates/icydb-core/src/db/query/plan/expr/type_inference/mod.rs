@@ -38,7 +38,7 @@ pub(in crate::db) enum ExprType {
     Bool,
     Numeric(NumericSubtype),
     Text,
-    #[cfg(test)]
+    // Known SQL NULL is distinct from unresolved type information in every build.
     Null,
     Collection,
     Structured,
@@ -139,7 +139,7 @@ fn infer_expr_type_impl(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, Pl
 
             match op {
                 UnaryOp::Not => {
-                    if !matches!(inner, ExprType::Bool) {
+                    if !matches!(inner, ExprType::Bool | ExprType::Null) {
                         return Err(PlanError::from(ExprPlanError::invalid_unary_operand(
                             *op, &inner,
                         )));
@@ -208,6 +208,57 @@ mod tests {
         );
 
         SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog, true)
+    }
+
+    #[test]
+    fn null_arithmetic_validates_both_operands_before_propagating_null() {
+        let schema = u256_schema();
+        for op in [BinaryOp::Add, BinaryOp::Sub, BinaryOp::Mul, BinaryOp::Div] {
+            for value in [Value::Null, Value::Nat64(1), Value::U256(U256::MAX)] {
+                for (left, right) in [(Value::Null, value.clone()), (value, Value::Null)] {
+                    let expr = Expr::Binary {
+                        op,
+                        left: Box::new(Expr::Literal(left)),
+                        right: Box::new(Expr::Literal(right)),
+                    };
+                    assert_eq!(
+                        infer_expr_type(&expr, &schema).expect("NULL arithmetic"),
+                        ExprType::Null
+                    );
+                }
+            }
+            for other in [
+                Expr::Literal(Value::Text("invalid".into())),
+                Expr::Field(FieldId::new("missing")),
+            ] {
+                let expr = Expr::Binary {
+                    op,
+                    left: Box::new(Expr::Literal(Value::Null)),
+                    right: Box::new(other),
+                };
+                assert!(infer_expr_type(&expr, &schema).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn null_else_does_not_erase_accumulated_case_result_type() {
+        use crate::db::query::plan::expr::CaseWhenArm;
+
+        let expression = Expr::Case {
+            when_then_arms: vec![
+                CaseWhenArm::new(
+                    Expr::Literal(Value::Bool(false)),
+                    Expr::Literal(Value::Text("incompatible".into())),
+                ),
+                CaseWhenArm::new(
+                    Expr::Literal(Value::Bool(true)),
+                    Expr::Literal(Value::Nat64(1)),
+                ),
+            ],
+            else_expr: Box::new(Expr::Literal(Value::Null)),
+        };
+        assert!(infer_expr_type(&expression, &u256_schema()).is_err());
     }
 
     #[test]

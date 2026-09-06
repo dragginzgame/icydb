@@ -2,6 +2,28 @@ use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb_testing_integration::{install_fixture_canister, install_prebuilt_fixture_canister};
 use std::{env, fs};
 
+#[test]
+fn application_owned_sql_syntax_survives_queries_and_rebuilds_after_upgrade() {
+    let fixture = install_fixture_canister("one_entity_sql_query");
+    for _ in 0..3 {
+        let rows: u32 = fixture
+            .query_candid("query_one_entity_sql", ())
+            .expect("domain query reply");
+        assert_eq!(
+            rows, 0,
+            "a missing lifecycle-initialized dispatch returns the failure sentinel"
+        );
+    }
+    icydb_testing_integration::upgrade_fixture_canister(&fixture, "one_entity_sql_query");
+    icydb_testing_integration::deliver_fixture_startup_watchdog(&fixture);
+    for _ in 0..3 {
+        let rows: u32 = fixture
+            .query_candid("query_one_entity_sql", ())
+            .expect("post-upgrade domain query reply");
+        assert_eq!(rows, 0);
+    }
+}
+
 fn audited_typed_query_row_count(
     fixture: &StandaloneCanisterFixture,
     method: &str,

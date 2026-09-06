@@ -99,3 +99,8 @@ pub(in crate::db) enum FieldWriteManagement {
     /// Fill on insert and refresh on every update.
     UpdatedAt,
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(CompositeCodec);
+crate::retained::retained_copy!(FieldStorageDecode);
+crate::retained::retained_copy!(LeafCodec);

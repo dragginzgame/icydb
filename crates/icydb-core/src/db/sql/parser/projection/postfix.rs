@@ -1,7 +1,8 @@
 use crate::{
     db::{
         sql::parser::{
-            Parser, SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, projection::SqlExprParseSurface,
+            Parser, SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlMembershipValue,
+            projection::SqlExprParseSurface,
         },
         sql_shared::{Keyword, SqlExpectedToken, SqlParseError, SqlSyntaxErrorKind, TokenKind},
     },
@@ -150,7 +151,13 @@ impl Parser {
         self.expect_lparen()?;
         let mut values = Vec::with_capacity(self.cursor.comma_separated_capacity_until_rparen());
         loop {
-            values.push(self.parse_literal()?);
+            values.push(if self.eat_question() {
+                SqlMembershipValue::Param {
+                    index: self.take_param_index(),
+                }
+            } else {
+                SqlMembershipValue::Literal(self.parse_literal()?)
+            });
             if !self.eat_comma() {
                 break;
             }

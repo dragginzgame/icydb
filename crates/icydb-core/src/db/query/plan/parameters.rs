@@ -268,3 +268,18 @@ mod tests {
         assert!(too_many_bytes.is_none());
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(ParameterCoercion {
+Self{id,params} => [id,params],
+});
+crate::retained::retained_copy!(ParameterOperator);
+crate::retained::retained_fields!(ParameterPredicate {
+Self::And(field_0) => [field_0],
+Self::Or(field_0) => [field_0],
+Self::Compare{field,operator,coercion,slot} => [field,operator,coercion,slot],
+});
+crate::retained::retained_copy!(ParameterSlot);
+crate::retained::retained_fields!(PreparedQueryParameterContract {
+Self{predicate} => [predicate],
+});

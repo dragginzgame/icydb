@@ -165,16 +165,7 @@ fn validate_byte_length_function_args(
 ) -> Result<(), PlanError> {
     validate_exact_function_arg_count(function, args.len(), 1)?;
 
-    let input_compatible = matches!(args[0], ExprType::Text | ExprType::Blob) || {
-        #[cfg(test)]
-        {
-            matches!(args[0], ExprType::Null)
-        }
-        #[cfg(not(test))]
-        {
-            false
-        }
-    };
+    let input_compatible = matches!(args[0], ExprType::Text | ExprType::Blob | ExprType::Null);
 
     if !input_compatible {
         return Err(invalid_function_argument(function, 0, &args[0]));
@@ -190,16 +181,7 @@ const fn expr_type_accepts_required_family(
     (match family {
         FunctionArgumentFamily::Numeric => matches!(expr_type, ExprType::Numeric(_)),
         FunctionArgumentFamily::Text => matches!(expr_type, ExprType::Text),
-    }) || {
-        #[cfg(test)]
-        {
-            matches!(expr_type, ExprType::Null)
-        }
-        #[cfg(not(test))]
-        {
-            false
-        }
-    }
+    }) || matches!(expr_type, ExprType::Null)
 }
 
 fn validate_function_arg_families(
@@ -232,20 +214,14 @@ fn validate_numeric_scale_function_args(
         )));
     }
 
-    if !matches!(args[0], ExprType::Numeric(_)) {
+    if !matches!(args[0], ExprType::Numeric(_) | ExprType::Null) {
         return Err(invalid_function_argument(function, 0, &args[0]));
     }
 
-    let scale_compatible = matches!(args[1], ExprType::Numeric(NumericSubtype::Integer)) || {
-        #[cfg(test)]
-        {
-            matches!(args[1], ExprType::Null)
-        }
-        #[cfg(not(test))]
-        {
-            false
-        }
-    };
+    let scale_compatible = matches!(
+        args[1],
+        ExprType::Numeric(NumericSubtype::Integer) | ExprType::Null
+    );
 
     if !scale_compatible {
         return Err(invalid_function_argument(function, 1, &args[1]));
@@ -268,7 +244,6 @@ fn infer_coalesce_function_type(
 
     let mut common = None;
     for (index, arg) in args.iter().enumerate() {
-        #[cfg(test)]
         if matches!(arg, ExprType::Null) {
             continue;
         }
@@ -290,7 +265,8 @@ fn infer_coalesce_function_type(
         });
     }
 
-    Ok(common.map_or(ExprType::Unknown, |(_, expr_type)| expr_type))
+    // Only an all-NULL input vector leaves no common type; it is not unresolved.
+    Ok(common.map_or(ExprType::Null, |(_, expr_type)| expr_type))
 }
 
 fn infer_nullif_function_type(
@@ -305,7 +281,6 @@ fn infer_nullif_function_type(
         )));
     }
 
-    #[cfg(test)]
     if matches!(args[0], ExprType::Null) || matches!(args[1], ExprType::Null) {
         return Ok(args[0].clone());
     }
@@ -335,6 +310,58 @@ fn invalid_function_argument(
 mod tests {
     use super::ExprType;
     use crate::db::query::plan::expr::Function;
+
+    #[test]
+    fn null_function_arguments_preserve_unknown_and_sibling_rejection() {
+        for function in [Function::Lower, Function::Abs, Function::OctetLength] {
+            let shape = function.type_inference_shape();
+            assert!(
+                shape
+                    .infer_function_result_type(function, &[ExprType::Null])
+                    .is_ok()
+            );
+            assert!(
+                shape
+                    .infer_function_result_type(function, &[ExprType::Unknown])
+                    .is_err()
+            );
+        }
+        let round = Function::Round.type_inference_shape();
+        let integer = ExprType::Numeric(super::NumericSubtype::Integer);
+        assert!(
+            round
+                .infer_function_result_type(Function::Round, &[ExprType::Null, integer])
+                .is_ok()
+        );
+        assert!(
+            round
+                .infer_function_result_type(Function::Round, &[ExprType::Null, ExprType::Text])
+                .is_err()
+        );
+        assert!(
+            Function::Substring
+                .type_inference_shape()
+                .infer_function_result_type(Function::Substring, &[ExprType::Null, ExprType::Text],)
+                .is_err()
+        );
+        assert_eq!(
+            Function::Coalesce
+                .type_inference_shape()
+                .infer_function_result_type(Function::Coalesce, &[ExprType::Null, ExprType::Null],)
+                .expect("all-NULL coalesce"),
+            ExprType::Null
+        );
+        assert_eq!(
+            Function::Coalesce
+                .type_inference_shape()
+                .infer_function_result_type(
+                    Function::Coalesce,
+                    &[ExprType::Unknown, ExprType::Null],
+                )
+                .expect("unresolved input stays unresolved"),
+            ExprType::Unknown
+        );
+    }
 
     #[test]
     fn mod_admits_only_exact_u256_operands() {

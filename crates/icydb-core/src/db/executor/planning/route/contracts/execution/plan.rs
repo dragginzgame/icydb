@@ -317,3 +317,12 @@ impl ExecutionRoutePlan {
         self.top_n_seek_spec
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(ExecutionRoutePlan {
+Self{direction,continuation,execution_mode,desc_physical_reverse_supported,secondary_pushdown_applicability,index_range_limit_spec,capability_facts,fast_path_order,top_n_seek_spec,scan_hints,grouped_execution_mode,# [cfg (feature = "sql")] explain} => [direction,continuation,execution_mode,desc_physical_reverse_supported,secondary_pushdown_applicability,index_range_limit_spec,capability_facts,fast_path_order,top_n_seek_spec,scan_hints,grouped_execution_mode,# [cfg (feature = "sql")] explain],
+});
+#[cfg(feature = "sql")]
+crate::retained::retained_fields!(RouteExplainFacts {
+Self{route_shape_kind,aggregate_seek_spec,aggregate_fold_mode,grouped_plan_strategy,load_terminal_fast_path} => [route_shape_kind,aggregate_seek_spec,aggregate_fold_mode,grouped_plan_strategy,load_terminal_fast_path],
+});

@@ -93,3 +93,7 @@ pub(in crate::db::executor) enum AggregateFoldMode {
     ExistingRows,
     KeysOnly,
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+#[cfg(feature = "sql")]
+crate::retained::retained_copy!(AggregateFoldMode);

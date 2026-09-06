@@ -982,3 +982,14 @@ fn expression_without_alias(expr: &Expr) -> &Expr {
     #[cfg(not(test))]
     expr
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(GroupedAggregateExecutionSpec {
+Self{identity,target_slot,filter_expr,compiled_input_expr,compiled_filter_expr} => [identity,target_slot,filter_expr,compiled_input_expr,compiled_filter_expr],
+});
+crate::retained::retained_fields!(GroupedDistinctExecutionStrategy {
+Self::None => [],
+Self::GlobalDistinctFieldCount{target_field,target_slot} => [target_field,target_slot],
+Self::GlobalDistinctFieldSum{target_field,target_slot} => [target_field,target_slot],
+Self::GlobalDistinctFieldAvg{target_field,target_slot} => [target_field,target_slot],
+});

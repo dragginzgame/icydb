@@ -500,3 +500,16 @@ mod tests {
         );
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(GroupField {
+Self::Direct(field_0) => [field_0],
+Self::ScalarPath(field_0) => [field_0],
+});
+crate::retained::retained_fields!(GroupFieldSet {
+Self::Direct(field_0) => [field_0],
+Self::PathAware(field_0) => [field_0],
+});
+crate::retained::retained_fields!(ScalarGroupPath {
+Self{label,path,root_slot,identity_group_canonical_form} => [label,path,root_slot,identity_group_canonical_form],
+});

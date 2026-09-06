@@ -618,3 +618,8 @@ fn decode_slot_table_sections<'bytes>(
 
     Ok((data_start, field_count, table, data_section))
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(StructuralRowContract {
+Self{entity_path,field_count,primary_key_slot,accepted_decode_contract} => [entity_path,field_count,primary_key_slot,accepted_decode_contract],
+});

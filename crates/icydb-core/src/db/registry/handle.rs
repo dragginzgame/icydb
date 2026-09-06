@@ -1173,3 +1173,6 @@ fn checked_cardinality_sum(counts: &[u64]) -> Option<u64> {
         .iter()
         .try_fold(0_u64, |total, count| total.checked_add(*count))
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(ExactPrefixCardinalityLifecycleStamp);

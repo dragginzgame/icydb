@@ -247,3 +247,8 @@ impl EntityAuthority {
         )
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(EntityAuthority {
+Self{entity_path,row_layout,entity_tag,store_path,accepted_schema_info,accepted_schema_fingerprint,accepted_runtime_root_identity} => [entity_path,row_layout,entity_tag,store_path,accepted_schema_info,accepted_schema_fingerprint,accepted_runtime_root_identity],
+});

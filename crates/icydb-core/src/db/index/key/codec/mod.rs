@@ -272,17 +272,7 @@ impl IndexKey {
         prefix: &[C],
         sentinel: PrefixBoundSentinel,
     ) -> Result<RawIndexStoreKey, IndexKeyEncodeError> {
-        let suffix_count = index_len.saturating_sub(prefix.len());
-        let suffix_len = sentinel.component_len();
-        let primary_key_len = sentinel.primary_key_len();
-        let mut capacity = KEY_PREFIX_SIZE
-            + (suffix_count * (SEGMENT_LEN_SIZE + suffix_len))
-            + SEGMENT_LEN_SIZE
-            + primary_key_len;
-        for component in prefix {
-            capacity = capacity.saturating_add(SEGMENT_LEN_SIZE + component.as_ref().len());
-        }
-
+        let capacity = Self::raw_prefix_bound_capacity(index_len, prefix, sentinel);
         let mut bytes = Vec::with_capacity(capacity);
         bytes.push(index_key_kind_to_store_key_kind(key_kind).tag());
         bytes.extend_from_slice(&index_id.to_bytes());
@@ -293,7 +283,7 @@ impl IndexKey {
         for component in prefix {
             push_segment(&mut bytes, component.as_ref())?;
         }
-        for _ in 0..suffix_count {
+        for _ in prefix.len()..index_len {
             push_repeated_segment(
                 &mut bytes,
                 sentinel.component_len(),
@@ -305,8 +295,36 @@ impl IndexKey {
             sentinel.primary_key_len(),
             sentinel.primary_key_byte(),
         )?;
-
         Ok(RawIndexStoreKey::from_persisted_bytes(bytes))
+    }
+
+    /// Reserve deferred raw-bound capacity using the same sizing owner as encoding.
+    pub(in crate::db) fn raw_prefix_bounds_retained_capacity<C: AsRef<[u8]>>(
+        index_len: usize,
+        prefix: &[C],
+    ) -> usize {
+        Self::raw_prefix_bound_capacity(index_len, prefix, PrefixBoundSentinel::Low).saturating_add(
+            Self::raw_prefix_bound_capacity(index_len, prefix, PrefixBoundSentinel::High),
+        )
+    }
+
+    fn raw_prefix_bound_capacity<C: AsRef<[u8]>>(
+        index_len: usize,
+        prefix: &[C],
+        sentinel: PrefixBoundSentinel,
+    ) -> usize {
+        let suffix_count = index_len.saturating_sub(prefix.len());
+        let suffix_len = sentinel.component_len();
+        let primary_key_len = sentinel.primary_key_len();
+        let mut capacity = KEY_PREFIX_SIZE
+            + (suffix_count * (SEGMENT_LEN_SIZE + suffix_len))
+            + SEGMENT_LEN_SIZE
+            + primary_key_len;
+        for component in prefix {
+            capacity = capacity.saturating_add(SEGMENT_LEN_SIZE + component.as_ref().len());
+        }
+
+        capacity
     }
 
     fn raw_component_range_bound_with_kind<C: AsRef<[u8]>, B: AsRef<[u8]>>(

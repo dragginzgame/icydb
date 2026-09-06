@@ -195,7 +195,15 @@ fn sql_expr_fingerprint(expr: &SqlExpr) -> u64 {
             negated.hash(&mut hasher);
             values.len().hash(&mut hasher);
             for value in values {
-                value_fingerprint(value).hash(&mut hasher);
+                match value {
+                    crate::db::sql::parser::SqlMembershipValue::Literal(value) => {
+                        value_fingerprint(value).hash(&mut hasher);
+                    }
+                    crate::db::sql::parser::SqlMembershipValue::Param { index } => {
+                        1_u8.hash(&mut hasher);
+                        index.hash(&mut hasher);
+                    }
+                }
             }
         }
         SqlExpr::NullTest { expr, negated } => {

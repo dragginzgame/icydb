@@ -5,6 +5,13 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.254.x] - 2026-09-06 - Reusable Typed SQL
+
+Detailed notes: [docs/changelog/0.254.md](docs/changelog/0.254.md)
+
+- `0.254.0` adds reusable application-owned typed SQL and bounded shared-plan retention;
+  breaking Rust API change: parsed execution requires a bindings slice (`&[]` for literal-only calls).
+
 ## [0.253.x] 🔗 - 2026-09-04 - Nested Relations
 
 Detailed notes: [docs/changelog/0.253.md](docs/changelog/0.253.md)

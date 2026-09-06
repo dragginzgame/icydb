@@ -21,6 +21,7 @@ mod write_policy;
 use crate::{
     db::{DbSession, QueryError},
     traits::CanisterKind,
+    value::InputValue,
 };
 
 pub use crate::db::sql::ddl::{
@@ -68,7 +69,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// separately owns authorization.
     pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlStatementResult, QueryError> {
         let dispatch = sql_statement_dispatch(sql)?;
-        self.execute_trusted_sql_query_with_entity_name(&dispatch)
+        self.execute_trusted_sql_query_with_entity_name(&dispatch, &[])
             .map(|(result, _)| result)
     }
 
@@ -77,9 +78,10 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn execute_trusted_sql_query_with_entity_name(
         &self,
         dispatch: &SqlStatementDispatch<'_>,
+        bindings: &[InputValue],
     ) -> Result<(SqlStatementResult, String), QueryError> {
         let (compiled, entity_name) =
-            self.compile_sql_query_with_dispatch_execution_context(dispatch)?;
+            self.compile_sql_query_with_dispatch_execution_context(dispatch, bindings)?;
         let result = self.execute_compiled_sql_query_context_owned(compiled)?;
 
         Ok((result, entity_name))

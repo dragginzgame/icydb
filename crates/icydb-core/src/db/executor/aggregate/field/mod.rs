@@ -440,3 +440,6 @@ pub(in crate::db::executor) fn compare_orderable_field_values_with_slot(
 
     compare_orderable_field_values(left, right)
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(FieldSlot);

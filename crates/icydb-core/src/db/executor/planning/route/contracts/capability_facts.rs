@@ -56,3 +56,6 @@ impl RouteCapabilityFacts {
         self.residual_filter_present
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(RouteCapabilityFacts);

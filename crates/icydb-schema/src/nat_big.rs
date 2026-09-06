@@ -37,6 +37,12 @@ use std::{
 pub struct NatBig(WrappedNat);
 
 impl NatBig {
+    /// Return the magnitude's bit length without allocating an encoded copy.
+    #[must_use]
+    pub fn magnitude_bits(&self) -> u64 {
+        self.0.0.bits()
+    }
+
     /// Construct from the canonical Candid natural-number representation.
     #[must_use]
     pub const fn from_candid(value: WrappedNat) -> Self {

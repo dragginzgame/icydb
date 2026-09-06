@@ -28,9 +28,11 @@ use crate::{
         },
     },
     error::InternalError,
+    retained::{Retained, RetainedBytes},
 };
 use std::{
-    rc::Rc,
+    cell::RefCell,
+    rc::{Rc, Weak},
     sync::{Arc, OnceLock},
 };
 
@@ -61,6 +63,7 @@ pub enum ExecutionFamily {
 ///
 
 pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPlanResidents {
+    cache_retention: RefCell<Weak<crate::db::session::CacheEntryWeight>>,
     pub(in crate::db::executor::prepared_execution_plan) plan: Arc<AccessPlannedQuery>,
     pub(in crate::db::executor::prepared_execution_plan) execution_shape_fingerprint_prefix: u64,
     pub(in crate::db::executor::prepared_execution_plan) continuation_identity:
@@ -102,6 +105,8 @@ impl std::fmt::Debug for PreparedExecutionPlanResidents {
 impl Clone for PreparedExecutionPlanResidents {
     fn clone(&self) -> Self {
         Self {
+            // A detached resident clone is owned by execution, not the cache entry.
+            cache_retention: RefCell::new(Weak::new()),
             plan: Arc::clone(&self.plan),
             execution_shape_fingerprint_prefix: self.execution_shape_fingerprint_prefix,
             continuation_identity: self.continuation_identity,
@@ -242,6 +247,38 @@ impl PreparedScalarPlanCore {
 }
 
 impl PreparedExecutionPlanCore {
+    pub(in crate::db::executor::prepared_execution_plan) fn cache_retention_available(
+        &self,
+    ) -> bool {
+        self.residents.cache_retention.borrow().upgrade().is_none()
+    }
+
+    pub(in crate::db::executor::prepared_execution_plan) fn attach_cache_retention(
+        &self,
+        entry: &Rc<crate::db::session::CacheEntryWeight>,
+    ) {
+        *self.residents.cache_retention.borrow_mut() = Rc::downgrade(entry);
+    }
+
+    // Measure the actual clone to be retained, not its source or wire encoding.
+    // Inline OnceLock storage was already charged when the entry was admitted.
+    fn remember_lazy<T: Retained + Clone>(&self, cell: &OnceLock<T>, value: &T) {
+        retain_lazy(&self.residents.cache_retention.borrow(), cell, value);
+    }
+
+    fn initialize_lazy<T: Retained + Clone>(
+        &self,
+        cell: &OnceLock<T>,
+        build: impl FnOnce() -> T,
+    ) -> T {
+        if let Some(value) = cell.get() {
+            return value.clone();
+        }
+        let value = build();
+        self.remember_lazy(cell, &value);
+        value
+    }
+
     #[must_use]
     fn new(
         plan: Arc<AccessPlannedQuery>,
@@ -253,6 +290,7 @@ impl PreparedExecutionPlanCore {
     ) -> Self {
         Self {
             residents: Rc::new(PreparedExecutionPlanResidents {
+                cache_retention: RefCell::new(Weak::new()),
                 plan,
                 execution_shape_fingerprint_prefix,
                 continuation_identity,
@@ -296,10 +334,7 @@ impl PreparedExecutionPlanCore {
         } else {
             None
         };
-        let _ = self
-            .residents
-            .prepared_projection_contract
-            .set(prepared.clone());
+        self.remember_lazy(&self.residents.prepared_projection_contract, &prepared);
 
         Ok(prepared)
     }
@@ -308,37 +343,31 @@ impl PreparedExecutionPlanCore {
         &self,
         authority: EntityAuthority,
     ) -> Option<Rc<CoveringReadExecutionPlan>> {
-        self.residents
-            .projection_covering_read_execution_plan
-            .get_or_init(|| {
+        self.initialize_lazy(
+            &self.residents.projection_covering_read_execution_plan,
+            || {
                 let strict_predicate_compatible =
                     covering_strict_predicate_compatible_for_plan(&self.residents.plan);
 
                 authority
                     .covering_read_execution_plan(&self.residents.plan, strict_predicate_compatible)
                     .map(Rc::new)
-            })
-            .clone()
+            },
+        )
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_hybrid_covering_read_plan(
         &self,
         authority: EntityAuthority,
     ) -> Option<Rc<CoveringHybridReadExecutionPlan>> {
-        self.residents
-            .hybrid_covering_read_plan
-            .get_or_init(|| {
-                let strict_predicate_compatible =
-                    covering_strict_predicate_compatible_for_plan(&self.residents.plan);
+        self.initialize_lazy(&self.residents.hybrid_covering_read_plan, || {
+            let strict_predicate_compatible =
+                covering_strict_predicate_compatible_for_plan(&self.residents.plan);
 
-                authority
-                    .covering_hybrid_projection_plan(
-                        &self.residents.plan,
-                        strict_predicate_compatible,
-                    )
-                    .map(Rc::new)
-            })
-            .clone()
+            authority
+                .covering_hybrid_projection_plan(&self.residents.plan, strict_predicate_compatible)
+                .map(Rc::new)
+        })
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_grouped_runtime_residents(
@@ -380,10 +409,10 @@ impl PreparedExecutionPlanCore {
         } else {
             None
         };
-        let _ = self
-            .residents
-            .prepared_grouped_runtime_residents
-            .set(prepared.clone());
+        self.remember_lazy(
+            &self.residents.prepared_grouped_runtime_residents,
+            &prepared,
+        );
 
         Ok(prepared)
     }
@@ -395,15 +424,12 @@ impl PreparedExecutionPlanCore {
         // on the effective runtime predicate and slot map, but not on store
         // handles, cursor state, route retry policy, diagnostics, or
         // materialization mode.
-        self.residents
-            .scalar_execution_preparation
-            .get_or_init(|| {
-                ExecutionPreparation::from_runtime_plan(
-                    &self.residents.plan,
-                    slot_map_for_model_plan(&self.residents.plan),
-                )
-            })
-            .clone()
+        self.initialize_lazy(&self.residents.scalar_execution_preparation, || {
+            ExecutionPreparation::from_runtime_plan(
+                &self.residents.plan,
+                slot_map_for_model_plan(&self.residents.plan),
+            )
+        })
     }
 
     #[cfg(feature = "sql")]
@@ -414,15 +440,12 @@ impl PreparedExecutionPlanCore {
         // capability snapshot and strict index program. Keep that immutable
         // preparation in the existing aggregate resident rather than
         // rebuilding it in SQL or terminal execution.
-        self.residents
-            .aggregate_execution_preparation
-            .get_or_init(|| {
-                ExecutionPreparation::from_plan(
-                    &self.residents.plan,
-                    slot_map_for_model_plan(&self.residents.plan),
-                )
-            })
-            .clone()
+        self.initialize_lazy(&self.residents.aggregate_execution_preparation, || {
+            ExecutionPreparation::from_plan(
+                &self.residents.plan,
+                slot_map_for_model_plan(&self.residents.plan),
+            )
+        })
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_initial_scalar_route_plan(
@@ -443,10 +466,7 @@ impl PreparedExecutionPlanCore {
                 load_terminal_fast_path: None,
             },
         );
-        let _ = self
-            .residents
-            .initial_scalar_route_plan
-            .set(route_plan.clone());
+        self.remember_lazy(&self.residents.initial_scalar_route_plan, &route_plan);
 
         route_plan
     }
@@ -484,7 +504,7 @@ impl PreparedExecutionPlanCore {
             projection_materialization,
             cursor_emission,
         )?;
-        let _ = layout_cache.set(layout.clone());
+        self.remember_lazy(layout_cache, &layout);
 
         Ok(layout)
     }
@@ -566,6 +586,56 @@ impl PreparedExecutionPlanCore {
     }
 }
 
+// Keep the reservation boundary independent from which preparation product is
+// being built. A declined attachment leaves the caller's owned result usable.
+fn retain_lazy<T: Retained + Clone>(
+    accounting: &Weak<crate::db::session::CacheEntryWeight>,
+    cell: &OnceLock<T>,
+    value: &T,
+) {
+    if cell.get().is_some() {
+        return;
+    }
+    let retained = value.clone();
+    if let Some(entry) = accounting.upgrade() {
+        let mut bytes = RetainedBytes::new(entry.remaining());
+        if bytes.visit(&retained).is_none() || !entry.reserve(bytes.total()) {
+            return;
+        }
+    }
+    let _ = cell.set(retained);
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::retain_lazy;
+    use crate::db::session::CacheEntryWeight;
+    use std::{rc::Rc, sync::OnceLock};
+
+    #[test]
+    fn retained_lazy_attachments_reserve_once_and_leave_oversize_results_usable() {
+        let (entry, total) = CacheEntryWeight::for_tests(32, 64);
+        let handle = Rc::downgrade(&entry);
+        let accepted = OnceLock::new();
+        retain_lazy(&handle, &accepted, &vec![1_u8; 16]);
+        assert_eq!(accepted.get().map(Vec::len), Some(16));
+        assert_eq!(total.get(), 48);
+        retain_lazy(&handle, &accepted, &vec![2_u8; 32]);
+        assert_eq!(total.get(), 48);
+
+        let declined = OnceLock::new();
+        let result = vec![3_u8; 17];
+        retain_lazy(&handle, &declined, &result);
+        assert!(declined.get().is_none());
+        assert_eq!(result.len(), 17);
+        assert_eq!(total.get(), 48);
+        drop(entry);
+        assert_eq!(total.get(), 0);
+        retain_lazy(&handle, &declined, &result);
+        assert_eq!(declined.get(), Some(&result));
+    }
+}
+
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_schema_fingerprint(
     authority: EntityAuthority,
     mut plan: AccessPlannedQuery,
@@ -622,6 +692,32 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         index_range_specs,
     )
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(PreparedExecutionPlanCore {
+Self{residents} => [residents],
+});
+// The accounting handle's control block is charged by the owning cache entry.
+crate::retained::retained_fields!(PreparedExecutionPlanResidents {
+    Self {
+        cache_retention: _, plan, execution_shape_fingerprint_prefix, continuation_identity,
+        prepared_projection_contract, projection_covering_read_execution_plan,
+        hybrid_covering_read_plan, prepared_grouped_runtime_residents,
+        aggregate_execution_preparation, scalar_execution_preparation,
+        initial_scalar_route_plan, shared_validation_emit_retained_slot_layout,
+        retain_slot_rows_suppress_retained_slot_layout, none_suppress_retained_slot_layout,
+        continuation, index_prefix_specs, index_range_specs
+    } => [plan, execution_shape_fingerprint_prefix, continuation_identity,
+        prepared_projection_contract, projection_covering_read_execution_plan,
+        hybrid_covering_read_plan, prepared_grouped_runtime_residents,
+        aggregate_execution_preparation, scalar_execution_preparation,
+        initial_scalar_route_plan, shared_validation_emit_retained_slot_layout,
+        retain_slot_rows_suppress_retained_slot_layout, none_suppress_retained_slot_layout,
+        continuation, index_prefix_specs, index_range_specs],
+});
+crate::retained::retained_fields!(PreparedGroupedRuntimeResidents {
+Self{execution_preparation,grouped_slot_layout} => [execution_preparation,grouped_slot_layout],
+});
 
 // Rebuild prepared metadata from one shared logical plan plus already-lowered
 // access specs. This avoids cloning large cached plans when an aggregate path

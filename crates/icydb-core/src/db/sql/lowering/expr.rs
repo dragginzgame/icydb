@@ -11,7 +11,9 @@ use crate::{
             builder::NumericProjectionExpr,
             plan::expr::{BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, UnaryOp},
         },
-        sql::parser::{SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlScalarFunction},
+        sql::parser::{
+            SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlMembershipValue, SqlScalarFunction,
+        },
     },
     value::Value,
 };
@@ -107,7 +109,7 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
 // normalized predicate path.
 fn lower_sql_membership_expr(
     expr: &SqlExpr,
-    values: &[Value],
+    values: &[SqlMembershipValue],
     negated: bool,
     phase: SqlExprPhase,
 ) -> Result<Expr, SqlLoweringError> {
@@ -115,7 +117,20 @@ fn lower_sql_membership_expr(
         function: Function::InList,
         args: vec![
             lower_sql_expr(expr, phase)?,
-            Expr::Literal(Value::List(values.to_vec())),
+            Expr::Literal(Value::List(
+                values
+                    .iter()
+                    .map(|value| match value {
+                        SqlMembershipValue::Literal(value) => Ok(value.clone()),
+                        SqlMembershipValue::Param { index } => {
+                            Err(SqlLoweringError::unsupported_parameter_placement(
+                                Some(*index),
+                                super::SqlParameterPlacementReason::UnboundExpressionLowering,
+                            ))
+                        }
+                    })
+                    .collect::<Result<_, _>>()?,
+            )),
         ],
     };
 

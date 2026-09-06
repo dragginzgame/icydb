@@ -476,3 +476,28 @@ mod tests {
         );
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(CompareFieldsPredicate {
+Self{left_field,op,right_field,coercion} => [left_field,op,right_field,coercion],
+});
+crate::retained::retained_copy!(CompareOp);
+crate::retained::retained_fields!(ComparePredicate {
+Self{field,op,value,coercion} => [field,op,value,coercion],
+});
+crate::retained::retained_fields!(Predicate {
+Self::True => [],
+Self::False => [],
+Self::And(field_0) => [field_0],
+Self::Or(field_0) => [field_0],
+Self::Not(field_0) => [field_0],
+Self::Compare(field_0) => [field_0],
+Self::CompareFields(field_0) => [field_0],
+Self::IsNull{field} => [field],
+Self::IsNotNull{field} => [field],
+Self::IsMissing{field} => [field],
+Self::IsEmpty{field} => [field],
+Self::IsNotEmpty{field} => [field],
+Self::TextContains{field,value} => [field,value],
+Self::TextContainsCi{field,value} => [field,value],
+});

@@ -45,9 +45,9 @@ pub(crate) fn prepare_sql_statement(
     Ok(PreparedSqlStatement { statement })
 }
 
-// Reject placeholders at the prepared-input boundary until a real binding
-// contract exists. This keeps future parameter support focused on replacing
-// this owner instead of hunting for lower-level expression failures.
+// Empty-input and non-query preparation must never carry unresolved slots.
+// Bound SELECT preparation substitutes and admits operands at the adjacent
+// binding owner before ordinary lowering is allowed to simplify them.
 fn validate_prepared_statement_parameters(
     statement: &SqlStatement,
 ) -> Result<(), SqlLoweringError> {
@@ -137,7 +137,9 @@ fn first_explain_parameter_index(statement: &SqlExplainStatement) -> Option<usiz
 }
 
 // Scan projection items for placeholders in expression and aggregate inputs.
-fn first_projection_parameter_index(projection: &SqlProjection) -> Option<usize> {
+pub(in crate::db::sql::lowering) fn first_projection_parameter_index(
+    projection: &SqlProjection,
+) -> Option<usize> {
     let SqlProjection::Items(items) = projection else {
         return None;
     };
@@ -170,7 +172,9 @@ fn first_aggregate_parameter_index(aggregate: &SqlAggregateCall) -> Option<usize
 }
 
 // Scan ORDER BY expression terms for unsupported placeholders.
-fn first_order_terms_parameter_index(order_by: &[SqlOrderTerm]) -> Option<usize> {
+pub(in crate::db::sql::lowering) fn first_order_terms_parameter_index(
+    order_by: &[SqlOrderTerm],
+) -> Option<usize> {
     order_by
         .iter()
         .find_map(|term| first_expr_parameter_index(&term.field))
@@ -180,12 +184,8 @@ fn first_order_terms_parameter_index(order_by: &[SqlOrderTerm]) -> Option<usize>
 // same tree shape as aggregate and CASE validation.
 fn first_expr_parameter_index(expr: &SqlExpr) -> Option<usize> {
     let mut parameter = None;
-    expr.for_each_tree_expr(&mut |expr| {
-        if parameter.is_none()
-            && let SqlExpr::Param { index } = expr
-        {
-            parameter = Some(*index);
-        }
+    expr.for_each_parameter(&mut |index| {
+        parameter = Some(parameter.map_or(index, |current: usize| current.min(index)));
     });
 
     parameter
@@ -268,7 +268,7 @@ pub(crate) fn extract_prepared_sql_update_statement(
 }
 
 #[inline(never)]
-fn prepare_statement(
+pub(in crate::db::sql::lowering) fn prepare_statement(
     statement: &SqlStatement,
     expected_entity: &str,
 ) -> Result<SqlStatement, SqlLoweringError> {

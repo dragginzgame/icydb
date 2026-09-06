@@ -240,3 +240,19 @@ impl CardinalityTiebreakState {
         }
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(CardinalityTiebreakCandidateEvidence {
+Self{index_name,exact_prefix_entries} => [index_name,exact_prefix_entries],
+});
+crate::retained::retained_copy!(CardinalityTiebreakRoutePin);
+crate::retained::retained_fields!(CardinalityTiebreakState {
+Self::NotApplicable => [],
+Self::ExactAtSelection(field_0) => [field_0],
+Self::PinnedContinuation(field_0) => [field_0],
+Self::Unavailable{lifecycle_stamp,route_pin} => [lifecycle_stamp,route_pin],
+Self::PolicyFallback(field_0) => [field_0],
+});
+crate::retained::retained_fields!(ExactCardinalityTiebreakEvidence {
+Self{route_pin,candidates} => [route_pin,candidates],
+});

@@ -266,3 +266,14 @@ fn slot_uses_scalar_byte_length_codec(row_layout: &RowLayout, slot: usize) -> bo
             )
         })
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(PreparedDirectProjectionSlot {
+Self{source_slot,previous_projection_index} => [source_slot,previous_projection_index],
+});
+crate::retained::retained_fields!(PreparedDirectProjectionSlots {
+Self{projections,has_repeated_source} => [projections,has_repeated_source],
+});
+crate::retained::retained_fields!(PreparedProjectionContract {
+Self{projection,compiled_exprs,projection_is_model_identity,retained_slot_direct_projection_slots,retained_slot_direct_octet_length_projection_slots,data_row_direct_projection_slots} => [projection,compiled_exprs,projection_is_model_identity,retained_slot_direct_projection_slots,retained_slot_direct_octet_length_projection_slots,data_row_direct_projection_slots],
+});

@@ -36,6 +36,17 @@ pub(in crate::db) struct SharedPreparedExecutionPlan {
 }
 
 impl SharedPreparedExecutionPlan {
+    pub(in crate::db) fn cache_retention_available(&self) -> bool {
+        self.core.cache_retention_available()
+    }
+
+    pub(in crate::db) fn attach_cache_retention(
+        &self,
+        entry: &Rc<crate::db::session::CacheEntryWeight>,
+    ) {
+        self.core.attach_cache_retention(entry);
+    }
+
     pub(in crate::db) fn from_plan(
         authority: EntityAuthority,
         mut plan: AccessPlannedQuery,
@@ -179,3 +190,8 @@ impl SharedPreparedExecutionPlan {
         })
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(SharedPreparedExecutionPlan {
+Self{authority,core} => [authority,core],
+});

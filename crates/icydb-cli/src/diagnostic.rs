@@ -1024,6 +1024,9 @@ const fn sql_lowering_text(reason: SqlLoweringCode) -> &'static str {
         }
         SqlLoweringCode::WhereExpressionShape => "unsupported SQL WHERE expression shape",
         SqlLoweringCode::ParameterPlacement => "unsupported SQL parameter placement",
+        SqlLoweringCode::BindingCount => "SQL binding count does not match parameter slots",
+        SqlLoweringCode::BindingFamily => "unsupported SQL binding value family",
+        SqlLoweringCode::BindingLimit => "SQL binding input limit exceeded",
         SqlLoweringCode::SqlDdlExecutionUnsupported => {
             "SQL DDL execution is not supported in this release"
         }

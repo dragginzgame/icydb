@@ -305,3 +305,40 @@ impl AcceptedFieldKind {
         }
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(AcceptedFieldKind {
+Self::Account => [],
+Self::Blob{max_len} => [max_len],
+Self::Bool => [],
+Self::Date => [],
+Self::Decimal{scale} => [scale],
+Self::Duration => [],
+Self::Enum{type_id} => [type_id],
+Self::Float32 => [],
+Self::Float64 => [],
+Self::Int8 => [],
+Self::Int16 => [],
+Self::Int32 => [],
+Self::Int64 => [],
+Self::Int128 => [],
+Self::IntBig{max_bytes} => [max_bytes],
+Self::Principal => [],
+Self::Subaccount => [],
+Self::Text{max_len} => [max_len],
+Self::Timestamp => [],
+Self::Nat8 => [],
+Self::Nat16 => [],
+Self::Nat32 => [],
+Self::Nat64 => [],
+Self::Nat128 => [],
+Self::NatBig{max_bytes} => [max_bytes],
+Self::U256 => [],
+Self::Ulid => [],
+Self::Unit => [],
+Self::Relation{target_path,target_entity_name,target_entity_tag,target_store_path,key_kind} => [target_path,target_entity_name,target_entity_tag,target_store_path,key_kind],
+Self::List(field_0) => [field_0],
+Self::Set(field_0) => [field_0],
+Self::Map{key,value} => [key,value],
+Self::Composite{type_id} => [type_id],
+});

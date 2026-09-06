@@ -312,3 +312,8 @@ fn index_compile_targets_for_model_plan(
     plan.index_compile_targets()
         .map(<[IndexCompileTarget]>::to_vec)
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(ExecutionPreparation {
+Self{compiled_predicate,effective_runtime_filter_program,compile_targets,conservative_mode,predicate_capability_profile,slot_map,strict_mode} => [compiled_predicate,effective_runtime_filter_program,compile_targets,conservative_mode,predicate_capability_profile,slot_map,strict_mode],
+});

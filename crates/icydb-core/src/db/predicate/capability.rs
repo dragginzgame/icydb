@@ -586,3 +586,7 @@ mod tests {
         );
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(IndexCompileTarget);
+crate::retained::retained_copy!(PredicateCapabilityProfile);

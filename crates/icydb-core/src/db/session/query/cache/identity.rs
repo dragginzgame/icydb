@@ -19,11 +19,6 @@ use crate::db::{
 };
 use std::rc::Rc;
 
-// Charge one conservative shell allowance for a structural cache key. Query
-// topology is separately bounded by planner admission, while this fixed charge
-// keeps retained-byte accounting cheap on the miss path.
-const QUERY_PLAN_CACHE_KEY_RETAINED_BYTES_ESTIMATE: usize = 8 * 1024;
-
 ///
 /// QueryPlanVisibility
 ///
@@ -157,12 +152,6 @@ impl<'schema> QueryPlanAcceptedSchema<'schema> {
 }
 
 impl QueryPlanCacheKey {
-    pub(super) fn estimated_retained_bytes(&self) -> usize {
-        size_of::<Self>()
-            .saturating_add(self.entity_path.len())
-            .saturating_add(QUERY_PLAN_CACHE_KEY_RETAINED_BYTES_ESTIMATE)
-    }
-
     // Assemble the canonical cache-key shell once so the test and
     // normalized-predicate constructors only decide which structural query key
     // they feed into the shared session cache identity.
@@ -291,3 +280,10 @@ mod tests {
         assert_ne!(first, second);
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(QueryPlanCacheKey {
+Self{entity_path,schema_identity,visibility,structural_query} => [entity_path,schema_identity,visibility,structural_query],
+});
+crate::retained::retained_copy!(QueryPlanVisibility);
+crate::retained::retained_copy!(SchemaCacheIdentity);

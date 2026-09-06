@@ -114,3 +114,8 @@ impl AggregateShape {
         self.distinct
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(AggregateShape {
+Self{kind,input_expr,filter_expr,distinct} => [kind,input_expr,filter_expr,distinct],
+});

@@ -21,7 +21,8 @@ use crate::{
                 compile_sql_global_aggregate_command_from_prepared_with_schema,
                 extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
                 lower_prepared_sql_delete_statement,
-                lower_prepared_sql_select_statement_with_schema, prepare_sql_statement,
+                lower_prepared_sql_select_statement_with_schema, prepare_bound_sql_statement,
+                prepare_sql_statement,
             },
             parser::{
                 SqlExpr, SqlInsertSource, SqlOrderDirection, SqlOrderTerm, SqlSelectStatement,
@@ -30,6 +31,7 @@ use crate::{
         },
     },
     traits::CanisterKind,
+    value::InputValue,
 };
 use icydb_diagnostic_code::SqlLoweringCode;
 
@@ -39,11 +41,14 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_sql_statement_semantic(
         statement: &SqlStatement,
         schema: &SchemaInfo,
+        bindings: &[InputValue],
     ) -> Result<CompiledSqlCommand, QueryError> {
         let entity_name = schema.entity_name().ok_or_else(QueryError::invariant)?;
 
         match statement {
-            SqlStatement::Select(_) => Self::compile_select(statement, entity_name, schema),
+            SqlStatement::Select(_) => {
+                Self::compile_select(statement, entity_name, schema, bindings)
+            }
             SqlStatement::Delete(_) => Self::compile_delete(statement, entity_name, schema),
             SqlStatement::Insert(_) => Self::compile_insert(statement, entity_name, schema),
             SqlStatement::Update(_) => Self::compile_update(statement, entity_name),
@@ -83,8 +88,13 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         entity_name: &str,
         schema: &SchemaInfo,
+        bindings: &[InputValue],
     ) -> Result<CompiledSqlCommand, QueryError> {
-        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let prepared = if bindings.is_empty() {
+            Self::prepare_statement_for_entity_name(statement, entity_name)?
+        } else {
+            prepare_bound_sql_statement(statement, entity_name, schema, bindings)?
+        };
         let requires_aggregate_lane = prepared.statement().is_global_aggregate_lane_shape();
 
         if requires_aggregate_lane {
@@ -314,10 +324,11 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         surface: SqlCompiledCommandSurface,
         schema: &SchemaInfo,
+        bindings: &[InputValue],
     ) -> Result<CompiledSqlCommand, QueryError> {
         Self::ensure_sql_statement_supported_for_surface(statement, surface)?;
 
-        Self::compile_sql_statement_semantic(statement, schema)
+        Self::compile_sql_statement_semantic(statement, schema, bindings)
     }
 }
 

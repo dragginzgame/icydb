@@ -513,3 +513,35 @@ impl<'de> Deserialize<'de> for ValueEnum {
         Ok(Self::new(type_id, variant_id, body))
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(Value {
+Self::Account(field_0) => [field_0],
+Self::Blob(field_0) => [field_0],
+Self::Bool(field_0) => [field_0],
+Self::Date(field_0) => [field_0],
+Self::Decimal(field_0) => [field_0],
+Self::Duration(field_0) => [field_0],
+Self::Enum(field_0) => [field_0],
+Self::Float32(field_0) => [field_0],
+Self::Float64(field_0) => [field_0],
+Self::Int64(field_0) => [field_0],
+Self::Int128(field_0) => [field_0],
+Self::IntBig(field_0) => [field_0],
+Self::List(field_0) => [field_0],
+Self::Map(field_0) => [field_0],
+Self::Null => [],
+Self::Principal(field_0) => [field_0],
+Self::Subaccount(field_0) => [field_0],
+Self::Text(field_0) => [field_0],
+Self::Timestamp(field_0) => [field_0],
+Self::Nat64(field_0) => [field_0],
+Self::Nat128(field_0) => [field_0],
+Self::NatBig(field_0) => [field_0],
+Self::Ulid(field_0) => [field_0],
+Self::Unit => [],
+Self::U256(field_0) => [field_0],
+});
+crate::retained::retained_fields!(ValueEnum {
+Self(field_0) => [field_0],
+});

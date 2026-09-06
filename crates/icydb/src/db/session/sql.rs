@@ -8,6 +8,7 @@ use crate::{
     db::{session::DbSession, sql::SqlQueryResult},
     error::Error,
     traits::CanisterKind,
+    value::InputValue,
 };
 
 use icydb_core as core;
@@ -37,18 +38,29 @@ impl<C: CanisterKind> DbSession<C> {
     /// application-owned SQL allowlist before entering this trusted lane.
     pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlQueryResult, Error> {
         let dispatch = core::db::sql_statement_dispatch(sql)?;
-        self.execute_trusted_sql_query_dispatch(&dispatch)
+        self.execute_trusted_sql_query_dispatch(&dispatch, &[])
     }
 
-    /// Execute one generated query from its admitted parsed dispatch artifact.
-    #[doc(hidden)]
+    /// Execute application-owned parsed SQL with typed WHERE operands.
+    ///
+    /// Retain the dispatch to avoid reparsing between calls. This trusted lane
+    /// requires application authorization on every invocation. Bindings do not
+    /// retain authority or change the syntax. At most 64 scalar inputs with
+    /// 64 KiB total logical payload are admitted; containers and bound HAVING
+    /// are unsupported. Empty bindings preserve literal-query cache behavior.
+    ///
+    /// SQL is an optional frontend; structural queries need no parsed syntax.
+    /// Bound calls bypass the SQL concrete-command cache and repeat semantic
+    /// compilation, even for identical values. Eligible shared-plan reuse still
+    /// applies. Avoiding parsing therefore does not promise faster execution.
     pub fn execute_trusted_sql_query_dispatch(
         &self,
         dispatch: &core::db::SqlStatementDispatch<'_>,
+        bindings: &[InputValue],
     ) -> Result<SqlQueryResult, Error> {
         let (result, entity) = self
             .inner
-            .execute_trusted_sql_query_with_entity_name(dispatch)?;
+            .execute_trusted_sql_query_with_entity_name(dispatch, bindings)?;
         Ok(Self::sql_query_result_from_statement(result, entity))
     }
 

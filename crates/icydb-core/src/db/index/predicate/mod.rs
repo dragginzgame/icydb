@@ -237,3 +237,19 @@ pub(in crate::db) fn literal_index_component_bytes(value: &Value) -> Option<Vec<
 
     Some(encoded.encoded().to_vec())
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(IndexCompareOp);
+crate::retained::retained_fields!(IndexLiteral {
+Self::One(field_0) => [field_0],
+Self::Many(field_0) => [field_0],
+Self::ManySorted(field_0) => [field_0],
+});
+crate::retained::retained_fields!(IndexPredicateProgram {
+Self::True => [],
+Self::False => [],
+Self::And(field_0) => [field_0],
+Self::Or(field_0) => [field_0],
+Self::Not(field_0) => [field_0],
+Self::Compare{component_index,op,literal} => [component_index,op,literal],
+});

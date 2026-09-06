@@ -14,9 +14,6 @@ use crate::db::{
     },
 };
 
-const PREPARED_QUERY_TEMPLATE_BASE_RETAINED_BYTES_ESTIMATE: usize = 24 * 1024;
-const PREPARED_QUERY_TEMPLATE_INDEX_RETAINED_BYTES_ESTIMATE: usize = 512;
-
 ///
 /// PreparedQueryTemplate
 ///
@@ -76,19 +73,15 @@ impl PreparedQueryTemplate {
         });
     }
 
-    pub(super) fn estimated_retained_bytes(&self) -> usize {
-        self.candidate_indexes.iter().fold(
-            PREPARED_QUERY_TEMPLATE_BASE_RETAINED_BYTES_ESTIMATE,
-            |total, index| {
-                let key_bytes = index.key_items().iter().fold(0usize, |bytes, item| {
-                    bytes.saturating_add(item.as_ref().canonical_text().len())
-                });
-                total
-                    .saturating_add(PREPARED_QUERY_TEMPLATE_INDEX_RETAINED_BYTES_ESTIMATE)
-                    .saturating_add(index.name().len())
-                    .saturating_add(index.store_path().len())
-                    .saturating_add(key_bytes)
-            },
-        )
+    pub(super) fn retained_plan(&self) -> Option<&SharedPreparedExecutionPlan> {
+        self.recent_bound.as_ref().map(|bound| &bound.prepared_plan)
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(BoundQueryExecutionMemo {
+Self{predicate_fingerprint,prepared_plan} => [predicate_fingerprint,prepared_plan],
+});
+crate::retained::retained_fields!(PreparedQueryTemplate {
+Self{candidate_indexes,recent_bound} => [candidate_indexes,recent_bound],
+});

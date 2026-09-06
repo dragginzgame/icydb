@@ -31,9 +31,9 @@ pub(crate) use model::{
     SqlCreateIndexStatement, SqlCreateIndexUniqueness, SqlDdlSchemaVersionContract,
     SqlDdlStatement, SqlDeleteStatement, SqlDescribeMode, SqlDescribeStatement,
     SqlDropIndexStatement, SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlInsertSource,
-    SqlInsertStatement, SqlIntegrityStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection,
-    SqlReturningProjection, SqlScalarFunction, SqlScalarFunctionCallShape, SqlSelectItem,
-    SqlSelectStatement, SqlShowColumnsStatement, SqlShowConstraintsStatement,
+    SqlInsertStatement, SqlIntegrityStatement, SqlMembershipValue, SqlOrderDirection, SqlOrderTerm,
+    SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlScalarFunctionCallShape,
+    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowConstraintsStatement,
     SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlShowMemoryStatement,
     SqlShowRelationsStatement, SqlShowStoresStatement, SqlStatement, SqlUpdateStatement,
     SqlWriteValue,
@@ -45,6 +45,8 @@ pub(crate) use model::{SqlExplainMode, SqlExplainStatement, SqlExplainTarget};
 /// Parsing is deterministic and normalization-insensitive for keyword casing,
 /// insignificant whitespace, and optional one-statement terminator (`;`).
 pub(crate) fn parse_sql(sql: &str) -> Result<SqlStatement, SqlParseError> {
+    #[cfg(test)]
+    SQL_PARSE_INVOCATIONS.with(|count| count.set(count.get() + 1));
     let tokens = tokenize_sql(sql)?;
     if tokens.is_empty() {
         return Err(SqlParseError::EmptyInput);
@@ -72,6 +74,16 @@ pub(crate) fn parse_sql(sql: &str) -> Result<SqlStatement, SqlParseError> {
     }
 
     Ok(statement)
+}
+
+#[cfg(test)]
+thread_local! {
+    static SQL_PARSE_INVOCATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn sql_parse_count_for_tests() -> usize {
+    SQL_PARSE_INVOCATIONS.with(std::cell::Cell::get)
 }
 
 /// Parse one bounded `CHECK INTEGRITY` statement.

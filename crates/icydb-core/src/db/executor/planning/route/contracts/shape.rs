@@ -165,3 +165,7 @@ pub(in crate::db::executor) enum RouteShapeKind {
     AggregateNonCount,
     AggregateGrouped,
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(FastPathOrder);
+crate::retained::retained_copy!(RouteShapeKind);

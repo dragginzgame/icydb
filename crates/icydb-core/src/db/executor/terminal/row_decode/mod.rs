@@ -322,3 +322,8 @@ fn required_slots_match_full_layout(layout: &RowLayout, required_slots: &[usize]
             .enumerate()
             .all(|(expected_slot, slot)| slot == expected_slot)
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(RowLayout {
+Self{contract} => [contract],
+});

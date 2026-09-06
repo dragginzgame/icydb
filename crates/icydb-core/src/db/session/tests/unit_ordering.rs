@@ -1,5 +1,7 @@
 //! End-to-end accepted-schema coverage for the trivial total order of `Unit`.
 
+mod bindings_parity;
+
 use crate::{
     db::{
         DbSession, DynamicQuery, DynamicStructuralPatch, DynamicTypedEntityBinding,
@@ -52,6 +54,234 @@ const TYPED_DESCRIPTOR: TypedEntityDescriptor = TypedEntityDescriptor::new(
     ],
 );
 const UNIT_PRIMARY_KEY: PrimaryKeyValue = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Unit);
+
+#[test]
+fn retained_shared_cache_charges_plans_and_rebinds_without_accumulating_operands() {
+    let session = initialize();
+    seed_singleton(&session);
+    session.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+    let query = |label: &str| {
+        DynamicQuery::new(ENTITY_NAME)
+            .select(["id", "label"])
+            .filter(FieldRef::new("label").eq(label))
+            .order_by(asc("id"))
+            .limit(1)
+    };
+    session
+        .execute_trusted_live_page(&query("singleton"), None)
+        .expect("first binding");
+    let first = session.shared_query_cache_usage_for_tests();
+    assert_eq!(first.0, 1);
+    assert!(first.1 > 0);
+    for _ in 0..3 {
+        new_request_session()
+            .execute_trusted_live_page(&query("singleton"), None)
+            .expect("strong memo hit");
+        assert_eq!(session.shared_query_cache_usage_for_tests(), first);
+    }
+    session
+        .execute_trusted_live_page(&query(&"x".repeat(2048)), None)
+        .expect("larger binding");
+    let larger = session.shared_query_cache_usage_for_tests();
+    assert_eq!(larger.0, 1);
+    assert!(larger.1 > first.1);
+    session
+        .execute_trusted_live_page(&query("singleton"), None)
+        .expect("A/B/A binding");
+    assert_eq!(session.shared_query_cache_usage_for_tests(), first);
+
+    session.clear_shared_query_cache_for_tests(0);
+    for label in ["singleton", "missing", "singleton"] {
+        session
+            .execute_trusted_live_page(&query(label), None)
+            .expect("cache rejection must not reject execution");
+        assert_eq!(session.shared_query_cache_usage_for_tests(), (0, 0));
+    }
+}
+
+#[test]
+fn bound_sql_validates_operands_before_dead_branch_folding() {
+    let session = initialize();
+    seed_singleton(&session);
+    session
+        .execute_trusted_sql_query("SELECT id FROM Singleton WHERE amount = 'not-a-number'")
+        .expect_err("live incompatible operand rejects");
+    for sql in [
+        "SELECT id FROM Singleton WHERE FALSE AND amount = ?",
+        "SELECT id FROM Singleton WHERE TRUE OR amount = ?",
+        "SELECT id FROM Singleton WHERE FALSE AND amount IN (U256 '2', ?)",
+        "SELECT id FROM Singleton WHERE TRUE OR amount + ? >= U256 '2'",
+        "SELECT id FROM Singleton WHERE FALSE AND CASE WHEN amount = ? THEN TRUE ELSE FALSE END",
+        "SELECT id FROM Singleton WHERE TRUE OR amount BETWEEN ? AND U256 '9'",
+        "SELECT id FROM Singleton WHERE (CASE WHEN FALSE THEN ? ELSE U256 '1' END) = amount",
+        "SELECT id FROM Singleton WHERE COALESCE(NULL, ?) = amount",
+        "SELECT id FROM Singleton WHERE (? + U256 '1') = NULL",
+    ] {
+        let dispatch = sql_statement_dispatch(sql).expect("parse fixed syntax");
+        session
+            .execute_trusted_sql_query_with_entity_name(
+                &dispatch,
+                &[InputValue::u256(U256::from(2_u64))],
+            )
+            .expect("valid bound context");
+        session
+            .execute_trusted_sql_query_with_entity_name(
+                &dispatch,
+                &[InputValue::text("not-a-number".to_string())],
+            )
+            .expect_err("invalid binding must not disappear with its dead branch");
+    }
+}
+
+#[test]
+fn bound_sql_reuses_syntax_with_current_values_without_sql_command_residents() {
+    let session = initialize();
+    seed_singleton(&session);
+    let before = session.sql_compiled_cache_len_for_tests();
+    let dispatch =
+        sql_statement_dispatch("SELECT id, label FROM Singleton WHERE label IN (?, ?) ORDER BY id")
+            .expect("parse once");
+    let parse_count = crate::db::sql::parser::sql_parse_count_for_tests();
+    for (value, expected_rows) in [("singleton", 1), ("missing", 0), ("singleton", 1)] {
+        let bindings = [
+            InputValue::text(value.to_string()),
+            InputValue::text("absent".to_string()),
+        ];
+        let (result, entity) = new_request_session()
+            .execute_trusted_sql_query_with_entity_name(&dispatch, &bindings)
+            .expect("execute retained syntax");
+        assert_eq!(entity, ENTITY_NAME);
+        let SqlStatementResult::Projection { rows, .. } = result else {
+            panic!("projection");
+        };
+        assert_eq!(rows.len(), expected_rows);
+        assert_eq!(session.sql_compiled_cache_len_for_tests(), before);
+        assert_eq!(
+            crate::db::sql::parser::sql_parse_count_for_tests(),
+            parse_count
+        );
+        let _ = session.shared_query_cache_usage_for_tests();
+    }
+    let literal = sql_statement_dispatch("SELECT id FROM Singleton WHERE label = 'singleton'")
+        .expect("literal syntax");
+    session
+        .execute_trusted_sql_query_with_entity_name(&literal, &[])
+        .expect("literal cache miss");
+    assert_eq!(session.sql_compiled_cache_len_for_tests(), before + 1);
+    session
+        .execute_trusted_sql_query_with_entity_name(&literal, &[])
+        .expect("literal cache hit");
+    assert_eq!(session.sql_compiled_cache_len_for_tests(), before + 1);
+}
+
+#[test]
+fn bound_sql_aggregate_where_and_null_match_literal_results() {
+    let session = initialize();
+    seed_singleton(&session);
+    for (bound, literal, input) in [
+        (
+            "SELECT id FROM Singleton WHERE CASE WHEN ? THEN TRUE ELSE FALSE END",
+            "SELECT id FROM Singleton WHERE CASE WHEN NULL THEN TRUE ELSE FALSE END",
+            InputValue::null(),
+        ),
+        (
+            "SELECT id FROM Singleton WHERE COALESCE(NOT ?, FALSE)",
+            "SELECT id FROM Singleton WHERE COALESCE(NOT NULL, FALSE)",
+            InputValue::null(),
+        ),
+        (
+            "SELECT id FROM Singleton WHERE COALESCE(? AND TRUE, FALSE)",
+            "SELECT id FROM Singleton WHERE COALESCE(NULL AND TRUE, FALSE)",
+            InputValue::null(),
+        ),
+        (
+            "SELECT id FROM Singleton WHERE CASE WHEN label = ? THEN TRUE ELSE FALSE END",
+            "SELECT id FROM Singleton WHERE CASE WHEN label = NULL THEN TRUE ELSE FALSE END",
+            InputValue::null(),
+        ),
+        (
+            "SELECT id FROM Singleton WHERE (CASE WHEN label = ? THEN U256 '1' ELSE U256 '2' END) = amount",
+            "SELECT id FROM Singleton WHERE (CASE WHEN label = NULL THEN U256 '1' ELSE U256 '2' END) = amount",
+            InputValue::null(),
+        ),
+        (
+            "SELECT id FROM Singleton WHERE COALESCE(label = ?, FALSE)",
+            "SELECT id FROM Singleton WHERE COALESCE(label = NULL, FALSE)",
+            InputValue::null(),
+        ),
+        (
+            "SELECT id FROM Singleton WHERE CASE WHEN label = ? THEN TRUE ELSE FALSE END",
+            "SELECT id FROM Singleton WHERE CASE WHEN label = 'singleton' THEN TRUE ELSE FALSE END",
+            InputValue::text("singleton".to_string()),
+        ),
+        (
+            "SELECT id FROM Singleton WHERE COALESCE(label, ?) = 'singleton'",
+            "SELECT id FROM Singleton WHERE COALESCE(label, 'fallback') = 'singleton'",
+            InputValue::text("fallback".to_string()),
+        ),
+        (
+            "SELECT SUM(amount) FROM Singleton WHERE label = ?",
+            "SELECT SUM(amount) FROM Singleton WHERE label = 'singleton'",
+            InputValue::text("singleton".to_string()),
+        ),
+        (
+            "SELECT label, SUM(amount) FROM Singleton WHERE amount >= ? GROUP BY label HAVING SUM(amount) >= U256 '1'",
+            "SELECT label, SUM(amount) FROM Singleton WHERE amount >= U256 '1' GROUP BY label HAVING SUM(amount) >= U256 '1'",
+            InputValue::u256(U256::from(1_u64)),
+        ),
+        (
+            "SELECT id FROM Singleton WHERE label = ?",
+            "SELECT id FROM Singleton WHERE label = NULL",
+            InputValue::null(),
+        ),
+        (
+            "SELECT id FROM Singleton WHERE NOT (label = ?)",
+            "SELECT id FROM Singleton WHERE NOT (label = NULL)",
+            InputValue::null(),
+        ),
+    ] {
+        let dispatch = sql_statement_dispatch(bound).expect("bound syntax");
+        let expected = session
+            .execute_trusted_sql_query(literal)
+            .expect("literal control");
+        let (actual, _) = session
+            .execute_trusted_sql_query_with_entity_name(&dispatch, &[input])
+            .expect("bound execution");
+        match (actual, expected) {
+            (
+                SqlStatementResult::Projection { rows: actual, .. },
+                SqlStatementResult::Projection { rows: expected, .. },
+            ) => assert_eq!(actual, expected),
+            (
+                SqlStatementResult::Grouped { rows: actual, .. },
+                SqlStatementResult::Grouped { rows: expected, .. },
+            ) => assert_eq!(actual, expected),
+            _ => panic!("SQL result lanes must agree"),
+        }
+    }
+}
+
+#[test]
+fn bound_sql_resolves_current_authority_after_field_rename() {
+    let session = initialize();
+    seed_singleton(&session);
+    let dispatch = sql_statement_dispatch("SELECT id FROM Singleton WHERE label = ?")
+        .expect("fixed application syntax");
+    let bindings = [InputValue::text("singleton".to_string())];
+    session
+        .execute_trusted_sql_query_with_entity_name(&dispatch, &bindings)
+        .expect("initial authority");
+    publish_schema_with_label(
+        &session,
+        AcceptedSchemaRevision::INITIAL,
+        AcceptedSchemaRevision::new(2),
+        "renamed",
+    );
+    let error = new_request_session()
+        .execute_trusted_sql_query_with_entity_name(&dispatch, &bindings)
+        .expect_err("retained syntax does not retain accepted authority");
+    assert_query_field(&error, QueryFieldRole::Predicate, "label");
+}
 
 struct TestCanister;
 
@@ -182,7 +412,7 @@ fn admitted_generated_dispatch_preserves_entity_routing() {
     assert!(!dispatch.requires_introspection());
     assert_eq!(dispatch.entity_name(), Some(ENTITY_NAME));
     let (_, entity) = session
-        .execute_trusted_sql_query_with_entity_name(&dispatch)
+        .execute_trusted_sql_query_with_entity_name(&dispatch, &[])
         .expect("admitted generated dispatch should execute");
 
     assert_eq!(entity, ENTITY_NAME);
@@ -196,7 +426,7 @@ fn trusted_sql_response_and_mutation_surface_routing_remain_distinct() {
         .expect("entity-less introspection dispatch should parse");
     assert_eq!(dispatch.entity_name(), None);
     let (_, entity) = session
-        .execute_trusted_sql_query_with_entity_name(&dispatch)
+        .execute_trusted_sql_query_with_entity_name(&dispatch, &[])
         .expect("entity-less introspection should execute");
     assert!(entity.is_empty());
 
@@ -877,9 +1107,18 @@ fn publish_schema(
     expected: AcceptedSchemaRevision,
     revision: AcceptedSchemaRevision,
 ) {
+    publish_schema_with_label(session, expected, revision, "label");
+}
+
+fn publish_schema_with_label(
+    session: &DbSession<TestCanister>,
+    expected: AcceptedSchemaRevision,
+    revision: AcceptedSchemaRevision,
+    label: &str,
+) {
     let fields = vec![
         field(1, "id", 0, AcceptedFieldKind::Unit),
-        field(2, "label", 1, AcceptedFieldKind::Text { max_len: None }),
+        field(2, label, 1, AcceptedFieldKind::Text { max_len: None }),
         field(3, "amount", 2, AcceptedFieldKind::U256),
     ];
     let snapshot = PersistedSchemaSnapshot::new_with_indexes(
@@ -903,7 +1142,7 @@ fn publish_schema(
             PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
                 FieldId::new(2),
                 SchemaFieldSlot::new(1),
-                vec!["label".to_string()],
+                vec![label.to_string()],
                 AcceptedFieldKind::Text { max_len: None },
                 false,
             )]),

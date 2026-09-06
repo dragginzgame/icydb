@@ -34,6 +34,7 @@ pub(crate) mod scalar_registry;
 pub mod db;
 pub mod error;
 pub mod metrics;
+mod retained;
 pub(crate) mod runtime;
 pub mod traits;
 pub mod types;

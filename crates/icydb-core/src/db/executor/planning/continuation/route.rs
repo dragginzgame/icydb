@@ -302,3 +302,6 @@ mod tests {
         assert!(continuation.index_range_limit_pushdown_allowed());
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(RouteContinuationPlan);

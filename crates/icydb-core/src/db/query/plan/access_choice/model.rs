@@ -604,3 +604,19 @@ pub(super) enum CandidateEvaluation {
     Eligible(CandidateScore),
     Rejected(AccessChoiceRejectedReason),
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(AccessChoiceCandidateExplainSummary {
+Self{kind,index_name,exact,filtered,range_bound_count,order_compatible,residual_burden,residual_predicate_terms,exact_prefix_entries} => [kind,index_name,exact,filtered,range_bound_count,order_compatible,residual_burden,residual_predicate_terms,exact_prefix_entries],
+});
+crate::retained::retained_copy!(AccessChoiceCandidateKind);
+crate::retained::retained_fields!(AccessChoiceExplainSnapshot {
+Self{chosen_reason,candidates,alternatives,rejected,primary_key_input_resource,cardinality_evidence_state} => [chosen_reason,candidates,alternatives,rejected,primary_key_input_resource,cardinality_evidence_state],
+});
+crate::retained::retained_fields!(AccessChoiceRejectedIndex {
+Self{index_name,reason} => [index_name,reason],
+});
+crate::retained::retained_copy!(AccessChoiceRejectedReason);
+crate::retained::retained_copy!(AccessChoiceResidualBurden);
+crate::retained::retained_copy!(AccessChoiceSelectedReason);
+crate::retained::retained_copy!(PrimaryKeyInputResourceSummary);

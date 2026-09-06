@@ -84,3 +84,14 @@ pub(crate) enum CanonicalEnumBody<V> {
     Unit,
     Payload(Box<V>),
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(CanonicalEnumBody<V> {
+Self::Unit => [],
+Self::Payload(field_0) => [field_0],
+});
+crate::retained::retained_fields!(CanonicalEnumValue<V> {
+Self{type_id,variant_id,body} => [type_id,variant_id,body],
+});
+crate::retained::retained_copy!(EnumTypeId);
+crate::retained::retained_copy!(EnumVariantId);

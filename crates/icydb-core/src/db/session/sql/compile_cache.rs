@@ -15,10 +15,11 @@ use crate::{
                 sql_statement_entity_name_from_statement,
             },
         },
-        sql::parser::SqlStatement,
+        sql::{lowering::validate_sql_bindings, parser::SqlStatement},
     },
     error::InternalError,
     traits::CanisterKind,
+    value::InputValue,
 };
 
 impl<C: CanisterKind> DbSession<C> {
@@ -29,15 +30,17 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(SqlCompiledCommandExecutionContext, String), QueryError> {
         let dispatch = crate::db::sql_statement_dispatch(sql)?;
 
-        self.compile_sql_query_with_dispatch_execution_context(&dispatch)
+        self.compile_sql_query_with_dispatch_execution_context(&dispatch, &[])
     }
 
     #[inline]
     pub(in crate::db::session::sql) fn compile_sql_query_with_dispatch_execution_context(
         &self,
         dispatch: &SqlStatementDispatch<'_>,
+        bindings: &[InputValue],
     ) -> Result<(SqlCompiledCommandExecutionContext, String), QueryError> {
         let parsed = dispatch.statement();
+        validate_sql_bindings(parsed, bindings)?;
         let entity_name = sql_statement_entity_name_from_statement(parsed).map(str::to_string);
         let catalog = match entity_name.as_deref() {
             Some(entity_name) => self
@@ -53,6 +56,7 @@ impl<C: CanisterKind> DbSession<C> {
             parsed,
             SqlCompiledCommandSurface::Query,
             catalog,
+            bindings,
         )?;
 
         Ok((context, entity_name.unwrap_or_default()))
@@ -72,6 +76,7 @@ impl<C: CanisterKind> DbSession<C> {
             parsed,
             SqlCompiledCommandSurface::Mutation,
             catalog,
+            &[],
         )
     }
 
@@ -81,7 +86,25 @@ impl<C: CanisterKind> DbSession<C> {
         parsed: &SqlStatement,
         surface: SqlCompiledCommandSurface,
         catalog: AcceptedSchemaCatalogContext,
+        bindings: &[InputValue],
     ) -> Result<SqlCompiledCommandExecutionContext, QueryError> {
+        // Bound invocations never construct, look up, or insert a SQL-text key.
+        // They use the same semantic compiler and execution context as misses.
+        if !bindings.is_empty() {
+            let authority = catalog.accepted_entity_authority();
+            let compiled = Self::compile_sql_statement(
+                parsed,
+                surface,
+                catalog.accepted_schema_info(),
+                bindings,
+            )?;
+            return Ok(SqlCompiledCommandExecutionContext::new(
+                compiled,
+                catalog,
+                Some(authority),
+                surface,
+            ));
+        }
         let entity_path = catalog.identity().entity_path_handle();
         let context = SqlCompiledCommandCacheContext::from_catalog(surface, sql, catalog);
         let (cache_key, catalog) = context.into_cache_inputs();
@@ -121,7 +144,7 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = catalog.accepted_entity_authority();
         let schema = catalog.accepted_schema_info();
 
-        let compiled = Self::compile_sql_statement(parsed, surface, schema)?;
+        let compiled = Self::compile_sql_statement(parsed, surface, schema, &[])?;
 
         self.with_sql_compiled_command_cache(|cache| {
             cache.insert(cache_key, compiled.clone());

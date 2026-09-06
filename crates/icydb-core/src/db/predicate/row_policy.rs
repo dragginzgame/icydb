@@ -20,3 +20,6 @@ pub enum MissingRowPolicy {
     /// Missing rows are treated as corruption.
     Error,
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(MissingRowPolicy);

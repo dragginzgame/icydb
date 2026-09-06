@@ -940,3 +940,12 @@ fn eval_text_contains_with_structural_slots(
         },
     )
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(PredicateExecutionMode {
+Self::Scalar => [],
+Self::Generic => [],
+});
+crate::retained::retained_fields!(PredicateProgram {
+Self{executable,compiled} => [executable,compiled],
+});

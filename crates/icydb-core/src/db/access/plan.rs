@@ -444,3 +444,10 @@ mod tests {
         assert!(!AccessPlan::<Value>::by_key(Value::Unit).has_selected_index_access_path());
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(AccessPlan<K> {
+Self::Path(field_0) => [field_0],
+Self::Union(field_0) => [field_0],
+Self::Intersection(field_0) => [field_0],
+});

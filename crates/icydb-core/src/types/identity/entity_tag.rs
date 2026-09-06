@@ -27,3 +27,6 @@ impl EntityTag {
         self.0
     }
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(EntityTag);

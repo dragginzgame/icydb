@@ -20,3 +20,6 @@ pub(in crate::db) enum Direction {
     /// Descending traversal.
     Desc,
 }
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_copy!(Direction);

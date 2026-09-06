@@ -7,6 +7,7 @@
 mod aggregate;
 mod analysis;
 mod ast_depth;
+mod bindings;
 mod expr;
 mod normalize;
 mod predicate;
@@ -49,6 +50,7 @@ pub(crate) use aggregate::{
 pub(in crate::db::sql::lowering) use analysis::{
     AnalyzedLoweredExpr, LoweredExprAnalysis, LoweredExprSourceRef, analyze_lowered_expr,
 };
+pub(crate) use bindings::{prepare_bound_sql_statement, validate_sql_bindings};
 pub(in crate::db) use prepare::bind_sql_select_statement_structural_with_schema;
 #[cfg(feature = "sql")]
 pub(crate) use prepare::lower_sql_explain_command_from_prepared_statement_with_schema;

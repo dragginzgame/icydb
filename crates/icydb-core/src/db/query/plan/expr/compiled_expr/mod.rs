@@ -643,3 +643,32 @@ const fn missing_field_value(_field: &str, index: usize) -> ProjectionEvalError 
 
 #[cfg(test)]
 mod tests;
+
+// Exhaustive cache-retention coverage; new owned fields require accounting.
+crate::retained::retained_fields!(CompiledExpr {
+Self::Slot{slot,field} => [slot,field],
+Self::GroupKey{offset,field} => [offset,field],
+Self::Aggregate{index} => [index],
+Self::Literal(field_0) => [field_0],
+Self::Add{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
+Self::Sub{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
+Self::Mul{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
+Self::Div{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
+Self::Eq{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
+Self::Ne{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
+Self::Lt{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
+Self::Lte{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
+Self::Gt{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
+Self::Gte{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
+Self::BinarySlotLiteral{op,slot,field,literal,slot_on_left} => [op,slot,field,literal,slot_on_left],
+Self::CaseSlotLiteral{op,slot,field,literal,slot_on_left,then_expr,else_expr} => [op,slot,field,literal,slot_on_left,then_expr,else_expr],
+Self::CaseSlotBool{slot,field,then_expr,else_expr} => [slot,field,then_expr,else_expr],
+Self::FieldPath{root_slot,field,segments,segment_bytes} => [root_slot,field,segments,segment_bytes],
+Self::FunctionCall{function,args} => [function,args],
+Self::Unary{op,expr} => [op,expr],
+Self::Case{when_then_arms,else_expr} => [when_then_arms,else_expr],
+Self::Binary{op,left,right} => [op,left,right],
+});
+crate::retained::retained_fields!(CompiledExprCaseArm {
+Self{condition,result} => [condition,result],
+});

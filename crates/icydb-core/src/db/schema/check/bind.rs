@@ -469,6 +469,9 @@ fn sql_check_expr_input(
             let members = values
                 .iter()
                 .map(|value| {
+                    let crate::db::sql::parser::SqlMembershipValue::Literal(value) = value else {
+                        return Err(AcceptedCheckExprV1Error::UnsupportedOperator);
+                    };
                     input_value_from_strict_sql_literal_for_persisted_kind(field.kind(), value)
                         .ok_or(AcceptedCheckExprV1Error::LiteralAdmissionRejected)
                 })
