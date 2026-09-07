@@ -45,14 +45,11 @@ pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode_with_extra_
     cursor_emission: CursorEmissionMode,
     extra_slots: &[usize],
 ) -> Result<Option<RetainedSlotLayout>, InternalError> {
-    let projection_validation_enabled =
-        projection_materialization.validate_projection() && !plan.projection_is_model_identity()?;
     let retain_slot_rows = projection_materialization.retain_slot_rows();
 
     compile_retained_slot_layout(
         authority,
         plan,
-        projection_validation_enabled,
         retain_slot_rows,
         cursor_emission,
         extra_slots,
@@ -66,7 +63,6 @@ pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode_with_extra_
 fn compile_retained_slot_layout(
     authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
-    projection_validation_enabled: bool,
     retain_slot_rows: bool,
     cursor_emission: CursorEmissionMode,
     extra_slots: &[usize],
@@ -74,12 +70,8 @@ fn compile_retained_slot_layout(
     let row_layout = authority.row_layout_ref()?;
     let mut required_slots = RetainedSlotRequirements::new(row_layout.field_count());
 
-    // Phase 1: projection validation needs complete values for diagnostics.
-    // Retained-slot projection materialization can keep exact
-    // `OCTET_LENGTH(text/blob)` expressions as length-only retained values.
-    if projection_validation_enabled {
-        required_slots.mark_slots(plan.projection_referenced_slots()?.iter().copied());
-    } else if retain_slot_rows {
+    // Phase 1: retain projection inputs, including scalar byte-length values.
+    if retain_slot_rows {
         mark_projection_retained_slots(row_layout, plan, &mut required_slots)?;
     }
 
@@ -102,9 +94,8 @@ fn compile_retained_slot_layout(
     }
 
     // Phase 3: index-range cursor anchors need the complete index key item
-    // slot set, not only the outward order slots. Model-identity projections
-    // no longer force shared validation state, so keep these slots explicit
-    // for cursor-emitting index-range paths.
+    // slot set, not only the outward order slots. Keep these slots explicit
+    // for cursor-emitting index-range paths, including identity projections.
     if cursor_emission.enabled()
         && plan
             .access

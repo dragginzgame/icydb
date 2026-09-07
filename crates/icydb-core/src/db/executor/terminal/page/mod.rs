@@ -30,7 +30,6 @@ use crate::{
         executor::{
             OrderReadableRow, OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::contracts::{KernelPageMaterializationRequest, ScalarPageMaterialization},
-            projection::ProjectionValidationRow,
             route::LoadOrderRouteMode,
         },
         predicate::MissingRowPolicy,
@@ -149,12 +148,6 @@ impl KernelRow {
     }
 }
 
-impl ProjectionValidationRow for KernelRow {
-    fn projection_validation_slot_value(&self, slot: usize) -> Option<&Value> {
-        self.slot_ref(slot)
-    }
-}
-
 impl OrderReadableRow for KernelRow {
     fn read_order_slot_ref(&self, slot: usize) -> Option<&Value> {
         self.slot_ref(slot)
@@ -230,7 +223,6 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
         scalar_materialization_plan.cursor_emission(),
         scalar_materialization_plan.defer_retained_slot_distinct_window(),
     )?;
-    scalar_materialization_plan.apply_post_scan_tail(rows.as_slice())?;
     let post_access_rows = rows.len();
 
     Ok(WindowedKernelRows {

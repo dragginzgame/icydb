@@ -1,5 +1,5 @@
 //! Module: db::executor::projection::materialize::plan
-//! Responsibility: prepared projection materialization contracts and validation.
+//! Responsibility: prepared projection materialization contracts.
 //! Does not own: row loops, structural page dispatch, or DISTINCT execution.
 //! Boundary: stores planner-derived projection contract for executor-owned consumers.
 
@@ -7,14 +7,10 @@ use crate::db::executor::projection::materialize::contracts::ProjectionSpec;
 use crate::db::schema::{LeafCodec, ScalarCodec};
 use crate::{
     db::{
-        executor::projection::eval::{
-            ProjectionEvalError, eval_compiled_expr_with_value_ref_reader,
-        },
         executor::projection::materialize::contracts::{AccessPlannedQuery, CompiledExpr},
         executor::terminal::RowLayout,
     },
     error::InternalError,
-    value::Value,
 };
 
 #[derive(Debug)]
@@ -85,7 +81,7 @@ impl PreparedDirectProjectionSlot {
 /// PreparedProjectionContract
 ///
 /// PreparedProjectionContract is the executor-owned prepared projection contract
-/// shared by slot-row validation and higher-level structural row shaping.
+/// consumed by scalar output shaping.
 /// It freezes the canonical projection semantic spec plus the derived direct
 /// slot layouts needed by compiled scalar projection flow.
 ///
@@ -145,24 +141,6 @@ impl PreparedProjectionContract {
     }
 }
 
-///
-/// ProjectionValidationRow
-///
-/// ProjectionValidationRow is the deliberately narrow row-read contract for
-/// shared projection validation only.
-/// This abstraction exists to keep retained-slot layout and row payload choice
-/// as executor-local representation decisions rather than semantic
-/// requirements of the validator itself.
-/// It is intentionally not a generic executor row API for predicates,
-/// ordering, projection materialization, or adapter rendering.
-///
-
-pub(in crate::db::executor) trait ProjectionValidationRow {
-    /// Borrow one slot value for projection-expression validation.
-    #[must_use]
-    fn projection_validation_slot_value(&self, slot: usize) -> Option<&Value>;
-}
-
 /// Build one executor-owned prepared projection contract from planner-frozen metadata.
 pub(in crate::db) fn prepare_projection_contract_from_plan(
     row_layout: &RowLayout,
@@ -194,28 +172,7 @@ pub(in crate::db) fn prepare_projection_contract_from_plan(
     })
 }
 
-/// Validate projection expressions against one row-domain that can expose
-/// borrowed slot values by field slot.
-pub(in crate::db::executor) fn validate_prepared_projection_row(
-    prepared_validation: &PreparedProjectionContract,
-    row: &impl ProjectionValidationRow,
-) -> Result<(), InternalError> {
-    if prepared_validation.projection_is_model_identity() {
-        return Ok(());
-    }
-
-    for compiled in prepared_validation.compiled_exprs() {
-        let mut read_slot = |slot| row.projection_validation_slot_value(slot);
-        eval_compiled_expr_with_value_ref_reader(compiled, &mut read_slot)
-            .map_err(ProjectionEvalError::into_internal_error)?;
-    }
-
-    Ok(())
-}
-
-// Validate slot availability for FieldPath-bearing expressions without
-// evaluating the expression itself. Nested path evaluation requires raw
-// persisted bytes and remains owned by the canonical projection executor.
+// Reuse planner-frozen slots only when every projection is a direct field.
 fn direct_projection_slots_from_projection(
     projection: &ProjectionSpec,
     direct_projection_slots: Option<&[usize]>,

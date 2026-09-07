@@ -6,8 +6,7 @@
 use crate::db::{
     executor::{
         OrderedKeyStreamBox, ScalarContinuationContext, pipeline::contracts::CursorEmissionMode,
-        projection::PreparedProjectionContract, route::LoadOrderRouteMode,
-        terminal::RetainedSlotLayout,
+        route::LoadOrderRouteMode, terminal::RetainedSlotLayout,
     },
     predicate::MissingRowPolicy,
     query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram},
@@ -26,11 +25,8 @@ use crate::db::{
 #[derive(Clone, Copy)]
 pub(in crate::db::executor) struct ScalarMaterializationCapabilities<'a> {
     pub(in crate::db::executor) residual_filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
-    pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) retained_slot_layout: Option<&'a RetainedSlotLayout>,
-    pub(in crate::db::executor) prepared_projection_validation:
-        Option<&'a PreparedProjectionContract>,
     pub(in crate::db::executor) cursor_emission: CursorEmissionMode,
 }
 

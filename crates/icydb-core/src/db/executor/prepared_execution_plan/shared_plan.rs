@@ -3,7 +3,6 @@ use super::contracts::{CoveringHybridReadExecutionPlan, CoveringReadExecutionPla
 use crate::db::executor::PreparedLoadPlan;
 use crate::db::executor::{
     PreparedScalarPlanCore, PreparedScalarRuntimeHandoff, SharedPreparedProjectionRuntimeHandoff,
-    pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
 };
 use crate::{
     db::{
@@ -169,11 +168,8 @@ impl SharedPreparedExecutionPlan {
     ) -> Result<SharedPreparedProjectionRuntimeHandoff, InternalError> {
         let Self { authority, core } = self;
         let prepared_projection_contract = core.get_or_init_projection_shape(authority.clone())?;
-        let retained_slot_layout = core.get_or_init_scalar_layout(
-            authority.clone(),
-            ProjectionMaterializationMode::RetainSlotRows,
-            CursorEmissionMode::Suppress,
-        )?;
+        let retained_slot_layout =
+            core.get_or_init_cursorless_retained_slot_layout(authority.clone())?;
         let execution_preparation = core.get_or_init_scalar_execution_preparation();
         let scalar_runtime = PreparedScalarRuntimeHandoff {
             authority: authority.clone(),

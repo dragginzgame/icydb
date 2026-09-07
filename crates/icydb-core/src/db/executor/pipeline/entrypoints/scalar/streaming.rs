@@ -29,7 +29,7 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
     prepared: PreparedScalarRouteRuntime,
     mut row_sink: impl FnMut(&KernelRow) -> Result<(), InternalError>,
 ) -> Result<(), InternalError> {
-    let execution = execute_prepared_scalar_kernel(
+    let KernelRowsExecutionAttempt { rows, .. } = execute_prepared_scalar_kernel(
         prepared,
         ScalarRouteTerminal::KernelRows,
         |execution_inputs, route_plan, continuation| {
@@ -41,7 +41,6 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
             )
         },
     )?;
-    let KernelRowsExecutionAttempt { rows, .. } = execution.attempt;
     for row in &rows {
         row_sink(row)?;
     }

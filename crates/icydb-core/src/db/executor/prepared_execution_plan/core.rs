@@ -82,11 +82,7 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
         OnceLock<ExecutionPreparation>,
     pub(in crate::db::executor::prepared_execution_plan) initial_scalar_route_plan:
         OnceLock<ExecutionRoutePlan>,
-    pub(in crate::db::executor::prepared_execution_plan) shared_validation_emit_retained_slot_layout:
-        OnceLock<Option<RetainedSlotLayout>>,
-    pub(in crate::db::executor::prepared_execution_plan) retain_slot_rows_suppress_retained_slot_layout:
-        OnceLock<Option<RetainedSlotLayout>>,
-    pub(in crate::db::executor::prepared_execution_plan) none_suppress_retained_slot_layout:
+    pub(in crate::db::executor::prepared_execution_plan) cursorless_retained_slot_layout:
         OnceLock<Option<RetainedSlotLayout>>,
     pub(in crate::db::executor::prepared_execution_plan) continuation:
         Option<PlannedContinuationContract>,
@@ -121,15 +117,7 @@ impl Clone for PreparedExecutionPlanResidents {
             aggregate_execution_preparation: clone_once_lock(&self.aggregate_execution_preparation),
             scalar_execution_preparation: clone_once_lock(&self.scalar_execution_preparation),
             initial_scalar_route_plan: clone_once_lock(&self.initial_scalar_route_plan),
-            shared_validation_emit_retained_slot_layout: clone_once_lock(
-                &self.shared_validation_emit_retained_slot_layout,
-            ),
-            retain_slot_rows_suppress_retained_slot_layout: clone_once_lock(
-                &self.retain_slot_rows_suppress_retained_slot_layout,
-            ),
-            none_suppress_retained_slot_layout: clone_once_lock(
-                &self.none_suppress_retained_slot_layout,
-            ),
+            cursorless_retained_slot_layout: clone_once_lock(&self.cursorless_retained_slot_layout),
             continuation: self.continuation.clone(),
             index_prefix_specs: Arc::clone(&self.index_prefix_specs),
             index_range_specs: Arc::clone(&self.index_range_specs),
@@ -235,14 +223,12 @@ impl PreparedScalarPlanCore {
         self.core.get_or_init_initial_scalar_route_plan(authority)
     }
 
-    pub(in crate::db::executor) fn get_or_init_scalar_layout(
+    pub(in crate::db::executor) fn get_or_init_cursorless_retained_slot_layout(
         &self,
         authority: EntityAuthority,
-        projection_materialization: ProjectionMaterializationMode,
-        cursor_emission: CursorEmissionMode,
     ) -> Result<Option<RetainedSlotLayout>, InternalError> {
         self.core
-            .get_or_init_scalar_layout(authority, projection_materialization, cursor_emission)
+            .get_or_init_cursorless_retained_slot_layout(authority)
     }
 }
 
@@ -301,9 +287,7 @@ impl PreparedExecutionPlanCore {
                 aggregate_execution_preparation: OnceLock::new(),
                 scalar_execution_preparation: OnceLock::new(),
                 initial_scalar_route_plan: OnceLock::new(),
-                shared_validation_emit_retained_slot_layout: OnceLock::new(),
-                retain_slot_rows_suppress_retained_slot_layout: OnceLock::new(),
-                none_suppress_retained_slot_layout: OnceLock::new(),
+                cursorless_retained_slot_layout: OnceLock::new(),
                 continuation,
                 index_prefix_specs,
                 index_range_specs,
@@ -320,8 +304,7 @@ impl PreparedExecutionPlanCore {
         &self,
         authority: EntityAuthority,
     ) -> Result<Option<Rc<PreparedProjectionContract>>, InternalError> {
-        // Projection adapters consume this shape directly; scalar validation
-        // callers request it explicitly before execution.
+        // Projection adapters request and consume this shape before execution.
         if let Some(cached) = self.residents.prepared_projection_contract.get() {
             return Ok(cached.clone());
         }
@@ -471,28 +454,12 @@ impl PreparedExecutionPlanCore {
         route_plan
     }
 
-    pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_scalar_layout(
+    pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_cursorless_retained_slot_layout(
         &self,
         authority: EntityAuthority,
-        projection_materialization: ProjectionMaterializationMode,
-        cursor_emission: CursorEmissionMode,
     ) -> Result<Option<RetainedSlotLayout>, InternalError> {
-        // Each scalar entrypoint consumes at most one retained-slot layout
-        // family, so compile only the selected `(projection, cursor)` shape.
-        let layout_cache = match (projection_materialization, cursor_emission) {
-            (ProjectionMaterializationMode::SharedValidation, CursorEmissionMode::Emit) => {
-                &self.residents.shared_validation_emit_retained_slot_layout
-            }
-            (ProjectionMaterializationMode::RetainSlotRows, CursorEmissionMode::Suppress) => {
-                &self
-                    .residents
-                    .retain_slot_rows_suppress_retained_slot_layout
-            }
-            (ProjectionMaterializationMode::None, CursorEmissionMode::Suppress) => {
-                &self.residents.none_suppress_retained_slot_layout
-            }
-            _ => return Ok(None),
-        };
+        // Only cursorless retained output shares a cached scalar layout.
+        let layout_cache = &self.residents.cursorless_retained_slot_layout;
 
         if let Some(cached) = layout_cache.get() {
             return Ok(cached.clone());
@@ -501,8 +468,8 @@ impl PreparedExecutionPlanCore {
         let layout = compile_retained_slot_layout_for_mode(
             &authority,
             &self.residents.plan,
-            projection_materialization,
-            cursor_emission,
+            ProjectionMaterializationMode::RetainSlotRows,
+            CursorEmissionMode::Suppress,
         )?;
         self.remember_lazy(layout_cache, &layout);
 
@@ -704,15 +671,15 @@ crate::retained::retained_fields!(PreparedExecutionPlanResidents {
         prepared_projection_contract, projection_covering_read_execution_plan,
         hybrid_covering_read_plan, prepared_grouped_runtime_residents,
         aggregate_execution_preparation, scalar_execution_preparation,
-        initial_scalar_route_plan, shared_validation_emit_retained_slot_layout,
-        retain_slot_rows_suppress_retained_slot_layout, none_suppress_retained_slot_layout,
+        initial_scalar_route_plan,
+        cursorless_retained_slot_layout,
         continuation, index_prefix_specs, index_range_specs
     } => [plan, execution_shape_fingerprint_prefix, continuation_identity,
         prepared_projection_contract, projection_covering_read_execution_plan,
         hybrid_covering_read_plan, prepared_grouped_runtime_residents,
         aggregate_execution_preparation, scalar_execution_preparation,
-        initial_scalar_route_plan, shared_validation_emit_retained_slot_layout,
-        retain_slot_rows_suppress_retained_slot_layout, none_suppress_retained_slot_layout,
+        initial_scalar_route_plan,
+        cursorless_retained_slot_layout,
         continuation, index_prefix_specs, index_range_specs],
 });
 crate::retained::retained_fields!(PreparedGroupedRuntimeResidents {

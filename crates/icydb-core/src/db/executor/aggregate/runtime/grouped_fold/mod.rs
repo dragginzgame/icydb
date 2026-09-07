@@ -79,7 +79,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
             index_prefix_child_expansion: None,
         },
         execution_preparation: &execution_preparation,
-        projection_materialization: ProjectionMaterializationMode::SharedValidation,
+        projection_materialization: ProjectionMaterializationMode::None,
         prepared_projection: PreparedExecutionProjection::empty(),
         emit_cursor: true,
         enforced_scan_probe_limit: None,

@@ -427,7 +427,6 @@ where
                 execution_continuation,
                 emit_cursor,
                 page_entry_limit,
-                None,
             )
         } else {
             execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister(
@@ -439,7 +438,6 @@ where
                     scan_budget.map(StructuralProjectionScanBudget::probe_limit),
                     page_entry_limit,
                 ),
-                None,
             )
         }
     };

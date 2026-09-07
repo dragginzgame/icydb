@@ -5,7 +5,6 @@ use crate::{
         executor::{
             EntityAuthority, GroupedPaginationWindow, PreparedGroupedRuntimeResidents,
             PreparedScalarPlanCore, PreparedScalarRuntimeHandoff,
-            pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
             prepared_execution_plan::{PreparedAccessPlanHandoff, PreparedExecutionPlanCore},
             terminal::RetainedSlotLayout,
         },
@@ -97,50 +96,21 @@ impl PreparedLoadPlan {
 
     /// Consume one typed prepared execution plan into scalar runtime handoff
     /// while using a caller-owned retained-slot layout for this execution only.
+    #[must_use]
     pub(in crate::db::executor) fn into_scalar_runtime_handoff_with_retained_slot_layout(
         self,
-        projection_materialization: ProjectionMaterializationMode,
-        cursor_emission: CursorEmissionMode,
         retained_slot_layout: RetainedSlotLayout,
-    ) -> Result<PreparedScalarRuntimeHandoff, InternalError> {
-        self.into_scalar_runtime_handoff_with_layout_override(
-            projection_materialization,
-            cursor_emission,
-            Some(retained_slot_layout),
-        )
-    }
-
-    fn into_scalar_runtime_handoff_with_layout_override(
-        self,
-        projection_materialization: ProjectionMaterializationMode,
-        cursor_emission: CursorEmissionMode,
-        retained_slot_layout_override: Option<RetainedSlotLayout>,
-    ) -> Result<PreparedScalarRuntimeHandoff, InternalError> {
+    ) -> PreparedScalarRuntimeHandoff {
         let Self { authority, core } = self;
-        let prepared_projection_contract = if projection_materialization.validate_projection()
-            && !core.plan().projection_is_model_identity()?
-        {
-            core.get_or_init_projection_shape(authority.clone())?
-        } else {
-            None
-        };
-        let retained_slot_layout = match retained_slot_layout_override {
-            Some(layout) => Some(layout),
-            None => core.get_or_init_scalar_layout(
-                authority.clone(),
-                projection_materialization,
-                cursor_emission,
-            )?,
-        };
         let execution_preparation = core.get_or_init_scalar_execution_preparation();
 
-        Ok(PreparedScalarRuntimeHandoff {
+        PreparedScalarRuntimeHandoff {
             authority,
             execution_preparation,
-            prepared_projection_contract,
-            retained_slot_layout,
+            prepared_projection_contract: None,
+            retained_slot_layout: Some(retained_slot_layout),
             plan_core: PreparedScalarPlanCore { core },
-        })
+        }
     }
 
     /// Clone cached grouped preparation and layout as one provenance-bound

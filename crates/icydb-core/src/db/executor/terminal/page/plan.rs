@@ -6,12 +6,12 @@ use crate::{
             pipeline::contracts::{
                 CursorEmissionMode, ScalarMaterializationCapabilities, StructuralCursorPage,
             },
-            projection::PreparedProjectionContract,
             route::{LoadOrderRouteMode, access_order_satisfied_by_route_mode},
             terminal::page::{
                 KernelRow, KernelRowPayloadMode, RetainedSlotLayout, ScalarRowRuntimeHandle,
                 post_scan::{
-                    StructuralPostScanTailStrategy, required_prepared_projection_validation,
+                    StructuralCursorPayloadStrategy, finalize_structural_cursor_payload,
+                    select_structural_cursor_payload_strategy,
                 },
                 scan::{KernelRowScanRequest, ScalarPageKernelRequest},
             },
@@ -36,7 +36,7 @@ pub(super) struct ScalarMaterializationPlan<'a> {
     kernel_row_scan_strategy: KernelRowScanStrategy<'a>,
     cursor_emission: CursorEmissionMode,
     defer_retained_slot_distinct_window: bool,
-    post_scan_tail: StructuralPostScanTailStrategy<'a>,
+    payload_strategy: StructuralCursorPayloadStrategy,
 }
 
 impl<'a> ScalarMaterializationPlan<'a> {
@@ -77,7 +77,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
     }
 
     // Return whether retained-slot DISTINCT pagination remains deferred until
-    // the post-scan tail has materialized final rows.
+    // projection materialization has produced final rows.
     pub(super) const fn defer_retained_slot_distinct_window(&self) -> bool {
         self.defer_retained_slot_distinct_window
     }
@@ -160,19 +160,13 @@ impl<'a> ScalarMaterializationPlan<'a> {
         }))
     }
 
-    // Apply the remaining shared post-scan tail before cursor derivation and
-    // final payload shaping.
-    pub(super) fn apply_post_scan_tail(&self, rows: &[KernelRow]) -> Result<(), InternalError> {
-        self.post_scan_tail.apply(rows)
-    }
-
-    // Finalize the structural payload through the already-resolved tail
+    // Finalize the structural payload through the already-resolved payload
     // strategy instead of re-reading payload family state in the terminal.
     pub(super) fn finalize_payload(
         &self,
         rows: Vec<KernelRow>,
     ) -> Result<StructuralCursorPage, InternalError> {
-        self.post_scan_tail.finalize_payload(rows)
+        finalize_structural_cursor_payload(rows, self.payload_strategy)
     }
 }
 
@@ -181,7 +175,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
 ///
 /// CursorlessShortPathPlan freezes the cursorless structural short-path policy
 /// under the same scalar materialization boundary as the main page path.
-/// It owns kernel scan choice, row keep-cap behavior, projection validation,
+/// It owns kernel scan choice, row keep-cap behavior,
 /// and final payload family so the row collector consumes one resolved plan.
 ///
 
@@ -189,7 +183,7 @@ pub(in crate::db::executor) struct CursorlessShortPathPlan<'a> {
     scan_strategy: KernelRowScanStrategy<'a>,
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
-    post_scan_tail: StructuralPostScanTailStrategy<'a>,
+    payload_strategy: StructuralCursorPayloadStrategy,
 }
 
 impl<'a> CursorlessShortPathPlan<'a> {
@@ -221,10 +215,8 @@ impl<'a> CursorlessShortPathPlan<'a> {
         &self,
         rows: Vec<KernelRow>,
     ) -> Result<(StructuralCursorPage, usize), InternalError> {
-        self.post_scan_tail.apply(rows.as_slice())?;
-
         let post_access_rows = rows.len();
-        let payload = self.post_scan_tail.finalize_payload(rows)?;
+        let payload = finalize_structural_cursor_payload(rows, self.payload_strategy)?;
 
         Ok((payload, post_access_rows))
     }
@@ -235,14 +227,12 @@ impl<'a> CursorlessShortPathPlan<'a> {
 ///
 /// ResolvedScalarStructuralPolicy captures the scalar structural execution
 /// policy shared by the main scalar page path and the cursorless short path.
-/// It freezes the kernel scan choice, projection
-/// validation ownership, and final payload family once from one capability
-/// bundle so sibling materialization plans do not each reinterpret them.
+/// It freezes the kernel scan choice and final payload family once from one
+/// capability bundle so sibling materialization plans do not reinterpret them.
 ///
 
 struct ResolvedScalarStructuralPolicy<'a> {
     kernel_row_scan_strategy: KernelRowScanStrategy<'a>,
-    projection_validation: Option<&'a PreparedProjectionContract>,
     retain_slot_rows: bool,
 }
 
@@ -252,10 +242,9 @@ impl<'a> ResolvedScalarStructuralPolicy<'a> {
         self.kernel_row_scan_strategy
     }
 
-    // Build one shared structural post-scan tail from the already-resolved
-    // projection validation and final payload family.
-    const fn post_scan_tail(&self) -> StructuralPostScanTailStrategy<'a> {
-        StructuralPostScanTailStrategy::new(self.projection_validation, self.retain_slot_rows)
+    // Select the existing payload family once for both materialization plans.
+    const fn payload_strategy(&self) -> StructuralCursorPayloadStrategy {
+        select_structural_cursor_payload_strategy(self.retain_slot_rows)
     }
 }
 
@@ -275,7 +264,6 @@ pub(super) fn resolve_scalar_materialization_plan<'a>(
     )?;
     let direct_data_row_path = resolve_direct_data_row_path(
         plan,
-        capabilities.validate_projection,
         capabilities.retain_slot_rows,
         capabilities.retained_slot_layout,
         capabilities.residual_filter_program,
@@ -290,7 +278,7 @@ pub(super) fn resolve_scalar_materialization_plan<'a>(
         kernel_row_scan_strategy: structural_policy.kernel_row_scan_strategy(),
         cursor_emission: capabilities.cursor_emission,
         defer_retained_slot_distinct_window,
-        post_scan_tail: structural_policy.post_scan_tail(),
+        payload_strategy: structural_policy.payload_strategy(),
     })
 }
 
@@ -337,7 +325,7 @@ pub(in crate::db::executor) fn resolve_cursorless_short_path_plan<'a>(
             cursor_boundary,
             capabilities.retain_slot_rows,
         ),
-        post_scan_tail: structural_policy.post_scan_tail(),
+        payload_strategy: structural_policy.payload_strategy(),
     }))
 }
 
@@ -355,13 +343,6 @@ fn resolve_scalar_structural_policy(
 
     Ok(ResolvedScalarStructuralPolicy {
         kernel_row_scan_strategy,
-        projection_validation: if capabilities.validate_projection {
-            Some(required_prepared_projection_validation(
-                capabilities.prepared_projection_validation,
-            )?)
-        } else {
-            None
-        },
         retain_slot_rows: capabilities.retain_slot_rows,
     })
 }
@@ -464,7 +445,6 @@ pub(in crate::db::executor) struct KernelRowOrderWindow<'a> {
 // `DataRow` lane and, if so, which direct-lane strategy owns the scan.
 fn resolve_direct_data_row_path<'a>(
     plan: &'a AccessPlannedQuery,
-    validate_projection: bool,
     retain_slot_rows: bool,
     retained_slot_layout: Option<&'a RetainedSlotLayout>,
     residual_filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
@@ -473,10 +453,9 @@ fn resolve_direct_data_row_path<'a>(
     let logical = plan.scalar_plan();
 
     // Phase 1: direct raw-row lanes are only valid for cursorless load paths
-    // that do not need projection validation or retained-slot surfaces.
+    // that do not need retained-slot surfaces.
     let direct_load_surface_eligible = logical.mode.is_load()
         && !logical.distinct
-        && !validate_projection
         && !retain_slot_rows
         && !cursor_emission.enabled();
     if !direct_load_surface_eligible {

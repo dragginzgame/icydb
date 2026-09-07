@@ -8,7 +8,7 @@ use crate::{
         executor::{
             ExecutionKernel,
             pipeline::{
-                contracts::{ExecutionOutcomeMetrics, StructuralCursorPage},
+                contracts::{MaterializedExecutionAttempt, StructuralCursorPage},
                 entrypoints::scalar::{
                     execution::execute_prepared_scalar_kernel, hints::ScalarRouteTerminal,
                     runtime::PreparedScalarRouteRuntime,
@@ -20,17 +20,11 @@ use crate::{
     error::InternalError,
 };
 
-// Shared scalar runtime output tuple:
-// 1) final materialized payload
-// 2) path-outcome observability metrics
-pub(super) type ScalarPathExecution = (StructuralCursorPage, ExecutionOutcomeMetrics);
-
-// Execute one prepared scalar runtime bundle through the canonical monomorphic
-// scalar spine without re-entering typed executor state.
-pub(super) fn execute_prepared_scalar_path_execution(
+/// Execute one prepared scalar plan while retaining its authoritative scan count.
+pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_scan_count(
     prepared: PreparedScalarRouteRuntime,
-) -> Result<ScalarPathExecution, InternalError> {
-    let execution = execute_prepared_scalar_kernel(
+) -> Result<(StructuralCursorPage, usize), InternalError> {
+    let MaterializedExecutionAttempt { payload, metrics } = execute_prepared_scalar_kernel(
         prepared,
         ScalarRouteTerminal::MaterializedPage,
         |execution_inputs, route_plan, continuation| {
@@ -42,22 +36,7 @@ pub(super) fn execute_prepared_scalar_path_execution(
             )
         },
     )?;
-    let materialized = execution.attempt;
-    let (payload, metrics) = materialized.into_payload_and_metrics();
 
-    Ok((payload, metrics))
-}
-
-// Execute one prepared scalar runtime bundle and finalize the shared
-// structural page boundary in the common non-attributed path.
-
-/// Execute one prepared scalar plan while retaining its authoritative scan count.
-pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_scan_count(
-    prepared: PreparedScalarRouteRuntime,
-) -> Result<(StructuralCursorPage, usize), InternalError> {
-    let execution = execute_prepared_scalar_path_execution(prepared)?;
-    let rows_scanned = execution.1.rows_scanned;
-    let page = execution.0;
-
-    Ok((page, rows_scanned))
+    // The retry kernel has already accumulated all attempts' scan work.
+    Ok((payload, metrics.rows_scanned))
 }

@@ -22,16 +22,6 @@ use crate::{
     error::InternalError,
 };
 
-///
-/// PreparedScalarKernelExecution
-///
-/// PreparedScalarKernelExecution carries one completed scalar kernel attempt.
-///
-
-pub(super) struct PreparedScalarKernelExecution<T> {
-    pub(super) attempt: T,
-}
-
 // Run one prepared scalar runtime through shared route/input setup, then let
 // the caller choose which scalar kernel terminal to invoke.
 pub(super) fn execute_prepared_scalar_kernel<T>(
@@ -42,7 +32,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         &ExecutionRoutePlan,
         ScalarContinuationContext,
     ) -> Result<T, InternalError>,
-) -> Result<PreparedScalarKernelExecution<T>, InternalError> {
+) -> Result<T, InternalError> {
     let PreparedScalarRouteRuntime {
         store,
         authority,
@@ -117,7 +107,5 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         emit_cursor: cursor_emission.enabled(),
         enforced_scan_probe_limit,
     });
-    let attempt = execute(&execution_inputs, &route_plan, continuation)?;
-
-    Ok(PreparedScalarKernelExecution { attempt })
+    execute(&execution_inputs, &route_plan, continuation)
 }

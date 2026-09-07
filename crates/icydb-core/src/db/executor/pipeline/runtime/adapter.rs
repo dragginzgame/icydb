@@ -20,7 +20,6 @@ use crate::{
                 KernelPageMaterializationRequest, RowCollectorMaterializationRequest,
                 ScalarMaterializationCapabilities, ScalarPageMaterialization,
             },
-            projection::PreparedProjectionContract,
             route::LoadOrderRouteMode,
             scan::execute_fast_stream_route,
             stream::access::TraversalRuntime,
@@ -53,11 +52,8 @@ pub(in crate::db::executor) struct ExecutionMaterializationContract<'a> {
     pub(in crate::db::executor) residual_filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) load_order_route_mode: LoadOrderRouteMode,
-    pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) retained_slot_layout: Option<&'a RetainedSlotLayout>,
-    pub(in crate::db::executor) prepared_projection_validation:
-        Option<&'a PreparedProjectionContract>,
 }
 
 impl<'a> ExecutionMaterializationContract<'a> {
@@ -69,10 +65,8 @@ impl<'a> ExecutionMaterializationContract<'a> {
     ) -> ScalarMaterializationCapabilities<'a> {
         ScalarMaterializationCapabilities {
             residual_filter_program: self.residual_filter_program,
-            validate_projection: self.validate_projection,
             retain_slot_rows: self.retain_slot_rows,
             retained_slot_layout: self.retained_slot_layout,
-            prepared_projection_validation: self.prepared_projection_validation,
             cursor_emission,
         }
     }

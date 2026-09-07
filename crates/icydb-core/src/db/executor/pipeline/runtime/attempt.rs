@@ -45,7 +45,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
 
     // Build the shared materialization contract once so the two outward
     // request shapes stay aligned on predicate/projection/retained-slot wiring.
-    fn materialization_contract<'req>(
+    const fn materialization_contract<'req>(
         &'req self,
         route_plan: &ExecutionRoutePlan,
     ) -> ExecutionMaterializationContract<'req> {
@@ -54,10 +54,8 @@ impl<'a> ExecutionAttemptKernel<'a> {
             residual_filter_program: self.inputs.residual_filter_program(),
             scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
             load_order_route_mode: route_plan.load_order_route_mode(),
-            validate_projection: self.inputs.validate_projection(),
             retain_slot_rows: self.inputs.retain_slot_rows(),
             retained_slot_layout: self.inputs.retained_slot_layout(),
-            prepared_projection_validation: self.inputs.prepared_projection_validation(),
         }
     }
 

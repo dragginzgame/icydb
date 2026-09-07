@@ -3,64 +3,16 @@ use crate::{
         data::DataRow,
         executor::{
             pipeline::contracts::StructuralCursorPage,
-            projection::{PreparedProjectionContract, validate_prepared_projection_row},
             terminal::page::{KernelRow, RetainedSlotRow},
         },
     },
     error::InternalError,
 };
 
-///
-/// StructuralPostScanTailStrategy
-///
-/// StructuralPostScanTailStrategy owns the remaining shared structural
-/// post-scan tail for scalar materialization.
-/// It applies shared projection validation and final payload shaping so the
-/// main page path and cursorless short path consume the same tail boundary.
-///
-
-#[derive(Clone, Copy)]
-pub(super) struct StructuralPostScanTailStrategy<'a> {
-    projection_validation: Option<&'a PreparedProjectionContract>,
-    retain_slot_rows: bool,
-}
-
-impl<'a> StructuralPostScanTailStrategy<'a> {
-    // Build one shared structural post-scan tail from already-resolved
-    // projection validation and final payload policy.
-    pub(super) const fn new(
-        projection_validation: Option<&'a PreparedProjectionContract>,
-        retain_slot_rows: bool,
-    ) -> Self {
-        Self {
-            projection_validation,
-            retain_slot_rows,
-        }
-    }
-
-    // Apply the resolved structural post-scan tail before cursor derivation
-    // and outward payload shaping.
-    pub(super) fn apply(&self, rows: &[KernelRow]) -> Result<(), InternalError> {
-        validate_prepared_projection_rows(self.projection_validation, rows)
-    }
-
-    // Finalize one already-materialized structural row set onto the outward
-    // payload family selected for this tail.
-    pub(super) fn finalize_payload(
-        &self,
-        rows: Vec<KernelRow>,
-    ) -> Result<StructuralCursorPage, InternalError> {
-        finalize_structural_cursor_payload(
-            rows,
-            select_structural_cursor_payload_strategy(self.retain_slot_rows),
-        )
-    }
-}
-
 // Structural cursor payload finalization still has two families:
 // outward data-row pages and outward retained-slot-row pages.
 // The executor resolves that family once before the final row-shaping pass.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub(in crate::db::executor) enum StructuralCursorPayloadStrategy {
     DataRows,
     SlotRows,
@@ -76,14 +28,6 @@ pub(in crate::db::executor) const fn select_structural_cursor_payload_strategy(
     }
 
     StructuralCursorPayloadStrategy::DataRows
-}
-
-// Require the prepared projection-validation bundle whenever a retained-slot
-// path still asks the shared executor validator to run.
-pub(super) fn required_prepared_projection_validation(
-    prepared_projection_validation: Option<&PreparedProjectionContract>,
-) -> Result<&PreparedProjectionContract, InternalError> {
-    prepared_projection_validation.ok_or_else(InternalError::query_executor_invariant)
 }
 
 // Finalize one already-materialized kernel row set onto the outward
@@ -114,20 +58,4 @@ pub(in crate::db::executor) fn collect_structural_slot_rows(
 // Convert kernel rows into data rows in one straight-line pass.
 fn collect_structural_data_rows(rows: Vec<KernelRow>) -> Result<Vec<DataRow>, InternalError> {
     rows.into_iter().map(KernelRow::into_data_row).collect()
-}
-
-// Run the shared slot-row projection validator from already-prepared
-// projection state when this tail still owns that validation pass.
-fn validate_prepared_projection_rows(
-    prepared_projection_validation: Option<&PreparedProjectionContract>,
-    rows: &[KernelRow],
-) -> Result<(), InternalError> {
-    let Some(prepared_projection_validation) = prepared_projection_validation else {
-        return Ok(());
-    };
-    for row in rows {
-        validate_prepared_projection_row(prepared_projection_validation, row)?;
-    }
-
-    Ok(())
 }

@@ -14,7 +14,6 @@ pub(in crate::db::executor::projection) use distinct::{
     ProjectionDistinctStrategy, ProjectionDistinctWindow, projection_distinct_strategy,
 };
 pub(in crate::db) use plan::{PreparedProjectionContract, prepare_projection_contract_from_plan};
-pub(in crate::db::executor) use plan::{ProjectionValidationRow, validate_prepared_projection_row};
 pub(in crate::db) use structural::MaterializedProjectionRows;
 pub(in crate::db) use structural::project;
 pub(in crate::db::executor::projection) use structural::{

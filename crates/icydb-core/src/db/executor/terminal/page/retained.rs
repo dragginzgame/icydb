@@ -1,7 +1,5 @@
 use crate::{
-    db::executor::{
-        OrderReadableRow, budget::runtime_value_work, projection::ProjectionValidationRow,
-    },
+    db::executor::{OrderReadableRow, budget::runtime_value_work},
     value::Value,
 };
 use std::{borrow::Cow, rc::Rc};
@@ -281,12 +279,6 @@ impl RetainedSlotRow {
     #[cfg(test)]
     fn find_sparse_entry_index(entries: &[RetainedSlotEntry], slot: usize) -> Option<usize> {
         entries.binary_search_by_key(&slot, |entry| entry.slot).ok()
-    }
-}
-
-impl ProjectionValidationRow for RetainedSlotRow {
-    fn projection_validation_slot_value(&self, slot: usize) -> Option<&Value> {
-        self.slot_ref(slot)
     }
 }
 

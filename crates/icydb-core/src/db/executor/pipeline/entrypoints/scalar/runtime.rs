@@ -3,8 +3,6 @@
 //! Does not own: scalar execution, sink execution, or page finalization.
 //! Boundary: converts prepared scalar plan inputs into one runtime bundle.
 
-use std::rc::Rc;
-
 use crate::{
     db::{
         Db,
@@ -54,12 +52,6 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
 }
 
 impl PreparedScalarRouteRuntime {
-    /// Return the physical execution mode frozen by route planning.
-    #[must_use]
-    pub(in crate::db::executor) const fn execution_mode(&self) -> crate::db::RouteExecutionMode {
-        self.route_plan.execution_mode()
-    }
-
     /// Attach one execution-only cap-plus-one scan probe.
     #[must_use]
     pub(super) const fn with_enforced_scan_probe_limit(mut self, probe_limit: usize) -> Self {
@@ -76,7 +68,6 @@ impl PreparedScalarRouteRuntime {
 ///
 
 pub(super) struct InitialScalarPlanRuntimeOptions {
-    unpaged_rows_mode: bool,
     projection_runtime_mode: ProjectionMaterializationMode,
     cursor_emission: CursorEmissionMode,
     suppress_route_scan_hints: bool,
@@ -100,7 +91,6 @@ impl InitialScalarPlanRuntimeOptions {
         suppress_route_scan_hints: bool,
     ) -> Self {
         Self {
-            unpaged_rows_mode: true,
             projection_runtime_mode,
             cursor_emission,
             suppress_route_scan_hints,
@@ -137,18 +127,9 @@ pub(super) fn prepare_initial_scalar_route_runtime_from_plan_with_retained_slot_
 where
     C: CanisterKind,
 {
-    let prepared = plan.into_scalar_runtime_handoff_with_retained_slot_layout(
-        options.projection_runtime_mode,
-        options.cursor_emission,
-        retained_slot_layout,
-    )?;
+    let prepared = plan.into_scalar_runtime_handoff_with_retained_slot_layout(retained_slot_layout);
 
-    prepare_initial_scalar_route_runtime_from_handoff(
-        db,
-        prepared,
-        ScalarContinuationContext::initial(),
-        options,
-    )
+    prepare_initial_scalar_route_runtime_from_handoff(db, prepared, options)
 }
 
 // Prepare a resumed cursor-aware scalar runtime from a prepared load plan.
@@ -172,7 +153,6 @@ where
         db,
         prepared.authority,
         prepared.execution_preparation,
-        prepared.prepared_projection_contract,
         prepared.retained_slot_layout,
         prepared.plan_core,
         ScalarPreparedRuntimeOptions::resumed(
@@ -195,7 +175,6 @@ pub(super) fn prepare_initial_scalar_retained_slot_page_runtime_from_handoff<C>(
 where
     C: CanisterKind,
 {
-    let continuation = ScalarContinuationContext::initial();
     let projection_runtime_mode =
         initial_retained_slot_projection_runtime_mode(&prepared, suppress_route_scan_hints);
     prepared.retained_slot_layout = initial_retained_slot_layout(
@@ -208,7 +187,6 @@ where
     prepare_initial_scalar_route_runtime_from_handoff(
         db,
         prepared,
-        continuation,
         InitialScalarPlanRuntimeOptions::unpaged_rows_with_route_scan_hints(
             projection_runtime_mode,
             cursor_emission,
@@ -250,14 +228,15 @@ fn initial_retained_slot_layout(
 ) -> Result<Option<RetainedSlotLayout>, InternalError> {
     if prepared.plan_core.plan().projection_is_model_identity()? && !suppress_route_scan_hints {
         Ok(None)
-    } else if projection_runtime_mode.validate_projection()
-        || projection_runtime_mode.retain_slot_rows()
-    {
-        prepared.plan_core.get_or_init_scalar_layout(
-            prepared.authority.clone(),
-            projection_runtime_mode,
-            cursor_emission,
-        )
+    } else if projection_runtime_mode.retain_slot_rows() {
+        // Cursor-emitting layouts are compiled with their anchor requirements
+        // during runtime assembly, not reused from the cursorless cache.
+        if cursor_emission.enabled() {
+            return Ok(None);
+        }
+        prepared
+            .plan_core
+            .get_or_init_cursorless_retained_slot_layout(prepared.authority.clone())
     } else {
         Ok(prepared.retained_slot_layout.clone())
     }
@@ -273,14 +252,12 @@ fn projection_contract_requires_data_rows(shape: &PreparedProjectionContract) ->
 pub(super) fn prepare_initial_scalar_route_runtime_from_handoff<C>(
     db: &Db<C>,
     prepared: PreparedScalarRuntimeHandoff,
-    continuation: ScalarContinuationContext,
     options: InitialScalarPlanRuntimeOptions,
 ) -> Result<PreparedScalarRouteRuntime, InternalError>
 where
     C: CanisterKind,
 {
     let InitialScalarPlanRuntimeOptions {
-        unpaged_rows_mode,
         projection_runtime_mode,
         cursor_emission,
         suppress_route_scan_hints,
@@ -293,12 +270,9 @@ where
         db,
         prepared.authority,
         prepared.execution_preparation,
-        prepared.prepared_projection_contract,
         prepared.retained_slot_layout,
         prepared.plan_core,
         ScalarPreparedRuntimeOptions::initial(
-            continuation,
-            unpaged_rows_mode,
             projection_runtime_mode,
             cursor_emission,
             prebuilt_route_plan,
@@ -322,8 +296,9 @@ fn prepare_initial_scalar_route_plan_from_handoff(
 /// ScalarRouteSource
 ///
 /// ScalarRouteSource keeps each route family with the state required to
-/// resolve it. Initial execution carries its already-prepared deterministic
-/// route and continuation together.
+/// resolve it. Initial execution needs only its deterministic route; resumed
+/// execution carries its authenticated continuation. The family also determines
+/// whether unpaged scan hints apply.
 ///
 
 #[cfg_attr(
@@ -336,7 +311,6 @@ fn prepare_initial_scalar_route_plan_from_handoff(
 enum ScalarRouteSource {
     Initial {
         route_plan: ExecutionRoutePlan,
-        continuation: ScalarContinuationContext,
     },
     Resumed {
         continuation: ScalarContinuationContext,
@@ -355,7 +329,6 @@ enum ScalarRouteSource {
 ///
 
 struct ScalarPreparedRuntimeOptions {
-    unpaged_rows_mode: bool,
     cursor_emission: CursorEmissionMode,
     projection_runtime_mode: ProjectionMaterializationMode,
     route_source: ScalarRouteSource,
@@ -364,21 +337,15 @@ struct ScalarPreparedRuntimeOptions {
 
 impl ScalarPreparedRuntimeOptions {
     const fn initial(
-        continuation: ScalarContinuationContext,
-        unpaged_rows_mode: bool,
         projection_runtime_mode: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,
         route_plan: ExecutionRoutePlan,
         suppress_route_scan_hints: bool,
     ) -> Self {
         Self {
-            unpaged_rows_mode,
             cursor_emission,
             projection_runtime_mode,
-            route_source: ScalarRouteSource::Initial {
-                route_plan,
-                continuation,
-            },
+            route_source: ScalarRouteSource::Initial { route_plan },
             suppress_route_scan_hints,
         }
     }
@@ -389,7 +356,6 @@ impl ScalarPreparedRuntimeOptions {
         cursor_emission: CursorEmissionMode,
     ) -> Self {
         Self {
-            unpaged_rows_mode: false,
             cursor_emission,
             projection_runtime_mode,
             route_source: ScalarRouteSource::Resumed { continuation },
@@ -407,7 +373,6 @@ fn build_prepared_scalar_route_runtime(
     store: StoreHandle,
     authority: EntityAuthority,
     prep: ExecutionPreparation,
-    prepared_projection_validation: Option<Rc<PreparedProjectionContract>>,
     prepared_retained_slot_layout: Option<RetainedSlotLayout>,
     plan_core: PreparedScalarPlanCore,
     route_plan: ExecutionRoutePlan,
@@ -420,7 +385,6 @@ fn build_prepared_scalar_route_runtime(
     let projection = PreparedExecutionProjection::compile(
         authority.clone(),
         plan_core.plan(),
-        prepared_projection_validation,
         prepared_retained_slot_layout,
         projection_runtime_mode,
         cursor_emission,
@@ -449,7 +413,6 @@ fn prepare_scalar_route_runtime_from_inputs<C>(
     db: &Db<C>,
     authority: EntityAuthority,
     prep: ExecutionPreparation,
-    prepared_projection_validation: Option<Rc<PreparedProjectionContract>>,
     prepared_retained_slot_layout: Option<RetainedSlotLayout>,
     plan_core: PreparedScalarPlanCore,
     options: ScalarPreparedRuntimeOptions,
@@ -458,7 +421,6 @@ where
     C: CanisterKind,
 {
     let ScalarPreparedRuntimeOptions {
-        unpaged_rows_mode,
         cursor_emission,
         projection_runtime_mode,
         route_source,
@@ -470,11 +432,12 @@ where
     let logical_plan = plan_core.plan();
     validate_executor_plan_for_authority(&authority, logical_plan)?;
     let store = db.recovered_store(authority.store_path())?;
-    let (route_plan, continuation) = match route_source {
-        ScalarRouteSource::Initial {
-            route_plan,
-            continuation,
-        } => (route_plan, continuation),
+    // Initial/resumed hint eligibility follows the route family, not whether
+    // the continuation happens to contain a logical cursor boundary.
+    let (route_plan, continuation, unpaged_rows_mode) = match route_source {
+        ScalarRouteSource::Initial { route_plan } => {
+            (route_plan, ScalarContinuationContext::initial(), true)
+        }
         ScalarRouteSource::Resumed { continuation } => {
             let route_plan = build_execution_route_plan(
                 logical_plan,
@@ -485,7 +448,7 @@ where
                     load_terminal_fast_path: None,
                 },
             );
-            (route_plan, continuation)
+            (route_plan, continuation, false)
         }
     };
 
@@ -495,7 +458,6 @@ where
         store,
         authority,
         prep,
-        prepared_projection_validation,
         prepared_retained_slot_layout,
         plan_core,
         route_plan,
