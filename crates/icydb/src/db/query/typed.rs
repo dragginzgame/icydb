@@ -114,9 +114,11 @@ where
 ///
 /// Query
 ///
-/// Typed application projection over one accepted-schema-driven dynamic read.
+/// Typed complete-row or grouped read over one accepted-schema-driven query.
 /// Query planning, admission, and execution never consume generated model
 /// metadata. The generated type participates only in binding and output decode.
+/// For selected-field scalar output, use [`DynamicQuery`] with the session's
+/// structural page terminals instead of the complete generated row decoder.
 ///
 pub struct Query<'session, C, E>
 where
@@ -156,20 +158,6 @@ where
     #[must_use]
     pub fn order_by(mut self, order: OrderTerm) -> Self {
         self.request = self.request.order_by(order);
-        self
-    }
-
-    /// Select explicit accepted fields in scalar output order.
-    ///
-    /// Grouped execution rejects an explicit scalar selection because group
-    /// keys and aggregates define its output contract.
-    #[must_use]
-    pub fn select<I, S>(mut self, fields: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        self.request = self.request.select(fields);
         self
     }
 
@@ -360,19 +348,31 @@ impl<C: CanisterKind> DbSession<C> {
                 Some(row) => Some(E::decode_row(&binding, row)?),
                 None => None,
             };
-            distinct_rows.push(row);
+            distinct_rows.push((0, row));
         }
 
+        // Record last use in the existing row table. Earlier duplicate outputs
+        // need independent copies; the final output can consume the decoded row.
+        for (output_position, position) in prepared.positions.iter().enumerate() {
+            let index = usize::try_from(*position)
+                .map_err(|_| crate::db::TypedAdapterError::RowShapeMismatch)?;
+            let (last_use, _) = distinct_rows
+                .get_mut(index)
+                .ok_or(crate::db::TypedAdapterError::RowShapeMismatch)?;
+            *last_use = output_position;
+        }
         let mut rows = Vec::with_capacity(prepared.positions.len());
-        for position in prepared.positions {
+        for (output_position, position) in prepared.positions.into_iter().enumerate() {
             let index = usize::try_from(position)
                 .map_err(|_| crate::db::TypedAdapterError::RowShapeMismatch)?;
-            rows.push(
-                distinct_rows
-                    .get(index)
-                    .cloned()
-                    .ok_or(crate::db::TypedAdapterError::RowShapeMismatch)?,
-            );
+            let (last_use, row) = distinct_rows
+                .get_mut(index)
+                .ok_or(crate::db::TypedAdapterError::RowShapeMismatch)?;
+            rows.push(if *last_use == output_position {
+                row.take()
+            } else {
+                row.clone()
+            });
         }
         Ok(rows)
     }

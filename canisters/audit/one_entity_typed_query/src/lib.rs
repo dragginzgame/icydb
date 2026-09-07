@@ -120,19 +120,104 @@ mod tests {
     use crate::db;
     use icydb::{
         db::{
-            DynamicQuery, PrimaryKeyComponent, PrimaryKeyValue, StructuralMutation,
-            StructuralPatch, TypedAdapterError, TypedOperationError, TypedRowAdapter, TypedWrite,
+            DynamicQuery, OutputRow, PrimaryKeyComponent, PrimaryKeyValue, StructuralMutation,
+            StructuralPatch, TypedAdapterError, TypedEntityAdapter, TypedEntityBinding,
+            TypedEntityDescriptor, TypedOperationError, TypedRowAdapter, TypedWrite,
             TypedWriteAdapter, WriteCell,
             query::{FieldRef, asc, count},
         },
         diagnostic::{DiagnosticCode, DiagnosticDetail, ErrorOrigin, QueryReadAdmissionCode},
-        traits::EntitySource,
+        traits::{EntityKey, EntitySource},
         types::{Id, Ulid},
         value::{InputValue, OutputValue},
     };
     use icydb_testing_audit_one_simple_fixtures::one_simple::{
         OneSimpleEntity01, OneSimpleEntity01Insert,
     };
+    use std::cell::Cell;
+
+    thread_local! {
+        static EXACT_ROW_CLONES: Cell<usize> = const { Cell::new(0) };
+        static EXACT_ROW_DECODES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    // Observe final typed-row ownership using the maintained generated schema
+    // and decoder, without changing the database read or admission path.
+    struct ObservedExactAdapter;
+
+    impl EntityKey for ObservedExactAdapter {
+        type Key = Ulid;
+    }
+
+    impl TypedEntityAdapter for ObservedExactAdapter {
+        const DESCRIPTOR: &'static TypedEntityDescriptor = OneSimpleEntity01::DESCRIPTOR;
+    }
+
+    impl TypedRowAdapter for ObservedExactAdapter {
+        type Row = ObservedExactRow;
+
+        fn decode_row(
+            binding: &TypedEntityBinding,
+            row: OutputRow,
+        ) -> Result<Self::Row, TypedAdapterError> {
+            let row = OneSimpleEntity01::decode_row(binding, row)?;
+            EXACT_ROW_DECODES.set(EXACT_ROW_DECODES.get() + 1);
+            Ok(ObservedExactRow(row))
+        }
+    }
+
+    struct ObservedExactRow(OneSimpleEntity01);
+
+    impl Clone for ObservedExactRow {
+        fn clone(&self) -> Self {
+            EXACT_ROW_CLONES.set(EXACT_ROW_CLONES.get() + 1);
+            Self(self.0.clone())
+        }
+    }
+
+    #[test]
+    fn exact_key_rows_copy_only_additional_present_occurrences() {
+        let name = "heap-bearing-row".repeat(64);
+        let first = insert_one_native_row(&name);
+        let second = insert_one_native_row("second");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("native database should initialize");
+            for (keys, decodes, clones) in [
+                (vec![], 0, 0),
+                (vec![first], 1, 0),
+                (vec![second, first], 2, 0),
+                (vec![Ulid::MAX, Ulid::MAX], 0, 0),
+                (vec![first, first, first], 1, 2),
+                (vec![second, first, Ulid::MAX, second, first], 2, 2),
+            ] {
+                let ids = keys.iter().copied().map(Id::from_key).collect::<Vec<_>>();
+                EXACT_ROW_CLONES.set(0);
+                EXACT_ROW_DECODES.set(0);
+                let rows = database
+                    .get_many::<ObservedExactAdapter>(&ids)
+                    .expect("observed exact-key batch should execute");
+                assert_eq!(EXACT_ROW_DECODES.get(), decodes);
+                assert_eq!(EXACT_ROW_CLONES.get(), clones);
+                assert_eq!(rows.len(), keys.len());
+                for (row, key) in rows.into_iter().zip(keys) {
+                    if key == Ulid::MAX {
+                        assert!(row.is_none());
+                    } else {
+                        let row = row.expect("present key should retain its row").0;
+                        assert_eq!(row.id, key);
+                        assert_eq!(row.name, if key == first { &name } else { "second" });
+                    }
+                }
+            }
+            EXACT_ROW_CLONES.set(0);
+            let row = database
+                .get::<ObservedExactAdapter>(Id::from_key(first))
+                .expect("single exact-key read should execute")
+                .expect("single row should exist");
+            assert_eq!(row.0.name, name);
+            assert_eq!(EXACT_ROW_CLONES.get(), 0);
+        });
+    }
 
     fn insert_one_native_row(name: &str) -> Ulid {
         crate::__icydb_generated::__initialize_native_database_for_tests()
@@ -170,6 +255,54 @@ mod tests {
     #[test]
     fn second_libtest_thread_initializes_its_native_database() {
         insert_one_native_row("second");
+    }
+
+    #[test]
+    fn typed_full_rows_and_dynamic_projections_preserve_output_contracts() {
+        let id = insert_one_native_row("selected-name");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("native database should initialize");
+            for (key, present) in [(id, true), (Ulid::MAX, false)] {
+                let typed = database
+                    .query::<OneSimpleEntity01>()
+                    .expect("generated entity should bind")
+                    .filter(OneSimpleEntity01::ID.eq(key))
+                    .order_by(asc(OneSimpleEntity01::ID))
+                    .limit(1)
+                    .execute_live_page(None)
+                    .expect("complete typed page should decode");
+                assert_eq!(typed.rows.len(), usize::from(present));
+                assert!(typed.continuation.is_none());
+                if let Some(row) = typed.rows.first() {
+                    assert_eq!(row.id, id);
+                    assert_eq!(row.name, "selected-name");
+                    assert!(row.profiles.is_empty());
+                }
+
+                let request = DynamicQuery::new(OneSimpleEntity01::ENTITY)
+                    .filter(OneSimpleEntity01::ID.eq(key))
+                    .select([
+                        OneSimpleEntity01::NAME.as_str(),
+                        OneSimpleEntity01::ID.as_str(),
+                    ])
+                    .order_by(asc(OneSimpleEntity01::ID))
+                    .limit(1);
+                let projected = database
+                    .execute_live_page(&request, None)
+                    .expect("selected-field page should execute");
+                assert_eq!(projected.columns, ["name", "id"]);
+                let expected = if present {
+                    vec![vec![
+                        OutputValue::text("selected-name".to_string()),
+                        OutputValue::ulid(id),
+                    ]]
+                } else {
+                    Vec::new()
+                };
+                assert_eq!(projected.rows, expected);
+                assert!(projected.continuation.is_none());
+            }
+        });
     }
 
     #[test]

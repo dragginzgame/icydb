@@ -144,6 +144,22 @@ before crossing the existing `InputValue` / `OutputValue` boundary.
 Always return or consume `page.continuation`; a non-null value proves the read
 has not yet established exhaustion.
 
+Typed page terminals return complete generated entity rows. When only selected
+fields are needed, use the structural page terminal; it returns selected columns
+and values without attempting to decode a complete entity:
+
+```rust,ignore
+let request = DynamicQuery::new(User::ENTITY)
+    .filter(User::ID.eq(user_id))
+    .select([User::ID.as_str(), User::NAME.as_str()])
+    .order_by(asc(User::ID))
+    .limit(25);
+let page = db!()?.execute_live_page(&request, continuation.as_deref())?;
+```
+
+Return or consume this page's continuation just as for a typed page. Selection
+does not change public read admission or make an unbounded scan admissible.
+
 Framework adapters that traverse internally may instead use
 `advance_live_page(&request, continuation.as_deref())` or its visibly trusted
 counterpart. Each call returns one uncommitted `LivePageStep` that retains the

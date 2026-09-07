@@ -123,8 +123,10 @@ let page = db!()?
 
 Continue by rebuilding the same request and passing `page.next_cursor` through
 `.cursor(...)`. The token is opaque and remains bound to the accepted plan and
-schema authority. Grouped queries reject `.select(...)`; their output is
-defined by the ordered group keys and aggregate declarations.
+schema authority. Grouped output is defined by the ordered group keys and
+aggregate declarations. Dynamic grouped queries reject explicit scalar selection.
+Typed scalar page terminals decode complete entity rows; selected-field scalar
+reads use `DynamicQuery::select` and the structural page terminals.
 
 ## Trusted Reads
 
