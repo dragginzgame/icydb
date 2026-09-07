@@ -323,6 +323,14 @@ entity's final `TypedRowAdapter::decode_row` remains generic. Use
 `execute_trusted_typed_write` only when the caller specifically needs the raw
 `DynamicMutationResult` envelope.
 
+`TypedRowAdapter::decode_row` consumes its `OutputRow`. Generated adapters move
+owned field values into the Rust entity, including nested heap-bearing values,
+while retaining accepted-source and shape checks. Handwritten low-level adapters
+use `binding.take_row_value(source_key, &mut row)?.into_public()` and pass that
+owned value to `TypedOutputValue::decode_typed_output`. Request each source field
+once: extraction leaves NULL in the row's scratch slot, and the consumed row is
+discarded after decoding. A decoding error after a write does not undo publication.
+
 Framework adapters should likewise prefer these concrete row terminals over
 reimplementing execution, cardinality validation, and accepted-row projection
 inside every entity-generic mutation helper.
@@ -352,26 +360,30 @@ fn enroll<C: CanisterKind>(
         .map_err(icydb::Error::from)
         .map_err(TypedOperationError::Database)?;
     let mut batch = session.trusted_typed_write_batch();
-    let user = batch.push(UserInsert {
+    batch.push(UserInsert {
         id: WriteCell::Value(user_id),
         display_name: WriteCell::Value("Ada".to_string()),
     })?;
-    let membership = batch.push(UserPrincipalInsert {
+    batch.push(UserPrincipalInsert {
         authentication_principal: WriteCell::Value(Id::from_key(principal)),
         user_id: WriteCell::Value(user_id),
     })?;
-    let robot = batch.push(RobotInsert {
+    batch.push(RobotInsert {
         user_id: WriteCell::Value(user_id),
         label: WriteCell::Value("Ada's robot".to_string()),
     })?;
 
-    let mut results = batch.execute()?;
-    let _user_row = results.row(&user)?;
-    let _membership_row = results.row(&membership)?;
-    let _robot_row = results.row(&robot)?;
+    batch.execute()?;
     Ok(user_id)
 }
 ```
+
+Enrollment returns its preallocated ID, so it does not retain handles or decode
+saved rows. Batch execution still performs its normal validation and result
+preparation; ignoring the returned rows does not select a different write mode.
+When saved values are needed, retain the handle from `push`, then call
+`results.row(&handle)` after `let mut results = batch.execute()?`. Row decoding
+occurs after publication; a later decode error does not roll back the batch.
 
 The maintained no-SQL compile fixture contains the complete schema and error
 mapping. A handle is valid only for the result owner that issued it; mixing

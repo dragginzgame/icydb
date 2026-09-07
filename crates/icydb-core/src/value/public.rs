@@ -231,7 +231,9 @@ impl PublicEnumValue {
         }
     }
 
-    pub(crate) fn into_parts(self) -> (String, Option<String>, Option<PublicValue>) {
+    /// Consume enum metadata and its payload without copying.
+    #[must_use]
+    pub fn into_parts(self) -> (String, Option<String>, Option<PublicValue>) {
         (
             self.variant,
             self.path,

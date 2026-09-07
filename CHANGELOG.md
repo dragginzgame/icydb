@@ -5,6 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.256.x] - 2026-09-07 - Application API Friction
+
+Detailed notes: [docs/changelog/0.256.md](docs/changelog/0.256.md)
+
+- `0.256.0` reduces copying in typed inputs and generated rows and simplifies enrollment result handling; handwritten low-level output adapters must adopt owned values (breaking).
+
 ## [0.255.x] - 2026-09-07 - Owned Value Handoff
 
 Detailed notes: [docs/changelog/0.255.md](docs/changelog/0.255.md)

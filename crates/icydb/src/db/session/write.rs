@@ -371,12 +371,16 @@ impl TypedEntityBinding {
         self.inner.entity()
     }
 
-    /// Borrow one bound row value by immutable field source key.
-    pub fn row_value<'a>(
+    /// Take one bound field, leaving NULL in the consumed row's scratch slot.
+    ///
+    /// Generated decoders request each field once and discard the row afterward.
+    /// Binding and field checks run before changing the slot.
+    #[doc(hidden)]
+    pub fn take_row_value(
         &self,
         field_source_key: &str,
-        row: &'a OutputRow,
-    ) -> Result<&'a OutputValue, TypedAdapterError> {
+        row: &mut OutputRow,
+    ) -> Result<OutputValue, TypedAdapterError> {
         if row.projection.0.binding != *self {
             return Err(TypedAdapterError::StaleBinding);
         }
@@ -394,9 +398,11 @@ impl TypedEntityBinding {
             .iter()
             .find_map(|(bound_slot, index)| (*bound_slot == slot).then_some(*index))
             .ok_or(TypedAdapterError::RowFieldUnavailable)?;
-        row.values
-            .get(index)
-            .ok_or(TypedAdapterError::RowShapeMismatch)
+        let value = row
+            .values
+            .get_mut(index)
+            .ok_or(TypedAdapterError::RowShapeMismatch)?;
+        Ok(std::mem::replace(value, OutputValue::null()))
     }
 
     /// Resolve one generated named-type source key through accepted authority.
@@ -422,12 +428,12 @@ impl TypedEntityBinding {
 
     /// Resolve and validate one exact source-bound record output projection.
     #[doc(hidden)]
-    pub fn record_output_values<'value>(
+    pub fn record_output_values(
         &self,
         type_source_key: &str,
         member_source_keys: &[&str],
-        value: &'value PublicValue,
-    ) -> Result<Vec<&'value PublicValue>, TypedAdapterError> {
+        value: PublicValue,
+    ) -> Result<Vec<PublicValue>, TypedAdapterError> {
         let mut accepted_names = Vec::with_capacity(member_source_keys.len());
         for source_key in member_source_keys {
             let name = self
@@ -446,7 +452,7 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
     fn input_scalar(&self, value: icydb_model::TypedScalarValue) -> Self::PublicValue {
         match value {
             icydb_model::TypedScalarValue::Account(value) => PublicValue::Account(value),
-            icydb_model::TypedScalarValue::Blob(value) => PublicValue::Blob(value.to_vec()),
+            icydb_model::TypedScalarValue::Blob(value) => PublicValue::Blob(value.into_bytes()),
             icydb_model::TypedScalarValue::Bool(value) => PublicValue::Bool(value),
             icydb_model::TypedScalarValue::Date(value) => PublicValue::Date(value),
             icydb_model::TypedScalarValue::Decimal(value) => PublicValue::Decimal(value),
@@ -517,31 +523,31 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
             .map(PublicValue::Map)
     }
 
-    fn output_scalar(&self, value: &Self::PublicValue) -> Option<icydb_model::TypedScalarValue> {
+    fn output_scalar(&self, value: Self::PublicValue) -> Option<icydb_model::TypedScalarValue> {
         Some(match value {
-            PublicValue::Account(value) => icydb_model::TypedScalarValue::Account(*value),
+            PublicValue::Account(value) => icydb_model::TypedScalarValue::Account(value),
             PublicValue::Blob(value) => {
-                icydb_model::TypedScalarValue::Blob(icydb_schema::Blob::from(value.as_slice()))
+                icydb_model::TypedScalarValue::Blob(icydb_schema::Blob::from(value))
             }
-            PublicValue::Bool(value) => icydb_model::TypedScalarValue::Bool(*value),
-            PublicValue::Date(value) => icydb_model::TypedScalarValue::Date(*value),
-            PublicValue::Decimal(value) => icydb_model::TypedScalarValue::Decimal(*value),
-            PublicValue::Duration(value) => icydb_model::TypedScalarValue::Duration(*value),
-            PublicValue::Float32(value) => icydb_model::TypedScalarValue::Float32(*value),
-            PublicValue::Float64(value) => icydb_model::TypedScalarValue::Float64(*value),
-            PublicValue::Int64(value) => icydb_model::TypedScalarValue::Int64(*value),
-            PublicValue::Int128(value) => icydb_model::TypedScalarValue::Int128(*value),
-            PublicValue::IntBig(value) => icydb_model::TypedScalarValue::IntBig(value.clone()),
-            PublicValue::Nat64(value) => icydb_model::TypedScalarValue::Nat64(*value),
-            PublicValue::Nat128(value) => icydb_model::TypedScalarValue::Nat128(*value),
-            PublicValue::NatBig(value) => icydb_model::TypedScalarValue::NatBig(value.clone()),
-            PublicValue::Principal(value) => icydb_model::TypedScalarValue::Principal(*value),
-            PublicValue::Subaccount(value) => icydb_model::TypedScalarValue::Subaccount(*value),
-            PublicValue::Text(value) => icydb_model::TypedScalarValue::Text(value.clone()),
-            PublicValue::Timestamp(value) => icydb_model::TypedScalarValue::Timestamp(*value),
-            PublicValue::Ulid(value) => icydb_model::TypedScalarValue::Ulid(*value),
+            PublicValue::Bool(value) => icydb_model::TypedScalarValue::Bool(value),
+            PublicValue::Date(value) => icydb_model::TypedScalarValue::Date(value),
+            PublicValue::Decimal(value) => icydb_model::TypedScalarValue::Decimal(value),
+            PublicValue::Duration(value) => icydb_model::TypedScalarValue::Duration(value),
+            PublicValue::Float32(value) => icydb_model::TypedScalarValue::Float32(value),
+            PublicValue::Float64(value) => icydb_model::TypedScalarValue::Float64(value),
+            PublicValue::Int64(value) => icydb_model::TypedScalarValue::Int64(value),
+            PublicValue::Int128(value) => icydb_model::TypedScalarValue::Int128(value),
+            PublicValue::IntBig(value) => icydb_model::TypedScalarValue::IntBig(value),
+            PublicValue::Nat64(value) => icydb_model::TypedScalarValue::Nat64(value),
+            PublicValue::Nat128(value) => icydb_model::TypedScalarValue::Nat128(value),
+            PublicValue::NatBig(value) => icydb_model::TypedScalarValue::NatBig(value),
+            PublicValue::Principal(value) => icydb_model::TypedScalarValue::Principal(value),
+            PublicValue::Subaccount(value) => icydb_model::TypedScalarValue::Subaccount(value),
+            PublicValue::Text(value) => icydb_model::TypedScalarValue::Text(value),
+            PublicValue::Timestamp(value) => icydb_model::TypedScalarValue::Timestamp(value),
+            PublicValue::Ulid(value) => icydb_model::TypedScalarValue::Ulid(value),
             PublicValue::Unit => icydb_model::TypedScalarValue::Unit,
-            PublicValue::U256(value) => icydb_model::TypedScalarValue::U256(*value),
+            PublicValue::U256(value) => icydb_model::TypedScalarValue::U256(value),
             PublicValue::Enum(_)
             | PublicValue::List(_)
             | PublicValue::Map(_)
@@ -551,19 +557,19 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
         })
     }
 
-    fn output_list<'a>(&self, value: &'a Self::PublicValue) -> Option<&'a [Self::PublicValue]> {
+    fn output_list(&self, value: Self::PublicValue) -> Option<Vec<Self::PublicValue>> {
         match value {
-            PublicValue::List(values) => Some(values.as_slice()),
+            PublicValue::List(values) => Some(values),
             _ => None,
         }
     }
 
-    fn output_map<'a>(
+    fn output_map(
         &self,
-        value: &'a Self::PublicValue,
-    ) -> Option<&'a [(Self::PublicValue, Self::PublicValue)]> {
+        value: Self::PublicValue,
+    ) -> Option<Vec<(Self::PublicValue, Self::PublicValue)>> {
         match value {
-            PublicValue::Map(entries) => Some(entries.as_slice()),
+            PublicValue::Map(entries) => Some(entries),
             _ => None,
         }
     }
@@ -572,11 +578,11 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
         matches!(value, PublicValue::Null)
     }
 
-    fn output_enum<'a>(
+    fn output_enum(
         &self,
         descriptor: &'static icydb_model::TypedEnumDescriptor,
-        value: &'a Self::PublicValue,
-    ) -> Result<icydb_model::TypedEnumSelection<'a, Self::PublicValue>, icydb_model::TypedValueError>
+        value: Self::PublicValue,
+    ) -> Result<icydb_model::TypedEnumSelection<Self::PublicValue>, icydb_model::TypedValueError>
     {
         let PublicValue::Enum(value) = value else {
             return Err(icydb_model::TypedValueError::ShapeMismatch);
@@ -598,16 +604,16 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
             .ok_or(icydb_model::TypedValueError::ShapeMismatch)?;
         Ok(icydb_model::TypedEnumSelection {
             ordinal,
-            payload: value.payload(),
+            payload: value.into_parts().2,
         })
     }
 
-    fn output_record<'a>(
+    fn output_record(
         &self,
         type_source_key: &'static str,
         member_source_keys: &[&'static str],
-        value: &'a Self::PublicValue,
-    ) -> Result<Vec<&'a Self::PublicValue>, icydb_model::TypedValueError> {
+        value: Self::PublicValue,
+    ) -> Result<Vec<Self::PublicValue>, icydb_model::TypedValueError> {
         self.record_output_values(type_source_key, member_source_keys, value)
             .map_err(|error| match error {
                 TypedAdapterError::FieldUnavailable => {
@@ -618,41 +624,32 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
     }
 }
 
-fn exact_record_output_values<'value>(
+fn exact_record_output_values(
     accepted_names: &[&str],
-    value: &'value PublicValue,
-) -> Result<Vec<&'value PublicValue>, TypedAdapterError> {
-    let PublicValue::Map(entries) = value else {
+    value: PublicValue,
+) -> Result<Vec<PublicValue>, TypedAdapterError> {
+    let PublicValue::Map(mut entries) = value else {
         return Err(TypedAdapterError::ValueShapeMismatch);
     };
-    if entries.len() != accepted_names.len()
-        || accepted_names
-            .iter()
-            .copied()
-            .collect::<BTreeSet<_>>()
-            .len()
-            != accepted_names.len()
-    {
+    if entries.len() != accepted_names.len() {
         return Err(TypedAdapterError::ValueShapeMismatch);
     }
 
-    let mut values = vec![None; accepted_names.len()];
-    for (key, value) in entries {
-        let PublicValue::Text(name) = key else {
-            return Err(TypedAdapterError::ValueShapeMismatch);
-        };
-        let Some(index) = accepted_names.iter().position(|accepted| *accepted == name) else {
-            return Err(TypedAdapterError::ValueShapeMismatch);
-        };
-        if values[index].replace(value).is_some() {
+    // Equal cardinality and unique accepted names make this an exact permutation:
+    // a duplicate, unknown or non-text key necessarily leaves a required name absent.
+    // Finish validation before exposing any member to the generated decoder.
+    for (index, accepted) in accepted_names.iter().enumerate() {
+        if accepted_names[..index].contains(accepted) {
             return Err(TypedAdapterError::ValueShapeMismatch);
         }
+        let offset = entries[index..]
+            .iter()
+            .position(|(key, _)| matches!(key, PublicValue::Text(name) if name == accepted))
+            .ok_or(TypedAdapterError::ValueShapeMismatch)?;
+        entries.swap(index, index + offset);
     }
 
-    values
-        .into_iter()
-        .collect::<Option<Vec<_>>>()
-        .ok_or(TypedAdapterError::ValueShapeMismatch)
+    Ok(entries.into_iter().map(|(_, value)| value).collect())
 }
 
 #[cfg(test)]
@@ -671,11 +668,11 @@ mod typed_record_output_tests {
             (text("label"), text("Ada")),
         ]);
 
-        let values = exact_record_output_values(&["label", "count"], &value)
+        let values = exact_record_output_values(&["label", "count"], value)
             .expect("exact accepted record output should decode");
 
-        assert!(matches!(values[0], PublicValue::Text(value) if value == "Ada"));
-        assert_eq!(values[1], &PublicValue::Nat64(7));
+        assert!(matches!(&values[0], PublicValue::Text(value) if value == "Ada"));
+        assert_eq!(values[1], PublicValue::Nat64(7));
     }
 
     #[test]
@@ -697,15 +694,47 @@ mod typed_record_output_tests {
             PublicValue::List(Vec::new()),
         ];
 
-        for value in &malformed {
+        for value in malformed.clone() {
             assert_eq!(
                 exact_record_output_values(&["label", "count"], value),
                 Err(TypedAdapterError::ValueShapeMismatch),
             );
         }
         assert_eq!(
-            exact_record_output_values(&["label", "label"], &malformed[0]),
+            exact_record_output_values(&["label", "label"], malformed[0].clone()),
             Err(TypedAdapterError::ValueShapeMismatch),
+        );
+    }
+
+    #[test]
+    fn exact_record_output_preserves_every_member_permutation_and_null() {
+        let members = [
+            (text("label"), text("Ada")),
+            (text("count"), PublicValue::Nat64(7)),
+            (text("note"), PublicValue::Null),
+        ];
+        for order in [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ] {
+            let record = PublicValue::Map(
+                order
+                    .into_iter()
+                    .map(|index| members[index].clone())
+                    .collect(),
+            );
+            assert_eq!(
+                exact_record_output_values(&["label", "count", "note"], record),
+                Ok(vec![text("Ada"), PublicValue::Nat64(7), PublicValue::Null]),
+            );
+        }
+        assert_eq!(
+            exact_record_output_values(&[], PublicValue::Map(Vec::new())),
+            Ok(Vec::new())
         );
     }
 

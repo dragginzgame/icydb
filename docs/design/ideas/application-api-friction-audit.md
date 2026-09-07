@@ -1,6 +1,8 @@
 # Application API Friction Audit
 
-Status: idea intake only; no implementation or release authority
+Status: promoted to [0.256 Application API Friction](../0.256-application-api-friction/0.256-design.md).
+That design and its tracker own current scope, evidence and delivery decisions;
+this note retains the original intake rationale, not a competing work plan.
 
 Recorded: 2026-09-06
 

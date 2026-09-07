@@ -132,7 +132,7 @@ mod tests {
         value::{InputValue, OutputValue},
     };
     use icydb_testing_audit_one_simple_fixtures::one_simple::{
-        OneSimpleEntity01, OneSimpleEntity01Insert,
+        OneSimpleEntity01, OneSimpleEntity01Insert, ReachableInputChoice, ReachableInputProfile,
     };
     use std::cell::Cell;
 
@@ -248,13 +248,270 @@ mod tests {
     }
 
     #[test]
+    fn generated_row_decode_moves_text_and_nested_record_buffers() {
+        crate::__icydb_generated::__initialize_native_database_for_tests()
+            .expect("native startup should complete");
+        icydb::db::with_request_execution(|| {
+            use icydb::value::PublicValue;
+
+            let database = db().expect("database should initialize");
+            let binding = OneSimpleEntity01::typed_binding(&database).expect("entity should bind");
+            let profiles = vec![
+                ReachableInputProfile {
+                    label: "owned label".to_string(),
+                    choice: ReachableInputChoice::Weighted(7),
+                    note: Some("owned note".to_string()),
+                },
+                ReachableInputProfile {
+                    label: "second label".to_string(),
+                    choice: ReachableInputChoice::Ready,
+                    note: None,
+                },
+            ];
+            let write = OneSimpleEntity01Insert {
+                name: WriteCell::Value("owned row".to_string()),
+                profiles: WriteCell::Value(profiles.clone()),
+            }
+            .encode_write(&binding)
+            .expect("input should encode");
+            let result = database
+                .execute_trusted_typed_write(write)
+                .expect("write should commit");
+            let values = &result.rows[0];
+            let name_index = result
+                .columns
+                .iter()
+                .position(|name| name == "name")
+                .unwrap();
+            let profiles_index = result
+                .columns
+                .iter()
+                .position(|name| name == "profiles")
+                .unwrap();
+            let PublicValue::Text(name) = values[name_index].as_public() else {
+                panic!("name should be text");
+            };
+            let name_buffer = name.as_ptr();
+            let PublicValue::List(records) = values[profiles_index].as_public() else {
+                panic!("profiles should be a list");
+            };
+            let buffers = records
+                .iter()
+                .map(|record| {
+                    let PublicValue::Map(fields) = record else {
+                        panic!("profile should be a record");
+                    };
+                    let buffer = |member: &str| {
+                        fields.iter().find_map(|(key, value)| match (key, value) {
+                            (PublicValue::Text(key), PublicValue::Text(value)) if key == member => {
+                                Some(value.as_ptr())
+                            }
+                            _ => None,
+                        })
+                    };
+                    (buffer("label").unwrap(), buffer("note"))
+                })
+                .collect::<Vec<_>>();
+            let mut rows = database
+                .prepare_typed_output_rows(&binding, result.entity, result.columns, result.rows)
+                .expect("returned rows should project");
+            let row = OneSimpleEntity01::decode_row(&binding, rows.next().unwrap())
+                .expect("owned row should decode");
+            assert_eq!(row.name, "owned row");
+            assert_eq!(row.profiles, profiles);
+            assert_eq!(row.name.as_ptr(), name_buffer);
+            for (profile, (label, note)) in row.profiles.iter().zip(buffers) {
+                assert_eq!(profile.label.as_ptr(), label);
+                assert_eq!(profile.note.as_ref().map(|value| value.as_ptr()), note);
+            }
+        });
+    }
+
+    #[test]
+    fn owned_row_extraction_preserves_field_errors_and_generated_error_order() {
+        crate::__icydb_generated::__initialize_native_database_for_tests()
+            .expect("native startup should complete");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("database should initialize");
+            let binding = OneSimpleEntity01::typed_binding(&database).expect("entity should bind");
+            let mut rows = database
+                .prepare_typed_output_rows(
+                    &binding,
+                    OneSimpleEntity01::ENTITY.to_string(),
+                    vec!["id".to_string()],
+                    vec![vec![OutputValue::text("wrong key type".to_string())]],
+                )
+                .expect("row envelope should project");
+            let mut row = rows.next().unwrap();
+            let unchanged = row.clone();
+            assert_eq!(
+                binding.take_row_value("absent", &mut row),
+                Err(TypedAdapterError::FieldUnavailable)
+            );
+            assert_eq!(
+                binding.take_row_value("name", &mut row),
+                Err(TypedAdapterError::RowFieldUnavailable)
+            );
+            assert_eq!(row, unchanged);
+            // The first generated field's conversion fails before a later missing field.
+            assert_eq!(
+                OneSimpleEntity01::decode_row(&binding, row),
+                Err(TypedAdapterError::ValueShapeMismatch)
+            );
+        });
+    }
+
+    #[test]
+    fn owned_scalar_decode_preserves_buffers_values_and_shape_errors() {
+        use icydb::{
+            model::TypedOutputValue,
+            types::{Blob, IntBig, NatBig},
+            value::PublicValue,
+        };
+
+        crate::__icydb_generated::__initialize_native_database_for_tests()
+            .expect("native startup should complete");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("database should initialize");
+            let binding = OneSimpleEntity01::typed_binding(&database).expect("entity should bind");
+            let bytes = vec![42; 1024];
+            let pointer = bytes.as_ptr();
+            let blob = Blob::decode_typed_output(&binding, PublicValue::Blob(bytes)).unwrap();
+            assert_eq!(blob.as_bytes(), &[42; 1024]);
+            assert_eq!(blob.as_bytes().as_ptr(), pointer);
+
+            let signed: IntBig = "-12345678901234567890123456789012345678901234567890"
+                .parse()
+                .unwrap();
+            let unsigned: NatBig = "12345678901234567890123456789012345678901234567890"
+                .parse()
+                .unwrap();
+            assert_eq!(
+                IntBig::decode_typed_output(&binding, PublicValue::IntBig(signed.clone())).unwrap(),
+                signed
+            );
+            assert_eq!(
+                NatBig::decode_typed_output(&binding, PublicValue::NatBig(unsigned.clone()))
+                    .unwrap(),
+                unsigned
+            );
+            assert_eq!(
+                u8::decode_typed_output(&binding, PublicValue::Nat64(255)),
+                Ok(255)
+            );
+            assert_eq!(
+                u8::decode_typed_output(&binding, PublicValue::Nat64(256)),
+                Err(icydb::model::TypedValueError::ShapeMismatch)
+            );
+            assert_eq!(
+                String::decode_typed_output(&binding, PublicValue::Blob(vec![1])),
+                Err(icydb::model::TypedValueError::ShapeMismatch)
+            );
+        });
+    }
+
+    #[test]
     fn first_libtest_thread_initializes_its_native_database() {
         insert_one_native_row("first");
     }
 
     #[test]
+    fn typed_blob_inputs_move_scalar_and_nested_buffers() {
+        use icydb::{types::Blob, value::PublicValue};
+
+        crate::__icydb_generated::__initialize_native_database_for_tests()
+            .expect("native startup should complete");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("database should initialize");
+            let binding = OneSimpleEntity01::typed_binding(&database).expect("entity should bind");
+            for len in [0, 1, 4096, 65536] {
+                let mut bytes = Vec::with_capacity(len + 8);
+                bytes.resize(len, 42);
+                let pointer = bytes.as_ptr();
+                let input = database
+                    .bind_typed_input(&binding, Blob::from(bytes))
+                    .expect("scalar input should encode");
+                let PublicValue::Blob(bytes) = input.into_public() else {
+                    panic!("blob input should retain its scalar shape");
+                };
+                assert_eq!(bytes.len(), len);
+                assert!(bytes.iter().all(|byte| *byte == 42));
+                assert_eq!(bytes.as_ptr(), pointer);
+            }
+
+            let first = vec![7; 4096];
+            let second = vec![9; 64];
+            let pointers = [first.as_ptr(), second.as_ptr()];
+            let input = database
+                .bind_typed_input(
+                    &binding,
+                    vec![
+                        Some(Blob::from(first)),
+                        None,
+                        Some(Blob::from(second)),
+                        Some(Blob::default()),
+                    ],
+                )
+                .expect("nested optional blobs should encode");
+            let PublicValue::List(values) = input.into_public() else {
+                panic!("nested input should retain its list shape");
+            };
+            assert_eq!(values.len(), 4);
+            assert_eq!(values[1], PublicValue::Null);
+            for (index, pointer, len, byte) in [(0, pointers[0], 4096, 7), (2, pointers[1], 64, 9)]
+            {
+                let PublicValue::Blob(bytes) = &values[index] else {
+                    panic!("present input should be a blob");
+                };
+                assert_eq!(bytes.as_ptr(), pointer);
+                assert_eq!(bytes.len(), len);
+                assert!(bytes.iter().all(|value| *value == byte));
+            }
+            assert_eq!(values[3], PublicValue::Blob(Vec::new()));
+        });
+    }
+
+    #[test]
     fn second_libtest_thread_initializes_its_native_database() {
         insert_one_native_row("second");
+    }
+
+    #[test]
+    fn typed_blob_input_still_requires_accepted_field_admission() {
+        use icydb::types::Blob;
+
+        crate::__icydb_generated::__initialize_native_database_for_tests()
+            .expect("native startup should complete");
+        icydb::db::with_request_execution(|| {
+            let database = db().expect("database should initialize");
+            let binding = OneSimpleEntity01::typed_binding(&database).expect("entity should bind");
+            let typed = database
+                .bind_typed_input(&binding, Blob::from(vec![7; 4]))
+                .expect("a bound scalar encodes before field admission");
+            let reject = |input| {
+                let patch = StructuralPatch::new()
+                    .field("name", WriteCell::Value(input))
+                    .field("profiles", WriteCell::Value(InputValue::list(Vec::new())));
+                database
+                    .execute_trusted_structural_insert_batch(OneSimpleEntity01::ENTITY, vec![patch])
+                    .expect_err("a blob cannot populate the accepted text field")
+            };
+            let direct_error = reject(InputValue::blob(vec![7; 4]));
+            let typed_error = reject(typed);
+            assert_eq!(typed_error.code(), direct_error.code());
+            assert_eq!(typed_error.origin(), direct_error.origin());
+            // Inspect the whole fixture through the explicit trusted scan surface.
+            let request = DynamicQuery::new(OneSimpleEntity01::ENTITY)
+                .order_by(asc("id"))
+                .limit(1);
+            assert!(
+                database
+                    .execute_trusted_live_page(&request, None)
+                    .expect("rejected writes leave readable state")
+                    .rows
+                    .is_empty()
+            );
+        });
     }
 
     #[test]

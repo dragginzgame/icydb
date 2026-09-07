@@ -1226,7 +1226,7 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
         quote! {
             #ident: <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
                 binding,
-                binding.row_value(#name, &row)?.as_public()
+                binding.take_row_value(#name, &mut row)?.into_public()
             )?
         }
     });
@@ -1285,7 +1285,7 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
 
             fn decode_row(
                 binding: &::icydb::db::TypedEntityBinding,
-                row: ::icydb::db::OutputRow,
+                mut row: ::icydb::db::OutputRow,
             ) -> Result<Self::Row, ::icydb::db::TypedAdapterError> {
                 Ok(Self {
                     #(#decoded_fields),*

@@ -11,7 +11,8 @@ use super::{
 #[crate::enum_(
     name = "TestChoiceSource",
     variant(name = "Empty"),
-    variant(name = "Count", value(item(prim = "Int64")))
+    variant(name = "Count", value(item(prim = "Int64"))),
+    variant(name = "Text", value(item(prim = "Text", unbounded)))
 )]
 pub struct TestChoice {}
 
@@ -24,6 +25,12 @@ pub struct TestChoice {}
     )
 )]
 pub struct TestProfile {}
+
+#[crate::tuple(
+    value(item(prim = "Text", unbounded)),
+    value(opt, item(prim = "Int64"))
+)]
+pub struct TestTuple {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum TestValue {
@@ -78,6 +85,7 @@ impl TypedAdapterContext for TestContext {
         let ordinal = match variant_source_key {
             "Empty" => 0,
             "Count" => 1,
+            "Text" => 2,
             _ => return Err(TypedValueError::SourceUnavailable),
         };
         Ok(TestValue::Enum {
@@ -102,25 +110,25 @@ impl TypedAdapterContext for TestContext {
         ))
     }
 
-    fn output_scalar(&self, value: &Self::PublicValue) -> Option<TypedScalarValue> {
+    fn output_scalar(&self, value: Self::PublicValue) -> Option<TypedScalarValue> {
         match value {
-            TestValue::Int64(value) => Some(TypedScalarValue::Int64(*value)),
-            TestValue::Text(value) => Some(TypedScalarValue::Text(value.clone())),
+            TestValue::Int64(value) => Some(TypedScalarValue::Int64(value)),
+            TestValue::Text(value) => Some(TypedScalarValue::Text(value)),
             _ => None,
         }
     }
 
-    fn output_list<'a>(&self, value: &'a Self::PublicValue) -> Option<&'a [Self::PublicValue]> {
+    fn output_list(&self, value: Self::PublicValue) -> Option<Vec<Self::PublicValue>> {
         match value {
             TestValue::List(values) => Some(values),
             _ => None,
         }
     }
 
-    fn output_map<'a>(
+    fn output_map(
         &self,
-        value: &'a Self::PublicValue,
-    ) -> Option<&'a [(Self::PublicValue, Self::PublicValue)]> {
+        value: Self::PublicValue,
+    ) -> Option<Vec<(Self::PublicValue, Self::PublicValue)>> {
         match value {
             TestValue::Map(entries) => Some(entries),
             _ => None,
@@ -131,15 +139,15 @@ impl TypedAdapterContext for TestContext {
         matches!(value, TestValue::Null)
     }
 
-    fn output_enum<'a>(
+    fn output_enum(
         &self,
         descriptor: &'static TypedEnumDescriptor,
-        value: &'a Self::PublicValue,
-    ) -> Result<TypedEnumSelection<'a, Self::PublicValue>, TypedValueError> {
+        value: Self::PublicValue,
+    ) -> Result<TypedEnumSelection<Self::PublicValue>, TypedValueError> {
         self.output_enum_calls
             .set(self.output_enum_calls.get().saturating_add(1));
         if descriptor.type_source_key != "TestChoiceSource"
-            || descriptor.variants != ["Empty", "Count"]
+            || descriptor.variants != ["Empty", "Count", "Text"]
         {
             return Err(TypedValueError::SourceUnavailable);
         }
@@ -147,17 +155,17 @@ impl TypedAdapterContext for TestContext {
             return Err(TypedValueError::ShapeMismatch);
         };
         Ok(TypedEnumSelection {
-            ordinal: *ordinal,
-            payload: payload.as_deref(),
+            ordinal,
+            payload: payload.map(|value| *value),
         })
     }
 
-    fn output_record<'a>(
+    fn output_record(
         &self,
         _type_source_key: &'static str,
         _member_source_keys: &[&'static str],
-        _value: &'a Self::PublicValue,
-    ) -> Result<Vec<&'a Self::PublicValue>, TypedValueError> {
+        _value: Self::PublicValue,
+    ) -> Result<Vec<Self::PublicValue>, TypedValueError> {
         Err(TypedValueError::ShapeMismatch)
     }
 }
@@ -175,7 +183,7 @@ fn collection_adapters_preserve_values_and_canonical_order() {
         TestValue::List(vec![TestValue::Int64(3), TestValue::Int64(1)])
     );
     assert_eq!(
-        Vec::<i64>::decode_typed_output(&context, &encoded_list).expect("list should decode"),
+        Vec::<i64>::decode_typed_output(&context, encoded_list).expect("list should decode"),
         list,
     );
 
@@ -192,7 +200,7 @@ fn collection_adapters_preserve_values_and_canonical_order() {
         ]),
     );
     assert_eq!(
-        BTreeMap::<i64, i64>::decode_typed_output(&context, &encoded_map)
+        BTreeMap::<i64, i64>::decode_typed_output(&context, encoded_map)
             .expect("map should decode"),
         map,
     );
@@ -207,7 +215,7 @@ fn collection_adapters_preserve_values_and_canonical_order() {
         TestValue::List(vec![TestValue::Int64(1), TestValue::Int64(2)])
     );
     assert_eq!(
-        BTreeSet::<i64>::decode_typed_output(&context, &encoded_set).expect("set should decode"),
+        BTreeSet::<i64>::decode_typed_output(&context, encoded_set).expect("set should decode"),
         set,
     );
 }
@@ -274,7 +282,7 @@ fn generated_enum_decode_selects_once_and_preserves_payload_shape() {
     };
 
     assert_eq!(
-        TestChoice::decode_typed_output(&context, &unit),
+        TestChoice::decode_typed_output(&context, unit),
         Ok(TestChoice::Empty),
     );
     assert_eq!(context.output_enum_calls.get(), 1);
@@ -286,7 +294,7 @@ fn generated_enum_decode_selects_once_and_preserves_payload_shape() {
     };
 
     assert_eq!(
-        TestChoice::decode_typed_output(&context, &value),
+        TestChoice::decode_typed_output(&context, value),
         Ok(TestChoice::Count(7)),
     );
     assert_eq!(context.output_enum_calls.get(), 1);
@@ -301,15 +309,73 @@ fn generated_enum_decode_selects_once_and_preserves_payload_shape() {
             payload: None,
         },
         TestValue::Enum {
-            ordinal: 2,
+            ordinal: 3,
             payload: None,
         },
     ] {
         let context = TestContext::default();
         assert_eq!(
-            TestChoice::decode_typed_output(&context, &malformed),
+            TestChoice::decode_typed_output(&context, malformed),
             Err(TypedValueError::ShapeMismatch),
         );
         assert_eq!(context.output_enum_calls.get(), 1);
     }
+}
+
+#[test]
+fn owned_tuple_and_collections_preserve_order_buffers_and_reject_shapes() {
+    let context = TestContext::default();
+    let text = "owned enum text".to_string();
+    let pointer = text.as_ptr();
+    let selected = TestChoice::decode_typed_output(
+        &context,
+        TestValue::Enum {
+            ordinal: 2,
+            payload: Some(Box::new(TestValue::Text(text))),
+        },
+    )
+    .expect("enum should consume its payload");
+    let TestChoice::Text(text) = selected else {
+        panic!("text variant should be selected");
+    };
+    assert_eq!(text, "owned enum text");
+    assert_eq!(text.as_ptr(), pointer);
+    let text = "owned tuple text".to_string();
+    let pointer = text.as_ptr();
+    let tuple = TestTuple::decode_typed_output(
+        &context,
+        TestValue::List(vec![TestValue::Text(text), TestValue::Null]),
+    )
+    .expect("tuple should consume its members");
+    assert_eq!(tuple.0, "owned tuple text");
+    assert_eq!(tuple.0.as_ptr(), pointer);
+    assert_eq!(tuple.1, None);
+    for malformed in [
+        TestValue::List(vec![]),
+        TestValue::List(vec![TestValue::Text("x".to_string())]),
+        TestValue::List(vec![
+            TestValue::Text("x".to_string()),
+            TestValue::Null,
+            TestValue::Null,
+        ]),
+        TestValue::List(vec![TestValue::Int64(1), TestValue::Null]),
+    ] {
+        assert_eq!(
+            TestTuple::decode_typed_output(&context, malformed),
+            Err(TypedValueError::ShapeMismatch)
+        );
+    }
+    let duplicate = TestValue::List(vec![TestValue::Int64(1), TestValue::Int64(1)]);
+    assert_eq!(
+        BTreeSet::<i64>::decode_typed_output(&context, duplicate),
+        Err(TypedValueError::ShapeMismatch)
+    );
+    let duplicate = TestValue::Map(vec![
+        (TestValue::Int64(1), TestValue::Int64(2)),
+        (TestValue::Int64(1), TestValue::Int64(3)),
+    ]);
+    assert_eq!(
+        BTreeMap::<i64, i64>::decode_typed_output(&context, duplicate),
+        Err(TypedValueError::ShapeMismatch)
+    );
 }

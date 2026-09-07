@@ -94,23 +94,20 @@ fn enroll<C: CanisterKind>(
         .map_err(icydb::Error::from)
         .map_err(TypedOperationError::Database)?;
     let mut batch = session.trusted_typed_write_batch();
-    let user = batch.push(UserInsert {
+    batch.push(UserInsert {
         id: WriteCell::Value(user_id),
         display_name: WriteCell::Value("Ada".to_string()),
     })?;
-    let membership = batch.push(UserPrincipalInsert {
+    batch.push(UserPrincipalInsert {
         authentication_principal: WriteCell::Value(Id::from_key(principal)),
         user_id: WriteCell::Value(user_id),
     })?;
-    let robot = batch.push(RobotInsert {
+    batch.push(RobotInsert {
         user_id: WriteCell::Value(user_id),
         label: WriteCell::Value("Ada's robot".to_string()),
     })?;
 
-    let mut results = batch.execute()?;
-    let _user_row = results.row(&user)?;
-    let _membership_row = results.row(&membership)?;
-    let _robot_row = results.row(&robot)?;
+    batch.execute()?;
     Ok(user_id)
 }
 

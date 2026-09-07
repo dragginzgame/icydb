@@ -55,11 +55,11 @@ pub struct TypedEnumDescriptor {
 /// One source-bound enum output selected through current accepted authority.
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TypedEnumSelection<'a, T> {
+pub struct TypedEnumSelection<T> {
     /// Zero-based generated Rust variant position.
     pub ordinal: usize,
-    /// Borrowed payload when the accepted variant carries one.
-    pub payload: Option<&'a T>,
+    /// Owned payload when the accepted variant carries one.
+    pub payload: Option<T>,
 }
 
 /// Model-value adaptation failure before row or mutation execution.
@@ -96,24 +96,24 @@ pub trait TypedAdapterContext {
         fields: Vec<(&'static str, Self::PublicValue)>,
     ) -> Result<Self::PublicValue, TypedValueError>;
 
-    fn output_scalar(&self, value: &Self::PublicValue) -> Option<TypedScalarValue>;
-    fn output_list<'a>(&self, value: &'a Self::PublicValue) -> Option<&'a [Self::PublicValue]>;
-    fn output_map<'a>(
+    fn output_scalar(&self, value: Self::PublicValue) -> Option<TypedScalarValue>;
+    fn output_list(&self, value: Self::PublicValue) -> Option<Vec<Self::PublicValue>>;
+    fn output_map(
         &self,
-        value: &'a Self::PublicValue,
-    ) -> Option<&'a [(Self::PublicValue, Self::PublicValue)]>;
+        value: Self::PublicValue,
+    ) -> Option<Vec<(Self::PublicValue, Self::PublicValue)>>;
     fn output_is_null(&self, value: &Self::PublicValue) -> bool;
-    fn output_enum<'a>(
+    fn output_enum(
         &self,
         descriptor: &'static TypedEnumDescriptor,
-        value: &'a Self::PublicValue,
-    ) -> Result<TypedEnumSelection<'a, Self::PublicValue>, TypedValueError>;
-    fn output_record<'a>(
+        value: Self::PublicValue,
+    ) -> Result<TypedEnumSelection<Self::PublicValue>, TypedValueError>;
+    fn output_record(
         &self,
         type_source_key: &'static str,
         member_source_keys: &[&'static str],
-        value: &'a Self::PublicValue,
-    ) -> Result<Vec<&'a Self::PublicValue>, TypedValueError>;
+        value: Self::PublicValue,
+    ) -> Result<Vec<Self::PublicValue>, TypedValueError>;
 }
 
 /// Immutable source identity emitted for every authored named type.
@@ -135,7 +135,7 @@ pub trait TypedInputValue: Sized {
 /// authored Rust value.
 #[doc(hidden)]
 pub trait TypedOutputValue: Sized {
-    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext;
 }
@@ -158,7 +158,7 @@ macro_rules! impl_typed_scalar_value {
             impl TypedOutputValue for $ty {
                 fn decode_typed_output<C>(
                     context: &C,
-                    value: &C::PublicValue,
+                    value: C::PublicValue,
                 ) -> Result<Self, TypedValueError>
                 where
                     C: TypedAdapterContext,
@@ -214,7 +214,7 @@ impl TypedInputValue for Unit {
 }
 
 impl TypedOutputValue for Unit {
-    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -241,7 +241,7 @@ impl<T> TypedOutputValue for Box<T>
 where
     T: TypedOutputValue,
 {
-    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -268,11 +268,11 @@ impl<T> TypedOutputValue for Option<T>
 where
     T: TypedOutputValue,
 {
-    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext,
     {
-        if context.output_is_null(value) {
+        if context.output_is_null(&value) {
             Ok(None)
         } else {
             T::decode_typed_output(context, value).map(Some)
@@ -300,7 +300,7 @@ impl<T> TypedOutputValue for Vec<T>
 where
     T: TypedOutputValue,
 {
-    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -340,7 +340,7 @@ where
     K: Ord + TypedOutputValue,
     V: TypedOutputValue,
 {
-    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext,
     {
@@ -379,7 +379,7 @@ impl<T> TypedOutputValue for BTreeSet<T>
 where
     T: Ord + TypedOutputValue,
 {
-    fn decode_typed_output<C>(context: &C, value: &C::PublicValue) -> Result<Self, TypedValueError>
+    fn decode_typed_output<C>(context: &C, value: C::PublicValue) -> Result<Self, TypedValueError>
     where
         C: TypedAdapterContext,
     {

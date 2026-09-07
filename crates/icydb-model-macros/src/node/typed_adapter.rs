@@ -34,7 +34,7 @@ fn named_adapter_impl_tokens(
         impl ::icydb_model::TypedOutputValue for #ident {
             fn decode_typed_output<C>(
                 context: &C,
-                value: &C::PublicValue,
+                value: C::PublicValue,
             ) -> Result<Self, ::icydb_model::TypedValueError>
             where
                 C: ::icydb_model::TypedAdapterContext,
@@ -162,15 +162,14 @@ pub(crate) fn record_adapter_tokens(node: &Record) -> TokenStream {
             ));
         }
     });
-    let output_fields = node.fields.iter().enumerate().map(|(index, field)| {
+    let output_fields = node.fields.iter().map(|field| {
         let field_ident = &field.name;
         let ty = field.value.type_expr();
-        let index = syn::Index::from(index);
         quote! {
             #field_ident:
                 <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
                     context,
-                    values[#index],
+                    values.next().ok_or(::icydb_model::TypedValueError::ShapeMismatch)?,
                 )?
         }
     });
@@ -181,11 +180,11 @@ pub(crate) fn record_adapter_tokens(node: &Record) -> TokenStream {
         context.input_record(#source, fields)
     };
     let decode = quote! {
-        let values = context.output_record(
+        let mut values = context.output_record(
             #source,
             &[#(#field_sources),*],
             value,
-        )?;
+        )?.into_iter();
         Ok(Self {
             #(#output_fields),*
         })
@@ -239,13 +238,12 @@ pub(crate) fn tuple_adapter_tokens(node: &Tuple) -> TokenStream {
             )?
         }
     });
-    let output_values = node.values.iter().enumerate().map(|(index, value)| {
-        let index = syn::Index::from(index);
+    let output_values = node.values.iter().map(|value| {
         let ty = value.type_expr();
         quote! {
             <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
                 context,
-                &values[#index],
+                values.next().ok_or(::icydb_model::TypedValueError::ShapeMismatch)?,
             )?
         }
     });
@@ -262,6 +260,7 @@ pub(crate) fn tuple_adapter_tokens(node: &Tuple) -> TokenStream {
         if values.len() != #value_count {
             return Err(::icydb_model::TypedValueError::ShapeMismatch);
         }
+        let mut values = values.into_iter();
         Ok(Self(#(#output_values),*))
     };
 
