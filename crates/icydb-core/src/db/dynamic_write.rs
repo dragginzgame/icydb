@@ -59,6 +59,11 @@ impl DynamicStructuralPatch {
     pub const fn fields(&self) -> &[(String, DynamicWriteCell)] {
         self.fields.as_slice()
     }
+
+    /// Consume the authored field intents in caller order.
+    pub(crate) fn into_fields(self) -> Vec<(String, DynamicWriteCell)> {
+        self.fields
+    }
 }
 
 ///
@@ -251,10 +256,16 @@ pub struct DynamicTypedStructuralPatch {
 }
 
 impl DynamicTypedStructuralPatch {
-    /// Borrow binding-local descriptor-ordinal intents for core mutation lowering.
+    /// Borrow binding-local descriptor-ordinal intents for binding assertions.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn fields(&self) -> &[(usize, DynamicWriteCell)] {
         self.fields.as_slice()
+    }
+
+    /// Consume binding-local intents after the patch's binding is validated.
+    pub(crate) fn into_fields(self) -> Vec<(usize, DynamicWriteCell)> {
+        self.fields
     }
 
     pub(crate) fn is_bound_to(&self, binding: &DynamicTypedEntityBinding) -> bool {

@@ -5,10 +5,11 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.255.x] - 2026-09-06 - Owned Value Handoff
+## [0.255.x] - 2026-09-07 - Owned Value Handoff
 
 Detailed notes: [docs/changelog/0.255.md](docs/changelog/0.255.md)
 
+- `0.255.2` reduces copying across mutation inputs and results while preserving validation and atomicity; direct callers of the hidden core typed-write entry point must now pass an owned request.
 - `0.255.1` reduces response copying and duplicate mutation-key work, and fixes the Wasm audit check on clean CI runners.
 - `0.255.0` reduces value copying and redundant decoding across writes, query output and nested relations, preserving validation and storage formats while strengthening collection-query coverage.
 

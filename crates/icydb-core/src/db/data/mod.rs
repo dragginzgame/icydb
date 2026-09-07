@@ -17,6 +17,8 @@ pub(in crate::db) use crate::db::key_taxonomy::PrimaryKeyComponent;
 pub(crate) use crate::db::key_taxonomy::RawDataStoreKey;
 pub(in crate::db) use key::primary_key_value_from_structural_value;
 pub(in crate::db) use key::{DecodedDataStoreKey, DecodedDataStoreKeyDecodeError};
+#[cfg(test)]
+pub(in crate::db) use persisted_row::AcceptedMutationFieldWriteIntent;
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use persisted_row::canonical_row_from_runtime_value_source_with_accepted_contract;
 #[cfg(test)]

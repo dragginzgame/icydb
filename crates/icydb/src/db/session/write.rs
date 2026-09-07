@@ -1302,7 +1302,7 @@ impl<C: CanisterKind> DbSession<C> {
         write: TypedWrite,
     ) -> Result<DynamicMutationResult, TypedOperationError> {
         self.inner
-            .execute_trusted_typed_mutation(&write.binding.inner, &write.mutation)
+            .execute_trusted_typed_mutation(&write.binding.inner, write.mutation)
             .map_err(|error| TypedOperationError::Database(Error::from(error)))?
             .ok_or(TypedOperationError::Adapter(
                 TypedAdapterError::StaleBinding,
@@ -1323,7 +1323,7 @@ impl<C: CanisterKind> DbSession<C> {
         let TypedWrite { binding, mutation } = write;
         let result = self
             .inner
-            .execute_trusted_typed_mutation(&binding.inner, &mutation)
+            .execute_trusted_typed_mutation(&binding.inner, mutation)
             .map_err(|error| TypedOperationError::Database(Error::from(error)))?
             .ok_or(TypedOperationError::Adapter(
                 TypedAdapterError::StaleBinding,

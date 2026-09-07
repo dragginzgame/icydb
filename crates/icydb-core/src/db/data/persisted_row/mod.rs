@@ -49,6 +49,8 @@ pub(in crate::db) use reader::{
     decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
     decode_sparse_required_slot_with_contract,
 };
+#[cfg(test)]
+pub(in crate::db) use types::AcceptedMutationFieldWriteIntent;
 pub(in crate::db) use types::SlotReader;
 pub(in crate::db) use types::{
     AcceptedMutationIntentPatch, AcceptedPreKeyInsert, CanonicalSlotReader, FieldSlot,
