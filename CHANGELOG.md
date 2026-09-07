@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.255.md](docs/changelog/0.255.md)
 
-- `0.255.3` simplifies query execution and reduces exact-key result copying; breaking Rust API cleanup removes typed `Query::select`—use `DynamicQuery` for selected fields.
+- `0.255.3` simplifies query execution, reduces exact-key result copying and tightens query contracts: typed `Query::select` is removed and incompatible supplied filters now fail decoding.
 - `0.255.2` reduces copying across mutation inputs and results while preserving validation and atomicity; direct callers of the hidden core typed-write entry point must now pass an owned request.
 - `0.255.1` reduces response copying and duplicate mutation-key work, and fixes the Wasm audit check on clean CI runners.
 - `0.255.0` reduces value copying and redundant decoding across writes, query output and nested relations, preserving validation and storage formats while strengthening collection-query coverage.

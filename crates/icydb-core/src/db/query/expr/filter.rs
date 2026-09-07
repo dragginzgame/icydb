@@ -12,7 +12,7 @@ use crate::{
     value::{InputValue, PublicValue, Value},
 };
 use candid::CandidType;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, de::Error as _};
 
 /// Serialized frontend-safe filter literal payload.
 ///
@@ -230,7 +230,10 @@ impl StateOperator {
 ///
 /// This is the shared frontend-facing filter input model for fluent callers
 /// and lowers onto planner-owned boolean expressions at the intent boundary.
+/// Supplied expressions must decode successfully even inside a Candid optional
+/// argument; an invalid predicate must never become an absent filter.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(remote = "Self")]
 pub enum FilterExpr {
     /// A constant boolean predicate.
     Constant(bool),
@@ -630,6 +633,20 @@ impl FilterExpr {
     }
 }
 
+impl<'de> Deserialize<'de> for FilterExpr {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Keep the derived visitor on this canonical enum, but make its failures
+        // terminal: Candid otherwise recovers subtype errors in opt as None.
+        // The contextual error also prevents Candid from reclassifying a bare
+        // subtype diagnostic as recoverable through serde::de::Error::custom.
+        Self::deserialize(deserializer)
+            .map_err(|error| D::Error::custom(format_args!("invalid filter expression: {error}")))
+    }
+}
+
 fn lower_field_value_compare(
     operator: CompareOperator,
     schema: &SchemaInfo,
@@ -801,6 +818,10 @@ fn casefold_field_expr(field: &str) -> Expr {
     }
 }
 
+///
+/// TESTS
+///
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -912,11 +933,80 @@ mod tests {
         filters.extend(sets);
         filters.extend(collections);
         filters.extend(states);
+        filters.push(FilterExpr::not(FilterExpr::and(vec![
+            FilterExpr::eq("collection_id", "collection"),
+            FilterExpr::eq("stage", "Draft"),
+        ])));
 
         for filter in filters {
             let encoded = candid::encode_one(&filter).expect("filter should encode");
             let decoded = candid::decode_one::<FilterExpr>(&encoded).expect("filter should decode");
             assert_eq!(decoded, filter);
+
+            let optional = Some(filter);
+            let encoded = candid::encode_one(&optional).expect("optional filter should encode");
+            let decoded = candid::decode_one::<Option<FilterExpr>>(&encoded)
+                .expect("supplied filter should decode");
+            assert_eq!(decoded, optional);
+        }
+    }
+
+    #[test]
+    fn optional_filter_candid_preserves_explicit_absence() {
+        let encoded =
+            candid::encode_one(Option::<FilterExpr>::None).expect("absent filter should encode");
+        assert_eq!(
+            candid::decode_one::<Option<FilterExpr>>(&encoded)
+                .expect("absent filter should decode"),
+            None,
+        );
+    }
+
+    #[test]
+    fn optional_filter_candid_rejects_unknown_expression_family() {
+        #[derive(candid::CandidType)]
+        enum InvalidFilter {
+            Unsupported,
+        }
+
+        let encoded = candid::encode_one(Some(InvalidFilter::Unsupported))
+            .expect("invalid fixture should encode");
+        assert!(candid::decode_one::<Option<FilterExpr>>(&encoded).is_err());
+    }
+
+    #[test]
+    fn optional_filter_candid_rejects_malformed_current_payloads() {
+        #[derive(candid::CandidType)]
+        enum InvalidFilter {
+            Constant(String),
+            Compare {
+                operator: String,
+                field: String,
+                value: FilterValue,
+            },
+            Not(Box<Self>),
+            Junction {
+                operator: JunctionOperator,
+                filters: Vec<Self>,
+            },
+        }
+
+        let invalid = [
+            InvalidFilter::Constant("true".to_string()),
+            InvalidFilter::Compare {
+                operator: "Eq".to_string(),
+                field: "stage".to_string(),
+                value: FilterValue::String("Draft".to_string()),
+            },
+            InvalidFilter::Not(Box::new(InvalidFilter::Constant("false".to_string()))),
+            InvalidFilter::Junction {
+                operator: JunctionOperator::And,
+                filters: vec![InvalidFilter::Constant("true".to_string())],
+            },
+        ];
+        for filter in invalid {
+            let encoded = candid::encode_one(Some(filter)).expect("invalid fixture should encode");
+            assert!(candid::decode_one::<Option<FilterExpr>>(&encoded).is_err());
         }
     }
 
