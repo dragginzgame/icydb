@@ -152,6 +152,10 @@ impl SqlSurfaceTokens {
         };
 
         quote! {
+            #[allow(
+                clippy::needless_pass_by_value,
+                reason = "generated handlers retain the owned SQL endpoint input contract"
+            )]
             pub(crate) fn __icydb_endpoint_handler_sql_query<const INTROSPECTION: bool>(
                 sql: String,
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
@@ -159,6 +163,10 @@ impl SqlSurfaceTokens {
                     .into_deliverable_query_reply()
             }
 
+            #[allow(
+                clippy::needless_pass_by_value,
+                reason = "generated handlers retain the owned SQL endpoint input contract"
+            )]
             pub(crate) fn __icydb_endpoint_handler_sql_ddl(
                 sql: String,
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
@@ -182,12 +190,20 @@ impl SqlSurfaceTokens {
                 handler()
             }
 
+            #[allow(
+                clippy::needless_pass_by_value,
+                reason = "generated handlers retain the owned SQL endpoint input contract"
+            )]
             pub(crate) fn __icydb_endpoint_handler_sql_update_primary_key(
                 sql: String,
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
                 __icydb_sql_surface_update_primary_key_dispatch(sql.as_str())
             }
 
+            #[allow(
+                clippy::needless_pass_by_value,
+                reason = "generated handlers retain the owned SQL endpoint input contract"
+            )]
             pub(crate) fn __icydb_endpoint_handler_sql_update_bounded(
                 sql: String,
             ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
@@ -195,8 +211,9 @@ impl SqlSurfaceTokens {
             }
 
             #[allow(
+                clippy::needless_pass_by_value,
                 clippy::result_large_err,
-                reason = "generated integrity handlers preserve the public typed error contract"
+                reason = "generated integrity handlers preserve the owned SQL input and public typed error contracts"
             )]
             pub(crate) fn __icydb_endpoint_handler_sql_integrity(
                 sql: String,

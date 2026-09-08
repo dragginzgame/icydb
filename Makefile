@@ -400,6 +400,8 @@ check:
 clippy:
 	$(CARGO_WORK_ENV) cargo clippy --workspace --all-targets -- -D warnings
 	$(CARGO_WORK_ENV) cargo clippy -p icydb-core --no-default-features --features sql -- -D warnings
+	$(CARGO_WORK_ENV) cargo clippy -p canister_audit_one_entity_sql_query -p canister_test_sql_guard \
+		--all-targets --all-features -- -D warnings
 
 fmt:
 	$(CARGO_WORK_ENV) cargo sort --workspace
@@ -523,6 +525,9 @@ _ci-core-sql-check:
 _ci-core-sql-clippy:
 	$(CARGO_WORK_ENV) cargo clippy --locked \
 		-p icydb-core --no-default-features --features sql -- -D warnings
+	$(CARGO_WORK_ENV) cargo clippy --locked \
+		-p canister_audit_one_entity_sql_query -p canister_test_sql_guard \
+		--all-targets --all-features -- -D warnings
 
 ci-workspace:
 	$(VALIDATION_RUNNER) \

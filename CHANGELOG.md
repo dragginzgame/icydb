@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.256.md](docs/changelog/0.256.md)
 
+- `0.256.1` fixes generated SQL helpers failing strict downstream lint checks without changing endpoint contracts.
 - `0.256.0` reduces copying in typed inputs and generated rows and simplifies enrollment result handling; handwritten low-level output adapters must adopt owned values (breaking).
 
 ## [0.255.x] - 2026-09-07 - Owned Value Handoff

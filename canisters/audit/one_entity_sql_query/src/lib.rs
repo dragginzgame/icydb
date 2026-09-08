@@ -2,6 +2,9 @@
 //! One-entity SQL query endpoint used for wasm-footprint auditing.
 //!
 
+// Exercise generated helpers under downstream lint policy without SQL exports.
+#![deny(clippy::needless_pass_by_value)]
+
 #[cfg(feature = "sql")]
 use icydb::{
     Error, ErrorCode, ErrorOrigin,

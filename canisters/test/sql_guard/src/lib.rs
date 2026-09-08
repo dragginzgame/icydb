@@ -1,5 +1,8 @@
 //! One-entity generated SQL authorization evidence canister.
 
+// Exercise generated handlers and exported wrappers under downstream lint policy.
+#![deny(clippy::needless_pass_by_value)]
+
 #[cfg(feature = "guarded-sql-query")]
 use std::cell::Cell;
 
