@@ -8,6 +8,7 @@ mod binding;
 mod order;
 mod projection;
 
+use crate::db::query::preparation::PreparationWork;
 use crate::db::sql::lowering::{
     LoweredExprAnalysis, LoweredExprSourceRef, SqlLoweringError,
     aggregate::{SqlAggregateCallInterner, lower_grouped_aggregate_call},
@@ -49,8 +50,9 @@ pub(in crate::db::sql::lowering) use projection::lower_analyzed_select_item_expr
 
 pub(in crate::db::sql::lowering) fn lower_order_terms(
     order_by: Vec<crate::db::sql::parser::SqlOrderTerm>,
+    work: &PreparationWork<'_>,
 ) -> Result<Vec<LoweredSqlOrderTerm>, SqlLoweringError> {
-    order::lower_order_terms(order_by)
+    order::lower_order_terms(order_by, work)
 }
 
 ///
@@ -74,15 +76,21 @@ impl LoweredSqlFilter {
     // Lower one scalar WHERE expression into the visible-expression contract
     // used by ordinary scalar SELECTs. Query intent derives the shared
     // predicate subset after schema binding.
-    fn from_scalar_where_expr(expr: &SqlExpr) -> Result<Self, SqlLoweringError> {
-        let filter_expr = lower_sql_scalar_where_bool_expr(expr)?;
+    fn from_scalar_where_expr(
+        expr: &SqlExpr,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, SqlLoweringError> {
+        let filter_expr = lower_sql_scalar_where_bool_expr(expr, work)?;
         Ok(Self::from_visible_expr(filter_expr))
     }
 
     // Lower one grouped WHERE expression without scalar-only CASE
     // canonicalization, preserving the existing grouped/base-query behavior.
-    fn from_grouped_where_expr(expr: &SqlExpr) -> Result<Self, SqlLoweringError> {
-        let filter_expr = lower_sql_where_bool_expr(expr)?;
+    fn from_grouped_where_expr(
+        expr: &SqlExpr,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, SqlLoweringError> {
+        let filter_expr = lower_sql_where_bool_expr(expr, work)?;
         Ok(Self::from_visible_expr(filter_expr))
     }
 
@@ -90,8 +98,9 @@ impl LoweredSqlFilter {
     // before execution can use the shape.
     pub(in crate::db::sql::lowering) fn from_where_expr_requiring_predicate_subset(
         expr: &SqlExpr,
+        work: &PreparationWork<'_>,
     ) -> Result<Self, SqlLoweringError> {
-        let filter_expr = lower_sql_where_bool_expr(expr)?;
+        let filter_expr = lower_sql_where_bool_expr(expr, work)?;
         let predicate_subset = derive_sql_where_expr_predicate_subset(&filter_expr)
             .ok_or_else(SqlLoweringError::unsupported_where_expression)?;
 
@@ -105,8 +114,11 @@ impl LoweredSqlFilter {
     // scalar SELECTs. Query intent derives any supported predicate subset after
     // schema binding and leaves unsupported filters on the residual expression
     // lane.
-    fn from_delete_where_expr(expr: &SqlExpr) -> Result<Self, SqlLoweringError> {
-        let filter_expr = lower_sql_scalar_where_bool_expr(expr)?;
+    fn from_delete_where_expr(
+        expr: &SqlExpr,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, SqlLoweringError> {
+        let filter_expr = lower_sql_scalar_where_bool_expr(expr, work)?;
 
         Ok(Self::from_visible_expr(filter_expr))
     }
@@ -114,9 +126,12 @@ impl LoweredSqlFilter {
     // Preserve UPDATE's two-part filter policy: keep the scalar-visible filter
     // expression while requiring a strict SQL predicate subset for selector
     // admission.
-    fn from_update_where_expr(expr: &SqlExpr) -> Result<Self, SqlLoweringError> {
-        let filter_expr = lower_sql_scalar_where_bool_expr(expr)?;
-        let predicate_subset = lower_sql_where_expr(expr)?;
+    fn from_update_where_expr(
+        expr: &SqlExpr,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, SqlLoweringError> {
+        let filter_expr = lower_sql_scalar_where_bool_expr(expr, work)?;
+        let predicate_subset = lower_sql_where_expr(expr, work)?;
 
         Ok(Self::from_visible_expr_and_predicate_subset(
             filter_expr,
@@ -141,8 +156,12 @@ impl LoweredSqlFilter {
         }
     }
 
-    #[must_use]
-    fn apply_to_query(self, query: StructuralQuery, schema: &SchemaInfo) -> StructuralQuery {
+    fn apply_to_query(
+        self,
+        query: StructuralQuery,
+        schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
+    ) -> Result<StructuralQuery, QueryError> {
         let visible_expr = self
             .visible_expr
             .map(|expr| canonicalize_sql_filter_expr_for_schema(schema, expr));
@@ -151,21 +170,21 @@ impl LoweredSqlFilter {
             (Some(filter_expr), Some(predicate)) => {
                 let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
 
-                query.filter_expr_with_normalized_predicate(filter_expr, predicate)
+                query.filter_expr_with_normalized_predicate(filter_expr, predicate, work)
             }
             (Some(filter_expr), None) => {
                 if let Some(predicate) = derive_sql_where_expr_predicate_subset(&filter_expr) {
                     let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
-                    query.filter_expr_with_normalized_predicate(filter_expr, predicate)
+                    query.filter_expr_with_normalized_predicate(filter_expr, predicate, work)
                 } else {
-                    query.filter_expr(filter_expr)
+                    query.filter_expr(filter_expr, work)
                 }
             }
             (None, Some(predicate)) => {
                 let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
-                query.filter_normalized_predicate(predicate)
+                Ok(query.filter_normalized_predicate(predicate))
             }
-            (None, None) => query,
+            (None, None) => Ok(query),
         }
     }
 }
@@ -238,6 +257,7 @@ impl LoweredDeleteShape {
 pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
     statement: SqlSelectStatement,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredSelectShape, SqlLoweringError> {
     let SqlSelectStatement {
         projection,
@@ -266,6 +286,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
             projection_aliases.as_slice(),
             group_by.as_slice(),
             schema,
+            work,
         )?;
         let projection_aggregate_count = grouped_projection.aggregate_calls().len();
         let mut grouped_aggregates = grouped_projection.aggregate_calls().to_vec();
@@ -278,16 +299,16 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
             projection_aggregate_count == grouped_aggregates.len(),
             group_by.as_slice(),
         );
-        let grouped_aggregates = lower_grouped_aggregate_calls(grouped_aggregates, schema)?;
+        let grouped_aggregates = lower_grouped_aggregate_calls(grouped_aggregates, schema, work)?;
         (projection_selection, grouped_aggregates, false)
     } else {
         let projection_selection =
-            lower_scalar_projection_selection(projection, projection_aliases.as_slice())?;
+            lower_scalar_projection_selection(projection, projection_aliases.as_slice(), work)?;
         (projection_selection, Vec::new(), distinct)
     };
 
     // Phase 1b: keep SQL DISTINCT ordering fail-closed to the projected tuple.
-    let order_by = lower_order_terms(order_by)?;
+    let order_by = lower_order_terms(order_by, work)?;
     if normalized_distinct {
         validate_distinct_order_terms_against_projection(
             projection_selection.selection(),
@@ -303,11 +324,12 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
         group_by.as_slice(),
         grouped_aggregates.as_slice(),
         schema,
+        work,
     )?;
 
     let filter = match predicate {
-        Some(expr) if !is_grouped => Some(LoweredSqlFilter::from_scalar_where_expr(&expr)?),
-        Some(expr) => Some(LoweredSqlFilter::from_grouped_where_expr(&expr)?),
+        Some(expr) if !is_grouped => Some(LoweredSqlFilter::from_scalar_where_expr(&expr, work)?),
+        Some(expr) => Some(LoweredSqlFilter::from_grouped_where_expr(&expr, work)?),
         None => None,
     };
 
@@ -328,6 +350,7 @@ fn apply_lowered_select_shape_with_schema(
     mut query: StructuralQuery,
     lowered: LoweredSelectShape,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<StructuralQuery, SqlLoweringError> {
     let LoweredSelectShape {
         projection_selection,
@@ -374,7 +397,7 @@ fn apply_lowered_select_shape_with_schema(
 
     // Phase 3: bind resolved HAVING expressions against grouped terminals.
     for clause in having {
-        query = query.having_expr_preserving_shape(clause)?;
+        query = query.having_expr_preserving_shape(clause, work)?;
     }
 
     // Phase 4: attach the shared filter/order/page tail through the base-query lane.
@@ -387,16 +410,18 @@ fn apply_lowered_select_shape_with_schema(
             offset,
         },
         schema,
-    ))
+        work,
+    )?)
 }
 
 fn lower_grouped_aggregate_calls(
     grouped_aggregates: Vec<crate::db::sql::parser::SqlAggregateCall>,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<Vec<AggregateExpr>, SqlLoweringError> {
     grouped_aggregates
         .into_iter()
-        .map(|aggregate| lower_grouped_aggregate_call(schema, aggregate))
+        .map(|aggregate| lower_grouped_aggregate_call(schema, aggregate, work))
         .collect()
 }
 
@@ -579,9 +604,10 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape_with_schema(
     mut query: StructuralQuery,
     lowered: LoweredBaseQueryShape,
     schema: &SchemaInfo,
-) -> StructuralQuery {
+    work: &PreparationWork<'_>,
+) -> Result<StructuralQuery, QueryError> {
     if let Some(filter) = lowered.filter {
-        query = filter.apply_to_query(query, schema);
+        query = filter.apply_to_query(query, schema, work)?;
     }
     query = apply_order_terms_structural(query, lowered.order_by);
     if let Some(limit) = lowered.limit {
@@ -591,7 +617,7 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape_with_schema(
         query = query.offset(offset);
     }
 
-    query
+    Ok(query)
 }
 
 /// Bind one lowered SQL query with an explicit schema projection.
@@ -600,13 +626,14 @@ pub(in crate::db) fn bind_lowered_sql_query_structural_with_schema(
     lowered: crate::db::sql::lowering::LoweredSqlQuery,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<StructuralQuery, SqlLoweringError> {
     match lowered {
         crate::db::sql::lowering::LoweredSqlQuery::Select(select) => {
-            bind_lowered_sql_select_query_structural_with_schema(select, consistency, schema)
+            bind_lowered_sql_select_query_structural_with_schema(select, consistency, schema, work)
         }
         crate::db::sql::lowering::LoweredSqlQuery::Delete(delete) => {
-            bind_lowered_sql_delete_query_structural_with_schema(delete, consistency, schema)
+            bind_lowered_sql_delete_query_structural_with_schema(delete, consistency, schema, work)
         }
     }
 }
@@ -621,8 +648,9 @@ pub(in crate::db) fn bind_lowered_sql_select_query_structural_with_schema(
     select: LoweredSelectShape,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<StructuralQuery, SqlLoweringError> {
-    apply_lowered_select_shape_with_schema(StructuralQuery::new(consistency), select, schema)
+    apply_lowered_select_shape_with_schema(StructuralQuery::new(consistency), select, schema, work)
 }
 
 /// Bind one lowered base-query selector with an explicit schema projection.
@@ -630,6 +658,7 @@ pub(in crate::db) fn bind_lowered_sql_base_query_structural_with_schema(
     base_query: LoweredBaseQueryShape,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<StructuralQuery, SqlLoweringError> {
     validate_base_query_sql_capabilities(schema, &base_query)?;
 
@@ -637,7 +666,8 @@ pub(in crate::db) fn bind_lowered_sql_base_query_structural_with_schema(
         StructuralQuery::new(consistency),
         base_query,
         schema,
-    ))
+        work,
+    )?)
 }
 
 /// Bind one lowered SQL DELETE shape with an explicit schema projection.
@@ -645,6 +675,7 @@ pub(in crate::db) fn bind_lowered_sql_delete_query_structural_with_schema(
     delete: LoweredBaseQueryShape,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<StructuralQuery, SqlLoweringError> {
     validate_base_query_sql_capabilities(schema, &delete)?;
 
@@ -652,7 +683,8 @@ pub(in crate::db) fn bind_lowered_sql_delete_query_structural_with_schema(
         StructuralQuery::new(consistency).delete(),
         delete,
         schema,
-    ))
+        work,
+    )?)
 }
 
 /// Bind one parsed SQL DELETE statement with an explicit schema projection.
@@ -660,10 +692,11 @@ pub(in crate::db) fn bind_sql_delete_statement_structural_with_schema(
     statement: SqlDeleteStatement,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<StructuralQuery, SqlLoweringError> {
-    let base_query = lower_delete_shape(statement)?;
+    let base_query = lower_delete_shape(statement, work)?;
 
-    bind_lowered_sql_delete_query_structural_with_schema(base_query, consistency, schema)
+    bind_lowered_sql_delete_query_structural_with_schema(base_query, consistency, schema, work)
 }
 
 /// Bind one SQL UPDATE selector with an explicit schema projection.
@@ -675,18 +708,20 @@ pub(in crate::db) fn bind_sql_update_selector_query_structural_with_schema(
     statement: &SqlUpdateStatement,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<StructuralQuery, SqlLoweringError> {
     if schema.primary_key_names().is_empty() {
         return Err(QueryError::invariant().into());
     }
 
-    let base_query = lower_update_selector_shape(statement, schema.primary_key_names())?;
+    let base_query = lower_update_selector_shape(statement, schema.primary_key_names(), work)?;
 
-    bind_lowered_sql_base_query_structural_with_schema(base_query, consistency, schema)
+    bind_lowered_sql_base_query_structural_with_schema(base_query, consistency, schema, work)
 }
 
 pub(in crate::db::sql::lowering) fn lower_delete_shape(
     statement: SqlDeleteStatement,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
     let SqlDeleteStatement {
         predicate,
@@ -698,12 +733,13 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
         returning: _,
     } = statement;
 
-    lower_delete_query_modifiers(predicate, order_by, limit, offset)
+    lower_delete_query_modifiers(predicate, order_by, limit, offset, work)
 }
 
 /// Lower one full DELETE statement into the narrowed prepared execution shape.
 pub(in crate::db::sql::lowering) fn lower_delete_statement_shape(
     statement: SqlDeleteStatement,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredDeleteShape, SqlLoweringError> {
     let SqlDeleteStatement {
         predicate,
@@ -714,7 +750,7 @@ pub(in crate::db::sql::lowering) fn lower_delete_statement_shape(
         entity: _,
         table_alias: _,
     } = statement;
-    let base_query = lower_delete_query_modifiers(predicate, order_by, limit, offset)?;
+    let base_query = lower_delete_query_modifiers(predicate, order_by, limit, offset, work)?;
 
     Ok(LoweredDeleteShape {
         base_query,
@@ -729,15 +765,16 @@ fn lower_delete_query_modifiers(
     order_by: Vec<SqlOrderTerm>,
     limit: Option<u32>,
     offset: Option<u32>,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
     let filter = match predicate.as_ref() {
-        Some(expr) => Some(LoweredSqlFilter::from_delete_where_expr(expr)?),
+        Some(expr) => Some(LoweredSqlFilter::from_delete_where_expr(expr, work)?),
         None => None,
     };
 
     Ok(LoweredBaseQueryShape {
         filter,
-        order_by: lower_order_terms(order_by)?,
+        order_by: lower_order_terms(order_by, work)?,
         limit,
         offset,
     })
@@ -750,6 +787,7 @@ fn lower_delete_query_modifiers(
 fn lower_update_selector_shape(
     statement: &SqlUpdateStatement,
     primary_key_names: &[String],
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
     let Some(predicate) = statement.predicate.clone() else {
         return Err(QueryError::sql_write_boundary(
@@ -771,8 +809,8 @@ fn lower_update_selector_shape(
     append_primary_key_order_fallback(&mut order_by, primary_key_names);
 
     Ok(LoweredBaseQueryShape {
-        filter: Some(LoweredSqlFilter::from_update_where_expr(&predicate)?),
-        order_by: lower_order_terms(order_by)?,
+        filter: Some(LoweredSqlFilter::from_update_where_expr(&predicate, work)?),
+        order_by: lower_order_terms(order_by, work)?,
         limit: statement.limit,
         offset: statement.offset,
     })

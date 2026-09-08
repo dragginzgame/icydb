@@ -19,11 +19,15 @@
 
 mod case;
 mod normalize;
+mod ordering;
 mod truth_admission;
 
-use crate::db::query::plan::expr::Expr;
 use crate::db::query::plan::expr::canonicalize::{
     case::canonicalize_normalized_bool_case_in_bool_context, truth_admission::TruthWrapperScope,
+};
+use crate::db::{
+    QueryError,
+    query::{plan::expr::Expr, preparation::PreparationWork},
 };
 
 pub(in crate::db) use normalize::is_normalized_bool_expr;
@@ -74,47 +78,56 @@ impl CanonicalExpr {
 
 /// Normalize one planner-owned boolean expression and assert that the emitted
 /// shape satisfies the canonical boolean IR invariant.
-#[must_use]
-pub(in crate::db) fn normalize_bool_expr_artifact(expr: Expr) -> CanonicalExpr {
-    let expr = normalize::normalize_bool_expr_impl(expr);
+pub(in crate::db) fn normalize_bool_expr_artifact(
+    expr: Expr,
+    work: &PreparationWork<'_>,
+) -> Result<CanonicalExpr, QueryError> {
+    let expr = normalize::normalize_bool_expr_impl(expr, work)?;
 
     debug_assert!(is_normalized_bool_expr(&expr));
 
-    CanonicalExpr::new(expr)
+    Ok(CanonicalExpr::new(expr))
 }
 
 /// Normalize one planner-owned boolean expression and return the plain `Expr`
 /// surface after producing the canonical stage artifact.
-#[must_use]
-pub(in crate::db) fn normalize_bool_expr(expr: Expr) -> Expr {
-    normalize_bool_expr_artifact(expr).into_expr()
+pub(in crate::db) fn normalize_bool_expr(
+    expr: Expr,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    normalize_bool_expr_artifact(expr, work).map(CanonicalExpr::into_expr)
 }
 
 /// Canonicalize one scalar-WHERE boolean expression into the canonical stage
 /// artifact used by downstream predicate subset derivation.
-#[must_use]
-pub(in crate::db) fn canonicalize_scalar_where_bool_expr_artifact(expr: Expr) -> CanonicalExpr {
-    let expr = normalize_bool_expr(expr);
+pub(in crate::db) fn canonicalize_scalar_where_bool_expr_artifact(
+    expr: Expr,
+    work: &PreparationWork<'_>,
+) -> Result<CanonicalExpr, QueryError> {
+    let expr = normalize_bool_expr(expr, work)?;
     debug_assert!(is_normalized_bool_expr(&expr));
 
     let expr = canonicalize_normalized_bool_case_in_bool_context(
         expr,
         true,
         Some(TruthWrapperScope::ScalarWhere),
-    );
-    let expr = normalize_bool_expr(expr);
+        work,
+    )?;
+    let expr = normalize_bool_expr(expr, work)?;
 
     debug_assert!(is_normalized_bool_expr(&expr));
 
-    CanonicalExpr::new(expr)
+    Ok(CanonicalExpr::new(expr))
 }
 
 /// Canonicalize one scalar-WHERE boolean expression onto the current
 /// searched-`CASE` boolean seam after the shared structural normalization pass
 /// has already settled the planner-owned tree shape.
-#[must_use]
-pub(in crate::db) fn canonicalize_scalar_where_bool_expr(expr: Expr) -> Expr {
-    canonicalize_scalar_where_bool_expr_artifact(expr).into_expr()
+pub(in crate::db) fn canonicalize_scalar_where_bool_expr(
+    expr: Expr,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    canonicalize_scalar_where_bool_expr_artifact(expr, work).map(CanonicalExpr::into_expr)
 }
 
 /// Canonicalize one grouped-HAVING boolean expression into the canonical stage
@@ -124,27 +137,32 @@ pub(in crate::db) fn canonicalize_scalar_where_bool_expr(expr: Expr) -> Expr {
 /// `ELSE NULL` arm to `FALSE`. Grouped canonicalization therefore preserves
 /// the explicit grouped boolean result tree unless the shipped searched-`CASE`
 /// expansion is already semantically identical without null-arm collapse.
-#[must_use]
-pub(in crate::db) fn canonicalize_grouped_having_bool_expr_artifact(expr: Expr) -> CanonicalExpr {
-    let expr = normalize_bool_expr(expr);
+pub(in crate::db) fn canonicalize_grouped_having_bool_expr_artifact(
+    expr: Expr,
+    work: &PreparationWork<'_>,
+) -> Result<CanonicalExpr, QueryError> {
+    let expr = normalize_bool_expr(expr, work)?;
     debug_assert!(is_normalized_bool_expr(&expr));
 
     let expr = canonicalize_normalized_bool_case_in_bool_context(
         expr,
         false,
         Some(TruthWrapperScope::GroupedHaving),
-    );
-    let expr = normalize_bool_expr(expr);
+        work,
+    )?;
+    let expr = normalize_bool_expr(expr, work)?;
 
     debug_assert!(is_normalized_bool_expr(&expr));
 
-    CanonicalExpr::new(expr)
+    Ok(CanonicalExpr::new(expr))
 }
 
 /// Canonicalize one grouped-HAVING boolean expression onto the bounded
 /// searched-`CASE` boolean seam after the shared structural normalization pass
 /// has already settled the planner-owned grouped tree shape.
-#[must_use]
-pub(in crate::db) fn canonicalize_grouped_having_bool_expr(expr: Expr) -> Expr {
-    canonicalize_grouped_having_bool_expr_artifact(expr).into_expr()
+pub(in crate::db) fn canonicalize_grouped_having_bool_expr(
+    expr: Expr,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    canonicalize_grouped_having_bool_expr_artifact(expr, work).map(CanonicalExpr::into_expr)
 }

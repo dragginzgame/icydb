@@ -957,6 +957,13 @@ const fn query_read_admission_reason_text(reason: QueryReadAdmissionCode) -> &'s
         QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy => {
             "primary-key input literals exceed this endpoint's read budget"
         }
+        QueryReadAdmissionCode::InputDepthExceeded => {
+            "query input nesting exceeds the preparation limit"
+        }
+        QueryReadAdmissionCode::InputNodesExceeded => "query input contains too many components",
+        QueryReadAdmissionCode::InputBytesExceeded => {
+            "query input payload exceeds the preparation limit"
+        }
     }
 }
 
@@ -987,6 +994,11 @@ const fn query_read_admission_fix_text(reason: QueryReadAdmissionCode) -> &'stat
         QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy => {
             "reduce the primary-key IN list or move the read behind a trusted admin endpoint"
         }
+        QueryReadAdmissionCode::InputDepthExceeded => "reduce expression and value nesting",
+        QueryReadAdmissionCode::InputNodesExceeded => {
+            "reduce query width or split large operand lists"
+        }
+        QueryReadAdmissionCode::InputBytesExceeded => "reduce literal and identifier payload sizes",
     }
 }
 
@@ -2325,6 +2337,9 @@ mod tests {
             icydb::diagnostic::QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute,
             icydb::diagnostic::QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy,
             icydb::diagnostic::QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy,
+            icydb::diagnostic::QueryReadAdmissionCode::InputDepthExceeded,
+            icydb::diagnostic::QueryReadAdmissionCode::InputNodesExceeded,
+            icydb::diagnostic::QueryReadAdmissionCode::InputBytesExceeded,
         ];
 
         for reason in reasons {

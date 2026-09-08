@@ -42,7 +42,7 @@ pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entit
         &statement.projection,
         statement.projection_aliases.as_slice(),
         entity_scope.as_slice(),
-    )?;
+    );
     statement.table_alias = None;
 
     Ok(statement)
@@ -96,11 +96,15 @@ pub(in crate::db::sql::lowering) fn normalize_having_clauses(
     projection: &SqlProjection,
     projection_aliases: &[Option<String>],
     entity_scope: &[String],
-) -> Result<Vec<SqlExpr>, SqlLoweringError> {
+) -> Vec<SqlExpr> {
     SqlIdentifierNormalizer::new(entity_scope)
         .normalize_having_clauses(clauses)
         .into_iter()
-        .map(|clause| normalize_having_aliases(clause, projection, projection_aliases))
+        .map(|clause| {
+            normalize_scalar_aliases(clause, &|field| {
+                resolve_projection_having_alias(field, projection, projection_aliases)
+            })
+        })
         .collect()
 }
 
@@ -215,13 +219,15 @@ impl<'a> SqlIdentifierNormalizer<'a> {
     fn normalize_select_item(self, item: SqlSelectItem) -> SqlSelectItem {
         match item {
             SqlSelectItem::Field(field) => {
-                match self.normalize_sql_expr(SqlExpr::from_field_identifier(field)) {
-                    SqlExpr::Field(field) => SqlSelectItem::Field(field),
-                    expr => SqlSelectItem::Expr(expr),
+                let mut expr = self.normalize_sql_expr(SqlExpr::from_field_identifier(field));
+                match &mut expr {
+                    SqlExpr::Field(field) => SqlSelectItem::Field(std::mem::take(field)),
+                    _ => SqlSelectItem::Expr(expr),
                 }
             }
-            SqlSelectItem::Aggregate(aggregate) => {
-                SqlSelectItem::Aggregate(self.normalize_aggregate_call(aggregate))
+            SqlSelectItem::Aggregate(mut aggregate) => {
+                self.normalize_aggregate_call(&mut aggregate);
+                SqlSelectItem::Aggregate(aggregate)
             }
             SqlSelectItem::Expr(expr) => SqlSelectItem::Expr(self.normalize_sql_expr(expr)),
         }
@@ -229,84 +235,46 @@ impl<'a> SqlIdentifierNormalizer<'a> {
 
     // Aggregate calls only rewrite their optional field target, so keep that
     // field-local transformation behind one owner-local helper.
-    fn normalize_aggregate_call(self, aggregate: SqlAggregateCall) -> SqlAggregateCall {
-        SqlAggregateCall {
-            kind: aggregate.kind,
-            input: aggregate
-                .input
-                .map(|input| Box::new(self.normalize_sql_expr(*input))),
-            filter_expr: aggregate
-                .filter_expr
-                .map(|expr| Box::new(self.normalize_sql_expr(*expr))),
-            distinct: aggregate.distinct,
+    fn normalize_aggregate_call(self, aggregate: &mut SqlAggregateCall) {
+        for child in [&mut aggregate.input, &mut aggregate.filter_expr]
+            .into_iter()
+            .flatten()
+        {
+            **child = self.normalize_sql_expr(std::mem::replace(
+                child.as_mut(),
+                SqlExpr::Literal(crate::value::Value::Null),
+            ));
         }
     }
 
-    fn normalize_sql_expr(self, expr: SqlExpr) -> SqlExpr {
-        match expr {
-            SqlExpr::Field(field) => normalize_field_identifier_expr_to_scope(
-                self.normalize_identifier_to_scope(field),
-                self.entity_scope,
-            ),
+    fn normalize_sql_expr(self, mut expr: SqlExpr) -> SqlExpr {
+        match &mut expr {
+            SqlExpr::Field(field) => {
+                return normalize_field_identifier_expr_to_scope(
+                    self.normalize_identifier_to_scope(std::mem::take(field)),
+                    self.entity_scope,
+                );
+            }
             SqlExpr::FieldPath { root, segments } => {
-                normalize_field_path_to_scope(root, segments, self.entity_scope)
+                return normalize_field_path_to_scope(
+                    std::mem::take(root),
+                    std::mem::take(segments),
+                    self.entity_scope,
+                );
             }
-            SqlExpr::Aggregate(aggregate) => {
-                SqlExpr::Aggregate(self.normalize_aggregate_call(aggregate))
+            SqlExpr::Aggregate(aggregate) => self.normalize_aggregate_call(aggregate),
+            _ => {
+                // Keep the existing boxes/vectors while transferring each child;
+                // never move fields out of the cleanup-owning expression enum.
+                expr.for_each_scalar_child_mut(&mut |child| {
+                    *child = self.normalize_sql_expr(std::mem::replace(
+                        child,
+                        SqlExpr::Literal(crate::value::Value::Null),
+                    ));
+                });
             }
-            SqlExpr::Literal(literal) => SqlExpr::Literal(literal),
-            SqlExpr::Param { index } => SqlExpr::Param { index },
-            SqlExpr::Membership {
-                expr,
-                values,
-                negated,
-            } => SqlExpr::Membership {
-                expr: Box::new(self.normalize_sql_expr(*expr)),
-                values,
-                negated,
-            },
-            SqlExpr::NullTest { expr, negated } => SqlExpr::NullTest {
-                expr: Box::new(self.normalize_sql_expr(*expr)),
-                negated,
-            },
-            SqlExpr::Like {
-                expr,
-                pattern,
-                negated,
-                casefold,
-            } => SqlExpr::Like {
-                expr: Box::new(self.normalize_sql_expr(*expr)),
-                pattern,
-                negated,
-                casefold,
-            },
-            SqlExpr::FunctionCall { function, args } => SqlExpr::FunctionCall {
-                function,
-                args: args
-                    .into_iter()
-                    .map(|arg| self.normalize_sql_expr(arg))
-                    .collect(),
-            },
-            SqlExpr::Unary { op, expr } => SqlExpr::Unary {
-                op,
-                expr: Box::new(self.normalize_sql_expr(*expr)),
-            },
-            SqlExpr::Binary { op, left, right } => SqlExpr::Binary {
-                op,
-                left: Box::new(self.normalize_sql_expr(*left)),
-                right: Box::new(self.normalize_sql_expr(*right)),
-            },
-            SqlExpr::Case { arms, else_expr } => SqlExpr::Case {
-                arms: arms
-                    .into_iter()
-                    .map(|arm| crate::db::sql::parser::SqlCaseArm {
-                        condition: self.normalize_sql_expr(arm.condition),
-                        result: self.normalize_sql_expr(arm.result),
-                    })
-                    .collect(),
-                else_expr: else_expr.map(|else_expr| Box::new(self.normalize_sql_expr(*else_expr))),
-            },
         }
+        expr
     }
 
     // Some SQL surfaces rewrite directly onto the resolved entity scope instead
@@ -316,118 +284,25 @@ impl<'a> SqlIdentifierNormalizer<'a> {
     }
 }
 
-// Normalize `HAVING` targets after identifier normalization so projection
-// aliases reuse the same lowering-owned rewrite boundary as `ORDER BY`.
-#[expect(
-    clippy::too_many_lines,
-    reason = "recursive SQL expression normalization keeps every expression variant explicit"
-)]
-fn normalize_having_aliases(
-    expr: SqlExpr,
-    projection: &SqlProjection,
-    projection_aliases: &[Option<String>],
-) -> Result<SqlExpr, SqlLoweringError> {
-    match expr {
-        SqlExpr::Field(field) => {
-            Ok(
-                resolve_projection_having_alias(field.as_str(), projection, projection_aliases)
-                    .unwrap_or(SqlExpr::Field(field)),
-            )
+// Both alias policies rewrite scalar field leaves and leave aggregates opaque.
+// Visit only original children: do not recursively expand an alias replacement.
+fn normalize_scalar_aliases(
+    mut expr: SqlExpr,
+    resolve: &impl Fn(&str) -> Option<SqlExpr>,
+) -> SqlExpr {
+    if let SqlExpr::Field(field) = &expr {
+        if let Some(replacement) = resolve(field) {
+            return replacement;
         }
-        SqlExpr::FieldPath { .. }
-        | SqlExpr::Aggregate(_)
-        | SqlExpr::Literal(_)
-        | SqlExpr::Param { .. } => Ok(expr),
-        SqlExpr::Membership {
-            expr,
-            values,
-            negated,
-        } => Ok(SqlExpr::Membership {
-            expr: Box::new(normalize_having_aliases(
-                *expr,
-                projection,
-                projection_aliases,
-            )?),
-            values,
-            negated,
-        }),
-        SqlExpr::NullTest { expr, negated } => Ok(SqlExpr::NullTest {
-            expr: Box::new(normalize_having_aliases(
-                *expr,
-                projection,
-                projection_aliases,
-            )?),
-            negated,
-        }),
-        SqlExpr::Like {
-            expr,
-            pattern,
-            negated,
-            casefold,
-        } => Ok(SqlExpr::Like {
-            expr: Box::new(normalize_having_aliases(
-                *expr,
-                projection,
-                projection_aliases,
-            )?),
-            pattern,
-            negated,
-            casefold,
-        }),
-        SqlExpr::FunctionCall { function, args } => Ok(SqlExpr::FunctionCall {
-            function,
-            args: args
-                .into_iter()
-                .map(|arg| normalize_having_aliases(arg, projection, projection_aliases))
-                .collect::<Result<Vec<_>, _>>()?,
-        }),
-        SqlExpr::Unary { op, expr } => Ok(SqlExpr::Unary {
-            op,
-            expr: Box::new(normalize_having_aliases(
-                *expr,
-                projection,
-                projection_aliases,
-            )?),
-        }),
-        SqlExpr::Binary { op, left, right } => Ok(SqlExpr::Binary {
-            op,
-            left: Box::new(normalize_having_aliases(
-                *left,
-                projection,
-                projection_aliases,
-            )?),
-            right: Box::new(normalize_having_aliases(
-                *right,
-                projection,
-                projection_aliases,
-            )?),
-        }),
-        SqlExpr::Case { arms, else_expr } => Ok(SqlExpr::Case {
-            arms: arms
-                .into_iter()
-                .map(|arm| {
-                    Ok(crate::db::sql::parser::SqlCaseArm {
-                        condition: normalize_having_aliases(
-                            arm.condition,
-                            projection,
-                            projection_aliases,
-                        )?,
-                        result: normalize_having_aliases(
-                            arm.result,
-                            projection,
-                            projection_aliases,
-                        )?,
-                    })
-                })
-                .collect::<Result<Vec<_>, SqlLoweringError>>()?,
-            else_expr: else_expr
-                .map(|else_expr| {
-                    normalize_having_aliases(*else_expr, projection, projection_aliases)
-                        .map(Box::new)
-                })
-                .transpose()?,
-        }),
+        return expr;
     }
+    expr.for_each_scalar_child_mut(&mut |child| {
+        *child = normalize_scalar_aliases(
+            std::mem::replace(child, SqlExpr::Literal(crate::value::Value::Null)),
+            resolve,
+        );
+    });
+    expr
 }
 
 // Normalize `ORDER BY` targets after projection normalization so alias
@@ -443,7 +318,9 @@ fn normalize_select_order_terms(
         .into_iter()
         .map(|term| {
             let field = normalize_sql_expr_to_scope(term.field, entity_scope);
-            let field = normalize_order_aliases(field, projection, projection_aliases);
+            let field = normalize_scalar_aliases(field, &|field| {
+                resolve_projection_order_alias(field, projection, projection_aliases)
+            });
 
             Ok(SqlOrderTerm {
                 field: normalize_sql_expr_to_scope(field, entity_scope),
@@ -451,110 +328,6 @@ fn normalize_select_order_terms(
             })
         })
         .collect()
-}
-
-// Normalize `ORDER BY` expressions after projection normalization so aliases
-// can participate as leaves inside larger arithmetic, CASE, and function order
-// targets without inventing any new planner-owned semantics.
-fn normalize_order_aliases(
-    expr: SqlExpr,
-    projection: &SqlProjection,
-    projection_aliases: &[Option<String>],
-) -> SqlExpr {
-    match expr {
-        SqlExpr::Field(field) => {
-            resolve_projection_order_alias(field.as_str(), projection, projection_aliases)
-                .unwrap_or(SqlExpr::Field(field))
-        }
-        SqlExpr::FieldPath { .. }
-        | SqlExpr::Aggregate(_)
-        | SqlExpr::Literal(_)
-        | SqlExpr::Param { .. } => expr,
-        SqlExpr::Membership {
-            expr,
-            values,
-            negated,
-        } => SqlExpr::Membership {
-            expr: Box::new(normalize_order_aliases(
-                *expr,
-                projection,
-                projection_aliases,
-            )),
-            values,
-            negated,
-        },
-        SqlExpr::NullTest { expr, negated } => SqlExpr::NullTest {
-            expr: Box::new(normalize_order_aliases(
-                *expr,
-                projection,
-                projection_aliases,
-            )),
-            negated,
-        },
-        SqlExpr::Like {
-            expr,
-            pattern,
-            negated,
-            casefold,
-        } => SqlExpr::Like {
-            expr: Box::new(normalize_order_aliases(
-                *expr,
-                projection,
-                projection_aliases,
-            )),
-            pattern,
-            negated,
-            casefold,
-        },
-        SqlExpr::FunctionCall { function, args } => SqlExpr::FunctionCall {
-            function,
-            args: args
-                .into_iter()
-                .map(|arg| normalize_order_aliases(arg, projection, projection_aliases))
-                .collect(),
-        },
-        SqlExpr::Unary { op, expr } => SqlExpr::Unary {
-            op,
-            expr: Box::new(normalize_order_aliases(
-                *expr,
-                projection,
-                projection_aliases,
-            )),
-        },
-        SqlExpr::Binary { op, left, right } => SqlExpr::Binary {
-            op,
-            left: Box::new(normalize_order_aliases(
-                *left,
-                projection,
-                projection_aliases,
-            )),
-            right: Box::new(normalize_order_aliases(
-                *right,
-                projection,
-                projection_aliases,
-            )),
-        },
-        SqlExpr::Case { arms, else_expr } => SqlExpr::Case {
-            arms: arms
-                .into_iter()
-                .map(|arm| crate::db::sql::parser::SqlCaseArm {
-                    condition: normalize_order_aliases(
-                        arm.condition,
-                        projection,
-                        projection_aliases,
-                    ),
-                    result: normalize_order_aliases(arm.result, projection, projection_aliases),
-                })
-                .collect(),
-            else_expr: else_expr.map(|else_expr| {
-                Box::new(normalize_order_aliases(
-                    *else_expr,
-                    projection,
-                    projection_aliases,
-                ))
-            }),
-        },
-    }
 }
 
 // Resolve one `ORDER BY <alias>` leaf onto one already-supported projection

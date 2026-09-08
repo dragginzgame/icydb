@@ -1,3 +1,4 @@
+use crate::db::query::preparation::PreparationWork;
 use crate::db::{
     query::plan::{
         GroupField, GroupFieldSet,
@@ -121,6 +122,7 @@ impl LoweredGroupedProjection {
 pub(super) fn lower_scalar_projection_selection(
     projection: SqlProjection,
     projection_aliases: &[Option<String>],
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredSqlProjectionSelection, SqlLoweringError> {
     let SqlProjection::Items(items) = projection else {
         return Ok(LoweredSqlProjectionSelection::all());
@@ -133,7 +135,7 @@ pub(super) fn lower_scalar_projection_selection(
     let mut fields = Vec::with_capacity(items.len());
     let mut projection_facts = Vec::with_capacity(items.len());
     for (index, item) in items.into_iter().enumerate() {
-        let analyzed = lower_analyzed_select_item_expr(&item, SqlExprPhase::Scalar)?;
+        let analyzed = lower_analyzed_select_item_expr(&item, SqlExprPhase::Scalar, work)?;
         let (expr, expr_facts) = analyzed.into_parts();
         fields.push(ProjectionField::Scalar {
             expr,
@@ -156,6 +158,7 @@ pub(super) fn lower_grouped_projection(
     projection_aliases: &[Option<String>],
     group_by: &[String],
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredGroupedProjection, SqlLoweringError> {
     if group_by.is_empty() {
         return Err(SqlLoweringError::unsupported_select_group_by());
@@ -182,7 +185,7 @@ pub(super) fn lower_grouped_projection(
     let mut aggregate_call_interner = SqlAggregateCallInterner::new();
 
     for (index, item) in items.into_iter().enumerate() {
-        let analyzed = lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate)?;
+        let analyzed = lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate, work)?;
         let expr_facts = analyzed.analysis();
         let contains_aggregate = expr_facts.contains_aggregate();
         if seen_aggregate && !contains_aggregate {
@@ -363,18 +366,21 @@ pub(super) fn direct_scalar_field_selection(
 pub(in crate::db::sql::lowering) fn lower_select_item_expr(
     item: &SqlSelectItem,
     phase: SqlExprPhase,
+    work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
     lower_sql_expr(
         &crate::db::sql::parser::SqlExpr::from_select_item(item),
         phase,
+        work,
     )
 }
 
 pub(in crate::db::sql::lowering) fn lower_analyzed_select_item_expr(
     item: &SqlSelectItem,
     phase: SqlExprPhase,
+    work: &PreparationWork<'_>,
 ) -> Result<AnalyzedLoweredExpr, SqlLoweringError> {
     Ok(AnalyzedLoweredExpr::new(lower_select_item_expr(
-        item, phase,
+        item, phase, work,
     )?))
 }

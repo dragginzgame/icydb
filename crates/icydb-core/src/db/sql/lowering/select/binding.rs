@@ -1,7 +1,7 @@
 use crate::{
     db::{
         predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
-        query::plan::expr::{BinaryOp, CaseWhenArm, Expr, Function},
+        query::plan::expr::{BinaryOp, Expr, Function},
         schema::SchemaInfo,
     },
     value::{Value, canonicalize_value_set},
@@ -59,39 +59,20 @@ pub(super) fn canonicalize_sql_predicate_for_schema(
 /// literal conversion, while allowing session execution to use the accepted
 /// schema instead of generated metadata for top-level fields.
 #[must_use]
-pub(super) fn canonicalize_sql_filter_expr_for_schema(schema: &SchemaInfo, expr: Expr) -> Expr {
-    match expr {
-        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
-        Expr::Unary { op, expr } => Expr::Unary {
-            op,
-            expr: Box::new(canonicalize_sql_filter_expr_for_schema(schema, *expr)),
-        },
+pub(super) fn canonicalize_sql_filter_expr_for_schema(schema: &SchemaInfo, mut expr: Expr) -> Expr {
+    match &mut expr {
         Expr::Binary { op, left, right } => {
-            canonicalize_sql_binary_expr_for_schema(schema, op, *left, *right)
+            canonicalize_sql_binary_expr_for_schema(schema, *op, left.take(), right.take())
         }
         Expr::FunctionCall { function, args } => {
-            canonicalize_sql_filter_function_for_schema(schema, function, args)
+            canonicalize_sql_filter_function_for_schema(schema, *function, std::mem::take(args))
         }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => Expr::Case {
-            when_then_arms: when_then_arms
-                .into_iter()
-                .map(|arm| {
-                    CaseWhenArm::new(
-                        canonicalize_sql_filter_expr_for_schema(schema, arm.condition().clone()),
-                        canonicalize_sql_filter_expr_for_schema(schema, arm.result().clone()),
-                    )
-                })
-                .collect(),
-            else_expr: Box::new(canonicalize_sql_filter_expr_for_schema(schema, *else_expr)),
-        },
-        #[cfg(test)]
-        Expr::Alias { expr, name } => Expr::Alias {
-            expr: Box::new(canonicalize_sql_filter_expr_for_schema(schema, *expr)),
-            name,
-        },
+        _ => {
+            expr.map_scalar_children(|child| {
+                canonicalize_sql_filter_expr_for_schema(schema, child)
+            });
+            expr
+        }
     }
 }
 
@@ -171,13 +152,7 @@ fn canonicalize_sql_in_list_expr_for_schema(schema: &SchemaInfo, args: &[Expr]) 
         CoercionId::NumericWiden,
     )?;
 
-    Some(Expr::FunctionCall {
-        function: Function::InList,
-        args: vec![
-            Expr::Field(field.clone()),
-            Expr::Literal(Value::List(items)),
-        ],
-    })
+    Some(Expr::membership(Expr::Field(field.clone()), items, false))
 }
 
 // Keep SQL filter-expression literal rewriting aligned with the predicate
@@ -189,57 +164,28 @@ fn canonicalize_sql_binary_expr_for_schema(
     left: Expr,
     right: Expr,
 ) -> Expr {
-    let left = canonicalize_sql_filter_expr_for_schema(schema, left);
-    let right = canonicalize_sql_filter_expr_for_schema(schema, right);
-
-    match (left, right, op) {
-        (Expr::Field(field), Expr::Literal(value), op)
-            if matches!(
-                op,
-                BinaryOp::Eq
-                    | BinaryOp::Ne
-                    | BinaryOp::Lt
-                    | BinaryOp::Lte
-                    | BinaryOp::Gt
-                    | BinaryOp::Gte
-            ) =>
+    let mut left = canonicalize_sql_filter_expr_for_schema(schema, left);
+    let mut right = canonicalize_sql_filter_expr_for_schema(schema, right);
+    if matches!(
+        op,
+        BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte
+    ) {
+        let literal = match (&mut left, &mut right) {
+            (Expr::Field(field), Expr::Literal(value))
+            | (Expr::Literal(value), Expr::Field(field)) => Some((field, value)),
+            _ => None,
+        };
+        if let Some((field, value)) = literal
+            && let Some(canonical) = schema.canonicalize_strict_sql_literal(field.as_str(), value)
         {
-            let value = schema
-                .canonicalize_strict_sql_literal(field.as_str(), &value)
-                .unwrap_or(value);
-
-            Expr::Binary {
-                op,
-                left: Box::new(Expr::Field(field)),
-                right: Box::new(Expr::Literal(value)),
-            }
+            *value = canonical;
         }
-        (Expr::Literal(value), Expr::Field(field), op)
-            if matches!(
-                op,
-                BinaryOp::Eq
-                    | BinaryOp::Ne
-                    | BinaryOp::Lt
-                    | BinaryOp::Lte
-                    | BinaryOp::Gt
-                    | BinaryOp::Gte
-            ) =>
-        {
-            let value = schema
-                .canonicalize_strict_sql_literal(field.as_str(), &value)
-                .unwrap_or(value);
+    }
 
-            Expr::Binary {
-                op,
-                left: Box::new(Expr::Literal(value)),
-                right: Box::new(Expr::Field(field)),
-            }
-        }
-        (left, right, op) => Expr::Binary {
-            op,
-            left: Box::new(left),
-            right: Box::new(right),
-        },
+    Expr::Binary {
+        op,
+        left: Box::new(left),
+        right: Box::new(right),
     }
 }
 

@@ -15,6 +15,7 @@ use crate::{
         },
     },
     error::ErrorClass,
+    types::{IntBig, NatBig},
 };
 
 fn catalog() -> AcceptedValueCatalogHandle {
@@ -201,6 +202,119 @@ fn owned_handoff_rejects_invalid_input_and_persisted_values_before_returning() {
         let error = decode_runtime_value_from_row_contract(&row, 1, &encoded)
             .expect_err("strict persisted admission");
         assert_eq!(error.class(), ErrorClass::Corruption);
+    }
+}
+
+#[test]
+fn big_integer_admission_preserves_size_limits_and_budget_charges() {
+    for signed in [-8193_i64, -8192, -65, -64, -1, 0, 1, 63, 64, 8191, 8192] {
+        let value = IntBig::from(signed);
+        let bytes = u32::try_from(value.to_leb128().len()).unwrap();
+        check_big_integer_admission(
+            InputValue::int_big(value.clone()),
+            Value::IntBig(value),
+            bytes,
+            |max_bytes| AcceptedFieldKind::IntBig { max_bytes },
+        );
+    }
+    for unsigned in [0_u64, 1, 127, 128, 16383, 16384, u64::MAX] {
+        let value = NatBig::from(unsigned);
+        let bytes = u32::try_from(value.to_leb128().len()).unwrap();
+        check_big_integer_admission(
+            InputValue::nat_big(value.clone()),
+            Value::NatBig(value),
+            bytes,
+            |max_bytes| AcceptedFieldKind::NatBig { max_bytes },
+        );
+    }
+}
+
+// The independent encoder defines payload size; both input normalization and
+// canonical validation must reject field limits before spending byte budget.
+fn check_big_integer_admission(
+    input: InputValue,
+    value: Value,
+    bytes: u32,
+    kind: impl Fn(u32) -> AcceptedFieldKind,
+) {
+    let catalog = catalog();
+    for (max_bytes, remaining_bytes, expected) in [
+        (bytes, bytes + 5, Ok(())),
+        (bytes, bytes + 4, Err(ValueAdmissionError::SizeExceeded)),
+        (bytes - 1, 0, Err(ValueAdmissionError::ScalarConstraint)),
+        (
+            bytes - 1,
+            bytes + 5,
+            Err(ValueAdmissionError::ScalarConstraint),
+        ),
+    ] {
+        let admission = admission(&catalog, kind(max_bytes));
+        let initial = ValueAdmissionBudget {
+            remaining_bytes,
+            ..ValueAdmissionBudget::standard()
+        };
+        let mut normalized_budget = initial;
+        let normalized =
+            admission.normalize_input_to_runtime(input.clone(), &mut normalized_budget);
+        let mut canonical_budget = initial;
+        let canonical = admission.admit_canonical(value.clone(), &mut canonical_budget);
+        assert_eq!(
+            normalized.as_ref().map(|_| ()).map_err(|error| *error),
+            expected
+        );
+        assert_eq!(
+            canonical.as_ref().map(|_| ()).map_err(|error| *error),
+            expected
+        );
+        assert_eq!(normalized_budget, canonical_budget);
+        if expected.is_ok() {
+            assert_eq!(normalized.unwrap(), value);
+            assert_eq!(canonical.unwrap().into_value(), value);
+            assert_eq!(normalized_budget.remaining_bytes, 0);
+        } else {
+            assert_eq!(normalized_budget, initial);
+        }
+    }
+}
+
+#[test]
+fn big_integer_admission_preserves_wide_persisted_values() {
+    for digits in [20, 80, 300] {
+        let text = "9".repeat(digits);
+        let signed: IntBig = format!("-{text}").parse().unwrap();
+        let unsigned: NatBig = text.parse().unwrap();
+        for (input, value, kind, bytes) in [
+            (
+                InputValue::int_big(signed.clone()),
+                Value::IntBig(signed.clone()),
+                AcceptedFieldKind::IntBig { max_bytes: 256 },
+                signed.to_leb128().len(),
+            ),
+            (
+                InputValue::nat_big(unsigned.clone()),
+                Value::NatBig(unsigned.clone()),
+                AcceptedFieldKind::NatBig { max_bytes: 256 },
+                unsigned.to_leb128().len(),
+            ),
+        ] {
+            let catalog = catalog();
+            let admission = admission(&catalog, kind.clone());
+            let mut budget = ValueAdmissionBudget::standard();
+            let normalized = admission
+                .normalize_input_to_runtime(input, &mut budget)
+                .unwrap();
+            assert_eq!(normalized, value);
+            assert_eq!(
+                budget.remaining_bytes,
+                MAX_ACCEPTED_VALUE_BYTES - 5 - u32::try_from(bytes).unwrap()
+            );
+            let row = row_contract(catalog, kind);
+            let encoded = encode_value(&row, &normalized);
+            assert_eq!(
+                decode_runtime_value_from_row_contract(&row, 1, &encoded).unwrap(),
+                value
+            );
+        }
     }
 }
 

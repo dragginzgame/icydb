@@ -5,6 +5,7 @@
 
 pub(in crate::db) mod ddl;
 pub(crate) mod identifier;
+pub(in crate::db) mod input;
 pub(crate) mod lowering;
 pub(crate) mod parser;
 

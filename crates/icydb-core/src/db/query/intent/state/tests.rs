@@ -151,42 +151,50 @@ fn append_predicate_keeps_predicate_only_authority_without_filter_expr() {
 
 #[test]
 fn append_extractable_predicate_to_unextractable_expr_marks_partial_coverage() {
-    let unextractable_expr = normalize_bool_expr(Expr::FunctionCall {
-        function: Function::Coalesce,
-        args: vec![
-            Expr::Field(FieldId::new("flag")),
-            Expr::Literal(Value::Bool(false)),
-        ],
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let unextractable_expr = normalize_bool_expr(
+            Expr::FunctionCall {
+                function: Function::Coalesce,
+                args: vec![
+                    Expr::Field(FieldId::new("flag")),
+                    Expr::Literal(Value::Bool(false)),
+                ],
+            },
+            work,
+        )
+        .expect("canonical preparation");
+        let mut intent = QueryIntent::new();
+        intent
+            .append_filter_expr(unextractable_expr, work)
+            .expect("append normalized expression");
+        intent.append_predicate(Predicate::True);
+
+        let filter = intent
+            .scalar()
+            .filter
+            .as_ref()
+            .expect("mixed filter append should create one scalar filter");
+
+        assert_eq!(
+            filter.predicate_coverage(),
+            FilterPredicateCoverage::Partial,
+            "combined coverage should record that only part of the user-visible filter is predicate-backed",
+        );
+        assert!(
+            !filter
+                .predicate_coverage()
+                .covers_user_visible_filter_semantics(),
+            "partial predicate coverage must not be treated as full semantic coverage",
+        );
+        assert!(
+            filter.predicate_subset().is_some(),
+            "the extractable predicate-only half should still feed access planning",
+        );
+        assert!(
+            !filter.predicate_subset_covers_expr(),
+            "the visible-expression planner projection should remain uncovered",
+        );
     });
-    let mut intent = QueryIntent::new();
-    intent.append_filter_expr(unextractable_expr);
-    intent.append_predicate(Predicate::True);
-
-    let filter = intent
-        .scalar()
-        .filter
-        .as_ref()
-        .expect("mixed filter append should create one scalar filter");
-
-    assert_eq!(
-        filter.predicate_coverage(),
-        FilterPredicateCoverage::Partial,
-        "combined coverage should record that only part of the user-visible filter is predicate-backed",
-    );
-    assert!(
-        !filter
-            .predicate_coverage()
-            .covers_user_visible_filter_semantics(),
-        "partial predicate coverage must not be treated as full semantic coverage",
-    );
-    assert!(
-        filter.predicate_subset().is_some(),
-        "the extractable predicate-only half should still feed access planning",
-    );
-    assert!(
-        !filter.predicate_subset_covers_expr(),
-        "the visible-expression planner projection should remain uncovered",
-    );
 }
 
 #[test]

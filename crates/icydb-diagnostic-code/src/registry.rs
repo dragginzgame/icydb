@@ -676,4 +676,10 @@ define_error_code_registry! {
         detail(SqlLowering { reason: SqlLoweringCode::BindingFamily });
     SQL_LOWERING_BINDING_LIMIT = 267 => QueryUnsupportedSqlFeature,
         detail(SqlLowering { reason: SqlLoweringCode::BindingLimit });
+    QUERY_READ_INPUT_DEPTH_EXCEEDED = 268 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::InputDepthExceeded });
+    QUERY_READ_INPUT_NODES_EXCEEDED = 269 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::InputNodesExceeded });
+    QUERY_READ_INPUT_BYTES_EXCEEDED = 270 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::InputBytesExceeded });
 }

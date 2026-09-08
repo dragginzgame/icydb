@@ -1,3 +1,4 @@
+use crate::db::query::preparation::PreparationWork;
 use crate::db::{
     predicate::MissingRowPolicy,
     query::{
@@ -283,6 +284,7 @@ impl LoweredSqlGlobalAggregateCommand {
         self,
         consistency: MissingRowPolicy,
         schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
         let Self {
             query,
@@ -308,7 +310,8 @@ impl LoweredSqlGlobalAggregateCommand {
             StructuralQuery::new(consistency),
             query,
             schema,
-        );
+            work,
+        )?;
         if let Some(order) = extrema_input_order {
             query = query.order_spec(order);
         }
@@ -408,15 +411,17 @@ pub(in crate::db) fn compile_sql_global_aggregate_command_from_prepared_with_sch
     prepared: PreparedSqlStatement,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
     let SqlStatement::Select(statement) = prepared.statement else {
         return Err(SqlLoweringError::unsupported_select_projection());
     };
 
     bind_lowered_sql_global_aggregate_command_with_schema(
-        lower_global_aggregate_select_shape(statement)?,
+        lower_global_aggregate_select_shape(statement, work)?,
         consistency,
         schema,
+        work,
     )
 }
 
@@ -424,6 +429,7 @@ pub(in crate::db::sql::lowering::aggregate) fn bind_lowered_sql_global_aggregate
     lowered: LoweredSqlGlobalAggregateCommand,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
-    lowered.into_command_with_schema(consistency, schema)
+    lowered.into_command_with_schema(consistency, schema, work)
 }

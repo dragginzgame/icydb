@@ -359,6 +359,11 @@ pub(in crate::db) struct CaseWhenArm {
 }
 
 impl CaseWhenArm {
+    /// Borrow both children for in-place normalization and owned cleanup.
+    pub(in crate::db) const fn children_mut(&mut self) -> [&mut Expr; 2] {
+        [&mut self.condition, &mut self.result]
+    }
+
     /// Build one planner-owned searched-CASE arm.
     #[must_use]
     pub(in crate::db) const fn new(condition: Expr, result: Expr) -> Self {
@@ -457,6 +462,60 @@ pub(in crate::db) fn collect_scalar_expr_field_roots(
 }
 
 impl Expr {
+    /// Rewrite immediate scalar children in place; aggregate scope stays opaque.
+    pub(in crate::db) fn map_scalar_children(&mut self, mut map: impl FnMut(Self) -> Self) {
+        match self {
+            Self::Unary { expr, .. } => **expr = map(expr.take()),
+            Self::Binary { left, right, .. } => {
+                **left = map(left.take());
+                **right = map(right.take());
+            }
+            Self::FunctionCall { args, .. } => {
+                for arg in args {
+                    *arg = map(arg.take());
+                }
+            }
+            Self::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                for arm in when_then_arms {
+                    for child in arm.children_mut() {
+                        *child = map(child.take());
+                    }
+                }
+                **else_expr = map(else_expr.take());
+            }
+            Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => {}
+            #[cfg(test)]
+            Self::Alias { expr, .. } => **expr = map(expr.take()),
+        }
+    }
+
+    /// Transfer this expression, leaving a shallow inert leaf for its owner.
+    pub(in crate::db) const fn take(&mut self) -> Self {
+        std::mem::replace(self, Self::Literal(Value::Null))
+    }
+
+    /// Build compact membership from already-lowered operands without expanding
+    /// comparisons. Frontends retain ownership of admission and empty-list policy.
+    #[must_use]
+    pub(in crate::db) fn membership(target: Self, values: Vec<Value>, negated: bool) -> Self {
+        let membership = Self::FunctionCall {
+            function: Function::InList,
+            args: vec![target, Self::Literal(Value::List(values))],
+        };
+
+        if negated {
+            Self::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(membership),
+            }
+        } else {
+            membership
+        }
+    }
+
     /// Return true when this planner expression contains a nested field path.
     #[must_use]
     pub(in crate::db) fn contains_field_path(&self) -> bool {

@@ -1980,6 +1980,101 @@ fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::E
     icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
 
+/// Measure bounded, application-built filters without passing SQL to preparation.
+/// The update boundary permits separate whole-call cycle measurements in PocketIC.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn measure_typed_filter_preparation(
+    shape: u8,
+    terms: u32,
+) -> Result<ReadTotalOnlyPerfResult, icydb::Error> {
+    if ![4, 16, 64, 128].contains(&terms) || shape > 2 {
+        return Err(query_validate_error());
+    }
+    icydb::db::with_request_execution(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let values = (0..terms).rev().map(i64::from);
+        let filter = match shape {
+            0 => FilterExpr::and(values.map(|n| FieldRef::new("age").gte(-n)).collect()),
+            1 => FilterExpr::or(values.map(|n| FieldRef::new("age").eq(n)).collect()),
+            _ => FilterExpr::in_list("age", values),
+        };
+        let query = DynamicQuery::new("PerfAuditUser")
+            .filter(filter)
+            .select(["id"])
+            .order_by(asc("id"))
+            .limit(100);
+        let page = db()?.execute_trusted_live_page(&query, None)?;
+        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        Ok(ReadTotalOnlyPerfResult {
+            row_count: page.row_count,
+            instructions,
+        })
+    })
+}
+
+/// Measure big-literal preparation without row decoding or decimal formatting.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn measure_big_literal_preparation(
+    negative: bool,
+    digits: u32,
+) -> Result<ReadTotalOnlyPerfResult, icydb::Error> {
+    if ![20, 80, 300].contains(&digits) {
+        return Err(query_validate_error());
+    }
+    let text = format!(
+        "{}{}",
+        if negative { "-" } else { "" },
+        "9".repeat(digits as usize)
+    );
+    let field = if negative { "signed" } else { "unsigned" };
+    icydb::db::with_request_execution(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let query = DynamicQuery::new("PerfAuditBigLiteral")
+            .filter(FilterExpr::eq(field, text))
+            .select(["id"])
+            .limit(1);
+        let page = db()?.execute_trusted_live_page(&query, None)?;
+        Ok(ReadTotalOnlyPerfResult {
+            row_count: page.row_count,
+            instructions: ic_cdk::api::performance_counter(1).saturating_sub(start),
+        })
+    })
+}
+
+/// Measure accepted big-integer admission through an ordinary structural write.
+#[cfg(feature = "test-admin-api")]
+#[update]
+fn measure_big_integer_write(
+    digits: u32,
+    id: i32,
+) -> Result<ReadTotalOnlyPerfResult, icydb::Error> {
+    if ![20, 80, 300].contains(&digits) || !(0..4).contains(&id) {
+        return Err(query_validate_error());
+    }
+    let text = "9".repeat(digits as usize);
+    let signed = format!("-{text}")
+        .parse()
+        .map_err(|_| query_validate_error())?;
+    let unsigned = text.parse().map_err(|_| query_validate_error())?;
+    let patch = StructuralPatch::new()
+        .field("id", authored(id))
+        .field("signed", authored(InputValue::int_big(signed)))
+        .field("unsigned", authored(InputValue::nat_big(unsigned)));
+    icydb::db::with_request_execution(|| {
+        let start = ic_cdk::api::performance_counter(1);
+        let result = db()?.execute_trusted_structural_mutation(StructuralMutation::Insert {
+            entity: "PerfAuditBigLiteral".into(),
+            patch,
+        })?;
+        Ok(ReadTotalOnlyPerfResult {
+            row_count: result.affected_rows,
+            instructions: ic_cdk::api::performance_counter(1).saturating_sub(start),
+        })
+    })
+}
+
 /// Execute the same PerfAuditUser-only SQL query repeatedly inside one canister
 /// query call and report the per-run average instruction sample.
 #[cfg(feature = "sql")]

@@ -3,7 +3,6 @@
 //! Does not own: final planner validation or executor route/runtime semantics.
 //! Boundary: applies fluent/query API mutations to internal intent state contracts.
 
-use crate::db::predicate::Predicate;
 use crate::db::query::plan::expr::ProjectionSelection;
 use crate::db::query::{
     intent::{
@@ -12,21 +11,30 @@ use crate::db::query::{
     },
     plan::{
         GroupAggregateSpec, GroupField, GroupedExecutionConfig, OrderSpec, OrderTerm,
-        expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr, normalize_bool_expr},
+        expr::{BinaryOp, Expr, normalize_bool_expr},
     },
 };
+use crate::db::{QueryError, predicate::Predicate, query::preparation::PreparationWork};
 
 impl QueryIntent {
     /// Append one normalized scalar filter expression to intent state,
     /// implicitly AND-ing multiple scalar filter clauses.
-    pub(in crate::db::query::intent) fn append_filter_expr(&mut self, expr: Expr) {
-        self.append_normalized_filter(NormalizedFilter::from_normalized_expr(expr));
+    pub(in crate::db::query::intent) fn append_filter_expr(
+        &mut self,
+        expr: Expr,
+        work: &PreparationWork<'_>,
+    ) -> Result<(), QueryError> {
+        self.append_normalized_filter(NormalizedFilter::from_normalized_expr(expr), work)
     }
 
     /// Append one already-normalized filter predicate to scalar intent,
     /// implicitly AND-ing chains.
     pub(in crate::db::query::intent) fn append_predicate(&mut self, predicate: Predicate) {
-        self.append_normalized_filter(NormalizedFilter::from_normalized_predicate(predicate));
+        let scalar = self.scalar_mut();
+        match scalar.filter.as_mut() {
+            Some(existing) => existing.append_predicate(predicate),
+            None => scalar.filter = Some(NormalizedFilter::from_normalized_predicate(predicate)),
+        }
     }
 
     /// Append one normalized scalar filter with both semantic views already
@@ -35,20 +43,27 @@ impl QueryIntent {
         &mut self,
         expr: Expr,
         predicate: Predicate,
-    ) {
-        self.append_normalized_filter(NormalizedFilter::from_normalized_expr_and_predicate_subset(
-            expr, predicate,
-        ));
+        work: &PreparationWork<'_>,
+    ) -> Result<(), QueryError> {
+        self.append_normalized_filter(
+            NormalizedFilter::from_normalized_expr_and_predicate_subset(expr, predicate),
+            work,
+        )
     }
 
     // Store scalar filters through the single normalized-filter seam so later
     // planning never has to reconcile independently-mutated filter fields.
-    fn append_normalized_filter(&mut self, filter: NormalizedFilter) {
+    fn append_normalized_filter(
+        &mut self,
+        filter: NormalizedFilter,
+        work: &PreparationWork<'_>,
+    ) -> Result<(), QueryError> {
         let scalar = self.scalar_mut();
         match scalar.filter.as_mut() {
-            Some(existing) => existing.append(filter),
+            Some(existing) => existing.append(filter, work)?,
             None => scalar.filter = Some(filter),
         }
+        Ok(())
     }
 
     /// Append one already-lowered ORDER BY term to scalar intent.
@@ -123,29 +138,19 @@ impl QueryIntent {
     pub(in crate::db::query::intent) fn push_having_expr_preserving_shape(
         &mut self,
         expr: Expr,
-    ) -> Result<(), IntentError> {
-        self.push_having_expr_with_policy(expr, false)
-    }
-
-    // Keep grouped HAVING append-order normalization on one seam while letting
-    // fluent grouped builders and SQL-lowered grouped queries choose whether
-    // searched-CASE semantic canonicalization should run at append time.
-    fn push_having_expr_with_policy(
-        &mut self,
-        expr: Expr,
-        canonicalize_case_semantics: bool,
-    ) -> Result<(), IntentError> {
+        work: &PreparationWork<'_>,
+    ) -> Result<(), QueryError> {
         if matches!(self, Self::Delete(_)) {
             if self.is_grouped() {
                 self.mark_delete_grouping_requested();
                 return Ok(());
             }
 
-            return Err(IntentError::having_requires_group_by());
+            return Err(QueryError::intent(IntentError::having_requires_group_by()));
         }
 
         let Some(grouped) = self.grouped_mut() else {
-            return Err(IntentError::having_requires_group_by());
+            return Err(QueryError::intent(IntentError::having_requires_group_by()));
         };
 
         let combined = match grouped.having_expr.take() {
@@ -156,17 +161,10 @@ impl QueryIntent {
             },
             None => expr,
         };
-        let canonical = if canonicalize_case_semantics {
-            canonicalize_grouped_having_bool_expr(combined)
-        } else {
-            normalize_bool_expr(combined)
-        };
+        let canonical = normalize_bool_expr(combined, work)?;
 
-        // Grouped HAVING still normalizes on one append seam, and callers can
-        // opt into the shipped searched-CASE semantic canonicalization there
-        // when the grouped expression shape is allowed to collapse. Grouped
-        // boolean trees may still carry aggregate leaves that the scalar-only
-        // normalized-shape checker rejects.
+        // The caller owns searched-CASE semantics; append only establishes
+        // canonical ordering for the combined grouped expression.
         grouped.having_expr = Some(canonical);
 
         Ok(())

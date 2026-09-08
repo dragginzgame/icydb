@@ -20,7 +20,8 @@ pub(crate) use types::{SqlClauseOrderRule, SqlIntegerLiteralClause};
 
 pub(crate) const MAX_SQL_INPUT_BYTES: usize = (2 * 1024 * 1024) + 4096;
 pub(crate) const MAX_SQL_TOKENS: usize = 32_768;
-pub(crate) const MAX_SQL_EXPR_DEPTH: usize = 128;
+pub(crate) const MAX_SQL_EXPR_DEPTH: usize =
+    crate::db::query::admission::input::MAX_QUERY_INPUT_DEPTH;
 
 pub(crate) const fn sql_expr_depth_limit_error() -> SqlParseError {
     SqlParseError::invalid_syntax(SqlSyntaxErrorKind::ExpressionDepthLimit {

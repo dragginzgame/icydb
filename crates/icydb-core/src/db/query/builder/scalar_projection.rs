@@ -6,10 +6,14 @@
 //! Boundary: fluent helper projections share this contract so adapter surfaces
 //! can consume one stable projection-helper API.
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{QueryError, query::plan::expr::Expr},
     value::Value,
 };
+use std::fmt::{self, Write};
 
 pub(super) mod private {
     pub trait Sealed {}
@@ -62,118 +66,116 @@ pub trait ValueProjectionExpr: private::Sealed {
 /// stable plan label.
 #[must_use]
 pub(in crate::db) fn render_scalar_projection_expr_plan_label(expr: &Expr) -> String {
-    render_scalar_projection_expr_plan_label_with_parent(expr, None, false)
+    let mut rendered = String::new();
+    // Every formatter below propagates only sink failures. String's fmt::Write
+    // implementation is infallible; fallible sinks use the writer directly.
+    write_scalar_projection_expr_plan_label(expr, &mut rendered)
+        .expect("writing a planner label into String cannot fail");
+
+    rendered
 }
 
-fn render_scalar_projection_expr_plan_label_with_parent(
+/// Write the maintained planner-label grammar incrementally. Callers may reject
+/// a write before retaining its bytes; rendering stops at that first failure.
+pub(in crate::db) fn write_scalar_projection_expr_plan_label(
+    expr: &Expr,
+    output: &mut impl Write,
+) -> fmt::Result {
+    write_scalar_projection_expr_plan_label_with_parent(expr, None, false, output)
+}
+
+fn write_scalar_projection_expr_plan_label_with_parent(
     expr: &Expr,
     parent_op: Option<crate::db::query::plan::expr::BinaryOp>,
     is_right_child: bool,
-) -> String {
+    output: &mut impl Write,
+) -> fmt::Result {
     match expr {
-        Expr::Field(field) => field.as_str().to_string(),
-        Expr::FieldPath(path) => path.path_spec().dotted_label(),
-        Expr::Literal(value) => render_scalar_projection_literal(value),
+        Expr::Field(field) => output.write_str(field.as_str()),
+        Expr::FieldPath(path) => {
+            output.write_str(path.root().as_str())?;
+            for segment in path.segments() {
+                output.write_char('.')?;
+                output.write_str(segment)?;
+            }
+            Ok(())
+        }
+        Expr::Literal(value) => write_scalar_projection_literal(value, output),
         Expr::FunctionCall { function, args } => {
-            let rendered_args = args
-                .iter()
-                .map(|arg| render_scalar_projection_expr_plan_label_with_parent(arg, None, false))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            format!("{}({rendered_args})", function.canonical_label())
+            output.write_str(function.canonical_label())?;
+            output.write_char('(')?;
+            for (index, arg) in args.iter().enumerate() {
+                if index != 0 {
+                    output.write_str(", ")?;
+                }
+                write_scalar_projection_expr_plan_label(arg, output)?;
+            }
+            output.write_char(')')
         }
         Expr::Case {
             when_then_arms,
             else_expr,
-        } => render_case_projection_expr_plan_label(when_then_arms, else_expr.as_ref()),
-        Expr::Binary { op, left, right } => {
-            let left = render_scalar_projection_expr_plan_label_with_parent(
-                left.as_ref(),
-                Some(*op),
-                false,
-            );
-            let right = render_scalar_projection_expr_plan_label_with_parent(
-                right.as_ref(),
-                Some(*op),
-                true,
-            );
-            let rendered = format!("{left} {} {right}", binary_op_symbol(*op));
-
-            if binary_expr_requires_parentheses(*op, parent_op, is_right_child) {
-                format!("({rendered})")
-            } else {
-                rendered
+        } => {
+            output.write_str("CASE")?;
+            for arm in when_then_arms {
+                output.write_str(" WHEN ")?;
+                write_scalar_projection_expr_plan_label(arm.condition(), output)?;
+                output.write_str(" THEN ")?;
+                write_scalar_projection_expr_plan_label(arm.result(), output)?;
             }
+            output.write_str(" ELSE ")?;
+            write_scalar_projection_expr_plan_label(else_expr, output)?;
+            output.write_str(" END")
+        }
+        Expr::Binary { op, left, right } => {
+            let parenthesized = binary_expr_requires_parentheses(*op, parent_op, is_right_child);
+            if parenthesized {
+                output.write_char('(')?;
+            }
+            write_scalar_projection_expr_plan_label_with_parent(left, Some(*op), false, output)?;
+            write!(output, " {} ", binary_op_symbol(*op))?;
+            write_scalar_projection_expr_plan_label_with_parent(right, Some(*op), true, output)?;
+            if parenthesized {
+                output.write_char(')')?;
+            }
+            Ok(())
         }
         Expr::Aggregate(aggregate) => {
             // Preserve full aggregate identity, including FILTER semantics, so
             // alias-normalized grouped HAVING/ORDER BY terms round-trip back
             // onto the same planner aggregate expression shape.
-            let kind = aggregate.kind().canonical_label();
-            let distinct = if aggregate.is_distinct() {
-                "DISTINCT "
-            } else {
-                ""
-            };
-            let filter = aggregate.filter_expr().map(|filter_expr| {
-                format!(
-                    " FILTER (WHERE {})",
-                    render_scalar_projection_expr_plan_label_with_parent(filter_expr, None, false,)
-                )
-            });
-
-            if let Some(input_expr) = aggregate.input_expr() {
-                let input =
-                    render_scalar_projection_expr_plan_label_with_parent(input_expr, None, false);
-
-                return format!("{kind}({distinct}{input}){}", filter.unwrap_or_default());
+            output.write_str(aggregate.kind().canonical_label())?;
+            output.write_char('(')?;
+            if aggregate.is_distinct() {
+                output.write_str("DISTINCT ")?;
             }
-
-            format!("{kind}({distinct}*){}", filter.unwrap_or_default())
+            if let Some(input_expr) = aggregate.input_expr() {
+                write_scalar_projection_expr_plan_label(input_expr, output)?;
+            } else {
+                output.write_char('*')?;
+            }
+            output.write_char(')')?;
+            if let Some(filter_expr) = aggregate.filter_expr() {
+                output.write_str(" FILTER (WHERE ")?;
+                write_scalar_projection_expr_plan_label(filter_expr, output)?;
+                output.write_char(')')?;
+            }
+            Ok(())
         }
         #[cfg(test)]
-        Expr::Alias { expr, .. } => render_scalar_projection_expr_plan_label_with_parent(
+        Expr::Alias { expr, .. } => write_scalar_projection_expr_plan_label_with_parent(
             expr.as_ref(),
             parent_op,
             is_right_child,
+            output,
         ),
         Expr::Unary { op, expr } => {
-            let rendered =
-                render_scalar_projection_expr_plan_label_with_parent(expr.as_ref(), None, false);
             match op {
-                crate::db::query::plan::expr::UnaryOp::Not => format!("NOT {rendered}"),
+                crate::db::query::plan::expr::UnaryOp::Not => output.write_str("NOT ")?,
             }
+            write_scalar_projection_expr_plan_label(expr, output)
         }
     }
-}
-
-fn render_case_projection_expr_plan_label(
-    when_then_arms: &[crate::db::query::plan::expr::CaseWhenArm],
-    else_expr: &Expr,
-) -> String {
-    let mut rendered = String::from("CASE");
-
-    for arm in when_then_arms {
-        rendered.push_str(" WHEN ");
-        rendered.push_str(
-            render_scalar_projection_expr_plan_label_with_parent(arm.condition(), None, false)
-                .as_str(),
-        );
-        rendered.push_str(" THEN ");
-        rendered.push_str(
-            render_scalar_projection_expr_plan_label_with_parent(arm.result(), None, false)
-                .as_str(),
-        );
-    }
-
-    rendered.push_str(" ELSE ");
-    rendered.push_str(
-        render_scalar_projection_expr_plan_label_with_parent(else_expr, None, false).as_str(),
-    );
-    rendered.push_str(" END");
-
-    rendered
 }
 
 const fn binary_expr_requires_parentheses(
@@ -224,21 +226,31 @@ const fn binary_op_symbol(op: crate::db::query::plan::expr::BinaryOp) -> &'stati
     }
 }
 
-fn render_scalar_projection_literal(value: &Value) -> String {
+fn write_scalar_projection_literal(value: &Value, output: &mut impl Write) -> fmt::Result {
     match value {
-        Value::Null => "NULL".to_string(),
-        Value::Text(text) => format!("'{}'", text.replace('\'', "''")),
-        Value::Int64(value) => value.to_string(),
-        Value::Int128(value) => value.to_string(),
-        Value::IntBig(value) => value.to_string(),
-        Value::Nat64(value) => value.to_string(),
-        Value::Nat128(value) => value.to_string(),
-        Value::NatBig(value) => value.to_string(),
-        Value::U256(value) => value.to_string(),
-        Value::Decimal(value) => value.to_string(),
-        Value::Float32(value) => value.to_string(),
-        Value::Float64(value) => value.to_string(),
-        Value::Bool(value) => value.to_string().to_uppercase(),
-        other => format!("{other:?}"),
+        Value::Null => output.write_str("NULL"),
+        Value::Text(text) => {
+            output.write_char('\'')?;
+            for (index, part) in text.split('\'').enumerate() {
+                if index != 0 {
+                    output.write_str("''")?;
+                }
+                output.write_str(part)?;
+            }
+            output.write_char('\'')
+        }
+        Value::Int64(value) => write!(output, "{value}"),
+        Value::Int128(value) => write!(output, "{value}"),
+        Value::IntBig(value) => write!(output, "{value}"),
+        Value::Nat64(value) => write!(output, "{value}"),
+        Value::Nat128(value) => write!(output, "{value}"),
+        Value::NatBig(value) => write!(output, "{value}"),
+        Value::U256(value) => write!(output, "{value}"),
+        Value::Decimal(value) => write!(output, "{value}"),
+        Value::Float32(value) => write!(output, "{value}"),
+        Value::Float64(value) => write!(output, "{value}"),
+        Value::Bool(true) => output.write_str("TRUE"),
+        Value::Bool(false) => output.write_str("FALSE"),
+        other => write!(output, "{other:?}"),
     }
 }

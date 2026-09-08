@@ -3,6 +3,8 @@
 //! Does not own: cursor movement, clause sequencing, or execution semantics.
 //! Boundary: defines the parser output contracts re-exported by the parser root.
 
+mod cleanup;
+
 use crate::{
     db::{
         query::plan::{AggregateKind, expr::Function},
@@ -477,6 +479,43 @@ pub(crate) enum SqlExpr {
 }
 
 impl SqlExpr {
+    /// Visit immediate scalar children in place. Aggregate inputs are a separate
+    /// scope and remain opaque, as in the borrowed scalar-tree visitor.
+    pub(in crate::db::sql) fn for_each_scalar_child_mut(
+        &mut self,
+        visit: &mut impl FnMut(&mut Self),
+    ) {
+        match self {
+            Self::Field(_)
+            | Self::FieldPath { .. }
+            | Self::Aggregate(_)
+            | Self::Literal(_)
+            | Self::Param { .. } => {}
+            Self::Membership { expr, .. }
+            | Self::NullTest { expr, .. }
+            | Self::Like { expr, .. }
+            | Self::Unary { expr, .. } => visit(expr),
+            Self::FunctionCall { args, .. } => {
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::Binary { left, right, .. } => {
+                visit(left);
+                visit(right);
+            }
+            Self::Case { arms, else_expr } => {
+                for arm in arms {
+                    visit(&mut arm.condition);
+                    visit(&mut arm.result);
+                }
+                if let Some(expr) = else_expr {
+                    visit(expr);
+                }
+            }
+        }
+    }
+
     /// Visit lexical parameter identities, including membership and aggregate inputs.
     pub(in crate::db::sql) fn for_each_parameter(&self, visit: &mut impl FnMut(usize)) {
         self.for_each_tree_expr(&mut |expr| match expr {
@@ -708,6 +747,12 @@ impl SqlExpr {
                     .is_none_or(|else_expr| else_expr.all_tree_expr(predicate))
             }
         }
+    }
+}
+
+impl Drop for SqlExpr {
+    fn drop(&mut self) {
+        cleanup::clear_expr(self);
     }
 }
 

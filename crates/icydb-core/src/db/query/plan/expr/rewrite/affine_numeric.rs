@@ -1,7 +1,7 @@
 use crate::{
     db::{
         numeric::{NumericArithmeticOp, apply_numeric_arithmetic_checked},
-        query::plan::expr::{BinaryOp, CaseWhenArm, Expr},
+        query::plan::expr::{BinaryOp, Expr},
     },
     value::Value,
 };
@@ -9,51 +9,19 @@ use crate::{
 /// Rewrite the planner-owned affine numeric compare family that can already
 /// reduce onto the existing field-vs-literal predicate lane.
 #[must_use]
-pub(in crate::db) fn rewrite_affine_numeric_compare_expr(expr: Expr) -> Expr {
-    match expr {
-        Expr::Unary { op, expr } => Expr::Unary {
-            op,
-            expr: Box::new(rewrite_affine_numeric_compare_expr(*expr)),
-        },
-        Expr::Binary {
-            op: logical @ (BinaryOp::And | BinaryOp::Or),
-            left,
-            right,
-        } => Expr::Binary {
-            op: logical,
-            left: Box::new(rewrite_affine_numeric_compare_expr(*left)),
-            right: Box::new(rewrite_affine_numeric_compare_expr(*right)),
-        },
-        Expr::Binary { op, left, right } => {
-            let left = rewrite_affine_numeric_compare_expr(*left);
-            let right = rewrite_affine_numeric_compare_expr(*right);
-
-            rewrite_affine_compare_binary(op, left, right)
-        }
-        Expr::FunctionCall { function, args } => Expr::FunctionCall {
-            function,
-            args: args
-                .into_iter()
-                .map(rewrite_affine_numeric_compare_expr)
-                .collect(),
-        },
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => Expr::Case {
-            when_then_arms: when_then_arms
-                .into_iter()
-                .map(|arm| {
-                    CaseWhenArm::new(
-                        rewrite_affine_numeric_compare_expr(arm.condition().clone()),
-                        rewrite_affine_numeric_compare_expr(arm.result().clone()),
-                    )
-                })
-                .collect(),
-            else_expr: Box::new(rewrite_affine_numeric_compare_expr(*else_expr)),
-        },
-        other => other,
+pub(in crate::db) fn rewrite_affine_numeric_compare_expr(mut expr: Expr) -> Expr {
+    #[cfg(test)]
+    if matches!(expr, Expr::Alias { .. }) {
+        return expr;
     }
+    expr.map_scalar_children(rewrite_affine_numeric_compare_expr);
+    if let Expr::Binary { op, left, right } = &mut expr
+        && !matches!(op, BinaryOp::And | BinaryOp::Or)
+    {
+        return rewrite_affine_compare_binary(*op, left.take(), right.take());
+    }
+
+    expr
 }
 
 // Keep the affine binary rewrite intentionally narrow:

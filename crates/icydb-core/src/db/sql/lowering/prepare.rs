@@ -1,4 +1,5 @@
-use super::ast_depth::validate_sql_statement_ast_depth;
+use crate::db::query::preparation::PreparationWork;
+use crate::db::sql::input::validate_sql_statement_input;
 #[cfg(feature = "sql")]
 use crate::db::sql::lowering::{
     LoweredSqlCommand, LoweredSqlCommandInner, LoweredSqlQuery, select::lower_delete_shape,
@@ -38,7 +39,8 @@ pub(crate) fn prepare_sql_statement(
     statement: &SqlStatement,
     expected_entity: &str,
 ) -> Result<PreparedSqlStatement, SqlLoweringError> {
-    validate_sql_statement_ast_depth(statement)?;
+    validate_sql_statement_input(statement, &[])
+        .map_err(|reason| SqlLoweringError::Query(Box::new(reason.into())))?;
     let statement = prepare_statement(statement, expected_entity)?;
     validate_prepared_statement_parameters(&statement)?;
 
@@ -194,40 +196,43 @@ fn first_expr_parameter_index(expr: &SqlExpr) -> Option<usize> {
 /// Lower one prepared SQL EXPLAIN statement through an explicit schema projection.
 #[inline(never)]
 #[cfg(feature = "sql")]
-pub(crate) fn lower_sql_explain_command_from_prepared_statement_with_schema(
+pub(in crate::db) fn lower_sql_explain_command_from_prepared_statement_with_schema(
     prepared: PreparedSqlStatement,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     let SqlStatement::Explain(statement) = prepared.into_statement() else {
         return Err(SqlLoweringError::unexpected_query_lane_statement());
     };
 
-    lower_explain_prepared_with_schema(statement, schema)
+    lower_explain_prepared_with_schema(statement, schema, work)
 }
 
 /// Lower one prepared SQL SELECT through an explicit schema projection.
 #[inline(never)]
-pub(crate) fn lower_prepared_sql_select_statement_with_schema(
+pub(in crate::db) fn lower_prepared_sql_select_statement_with_schema(
     prepared: PreparedSqlStatement,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredSelectShape, SqlLoweringError> {
     let SqlStatement::Select(statement) = prepared.into_statement() else {
         return Err(QueryError::prepared_sql_select_lane_mismatch().into());
     };
 
-    lower_select_shape_with_schema(statement, schema)
+    lower_select_shape_with_schema(statement, schema, work)
 }
 
 /// Lower one prepared SQL DELETE statement into its execution-ready artifact.
 #[inline(never)]
-pub(crate) fn lower_prepared_sql_delete_statement(
+pub(in crate::db) fn lower_prepared_sql_delete_statement(
     prepared: PreparedSqlStatement,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredDeleteShape, SqlLoweringError> {
     let SqlStatement::Delete(statement) = prepared.into_statement() else {
         return Err(QueryError::prepared_sql_delete_lane_mismatch().into());
     };
 
-    lower_delete_statement_shape(statement)
+    lower_delete_statement_shape(statement, work)
 }
 
 /// Bind one already-prepared SQL SELECT through an explicit schema projection.
@@ -239,10 +244,11 @@ pub(in crate::db) fn bind_sql_select_statement_structural_with_schema(
     statement: SqlSelectStatement,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<StructuralQuery, SqlLoweringError> {
-    let select = lower_select_shape_with_schema(statement, schema)?;
+    let select = lower_select_shape_with_schema(statement, schema, work)?;
 
-    bind_lowered_sql_select_query_structural_with_schema(select, consistency, schema)
+    bind_lowered_sql_select_query_structural_with_schema(select, consistency, schema, work)
 }
 
 /// Extract one normalized prepared SQL INSERT statement.
@@ -431,13 +437,14 @@ fn prepare_insert_select_source(
 fn lower_explain_prepared_with_schema(
     statement: SqlExplainStatement,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     let mode = statement.mode;
     let verbose = statement.verbose;
 
     match statement.statement {
         SqlExplainTarget::Select(select_statement) => {
-            lower_explain_select_prepared_with_schema(select_statement, mode, verbose, schema)
+            lower_explain_select_prepared_with_schema(select_statement, mode, verbose, schema, work)
         }
         SqlExplainTarget::Delete(delete_statement) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
@@ -445,6 +452,7 @@ fn lower_explain_prepared_with_schema(
                 verbose,
                 query: Box::new(LoweredSqlQuery::Delete(lower_delete_shape(
                     delete_statement,
+                    work,
                 )?)),
             }))
         }
@@ -457,9 +465,10 @@ fn lower_explain_select_prepared_with_schema(
     mode: SqlExplainMode,
     verbose: bool,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    if SqlStatement::Select(statement.clone()).is_global_aggregate_lane_shape() {
-        let command = lower_global_aggregate_select_shape(statement)?;
+    if SqlStatement::Select(statement.clone()).is_global_aggregate_lane_shape(work)? {
+        let command = lower_global_aggregate_select_shape(statement, work)?;
 
         return Ok(LoweredSqlCommand(
             LoweredSqlCommandInner::ExplainGlobalAggregate {
@@ -470,14 +479,14 @@ fn lower_explain_select_prepared_with_schema(
         ));
     }
 
-    match lower_select_shape_with_schema(statement.clone(), schema) {
+    match lower_select_shape_with_schema(statement.clone(), schema, work) {
         Ok(query) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
             mode,
             verbose,
             query: Box::new(LoweredSqlQuery::Select(query)),
         })),
         Err(SqlLoweringError::UnsupportedSelectProjection) => {
-            let command = lower_global_aggregate_select_shape(statement)?;
+            let command = lower_global_aggregate_select_shape(statement, work)?;
 
             Ok(LoweredSqlCommand(
                 LoweredSqlCommandInner::ExplainGlobalAggregate {

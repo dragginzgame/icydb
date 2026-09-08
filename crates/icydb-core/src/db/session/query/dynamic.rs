@@ -21,10 +21,13 @@ use crate::{
             execute_structural_projection_page,
         },
         query::{
-            admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
+            admission::{
+                QueryAdmissionPolicy, QueryAdmissionSummary, input::validate_dynamic_query_input,
+            },
             expr::{CompareOperator, FilterExpr, OrderTerm as FluentOrderTerm, SetOperator},
             intent::{IntentError, StructuralQuery},
             plan::CardinalityTiebreakRoutePin,
+            preparation::PreparationWork,
         },
         session::AcceptedSchemaCatalogContext,
     },
@@ -64,6 +67,15 @@ impl Drop for ScalarPageResultBytesLimitGuard {
 enum DynamicReadLane {
     Public,
     Trusted,
+}
+
+impl DynamicReadLane {
+    const fn execution_lane(self) -> DiagnosticExecutionLane {
+        match self {
+            Self::Public => DiagnosticExecutionLane::PublicRead,
+            Self::Trusted => DiagnosticExecutionLane::TrustedRead,
+        }
+    }
 }
 
 struct ScalarCursorContract {
@@ -111,55 +123,64 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     pub(super) fn structural_query_from_dynamic_request(
+        &self,
         request: &DynamicQuery,
         catalog: &AcceptedSchemaCatalogContext,
+        lane: DiagnosticExecutionLane,
     ) -> Result<StructuralQuery, QueryError> {
-        Self::structural_query_from_dynamic_request_with_page_limit(request, catalog, None, false)
+        self.structural_query_from_dynamic_request_with_page_limit(
+            request, catalog, None, false, lane,
+        )
     }
 
     fn structural_query_from_dynamic_request_with_page_limit(
+        &self,
         request: &DynamicQuery,
         catalog: &AcceptedSchemaCatalogContext,
         page_limit: Option<u32>,
         require_total_order: bool,
+        lane: DiagnosticExecutionLane,
     ) -> Result<StructuralQuery, QueryError> {
-        let schema = catalog.accepted_schema_info();
-        let mut query = StructuralQuery::new(MissingRowPolicy::Ignore);
-        if let Some(filter) = request.filter_expr() {
-            query = query.filter_for_schema(schema, filter.clone());
-        }
-        for order in request.order_terms() {
-            query = query.order_term(order.clone());
-        }
-        if require_total_order && request.order_terms().is_empty() {
-            for primary_key in schema.primary_key_names() {
-                query = query.order_term(FluentOrderTerm::asc(primary_key.clone()));
+        validate_dynamic_query_input(request)?;
+        PreparationWork::run(self.db.request_execution_scope(), lane, |work| {
+            let schema = catalog.accepted_schema_info();
+            let mut query = StructuralQuery::new(MissingRowPolicy::Ignore);
+            if let Some(filter) = request.filter_expr() {
+                query = query.filter_for_schema(schema, filter, work)?;
             }
-        }
-        if !request.selected_fields().is_empty() {
-            query = query.select_fields(request.selected_fields().iter().cloned());
-        }
-        #[cfg(test)]
-        if request.projection_is_distinct() {
-            query = query.distinct();
-        }
-        if let Some(limit) = page_limit.or_else(|| request.row_limit()) {
-            query = query.limit(limit);
-        }
-        for field in request.group_fields() {
-            query = query.group_by_with_schema(field, schema)?;
-        }
-        for aggregate in request.aggregates() {
-            query = query.aggregate(aggregate.clone());
-        }
-        if let Some((max_groups, max_group_bytes)) = request.grouped_execution_limits() {
-            if max_groups == 0 || max_group_bytes == 0 {
-                return Err(QueryReadAdmissionCode::GroupedQueryRequiresLimits.into());
+            for order in request.order_terms() {
+                query = query.order_term(order.clone());
             }
-            query = query.grouped_limits(u64::from(max_groups), u64::from(max_group_bytes));
-        }
+            if require_total_order && request.order_terms().is_empty() {
+                for primary_key in schema.primary_key_names() {
+                    query = query.order_term(FluentOrderTerm::asc(primary_key.clone()));
+                }
+            }
+            if !request.selected_fields().is_empty() {
+                query = query.select_fields(request.selected_fields().iter().cloned());
+            }
+            #[cfg(test)]
+            if request.projection_is_distinct() {
+                query = query.distinct();
+            }
+            if let Some(limit) = page_limit.or_else(|| request.row_limit()) {
+                query = query.limit(limit);
+            }
+            for field in request.group_fields() {
+                query = query.group_by_with_schema(field, schema)?;
+            }
+            for aggregate in request.aggregates() {
+                query = query.aggregate(aggregate.clone());
+            }
+            if let Some((max_groups, max_group_bytes)) = request.grouped_execution_limits() {
+                if max_groups == 0 || max_group_bytes == 0 {
+                    return Err(QueryReadAdmissionCode::GroupedQueryRequiresLimits.into());
+                }
+                query = query.grouped_limits(u64::from(max_groups), u64::from(max_group_bytes));
+            }
 
-        Ok(query)
+            Ok(query)
+        })
     }
 
     fn scalar_page_cursor_error() -> QueryError {
@@ -296,7 +317,8 @@ impl<C: CanisterKind> DbSession<C> {
                 IntentError::grouped_output_defined_by_group_and_aggregates(),
             ));
         }
-        let query = Self::structural_query_from_dynamic_request(request, &catalog)?;
+        let query =
+            self.structural_query_from_dynamic_request(request, &catalog, lane.execution_lane())?;
         let public_admission = match lane {
             DynamicReadLane::Public => Some(QueryAdmissionPolicy::default_bounded_read()),
             DynamicReadLane::Trusted => None,
@@ -393,14 +415,12 @@ impl<C: CanisterKind> DbSession<C> {
             .min(page_row_limit as u64);
         let page_output_limit = usize::try_from(page_output_limit).unwrap_or(page_row_limit);
         let execution_limit = u32::try_from(page_row_limit).unwrap_or(u32::MAX);
-        let execution_lane = match lane {
-            DynamicReadLane::Public => DiagnosticExecutionLane::PublicRead,
-            DynamicReadLane::Trusted => DiagnosticExecutionLane::TrustedRead,
-        };
+        let execution_lane = lane.execution_lane();
         let exact_candidate =
             decoded_token.is_none() && Self::may_select_exact_single_primary_key(request, &catalog);
         let initial_plan = if exact_candidate {
-            let query = Self::structural_query_from_dynamic_request(request, &catalog)?;
+            let query =
+                self.structural_query_from_dynamic_request(request, &catalog, execution_lane)?;
             Some(
                 self.structural_projection_prepared_plan_for_accepted_authority(
                     &query,
@@ -420,11 +440,12 @@ impl<C: CanisterKind> DbSession<C> {
         let (prepared_plan, projection) = if initial_is_exact_exhaustion {
             initial_plan.ok_or_else(Self::scalar_page_cursor_error)?
         } else {
-            let query = Self::structural_query_from_dynamic_request_with_page_limit(
+            let query = self.structural_query_from_dynamic_request_with_page_limit(
                 request,
                 &catalog,
                 Some(execution_limit),
                 true,
+                execution_lane,
             )?;
             if let Some(route_pin) = decoded_token.as_ref().and_then(ScalarPageToken::route_pin) {
                 self.structural_projection_prepared_plan_for_accepted_authority_with_route_pin(

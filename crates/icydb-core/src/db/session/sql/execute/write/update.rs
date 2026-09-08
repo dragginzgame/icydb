@@ -4,6 +4,7 @@ use super::{
     sql_write_candidate_bounds, sql_write_input_for_accepted_field,
     sql_write_patch_set_accepted_field, sql_write_patch_set_update_default,
 };
+use crate::db::query::preparation::PreparationWork;
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
@@ -201,6 +202,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     pub(in crate::db::session::sql) fn sql_update_selector_query(
+        &self,
         schema_info: &crate::db::schema::SchemaInfo,
         statement: &SqlUpdateStatement,
     ) -> Result<StructuralQuery, QueryError> {
@@ -212,12 +214,19 @@ impl<C: CanisterKind> DbSession<C> {
             .iter()
             .map(String::as_str)
             .collect::<Vec<_>>();
-        let selector = bind_sql_update_selector_query_structural_with_schema(
-            statement,
-            MissingRowPolicy::Ignore,
-            schema_info,
-        )
-        .map_err(QueryError::from_sql_lowering_error)?;
+        let selector = PreparationWork::run(
+            self.db.request_execution_scope(),
+            icydb_diagnostic_code::DiagnosticExecutionLane::Mutation,
+            |work| {
+                bind_sql_update_selector_query_structural_with_schema(
+                    statement,
+                    MissingRowPolicy::Ignore,
+                    schema_info,
+                    work,
+                )
+                .map_err(QueryError::from_sql_lowering_error)
+            },
+        )?;
 
         Ok(selector.select_fields(primary_key_names))
     }
@@ -251,7 +260,7 @@ impl<C: CanisterKind> DbSession<C> {
                     Self::accepted_sql_write_authority_schema_info(catalog);
                 let entity_tag = catalog.identity().entity_tag();
                 let selector = execution_contract
-                    .selector(Self::sql_update_selector_query(&schema_info, statement)?);
+                    .selector(self.sql_update_selector_query(&schema_info, statement)?);
                 let patch = Self::sql_structural_patch(&descriptor, statement)?;
                 let write_context = AcceptedWriteContext::new(Timestamp::now());
                 let candidate_bounds = execution_contract.candidate_bounds();

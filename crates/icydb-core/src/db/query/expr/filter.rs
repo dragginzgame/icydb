@@ -5,14 +5,18 @@
 
 use crate::{
     db::{
+        QueryError,
         codec::hex::encode_hex_lower,
         query::plan::expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
+        query::preparation::PreparationWork,
         schema::SchemaInfo,
     },
     value::{InputValue, PublicValue, Value},
 };
 use candid::CandidType;
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use serde::{Deserialize, Deserializer, de::Error as _};
+use std::borrow::Cow;
 
 /// Serialized frontend-safe filter literal payload.
 ///
@@ -31,13 +35,30 @@ impl FilterValue {
     /// Lower one public wire literal back onto the runtime value model before
     /// adjacent schema-aware callers optionally canonicalize it to the target
     /// field kind.
-    fn lower_value(&self) -> Value {
-        match self {
-            Self::String(value) => Value::Text(value.clone()),
+    fn lower_value(&self, work: &PreparationWork<'_>) -> Result<Value, QueryError> {
+        work.charge(DiagnosticExecutionBudgetResource::NestedValueSteps, 1)?;
+        Ok(match self {
+            Self::String(value) => {
+                work.charge(
+                    DiagnosticExecutionBudgetResource::TemporaryBytes,
+                    value.len() as u64,
+                )?;
+                Value::Text(value.clone())
+            }
             Self::Bool(value) => Value::Bool(*value),
             Self::Null => Value::Null,
-            Self::List(values) => Value::List(values.iter().map(Self::lower_value).collect()),
-        }
+            Self::List(values) => {
+                work.charge(
+                    DiagnosticExecutionBudgetResource::TemporaryBytes,
+                    (values.len() as u64).saturating_mul(size_of::<Value>() as u64),
+                )?;
+                let mut lowered = Vec::with_capacity(values.len());
+                for value in values {
+                    lowered.push(value.lower_value(work)?);
+                }
+                Value::List(lowered)
+            }
+        })
     }
 
     fn from_input_value(value: InputValue) -> Self {
@@ -293,47 +314,58 @@ pub enum FilterExpr {
 
 impl FilterExpr {
     /// Lower this dynamic filter expression against accepted schema authority.
-    #[must_use]
-    pub(in crate::db::query) fn lower_bool_expr_for_schema(&self, schema: &SchemaInfo) -> Expr {
-        self.lower_bool_expr_with_schema(schema)
-    }
-
-    fn lower_bool_expr_with_schema(&self, schema: &SchemaInfo) -> Expr {
-        match self {
+    pub(in crate::db::query) fn lower_bool_expr_for_schema(
+        &self,
+        schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
+    ) -> Result<Expr, QueryError> {
+        // One step per frontend expression actually visited, before descent.
+        work.charge(
+            DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+            1,
+        )?;
+        Ok(match self {
             Self::Constant(value) => Expr::Literal(Value::Bool(*value)),
             Self::Junction { operator, filters } => {
-                fold_filter_bool_chain(operator.binary_op(), filters, schema)
+                fold_filter_bool_chain(operator.binary_op(), filters, schema, work)?
             }
-            Self::Not(filter) => Expr::Unary {
-                op: UnaryOp::Not,
-                expr: Box::new(filter.lower_bool_expr_with_schema(schema)),
-            },
+            Self::Not(filter) => {
+                let child = filter.lower_bool_expr_for_schema(schema, work)?;
+                charge_expr_slots(1, work)?;
+                Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(child),
+                }
+            }
             Self::Compare {
                 operator,
                 field,
                 value,
-            } => lower_field_value_compare(*operator, schema, field, value),
+            } => lower_field_value_compare(*operator, schema, field, value, work)?,
             Self::CompareFields {
                 operator,
                 left_field,
                 right_field,
-            } => field_compare_field_expr(operator.binary_op(), left_field, right_field),
+            } => field_compare_field_expr(operator.binary_op(), left_field, right_field, work)?,
             Self::Set {
                 operator,
                 field,
                 values,
             } => membership_expr(
                 field,
-                lower_membership(schema, field, values).as_slice(),
+                lower_membership(schema, field, values, work)?,
                 operator.is_negated(),
-            ),
+                work,
+            )?,
             Self::Collection {
                 operator,
                 field,
                 value,
-            } => lower_collection_compare(*operator, schema, field, value),
-            Self::State { operator, field } => field_function_expr(operator.function(), field),
-        }
+            } => lower_collection_compare(*operator, schema, field, value, work)?,
+            Self::State { operator, field } => {
+                field_function_expr(operator.function(), field, work)?
+            }
+        })
     }
 
     /// Build an `And` expression from a list of child expressions.
@@ -652,19 +684,22 @@ fn lower_field_value_compare(
     schema: &SchemaInfo,
     field: &str,
     value: &FilterValue,
-) -> Expr {
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
     if operator == CompareOperator::EqCi {
-        return Expr::Binary {
-            op: BinaryOp::Eq,
-            left: Box::new(casefold_field_expr(field)),
-            right: Box::new(Expr::Literal(value.lower_value())),
-        };
+        return binary_expr(
+            BinaryOp::Eq,
+            field_function_expr(Function::Lower, field, work)?,
+            Expr::Literal(value.lower_value(work)?),
+            work,
+        );
     }
 
     field_compare_expr(
         operator.binary_op(),
         field,
-        lower_compare(schema, field, value),
+        lower_compare(schema, field, value, work)?,
+        work,
     )
 }
 
@@ -673,149 +708,193 @@ fn lower_collection_compare(
     schema: &SchemaInfo,
     field: &str,
     value: &FilterValue,
-) -> Expr {
-    match operator {
-        CollectionOperator::Contains => Expr::FunctionCall {
-            function: Function::CollectionContains,
-            args: vec![
-                Expr::Field(FieldId::new(field.to_string())),
-                Expr::Literal(lower_collection_element(schema, field, value)),
-            ],
-        },
-        CollectionOperator::TextContains => text_function_expr(
-            Function::Contains,
-            Expr::Field(FieldId::new(field.to_string())),
-            value.lower_value(),
-        ),
-        CollectionOperator::TextContainsCi => text_function_expr(
-            Function::Contains,
-            casefold_field_expr(field),
-            value.lower_value(),
-        ),
-        CollectionOperator::StartsWith => text_function_expr(
-            Function::StartsWith,
-            Expr::Field(FieldId::new(field.to_string())),
-            value.lower_value(),
-        ),
-        CollectionOperator::StartsWithCi => text_function_expr(
-            Function::StartsWith,
-            casefold_field_expr(field),
-            value.lower_value(),
-        ),
-        CollectionOperator::EndsWith => text_function_expr(
-            Function::EndsWith,
-            Expr::Field(FieldId::new(field.to_string())),
-            value.lower_value(),
-        ),
-        CollectionOperator::EndsWithCi => text_function_expr(
-            Function::EndsWith,
-            casefold_field_expr(field),
-            value.lower_value(),
-        ),
-    }
-}
-
-fn lower_compare(schema: &SchemaInfo, field: &str, value: &FilterValue) -> Value {
-    let raw = value.lower_value();
-    schema
-        .canonicalize_filter_literal(field, &raw)
-        .unwrap_or(raw)
-}
-
-fn lower_membership(schema: &SchemaInfo, field: &str, values: &[FilterValue]) -> Vec<Value> {
-    values
-        .iter()
-        .map(|value| lower_compare(schema, field, value))
-        .collect()
-}
-
-fn lower_collection_element(schema: &SchemaInfo, field: &str, value: &FilterValue) -> Value {
-    let raw = value.lower_value();
-    schema
-        .canonicalize_filter_collection_element(field, &raw)
-        .unwrap_or(raw)
-}
-
-fn fold_filter_bool_chain(op: BinaryOp, exprs: &[FilterExpr], schema: &SchemaInfo) -> Expr {
-    let mut exprs = exprs.iter();
-    let Some(first) = exprs.next() else {
-        return Expr::Literal(Value::Bool(matches!(op, BinaryOp::And)));
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    let (function, casefold) = match operator {
+        CollectionOperator::Contains => (Function::CollectionContains, false),
+        CollectionOperator::TextContains => (Function::Contains, false),
+        CollectionOperator::TextContainsCi => (Function::Contains, true),
+        CollectionOperator::StartsWith => (Function::StartsWith, false),
+        CollectionOperator::StartsWithCi => (Function::StartsWith, true),
+        CollectionOperator::EndsWith => (Function::EndsWith, false),
+        CollectionOperator::EndsWithCi => (Function::EndsWith, true),
     };
+    let left = if casefold {
+        field_function_expr(Function::Lower, field, work)?
+    } else {
+        field_expr(field, work)?
+    };
+    let value = if operator == CollectionOperator::Contains {
+        lower_collection_element(schema, field, value, work)?
+    } else {
+        value.lower_value(work)?
+    };
+    function_expr(function, [left, Expr::Literal(value)], work)
+}
 
-    let first = first.lower_bool_expr_with_schema(schema);
+fn lower_compare(
+    schema: &SchemaInfo,
+    field: &str,
+    value: &FilterValue,
+    work: &PreparationWork<'_>,
+) -> Result<Value, QueryError> {
+    let raw = value.lower_value(work)?;
+    Ok(
+        match schema.canonicalize_filter_literal(field, &raw, work)? {
+            Some(Cow::Owned(canonical)) => canonical,
+            // Unchanged text/blob storage already belongs to this invocation.
+            Some(Cow::Borrowed(_)) | None => raw,
+        },
+    )
+}
 
-    exprs.fold(first, |left, expr| Expr::Binary {
-        op,
-        left: Box::new(left),
-        right: Box::new(expr.lower_bool_expr_with_schema(schema)),
+fn lower_membership(
+    schema: &SchemaInfo,
+    field: &str,
+    values: &[FilterValue],
+    work: &PreparationWork<'_>,
+) -> Result<Vec<Value>, QueryError> {
+    work.charge(
+        DiagnosticExecutionBudgetResource::TemporaryBytes,
+        (values.len() as u64).saturating_mul(size_of::<Value>() as u64),
+    )?;
+    let mut lowered = Vec::with_capacity(values.len());
+    for value in values {
+        lowered.push(lower_compare(schema, field, value, work)?);
+    }
+
+    Ok(lowered)
+}
+
+fn lower_collection_element(
+    schema: &SchemaInfo,
+    field: &str,
+    value: &FilterValue,
+    work: &PreparationWork<'_>,
+) -> Result<Value, QueryError> {
+    let raw = value.lower_value(work)?;
+    Ok(
+        match schema.canonicalize_filter_collection_element(field, &raw, work)? {
+            Some(Cow::Owned(canonical)) => canonical,
+            Some(Cow::Borrowed(_)) | None => raw,
+        },
+    )
+}
+
+fn fold_filter_bool_chain(
+    op: BinaryOp,
+    exprs: &[FilterExpr],
+    schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    // Split before lowering so flat width adds logarithmic depth, visiting every
+    // leaf in source order. Canonical sorting/simplification belongs to the planner.
+    Ok(match exprs {
+        [] => Expr::Literal(Value::Bool(matches!(op, BinaryOp::And))),
+        [expr] => expr.lower_bool_expr_for_schema(schema, work)?,
+        _ => {
+            let (left, right) = exprs.split_at(exprs.len() / 2);
+            binary_expr(
+                op,
+                fold_filter_bool_chain(op, left, schema, work)?,
+                fold_filter_bool_chain(op, right, schema, work)?,
+                work,
+            )?
+        }
     })
 }
 
-fn field_compare_expr(op: BinaryOp, field: &str, value: Value) -> Expr {
-    Expr::Binary {
+// These constructors own introduced backing storage; precharge immediately
+// before the copy/allocation, not via a separate expression-size estimator.
+fn charge_expr_slots(slots: usize, work: &PreparationWork<'_>) -> Result<(), QueryError> {
+    work.charge(
+        DiagnosticExecutionBudgetResource::TemporaryBytes,
+        (slots as u64).saturating_mul(size_of::<Expr>() as u64),
+    )
+}
+
+fn field_expr(field: &str, work: &PreparationWork<'_>) -> Result<Expr, QueryError> {
+    work.charge(
+        DiagnosticExecutionBudgetResource::TemporaryBytes,
+        field.len() as u64,
+    )?;
+    Ok(Expr::Field(FieldId::new(field)))
+}
+
+fn field_compare_expr(
+    op: BinaryOp,
+    field: &str,
+    value: Value,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    binary_expr(op, field_expr(field, work)?, Expr::Literal(value), work)
+}
+
+fn field_compare_field_expr(
+    op: BinaryOp,
+    left_field: &str,
+    right_field: &str,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    binary_expr(
         op,
-        left: Box::new(Expr::Field(FieldId::new(field.to_string()))),
-        right: Box::new(Expr::Literal(value)),
-    }
+        field_expr(left_field, work)?,
+        field_expr(right_field, work)?,
+        work,
+    )
 }
 
-fn field_compare_field_expr(op: BinaryOp, left_field: &str, right_field: &str) -> Expr {
-    Expr::Binary {
+fn membership_expr(
+    field: &str,
+    values: Vec<Value>,
+    negated: bool,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    // Typed empty sets are constants even for NULL or absent fields. Keep this
+    // frontend contract before constructing the ordinary nonempty membership.
+    if values.is_empty() {
+        return Ok(Expr::Literal(Value::Bool(negated)));
+    }
+
+    let field = field_expr(field, work)?;
+    // Shared membership owns two argument slots and an optional NOT box.
+    // The value vector was already charged while lowering its elements.
+    charge_expr_slots(2 + usize::from(negated), work)?;
+    Ok(Expr::membership(field, values, negated))
+}
+
+fn field_function_expr(
+    function: Function,
+    field: &str,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    function_expr(function, [field_expr(field, work)?], work)
+}
+
+fn function_expr<const N: usize>(
+    function: Function,
+    args: [Expr; N],
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    charge_expr_slots(N, work)?;
+    Ok(Expr::FunctionCall {
+        function,
+        args: Vec::from(args),
+    })
+}
+
+fn binary_expr(
+    op: BinaryOp,
+    left: Expr,
+    right: Expr,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    charge_expr_slots(2, work)?;
+    Ok(Expr::Binary {
         op,
-        left: Box::new(Expr::Field(FieldId::new(left_field.to_string()))),
-        right: Box::new(Expr::Field(FieldId::new(right_field.to_string()))),
-    }
-}
-
-fn membership_expr(field: &str, values: &[Value], negated: bool) -> Expr {
-    let compare_op = if negated { BinaryOp::Ne } else { BinaryOp::Eq };
-    let join_op = if negated { BinaryOp::And } else { BinaryOp::Or };
-    let mut values = values.iter();
-    let Some(first) = values.next() else {
-        return Expr::Literal(Value::Bool(negated));
-    };
-
-    let field = Expr::Field(FieldId::new(field.to_string()));
-    let mut expr = Expr::Binary {
-        op: compare_op,
-        left: Box::new(field.clone()),
-        right: Box::new(Expr::Literal(first.clone())),
-    };
-
-    for value in values {
-        expr = Expr::Binary {
-            op: join_op,
-            left: Box::new(expr),
-            right: Box::new(Expr::Binary {
-                op: compare_op,
-                left: Box::new(field.clone()),
-                right: Box::new(Expr::Literal(value.clone())),
-            }),
-        };
-    }
-
-    expr
-}
-
-fn field_function_expr(function: Function, field: &str) -> Expr {
-    Expr::FunctionCall {
-        function,
-        args: vec![Expr::Field(FieldId::new(field.to_string()))],
-    }
-}
-
-fn text_function_expr(function: Function, left: Expr, value: Value) -> Expr {
-    Expr::FunctionCall {
-        function,
-        args: vec![left, Expr::Literal(value)],
-    }
-}
-
-fn casefold_field_expr(field: &str) -> Expr {
-    Expr::FunctionCall {
-        function: Function::Lower,
-        args: vec![Expr::Field(FieldId::new(field.to_string()))],
-    }
+        left: Box::new(left),
+        right: Box::new(right),
+    })
 }
 
 ///
@@ -826,10 +905,536 @@ fn casefold_field_expr(field: &str) -> Expr {
 mod tests {
     use super::{
         CollectionOperator, CompareOperator, FieldCompareOperator, FilterExpr, FilterValue,
-        JunctionOperator, SetOperator, StateOperator,
+        JunctionOperator, SetOperator, StateOperator, field_compare_expr, membership_expr,
     };
-    use crate::db::query::plan::expr::{BinaryOp, Function};
-    use crate::types::{Date, Duration, Subaccount, Timestamp};
+    use crate::{
+        db::{
+            predicate::PredicateProgram,
+            query::plan::expr::{
+                BinaryOp, Expr, Function, UnaryOp, derive_normalized_bool_expr_predicate_subset,
+                eval_builder_expr_for_value_preview, normalize_bool_expr,
+            },
+            schema::{
+                AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
+                AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId, FieldStorageDecode,
+                LeafCodec, PersistedFieldSnapshot, PersistedSchemaSnapshot, ScalarCodec,
+                SchemaFieldSlot, SchemaInfo, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+                empty_accepted_enum_catalog_for_tests,
+            },
+        },
+        types::{Date, Duration, Subaccount, Timestamp},
+        value::Value,
+    };
+
+    fn lower_filter(filter: &FilterExpr, schema: &SchemaInfo) -> Expr {
+        let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+        crate::db::query::preparation::PreparationWork::run(
+            &root.scope(),
+            icydb_diagnostic_code::DiagnosticExecutionLane::PublicRead,
+            |work| filter.lower_bool_expr_for_schema(schema, work),
+        )
+        .expect("fixture lowering fits the production request budget")
+    }
+
+    #[test]
+    fn nested_filter_value_lowering_charges_before_descent_and_retains_failed_work() {
+        use crate::db::{
+            RequestExecutionRoot,
+            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+            query::preparation::PreparationWork,
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,
+        };
+
+        let schema = membership_schema();
+        let filter = FilterExpr::in_list(
+            "id",
+            [
+                FilterValue::String("1".into()),
+                FilterValue::List(vec![FilterValue::Bool(true)]),
+            ],
+        );
+        let root = RequestExecutionRoot::new_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                16_000_000,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(Resource::NestedValueSteps, 2),
+        );
+        for expected in [3, 4] {
+            let error =
+                PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
+                    filter.lower_bool_expr_for_schema(&schema, work)
+                })
+                .expect_err("reject the child visit before materializing it");
+            assert_eq!(root.observed(Resource::NestedValueSteps), expected);
+            assert!(error.diagnostic_facts().contains(&(
+                icydb_diagnostic_code::DiagnosticFactTag::BudgetResource,
+                Resource::NestedValueSteps.raw()
+            )));
+        }
+    }
+
+    fn filter_construction_cases() -> Vec<(FilterExpr, u64)> {
+        let slot = size_of::<Expr>() as u64;
+        // NULL avoids variable raw-literal storage here. This tests construction;
+        // operation/type admissibility still belongs to downstream validation.
+        let mut cases = vec![
+            (FilterExpr::Constant(true), 0),
+            (FilterExpr::and(vec![]), 0),
+            (FilterExpr::or(vec![]), 0),
+            (FilterExpr::not(FilterExpr::Constant(true)), slot),
+            (
+                FilterExpr::and(vec![
+                    FilterExpr::Constant(true),
+                    FilterExpr::Constant(false),
+                ]),
+                2 * slot,
+            ),
+            (
+                FilterExpr::or(vec![
+                    FilterExpr::Constant(true),
+                    FilterExpr::Constant(false),
+                ]),
+                2 * slot,
+            ),
+            (FilterExpr::in_list("id", Vec::<FilterValue>::new()), 0),
+            (FilterExpr::not_in("id", Vec::<FilterValue>::new()), 0),
+            (FilterExpr::eq("id", FilterValue::Null), 2 + 2 * slot),
+            (FilterExpr::eq_ci("id", FilterValue::Null), 2 + 3 * slot),
+            (FilterExpr::eq_field("id", "id"), 4 + 2 * slot),
+            (
+                FilterExpr::in_list("id", [FilterValue::Null]),
+                2 + size_of::<Value>() as u64 + 2 * slot,
+            ),
+            (
+                FilterExpr::not_in("id", [FilterValue::Null]),
+                2 + size_of::<Value>() as u64 + 3 * slot,
+            ),
+        ];
+        for (operator, slots) in [
+            (CollectionOperator::Contains, 2),
+            (CollectionOperator::TextContains, 2),
+            (CollectionOperator::TextContainsCi, 3),
+            (CollectionOperator::StartsWith, 2),
+            (CollectionOperator::StartsWithCi, 3),
+            (CollectionOperator::EndsWith, 2),
+            (CollectionOperator::EndsWithCi, 3),
+        ] {
+            cases.push((
+                FilterExpr::Collection {
+                    operator,
+                    field: "id".into(),
+                    value: FilterValue::Null,
+                },
+                2 + slots * slot,
+            ));
+        }
+        for operator in [
+            StateOperator::IsNull,
+            StateOperator::IsNotNull,
+            StateOperator::IsMissing,
+            StateOperator::IsEmpty,
+            StateOperator::IsNotEmpty,
+        ] {
+            cases.push((
+                FilterExpr::State {
+                    operator,
+                    field: "id".into(),
+                },
+                2 + slot,
+            ));
+        }
+        cases
+    }
+
+    #[test]
+    fn typed_filter_constructors_charge_names_and_introduced_storage() {
+        use crate::db::{
+            RequestExecutionRoot,
+            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+            query::preparation::PreparationWork,
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,
+            DiagnosticFactTag,
+        };
+
+        let schema = membership_schema();
+        for (filter, expected) in filter_construction_cases() {
+            for reject in [false, true] {
+                if reject && expected == 0 {
+                    continue;
+                }
+                let limit = expected - u64::from(reject);
+                let root = RequestExecutionRoot::new_for_tests(
+                    HardExecutionBudget::uniform_for_tests(
+                        16_000_000,
+                        HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                    )
+                    .with_limit_for_tests(Resource::TemporaryBytes, limit),
+                );
+                let result = PreparationWork::run(
+                    &root.scope(),
+                    DiagnosticExecutionLane::PublicRead,
+                    |work| filter.lower_bool_expr_for_schema(&schema, work),
+                );
+                if reject {
+                    let error = result.expect_err("one byte short rejects construction");
+                    assert!(error.diagnostic_facts().contains(&(
+                        DiagnosticFactTag::BudgetResource,
+                        Resource::TemporaryBytes.raw()
+                    )));
+                } else {
+                    result.expect("exact construction allowance fits");
+                }
+                assert_eq!(
+                    root.observed(Resource::TemporaryBytes),
+                    expected,
+                    "{filter:?}"
+                );
+            }
+        }
+    }
+
+    fn membership_schema() -> SchemaInfo {
+        let id = FieldId::new(1);
+        let slot = SchemaFieldSlot::new(0);
+        let snapshot = AcceptedSchemaSnapshot::try_new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "filter::tests::Entity".to_string(),
+            "Entity".to_string(),
+            id,
+            SchemaRowLayout::initial(vec![(id, slot)]),
+            vec![PersistedFieldSnapshot::new_initial(
+                id,
+                "id".to_string(),
+                slot,
+                AcceptedFieldKind::Int32,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Int64),
+            )],
+        ))
+        .expect("test schema should be accepted");
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
+            empty_accepted_enum_catalog_for_tests(),
+            AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
+
+        SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog, true)
+    }
+
+    // Inspect junction depth and leaf order without imposing a recursive walk
+    // on the test itself. Comparisons are leaves for this measurement.
+    fn bool_chain_leaves(expr: &Expr, join: BinaryOp) -> (usize, Vec<&Expr>) {
+        let mut pending = vec![(expr, 0)];
+        let mut leaves = Vec::new();
+        let mut depth = 0;
+        while let Some((expr, level)) = pending.pop() {
+            depth = depth.max(level);
+            if let Expr::Binary { op, left, right } = expr
+                && *op == join
+            {
+                pending.push((right, level + 1));
+                pending.push((left, level + 1));
+            } else {
+                leaves.push(expr);
+            }
+        }
+
+        (depth, leaves)
+    }
+
+    #[test]
+    fn flat_junctions_lower_with_logarithmic_depth_in_source_order() {
+        crate::db::query::preparation::with_preparation_work(|work| {
+            let schema = membership_schema();
+            for count in [0_usize, 1, 2, 3, 127, 128, 129, 1024, 4096] {
+                let values = (0..count)
+                    .map(|value| FilterValue::String(value.to_string()))
+                    .collect::<Vec<_>>();
+                for negated in [false, true] {
+                    let compare = if negated { BinaryOp::Ne } else { BinaryOp::Eq };
+                    let join = if negated { BinaryOp::And } else { BinaryOp::Or };
+                    let filters = values
+                        .iter()
+                        .map(|value| FilterExpr::Compare {
+                            operator: if negated {
+                                CompareOperator::Ne
+                            } else {
+                                CompareOperator::Eq
+                            },
+                            field: "id".to_string(),
+                            value: value.clone(),
+                        })
+                        .collect();
+                    let junction = FilterExpr::Junction {
+                        operator: if negated {
+                            JunctionOperator::And
+                        } else {
+                            JunctionOperator::Or
+                        },
+                        filters,
+                    };
+                    let junction = lower_filter(&junction, &schema);
+                    if count == 0 {
+                        assert_eq!(junction, Expr::Literal(Value::Bool(negated)));
+                        continue;
+                    }
+
+                    let (depth, leaves) = bool_chain_leaves(&junction, join);
+                    assert_eq!(depth, count.next_power_of_two().ilog2() as usize);
+                    assert_eq!(leaves.len(), count);
+                    for (index, leaf) in leaves.into_iter().enumerate() {
+                        let value = i64::try_from(index).expect("test integer fits");
+                        assert_eq!(
+                            *leaf,
+                            field_compare_expr(compare, "id", Value::Int64(value), work)
+                                .expect("bounded fixture comparison")
+                        );
+                    }
+                    // Canonical identity must not depend on associative grouping.
+                    // Keep this control below the separate wide-lowering stress sizes.
+                    if count <= 129 {
+                        let associated = bool_chain_leaves(&junction, join)
+                            .1
+                            .into_iter()
+                            .cloned()
+                            .reduce(|left, right| Expr::Binary {
+                                op: join,
+                                left: Box::new(left),
+                                right: Box::new(right),
+                            })
+                            .expect("nonempty fixture");
+                        assert_eq!(
+                            normalize_bool_expr(junction, work).expect("canonical preparation"),
+                            normalize_bool_expr(associated, work).expect("canonical preparation")
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn compact_membership_preserves_admitted_values_without_comparison_expansion() {
+        crate::db::query::preparation::with_preparation_work(|work| {
+            let schema = membership_schema();
+            let values = vec![
+                FilterValue::String("3".to_string()),
+                FilterValue::Null,
+                FilterValue::String("1".to_string()),
+                FilterValue::String("3".to_string()),
+            ];
+            for negated in [false, true] {
+                let lowered = FilterExpr::Set {
+                    operator: if negated {
+                        SetOperator::NotIn
+                    } else {
+                        SetOperator::In
+                    },
+                    field: "id".to_string(),
+                    values: values.clone(),
+                };
+                let lowered = lower_filter(&lowered, &schema);
+                let expected = vec![
+                    Value::Int64(3),
+                    Value::Null,
+                    Value::Int64(1),
+                    Value::Int64(3),
+                ];
+                assert_eq!(
+                    lowered,
+                    membership_expr("id", expected, negated, work)
+                        .expect("bounded fixture membership")
+                );
+                assert_eq!(
+                    normalize_bool_expr(lowered.clone(), work).expect("canonical preparation"),
+                    lowered
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn compact_membership_moves_the_list_and_keeps_constant_depth() {
+        crate::db::query::preparation::with_preparation_work(|work| {
+            for count in [1, 2, 128, 4096] {
+                for negated in [false, true] {
+                    let values = (0..count).map(Value::Int64).collect::<Vec<_>>();
+                    let allocation = values.as_ptr();
+                    let expr = membership_expr("id", values, negated, work)
+                        .expect("bounded fixture membership");
+                    let membership = if negated {
+                        let Expr::Unary {
+                            op: UnaryOp::Not,
+                            expr,
+                        } = &expr
+                        else {
+                            panic!("negated membership wraps one compact operation");
+                        };
+                        expr.as_ref()
+                    } else {
+                        &expr
+                    };
+                    let Expr::FunctionCall {
+                        function: Function::InList,
+                        args,
+                    } = membership
+                    else {
+                        panic!("membership remains compact at every width");
+                    };
+                    let [Expr::Field(field), Expr::Literal(Value::List(values))] = args.as_slice()
+                    else {
+                        panic!("membership owns a target and a value list");
+                    };
+                    assert_eq!(field.as_str(), "id");
+                    assert_eq!(values.as_ptr(), allocation);
+                    assert_eq!(
+                        values.len(),
+                        usize::try_from(count).expect("fixture count fits")
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn compact_membership_matches_explicit_comparisons_and_empty_identities() {
+        crate::db::query::preparation::with_preparation_work(|work| {
+            let fixtures = [
+                vec![],
+                vec![Value::Null],
+                vec![Value::Int64(1)],
+                vec![Value::Int64(1), Value::Null, Value::Int64(1)],
+                vec![Value::Int64(2), Value::Int64(3)],
+                vec![Value::Int64(1), Value::Nat64(1)],
+                vec![Value::Text("one".into()), Value::Text("two".into())],
+                vec![Value::Bool(true), Value::Bool(false)],
+                vec![Value::Blob(vec![1]), Value::Blob(vec![2])],
+                vec![Value::List(vec![Value::Int64(1)])],
+                vec![Value::Unit],
+            ];
+            let targets = [
+                Value::Null,
+                Value::Int64(1),
+                Value::Int64(4),
+                Value::Nat64(1),
+                Value::Text("one".into()),
+                Value::Bool(false),
+                Value::Blob(vec![1]),
+                Value::List(vec![Value::Int64(1)]),
+                Value::Unit,
+            ];
+            for values in fixtures {
+                for negated in [false, true] {
+                    let compare = if negated { BinaryOp::Ne } else { BinaryOp::Eq };
+                    let join = if negated { BinaryOp::And } else { BinaryOp::Or };
+                    let explicit = values
+                        .iter()
+                        .cloned()
+                        .map(|value| {
+                            field_compare_expr(compare, "id", value, work)
+                                .expect("bounded fixture comparison")
+                        })
+                        .reduce(|left, right| Expr::Binary {
+                            op: join,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        })
+                        .unwrap_or(Expr::Literal(Value::Bool(negated)));
+                    let compact = membership_expr("id", values.clone(), negated, work)
+                        .expect("bounded fixture membership");
+                    if values.is_empty() {
+                        assert_eq!(compact, Expr::Literal(Value::Bool(negated)));
+                    }
+                    for target in &targets {
+                        let actual = eval_builder_expr_for_value_preview(&compact, "id", target);
+                        let expected = eval_builder_expr_for_value_preview(&explicit, "id", target);
+                        match (actual, expected) {
+                            (Ok(actual), Ok(expected)) => assert_eq!(actual, expected),
+                            (Err(_), Err(_)) => {}
+                            other => panic!("membership evaluation parity failed: {other:?}"),
+                        }
+                    }
+                    let compact_predicate = derive_normalized_bool_expr_predicate_subset(
+                        &normalize_bool_expr(compact, work).expect("canonical preparation"),
+                    );
+                    let explicit_predicate = derive_normalized_bool_expr_predicate_subset(
+                        &normalize_bool_expr(explicit, work).expect("canonical preparation"),
+                    );
+                    assert_eq!(compact_predicate.is_some(), explicit_predicate.is_some());
+                    if let (Some(compact), Some(explicit)) = (compact_predicate, explicit_predicate)
+                    {
+                        let schema = membership_schema();
+                        let compact = PredicateProgram::compile_with_schema_info(&schema, &compact);
+                        let explicit =
+                            PredicateProgram::compile_with_schema_info(&schema, &explicit);
+                        for target in &targets {
+                            assert_eq!(
+                                compact.eval_with_slot_value_cow_reader(&mut |_| Some(
+                                    std::borrow::Cow::Borrowed(target)
+                                )),
+                                explicit.eval_with_slot_value_cow_reader(&mut |_| Some(
+                                    std::borrow::Cow::Borrowed(target)
+                                )),
+                            );
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Manual native preparation probe: includes accepted-value lowering,
+    // canonicalization, predicate extraction and output disposal, not row reads.
+    #[test]
+    #[ignore = "manual native typed-membership preparation microbenchmark"]
+    fn typed_membership_native_timing() {
+        use std::{hint::black_box, time::Instant};
+
+        let schema = membership_schema();
+        let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+        let scope = root.scope();
+        for count in [4, 16, 64, 128] {
+            let filter = FilterExpr::Set {
+                operator: SetOperator::In,
+                field: "id".to_string(),
+                values: (0..count)
+                    .rev()
+                    .map(|value| FilterValue::String(value.to_string()))
+                    .collect(),
+            };
+            let prepare = || {
+                let expr = crate::db::query::preparation::PreparationWork::run(
+                    &scope,
+                    icydb_diagnostic_code::DiagnosticExecutionLane::PublicRead,
+                    |work| {
+                        normalize_bool_expr(filter.lower_bool_expr_for_schema(&schema, work)?, work)
+                    },
+                )
+                .expect("timing workload fits request budget");
+                let predicate = derive_normalized_bool_expr_predicate_subset(&expr);
+                drop(black_box((expr, predicate)));
+            };
+            prepare();
+            let mut samples = Vec::new();
+            for _ in 0..7 {
+                let start = Instant::now();
+                for _ in 0..64 {
+                    prepare();
+                }
+                samples.push(start.elapsed().as_nanos() / 64);
+            }
+            samples.sort_unstable();
+            println!("membership_native count={count} median_ns={}", samples[3]);
+        }
+    }
 
     #[test]
     fn typed_filter_atoms_use_reversible_string_representations() {

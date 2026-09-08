@@ -12,6 +12,7 @@ mod fingerprint;
 pub(in crate::db) mod intent;
 pub(crate) mod plan;
 pub(in crate::db) mod predicate;
+pub(in crate::db) mod preparation;
 
 pub use dynamic::DynamicQuery;
 #[cfg(feature = "sql")]

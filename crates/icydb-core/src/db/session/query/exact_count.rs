@@ -15,6 +15,7 @@ use crate::{
         },
         index::UserIndexPrefixCardinalityKey,
         query::{
+            admission::input::validate_dynamic_query_input,
             expr::{CompareOperator, FilterExpr, SetOperator},
             intent::StructuralQuery,
             plan::VisibleIndexes,
@@ -80,7 +81,11 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(QueryError::unsupported_query());
         }
         match request.filter_expr() {
-            None => return Ok(ExactCountPlan::Entity),
+            None => {
+                // This metadata-only route bypasses structural conversion.
+                validate_dynamic_query_input(request)?;
+                return Ok(ExactCountPlan::Entity);
+            }
             Some(FilterExpr::Compare {
                 operator: CompareOperator::Eq,
                 ..
@@ -93,7 +98,11 @@ impl<C: CanisterKind> DbSession<C> {
             Some(_) => return Err(QueryError::unsupported_query()),
         }
 
-        let query = Self::structural_query_from_dynamic_request(request, catalog)?;
+        let query = self.structural_query_from_dynamic_request(
+            request,
+            catalog,
+            icydb_diagnostic_code::DiagnosticExecutionLane::PublicRead,
+        )?;
         let schema_info = catalog.accepted_schema_info();
         let authority = catalog.accepted_entity_authority();
         let visible_indexes =

@@ -23,6 +23,7 @@ use crate::{
         canonicalize_filter_collection_element_for_persisted_kind,
         canonicalize_filter_literal_for_persisted_kind, enum_catalog::ValueAdmissionBudget,
     },
+    db::{QueryError, query::preparation::PreparationWork},
     value::{InputValue, Value},
 };
 type SchemaFieldEntry = (String, SchemaFieldInfo);
@@ -690,55 +691,67 @@ impl SchemaInfo {
 
     /// Canonicalize one string-backed public filter literal against this
     /// schema's accepted field authority.
-    #[must_use]
-    pub(in crate::db) fn canonicalize_filter_literal(
+    pub(in crate::db) fn canonicalize_filter_literal<'a>(
         &self,
         field_name: &str,
-        value: &Value,
-    ) -> Option<Value> {
-        let field = schema_field_info(self.fields.as_slice(), field_name)?;
+        value: &'a Value,
+        work: &PreparationWork<'_>,
+    ) -> Result<Option<Cow<'a, Value>>, QueryError> {
+        let Some(field) = schema_field_info(self.fields.as_slice(), field_name) else {
+            return Ok(None);
+        };
 
         let kind = &field.query_kind;
         if matches!(kind, AcceptedFieldKind::Enum { .. }) {
-            let Value::Text(variant) = value else {
-                return None;
+            let Some(input) = loose_enum_filter_input(kind, value, work)? else {
+                return Ok(None);
             };
-            let contract = self.accepted_field_contract(field_name)?;
-            let input = InputValue::loose_enum(variant.clone());
-            return contract
+            let Some(contract) = self.accepted_field_contract(field_name) else {
+                return Ok(None);
+            };
+            return Ok(contract
                 .normalize_input_to_runtime(input, &mut ValueAdmissionBudget::standard())
-                .ok();
+                .ok()
+                .map(Cow::Owned));
         }
-        canonicalize_filter_literal_for_persisted_kind(kind, value)
+        canonicalize_filter_literal_for_persisted_kind(kind, value, work)
     }
 
     /// Canonicalize one collection-containment literal against the accepted
     /// element contract of a list or set field.
-    #[must_use]
-    pub(in crate::db) fn canonicalize_filter_collection_element(
+    pub(in crate::db) fn canonicalize_filter_collection_element<'a>(
         &self,
         field_name: &str,
-        value: &Value,
-    ) -> Option<Value> {
-        let field = schema_field_info(self.fields.as_slice(), field_name)?;
+        value: &'a Value,
+        work: &PreparationWork<'_>,
+    ) -> Result<Option<Cow<'a, Value>>, QueryError> {
+        let Some(field) = schema_field_info(self.fields.as_slice(), field_name) else {
+            return Ok(None);
+        };
         let element_kind = match &field.query_kind {
             AcceptedFieldKind::List(element_kind) | AcceptedFieldKind::Set(element_kind) => {
                 element_kind.as_ref()
             }
-            _ => return None,
+            _ => return Ok(None),
         };
 
         if element_kind.contains_enum() {
-            let input = loose_enum_filter_input(element_kind, value)?;
-            let contract = self
-                .accepted_field_contract(field_name)?
-                .collection_element_contract()?;
-            return contract
+            let Some(input) = loose_enum_filter_input(element_kind, value, work)? else {
+                return Ok(None);
+            };
+            let Some(contract) = self
+                .accepted_field_contract(field_name)
+                .and_then(|contract| contract.collection_element_contract())
+            else {
+                return Ok(None);
+            };
+            return Ok(contract
                 .normalize_input_to_runtime(input, &mut ValueAdmissionBudget::standard())
-                .ok();
+                .ok()
+                .map(Cow::Owned));
         }
 
-        canonicalize_filter_collection_element_for_persisted_kind(&field.query_kind, value)
+        canonicalize_filter_collection_element_for_persisted_kind(&field.query_kind, value, work)
     }
 
     /// Build one accepted-only schema view retaining its immutable value catalog.
@@ -844,15 +857,31 @@ impl SchemaInfo {
     }
 }
 
-fn loose_enum_filter_input(kind: &AcceptedFieldKind, value: &Value) -> Option<InputValue> {
-    match kind {
+fn loose_enum_filter_input(
+    kind: &AcceptedFieldKind,
+    value: &Value,
+    work: &PreparationWork<'_>,
+) -> Result<Option<InputValue>, QueryError> {
+    work.charge(
+        icydb_diagnostic_code::DiagnosticExecutionBudgetResource::NestedValueSteps,
+        1,
+    )?;
+    Ok(match kind {
         AcceptedFieldKind::Enum { .. } => match value {
-            Value::Text(variant) => Some(InputValue::loose_enum(variant.clone())),
+            Value::Text(variant) => {
+                work.charge(
+                    icydb_diagnostic_code::DiagnosticExecutionBudgetResource::TemporaryBytes,
+                    variant.len() as u64,
+                )?;
+                Some(InputValue::loose_enum(variant.clone()))
+            }
             _ => None,
         },
-        AcceptedFieldKind::Relation { key_kind, .. } => loose_enum_filter_input(key_kind, value),
+        AcceptedFieldKind::Relation { key_kind, .. } => {
+            loose_enum_filter_input(key_kind, value, work)?
+        }
         _ => None,
-    }
+    })
 }
 
 pub(in crate::db) fn schema_index_info_from_accepted_index(
@@ -1212,7 +1241,10 @@ mod tests {
                 .expect("text newtype should retain underlying predicate support");
         }
         assert_eq!(
-            schema.canonicalize_filter_literal("name", &text),
+            crate::db::query::preparation::with_preparation_work(|work| schema
+                .canonicalize_filter_literal("name", &text, work)
+                .expect("literal preparation")
+                .map(std::borrow::Cow::into_owned)),
             Some(text)
         );
         #[cfg(feature = "sql")]
@@ -1254,6 +1286,57 @@ mod tests {
             ),
             Err(ValidateError::NonQueryableFieldType { field }) if field == "profile"
         ));
+    }
+
+    #[test]
+    fn filter_enum_label_copies_use_the_current_request_budget() {
+        use crate::db::{
+            RequestExecutionRoot,
+            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+            query::preparation::PreparationWork,
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,
+            DiagnosticFactTag,
+        };
+
+        for collection in [false, true] {
+            let schema = enum_newtype_query_schema(collection);
+            let input = Value::Text("Active".into());
+            for limit in [5, 6] {
+                let root = RequestExecutionRoot::new_for_tests(
+                    HardExecutionBudget::uniform_for_tests(
+                        16_000_000,
+                        HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                    )
+                    .with_limit_for_tests(Resource::TemporaryBytes, limit),
+                );
+                let result = PreparationWork::run(
+                    &root.scope(),
+                    DiagnosticExecutionLane::PublicRead,
+                    |work| {
+                        if collection {
+                            schema.canonicalize_filter_collection_element("stage", &input, work)
+                        } else {
+                            schema.canonicalize_filter_literal("stage", &input, work)
+                        }
+                    },
+                );
+                if limit == 6 {
+                    assert!(matches!(
+                        result.expect("label copy fits").as_deref(),
+                        Some(Value::Enum(_))
+                    ));
+                } else {
+                    let error = result.expect_err("reject before copying the enum label");
+                    assert!(error.diagnostic_facts().contains(&(
+                        DiagnosticFactTag::BudgetResource,
+                        Resource::TemporaryBytes.raw(),
+                    )));
+                }
+                assert_eq!(root.observed(Resource::TemporaryBytes), 6);
+            }
+        }
     }
 
     #[test]

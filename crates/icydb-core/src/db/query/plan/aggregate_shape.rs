@@ -21,6 +21,11 @@ pub(in crate::db) struct AggregateShape {
 }
 
 impl AggregateShape {
+    /// Detach recursive children without cloning or normalizing them.
+    pub(in crate::db) const fn take_expressions(&mut self) -> [Option<Box<Expr>>; 2] {
+        [self.input_expr.take(), self.filter_expr.take()]
+    }
+
     /// Construct one terminal aggregate declaration with no input expression.
     #[must_use]
     pub(in crate::db) const fn terminal(kind: AggregateKind) -> Self {

@@ -68,6 +68,7 @@
 mod aggregate_input;
 mod ast;
 mod canonicalize;
+mod cleanup;
 mod compiled_expr;
 mod function_semantics;
 mod path;
@@ -92,11 +93,12 @@ pub(in crate::db) use ast::collect_scalar_expr_field_roots;
 pub(in crate::db) use ast::{
     BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, PathSpec, UnaryOp,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use canonicalize::canonicalize_scalar_where_bool_expr;
 pub(in crate::db) use canonicalize::{
-    CanonicalExpr, canonicalize_grouped_having_bool_expr, is_normalized_bool_expr,
-    normalize_bool_expr, truth_condition_binary_compare_op,
+    CanonicalExpr, is_normalized_bool_expr, normalize_bool_expr, truth_condition_binary_compare_op,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db) use canonicalize::{
+    canonicalize_grouped_having_bool_expr, canonicalize_scalar_where_bool_expr,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use canonicalize::{

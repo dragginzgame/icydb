@@ -4,6 +4,7 @@
 //! Does not own: SQL text parsing, compiled-command cache lookup, or execution.
 //! Boundary: lowers prepared SQL into session-owned compiled command artifacts.
 
+use crate::db::query::preparation::PreparationWork;
 use std::sync::Arc;
 
 #[cfg(feature = "sql")]
@@ -33,7 +34,7 @@ use crate::{
     traits::CanisterKind,
     value::InputValue,
 };
-use icydb_diagnostic_code::SqlLoweringCode;
+use icydb_diagnostic_code::{DiagnosticExecutionLane, SqlLoweringCode};
 
 impl<C: CanisterKind> DbSession<C> {
     // Compile one parsed SQL statement into the generic-free session-owned
@@ -42,21 +43,22 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         schema: &SchemaInfo,
         bindings: &[InputValue],
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
         let entity_name = schema.entity_name().ok_or_else(QueryError::invariant)?;
 
         match statement {
             SqlStatement::Select(_) => {
-                Self::compile_select(statement, entity_name, schema, bindings)
+                Self::compile_select(statement, entity_name, schema, bindings, work)
             }
-            SqlStatement::Delete(_) => Self::compile_delete(statement, entity_name, schema),
-            SqlStatement::Insert(_) => Self::compile_insert(statement, entity_name, schema),
+            SqlStatement::Delete(_) => Self::compile_delete(statement, entity_name, schema, work),
+            SqlStatement::Insert(_) => Self::compile_insert(statement, entity_name, schema, work),
             SqlStatement::Update(_) => Self::compile_update(statement, entity_name),
             SqlStatement::Ddl(_) => Err(QueryError::sql_lowering(
                 SqlLoweringCode::SqlDdlExecutionUnsupported,
             )),
             #[cfg(feature = "sql")]
-            SqlStatement::Explain(_) => Self::compile_explain(statement, entity_name, schema),
+            SqlStatement::Explain(_) => Self::compile_explain(statement, entity_name, schema, work),
             SqlStatement::Describe(_) => Self::compile_describe(statement, entity_name),
             SqlStatement::ShowConstraints(_) => {
                 Self::compile_show_constraints(statement, entity_name)
@@ -89,18 +91,22 @@ impl<C: CanisterKind> DbSession<C> {
         entity_name: &str,
         schema: &SchemaInfo,
         bindings: &[InputValue],
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
         let prepared = if bindings.is_empty() {
             Self::prepare_statement_for_entity_name(statement, entity_name)?
         } else {
-            prepare_bound_sql_statement(statement, entity_name, schema, bindings)?
+            prepare_bound_sql_statement(statement, entity_name, schema, bindings, work)?
         };
-        let requires_aggregate_lane = prepared.statement().is_global_aggregate_lane_shape();
+        let requires_aggregate_lane = prepared
+            .statement()
+            .is_global_aggregate_lane_shape(work)
+            .map_err(QueryError::from_sql_lowering_error)?;
 
         if requires_aggregate_lane {
-            Self::compile_select_global_aggregate(prepared, schema)
+            Self::compile_select_global_aggregate(prepared, schema, work)
         } else {
-            Self::compile_select_non_aggregate(prepared, schema)
+            Self::compile_select_non_aggregate(prepared, schema, work)
         }
     }
 
@@ -111,11 +117,13 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_select_global_aggregate(
         prepared: PreparedSqlStatement,
         schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
         let command = compile_sql_global_aggregate_command_from_prepared_with_schema(
             prepared,
             MissingRowPolicy::Ignore,
             schema,
+            work,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
 
@@ -128,13 +136,15 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_select_non_aggregate(
         prepared: PreparedSqlStatement,
         schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
-        let select = lower_prepared_sql_select_statement_with_schema(prepared, schema)
+        let select = lower_prepared_sql_select_statement_with_schema(prepared, schema, work)
             .map_err(QueryError::from_sql_lowering_error)?;
         let query = bind_lowered_sql_select_query_structural_with_schema(
             select,
             MissingRowPolicy::Ignore,
             schema,
+            work,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
 
@@ -147,9 +157,10 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         entity_name: &str,
         schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
         let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
-        let delete = lower_prepared_sql_delete_statement(prepared)
+        let delete = lower_prepared_sql_delete_statement(prepared, work)
             .map_err(QueryError::from_sql_lowering_error)?;
         let returning = delete.returning().cloned();
         let query = delete.into_base_query();
@@ -157,6 +168,7 @@ impl<C: CanisterKind> DbSession<C> {
             query,
             MissingRowPolicy::Ignore,
             schema,
+            work,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
 
@@ -171,11 +183,13 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         entity_name: &str,
         schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
         let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
         let statement = extract_prepared_sql_insert_statement(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
-        let source_query = Self::compile_insert_select_source_query(&statement.source, schema)?;
+        let source_query =
+            Self::compile_insert_select_source_query(&statement.source, schema, work)?;
 
         Ok(CompiledSqlCommand::Insert(CompiledSqlInsertCommand::new(
             statement,
@@ -188,6 +202,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_insert_select_source_query(
         source: &SqlInsertSource,
         schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<Option<crate::db::query::intent::StructuralQuery>, QueryError> {
         let SqlInsertSource::Select(source) = source else {
             return Ok(None);
@@ -200,6 +215,7 @@ impl<C: CanisterKind> DbSession<C> {
             source,
             MissingRowPolicy::Ignore,
             schema,
+            work,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
 
@@ -225,10 +241,11 @@ impl<C: CanisterKind> DbSession<C> {
         statement: &SqlStatement,
         entity_name: &str,
         schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
         let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
         let lowered =
-            lower_sql_explain_command_from_prepared_statement_with_schema(prepared, schema)
+            lower_sql_explain_command_from_prepared_statement_with_schema(prepared, schema, work)
                 .map_err(QueryError::from_sql_lowering_error)?;
 
         Ok(CompiledSqlCommand::Explain(Box::new(lowered)))
@@ -321,6 +338,7 @@ impl<C: CanisterKind> DbSession<C> {
     // caller can accidentally compile a query through the update lane or the
     // inverse.
     pub(in crate::db::session::sql) fn compile_sql_statement(
+        &self,
         statement: &SqlStatement,
         surface: SqlCompiledCommandSurface,
         schema: &SchemaInfo,
@@ -328,7 +346,14 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<CompiledSqlCommand, QueryError> {
         Self::ensure_sql_statement_supported_for_surface(statement, surface)?;
 
-        Self::compile_sql_statement_semantic(statement, schema, bindings)
+        let lane = match (surface, statement) {
+            (SqlCompiledCommandSurface::Mutation, _) => DiagnosticExecutionLane::Mutation,
+            (_, SqlStatement::Explain(_)) => DiagnosticExecutionLane::Diagnostic,
+            _ => DiagnosticExecutionLane::TrustedRead,
+        };
+        PreparationWork::run(self.db.request_execution_scope(), lane, |work| {
+            Self::compile_sql_statement_semantic(statement, schema, bindings, work)
+        })
     }
 }
 

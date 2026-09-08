@@ -3,6 +3,8 @@
 //! Does not own: accepted schema resolution, planning, or execution.
 //! Boundary: public dynamic inputs are lowered once against accepted authority.
 
+mod cleanup;
+
 use crate::db::query::{
     builder::AggregateExpr,
     expr::{FilterExpr, JunctionOperator, OrderTerm},
@@ -14,6 +16,10 @@ use crate::db::query::{
 /// Entity-name-driven structural read request.
 /// The session resolves fields, ordering, indexes, and projection against the
 /// accepted schema; no generated entity descriptor participates.
+/// Preparation admits at most 128 input levels, 4,096 input nodes and 2 MiB
+/// of variable payload across the request, before cloning or lowering it.
+/// These limits also apply to trusted reads. Construction and explicit cloning
+/// of caller-owned input are not admission operations.
 ///
 
 #[derive(Clone, Debug)]
@@ -182,6 +188,13 @@ impl DynamicQuery {
 
     pub(in crate::db) fn continuation_cursor(&self) -> Option<&str> {
         self.cursor.as_deref()
+    }
+}
+
+impl Drop for DynamicQuery {
+    fn drop(&mut self) {
+        // Consuming terminals must not recursively drop rejected caller input.
+        cleanup::clear(self);
     }
 }
 

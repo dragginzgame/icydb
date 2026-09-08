@@ -14,6 +14,7 @@ use crate::db::{
             AccessPlannedQuery, PreparedQueryParameterContract, PreparedScalarPlanningState,
             VisibleIndexes,
         },
+        preparation::PreparationWork,
     },
     schema::SchemaInfo,
 };
@@ -110,26 +111,25 @@ impl StructuralQuery {
         self
     }
 
-    #[must_use]
     pub(in crate::db) fn filter_for_schema(
-        mut self,
+        self,
         schema: &SchemaInfo,
-        expr: impl Into<FilterExpr>,
-    ) -> Self {
-        self.intent = self.intent.filter_for_schema(schema, expr);
-        self
+        expr: &FilterExpr,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        self.try_map_intent(|intent| intent.filter_for_schema(schema, expr, work))
     }
 
-    #[must_use]
     pub(in crate::db) fn filter_expr_with_normalized_predicate(
         mut self,
         expr: Expr,
         predicate: Predicate,
-    ) -> Self {
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
         self.intent = self
             .intent
-            .filter_expr_with_normalized_predicate(expr, predicate);
-        self
+            .filter_expr_with_normalized_predicate(expr, predicate, work)?;
+        Ok(self)
     }
     pub(in crate::db) fn order_term(mut self, term: FluentOrderTerm) -> Self {
         self.intent = self.intent.order_term(term);
@@ -139,10 +139,13 @@ impl StructuralQuery {
     // Keep the exact expression-owned scalar filter lane available for
     // internal SQL lowering and parity callers that must preserve one planner
     // expression without routing through the public typed `FilterExpr` surface.
-    #[must_use]
-    pub(in crate::db) fn filter_expr(mut self, expr: Expr) -> Self {
-        self.intent = self.intent.filter_expr(expr);
-        self
+    pub(in crate::db) fn filter_expr(
+        mut self,
+        expr: Expr,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        self.intent = self.intent.filter_expr(expr, work)?;
+        Ok(self)
     }
 
     #[must_use]
@@ -197,8 +200,9 @@ impl StructuralQuery {
     pub(in crate::db) fn having_expr_preserving_shape(
         self,
         expr: Expr,
+        work: &PreparationWork<'_>,
     ) -> Result<Self, QueryError> {
-        self.try_map_intent(|intent| intent.push_having_expr_preserving_shape(expr))
+        self.try_map_intent(|intent| intent.push_having_expr_preserving_shape(expr, work))
     }
 
     #[must_use]

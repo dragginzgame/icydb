@@ -424,6 +424,12 @@ pub enum QueryReadAdmissionCode {
     DiagnosticLaneDoesNotExecute,
     ReturnedRowBoundExceedsPolicy,
     PrimaryKeyInputExceedsPolicy,
+    /// Authored query expressions or values exceed the shared depth ceiling.
+    InputDepthExceeded,
+    /// Authored query components exceed the shared node ceiling.
+    InputNodesExceeded,
+    /// Authored query payload exceeds the shared byte ceiling.
+    InputBytesExceeded,
 }
 
 impl fmt::Debug for QueryReadAdmissionCode {
@@ -1061,7 +1067,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 267);
+        assert_eq!(last, 270);
     }
 
     #[test]

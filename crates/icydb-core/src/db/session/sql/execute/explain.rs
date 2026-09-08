@@ -3,6 +3,7 @@
 //! Does not own: planner/executor route policy or diagnostics DTO definitions.
 //! Boundary: renders lowered SQL explain statements through session visibility and route facts.
 
+use crate::db::query::preparation::PreparationWork;
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError, QueryPlanCacheReuse,
@@ -142,14 +143,19 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(rendered);
         }
 
-        if let Some((mode, verbose, command)) =
-            bind_lowered_sql_explain_global_aggregate_with_schema(
-                lowered,
-                MissingRowPolicy::Ignore,
-                schema_info,
-            )
-            .map_err(QueryError::from_sql_lowering_error)?
-        {
+        if let Some((mode, verbose, command)) = PreparationWork::run(
+            self.db.request_execution_scope(),
+            DiagnosticExecutionLane::Diagnostic,
+            |work| {
+                bind_lowered_sql_explain_global_aggregate_with_schema(
+                    lowered,
+                    MissingRowPolicy::Ignore,
+                    schema_info,
+                    work,
+                )
+                .map_err(QueryError::from_sql_lowering_error)
+            },
+        )? {
             return self.explain_sql_global_aggregate_structural_for_authority(
                 mode,
                 verbose,
@@ -182,12 +188,19 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         }
 
-        let structural = bind_lowered_sql_query_structural_with_schema(
-            query.clone(),
-            MissingRowPolicy::Ignore,
-            schema_info,
-        )
-        .map_err(QueryError::from_sql_lowering_error)?;
+        let structural = PreparationWork::run(
+            self.db.request_execution_scope(),
+            DiagnosticExecutionLane::Diagnostic,
+            |work| {
+                bind_lowered_sql_query_structural_with_schema(
+                    query.clone(),
+                    MissingRowPolicy::Ignore,
+                    schema_info,
+                    work,
+                )
+                .map_err(QueryError::from_sql_lowering_error)
+            },
+        )?;
         let (rendered, _) = self.try_map_cached_sql_query_explain_plan_for_accepted_authority(
             authority,
             catalog,
@@ -230,12 +243,19 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         };
 
-        let structural = bind_lowered_sql_query_structural_with_schema(
-            query.clone(),
-            MissingRowPolicy::Ignore,
-            schema_info,
-        )
-        .map_err(QueryError::from_sql_lowering_error)?;
+        let structural = PreparationWork::run(
+            self.db.request_execution_scope(),
+            DiagnosticExecutionLane::Diagnostic,
+            |work| {
+                bind_lowered_sql_query_structural_with_schema(
+                    query.clone(),
+                    MissingRowPolicy::Ignore,
+                    schema_info,
+                    work,
+                )
+                .map_err(QueryError::from_sql_lowering_error)
+            },
+        )?;
         if verbose {
             let (mut plan, reuse) = self.cached_sql_query_explain_plan_for_accepted_authority(
                 authority.clone(),

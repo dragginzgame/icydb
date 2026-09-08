@@ -321,17 +321,23 @@ fn pinned_route_requires_one_current_eligible_index_identity() {
     let catalog = session
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .expect("accepted cursor fixture should resolve");
-    let query = StructuralQuery::new(MissingRowPolicy::Ignore)
-        .filter_for_schema(
-            catalog.accepted_schema_info(),
-            request
-                .filter_expr()
-                .expect("cursor fixture should retain its filter")
-                .clone(),
-        )
-        .order_term(asc("id"))
-        .select_fields(["id"])
-        .limit(3);
+    let query = crate::db::query::preparation::PreparationWork::run(
+        session.db.request_execution_scope(),
+        DiagnosticExecutionLane::PublicRead,
+        |work| {
+            StructuralQuery::new(MissingRowPolicy::Ignore).filter_for_schema(
+                catalog.accepted_schema_info(),
+                request
+                    .filter_expr()
+                    .expect("cursor fixture should retain its filter"),
+                work,
+            )
+        },
+    )
+    .expect("fixture lowering fits request budget")
+    .order_term(asc("id"))
+    .select_fields(["id"])
+    .limit(3);
     let (prepared, _) = session
         .structural_projection_prepared_plan_for_accepted_authority(
             &query,

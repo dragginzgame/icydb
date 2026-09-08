@@ -72,6 +72,18 @@ pub struct PerfAuditJournaledStore {}
 )]
 pub struct PerfAuditUser {}
 
+/// Empty-table preparation fixture for bounded arbitrary-precision literals.
+#[entity(store = "PerfAuditStore",
+    version = 1,
+    pk(fields = ["id"]),
+    fields(
+        field(name = "id", value(item(prim = "Int32"))),
+        field(name = "signed", value(item(prim = "IntBig"))),
+        field(name = "unsigned", value(item(prim = "NatBig")))
+    )
+)]
+pub struct PerfAuditBigLiteral {}
+
 ///
 /// PerfAuditMaxFanout
 ///

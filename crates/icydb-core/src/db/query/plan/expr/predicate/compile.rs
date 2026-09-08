@@ -15,9 +15,9 @@ use crate::{
             Predicate, canonical_membership_value_list, collapse_membership_compare_leaves,
         },
         query::plan::expr::{
-            BinaryOp, BooleanFunctionShape, CanonicalExpr, CaseWhenArm, Expr,
-            FieldPredicateFunctionKind, Function, NullTestFunctionKind, TextPredicateFunctionKind,
-            UnaryOp, truth_condition_binary_compare_op,
+            BinaryOp, BooleanFunctionShape, CanonicalExpr, Expr, FieldPredicateFunctionKind,
+            Function, NullTestFunctionKind, TextPredicateFunctionKind, UnaryOp,
+            truth_condition_binary_compare_op,
         },
     },
     value::Value,
@@ -287,17 +287,7 @@ fn compile_bool_truth_predicate(expr: &Expr, truth: BoolTruth) -> Option<Predica
         Expr::FunctionCall { function, args } => {
             return compile_bool_function_truth_predicate(*function, args, truth);
         }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            return compile_bool_case_truth_predicate(
-                when_then_arms.as_slice(),
-                else_expr.as_ref(),
-                truth,
-            );
-        }
-        Expr::Aggregate(_) => return None,
+        Expr::Case { .. } | Expr::Aggregate(_) => return None,
         #[cfg(test)]
         Expr::Alias { .. } => return None,
     })
@@ -326,29 +316,6 @@ fn compile_membership_truth_predicate(predicate: Predicate, truth: BoolTruth) ->
         compare.value().clone(),
         compare.coercion().id(),
     )))
-}
-
-// Compile one normalized searched-CASE tree by recursively composing the
-// requested truth branch of every result arm.
-fn compile_bool_case_truth_predicate(
-    arms: &[CaseWhenArm],
-    else_expr: &Expr,
-    truth: BoolTruth,
-) -> Option<Predicate> {
-    let mut residual = compile_bool_truth_predicate(else_expr, truth)?;
-
-    for arm in arms.iter().rev() {
-        let condition_true = compile_bool_truth_predicate(arm.condition(), BoolTruth::True)?;
-        let result = compile_bool_truth_predicate(arm.result(), truth)?;
-        let skipped = Predicate::Not(Box::new(condition_true.clone()));
-
-        residual = Predicate::Or(vec![
-            Predicate::And(vec![condition_true, result]),
-            Predicate::And(vec![skipped, residual]),
-        ]);
-    }
-
-    Some(residual)
 }
 
 // Compile one bare boolean field onto the requested runtime `field = bool`
@@ -640,14 +607,14 @@ fn compile_bool_collection_contains_truth_predicate(
     Some(wrap_truth_predicate(when_true, truth))
 }
 
-// Compile compact SQL membership without expanding it back into a large
+// Compile compact membership without expanding it back into a large
 // OR/AND tree. NULL list entries can contribute UNKNOWN, but never TRUE.
 fn compile_bool_membership_truth_predicate(args: &[Expr], truth: BoolTruth) -> Option<Predicate> {
     let [target, Expr::Literal(Value::List(values))] = args else {
         return None;
     };
     let (field, target_coercion) = compile_bool_membership_target(target)?;
-    let literal_set = MembershipLiteralSet::from_values(values.as_slice(), target_coercion)?;
+    let literal_set = MembershipLiteralSet::from_values(values.as_slice(), target_coercion);
     if let Some(shared_coercion) = literal_set.shared_coercion() {
         let has_null = literal_set.has_null();
         return Some(compile_bool_compact_membership_truth_predicate(
@@ -685,26 +652,26 @@ struct MembershipLiteralSet {
 }
 
 impl MembershipLiteralSet {
-    fn from_values(values: &[Value], target_coercion: Option<CoercionId>) -> Option<Self> {
+    fn from_values(values: &[Value], target_coercion: Option<CoercionId>) -> Self {
         let mut non_null_values = Vec::with_capacity(values.len());
         let mut has_null = false;
         let mut shared_coercion = None;
-        let mut mixed_coercion = false;
+        let mut requires_leaf_comparisons = false;
 
         for value in values {
             if matches!(value, Value::Null) {
                 has_null = true;
                 continue;
             }
-            if !membership_value_is_in_safe(value) {
-                return None;
-            }
+            // Collection-valued equality remains an ordinary leaf comparison,
+            // not scalar IN coercion. Reuse the existing mixed-coercion path.
+            requires_leaf_comparisons |= !membership_value_is_in_safe(value);
 
             let coercion =
                 target_coercion.unwrap_or_else(|| compare_literal_coercion(CompareOp::Eq, value));
             match shared_coercion {
                 Some(current) if current != coercion => {
-                    mixed_coercion = true;
+                    requires_leaf_comparisons = true;
                 }
                 Some(_) => {}
                 None => {
@@ -714,15 +681,15 @@ impl MembershipLiteralSet {
             non_null_values.push(value.clone());
         }
 
-        if non_null_values.len() < 2 || mixed_coercion {
+        if non_null_values.len() < 2 || requires_leaf_comparisons {
             shared_coercion = None;
         }
 
-        Some(Self {
+        Self {
             values: non_null_values,
             has_null,
             shared_coercion,
-        })
+        }
     }
 
     const fn values(&self) -> &[Value] {
@@ -888,14 +855,9 @@ impl RuntimePredicateAdmission {
             Expr::FunctionCall { function, args } => {
                 Self::is_bool_function_call(*function, args.as_slice())
             }
-            Expr::Case {
-                when_then_arms,
-                else_expr,
-            } => {
-                when_then_arms.iter().all(|arm| {
-                    Self::is_admissible(arm.condition()) && Self::is_admissible(arm.result())
-                }) && Self::is_admissible(else_expr.as_ref())
-            }
+            // CASE expansion belongs to canonicalization. A retained CASE must
+            // stay expression-backed rather than bypass its rewrite budget here.
+            Expr::Case { .. } => false,
             Expr::FieldPath(_) | Expr::Aggregate(_) | Expr::Literal(_) => false,
             #[cfg(test)]
             Expr::Alias { .. } => false,
@@ -985,11 +947,10 @@ fn membership_values_are_predicate_admissible(target: &Expr, values: &[Value]) -
         }
     );
 
-    values.iter().all(|value| {
-        matches!(value, Value::Null)
-            || (membership_value_is_in_safe(value)
-                && (!casefold || matches!(value, Value::Text(_))))
-    })
+    !casefold
+        || values
+            .iter()
+            .all(|value| matches!(value, Value::Null | Value::Text(_)))
 }
 
 const fn compare_literal_coercion(op: CompareOp, value: &Value) -> CoercionId {

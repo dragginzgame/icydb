@@ -67,6 +67,7 @@ impl<C: CanisterKind> DbSession<C> {
         dispatch: &SqlStatementDispatch<'_>,
     ) -> Result<SqlCompiledCommandExecutionContext, QueryError> {
         let parsed = dispatch.statement();
+        crate::db::sql::input::validate_sql_statement_input(parsed, &[])?;
         let entity_name = dispatch.entity_name();
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(entity_name)
@@ -92,7 +93,7 @@ impl<C: CanisterKind> DbSession<C> {
         // They use the same semantic compiler and execution context as misses.
         if !bindings.is_empty() {
             let authority = catalog.accepted_entity_authority();
-            let compiled = Self::compile_sql_statement(
+            let compiled = self.compile_sql_statement(
                 parsed,
                 surface,
                 catalog.accepted_schema_info(),
@@ -144,7 +145,7 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = catalog.accepted_entity_authority();
         let schema = catalog.accepted_schema_info();
 
-        let compiled = Self::compile_sql_statement(parsed, surface, schema, &[])?;
+        let compiled = self.compile_sql_statement(parsed, surface, schema, &[])?;
 
         self.with_sql_compiled_command_cache(|cache| {
             cache.insert(cache_key, compiled.clone());

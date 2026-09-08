@@ -27,11 +27,11 @@ impl Parser {
                 || self.cursor.peek_keyword_at(1, Keyword::Between))
     }
 
-    pub(super) fn try_parse_where_postfix_expr(
+    pub(super) fn parse_where_postfix_expr(
         &mut self,
         left: SqlExpr,
         surface: SqlExprParseSurface,
-    ) -> Result<Option<SqlExpr>, SqlParseError> {
+    ) -> Result<SqlExpr, SqlParseError> {
         debug_assert!(surface.allows_predicate_postfix());
 
         if self.eat_keyword(Keyword::Is) {
@@ -39,10 +39,10 @@ impl Parser {
             if self.peek_keyword(Keyword::Null) {
                 let _ = self.cursor.advance();
 
-                return Ok(Some(SqlExpr::NullTest {
+                return Ok(SqlExpr::NullTest {
                     expr: Box::new(left),
                     negated,
-                }));
+                });
             }
             if self.peek_keyword(Keyword::True) || self.peek_keyword(Keyword::False) {
                 let value = if self.eat_keyword(Keyword::True) {
@@ -57,14 +57,14 @@ impl Parser {
                     right: Box::new(SqlExpr::Literal(value)),
                 };
 
-                return Ok(Some(if negated {
+                return Ok(if negated {
                     SqlExpr::Unary {
                         op: SqlExprUnaryOp::Not,
                         expr: Box::new(expr),
                     }
                 } else {
                     expr
-                }));
+                });
             }
 
             return Err(SqlParseError::expected(
@@ -74,48 +74,46 @@ impl Parser {
         }
 
         if self.eat_identifier_keyword("LIKE") {
-            return self.parse_where_like_expr(left, false, false).map(Some);
+            return self.parse_where_like_expr(left, false, false);
         }
         if self.eat_identifier_keyword("ILIKE") {
-            return self.parse_where_like_expr(left, false, true).map(Some);
+            return self.parse_where_like_expr(left, false, true);
         }
         if self.cursor.peek_keyword(Keyword::Not) {
             if self.cursor.peek_identifier_keyword_at(1, "LIKE") {
                 let _ = self.cursor.advance();
                 let _ = self.cursor.eat_identifier_keyword("LIKE");
 
-                return self.parse_where_like_expr(left, true, false).map(Some);
+                return self.parse_where_like_expr(left, true, false);
             }
             if self.cursor.peek_identifier_keyword_at(1, "ILIKE") {
                 let _ = self.cursor.advance();
                 let _ = self.cursor.eat_identifier_keyword("ILIKE");
 
-                return self.parse_where_like_expr(left, true, true).map(Some);
+                return self.parse_where_like_expr(left, true, true);
             }
             if self.cursor.peek_keyword_at(1, Keyword::In) {
                 let _ = self.cursor.advance();
                 let _ = self.cursor.advance();
 
-                return self.parse_where_in_expr(left, true).map(Some);
+                return self.parse_where_in_expr(left, true);
             }
             if self.cursor.peek_keyword_at(1, Keyword::Between) {
                 let _ = self.cursor.advance();
                 let _ = self.cursor.advance();
 
-                return self.parse_where_between_expr(left, true, surface).map(Some);
+                return self.parse_where_between_expr(left, true, surface);
             }
         }
 
         if self.eat_keyword(Keyword::In) {
-            return self.parse_where_in_expr(left, false).map(Some);
+            return self.parse_where_in_expr(left, false);
         }
         if self.eat_keyword(Keyword::Between) {
-            return self
-                .parse_where_between_expr(left, false, surface)
-                .map(Some);
+            return self.parse_where_between_expr(left, false, surface);
         }
 
-        Ok(None)
+        Err(SqlParseError::expected_end_of_input(self.peek_kind()))
     }
 
     fn parse_where_like_expr(
@@ -189,6 +187,9 @@ impl Parser {
         let lower = self.parse_sql_expr_prefix(surface)?;
         self.expect_keyword(Keyword::And)?;
         let upper = self.parse_sql_expr_prefix(surface)?;
+
+        crate::db::sql::input::validate_sql_between_input(&left, &lower, &upper)
+            .map_err(|reason| SqlParseError::InputAdmission { reason })?;
 
         Ok(if negated {
             SqlExpr::Binary {

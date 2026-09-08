@@ -895,7 +895,7 @@ impl<C: CanisterKind> DbSession<C> {
         })?;
         let plan = require_resumable_update_plan(report)?;
         let selector =
-            Self::sql_update_selector_query(catalog.accepted_schema_info(), plan.statement())?;
+            self.sql_update_selector_query(catalog.accepted_schema_info(), plan.statement())?;
         let patch = Self::sql_structural_patch(&descriptor, plan.statement())?;
         let fixed_patch = AcceptedFixedUpdatePatch::from_update_intent(
             identity.entity_path(),

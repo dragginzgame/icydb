@@ -56,4 +56,7 @@ pub use u256::*;
 pub use unit::*;
 
 #[cfg(test)]
+mod big_integer_tests;
+
+#[cfg(test)]
 mod tests;

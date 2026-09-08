@@ -30,132 +30,146 @@ fn parse_where_expr(sql: &str) -> crate::db::sql::parser::SqlExpr {
 
 #[test]
 fn lower_sql_where_bool_expr_preserves_upper_prefix_semantics() {
-    let expr = parse_where_expr(
-        "SELECT * FROM users WHERE UPPER(name) LIKE 'AL%' ORDER BY id ASC LIMIT 1",
-    );
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let expr = parse_where_expr(
+            "SELECT * FROM users WHERE UPPER(name) LIKE 'AL%' ORDER BY id ASC LIMIT 1",
+        );
 
-    let lowered =
-        lower_sql_where_bool_expr(&expr).expect("UPPER(...) prefix LIKE should be admitted");
-    let Expr::FunctionCall {
-        function: Function::StartsWith,
-        args,
-    } = lowered
-    else {
-        panic!("UPPER(...) prefix LIKE should normalize onto STARTS_WITH(...)");
-    };
-    let [left, right] = args.as_slice() else {
-        panic!("normalized STARTS_WITH(...) should keep two arguments");
-    };
-    let Expr::FunctionCall {
-        function: Function::Upper,
-        args,
-    } = left
-    else {
-        panic!("UPPER target must remain an UPPER expression");
-    };
-    let [Expr::Field(field)] = args.as_slice() else {
-        panic!("normalized UPPER(...) should keep the original field");
-    };
+        let lowered = lower_sql_where_bool_expr(&expr, work)
+            .expect("UPPER(...) prefix LIKE should be admitted");
+        let Expr::FunctionCall {
+            function: Function::StartsWith,
+            args,
+        } = &lowered
+        else {
+            panic!("UPPER(...) prefix LIKE should normalize onto STARTS_WITH(...)");
+        };
+        let [left, right] = args.as_slice() else {
+            panic!("normalized STARTS_WITH(...) should keep two arguments");
+        };
+        let Expr::FunctionCall {
+            function: Function::Upper,
+            args,
+        } = left
+        else {
+            panic!("UPPER target must remain an UPPER expression");
+        };
+        let [Expr::Field(field)] = args.as_slice() else {
+            panic!("normalized UPPER(...) should keep the original field");
+        };
 
-    assert_eq!(field, &FieldId::new("name"));
-    assert_eq!(right, &Expr::Literal(Value::Text("AL".to_string())));
+        assert_eq!(field, &FieldId::new("name"));
+        assert_eq!(right, &Expr::Literal(Value::Text("AL".to_string())));
+    });
 }
 
 #[test]
 fn lower_sql_where_bool_expr_preserves_upper_ordering_semantics() {
-    let expr =
-        parse_where_expr("SELECT * FROM users WHERE UPPER(name) < '[' ORDER BY id ASC LIMIT 1");
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let expr =
+            parse_where_expr("SELECT * FROM users WHERE UPPER(name) < '[' ORDER BY id ASC LIMIT 1");
 
-    let lowered =
-        lower_sql_where_bool_expr(&expr).expect("UPPER(...) ordered comparison should be admitted");
-    let Expr::Binary {
-        op: BinaryOp::Lt,
-        left,
-        right,
-    } = lowered
-    else {
-        panic!("UPPER(...) ordered comparison should remain structural");
-    };
-    let Expr::FunctionCall {
-        function: Function::Upper,
-        args,
-    } = left.as_ref()
-    else {
-        panic!("ordered UPPER target must remain an UPPER expression");
-    };
+        let lowered = lower_sql_where_bool_expr(&expr, work)
+            .expect("UPPER(...) ordered comparison should be admitted");
+        let Expr::Binary {
+            op: BinaryOp::Lt,
+            left,
+            right,
+        } = &lowered
+        else {
+            panic!("UPPER(...) ordered comparison should remain structural");
+        };
+        let Expr::FunctionCall {
+            function: Function::Upper,
+            args,
+        } = left.as_ref()
+        else {
+            panic!("ordered UPPER target must remain an UPPER expression");
+        };
 
-    assert_eq!(args.as_slice(), &[Expr::Field(FieldId::new("name"))]);
-    assert_eq!(right.as_ref(), &Expr::Literal(Value::Text("[".to_string())),);
+        assert_eq!(args.as_slice(), &[Expr::Field(FieldId::new("name"))]);
+        assert_eq!(right.as_ref(), &Expr::Literal(Value::Text("[".to_string())),);
+    });
 }
 
 #[test]
 fn derive_where_predicate_subset_returns_none_for_admitted_expression_only_shapes() {
-    let expr = parse_where_expr(
-        "SELECT * FROM users WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))",
-    );
-    let lowered = lower_sql_where_bool_expr(&expr)
-        .expect("admitted expression-only WHERE shape should lower successfully");
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let expr = parse_where_expr(
+            "SELECT * FROM users WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))",
+        );
+        let lowered = lower_sql_where_bool_expr(&expr, work)
+            .expect("admitted expression-only WHERE shape should lower successfully");
 
-    assert!(
-        derive_normalized_bool_expr_predicate_subset(&lowered).is_none(),
-        "predicate extraction should stay subset-only for admitted expression-owned WHERE shapes",
-    );
+        assert!(
+            derive_normalized_bool_expr_predicate_subset(&lowered).is_none(),
+            "predicate extraction should stay subset-only for admitted expression-owned WHERE shapes",
+        );
+    });
 }
 
 #[test]
 fn lower_sql_where_expr_rejects_expression_only_shapes_on_strict_predicate_path() {
-    let expr = parse_where_expr(
-        "SELECT * FROM users WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))",
-    );
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let expr = parse_where_expr(
+            "SELECT * FROM users WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))",
+        );
 
-    let err = lower_sql_where_expr(&expr)
-        .expect_err("strict predicate-only WHERE lowering should reject expression-only shapes");
+        let err = lower_sql_where_expr(&expr, work).expect_err(
+            "strict predicate-only WHERE lowering should reject expression-only shapes",
+        );
 
-    std::assert_matches!(
-        err,
-        crate::db::sql::lowering::SqlLoweringError::UnsupportedWhereExpression
-    );
+        std::assert_matches!(
+            err,
+            crate::db::sql::lowering::SqlLoweringError::UnsupportedWhereExpression
+        );
+    });
 }
 
 #[test]
 fn lower_sql_where_expr_recovers_membership_after_bool_lowering() {
-    let expr = parse_where_expr("SELECT * FROM users WHERE age IN (10, 20, 10)");
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let expr = parse_where_expr("SELECT * FROM users WHERE age IN (10, 20, 10)");
 
-    let predicate =
-        lower_sql_where_expr(&expr).expect("strict membership WHERE predicate should lower");
-    let Predicate::Compare(compare) = predicate else {
-        panic!("membership should extract one compact compare predicate after bool lowering");
-    };
+        let predicate = lower_sql_where_expr(&expr, work)
+            .expect("strict membership WHERE predicate should lower");
+        let Predicate::Compare(compare) = predicate else {
+            panic!("membership should extract one compact compare predicate after bool lowering");
+        };
 
-    assert_eq!(compare.field(), "age");
-    assert_eq!(compare.op(), CompareOp::In);
-    let Value::List(values) = compare.value() else {
-        panic!("compact membership predicate should carry a list literal");
-    };
-    assert_eq!(
-        values.len(),
-        2,
-        "compact membership predicate should canonicalize duplicate members",
-    );
+        assert_eq!(compare.field(), "age");
+        assert_eq!(compare.op(), CompareOp::In);
+        let Value::List(values) = compare.value() else {
+            panic!("compact membership predicate should carry a list literal");
+        };
+        assert_eq!(
+            values.len(),
+            2,
+            "compact membership predicate should canonicalize duplicate members",
+        );
+    });
 }
 
 #[test]
 fn derive_where_predicate_subset_recovers_plain_compare_after_bool_lowering() {
-    let expr = parse_where_expr("SELECT * FROM users WHERE age >= 21");
-    let lowered = lower_sql_where_bool_expr(&expr).expect("plain compare WHERE shape should lower");
-    let predicate = derive_sql_where_expr_predicate_subset(&lowered)
-        .expect("plain compare WHERE shape should recover one predicate subset");
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let expr = parse_where_expr("SELECT * FROM users WHERE age >= 21");
+        let lowered =
+            lower_sql_where_bool_expr(&expr, work).expect("plain compare WHERE shape should lower");
+        let predicate = derive_sql_where_expr_predicate_subset(&lowered)
+            .expect("plain compare WHERE shape should recover one predicate subset");
 
-    assert!(
-        matches!(
-            predicate,
-            Predicate::Compare(ref compare)
-                if compare.field() == "age"
-                    && compare.op() == CompareOp::Gte
-                    && compare.value() == &Value::Int64(21)
-        ),
-        "plain compares should derive from the lowered boolean expression",
-    );
+        assert!(
+            matches!(
+                predicate,
+                Predicate::Compare(ref compare)
+                    if compare.field() == "age"
+                        && compare.op() == CompareOp::Gte
+                        && compare.value() == &Value::Int64(21)
+            ),
+            "plain compares should derive from the lowered boolean expression",
+        );
+    });
 }
 
 #[test]
@@ -182,85 +196,91 @@ fn derive_where_predicate_subset_keeps_canonical_nested_path_identity() {
 
 #[test]
 fn derive_where_predicate_subset_recovers_compare_and_membership_after_bool_lowering() {
-    let expr = parse_where_expr(
-        "SELECT * FROM users \
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let expr = parse_where_expr(
+            "SELECT * FROM users \
          WHERE collection_id = '01KV5N439P0000000000000000' \
            AND stage IN ('Draft', 'Review', 'Draft')",
-    );
-    let lowered = lower_sql_where_bool_expr(&expr)
-        .expect("simple compare plus membership WHERE shape should lower");
+        );
+        let lowered = lower_sql_where_bool_expr(&expr, work)
+            .expect("simple compare plus membership WHERE shape should lower");
 
-    let predicate = derive_sql_where_expr_predicate_subset(&lowered)
-        .expect("simple compare plus membership WHERE should recover one predicate subset");
-    let Predicate::And(children) = predicate else {
-        panic!("lowered conjunction should recover one AND predicate");
-    };
+        let predicate = derive_sql_where_expr_predicate_subset(&lowered)
+            .expect("simple compare plus membership WHERE should recover one predicate subset");
+        let Predicate::And(children) = predicate else {
+            panic!("lowered conjunction should recover one AND predicate");
+        };
 
-    assert!(
-        children.iter().any(|child| matches!(
-            child,
-            Predicate::Compare(compare)
-                if compare.field() == "collection_id"
-                    && compare.op() == CompareOp::Eq
-                    && compare.value()
-                        == &Value::Text("01KV5N439P0000000000000000".to_string())
-        )),
-        "lowered conjunction should retain the fixed equality prefix",
-    );
-    assert!(
-        children.iter().any(|child| matches!(
-            child,
-            Predicate::Compare(compare)
-                if compare.field() == "stage"
-                    && compare.op() == CompareOp::In
-                    && matches!(
-                        compare.value(),
-                        Value::List(values)
-                            if values.as_slice()
-                                == [
-                                    Value::Text("Draft".to_string()),
-                                    Value::Text("Review".to_string())
-                                ]
-                    )
-        )),
-        "lowered conjunction should keep membership compact and deduplicated",
-    );
+        assert!(
+            children.iter().any(|child| matches!(
+                child,
+                Predicate::Compare(compare)
+                    if compare.field() == "collection_id"
+                        && compare.op() == CompareOp::Eq
+                        && compare.value()
+                            == &Value::Text("01KV5N439P0000000000000000".to_string())
+            )),
+            "lowered conjunction should retain the fixed equality prefix",
+        );
+        assert!(
+            children.iter().any(|child| matches!(
+                child,
+                Predicate::Compare(compare)
+                    if compare.field() == "stage"
+                        && compare.op() == CompareOp::In
+                        && matches!(
+                            compare.value(),
+                            Value::List(values)
+                                if values.as_slice()
+                                    == [
+                                        Value::Text("Draft".to_string()),
+                                        Value::Text("Review".to_string())
+                                    ]
+                        )
+            )),
+            "lowered conjunction should keep membership compact and deduplicated",
+        );
+    });
 }
 
 #[test]
 fn derive_where_predicate_subset_recovers_wide_membership_after_scalar_bool_lowering() {
-    let expr = parse_where_expr(
-        "SELECT * FROM users \
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let expr = parse_where_expr(
+            "SELECT * FROM users \
          WHERE collection_id = '01KV5N439P0000000000000000' \
            AND stage IN (\
              'Draft', 'Review', 'Published', 'Archived', 'Queued', \
              'Rejected', 'Minted', 'Burned', 'Frozen'\
            )",
-    );
-    let lowered = lower_sql_scalar_where_bool_expr(&expr)
-        .expect("scalar compare plus wide membership WHERE shape should lower");
-    let predicate = derive_sql_where_expr_predicate_subset(&lowered)
-        .expect("scalar compare plus wide membership WHERE should recover one predicate subset");
-    let Predicate::And(children) = predicate else {
-        panic!("scalar lowered conjunction should recover one AND predicate: {predicate:?}");
-    };
+        );
+        let lowered = lower_sql_scalar_where_bool_expr(&expr, work)
+            .expect("scalar compare plus wide membership WHERE shape should lower");
+        let predicate = derive_sql_where_expr_predicate_subset(&lowered).expect(
+            "scalar compare plus wide membership WHERE should recover one predicate subset",
+        );
+        let Predicate::And(children) = predicate else {
+            panic!("scalar lowered conjunction should recover one AND predicate: {predicate:?}");
+        };
 
-    assert!(
-        children.iter().any(|child| matches!(
-            child,
-            Predicate::Compare(compare)
-                if compare.field() == "stage"
-                    && compare.op() == CompareOp::In
-                    && matches!(compare.value(), Value::List(values) if values.len() == 9)
-        )),
-        "scalar lowered conjunction should keep wide membership compact: {children:?}",
-    );
+        assert!(
+            children.iter().any(|child| matches!(
+                child,
+                Predicate::Compare(compare)
+                    if compare.field() == "stage"
+                        && compare.op() == CompareOp::In
+                        && matches!(compare.value(), Value::List(values) if values.len() == 9)
+            )),
+            "scalar lowered conjunction should keep wide membership compact: {children:?}",
+        );
+    });
 }
 
 #[test]
 fn lower_sql_where_bool_expr_keeps_membership_compact() {
-    let expr = parse_where_expr(
-        "SELECT * FROM users \
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let expr = parse_where_expr(
+            "SELECT * FROM users \
          WHERE collection_id IN (\
              '01KV5N439P0000000000000000', \
              'missing-collection-000', \
@@ -268,42 +288,45 @@ fn lower_sql_where_bool_expr_keeps_membership_compact() {
              'missing-collection-002', \
              'missing-collection-003'\
          )",
-    );
-    let lowered =
-        lower_sql_where_bool_expr(&expr).expect("wide SQL membership WHERE shape should lower");
-    let Expr::FunctionCall { function, args } = lowered else {
-        panic!("SQL membership should lower to compact IN_LIST function");
-    };
+        );
+        let lowered = lower_sql_where_bool_expr(&expr, work)
+            .expect("wide SQL membership WHERE shape should lower");
+        let Expr::FunctionCall { function, args } = &lowered else {
+            panic!("SQL membership should lower to compact IN_LIST function");
+        };
 
-    assert_eq!(function, Function::InList);
-    let [Expr::Field(field), Expr::Literal(Value::List(values))] = args.as_slice() else {
-        panic!("compact SQL membership should retain target plus list literal");
-    };
+        assert_eq!(*function, Function::InList);
+        let [Expr::Field(field), Expr::Literal(Value::List(values))] = args.as_slice() else {
+            panic!("compact SQL membership should retain target plus list literal");
+        };
 
-    assert_eq!(field, &FieldId::new("collection_id"));
-    assert_eq!(values.len(), 5);
+        assert_eq!(field, &FieldId::new("collection_id"));
+        assert_eq!(values.len(), 5);
+    });
 }
 
 #[test]
 fn derive_where_predicate_subset_recovers_folded_constant_compare_shapes() {
-    let expr = parse_where_expr(
-        "SELECT * FROM users WHERE name = TRIM('alpha') AND NULLIF('alpha', 'alpha') IS NULL",
-    );
-    let lowered = lower_sql_where_bool_expr(&expr)
-        .expect("foldable compare WHERE shape should lower successfully");
-    let subset = derive_normalized_bool_expr_predicate_subset(&lowered)
-        .expect("foldable compare WHERE shape should recover one predicate subset");
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let expr = parse_where_expr(
+            "SELECT * FROM users WHERE name = TRIM('alpha') AND NULLIF('alpha', 'alpha') IS NULL",
+        );
+        let lowered = lower_sql_where_bool_expr(&expr, work)
+            .expect("foldable compare WHERE shape should lower successfully");
+        let subset = derive_normalized_bool_expr_predicate_subset(&lowered)
+            .expect("foldable compare WHERE shape should recover one predicate subset");
 
-    assert!(
-        matches!(
-            subset,
-            crate::db::predicate::Predicate::Compare(ref compare)
-                if compare.field() == "name"
-                    && compare.op() == crate::db::predicate::CompareOp::Eq
-                    && compare.value() == &Value::Text("alpha".to_string())
-        ),
-        "predicate subset derivation should stay available after legality is decided earlier",
-    );
+        assert!(
+            matches!(
+                subset,
+                crate::db::predicate::Predicate::Compare(ref compare)
+                    if compare.field() == "name"
+                        && compare.op() == crate::db::predicate::CompareOp::Eq
+                        && compare.value() == &Value::Text("alpha".to_string())
+            ),
+            "predicate subset derivation should stay available after legality is decided earlier",
+        );
+    });
 }
 
 #[test]

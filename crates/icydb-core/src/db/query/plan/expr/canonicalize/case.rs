@@ -1,3 +1,7 @@
+mod budget;
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::query::plan::expr::{
         BinaryOp, CaseWhenArm, Expr, Function, UnaryOp,
@@ -6,6 +10,7 @@ use crate::{
             truth_admission::{TruthAdmission, TruthWrapperScope},
         },
     },
+    db::{QueryError, query::preparation::PreparationWork},
     value::Value,
 };
 
@@ -19,16 +24,18 @@ pub(super) fn normalize_bool_case_expr(
     when_then_arms: Vec<CaseWhenArm>,
     else_expr: Expr,
     top_level_where_null_collapse: bool,
-) -> Expr {
-    lower_searched_case_to_boolean(
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    Ok(lower_searched_case_to_boolean(
         when_then_arms.as_slice(),
         &else_expr,
         top_level_where_null_collapse,
-    )
+        work,
+    )?
     .unwrap_or_else(|| Expr::Case {
         when_then_arms,
         else_expr: Box::new(else_expr),
-    })
+    }))
 }
 
 // Recurse across boolean-context planner nodes only so searched `CASE`
@@ -36,128 +43,133 @@ pub(super) fn normalize_bool_case_expr(
 // rewriting generic value-expression surfaces like grouped WHERE, HAVING, or
 // arbitrary compare operands.
 pub(super) fn canonicalize_normalized_bool_case_in_bool_context(
-    expr: Expr,
+    mut expr: Expr,
     top_level_where_null_collapse: bool,
     truth_wrapper_scope: Option<TruthWrapperScope>,
-) -> Expr {
-    match expr {
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    work.charge(
+        icydb_diagnostic_code::DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+        1,
+    )?;
+    match &mut expr {
         Expr::Unary {
             op: UnaryOp::Not,
-            expr,
-        } => Expr::Unary {
-            op: UnaryOp::Not,
-            expr: Box::new(canonicalize_normalized_bool_case_in_bool_context(
-                *expr,
+            expr: child,
+        } => {
+            **child = canonicalize_normalized_bool_case_in_bool_context(
+                child.take(),
                 false,
                 truth_wrapper_scope,
-            )),
-        },
+                work,
+            )?;
+        }
         Expr::Binary {
-            op: logical @ (BinaryOp::And | BinaryOp::Or),
+            op: BinaryOp::And | BinaryOp::Or,
             left,
             right,
-        } => Expr::Binary {
-            op: logical,
-            left: Box::new(canonicalize_normalized_bool_case_in_bool_context(
-                *left,
+        } => {
+            **left = canonicalize_normalized_bool_case_in_bool_context(
+                left.take(),
                 top_level_where_null_collapse,
                 truth_wrapper_scope,
-            )),
-            right: Box::new(canonicalize_normalized_bool_case_in_bool_context(
-                *right,
+                work,
+            )?;
+            **right = canonicalize_normalized_bool_case_in_bool_context(
+                right.take(),
                 top_level_where_null_collapse,
                 truth_wrapper_scope,
-            )),
-        },
+                work,
+            )?;
+        }
         Expr::Case {
             when_then_arms,
             else_expr,
         } => {
-            let when_then_arms = when_then_arms
-                .into_iter()
-                .map(|arm| {
-                    CaseWhenArm::new(
-                        canonicalize_normalized_bool_case_in_bool_context(
-                            arm.condition().clone(),
-                            true,
-                            truth_wrapper_scope,
-                        ),
-                        canonicalize_normalized_bool_case_in_bool_context(
-                            arm.result().clone(),
-                            top_level_where_null_collapse,
-                            truth_wrapper_scope,
-                        ),
-                    )
-                })
-                .collect::<Vec<_>>();
-            let else_expr = canonicalize_normalized_bool_case_in_bool_context(
-                *else_expr,
+            for arm in when_then_arms.iter_mut() {
+                let [condition, result] = arm.children_mut();
+                *condition = canonicalize_normalized_bool_case_in_bool_context(
+                    condition.take(),
+                    true,
+                    truth_wrapper_scope,
+                    work,
+                )?;
+                *result = canonicalize_normalized_bool_case_in_bool_context(
+                    result.take(),
+                    top_level_where_null_collapse,
+                    truth_wrapper_scope,
+                    work,
+                )?;
+            }
+            **else_expr = canonicalize_normalized_bool_case_in_bool_context(
+                else_expr.take(),
                 top_level_where_null_collapse,
                 truth_wrapper_scope,
+                work,
+            )?;
+            return normalize_bool_case_expr(
+                std::mem::take(when_then_arms),
+                else_expr.take(),
+                top_level_where_null_collapse,
+                work,
             );
-
-            normalize_bool_case_expr(when_then_arms, else_expr, top_level_where_null_collapse)
         }
-        other => maybe_collapse_truth_wrapper_in_bool_context(other, truth_wrapper_scope),
+        _ => {
+            return Ok(maybe_collapse_truth_wrapper_in_bool_context(
+                expr,
+                truth_wrapper_scope,
+            ));
+        }
     }
+
+    Ok(expr)
 }
 
-// Collapse the admitted `= TRUE` / `= FALSE` wrapper family through one
-// planner-owned truth-condition authority instead of keeping separate local
-// wrapper semantics in grouped-only or predicate-adjacent paths.
+// Collapse only admitted boolean equality wrappers. Transfer the chosen child
+// out of the original node so destruction cannot revisit a recursive subtree.
 fn maybe_collapse_truth_wrapper_in_bool_context(
-    expr: Expr,
+    mut expr: Expr,
     scope: Option<TruthWrapperScope>,
 ) -> Expr {
     let Some(scope) = scope else {
         return expr;
     };
-
-    match expr {
-        Expr::Binary {
-            op: BinaryOp::Eq,
-            left,
-            right,
-        } if matches!(right.as_ref(), Expr::Literal(Value::Bool(true)))
-            && truth_wrapper_candidate(left.as_ref(), scope) =>
-        {
-            *left
-        }
-        Expr::Binary {
-            op: BinaryOp::Eq,
-            left,
-            right,
-        } if matches!(left.as_ref(), Expr::Literal(Value::Bool(true)))
-            && truth_wrapper_candidate(right.as_ref(), scope) =>
-        {
-            *right
-        }
-        Expr::Binary {
-            op: BinaryOp::Eq,
-            left,
-            right,
-        } if matches!(right.as_ref(), Expr::Literal(Value::Bool(false)))
-            && truth_wrapper_candidate(left.as_ref(), scope) =>
-        {
-            Expr::Unary {
-                op: UnaryOp::Not,
-                expr: left,
+    if let Expr::Binary {
+        op: BinaryOp::Eq,
+        left,
+        right,
+    } = &mut expr
+    {
+        // Keep positive-wrapper precedence even when both sides are literals:
+        // intermediate shape also feeds the deterministic CASE rewrite budget.
+        let chosen = match (left.as_ref(), right.as_ref()) {
+            (_, Expr::Literal(Value::Bool(true))) if truth_wrapper_candidate(left, scope) => {
+                Some((left.take(), true))
             }
-        }
-        Expr::Binary {
-            op: BinaryOp::Eq,
-            left,
-            right,
-        } if matches!(left.as_ref(), Expr::Literal(Value::Bool(false)))
-            && truth_wrapper_candidate(right.as_ref(), scope) =>
-        {
-            Expr::Unary {
-                op: UnaryOp::Not,
-                expr: right,
+            (Expr::Literal(Value::Bool(true)), _) if truth_wrapper_candidate(right, scope) => {
+                Some((right.take(), true))
             }
+            (_, Expr::Literal(Value::Bool(false))) if truth_wrapper_candidate(left, scope) => {
+                Some((left.take(), false))
+            }
+            (Expr::Literal(Value::Bool(false)), _) if truth_wrapper_candidate(right, scope) => {
+                Some((right.take(), false))
+            }
+            _ => None,
+        };
+        if let Some((child, positive)) = chosen {
+            return if positive {
+                child
+            } else {
+                Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(child),
+                }
+            };
         }
-        other => other,
     }
+
+    expr
 }
 
 // Recognize the admitted truth-condition family where outer bool equality
@@ -170,8 +182,8 @@ fn truth_wrapper_candidate(expr: &Expr, scope: TruthWrapperScope) -> bool {
 }
 
 /// Lower one already-normalized searched `CASE` expression into an equivalent
-/// boolean expression tree when the number of arms stays within the
-/// `MAX_BOOL_CASE_CANONICALIZATION_ARMS` bound.
+/// boolean expression tree when both the arm count and copied structural
+/// work fit the fixed rewrite budget. Declining keeps the current compact CASE.
 ///
 /// Searched SQL `CASE` selects a branch only when the condition evaluates to
 /// `TRUE`; both `FALSE` and `NULL` fall through to the next arm. The lowered
@@ -188,9 +200,13 @@ fn lower_searched_case_to_boolean(
     arms: &[CaseWhenArm],
     else_expr: &Expr,
     top_level_where_null_collapse: bool,
-) -> Option<Expr> {
-    if arms.is_empty() || arms.len() > MAX_BOOL_CASE_CANONICALIZATION_ARMS {
-        return None;
+    work: &PreparationWork<'_>,
+) -> Result<Option<Expr>, QueryError> {
+    if arms.is_empty()
+        || arms.len() > MAX_BOOL_CASE_CANONICALIZATION_ARMS
+        || !budget::expansion_fits(arms, else_expr)
+    {
+        return Ok(None);
     }
 
     let mut canonical = match (top_level_where_null_collapse, else_expr) {
@@ -198,23 +214,26 @@ fn lower_searched_case_to_boolean(
         (_, other) => other.clone(),
     };
     for arm in arms.iter().rev() {
-        canonical = normalize_bool_expr(Expr::Binary {
-            op: BinaryOp::Or,
-            left: Box::new(guarded_bool_case_branch(
-                searched_case_match_guard(arm.condition().clone()),
-                arm.result().clone(),
-            )),
-            right: Box::new(guarded_bool_case_branch(
-                Expr::Unary {
-                    op: UnaryOp::Not,
-                    expr: Box::new(searched_case_match_guard(arm.condition().clone())),
-                },
-                canonical,
-            )),
-        });
+        canonical = normalize_bool_expr(
+            Expr::Binary {
+                op: BinaryOp::Or,
+                left: Box::new(guarded_bool_case_branch(
+                    searched_case_match_guard(arm.condition().clone()),
+                    arm.result().clone(),
+                )),
+                right: Box::new(guarded_bool_case_branch(
+                    Expr::Unary {
+                        op: UnaryOp::Not,
+                        expr: Box::new(searched_case_match_guard(arm.condition().clone())),
+                    },
+                    canonical,
+                )),
+            },
+            work,
+        )?;
     }
 
-    Some(canonical)
+    Ok(Some(canonical))
 }
 
 // Build one guarded boolean branch while preserving the small three-valued

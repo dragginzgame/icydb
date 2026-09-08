@@ -3,6 +3,7 @@
 //! Does not own: physical planning, executor runtime, or SQL/fluent lowering.
 //! Boundary: describes policy, proven bounds, and stable rejection diagnostics.
 
+pub(in crate::db) mod input;
 mod plan_summary;
 mod policy;
 #[cfg(feature = "sql")]

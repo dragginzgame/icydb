@@ -5,59 +5,73 @@
 
 use crate::{
     db::{
+        QueryError,
         query::{
             builder::AggregateExpr,
             plan::{
                 AggregateIdentity, AggregateKind, AggregateSemanticKey, AggregateShape, FieldSlot,
                 FieldSlotAuthority, GroupAggregateSpec, GroupPlan, expr::Expr,
             },
+            preparation::PreparationWork,
         },
-        schema::{AcceptedFieldKind, SchemaInfo, canonicalize_filter_literal_for_persisted_kind},
+        schema::{
+            AcceptedFieldKind, SchemaInfo, canonicalize_filter_literal_for_persisted_kind,
+            materialize_filter_literal,
+        },
     },
     value::Value,
 };
 
 /// Canonicalize one grouped `HAVING` literal through accepted schema authority.
-#[must_use]
 fn canonicalize_grouped_having_numeric_literal_for_accepted_kind(
     field_kind: &AcceptedFieldKind,
     value: &Value,
-) -> Option<Value> {
-    match field_kind {
+    work: &PreparationWork<'_>,
+) -> Result<Option<Value>, QueryError> {
+    Ok(match field_kind {
         AcceptedFieldKind::Relation { key_kind, .. } => {
-            canonicalize_grouped_having_numeric_literal_for_accepted_kind(key_kind, value)
+            canonicalize_grouped_having_numeric_literal_for_accepted_kind(key_kind, value, work)?
         }
         AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => match value {
-            Value::List(values) => Some(Value::List(
-                values
-                    .iter()
-                    .map(|item| {
-                        canonicalize_grouped_having_numeric_literal_for_accepted_kind(inner, item)
-                            .unwrap_or_else(|| item.clone())
-                    })
-                    .collect(),
-            )),
+            Value::List(values) => {
+                work.charge(
+                    icydb_diagnostic_code::DiagnosticExecutionBudgetResource::TemporaryBytes,
+                    (values.len() as u64).saturating_mul(size_of::<Value>() as u64),
+                )?;
+                let mut canonical = Vec::with_capacity(values.len());
+                for item in values {
+                    canonical.push(
+                        canonicalize_grouped_having_numeric_literal_for_accepted_kind(
+                            inner, item, work,
+                        )?
+                        .unwrap_or_else(|| item.clone()),
+                    );
+                }
+                Some(Value::List(canonical))
+            }
             _ => None,
         },
         AcceptedFieldKind::Enum { .. }
         | AcceptedFieldKind::Map { .. }
         | AcceptedFieldKind::Composite { .. }
         | AcceptedFieldKind::Ulid => None,
-        _ => canonicalize_filter_literal_for_persisted_kind(field_kind, value),
-    }
+        _ => canonicalize_filter_literal_for_persisted_kind(field_kind, value, work)?
+            .map(|value| materialize_filter_literal(value, work))
+            .transpose()?,
+    })
 }
 
 /// Canonicalize one grouped `HAVING` literal through a direct/path key owner.
-#[must_use]
 pub(in crate::db) fn canonicalize_grouped_having_numeric_literal_for_group_field(
     schema: &SchemaInfo,
     group_field: &crate::db::query::plan::GroupField,
     value: &Value,
-) -> Option<Value> {
-    canonicalize_grouped_having_numeric_literal_for_accepted_kind(
-        group_field.accepted_kind_from_schema(schema)?,
-        value,
-    )
+    work: &PreparationWork<'_>,
+) -> Result<Option<Value>, QueryError> {
+    let Some(kind) = group_field.accepted_kind_from_schema(schema) else {
+        return Ok(None);
+    };
+    canonicalize_grouped_having_numeric_literal_for_accepted_kind(kind, value, work)
 }
 
 impl GroupAggregateSpec {
@@ -317,10 +331,14 @@ mod tests {
         };
 
         assert_eq!(
-            canonicalize_grouped_having_numeric_literal_for_accepted_kind(
-                &relation,
-                &Value::Int64(7),
-            ),
+            crate::db::query::preparation::with_preparation_work(|work| {
+                canonicalize_grouped_having_numeric_literal_for_accepted_kind(
+                    &relation,
+                    &Value::Int64(7),
+                    work,
+                )
+                .expect("literal preparation")
+            }),
             Some(Value::Nat64(7)),
         );
     }
@@ -330,10 +348,14 @@ mod tests {
         let list = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Int64));
 
         assert_eq!(
-            canonicalize_grouped_having_numeric_literal_for_accepted_kind(
-                &list,
-                &Value::List(vec![Value::Nat64(3), Value::Int64(5)]),
-            ),
+            crate::db::query::preparation::with_preparation_work(|work| {
+                canonicalize_grouped_having_numeric_literal_for_accepted_kind(
+                    &list,
+                    &Value::List(vec![Value::Nat64(3), Value::Int64(5)]),
+                    work,
+                )
+                .expect("literal preparation")
+            }),
             Some(Value::List(vec![Value::Int64(3), Value::Int64(5)])),
         );
     }
@@ -341,10 +363,14 @@ mod tests {
     #[test]
     fn accepted_grouped_having_literal_canonicalization_does_not_widen_ulid_text() {
         assert_eq!(
-            canonicalize_grouped_having_numeric_literal_for_accepted_kind(
-                &AcceptedFieldKind::Ulid,
-                &Value::Text("01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string()),
-            ),
+            crate::db::query::preparation::with_preparation_work(|work| {
+                canonicalize_grouped_having_numeric_literal_for_accepted_kind(
+                    &AcceptedFieldKind::Ulid,
+                    &Value::Text("01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string()),
+                    work,
+                )
+                .expect("literal preparation")
+            }),
             None,
         );
     }

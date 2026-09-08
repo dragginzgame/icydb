@@ -18,17 +18,18 @@ use crate::{
 // expressions are constructed so grouped/global paths do not drift on
 // semantically equivalent constant subexpressions.
 pub(in crate::db) fn canonicalize_aggregate_input_expr(kind: AggregateKind, expr: Expr) -> Expr {
-    let folded =
+    let mut folded =
         normalize_aggregate_input_numeric_literals(fold_aggregate_input_constant_expr(expr));
 
     match kind {
-        AggregateKind::Sum | AggregateKind::Avg => match folded {
-            Expr::Literal(value) => coerce_numeric_decimal(&value)
-                .map_or(Expr::Literal(value), |decimal| {
-                    Expr::Literal(Value::Decimal(decimal.normalize()))
-                }),
-            other => other,
-        },
+        AggregateKind::Sum | AggregateKind::Avg => {
+            if let Expr::Literal(value) = &mut folded
+                && let Some(decimal) = coerce_numeric_decimal(value)
+            {
+                *value = Value::Decimal(decimal.normalize());
+            }
+            folded
+        }
         AggregateKind::Count
         | AggregateKind::Min
         | AggregateKind::Max
@@ -46,55 +47,17 @@ pub(in crate::db) const fn aggregate_count_input_expr_is_non_null_literal(expr: 
 
 // Fold literal-only aggregate-input subexpressions so aggregate identity
 // matching can treat `AVG(age + 1 * 2)` and `AVG(age + 2)` as the same input.
-fn fold_aggregate_input_constant_expr(expr: Expr) -> Expr {
-    match expr {
-        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
+fn fold_aggregate_input_constant_expr(mut expr: Expr) -> Expr {
+    expr.map_scalar_children(fold_aggregate_input_constant_expr);
+    let folded = match &expr {
         Expr::FunctionCall { function, args } => {
-            let args = args
-                .into_iter()
-                .map(fold_aggregate_input_constant_expr)
-                .collect::<Vec<_>>();
-
-            fold_aggregate_input_constant_function(function, args.as_slice())
-                .unwrap_or(Expr::FunctionCall { function, args })
+            fold_aggregate_input_constant_function(*function, args)
         }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => Expr::Case {
-            when_then_arms: when_then_arms
-                .into_iter()
-                .map(|arm| {
-                    crate::db::query::plan::expr::CaseWhenArm::new(
-                        fold_aggregate_input_constant_expr(arm.condition().clone()),
-                        fold_aggregate_input_constant_expr(arm.result().clone()),
-                    )
-                })
-                .collect(),
-            else_expr: Box::new(fold_aggregate_input_constant_expr(*else_expr)),
-        },
-        Expr::Binary { op, left, right } => {
-            let left = fold_aggregate_input_constant_expr(*left);
-            let right = fold_aggregate_input_constant_expr(*right);
+        Expr::Binary { op, left, right } => fold_aggregate_input_constant_binary(*op, left, right),
+        _ => None,
+    };
 
-            fold_aggregate_input_constant_binary(op, &left, &right).unwrap_or_else(|| {
-                Expr::Binary {
-                    op,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                }
-            })
-        }
-        #[cfg(test)]
-        Expr::Alias { expr, name } => Expr::Alias {
-            expr: Box::new(fold_aggregate_input_constant_expr(*expr)),
-            name,
-        },
-        Expr::Unary { op, expr } => Expr::Unary {
-            op,
-            expr: Box::new(fold_aggregate_input_constant_expr(*expr)),
-        },
-    }
+    folded.unwrap_or(expr)
 }
 
 // Fold one literal-only binary aggregate-input fragment onto one decimal
@@ -230,48 +193,13 @@ fn fold_aggregate_input_constant_nullif(args: &[Expr]) -> Option<Expr> {
 // Normalize numeric literal leaves recursively so semantically equivalent
 // aggregate inputs like `age + 2` and `age + 1 * 2` share one canonical
 // planner identity after literal-only subtree folding.
-fn normalize_aggregate_input_numeric_literals(expr: Expr) -> Expr {
-    match expr {
-        Expr::Literal(value) => coerce_numeric_decimal(&value)
-            .map_or(Expr::Literal(value), |decimal| {
-                Expr::Literal(Value::Decimal(decimal.normalize()))
-            }),
-        Expr::Field(_) | Expr::FieldPath(_) | Expr::Aggregate(_) => expr,
-        Expr::FunctionCall { function, args } => Expr::FunctionCall {
-            function,
-            args: args
-                .into_iter()
-                .map(normalize_aggregate_input_numeric_literals)
-                .collect(),
-        },
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => Expr::Case {
-            when_then_arms: when_then_arms
-                .into_iter()
-                .map(|arm| {
-                    crate::db::query::plan::expr::CaseWhenArm::new(
-                        normalize_aggregate_input_numeric_literals(arm.condition().clone()),
-                        normalize_aggregate_input_numeric_literals(arm.result().clone()),
-                    )
-                })
-                .collect(),
-            else_expr: Box::new(normalize_aggregate_input_numeric_literals(*else_expr)),
-        },
-        Expr::Binary { op, left, right } => Expr::Binary {
-            op,
-            left: Box::new(normalize_aggregate_input_numeric_literals(*left)),
-            right: Box::new(normalize_aggregate_input_numeric_literals(*right)),
-        },
-        #[cfg(test)]
-        Expr::Alias { expr, name } => Expr::Alias {
-            expr: Box::new(normalize_aggregate_input_numeric_literals(*expr)),
-            name,
-        },
-        Expr::Unary { op, expr } => Expr::Unary {
-            op,
-            expr: Box::new(normalize_aggregate_input_numeric_literals(*expr)),
-        },
+fn normalize_aggregate_input_numeric_literals(mut expr: Expr) -> Expr {
+    expr.map_scalar_children(normalize_aggregate_input_numeric_literals);
+    if let Expr::Literal(value) = &mut expr
+        && let Some(decimal) = coerce_numeric_decimal(value)
+    {
+        *value = Value::Decimal(decimal.normalize());
     }
+
+    expr
 }

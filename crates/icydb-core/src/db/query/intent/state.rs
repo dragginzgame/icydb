@@ -4,6 +4,7 @@
 //! Boundary: records intent-shape state consumed by planner-owned validation/build stages.
 
 use crate::db::{
+    QueryError,
     predicate::Predicate,
     query::plan::{
         AccessPlanningInputs, DeleteSpec, GroupSpec, GroupedExecutionConfig, LoadSpec,
@@ -13,6 +14,7 @@ use crate::db::{
             is_normalized_bool_expr, normalize_bool_expr,
         },
     },
+    query::preparation::PreparationWork,
 };
 
 ///
@@ -159,8 +161,11 @@ impl NormalizedFilter {
 
     // Append one filter clause by AND-ing the semantic expression and combining
     // only the predicate subsets that were derived at their original boundary.
-    pub(in crate::db::query::intent) fn append(&mut self, filter: Self) {
-        let existing_coverage = self.predicate_coverage;
+    pub(in crate::db::query::intent) fn append(
+        &mut self,
+        filter: Self,
+        work: &PreparationWork<'_>,
+    ) -> Result<(), QueryError> {
         let filter_coverage = filter.predicate_coverage;
 
         match (&mut self.semantic_authority, filter.semantic_authority) {
@@ -168,11 +173,14 @@ impl NormalizedFilter {
                 FilterSemanticAuthority::ExpressionBacked(existing),
                 FilterSemanticAuthority::ExpressionBacked(appended),
             ) => {
-                *existing = normalize_bool_expr(Expr::Binary {
-                    op: BinaryOp::And,
-                    left: Box::new(existing.clone()),
-                    right: Box::new(appended),
-                });
+                *existing = normalize_bool_expr(
+                    Expr::Binary {
+                        op: BinaryOp::And,
+                        left: Box::new(existing.take()),
+                        right: Box::new(appended),
+                    },
+                    work,
+                )?;
             }
             (
                 FilterSemanticAuthority::ExpressionBacked(_)
@@ -194,11 +202,20 @@ impl NormalizedFilter {
             );
         }
 
-        self.predicate_subset =
-            combine_predicate_subset(self.predicate_subset.take(), filter.predicate_subset);
+        self.append_subset(filter.predicate_subset, filter_coverage);
+        Ok(())
+    }
+
+    // Predicate-only additions do not construct or normalize an expression.
+    pub(in crate::db::query::intent) fn append_predicate(&mut self, predicate: Predicate) {
+        self.append_subset(Some(predicate), FilterPredicateCoverage::Full);
+    }
+
+    fn append_subset(&mut self, subset: Option<Predicate>, coverage: FilterPredicateCoverage) {
+        self.predicate_subset = combine_predicate_subset(self.predicate_subset.take(), subset);
         self.predicate_coverage = FilterPredicateCoverage::combine_for_and(
-            existing_coverage,
-            filter_coverage,
+            self.predicate_coverage,
+            coverage,
             self.predicate_subset.is_some(),
         );
     }

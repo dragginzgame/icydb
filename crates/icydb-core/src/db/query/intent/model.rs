@@ -21,6 +21,7 @@ use crate::db::{
             prepare_query_model_scalar_planning_state_with_schema_info,
             resolve_group_field_with_schema, try_build_trivial_scalar_load_plan_with_schema_info,
         },
+        preparation::PreparationWork,
     },
     schema::SchemaInfo,
 };
@@ -244,36 +245,39 @@ impl QueryModel {
         self
     }
 
-    #[must_use]
     pub(in crate::db::query) fn filter_for_schema(
         self,
         schema: &SchemaInfo,
-        expr: impl Into<FilterExpr>,
-    ) -> Self {
-        self.filter_expr(expr.into().lower_bool_expr_for_schema(schema))
+        expr: &FilterExpr,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        self.filter_expr(expr.lower_bool_expr_for_schema(schema, work)?, work)
     }
 
-    #[must_use]
-    pub(in crate::db::query) fn filter_expr(mut self, expr: Expr) -> Self {
-        let expr = normalize_bool_expr(expr);
+    pub(in crate::db::query) fn filter_expr(
+        mut self,
+        expr: Expr,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        let expr = normalize_bool_expr(expr, work)?;
 
         debug_assert!(is_normalized_bool_expr(&expr));
 
-        self.intent.append_filter_expr(expr);
-        self
+        self.intent.append_filter_expr(expr, work)?;
+        Ok(self)
     }
 
-    #[must_use]
     pub(in crate::db) fn filter_expr_with_normalized_predicate(
         mut self,
         expr: Expr,
         predicate: Predicate,
-    ) -> Self {
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
         debug_assert!(is_normalized_bool_expr(&expr));
 
         self.intent
-            .append_filter_with_predicate_subset(expr, predicate);
-        self
+            .append_filter_with_predicate_subset(expr, predicate, work)?;
+        Ok(self)
     }
 
     /// Append one typed fluent ORDER BY term.
@@ -374,10 +378,9 @@ impl QueryModel {
     pub(in crate::db::query::intent) fn push_having_expr_preserving_shape(
         mut self,
         expr: Expr,
+        work: &PreparationWork<'_>,
     ) -> Result<Self, QueryError> {
-        self.intent
-            .push_having_expr_preserving_shape(expr)
-            .map_err(QueryError::intent)?;
+        self.intent.push_having_expr_preserving_shape(expr, work)?;
 
         Ok(self)
     }

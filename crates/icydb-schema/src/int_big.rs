@@ -43,6 +43,19 @@ impl IntBig {
         self.0.0.bits()
     }
 
+    /// Return the exact signed LEB128 byte length without allocating or encoding.
+    #[must_use]
+    pub fn leb128_len(&self) -> u64 {
+        let bits = self.magnitude_bits();
+        // Signed groups reserve a sign bit. A negative power of two needs one
+        // fewer bit than the corresponding positive value (-64 fits; 64 does
+        // not). Only a seven-bit boundary can change the resulting byte count.
+        let negative_boundary = self.0.0.sign() == num_bigint::Sign::Minus
+            && bits.is_multiple_of(7)
+            && self.0.0.trailing_zeros() == Some(bits.saturating_sub(1));
+        bits / 7 + 1 - u64::from(negative_boundary)
+    }
+
     /// Construct from the canonical Candid signed-integer representation.
     #[must_use]
     pub const fn from_candid(value: WrappedInt) -> Self {

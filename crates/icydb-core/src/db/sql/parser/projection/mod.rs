@@ -176,15 +176,21 @@ impl Parser {
         Ok(None)
     }
 
-    fn select_item_from_sql_expr(expr: SqlExpr) -> Result<SqlSelectItem, SqlParseError> {
-        match expr {
-            SqlExpr::Field(field) => Ok(SqlSelectItem::Field(field)),
-            SqlExpr::FieldPath { .. } => Ok(SqlSelectItem::Expr(expr)),
-            SqlExpr::Aggregate(aggregate) => Ok(SqlSelectItem::Aggregate(aggregate)),
+    fn select_item_from_sql_expr(mut expr: SqlExpr) -> Result<SqlSelectItem, SqlParseError> {
+        match &mut expr {
+            SqlExpr::Field(field) => Ok(SqlSelectItem::Field(std::mem::take(field))),
+            SqlExpr::Aggregate(aggregate) => Ok(SqlSelectItem::Aggregate(
+                crate::db::sql::parser::SqlAggregateCall {
+                    kind: aggregate.kind,
+                    input: aggregate.input.take(),
+                    filter_expr: aggregate.filter_expr.take(),
+                    distinct: aggregate.distinct,
+                },
+            )),
             SqlExpr::Literal(_) => Err(SqlParseError::unsupported_feature(
                 SqlFeatureCode::StandaloneLiteralProjectionItem,
             )),
-            other => Ok(SqlSelectItem::Expr(other)),
+            _ => Ok(SqlSelectItem::Expr(expr)),
         }
     }
 
@@ -209,11 +215,8 @@ impl Parser {
         let mut binary_chain_depth = 1usize;
 
         loop {
-            if surface.allows_predicate_postfix()
-                && self.peek_where_postfix_start()
-                && let Some(expr) = self.try_parse_where_postfix_expr(left.clone(), surface)?
-            {
-                left = expr;
+            if surface.allows_predicate_postfix() && self.peek_where_postfix_start() {
+                left = self.parse_where_postfix_expr(left, surface)?;
                 continue;
             }
 

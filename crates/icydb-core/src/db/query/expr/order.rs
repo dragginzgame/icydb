@@ -108,6 +108,11 @@ pub struct OrderTerm {
 }
 
 impl OrderTerm {
+    /// Borrow authored syntax for admission before lowering clones it.
+    pub(in crate::db) const fn expression(&self) -> &Expr {
+        &self.expr.expr
+    }
+
     /// Build one ascending ORDER BY term from one typed expression.
     #[must_use]
     pub fn asc(expr: impl Into<OrderExpr>) -> Self {

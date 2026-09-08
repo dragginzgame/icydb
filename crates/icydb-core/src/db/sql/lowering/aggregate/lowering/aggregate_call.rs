@@ -1,3 +1,4 @@
+use crate::db::query::preparation::PreparationWork;
 use crate::db::{
     query::{
         builder::{
@@ -26,6 +27,7 @@ use crate::db::{
 
 fn lower_sql_aggregate_shape(
     call: SqlAggregateCall,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredSqlAggregateShape, SqlLoweringError> {
     let SqlAggregateCall {
         kind,
@@ -34,7 +36,7 @@ fn lower_sql_aggregate_shape(
         distinct,
     } = call;
     let filter_expr = filter_expr
-        .map(|expr| lower_sql_pre_aggregate_bool_expr(expr.as_ref()))
+        .map(|expr| lower_sql_pre_aggregate_bool_expr(expr.as_ref(), work))
         .map(|expr| expr.map(AnalyzedLoweredExpr::new))
         .transpose()?;
 
@@ -43,13 +45,13 @@ fn lower_sql_aggregate_shape(
         filter_expr.as_ref().map(AnalyzedLoweredExpr::expr),
     )?;
 
-    match input.map(|input| *input) {
+    match input.map(|input| *input).as_mut() {
         None if kind.supports_star_input() && !distinct => {
             Ok(LoweredSqlAggregateShape::CountRows { filter_expr })
         }
         Some(SqlExpr::Field(field)) if matches!(kind, SqlAggregateKind::Count) => {
             Ok(LoweredSqlAggregateShape::CountField {
-                field,
+                field: std::mem::take(field),
                 filter_expr,
                 distinct,
             })
@@ -57,7 +59,7 @@ fn lower_sql_aggregate_shape(
         Some(SqlExpr::Field(field)) if kind.lowers_shared_field_target_shape() => {
             Ok(LoweredSqlAggregateShape::FieldTarget {
                 kind,
-                field,
+                field: std::mem::take(field),
                 filter_expr,
                 distinct,
             })
@@ -66,7 +68,7 @@ fn lower_sql_aggregate_shape(
             kind,
             input_expr: AnalyzedLoweredExpr::new(canonicalize_aggregate_input_expr(
                 kind.aggregate_kind(),
-                lower_sql_expr(&input, SqlExprPhase::PreAggregate)?,
+                lower_sql_expr(input, SqlExprPhase::PreAggregate, work)?,
             )),
             filter_expr,
             distinct,
@@ -77,8 +79,9 @@ fn lower_sql_aggregate_shape(
 
 pub(in crate::db::sql::lowering) fn lower_aggregate_call(
     call: SqlAggregateCall,
+    work: &PreparationWork<'_>,
 ) -> Result<AggregateExpr, SqlLoweringError> {
-    lower_sql_aggregate_shape_to_expr(lower_sql_aggregate_shape(call)?)
+    lower_sql_aggregate_shape_to_expr(lower_sql_aggregate_shape(call, work)?)
 }
 
 fn lower_sql_aggregate_shape_to_expr(
@@ -128,8 +131,9 @@ fn lowered_filter_expr(filter_expr: Option<AnalyzedLoweredExpr>) -> Option<Expr>
 pub(in crate::db::sql::lowering) fn lower_grouped_aggregate_call(
     schema: &SchemaInfo,
     call: SqlAggregateCall,
+    work: &PreparationWork<'_>,
 ) -> Result<AggregateExpr, SqlLoweringError> {
-    let shape = lower_sql_aggregate_shape(call)?;
+    let shape = lower_sql_aggregate_shape(call, work)?;
 
     validate_grouped_aggregate_scalar_subexpressions(schema, &shape)?;
 

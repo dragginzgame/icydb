@@ -2,8 +2,11 @@
 
 mod aggregate_contracts;
 mod bindings_parity;
+mod case_budget;
 mod collection_emptiness;
 mod direct_projection;
+mod input_admission;
+mod membership;
 
 use crate::{
     db::{
@@ -91,7 +94,12 @@ fn retained_shared_cache_charges_plans_and_rebinds_without_accumulating_operands
     session
         .execute_trusted_live_page(&query("singleton"), None)
         .expect("A/B/A binding");
-    assert_eq!(session.shared_query_cache_usage_for_tests(), first);
+    let rebound = session.shared_query_cache_usage_for_tests();
+    assert_eq!(rebound.0, first.0);
+    // Freshly rendered strings and their clones can have different capacities.
+    // Returning to A must release B's larger operands, not reproduce allocator
+    // capacity choices from the cold compilation exactly.
+    assert!(rebound.1 <= first.1);
 
     session.clear_shared_query_cache_for_tests(0);
     for label in ["singleton", "missing", "singleton"] {
@@ -1015,6 +1023,10 @@ fn parameterized_in_list_cache_identity_is_independent_of_nonempty_arity() {
         .expect("two-item IN should bind to the same list-slot template");
 
     assert_eq!(second.rows, vec![singleton_row()]);
+    let third = session
+        .execute_trusted_live_page(&one, None)
+        .expect("A/B/A membership rebinding must not retain the matching value");
+    assert!(third.rows.is_empty());
 }
 
 #[test]
@@ -1099,10 +1111,15 @@ fn initialize() -> DbSession<TestCanister> {
 }
 
 fn new_request_session() -> DbSession<TestCanister> {
-    DbSession::new(
-        &STORE_REGISTRY,
-        &crate::db::RequestExecutionRoot::__new_runtime_root(),
-    )
+    new_request_session_with_root(&crate::db::RequestExecutionRoot::__new_runtime_root())
+}
+
+// Keep one LocalKey reference site: registry identity also owns recovery/cache
+// isolation, independently of which request root a fixture supplies.
+fn new_request_session_with_root(
+    root: &crate::db::RequestExecutionRoot,
+) -> DbSession<TestCanister> {
+    DbSession::new(&STORE_REGISTRY, root)
 }
 
 fn publish_schema(

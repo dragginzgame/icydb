@@ -7,13 +7,15 @@ mod semantics;
 mod strategy;
 mod terminal;
 
+use crate::db::query::preparation::PreparationWork;
+use crate::db::sql::lowering::SqlLoweringError;
 use crate::db::sql::parser::{SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement};
 
 #[cfg(feature = "sql")]
 pub(in crate::db::sql::lowering) use command::LoweredSqlGlobalAggregateCommand;
 pub(crate) use command::SqlGlobalAggregateCommand;
 #[cfg(feature = "sql")]
-pub(crate) use command::bind_lowered_sql_explain_global_aggregate_with_schema;
+pub(in crate::db) use command::bind_lowered_sql_explain_global_aggregate_with_schema;
 pub(in crate::db) use command::compile_sql_global_aggregate_command_from_prepared_with_schema;
 pub(in crate::db::sql::lowering) use command::lower_global_aggregate_select_shape;
 pub(in crate::db::sql::lowering) use grouped::{
@@ -29,36 +31,46 @@ pub(crate) use strategy::{
 impl SqlStatement {
     /// Return whether this parsed SQL statement is an executable constrained
     /// global aggregate shape owned by the dedicated aggregate lane.
-    #[must_use]
-    pub(in crate::db) fn is_global_aggregate_lane_shape(&self) -> bool {
+    pub(in crate::db) fn is_global_aggregate_lane_shape(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<bool, SqlLoweringError> {
         let Self::Select(statement) = self else {
-            return false;
+            return Ok(false);
         };
 
-        statement.is_global_aggregate_lane_shape()
+        statement.is_global_aggregate_lane_shape(work)
     }
 }
 
 impl SqlSelectStatement {
     /// Return whether this parsed SELECT shape can route onto the dedicated
     /// global aggregate lowering lane.
-    #[must_use]
-    fn is_global_aggregate_lane_shape(&self) -> bool {
+    fn is_global_aggregate_lane_shape(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<bool, SqlLoweringError> {
         if self.distinct || !self.group_by.is_empty() {
-            return false;
+            return Ok(false);
         }
 
         if self.is_direct_global_aggregate_projection_without_post_filters() {
-            return true;
+            return Ok(true);
         }
 
         // Skip the heavier global-aggregate shape lowering when one plain scalar
         // SELECT cannot possibly route onto the dedicated aggregate lane.
         if !self.might_require_global_aggregate_lane() {
-            return false;
+            return Ok(false);
         }
 
-        lower_global_aggregate_select_shape(self.clone()).is_ok()
+        match lower_global_aggregate_select_shape(self.clone(), work) {
+            Ok(_) => Ok(true),
+            // Query failures are not evidence for selecting another SQL lane.
+            // In particular, never disguise request exhaustion as a shape miss.
+            Err(error @ SqlLoweringError::Query(_)) => Err(error),
+            Err(_) => Ok(false),
+        }
     }
 
     // Use one cheap parsed-shape screen before the dedicated aggregate lane opens

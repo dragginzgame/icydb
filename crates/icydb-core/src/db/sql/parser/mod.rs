@@ -73,6 +73,8 @@ pub(crate) fn parse_sql(sql: &str) -> Result<SqlStatement, SqlParseError> {
         return Err(SqlParseError::expected_end_of_input(parser.peek_kind()));
     }
 
+    crate::db::sql::input::validate_sql_statement_input(&statement, &[])
+        .map_err(|reason| SqlParseError::InputAdmission { reason })?;
     Ok(statement)
 }
 

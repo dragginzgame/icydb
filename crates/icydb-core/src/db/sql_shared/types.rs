@@ -9,6 +9,10 @@ use std::str::FromStr;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SqlParseError {
     #[cfg(feature = "sql")]
+    InputAdmission {
+        reason: icydb_diagnostic_code::QueryReadAdmissionCode,
+    },
+    #[cfg(feature = "sql")]
     EmptyInput,
 
     UnsupportedFeature {

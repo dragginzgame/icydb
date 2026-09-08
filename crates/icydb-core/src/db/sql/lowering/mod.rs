@@ -6,7 +6,6 @@
 
 mod aggregate;
 mod analysis;
-mod ast_depth;
 mod bindings;
 mod expr;
 mod normalize;
@@ -42,7 +41,7 @@ pub(crate) enum SqlParameterPlacementReason {
 pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand;
 pub(crate) use aggregate::SqlGlobalAggregateCommand;
 #[cfg(feature = "sql")]
-pub(crate) use aggregate::bind_lowered_sql_explain_global_aggregate_with_schema;
+pub(in crate::db) use aggregate::bind_lowered_sql_explain_global_aggregate_with_schema;
 pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_from_prepared_with_schema;
 pub(crate) use aggregate::{
     PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
@@ -50,11 +49,11 @@ pub(crate) use aggregate::{
 pub(in crate::db::sql::lowering) use analysis::{
     AnalyzedLoweredExpr, LoweredExprAnalysis, LoweredExprSourceRef, analyze_lowered_expr,
 };
-pub(crate) use bindings::{prepare_bound_sql_statement, validate_sql_bindings};
+pub(in crate::db) use bindings::{prepare_bound_sql_statement, validate_sql_bindings};
 pub(in crate::db) use prepare::bind_sql_select_statement_structural_with_schema;
 #[cfg(feature = "sql")]
-pub(crate) use prepare::lower_sql_explain_command_from_prepared_statement_with_schema;
-pub(crate) use prepare::{
+pub(in crate::db) use prepare::lower_sql_explain_command_from_prepared_statement_with_schema;
+pub(in crate::db) use prepare::{
     extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
     lower_prepared_sql_delete_statement, lower_prepared_sql_select_statement_with_schema,
     prepare_sql_statement,

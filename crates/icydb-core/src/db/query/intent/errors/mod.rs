@@ -240,6 +240,7 @@ impl QueryError {
     pub(in crate::db) fn from_sql_lowering_error(err: SqlLoweringError) -> Self {
         match err {
             SqlLoweringError::Query(err) => *err,
+            SqlLoweringError::Parse(SqlParseError::InputAdmission { reason }) => reason.into(),
             SqlLoweringError::Parse(SqlParseError::UnsupportedFeature { feature }) => {
                 Self::unsupported_sql_feature(feature)
             }

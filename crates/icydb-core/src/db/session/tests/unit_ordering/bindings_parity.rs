@@ -5,6 +5,7 @@ use crate::types::{
     Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
     Timestamp, Ulid,
 };
+use std::slice;
 
 #[test]
 fn bound_scalar_families_match_structural_reads_of_stored_values() {
@@ -111,8 +112,34 @@ fn assert_stored_operand_parity(kind: AcceptedFieldKind, input: InputValue) {
         .expect("structural control");
     assert_eq!(expected.row_count, 1, "control must match the stored value");
     let (actual, _) = new_request_session()
-        .execute_trusted_sql_query_with_entity_name(&dispatch, &[input])
+        .execute_trusted_sql_query_with_entity_name(&dispatch, slice::from_ref(&input))
         .expect("typed SQL");
+    let SqlStatementResult::Projection { rows, .. } = actual else {
+        panic!("projection");
+    };
+    assert_eq!(rows, expected.rows);
+
+    // Membership shares the same accepted scalar conversion and stored-row
+    // semantics across typed and SQL callers, including duplicate operands.
+    let membership =
+        sql_statement_dispatch("SELECT operand FROM Singleton WHERE operand IN (?, ?)")
+            .expect("fixed membership syntax");
+    let query = DynamicQuery::new(ENTITY_NAME)
+        .select(["operand"])
+        .filter(FilterExpr::in_list(
+            "operand",
+            [input.clone(), input.clone()],
+        ));
+    assert_eq!(
+        new_request_session()
+            .execute_trusted_live_page(&query, None)
+            .expect("typed membership")
+            .rows,
+        expected.rows
+    );
+    let (actual, _) = new_request_session()
+        .execute_trusted_sql_query_with_entity_name(&membership, &[input.clone(), input])
+        .expect("SQL membership");
     let SqlStatementResult::Projection { rows, .. } = actual else {
         panic!("projection");
     };

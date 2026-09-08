@@ -1,3 +1,4 @@
+use crate::db::query::preparation::PreparationWork;
 use crate::db::{
     query::plan::{
         expr::{Alias, Expr, ProjectionField, ProjectionSpec},
@@ -41,6 +42,7 @@ impl LoweredSqlGlobalAggregateTerminals {
     pub(in crate::db::sql::lowering::aggregate) fn from_projection(
         projection: SqlProjection,
         projection_aliases: &[Option<String>],
+        work: &PreparationWork<'_>,
     ) -> Result<Self, SqlLoweringError> {
         let SqlProjection::Items(items) = projection else {
             return Err(SqlLoweringError::unsupported_global_aggregate_projection());
@@ -54,7 +56,8 @@ impl LoweredSqlGlobalAggregateTerminals {
         let mut fields = Vec::<ProjectionField>::with_capacity(items.len());
 
         for (index, item) in items.into_iter().enumerate() {
-            let analyzed = lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate)?;
+            let analyzed =
+                lower_analyzed_select_item_expr(&item, SqlExprPhase::PostAggregate, work)?;
             let analysis = analyzed.analysis();
             if !analysis.contains_aggregate() || analysis.references_direct_fields() {
                 return Err(SqlLoweringError::unsupported_global_aggregate_projection());

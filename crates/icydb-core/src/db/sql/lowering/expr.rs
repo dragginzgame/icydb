@@ -3,6 +3,7 @@
 //! Does not own: SQL token parsing or runtime expression evaluation.
 //! Boundary: enforces clause-phase admission while translating parsed expressions.
 
+use crate::db::query::preparation::PreparationWork;
 use crate::db::sql::lowering::{SqlLoweringError, aggregate::lower_aggregate_call};
 use crate::{
     db::{
@@ -40,6 +41,7 @@ pub(in crate::db::sql::lowering) enum SqlExprPhase {
 pub(in crate::db::sql::lowering) fn lower_sql_expr(
     expr: &SqlExpr,
     phase: SqlExprPhase,
+    work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
     match expr {
         SqlExpr::Field(field) => Ok(Expr::Field(FieldId::new(field.clone()))),
@@ -52,7 +54,10 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
                 return Err(phase_aggregate_error(phase));
             }
 
-            Ok(Expr::Aggregate(lower_aggregate_call(aggregate.clone())?))
+            Ok(Expr::Aggregate(lower_aggregate_call(
+                aggregate.clone(),
+                work,
+            )?))
         }
         SqlExpr::Literal(literal) => Ok(Expr::Literal(literal.clone())),
         SqlExpr::Param { index } => Err(SqlLoweringError::unsupported_parameter_placement(
@@ -63,85 +68,79 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
             expr,
             values,
             negated,
-        } => lower_sql_membership_expr(expr.as_ref(), values.as_slice(), *negated, phase),
+        } => lower_sql_membership_expr(expr.as_ref(), values.as_slice(), *negated, phase, work),
         SqlExpr::NullTest { expr, negated } => Ok(Expr::FunctionCall {
             function: if *negated {
                 Function::IsNotNull
             } else {
                 Function::IsNull
             },
-            args: vec![lower_sql_expr(expr.as_ref(), phase)?],
+            args: vec![lower_sql_expr(expr.as_ref(), phase, work)?],
         }),
         SqlExpr::Like {
             expr,
             pattern,
             negated,
             casefold,
-        } => lower_sql_like_expr(expr.as_ref(), pattern.as_str(), *negated, *casefold, phase),
-        SqlExpr::FunctionCall { function, args } => lower_sql_function_call(*function, args, phase),
+        } => lower_sql_like_expr(
+            expr.as_ref(),
+            pattern.as_str(),
+            *negated,
+            *casefold,
+            phase,
+            work,
+        ),
+        SqlExpr::FunctionCall { function, args } => {
+            lower_sql_function_call(*function, args, phase, work)
+        }
         SqlExpr::Unary { op, expr } => Ok(Expr::Unary {
             op: lower_sql_unary_op(*op),
-            expr: Box::new(lower_sql_expr(expr.as_ref(), phase)?),
+            expr: Box::new(lower_sql_expr(expr.as_ref(), phase, work)?),
         }),
         SqlExpr::Binary { op, left, right } => {
-            lower_sql_binary_expr(*op, left.as_ref(), right.as_ref(), phase)
+            lower_sql_binary_expr(*op, left.as_ref(), right.as_ref(), phase, work)
         }
         SqlExpr::Case { arms, else_expr } => Ok(Expr::Case {
             when_then_arms: arms
                 .iter()
                 .map(|arm| {
                     Ok(CaseWhenArm::new(
-                        lower_sql_expr(&arm.condition, phase)?,
-                        lower_sql_expr(&arm.result, phase)?,
+                        lower_sql_expr(&arm.condition, phase, work)?,
+                        lower_sql_expr(&arm.result, phase, work)?,
                     ))
                 })
                 .collect::<Result<Vec<_>, SqlLoweringError>>()?,
             else_expr: Box::new(match else_expr.as_ref() {
-                Some(else_expr) => lower_sql_expr(else_expr.as_ref(), phase)?,
+                Some(else_expr) => lower_sql_expr(else_expr.as_ref(), phase, work)?,
                 None => Expr::Literal(Value::Null),
             }),
         }),
     }
 }
 
-// Lower one parser-owned membership surface onto the existing boolean compare
-// expression family so later WHERE compilation can still reuse the shipped
-// normalized predicate path.
+// Keep SQL and typed membership on the same compact planner representation.
 fn lower_sql_membership_expr(
     expr: &SqlExpr,
     values: &[SqlMembershipValue],
     negated: bool,
     phase: SqlExprPhase,
+    work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
-    let membership = Expr::FunctionCall {
-        function: Function::InList,
-        args: vec![
-            lower_sql_expr(expr, phase)?,
-            Expr::Literal(Value::List(
-                values
-                    .iter()
-                    .map(|value| match value {
-                        SqlMembershipValue::Literal(value) => Ok(value.clone()),
-                        SqlMembershipValue::Param { index } => {
-                            Err(SqlLoweringError::unsupported_parameter_placement(
-                                Some(*index),
-                                super::SqlParameterPlacementReason::UnboundExpressionLowering,
-                            ))
-                        }
-                    })
-                    .collect::<Result<_, _>>()?,
-            )),
-        ],
-    };
-
-    if negated {
-        Ok(Expr::Unary {
-            op: UnaryOp::Not,
-            expr: Box::new(membership),
+    let target = lower_sql_expr(expr, phase, work)?;
+    let values = values
+        .iter()
+        .map(|value| match value {
+            SqlMembershipValue::Literal(value) => Ok(value.clone()),
+            SqlMembershipValue::Param { index } => {
+                Err(SqlLoweringError::unsupported_parameter_placement(
+                    Some(*index),
+                    super::SqlParameterPlacementReason::UnboundExpressionLowering,
+                ))
+            }
         })
-    } else {
-        Ok(membership)
-    }
+        .collect::<Result<_, _>>()?;
+
+    Ok(Expr::membership(target, values, negated))
 }
 
 fn lower_sql_like_expr(
@@ -150,6 +149,7 @@ fn lower_sql_like_expr(
     negated: bool,
     casefold: bool,
     phase: SqlExprPhase,
+    work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
     let Some(prefix) = supported_like_prefix(pattern) else {
         return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
@@ -158,7 +158,7 @@ fn lower_sql_like_expr(
         .into());
     };
 
-    let target = lower_sql_like_target_expr(expr, casefold, phase)?;
+    let target = lower_sql_like_target_expr(expr, casefold, phase, work)?;
     let expr = Expr::FunctionCall {
         function: Function::StartsWith,
         args: vec![target, Expr::Literal(Value::Text(prefix.to_string()))],
@@ -178,8 +178,9 @@ fn lower_sql_like_target_expr(
     expr: &SqlExpr,
     casefold: bool,
     phase: SqlExprPhase,
+    work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
-    let target = lower_sql_expr(expr, phase)?;
+    let target = lower_sql_expr(expr, phase, work)?;
     if casefold {
         return Ok(Expr::FunctionCall {
             function: Function::Lower,
@@ -195,6 +196,7 @@ fn lower_sql_binary_expr(
     left: &SqlExpr,
     right: &SqlExpr,
     phase: SqlExprPhase,
+    work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
     if let (SqlExpr::Field(field), SqlExpr::Literal(literal)) = (left, right)
         && let Some(expr) = lower_field_literal_numeric_expr(op, field.as_str(), literal)?
@@ -204,8 +206,8 @@ fn lower_sql_binary_expr(
 
     Ok(Expr::Binary {
         op: lower_sql_binary_op(op),
-        left: Box::new(lower_sql_expr(left, phase)?),
-        right: Box::new(lower_sql_expr(right, phase)?),
+        left: Box::new(lower_sql_expr(left, phase, work)?),
+        right: Box::new(lower_sql_expr(right, phase, work)?),
     })
 }
 
@@ -288,15 +290,16 @@ fn lower_sql_function_call(
     function: SqlScalarFunction,
     args: &[SqlExpr],
     phase: SqlExprPhase,
+    work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
     if function.uses_numeric_scale_special_case() {
-        return lower_sql_numeric_scale_function_call(function, args, phase);
+        return lower_sql_numeric_scale_function_call(function, args, phase, work);
     }
 
     let function = function.planner_function();
     let args = args
         .iter()
-        .map(|arg| lower_sql_expr(arg, phase))
+        .map(|arg| lower_sql_expr(arg, phase, work))
         .collect::<Result<Vec<_>, SqlLoweringError>>()?;
 
     Ok(Expr::FunctionCall { function, args })
@@ -306,6 +309,7 @@ fn lower_sql_numeric_scale_function_call(
     function: SqlScalarFunction,
     args: &[SqlExpr],
     phase: SqlExprPhase,
+    work: &PreparationWork<'_>,
 ) -> Result<Expr, SqlLoweringError> {
     if !(1..=2).contains(&args.len()) {
         return Err(crate::db::QueryError::unsupported_sql_feature(
@@ -314,12 +318,12 @@ fn lower_sql_numeric_scale_function_call(
         .into());
     }
 
-    let input = lower_sql_expr(&args[0], phase)?;
+    let input = lower_sql_expr(&args[0], phase, work)?;
     let scale = match args.get(1) {
         Some(SqlExpr::Literal(scale)) => Expr::Literal(Value::Nat64(u64::from(
             validate_numeric_scale_function_scale(scale.clone())?,
         ))),
-        Some(other) => lower_sql_expr(other, phase)?,
+        Some(other) => lower_sql_expr(other, phase, work)?,
         None => Expr::Literal(Value::Nat64(0)),
     };
 

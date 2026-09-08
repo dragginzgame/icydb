@@ -43,6 +43,12 @@ impl NatBig {
         self.0.0.bits()
     }
 
+    /// Return the exact unsigned LEB128 byte length without allocating or encoding.
+    #[must_use]
+    pub fn leb128_len(&self) -> u64 {
+        self.magnitude_bits().div_ceil(7).max(1)
+    }
+
     /// Construct from the canonical Candid natural-number representation.
     #[must_use]
     pub const fn from_candid(value: WrappedNat) -> Self {

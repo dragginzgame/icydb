@@ -1,3 +1,4 @@
+use crate::db::query::preparation::PreparationWork;
 use crate::db::{
     predicate::MissingRowPolicy,
     schema::SchemaInfo,
@@ -15,10 +16,11 @@ use crate::db::{
 
 /// Bind one lowered global aggregate EXPLAIN shape with explicit schema
 /// projection.
-pub(crate) fn bind_lowered_sql_explain_global_aggregate_with_schema(
+pub(in crate::db) fn bind_lowered_sql_explain_global_aggregate_with_schema(
     lowered: &LoweredSqlCommand,
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<Option<(SqlExplainMode, bool, SqlGlobalAggregateCommand)>, SqlLoweringError> {
     let LoweredSqlCommandInner::ExplainGlobalAggregate {
         mode,
@@ -36,6 +38,7 @@ pub(crate) fn bind_lowered_sql_explain_global_aggregate_with_schema(
             command.as_ref().clone(),
             consistency,
             schema,
+            work,
         )?,
     )))
 }

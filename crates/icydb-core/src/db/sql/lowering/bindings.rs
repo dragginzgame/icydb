@@ -5,6 +5,7 @@
 #[cfg(test)]
 mod tests;
 
+use crate::db::query::preparation::PreparationWork;
 use crate::{
     db::{
         QueryError,
@@ -21,9 +22,9 @@ use crate::{
         },
         schema::{SchemaInfo, ValidateError},
         sql::{
+            input::validate_sql_statement_input,
             lowering::{
                 PreparedSqlStatement,
-                ast_depth::validate_sql_statement_ast_depth,
                 expr::{SqlExprPhase, lower_sql_expr},
                 prepare::{
                     first_order_terms_parameter_index, first_projection_parameter_index,
@@ -48,7 +49,7 @@ pub(crate) fn validate_sql_bindings(
     if bindings.len() > MAX_BINDINGS {
         return Err(binding_error(SqlLoweringCode::BindingLimit));
     }
-    validate_sql_statement_ast_depth(statement).map_err(QueryError::from_sql_lowering_error)?;
+    validate_sql_statement_input(statement, &[])?;
     let SqlStatement::Select(select) = statement else {
         return if bindings.is_empty() {
             Ok(())
@@ -82,26 +83,44 @@ pub(crate) fn validate_sql_bindings(
         return Err(binding_error(SqlLoweringCode::BindingCount));
     }
     let mut bytes = 0_u64;
+    let mut payloads = Vec::with_capacity(bindings.len());
     for input in bindings {
+        let (scalar_bytes, payload) = scalar_input_sizes(input.as_public())?;
         bytes = bytes
-            .checked_add(scalar_payload_bytes(input.as_public())?)
+            .checked_add(scalar_bytes)
             .filter(|bytes| *bytes <= MAX_BINDING_BYTES)
             .ok_or_else(|| binding_error(SqlLoweringCode::BindingLimit))?;
+        payloads.push(payload);
+    }
+    if !payloads.is_empty() {
+        validate_sql_statement_input(statement, &payloads)?;
     }
     Ok(())
 }
 
-// Logical scalar payload, not retained capacity or caller construction/decoder work.
-// Big-integer magnitude length is queried without first allocating digits/encoding.
-fn scalar_payload_bytes(value: &PublicValue) -> Result<u64, QueryError> {
-    Ok(match value {
+// Return (binding representation bytes, shared variable payload bytes).
+// Both caps inspect the same admitted scalar without encoding or cloning it.
+fn scalar_input_sizes(value: &PublicValue) -> Result<(u64, usize), QueryError> {
+    let fixed_bytes = match value {
         PublicValue::List(_) | PublicValue::Map(_) | PublicValue::Enum(_) => {
             return Err(binding_error(SqlLoweringCode::BindingFamily));
         }
-        PublicValue::Blob(value) => value.len() as u64,
-        PublicValue::Text(value) => value.len() as u64,
-        PublicValue::IntBig(value) => value.magnitude_bits().div_ceil(8).saturating_add(1),
-        PublicValue::NatBig(value) => value.magnitude_bits().div_ceil(8),
+        PublicValue::Blob(value) => return Ok((value.len() as u64, value.len())),
+        PublicValue::Text(value) => return Ok((value.len() as u64, value.len())),
+        PublicValue::IntBig(value) => {
+            let bytes = value.magnitude_bits().div_ceil(8);
+            return Ok((
+                bytes.saturating_add(1),
+                usize::try_from(bytes).map_err(|_| binding_error(SqlLoweringCode::BindingLimit))?,
+            ));
+        }
+        PublicValue::NatBig(value) => {
+            let bytes = value.magnitude_bits().div_ceil(8);
+            return Ok((
+                bytes,
+                usize::try_from(bytes).map_err(|_| binding_error(SqlLoweringCode::BindingLimit))?,
+            ));
+        }
         PublicValue::Account(value) => {
             value.owner().as_slice().len() as u64
                 + 1
@@ -121,7 +140,8 @@ fn scalar_payload_bytes(value: &PublicValue) -> Result<u64, QueryError> {
         PublicValue::Float32(_) | PublicValue::Date(_) => 4,
         PublicValue::Bool(_) => 1,
         PublicValue::Null | PublicValue::Unit => 0,
-    })
+    };
+    Ok((fixed_bytes, 0))
 }
 
 fn binding_error(code: SqlLoweringCode) -> QueryError {
@@ -130,11 +150,12 @@ fn binding_error(code: SqlLoweringCode) -> QueryError {
 
 /// Normalize identifiers, then validate every bound context before destructive folds.
 /// Query ingress must first call `validate_sql_bindings` on these same inputs.
-pub(crate) fn prepare_bound_sql_statement(
+pub(in crate::db) fn prepare_bound_sql_statement(
     statement: &SqlStatement,
     entity: &str,
     schema: &SchemaInfo,
     bindings: &[InputValue],
+    work: &PreparationWork<'_>,
 ) -> Result<PreparedSqlStatement, QueryError> {
     let mut statement =
         prepare_statement(statement, entity).map_err(QueryError::from_sql_lowering_error)?;
@@ -142,8 +163,8 @@ pub(crate) fn prepare_bound_sql_statement(
         return Err(binding_error(SqlLoweringCode::ParameterPlacement));
     };
     if let Some(expr) = &mut select.predicate {
-        bind_expr(expr, schema, bindings, true)?;
-        let lowered = lower_sql_expr(expr, SqlExprPhase::Where)
+        bind_expr(expr, schema, bindings, true, work)?;
+        let lowered = lower_sql_expr(expr, SqlExprPhase::Where, work)
             .map_err(QueryError::from_sql_lowering_error)?;
         if !scalar_where_truth_condition_is_admitted(&lowered) {
             return Err(binding_error(SqlLoweringCode::WhereExpressionShape));
@@ -170,6 +191,7 @@ fn bind_expr(
     schema: &SchemaInfo,
     bindings: &[InputValue],
     infer_here: bool,
+    work: &PreparationWork<'_>,
 ) -> Result<bool, QueryError> {
     let bound = match expr {
         SqlExpr::Param { index } => {
@@ -180,8 +202,8 @@ fn bind_expr(
         SqlExpr::Aggregate(_) => return Err(binding_error(SqlLoweringCode::ParameterPlacement)),
         SqlExpr::Binary { op, left, right } => {
             let boolean = matches!(op, SqlExprBinaryOp::And | SqlExprBinaryOp::Or);
-            let left_bound = bind_expr(left, schema, bindings, infer_here && boolean)?;
-            let right_bound = bind_expr(right, schema, bindings, infer_here && boolean)?;
+            let left_bound = bind_expr(left, schema, bindings, infer_here && boolean, work)?;
+            let right_bound = bind_expr(right, schema, bindings, infer_here && boolean, work)?;
             let bound = left_bound | right_bound;
             let comparison = matches!(
                 op,
@@ -193,12 +215,12 @@ fn bind_expr(
                     | SqlExprBinaryOp::Gte
             );
             if bound && !boolean && (infer_here || comparison) {
-                admit_compare_or_expression(expr, schema, infer_here)?;
+                admit_compare_or_expression(expr, schema, infer_here, work)?;
             }
             return Ok(bound);
         }
         SqlExpr::Membership { expr, values, .. } => {
-            let target_bound = bind_expr(expr, schema, bindings, infer_here)?;
+            let target_bound = bind_expr(expr, schema, bindings, infer_here, work)?;
             let mut bound = target_bound;
             for value in values {
                 let value_bound = matches!(value, SqlMembershipValue::Param { .. });
@@ -215,11 +237,11 @@ fn bind_expr(
                         left: expr.clone(),
                         right: Box::new(SqlExpr::Literal(value.clone())),
                     };
-                    admit_compare_or_expression(&mut compare, schema, true)?;
-                    if let SqlExpr::Binary { right, .. } = compare
-                        && let SqlExpr::Literal(normalized) = *right
+                    admit_compare_or_expression(&mut compare, schema, true, work)?;
+                    if let SqlExpr::Binary { right, .. } = &mut compare
+                        && let SqlExpr::Literal(normalized) = right.as_mut()
                     {
-                        *value = normalized;
+                        *value = std::mem::replace(normalized, Value::Null);
                     }
                 }
             }
@@ -227,31 +249,31 @@ fn bind_expr(
         }
         // Boolean wrappers use the shared WHERE truth-shape owner above. Broad
         // expression inference would narrow maintained predicate/null semantics.
-        SqlExpr::Unary { expr, .. } => return bind_expr(expr, schema, bindings, infer_here),
+        SqlExpr::Unary { expr, .. } => return bind_expr(expr, schema, bindings, infer_here, work),
         SqlExpr::NullTest { expr, .. } | SqlExpr::Like { expr, .. } => {
-            bind_expr(expr, schema, bindings, false)?
+            bind_expr(expr, schema, bindings, false, work)?
         }
         SqlExpr::FunctionCall { args, .. } => {
             let mut bound = false;
             for arg in args {
-                bound |= bind_expr(arg, schema, bindings, false)?;
+                bound |= bind_expr(arg, schema, bindings, false, work)?;
             }
             bound
         }
         SqlExpr::Case { arms, else_expr } => {
             let mut bound = false;
             for arm in arms {
-                bound |= bind_expr(&mut arm.condition, schema, bindings, false)?;
-                bound |= bind_expr(&mut arm.result, schema, bindings, false)?;
+                bound |= bind_expr(&mut arm.condition, schema, bindings, false, work)?;
+                bound |= bind_expr(&mut arm.result, schema, bindings, false, work)?;
             }
             if let Some(expr) = else_expr {
-                bound |= bind_expr(expr, schema, bindings, false)?;
+                bound |= bind_expr(expr, schema, bindings, false, work)?;
             }
             bound
         }
     };
     if bound && infer_here {
-        admit_compare_or_expression(expr, schema, true)?;
+        admit_compare_or_expression(expr, schema, true, work)?;
     }
     Ok(bound)
 }
@@ -262,9 +284,10 @@ fn admit_compare_or_expression(
     expr: &mut SqlExpr,
     schema: &SchemaInfo,
     infer_here: bool,
+    work: &PreparationWork<'_>,
 ) -> Result<(), QueryError> {
-    let lowered =
-        lower_sql_expr(expr, SqlExprPhase::Where).map_err(QueryError::from_sql_lowering_error)?;
+    let lowered = lower_sql_expr(expr, SqlExprPhase::Where, work)
+        .map_err(QueryError::from_sql_lowering_error)?;
     if let Expr::Binary { op, left, right } = &lowered
         && let Some(predicate) = compile_bool_compare_expr(*op, left, right)
     {

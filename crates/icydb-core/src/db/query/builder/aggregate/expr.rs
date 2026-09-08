@@ -15,6 +15,11 @@ pub struct AggregateExpr {
 }
 
 impl AggregateExpr {
+    /// Detach recursive children for iterative owned-request cleanup.
+    pub(in crate::db) const fn take_expressions(&mut self) -> [Option<Box<Expr>>; 2] {
+        self.shape.take_expressions()
+    }
+
     /// Construct one terminal aggregate expression with no input expression.
     const fn terminal(kind: AggregateKind) -> Self {
         Self {

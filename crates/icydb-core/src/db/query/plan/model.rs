@@ -11,7 +11,7 @@ use crate::db::{
         builder::scalar_projection::render_scalar_projection_expr_plan_label,
         plan::{
             aggregate_shape::AggregateShape,
-            expr::{Expr, FieldId, normalize_bool_expr},
+            expr::{Expr, FieldId},
             order_contract::DeterministicSecondaryOrderContract,
             semantics::LogicalPushdownEligibility,
         },
@@ -179,7 +179,9 @@ impl PartialEq<OrderTerm> for (String, OrderDirection) {
 /// diagnostics surfaces.
 #[must_use]
 pub(in crate::db) fn render_scalar_filter_expr_plan_label(expr: &Expr) -> String {
-    render_scalar_projection_expr_plan_label(&normalize_bool_expr(expr.clone()))
+    // Intent owns canonicalization. Residual filters retain that same tree;
+    // rendering/fingerprinting must neither re-prepare it nor acquire a budget.
+    render_scalar_projection_expr_plan_label(expr)
 }
 
 ///

@@ -3,11 +3,16 @@
 //! Does not own: planner route selection or runtime predicate execution behavior.
 //! Boundary: defines scalar/field type compatibility surfaces used by predicate validation.
 
+#[cfg(test)]
+mod filter_tests;
+
 #[cfg(any(test, feature = "sql"))]
 use crate::value::InputValue;
 use crate::{
     db::{
+        QueryError,
         codec::hex::decode_hex_bounded,
+        query::preparation::PreparationWork,
         schema::{
             AcceptedFieldKind, AcceptedFieldKindCategory, MAX_ACCEPTED_RECURSIVE_DEPTH,
             classify_accepted_field_kind, composite_catalog::AcceptedCompositeCatalog,
@@ -19,7 +24,9 @@ use crate::{
     },
     value::{CoercionFamily, Value},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use icydb_schema::{ScalarCoercionFamily, ScalarKind};
+use std::borrow::Cow;
 use std::fmt;
 use std::str::FromStr;
 
@@ -236,40 +243,179 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
 ///
 /// Unlike strict SQL literals, public filter numerics arrive as text so their
 /// Candid shape stays stable across narrow and wide numeric field kinds.
-#[must_use]
-pub(in crate::db) fn canonicalize_filter_literal_for_persisted_kind(
+pub(in crate::db) fn canonicalize_filter_literal_for_persisted_kind<'a>(
     kind: &AcceptedFieldKind,
-    value: &Value,
-) -> Option<Value> {
-    match kind {
-        AcceptedFieldKind::Relation { key_kind, .. } => {
-            canonicalize_filter_literal_for_persisted_kind(key_kind, value)
+    value: &'a Value,
+    work: &PreparationWork<'_>,
+) -> Result<Option<Cow<'a, Value>>, QueryError> {
+    work.charge(Resource::NestedValueSteps, 1)?;
+    // Exact big atoms need only a size check. Retain their storage, just like
+    // unchanged text/blob values, rather than cloning before checking a bound.
+    match (kind, value) {
+        (AcceptedFieldKind::IntBig { max_bytes }, Value::IntBig(integer)) => {
+            work.charge(
+                Resource::NestedValueSteps,
+                integer.magnitude_bits().div_ceil(32),
+            )?;
+            return Ok(
+                (integer.leb128_len() <= u64::from(*max_bytes)).then_some(Cow::Borrowed(value))
+            );
         }
-        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => match value {
-            Value::List(values) => values
-                .iter()
-                .map(|item| canonicalize_filter_literal_for_persisted_kind(inner, item))
-                .collect::<Option<Vec<_>>>()
-                .map(Value::List),
+        (AcceptedFieldKind::NatBig { max_bytes }, Value::NatBig(integer)) => {
+            work.charge(
+                Resource::NestedValueSteps,
+                integer.magnitude_bits().div_ceil(32),
+            )?;
+            return Ok(
+                (integer.leb128_len() <= u64::from(*max_bytes)).then_some(Cow::Borrowed(value))
+            );
+        }
+        _ => {}
+    }
+    Ok(match kind {
+        AcceptedFieldKind::Relation { key_kind, .. } => {
+            canonicalize_filter_literal_for_persisted_kind(key_kind, value, work)?
+        }
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
+            canonicalize_filter_list(inner, value, work)?
+        }
+        AcceptedFieldKind::Map { .. } | AcceptedFieldKind::Composite { .. } => None,
+        AcceptedFieldKind::Text { .. } => match value {
+            Value::Text(_) => Some(Cow::Borrowed(value)),
             _ => None,
         },
-        AcceptedFieldKind::Map { .. } | AcceptedFieldKind::Composite { .. } => None,
-        _ => canonicalize_filter_scalar_literal(kind, value),
+        AcceptedFieldKind::Blob { max_len } => {
+            let max_len = max_len.map_or(usize::MAX, |len| len as usize);
+            match value {
+                Value::Blob(bytes) if bytes.len() <= max_len => Some(Cow::Borrowed(value)),
+                Value::Text(text) => {
+                    charge_filter_hex_decode(text, max_len, work)?;
+                    decode_hex_bounded(text, max_len).map(|bytes| Cow::Owned(Value::Blob(bytes)))
+                }
+                _ => None,
+            }
+        }
+        _ => {
+            if let Value::Text(text) = value {
+                // Charge a conservative input-byte visit allowance before parsing,
+                // including rejected text. Parser-internal allocations are separate.
+                if matches!(kind, AcceptedFieldKind::Subaccount) {
+                    charge_filter_hex_decode(text, 32, work)?;
+                } else {
+                    work.charge(Resource::PredicateExpressionSteps, text.len() as u64)?;
+                }
+            }
+            canonicalize_filter_scalar_literal(kind, value).map(Cow::Owned)
+        }
+    })
+}
+
+// Keep unchanged collection storage borrowed. Only the first converted child
+// requires a separate result; never mutate the source before every child admits.
+fn canonicalize_filter_list<'a>(
+    inner: &AcceptedFieldKind,
+    value: &'a Value,
+    work: &PreparationWork<'_>,
+) -> Result<Option<Cow<'a, Value>>, QueryError> {
+    let Value::List(values) = value else {
+        return Ok(None);
+    };
+    let mut canonical: Option<Vec<Value>> = None;
+    for (index, item) in values.iter().enumerate() {
+        let Some(item) = canonicalize_filter_literal_for_persisted_kind(inner, item, work)? else {
+            return Ok(None);
+        };
+        if canonical.is_none() && matches!(item, Cow::Owned(_)) {
+            work.charge(
+                Resource::TemporaryBytes,
+                (values.len() as u64).saturating_mul(size_of::<Value>() as u64),
+            )?;
+            let mut output = Vec::with_capacity(values.len());
+            for prefix in &values[..index] {
+                output.push(materialize_filter_literal(Cow::Borrowed(prefix), work)?);
+            }
+            canonical = Some(output);
+        }
+        if let Some(output) = &mut canonical {
+            output.push(materialize_filter_literal(item, work)?);
+        }
+    }
+    Ok(Some(match canonical {
+        Some(values) => Cow::Owned(Value::List(values)),
+        None => Cow::Borrowed(value),
+    }))
+}
+
+// Match the shared decoder's pre-allocation length checks; malformed digits can
+// fail only after its output buffer has been allocated, so they still charge.
+fn charge_filter_hex_decode(
+    text: &str,
+    max_len: usize,
+    work: &PreparationWork<'_>,
+) -> Result<(), QueryError> {
+    work.charge(Resource::PredicateExpressionSteps, text.len() as u64)?;
+    if text.len().is_multiple_of(2) && text.len() / 2 <= max_len {
+        work.charge(Resource::TemporaryBytes, (text.len() / 2) as u64)?;
+    }
+    Ok(())
+}
+
+/// Materialize a normalized filter literal only when a new container needs an
+/// owned child. Borrowed storage contains unchanged text/blob/big-integer
+/// scalars or lists composed of borrowed children.
+pub(in crate::db) fn materialize_filter_literal(
+    value: Cow<'_, Value>,
+    work: &PreparationWork<'_>,
+) -> Result<Value, QueryError> {
+    match value {
+        Cow::Owned(value) => Ok(value),
+        Cow::Borrowed(value) => {
+            work.charge(Resource::NestedValueSteps, 1)?;
+            let bytes = match value {
+                Value::Text(text) => text.len(),
+                Value::Blob(bytes) => bytes.len(),
+                // Cloning requests only initialized magnitude limbs. Round up
+                // to 64-bit words to conservatively cover the dependency's
+                // 32-/64-bit limbs; this is not retained-capacity accounting.
+                Value::IntBig(integer) => {
+                    usize::try_from(integer.magnitude_bits().div_ceil(64).saturating_mul(8))
+                        .map_err(|_| QueryError::invariant())?
+                }
+                Value::NatBig(integer) => {
+                    usize::try_from(integer.magnitude_bits().div_ceil(64).saturating_mul(8))
+                        .map_err(|_| QueryError::invariant())?
+                }
+                Value::List(values) => {
+                    work.charge(
+                        Resource::TemporaryBytes,
+                        (values.len() as u64).saturating_mul(size_of::<Value>() as u64),
+                    )?;
+                    let mut copied = Vec::with_capacity(values.len());
+                    for value in values {
+                        copied.push(materialize_filter_literal(Cow::Borrowed(value), work)?);
+                    }
+                    return Ok(Value::List(copied));
+                }
+                _ => return Err(QueryError::invariant()),
+            };
+            work.charge(Resource::TemporaryBytes, bytes as u64)?;
+            Ok(value.clone())
+        }
     }
 }
 
 /// Canonicalize one collection-containment literal through the field's
 /// accepted element kind.
-#[must_use]
-pub(in crate::db) fn canonicalize_filter_collection_element_for_persisted_kind(
+pub(in crate::db) fn canonicalize_filter_collection_element_for_persisted_kind<'a>(
     field_kind: &AcceptedFieldKind,
-    value: &Value,
-) -> Option<Value> {
+    value: &'a Value,
+    work: &PreparationWork<'_>,
+) -> Result<Option<Cow<'a, Value>>, QueryError> {
     match field_kind {
         AcceptedFieldKind::List(element_kind) | AcceptedFieldKind::Set(element_kind) => {
-            canonicalize_filter_literal_for_persisted_kind(element_kind, value)
+            canonicalize_filter_literal_for_persisted_kind(element_kind, value, work)
         }
-        _ => None,
+        _ => Ok(None),
     }
 }
 
@@ -324,10 +470,6 @@ fn canonicalize_filter_scalar_literal(kind: &AcceptedFieldKind, value: &Value) -
             Principal::from_str,
             Value::Principal,
         ),
-        AcceptedFieldKind::Text { .. } => match value {
-            Value::Text(inner) => Some(Value::Text(inner.clone())),
-            _ => None,
-        },
         AcceptedFieldKind::Ulid => canonicalize_text_or_exact(
             value,
             |value| match value {
@@ -354,12 +496,13 @@ fn canonicalize_filter_scalar_literal(kind: &AcceptedFieldKind, value: &Value) -
         | AcceptedFieldKind::Nat64
         | AcceptedFieldKind::Nat128
         | AcceptedFieldKind::NatBig { .. } => canonicalize_filter_numeric_literal(kind, value),
-        AcceptedFieldKind::Blob { .. }
-        | AcceptedFieldKind::Date
+        AcceptedFieldKind::Date
         | AcceptedFieldKind::Duration
         | AcceptedFieldKind::Subaccount
         | AcceptedFieldKind::Timestamp => canonicalize_filter_string_backed_atom(kind, value),
-        AcceptedFieldKind::Enum { .. }
+        AcceptedFieldKind::Blob { .. }
+        | AcceptedFieldKind::Text { .. }
+        | AcceptedFieldKind::Enum { .. }
         | AcceptedFieldKind::Relation { .. }
         | AcceptedFieldKind::List(_)
         | AcceptedFieldKind::Set(_)
@@ -373,16 +516,6 @@ fn canonicalize_filter_string_backed_atom(
     value: &Value,
 ) -> Option<Value> {
     match kind {
-        AcceptedFieldKind::Blob { max_len } => {
-            let max_len = max_len
-                .and_then(|max_len| usize::try_from(max_len).ok())
-                .unwrap_or(usize::MAX);
-            match value {
-                Value::Blob(inner) if inner.len() <= max_len => Some(Value::Blob(inner.clone())),
-                Value::Text(inner) => decode_hex_bounded(inner, max_len).map(Value::Blob),
-                _ => None,
-            }
-        }
         AcceptedFieldKind::Date => canonicalize_text_or_exact(
             value,
             |value| match value {
@@ -446,16 +579,10 @@ fn canonicalize_filter_numeric_literal(kind: &AcceptedFieldKind, value: &Value) 
             _ => None,
         },
         AcceptedFieldKind::IntBig { max_bytes } => {
-            let parsed = canonicalize_text_or_exact(
-                value,
-                |value| match value {
-                    Value::IntBig(inner) => Some(inner.clone()),
-                    _ => None,
-                },
-                IntBig::from_str,
-                Value::IntBig,
-            )?;
-            canonicalize_int_big_persisted_literal(&parsed, *max_bytes)
+            // Keep filter admission narrower than strict SQL's integer casts.
+            matches!(value, Value::Text(_) | Value::IntBig(_))
+                .then(|| canonicalize_int_big_persisted_literal(value, *max_bytes))
+                .flatten()
         }
         AcceptedFieldKind::Nat8 => canonicalize_filter_nat(value, u64::from(u8::MAX)),
         AcceptedFieldKind::Nat16 => canonicalize_filter_nat(value, u64::from(u16::MAX)),
@@ -467,16 +594,9 @@ fn canonicalize_filter_numeric_literal(kind: &AcceptedFieldKind, value: &Value) 
             _ => None,
         },
         AcceptedFieldKind::NatBig { max_bytes } => {
-            let parsed = canonicalize_text_or_exact(
-                value,
-                |value| match value {
-                    Value::NatBig(inner) => Some(inner.clone()),
-                    _ => None,
-                },
-                NatBig::from_str,
-                Value::NatBig,
-            )?;
-            canonicalize_nat_big_persisted_literal(&parsed, *max_bytes)
+            matches!(value, Value::Text(_) | Value::NatBig(_))
+                .then(|| canonicalize_nat_big_persisted_literal(value, *max_bytes))
+                .flatten()
         }
         AcceptedFieldKind::Account
         | AcceptedFieldKind::Blob { .. }
@@ -788,24 +908,30 @@ fn canonicalize_int_big_persisted_literal(value: &Value, max_bytes: u32) -> Opti
     let value = match value {
         Value::Int64(inner) => IntBig::from(*inner),
         Value::Nat64(inner) => IntBig::from_bigint((*inner).into()),
-        Value::IntBig(inner) => inner.clone(),
+        Value::IntBig(inner) => {
+            return (inner.leb128_len() <= u64::from(max_bytes))
+                .then(|| Value::IntBig(inner.clone()));
+        }
         Value::Text(inner) => inner.parse::<IntBig>().ok()?,
         _ => return None,
     };
 
-    (value.to_leb128().len() <= max_bytes as usize).then_some(Value::IntBig(value))
+    (value.leb128_len() <= u64::from(max_bytes)).then_some(Value::IntBig(value))
 }
 
 fn canonicalize_nat_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
     let value = match value {
         Value::Int64(inner) => NatBig::from(u64::try_from(*inner).ok()?),
         Value::Nat64(inner) => NatBig::from(*inner),
-        Value::NatBig(inner) => inner.clone(),
+        Value::NatBig(inner) => {
+            return (inner.leb128_len() <= u64::from(max_bytes))
+                .then(|| Value::NatBig(inner.clone()));
+        }
         Value::Text(inner) => inner.parse::<NatBig>().ok()?,
         _ => return None,
     };
 
-    (value.to_leb128().len() <= max_bytes as usize).then_some(Value::NatBig(value))
+    (value.leb128_len() <= u64::from(max_bytes)).then_some(Value::NatBig(value))
 }
 
 impl fmt::Display for FieldType {
@@ -1045,7 +1171,11 @@ mod tests {
 
         for (kind, literal, expected) in cases {
             assert_eq!(
-                canonicalize_filter_literal_for_persisted_kind(&kind, &literal),
+                crate::db::query::preparation::with_preparation_work(|work| {
+                    canonicalize_filter_literal_for_persisted_kind(&kind, &literal, work)
+                        .expect("literal preparation")
+                        .map(Cow::into_owned)
+                }),
                 Some(expected),
                 "{kind:?} should rehydrate its string-backed filter literal",
             );
@@ -1064,10 +1194,15 @@ mod tests {
         };
 
         assert_eq!(
-            canonicalize_filter_literal_for_persisted_kind(
-                &relation,
-                &Value::Text(subaccount.to_string()),
-            ),
+            crate::db::query::preparation::with_preparation_work(|work| {
+                canonicalize_filter_literal_for_persisted_kind(
+                    &relation,
+                    &Value::Text(subaccount.to_string()),
+                    work,
+                )
+                .expect("literal preparation")
+                .map(Cow::into_owned)
+            }),
             Some(Value::Subaccount(subaccount)),
         );
     }
@@ -1078,10 +1213,15 @@ mod tests {
         let field_kind = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Subaccount));
 
         assert_eq!(
-            canonicalize_filter_collection_element_for_persisted_kind(
-                &field_kind,
-                &Value::Text(subaccount.to_string()),
-            ),
+            crate::db::query::preparation::with_preparation_work(|work| {
+                canonicalize_filter_collection_element_for_persisted_kind(
+                    &field_kind,
+                    &Value::Text(subaccount.to_string()),
+                    work,
+                )
+                .expect("literal preparation")
+                .map(Cow::into_owned)
+            }),
             Some(Value::Subaccount(subaccount)),
         );
     }
@@ -1111,7 +1251,11 @@ mod tests {
 
         for (kind, literal) in malformed {
             assert_eq!(
-                canonicalize_filter_literal_for_persisted_kind(&kind, &literal),
+                crate::db::query::preparation::with_preparation_work(|work| {
+                    canonicalize_filter_literal_for_persisted_kind(&kind, &literal, work)
+                        .expect("literal preparation")
+                        .map(Cow::into_owned)
+                }),
                 None,
                 "{kind:?} should reject malformed string-backed filter literals",
             );

@@ -1,4 +1,5 @@
 use super::sql_write_candidate_bounds;
+use crate::db::query::preparation::PreparationWork;
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
@@ -112,15 +113,23 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn sql_delete_query_from_statement(
+        &self,
         schema_info: &SchemaInfo,
         statement: &SqlDeleteStatement,
     ) -> Result<StructuralQuery, QueryError> {
-        bind_sql_delete_statement_structural_with_schema(
-            statement.clone(),
-            MissingRowPolicy::Ignore,
-            schema_info,
+        PreparationWork::run(
+            self.db.request_execution_scope(),
+            icydb_diagnostic_code::DiagnosticExecutionLane::Mutation,
+            |work| {
+                bind_sql_delete_statement_structural_with_schema(
+                    statement.clone(),
+                    MissingRowPolicy::Ignore,
+                    schema_info,
+                    work,
+                )
+                .map_err(QueryError::from_sql_lowering_error)
+            },
         )
-        .map_err(QueryError::from_sql_lowering_error)
     }
 
     fn schema_derived_sql_delete_plan(
@@ -155,7 +164,7 @@ impl<C: CanisterKind> DbSession<C> {
             |catalog, _descriptor| {
                 let (_authority, schema_info) =
                     Self::accepted_sql_write_authority_schema_info(catalog);
-                let query = Self::sql_delete_query_from_statement(&schema_info, statement)?;
+                let query = self.sql_delete_query_from_statement(&schema_info, statement)?;
 
                 self.execute_sql_delete_statement_with_execution_bounds(
                     &query,

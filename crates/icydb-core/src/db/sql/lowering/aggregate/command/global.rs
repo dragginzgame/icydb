@@ -1,3 +1,4 @@
+use crate::db::query::preparation::PreparationWork;
 use crate::db::{
     query::{
         builder::aggregate::count,
@@ -42,7 +43,10 @@ pub(in crate::db::sql::lowering) struct LoweredSqlGlobalAggregateCommand {
 impl LoweredSqlGlobalAggregateCommand {
     /// Lower one constrained global aggregate select into the generic-free
     /// command shape shared by typed and structural aggregate binders.
-    fn from_select_statement(statement: SqlSelectStatement) -> Result<Self, SqlLoweringError> {
+    fn from_select_statement(
+        statement: SqlSelectStatement,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, SqlLoweringError> {
         let SqlSelectStatement {
             projection,
             projection_aliases,
@@ -70,24 +74,32 @@ impl LoweredSqlGlobalAggregateCommand {
                 predicate,
                 limit,
                 offset,
+                work,
             );
         }
         let projection_for_having = projection.clone();
         let authored_order_by = !order_by.is_empty();
-        let mut lowered_terminals =
-            LoweredSqlGlobalAggregateTerminals::from_projection(projection, &projection_aliases)?;
+        let mut lowered_terminals = LoweredSqlGlobalAggregateTerminals::from_projection(
+            projection,
+            &projection_aliases,
+            work,
+        )?;
         let order_by = strip_inert_global_aggregate_output_order_terms(
             order_by,
             lowered_terminals.output_order_targets(),
         );
-        let having =
-            lower_global_aggregate_having_expr(having, &projection_for_having, |aggregate| {
-                lowered_terminals.intern_having_terminal_index(aggregate)
-            })?;
+        let having = lower_global_aggregate_having_expr(
+            having,
+            &projection_for_having,
+            |aggregate| lowered_terminals.intern_having_terminal_index(aggregate),
+            work,
+        )?;
         let lowered_terminal_parts = lowered_terminals.into_parts();
 
         Ok(Self {
-            query: lower_global_aggregate_base_query_shape(predicate, order_by, limit, offset)?,
+            query: lower_global_aggregate_base_query_shape(
+                predicate, order_by, limit, offset, work,
+            )?,
             terminals: lowered_terminal_parts.terminals,
             projection: lowered_terminal_parts.projection,
             having,
@@ -100,6 +112,7 @@ impl LoweredSqlGlobalAggregateCommand {
         predicate: Option<SqlExpr>,
         limit: Option<u32>,
         offset: Option<u32>,
+        work: &PreparationWork<'_>,
     ) -> Result<Self, SqlLoweringError> {
         let alias = projection_aliases
             .into_iter()
@@ -108,7 +121,13 @@ impl LoweredSqlGlobalAggregateCommand {
             .map(Alias::new);
 
         Ok(Self {
-            query: lower_global_aggregate_base_query_shape(predicate, Vec::new(), limit, offset)?,
+            query: lower_global_aggregate_base_query_shape(
+                predicate,
+                Vec::new(),
+                limit,
+                offset,
+                work,
+            )?,
             terminals: vec![LoweredSqlGlobalAggregateTerminal::count_rows()],
             projection: lower_global_aggregate_projection(vec![ProjectionField::Scalar {
                 expr: Expr::Aggregate(count()),
@@ -141,25 +160,32 @@ fn lower_global_aggregate_base_query_shape(
     order_by: Vec<SqlOrderTerm>,
     limit: Option<u32>,
     offset: Option<u32>,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
     Ok(LoweredBaseQueryShape {
-        filter: predicate.map(lower_global_aggregate_filter).transpose()?,
-        order_by: lower_order_terms(order_by)?,
+        filter: predicate
+            .map(|expr| lower_global_aggregate_filter(expr, work))
+            .transpose()?,
+        order_by: lower_order_terms(order_by, work)?,
         limit,
         offset,
     })
 }
 
-fn lower_global_aggregate_filter(expr: SqlExpr) -> Result<LoweredSqlFilter, SqlLoweringError> {
+fn lower_global_aggregate_filter(
+    expr: SqlExpr,
+    work: &PreparationWork<'_>,
+) -> Result<LoweredSqlFilter, SqlLoweringError> {
     // Keep global aggregate base filters on the strict predicate-admission
     // lane. Unlike ordinary SELECT/DELETE filters, this path feeds reduced
     // aggregate execution and direct COUNT shortcut classification, so moving
     // expression-only filters here would widen the accepted SQL surface.
-    LoweredSqlFilter::from_where_expr_requiring_predicate_subset(&expr)
+    LoweredSqlFilter::from_where_expr_requiring_predicate_subset(&expr, work)
 }
 
 pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(
     statement: SqlSelectStatement,
+    work: &PreparationWork<'_>,
 ) -> Result<LoweredSqlGlobalAggregateCommand, SqlLoweringError> {
-    LoweredSqlGlobalAggregateCommand::from_select_statement(statement)
+    LoweredSqlGlobalAggregateCommand::from_select_statement(statement, work)
 }
