@@ -29,6 +29,28 @@ Trusted bypass surfaces are explicit method choices. They retain accepted
 schema, planning, execution, and result-shape validation, but application code
 owns authorization and the resource policy.
 
+## Query Input Safety Limits
+
+Typed/dynamic query input and SQL syntax admission share these ceilings:
+
+- maximum authored expression/value depth: 128 levels;
+- maximum counted input nodes: 4,096 across the request's components;
+- maximum counted variable payload: 2 MiB across those components.
+
+These preparation safety limits also apply to trusted reads; choosing a trusted
+lane does not bypass them. They are separate from the public row/access policy
+above and from resource charges for work performed during preparation.
+
+Node accounting includes expression/value nodes and authored names, not just
+predicates. Payload accounting includes names, strings, blobs and big-integer
+magnitude bytes. SQL admission also accounts for effective parameter copies.
+Depth measures nesting, not the number of siblings in a flat `AND`, `OR` or
+`IN`; a wide flat query can instead reach the node or payload ceiling.
+
+These are input-content limits, not a complete bound on heap allocation,
+rendering, SQL parsing or endpoint deserialization. Endpoint authorization and
+decoder limits remain the application's responsibility.
+
 ## Read Surface Inventory
 
 | Surface | Lane | Contract |
@@ -161,12 +183,17 @@ See [the read-intent guide](../guides/read-intent.md) for maintained examples.
 | `QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute` | An explain-only lane was asked to execute. | Execute through a row-owning lane. |
 | `QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy` | The row bound exceeds 100. | Reduce the public response bound. |
 | `QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy` | Primary-key input count or bytes exceed policy. | Split the request or use authorized bounded maintenance. |
+| `QueryReadAdmissionCode::InputDepthExceeded` | Authored expression/value nesting exceeds 128 levels. | Simplify nesting; use flat boolean or membership inputs where equivalent. Trusted execution does not bypass this limit. |
+| `QueryReadAdmissionCode::InputNodesExceeded` | Counted input nodes across the request exceed 4,096. | Reduce query components or batch inputs with application-owned combination semantics. Trusted execution does not bypass this limit. |
+| `QueryReadAdmissionCode::InputBytesExceeded` | Counted variable input payload exceeds 2 MiB. | Reduce literal/name payload or effective repeated bindings. Trusted execution does not bypass this limit. |
 
 ## Regression Guard
 
 `scripts/ci/check-read-admission-invariants.sh` verifies:
 
-- internal and public rejection enums remain one-to-one;
+- every plan-admission rejection has a public diagnostic counterpart; public
+  diagnostics may also describe input rejection before planning;
+- every public rejection identifier has documentation in this contract;
 - default budgets remain synchronized with this contract;
 - typed execution enters the identity-bound
   live or exhaustive page boundary;

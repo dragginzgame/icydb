@@ -88,10 +88,20 @@ done
 
 internal_variants="$(extract_enum_variants QueryAdmissionRejection "$ADMISSION")"
 public_variants="$(extract_enum_variants QueryReadAdmissionCode "$DIAGNOSTICS")"
-if [[ -z "$internal_variants" || "$internal_variants" != "$public_variants" ]]; then
-  echo "[ERROR] Internal and public read-admission rejection variants diverged." >&2
+if [[ -z "$internal_variants" || -z "$public_variants" ]]; then
+  echo "[ERROR] Read-admission rejection enums could not be inventoried." >&2
   status=1
 fi
+
+# Plan rejections are a subset: input admission can reject before a plan exists.
+# Rust checks the exhaustive code() mapping; public diagnostics own wire order.
+while IFS= read -r variant; do
+  [[ -z "$variant" ]] && continue
+  if ! rg -Fx --quiet "$variant" <<< "$public_variants"; then
+    echo "[ERROR] Missing public read-admission counterpart: $variant" >&2
+    status=1
+  fi
+done <<< "$internal_variants"
 
 while IFS= read -r variant; do
   [[ -z "$variant" ]] && continue

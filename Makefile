@@ -467,6 +467,7 @@ check-invariants:
 	bash scripts/ci/check-release-cleanup-invariants.sh
 	bash scripts/ci/check-durability-doc-invariants.sh
 	bash scripts/ci/check-read-admission-invariants.sh
+	bash scripts/ci/test-read-admission-invariants.sh
 	bash scripts/ci/check-schema-model-boundary-invariants.sh
 	bash scripts/ci/check-sql-branch-ownership-invariants.sh
 	bash scripts/ci/check-wasm-post-link-invariants.sh
