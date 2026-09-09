@@ -1878,8 +1878,9 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
         !missing_proof_explain.contains("sql_test_user_unique_nickname_idx"),
         "a query that can observe omitted rows must not select the filtered index: {missing_proof_explain}",
     );
+    assert_nullable_unique_or_route_parity(&fixture, &after);
     let forced_full_scan_sql =
-        "SELECT name FROM SqlTestUser WHERE nickname = 'ally' OR nickname = 'never'";
+        "SELECT name FROM SqlTestUser WHERE nickname = 'ally' OR name = '__no_such_user__'";
     let forced_full_scan_explain = expect_explain(
         query_sql(
             &fixture,
@@ -1890,12 +1891,32 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
     assert!(
         forced_full_scan_explain.contains("FullScan")
             && !forced_full_scan_explain.contains("sql_test_user_unique_nickname_idx"),
-        "an unsupported OR proof must preserve the full-scan route: {forced_full_scan_explain}",
+        "an OR branch without non-null proof must preserve the full-scan route: {forced_full_scan_explain}",
     );
     let forced_full_scan = query_sql_endpoint(&fixture, forced_full_scan_sql)
         .expect("equivalent conservative query should execute through a full scan");
     assert_nullable_unique_range_route_parity(&fixture);
     assert_nullable_unique_route_evidence(&before, &after, &forced_full_scan);
+}
+
+fn assert_nullable_unique_or_route_parity(
+    fixture: &StandaloneCanisterFixture,
+    expected: &SqlQueryResult,
+) {
+    let sql = "SELECT name FROM SqlTestUser WHERE nickname = 'ally' OR nickname = 'never'";
+    let explain = expect_explain(
+        query_sql(fixture, format!("EXPLAIN EXECUTION {sql}").as_str())
+            .expect("proven non-null OR query EXPLAIN should succeed"),
+    );
+    assert!(
+        !explain.contains("FullScan") && explain.contains("sql_test_user_unique_nickname_idx"),
+        "non-null equality in every OR branch should permit filtered-index access: {explain}",
+    );
+    assert_eq!(
+        &query_sql_endpoint(fixture, sql).expect("proven non-null OR query should succeed"),
+        expected,
+        "indexed OR output must match the equivalent equality query",
+    );
 }
 
 fn require_measured_ddl_success(measured: SqlExecutionInstructionResult, context: &str) -> u64 {

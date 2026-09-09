@@ -2,4 +2,6 @@ error[E0432]: unresolved import `icydb_core::db::LogicalPlan`
  --> tests/ui/db/logical_plan_not_reexported.rs:1:5
   |
 1 | use icydb_core::db::LogicalPlan;
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `LogicalPlan` in `db`
+  |     ^^^^^^^^^^^^^^^^-----------
+  |                     |
+  |                     no `LogicalPlan` in `db`

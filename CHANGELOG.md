@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.257.md](docs/changelog/0.257.md)
 
-- `0.257.1` reduces and bounds query-preparation copies, fixes nullable-index completeness and audit-interface mismatches, and updates tooling to Rust 1.98.1; unsafe or exhausted requests now reject (potentially breaking).
+- `0.257.1` bounds query-preparation copies, fixes nullable-index completeness and audit interfaces, and updates Rust 1.98.1 tooling and regression coverage; unsafe or exhausted requests now reject (potentially breaking).
 - `0.257.0` reduces query-preparation and value-admission allocation while enforcing input and preparation budgets; oversized or exhausted requests reject and affected membership/CASE pagination must restart (breaking).
 
 ## [0.256.x] - 2026-09-07 - Application API Friction
