@@ -132,7 +132,7 @@ fn bound_null_functions_match_literals_in_non_test_wasm() {
         .query_candid("check_bound_sql_null_parity", ())
         .expect("fixed binding probe should decode");
     assert_eq!(results.len(), 25);
-    for (index, pair) in results[..22].chunks_exact(2).enumerate() {
+    for (index, pair) in results[..22].as_chunks::<2>().0.iter().enumerate() {
         let literal = pair[0].as_ref().expect("literal NULL control");
         let SqlQueryResult::Projection(output) = literal else {
             panic!("literal control should project rows");

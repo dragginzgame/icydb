@@ -24,9 +24,13 @@ use crate::{
             admission::{
                 QueryAdmissionPolicy, QueryAdmissionSummary, input::validate_dynamic_query_input,
             },
-            expr::{CompareOperator, FilterExpr, OrderTerm as FluentOrderTerm, SetOperator},
+            expr::{CompareOperator, FilterExpr, SetOperator},
             intent::{IntentError, StructuralQuery},
-            plan::CardinalityTiebreakRoutePin,
+            plan::{
+                CardinalityTiebreakRoutePin, GroupAggregateSpec, OrderDirection, OrderSpec,
+                OrderTerm,
+                expr::{FieldId, ProjectionSelection},
+            },
             preparation::PreparationWork,
         },
         session::AcceptedSchemaCatalogContext,
@@ -148,16 +152,33 @@ impl<C: CanisterKind> DbSession<C> {
             if let Some(filter) = request.filter_expr() {
                 query = query.filter_for_schema(schema, filter, work)?;
             }
-            for order in request.order_terms() {
-                query = query.order_term(order.clone());
-            }
-            if require_total_order && request.order_terms().is_empty() {
-                for primary_key in schema.primary_key_names() {
-                    query = query.order_term(FluentOrderTerm::asc(primary_key.clone()));
-                }
+            // Materialize each known-length clause once, then move it into
+            // intent. An absent order remains absent unless paging needs one.
+            let order_fields = if !request.order_terms().is_empty() {
+                work.copy_slice(request.order_terms(), |order| {
+                    Ok(order.copy_for_preparation(work)?.lower())
+                })?
+            } else if require_total_order {
+                work.copy_slice(schema.primary_key_names(), |field| {
+                    Ok(OrderTerm::field(
+                        work.copy_text(field)?,
+                        OrderDirection::Asc,
+                    ))
+                })?
+            } else {
+                Vec::new()
+            };
+            if !order_fields.is_empty() {
+                query = query.order_spec(OrderSpec {
+                    fields: order_fields,
+                });
             }
             if !request.selected_fields().is_empty() {
-                query = query.select_fields(request.selected_fields().iter().cloned());
+                query = query.projection_selection(ProjectionSelection::Fields(
+                    work.copy_slice(request.selected_fields(), |field| {
+                        Ok(FieldId::new(work.copy_text(field)?))
+                    })?,
+                ));
             }
             #[cfg(test)]
             if request.projection_is_distinct() {
@@ -166,11 +187,16 @@ impl<C: CanisterKind> DbSession<C> {
             if let Some(limit) = page_limit.or_else(|| request.row_limit()) {
                 query = query.limit(limit);
             }
-            for field in request.group_fields() {
-                query = query.group_by_with_schema(field, schema)?;
+            if !request.group_fields().is_empty() {
+                query = query.group_fields_with_schema(request.group_fields(), schema, work)?;
             }
-            for aggregate in request.aggregates() {
-                query = query.aggregate(aggregate.clone());
+            if !request.aggregates().is_empty() {
+                query =
+                    query.group_aggregates(work.copy_slice(request.aggregates(), |aggregate| {
+                        Ok(GroupAggregateSpec::from_aggregate_expr(
+                            aggregate.copy_for_preparation(work)?,
+                        ))
+                    })?);
             }
             if let Some((max_groups, max_group_bytes)) = request.grouped_execution_limits() {
                 if max_groups == 0 || max_group_bytes == 0 {

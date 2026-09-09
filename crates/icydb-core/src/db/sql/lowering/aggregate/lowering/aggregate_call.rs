@@ -18,7 +18,7 @@ use crate::db::{
                     aggregate_shape::LoweredSqlAggregateShape, apply_aggregate_filter_expr,
                 },
             },
-            expr::{SqlExprPhase, lower_sql_expr},
+            expr::{SqlExprPhase, charge_storage, copy_text, lower_sql_expr},
             predicate::lower_sql_pre_aggregate_bool_expr,
         },
         parser::{SqlAggregateCall, SqlAggregateKind, SqlExpr},
@@ -26,7 +26,7 @@ use crate::db::{
 };
 
 fn lower_sql_aggregate_shape(
-    call: SqlAggregateCall,
+    call: &SqlAggregateCall,
     work: &PreparationWork<'_>,
 ) -> Result<LoweredSqlAggregateShape, SqlLoweringError> {
     let SqlAggregateCall {
@@ -35,7 +35,9 @@ fn lower_sql_aggregate_shape(
         filter_expr,
         distinct,
     } = call;
+    let (kind, distinct) = (*kind, *distinct);
     let filter_expr = filter_expr
+        .as_ref()
         .map(|expr| lower_sql_pre_aggregate_bool_expr(expr.as_ref(), work))
         .map(|expr| expr.map(AnalyzedLoweredExpr::new))
         .transpose()?;
@@ -45,13 +47,19 @@ fn lower_sql_aggregate_shape(
         filter_expr.as_ref().map(AnalyzedLoweredExpr::expr),
     )?;
 
-    match input.map(|input| *input).as_mut() {
+    // Borrow syntax throughout; only the retained planner operands are copied.
+    // Aggregate builders allocate one box for each present input/filter.
+    charge_storage::<Expr>(
+        usize::from(input.is_some()) + usize::from(filter_expr.is_some()),
+        work,
+    )?;
+    match input.as_deref() {
         None if kind.supports_star_input() && !distinct => {
             Ok(LoweredSqlAggregateShape::CountRows { filter_expr })
         }
         Some(SqlExpr::Field(field)) if matches!(kind, SqlAggregateKind::Count) => {
             Ok(LoweredSqlAggregateShape::CountField {
-                field: std::mem::take(field),
+                field: copy_text(field, work)?,
                 filter_expr,
                 distinct,
             })
@@ -59,7 +67,7 @@ fn lower_sql_aggregate_shape(
         Some(SqlExpr::Field(field)) if kind.lowers_shared_field_target_shape() => {
             Ok(LoweredSqlAggregateShape::FieldTarget {
                 kind,
-                field: std::mem::take(field),
+                field: copy_text(field, work)?,
                 filter_expr,
                 distinct,
             })
@@ -78,7 +86,7 @@ fn lower_sql_aggregate_shape(
 }
 
 pub(in crate::db::sql::lowering) fn lower_aggregate_call(
-    call: SqlAggregateCall,
+    call: &SqlAggregateCall,
     work: &PreparationWork<'_>,
 ) -> Result<AggregateExpr, SqlLoweringError> {
     lower_sql_aggregate_shape_to_expr(lower_sql_aggregate_shape(call, work)?)
@@ -130,7 +138,7 @@ fn lowered_filter_expr(filter_expr: Option<AnalyzedLoweredExpr>) -> Option<Expr>
 // subexpressions before grouped execution can compile them into reducer state.
 pub(in crate::db::sql::lowering) fn lower_grouped_aggregate_call(
     schema: &SchemaInfo,
-    call: SqlAggregateCall,
+    call: &SqlAggregateCall,
     work: &PreparationWork<'_>,
 ) -> Result<AggregateExpr, SqlLoweringError> {
     let shape = lower_sql_aggregate_shape(call, work)?;

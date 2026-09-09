@@ -64,6 +64,20 @@ struct SqlQueryPerfResult {
     instructions: u64,
 }
 
+/// Absolute counter boundaries for the warmed audit endpoint, not a production API.
+/// Entry follows Candid decoding; completion precedes response encoding.
+#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[cfg(feature = "sql")]
+struct SqlQueryPhasePerfResult {
+    result: SqlQueryResult,
+    instructions: u64,
+    entry: u64,
+    request_ready: u64,
+    session_ready: u64,
+    query_complete: u64,
+    request_complete: u64,
+}
+
 /// Engine-level page-driver facts after accepting or rejecting one decoded page.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "sql")]
@@ -1976,8 +1990,28 @@ fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error>
 /// canister can persist any warmed in-heap query caches for later query calls.
 #[cfg(feature = "sql")]
 #[update]
-fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
-    icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
+fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPhasePerfResult, icydb::Error> {
+    let entry = ic_cdk::api::performance_counter(1);
+    let mut sample = icydb::db::with_request_execution(|| {
+        let request_ready = ic_cdk::api::performance_counter(1);
+        let session = db()?;
+        let session_ready = ic_cdk::api::performance_counter(1);
+        let result = session.execute_trusted_sql_query(sql.as_str())?;
+        // Preserve the former call's session-drop boundary inside the read sample.
+        drop(session);
+        let query_complete = ic_cdk::api::performance_counter(1);
+        Ok::<_, icydb::Error>(SqlQueryPhasePerfResult {
+            result,
+            instructions: query_complete.saturating_sub(request_ready),
+            entry,
+            request_ready,
+            session_ready,
+            query_complete,
+            request_complete: 0,
+        })
+    })?;
+    sample.request_complete = ic_cdk::api::performance_counter(1);
+    Ok(sample)
 }
 
 /// Measure bounded, application-built filters without passing SQL to preparation.

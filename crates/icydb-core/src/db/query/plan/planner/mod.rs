@@ -26,6 +26,7 @@ use crate::{
 };
 
 pub(in crate::db::query::plan) use crate::db::access::MAX_INDEX_BRANCH_SET_VALUES;
+pub(in crate::db::query::plan) use index_select::index_stream_is_complete_for_query;
 pub(in crate::db::query) use index_select::{
     eligible_sorted_index_contracts, index_field_literal_matcher, index_literal_matches_schema,
 };
@@ -132,7 +133,8 @@ fn plan_access_selection_with_order(
 ) -> Result<PlannedAccessSelection, PlannerError> {
     let Some(predicate) = predicate else {
         let true_predicate = Predicate::True;
-        let eligible_indexes = eligible_sorted_index_contracts(visible_indexes, &true_predicate);
+        let eligible_indexes =
+            eligible_sorted_index_contracts(visible_indexes, schema, &true_predicate);
 
         return Ok(order_fallback_selection(
             eligible_indexes.as_slice(),
@@ -143,12 +145,7 @@ fn plan_access_selection_with_order(
         ));
     };
 
-    let mut eligible_indexes = eligible_sorted_index_contracts(visible_indexes, predicate);
-    if grouped {
-        eligible_indexes.retain(|index| {
-            order_select::index_stream_is_complete_for_query(schema, index, predicate)
-        });
-    }
+    let eligible_indexes = eligible_sorted_index_contracts(visible_indexes, schema, predicate);
 
     // Planner determinism guarantee:
     // Given accepted schema and a canonical predicate, planning is pure and deterministic.

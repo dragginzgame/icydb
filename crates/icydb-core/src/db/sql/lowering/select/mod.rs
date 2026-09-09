@@ -23,7 +23,7 @@ use crate::db::{
         builder::AggregateExpr,
         intent::{QueryError, StructuralQuery},
         plan::{
-            GroupedExecutionConfig,
+            GroupAggregateSpec, GroupedExecutionConfig,
             expr::{Expr, FieldPath, ProjectionSelection},
         },
     },
@@ -375,10 +375,8 @@ fn apply_lowered_select_shape_with_schema(
     // conservative authority rather than leaving complete hash state
     // unbounded.
     let is_grouped = !group_by_fields.is_empty();
-    for field in group_by_fields {
-        query = query.group_by_with_schema(field, schema)?;
-    }
     if is_grouped {
+        query = query.group_fields_with_schema(&group_by_fields, schema, work)?;
         let grouped_execution = GroupedExecutionConfig::planner_default_bounded();
         query = query.grouped_limits(
             grouped_execution.max_groups(),
@@ -391,8 +389,12 @@ fn apply_lowered_select_shape_with_schema(
         query = query.distinct();
     }
     query = query.projection_selection(projection_selection.into_selection());
-    for aggregate in grouped_aggregates {
-        query = query.aggregate(aggregate);
+    if !grouped_aggregates.is_empty() {
+        let mut aggregates = work.vec_with_capacity(grouped_aggregates.len())?;
+        for aggregate in grouped_aggregates {
+            aggregates.push(GroupAggregateSpec::from_aggregate_expr(aggregate));
+        }
+        query = query.group_aggregates(aggregates);
     }
 
     // Phase 3: bind resolved HAVING expressions against grouped terminals.
@@ -421,7 +423,7 @@ fn lower_grouped_aggregate_calls(
 ) -> Result<Vec<AggregateExpr>, SqlLoweringError> {
     grouped_aggregates
         .into_iter()
-        .map(|aggregate| lower_grouped_aggregate_call(schema, aggregate, work))
+        .map(|aggregate| lower_grouped_aggregate_call(schema, &aggregate, work))
         .collect()
 }
 

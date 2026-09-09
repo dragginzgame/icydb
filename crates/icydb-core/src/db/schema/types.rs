@@ -363,44 +363,13 @@ fn charge_filter_hex_decode(
 /// Materialize a normalized filter literal only when a new container needs an
 /// owned child. Borrowed storage contains unchanged text/blob/big-integer
 /// scalars or lists composed of borrowed children.
-pub(in crate::db) fn materialize_filter_literal(
+fn materialize_filter_literal(
     value: Cow<'_, Value>,
     work: &PreparationWork<'_>,
 ) -> Result<Value, QueryError> {
     match value {
         Cow::Owned(value) => Ok(value),
-        Cow::Borrowed(value) => {
-            work.charge(Resource::NestedValueSteps, 1)?;
-            let bytes = match value {
-                Value::Text(text) => text.len(),
-                Value::Blob(bytes) => bytes.len(),
-                // Cloning requests only initialized magnitude limbs. Round up
-                // to 64-bit words to conservatively cover the dependency's
-                // 32-/64-bit limbs; this is not retained-capacity accounting.
-                Value::IntBig(integer) => {
-                    usize::try_from(integer.magnitude_bits().div_ceil(64).saturating_mul(8))
-                        .map_err(|_| QueryError::invariant())?
-                }
-                Value::NatBig(integer) => {
-                    usize::try_from(integer.magnitude_bits().div_ceil(64).saturating_mul(8))
-                        .map_err(|_| QueryError::invariant())?
-                }
-                Value::List(values) => {
-                    work.charge(
-                        Resource::TemporaryBytes,
-                        (values.len() as u64).saturating_mul(size_of::<Value>() as u64),
-                    )?;
-                    let mut copied = Vec::with_capacity(values.len());
-                    for value in values {
-                        copied.push(materialize_filter_literal(Cow::Borrowed(value), work)?);
-                    }
-                    return Ok(Value::List(copied));
-                }
-                _ => return Err(QueryError::invariant()),
-            };
-            work.charge(Resource::TemporaryBytes, bytes as u64)?;
-            Ok(value.clone())
-        }
+        Cow::Borrowed(value) => work.copy_value(value),
     }
 }
 

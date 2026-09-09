@@ -14,7 +14,7 @@
 ///
 
 #[must_use]
-pub fn normalize_identifier_to_scope(identifier: String, entity_scope: &[String]) -> String {
+pub fn normalize_identifier_to_scope(mut identifier: String, entity_scope: &[String]) -> String {
     for candidate in entity_scope {
         let prefix_len = candidate.len();
         if identifier.len() > prefix_len
@@ -23,11 +23,14 @@ pub fn normalize_identifier_to_scope(identifier: String, entity_scope: &[String]
                 .is_some_and(|prefix| prefix.eq_ignore_ascii_case(candidate))
             && identifier.as_bytes().get(prefix_len) == Some(&b'.')
         {
-            return identifier[prefix_len.saturating_add(1)..].to_string();
+            // The checked prefix and ASCII separator establish a UTF-8 boundary.
+            // Reuse owned backing rather than allocating another suffix string.
+            identifier.drain(..=prefix_len);
+            return identifier;
         }
     }
 
-    let Some((qualifier, leaf)) = split_qualified_identifier(identifier.as_str()) else {
+    let Some((qualifier, _)) = split_qualified_identifier(identifier.as_str()) else {
         return identifier;
     };
     if !entity_scope
@@ -37,7 +40,9 @@ pub fn normalize_identifier_to_scope(identifier: String, entity_scope: &[String]
         return identifier;
     }
 
-    leaf.to_string()
+    let prefix_len = qualifier.len() + 1;
+    identifier.drain(..prefix_len);
+    identifier
 }
 
 /// Split one qualified identifier into `(qualifier, leaf)` on the last `.`.
@@ -79,6 +84,32 @@ pub(in crate::db) fn identifiers_tail_match(left: &str, right: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::db::sql::identifier::{identifiers_tail_match, normalize_identifier_to_scope};
+
+    #[test]
+    fn qualifier_reduction_preserves_owned_backing_and_matching_policy() {
+        for (identifier, scopes, expected) in [
+            ("u.profile.rank", vec!["u"], "profile.rank"),
+            ("U.profile.rank", vec!["u"], "profile.rank"),
+            ("other.Users.name", vec!["public.Users"], "name"),
+            ("Users.名", vec!["Users"], "名"),
+            ("é.名", vec!["é"], "名"),
+            ("é.name", vec!["x"], "é.name"),
+            ("u.", vec!["u"], ""),
+            (".name", vec!["users"], ".name"),
+            ("name", vec!["users"], "name"),
+            // Direct prefix matching retains the existing candidate-order rule.
+            ("a.b.name", vec!["a", "a.b"], "b.name"),
+        ] {
+            let input = identifier.to_string();
+            let pointer = input.as_ptr();
+            let capacity = input.capacity();
+            let scopes: Vec<_> = scopes.into_iter().map(str::to_string).collect();
+            let output = normalize_identifier_to_scope(input, &scopes);
+            assert_eq!(output, expected);
+            assert_eq!(output.as_ptr(), pointer);
+            assert_eq!(output.capacity(), capacity);
+        }
+    }
 
     #[test]
     fn identifiers_tail_match_accepts_schema_qualified_forms() {

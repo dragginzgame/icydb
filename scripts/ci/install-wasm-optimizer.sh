@@ -72,6 +72,9 @@ if [[ ! -x "$wasm_opt_bin" ]] ||
    [[ "$(sha256sum "$wasm_opt_bin" | cut -d ' ' -f 1)" != "$WASM_OPT_SHA256" ]]; then
   echo "[binaryen] installing official $BINARYEN_VERSION into $install_dir"
   mkdir -p "$install_dir"
+  if [[ -n "${TMPDIR:-}" ]]; then
+    mkdir -p "$TMPDIR"
+  fi
   scratch="$(mktemp -d "${TMPDIR:-/tmp}/icydb-binaryen-install.XXXXXX")"
   archive="$scratch/$ARCHIVE_NAME"
   candidate="$scratch/wasm-opt"

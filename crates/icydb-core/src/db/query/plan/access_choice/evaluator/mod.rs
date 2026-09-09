@@ -15,6 +15,7 @@ use crate::db::{
         access_choice::model::{
             AccessChoiceFamily, AccessChoiceRejectedReason, CandidateEvaluation,
         },
+        planner::index_stream_is_complete_for_query,
     },
     schema::SchemaInfo,
 };
@@ -36,6 +37,9 @@ pub(super) fn evaluate_index_candidate(
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> CandidateEvaluation {
+    if !index_stream_is_complete_for_query(schema, index, predicate.unwrap_or(&Predicate::True)) {
+        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::IndexMembershipUnproven);
+    }
     let scoring_index = CandidateScoringIndex { contract: index };
 
     if matches!(family, AccessChoiceFamily::Range) && predicate.is_none() && order.is_some() {

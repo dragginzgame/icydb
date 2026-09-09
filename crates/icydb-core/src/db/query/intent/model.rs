@@ -4,13 +4,13 @@
 //! Boundary: stores entity-bound query intent consumed by the planner pipeline.
 
 use crate::db::predicate::Predicate;
+use crate::db::query::expr::FilterExpr;
 use crate::db::query::intent::{StructuralQueryCacheKey, state::GroupedIntent};
-use crate::db::query::{expr::FilterExpr, plan::expr::FieldId};
+#[cfg(feature = "sql")]
+use crate::db::query::plan::expr::FieldId;
 use crate::db::{
     predicate::MissingRowPolicy,
     query::{
-        builder::aggregate::AggregateExpr,
-        expr::OrderTerm as FluentOrderTerm,
         intent::{QueryError, QueryIntent},
         plan::{
             AccessPlannedQuery, AccessPlanningInputs, GroupAggregateSpec, LogicalPlanningInputs,
@@ -19,7 +19,7 @@ use crate::db::{
             build_query_model_plan_with_indexes_from_scalar_planning_state,
             expr::{Expr, ProjectionSelection, is_normalized_bool_expr, normalize_bool_expr},
             prepare_query_model_scalar_planning_state_with_schema_info,
-            resolve_group_field_with_schema, try_build_trivial_scalar_load_plan_with_schema_info,
+            resolve_group_fields_with_schema, try_build_trivial_scalar_load_plan_with_schema_info,
         },
         preparation::PreparationWork,
     },
@@ -280,14 +280,7 @@ impl QueryModel {
         Ok(self)
     }
 
-    /// Append one typed fluent ORDER BY term.
-    #[must_use]
-    pub(in crate::db::query) fn order_term(mut self, term: FluentOrderTerm) -> Self {
-        self.intent.push_order_term(term.lower());
-        self
-    }
-
-    /// Set a fully-specified order spec (validated before reaching this boundary).
+    /// Set one materialized order spec for downstream planner validation.
     pub(in crate::db::query) fn order_spec(mut self, order: OrderSpec) -> Self {
         self.intent.set_order_spec(order);
         self
@@ -302,6 +295,7 @@ impl QueryModel {
 
     /// Select one explicit scalar field projection list for internal SQL and
     /// planning tests that compare fluent and structural query shapes.
+    #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db::query) fn select_fields<I, S>(mut self, fields: I) -> Self
     where
@@ -328,27 +322,29 @@ impl QueryModel {
         self
     }
 
-    // Resolve one grouped field through an explicit schema view and append it
-    // to the grouped spec in declaration order.
-    pub(in crate::db::query::intent) fn push_group_field_with_schema(
+    // Resolve the whole clause once, then move it into grouped intent.
+    pub(in crate::db::query::intent) fn group_fields_with_schema(
         mut self,
-        field: &str,
+        fields: &[String],
         schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<Self, QueryError> {
-        let group_field =
-            resolve_group_field_with_schema(schema, field).map_err(QueryError::from)?;
-        self.intent.push_group_field(group_field);
+        if !fields.is_empty() {
+            let fields = resolve_group_fields_with_schema(schema, fields, work)?;
+            self.intent.set_group_fields(fields);
+        }
 
         Ok(self)
     }
 
-    // Append one grouped aggregate terminal to the grouped declarative spec.
-    pub(in crate::db::query::intent) fn push_group_aggregate(
+    // Move the materialized aggregate clause without copying its operands.
+    pub(in crate::db::query::intent) fn group_aggregates(
         mut self,
-        aggregate: AggregateExpr,
+        aggregates: Vec<GroupAggregateSpec>,
     ) -> Self {
-        self.intent
-            .push_group_aggregate(GroupAggregateSpec::from_aggregate_expr(&aggregate));
+        if !aggregates.is_empty() {
+            self.intent.set_group_aggregates(aggregates);
+        }
 
         self
     }

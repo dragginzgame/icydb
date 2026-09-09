@@ -97,6 +97,7 @@ fn repeated_dynamic_point_query_instruction_measurement() {
         ("point", "measure_repeated_point_queries"),
         ("point_distinct", "measure_parameterized_point_queries"),
         ("scan", "measure_repeated_scan_queries"),
+        ("grouped", "measure_repeated_grouped_queries"),
     ] {
         let ((executions, failures, rows, local_instructions),): ((u16, u16, u32, u64),) = fixture
             .query_candid(method, (200_u16,))

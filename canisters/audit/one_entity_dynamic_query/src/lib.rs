@@ -5,7 +5,7 @@
 use icydb::{
     db::{
         DynamicQuery,
-        query::{FieldRef, asc},
+        query::{FieldRef, asc, count},
     },
     types::Ulid,
 };
@@ -108,3 +108,31 @@ fn measure_repeated_scan_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
 
 #[cfg(feature = "candid-export")]
 ic_cdk::export_candid!();
+
+/// Measure grouped declaration preparation and empty execution on warm calls.
+#[ic_cdk::query]
+fn measure_repeated_grouped_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
+    icydb::db::with_request_execution(|| {
+        let executions = repetitions.min(MAX_REPEATED_QUERIES);
+        let Ok(database) = icydb::db!() else {
+            return ((0, executions, 0, 0),);
+        };
+        let request = DynamicQuery::new("OneSimpleEntity01")
+            .group_by("name")
+            .aggregate(count())
+            .grouped_limits(1, 16 * 1024)
+            .limit(1);
+        let mut failures = 0_u16;
+        let mut rows = 0_u32;
+        let start = ic_cdk::api::performance_counter(1);
+        for _ in 0..executions {
+            match database.execute_trusted_dynamic_grouped_query(&request) {
+                Ok(output) => rows = rows.saturating_add(output.row_count),
+                Err(_) => failures = failures.saturating_add(1),
+            }
+        }
+        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+
+        ((executions, failures, rows, local_instructions),)
+    })
+}

@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn aggregate_expr_and_helper_shapes_hash_identically() {
         let aggregate_expr = count_by("rank").distinct();
-        let helper_shape = GroupAggregateSpec::from_aggregate_expr(&aggregate_expr);
+        let helper_shape = GroupAggregateSpec::from_aggregate_expr(aggregate_expr);
         let from_helper = AggregateHashShape::semantic(
             helper_shape.kind(),
             helper_shape.target_field(),

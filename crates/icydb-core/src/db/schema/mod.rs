@@ -498,5 +498,5 @@ pub(crate) use types::literal_matches_type;
 pub(in crate::db) use types::query_field_kind_from_persisted_kind;
 pub(in crate::db) use types::{
     canonicalize_filter_collection_element_for_persisted_kind,
-    canonicalize_filter_literal_for_persisted_kind, materialize_filter_literal,
+    canonicalize_filter_literal_for_persisted_kind,
 };

@@ -117,7 +117,8 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// The request must contain only an optional strict equality or bounded
     /// `IN` filter over the leading field of an accepted unfiltered field-path
-    /// user index. The index may have trailing fields. Unsupported shapes and
+    /// user index. Every indexed component, including trailing fields, must be
+    /// present for all matching rows. Unsupported shapes and
     /// unavailable exact-cardinality metadata fail closed.
     pub fn execute_exact_count(
         &self,

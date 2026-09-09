@@ -33,6 +33,7 @@ use crate::db::{
     predicate::{CoercionId, ComparePredicate},
     query::plan::planner::{
         count_cardinality_index_branch_set_from_and, index_field_literal_matcher,
+        index_stream_is_complete_for_query,
     },
 };
 
@@ -370,7 +371,12 @@ fn direct_count_cardinality_prefix_access_from_predicate<'predicate>(
     visible_indexes.accepted_field_path_index_count()?;
     if let Some(cmp) = direct_count_exact_prefix_compare(normalized_predicate) {
         let values = direct_count_exact_prefix_values(schema_info, cmp)?;
-        let index = direct_count_exact_prefix_index(visible_indexes, cmp.field.as_str())?;
+        let index = direct_count_exact_prefix_index(
+            visible_indexes,
+            schema_info,
+            normalized_predicate,
+            cmp.field.as_str(),
+        )?;
 
         return Some(CountCardinalityPrefixAccess::new(index, values));
     }
@@ -399,7 +405,11 @@ fn direct_count_exact_composite_prefix_access<'predicate>(
         .accepted_field_path_indexes()
         .iter()
         .map(super::AcceptedPlannerFieldPathIndex::semantic_access_contract)
-        .filter(|index| !index.is_filtered() && !index.has_expression_key_items())
+        .filter(|index| {
+            !index.is_filtered()
+                && !index.has_expression_key_items()
+                && index_stream_is_complete_for_query(schema_info, index, normalized_predicate)
+        })
         .collect::<Vec<_>>();
     let access = count_cardinality_index_branch_set_from_and(
         candidate_indexes.as_slice(),
@@ -496,10 +506,13 @@ fn direct_count_exact_prefix_values_mismatch(
 
 fn direct_count_exact_prefix_index(
     visible_indexes: &VisibleIndexes,
+    schema_info: &SchemaInfo,
+    predicate: &Predicate,
     field: &str,
 ) -> Option<SemanticIndexAccessContract> {
     best_exact_field_path_index(visible_indexes, |index| {
         direct_count_index_supports_exact_prefix(index, field)
+            && index_stream_is_complete_for_query(schema_info, index, predicate)
     })
 }
 

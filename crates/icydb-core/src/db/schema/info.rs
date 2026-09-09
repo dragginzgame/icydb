@@ -642,17 +642,17 @@ impl SchemaInfo {
 
     /// Borrow the accepted query kind for one nested scalar leaf.
     #[must_use]
-    pub(in crate::db) fn accepted_nested_query_field_kind(
+    pub(in crate::db) fn accepted_nested_query_field_kind<'a>(
         &self,
         name: &str,
-        segments: &[String],
+        segments: impl Iterator<Item = &'a str> + Clone,
     ) -> Option<&AcceptedFieldKind> {
         let field = schema_field_info(self.fields.as_slice(), name)?;
 
         field
             .nested_leaves
             .iter()
-            .find(|leaf| leaf.path() == segments)
+            .find(|leaf| leaf.path().iter().map(String::as_str).eq(segments.clone()))
             .map(PersistedNestedLeafSnapshot::kind)
     }
 
@@ -1259,6 +1259,222 @@ mod tests {
                 .and_then(|slot| slot.accepted_kind().cloned()),
             Some(AcceptedFieldKind::Text { max_len: Some(64) })
         ));
+    }
+
+    #[test]
+    fn borrowed_group_validation_matches_current_resolution_without_rebinding() {
+        use crate::db::query::plan::{FieldSlot, GroupField, GroupFieldRef};
+
+        let mut schema = newtype_query_schema();
+        let direct = GroupField::resolve_with_schema(&schema, "name").unwrap();
+        let profile = schema
+            .fields
+            .iter()
+            .position(|(name, _)| name == "profile")
+            .unwrap();
+        let path = |label: &str, root: &str, segments: &[&str], slot| {
+            GroupField::scalar_path_for_test(
+                label,
+                root,
+                segments
+                    .iter()
+                    .map(|segment| (*segment).to_string())
+                    .collect(),
+                slot,
+                AcceptedFieldKind::Int32,
+            )
+        };
+        let candidates = [
+            direct.clone(),
+            GroupField::Direct(FieldSlot::from_test_accepted_kind(
+                999,
+                "name",
+                AcceptedFieldKind::Bool,
+            )),
+            GroupField::Direct(FieldSlot::from_test_accepted_kind(
+                2,
+                "profile.name",
+                AcceptedFieldKind::Bool,
+            )),
+            path("profile.name", "profile", &["name"], 2),
+            path("profile.name", "profile", &["name"], 999),
+            path("profile.name", "missing", &["name"], 2),
+            path("profile.name", "profile", &["missing"], 2),
+            path("profile.name", "profile", &["na", "me"], 2),
+            path("profile", "profile", &["name"], 2),
+            path("profile..name", "profile", &["", "name"], 2),
+            path("missing.name", "missing", &["name"], 2),
+        ];
+        // The maintained resolver is the reference: eligibility can change
+        // with current authority, but this check must not refresh retained kinds.
+        for kind in [
+            AcceptedFieldKind::Int64,
+            AcceptedFieldKind::Text { max_len: Some(9) },
+            AcceptedFieldKind::Float64,
+            AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Int64)),
+        ] {
+            schema.fields[profile].1.nested_leaves = vec![PersistedNestedLeafSnapshot::new(
+                vec!["name".into()],
+                kind,
+                false,
+            )];
+            for candidate in &candidates {
+                let borrowed = GroupFieldRef::PathAware(candidate);
+                let expected = GroupField::resolve_with_schema(&schema, candidate.field())
+                    .is_some_and(|resolved| {
+                        borrowed.root_slot() == resolved.root_slot()
+                            && borrowed.same_identity(GroupFieldRef::PathAware(&resolved))
+                    });
+                assert_eq!(
+                    borrowed.matches_schema_identity(&schema),
+                    expected,
+                    "{candidate:?}"
+                );
+            }
+        }
+        let slot = direct.as_direct().unwrap();
+        assert!(GroupFieldRef::Direct(slot).matches_schema_identity(&schema));
+        assert!(GroupFieldRef::Direct(slot).same_identity(GroupFieldRef::PathAware(&direct)));
+
+        schema.fields[profile].1.nested_leaves = vec![PersistedNestedLeafSnapshot::new(
+            vec!["name".into()],
+            AcceptedFieldKind::Int64,
+            false,
+        )];
+        let retained = path("profile.name", "profile", &["name"], 2);
+        assert!(GroupFieldRef::PathAware(&retained).matches_schema_identity(&schema));
+        schema.fields[profile].1.slot = 9;
+        assert!(!GroupFieldRef::PathAware(&retained).matches_schema_identity(&schema));
+    }
+
+    #[test]
+    fn grouped_expression_resolution_borrows_current_direct_and_nested_authority() {
+        use crate::db::query::plan::{
+            GroupField,
+            expr::{Expr, FieldPath},
+        };
+
+        let mut schema = newtype_query_schema();
+        for field in ["id", "name", "aliases", "profile"] {
+            let expr = Expr::Field(field.into());
+            let kind = GroupField::accepted_kind_for_expr(&schema, &expr)
+                .expect("direct resolution does not impose nested-key eligibility");
+            assert!(std::ptr::eq(
+                kind,
+                schema.accepted_query_field_kind(field).unwrap()
+            ));
+            let retained = GroupField::resolve_with_schema(&schema, field).unwrap();
+            assert_eq!(retained.as_direct().unwrap().accepted_kind(), Some(kind));
+        }
+
+        // Vary the accepted nested-leaf projection, not generated model metadata.
+        // Reusing the expression must always observe the supplied schema view.
+        let expr = Expr::FieldPath(FieldPath::new("profile", vec!["name".into()]));
+        let profile = schema
+            .fields
+            .iter()
+            .position(|(name, _)| name == "profile")
+            .unwrap();
+        for kind in [
+            AcceptedFieldKind::Int64,
+            AcceptedFieldKind::Text { max_len: Some(9) },
+        ] {
+            schema.fields[profile].1.nested_leaves = vec![PersistedNestedLeafSnapshot::new(
+                vec!["name".into()],
+                kind,
+                false,
+            )];
+            let borrowed = GroupField::accepted_kind_for_expr(&schema, &expr).unwrap();
+            assert!(std::ptr::eq(
+                borrowed,
+                schema.fields[profile].1.nested_leaves[0].kind()
+            ));
+            let retained = GroupField::resolve_with_schema(&schema, "profile.name").unwrap();
+            assert_eq!(retained.projection_expr(), expr);
+            assert_eq!(retained.root_slot(), 2);
+            assert_eq!(
+                GroupField::accepted_kind_for_expr(&schema, &retained.projection_expr()),
+                Some(borrowed)
+            );
+            #[cfg(feature = "sql")]
+            {
+                let mut value = Value::Nat64(7);
+                crate::db::query::preparation::with_preparation_work(|work| {
+                    crate::db::query::plan::canonicalize_grouped_having_numeric_literal_for_expr(
+                        &schema, &expr, &mut value, work,
+                    )
+                })
+                .unwrap();
+                assert_eq!(
+                    value,
+                    if matches!(borrowed, AcceptedFieldKind::Int64) {
+                        Value::Int64(7)
+                    } else {
+                        Value::Nat64(7)
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn grouped_expression_resolution_keeps_nested_eligibility_and_spelling() {
+        use crate::db::query::plan::{
+            GroupField,
+            expr::{Expr, FieldPath},
+        };
+
+        let mut schema = newtype_query_schema();
+        let profile = schema
+            .fields
+            .iter()
+            .position(|(name, _)| name == "profile")
+            .unwrap();
+        for kind in [
+            AcceptedFieldKind::Text { max_len: None },
+            AcceptedFieldKind::Float64,
+            AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Int64)),
+            schema.fields[profile].1.nested_leaves[0].kind().clone(),
+        ] {
+            schema.fields[profile].1.nested_leaves = vec![PersistedNestedLeafSnapshot::new(
+                vec!["name".into()],
+                kind,
+                false,
+            )];
+            for expr in [
+                Expr::Field("profile.name".into()),
+                Expr::FieldPath(FieldPath::new("profile", vec!["name".into()])),
+                Expr::FieldPath(FieldPath::new("profile.name", vec![String::new()])),
+                Expr::FieldPath(FieldPath::new("profile", vec![".name".into()])),
+                Expr::FieldPath(FieldPath::new("profile", vec!["name.missing".into()])),
+                Expr::FieldPath(FieldPath::new("missing", vec!["name".into()])),
+            ] {
+                let label = match &expr {
+                    Expr::Field(field) => field.as_str().to_string(),
+                    Expr::FieldPath(path) => path.path_spec().dotted_label(),
+                    _ => unreachable!(),
+                };
+                assert_eq!(
+                    GroupField::accepted_kind_for_expr(&schema, &expr).is_some(),
+                    GroupField::resolve_with_schema(&schema, &label).is_some(),
+                    "{label}",
+                );
+            }
+            let semantics = crate::db::schema::classify_accepted_field_kind(
+                schema.fields[profile].1.nested_leaves[0].kind(),
+            );
+            assert_eq!(
+                GroupField::accepted_kind_for_expr(&schema, &Expr::Field("profile.name".into()))
+                    .is_some(),
+                semantics.is_scalar()
+                    && semantics.is_sql_comparable()
+                    && semantics.supports_stable_group_key(),
+            );
+        }
+        assert!(GroupField::accepted_kind_for_expr(&schema, &Expr::Literal(Value::Null)).is_none());
+        assert!(
+            GroupField::accepted_kind_for_expr(&schema, &Expr::Field("missing".into())).is_none()
+        );
     }
 
     #[test]

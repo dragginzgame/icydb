@@ -3,13 +3,17 @@
 //! Does not own: planner validation or execution-time order evaluation.
 //! Boundary: converts fluent order inputs into planner-owned order terms.
 
-use crate::db::query::{
-    builder::{
-        AggregateExpr, FieldRef, NumericProjectionExpr, RoundProjectionExpr, TextProjectionExpr,
-    },
-    plan::{
-        OrderDirection, OrderTerm as PlannedOrderTerm,
-        expr::{Expr, FieldId},
+use crate::db::{
+    QueryError,
+    query::{
+        builder::{
+            AggregateExpr, FieldRef, NumericProjectionExpr, RoundProjectionExpr, TextProjectionExpr,
+        },
+        plan::{
+            OrderDirection, OrderTerm as PlannedOrderTerm,
+            expr::{Expr, FieldId},
+        },
+        preparation::PreparationWork,
     },
 };
 
@@ -42,12 +46,6 @@ impl OrderExpr {
     /// edges instead of being stored in fluent order shells.
     const fn new(expr: Expr) -> Self {
         Self { expr }
-    }
-
-    /// Lower one typed fluent order expression into the planner-owned order
-    /// contract now that ordering is expression-based end to end.
-    pub(in crate::db::query) fn lower(&self, direction: OrderDirection) -> PlannedOrderTerm {
-        PlannedOrderTerm::new(self.expr.clone(), direction)
     }
 }
 
@@ -108,7 +106,18 @@ pub struct OrderTerm {
 }
 
 impl OrderTerm {
-    /// Borrow authored syntax for admission before lowering clones it.
+    /// Copy admitted ordering syntax without changing direction or expression shape.
+    pub(in crate::db) fn copy_for_preparation(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Ok(Self {
+            expr: OrderExpr::new(work.copy_expr(self.expression())?),
+            direction: self.direction,
+        })
+    }
+
+    /// Borrow authored syntax for admission before request preparation copies it.
     pub(in crate::db) const fn expression(&self) -> &Expr {
         &self.expr.expr
     }
@@ -133,8 +142,8 @@ impl OrderTerm {
 
     /// Lower one typed fluent order term directly into the planner-owned
     /// `OrderTerm` contract.
-    pub(in crate::db) fn lower(&self) -> PlannedOrderTerm {
-        self.expr.lower(self.direction)
+    pub(in crate::db) fn lower(self) -> PlannedOrderTerm {
+        PlannedOrderTerm::new(self.expr.expr, self.direction)
     }
 }
 
@@ -154,4 +163,47 @@ pub fn asc(expr: impl Into<OrderExpr>) -> OrderTerm {
 #[must_use]
 pub fn desc(expr: impl Into<OrderExpr>) -> OrderTerm {
     OrderTerm::desc(expr)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{OrderExpr, OrderTerm};
+    use crate::{
+        db::query::{
+            builder::sum,
+            plan::{OrderDirection, expr::Expr},
+        },
+        value::Value,
+    };
+
+    #[test]
+    fn owned_order_lowering_preserves_operands_and_direction() {
+        for direction in [OrderDirection::Asc, OrderDirection::Desc] {
+            let aggregate = sum("amount")
+                .with_filter_expr(Expr::Literal(Value::Text("x".repeat(4096))))
+                .distinct();
+            let input_address = std::ptr::from_ref(aggregate.input_expr().expect("input"));
+            let filter_address = std::ptr::from_ref(aggregate.filter_expr().expect("filter"));
+            let expected = Expr::Aggregate(aggregate.clone());
+            let term = OrderTerm {
+                expr: OrderExpr::from(aggregate),
+                direction,
+            };
+
+            let lowered = term.lower();
+            assert_eq!(lowered.direction(), direction);
+            assert_eq!(lowered.expr(), &expected);
+            let Expr::Aggregate(aggregate) = lowered.expr() else {
+                panic!("aggregate order expression");
+            };
+            assert_eq!(
+                std::ptr::from_ref(aggregate.input_expr().expect("input")),
+                input_address
+            );
+            assert_eq!(
+                std::ptr::from_ref(aggregate.filter_expr().expect("filter")),
+                filter_address
+            );
+        }
+    }
 }

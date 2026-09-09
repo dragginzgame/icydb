@@ -53,19 +53,25 @@ impl<C: CanisterKind> DbSession<C> {
             }
             SqlStatement::Delete(_) => Self::compile_delete(statement, entity_name, schema, work),
             SqlStatement::Insert(_) => Self::compile_insert(statement, entity_name, schema, work),
-            SqlStatement::Update(_) => Self::compile_update(statement, entity_name),
+            SqlStatement::Update(_) => Self::compile_update(statement, entity_name, work),
             SqlStatement::Ddl(_) => Err(QueryError::sql_lowering(
                 SqlLoweringCode::SqlDdlExecutionUnsupported,
             )),
             #[cfg(feature = "sql")]
             SqlStatement::Explain(_) => Self::compile_explain(statement, entity_name, schema, work),
-            SqlStatement::Describe(_) => Self::compile_describe(statement, entity_name),
+            SqlStatement::Describe(_) => Self::compile_describe(statement, entity_name, work),
             SqlStatement::ShowConstraints(_) => {
-                Self::compile_show_constraints(statement, entity_name)
+                Self::compile_show_constraints(statement, entity_name, work)
             }
-            SqlStatement::ShowIndexes(_) => Self::compile_show_indexes(statement, entity_name),
-            SqlStatement::ShowColumns(_) => Self::compile_show_columns(statement, entity_name),
-            SqlStatement::ShowRelations(_) => Self::compile_show_relations(statement, entity_name),
+            SqlStatement::ShowIndexes(_) => {
+                Self::compile_show_indexes(statement, entity_name, work)
+            }
+            SqlStatement::ShowColumns(_) => {
+                Self::compile_show_columns(statement, entity_name, work)
+            }
+            SqlStatement::ShowRelations(_) => {
+                Self::compile_show_relations(statement, entity_name, work)
+            }
             SqlStatement::ShowEntities(statement) => Ok(Self::compile_show_entities(
                 statement.entity.clone(),
                 statement.verbose,
@@ -79,8 +85,10 @@ impl<C: CanisterKind> DbSession<C> {
     fn prepare_statement_for_entity_name(
         statement: &SqlStatement,
         entity_name: &str,
+        work: &PreparationWork<'_>,
     ) -> Result<PreparedSqlStatement, QueryError> {
-        prepare_sql_statement(statement, entity_name).map_err(QueryError::from_sql_lowering_error)
+        prepare_sql_statement(statement, entity_name, work)
+            .map_err(QueryError::from_sql_lowering_error)
     }
 
     // Compile SELECT by owning only lane detection. Each lane keeps its own
@@ -94,7 +102,7 @@ impl<C: CanisterKind> DbSession<C> {
         work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
         let prepared = if bindings.is_empty() {
-            Self::prepare_statement_for_entity_name(statement, entity_name)?
+            Self::prepare_statement_for_entity_name(statement, entity_name, work)?
         } else {
             prepare_bound_sql_statement(statement, entity_name, schema, bindings, work)?
         };
@@ -159,7 +167,7 @@ impl<C: CanisterKind> DbSession<C> {
         schema: &SchemaInfo,
         work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
-        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name, work)?;
         let delete = lower_prepared_sql_delete_statement(prepared, work)
             .map_err(QueryError::from_sql_lowering_error)?;
         let returning = delete.returning().cloned();
@@ -185,7 +193,7 @@ impl<C: CanisterKind> DbSession<C> {
         schema: &SchemaInfo,
         work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
-        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name, work)?;
         let statement = extract_prepared_sql_insert_statement(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
         let source_query =
@@ -226,8 +234,9 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_update(
         statement: &SqlStatement,
         entity_name: &str,
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
-        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name, work)?;
         let statement = extract_prepared_sql_update_statement(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
 
@@ -243,7 +252,7 @@ impl<C: CanisterKind> DbSession<C> {
         schema: &SchemaInfo,
         work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
-        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let prepared = Self::prepare_statement_for_entity_name(statement, entity_name, work)?;
         let lowered =
             lower_sql_explain_command_from_prepared_statement_with_schema(prepared, schema, work)
                 .map_err(QueryError::from_sql_lowering_error)?;
@@ -256,8 +265,9 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_describe(
         statement: &SqlStatement,
         entity_name: &str,
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
-        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name, work)?;
 
         let SqlStatement::Describe(describe) = statement else {
             return Err(QueryError::invariant());
@@ -272,8 +282,9 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_show_indexes(
         statement: &SqlStatement,
         entity_name: &str,
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
-        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name, work)?;
 
         Ok(CompiledSqlCommand::ShowIndexesEntity)
     }
@@ -283,8 +294,9 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_show_constraints(
         statement: &SqlStatement,
         entity_name: &str,
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
-        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name, work)?;
 
         Ok(CompiledSqlCommand::ShowConstraintsEntity)
     }
@@ -294,8 +306,9 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_show_columns(
         statement: &SqlStatement,
         entity_name: &str,
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
-        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name, work)?;
 
         let SqlStatement::ShowColumns(show_columns) = statement else {
             return Err(QueryError::invariant());
@@ -309,8 +322,9 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_show_relations(
         statement: &SqlStatement,
         entity_name: &str,
+        work: &PreparationWork<'_>,
     ) -> Result<CompiledSqlCommand, QueryError> {
-        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name)?;
+        let _prepared = Self::prepare_statement_for_entity_name(statement, entity_name, work)?;
 
         Ok(CompiledSqlCommand::ShowRelationsEntity)
     }

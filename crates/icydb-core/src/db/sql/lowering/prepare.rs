@@ -38,10 +38,11 @@ use icydb_diagnostic_code::SqlWriteBoundaryCode;
 pub(crate) fn prepare_sql_statement(
     statement: &SqlStatement,
     expected_entity: &str,
+    work: &PreparationWork<'_>,
 ) -> Result<PreparedSqlStatement, SqlLoweringError> {
     validate_sql_statement_input(statement, &[])
         .map_err(|reason| SqlLoweringError::Query(Box::new(reason.into())))?;
-    let statement = prepare_statement(statement, expected_entity)?;
+    let statement = prepare_statement(statement, expected_entity, work)?;
     validate_prepared_statement_parameters(&statement)?;
 
     Ok(PreparedSqlStatement { statement })
@@ -277,6 +278,7 @@ pub(crate) fn extract_prepared_sql_update_statement(
 pub(in crate::db::sql::lowering) fn prepare_statement(
     statement: &SqlStatement,
     expected_entity: &str,
+    work: &PreparationWork<'_>,
 ) -> Result<SqlStatement, SqlLoweringError> {
     // The compile boundary borrows the parsed statement, but preparation
     // returns an owned normalized statement. Clone only the selected statement
@@ -285,24 +287,29 @@ pub(in crate::db::sql::lowering) fn prepare_statement(
         SqlStatement::Select(statement) => Ok(SqlStatement::Select(prepare_select_statement(
             statement.clone(),
             expected_entity,
+            work,
         )?)),
         SqlStatement::Delete(statement) => Ok(SqlStatement::Delete(prepare_delete_statement(
             statement.clone(),
             expected_entity,
+            work,
         )?)),
         SqlStatement::Insert(statement) => Ok(SqlStatement::Insert(prepare_insert_statement(
             statement.clone(),
             expected_entity,
+            work,
         )?)),
         SqlStatement::Update(statement) => Ok(SqlStatement::Update(prepare_update_statement(
             statement.clone(),
             expected_entity,
+            work,
         )?)),
         SqlStatement::Ddl(_) => Err(SqlLoweringError::unsupported_sql_ddl()),
         #[cfg(feature = "sql")]
         SqlStatement::Explain(statement) => Ok(SqlStatement::Explain(prepare_explain_statement(
             statement.clone(),
             expected_entity,
+            work,
         )?)),
         SqlStatement::Describe(statement) => {
             ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
@@ -339,14 +346,15 @@ pub(in crate::db::sql::lowering) fn prepare_statement(
 fn prepare_explain_statement(
     statement: SqlExplainStatement,
     expected_entity: &str,
+    work: &PreparationWork<'_>,
 ) -> Result<SqlExplainStatement, SqlLoweringError> {
     let target = match statement.statement {
-        SqlExplainTarget::Select(select_statement) => {
-            SqlExplainTarget::Select(prepare_select_statement(select_statement, expected_entity)?)
-        }
-        SqlExplainTarget::Delete(delete_statement) => {
-            SqlExplainTarget::Delete(prepare_delete_statement(delete_statement, expected_entity)?)
-        }
+        SqlExplainTarget::Select(select_statement) => SqlExplainTarget::Select(
+            prepare_select_statement(select_statement, expected_entity, work)?,
+        ),
+        SqlExplainTarget::Delete(delete_statement) => SqlExplainTarget::Delete(
+            prepare_delete_statement(delete_statement, expected_entity, work)?,
+        ),
     };
 
     Ok(SqlExplainStatement {
@@ -359,39 +367,37 @@ fn prepare_explain_statement(
 fn prepare_select_statement(
     statement: SqlSelectStatement,
     expected_entity: &str,
+    work: &PreparationWork<'_>,
 ) -> Result<SqlSelectStatement, SqlLoweringError> {
     ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
-    normalize_select_statement_to_expected_entity(statement, expected_entity)
+    normalize_select_statement_to_expected_entity(statement, expected_entity, work)
 }
 
 fn prepare_delete_statement(
     statement: SqlDeleteStatement,
     expected_entity: &str,
+    work: &PreparationWork<'_>,
 ) -> Result<SqlDeleteStatement, SqlLoweringError> {
     ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
-    Ok(normalize_delete_statement_to_expected_entity(
-        statement,
-        expected_entity,
-    ))
+    normalize_delete_statement_to_expected_entity(statement, expected_entity, work)
 }
 
 fn prepare_update_statement(
     statement: SqlUpdateStatement,
     expected_entity: &str,
+    work: &PreparationWork<'_>,
 ) -> Result<SqlUpdateStatement, SqlLoweringError> {
     ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
-    Ok(normalize_update_statement_to_expected_entity(
-        statement,
-        expected_entity,
-    ))
+    normalize_update_statement_to_expected_entity(statement, expected_entity, work)
 }
 
 fn prepare_insert_statement(
     mut statement: SqlInsertStatement,
     expected_entity: &str,
+    work: &PreparationWork<'_>,
 ) -> Result<SqlInsertStatement, SqlLoweringError> {
     ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
@@ -399,6 +405,7 @@ fn prepare_insert_statement(
         statement.source = SqlInsertSource::Select(Box::new(prepare_insert_select_source(
             *select,
             expected_entity,
+            work,
         )?));
     }
 
@@ -409,8 +416,9 @@ fn prepare_insert_statement(
 fn prepare_insert_select_source(
     statement: SqlSelectStatement,
     expected_entity: &str,
+    work: &PreparationWork<'_>,
 ) -> Result<SqlSelectStatement, SqlLoweringError> {
-    let statement = prepare_select_statement(statement, expected_entity)?;
+    let statement = prepare_select_statement(statement, expected_entity, work)?;
 
     if !statement.group_by.is_empty() || !statement.having.is_empty() {
         return Err(QueryError::sql_write_boundary(

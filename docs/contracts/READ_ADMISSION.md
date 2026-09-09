@@ -51,6 +51,24 @@ These are input-content limits, not a complete bound on heap allocation,
 rendering, SQL parsing or endpoint deserialization. Endpoint authorization and
 decoder limits remain the application's responsibility.
 
+Typed/dynamic ORDER BY and aggregate operand copies also consume the current
+request's preparation work and temporary-byte budgets. This applies before
+cache lookup on both cold and warm calls, including trusted reads. Exhaustion
+rejects the call; retrying within the same request does not reset its charges.
+Copying preserves authored syntax and typed values rather than normalizing them.
+Scalar ORDER BY and selected-field vectors charge destination backing before
+allocation; selected names and implicit accepted-primary-key ordering are also
+charged. Clauses retain authored order and duplicate projections. These charges
+do not establish complete bounds for downstream planning.
+
+Grouped key and aggregate destination vectors also charge backing before
+allocation. Group keys select the existing direct/path representation up front;
+that name scan charges preparation work. Authored key count determines reserved
+capacity, even when duplicate keys collapse. Typed/dynamic preparation pays
+these costs before shared-plan lookup; a reusable concrete SQL command still
+skips completed SQL lowering. Key-payload copying, duplicate comparisons and
+downstream rebinding remain separate, incomplete accounting work.
+
 ## Read Surface Inventory
 
 | Surface | Lane | Contract |

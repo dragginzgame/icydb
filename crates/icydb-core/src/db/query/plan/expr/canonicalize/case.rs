@@ -1,5 +1,7 @@
 mod budget;
 #[cfg(test)]
+mod expansion_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::{
@@ -13,29 +15,35 @@ use crate::{
     db::{QueryError, query::preparation::PreparationWork},
     value::Value,
 };
-
-const MAX_BOOL_CASE_CANONICALIZATION_ARMS: usize = 8;
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 // Canonicalize one planner-owned boolean searched `CASE` onto the bounded
 // first-match boolean expansion when the resulting expression size stays within
 // the current threshold. Otherwise preserve the normalized `CASE`
 // shape so canonicalization remains explicit and fail-closed.
 pub(super) fn normalize_bool_case_expr(
-    when_then_arms: Vec<CaseWhenArm>,
-    else_expr: Expr,
+    mut expr: Expr,
     top_level_where_null_collapse: bool,
     work: &PreparationWork<'_>,
 ) -> Result<Expr, QueryError> {
-    Ok(lower_searched_case_to_boolean(
-        when_then_arms.as_slice(),
-        &else_expr,
+    let Expr::Case {
+        when_then_arms,
+        else_expr,
+    } = &mut expr
+    else {
+        return Err(QueryError::invariant());
+    };
+    let Some(admitted) = budget::admit_expansion(when_then_arms, else_expr, work)? else {
+        // Preserve the original arms and ELSE box when content stays compact.
+        return Ok(expr);
+    };
+    lower_searched_case_to_boolean(
+        std::mem::take(when_then_arms),
+        else_expr.take(),
+        admitted,
         top_level_where_null_collapse,
         work,
-    )?
-    .unwrap_or_else(|| Expr::Case {
-        when_then_arms,
-        else_expr: Box::new(else_expr),
-    }))
+    )
 }
 
 // Recurse across boolean-context planner nodes only so searched `CASE`
@@ -107,18 +115,10 @@ pub(super) fn canonicalize_normalized_bool_case_in_bool_context(
                 truth_wrapper_scope,
                 work,
             )?;
-            return normalize_bool_case_expr(
-                std::mem::take(when_then_arms),
-                else_expr.take(),
-                top_level_where_null_collapse,
-                work,
-            );
+            return normalize_bool_case_expr(expr, top_level_where_null_collapse, work);
         }
         _ => {
-            return Ok(maybe_collapse_truth_wrapper_in_bool_context(
-                expr,
-                truth_wrapper_scope,
-            ));
+            return maybe_collapse_truth_wrapper_in_bool_context(expr, truth_wrapper_scope, work);
         }
     }
 
@@ -130,9 +130,10 @@ pub(super) fn canonicalize_normalized_bool_case_in_bool_context(
 fn maybe_collapse_truth_wrapper_in_bool_context(
     mut expr: Expr,
     scope: Option<TruthWrapperScope>,
-) -> Expr {
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
     let Some(scope) = scope else {
-        return expr;
+        return Ok(expr);
     };
     if let Expr::Binary {
         op: BinaryOp::Eq,
@@ -158,18 +159,19 @@ fn maybe_collapse_truth_wrapper_in_bool_context(
             _ => None,
         };
         if let Some((child, positive)) = chosen {
-            return if positive {
-                child
-            } else {
-                Expr::Unary {
-                    op: UnaryOp::Not,
-                    expr: Box::new(child),
-                }
-            };
+            if positive {
+                return Ok(child);
+            }
+            work.charge(Resource::PredicateExpressionSteps, 1)?;
+            work.charge(Resource::TemporaryBytes, size_of::<Expr>() as u64)?;
+            return Ok(Expr::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(child),
+            });
         }
     }
 
-    expr
+    Ok(expr)
 }
 
 // Recognize the admitted truth-condition family where outer bool equality
@@ -182,8 +184,9 @@ fn truth_wrapper_candidate(expr: &Expr, scope: TruthWrapperScope) -> bool {
 }
 
 /// Lower one already-normalized searched `CASE` expression into an equivalent
-/// boolean expression tree when both the arm count and copied structural
-/// work fit the fixed rewrite budget. Declining keeps the current compact CASE.
+/// boolean expression tree after content admission. Move branch results and
+/// ELSE, charging the single necessary condition copy and introduced wrappers
+/// before construction. Failure discards the private owned intermediate.
 ///
 /// Searched SQL `CASE` selects a branch only when the condition evaluates to
 /// `TRUE`; both `FALSE` and `NULL` fall through to the next arm. The lowered
@@ -197,66 +200,88 @@ fn truth_wrapper_candidate(expr: &Expr, scope: TruthWrapperScope) -> bool {
 /// `top_level_where_null_collapse=false`, so it retains its distinct grouped
 /// result semantics.
 fn lower_searched_case_to_boolean(
-    arms: &[CaseWhenArm],
-    else_expr: &Expr,
+    arms: Vec<CaseWhenArm>,
+    else_expr: Expr,
+    admitted: budget::AdmittedExpansion,
     top_level_where_null_collapse: bool,
     work: &PreparationWork<'_>,
-) -> Result<Option<Expr>, QueryError> {
-    if arms.is_empty()
-        || arms.len() > MAX_BOOL_CASE_CANONICALIZATION_ARMS
-        || !budget::expansion_fits(arms, else_expr)
-    {
-        return Ok(None);
-    }
-
+) -> Result<Expr, QueryError> {
     let mut canonical = match (top_level_where_null_collapse, else_expr) {
-        (true, Expr::Literal(Value::Null)) => Expr::Literal(Value::Bool(false)),
-        (_, other) => other.clone(),
+        (true, Expr::Literal(Value::Null)) => {
+            work.charge(Resource::PredicateExpressionSteps, 1)?;
+            Expr::Literal(Value::Bool(false))
+        }
+        (_, other) => other,
     };
-    for arm in arms.iter().rev() {
+    for (mut arm, copy) in arms.into_iter().zip(admitted.condition_copies).rev() {
+        let [condition, result] = arm.children_mut();
+        copy.charge(work)?;
+        let duplicate = condition.clone();
+        let positive = guarded_bool_case_branch(
+            searched_case_match_guard(condition.take(), work)?,
+            result.take(),
+            work,
+        )?;
+        let negative_guard = searched_case_match_guard(duplicate, work)?;
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        work.charge(Resource::TemporaryBytes, size_of::<Expr>() as u64)?;
+        let negative = guarded_bool_case_branch(
+            Expr::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(negative_guard),
+            },
+            canonical,
+            work,
+        )?;
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        work.charge(Resource::TemporaryBytes, (2 * size_of::<Expr>()) as u64)?;
         canonical = normalize_bool_expr(
             Expr::Binary {
                 op: BinaryOp::Or,
-                left: Box::new(guarded_bool_case_branch(
-                    searched_case_match_guard(arm.condition().clone()),
-                    arm.result().clone(),
-                )),
-                right: Box::new(guarded_bool_case_branch(
-                    Expr::Unary {
-                        op: UnaryOp::Not,
-                        expr: Box::new(searched_case_match_guard(arm.condition().clone())),
-                    },
-                    canonical,
-                )),
+                left: Box::new(positive),
+                right: Box::new(negative),
             },
             work,
         )?;
     }
 
-    Ok(Some(canonical))
+    Ok(canonical)
 }
 
 // Build one guarded boolean branch while preserving the small three-valued
 // identities that keep searched `CASE` canonicalization from emitting obvious
 // `guard AND TRUE` / `guard AND FALSE` shells.
-fn guarded_bool_case_branch(guard: Expr, result: Expr) -> Expr {
+fn guarded_bool_case_branch(
+    guard: Expr,
+    result: Expr,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
     match result {
-        Expr::Literal(Value::Bool(true)) => guard,
-        Expr::Literal(Value::Bool(false)) => Expr::Literal(Value::Bool(false)),
-        other => Expr::Binary {
-            op: BinaryOp::And,
-            left: Box::new(guard),
-            right: Box::new(other),
-        },
+        Expr::Literal(Value::Bool(true)) => Ok(guard),
+        Expr::Literal(Value::Bool(false)) => Ok(result),
+        other => {
+            work.charge(Resource::PredicateExpressionSteps, 1)?;
+            work.charge(Resource::TemporaryBytes, (2 * size_of::<Expr>()) as u64)?;
+            Ok(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(guard),
+                right: Box::new(other),
+            })
+        }
     }
 }
 
 // Lower one searched-`CASE` branch condition onto the planner-owned boolean
 // match contract where only `TRUE` selects the branch and both `FALSE` and
 // `NULL` fall through to the next arm.
-fn searched_case_match_guard(condition: Expr) -> Expr {
-    Expr::FunctionCall {
+fn searched_case_match_guard(
+    condition: Expr,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, QueryError> {
+    work.charge(Resource::PredicateExpressionSteps, 2)?;
+    work.charge(Resource::TemporaryBytes, (2 * size_of::<Expr>()) as u64)?;
+    Ok(Expr::FunctionCall {
         function: Function::Coalesce,
         args: vec![condition, Expr::Literal(Value::Bool(false))],
-    }
+    })
 }

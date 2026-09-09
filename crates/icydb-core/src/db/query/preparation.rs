@@ -1,6 +1,9 @@
 //! Short-lived preparation accounting against the session's existing request.
 //! Counters are never created here or retained in prepared/cached artifacts.
 
+mod expr;
+mod value;
+
 use crate::{
     db::{QueryError, executor::budget::HardExecutionContext, session::RequestExecutionScope},
     error::InternalError,
@@ -19,6 +22,43 @@ pub(in crate::db) struct PreparationWork<'a> {
 }
 
 impl PreparationWork<'_> {
+    /// Copy an admitted name, charging traversal, bytes and destination backing.
+    pub(in crate::db) fn copy_text(&self, text: &str) -> Result<String, QueryError> {
+        self.charge(
+            DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+            1 + text.len() as u64,
+        )?;
+        self.charge(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            text.len() as u64,
+        )?;
+        Ok(text.to_string())
+    }
+
+    /// Reserve once for a known output length. Child construction owns its
+    /// payload charges; this accounts for the destination container backing.
+    pub(in crate::db) fn copy_slice<T, U>(
+        &self,
+        values: &[T],
+        mut copy: impl FnMut(&T) -> Result<U, QueryError>,
+    ) -> Result<Vec<U>, QueryError> {
+        let mut copied = self.vec_with_capacity(values.len())?;
+        for value in values {
+            copied.push(copy(value)?);
+        }
+        Ok(copied)
+    }
+
+    /// Charge known destination backing before allocating a clause container.
+    /// Callers must not grow the vector beyond this admitted capacity.
+    pub(in crate::db) fn vec_with_capacity<T>(&self, len: usize) -> Result<Vec<T>, QueryError> {
+        self.charge(
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            (len as u64).saturating_mul(size_of::<T>() as u64),
+        )?;
+        Ok(Vec::with_capacity(len))
+    }
+
     /// Run one preparation segment without resetting request counters. Capture
     /// instructions on both successful and rejected work before leaving it.
     pub(in crate::db) fn run<T>(

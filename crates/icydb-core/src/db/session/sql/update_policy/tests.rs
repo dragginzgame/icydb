@@ -6,6 +6,57 @@ use crate::db::session::sql::write_policy::{
 
 const PRIMARY_KEY: &[&str] = &["id"];
 
+#[test]
+fn update_policy_preparation_shares_request_scope_for_exact_and_resumable_admission() {
+    use crate::db::{
+        RequestExecutionRoot,
+        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        query::preparation::PreparationWork,
+        session::sql::sql_statement_dispatch,
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
+    };
+
+    let dispatch = sql_statement_dispatch("UPDATE Character SET age = 22 WHERE id = 1")
+        .expect("update syntax");
+    let root = RequestExecutionRoot::new_for_tests(
+        HardExecutionBudget::uniform_for_tests(
+            16_000_000,
+            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+        )
+        .with_limit_for_tests(Resource::TemporaryBytes, 0),
+    );
+    for resumable in [false, true] {
+        let error =
+            PreparationWork::run(&root.scope(), DiagnosticExecutionLane::Mutation, |work| {
+                if resumable {
+                    classify_sql_resumable_update_policy(&dispatch, "Character", context(), work)
+                        .map(|_| ())
+                } else {
+                    classify_sql_update_policy_for_entity(
+                        &dispatch,
+                        "Character",
+                        SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
+                        context(),
+                        work,
+                    )
+                    .map(|_| ())
+                }
+            })
+            .expect_err("scope admission precedes policy plan");
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::TemporaryBytes.raw(),
+        )));
+    }
+    assert_eq!(
+        root.observed(Resource::TemporaryBytes),
+        8 * size_of::<String>() as u64
+    );
+    assert_eq!(root.observed(Resource::RowsVisited), 0);
+}
+
 fn context() -> SqlUpdatePolicyContext<'static> {
     SqlUpdatePolicyContext::new(PRIMARY_KEY)
 }

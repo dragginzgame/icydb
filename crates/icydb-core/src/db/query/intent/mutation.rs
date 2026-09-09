@@ -10,7 +10,7 @@ use crate::db::query::{
         state::{GroupedIntent, NormalizedFilter, QueryIntent},
     },
     plan::{
-        GroupAggregateSpec, GroupField, GroupedExecutionConfig, OrderSpec, OrderTerm,
+        GroupAggregateSpec, GroupFieldSet, GroupedExecutionConfig, OrderSpec,
         expr::{BinaryOp, Expr, normalize_bool_expr},
     },
 };
@@ -66,19 +66,7 @@ impl QueryIntent {
         Ok(())
     }
 
-    /// Append one already-lowered ORDER BY term to scalar intent.
-    pub(in crate::db::query::intent) fn push_order_term(&mut self, term: OrderTerm) {
-        let scalar = self.scalar_mut();
-        scalar.order = Some(match scalar.order.take() {
-            Some(mut spec) => {
-                spec.fields.push(term);
-                spec
-            }
-            None => OrderSpec { fields: vec![term] },
-        });
-    }
-
-    /// Override scalar ORDER BY with one validated order specification.
+    /// Set already-materialized ordering; planner validation remains downstream.
     pub(in crate::db::query::intent) fn set_order_spec(&mut self, order: OrderSpec) {
         self.scalar_mut().order = Some(order);
     }
@@ -96,26 +84,25 @@ impl QueryIntent {
         self.scalar_mut().projection_selection = projection_selection;
     }
 
-    /// Record one grouped key slot while preserving grouped-delete policy semantics.
-    pub(in crate::db::query::intent) fn push_group_field(&mut self, field: GroupField) {
+    /// Move resolved keys while preserving grouped-delete policy semantics.
+    pub(in crate::db::query::intent) fn set_group_fields(&mut self, fields: GroupFieldSet) {
         let Some(grouped) = self.grouped_mutation_target() else {
             return;
         };
 
-        let group = &mut grouped.group;
-        group.group_fields.push(field);
+        grouped.group.group_fields = fields;
     }
 
-    /// Record one grouped aggregate terminal while preserving delete policy flags.
-    pub(in crate::db::query::intent) fn push_group_aggregate(
+    /// Move materialized aggregates while preserving delete policy flags.
+    pub(in crate::db::query::intent) fn set_group_aggregates(
         &mut self,
-        aggregate: GroupAggregateSpec,
+        aggregates: Vec<GroupAggregateSpec>,
     ) {
         let Some(grouped) = self.grouped_mutation_target() else {
             return;
         };
 
-        grouped.group.aggregates.push(aggregate);
+        grouped.group.aggregates = aggregates;
     }
 
     /// Set explicit hard limits for grouped execution.

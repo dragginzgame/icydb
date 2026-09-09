@@ -117,7 +117,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn skip_whitespace(&mut self) {
+    const fn skip_whitespace(&mut self) {
         let len = self.bytes.len();
         while self.pos < len && self.bytes[self.pos].is_ascii_whitespace() {
             self.pos += 1;

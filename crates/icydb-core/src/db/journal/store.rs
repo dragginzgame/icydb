@@ -2180,7 +2180,10 @@ fn decode_entity_mutation_revision_chunk(
     entries
         .try_reserve_exact(count)
         .map_err(|_| journal_tail_corruption())?;
-    for raw in bytes[entries_start..].chunks_exact(ENTITY_MUTATION_REVISION_ENTRY_BYTES) {
+    for raw in bytes[entries_start..]
+        .as_chunks::<ENTITY_MUTATION_REVISION_ENTRY_BYTES>()
+        .0
+    {
         let mut tag = [0; size_of::<u64>()];
         let mut revision = [0; size_of::<u64>()];
         tag.copy_from_slice(&raw[..size_of::<u64>()]);

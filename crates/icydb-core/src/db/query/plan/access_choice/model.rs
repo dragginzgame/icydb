@@ -430,6 +430,7 @@ impl AccessChoiceSelectedReason {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum AccessChoiceRejectedReason {
+    IndexMembershipUnproven,
     PredicateAbsent,
     NonIndexAccess,
     PredicateShapeNotPrefixEligible,
@@ -462,6 +463,7 @@ impl AccessChoiceRejectedReason {
     #[must_use]
     pub(in crate::db) const fn code(self) -> &'static str {
         match self {
+            Self::IndexMembershipUnproven => "index_membership_unproven",
             Self::PredicateAbsent => "predicate_absent",
             Self::NonIndexAccess => "non_index_access",
             Self::PredicateShapeNotPrefixEligible => "predicate_shape_not_prefix_eligible",

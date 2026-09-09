@@ -3,6 +3,9 @@
 //! Does not own: grouped runtime fold execution or cursor token handling.
 //! Boundary: derives planner-owned grouped semantic projections from query/model inputs.
 
+#[cfg(test)]
+mod having_tests;
+
 use crate::{
     db::{
         QueryError,
@@ -14,71 +17,70 @@ use crate::{
             },
             preparation::PreparationWork,
         },
-        schema::{
-            AcceptedFieldKind, SchemaInfo, canonicalize_filter_literal_for_persisted_kind,
-            materialize_filter_literal,
-        },
+        schema::{AcceptedFieldKind, SchemaInfo, canonicalize_filter_literal_for_persisted_kind},
     },
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+use std::borrow::Cow;
 
-/// Canonicalize one grouped `HAVING` literal through accepted schema authority.
+/// Normalize an owned lowering intermediate in place. Unlike ordinary filter
+/// conversion, grouped lists retain children that do not convert. On exhaustion
+/// the caller must discard the intermediate, never publish a partial result.
 fn canonicalize_grouped_having_numeric_literal_for_accepted_kind(
     field_kind: &AcceptedFieldKind,
-    value: &Value,
+    value: &mut Value,
     work: &PreparationWork<'_>,
-) -> Result<Option<Value>, QueryError> {
-    Ok(match field_kind {
+) -> Result<(), QueryError> {
+    work.charge(Resource::NestedValueSteps, 1)?;
+    match field_kind {
         AcceptedFieldKind::Relation { key_kind, .. } => {
-            canonicalize_grouped_having_numeric_literal_for_accepted_kind(key_kind, value, work)?
+            canonicalize_grouped_having_numeric_literal_for_accepted_kind(key_kind, value, work)?;
         }
-        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => match value {
-            Value::List(values) => {
-                work.charge(
-                    icydb_diagnostic_code::DiagnosticExecutionBudgetResource::TemporaryBytes,
-                    (values.len() as u64).saturating_mul(size_of::<Value>() as u64),
-                )?;
-                let mut canonical = Vec::with_capacity(values.len());
+        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
+            if let Value::List(values) = value {
                 for item in values {
-                    canonical.push(
-                        canonicalize_grouped_having_numeric_literal_for_accepted_kind(
-                            inner, item, work,
-                        )?
-                        .unwrap_or_else(|| item.clone()),
-                    );
+                    canonicalize_grouped_having_numeric_literal_for_accepted_kind(
+                        inner, item, work,
+                    )?;
                 }
-                Some(Value::List(canonical))
             }
-            _ => None,
-        },
+        }
         AcceptedFieldKind::Enum { .. }
         | AcceptedFieldKind::Map { .. }
         | AcceptedFieldKind::Composite { .. }
-        | AcceptedFieldKind::Ulid => None,
-        _ => canonicalize_filter_literal_for_persisted_kind(field_kind, value, work)?
-            .map(|value| materialize_filter_literal(value, work))
-            .transpose()?,
-    })
+        | AcceptedFieldKind::Ulid => {}
+        _ => {
+            if let Some(Cow::Owned(canonical)) =
+                canonicalize_filter_literal_for_persisted_kind(field_kind, value, work)?
+            {
+                *value = canonical;
+            }
+        }
+    }
+    Ok(())
 }
 
-/// Canonicalize one grouped `HAVING` literal through a direct/path key owner.
-pub(in crate::db) fn canonicalize_grouped_having_numeric_literal_for_group_field(
+/// Normalize one owned grouped `HAVING` intermediate through a direct/path expression
+/// owner. The caller discards the intermediate if preparation fails.
+pub(in crate::db) fn canonicalize_grouped_having_numeric_literal_for_expr(
     schema: &SchemaInfo,
-    group_field: &crate::db::query::plan::GroupField,
-    value: &Value,
+    expr: &Expr,
+    value: &mut Value,
     work: &PreparationWork<'_>,
-) -> Result<Option<Value>, QueryError> {
-    let Some(kind) = group_field.accepted_kind_from_schema(schema) else {
-        return Ok(None);
+) -> Result<(), QueryError> {
+    let Some(kind) = crate::db::query::plan::GroupField::accepted_kind_for_expr(schema, expr)
+    else {
+        return Ok(());
     };
     canonicalize_grouped_having_numeric_literal_for_accepted_kind(kind, value, work)
 }
 
 impl GroupAggregateSpec {
-    /// Build one grouped aggregate spec from one aggregate expression.
+    /// Move one authored aggregate into grouped intent without normalization.
     #[must_use]
-    pub(in crate::db) fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
-        Self::from_shape(aggregate.shape().clone())
+    pub(in crate::db) fn from_aggregate_expr(aggregate: AggregateExpr) -> Self {
+        Self::from_shape(aggregate.into_shape())
     }
 
     /// Build one grouped aggregate spec from an optional field input.
@@ -274,13 +276,36 @@ mod tests {
     };
 
     #[test]
+    fn owned_group_aggregate_preserves_operands_and_raw_shape() {
+        let aggregate = min_by("rank")
+            .with_filter_expr(Expr::Literal(Value::Text("x".repeat(4096))))
+            .distinct();
+        let expected = aggregate.clone().into_shape();
+        let input_address = std::ptr::from_ref(aggregate.input_expr().expect("input"));
+        let filter_address = std::ptr::from_ref(aggregate.filter_expr().expect("filter"));
+
+        let grouped = GroupAggregateSpec::from_aggregate_expr(aggregate);
+        assert_eq!(grouped.shape(), &expected);
+        assert!(grouped.raw_distinct());
+        assert!(!grouped.semantic_distinct());
+        assert_eq!(
+            std::ptr::from_ref(grouped.input_expr().expect("input")),
+            input_address
+        );
+        assert_eq!(
+            std::ptr::from_ref(grouped.filter_expr().expect("filter")),
+            filter_address
+        );
+    }
+
+    #[test]
     fn aggregate_wrappers_preserve_raw_and_semantic_equality_domains() {
         let raw_min = min_by("rank");
         let raw_distinct_min = min_by("rank").distinct();
         assert_ne!(raw_min, raw_distinct_min);
 
-        let grouped_min = GroupAggregateSpec::from_aggregate_expr(&raw_min);
-        let grouped_distinct_min = GroupAggregateSpec::from_aggregate_expr(&raw_distinct_min);
+        let grouped_min = GroupAggregateSpec::from_aggregate_expr(raw_min);
+        let grouped_distinct_min = GroupAggregateSpec::from_aggregate_expr(raw_distinct_min);
         assert_eq!(grouped_min, grouped_distinct_min);
         assert!(grouped_distinct_min.raw_distinct());
         assert!(!grouped_distinct_min.semantic_distinct());
@@ -292,27 +317,27 @@ mod tests {
         );
         assert_ne!(raw_count_rows, raw_count_literal);
         assert_eq!(
-            GroupAggregateSpec::from_aggregate_expr(&raw_count_rows),
-            GroupAggregateSpec::from_aggregate_expr(&raw_count_literal),
+            GroupAggregateSpec::from_aggregate_expr(raw_count_rows),
+            GroupAggregateSpec::from_aggregate_expr(raw_count_literal),
         );
 
         assert_ne!(
-            GroupAggregateSpec::from_aggregate_expr(&sum("rank")),
-            GroupAggregateSpec::from_aggregate_expr(&sum("rank").distinct()),
+            GroupAggregateSpec::from_aggregate_expr(sum("rank")),
+            GroupAggregateSpec::from_aggregate_expr(sum("rank").distinct()),
         );
         assert_ne!(
             GroupAggregateSpec::from_aggregate_expr(
-                &sum("rank").with_filter_expr(Expr::Literal(Value::Bool(true))),
+                sum("rank").with_filter_expr(Expr::Literal(Value::Bool(true))),
             ),
             GroupAggregateSpec::from_aggregate_expr(
-                &sum("rank").with_filter_expr(Expr::Literal(Value::Bool(false))),
+                sum("rank").with_filter_expr(Expr::Literal(Value::Bool(false))),
             ),
         );
     }
 
     #[test]
     fn grouped_projection_round_trip_normalizes_only_semantic_distinct() {
-        let grouped = GroupAggregateSpec::from_aggregate_expr(&min_by("rank").distinct());
+        let grouped = GroupAggregateSpec::from_aggregate_expr(min_by("rank").distinct());
         let projected = group_aggregate_spec_expr(&grouped);
 
         assert_eq!(projected, min_by("rank"));
@@ -330,48 +355,39 @@ mod tests {
             key_kind: Box::new(AcceptedFieldKind::Nat64),
         };
 
-        assert_eq!(
-            crate::db::query::preparation::with_preparation_work(|work| {
-                canonicalize_grouped_having_numeric_literal_for_accepted_kind(
-                    &relation,
-                    &Value::Int64(7),
-                    work,
-                )
-                .expect("literal preparation")
-            }),
-            Some(Value::Nat64(7)),
-        );
+        let mut value = Value::Int64(7);
+        crate::db::query::preparation::with_preparation_work(|work| {
+            canonicalize_grouped_having_numeric_literal_for_accepted_kind(
+                &relation, &mut value, work,
+            )
+        })
+        .expect("literal preparation");
+        assert_eq!(value, Value::Nat64(7));
     }
 
     #[test]
     fn accepted_grouped_having_literal_canonicalization_recurses_through_lists() {
         let list = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Int64));
 
-        assert_eq!(
-            crate::db::query::preparation::with_preparation_work(|work| {
-                canonicalize_grouped_having_numeric_literal_for_accepted_kind(
-                    &list,
-                    &Value::List(vec![Value::Nat64(3), Value::Int64(5)]),
-                    work,
-                )
-                .expect("literal preparation")
-            }),
-            Some(Value::List(vec![Value::Int64(3), Value::Int64(5)])),
-        );
+        let mut value = Value::List(vec![Value::Nat64(3), Value::Int64(5)]);
+        crate::db::query::preparation::with_preparation_work(|work| {
+            canonicalize_grouped_having_numeric_literal_for_accepted_kind(&list, &mut value, work)
+        })
+        .expect("literal preparation");
+        assert_eq!(value, Value::List(vec![Value::Int64(3), Value::Int64(5)]));
     }
 
     #[test]
     fn accepted_grouped_having_literal_canonicalization_does_not_widen_ulid_text() {
-        assert_eq!(
-            crate::db::query::preparation::with_preparation_work(|work| {
-                canonicalize_grouped_having_numeric_literal_for_accepted_kind(
-                    &AcceptedFieldKind::Ulid,
-                    &Value::Text("01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string()),
-                    work,
-                )
-                .expect("literal preparation")
-            }),
-            None,
-        );
+        let mut value = Value::Text("01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string());
+        crate::db::query::preparation::with_preparation_work(|work| {
+            canonicalize_grouped_having_numeric_literal_for_accepted_kind(
+                &AcceptedFieldKind::Ulid,
+                &mut value,
+                work,
+            )
+        })
+        .expect("literal preparation");
+        assert_eq!(value, Value::Text("01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string()));
     }
 }

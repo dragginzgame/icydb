@@ -17,7 +17,7 @@ pub(in crate::db) fn decode_hex_bounded(input: &str, max_bytes: usize) -> Option
     }
 
     let mut decoded = Vec::with_capacity(decoded_len);
-    for pair in bytes.chunks_exact(2) {
+    for pair in bytes.as_chunks::<2>().0 {
         let high = decode_hex_nibble(pair[0])?;
         let low = decode_hex_nibble(pair[1])?;
         decoded.push((high << 4) | low);

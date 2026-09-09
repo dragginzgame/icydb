@@ -170,8 +170,10 @@ fn rejected_sql_and_parser_errors_drop_on_a_small_stack() {
                 panic!("select");
             };
             select.predicate = Some(SqlExpr::Literal(value));
-            let error = prepare_sql_statement(&statement, "E")
-                .expect_err("reject before preparation clone");
+            let error = crate::db::query::preparation::with_preparation_work(|work| {
+                prepare_sql_statement(&statement, "E", work)
+            })
+            .expect_err("reject before preparation clone");
             assert_eq!(
                 QueryError::from_sql_lowering_error(error).diagnostic(),
                 QueryError::from(QueryReadAdmissionCode::InputDepthExceeded).diagnostic()

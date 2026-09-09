@@ -7,12 +7,10 @@ use crate::db::query::{expr::FilterExpr, plan::expr::ProjectionSelection};
 use crate::db::{
     predicate::MissingRowPolicy,
     query::{
-        builder::AggregateExpr,
-        expr::OrderTerm as FluentOrderTerm,
         intent::{QueryError, QueryModel},
         plan::{
-            AccessPlannedQuery, PreparedQueryParameterContract, PreparedScalarPlanningState,
-            VisibleIndexes,
+            AccessPlannedQuery, GroupAggregateSpec, PreparedQueryParameterContract,
+            PreparedScalarPlanningState, VisibleIndexes,
         },
         preparation::PreparationWork,
     },
@@ -131,11 +129,6 @@ impl StructuralQuery {
             .filter_expr_with_normalized_predicate(expr, predicate, work)?;
         Ok(self)
     }
-    pub(in crate::db) fn order_term(mut self, term: FluentOrderTerm) -> Self {
-        self.intent = self.intent.order_term(term);
-        self
-    }
-
     // Keep the exact expression-owned scalar filter lane available for
     // internal SQL lowering and parity callers that must preserve one planner
     // expression without routing through the public typed `FilterExpr` surface.
@@ -160,6 +153,7 @@ impl StructuralQuery {
         self
     }
 
+    #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db) fn select_fields<I, S>(mut self, fields: I) -> Self
     where
@@ -176,17 +170,18 @@ impl StructuralQuery {
         self
     }
 
-    pub(in crate::db) fn group_by_with_schema(
+    pub(in crate::db) fn group_fields_with_schema(
         self,
-        field: impl AsRef<str>,
+        fields: &[String],
         schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<Self, QueryError> {
-        self.try_map_intent(|intent| intent.push_group_field_with_schema(field.as_ref(), schema))
+        self.try_map_intent(|intent| intent.group_fields_with_schema(fields, schema, work))
     }
 
     #[must_use]
-    pub(in crate::db) fn aggregate(mut self, aggregate: AggregateExpr) -> Self {
-        self.intent = self.intent.push_group_aggregate(aggregate);
+    pub(in crate::db) fn group_aggregates(mut self, aggregates: Vec<GroupAggregateSpec>) -> Self {
+        self.intent = self.intent.group_aggregates(aggregates);
         self
     }
 

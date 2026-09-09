@@ -10,14 +10,13 @@ use crate::{
         query::plan::{
             OrderSpec, deterministic_secondary_index_order_terms_satisfied,
             grouped_index_order_terms_satisfied, index_key_item_order_terms,
+            planner::index_stream_is_complete_for_query,
         },
         schema::SchemaInfo,
     },
     value::Value,
 };
 use std::ops::Bound;
-
-use super::index_select::predicate_implies_predicate_for_planner;
 
 /// Select one whole-index range scan from accepted semantic index contracts.
 ///
@@ -61,27 +60,6 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_semantic_
     }
 
     None
-}
-
-pub(super) fn index_stream_is_complete_for_query(
-    schema: &SchemaInfo,
-    index: &SemanticIndexAccessContract,
-    query_predicate: &Predicate,
-) -> bool {
-    (0..index.key_arity()).all(|slot| {
-        index.key_item_at(slot).is_some_and(|key_item| {
-            let field = key_item.field();
-            !schema
-                .accepted_query_field_is_omittable(field)
-                .unwrap_or(true)
-                || predicate_implies_predicate_for_planner(
-                    query_predicate,
-                    &Predicate::IsNotNull {
-                        field: field.to_string(),
-                    },
-                )
-        })
-    })
 }
 
 fn ordered_primary_key_names_from_schema(schema: &SchemaInfo) -> Vec<&str> {

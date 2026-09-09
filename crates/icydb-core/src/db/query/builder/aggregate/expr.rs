@@ -1,4 +1,10 @@
-use crate::db::query::plan::{AggregateKind, AggregateShape, expr::Expr};
+use crate::db::{
+    QueryError,
+    query::{
+        plan::{AggregateKind, AggregateShape, expr::Expr},
+        preparation::PreparationWork,
+    },
+};
 
 ///
 /// AggregateExpr
@@ -15,6 +21,14 @@ pub struct AggregateExpr {
 }
 
 impl AggregateExpr {
+    /// Copy this admitted declaration against the current preparation request.
+    pub(in crate::db) fn copy_for_preparation(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Ok(Self::from_shape(self.shape.copy_for_preparation(work)?))
+    }
+
     /// Detach recursive children for iterative owned-request cleanup.
     pub(in crate::db) const fn take_expressions(&mut self) -> [Option<Box<Expr>>; 2] {
         self.shape.take_expressions()
@@ -47,10 +61,10 @@ impl AggregateExpr {
         Self { shape }
     }
 
-    /// Borrow the canonical raw aggregate shape.
+    /// Transfer the authored shape without copying or re-normalizing operands.
     #[must_use]
-    pub(in crate::db) const fn shape(&self) -> &AggregateShape {
-        &self.shape
+    pub(in crate::db) fn into_shape(self) -> AggregateShape {
+        self.shape
     }
 
     /// Attach one planner-owned pre-aggregate filter expression to this aggregate.

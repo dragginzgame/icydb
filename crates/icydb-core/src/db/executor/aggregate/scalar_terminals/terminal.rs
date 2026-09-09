@@ -129,7 +129,9 @@ impl PreparedScalarAggregateTerminalSet {
     /// Return the single direct-field extrema candidate that may borrow the
     /// canonical aggregate route. Terminal-local filters, DISTINCT state,
     /// expressions, and multi-terminal reductions remain complete scans.
-    pub(super) fn single_field_extrema_route_candidate(&self) -> Option<(AggregateKind, &str)> {
+    pub(super) const fn single_field_extrema_route_candidate(
+        &self,
+    ) -> Option<(AggregateKind, &str)> {
         let [terminal] = self.terminals.as_slice() else {
             return None;
         };

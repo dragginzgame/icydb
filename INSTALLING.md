@@ -34,7 +34,7 @@ The public runtime `icydb` crate path supports Rust `1.88.0` and newer.
 Its library dependency path, including `icydb-model` and
 `icydb-model-macros`, retains the same floor. Other workspace-only packages
 may use the workspace Rust `1.96.0` floor. Repository maintenance uses the
-pinned Rust `1.97.1` toolchain listed below.
+pinned Rust `1.98.1` toolchain listed below.
 
 Generated endpoint build scripts should depend on `icydb` with the same tag and
 call `icydb::build::build_canister!(SchemaCanister)`.

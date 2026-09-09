@@ -7,6 +7,7 @@
 mod aggregate;
 mod analysis;
 mod bindings;
+mod copy;
 mod expr;
 mod normalize;
 mod predicate;

@@ -5,10 +5,7 @@ use crate::{
         RequestExecutionRoot,
         executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::preparation::PreparationWork,
-        schema::{
-            AcceptedFieldKind, canonicalize_filter_literal_for_persisted_kind,
-            materialize_filter_literal,
-        },
+        schema::{AcceptedFieldKind, canonicalize_filter_literal_for_persisted_kind},
     },
     types::{IntBig, NatBig},
     value::Value,
@@ -17,6 +14,8 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
 };
 use std::borrow::Cow;
+
+use super::materialize_filter_literal;
 
 fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
     RequestExecutionRoot::new_for_tests(

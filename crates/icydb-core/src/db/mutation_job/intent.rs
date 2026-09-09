@@ -759,8 +759,8 @@ const fn function_from_tag(tag: u8) -> Result<Function, MutationJobError> {
 fn intent_too_large(limit: usize, observed: usize) -> MutationJobError {
     MutationJobError::PayloadTooLarge {
         kind: MutationJobPayloadKind::Intent,
-        limit: u64::try_from(limit).map_or(u64::MAX, |value| value),
-        observed: u64::try_from(observed).map_or(u64::MAX, |value| value),
+        limit: u64::try_from(limit).unwrap_or(u64::MAX),
+        observed: u64::try_from(observed).unwrap_or(u64::MAX),
     }
 }
 

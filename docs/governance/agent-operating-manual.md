@@ -30,7 +30,7 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - `Makefile`: common tasks.
 - `Cargo.toml`: workspace manifest; edition 2024 and workspace package
   rust-version 1.96.0. `rust-toolchain.toml` pins maintainer and CI tooling to
-  1.97.1. The public `icydb` dependency path and its library dependencies
+  1.98.1. The public `icydb` dependency path and its library dependencies
   advertise and are checked on MSRV 1.88.0; other workspace-only packages use
   the workspace floor.
 
@@ -61,7 +61,7 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - Formatting helpers: install `cargo-sort` and `cargo-sort-derives` as described
   in `INSTALLING.md`. `make install-hooks` installs the hook explicitly;
   `make install-dev` and `make update-dev` also ensure it is installed.
-- CI uses Rust `1.97.1`, `rustfmt`, `clippy -D warnings`, `cargo test`, and
+- CI uses Rust `1.98.1`, `rustfmt`, `clippy -D warnings`, `cargo test`, and
   release builds. It also checks the public `icydb` dependency path on Rust
   `1.88.0`.
 

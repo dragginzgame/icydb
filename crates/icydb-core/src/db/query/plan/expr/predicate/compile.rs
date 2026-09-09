@@ -866,7 +866,7 @@ impl RuntimePredicateAdmission {
 
     // Admit only normalized compare shapes that lower directly onto runtime
     // predicate compare shells.
-    fn is_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> bool {
+    const fn is_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> bool {
         if truth_condition_binary_compare_op(op).is_none() {
             return false;
         }
@@ -915,7 +915,7 @@ impl RuntimePredicateAdmission {
 
     // Admit only canonical text targets that map directly onto runtime text
     // predicate shells.
-    fn is_text_target(expr: &Expr) -> bool {
+    const fn is_text_target(expr: &Expr) -> bool {
         match expr {
             Expr::Field(_) => true,
             Expr::FunctionCall {
@@ -926,7 +926,7 @@ impl RuntimePredicateAdmission {
         }
     }
 
-    fn is_membership_target(expr: &Expr) -> bool {
+    const fn is_membership_target(expr: &Expr) -> bool {
         match expr {
             Expr::Field(_) => true,
             Expr::FunctionCall {

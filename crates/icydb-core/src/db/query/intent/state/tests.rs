@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     db::query::plan::{
-        FieldSlot, GroupField, OrderDirection,
+        FieldSlot, GroupField, GroupFieldSet, OrderDirection,
         expr::{FieldId, Function},
     },
     value::Value,
@@ -70,11 +70,13 @@ fn grouped_load_to_delete_preserves_grouping_policy_without_group_shape() {
 #[test]
 fn group_field_slot_deduplicates_by_slot_index() {
     let mut intent = QueryIntent::new();
-    intent.push_group_field(GroupField::Direct(FieldSlot::from_test_slot(4, "rank")));
-    intent.push_group_field(GroupField::Direct(FieldSlot::from_test_slot(
+    let mut fields = GroupFieldSet::empty();
+    fields.push(GroupField::Direct(FieldSlot::from_test_slot(4, "rank")));
+    fields.push(GroupField::Direct(FieldSlot::from_test_slot(
         4,
         "duplicate-rank",
     )));
+    intent.set_group_fields(fields);
 
     let grouped = intent
         .grouped()
@@ -198,10 +200,14 @@ fn append_extractable_predicate_to_unextractable_expr_marks_partial_coverage() {
 }
 
 #[test]
-fn push_order_terms_preserve_declared_order_sequence() {
+fn order_spec_preserves_declared_order_sequence() {
     let mut intent = QueryIntent::new();
-    intent.push_order_term(crate::db::asc("rank").lower());
-    intent.push_order_term(crate::db::desc("created_at").lower());
+    intent.set_order_spec(crate::db::query::plan::OrderSpec {
+        fields: vec![
+            crate::db::asc("rank").lower(),
+            crate::db::desc("created_at").lower(),
+        ],
+    });
 
     let fields = intent
         .scalar()

@@ -3,10 +3,17 @@
 //! Does not own: aggregate semantic equality, validation, or executor state.
 //! Boundary: builder and logical-plan wrappers choose their own equality over this raw shape.
 
-use crate::db::query::plan::{
-    expr::{Expr, FieldId, canonicalize_aggregate_input_expr},
-    model::AggregateKind,
+use crate::db::{
+    QueryError,
+    query::{
+        plan::{
+            expr::{Expr, FieldId, canonicalize_aggregate_input_expr},
+            model::AggregateKind,
+        },
+        preparation::PreparationWork,
+    },
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 /// Raw aggregate declaration fields shared by builder and logical-plan wrappers.
 ///
@@ -21,6 +28,26 @@ pub(in crate::db) struct AggregateShape {
 }
 
 impl AggregateShape {
+    /// Copy admitted raw operands without applying aggregate canonicalization.
+    pub(in crate::db) fn copy_for_preparation(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        Ok(Self {
+            kind: self.kind,
+            input_expr: self
+                .input_expr()
+                .map(|expr| work.copy_boxed_expr(expr))
+                .transpose()?,
+            filter_expr: self
+                .filter_expr()
+                .map(|expr| work.copy_boxed_expr(expr))
+                .transpose()?,
+            distinct: self.distinct,
+        })
+    }
+
     /// Detach recursive children without cloning or normalizing them.
     pub(in crate::db) const fn take_expressions(&mut self) -> [Option<Box<Expr>>; 2] {
         [self.input_expr.take(), self.filter_expr.take()]

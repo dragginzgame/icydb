@@ -2,6 +2,7 @@
 //! Does not own: public DTO definitions or update execution.
 
 use super::model::*;
+use crate::db::query::preparation::PreparationWork;
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
 use crate::db::{
@@ -74,8 +75,9 @@ pub(in crate::db) fn classify_sql_update_policy_for_entity(
     expected_entity: &str,
     policy: SqlUpdateExposurePolicy,
     context: SqlUpdatePolicyContext<'_>,
+    work: &PreparationWork<'_>,
 ) -> Result<SqlUpdatePolicyResult, QueryError> {
-    let statement = prepare_dispatched_sql_statement(dispatch.statement(), expected_entity)?;
+    let statement = prepare_dispatched_sql_statement(dispatch.statement(), expected_entity, work)?;
 
     Ok(classify_sql_update_statement_policy(
         &statement, policy, context,
@@ -91,8 +93,9 @@ pub(in crate::db) fn classify_sql_resumable_update_policy(
     dispatch: &SqlStatementDispatch<'_>,
     expected_entity: &str,
     context: SqlUpdatePolicyContext<'_>,
+    work: &PreparationWork<'_>,
 ) -> Result<SqlResumableUpdatePolicyReport, QueryError> {
-    let statement = prepare_dispatched_sql_statement(dispatch.statement(), expected_entity)?;
+    let statement = prepare_dispatched_sql_statement(dispatch.statement(), expected_entity, work)?;
     let SqlStatement::Update(statement) = statement else {
         return Ok(Err(SqlUpdatePolicyRejection::NotUpdate));
     };
@@ -117,8 +120,9 @@ pub(in crate::db) fn classify_sql_resumable_update_policy(
 fn prepare_dispatched_sql_statement(
     statement: &SqlStatement,
     expected_entity: &str,
+    work: &PreparationWork<'_>,
 ) -> Result<SqlStatement, QueryError> {
-    prepare_sql_statement(statement, expected_entity)
+    prepare_sql_statement(statement, expected_entity, work)
         .map(crate::db::sql::lowering::PreparedSqlStatement::into_statement)
         .map_err(QueryError::from_sql_lowering_error)
 }

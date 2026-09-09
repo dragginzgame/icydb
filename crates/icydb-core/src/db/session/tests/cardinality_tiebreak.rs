@@ -1,5 +1,7 @@
 //! End-to-end proof for the bounded exact-cardinality planner tie-break.
 
+mod sparse_indexes;
+
 use crate::{
     db::{
         DbSession, DynamicQuery, DynamicStructuralPatch, DynamicWriteCell, FieldRef, FilterExpr,
@@ -10,7 +12,7 @@ use crate::{
         journal::JournalTailStore,
         query::{
             intent::StructuralQuery,
-            plan::{CardinalityTiebreakFamily, CardinalityTiebreakRoutePin},
+            plan::{CardinalityTiebreakFamily, CardinalityTiebreakRoutePin, OrderSpec},
         },
         registry::{
             StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
@@ -335,7 +337,9 @@ fn pinned_route_requires_one_current_eligible_index_identity() {
         },
     )
     .expect("fixture lowering fits request budget")
-    .order_term(asc("id"))
+    .order_spec(OrderSpec {
+        fields: vec![asc("id").lower()],
+    })
     .select_fields(["id"])
     .limit(3);
     let (prepared, _) = session

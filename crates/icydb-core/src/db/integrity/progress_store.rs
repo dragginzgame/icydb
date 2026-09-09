@@ -1032,8 +1032,8 @@ fn mutation_progress_before_digest(bytes: &[u8]) -> [u8; 32] {
 fn mutation_record_size_error(observed: usize) -> MutationJobError {
     MutationJobError::PayloadTooLarge {
         kind: crate::db::MutationJobPayloadKind::Record,
-        limit: u64::try_from(MAX_MUTATION_JOB_RECORD_BYTES).map_or(u64::MAX, |value| value),
-        observed: u64::try_from(observed).map_or(u64::MAX, |value| value),
+        limit: u64::try_from(MAX_MUTATION_JOB_RECORD_BYTES).unwrap_or(u64::MAX),
+        observed: u64::try_from(observed).unwrap_or(u64::MAX),
     }
 }
 

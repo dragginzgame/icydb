@@ -707,8 +707,7 @@ fn scalar_compare_operands_supported_for_fast_path(
 fn scalar_slot_fast_path_supported(slots: &dyn CanonicalSlotReader, field_slot: usize) -> bool {
     slots
         .field_leaf_codec(field_slot)
-        .ok()
-        .is_some_and(|codec| matches!(codec, LeafCodec::Scalar(_)))
+        .is_ok_and(|codec| matches!(codec, LeafCodec::Scalar(_)))
 }
 
 // Field-vs-literal compares can also use borrowed value-storage scalar views

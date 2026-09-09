@@ -139,7 +139,7 @@ impl LoweredSqlGlobalAggregateCommand {
     }
 }
 
-fn is_direct_count_rows_projection(projection: &SqlProjection) -> bool {
+const fn is_direct_count_rows_projection(projection: &SqlProjection) -> bool {
     let SqlProjection::Items(items) = projection else {
         return false;
     };

@@ -20,7 +20,6 @@ use crate::{
     types::NumericValue,
     value::Value,
 };
-use icydb_diagnostic_code::QueryProjectionCode;
 
 ///
 /// NumericProjectionExpr
@@ -38,46 +37,6 @@ pub struct NumericProjectionExpr {
 }
 
 impl NumericProjectionExpr {
-    // Build one bounded field-op-literal numeric projection after validating
-    // that the literal stays on the admitted numeric seam.
-    fn arithmetic_value(
-        field: impl Into<String>,
-        op: BinaryOp,
-        literal: Value,
-    ) -> Result<Self, QueryError> {
-        if !matches!(
-            literal,
-            Value::Int64(_)
-                | Value::Int128(_)
-                | Value::IntBig(_)
-                | Value::Nat64(_)
-                | Value::Nat128(_)
-                | Value::NatBig(_)
-                | Value::U256(_)
-                | Value::Decimal(_)
-                | Value::Float32(_)
-                | Value::Float64(_)
-                | Value::Duration(_)
-                | Value::Timestamp(_)
-                | Value::Date(_)
-        ) {
-            return Err(QueryError::unsupported_projection(
-                QueryProjectionCode::NumericLiteralRequired,
-            ));
-        }
-
-        let field = field.into();
-
-        Ok(Self {
-            expr: Expr::Binary {
-                op,
-                left: Box::new(Expr::Field(FieldId::new(field.clone()))),
-                right: Box::new(Expr::Literal(literal)),
-            },
-            field,
-        })
-    }
-
     // Build one bounded field-op-literal numeric projection from one typed
     // numeric literal helper.
     fn arithmetic_numeric_literal(
@@ -96,42 +55,6 @@ impl NumericProjectionExpr {
             },
             field,
         }
-    }
-
-    // Build one field-plus-literal numeric projection.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn add_value(
-        field: impl Into<String>,
-        literal: Value,
-    ) -> Result<Self, QueryError> {
-        Self::arithmetic_value(field, BinaryOp::Add, literal)
-    }
-
-    // Build one field-minus-literal numeric projection.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn sub_value(
-        field: impl Into<String>,
-        literal: Value,
-    ) -> Result<Self, QueryError> {
-        Self::arithmetic_value(field, BinaryOp::Sub, literal)
-    }
-
-    // Build one field-times-literal numeric projection.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn mul_value(
-        field: impl Into<String>,
-        literal: Value,
-    ) -> Result<Self, QueryError> {
-        Self::arithmetic_value(field, BinaryOp::Mul, literal)
-    }
-
-    // Build one field-divided-by-literal numeric projection.
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn div_value(
-        field: impl Into<String>,
-        literal: Value,
-    ) -> Result<Self, QueryError> {
-        Self::arithmetic_value(field, BinaryOp::Div, literal)
     }
 
     // Build one field-plus-literal numeric projection from one typed numeric
@@ -230,13 +153,13 @@ impl RoundProjectionExpr {
         match scale {
             Value::Int64(value) if value < 0 => {
                 return Err(QueryError::unsupported_projection(
-                    QueryProjectionCode::NumericScaleArguments,
+                    icydb_diagnostic_code::QueryProjectionCode::NumericScaleArguments,
                 ));
             }
             Value::Int64(_) | Value::Nat64(_) => {}
             _ => {
                 return Err(QueryError::unsupported_projection(
-                    QueryProjectionCode::NumericScaleArguments,
+                    icydb_diagnostic_code::QueryProjectionCode::NumericScaleArguments,
                 ));
             }
         }
@@ -346,7 +269,7 @@ pub fn round_expr(projection: &NumericProjectionExpr, scale: u32) -> RoundProjec
 
 #[cfg(test)]
 mod tests {
-    use super::{NumericProjectionExpr, RoundProjectionExpr, add};
+    use super::{RoundProjectionExpr, add};
     use crate::{
         db::{
             QueryError,
@@ -368,14 +291,6 @@ mod tests {
             diagnostic.detail(),
             Some(&DiagnosticDetail::QueryProjection { reason }),
         );
-    }
-
-    #[test]
-    fn numeric_projection_rejects_non_numeric_literal_with_compact_projection_code() {
-        let err = NumericProjectionExpr::arithmetic_value("age", BinaryOp::Add, Value::Bool(true))
-            .expect_err("non-numeric projection literal should fail closed");
-
-        assert_query_projection_error(err, QueryProjectionCode::NumericLiteralRequired);
     }
 
     #[test]

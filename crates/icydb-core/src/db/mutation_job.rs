@@ -753,8 +753,8 @@ fn payload_too_large(
 ) -> MutationJobError {
     MutationJobError::PayloadTooLarge {
         kind,
-        limit: u64::try_from(limit).map_or(u64::MAX, |value| value),
-        observed: u64::try_from(observed).map_or(u64::MAX, |value| value),
+        limit: u64::try_from(limit).unwrap_or(u64::MAX),
+        observed: u64::try_from(observed).unwrap_or(u64::MAX),
     }
 }
 

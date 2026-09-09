@@ -63,7 +63,7 @@ fn canonical_cmp_access_plan_value(
 }
 
 // Return the single value from one canonicalized value-set shape.
-fn single_canonical_value(values: &[Value]) -> Option<&Value> {
+const fn single_canonical_value(values: &[Value]) -> Option<&Value> {
     match values {
         [value] => Some(value),
         _ => None,

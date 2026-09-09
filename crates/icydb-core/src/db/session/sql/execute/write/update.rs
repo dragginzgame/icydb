@@ -309,11 +309,18 @@ impl<C: CanisterKind> DbSession<C> {
             None,
             |catalog, descriptor| {
                 with_accepted_sql_update_policy_context(&descriptor, |context| {
-                    classify_sql_update_policy_for_entity(
-                        dispatch,
-                        catalog.snapshot().persisted_snapshot().entity_name(),
-                        policy,
-                        context,
+                    PreparationWork::run(
+                        self.db.request_execution_scope(),
+                        icydb_diagnostic_code::DiagnosticExecutionLane::Mutation,
+                        |work| {
+                            classify_sql_update_policy_for_entity(
+                                dispatch,
+                                catalog.snapshot().persisted_snapshot().entity_name(),
+                                policy,
+                                context,
+                                work,
+                            )
+                        },
                     )
                 })
             },

@@ -35,6 +35,7 @@ use crate::{
                 CompiledExpr, Expr, collect_scalar_expr_field_roots,
                 compile_scalar_projection_expr_with_schema,
             },
+            preparation::PreparationWork,
             resumable_update_scope_fingerprint,
         },
         registry::{StoreAllocationIdentity, StoreHandle, StoreRuntimeStorageMode},
@@ -887,10 +888,17 @@ impl<C: CanisterKind> DbSession<C> {
         let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
             .map_err(QueryError::execute)?;
         let report = with_accepted_sql_update_policy_context(&descriptor, |context| {
-            classify_sql_resumable_update_policy(
-                dispatch,
-                catalog.snapshot().persisted_snapshot().entity_name(),
-                context,
+            PreparationWork::run(
+                self.db.request_execution_scope(),
+                icydb_diagnostic_code::DiagnosticExecutionLane::Mutation,
+                |work| {
+                    classify_sql_resumable_update_policy(
+                        dispatch,
+                        catalog.snapshot().persisted_snapshot().entity_name(),
+                        context,
+                        work,
+                    )
+                },
             )
         })?;
         let plan = require_resumable_update_plan(report)?;

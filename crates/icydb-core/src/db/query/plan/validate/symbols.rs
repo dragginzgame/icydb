@@ -8,23 +8,41 @@ use crate::{
     db::query::{
         intent::QueryError,
         plan::{
-            FieldSlot, GroupField,
+            FieldSlot, GroupField, GroupFieldSet,
             validate::{ExprPlanError, GroupPlanError, PlanError},
         },
+        preparation::PreparationWork,
     },
     db::schema::{FieldType, SchemaInfo},
 };
-use icydb_diagnostic_code::QueryFieldRole;
+use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, QueryFieldRole};
 
-/// Resolve one direct or scalar record-path grouping key through schema authority.
-pub(in crate::db) fn resolve_group_field_with_schema(
+/// Materialize a complete grouping clause through the existing key resolver.
+/// Select its final representation before allocation, avoiding prefix promotion.
+/// Key payload copying and downstream rebinding are separate accounting owners.
+pub(in crate::db) fn resolve_group_fields_with_schema(
     schema: &SchemaInfo,
-    field: &str,
-) -> Result<GroupField, PlanError> {
-    GroupField::resolve_with_schema(schema, field).ok_or_else(|| {
-        PlanError::from(GroupPlanError::unknown_group_field(field))
-            .attach_query_field(QueryFieldRole::GroupBy)
-    })
+    fields: &[String],
+    work: &PreparationWork<'_>,
+) -> Result<GroupFieldSet, QueryError> {
+    let mut has_path = false;
+    for field in fields {
+        work.charge(Resource::PredicateExpressionSteps, 1 + field.len() as u64)?;
+        has_path |= field.contains('.');
+    }
+    let mut resolved = if has_path {
+        GroupFieldSet::PathAware(work.vec_with_capacity(fields.len())?)
+    } else {
+        GroupFieldSet::Direct(work.vec_with_capacity(fields.len())?)
+    };
+    for field in fields {
+        let key = GroupField::resolve_with_schema(schema, field).ok_or_else(|| {
+            PlanError::from(GroupPlanError::unknown_group_field(field))
+                .attach_query_field(QueryFieldRole::GroupBy)
+        })?;
+        resolved.push(key);
+    }
+    Ok(resolved)
 }
 
 /// Resolve one aggregate target field through schema slot authority.

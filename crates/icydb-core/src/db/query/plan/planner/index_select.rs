@@ -15,14 +15,42 @@ use std::{borrow::Cow, cmp::Ordering, ops::Bound};
 
 pub(in crate::db::query) fn eligible_sorted_index_contracts(
     indexes: &[SemanticIndexAccessContract],
+    schema: &SchemaInfo,
     query_predicate: &Predicate,
 ) -> Vec<SemanticIndexAccessContract> {
     debug_assert!(index_contracts_are_sorted(indexes));
     indexes
         .iter()
-        .filter(|index| index_contract_predicate_implied_by_query(index, query_predicate))
+        .filter(|index| {
+            index_contract_predicate_implied_by_query(index, query_predicate)
+                && index_stream_is_complete_for_query(schema, index, query_predicate)
+        })
         .cloned()
         .collect()
+}
+
+/// Prove that every matching row has all physical index components. Nullable
+/// trailing fields and nullable path ancestors can otherwise omit whole rows,
+/// even when the constrained leading prefix is non-null.
+pub(in crate::db::query::plan) fn index_stream_is_complete_for_query(
+    schema: &SchemaInfo,
+    index: &SemanticIndexAccessContract,
+    query_predicate: &Predicate,
+) -> bool {
+    (0..index.key_arity()).all(|slot| {
+        index.key_item_at(slot).is_some_and(|key_item| {
+            let field = key_item.field();
+            !schema
+                .accepted_query_field_is_omittable(field)
+                .unwrap_or(true)
+                || predicate_implies_predicate_for_planner(
+                    query_predicate,
+                    &Predicate::IsNotNull {
+                        field: field.to_string(),
+                    },
+                )
+        })
+    })
 }
 
 fn index_contracts_are_sorted(indexes: &[SemanticIndexAccessContract]) -> bool {
@@ -152,6 +180,11 @@ pub(in crate::db::query::plan) fn predicate_implies_predicate_for_planner(
     implying: &Predicate,
     required: &Predicate,
 ) -> bool {
+    if let Predicate::Or(children) = implying {
+        return children
+            .iter()
+            .all(|child| predicate_implies_predicate_for_planner(child, required));
+    }
     let Some(required) = required_implication_clauses(required) else {
         return false;
     };
@@ -569,7 +602,7 @@ fn query_implication_clauses(predicate: &Predicate) -> QueryImplicationClauses<'
         Predicate::False => QueryImplicationClauses::Unsatisfiable,
         Predicate::True => QueryImplicationClauses::Clauses(ImplicationClauses::default()),
         Predicate::Compare(cmp) => {
-            if compare_clause_supported(cmp) {
+            if compare_clause_supported(cmp) || comparison_proves_field_non_null(cmp, cmp.field()) {
                 QueryImplicationClauses::Clauses(ImplicationClauses {
                     compares: vec![cmp],
                     non_null_fields: Vec::new(),
@@ -652,7 +685,10 @@ fn collect_implication_clauses<'a>(
             CompareClauseCollect::Known
         }
         Predicate::Compare(cmp) => {
-            if !compare_clause_supported(cmp) {
+            if !(compare_clause_supported(cmp)
+                || matches!(mode, CompareClauseMode::Query)
+                    && comparison_proves_field_non_null(cmp, cmp.field()))
+            {
                 return CompareClauseCollect::Unknown;
             }
             out.compares.push(cmp);
@@ -681,10 +717,27 @@ fn collect_implication_clauses<'a>(
     }
 }
 
+// Admit only comparisons whose successful evaluation excludes a null source.
+// Keep this separate from scalar implication: IN and text-prefix predicates
+// prove membership without proving a particular scalar equality or range.
 fn comparison_proves_field_non_null(compare: &ComparePredicate, field: &str) -> bool {
-    compare.field() == field
-        && compare_clause_supported(compare)
-        && !matches!(compare.value(), Value::Null | Value::Unit)
+    if compare.field() != field
+        || !matches!(
+            compare.coercion().id,
+            CoercionId::Strict | CoercionId::NumericWiden | CoercionId::TextCasefold
+        )
+    {
+        return false;
+    }
+    match compare.op() {
+        CompareOp::Eq | CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
+            !matches!(compare.value(), Value::Null)
+        }
+        CompareOp::In => matches!(compare.value(), Value::List(values)
+            if values.iter().all(|value| !matches!(value, Value::Null))),
+        CompareOp::StartsWith => matches!(compare.value(), Value::Text(_)),
+        _ => false,
+    }
 }
 
 const fn compare_clause_supported(cmp: &ComparePredicate) -> bool {
@@ -801,6 +854,49 @@ mod tests {
     }
 
     #[test]
+    fn nullable_guard_implication_accepts_membership_and_text_prefix_but_not_null_members() {
+        let required = non_null("email");
+        let membership = compare(
+            "email",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Text("a".to_string()),
+                Value::Text("b".to_string()),
+            ]),
+        );
+        let prefix = compare("email", CompareOp::StartsWith, Value::Text("a".to_string()));
+        for query in [
+            membership.clone(),
+            prefix.clone(),
+            Predicate::or(vec![membership, prefix]),
+        ] {
+            assert!(predicate_implies_predicate_for_planner(&query, &required));
+        }
+        assert!(predicate_implies_predicate_for_planner(
+            &compare("unit", CompareOp::Eq, Value::Unit),
+            &non_null("unit"),
+        ));
+        let nullable_membership = compare(
+            "email",
+            CompareOp::In,
+            Value::List(vec![Value::Text("a".to_string()), Value::Null]),
+        );
+        assert!(!predicate_implies_predicate_for_planner(
+            &nullable_membership,
+            &required
+        ));
+        let casefold = Predicate::Compare(crate::db::predicate::ComparePredicate::with_coercion(
+            "email",
+            CompareOp::Eq,
+            Value::Text("A".to_string()),
+            CoercionId::TextCasefold,
+        ));
+        assert!(predicate_implies_predicate_for_planner(
+            &casefold, &required
+        ));
+    }
+
+    #[test]
     fn nullable_guard_implication_requires_every_composite_guard_and_extra_filter() {
         let required = Predicate::and(vec![
             non_null("tenant"),
@@ -848,7 +944,6 @@ mod tests {
             }),
             cross_field,
             compare("email", CompareOp::Eq, Value::Null),
-            compare("email", CompareOp::Eq, Value::Unit),
             compare(
                 "lower_email",
                 CompareOp::Eq,

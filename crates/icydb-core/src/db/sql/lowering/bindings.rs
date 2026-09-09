@@ -158,7 +158,7 @@ pub(in crate::db) fn prepare_bound_sql_statement(
     work: &PreparationWork<'_>,
 ) -> Result<PreparedSqlStatement, QueryError> {
     let mut statement =
-        prepare_statement(statement, entity).map_err(QueryError::from_sql_lowering_error)?;
+        prepare_statement(statement, entity, work).map_err(QueryError::from_sql_lowering_error)?;
     let SqlStatement::Select(select) = &mut statement else {
         return Err(binding_error(SqlLoweringCode::ParameterPlacement));
     };

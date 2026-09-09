@@ -577,7 +577,7 @@ fn receipt_is_invalid(receipt: &ConstraintValidationReceipt, entity_tag: EntityT
         })
 }
 
-fn accepted_target_path_is_invalid(path: &AcceptedTargetPath) -> bool {
+const fn accepted_target_path_is_invalid(path: &AcceptedTargetPath) -> bool {
     path.components().is_empty()
         || path.components().len() > MAX_ACCEPTED_TARGET_PATH_COMPONENTS
         || !matches!(

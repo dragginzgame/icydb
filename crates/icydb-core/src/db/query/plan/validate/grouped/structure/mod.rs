@@ -5,7 +5,7 @@
 
 use crate::db::{
     query::plan::{
-        AggregateSemanticKey, GroupField, GroupSpec,
+        AggregateSemanticKey, GroupSpec,
         expr::{Expr, ProjectionSpec},
         validate::grouped::projection_expr::validate_group_projection_expr_compatibility,
         validate::{GroupPlanError, PlanError, resolve_group_aggregate_target_field_type},
@@ -81,15 +81,7 @@ fn validate_group_spec_structure(schema: &SchemaInfo, group: &GroupSpec) -> Resu
         .ok_or_else(|| PlanError::from(GroupPlanError::empty_aggregates()))?;
 
     for (group_index, group_field) in group.group_fields.iter().enumerate() {
-        let Some(resolved) = GroupField::resolve_with_schema(schema, group_field.field()) else {
-            return Err(PlanError::from(GroupPlanError::unknown_group_field_at(
-                group_index,
-                group_field.field(),
-            ))
-            .attach_query_field(QueryFieldRole::GroupBy));
-        };
-        if group_field.root_slot() != resolved.root_slot() || !group_field.same_identity(&resolved)
-        {
+        if !group_field.matches_schema_identity(schema) {
             return Err(PlanError::from(GroupPlanError::unknown_group_field_at(
                 group_index,
                 group_field.field(),
@@ -105,7 +97,7 @@ fn validate_group_spec_structure(schema: &SchemaInfo, group: &GroupSpec) -> Resu
                 ))
                 .attach_query_field(QueryFieldRole::GroupBy));
             };
-            if seen.same_identity(&resolved) {
+            if seen.same_identity(group_field) {
                 return Err(PlanError::from(GroupPlanError::duplicate_group_field(
                     group_index,
                     group_field.field(),

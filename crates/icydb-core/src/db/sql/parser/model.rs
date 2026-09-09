@@ -481,10 +481,11 @@ pub(crate) enum SqlExpr {
 impl SqlExpr {
     /// Visit immediate scalar children in place. Aggregate inputs are a separate
     /// scope and remain opaque, as in the borrowed scalar-tree visitor.
-    pub(in crate::db::sql) fn for_each_scalar_child_mut(
+    /// Stop on the first rejected child without visiting later siblings.
+    pub(in crate::db::sql) fn try_for_each_scalar_child_mut<E>(
         &mut self,
-        visit: &mut impl FnMut(&mut Self),
-    ) {
+        visit: &mut impl FnMut(&mut Self) -> Result<(), E>,
+    ) -> Result<(), E> {
         match self {
             Self::Field(_)
             | Self::FieldPath { .. }
@@ -494,26 +495,27 @@ impl SqlExpr {
             Self::Membership { expr, .. }
             | Self::NullTest { expr, .. }
             | Self::Like { expr, .. }
-            | Self::Unary { expr, .. } => visit(expr),
+            | Self::Unary { expr, .. } => visit(expr)?,
             Self::FunctionCall { args, .. } => {
                 for arg in args {
-                    visit(arg);
+                    visit(arg)?;
                 }
             }
             Self::Binary { left, right, .. } => {
-                visit(left);
-                visit(right);
+                visit(left)?;
+                visit(right)?;
             }
             Self::Case { arms, else_expr } => {
                 for arm in arms {
-                    visit(&mut arm.condition);
-                    visit(&mut arm.result);
+                    visit(&mut arm.condition)?;
+                    visit(&mut arm.result)?;
                 }
                 if let Some(expr) = else_expr {
-                    visit(expr);
+                    visit(expr)?;
                 }
             }
         }
+        Ok(())
     }
 
     /// Visit lexical parameter identities, including membership and aggregate inputs.

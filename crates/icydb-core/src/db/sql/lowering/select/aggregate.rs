@@ -4,9 +4,8 @@ use crate::{
         query::{
             builder::AggregateExpr,
             plan::{
-                canonicalize_grouped_having_numeric_literal_for_group_field,
+                canonicalize_grouped_having_numeric_literal_for_expr,
                 expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr},
-                resolve_group_field_with_schema,
             },
         },
         schema::SchemaInfo,
@@ -197,16 +196,8 @@ fn canonicalize_grouped_having_expr(
         Expr::Binary { left, right, .. } => {
             **left = canonicalize_grouped_having_expr(schema, left.take(), work)?;
             **right = canonicalize_grouped_having_expr(schema, right.take(), work)?;
-            let canonical_left =
-                canonicalize_grouped_having_compare_literals(schema, left, right, work)?;
-            let canonical_right =
-                canonicalize_grouped_having_compare_literals(schema, right, left, work)?;
-            if let Some(canonical) = canonical_left {
-                **left = canonical;
-            }
-            if let Some(canonical) = canonical_right {
-                **right = canonical;
-            }
+            canonicalize_grouped_having_compare_literals(schema, left, right, work)?;
+            canonicalize_grouped_having_compare_literals(schema, right, left, work)?;
         }
         Expr::Field(_) | Expr::FieldPath(_) | Expr::Aggregate(_) | Expr::Literal(_) => {}
         #[cfg(test)]
@@ -260,27 +251,14 @@ fn canonicalize_grouped_global_having_clause(
 
 fn canonicalize_grouped_having_compare_literals(
     schema: &SchemaInfo,
-    expr: &Expr,
+    expr: &mut Expr,
     other: &Expr,
     work: &PreparationWork<'_>,
-) -> Result<Option<Expr>, SqlLoweringError> {
+) -> Result<(), SqlLoweringError> {
     let Expr::Literal(value) = expr else {
-        return Ok(None);
+        return Ok(());
     };
-    let field = match other {
-        Expr::Field(field) => field.as_str().to_string(),
-        Expr::FieldPath(path) => path.path_spec().dotted_label(),
-        _ => return Ok(None),
-    };
-    let Ok(group_field) = resolve_group_field_with_schema(schema, field.as_str()) else {
-        return Ok(None);
-    };
-    let canonical = canonicalize_grouped_having_numeric_literal_for_group_field(
-        schema,
-        &group_field,
-        value,
-        work,
-    )?;
+    canonicalize_grouped_having_numeric_literal_for_expr(schema, other, value, work)?;
 
-    Ok(canonical.map(Expr::Literal))
+    Ok(())
 }

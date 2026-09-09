@@ -38,6 +38,17 @@ struct SqlQueryPerfResult {
     instructions: u64,
 }
 
+#[derive(CandidType, Debug, Deserialize)]
+struct SqlQueryPhasePerfResult {
+    result: SqlQueryResult,
+    instructions: u64,
+    entry: u64,
+    request_ready: u64,
+    session_ready: u64,
+    query_complete: u64,
+    request_complete: u64,
+}
+
 fn query_perf(
     fixture: &ic_testkit::pic::StandaloneCanisterFixture,
     method: &str,
@@ -237,6 +248,97 @@ fn preparation_wasm_cost_matrix() {
     }
 }
 
+/// Matched frozen-module comparison for SQL arithmetic lowering and warm hits.
+#[test]
+#[ignore = "manual wasm-release SQL arithmetic instruction and cycle measurement"]
+fn arithmetic_wasm_cost_matrix() {
+    let module = preparation_measurement_wasm();
+    for op in ["+", "-", "*", "/"] {
+        let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(
+            "sql_perf",
+            module.clone(),
+        );
+        reset_icydb_fixtures(&fixture);
+        for repeat in 1..=3 {
+            let sql = format!(
+                "SELECT id FROM PerfAuditUser WHERE age {op} {repeat} >= -100 ORDER BY id LIMIT 100"
+            );
+            let mut expected = None;
+            for phase in ["compile", "hit"] {
+                settle_measurement_rounds(&fixture);
+                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+                let sample: Result<SqlQueryPerfResult, Error> = fixture
+                    .update_candid("warm_user_query_with_perf", (sql.clone(),))
+                    .expect("arithmetic measurement should decode");
+                let cycles = before
+                    .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+                    .expect("update charges cycles");
+                let sample = sample.expect("arithmetic should execute");
+                let SqlQueryResult::Projection(rows) = &sample.result else {
+                    panic!("arithmetic measurement should project rows");
+                };
+                assert_eq!(rows.row_count, 6);
+                if let Some(expected) = &expected {
+                    assert_eq!(&sample.result, expected);
+                } else {
+                    expected = Some(sample.result.clone());
+                }
+                println!(
+                    "arithmetic_cost op={op} repeat={repeat} phase={phase} instructions={} cycles={cycles}",
+                    sample.instructions
+                );
+            }
+        }
+    }
+}
+
+/// Matched frozen-module comparison for bounded CASE rewrite admission.
+#[test]
+#[ignore = "manual wasm-release CASE admission instruction and cycle measurement"]
+fn case_admission_wasm_cost_matrix() {
+    let module = preparation_measurement_wasm();
+    for levels in [1, 4, 8] {
+        let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(
+            "sql_perf",
+            module.clone(),
+        );
+        reset_icydb_fixtures(&fixture);
+        let mut expected = None;
+        for repeat in 0..3 {
+            let mut condition = format!("age >= -{repeat}");
+            for _ in 0..levels {
+                condition = format!("CASE WHEN {condition} THEN age >= 0 ELSE age < 0 END");
+            }
+            let sql =
+                format!("SELECT id FROM PerfAuditUser WHERE {condition} ORDER BY id LIMIT 100");
+            for phase in ["compile", "hit"] {
+                settle_measurement_rounds(&fixture);
+                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+                let sample: Result<SqlQueryPerfResult, Error> = fixture
+                    .update_candid("warm_user_query_with_perf", (sql.clone(),))
+                    .expect("CASE measurement should decode");
+                let cycles = before
+                    .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+                    .expect("update charges cycles");
+                let sample = sample.expect("CASE query should execute");
+                let SqlQueryResult::Projection(rows) = &sample.result else {
+                    panic!("CASE measurement should project fixture rows");
+                };
+                assert_eq!(rows.row_count, 6);
+                if let Some(expected) = &expected {
+                    assert_eq!(&sample.result, expected);
+                } else {
+                    expected = Some(sample.result.clone());
+                }
+                println!(
+                    "case_admission_cost levels={levels} repeat={repeat} phase={phase} instructions={} cycles={cycles}",
+                    sample.instructions
+                );
+            }
+        }
+    }
+}
+
 /// Matched frozen-module comparison for scalar big-integer filter conversion.
 #[test]
 #[ignore = "manual wasm-release big-integer instruction and cycle measurement"]
@@ -297,6 +399,248 @@ fn big_integer_write_wasm_cost_matrix() {
                 "big_integer_write_cost digits={digits} repeat={repeat} instructions={} cycles={cycles}",
                 sample.instructions
             );
+        }
+    }
+}
+
+/// Measure borrowed aggregate FILTER lowering separately from identical cache hits.
+#[test]
+#[ignore = "manual wasm-release aggregate lowering instruction and cycle measurement"]
+fn aggregate_wasm_cost_matrix() {
+    let module = preparation_measurement_wasm();
+    for bytes in [16_usize, 256, 4096] {
+        let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(
+            "sql_perf",
+            module.clone(),
+        );
+        reset_icydb_fixtures(&fixture);
+        let mut expected = None;
+        for repeat in 0..3 {
+            let literal = format!("{}{repeat}", "x".repeat(bytes - 1));
+            let sql =
+                format!("SELECT COUNT(*) FILTER (WHERE name != '{literal}') FROM PerfAuditUser");
+            for phase in ["compile", "hit"] {
+                settle_measurement_rounds(&fixture);
+                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+                let sample: Result<SqlQueryPerfResult, Error> = fixture
+                    .update_candid("warm_user_query_with_perf", (sql.clone(),))
+                    .expect("aggregate measurement should decode");
+                let cycles = before
+                    .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+                    .expect("update charges cycles");
+                let sample = sample.expect("aggregate should execute");
+                if let Some(expected) = &expected {
+                    assert_eq!(&sample.result, expected);
+                } else {
+                    expected = Some(sample.result.clone());
+                }
+                println!(
+                    "aggregate_cost bytes={bytes} repeat={repeat} phase={phase} instructions={} cycles={cycles}",
+                    sample.instructions
+                );
+            }
+        }
+    }
+}
+
+/// Attribute aggregate audit work across endpoint boundaries without subtracting
+/// inferred page charges from any reported counter.
+#[test]
+#[ignore = "manual wasm-release aggregate phase instruction and cycle measurement"]
+fn aggregate_phase_wasm_cost_matrix() {
+    let module = preparation_measurement_wasm();
+    for bytes in [16_usize, 256, 4096] {
+        let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(
+            "sql_perf",
+            module.clone(),
+        );
+        reset_icydb_fixtures(&fixture);
+        let mut expected = None;
+        for repeat in 0..3 {
+            let literal = format!("{}{repeat}", "x".repeat(bytes - 1));
+            let sql =
+                format!("SELECT COUNT(*) FILTER (WHERE name != '{literal}') FROM PerfAuditUser");
+            for phase in ["compile", "hit"] {
+                settle_measurement_rounds(&fixture);
+                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+                let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
+                    .update_candid("warm_user_query_with_perf", (sql.clone(),))
+                    .expect("phase measurement should decode");
+                let cycles = before
+                    .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+                    .expect("update charges cycles");
+                let sample = sample.expect("aggregate should execute");
+                let boundaries = [
+                    sample.entry,
+                    sample.request_ready,
+                    sample.session_ready,
+                    sample.query_complete,
+                    sample.request_complete,
+                ];
+                assert!(boundaries.windows(2).all(|pair| pair[0] <= pair[1]));
+                assert_eq!(
+                    sample.instructions,
+                    sample.query_complete - sample.request_ready
+                );
+                assert_eq!(
+                    sample.request_complete,
+                    sample.entry
+                        + boundaries
+                            .windows(2)
+                            .map(|pair| pair[1] - pair[0])
+                            .sum::<u64>()
+                );
+                if let Some(expected) = &expected {
+                    assert_eq!(&sample.result, expected);
+                } else {
+                    expected = Some(sample.result.clone());
+                }
+                println!(
+                    "aggregate_phase bytes={bytes} repeat={repeat} phase={phase} entry={} request_ready={} session_ready={} query_complete={} request_complete={} instructions={} cycles={cycles}",
+                    sample.entry,
+                    sample.request_ready,
+                    sample.session_ready,
+                    sample.query_complete,
+                    sample.request_complete,
+                    sample.instructions
+                );
+            }
+        }
+    }
+}
+
+/// Measure entity-alias normalization and retain absolute audit boundaries.
+#[test]
+#[ignore = "manual wasm-release identifier normalization instruction and cycle measurement"]
+fn identifier_wasm_cost_matrix() {
+    let module = preparation_measurement_wasm();
+    let fixture = icydb_testing_integration::install_prebuilt_fixture_canister("sql_perf", module);
+    reset_icydb_fixtures(&fixture);
+    for repeat in 1..=3 {
+        let sql = format!(
+            "SELECT u.id FROM PerfAuditUser u WHERE u.age >= -{repeat} ORDER BY u.id LIMIT 100"
+        );
+        let mut expected = None;
+        for phase in ["compile", "hit"] {
+            settle_measurement_rounds(&fixture);
+            let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+            let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
+                .update_candid("warm_user_query_with_perf", (sql.clone(),))
+                .expect("identifier measurement should decode");
+            let cycles = before
+                .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+                .expect("update charges cycles");
+            let sample = sample.expect("qualified query should execute");
+            let SqlQueryResult::Projection(rows) = &sample.result else {
+                panic!("expected projection")
+            };
+            assert_eq!(rows.row_count, 6);
+            if let Some(expected) = &expected {
+                assert_eq!(&sample.result, expected);
+            } else {
+                expected = Some(sample.result.clone());
+            }
+            println!(
+                "identifier_cost repeat={repeat} phase={phase} instructions={} request_ready={} request_complete={} cycles={cycles}",
+                sample.instructions, sample.request_ready, sample.request_complete
+            );
+        }
+    }
+}
+
+/// Measure projection-alias normalization on ordering and grouped HAVING.
+#[test]
+#[ignore = "manual wasm-release projection alias instruction and cycle measurement"]
+fn projection_alias_wasm_cost_matrix() {
+    let module = preparation_measurement_wasm();
+    for shape in ["order", "having"] {
+        let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(
+            "sql_perf",
+            module.clone(),
+        );
+        reset_icydb_fixtures(&fixture);
+        for repeat in 1..=3 {
+            let sql = if shape == "order" {
+                format!(
+                    "SELECT age AS years FROM PerfAuditUser WHERE age >= -{repeat} ORDER BY years LIMIT 100"
+                )
+            } else {
+                format!(
+                    "SELECT name AS label, COUNT(*) AS total FROM PerfAuditUser GROUP BY name HAVING total >= 1 AND label != 'absent{repeat}'"
+                )
+            };
+            let mut expected = None;
+            for phase in ["compile", "hit"] {
+                settle_measurement_rounds(&fixture);
+                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+                let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
+                    .update_candid("warm_user_query_with_perf", (sql.clone(),))
+                    .expect("alias measurement should decode");
+                let cycles = before
+                    .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+                    .expect("update charges cycles");
+                let sample = sample.expect("alias query should execute");
+                match &sample.result {
+                    SqlQueryResult::Projection(rows) => assert_eq!(rows.row_count, 6),
+                    SqlQueryResult::Grouped(rows) => assert_eq!(rows.row_count, 6),
+                    other => panic!("unexpected alias result: {other:?}"),
+                }
+                if let Some(expected) = &expected {
+                    assert_eq!(&sample.result, expected);
+                } else {
+                    expected = Some(sample.result.clone());
+                }
+                println!(
+                    "projection_alias_cost shape={shape} repeat={repeat} phase={phase} instructions={} request_ready={} request_complete={} cycles={cycles}",
+                    sample.instructions, sample.request_ready, sample.request_complete
+                );
+            }
+        }
+    }
+}
+
+/// Measure grouped-key literal preparation separately from identical cache hits.
+#[test]
+#[ignore = "manual wasm-release grouped HAVING instruction and cycle measurement"]
+fn grouped_having_wasm_cost_matrix() {
+    let module = preparation_measurement_wasm();
+    for bytes in [16_usize, 256, 4096] {
+        let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(
+            "sql_perf",
+            module.clone(),
+        );
+        reset_icydb_fixtures(&fixture);
+        let mut expected = None;
+        for repeat in 0..3 {
+            let literal = format!("{}{repeat}", "x".repeat(bytes - 1));
+            let sql = format!(
+                "SELECT name, COUNT(*) FROM PerfAuditUser GROUP BY name HAVING name != '{literal}'"
+            );
+            for phase in ["compile", "hit"] {
+                settle_measurement_rounds(&fixture);
+                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+                let sample: Result<SqlQueryPerfResult, Error> = fixture
+                    .update_candid("warm_user_query_with_perf", (sql.clone(),))
+                    .expect("grouped HAVING measurement should decode");
+                let cycles = before
+                    .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+                    .expect("update charges cycles");
+                let sample = sample.expect("grouped HAVING should execute");
+                let SqlQueryResult::Grouped(rows) = &sample.result else {
+                    panic!("HAVING measurement should return grouped rows");
+                };
+                assert_eq!(rows.row_count, 6);
+                assert!(rows.next_cursor.is_none());
+                if let Some(expected) = &expected {
+                    assert_eq!(&sample.result, expected);
+                } else {
+                    expected = Some(sample.result.clone());
+                }
+                println!(
+                    "grouped_having_cost bytes={bytes} repeat={repeat} phase={phase} instructions={} cycles={cycles}",
+                    sample.instructions
+                );
+            }
         }
     }
 }

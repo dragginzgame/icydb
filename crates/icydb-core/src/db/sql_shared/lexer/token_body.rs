@@ -131,7 +131,7 @@ fn decode_hex_blob_literal(hex: &[u8]) -> Result<Vec<u8>, crate::db::sql_shared:
     }
 
     let mut bytes = Vec::with_capacity(hex.len() / 2);
-    for pair in hex.chunks_exact(2) {
+    for pair in hex.as_chunks::<2>().0 {
         let Some(high) = hex_nibble(pair[0]) else {
             return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
                 SqlSyntaxErrorKind::BlobLiteralNonHexDigit,

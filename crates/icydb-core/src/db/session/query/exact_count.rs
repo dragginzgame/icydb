@@ -145,8 +145,9 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// The request must be a bare entity count or one strict equality/`IN`
     /// filter over the leading field of an accepted unfiltered field-path user
-    /// index. The index may contain additional trailing fields. Metadata that
-    /// is not ready fails closed; this terminal never falls back to a scan.
+    /// index. Every component, including trailing fields, must be present for
+    /// all matching rows. Metadata that is not ready fails closed; this terminal
+    /// never falls back to a scan.
     pub fn execute_public_exact_count(&self, request: &DynamicQuery) -> Result<u64, QueryError> {
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))

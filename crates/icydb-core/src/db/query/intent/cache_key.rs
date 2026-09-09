@@ -512,7 +512,7 @@ mod tests {
         let aggregate = aggregate::sum("amount")
             .with_filter_expr(Expr::Literal(Value::Bool(true)))
             .distinct();
-        let grouped = GroupAggregateSpec::from_aggregate_expr(&aggregate);
+        let grouped = GroupAggregateSpec::from_aggregate_expr(aggregate.clone());
 
         assert_eq!(
             AggregateCacheKey::from_aggregate_expr(&aggregate),

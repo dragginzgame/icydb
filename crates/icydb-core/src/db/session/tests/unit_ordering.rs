@@ -7,6 +7,7 @@ mod collection_emptiness;
 mod direct_projection;
 mod input_admission;
 mod membership;
+mod sql_construction;
 
 use crate::{
     db::{
@@ -60,6 +61,42 @@ const TYPED_DESCRIPTOR: TypedEntityDescriptor = TypedEntityDescriptor::new(
     ],
 );
 const UNIT_PRIMARY_KEY: PrimaryKeyValue = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Unit);
+
+#[test]
+fn grouped_having_retained_bindings_and_warm_literals_preserve_results() {
+    let session = initialize();
+    seed_singleton(&session);
+    // Parameters remain confined to the maintained WHERE placement. Rebinding
+    // still prepares the same fixed HAVING literal without mutating its syntax.
+    for comparison in ["label = 'singleton'", "'singleton' = label"] {
+        let sql = format!(
+            "SELECT label, COUNT(*) FROM Singleton WHERE label = ? GROUP BY label HAVING {comparison}"
+        );
+        let dispatch = sql_statement_dispatch(&sql).expect("retained grouped syntax");
+        for (label, count) in [("singleton", 1), ("different", 0), ("singleton", 1)] {
+            let concrete = sql.replace('?', &format!("'{label}'"));
+            let (bound, _) = session
+                .execute_trusted_sql_query_with_entity_name(
+                    &dispatch,
+                    &[InputValue::text(label.into())],
+                )
+                .expect("current grouped binding");
+            let SqlStatementResult::Grouped { rows: bound, .. } = bound else {
+                panic!("grouped result");
+            };
+            assert_eq!(bound.len(), count);
+            for _ in 0..2 {
+                let SqlStatementResult::Grouped { rows, .. } = session
+                    .execute_trusted_sql_query(&concrete)
+                    .expect("cold/warm literal control")
+                else {
+                    panic!("grouped result");
+                };
+                assert_eq!(rows, bound);
+            }
+        }
+    }
+}
 
 #[test]
 fn retained_shared_cache_charges_plans_and_rebinds_without_accumulating_operands() {

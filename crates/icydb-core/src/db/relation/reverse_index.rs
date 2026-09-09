@@ -412,7 +412,7 @@ impl AcceptedRelationInfo {
         self.cardinality
     }
 
-    fn scalar_local_component(&self) -> Option<&AcceptedRelationLocalComponent> {
+    const fn scalar_local_component(&self) -> Option<&AcceptedRelationLocalComponent> {
         match &self.source {
             AcceptedRelationSource::Direct(components) => components.scalar_component(),
             AcceptedRelationSource::Nested(_) => None,
@@ -901,7 +901,7 @@ impl AcceptedRelationLocalComponents {
     }
 
     #[must_use]
-    fn scalar_component(&self) -> Option<&AcceptedRelationLocalComponent> {
+    const fn scalar_component(&self) -> Option<&AcceptedRelationLocalComponent> {
         let [component] = self.components.as_slice() else {
             return None;
         };
@@ -1047,7 +1047,7 @@ impl AcceptedRelationTargetPrimaryKey {
     }
 
     #[must_use]
-    fn single_component_kind(&self) -> Option<&AcceptedFieldKind> {
+    const fn single_component_kind(&self) -> Option<&AcceptedFieldKind> {
         let [key_kind] = self.component_kinds.as_slice() else {
             return None;
         };

@@ -1,15 +1,131 @@
-use super::{budget::expansion_fits, normalize_bool_case_expr};
+use super::{budget::admit_expansion, normalize_bool_case_expr};
 use crate::{
     db::query::plan::expr::{
         BinaryOp, CaseWhenArm, Expr, FieldId, Function,
         canonicalize::canonicalize_scalar_where_bool_expr_artifact,
         derive_normalized_bool_expr_predicate_subset, eval_builder_expr_for_value_preview,
     },
+    db::{
+        RequestExecutionRoot,
+        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        query::preparation::PreparationWork,
+    },
     value::{Value, ValueEnum},
 };
+use icydb_diagnostic_code::{
+    DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
+};
+
+fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
+    RequestExecutionRoot::new_for_tests(
+        HardExecutionBudget::uniform_for_tests(
+            16_000_000,
+            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+        )
+        .with_limit_for_tests(resource, limit),
+    )
+}
+
+#[test]
+fn expansion_admission_charges_exact_work_without_allocating_or_changing_policy() {
+    let arms = [CaseWhenArm::new(field("condition"), field("yes"))];
+    let otherwise = field("no");
+    // Arm-count and wrapper-count operations, then three expr/payload pairs. The
+    // hypothetical condition copies affect fixed units, not visits performed.
+    for limit in [7, 8, 100] {
+        let root = root(Resource::PredicateExpressionSteps, limit);
+        let result =
+            PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
+                admit_expansion(&arms, &otherwise, work)
+            });
+        if limit == 7 {
+            let error = result.expect_err("exhaustion is not a compact-CASE decision");
+            assert!(error.diagnostic_facts().contains(&(
+                DiagnosticFactTag::BudgetResource,
+                Resource::PredicateExpressionSteps.raw(),
+            )));
+        } else {
+            assert!(result.unwrap().is_some());
+        }
+        assert_eq!(root.observed(Resource::PredicateExpressionSteps), 8);
+        assert_eq!(root.observed(Resource::TemporaryBytes), 0);
+        assert_eq!(root.observed(Resource::NestedValueSteps), 0);
+    }
+}
+
+#[test]
+fn declined_expansion_short_circuits_and_retries_keep_request_charges() {
+    let arms = [CaseWhenArm::new(
+        field(&"c".repeat(16 * 1024)),
+        Expr::Literal(Value::List(vec![Value::Null; 4096])),
+    )];
+    let otherwise = field("no");
+    let original = arms.clone();
+    let root = root(Resource::PredicateExpressionSteps, 12);
+    for expected_work in [6, 12] {
+        assert!(
+            PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
+                admit_expansion(&arms, &otherwise, work)
+            })
+            .unwrap()
+            .is_none()
+        );
+        assert_eq!(
+            root.observed(Resource::PredicateExpressionSteps),
+            expected_work
+        );
+        // Oversized condition rejects before inspecting its result value.
+        assert_eq!(root.observed(Resource::NestedValueSteps), 0);
+    }
+    let error = PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
+        admit_expansion(&arms, &otherwise, work)
+    })
+    .expect_err("a prior content decline does not reset the request");
+    assert!(error.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::PredicateExpressionSteps.raw(),
+    )));
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 13);
+    assert_eq!(arms, original);
+}
+
+#[test]
+fn expansion_nested_value_exhaustion_propagates_through_normalization() {
+    let root = root(Resource::NestedValueSteps, 1);
+    for expected_visits in [2, 3] {
+        let error =
+            PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
+                normalize_bool_case_expr(
+                    case(
+                        vec![CaseWhenArm::new(
+                            field("condition"),
+                            Expr::Literal(Value::List(vec![Value::Null; 4096])),
+                        )],
+                        field("no"),
+                    ),
+                    false,
+                    work,
+                )
+            })
+            .expect_err("request exhaustion must not preserve a compact CASE and succeed");
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::NestedValueSteps.raw(),
+        )));
+        assert_eq!(root.observed(Resource::NestedValueSteps), expected_visits);
+        assert_eq!(root.observed(Resource::TemporaryBytes), 0);
+    }
+}
 
 fn field(name: &str) -> Expr {
     Expr::Field(FieldId::new(name))
+}
+
+fn case(arms: Vec<CaseWhenArm>, otherwise: Expr) -> Expr {
+    Expr::Case {
+        when_then_arms: arms,
+        else_expr: Box::new(otherwise),
+    }
 }
 
 fn nested_case(levels: usize) -> Expr {
@@ -31,10 +147,13 @@ fn rewrite_budget_counts_both_condition_copies_at_the_boundary() {
         // The remaining 242 units admit 121 payload blocks copied twice.
         for (bytes, fits) in [(121 * 64, true), (121 * 64 + 1, false)] {
             let arms = [CaseWhenArm::new(field(&"x".repeat(bytes)), result.clone())];
-            assert_eq!(expansion_fits(&arms, &result), fits);
+            assert_eq!(
+                admit_expansion(&arms, &result, work).unwrap().is_some(),
+                fits
+            );
             assert_eq!(
                 matches!(
-                    normalize_bool_case_expr(arms.to_vec(), result.clone(), false, work)
+                    normalize_bool_case_expr(case(arms.to_vec(), result.clone()), false, work)
                         .expect("canonical preparation"),
                     Expr::Case { .. }
                 ),
@@ -44,7 +163,11 @@ fn rewrite_budget_counts_both_condition_copies_at_the_boundary() {
         let arms = (0..8)
             .map(|i| CaseWhenArm::new(field(&format!("c{i}")), field(&format!("r{i}"))))
             .collect::<Vec<_>>();
-        assert!(expansion_fits(&arms, &field("else")));
+        assert!(
+            admit_expansion(&arms, &field("else"), work)
+                .unwrap()
+                .is_some()
+        );
     });
 }
 
@@ -67,8 +190,13 @@ fn rewrite_budget_is_content_based_and_covers_large_and_nested_values() {
                 },
                 field("yes"),
             )];
-            assert!(expansion_fits(&arms, &field("no")));
-            normalize_bool_case_expr(arms, field("no"), false, work).expect("canonical preparation")
+            assert!(
+                admit_expansion(&arms, &field("no"), work)
+                    .unwrap()
+                    .is_some()
+            );
+            normalize_bool_case_expr(case(arms, field("no")), false, work)
+                .expect("canonical preparation")
         };
         // Move the original containers into admission: Clone may discard capacity.
         let [reserved, compact] = operands;
@@ -90,25 +218,39 @@ fn rewrite_budget_is_content_based_and_covers_large_and_nested_values() {
             nested,
         ] {
             let arms = [CaseWhenArm::new(field("condition"), Expr::Literal(value))];
-            assert!(!expansion_fits(&arms, &field("no")));
+            assert!(
+                admit_expansion(&arms, &field("no"), work)
+                    .unwrap()
+                    .is_none()
+            );
         }
     });
 }
 
 #[test]
 fn rewrite_budget_accounts_big_integer_magnitude_without_encoding() {
-    for value in [Value::IntBig(1_i64.into()), Value::NatBig(1_u64.into())] {
-        let arms = [CaseWhenArm::new(field("condition"), Expr::Literal(value))];
-        assert!(expansion_fits(&arms, &field("no")));
-    }
-    let digits = "9".repeat(40_000);
-    for value in [
-        Value::IntBig(digits.parse().expect("large integer")),
-        Value::NatBig(digits.parse().expect("large natural")),
-    ] {
-        let arms = [CaseWhenArm::new(field("condition"), Expr::Literal(value))];
-        assert!(!expansion_fits(&arms, &field("no")));
-    }
+    crate::db::query::preparation::with_preparation_work(|work| {
+        for value in [Value::IntBig(1_i64.into()), Value::NatBig(1_u64.into())] {
+            let arms = [CaseWhenArm::new(field("condition"), Expr::Literal(value))];
+            assert!(
+                admit_expansion(&arms, &field("no"), work)
+                    .unwrap()
+                    .is_some()
+            );
+        }
+        let digits = "9".repeat(40_000);
+        for value in [
+            Value::IntBig(digits.parse().expect("large integer")),
+            Value::NatBig(digits.parse().expect("large natural")),
+        ] {
+            let arms = [CaseWhenArm::new(field("condition"), Expr::Literal(value))];
+            assert!(
+                admit_expansion(&arms, &field("no"), work)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    });
 }
 
 #[test]
@@ -185,8 +327,7 @@ fn compact_case_preserves_first_match_and_three_valued_results() {
                             };
                             for top_level in [false, true] {
                                 let actual = normalize_bool_case_expr(
-                                    arms.clone(),
-                                    Expr::Literal(otherwise.clone()),
+                                    case(arms.clone(), Expr::Literal(otherwise.clone())),
                                     top_level,
                                     work,
                                 )

@@ -560,15 +560,13 @@ where
 fn scalar_page_physical_progress_eligible(
     plan: &crate::db::query::plan::AccessPlannedQuery,
 ) -> bool {
-    plan.primary_key_names()
-        .ok()
-        .is_some_and(|primary_key_names| {
-            plan.scalar_plan().order.as_ref().is_some_and(|order| {
-                order
-                    .primary_key_only_direction_fields(primary_key_names.as_slice())
-                    .is_some()
-            })
+    plan.primary_key_names().is_ok_and(|primary_key_names| {
+        plan.scalar_plan().order.as_ref().is_some_and(|order| {
+            order
+                .primary_key_only_direction_fields(primary_key_names.as_slice())
+                .is_some()
         })
+    })
 }
 
 const fn min_optional_limits(left: Option<usize>, right: Option<usize>) -> Option<usize> {

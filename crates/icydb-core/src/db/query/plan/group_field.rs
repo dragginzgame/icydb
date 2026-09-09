@@ -80,16 +80,32 @@ impl GroupField {
         let Some((root, nested)) = field.split_once('.') else {
             return FieldSlot::resolve_with_schema(schema, field).map(Self::Direct);
         };
-        if root.is_empty() || nested.is_empty() {
-            return None;
-        }
-        let segments = nested.split('.').map(str::to_string).collect::<Vec<_>>();
-        if segments.iter().any(String::is_empty) {
-            return None;
-        }
-
+        let accepted_kind = Self::accepted_kind_for_components(schema, field.split('.'))?;
         let root_slot = schema.field_slot_index(root)?;
-        let accepted_kind = schema.accepted_nested_query_field_kind(root, segments.as_slice())?;
+        let semantics = classify_accepted_field_kind(accepted_kind);
+        Some(Self::ScalarPath(ScalarGroupPath {
+            label: field.to_string(),
+            path: PathSpec::new(root, nested.split('.').map(str::to_string).collect()),
+            root_slot,
+            identity_group_canonical_form: semantics.has_identity_group_canonical_form(),
+        }))
+    }
+
+    // Borrow terminal authority without constructing an execution key. Keep
+    // nested grouping eligibility shared with retained-key resolution; direct
+    // fields deliberately retain their existing, broader resolution contract.
+    fn accepted_kind_for_components<'schema, 'path>(
+        schema: &'schema SchemaInfo,
+        mut components: impl Iterator<Item = &'path str> + Clone,
+    ) -> Option<&'schema AcceptedFieldKind> {
+        let root = components.next()?;
+        if components.clone().next().is_none() {
+            return schema.accepted_query_field_kind(root);
+        }
+        if root.is_empty() || components.clone().any(str::is_empty) {
+            return None;
+        }
+        let accepted_kind = schema.accepted_nested_query_field_kind(root, components)?;
         let semantics = classify_accepted_field_kind(accepted_kind);
         if !semantics.is_scalar()
             || !semantics.is_sql_comparable()
@@ -97,12 +113,7 @@ impl GroupField {
         {
             return None;
         }
-        Some(Self::ScalarPath(ScalarGroupPath {
-            label: field.to_string(),
-            path: PathSpec::new(root, segments),
-            root_slot,
-            identity_group_canonical_form: semantics.has_identity_group_canonical_form(),
-        }))
+        Some(accepted_kind)
     }
 
     /// Borrow the normalized field/path label.
@@ -123,18 +134,27 @@ impl GroupField {
         }
     }
 
-    /// Borrow the accepted terminal kind from the accepted schema authority.
+    /// Borrow a field expression's current accepted grouping kind without
+    /// retaining a key, label or schema-kind copy.
     #[must_use]
-    pub(in crate::db) fn accepted_kind_from_schema<'a>(
-        &'a self,
+    pub(in crate::db) fn accepted_kind_for_expr<'a>(
         schema: &'a SchemaInfo,
+        expr: &Expr,
     ) -> Option<&'a AcceptedFieldKind> {
-        match self {
-            Self::Direct(field) => field.accepted_kind(),
-            Self::ScalarPath(path) => schema.accepted_nested_query_field_kind(
-                path.path().root().as_str(),
-                path.path().segments(),
-            ),
+        match expr {
+            Expr::Field(field) => {
+                Self::accepted_kind_for_components(schema, field.as_str().split('.'))
+            }
+            Expr::FieldPath(path) => {
+                let path = path.path_spec();
+                // Preserve dotted-name interpretation without rendering and
+                // reparsing a temporary label (including empty components).
+                let components = std::iter::once(path.root().as_str())
+                    .chain(path.segments().iter().map(String::as_str))
+                    .flat_map(|component| component.split('.'));
+                Self::accepted_kind_for_components(schema, components)
+            }
+            _ => None,
         }
     }
 
@@ -201,11 +221,7 @@ impl GroupField {
     }
 
     fn same_identity(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Direct(left), Self::Direct(right)) => left.index() == right.index(),
-            (Self::ScalarPath(left), Self::ScalarPath(right)) => left.path() == right.path(),
-            _ => false,
-        }
+        GroupFieldRef::PathAware(self).same_identity(GroupFieldRef::PathAware(other))
     }
 }
 
@@ -405,14 +421,42 @@ impl<'a> GroupFieldRef<'a> {
         }
     }
 
-    /// Return whether this borrowed source and an owned source share identity.
+    /// Check current accepted key eligibility and identity without constructing
+    /// a replacement key. This does not rebind retained type metadata or grant
+    /// execution authority; the planner's existing rebinding still owns that.
     #[must_use]
-    pub(in crate::db) fn same_identity(&self, other: &GroupField) -> bool {
-        match self {
-            Self::Direct(field) => other
+    pub(in crate::db) fn matches_schema_identity(&self, schema: &SchemaInfo) -> bool {
+        if let Some(field) = self.as_direct() {
+            // A dotted label resolves as a path, never as a direct key.
+            return !field.field().contains('.')
+                && schema.field_slot_index(field.field()) == Some(field.index())
+                && schema.accepted_query_field_kind(field.field()).is_some();
+        }
+        let Some(path) = self.as_scalar_path() else {
+            return false;
+        };
+        let Some((root, nested)) = path.label().split_once('.') else {
+            return false;
+        };
+        GroupField::accepted_kind_for_components(schema, path.label().split('.')).is_some()
+            && schema.field_slot_index(root) == Some(path.root_slot())
+            && path.path().root().as_str() == root
+            && nested
+                .split('.')
+                .eq(path.path().segments().iter().map(String::as_str))
+    }
+
+    /// Compare borrowed key identities independently of their container representation.
+    #[must_use]
+    pub(in crate::db) fn same_identity(&self, other: GroupFieldRef<'_>) -> bool {
+        if let Some(field) = self.as_direct() {
+            return other
                 .as_direct()
-                .is_some_and(|other| field.index() == other.index()),
-            Self::PathAware(field) => field.same_identity(other),
+                .is_some_and(|other| field.index() == other.index());
+        }
+        match (self.as_scalar_path(), other.as_scalar_path()) {
+            (Some(left), Some(right)) => left.path() == right.path(),
+            _ => false,
         }
     }
 
@@ -498,6 +542,27 @@ mod tests {
             fields.iter().map(|field| field.field()).collect::<Vec<_>>(),
             vec!["direct_rank", "profile.rank"],
         );
+    }
+
+    #[test]
+    fn preallocated_path_tuple_matches_incremental_identity_without_promotion() {
+        let direct = GroupField::Direct(FieldSlot::from_test_accepted_kind(
+            0,
+            "direct_rank",
+            AcceptedFieldKind::Int32,
+        ));
+        let mut expected = GroupFieldSet::empty();
+        let mut reserved = GroupFieldSet::PathAware(Vec::with_capacity(4));
+        for key in [direct.clone(), rank_path(), direct, rank_path()] {
+            expected.push(key.clone());
+            reserved.push(key);
+        }
+        assert_eq!(reserved, expected);
+        let GroupFieldSet::PathAware(fields) = reserved else {
+            panic!("path-aware group tuple");
+        };
+        assert_eq!(fields.capacity(), 4);
+        assert_eq!(fields.len(), 2);
     }
 }
 
