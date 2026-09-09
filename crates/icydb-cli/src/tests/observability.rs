@@ -102,8 +102,7 @@ fn schema_report_rendering_uses_human_tables() {
     let text = render_schema_report(&[]);
 
     assert!(text.contains("IcyDB schema"));
-    assert!(text.contains("entities: 0 of 0 (bounded path prefix, sorted by cost)"));
-    assert!(text.contains("heap-local window ID: unavailable"));
+    assert!(text.contains("entities: 0"));
     assert!(text.contains("fields: 0"));
     assert!(text.contains("indexes: 0"));
     assert!(text.contains("relations: 0"));
@@ -271,6 +270,7 @@ fn metrics_report_rendering_uses_human_summary() {
     let text = render_metrics_report(&icydb::metrics::MetricsReport::default());
 
     assert!(text.contains("IcyDB metrics"));
-    assert!(text.contains("entities: 0"));
+    assert!(text.contains("entities: 0 of 0 (bounded path prefix, sorted by cost)"));
+    assert!(text.contains("heap-local window ID: unavailable"));
     assert!(text.contains("entities\n  None"));
 }
