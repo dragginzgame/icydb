@@ -1,5 +1,9 @@
 //! End-to-end proof for the bounded exact-cardinality planner tie-break.
 
+mod index_metadata;
+mod order_metadata;
+mod projection_metadata;
+mod secondary_order;
 mod sparse_indexes;
 
 use crate::{
@@ -482,14 +486,17 @@ fn selective_dynamic_query() -> DynamicQuery {
         .limit(3)
 }
 
+// Share one registry reference site so request fixtures retain the same
+// recovery/cache identity while supplying independent request budgets.
+fn new_request_session(root: &crate::db::RequestExecutionRoot) -> DbSession<TestCanister> {
+    DbSession::new(&STORE_REGISTRY, root)
+}
+
 fn initialize() -> DbSession<TestCanister> {
     DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
     INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
     SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
-    let session = DbSession::new(
-        &STORE_REGISTRY,
-        &crate::db::RequestExecutionRoot::__new_runtime_root(),
-    );
+    let session = new_request_session(&crate::db::RequestExecutionRoot::__new_runtime_root());
     let candidate = schema_candidate(STORE_PATH);
     session
         .db

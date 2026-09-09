@@ -3,6 +3,8 @@
 //! Does not own: candidate ranking, cardinality maintenance, cache policy, or execution.
 //! Boundary: final planner tie set + store evidence -> one advisory plan selection.
 
+use crate::db::query::preparation::PreparationWork;
+
 use crate::{
     db::{
         DbSession, QueryError,
@@ -49,6 +51,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: &EntityAuthority,
         semantic_indexes: &[SemanticIndexAccessContract],
         plan: AccessPlannedQuery,
+        work: &PreparationWork<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         let schema_info = authority
             .accepted_schema_info()
@@ -81,8 +84,13 @@ impl<C: CanisterKind> DbSession<C> {
                 ),
             };
 
-        let mut plan =
-            apply_exact_cardinality_tiebreak_selection(plan, selected_access, state, schema_info)?;
+        let mut plan = apply_exact_cardinality_tiebreak_selection(
+            plan,
+            selected_access,
+            state,
+            schema_info,
+            work,
+        )?;
         plan.finalize_access_choice_with_semantic_indexes_and_schema(semantic_indexes, schema_info);
 
         Ok(plan)
@@ -93,6 +101,7 @@ impl<C: CanisterKind> DbSession<C> {
         semantic_indexes: &[SemanticIndexAccessContract],
         plan: AccessPlannedQuery,
         route_pin: CardinalityTiebreakRoutePin,
+        work: &PreparationWork<'_>,
     ) -> Result<Option<AccessPlannedQuery>, QueryError> {
         let schema_info = authority
             .accepted_schema_info()
@@ -113,6 +122,7 @@ impl<C: CanisterKind> DbSession<C> {
             Some(selected.into_access()),
             CardinalityTiebreakState::PinnedContinuation(route_pin),
             schema_info,
+            work,
         )?;
         plan.finalize_access_choice_with_semantic_indexes_and_schema(semantic_indexes, schema_info);
 

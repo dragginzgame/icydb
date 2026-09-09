@@ -117,7 +117,7 @@ impl GroupedAggregateExecutionSpec {
         let scalar = compile_scalar_projection_expr_with_schema(schema_info, expr)
             .ok_or_else(InternalError::planner_executor_invariant)?;
 
-        Ok(CompiledExpr::compile(&scalar))
+        Ok(scalar)
     }
 
     /// Build one grouped aggregate spec from one aggregate identity expression.

@@ -23,7 +23,7 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 ///
 /// AcceptedSchemaEntityRuntime
@@ -36,7 +36,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 #[derive(Debug)]
 struct AcceptedSchemaEntityRuntime {
     inspection_plan: AcceptedInspectionPlan,
-    schema_info: Arc<SchemaInfo>,
+    schema_info: Rc<SchemaInfo>,
     authority: EntityAuthority,
 }
 
@@ -76,7 +76,7 @@ impl AcceptedSchemaEntityRuntime {
             identity: identity.clone(),
             error,
         })?;
-        let schema_info = Arc::new(SchemaInfo::from_accepted_snapshot_and_catalog(
+        let schema_info = Rc::new(SchemaInfo::from_accepted_snapshot_and_catalog(
             inspection_plan.snapshot(),
             inspection_plan.value_catalog().clone(),
             true,

@@ -196,7 +196,7 @@ impl GroupedRouteStage {
 
         Self {
             planner_payload: crate::db::executor::pipeline::contracts::GroupedPlannerPayload {
-                plan: std::sync::Arc::new(plan),
+                plan: std::rc::Rc::new(plan),
                 grouped_execution: GroupedExecutionConfig {
                     max_groups: 128,
                     max_group_bytes: 8 * 1024,

@@ -100,7 +100,7 @@ pub(in crate::db) use order_contract::{
     ExecutionOrderContract, ExecutionOrdering,
     access_satisfies_deterministic_secondary_order_contract,
     deterministic_secondary_index_key_items_order_compatibility,
-    deterministic_secondary_index_order_terms_satisfied, grouped_index_order_terms_satisfied,
+    deterministic_secondary_index_key_items_satisfied, grouped_index_key_items_satisfied,
 };
 pub(in crate::db) use order_term::index_key_item_order_terms;
 pub(in crate::db) use parameters::PreparedQueryParameterContract;
@@ -126,10 +126,10 @@ pub(in crate::db) use planner::{
 };
 pub(in crate::db::query::plan) use primary_key_access_proof::PrimaryKeyAccessProof;
 pub(in crate::db::query) use primary_key_input_resource::primary_key_input_resource_from_value_list;
+pub(in crate::db) use projection::lower_direct_projection_layouts_with_schema;
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::lower_global_aggregate_projection;
 pub(in crate::db::query) use projection::{
-    lower_data_row_direct_projection_slots_with_schema, lower_direct_projection_slots_with_schema,
     lower_projection_identity, lower_projection_intent_with_schema,
 };
 #[cfg(feature = "sql")]

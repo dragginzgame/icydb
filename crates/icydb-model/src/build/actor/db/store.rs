@@ -329,19 +329,20 @@ fn startup_driver_tokens() -> TokenStream {
             startup_driver_attempt()
         }
 
-        /// Initialize one fresh thread-local database for native libtest use.
+        /// Drive startup and online convergence for a native libtest database.
         ///
         /// Native tests do not execute IC lifecycle hooks or timer callbacks.
-        /// This test-only boundary invokes the same generated driver once and
-        /// still requires ordinary admission to prove that startup completed.
+        /// Call before the first database access and periodically between
+        /// simulated messages in long-running write tests. This boundary drains
+        /// the same bounded production driver, then checks ordinary admission.
+        /// It does not reset the database or bypass convergence backpressure.
         #[cfg(all(test, not(target_arch = "wasm32")))]
-        pub(crate) fn __initialize_native_database_for_tests(
+        pub(crate) fn __drive_native_database_for_tests(
         ) -> ::std::result::Result<(), ::icydb::Error> {
             ::icydb::db::with_request_execution(|| {
                 while !startup_driver_attempt()? {
-                    // Native libtests begin from empty stores, so the same
-                    // production driver publishes one zero generation per
-                    // registered journaled store without scanning.
+                    // Keep production paging and request limits on both fresh
+                    // startup and later convergence of accumulated writes.
                 }
                 admit_ordinary_database_work()
             })
@@ -943,7 +944,7 @@ mod tests {
             "__record_generated_schema_startup_failure",
             "__icydb_startup_init",
             "__icydb_startup_post_upgrade",
-            "__initialize_native_database_for_tests",
+            "__drive_native_database_for_tests",
         ] {
             assert!(rendered.contains(required), "missing token: {required}");
         }
@@ -979,7 +980,7 @@ mod tests {
         );
         assert!(
             rendered.contains("while!startup_driver_attempt()?{}"),
-            "native initialization should drain the same bounded production driver",
+            "native advancement should drain the same bounded production driver",
         );
         assert!(
             rendered.contains(

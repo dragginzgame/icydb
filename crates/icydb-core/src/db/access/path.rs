@@ -83,6 +83,15 @@ impl<'a> SemanticIndexKeyItemRef<'a> {
         }
     }
 
+    /// Compare the canonical order label without allocating its rendered form.
+    #[must_use]
+    pub(crate) fn matches_canonical_text(self, text: &str) -> bool {
+        match self {
+            Self::Field(field) => field == text,
+            Self::AcceptedExpression(expression) => expression.matches_canonical_order_text(text),
+        }
+    }
+
     #[must_use]
     pub(crate) const fn is_expression(self) -> bool {
         matches!(self, Self::AcceptedExpression(_))

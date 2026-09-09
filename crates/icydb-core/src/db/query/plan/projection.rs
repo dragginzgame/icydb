@@ -4,19 +4,19 @@
 //! Boundary: converts logical query intent into `ProjectionSpec`.
 
 use crate::db::{
+    QueryError,
     query::{
         builder::aggregate::AggregateExpr,
         plan::{
             GroupAggregateSpec, LogicalPlan,
-            expr::{
-                Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
-                collect_unique_direct_projection_slots_with_schema,
-            },
+            expr::{Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec},
             semantics::group_aggregate_spec_expr,
         },
+        preparation::PreparationWork,
     },
     schema::SchemaInfo,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 /// Lower one accepted-schema logical plan into canonical projection semantics.
 #[must_use]
@@ -62,67 +62,54 @@ pub(in crate::db) const fn lower_global_aggregate_projection(
     ProjectionSpec::new(fields)
 }
 
-/// Lower a direct slot projection layout using explicit schema authority.
-#[must_use]
-pub(in crate::db::query) fn lower_direct_projection_slots_with_schema(
-    schema: &SchemaInfo,
-    logical: &LogicalPlan,
-    selection: &ProjectionSelection,
-) -> Option<Vec<usize>> {
-    match logical {
-        LogicalPlan::Scalar(_) => match selection {
-            ProjectionSelection::All => collect_unique_direct_projection_slots_with_schema(
-                schema,
-                schema.field_names_in_slot_order(),
-            ),
-            ProjectionSelection::Fields(field_ids) => {
-                collect_unique_direct_projection_slots_with_schema(
-                    schema,
-                    field_ids.iter().map(FieldId::as_str),
-                )
-            }
-            ProjectionSelection::Exprs(fields) => {
-                collect_unique_direct_projection_slots_with_schema(
-                    schema,
-                    fields
-                        .iter()
-                        .map(ProjectionField::direct_field_name)
-                        .collect::<Option<Vec<_>>>()?,
-                )
-            }
-        },
-        LogicalPlan::Grouped(_) => None,
-    }
-}
+/// Unique consuming-reader slots, followed by duplicate-preserving raw-row slots.
+type DirectProjectionLayouts = (Option<Vec<usize>>, Option<Vec<usize>>);
 
-/// Lower a duplicate-preserving direct slot projection layout for raw data-row
-/// readers using explicit schema authority.
-#[must_use]
-pub(in crate::db::query) fn lower_data_row_direct_projection_slots_with_schema(
+/// Resolve both direct layouts from the already-lowered projection in one pass.
+/// Grouped/computed projections are unavailable, separately from budget failure.
+pub(in crate::db) fn lower_direct_projection_layouts_with_schema(
     schema: &SchemaInfo,
     logical: &LogicalPlan,
-    selection: &ProjectionSelection,
-) -> Option<Vec<usize>> {
-    match logical {
-        LogicalPlan::Scalar(_) => match selection {
-            ProjectionSelection::All => collect_direct_projection_slots_with_schema(
-                schema,
-                schema.field_names_in_slot_order(),
-            ),
-            ProjectionSelection::Fields(field_ids) => collect_direct_projection_slots_with_schema(
-                schema,
-                field_ids.iter().map(FieldId::as_str),
-            ),
-            ProjectionSelection::Exprs(fields) => collect_direct_projection_slots_with_schema(
-                schema,
-                fields
-                    .iter()
-                    .map(ProjectionField::direct_field_name)
-                    .collect::<Option<Vec<_>>>()?,
-            ),
-        },
-        LogicalPlan::Grouped(_) => None,
+    projection: &ProjectionSpec,
+    work: &PreparationWork<'_>,
+) -> Result<DirectProjectionLayouts, QueryError> {
+    if matches!(logical, LogicalPlan::Grouped(_)) {
+        return Ok((None, None));
     }
+    let mut slots = work.vec_with_capacity(projection.len())?;
+    let mut unique = true;
+    for field in projection.fields() {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        let Some(name) = field.direct_field_name() else {
+            return Ok((None, None));
+        };
+        work.charge(Resource::PredicateExpressionSteps, name.len() as u64)?;
+        let Some(slot) = schema.field_slot_index(name) else {
+            return Ok((None, None));
+        };
+        // Once a duplicate disables the consuming-reader layout, only the
+        // raw-row layout remains; do not repeat unnecessary uniqueness checks.
+        if unique {
+            for previous in &slots {
+                work.charge(Resource::PredicateExpressionSteps, 1)?;
+                if *previous == slot {
+                    unique = false;
+                    break;
+                }
+            }
+        }
+        slots.push(slot);
+    }
+    let consuming = if unique {
+        Some(work.copy_slice(&slots, |slot| {
+            work.charge(Resource::PredicateExpressionSteps, 1)?;
+            Ok(*slot)
+        })?)
+    } else {
+        None
+    };
+
+    Ok((consuming, Some(slots)))
 }
 
 /// Lower one logical plan into the identity projection used by hash/fingerprint
@@ -189,20 +176,4 @@ const fn aggregate_projection(aggregate_expr: AggregateExpr) -> ProjectionField 
         expr: Expr::Aggregate(aggregate_expr),
         alias: None,
     }
-}
-
-// Resolve one direct field-slot layout while preserving duplicate source slots.
-// Raw data-row projection can borrow the same slot repeatedly, unlike retained
-// slot readers that consume values through `Option::take()`.
-fn collect_direct_projection_slots_with_schema<'a>(
-    schema: &SchemaInfo,
-    field_names: impl IntoIterator<Item = &'a str>,
-) -> Option<Vec<usize>> {
-    let mut field_slots = Vec::new();
-
-    for field_name in field_names {
-        field_slots.push(schema.field_slot_index(field_name)?);
-    }
-
-    Some(field_slots)
 }

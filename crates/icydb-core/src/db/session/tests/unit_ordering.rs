@@ -7,6 +7,7 @@ mod collection_emptiness;
 mod direct_projection;
 mod input_admission;
 mod membership;
+mod planner_watermark;
 mod sql_construction;
 mod template_accounting;
 

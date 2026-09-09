@@ -93,6 +93,29 @@ fn preview_rejects_nested_field_path_with_compact_projection_code() {
 }
 
 #[test]
+fn preview_rejects_paths_in_discarded_case_branches() {
+    for condition in [true, false] {
+        let path = Expr::FieldPath(FieldPath::new("profile", vec!["name".to_string()]));
+        let valid = Expr::Literal(Value::Nat64(1));
+        let (then_expr, else_expr) = if condition {
+            (valid, path)
+        } else {
+            (path, valid)
+        };
+        let expr = Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Literal(Value::Bool(condition)),
+                then_expr,
+            )],
+            else_expr: Box::new(else_expr),
+        };
+        let err = eval_builder_expr_for_value_preview(&expr, "profile", &Value::Null)
+            .expect_err("discarded paths must still reject during compilation");
+        assert_projection_reason(err, QueryProjectionCode::NestedFieldPathPreview);
+    }
+}
+
+#[test]
 fn preview_eval_matches_compiled_expr_for_null_boolean_composition() {
     assert_preview_matches_compiled(
         &Expr::Unary {

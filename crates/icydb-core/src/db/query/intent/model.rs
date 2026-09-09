@@ -178,13 +178,8 @@ impl QueryModel {
             return load_spec.limit().is_none() && load_spec.offset() == 0;
         };
 
-        let primary_key_names: Vec<&str> = schema_info
-            .primary_key_names()
-            .iter()
-            .map(String::as_str)
-            .collect();
         order
-            .primary_key_only_direction_fields(primary_key_names.as_slice())
+            .primary_key_only_direction_fields(schema_info.primary_key_names())
             .is_some()
     }
 
@@ -418,11 +413,13 @@ impl QueryModel {
         &self,
         visible_indexes: &VisibleIndexes,
         planning_state: PreparedScalarPlanningState<'_>,
+        work: &PreparationWork<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         build_query_model_plan_with_indexes_from_scalar_planning_state(
             self,
             visible_indexes,
             planning_state,
+            work,
         )
     }
 
@@ -430,15 +427,22 @@ impl QueryModel {
         &self,
         template_indexes: &[crate::db::access::SemanticIndexAccessContract],
         planning_state: PreparedScalarPlanningState<'_>,
+        work: &PreparationWork<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        build_query_model_plan_from_parameterized_template(self, template_indexes, planning_state)
+        build_query_model_plan_from_parameterized_template(
+            self,
+            template_indexes,
+            planning_state,
+            work,
+        )
     }
 
     pub(in crate::db::query::intent) fn try_build_trivial_scalar_load_plan_with_schema_info(
         &self,
         schema_info: SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<Option<AccessPlannedQuery>, QueryError> {
-        try_build_trivial_scalar_load_plan_with_schema_info(self, schema_info)
+        try_build_trivial_scalar_load_plan_with_schema_info(self, schema_info, work)
     }
 
     pub(in crate::db::query::intent) fn prepare_scalar_planning_state_with_schema_info(

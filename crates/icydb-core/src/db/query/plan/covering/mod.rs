@@ -12,7 +12,7 @@ use crate::db::{
     predicate::IndexPredicateCapability,
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch,
-        DeterministicSecondaryOrderContract, FieldSlot, OrderDirection, OrderSpec,
+        DeterministicSecondaryOrderContract, FieldSlot, OrderDirection,
         expr::{Expr, FieldId, Function, ProjectionSelection, ProjectionSpec},
         index_key_item_order_terms,
     },
@@ -285,7 +285,7 @@ pub(in crate::db) fn covering_read_plan_with_schema_info(
     covering_index_projection_plan(
         |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
         plan,
-        primary_key_names.as_slice(),
+        primary_key_names,
         strict_predicate_compatible,
         CoveringProjectionFieldSourcePolicy::StrictCovering,
         false,
@@ -304,7 +304,7 @@ pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
     covering_index_projection_plan(
         |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
         plan,
-        primary_key_names.as_slice(),
+        primary_key_names,
         strict_predicate_compatible,
         CoveringProjectionFieldSourcePolicy::HybridRowFallback,
         true,
@@ -405,12 +405,7 @@ fn ordered_distinct_group_seek_plan(
     let CoveringProjectionOrder::IndexOrder(direction) = covering.order_contract else {
         return None;
     };
-    let primary_key_names = primary_key_names_from_schema(schema)?;
-    let order = plan
-        .scalar_plan()
-        .order
-        .as_ref()?
-        .deterministic_secondary_order_contract_fields(&primary_key_names)?;
+    let order = plan.planner_route_profile().secondary_order_contract()?;
     let eligible = !plan.has_any_residual_filter()
         && range.prefix_values().is_empty()
         && projected_fields.next().is_none()
@@ -433,16 +428,17 @@ fn ordered_distinct_group_seek_plan(
     )
 }
 
-// Resolve one covering projection order contract from scalar ORDER BY shape.
+// Reuse the finalized route contract for secondary ordering; only the covering
+// access-path classification belongs here, not order-label construction.
 fn covering_projection_order_contract(
-    order: Option<&OrderSpec>,
+    plan: &AccessPlannedQuery,
     index_order_terms: &[&str],
     prefix_len: usize,
     requires_full_index_order: bool,
-    primary_key_names: &[&str],
+    primary_key_names: &[String],
     path_kind_is_range: bool,
 ) -> Option<CoveringProjectionOrder> {
-    let Some(order) = order else {
+    let Some(order) = plan.scalar_plan().order.as_ref() else {
         return Some(CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc));
     };
     if let Some(direction) = order.primary_key_only_direction_fields(primary_key_names) {
@@ -454,7 +450,7 @@ fn covering_projection_order_contract(
         return Some(CoveringProjectionOrder::PrimaryKeyOrder(direction));
     }
 
-    let order_contract = order.deterministic_secondary_order_contract_fields(primary_key_names)?;
+    let order_contract = plan.planner_route_profile().secondary_order_contract()?;
     let direction = match order_contract.direction() {
         OrderDirection::Asc => Direction::Asc,
         OrderDirection::Desc => Direction::Desc,
@@ -518,7 +514,7 @@ fn covering_hybrid_read_execution_plan(
 fn primary_store_covering_plan(
     mut resolve_field_slot: impl FnMut(&str) -> Option<FieldSlot>,
     plan: &AccessPlannedQuery,
-    primary_key_names: &[&str],
+    primary_key_names: &[String],
 ) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
     // Phase 1: keep primary-store covering admission narrow and explicit.
     if plan.grouped_plan().is_some()
@@ -532,14 +528,8 @@ fn primary_store_covering_plan(
 
     // Phase 2: require a direct-field projection that can be satisfied by the
     // authoritative primary key alone under one PK-order contract.
-    let order_contract = covering_projection_order_contract(
-        plan.scalar_plan().order.as_ref(),
-        &[],
-        0,
-        false,
-        primary_key_names,
-        false,
-    )?;
+    let order_contract =
+        covering_projection_order_contract(plan, &[], 0, false, primary_key_names, false)?;
     let source_context = CoveringProjectionSourceContext {
         coverable_component_fields: &[],
         coverable_component_exprs: &[],
@@ -583,7 +573,7 @@ fn primary_store_covering_plan_with_schema_info(
     primary_store_covering_plan(
         |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
         plan,
-        primary_key_names.as_slice(),
+        primary_key_names,
     )
 }
 
@@ -703,7 +693,7 @@ impl IndexCoveringAccessFacts<'_> {
 // hybrid covering planners do not each restate the same access/order setup.
 fn prepare_covering_index_projection_plan<'a>(
     plan: &'a AccessPlannedQuery,
-    primary_key_names: &[&str],
+    primary_key_names: &[String],
     residual_filter_predicate_supported: bool,
 ) -> Option<(IndexCoveringAccessFacts<'a>, CoveringProjectionOrder)> {
     if plan.grouped_plan().is_some() || !plan.scalar_plan().mode.is_load() {
@@ -719,7 +709,7 @@ fn prepare_covering_index_projection_plan<'a>(
     let index_facts = index_covering_access_facts(&plan.access)?;
     let order_terms = index_facts.order_terms();
     let order_contract = covering_projection_order_contract(
-        plan.scalar_plan().order.as_ref(),
+        plan,
         order_terms.as_slice(),
         index_facts.prefix_len,
         index_facts.requires_full_index_order,
@@ -735,7 +725,7 @@ fn prepare_covering_index_projection_plan<'a>(
 fn covering_index_projection_plan(
     mut resolve_field_slot: impl FnMut(&str) -> Option<FieldSlot>,
     plan: &AccessPlannedQuery,
-    primary_key_names: &[&str],
+    primary_key_names: &[String],
     residual_filter_predicate_supported: bool,
     source_policy: CoveringProjectionFieldSourcePolicy,
     require_row_field: bool,
@@ -882,7 +872,7 @@ struct CoveringProjectionSourceContext<'a> {
     coverable_component_fields: &'a [Option<String>],
     coverable_component_exprs: &'a [Option<Expr>],
     prefix_values: &'a [Value],
-    primary_key_names: &'a [&'a str],
+    primary_key_names: &'a [String],
     source_policy: CoveringProjectionFieldSourcePolicy,
 }
 
@@ -985,13 +975,13 @@ fn covering_projection_field_source(
         })
 }
 
-fn primary_key_names_from_schema(schema: &SchemaInfo) -> Option<Vec<&str>> {
+fn primary_key_names_from_schema(schema: &SchemaInfo) -> Option<&[String]> {
     let primary_key_names = schema.primary_key_names();
     if primary_key_names.is_empty() {
         return None;
     }
 
-    Some(primary_key_names.iter().map(String::as_str).collect())
+    Some(primary_key_names)
 }
 
 // Project one component-field layout that preserves only directly recoverable

@@ -6,8 +6,8 @@
 use crate::db::{
     access::SemanticIndexAccessContract,
     query::plan::{
-        OrderSpec, deterministic_secondary_index_order_terms_satisfied,
-        grouped_index_order_terms_satisfied, index_key_item_order_terms,
+        OrderSpec, deterministic_secondary_index_key_items_satisfied,
+        grouped_index_key_items_satisfied,
     },
     schema::SchemaInfo,
 };
@@ -190,34 +190,23 @@ pub(in crate::db::query::plan) fn selected_index_contract_satisfies_secondary_or
     prefix_len: usize,
     grouped: bool,
 ) -> bool {
-    let index_terms = index_key_item_order_terms(index.key_items());
-
     if grouped {
         let Some(order_contract) = order.and_then(OrderSpec::grouped_index_order_contract) else {
             return false;
         };
 
-        return grouped_index_order_terms_satisfied(
-            &order_contract,
-            index_terms.as_slice(),
-            prefix_len,
-        );
+        return grouped_index_key_items_satisfied(&order_contract, index.key_items(), prefix_len);
     }
 
-    let primary_key_names: Vec<&str> = schema
-        .primary_key_names()
-        .iter()
-        .map(String::as_str)
-        .collect();
-    let Some(order_contract) = order
-        .and_then(|order| order.deterministic_secondary_order_contract_fields(&primary_key_names))
-    else {
+    let Some(order_contract) = order.and_then(|order| {
+        order.deterministic_secondary_order_contract_fields(schema.shared_primary_key_names())
+    }) else {
         return false;
     };
 
-    deterministic_secondary_index_order_terms_satisfied(
+    deterministic_secondary_index_key_items_satisfied(
         &order_contract,
-        index_terms.as_slice(),
+        index.key_items(),
         prefix_len,
     )
 }

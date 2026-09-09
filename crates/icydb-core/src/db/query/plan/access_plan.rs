@@ -19,7 +19,13 @@ use crate::db::{
     },
     schema::SchemaInfo,
 };
-use crate::{db::KeyValueCodec, error::InternalError, value::Value};
+use crate::{
+    db::{KeyValueCodec, QueryError, query::preparation::PreparationWork},
+    error::InternalError,
+    value::Value,
+};
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+use std::rc::Rc;
 
 #[cfg(test)]
 use crate::db::{
@@ -61,14 +67,31 @@ impl ResolvedOrderValueSource {
     }
 
     /// Extend one slot list with every field slot this order source touches.
-    pub(in crate::db) fn extend_referenced_slots(&self, referenced: &mut Vec<usize>) {
-        match self {
-            Self::DirectField(slot) => {
-                if !referenced.contains(slot) {
-                    referenced.push(*slot);
+    pub(in crate::db) fn extend_referenced_slots(
+        &self,
+        referenced: &mut Vec<usize>,
+        work: &PreparationWork<'_>,
+    ) -> Result<(), QueryError> {
+        // Preserve first-reference order: executor consumers already receive
+        // this stable list, not a sorted set. Admit growth before mutation.
+        let mut insert = |slot| {
+            work.charge(Resource::PredicateExpressionSteps, 1)?;
+            for previous in referenced.iter() {
+                work.charge(Resource::PredicateExpressionSteps, 1)?;
+                if *previous == slot {
+                    return Ok(());
                 }
             }
-            Self::Expression(expr) => expr.extend_referenced_slots(referenced),
+            work.reserve_vec(referenced, 1)?;
+            referenced.push(slot);
+            Ok(())
+        };
+        match self {
+            Self::DirectField(slot) => insert(*slot),
+            Self::Expression(expr) => expr.try_for_each_referenced_slot(
+                &mut || work.charge(Resource::PredicateExpressionSteps, 1),
+                &mut insert,
+            ),
         }
     }
 
@@ -146,15 +169,20 @@ impl ResolvedOrder {
 
     /// Return the stable referenced-slot set touched anywhere by this frozen
     /// resolved order contract.
-    #[must_use]
-    pub(in crate::db) fn referenced_slots(&self) -> Vec<usize> {
+    pub(in crate::db) fn referenced_slots(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<Vec<usize>, QueryError> {
         let mut referenced = Vec::new();
 
         for field in self.fields() {
-            field.source().extend_referenced_slots(&mut referenced);
+            work.charge(Resource::PredicateExpressionSteps, 1)?;
+            field
+                .source()
+                .extend_referenced_slots(&mut referenced, work)?;
         }
 
-        referenced
+        Ok(referenced)
     }
 
     /// Return the direct field-slot list when every order term stays on one
@@ -181,7 +209,7 @@ impl ResolvedOrder {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct StaticExecutionPlanningContract {
-    pub(in crate::db) primary_key_names: Vec<String>,
+    pub(in crate::db) primary_key_names: Rc<[String]>,
     pub(in crate::db) projection_spec: ProjectionSpec,
     pub(in crate::db) execution_preparation_predicate: Option<Predicate>,
     pub(in crate::db) execution_preparation_compiled_predicate: Option<PredicateProgram>,

@@ -1518,11 +1518,11 @@ fn prepare_mutation_job_traversal_runtime(
         MutationJobExecutionPreparationError::Restart(MutationJobRestartReason::IntentIneligible)
     })?;
     let compiled_scope =
-        compile_scalar_projection_expr_with_schema(catalog.accepted_schema_info(), scope)
-            .map(|expr| CompiledExpr::compile(&expr))
-            .ok_or(MutationJobExecutionPreparationError::Restart(
+        compile_scalar_projection_expr_with_schema(catalog.accepted_schema_info(), scope).ok_or(
+            MutationJobExecutionPreparationError::Restart(
                 MutationJobRestartReason::IntentIneligible,
-            ))?;
+            ),
+        )?;
 
     Ok(PreparedMutationJobTraversalRuntime {
         compiled_scope,

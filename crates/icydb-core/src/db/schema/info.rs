@@ -3,7 +3,7 @@
 //! Does not own: query planning policy or runtime predicate evaluation.
 //! Boundary: validates entity/index model consistency for predicate schema metadata.
 
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, rc::Rc, sync::Arc};
 
 #[cfg(feature = "sql")]
 use crate::db::schema::canonicalize_strict_sql_literal_for_persisted_kind;
@@ -26,7 +26,7 @@ use crate::{
     db::{QueryError, query::preparation::PreparationWork},
     value::{InputValue, Value},
 };
-type SchemaFieldEntry = (String, SchemaFieldInfo);
+type SchemaFieldEntry = (Arc<str>, SchemaFieldInfo);
 
 #[cfg(feature = "sql")]
 fn accepted_sql_capabilities(
@@ -36,14 +36,14 @@ fn accepted_sql_capabilities(
     sql_capabilities_with_enum_catalog(kind, value_catalog.enum_catalog())
 }
 
-fn schema_field_info<'a>(
+fn schema_field_entry<'a>(
     fields: &'a [SchemaFieldEntry],
     name: &str,
-) -> Option<&'a SchemaFieldInfo> {
+) -> Option<&'a SchemaFieldEntry> {
     fields
-        .binary_search_by(|(field_name, _)| field_name.as_str().cmp(name))
+        .binary_search_by(|(field_name, _)| field_name.as_ref().cmp(name))
         .ok()
-        .map(|index| &fields[index].1)
+        .map(|index| &fields[index])
 }
 
 // Resolve top-level index membership from accepted persisted index contracts
@@ -397,13 +397,13 @@ pub(crate) struct SchemaInfo {
     expression_indexes: Vec<SchemaExpressionIndexInfo>,
     value_catalog: AcceptedValueCatalogHandle,
     entity_name: Option<String>,
-    primary_key_names: Vec<String>,
+    primary_key_names: Rc<[String]>,
 }
 
 impl SchemaInfo {
     #[must_use]
     pub(crate) fn field(&self, name: &str) -> Option<&FieldType> {
-        schema_field_info(self.fields.as_slice(), name).map(|field| &field.ty)
+        schema_field_entry(self.fields.as_slice(), name).map(|(_, field)| &field.ty)
     }
 
     /// Borrow the complete accepted value contract for one live field.
@@ -413,7 +413,7 @@ impl SchemaInfo {
         &self,
         name: &str,
     ) -> Option<AcceptedValueAdmissionContract<'_>> {
-        let field = schema_field_info(self.fields.as_slice(), name)?;
+        let (_, field) = schema_field_entry(self.fields.as_slice(), name)?;
         Some(AcceptedValueAdmissionContract::borrowed(
             &self.value_catalog,
             field.accepted_value_contract.as_ref()?,
@@ -424,7 +424,7 @@ impl SchemaInfo {
     /// Return accepted top-level field nullability without reopening proposal metadata.
     #[must_use]
     pub(in crate::db) fn accepted_field_is_nullable(&self, name: &str) -> Option<bool> {
-        schema_field_info(self.fields.as_slice(), name).map(|field| field.nullable)
+        schema_field_entry(self.fields.as_slice(), name).map(|(_, field)| field.nullable)
     }
 
     /// Borrow the accepted field kind projected to its admitted query-value shape.
@@ -433,18 +433,18 @@ impl SchemaInfo {
         &self,
         name: &str,
     ) -> Option<&AcceptedFieldKind> {
-        schema_field_info(self.fields.as_slice(), name).map(|field| field.query_kind.as_ref())
+        schema_field_entry(self.fields.as_slice(), name).map(|(_, field)| field.query_kind.as_ref())
     }
 
     /// Resolve retained slot authority in one lookup. Share only this field's
-    /// immutable query kind, not the complete schema or a session borrow.
+    /// immutable label and query kind, not the complete schema or a session borrow.
     #[must_use]
     pub(in crate::db) fn retained_query_field_authority(
         &self,
         name: &str,
-    ) -> Option<(usize, Arc<AcceptedFieldKind>)> {
-        let field = schema_field_info(self.fields.as_slice(), name)?;
-        Some((field.slot, Arc::clone(&field.query_kind)))
+    ) -> Option<(usize, Arc<str>, Arc<AcceptedFieldKind>)> {
+        let (label, field) = schema_field_entry(self.fields.as_slice(), name)?;
+        Some((field.slot, Arc::clone(label), Arc::clone(&field.query_kind)))
     }
 
     /// Return the top-level physical row slot for one field.
@@ -452,7 +452,7 @@ impl SchemaInfo {
     /// The accepted row layout is the only slot source.
     #[must_use]
     pub(in crate::db) fn field_slot_index(&self, name: &str) -> Option<usize> {
-        schema_field_info(self.fields.as_slice(), name).map(|field| field.slot)
+        schema_field_entry(self.fields.as_slice(), name).map(|(_, field)| field.slot)
     }
 
     /// Resolve one accepted direct field or nested query path to its query type.
@@ -469,7 +469,7 @@ impl SchemaInfo {
         if root.is_empty() || nested.is_empty() {
             return None;
         }
-        let field = schema_field_info(self.fields.as_slice(), root)?;
+        let (_, field) = schema_field_entry(self.fields.as_slice(), root)?;
         let leaf = field
             .nested_leaves
             .iter()
@@ -485,7 +485,7 @@ impl SchemaInfo {
     /// the field from a physical secondary index.
     #[must_use]
     pub(in crate::db) fn accepted_query_field_is_omittable(&self, name: &str) -> Option<bool> {
-        if let Some(field) = schema_field_info(self.fields.as_slice(), name) {
+        if let Some((_, field)) = schema_field_entry(self.fields.as_slice(), name) {
             return Some(field.nullable);
         }
 
@@ -493,7 +493,7 @@ impl SchemaInfo {
         if root.is_empty() || nested.is_empty() {
             return None;
         }
-        let field = schema_field_info(self.fields.as_slice(), root)?;
+        let (_, field) = schema_field_entry(self.fields.as_slice(), root)?;
         let terminal = field
             .nested_leaves
             .iter()
@@ -510,6 +510,12 @@ impl SchemaInfo {
         )
     }
 
+    /// Return the number of live top-level accepted fields without allocating.
+    #[must_use]
+    pub(in crate::db) const fn field_count(&self) -> usize {
+        self.fields.len()
+    }
+
     /// Return accepted field names in canonical physical-slot order.
     ///
     /// Structural identity projection uses this ordering instead of reopening
@@ -520,7 +526,7 @@ impl SchemaInfo {
         let mut fields = self
             .fields
             .iter()
-            .map(|(name, field)| (field.slot, name.as_str()))
+            .map(|(name, field)| (field.slot, name.as_ref()))
             .collect::<Vec<_>>();
         icydb_schema::compact_sort_unstable_by(&mut fields, |left, right| left.0.cmp(&right.0));
 
@@ -557,8 +563,15 @@ impl SchemaInfo {
     /// Callers that need deterministic ordering or composite identity must use
     /// the full ordered slice.
     #[must_use]
-    pub(in crate::db) const fn primary_key_names(&self) -> &[String] {
-        self.primary_key_names.as_slice()
+    pub(in crate::db) fn primary_key_names(&self) -> &[String] {
+        &self.primary_key_names
+    }
+
+    /// Retain the accepted key-name list without copying its backing or labels.
+    /// A finalized plan shares this authority, never reconstructs it from models.
+    #[must_use]
+    pub(in crate::db) fn shared_primary_key_names(&self) -> Rc<[String]> {
+        Rc::clone(&self.primary_key_names)
     }
 
     /// Return whether one top-level field participates in any index.
@@ -566,7 +579,7 @@ impl SchemaInfo {
     /// Accepted persisted index contracts are the only source.
     #[must_use]
     pub(in crate::db) fn field_is_indexed(&self, name: &str) -> bool {
-        schema_field_info(self.fields.as_slice(), name).is_some_and(|field| field.indexed)
+        schema_field_entry(self.fields.as_slice(), name).is_some_and(|(_, field)| field.indexed)
     }
 
     /// Borrow accepted enum authority.
@@ -603,7 +616,7 @@ impl SchemaInfo {
     #[must_use]
     #[cfg(feature = "sql")]
     pub(in crate::db) fn sql_capabilities(&self, name: &str) -> Option<SqlCapabilities> {
-        schema_field_info(self.fields.as_slice(), name).map(|field| field.sql_capabilities)
+        schema_field_entry(self.fields.as_slice(), name).map(|(_, field)| field.sql_capabilities)
     }
 
     /// Return SQL operation capabilities for one nested field path.
@@ -616,7 +629,7 @@ impl SchemaInfo {
         name: &str,
         segments: &[String],
     ) -> Option<SqlCapabilities> {
-        let field = schema_field_info(self.fields.as_slice(), name)?;
+        let (_, field) = schema_field_entry(self.fields.as_slice(), name)?;
 
         field
             .nested_leaves
@@ -636,7 +649,7 @@ impl SchemaInfo {
     /// Nested paths resolve from persisted accepted leaf metadata.
     #[must_use]
     pub(crate) fn nested_field_type(&self, name: &str, segments: &[String]) -> Option<FieldType> {
-        let field = schema_field_info(self.fields.as_slice(), name)?;
+        let (_, field) = schema_field_entry(self.fields.as_slice(), name)?;
 
         field
             .nested_leaves
@@ -658,7 +671,7 @@ impl SchemaInfo {
         name: &str,
         segments: impl Iterator<Item = &'a str> + Clone,
     ) -> Option<&AcceptedFieldKind> {
-        let field = schema_field_info(self.fields.as_slice(), name)?;
+        let (_, field) = schema_field_entry(self.fields.as_slice(), name)?;
 
         field
             .nested_leaves
@@ -670,8 +683,8 @@ impl SchemaInfo {
     /// Return whether one top-level field exposes any nested path metadata.
     #[must_use]
     pub(crate) fn field_has_nested_paths(&self, name: &str) -> bool {
-        schema_field_info(self.fields.as_slice(), name)
-            .is_some_and(|field| !field.nested_leaves.is_empty())
+        schema_field_entry(self.fields.as_slice(), name)
+            .is_some_and(|(_, field)| !field.nested_leaves.is_empty())
     }
 
     /// Canonicalize one strict SQL literal against this schema's field authority.
@@ -684,7 +697,7 @@ impl SchemaInfo {
         field_name: &str,
         value: &Value,
     ) -> Option<Value> {
-        let field = schema_field_info(self.fields.as_slice(), field_name)?;
+        let (_, field) = schema_field_entry(self.fields.as_slice(), field_name)?;
 
         let kind = field.query_kind.as_ref();
         if matches!(kind, AcceptedFieldKind::Enum { .. }) {
@@ -708,7 +721,7 @@ impl SchemaInfo {
         value: &'a Value,
         work: &PreparationWork<'_>,
     ) -> Result<Option<Cow<'a, Value>>, QueryError> {
-        let Some(field) = schema_field_info(self.fields.as_slice(), field_name) else {
+        let Some((_, field)) = schema_field_entry(self.fields.as_slice(), field_name) else {
             return Ok(None);
         };
 
@@ -736,7 +749,7 @@ impl SchemaInfo {
         value: &'a Value,
         work: &PreparationWork<'_>,
     ) -> Result<Option<Cow<'a, Value>>, QueryError> {
-        let Some(field) = schema_field_info(self.fields.as_slice(), field_name) else {
+        let Some((_, field)) = schema_field_entry(self.fields.as_slice(), field_name) else {
             return Ok(None);
         };
         let element_kind = match field.query_kind.as_ref() {
@@ -806,7 +819,7 @@ impl SchemaInfo {
                 );
 
                 (
-                    field.name().to_string(),
+                    Arc::<str>::from(field.name()),
                     SchemaFieldInfo {
                         slot,
                         ty: field_type_from_persisted_kind(&query_kind),
@@ -1017,6 +1030,10 @@ fn schema_index_field_path_info_from_accepted(
 
 #[cfg(test)]
 mod tests {
+    mod primary_key_names;
+    mod projection_identity;
+    mod scalar_compilation;
+
     use icydb_schema::ScalarKind;
     use std::sync::Arc;
 
@@ -1040,6 +1057,16 @@ mod tests {
     };
 
     use super::SchemaInfo;
+
+    fn resolve_group_field(
+        schema: &super::SchemaInfo,
+        label: &str,
+    ) -> Option<crate::db::query::plan::GroupField> {
+        crate::db::query::preparation::with_preparation_work(|work| {
+            crate::db::query::plan::GroupField::resolve_with_schema(schema, label, work)
+        })
+        .unwrap()
+    }
 
     #[test]
     fn binding_preflight_query_operand_is_not_a_stored_field_value() {
@@ -1294,14 +1321,14 @@ mod tests {
         ] {
             assert_eq!(
                 GroupField::accepted_kind_for_label(&schema, label).is_some(),
-                GroupField::resolve_with_schema(&schema, label).is_some(),
+                resolve_group_field(&schema, label).is_some(),
                 "{label}"
             );
         }
     }
 
     #[test]
-    fn retained_field_slots_share_detached_accepted_query_kinds() {
+    fn retained_field_slots_share_detached_accepted_labels_and_query_kinds() {
         use crate::db::query::plan::FieldSlot;
 
         let schema = newtype_query_schema();
@@ -1312,6 +1339,7 @@ mod tests {
             let cloned_slot = slot.clone();
             let resolved_again = FieldSlot::resolve_with_schema(&cloned_schema, field).unwrap();
             let accepted_kind = schema.accepted_query_field_kind(field).unwrap();
+            let (accepted_label, _) = super::schema_field_entry(&schema.fields, field).unwrap();
             // Sharing is the ownership contract: neither resolving a key nor
             // cloning its plan/view may recursively copy this metadata tree.
             for candidate in [&slot, &cloned_slot, &resolved_again] {
@@ -1321,12 +1349,14 @@ mod tests {
                 ));
                 assert_eq!(candidate.index(), schema.field_slot_index(field).unwrap());
                 assert_eq!(candidate.field(), field);
+                assert!(std::ptr::eq(candidate.field(), accepted_label.as_ref()));
             }
             retained.push(slot);
         }
         assert!(FieldSlot::resolve_with_schema(&schema, "missing").is_none());
         drop(cloned_schema);
         drop(schema);
+        assert_eq!(retained[1].field(), "name");
         assert!(matches!(
             retained[0].accepted_kind(),
             Some(AcceptedFieldKind::Nat64)
@@ -1354,15 +1384,23 @@ mod tests {
         let retained = GroupFieldSet::Direct(vec![old_slot.clone()]);
         // A second schema view has the same field identity but a different kind.
         // Retained metadata is immutable; only explicit rebinding selects it.
-        let (_, field) = current
+        let (label, field) = current
             .fields
             .iter_mut()
-            .find(|(name, _)| name == "name")
+            .find(|(name, _)| name.as_ref() == "name")
             .unwrap();
+        *label = Arc::from("name");
         field.query_kind = Arc::new(AcceptedFieldKind::Bool);
         field.ty = field_type_from_persisted_kind(&field.query_kind);
-        let rebound = retained.resolve_with_schema(&current).unwrap();
+        let rebound = crate::db::query::preparation::with_preparation_work(|work| {
+            retained.resolve_with_schema(&current, work)
+        })
+        .unwrap()
+        .unwrap();
         let rebound_slot = &rebound.as_direct().unwrap()[0];
+        assert!(!std::ptr::eq(old_slot.field(), rebound_slot.field()));
+        let (current_label, _) = super::schema_field_entry(&current.fields, "name").unwrap();
+        assert!(std::ptr::eq(rebound_slot.field(), current_label.as_ref()));
         assert_eq!(
             old_slot, *rebound_slot,
             "field identity is independent of metadata ownership"
@@ -1382,14 +1420,15 @@ mod tests {
     }
 
     #[test]
-    fn retained_slot_accounting_includes_shared_kind_header_and_nested_payload() {
+    fn retained_slot_accounting_includes_shared_label_and_kind_allocations() {
         use crate::{db::query::plan::FieldSlot, retained::RetainedBytes};
 
         let schema = newtype_query_schema();
         let slot = FieldSlot::resolve_with_schema(&schema, "aliases").unwrap();
         let kind_bytes = RetainedBytes::measure(slot.accepted_kind().unwrap(), usize::MAX).unwrap();
-        let expected =
-            size_of::<FieldSlot>() + slot.field.capacity() + 2 * size_of::<usize>() + kind_bytes;
+        let label_bytes =
+            (2 * size_of::<usize>() + slot.field().len()).next_multiple_of(align_of::<usize>());
+        let expected = size_of::<FieldSlot>() + label_bytes + 2 * size_of::<usize>() + kind_bytes;
         assert_eq!(RetainedBytes::measure(&slot, expected), Some(expected));
         assert_eq!(RetainedBytes::measure(&slot, expected - 1), None);
         // Independent residents remain conservatively charged for shared data.
@@ -1406,11 +1445,11 @@ mod tests {
         use crate::db::query::plan::{FieldSlot, GroupField, GroupFieldRef};
 
         let mut schema = newtype_query_schema();
-        let direct = GroupField::resolve_with_schema(&schema, "name").unwrap();
+        let direct = resolve_group_field(&schema, "name").unwrap();
         let profile = schema
             .fields
             .iter()
-            .position(|(name, _)| name == "profile")
+            .position(|(name, _)| name.as_ref() == "profile")
             .unwrap();
         let path = |label: &str, root: &str, segments: &[&str], slot| {
             GroupField::scalar_path_for_test(
@@ -1460,8 +1499,8 @@ mod tests {
             )];
             for candidate in &candidates {
                 let borrowed = GroupFieldRef::PathAware(candidate);
-                let expected = GroupField::resolve_with_schema(&schema, candidate.field())
-                    .is_some_and(|resolved| {
+                let expected =
+                    resolve_group_field(&schema, candidate.field()).is_some_and(|resolved| {
                         borrowed.root_slot() == resolved.root_slot()
                             && borrowed.same_identity(GroupFieldRef::PathAware(&resolved))
                     });
@@ -1503,7 +1542,7 @@ mod tests {
                 kind,
                 schema.accepted_query_field_kind(field).unwrap()
             ));
-            let retained = GroupField::resolve_with_schema(&schema, field).unwrap();
+            let retained = resolve_group_field(&schema, field).unwrap();
             assert_eq!(retained.as_direct().unwrap().accepted_kind(), Some(kind));
         }
 
@@ -1513,7 +1552,7 @@ mod tests {
         let profile = schema
             .fields
             .iter()
-            .position(|(name, _)| name == "profile")
+            .position(|(name, _)| name.as_ref() == "profile")
             .unwrap();
         for kind in [
             AcceptedFieldKind::Int64,
@@ -1529,7 +1568,7 @@ mod tests {
                 borrowed,
                 schema.fields[profile].1.nested_leaves[0].kind()
             ));
-            let retained = GroupField::resolve_with_schema(&schema, "profile.name").unwrap();
+            let retained = resolve_group_field(&schema, "profile.name").unwrap();
             assert_eq!(retained.projection_expr(), expr);
             assert_eq!(retained.root_slot(), 2);
             assert_eq!(
@@ -1568,7 +1607,7 @@ mod tests {
         let profile = schema
             .fields
             .iter()
-            .position(|(name, _)| name == "profile")
+            .position(|(name, _)| name.as_ref() == "profile")
             .unwrap();
         for kind in [
             AcceptedFieldKind::Text { max_len: None },
@@ -1596,7 +1635,7 @@ mod tests {
                 };
                 assert_eq!(
                     GroupField::accepted_kind_for_expr(&schema, &expr).is_some(),
-                    GroupField::resolve_with_schema(&schema, &label).is_some(),
+                    resolve_group_field(&schema, &label).is_some(),
                     "{label}",
                 );
             }
@@ -1691,6 +1730,68 @@ mod tests {
                     )));
                 }
                 assert_eq!(root.observed(Resource::TemporaryBytes), 6);
+            }
+        }
+    }
+
+    #[test]
+    fn retained_group_path_construction_admits_exact_work_and_copy_limits() {
+        use crate::db::{
+            RequestExecutionRoot,
+            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+            query::{plan::GroupField, preparation::PreparationWork},
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,
+            DiagnosticFactTag,
+        };
+
+        let mut schema = newtype_query_schema();
+        let (_, profile) = schema
+            .fields
+            .iter_mut()
+            .find(|(name, _)| name.as_ref() == "profile")
+            .unwrap();
+        profile.nested_leaves = vec![PersistedNestedLeafSnapshot::new(
+            vec!["name".into()],
+            AcceptedFieldKind::Int64,
+            false,
+        )];
+        let path = "profile.name";
+        let bytes = (size_of::<String>() + path.len() + "profile".len() + "name".len()) as u64;
+        let steps = (4 + 2 * path.len() + "profile".len() + "name".len()) as u64;
+        for lane in [
+            DiagnosticExecutionLane::PublicRead,
+            DiagnosticExecutionLane::TrustedRead,
+        ] {
+            for (resource, exact) in [
+                (Resource::TemporaryBytes, bytes),
+                (Resource::PredicateExpressionSteps, steps),
+            ] {
+                for limit in [exact - 1, exact] {
+                    let root = RequestExecutionRoot::new_for_tests(
+                        HardExecutionBudget::uniform_for_tests(
+                            16_000_000,
+                            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                        )
+                        .with_limit_for_tests(resource, limit),
+                    );
+                    let result = PreparationWork::run(&root.scope(), lane, |work| {
+                        GroupField::resolve_with_schema(&schema, path, work)
+                    });
+                    if limit == exact {
+                        assert_eq!(result.unwrap().unwrap().field(), path);
+                    } else {
+                        let error = result.unwrap_err();
+                        assert!(
+                            error
+                                .diagnostic_facts()
+                                .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+                        );
+                    }
+                    assert_eq!(root.observed(resource), exact);
+                    assert_eq!(root.observed(Resource::RowsVisited), 0);
+                }
             }
         }
     }

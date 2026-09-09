@@ -415,14 +415,7 @@ fn index_branch_set_from_and_with_cap(
 }
 
 fn primary_key_asc_order(schema: &SchemaInfo, order: &OrderSpec) -> bool {
-    let primary_key_names: Vec<&str> = schema
-        .primary_key_names()
-        .iter()
-        .map(String::as_str)
-        .collect();
-
-    order.primary_key_only_direction_fields(primary_key_names.as_slice())
-        == Some(OrderDirection::Asc)
+    order.primary_key_only_direction_fields(schema.primary_key_names()) == Some(OrderDirection::Asc)
 }
 
 fn collect_branch_set_literals<'a>(

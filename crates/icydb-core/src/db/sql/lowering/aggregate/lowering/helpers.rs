@@ -1,10 +1,10 @@
+#[cfg(test)]
+mod tests;
+
 use crate::db::{
-    query::{
-        builder::AggregateExpr,
-        plan::expr::{Expr, compile_scalar_projection_expr_with_schema},
-    },
+    query::{builder::AggregateExpr, plan::expr::Expr},
     schema::SchemaInfo,
-    sql::lowering::{AnalyzedLoweredExpr, LoweredExprAnalysis, SqlLoweringError},
+    sql::lowering::{AnalyzedLoweredExpr, SqlLoweringError},
 };
 use icydb_diagnostic_code::QueryFieldRole;
 
@@ -29,26 +29,15 @@ pub(in crate::db::sql::lowering::aggregate) fn validate_analyzed_schema_bound_sc
     role: QueryFieldRole,
     unsupported: impl FnOnce() -> SqlLoweringError,
 ) -> Result<(), SqlLoweringError> {
-    validate_schema_bound_scalar_expr_with_analysis(
-        schema,
-        analyzed.expr(),
-        analyzed.analysis(),
-        role,
-        unsupported,
-    )
-}
-
-fn validate_schema_bound_scalar_expr_with_analysis(
-    schema: &SchemaInfo,
-    expr: &Expr,
-    analysis: &LoweredExprAnalysis,
-    role: QueryFieldRole,
-    unsupported: impl FnOnce() -> SqlLoweringError,
-) -> Result<(), SqlLoweringError> {
+    let analysis = analyzed.analysis();
     if let Some(field) = analysis.first_unknown_field_for_schema(schema) {
         return Err(SqlLoweringError::unknown_field(role, field));
     }
-    if compile_scalar_projection_expr_with_schema(schema, expr).is_none() {
+    // Scalar compilation rejects only unresolved roots and aggregate leaves;
+    // both facts are already owned by this exact expression's analysis. Do not
+    // allocate a slot-resolved tree merely to discard it after checking Some.
+    // Keep unknown-field precedence even when an aggregate also occurs.
+    if analysis.contains_aggregate() {
         return Err(unsupported());
     }
 

@@ -71,7 +71,6 @@ mod canonicalize;
 mod cleanup;
 mod compiled_expr;
 mod function_semantics;
-mod path;
 mod predicate;
 #[cfg(feature = "sql")]
 mod preview;
@@ -79,7 +78,6 @@ mod projection;
 mod projection_eval;
 #[cfg(feature = "sql")]
 mod rewrite;
-mod scalar;
 mod truth_value;
 mod type_inference;
 
@@ -106,7 +104,9 @@ pub(in crate::db) use canonicalize::{
 };
 pub(in crate::db) use compiled_expr::{
     CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, ProjectionEvalError,
-    compile_grouped_projection_expr, compile_grouped_projection_plan, evaluate_grouped_having_expr,
+    compile_grouped_projection_expr, compile_grouped_projection_plan,
+    compile_scalar_projection_expr_with_schema, compile_scalar_projection_plan_with_schema,
+    evaluate_grouped_having_expr,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use function_semantics::FunctionSurface;
@@ -115,7 +115,6 @@ pub(in crate::db::query::plan::expr) use function_semantics::{
     FunctionTypeInferenceShape, NullTestFunctionKind, ScalarEvalFunctionShape,
 };
 pub(in crate::db) use function_semantics::{NumericSubtype, TextPredicateFunctionKind};
-pub(in crate::db) use path::CompiledPath;
 #[cfg(feature = "sql")]
 pub(in crate::db) use predicate::compile_bool_compare_expr;
 #[cfg(all(test, feature = "sql"))]
@@ -123,7 +122,6 @@ pub(in crate::db) use predicate::compile_normalized_bool_expr_to_predicate;
 pub(in crate::db) use predicate::derive_normalized_bool_expr_predicate_subset;
 #[cfg(feature = "sql")]
 pub(in crate::db) use preview::eval_literal_only_expr_value;
-pub(in crate::db::query) use projection::collect_unique_direct_projection_slots_with_schema;
 pub(in crate::db) use projection::{
     GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility, ProjectionField,
     ProjectionSelection, ProjectionSpec, classify_grouped_order_term_for_field,
@@ -135,10 +133,6 @@ pub(in crate::db) use projection_eval::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use rewrite::rewrite_affine_numeric_compare_expr;
-pub(in crate::db) use scalar::{
-    ScalarProjectionCaseArm, ScalarProjectionExpr, compile_scalar_projection_expr_with_schema,
-    compile_scalar_projection_plan_with_schema,
-};
 pub(in crate::db) use truth_value::{
     admit_true_only_boolean_value, collapse_true_only_boolean_admission,
 };

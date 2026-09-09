@@ -11,7 +11,7 @@ use crate::db::{
         GroupedExecutionConfig, GroupedExecutionRoute, PlannedProjectionLayout, expr::Expr,
     },
 };
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 ///
 /// IndexSpecBundle
@@ -36,7 +36,7 @@ pub(in crate::db::executor) struct IndexSpecBundle {
 ///
 
 pub(in crate::db::executor) struct GroupedPlannerPayload {
-    pub(in crate::db::executor) plan: Arc<AccessPlannedQuery>,
+    pub(in crate::db::executor) plan: Rc<AccessPlannedQuery>,
     pub(in crate::db::executor) grouped_execution: GroupedExecutionConfig,
     pub(in crate::db::executor) grouped_execution_route: GroupedExecutionRoute,
     pub(in crate::db::executor) group_fields: crate::db::query::plan::GroupFieldSet,

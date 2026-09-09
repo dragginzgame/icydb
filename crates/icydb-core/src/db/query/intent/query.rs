@@ -236,11 +236,13 @@ impl StructuralQuery {
         &self,
         visible_indexes: &VisibleIndexes,
         planning_state: PreparedScalarPlanningState<'_>,
+        work: &PreparationWork<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         self.intent
             .build_plan_model_with_indexes_from_scalar_planning_state(
                 visible_indexes,
                 planning_state,
+                work,
             )
     }
 
@@ -248,9 +250,13 @@ impl StructuralQuery {
         &self,
         template_indexes: &[crate::db::access::SemanticIndexAccessContract],
         planning_state: PreparedScalarPlanningState<'_>,
+        work: &PreparationWork<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        self.intent
-            .build_plan_model_from_parameterized_template(template_indexes, planning_state)
+        self.intent.build_plan_model_from_parameterized_template(
+            template_indexes,
+            planning_state,
+            work,
+        )
     }
 
     pub(in crate::db) fn try_build_count_cardinality_prefix_access_with_schema_info(
@@ -268,9 +274,10 @@ impl StructuralQuery {
     pub(in crate::db) fn try_build_trivial_scalar_load_plan_with_schema_info(
         &self,
         schema_info: SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<Option<AccessPlannedQuery>, QueryError> {
         self.intent
-            .try_build_trivial_scalar_load_plan_with_schema_info(schema_info)
+            .try_build_trivial_scalar_load_plan_with_schema_info(schema_info, work)
     }
 
     #[must_use]

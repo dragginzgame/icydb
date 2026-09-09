@@ -694,7 +694,8 @@ impl GroupedPlanAggregateFamily {
 ///
 /// Canonical resolved field reference used by logical planning.
 /// `index` is the stable accepted field slot; `field` is retained
-/// for diagnostics and explain surfaces.
+/// for diagnostics and explain surfaces. Resolved labels share the accepted
+/// schema allocation; detached plan clones do not copy their text.
 /// `authority` freezes exactly one planner metadata source.
 ///
 
@@ -707,7 +708,7 @@ pub(in crate::db::query::plan) enum FieldSlotAuthority {
 #[derive(Clone, Debug)]
 pub(crate) struct FieldSlot {
     pub(in crate::db) index: usize,
-    pub(in crate::db) field: String,
+    pub(in crate::db) field: Arc<str>,
     pub(in crate::db::query::plan) authority: FieldSlotAuthority,
 }
 

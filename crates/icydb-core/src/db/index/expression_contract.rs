@@ -50,18 +50,35 @@ impl SemanticIndexExpression {
 
     #[must_use]
     pub(in crate::db) fn canonical_order_text(&self) -> String {
-        let field = self.field();
+        self.canonical_order_parts().concat()
+    }
 
-        match self.op {
-            PersistedIndexExpressionOp::Lower => format!("LOWER({field})"),
-            PersistedIndexExpressionOp::Upper => format!("UPPER({field})"),
-            PersistedIndexExpressionOp::Trim => format!("TRIM({field})"),
-            PersistedIndexExpressionOp::LowerTrim => format!("LOWER(TRIM({field}))"),
-            PersistedIndexExpressionOp::Date => format!("DATE({field})"),
-            PersistedIndexExpressionOp::Year => format!("YEAR({field})"),
-            PersistedIndexExpressionOp::Month => format!("MONTH({field})"),
-            PersistedIndexExpressionOp::Day => format!("DAY({field})"),
+    /// Compare the canonical label without constructing a temporary string.
+    #[must_use]
+    pub(in crate::db) fn matches_canonical_order_text(&self, text: &str) -> bool {
+        let mut remaining = text;
+        for part in self.canonical_order_parts() {
+            let Some(suffix) = remaining.strip_prefix(part) else {
+                return false;
+            };
+            remaining = suffix;
         }
+        remaining.is_empty()
+    }
+
+    // Rendering and comparison use exactly the same accepted label grammar.
+    const fn canonical_order_parts(&self) -> [&str; 3] {
+        let (prefix, suffix) = match self.op {
+            PersistedIndexExpressionOp::Lower => ("LOWER(", ")"),
+            PersistedIndexExpressionOp::Upper => ("UPPER(", ")"),
+            PersistedIndexExpressionOp::Trim => ("TRIM(", ")"),
+            PersistedIndexExpressionOp::LowerTrim => ("LOWER(TRIM(", "))"),
+            PersistedIndexExpressionOp::Date => ("DATE(", ")"),
+            PersistedIndexExpressionOp::Year => ("YEAR(", ")"),
+            PersistedIndexExpressionOp::Month => ("MONTH(", ")"),
+            PersistedIndexExpressionOp::Day => ("DAY(", ")"),
+        };
+        [prefix, self.field(), suffix]
     }
 }
 
@@ -69,3 +86,41 @@ impl SemanticIndexExpression {
 crate::retained::retained_fields!(SemanticIndexExpression {
 Self{op,field} => [op,field],
 });
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_expression_comparison_matches_exact_rendered_bytes() {
+        use PersistedIndexExpressionOp::{Date, Day, Lower, LowerTrim, Month, Trim, Upper, Year};
+        for (op, prefix, suffix) in [
+            (Lower, "LOWER(", ")"),
+            (Upper, "UPPER(", ")"),
+            (Trim, "TRIM(", ")"),
+            (LowerTrim, "LOWER(TRIM(", "))"),
+            (Date, "DATE(", ")"),
+            (Year, "YEAR(", ")"),
+            (Month, "MONTH(", ")"),
+            (Day, "DAY(", ")"),
+        ] {
+            for field in ["name", "账户.名", "odd)field(", ""] {
+                let expression = SemanticIndexExpression::new(op, field.to_string());
+                let expected = format!("{prefix}{field}{suffix}");
+                assert_eq!(expression.canonical_order_text(), expected);
+                assert!(expression.matches_canonical_order_text(&expected));
+                for boundary in 0..expected.len() {
+                    if let Some(truncated) = expected.get(..boundary) {
+                        assert!(!expression.matches_canonical_order_text(truncated));
+                    }
+                }
+                assert!(!expression.matches_canonical_order_text(&format!("{expected}x")));
+                assert!(!expression.matches_canonical_order_text(&expected.to_lowercase()));
+            }
+        }
+    }
+}

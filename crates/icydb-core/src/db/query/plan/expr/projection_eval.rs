@@ -15,7 +15,6 @@
 #[cfg(test)]
 mod tests;
 
-use super::scalar::ScalarProjectionField;
 use crate::{
     db::{
         QueryError,
@@ -24,8 +23,8 @@ use crate::{
             compare_numeric_eq, compare_numeric_or_strict_order,
         },
         query::plan::expr::{
-            BinaryOp, CompiledExpr, CompiledExprValueReader, Expr, Function,
-            ScalarEvalFunctionShape, ScalarProjectionCaseArm, ScalarProjectionExpr,
+            BinaryOp, CompiledExprValueReader, Expr, Function, ScalarEvalFunctionShape,
+            compiled_expr::compile_builder_preview_expr,
         },
     },
     value::Value,
@@ -138,88 +137,13 @@ pub(in crate::db) fn eval_builder_expr_for_value_preview(
     field_name: &str,
     value: &Value,
 ) -> Result<Value, QueryError> {
-    let preview_expr = compile_builder_preview_expr(expr, field_name)?;
-    let compiled = CompiledExpr::compile(&preview_expr);
+    let compiled = compile_builder_preview_expr(expr, field_name, PREVIEW_VALUE_SLOT)?;
     let reader = PreviewValueReader { value };
 
     compiled
         .evaluate(&reader)
         .map(Cow::into_owned)
         .map_err(|err| QueryError::execute(err.into_internal_error()))
-}
-
-fn compile_builder_preview_expr(
-    expr: &Expr,
-    field_name: &str,
-) -> Result<ScalarProjectionExpr, QueryError> {
-    match expr {
-        Expr::Field(field) => {
-            if field.as_str() != field_name {
-                return Err(QueryError::invariant());
-            }
-
-            Ok(ScalarProjectionExpr::Field(ScalarProjectionField::new(
-                field.as_str().to_string(),
-                PREVIEW_VALUE_SLOT,
-            )))
-        }
-        Expr::FieldPath(_) => Err(QueryError::unsupported_projection(
-            QueryProjectionCode::NestedFieldPathPreview,
-        )),
-        Expr::Literal(value) => Ok(ScalarProjectionExpr::Literal(value.clone())),
-        Expr::FunctionCall { function, args } => {
-            let args = args
-                .iter()
-                .map(|arg| compile_builder_preview_expr(arg, field_name))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            Ok(ScalarProjectionExpr::FunctionCall {
-                function: *function,
-                args,
-            })
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            let when_then_arms = when_then_arms
-                .iter()
-                .map(|arm| {
-                    Ok(ScalarProjectionCaseArm::new(
-                        compile_builder_preview_expr(arm.condition(), field_name)?,
-                        compile_builder_preview_expr(arm.result(), field_name)?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, QueryError>>()?;
-            let else_expr = Box::new(compile_builder_preview_expr(else_expr, field_name)?);
-
-            Ok(ScalarProjectionExpr::Case {
-                when_then_arms,
-                else_expr,
-            })
-        }
-        Expr::Aggregate(_) => Err(QueryError::invariant()),
-        Expr::Binary { op, left, right } => {
-            let left = compile_builder_preview_expr(left, field_name)?;
-            let right = compile_builder_preview_expr(right, field_name)?;
-
-            Ok(ScalarProjectionExpr::Binary {
-                op: *op,
-                left: Box::new(left),
-                right: Box::new(right),
-            })
-        }
-        Expr::Unary { op, expr } => {
-            let expr = compile_builder_preview_expr(expr, field_name)?;
-
-            Ok(ScalarProjectionExpr::Unary {
-                op: *op,
-                expr: Box::new(expr),
-            })
-        }
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => compile_builder_preview_expr(expr, field_name),
-    }
 }
 
 fn required_function_arg(

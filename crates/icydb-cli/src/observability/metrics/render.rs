@@ -19,13 +19,17 @@ const ALIGNMENTS: [ColumnAlign; 5] = [
 
 pub(super) fn render_metrics_report(report: &MetricsReport) -> String {
     let mut output = format!(
-        "IcyDB metrics\n  window: {}..{} ({} ms)\n  entities: {}\n\nentities\n",
+        "IcyDB metrics\n  window: {}..{} ({} ms)\n  heap-local window ID: {}\n  entities: {} of {} (bounded path prefix, sorted by cost)\n\nentities\n",
         report.window_start_ms(),
         report.window_end_ms(),
         report
             .window_end_ms()
             .saturating_sub(report.window_start_ms()),
+        report
+            .window_id()
+            .map_or_else(|| "unavailable".to_string(), |id| id.to_string()),
         report.entities().len(),
+        report.total_entities(),
     );
     if report.entities().is_empty() {
         output.push_str("  None\n");

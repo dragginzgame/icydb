@@ -138,20 +138,16 @@ pub(in crate::db::query::plan::validate) fn validate_primary_key_tie_break(
     order.fields.is_empty().then_some(()).map_or_else(
         || {
             let primary_key_names = schema.primary_key_names();
-            let primary_key_name_refs: Vec<&str> =
-                primary_key_names.iter().map(String::as_str).collect();
-            if let Some(primary_key_index) =
-                primary_key_name_refs.iter().copied().enumerate().find_map(
-                    |(primary_key_index, primary_key_name)| {
-                        let primary_key_present = order
-                            .fields
-                            .iter()
-                            .any(|term| term.direct_field() == Some(primary_key_name));
+            if let Some(primary_key_index) = primary_key_names.iter().enumerate().find_map(
+                |(primary_key_index, primary_key_name)| {
+                    let primary_key_present = order
+                        .fields
+                        .iter()
+                        .any(|term| term.direct_field() == Some(primary_key_name.as_str()));
 
-                        (!primary_key_present).then_some(primary_key_index)
-                    },
-                )
-            {
+                    (!primary_key_present).then_some(primary_key_index)
+                },
+            ) {
                 return Err(PlanError::from(
                     OrderPlanError::missing_primary_key_tie_break(primary_key_index),
                 ));

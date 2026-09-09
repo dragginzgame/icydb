@@ -3,10 +3,13 @@
 //! Does not own: access-path index selection internals or runtime execution behavior.
 //! Boundary: derives planner-owned execution semantics, shape signatures, and continuation policy.
 
+use crate::db::{QueryError, query::preparation::PreparationWork};
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+
 use crate::db::predicate::MissingRowPolicy;
 use crate::{
     db::{
-        access::{AccessPlan, ExecutableAccessPlan, SemanticIndexKeyItemRef},
+        access::{AccessPlan, SemanticIndexKeyItemRef},
         predicate::{IndexCompileTarget, IndexCompileTargetKind, Predicate, PredicateProgram},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
@@ -22,9 +25,9 @@ use crate::{
             },
             extend_unique_grouped_aggregate_specs_from_expr, grouped_aggregate_execution_specs,
             grouped_aggregate_specs_from_projection_spec, grouped_cursor_policy_violation,
-            grouped_plan_strategy, lower_data_row_direct_projection_slots_with_schema,
-            lower_direct_projection_slots_with_schema, lower_projection_identity,
-            lower_projection_intent_with_schema, residual_query_predicate_after_access_path_bounds,
+            grouped_plan_strategy, lower_direct_projection_layouts_with_schema,
+            lower_projection_identity, lower_projection_intent_with_schema,
+            residual_query_predicate_after_access_path_bounds,
             residual_query_predicate_after_filtered_access_contract,
             resolved_grouped_distinct_execution_strategy_with_schema_info,
         },
@@ -284,10 +287,11 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn finalize_static_execution_planning_contract_with_schema(
         &mut self,
         schema_info: &SchemaInfo,
-    ) -> Result<(), InternalError> {
-        self.bind_group_field_slots_to_schema(schema_info)?;
+        work: &PreparationWork<'_>,
+    ) -> Result<(), QueryError> {
+        self.bind_group_field_slots_to_schema(schema_info, work)?;
         self.static_execution_planning_contract = Some(
-            project_static_execution_planning_contract_with_schema(schema_info, self)?,
+            project_static_execution_planning_contract_with_schema(schema_info, self, work)?,
         );
 
         Ok(())
@@ -298,7 +302,8 @@ impl AccessPlannedQuery {
     fn bind_group_field_slots_to_schema(
         &mut self,
         schema_info: &SchemaInfo,
-    ) -> Result<(), InternalError> {
+        work: &PreparationWork<'_>,
+    ) -> Result<(), QueryError> {
         let LogicalPlan::Grouped(grouped) = &mut self.logical else {
             return Ok(());
         };
@@ -306,8 +311,8 @@ impl AccessPlannedQuery {
         let accepted_fields = grouped
             .group
             .group_fields
-            .resolve_with_schema(schema_info)
-            .ok_or_else(InternalError::planner_executor_invariant)?;
+            .resolve_with_schema(schema_info, work)?
+            .ok_or_else(|| QueryError::execute(InternalError::planner_executor_invariant()))?;
         grouped.group.group_fields = accepted_fields;
 
         Ok(())
@@ -351,13 +356,10 @@ impl AccessPlannedQuery {
     }
 
     /// Borrow the planner-frozen ordered primary-key field names.
-    pub(in crate::db) fn primary_key_names(&self) -> Result<Vec<&str>, InternalError> {
-        Ok(self
+    pub(in crate::db) fn primary_key_names(&self) -> Result<&[String], InternalError> {
+        Ok(&self
             .require_static_execution_planning_contract()?
-            .primary_key_names
-            .iter()
-            .map(String::as_str)
-            .collect())
+            .primary_key_names)
     }
 
     /// Borrow the planner-frozen projection slot reachability set.
@@ -493,9 +495,8 @@ pub(in crate::db) fn project_planner_route_profile_for_schema(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> PlannerRouteProfile {
-    let primary_key_names = primary_key_names_from_schema(schema_info);
     let secondary_order_contract = plan.scalar_plan().order.as_ref().and_then(|order| {
-        order.deterministic_secondary_order_contract_fields(primary_key_names.as_slice())
+        order.deterministic_secondary_order_contract_fields(schema_info.shared_primary_key_names())
     });
 
     PlannerRouteProfile::new(
@@ -508,7 +509,8 @@ pub(in crate::db) fn project_planner_route_profile_for_schema(
 fn project_static_execution_planning_contract_with_schema(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
-) -> Result<StaticExecutionPlanningContract, InternalError> {
+    work: &PreparationWork<'_>,
+) -> Result<StaticExecutionPlanningContract, QueryError> {
     let projection_spec =
         lower_projection_intent_with_schema(schema_info, &plan.logical, &plan.projection_selection);
     let execution_preparation_predicate = plan.execution_preparation_predicate();
@@ -521,7 +523,8 @@ fn project_static_execution_planning_contract_with_schema(
         schema_info,
         residual_filter_expr.as_ref(),
         residual_filter_predicate.as_ref(),
-    )?;
+    )
+    .map_err(QueryError::execute)?;
     let residual_filter_contract = ResidualFilterContract::new(
         residual_filter_expr,
         residual_filter_predicate,
@@ -538,35 +541,37 @@ fn project_static_execution_planning_contract_with_schema(
     let scalar_projection_plan = if plan.grouped_plan().is_none() {
         Some(
             compile_scalar_projection_plan_with_schema(schema_info, &projection_spec)
-                .ok_or_else(InternalError::query_executor_invariant)?
-                .iter()
-                .map(CompiledExpr::compile)
-                .collect(),
+                .ok_or_else(|| QueryError::execute(InternalError::query_executor_invariant()))?,
         )
     } else {
         None
     };
     let (grouped_aggregate_execution_specs, grouped_distinct_execution_strategy) =
-        resolve_grouped_static_planning_semantics(schema_info, plan, &projection_spec)?;
-    let projection_direct_slots = lower_direct_projection_slots_with_schema(
-        schema_info,
-        &plan.logical,
-        &plan.projection_selection,
-    );
-    let projection_data_row_direct_slots = lower_data_row_direct_projection_slots_with_schema(
-        schema_info,
-        &plan.logical,
-        &plan.projection_selection,
-    );
-    let projection_referenced_slots = projection_spec.referenced_slots_for_schema(schema_info)?;
-    let projection_is_model_identity = projection_spec.is_schema_identity_for(schema_info);
-    let resolved_order = resolved_order_for_plan(schema_info, plan)?;
-    let order_referenced_slots = order_referenced_slots_for_resolved_order(resolved_order.as_ref());
-    let slot_map = slot_map_for_schema_plan(schema_info, plan);
-    let index_compile_targets = index_compile_targets_for_schema_plan(schema_info, plan);
+        resolve_grouped_static_planning_semantics(schema_info, plan, &projection_spec)
+            .map_err(QueryError::execute)?;
+    let (projection_direct_slots, projection_data_row_direct_slots) =
+        lower_direct_projection_layouts_with_schema(
+            schema_info,
+            &plan.logical,
+            &projection_spec,
+            work,
+        )?;
+    let projection_referenced_slots =
+        projection_spec.referenced_slots_for_schema(schema_info, work)?;
+    let projection_is_model_identity = projection_spec.is_schema_identity_for(schema_info, work)?;
+    let resolved_order = resolved_order_for_plan(schema_info, plan, work)?;
+    let order_referenced_slots = resolved_order
+        .as_ref()
+        .map(|order| order.referenced_slots(work))
+        .transpose()?;
+    let (slot_map, index_compile_targets) =
+        index_execution_metadata_for_schema_plan(schema_info, plan, work)?
+            .map_or((None, None), |(slots, targets)| {
+                (Some(slots), Some(targets))
+            });
 
     Ok(StaticExecutionPlanningContract {
-        primary_key_names: schema_info.primary_key_names().to_vec(),
+        primary_key_names: schema_info.shared_primary_key_names(),
         projection_spec,
         execution_preparation_predicate,
         execution_preparation_compiled_predicate,
@@ -584,14 +589,6 @@ fn project_static_execution_planning_contract_with_schema(
         slot_map,
         index_compile_targets,
     })
-}
-
-fn primary_key_names_from_schema(schema_info: &SchemaInfo) -> Vec<&str> {
-    schema_info
-        .primary_key_names()
-        .iter()
-        .map(String::as_str)
-        .collect()
 }
 
 // Compile the executor-owned residual scalar filter contract once from the
@@ -616,9 +613,7 @@ fn compile_effective_runtime_filter_program(
         let compiled = compile_scalar_projection_expr_with_schema(schema_info, filter_expr)
             .ok_or_else(InternalError::query_invalid_logical_plan)?;
 
-        return Ok(Some(EffectiveRuntimeFilterProgram::expression(
-            CompiledExpr::compile(&compiled),
-        )));
+        return Ok(Some(EffectiveRuntimeFilterProgram::expression(compiled)));
     }
 
     Ok(None)
@@ -826,7 +821,8 @@ fn extend_grouped_having_aggregate_specs(
 fn resolved_order_for_plan(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
-) -> Result<Option<ResolvedOrder>, InternalError> {
+    work: &PreparationWork<'_>,
+) -> Result<Option<ResolvedOrder>, QueryError> {
     if grouped_plan_strategy(plan).is_some_and(GroupedPlanStrategy::is_top_k_group) {
         return Ok(None);
     }
@@ -835,10 +831,10 @@ fn resolved_order_for_plan(
         return Ok(None);
     };
 
-    let mut fields = Vec::with_capacity(order.fields.len());
+    let mut fields = work.vec_with_capacity(order.fields.len())?;
     for term in &order.fields {
         fields.push(ResolvedOrderField::new(
-            resolved_order_value_source_for_term(schema_info, term)?,
+            resolved_order_value_source_for_term(schema_info, term, work)?,
             term.direction(),
         ));
     }
@@ -849,123 +845,76 @@ fn resolved_order_for_plan(
 fn resolved_order_value_source_for_term(
     schema_info: &SchemaInfo,
     term: &crate::db::query::plan::OrderTerm,
-) -> Result<ResolvedOrderValueSource, InternalError> {
-    if term.direct_field().is_none() {
-        let rendered = term.rendered_label();
-        validate_resolved_order_expr_fields(schema_info, term.expr(), rendered.as_str())?;
-        let compiled = compile_scalar_projection_expr_with_schema(schema_info, term.expr())
-            .ok_or_else(|| order_expression_scalar_seam_error(rendered.as_str()))?;
+    work: &PreparationWork<'_>,
+) -> Result<ResolvedOrderValueSource, QueryError> {
+    if let Some(field) = term.direct_field() {
+        work.charge(Resource::PredicateExpressionSteps, 1 + field.len() as u64)?;
+        let slot = schema_info
+            .field_slot_index(field)
+            .ok_or_else(|| QueryError::execute(InternalError::query_invalid_logical_plan()))?;
 
-        return Ok(ResolvedOrderValueSource::expression(CompiledExpr::compile(
-            &compiled,
-        )));
+        return Ok(ResolvedOrderValueSource::direct_field(slot));
     }
 
-    let Some(field) = term.direct_field() else {
-        return Err(InternalError::query_invalid_logical_plan());
-    };
-    let slot = resolve_required_schema_slot(
-        schema_info,
-        field,
-        InternalError::query_invalid_logical_plan,
-    )?;
+    validate_resolved_order_scalar_seam(term.expr(), work)?;
+    // Scalar compilation owns accepted field resolution. Do not resolve every
+    // field again in the seam check or render a label for payload-free errors.
+    let compiled = compile_scalar_projection_expr_with_schema(schema_info, term.expr())
+        .ok_or_else(|| QueryError::execute(InternalError::query_invalid_logical_plan()))?;
 
-    Ok(ResolvedOrderValueSource::direct_field(slot))
+    Ok(ResolvedOrderValueSource::expression(compiled))
 }
 
-fn validate_resolved_order_expr_fields(
-    schema_info: &SchemaInfo,
+// The input-admitted tree has bounded depth. Charge each visited node before
+// descending; compilation and referenced-slot construction remain separate owners.
+fn validate_resolved_order_scalar_seam(
     expr: &Expr,
-    rendered: &str,
-) -> Result<(), InternalError> {
-    expr.try_for_each_tree_expr(&mut |node| match node {
-        Expr::Field(field_id) => resolve_required_schema_slot(
-            schema_info,
-            field_id.as_str(),
-            InternalError::query_invalid_logical_plan,
-        )
-        .map(|_| ()),
-        Expr::Aggregate(_) => Err(order_expression_scalar_seam_error(rendered)),
-        #[cfg(test)]
-        Expr::Alias { .. } => Err(order_expression_scalar_seam_error(rendered)),
-        Expr::Unary { .. } => Err(order_expression_scalar_seam_error(rendered)),
-        _ => Ok(()),
+    work: &PreparationWork<'_>,
+) -> Result<(), QueryError> {
+    expr.try_for_each_tree_expr(&mut |node| {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        match node {
+            Expr::Aggregate(_) | Expr::Unary { .. } => Err(QueryError::execute(
+                InternalError::query_invalid_logical_plan(),
+            )),
+            #[cfg(test)]
+            Expr::Alias { .. } => Err(QueryError::execute(
+                InternalError::query_invalid_logical_plan(),
+            )),
+            _ => Ok(()),
+        }
     })
 }
 
-// Resolve one schema-authoritative field slot while keeping planner
-// invalid-logical-plan error construction at the callsite that owns the
-// diagnostic wording.
-fn resolve_required_schema_slot<F>(
-    schema_info: &SchemaInfo,
-    field: &str,
-    invalid_plan_error: F,
-) -> Result<usize, InternalError>
-where
-    F: FnOnce() -> InternalError,
-{
-    schema_info
-        .field_slot_index(field)
-        .ok_or_else(invalid_plan_error)
-}
+type IndexExecutionMetadata = (Vec<usize>, Vec<IndexCompileTarget>);
 
-// Keep the scalar-order expression seam violation text under one helper so the
-// parse validation and compile validation paths do not drift.
-fn order_expression_scalar_seam_error(_rendered: &str) -> InternalError {
-    InternalError::query_invalid_logical_plan()
-}
-
-// Keep one stable executor-facing slot list for grouped order terms after the
-// planner has frozen the structural `ResolvedOrder`. The grouped Top-K route
-// now consumes this same referenced-slot contract instead of re-deriving order
-// sources from planner strategy at runtime.
-fn order_referenced_slots_for_resolved_order(
-    resolved_order: Option<&ResolvedOrder>,
-) -> Option<Vec<usize>> {
-    Some(resolved_order?.referenced_slots())
-}
-
-fn slot_map_for_schema_plan(
+// Both executor slot maps and predicate compile targets describe the same
+// ordered key items. Resolve each root once and admit both destination arrays
+// before filling them. Missing schema resolution stays distinct from exhaustion.
+fn index_execution_metadata_for_schema_plan(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
-) -> Option<Vec<usize>> {
+    work: &PreparationWork<'_>,
+) -> Result<Option<IndexExecutionMetadata>, QueryError> {
     let executable = plan.access.executable_contract();
-
-    resolved_index_slots_for_access_path(schema_info, &executable)
-}
-
-fn resolved_index_slots_for_access_path(
-    schema_info: &SchemaInfo,
-    access: &ExecutableAccessPlan<'_, crate::value::Value>,
-) -> Option<Vec<usize>> {
-    let path = access.as_path()?;
-    let path_facts = path.shape_facts();
-    let key_items = path_facts.index_key_items_for_slot_map()?;
-    let mut slots = Vec::with_capacity(key_items.key_arity());
-    for key_item in key_items.key_items() {
-        let field = key_item.as_ref().field();
-        let root = field.split_once('.').map_or(field, |(root, _)| root);
-        let slot = schema_info.field_slot_index(root)?;
-        slots.push(slot);
-    }
-
-    Some(slots)
-}
-
-fn index_compile_targets_for_schema_plan(
-    schema_info: &SchemaInfo,
-    plan: &AccessPlannedQuery,
-) -> Option<Vec<IndexCompileTarget>> {
-    let executable = plan.access.executable_contract();
-    let path = executable.as_path()?;
-    let key_items = path.shape_facts().index_key_items_for_slot_map()?;
-    let mut targets = Vec::new();
+    let Some(path) = executable.as_path() else {
+        return Ok(None);
+    };
+    let Some(key_items) = path.shape_facts().index_key_items_for_slot_map() else {
+        return Ok(None);
+    };
+    let mut slots = work.vec_with_capacity(key_items.key_arity())?;
+    let mut targets = work.vec_with_capacity(key_items.key_arity())?;
 
     for (component_index, key_item) in key_items.key_items().iter().enumerate() {
         let key_item = key_item.as_ref();
         let field = key_item.field();
+        work.charge(Resource::PredicateExpressionSteps, 1 + field.len() as u64)?;
         let root = field.split_once('.').map_or(field, |(root, _)| root);
-        let field_slot = schema_info.field_slot_index(root)?;
+        let Some(field_slot) = schema_info.field_slot_index(root) else {
+            return Ok(None);
+        };
+        slots.push(field_slot);
         targets.push(IndexCompileTarget {
             component_index,
             field_slot,
@@ -978,5 +927,5 @@ fn index_compile_targets_for_schema_plan(
         });
     }
 
-    Some(targets)
+    Ok(Some((slots, targets)))
 }

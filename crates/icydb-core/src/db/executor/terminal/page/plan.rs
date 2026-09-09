@@ -421,7 +421,7 @@ fn scalar_order_is_primary_key_only(plan: &AccessPlannedQuery) -> bool {
 
     plan.scalar_plan().order.as_ref().is_some_and(|order| {
         order
-            .primary_key_only_direction_fields(primary_key_names.as_slice())
+            .primary_key_only_direction_fields(primary_key_names)
             .is_some()
     })
 }

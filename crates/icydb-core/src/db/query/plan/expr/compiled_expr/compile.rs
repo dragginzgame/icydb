@@ -6,89 +6,154 @@
 //! to be translated into `CompiledExpr`.
 
 use crate::{
-    db::query::{
-        builder::AggregateExpr,
-        plan::{
-            GroupedAggregateExecutionSpec,
-            expr::{
-                BinaryOp, CompiledExpr, CompiledExprCaseArm, Expr, ProjectionEvalError,
-                ProjectionSpec, ScalarProjectionCaseArm, ScalarProjectionExpr,
+    db::{
+        QueryError,
+        query::{
+            builder::AggregateExpr,
+            plan::{
+                GroupedAggregateExecutionSpec,
+                expr::{
+                    BinaryOp, CompiledExpr, CompiledExprCaseArm, Expr, ProjectionEvalError,
+                    ProjectionSpec,
+                },
             },
         },
+        schema::SchemaInfo,
     },
     value::Value,
 };
+use icydb_diagnostic_code::QueryProjectionCode;
+
+/// Compile a scalar expression directly against the caller's accepted schema.
+/// Every child must be available before its parent is specialized, including
+/// branches that a constant CASE condition will subsequently discard.
+pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
+    schema: &SchemaInfo,
+    expr: &Expr,
+) -> Option<CompiledExpr> {
+    CompiledExpr::compile_scalar(expr, &|leaf| compile_scalar_leaf(schema, leaf).ok_or(())).ok()
+}
+
+/// Compile the scalar projection directly into its final row-slot programs.
+pub(in crate::db) fn compile_scalar_projection_plan_with_schema(
+    schema: &SchemaInfo,
+    projection: &ProjectionSpec,
+) -> Option<Vec<CompiledExpr>> {
+    let mut compiled_fields = Vec::with_capacity(projection.len());
+    for field in projection.fields() {
+        compiled_fields.push(compile_scalar_projection_expr_with_schema(
+            schema,
+            field.expr(),
+        )?);
+    }
+
+    Some(compiled_fields)
+}
+
+// Schema and single-value previews keep their existing leaf admission policies;
+// recursion, container construction and specialization have one compiler owner.
+fn compile_scalar_leaf(schema: &SchemaInfo, expr: &Expr) -> Option<CompiledExpr> {
+    Some(match expr {
+        Expr::Field(field) => CompiledExpr::Slot {
+            slot: schema.field_slot_index(field.as_str())?,
+            field: field.as_str().to_string(),
+        },
+        Expr::FieldPath(path) => {
+            let root_slot = schema.field_slot_index(path.root().as_str())?;
+            let segment_bytes = path
+                .segments()
+                .iter()
+                .map(|segment| segment.as_bytes().to_vec().into_boxed_slice())
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            CompiledExpr::FieldPath {
+                root_slot,
+                field: path.path_spec().dotted_label(),
+                segments: path.segments().to_vec().into_boxed_slice(),
+                segment_bytes,
+            }
+        }
+        _ => return None,
+    })
+}
+
+/// Compile a single-value preview with its existing field/path admission policy.
+pub(in crate::db::query::plan::expr) fn compile_builder_preview_expr(
+    expr: &Expr,
+    field_name: &str,
+    value_slot: usize,
+) -> Result<CompiledExpr, QueryError> {
+    CompiledExpr::compile_scalar(expr, &|leaf| match leaf {
+        Expr::Field(field) if field.as_str() == field_name => Ok(CompiledExpr::Slot {
+            slot: value_slot,
+            field: field.as_str().to_string(),
+        }),
+        Expr::FieldPath(_) => Err(QueryError::unsupported_projection(
+            QueryProjectionCode::NestedFieldPathPreview,
+        )),
+        _ => Err(QueryError::invariant()),
+    })
+}
 
 impl CompiledExpr {
-    /// Compile one planner scalar projection tree into the unified slot IR.
-    #[must_use]
-    pub(in crate::db) fn compile(expr: &ScalarProjectionExpr) -> Self {
-        match expr {
-            ScalarProjectionExpr::Field(field) => Self::Slot {
-                slot: field.slot(),
-                field: field.field().to_string(),
-            },
-            ScalarProjectionExpr::FieldPath(path) => Self::FieldPath {
-                root_slot: path.root_slot(),
-                field: path.dotted_label(),
-                segments: path.segments().to_vec().into_boxed_slice(),
-                segment_bytes: path
-                    .segments()
-                    .iter()
-                    .map(|segment| segment.as_bytes().to_vec().into_boxed_slice())
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
-            },
-            ScalarProjectionExpr::Literal(value) => Self::Literal(value.clone()),
-            ScalarProjectionExpr::FunctionCall { function, args } => Self::FunctionCall {
+    fn compile_scalar<E>(expr: &Expr, leaf: &impl Fn(&Expr) -> Result<Self, E>) -> Result<Self, E> {
+        Ok(match expr {
+            Expr::Field(_) | Expr::FieldPath(_) | Expr::Aggregate(_) => leaf(expr)?,
+            Expr::Literal(value) => Self::Literal(value.clone()),
+            Expr::FunctionCall { function, args } => Self::FunctionCall {
                 function: *function,
                 args: args
                     .iter()
-                    .map(Self::compile)
-                    .collect::<Vec<_>>()
+                    .map(|arg| Self::compile_scalar(arg, leaf))
+                    .collect::<Result<Vec<_>, _>>()?
                     .into_boxed_slice(),
             },
-            ScalarProjectionExpr::Unary { op, expr } => Self::Unary {
+            Expr::Unary { op, expr } => Self::Unary {
                 op: *op,
-                expr: Box::new(Self::compile(expr)),
+                expr: Box::new(Self::compile_scalar(expr, leaf)?),
             },
-            ScalarProjectionExpr::Case {
+            Expr::Case {
                 when_then_arms,
                 else_expr,
-            } => Self::compile_case(when_then_arms, else_expr),
-            ScalarProjectionExpr::Binary { op, left, right } => {
-                let left = Self::compile(left);
-                let right = Self::compile(right);
+            } => {
+                let arms = when_then_arms
+                    .iter()
+                    .map(|arm| {
+                        Ok(CompiledExprCaseArm::new(
+                            Self::compile_scalar(arm.condition(), leaf)?,
+                            Self::compile_scalar(arm.result(), leaf)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, E>>()?;
+                let else_expr = Self::compile_scalar(else_expr, leaf)?;
+                Self::compile_case(arms, else_expr)
+            }
+            Expr::Binary { op, left, right } => {
+                let left = Self::compile_scalar(left, leaf)?;
+                let right = Self::compile_scalar(right, leaf)?;
 
                 Self::compile_binary(*op, left, right)
             }
-        }
+            #[cfg(test)]
+            Expr::Alias { expr, .. } => Self::compile_scalar(expr, leaf)?,
+        })
     }
 
     // Collapse one-arm CASE programs into condition-specialized forms when
     // the condition shape can be decided without evaluating a boolean Value.
     // Multi-arm searched CASE keeps the generic arm list to preserve normal
     // short-circuit behavior without adding a broader expression VM.
-    fn compile_case(
-        when_then_arms: &[ScalarProjectionCaseArm],
-        else_expr: &ScalarProjectionExpr,
-    ) -> Self {
-        let else_expr = Self::compile(else_expr);
-        let [arm] = when_then_arms else {
-            return Self::Case {
-                when_then_arms: when_then_arms
-                    .iter()
-                    .map(CompiledExprCaseArm::compile)
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
+    fn compile_case(when_then_arms: Vec<CompiledExprCaseArm>, else_expr: Self) -> Self {
+        match <[CompiledExprCaseArm; 1]>::try_from(when_then_arms) {
+            Ok([arm]) => {
+                let CompiledExprCaseArm { condition, result } = arm;
+                Self::compile_single_arm_case(condition, result, else_expr)
+            }
+            Err(arms) => Self::Case {
+                when_then_arms: arms.into_boxed_slice(),
                 else_expr: Box::new(else_expr),
-            };
-        };
-
-        let condition = Self::compile(arm.condition());
-        let then_expr = Self::compile(arm.result());
-
-        Self::compile_single_arm_case(condition, then_expr, else_expr)
+            },
+        }
     }
 
     // Convert common searched-CASE conditions into direct slot predicates.
@@ -127,139 +192,124 @@ impl CompiledExpr {
         }
     }
 
-    // Collapse direct slot arithmetic into dedicated variants. These are the
-    // grouped aggregate input shapes that previously paid a full expression
-    // traversal for every row.
+    // Specialization consumes the already-owned operands. Moving labels and
+    // literals avoids copying payloads that the temporary operand nodes then drop.
     fn compile_binary(op: BinaryOp, left: Self, right: Self) -> Self {
-        if let Some(compiled) = Self::compile_slot_slot_binary(op, &left, &right) {
-            return compiled;
-        }
-
-        if let Some(compiled) = Self::compile_slot_literal_binary(op, &left, &right) {
-            return compiled;
-        }
-
-        Self::Binary {
-            op,
-            left: Box::new(left),
-            right: Box::new(right),
+        match (left, right) {
+            (
+                Self::Slot {
+                    slot: left_slot,
+                    field: left_field,
+                },
+                Self::Slot {
+                    slot: right_slot,
+                    field: right_field,
+                },
+            ) => Self::compile_slot_slot_binary(op, left_slot, left_field, right_slot, right_field),
+            (Self::Slot { field, slot }, Self::Literal(literal)) => Self::BinarySlotLiteral {
+                op,
+                slot,
+                field,
+                literal,
+                slot_on_left: true,
+            },
+            (Self::Literal(literal), Self::Slot { field, slot }) => Self::BinarySlotLiteral {
+                op,
+                slot,
+                field,
+                literal,
+                slot_on_left: false,
+            },
+            (left, right) => Self::Binary {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+            },
         }
     }
 
-    // Keep slot-vs-slot arithmetic as fully direct variants. Other binary
-    // operators may still need shared boolean/comparison semantics, so they
-    // stay on the generic binary path unless a narrower fast path handles them.
-    fn compile_slot_slot_binary(op: BinaryOp, left: &Self, right: &Self) -> Option<Self> {
-        let (
-            Self::Slot {
-                field: left_field,
-                slot: left_slot,
-            },
-            Self::Slot {
-                field: right_field,
-                slot: right_slot,
-            },
-        ) = (left, right)
-        else {
-            return None;
-        };
-
-        Some(match op {
+    // Preserve the established direct arithmetic/comparison variants. Boolean
+    // slot pairs retain generic evaluation and its existing boolean semantics.
+    fn compile_slot_slot_binary(
+        op: BinaryOp,
+        left_slot: usize,
+        left_field: String,
+        right_slot: usize,
+        right_field: String,
+    ) -> Self {
+        match op {
             BinaryOp::Add => Self::Add {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
             },
             BinaryOp::Sub => Self::Sub {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
             },
             BinaryOp::Mul => Self::Mul {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
             },
             BinaryOp::Div => Self::Div {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
             },
             BinaryOp::Eq => Self::Eq {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
             },
             BinaryOp::Ne => Self::Ne {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
             },
             BinaryOp::Lt => Self::Lt {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
             },
             BinaryOp::Lte => Self::Lte {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
             },
             BinaryOp::Gt => Self::Gt {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
             },
             BinaryOp::Gte => Self::Gte {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
             },
-            BinaryOp::Or | BinaryOp::And => return None,
-        })
-    }
-
-    // Slot-literal comparisons are common in grouped CASE filters such as
-    // `CASE WHEN age >= 30 THEN ...`. This variant removes recursive literal
-    // evaluation and preserves operand order for asymmetric operators.
-    fn compile_slot_literal_binary(op: BinaryOp, left: &Self, right: &Self) -> Option<Self> {
-        match (left, right) {
-            (Self::Slot { field, slot }, Self::Literal(literal)) => Some(Self::BinarySlotLiteral {
+            BinaryOp::Or | BinaryOp::And => Self::Binary {
                 op,
-                slot: *slot,
-                field: field.clone(),
-                literal: literal.clone(),
-                slot_on_left: true,
-            }),
-            (Self::Literal(literal), Self::Slot { field, slot }) => Some(Self::BinarySlotLiteral {
-                op,
-                slot: *slot,
-                field: field.clone(),
-                literal: literal.clone(),
-                slot_on_left: false,
-            }),
-            _ => None,
+                left: Box::new(Self::Slot {
+                    slot: left_slot,
+                    field: left_field,
+                }),
+                right: Box::new(Self::Slot {
+                    slot: right_slot,
+                    field: right_field,
+                }),
+            },
         }
-    }
-}
-
-impl CompiledExprCaseArm {
-    // Compile one searched-CASE arm from the planner scalar projection form.
-    fn compile(arm: &ScalarProjectionCaseArm) -> Self {
-        Self::new(
-            CompiledExpr::compile(arm.condition()),
-            CompiledExpr::compile(arm.result()),
-        )
     }
 }
 
@@ -426,24 +476,179 @@ const fn is_comparison_op(op: BinaryOp) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::query::plan::expr::{CompiledExpr, ScalarProjectionCaseArm, ScalarProjectionExpr},
+        db::query::plan::expr::{
+            BinaryOp, CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader,
+        },
         value::Value,
     };
+    use std::borrow::Cow;
+
+    struct Row([Value; 2]);
+
+    impl CompiledExprValueReader for Row {
+        fn read_slot(&self, slot: usize) -> Option<Cow<'_, Value>> {
+            self.0.get(slot).map(Cow::Borrowed)
+        }
+
+        fn read_group_key(&self, _: usize) -> Option<Cow<'_, Value>> {
+            None
+        }
+
+        fn read_aggregate(&self, _: usize) -> Option<Cow<'_, Value>> {
+            None
+        }
+    }
+
+    fn slot(slot: usize, field: String) -> CompiledExpr {
+        CompiledExpr::Slot { slot, field }
+    }
+
+    #[test]
+    fn case_specialization_preserves_zero_single_and_multiple_arm_results() {
+        for count in [0, 1, 2] {
+            for selected in [false, true] {
+                let text = "selected result".to_string();
+                let pointer = text.as_ptr();
+                let mut arms = Vec::new();
+                if count == 2 {
+                    arms.push(CompiledExprCaseArm::new(
+                        CompiledExpr::Literal(Value::Bool(false)),
+                        CompiledExpr::Literal(Value::Text("not selected".into())),
+                    ));
+                }
+                if count > 0 {
+                    arms.push(CompiledExprCaseArm::new(
+                        CompiledExpr::Literal(Value::Bool(selected)),
+                        CompiledExpr::Literal(Value::Text(text)),
+                    ));
+                }
+                let compiled = CompiledExpr::compile_case(
+                    arms,
+                    CompiledExpr::Literal(Value::Text("else".into())),
+                );
+                let row = Row([Value::Null, Value::Null]);
+                let result = compiled.evaluate(&row).unwrap();
+                if count > 0 && selected {
+                    let Value::Text(text) = result.as_ref() else {
+                        panic!("expected text");
+                    };
+                    assert_eq!(text, "selected result");
+                    assert_eq!(text.as_ptr(), pointer);
+                } else {
+                    assert_eq!(result.as_ref(), &Value::Text("else".into()));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn binary_specialization_moves_owned_labels_and_literals() {
+        let left = "left".to_string();
+        let right = "right".to_string();
+        let pointers = (left.as_ptr(), right.as_ptr());
+        let compiled = CompiledExpr::compile_binary(BinaryOp::Add, slot(0, left), slot(1, right));
+        let CompiledExpr::Add {
+            left_slot,
+            left_field,
+            right_slot,
+            right_field,
+        } = compiled
+        else {
+            panic!("slot arithmetic should retain its direct form");
+        };
+        assert_eq!((left_slot, right_slot), (0, 1));
+        assert_eq!((left_field.as_ptr(), right_field.as_ptr()), pointers);
+
+        for slot_on_left in [true, false] {
+            let field = "field".to_string();
+            let literal = "large literal".repeat(100);
+            let pointers = (field.as_ptr(), literal.as_ptr());
+            let field = slot(1, field);
+            let literal = CompiledExpr::Literal(Value::Text(literal));
+            let (left, right) = if slot_on_left {
+                (field, literal)
+            } else {
+                (literal, field)
+            };
+            let compiled = CompiledExpr::compile_binary(BinaryOp::Lt, left, right);
+            let CompiledExpr::BinarySlotLiteral {
+                op,
+                slot,
+                field,
+                literal: Value::Text(literal),
+                slot_on_left: actual,
+            } = compiled
+            else {
+                panic!("slot/literal comparison should retain its direct form");
+            };
+            assert_eq!(op, BinaryOp::Lt);
+            assert_eq!(slot, 1);
+            assert_eq!(actual, slot_on_left);
+            assert_eq!((field.as_ptr(), literal.as_ptr()), pointers);
+        }
+    }
+
+    #[test]
+    fn binary_specialization_matches_generic_evaluation() {
+        for op in [
+            BinaryOp::Add,
+            BinaryOp::Sub,
+            BinaryOp::Mul,
+            BinaryOp::Div,
+            BinaryOp::Eq,
+            BinaryOp::Ne,
+            BinaryOp::Lt,
+            BinaryOp::Lte,
+            BinaryOp::Gt,
+            BinaryOp::Gte,
+            BinaryOp::And,
+            BinaryOp::Or,
+        ] {
+            for values in [
+                [Value::Nat64(8), Value::Nat64(2)],
+                [Value::Nat64(8), Value::Nat64(0)],
+                [Value::Bool(false), Value::Bool(true)],
+                [Value::Null, Value::Nat64(1)],
+                [Value::Text("a".into()), Value::Text("b".into())],
+            ] {
+                let row = Row(values);
+                for (left, right) in [
+                    (slot(0, "left".into()), slot(1, "right".into())),
+                    (
+                        slot(0, "left".into()),
+                        CompiledExpr::Literal(row.0[1].clone()),
+                    ),
+                    (
+                        CompiledExpr::Literal(row.0[0].clone()),
+                        slot(1, "right".into()),
+                    ),
+                    (
+                        CompiledExpr::Literal(row.0[0].clone()),
+                        CompiledExpr::Literal(row.0[1].clone()),
+                    ),
+                ] {
+                    let generic = CompiledExpr::Binary {
+                        op,
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    };
+                    let compiled = CompiledExpr::compile_binary(op, left, right);
+                    assert_eq!(compiled.evaluate(&row), generic.evaluate(&row), "{op:?}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn compiled_expr_constant_case_condition_is_hoisted() {
-        let expr = ScalarProjectionExpr::Case {
-            when_then_arms: vec![ScalarProjectionCaseArm::new(
-                ScalarProjectionExpr::Literal(Value::Bool(false)),
-                ScalarProjectionExpr::Literal(Value::Text("then".to_string())),
-            )],
-            else_expr: Box::new(ScalarProjectionExpr::Literal(Value::Text(
-                "else".to_string(),
-            ))),
-        };
-
         assert_eq!(
-            CompiledExpr::compile(&expr),
+            CompiledExpr::compile_case(
+                vec![CompiledExprCaseArm::new(
+                    CompiledExpr::Literal(Value::Bool(false)),
+                    CompiledExpr::Literal(Value::Text("then".into())),
+                )],
+                CompiledExpr::Literal(Value::Text("else".into()))
+            ),
             CompiledExpr::Literal(Value::Text("else".to_string())),
         );
     }

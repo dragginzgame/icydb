@@ -28,9 +28,13 @@ use crate::{
     value::{Value, ValueTag},
 };
 use icydb_diagnostic_code::QueryProjectionCode;
-use std::borrow::Cow;
+use std::{borrow::Cow, convert::Infallible};
 
-pub(in crate::db) use compile::{compile_grouped_projection_expr, compile_grouped_projection_plan};
+pub(in crate::db::query::plan::expr) use compile::compile_builder_preview_expr;
+pub(in crate::db) use compile::{
+    compile_grouped_projection_expr, compile_grouped_projection_plan,
+    compile_scalar_projection_expr_with_schema, compile_scalar_projection_plan_with_schema,
+};
 pub(in crate::db) use evaluate::evaluate_grouped_having_expr;
 
 ///
@@ -529,12 +533,27 @@ impl CompiledExpr {
 
     /// Visit every row slot referenced by this compiled expression.
     pub(in crate::db) fn for_each_referenced_slot(&self, visit: &mut impl FnMut(usize)) {
+        let Ok(()) =
+            self.try_for_each_referenced_slot(&mut || Ok::<_, Infallible>(()), &mut |slot| {
+                visit(slot);
+                Ok(())
+            });
+    }
+
+    /// Admit each node before inspecting it, then visit its row slots in order.
+    /// Both callbacks short-circuit, including on nodes with no row references.
+    pub(in crate::db) fn try_for_each_referenced_slot<E>(
+        &self,
+        enter: &mut impl FnMut() -> Result<(), E>,
+        visit: &mut impl FnMut(usize) -> Result<(), E>,
+    ) -> Result<(), E> {
+        enter()?;
         match self {
             Self::Slot { slot, .. }
             | Self::FieldPath {
                 root_slot: slot, ..
             }
-            | Self::BinarySlotLiteral { slot, .. } => visit(*slot),
+            | Self::BinarySlotLiteral { slot, .. } => visit(*slot)?,
             Self::CaseSlotLiteral {
                 slot,
                 then_expr,
@@ -547,9 +566,9 @@ impl CompiledExpr {
                 else_expr,
                 ..
             } => {
-                visit(*slot);
-                then_expr.for_each_referenced_slot(visit);
-                else_expr.for_each_referenced_slot(visit);
+                visit(*slot)?;
+                then_expr.try_for_each_referenced_slot(enter, visit)?;
+                else_expr.try_for_each_referenced_slot(enter, visit)?;
             }
             Self::Add {
                 left_slot,
@@ -601,31 +620,32 @@ impl CompiledExpr {
                 right_slot,
                 ..
             } => {
-                visit(*left_slot);
-                visit(*right_slot);
+                visit(*left_slot)?;
+                visit(*right_slot)?;
             }
             Self::FunctionCall { args, .. } => {
                 for arg in args {
-                    arg.for_each_referenced_slot(visit);
+                    arg.try_for_each_referenced_slot(enter, visit)?;
                 }
             }
-            Self::Unary { expr, .. } => expr.for_each_referenced_slot(visit),
+            Self::Unary { expr, .. } => expr.try_for_each_referenced_slot(enter, visit)?,
             Self::Case {
                 when_then_arms,
                 else_expr,
             } => {
                 for arm in when_then_arms {
-                    arm.condition.for_each_referenced_slot(visit);
-                    arm.result.for_each_referenced_slot(visit);
+                    arm.condition.try_for_each_referenced_slot(enter, visit)?;
+                    arm.result.try_for_each_referenced_slot(enter, visit)?;
                 }
-                else_expr.for_each_referenced_slot(visit);
+                else_expr.try_for_each_referenced_slot(enter, visit)?;
             }
             Self::Binary { left, right, .. } => {
-                left.for_each_referenced_slot(visit);
-                right.for_each_referenced_slot(visit);
+                left.try_for_each_referenced_slot(enter, visit)?;
+                right.try_for_each_referenced_slot(enter, visit)?;
             }
             Self::GroupKey { .. } | Self::Aggregate { .. } | Self::Literal(_) => {}
         }
+        Ok(())
     }
 
     /// Extend one slot list with every unique row slot referenced by this expression.

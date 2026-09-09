@@ -69,7 +69,7 @@ impl PreparedScalarRuntimeHandoff {
 ///
 
 pub(in crate::db::executor) struct PreparedAccessPlanHandoff {
-    pub(in crate::db::executor) plan: Arc<AccessPlannedQuery>,
+    pub(in crate::db::executor) plan: Rc<AccessPlannedQuery>,
     pub(in crate::db::executor) index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     pub(in crate::db::executor) index_range_specs: Arc<[LoweredIndexRangeSpec]>,
 }

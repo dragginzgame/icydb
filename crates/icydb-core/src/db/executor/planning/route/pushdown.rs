@@ -238,7 +238,7 @@ pub(super) fn access_order_satisfied_by_route_mode_with_access_shape_facts(
         return false;
     };
     let primary_key_order_satisfied = order
-        .primary_key_only_direction_fields(&primary_key_names)
+        .primary_key_only_direction_fields(primary_key_names)
         .is_some_and(|direction| {
             let direction = match direction {
                 OrderDirection::Asc => Direction::Asc,
@@ -302,7 +302,7 @@ fn access_preserves_primary_key_order_for_route_direction_with_access_shape_fact
     let exact_prefix_family_preserves_primary_key_order = matches!(direction, Direction::Asc)
         && index_prefix_family_preserves_primary_key_suffix_order(
             access_shape_facts,
-            primary_key_names.as_slice(),
+            primary_key_names,
         );
     let child_prefix_expansion_preserves_primary_key_order = allow_child_expansion
         && child_prefix_expansion_preserves_primary_key_order_for_direction(
@@ -317,7 +317,7 @@ fn access_preserves_primary_key_order_for_route_direction_with_access_shape_fact
 
 fn index_prefix_family_preserves_primary_key_suffix_order(
     access_shape_facts: &AccessShapeFacts,
-    primary_key_names: &[&str],
+    primary_key_names: &[String],
 ) -> bool {
     let Some(single_path) = access_shape_facts.single_path_facts() else {
         return false;
@@ -340,7 +340,7 @@ fn index_prefix_family_preserves_primary_key_suffix_order(
 
 fn index_suffix_matches_primary_key_order(
     index: &IndexShapeDetails,
-    primary_key_names: &[&str],
+    primary_key_names: &[String],
 ) -> bool {
     index_suffix_matches_primary_key_order_from_prefix(index, index.slot_arity(), primary_key_names)
 }
@@ -374,7 +374,7 @@ fn primary_key_order_direction_for_plan(plan: &AccessPlannedQuery) -> Option<Dir
     plan.scalar_plan()
         .order
         .as_ref()?
-        .primary_key_only_direction_fields(&primary_key_names)
+        .primary_key_only_direction_fields(primary_key_names)
         .map(|direction| match direction {
             OrderDirection::Asc => Direction::Asc,
             OrderDirection::Desc => Direction::Desc,
@@ -400,7 +400,7 @@ fn ordered_child_prefix_expansion_target_for_primary_key_order(
     index_suffix_matches_primary_key_order_from_prefix(
         &details,
         expanded_prefix_len,
-        primary_key_names.as_slice(),
+        primary_key_names,
     )
     .then_some(expanded_prefix_len)
 }
@@ -430,7 +430,7 @@ fn index_prefix_child_expansion_hint_for_fetch_limit(
 fn index_suffix_matches_primary_key_order_from_prefix(
     index: &IndexShapeDetails,
     prefix_len: usize,
-    primary_key_names: &[&str],
+    primary_key_names: &[String],
 ) -> bool {
     let key_arity = index.key_arity();
     if prefix_len > key_arity {
@@ -446,5 +446,5 @@ fn index_suffix_matches_primary_key_order_from_prefix(
     primary_key_names
         .iter()
         .enumerate()
-        .all(|(offset, name)| index.key_field_at(prefix_len + offset) == Some(*name))
+        .all(|(offset, name)| index.key_field_at(prefix_len + offset) == Some(name.as_str()))
 }

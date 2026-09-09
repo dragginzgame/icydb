@@ -64,7 +64,7 @@ pub enum ExecutionFamily {
 
 pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPlanResidents {
     cache_retention: RefCell<Weak<crate::db::session::CacheEntryWeight>>,
-    pub(in crate::db::executor::prepared_execution_plan) plan: Arc<AccessPlannedQuery>,
+    pub(in crate::db::executor::prepared_execution_plan) plan: Rc<AccessPlannedQuery>,
     pub(in crate::db::executor::prepared_execution_plan) execution_shape_fingerprint_prefix: u64,
     pub(in crate::db::executor::prepared_execution_plan) continuation_identity:
         Option<AcceptedContinuationIdentity>,
@@ -103,7 +103,7 @@ impl Clone for PreparedExecutionPlanResidents {
         Self {
             // A detached resident clone is owned by execution, not the cache entry.
             cache_retention: RefCell::new(Weak::new()),
-            plan: Arc::clone(&self.plan),
+            plan: Rc::clone(&self.plan),
             execution_shape_fingerprint_prefix: self.execution_shape_fingerprint_prefix,
             continuation_identity: self.continuation_identity,
             prepared_projection_contract: clone_once_lock(&self.prepared_projection_contract),
@@ -126,7 +126,7 @@ impl Clone for PreparedExecutionPlanResidents {
 }
 
 // Clone initialized lazy residents when the prepared core has to be cloned out
-// of an `Arc`; uninitialized residents intentionally stay lazy.
+// of a shared resident; uninitialized residents intentionally stay lazy.
 fn clone_once_lock<T: Clone>(source: &OnceLock<T>) -> OnceLock<T> {
     let cloned = OnceLock::new();
     if let Some(value) = source.get() {
@@ -267,7 +267,7 @@ impl PreparedExecutionPlanCore {
 
     #[must_use]
     fn new(
-        plan: Arc<AccessPlannedQuery>,
+        plan: Rc<AccessPlannedQuery>,
         execution_shape_fingerprint_prefix: u64,
         continuation_identity: Option<AcceptedContinuationIdentity>,
         continuation: Option<PlannedContinuationContract>,
@@ -504,7 +504,7 @@ impl PreparedExecutionPlanCore {
 
     // Recover the prepared-plan resident payload by move when this core is
     // uniquely owned, and fall back to cloning only when another wrapper still
-    // holds the resident Arc.
+    // holds the resident Rc.
     #[must_use]
     pub(in crate::db::executor::prepared_execution_plan) fn into_residents(
         self,
@@ -605,10 +605,14 @@ mod retention_tests {
 
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_schema_fingerprint(
     authority: EntityAuthority,
-    mut plan: AccessPlannedQuery,
+    plan: AccessPlannedQuery,
     schema_fingerprint: Option<CommitSchemaFingerprint>,
 ) -> Result<PreparedExecutionPlanCore, InternalError> {
-    authority.finalize_static_execution_planning_contract(&mut plan)?;
+    // Metadata construction belongs to the planner's preparation boundary.
+    // Reject incomplete handoffs before lowering or retaining executor state.
+    if !plan.has_static_execution_planning_contract() {
+        return Err(InternalError::query_executor_invariant());
+    }
     let continuation_identity = schema_fingerprint
         .map(|entity_schema_fingerprint| {
             authority.accepted_schema_authority().map(|accepted| {
@@ -653,7 +657,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
 ) -> PreparedExecutionPlanCore {
     build_prepared_execution_plan_core_with_shared_lowered_access(
         authority,
-        Arc::new(plan),
+        Rc::new(plan),
         continuation_identity,
         index_prefix_specs,
         index_range_specs,
@@ -691,7 +695,7 @@ Self{execution_preparation,grouped_slot_layout} => [execution_preparation,groupe
 // falls back into scalar materialization with the same access contract.
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_shared_lowered_access(
     authority: EntityAuthority,
-    plan: Arc<AccessPlannedQuery>,
+    plan: Rc<AccessPlannedQuery>,
     continuation_identity: Option<AcceptedContinuationIdentity>,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     index_range_specs: Arc<[LoweredIndexRangeSpec]>,

@@ -17,7 +17,7 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use std::{rc::Rc, sync::Arc};
+use std::rc::Rc;
 
 ///
 /// EntityAuthority
@@ -33,7 +33,7 @@ pub(in crate::db) struct EntityAuthority {
     row_layout: Option<RowLayout>,
     entity_tag: EntityTag,
     store_path: &'static str,
-    accepted_schema_info: Option<Arc<SchemaInfo>>,
+    accepted_schema_info: Option<Rc<SchemaInfo>>,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     accepted_runtime_root_identity: AcceptedSchemaRuntimeRootIdentity,
 }
@@ -46,7 +46,7 @@ impl EntityAuthority {
         entity_tag: EntityTag,
         store_path: &'static str,
         row_contract: StructuralRowContract,
-        accepted_schema_info: Arc<SchemaInfo>,
+        accepted_schema_info: Rc<SchemaInfo>,
         accepted_schema_fingerprint: CommitSchemaFingerprint,
         accepted_runtime_root_identity: AcceptedSchemaRuntimeRootIdentity,
     ) -> Self {
@@ -140,42 +140,6 @@ impl EntityAuthority {
     #[must_use]
     pub(in crate::db) const fn store_path(&self) -> &'static str {
         self.store_path
-    }
-
-    /// Finalize planner-owned static execution contract through canonical entity authority.
-    pub(in crate::db::executor) fn finalize_static_execution_planning_contract(
-        &self,
-        plan: &mut AccessPlannedQuery,
-    ) -> Result<(), InternalError> {
-        // Cached/session planning may already have frozen static execution
-        // metadata with accepted schema authority. Do not overwrite that
-        // schema-selected slot contract while lowering the executor core.
-        if plan.has_static_execution_planning_contract() {
-            return Ok(());
-        }
-
-        let schema_info = self
-            .accepted_schema_info
-            .as_ref()
-            .ok_or_else(InternalError::query_executor_invariant)?;
-        plan.finalize_static_execution_planning_contract_with_schema(schema_info)
-            .map_err(|_err| InternalError::query_executor_invariant())?;
-
-        Ok(())
-    }
-
-    /// Finalize planner-owned route profiling through canonical entity authority.
-    pub(in crate::db::executor) fn finalize_planner_route_profile(
-        &self,
-        plan: &mut AccessPlannedQuery,
-    ) -> Result<(), InternalError> {
-        let schema_info = self
-            .accepted_schema_info
-            .as_ref()
-            .ok_or_else(InternalError::query_executor_invariant)?;
-        plan.finalize_planner_route_profile_for_model_with_schema(schema_info);
-
-        Ok(())
     }
 
     /// Validate one access-planned query against authority-owned structural contracts.

@@ -2,17 +2,24 @@
 //! Defines the planner-owned projection selection and projection field shapes
 //! that flow into structural execution.
 
+#[cfg(test)]
+mod slot_tests;
+
 use crate::{
     db::{
+        QueryError,
         query::plan::{
             GroupFieldRef, GroupFieldSet,
             expr::ast::{Alias, BinaryOp, Expr, FieldId},
         },
+        query::preparation::PreparationWork,
         schema::SchemaInfo,
     },
     error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+use std::cmp::Ordering;
 
 ///
 /// ProjectionSelection
@@ -85,33 +92,56 @@ impl ProjectionSpec {
     pub(in crate::db) fn referenced_slots_for_schema(
         &self,
         schema: &SchemaInfo,
-    ) -> Result<Vec<usize>, InternalError> {
+        work: &PreparationWork<'_>,
+    ) -> Result<Vec<usize>, QueryError> {
         let mut referenced = Vec::new();
 
         for field in self.fields() {
-            mark_projection_expr_slots(schema, field.expr(), &mut referenced)?;
+            mark_projection_expr_slots(schema, field.expr(), &mut referenced, work)?;
         }
-
-        referenced.sort_unstable();
 
         Ok(referenced)
     }
 
     /// Return whether this projection preserves accepted physical field order.
-    #[must_use]
-    pub(in crate::db) fn is_schema_identity_for(&self, schema: &SchemaInfo) -> bool {
-        let field_names = schema.field_names_in_slot_order();
-        self.len() == field_names.len()
-            && field_names
-                .into_iter()
-                .zip(self.fields())
-                .all(|(name, field)| match field {
-                    ProjectionField::Scalar {
-                        expr: Expr::Field(field),
-                        alias: None,
-                    } => field.as_str() == name,
-                    ProjectionField::Scalar { .. } => false,
-                })
+    pub(in crate::db) fn is_schema_identity_for(
+        &self,
+        schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
+    ) -> Result<bool, QueryError> {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        if self.len() != schema.field_count() {
+            return Ok(false);
+        }
+        // Accepted live fields have distinct physical slots, which need not be
+        // contiguous. Full cardinality plus strict slot order proves identity
+        // without collecting or sorting another schema-name vector.
+        let mut previous = None;
+        for field in self.fields() {
+            work.charge(Resource::PredicateExpressionSteps, 1)?;
+            let ProjectionField::Scalar {
+                expr: Expr::Field(field),
+                alias: None,
+            } = field
+            else {
+                return Ok(false);
+            };
+            work.charge(
+                Resource::PredicateExpressionSteps,
+                field.as_str().len() as u64,
+            )?;
+            let Some(slot) = schema.field_slot_index(field.as_str()) else {
+                return Ok(false);
+            };
+            if let Some(previous) = previous {
+                work.charge(Resource::PredicateExpressionSteps, 1)?;
+                if slot <= previous {
+                    return Ok(false);
+                }
+            }
+            previous = Some(slot);
+        }
+        Ok(true)
     }
 }
 
@@ -139,30 +169,50 @@ fn mark_projection_expr_slots(
     schema: &SchemaInfo,
     expr: &Expr,
     referenced: &mut Vec<usize>,
-) -> Result<(), InternalError> {
-    expr.try_for_each_tree_expr(&mut |node| match node {
-        Expr::Field(field_id) => {
-            let field_name = field_id.as_str();
-            let slot = schema
-                .field_slot_index(field_name)
-                .ok_or_else(InternalError::query_invalid_logical_plan)?;
-            if !referenced.contains(&slot) {
-                referenced.push(slot);
-            }
-            Ok(())
-        }
-        Expr::FieldPath(path) => {
-            let field_name = path.root().as_str();
-            let slot = schema
-                .field_slot_index(field_name)
-                .ok_or_else(InternalError::query_invalid_logical_plan)?;
-            if !referenced.contains(&slot) {
-                referenced.push(slot);
-            }
-            Ok(())
-        }
-        _ => Ok(()),
+    work: &PreparationWork<'_>,
+) -> Result<(), QueryError> {
+    // Projection inputs are depth-admitted before this recursive visitor.
+    // Aggregate leaves retain their existing reachability semantics.
+    expr.try_for_each_tree_expr(&mut |node| {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        let field_name = match node {
+            Expr::Field(field) => field.as_str(),
+            Expr::FieldPath(path) => path.root().as_str(),
+            _ => return Ok(()),
+        };
+        work.charge(Resource::PredicateExpressionSteps, field_name.len() as u64)?;
+        let slot = schema
+            .field_slot_index(field_name)
+            .ok_or_else(|| QueryError::execute(InternalError::query_invalid_logical_plan()))?;
+        insert_projection_slot(referenced, slot, work)
     })
+}
+
+// Keep slots sorted and unique during construction, eliminating a separate
+// unmetered final sort. Charge every comparison, growth and shifted element
+// before mutation; a failed insertion leaves the existing list unchanged.
+fn insert_projection_slot(
+    referenced: &mut Vec<usize>,
+    slot: usize,
+    work: &PreparationWork<'_>,
+) -> Result<(), QueryError> {
+    let (mut low, mut high) = (0, referenced.len());
+    while low < high {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        let mid = low + (high - low) / 2;
+        match referenced[mid].cmp(&slot) {
+            Ordering::Less => low = mid + 1,
+            Ordering::Greater => high = mid,
+            Ordering::Equal => return Ok(()),
+        }
+    }
+    work.charge(
+        Resource::PredicateExpressionSteps,
+        (referenced.len() - low) as u64,
+    )?;
+    work.reserve_vec(referenced, 1)?;
+    referenced.insert(low, slot);
+    Ok(())
 }
 
 /// Return one direct field name when the expression is only a field leaf plus
@@ -188,26 +238,6 @@ pub(in crate::db) fn direct_projection_expr_field_name(expr: &Expr) -> Option<&s
         | Expr::Case { .. }
         | Expr::Binary { .. } => None,
     }
-}
-
-/// Resolve one unique direct field-slot layout using explicit schema authority.
-#[must_use]
-pub(in crate::db::query) fn collect_unique_direct_projection_slots_with_schema<'a>(
-    schema: &SchemaInfo,
-    field_names: impl IntoIterator<Item = &'a str>,
-) -> Option<Vec<usize>> {
-    let mut field_slots = Vec::new();
-
-    for field_name in field_names {
-        let slot = schema.field_slot_index(field_name)?;
-        if field_slots.contains(&slot) {
-            return None;
-        }
-
-        field_slots.push(slot);
-    }
-
-    Some(field_slots)
 }
 
 ///

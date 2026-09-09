@@ -8,6 +8,7 @@ use crate::db::{
     direction::Direction,
     query::plan::{OrderDirection, OrderSpec, order_term::index_key_item_order_terms},
 };
+use std::rc::Rc;
 
 ///
 /// DeterministicSecondaryIndexOrderMatch
@@ -127,20 +128,20 @@ pub(in crate::db) enum GroupedIndexOrderMatch {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct DeterministicSecondaryOrderContract {
     non_primary_key_terms: Vec<String>,
-    primary_key_terms: Vec<String>,
+    primary_key_terms: Rc<[String]>,
     direction: OrderDirection,
 }
 
 impl DeterministicSecondaryOrderContract {
-    /// Build one normalized deterministic order contract with an ordered
-    /// primary-key field suffix.
+    /// Build one normalized deterministic order contract, retaining the accepted
+    /// primary-key name allocation rather than copying its ordered suffix.
     #[must_use]
     pub(in crate::db) fn from_order_spec_fields(
         order: &OrderSpec,
-        primary_key_names: &[&str],
+        primary_key_names: Rc<[String]>,
     ) -> Option<Self> {
         let direction = order.fields.last()?.direction();
-        has_exact_ordered_primary_key_tie_break_fields(order.fields.as_slice(), primary_key_names)
+        has_exact_ordered_primary_key_tie_break_fields(order.fields.as_slice(), &primary_key_names)
             .then_some(())?;
         if order
             .fields
@@ -157,10 +158,7 @@ impl DeterministicSecondaryOrderContract {
                 .take(order.fields.len().saturating_sub(primary_key_names.len()))
                 .map(crate::db::query::plan::OrderTerm::rendered_label)
                 .collect(),
-            primary_key_terms: primary_key_names
-                .iter()
-                .map(|name| (*name).to_string())
-                .collect(),
+            primary_key_terms: primary_key_names,
             direction,
         })
     }
@@ -218,36 +216,6 @@ impl DeterministicSecondaryOrderContract {
             .eq(expected)
     }
 
-    /// Return true when this normalized contract matches one index suffix.
-    #[must_use]
-    pub(in crate::db) fn matches_index_suffix<S>(
-        &self,
-        index_fields: &[S],
-        prefix_len: usize,
-    ) -> bool
-    where
-        S: AsRef<str>,
-    {
-        let index_fields = self.index_terms_without_explicit_primary_key_suffix(index_fields);
-        if prefix_len > index_fields.len() {
-            return false;
-        }
-
-        self.matches_expected_non_primary_key_terms(
-            index_fields[prefix_len..].iter().map(AsRef::as_ref),
-        )
-    }
-
-    /// Return true when this normalized contract matches one full index order.
-    #[must_use]
-    pub(in crate::db) fn matches_index_full<S>(&self, index_fields: &[S]) -> bool
-    where
-        S: AsRef<str>,
-    {
-        let index_fields = self.index_terms_without_explicit_primary_key_suffix(index_fields);
-        self.matches_expected_non_primary_key_terms(index_fields.iter().map(AsRef::as_ref))
-    }
-
     /// Classify how this normalized contract matches one canonical index key
     /// order after one equality-bound prefix.
     #[must_use]
@@ -259,38 +227,54 @@ impl DeterministicSecondaryOrderContract {
     where
         S: AsRef<str>,
     {
-        if self.matches_index_suffix(index_fields, prefix_len) {
-            return DeterministicSecondaryIndexOrderMatch::Suffix;
-        }
-        if self.matches_index_full(index_fields) {
-            return DeterministicSecondaryIndexOrderMatch::Full;
-        }
-
-        DeterministicSecondaryIndexOrderMatch::None
+        self.classify_index_match_by(index_fields.len(), prefix_len, |index, term| {
+            index_fields[index].as_ref() == term
+        })
     }
 
-    fn index_terms_without_explicit_primary_key_suffix<'a, S>(
+    /// Classify accepted key items without rendering a temporary label list.
+    #[must_use]
+    pub(in crate::db) fn classify_index_key_items(
         &self,
-        index_fields: &'a [S],
-    ) -> &'a [S]
-    where
-        S: AsRef<str>,
-    {
-        let suffix_len = self.primary_key_terms.len();
-        if suffix_len == 0 || index_fields.len() < suffix_len {
-            return index_fields;
-        }
+        key_items: &[SemanticIndexKeyItem],
+        prefix_len: usize,
+    ) -> DeterministicSecondaryIndexOrderMatch {
+        self.classify_index_match_by(key_items.len(), prefix_len, |index, term| {
+            key_items[index].as_ref().matches_canonical_text(term)
+        })
+    }
 
-        let suffix_start = index_fields.len() - suffix_len;
-        let suffix_matches = index_fields[suffix_start..]
-            .iter()
-            .map(AsRef::as_ref)
-            .eq(self.primary_key_terms.iter().map(String::as_str));
-        if suffix_matches {
-            &index_fields[..suffix_start]
-        } else {
-            index_fields
+    // Both retained diagnostic labels and borrowed accepted keys use this one
+    // suffix-removal and match-precedence authority. Normalize the PK tail once.
+    fn classify_index_match_by(
+        &self,
+        mut index_len: usize,
+        prefix_len: usize,
+        matches: impl Fn(usize, &str) -> bool,
+    ) -> DeterministicSecondaryIndexOrderMatch {
+        let suffix_len = self.primary_key_terms.len();
+        if suffix_len > 0
+            && suffix_len <= index_len
+            && order_terms_match_at(
+                &self.primary_key_terms,
+                index_len,
+                index_len - suffix_len,
+                &matches,
+            )
+        {
+            index_len -= suffix_len;
         }
+        let terms = &self.non_primary_key_terms;
+        if prefix_len <= index_len
+            && terms.len() == index_len - prefix_len
+            && order_terms_match_at(terms, index_len, prefix_len, &matches)
+        {
+            return DeterministicSecondaryIndexOrderMatch::Suffix;
+        }
+        if terms.len() == index_len && order_terms_match_at(terms, index_len, 0, &matches) {
+            return DeterministicSecondaryIndexOrderMatch::Full;
+        }
+        DeterministicSecondaryIndexOrderMatch::None
     }
 }
 
@@ -308,13 +292,13 @@ pub(in crate::db) fn deterministic_secondary_index_key_items_order_compatibility
 /// Return whether accepted field-path index order terms satisfy one
 /// deterministic scalar ORDER BY contract after the equality-bound prefix.
 #[must_use]
-pub(in crate::db) fn deterministic_secondary_index_order_terms_satisfied(
+pub(in crate::db) fn deterministic_secondary_index_key_items_satisfied(
     order_contract: &DeterministicSecondaryOrderContract,
-    index_terms: &[String],
+    key_items: &[SemanticIndexKeyItem],
     prefix_len: usize,
 ) -> bool {
     !matches!(
-        order_contract.classify_index_match(index_terms, prefix_len),
+        order_contract.classify_index_key_items(key_items, prefix_len),
         DeterministicSecondaryIndexOrderMatch::None
     )
 }
@@ -335,13 +319,7 @@ fn deterministic_secondary_index_key_items_order_satisfied_for_access_shape(
     key_items: &[SemanticIndexKeyItem],
     prefix_len: usize,
 ) -> bool {
-    let compatibility = deterministic_secondary_index_key_items_order_compatibility(
-        order_contract,
-        key_items,
-        prefix_len,
-    );
-
-    match compatibility.match_kind() {
+    match order_contract.classify_index_key_items(key_items, prefix_len) {
         DeterministicSecondaryIndexOrderMatch::Full => true,
         DeterministicSecondaryIndexOrderMatch::Suffix => {
             !order_contract.requires_full_index_order_for_access_shape(access_shape_facts)
@@ -410,63 +388,22 @@ impl GroupedIndexOrderContract {
         })
     }
 
-    /// Return true when this grouped order is the leading sequence of one
-    /// canonical index order.
-    ///
-    /// Trailing index terms do not break grouped-key contiguity. For example,
-    /// an index ordered by `(group_key, id)` satisfies grouped output ordered
-    /// by `group_key` even though `id` is not part of the grouped result.
+    /// Classify accepted key items without rendering a temporary label list.
     #[must_use]
-    pub(in crate::db) fn matches_index_full<S>(&self, index_fields: &[S]) -> bool
-    where
-        S: AsRef<str>,
-    {
-        self.terms.len() <= index_fields.len()
-            && self.terms.iter().map(String::as_str).eq(index_fields
-                .iter()
-                .take(self.terms.len())
-                .map(AsRef::as_ref))
-    }
-
-    /// Return true when this grouped order is the leading sequence of one
-    /// canonical index suffix after one equality-bound prefix.
-    #[must_use]
-    pub(in crate::db) fn matches_index_suffix<S>(
+    pub(in crate::db) fn classify_index_key_items(
         &self,
-        index_fields: &[S],
+        key_items: &[SemanticIndexKeyItem],
         prefix_len: usize,
-    ) -> bool
-    where
-        S: AsRef<str>,
-    {
-        if prefix_len > index_fields.len() {
-            return false;
-        }
-
-        let suffix = &index_fields[prefix_len..];
-        self.terms.len() <= suffix.len()
-            && self
-                .terms
-                .iter()
-                .map(String::as_str)
-                .eq(suffix.iter().take(self.terms.len()).map(AsRef::as_ref))
-    }
-
-    /// Classify how this grouped order matches one canonical index key order
-    /// after one equality-bound prefix.
-    #[must_use]
-    pub(in crate::db) fn classify_index_match<S>(
-        &self,
-        index_fields: &[S],
-        prefix_len: usize,
-    ) -> GroupedIndexOrderMatch
-    where
-        S: AsRef<str>,
-    {
-        if prefix_len > 0 && self.matches_index_suffix(index_fields, prefix_len) {
+    ) -> GroupedIndexOrderMatch {
+        let index_len = key_items.len();
+        let matches =
+            |index: usize, term: &str| key_items[index].as_ref().matches_canonical_text(term);
+        // Trailing index terms preserve grouped-key contiguity; unlike scalar
+        // ordering, grouped matching only requires the leading sequence.
+        if prefix_len > 0 && order_terms_match_at(&self.terms, index_len, prefix_len, &matches) {
             return GroupedIndexOrderMatch::Suffix;
         }
-        if self.matches_index_full(index_fields) {
+        if order_terms_match_at(&self.terms, index_len, 0, &matches) {
             return GroupedIndexOrderMatch::Full;
         }
 
@@ -474,16 +411,32 @@ impl GroupedIndexOrderContract {
     }
 }
 
+// Check the complete range before invoking either canonical-label comparator.
+// Offsets beyond the key list never index it, including usize::MAX inputs.
+fn order_terms_match_at(
+    terms: &[String],
+    index_len: usize,
+    offset: usize,
+    matches: &impl Fn(usize, &str) -> bool,
+) -> bool {
+    offset <= index_len
+        && terms.len() <= index_len - offset
+        && terms
+            .iter()
+            .enumerate()
+            .all(|(index, term)| matches(offset + index, term))
+}
+
 /// Return whether accepted field-path index order terms satisfy one grouped
 /// ORDER BY contract after the equality-bound prefix.
 #[must_use]
-pub(in crate::db) fn grouped_index_order_terms_satisfied(
+pub(in crate::db) fn grouped_index_key_items_satisfied(
     order_contract: &GroupedIndexOrderContract,
-    index_terms: &[String],
+    key_items: &[SemanticIndexKeyItem],
     prefix_len: usize,
 ) -> bool {
     !matches!(
-        order_contract.classify_index_match(index_terms, prefix_len),
+        order_contract.classify_index_key_items(key_items, prefix_len),
         GroupedIndexOrderMatch::None
     )
 }
@@ -494,7 +447,7 @@ impl OrderSpec {
     #[must_use]
     pub(in crate::db) fn primary_key_only_direction_fields(
         &self,
-        primary_key_names: &[&str],
+        primary_key_names: &[String],
     ) -> Option<OrderDirection> {
         if primary_key_names.is_empty() || self.fields.len() != primary_key_names.len() {
             return None;
@@ -505,7 +458,8 @@ impl OrderSpec {
             .iter()
             .zip(primary_key_names.iter())
             .all(|(term, primary_key_name)| {
-                term.direct_field() == Some(*primary_key_name) && term.direction() == direction
+                term.direct_field() == Some(primary_key_name.as_str())
+                    && term.direction() == direction
             })
             .then_some(direction)
     }
@@ -515,7 +469,7 @@ impl OrderSpec {
     #[must_use]
     pub(in crate::db) fn deterministic_secondary_order_contract_fields(
         &self,
-        primary_key_names: &[&str],
+        primary_key_names: Rc<[String]>,
     ) -> Option<DeterministicSecondaryOrderContract> {
         DeterministicSecondaryOrderContract::from_order_spec_fields(self, primary_key_names)
     }
@@ -629,7 +583,7 @@ fn primary_scan_direction(order: Option<&OrderSpec>) -> Direction {
 
 fn has_exact_ordered_primary_key_tie_break_fields(
     fields: &[crate::db::query::plan::OrderTerm],
-    primary_key_names: &[&str],
+    primary_key_names: &[String],
 ) -> bool {
     if primary_key_names.is_empty() || fields.len() < primary_key_names.len() {
         return false;
@@ -640,14 +594,14 @@ fn has_exact_ordered_primary_key_tie_break_fields(
     if !suffix
         .iter()
         .zip(primary_key_names.iter())
-        .all(|(term, primary_key_name)| term.direct_field() == Some(*primary_key_name))
+        .all(|(term, primary_key_name)| term.direct_field() == Some(primary_key_name.as_str()))
     {
         return false;
     }
 
     !prefix.iter().any(|term| {
         term.direct_field()
-            .is_some_and(|field| primary_key_names.contains(&field))
+            .is_some_and(|field| primary_key_names.iter().any(|name| name == field))
     })
 }
 
@@ -659,7 +613,217 @@ mod tests {
     use crate::db::access::AccessPathKind::{
         IndexBranchSet, IndexMultiLookup, IndexPrefix, IndexRange,
     };
-    use crate::db::query::plan::OrderDirection;
+    use crate::db::query::plan::{OrderDirection, OrderSpec, OrderTerm, expr::Expr};
+    use crate::retained::RetainedBytes;
+    use crate::value::Value;
+    use std::rc::Rc;
+
+    #[test]
+    fn key_item_classification_preserves_scalar_and_grouped_label_semantics() {
+        use super::DeterministicSecondaryIndexOrderMatch as ScalarMatch;
+        use crate::db::{
+            access::SemanticIndexKeyItem, index::SemanticIndexExpression,
+            schema::PersistedIndexExpressionOp,
+        };
+
+        for op in [
+            PersistedIndexExpressionOp::Lower,
+            PersistedIndexExpressionOp::Upper,
+            PersistedIndexExpressionOp::Trim,
+            PersistedIndexExpressionOp::LowerTrim,
+            PersistedIndexExpressionOp::Date,
+            PersistedIndexExpressionOp::Year,
+            PersistedIndexExpressionOp::Month,
+            PersistedIndexExpressionOp::Day,
+        ] {
+            let expression = SemanticIndexExpression::new(op, "账户".to_string());
+            let label = expression.canonical_order_text();
+            let field = |name: &str| SemanticIndexKeyItem::Field(name.to_string());
+            for items in [
+                vec![],
+                vec![SemanticIndexKeyItem::Expression(expression.clone())],
+                vec![
+                    field("prefix"),
+                    SemanticIndexKeyItem::Expression(expression.clone()),
+                    field("tenant"),
+                    field("id"),
+                ],
+                vec![
+                    SemanticIndexKeyItem::Expression(expression.clone()),
+                    field("tenant"),
+                    field("id"),
+                ],
+                vec![field(&label), field("tenant"), field("id")],
+                vec![
+                    SemanticIndexKeyItem::Expression(expression.clone()),
+                    field("id"),
+                    field("tenant"),
+                ],
+            ] {
+                let rendered = super::index_key_item_order_terms(&items);
+                for keys in [
+                    vec!["id".to_string()],
+                    vec!["tenant".to_string(), "id".to_string()],
+                ] {
+                    // This direct sequence oracle pins suffix stripping and
+                    // precedence independently of the shared callback matcher.
+                    let scalar_index = rendered.strip_suffix(keys.as_slice()).unwrap_or(&rendered);
+                    for terms in [
+                        vec![],
+                        vec![label.clone()],
+                        vec!["prefix".to_string(), label.clone()],
+                        vec!["missing".to_string()],
+                    ] {
+                        let scalar = DeterministicSecondaryOrderContract {
+                            non_primary_key_terms: terms.clone(),
+                            primary_key_terms: Rc::from(keys.clone()),
+                            direction: OrderDirection::Asc,
+                        };
+                        let grouped = GroupedIndexOrderContract {
+                            terms: terms.clone(),
+                            direction: OrderDirection::Asc,
+                        };
+                        for prefix in (0..=items.len() + 1).chain([usize::MAX]) {
+                            let scalar_expected = if scalar_index
+                                .get(prefix..)
+                                .is_some_and(|suffix| suffix == terms)
+                            {
+                                ScalarMatch::Suffix
+                            } else if scalar_index == terms {
+                                ScalarMatch::Full
+                            } else {
+                                ScalarMatch::None
+                            };
+                            let grouped_expected = if prefix > 0
+                                && rendered
+                                    .get(prefix..)
+                                    .is_some_and(|suffix| suffix.starts_with(&terms))
+                            {
+                                GroupedIndexOrderMatch::Suffix
+                            } else if rendered.starts_with(&terms) {
+                                GroupedIndexOrderMatch::Full
+                            } else {
+                                GroupedIndexOrderMatch::None
+                            };
+                            assert_eq!(
+                                scalar.classify_index_key_items(&items, prefix),
+                                scalar_expected
+                            );
+                            assert_eq!(
+                                scalar.classify_index_match(&rendered, prefix),
+                                scalar_expected
+                            );
+                            assert_eq!(
+                                grouped.classify_index_key_items(&items, prefix),
+                                grouped_expected
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn borrowed_primary_key_names_preserve_exact_tuple_and_suffix_admission() {
+        let names: Rc<[String]> = Rc::from(["tenant".to_string(), "id".to_string()]);
+        for direction in [OrderDirection::Asc, OrderDirection::Desc] {
+            for (fields, exact, suffix) in [
+                (vec!["tenant", "id"], true, true),
+                (vec!["created", "tenant", "id"], false, true),
+                (vec!["id"], false, false),
+                (vec!["id", "tenant"], false, false),
+                (vec!["tenant", "tenant", "id"], false, false),
+                (vec!["id", "created", "tenant", "id"], false, false),
+                (vec![], false, false),
+            ] {
+                let order = OrderSpec {
+                    fields: fields
+                        .iter()
+                        .map(|field| OrderTerm::field(*field, direction))
+                        .collect(),
+                };
+                assert_eq!(
+                    order.primary_key_only_direction_fields(&names),
+                    exact.then_some(direction)
+                );
+                let contract =
+                    order.deterministic_secondary_order_contract_fields(Rc::clone(&names));
+                assert_eq!(contract.is_some(), suffix);
+                if let Some(contract) = contract {
+                    assert_eq!(contract.primary_key_terms, names);
+                    assert!(Rc::ptr_eq(&contract.primary_key_terms, &names));
+                    assert_eq!(
+                        contract.non_primary_key_terms(),
+                        &fields[..fields.len() - names.len()]
+                    );
+                    assert_eq!(contract.direction(), direction);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn borrowed_primary_key_order_rejects_empty_keys_mixed_directions_and_expressions() {
+        let names: Rc<[String]> = Rc::from(["tenant".to_string(), "id".to_string()]);
+        let mixed = OrderSpec {
+            fields: vec![
+                OrderTerm::field("tenant", OrderDirection::Asc),
+                OrderTerm::field("id", OrderDirection::Desc),
+            ],
+        };
+        let expression = OrderSpec {
+            fields: vec![
+                OrderTerm::field("tenant", OrderDirection::Asc),
+                OrderTerm::new(Expr::Literal(Value::Nat64(1)), OrderDirection::Asc),
+            ],
+        };
+        for order in [mixed, expression] {
+            for names in [Rc::clone(&names), Rc::from([])] {
+                assert_eq!(order.primary_key_only_direction_fields(&names), None);
+                assert!(
+                    order
+                        .deterministic_secondary_order_contract_fields(names)
+                        .is_none()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn secondary_order_clones_share_detached_key_names_and_count_retention() {
+        // Spare string capacity must remain counted even though contracts share
+        // the payload. Each resident conservatively accounts for its full share.
+        let mut tenant = String::with_capacity(64);
+        tenant.push_str("账户");
+        let names: Rc<[String]> = Rc::from([tenant, "id".to_string()]);
+        let expected = size_of::<DeterministicSecondaryOrderContract>()
+            + 2 * size_of::<usize>()
+            + size_of_val(names.as_ref())
+            + names.iter().map(String::capacity).sum::<usize>();
+        let order = OrderSpec {
+            fields: names
+                .iter()
+                .map(|name| OrderTerm::field(name, OrderDirection::Asc))
+                .collect(),
+        };
+        let contract = order
+            .deterministic_secondary_order_contract_fields(Rc::clone(&names))
+            .unwrap();
+        let cloned = contract.clone();
+        assert!(Rc::ptr_eq(&contract.primary_key_terms, &names));
+        assert!(Rc::ptr_eq(&cloned.primary_key_terms, &names));
+        drop(names);
+        drop(order);
+        for resident in [contract, cloned] {
+            assert_eq!(
+                resident.classify_index_match(&["账户", "id"], 0),
+                super::DeterministicSecondaryIndexOrderMatch::Suffix
+            );
+            assert_eq!(RetainedBytes::measure(&resident, expected), Some(expected));
+            assert_eq!(RetainedBytes::measure(&resident, expected - 1), None);
+        }
+    }
 
     fn grouped_contract(terms: &[&str]) -> GroupedIndexOrderContract {
         GroupedIndexOrderContract {
@@ -671,10 +835,11 @@ mod tests {
     #[test]
     fn grouped_order_accepts_trailing_index_tie_break_terms() {
         let contract = grouped_contract(&["group_key"]);
-        let index = ["group_key", "id"];
+        let index =
+            ["group_key", "id"].map(|field| super::SemanticIndexKeyItem::Field(field.into()));
 
         assert_eq!(
-            contract.classify_index_match(&index, 0),
+            contract.classify_index_key_items(&index, 0),
             GroupedIndexOrderMatch::Full
         );
     }
@@ -682,10 +847,11 @@ mod tests {
     #[test]
     fn grouped_order_accepts_trailing_terms_after_equality_prefix() {
         let contract = grouped_contract(&["group_key"]);
-        let index = ["tenant_id", "group_key", "id"];
+        let index = ["tenant_id", "group_key", "id"]
+            .map(|field| super::SemanticIndexKeyItem::Field(field.into()));
 
         assert_eq!(
-            contract.classify_index_match(&index, 1),
+            contract.classify_index_key_items(&index, 1),
             GroupedIndexOrderMatch::Suffix
         );
     }
@@ -693,10 +859,11 @@ mod tests {
     #[test]
     fn grouped_order_rejects_a_gap_before_the_group_key() {
         let contract = grouped_contract(&["group_key"]);
-        let index = ["tenant_id", "created_at", "group_key", "id"];
+        let index = ["tenant_id", "created_at", "group_key", "id"]
+            .map(|field| super::SemanticIndexKeyItem::Field(field.into()));
 
         assert_eq!(
-            contract.classify_index_match(&index, 1),
+            contract.classify_index_key_items(&index, 1),
             GroupedIndexOrderMatch::None
         );
     }

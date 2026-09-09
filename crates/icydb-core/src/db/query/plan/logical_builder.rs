@@ -234,21 +234,15 @@ fn canonicalize_order_spec_with_primary_key_tie_break(
         return Some(order);
     }
 
-    let primary_key_names: Vec<&str> = schema
-        .primary_key_names()
-        .iter()
-        .map(String::as_str)
-        .collect();
-
     let appended_direction = order.fields.last().map_or(
         OrderDirection::Asc,
         crate::db::query::plan::OrderTerm::direction,
     );
-    for primary_key_name in primary_key_names {
+    for primary_key_name in schema.primary_key_names() {
         let already_ordered = order
             .fields
             .iter()
-            .any(|term| term.direct_field() == Some(primary_key_name));
+            .any(|term| term.direct_field() == Some(primary_key_name.as_str()));
         if already_ordered {
             continue;
         }

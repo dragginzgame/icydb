@@ -46,13 +46,12 @@ impl SharedPreparedExecutionPlan {
         self.core.attach_cache_retention(entry);
     }
 
+    /// Retain an already-finalized planner result without reprojecting its metadata.
     pub(in crate::db) fn from_plan(
         authority: EntityAuthority,
-        mut plan: AccessPlannedQuery,
+        plan: AccessPlannedQuery,
         schema_fingerprint: CommitSchemaFingerprint,
     ) -> Result<Self, InternalError> {
-        authority.finalize_planner_route_profile(&mut plan)?;
-
         Ok(Self {
             authority: authority.clone(),
             core: build_prepared_execution_plan_core_with_schema_fingerprint(

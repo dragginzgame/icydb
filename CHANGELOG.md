@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.257.md](docs/changelog/0.257.md)
 
+- `0.257.3` simplifies and budgets planner preparation, bounds metrics reporting, and renames the native convergence test driver (breaking; newly counted work can reject, and metrics consumers/native test callers must update).
 - `0.257.2` reduces query-preparation copies, extends work accounting and fixes direct collection-relation admission; requests exhausted by newly counted work reject (potentially breaking).
 - `0.257.1` bounds query-preparation copies, fixes nullable-index completeness and audit interfaces, and updates Rust 1.98.1 tooling and regression coverage; unsafe or exhausted requests now reject (potentially breaking).
 - `0.257.0` reduces query-preparation and value-admission allocation while enforcing input and preparation budgets; oversized or exhausted requests reject and affected membership/CASE pagination must restart (breaking).

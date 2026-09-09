@@ -8,9 +8,8 @@ use crate::{
         access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
         predicate::Predicate,
         query::plan::{
-            OrderSpec, deterministic_secondary_index_order_terms_satisfied,
-            grouped_index_order_terms_satisfied, index_key_item_order_terms,
-            planner::index_stream_is_complete_for_query,
+            OrderSpec, deterministic_secondary_index_key_items_satisfied,
+            grouped_index_key_items_satisfied, planner::index_stream_is_complete_for_query,
         },
         schema::SchemaInfo,
     },
@@ -36,22 +35,20 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_semantic_
         .flatten()
         .and_then(OrderSpec::grouped_index_order_contract);
     let scalar_order_contract = (!grouped).then_some(order).flatten().and_then(|order| {
-        let primary_key_names = ordered_primary_key_names_from_schema(schema);
-        order.deterministic_secondary_order_contract_fields(primary_key_names.as_slice())
+        order.deterministic_secondary_order_contract_fields(schema.shared_primary_key_names())
     });
 
     for index in candidate_indexes {
         if !index_stream_is_complete_for_query(schema, index, query_predicate) {
             continue;
         }
-        let index_order_terms = index_key_item_order_terms(index.key_items());
         let satisfied = if grouped {
             grouped_order_contract.as_ref().is_some_and(|contract| {
-                grouped_index_order_terms_satisfied(contract, &index_order_terms, 0)
+                grouped_index_key_items_satisfied(contract, index.key_items(), 0)
             })
         } else {
             scalar_order_contract.as_ref().is_some_and(|contract| {
-                deterministic_secondary_index_order_terms_satisfied(contract, &index_order_terms, 0)
+                deterministic_secondary_index_key_items_satisfied(contract, index.key_items(), 0)
             })
         };
         if satisfied {
@@ -60,14 +57,6 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order_with_semantic_
     }
 
     None
-}
-
-fn ordered_primary_key_names_from_schema(schema: &SchemaInfo) -> Vec<&str> {
-    schema
-        .primary_key_names()
-        .iter()
-        .map(String::as_str)
-        .collect()
 }
 
 fn whole_index_ordered_range_scan_from_contract(

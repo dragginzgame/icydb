@@ -355,14 +355,8 @@ fn intersection_order_is_primary_key_compatible(
     let Some(order) = order else {
         return true;
     };
-    let primary_key_names = schema
-        .primary_key_names()
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>();
-
     order
-        .primary_key_only_direction_fields(primary_key_names.as_slice())
+        .primary_key_only_direction_fields(schema.primary_key_names())
         .is_some()
 }
 
@@ -562,13 +556,8 @@ fn access_preserves_required_order(
         return false;
     }
     if access.as_primary_key_range_path().is_some() {
-        let primary_key_names: Vec<&str> = schema
-            .primary_key_names()
-            .iter()
-            .map(String::as_str)
-            .collect();
         return order
-            .primary_key_only_direction_fields(primary_key_names.as_slice())
+            .primary_key_only_direction_fields(schema.primary_key_names())
             .is_some();
     }
     if let Some((index, prefix_values)) = access.as_index_prefix_contract_path() {

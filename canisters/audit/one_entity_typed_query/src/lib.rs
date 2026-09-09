@@ -219,8 +219,52 @@ mod tests {
         });
     }
 
+    #[test]
+    fn native_driver_advances_convergence_between_129_write_messages() {
+        crate::__icydb_generated::__drive_native_database_for_tests()
+            .expect("native startup should complete");
+        let mut ids = Vec::new();
+        for message in 0..129 {
+            let row = icydb::db::with_request_execution(|| {
+                let database = db().expect("database should remain admitted");
+                let binding =
+                    OneSimpleEntity01::typed_binding(&database).expect("entity should bind");
+                let write = OneSimpleEntity01Insert {
+                    name: WriteCell::Value(format!("message-{message}")),
+                    profiles: WriteCell::Value(Vec::new()),
+                }
+                .encode_write(&binding)
+                .expect("input should encode");
+                database
+                    .execute_trusted_typed_write_row(write)
+                    .and_then(|row| {
+                        OneSimpleEntity01::decode_row(&binding, row)
+                            .map_err(TypedOperationError::Adapter)
+                    })
+                    .expect("message should commit under normal backlog limits")
+            });
+            ids.push(row.id);
+            if (message + 1) % 16 == 0 {
+                crate::__icydb_generated::__drive_native_database_for_tests()
+                    .expect("periodic production convergence should advance");
+            }
+        }
+        crate::__icydb_generated::__drive_native_database_for_tests()
+            .expect("remaining convergence should finish");
+        for (message, id) in ids.into_iter().enumerate() {
+            icydb::db::with_request_execution(|| {
+                let row = db()
+                    .expect("database should remain admitted")
+                    .get::<OneSimpleEntity01>(Id::from_key(id))
+                    .expect("converged row should be readable")
+                    .expect("driver must preserve committed rows");
+                assert_eq!(row.name, format!("message-{message}"));
+            });
+        }
+    }
+
     fn insert_one_native_row(name: &str) -> Ulid {
-        crate::__icydb_generated::__initialize_native_database_for_tests()
+        crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("fresh native database startup should complete");
         icydb::db::with_request_execution(|| {
             let patch = StructuralPatch::new()
@@ -249,7 +293,7 @@ mod tests {
 
     #[test]
     fn generated_row_decode_moves_text_and_nested_record_buffers() {
-        crate::__icydb_generated::__initialize_native_database_for_tests()
+        crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("native startup should complete");
         icydb::db::with_request_execution(|| {
             use icydb::value::PublicValue;
@@ -329,7 +373,7 @@ mod tests {
 
     #[test]
     fn owned_row_extraction_preserves_field_errors_and_generated_error_order() {
-        crate::__icydb_generated::__initialize_native_database_for_tests()
+        crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("native startup should complete");
         icydb::db::with_request_execution(|| {
             let database = db().expect("database should initialize");
@@ -369,7 +413,7 @@ mod tests {
             value::PublicValue,
         };
 
-        crate::__icydb_generated::__initialize_native_database_for_tests()
+        crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("native startup should complete");
         icydb::db::with_request_execution(|| {
             let database = db().expect("database should initialize");
@@ -419,7 +463,7 @@ mod tests {
     fn typed_blob_inputs_move_scalar_and_nested_buffers() {
         use icydb::{types::Blob, value::PublicValue};
 
-        crate::__icydb_generated::__initialize_native_database_for_tests()
+        crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("native startup should complete");
         icydb::db::with_request_execution(|| {
             let database = db().expect("database should initialize");
@@ -480,7 +524,7 @@ mod tests {
     fn typed_blob_input_still_requires_accepted_field_admission() {
         use icydb::types::Blob;
 
-        crate::__icydb_generated::__initialize_native_database_for_tests()
+        crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("native startup should complete");
         icydb::db::with_request_execution(|| {
             let database = db().expect("database should initialize");
@@ -730,7 +774,7 @@ mod tests {
 
     #[test]
     fn concrete_mutation_projection_terminals_return_typed_rows() {
-        crate::__icydb_generated::__initialize_native_database_for_tests()
+        crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("fresh native database startup should complete");
         icydb::db::with_request_execution(|| {
             let database = db().expect("native database should initialize");
@@ -819,7 +863,7 @@ mod tests {
 
     #[test]
     fn generated_typed_write_batch_projects_and_consumes_each_row_once() {
-        crate::__icydb_generated::__initialize_native_database_for_tests()
+        crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("fresh native database startup should complete");
         icydb::db::with_request_execution(|| {
             let database = db().expect("native database should initialize");
@@ -870,7 +914,7 @@ mod tests {
 
     #[test]
     fn same_entity_typed_write_rows_preserve_order_delete_before_images_and_single_parity() {
-        crate::__icydb_generated::__initialize_native_database_for_tests()
+        crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("fresh native database startup should complete");
         icydb::db::with_request_execution(|| {
             let database = db().expect("native database should initialize");
@@ -1002,7 +1046,7 @@ mod u256_tests {
 
     #[test]
     fn native_u256_storage_indexes_queries_grouping_extrema_and_cursor_converge() {
-        crate::__icydb_generated::__initialize_native_database_for_tests()
+        crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("fresh native database startup should complete");
         icydb::db::with_request_execution(|| {
             let database = db().expect("native database should initialize");
@@ -1107,7 +1151,7 @@ mod u256_tests {
 
     #[test]
     fn same_entity_typed_write_rows_reject_a_foreign_binding_before_execution() {
-        crate::__icydb_generated::__initialize_native_database_for_tests()
+        crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("fresh native database startup should complete");
         icydb::db::with_request_execution(|| {
             let database = db().expect("native database should initialize");

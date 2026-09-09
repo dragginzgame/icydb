@@ -118,12 +118,6 @@ impl PathSpec {
         }
         remaining.is_empty()
     }
-
-    /// Return whether this path is expected to resolve to a scalar leaf.
-    #[must_use]
-    pub(in crate::db) const fn is_scalar_leaf(&self) -> bool {
-        !self.path.is_empty()
-    }
 }
 
 ///

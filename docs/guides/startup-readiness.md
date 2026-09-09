@@ -120,6 +120,26 @@ The application must not add an automatic migration runner or a second
 recovery executor. See [schema-migrations.md](schema-migrations.md) for the
 controller workflow.
 
+## Native Tests Must Advance Convergence
+
+Native libtests do not run IC lifecycle hooks or timer callbacks. Generated
+canister crates expose the test-only Rust helper
+`crate::__icydb_generated::__drive_native_database_for_tests()` to drive the
+same startup and online-convergence owner, then check ordinary admission.
+Call it before the first database access and periodically **between simulated
+messages**, not just once during setup. Wrap each simulated message in
+`icydb::db::with_request_execution` so requests retain their normal budgets.
+
+The maintained native fixture advances the driver every sixteen writes and
+after its final write, and verifies 129 committed rows. Sixteen is a fixture
+cadence, not a production configuration or guarantee for arbitrary payloads.
+The 64-batch backlog limit and other production bounds remain active: do not
+raise them to make a long test pass. Driver errors must fail the test rather
+than being ignored. The helper does not reset stored data, register a second
+scheduler, or simulate IC timing; use canister integration tests for timer and
+lifecycle behavior. It is available only in native test builds, not as an
+endpoint or a downstream integration-test API for a prebuilt dependency.
+
 ## Exposure And Authorization
 
 IcyDB exports no startup-status or startup-failure endpoint automatically.

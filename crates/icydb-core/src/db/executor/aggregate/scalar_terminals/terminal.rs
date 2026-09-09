@@ -371,7 +371,7 @@ impl ResolvedStructuralAggregateTerminal<'_> {
         let input = self.input.into_prepared(schema)?;
         let filter = self
             .filter_expr
-            .map(|expr| compile_structural_aggregate_expr(schema, expr, "filter"))
+            .map(|expr| compile_structural_aggregate_expr(schema, expr))
             .transpose()?;
 
         Ok(PreparedScalarAggregateTerminal::from_validated_inputs(
@@ -424,7 +424,7 @@ impl ResolvedStructuralAggregateInput<'_> {
                 field: target_slot.field().to_string(),
             }),
             Self::Expr(input_expr) => Ok(ScalarAggregateInput::Expr(
-                compile_structural_aggregate_expr(schema, input_expr, "input")?,
+                compile_structural_aggregate_expr(schema, input_expr)?,
             )),
             Self::MissingFieldTarget => Err(InternalError::query_executor_invariant()),
         }
@@ -487,37 +487,13 @@ impl StructuralAggregateTerminalKind {
 fn compile_structural_aggregate_expr(
     schema: &SchemaInfo,
     expr: &Expr,
-    _label: &str,
 ) -> Result<CompiledExpr, InternalError> {
-    if let Some(_field) = first_unknown_structural_aggregate_expr_field(schema, expr) {
-        return Err(InternalError::query_executor_invariant());
-    }
-
+    // The scalar compiler owns field/root admission as well as construction.
+    // Unsupported shapes and unknown fields share this payload-free boundary.
     let scalar = compile_scalar_projection_expr_with_schema(schema, expr)
         .ok_or_else(InternalError::query_executor_invariant)?;
 
-    Ok(CompiledExpr::compile(&scalar))
-}
-
-fn first_unknown_structural_aggregate_expr_field(
-    schema: &SchemaInfo,
-    expr: &Expr,
-) -> Option<String> {
-    let mut first_unknown = None;
-    let _ = expr.try_for_each_tree_expr(&mut |node| {
-        if first_unknown.is_some() {
-            return Ok(());
-        }
-        if let Expr::Field(field) = node
-            && schema.field_slot_index(field.as_str()).is_none()
-        {
-            first_unknown = Some(field.as_str().to_string());
-        }
-
-        Ok::<(), ()>(())
-    });
-
-    first_unknown
+    Ok(scalar)
 }
 
 ///
@@ -526,6 +502,10 @@ fn first_unknown_structural_aggregate_expr_field(
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        StructuralAggregateTerminal, StructuralAggregateTerminalKind,
+        compile_structural_scalar_aggregate_terminal,
+    };
     use crate::{
         db::executor::aggregate::{
             AggregateKind, BinaryOp, CompiledExpr,
@@ -537,6 +517,118 @@ mod tests {
         },
         value::Value,
     };
+
+    fn scalar_schema(name: &str) -> crate::db::schema::SchemaInfo {
+        use crate::db::schema::{
+            AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
+            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId, FieldStorageDecode,
+            LeafCodec, PersistedFieldSnapshot, PersistedSchemaSnapshot, ScalarCodec,
+            SchemaFieldSlot, SchemaInfo, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+            empty_accepted_enum_catalog_for_tests,
+        };
+        let field = PersistedFieldSnapshot::new_initial(
+            FieldId::new(1),
+            name.into(),
+            SchemaFieldSlot::new(0),
+            AcceptedFieldKind::Nat64,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Nat64),
+        );
+        let snapshot = PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "tests::ScalarTerminal".into(),
+            "ScalarTerminal".into(),
+            field.id(),
+            SchemaRowLayout::initial(vec![(field.id(), field.slot())]),
+            vec![field],
+        );
+        SchemaInfo::from_accepted_snapshot_and_catalog(
+            &AcceptedSchemaSnapshot::new(snapshot),
+            AcceptedValueCatalogHandle::new_for_tests(
+                empty_accepted_enum_catalog_for_tests(),
+                AcceptedCompositeCatalog::empty(),
+                AcceptedSchemaRevision::INITIAL,
+            ),
+            true,
+        )
+    }
+
+    #[test]
+    fn structural_input_and_filter_compilation_share_current_scalar_admission() {
+        use crate::{
+            db::query::{
+                builder::aggregate::count,
+                plan::expr::{
+                    Expr, FieldId, FieldPath, Function, compile_scalar_projection_expr_with_schema,
+                },
+            },
+            error::InternalError,
+        };
+        let expressions = [
+            Expr::Field(FieldId::new("id")),
+            Expr::Field(FieldId::new("id_now")),
+            Expr::Literal(Value::Nat64(42)),
+            Expr::FunctionCall {
+                function: Function::Coalesce,
+                args: vec![
+                    Expr::Field(FieldId::new("id")),
+                    Expr::Literal(Value::Nat64(0)),
+                ],
+            },
+            Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Literal(Value::Text("private-value".repeat(1024)))),
+                right: Box::new(Expr::Field(FieldId::new("missing"))),
+            },
+            Expr::FieldPath(FieldPath::new("missing", vec!["leaf".into()])),
+            Expr::Aggregate(count()),
+        ];
+        for name in ["id", "id_now"] {
+            let schema = scalar_schema(name);
+            for expr in &expressions {
+                let expected = compile_scalar_projection_expr_with_schema(&schema, expr);
+                for input in [true, false] {
+                    let terminal = StructuralAggregateTerminal::new(
+                        if input {
+                            StructuralAggregateTerminalKind::Sum
+                        } else {
+                            StructuralAggregateTerminalKind::CountRows
+                        },
+                        None,
+                        input.then(|| expr.clone()),
+                        (!input).then(|| expr.clone()),
+                        false,
+                    );
+                    match (
+                        compile_structural_scalar_aggregate_terminal(&schema, &terminal),
+                        &expected,
+                    ) {
+                        (Ok(prepared), Some(expected)) => {
+                            if input {
+                                assert_eq!(
+                                    prepared.input,
+                                    ScalarAggregateInput::Expr(expected.clone())
+                                );
+                            } else {
+                                assert_eq!(prepared.filter.as_ref(), Some(expected));
+                            }
+                        }
+                        (Err(error), None) => {
+                            let expected = InternalError::query_executor_invariant();
+                            assert_eq!(error.class(), expected.class());
+                            assert_eq!(error.origin(), expected.origin());
+                            assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
+                            assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
+                        }
+                        other => panic!("compiler/terminal admission disagreement: {other:?}"),
+                    }
+                }
+            }
+        }
+    }
 
     fn literal_nat(value: u64) -> CompiledExpr {
         CompiledExpr::Literal(Value::Nat64(value))

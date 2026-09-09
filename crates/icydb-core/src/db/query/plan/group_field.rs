@@ -6,12 +6,15 @@
 use std::{mem, slice};
 
 use crate::db::{
+    QueryError,
     query::plan::{
         FieldSlot,
         expr::{Expr, FieldId, FieldPath, PathSpec},
     },
+    query::preparation::PreparationWork,
     schema::{AcceptedFieldKind, SchemaInfo, classify_accepted_field_kind},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 /// One group key source used only after a query contains an accepted scalar path.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,20 +78,33 @@ impl GroupField {
     }
 
     /// Resolve one normalized direct field or scalar record path.
-    #[must_use]
-    pub(in crate::db) fn resolve_with_schema(schema: &SchemaInfo, field: &str) -> Option<Self> {
+    pub(in crate::db) fn resolve_with_schema(
+        schema: &SchemaInfo,
+        field: &str,
+        work: &PreparationWork<'_>,
+    ) -> Result<Option<Self>, QueryError> {
+        work.charge(Resource::PredicateExpressionSteps, 1 + field.len() as u64)?;
         let Some((root, nested)) = field.split_once('.') else {
-            return FieldSlot::resolve_with_schema(schema, field).map(Self::Direct);
+            return Ok(FieldSlot::resolve_with_schema(schema, field).map(Self::Direct));
         };
-        let accepted_kind = Self::accepted_kind_for_label(schema, field)?;
-        let root_slot = schema.field_slot_index(root)?;
+        let Some(accepted_kind) = Self::accepted_kind_for_label(schema, field) else {
+            return Ok(None);
+        };
+        let Some(root_slot) = schema.field_slot_index(root) else {
+            return Ok(None);
+        };
         let semantics = classify_accepted_field_kind(accepted_kind);
-        Some(Self::ScalarPath(ScalarGroupPath {
-            label: field.to_string(),
-            path: PathSpec::new(root, nested.split('.').map(str::to_string).collect()),
+        // Admit destination backing and each owned string before copying.
+        let mut segments = work.vec_with_capacity(nested.split('.').count())?;
+        for segment in nested.split('.') {
+            segments.push(work.copy_text(segment)?);
+        }
+        Ok(Some(Self::ScalarPath(ScalarGroupPath {
+            label: work.copy_text(field)?,
+            path: PathSpec::new(FieldId::new(work.copy_text(root)?), segments),
             root_slot,
             identity_group_canonical_form: semantics.has_identity_group_canonical_form(),
-        }))
+        })))
     }
 
     /// Check grouping eligibility without retaining a key for validation-only consumers.
@@ -228,10 +244,6 @@ impl GroupField {
             _ => false,
         }
     }
-
-    fn same_identity(&self, other: &Self) -> bool {
-        GroupFieldRef::PathAware(self).same_identity(GroupFieldRef::PathAware(other))
-    }
 }
 
 /// Direct-preserving closed set of declared grouping keys.
@@ -299,32 +311,44 @@ impl GroupFieldSet {
     }
 
     /// Append one key, promoting to the path-aware representation only when needed.
-    pub(in crate::db) fn push(&mut self, field: GroupField) {
+    pub(in crate::db) fn push(
+        &mut self,
+        field: GroupField,
+        work: &PreparationWork<'_>,
+    ) -> Result<(), QueryError> {
+        for existing in self.iter() {
+            // Direct identities compare slots only. Path identities may inspect
+            // all component bytes; reserve that work before the shared comparator.
+            let bytes = if existing.as_scalar_path().is_some() && field.as_scalar_path().is_some() {
+                existing.field().len().saturating_add(field.field().len()) as u64
+            } else {
+                0
+            };
+            work.charge(Resource::PredicateExpressionSteps, 1 + bytes)?;
+            if existing.same_identity(GroupFieldRef::PathAware(&field)) {
+                return Ok(());
+            }
+        }
         match self {
             Self::Direct(fields) => match field {
                 GroupField::Direct(direct) => {
-                    if !fields
-                        .iter()
-                        .any(|existing| existing.index() == direct.index())
-                    {
-                        fields.push(direct);
-                    }
+                    work.reserve_vec(fields, 1)?;
+                    fields.push(direct);
                 }
                 path @ GroupField::ScalarPath(_) => {
-                    let mut promoted = mem::take(fields)
-                        .into_iter()
-                        .map(GroupField::Direct)
-                        .collect::<Vec<_>>();
+                    work.charge(Resource::PredicateExpressionSteps, fields.len() as u64)?;
+                    let mut promoted = work.vec_with_capacity(fields.len() + 1)?;
+                    promoted.extend(mem::take(fields).into_iter().map(GroupField::Direct));
                     promoted.push(path);
                     *self = Self::PathAware(promoted);
                 }
             },
             Self::PathAware(fields) => {
-                if !fields.iter().any(|existing| existing.same_identity(&field)) {
-                    fields.push(field);
-                }
+                work.reserve_vec(fields, 1)?;
+                fields.push(field);
             }
         }
+        Ok(())
     }
 
     /// Return whether one expression leaf is a declared group key.
@@ -350,13 +374,19 @@ impl GroupFieldSet {
     }
 
     /// Rebind every authored label through the selected accepted schema snapshot.
-    #[must_use]
-    pub(in crate::db) fn resolve_with_schema(&self, schema: &SchemaInfo) -> Option<Self> {
+    pub(in crate::db) fn resolve_with_schema(
+        &self,
+        schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
+    ) -> Result<Option<Self>, QueryError> {
         let mut resolved = Self::default();
         for field in self.iter() {
-            resolved.push(GroupField::resolve_with_schema(schema, field.field())?);
+            let Some(key) = GroupField::resolve_with_schema(schema, field.field(), work)? else {
+                return Ok(None);
+            };
+            resolved.push(key, work)?;
         }
-        Some(resolved)
+        Ok(Some(resolved))
     }
 }
 
@@ -524,54 +554,120 @@ mod tests {
 
     #[test]
     fn direct_keys_keep_the_direct_representation() {
-        let mut fields = GroupFieldSet::empty();
-        fields.push(GroupField::Direct(FieldSlot::from_test_accepted_kind(
-            0,
-            "direct_rank",
-            AcceptedFieldKind::Int32,
-        )));
+        crate::db::query::preparation::with_preparation_work(|work| {
+            let mut fields = GroupFieldSet::empty();
+            fields
+                .push(
+                    GroupField::Direct(FieldSlot::from_test_accepted_kind(
+                        0,
+                        "direct_rank",
+                        AcceptedFieldKind::Int32,
+                    )),
+                    work,
+                )
+                .unwrap();
 
-        assert_eq!(fields.as_direct().map(<[FieldSlot]>::len), Some(1));
-        assert!(fields.as_path_aware().is_none());
+            assert_eq!(fields.as_direct().map(<[FieldSlot]>::len), Some(1));
+            assert!(fields.as_path_aware().is_none());
+        });
     }
 
     #[test]
     fn first_path_promotes_the_whole_tuple_once_and_preserves_order() {
-        let mut fields = GroupFieldSet::empty();
-        fields.push(GroupField::Direct(FieldSlot::from_test_accepted_kind(
-            0,
-            "direct_rank",
-            AcceptedFieldKind::Int32,
-        )));
-        fields.push(rank_path());
-        fields.push(rank_path());
+        crate::db::query::preparation::with_preparation_work(|work| {
+            let mut fields = GroupFieldSet::empty();
+            fields
+                .push(
+                    GroupField::Direct(FieldSlot::from_test_accepted_kind(
+                        0,
+                        "direct_rank",
+                        AcceptedFieldKind::Int32,
+                    )),
+                    work,
+                )
+                .unwrap();
+            fields.push(rank_path(), work).unwrap();
+            fields.push(rank_path(), work).unwrap();
 
-        assert!(fields.as_direct().is_none());
-        assert_eq!(
-            fields.iter().map(|field| field.field()).collect::<Vec<_>>(),
-            vec!["direct_rank", "profile.rank"],
-        );
+            assert!(fields.as_direct().is_none());
+            assert_eq!(
+                fields.iter().map(|field| field.field()).collect::<Vec<_>>(),
+                vec!["direct_rank", "profile.rank"],
+            );
+        });
     }
 
     #[test]
     fn preallocated_path_tuple_matches_incremental_identity_without_promotion() {
-        let direct = GroupField::Direct(FieldSlot::from_test_accepted_kind(
-            0,
-            "direct_rank",
-            AcceptedFieldKind::Int32,
-        ));
-        let mut expected = GroupFieldSet::empty();
-        let mut reserved = GroupFieldSet::PathAware(Vec::with_capacity(4));
-        for key in [direct.clone(), rank_path(), direct, rank_path()] {
-            expected.push(key.clone());
-            reserved.push(key);
-        }
-        assert_eq!(reserved, expected);
-        let GroupFieldSet::PathAware(fields) = reserved else {
-            panic!("path-aware group tuple");
+        crate::db::query::preparation::with_preparation_work(|work| {
+            let direct = GroupField::Direct(FieldSlot::from_test_accepted_kind(
+                0,
+                "direct_rank",
+                AcceptedFieldKind::Int32,
+            ));
+            let mut expected = GroupFieldSet::empty();
+            let mut reserved = GroupFieldSet::PathAware(Vec::with_capacity(4));
+            for key in [direct.clone(), rank_path(), direct, rank_path()] {
+                expected.push(key.clone(), work).unwrap();
+                reserved.push(key, work).unwrap();
+            }
+            assert_eq!(reserved, expected);
+            let GroupFieldSet::PathAware(fields) = reserved else {
+                panic!("path-aware group tuple");
+            };
+            assert_eq!(fields.capacity(), 4);
+            assert_eq!(fields.len(), 2);
+        });
+    }
+
+    #[test]
+    fn rejected_group_key_insertion_preserves_the_existing_tuple() {
+        use crate::db::{
+            RequestExecutionRoot,
+            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+            query::preparation::PreparationWork,
         };
-        assert_eq!(fields.capacity(), 4);
-        assert_eq!(fields.len(), 2);
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,
+            DiagnosticFactTag,
+        };
+
+        let direct = FieldSlot::from_test_accepted_kind(0, "rank", AcceptedFieldKind::Int32);
+        for (resource, incoming) in [
+            (Resource::TemporaryBytes, rank_path()),
+            (
+                Resource::PredicateExpressionSteps,
+                GroupField::Direct(direct.clone()),
+            ),
+        ] {
+            let mut fields = GroupFieldSet::Direct(vec![direct.clone()]);
+            let before = fields.clone();
+            let root = RequestExecutionRoot::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(
+                    16_000_000,
+                    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                )
+                .with_limit_for_tests(resource, 0),
+            );
+            for _ in 0..2 {
+                let error = PreparationWork::run(
+                    &root.scope(),
+                    DiagnosticExecutionLane::PublicRead,
+                    |work| fields.push(incoming.clone(), work),
+                )
+                .unwrap_err();
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+                );
+                assert_eq!(fields, before);
+            }
+            crate::db::query::preparation::with_preparation_work(|work| {
+                fields.push(incoming, work)
+            })
+            .unwrap();
+        }
     }
 }
 

@@ -19,7 +19,8 @@ use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, Query
 
 /// Materialize a complete grouping clause through the existing key resolver.
 /// Select its final representation before allocation, avoiding prefix promotion.
-/// Key payload copying and downstream rebinding are separate accounting owners.
+/// The shared key owner charges payload copying and duplicate comparisons here
+/// and during downstream planner rebinding.
 pub(in crate::db) fn resolve_group_fields_with_schema(
     schema: &SchemaInfo,
     fields: &[String],
@@ -36,11 +37,11 @@ pub(in crate::db) fn resolve_group_fields_with_schema(
         GroupFieldSet::Direct(work.vec_with_capacity(fields.len())?)
     };
     for field in fields {
-        let key = GroupField::resolve_with_schema(schema, field).ok_or_else(|| {
+        let key = GroupField::resolve_with_schema(schema, field, work)?.ok_or_else(|| {
             PlanError::from(GroupPlanError::unknown_group_field(field))
                 .attach_query_field(QueryFieldRole::GroupBy)
         })?;
-        resolved.push(key);
+        resolved.push(key, work)?;
     }
     Ok(resolved)
 }

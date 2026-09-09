@@ -197,19 +197,19 @@ impl FieldSlot {
     pub(in crate::db) fn unresolved(index: usize, field: impl Into<String>) -> Self {
         Self {
             index,
-            field: field.into(),
+            field: field.into().into(),
             authority: FieldSlotAuthority::Unresolved,
         }
     }
 
-    fn from_accepted_kind(
+    const fn from_accepted_kind(
         index: usize,
-        field: impl Into<String>,
+        field: Arc<str>,
         kind: Arc<AcceptedFieldKind>,
     ) -> Self {
         Self {
             index,
-            field: field.into(),
+            field,
             authority: FieldSlotAuthority::Accepted(kind),
         }
     }
@@ -217,8 +217,8 @@ impl FieldSlot {
     /// Resolve one field through exactly one schema authority lane.
     #[must_use]
     pub(in crate::db) fn resolve_with_schema(schema: &SchemaInfo, field: &str) -> Option<Self> {
-        let (index, kind) = schema.retained_query_field_authority(field)?;
-        Some(Self::from_accepted_kind(index, field, kind))
+        let (index, label, kind) = schema.retained_query_field_authority(field)?;
+        Some(Self::from_accepted_kind(index, label, kind))
     }
 
     /// Return the stable accepted field slot.
@@ -256,7 +256,7 @@ impl FieldSlot {
         field: impl Into<String>,
         kind: AcceptedFieldKind,
     ) -> Self {
-        Self::from_accepted_kind(index, field, Arc::new(kind))
+        Self::from_accepted_kind(index, field.into().into(), Arc::new(kind))
     }
 }
 

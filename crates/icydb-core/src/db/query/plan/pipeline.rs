@@ -3,6 +3,8 @@
 //! Does not own: query intent mutation, access-path scoring internals, or executor runtime.
 //! Boundary: turns `QueryModel` data into finalized `AccessPlannedQuery` contracts.
 
+use crate::db::query::preparation::PreparationWork;
+
 use crate::{
     db::{
         access::{AccessPlan, MAX_INDEX_BRANCH_SET_VALUES},
@@ -140,6 +142,7 @@ pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_plan
     query: &QueryModel,
     visible_indexes: &VisibleIndexes,
     planning_state: PreparedScalarPlanningState<'_>,
+    work: &PreparationWork<'_>,
 ) -> Result<AccessPlannedQuery, QueryError> {
     // Phase 1: reuse the caller-provided validated scalar planning state so
     // cache-key construction and planner misses share one normalized predicate
@@ -173,6 +176,7 @@ pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_plan
         primary_key_input_resource,
         access_plan_value,
         planned_non_index_reason,
+        work,
     )
 }
 
@@ -183,6 +187,7 @@ pub(in crate::db::query) fn build_query_model_plan_from_parameterized_template(
     query: &QueryModel,
     template_indexes: &[SemanticIndexAccessContract],
     planning_state: PreparedScalarPlanningState<'_>,
+    work: &PreparationWork<'_>,
 ) -> Result<AccessPlannedQuery, QueryError> {
     let PreparedScalarPlanningState {
         schema_info,
@@ -209,9 +214,14 @@ pub(in crate::db::query) fn build_query_model_plan_from_parameterized_template(
         primary_key_input_resource,
         access_plan_value,
         planned_non_index_reason,
+        work,
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "assembly keeps shared request authority explicit alongside accepted planning inputs"
+)]
 fn assemble_query_model_plan(
     query: &QueryModel,
     rerank_indexes: &[SemanticIndexAccessContract],
@@ -220,6 +230,7 @@ fn assemble_query_model_plan(
     primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
     access_plan_value: AccessPlan<Value>,
     planned_non_index_reason: Option<PlannedNonIndexAccessReason>,
+    work: &PreparationWork<'_>,
 ) -> Result<AccessPlannedQuery, QueryError> {
     let logical_inputs = query.planning_logical_inputs();
     let primary_key_strip = strip_redundant_primary_key_predicate_for_exact_access(
@@ -263,12 +274,13 @@ fn assemble_query_model_plan(
     attach_primary_key_input_resource_if_exact_access(&mut plan, primary_key_input_resource);
     simplify_limit_one_page_for_by_key_access(&mut plan);
 
-    finalize_query_model_plan(&schema_info, plan)
+    finalize_query_model_plan(&schema_info, plan, work)
 }
 
 fn finalize_query_model_plan(
     schema_info: &SchemaInfo,
     mut plan: AccessPlannedQuery,
+    work: &PreparationWork<'_>,
 ) -> Result<AccessPlannedQuery, QueryError> {
     // Phase 4: freeze the planner-owned route profile before validation so
     // policy gates that depend on finalized access/order contracts, such as
@@ -282,8 +294,7 @@ fn finalize_query_model_plan(
     // Phase 6: freeze planner-owned execution metadata only after semantic
     // validation succeeds so user-facing projection/order errors remain
     // planner-domain failures instead of executor invariant violations.
-    plan.finalize_static_execution_planning_contract_with_schema(schema_info)
-        .map_err(QueryError::execute)?;
+    plan.finalize_static_execution_planning_contract_with_schema(schema_info, work)?;
 
     Ok(plan)
 }
@@ -294,6 +305,7 @@ pub(in crate::db) fn apply_exact_cardinality_tiebreak_selection(
     selected_access: Option<AccessPlan<Value>>,
     state: CardinalityTiebreakState,
     schema_info: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<AccessPlannedQuery, QueryError> {
     let Some(selected_access) = selected_access else {
         plan.set_cardinality_tiebreak(state);
@@ -312,7 +324,7 @@ pub(in crate::db) fn apply_exact_cardinality_tiebreak_selection(
     );
     reselected.set_cardinality_tiebreak(state);
     simplify_limit_one_page_for_by_key_access(&mut reselected);
-    finalize_query_model_plan(schema_info, reselected)
+    finalize_query_model_plan(schema_info, reselected, work)
 }
 
 fn plan_access_from_parameterized_template(
@@ -569,6 +581,7 @@ fn direct_count_index_supports_exact_prefix(
 pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info(
     query: &QueryModel,
     schema_info: SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<Option<AccessPlannedQuery>, QueryError> {
     // Phase 1: keep this path deliberately narrow so it only bypasses work the
     // general planner would do for a full-scan primary-order scalar load.
@@ -600,8 +613,7 @@ pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info(
     // Phase 3: preserve the finalized planner/executor contracts produced by
     // the general pipeline for this same simple shape.
     plan.finalize_planner_route_profile_for_model_with_schema(&schema_info);
-    plan.finalize_static_execution_planning_contract_with_schema(&schema_info)
-        .map_err(QueryError::execute)?;
+    plan.finalize_static_execution_planning_contract_with_schema(&schema_info, work)?;
 
     Ok(Some(plan))
 }

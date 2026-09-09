@@ -69,24 +69,33 @@ fn grouped_load_to_delete_preserves_grouping_policy_without_group_shape() {
 
 #[test]
 fn group_field_slot_deduplicates_by_slot_index() {
-    let mut intent = QueryIntent::new();
-    let mut fields = GroupFieldSet::empty();
-    fields.push(GroupField::Direct(FieldSlot::from_test_slot(4, "rank")));
-    fields.push(GroupField::Direct(FieldSlot::from_test_slot(
-        4,
-        "duplicate-rank",
-    )));
-    intent.set_group_fields(fields);
+    crate::db::query::preparation::with_preparation_work(|work| {
+        let mut intent = QueryIntent::new();
+        let mut fields = GroupFieldSet::empty();
+        fields
+            .push(
+                GroupField::Direct(FieldSlot::from_test_slot(4, "rank")),
+                work,
+            )
+            .unwrap();
+        fields
+            .push(
+                GroupField::Direct(FieldSlot::from_test_slot(4, "duplicate-rank")),
+                work,
+            )
+            .unwrap();
+        intent.set_group_fields(fields);
 
-    let grouped = intent
-        .grouped()
-        .expect("grouped shape should be materialized after grouped slot push");
+        let grouped = intent
+            .grouped()
+            .expect("grouped shape should be materialized after grouped slot push");
 
-    assert_eq!(
-        grouped.group.group_fields.len(),
-        1,
-        "group field slots should be deduplicated by stable model slot index"
-    );
+        assert_eq!(
+            grouped.group.group_fields.len(),
+            1,
+            "group field slots should be deduplicated by stable model slot index"
+        );
+    });
 }
 
 #[test]

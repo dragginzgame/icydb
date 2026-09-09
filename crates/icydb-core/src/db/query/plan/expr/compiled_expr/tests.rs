@@ -346,6 +346,51 @@ fn assert_referenced_slots(expr: &CompiledExpr, expected: &[usize], context: &st
         actual, expected,
         "{context} should advertise every row slot it may evaluate",
     );
+
+    // Exercise every compiled shape through the fallible traversal too. A
+    // failed node admission or slot callback must stop before later work.
+    let mut nodes = 0;
+    let mut raw_slots = Vec::new();
+    expr.try_for_each_referenced_slot(
+        &mut || {
+            nodes += 1;
+            Ok::<_, ()>(())
+        },
+        &mut |slot| {
+            raw_slots.push(slot);
+            Ok(())
+        },
+    )
+    .unwrap();
+    for limit in 0..nodes {
+        let mut entered = 0;
+        assert_eq!(
+            expr.try_for_each_referenced_slot(
+                &mut || {
+                    entered += 1;
+                    if entered > limit { Err(()) } else { Ok(()) }
+                },
+                &mut |_| Ok(())
+            ),
+            Err(())
+        );
+        assert_eq!(entered, limit + 1);
+    }
+    for limit in 0..raw_slots.len() {
+        let mut visited = Vec::new();
+        assert_eq!(
+            expr.try_for_each_referenced_slot(&mut || Ok(()), &mut |slot| {
+                visited.push(slot);
+                if visited.len() > limit {
+                    Err(())
+                } else {
+                    Ok(())
+                }
+            }),
+            Err(())
+        );
+        assert_eq!(visited, raw_slots[..=limit]);
+    }
 }
 
 fn assert_evaluation_reads_are_advertised(expr: &CompiledExpr, context: &str) {
