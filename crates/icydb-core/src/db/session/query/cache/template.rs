@@ -11,8 +11,11 @@ use crate::db::{
     query::{
         intent::StructuralQuery,
         plan::{AccessPlannedQuery, PreparedScalarPlanningState},
+        preparation::PreparationWork,
     },
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+use std::rc::Rc;
 
 ///
 /// PreparedQueryTemplate
@@ -22,7 +25,7 @@ use crate::db::{
 ///
 #[derive(Clone, Debug)]
 pub(super) struct PreparedQueryTemplate {
-    candidate_indexes: Vec<SemanticIndexAccessContract>,
+    candidate_indexes: Rc<[SemanticIndexAccessContract]>,
     recent_bound: Option<BoundQueryExecutionMemo>,
 }
 
@@ -33,11 +36,25 @@ struct BoundQueryExecutionMemo {
 }
 
 impl PreparedQueryTemplate {
-    pub(super) fn new(candidate_indexes: &[SemanticIndexAccessContract]) -> Self {
-        Self {
-            candidate_indexes: candidate_indexes.to_vec(),
+    pub(super) fn new(
+        candidate_indexes: &[SemanticIndexAccessContract],
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        // The contracts already share immutable metadata. Allocate their handle
+        // array once, including Rc's two reference counts; warm snapshots share
+        // that array and keep only the replaceable bound memo independent.
+        work.charge(
+            Resource::PredicateExpressionSteps,
+            candidate_indexes.len() as u64,
+        )?;
+        work.charge(
+            Resource::TemporaryBytes,
+            (size_of_val(candidate_indexes) as u64).saturating_add((2 * size_of::<usize>()) as u64),
+        )?;
+        Ok(Self {
+            candidate_indexes: Rc::from(candidate_indexes),
             recent_bound: None,
-        }
+        })
     }
 
     pub(super) fn reused_bound_plan(
@@ -50,8 +67,8 @@ impl PreparedQueryTemplate {
         })
     }
 
-    pub(super) const fn candidate_indexes(&self) -> &[SemanticIndexAccessContract] {
-        self.candidate_indexes.as_slice()
+    pub(super) fn candidate_indexes(&self) -> &[SemanticIndexAccessContract] {
+        &self.candidate_indexes
     }
 
     pub(super) fn bind(

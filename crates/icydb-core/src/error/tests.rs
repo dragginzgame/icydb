@@ -266,6 +266,35 @@ fn storage_index_and_relation_facts_keep_only_safe_numeric_context() {
 }
 
 #[test]
+fn relation_contract_failure_preserves_identity_and_specific_facts() {
+    use icydb_diagnostic_code::{DiagnosticFactTag, ErrorCode};
+
+    let error = InternalError::relation_target_primary_key_arity_mismatch(2, 1);
+    let detail = error.diagnostic_facts();
+    let error = error.with_relation_identity(u64::MAX, 7);
+    assert_eq!(error.diagnostic().error_code(), ErrorCode::RUNTIME_INTERNAL);
+    let facts = error.diagnostic_facts();
+    assert_eq!(
+        &facts[..2],
+        &[
+            (DiagnosticFactTag::EntityTag, u64::MAX),
+            (DiagnosticFactTag::RelationId, 7)
+        ]
+    );
+    assert_eq!(&facts[2..], detail);
+
+    let error = InternalError::executor_internal().with_relation_identity(9, 3);
+    assert_eq!(error.diagnostic().error_code(), ErrorCode::RUNTIME_INTERNAL);
+    assert_eq!(
+        error.diagnostic_facts(),
+        vec![
+            (DiagnosticFactTag::EntityTag, 9),
+            (DiagnosticFactTag::RelationId, 3)
+        ]
+    );
+}
+
+#[test]
 fn accepted_constraint_facts_bind_exact_authority_operation_and_path() {
     let fingerprint = [
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,

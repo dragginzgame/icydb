@@ -80,7 +80,7 @@ impl GroupField {
         let Some((root, nested)) = field.split_once('.') else {
             return FieldSlot::resolve_with_schema(schema, field).map(Self::Direct);
         };
-        let accepted_kind = Self::accepted_kind_for_components(schema, field.split('.'))?;
+        let accepted_kind = Self::accepted_kind_for_label(schema, field)?;
         let root_slot = schema.field_slot_index(root)?;
         let semantics = classify_accepted_field_kind(accepted_kind);
         Some(Self::ScalarPath(ScalarGroupPath {
@@ -89,6 +89,15 @@ impl GroupField {
             root_slot,
             identity_group_canonical_form: semantics.has_identity_group_canonical_form(),
         }))
+    }
+
+    /// Check grouping eligibility without retaining a key for validation-only consumers.
+    #[must_use]
+    pub(in crate::db) fn accepted_kind_for_label<'a>(
+        schema: &'a SchemaInfo,
+        field: &str,
+    ) -> Option<&'a AcceptedFieldKind> {
+        Self::accepted_kind_for_components(schema, field.split('.'))
     }
 
     // Borrow terminal authority without constructing an execution key. Keep

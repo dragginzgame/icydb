@@ -3,7 +3,7 @@
 //! Does not own: query planning policy or runtime predicate evaluation.
 //! Boundary: validates entity/index model consistency for predicate schema metadata.
 
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 
 #[cfg(feature = "sql")]
 use crate::db::schema::canonicalize_strict_sql_literal_for_persisted_kind;
@@ -99,7 +99,7 @@ struct SchemaFieldInfo {
     leaf_codec: LeafCodec,
     #[cfg(feature = "sql")]
     sql_capabilities: SqlCapabilities,
-    query_kind: AcceptedFieldKind,
+    query_kind: Arc<AcceptedFieldKind>,
     accepted_value_contract: Option<AcceptedValueContract>,
     indexed: bool,
     nested_leaves: Vec<PersistedNestedLeafSnapshot>,
@@ -433,7 +433,18 @@ impl SchemaInfo {
         &self,
         name: &str,
     ) -> Option<&AcceptedFieldKind> {
-        schema_field_info(self.fields.as_slice(), name).map(|field| &field.query_kind)
+        schema_field_info(self.fields.as_slice(), name).map(|field| field.query_kind.as_ref())
+    }
+
+    /// Resolve retained slot authority in one lookup. Share only this field's
+    /// immutable query kind, not the complete schema or a session borrow.
+    #[must_use]
+    pub(in crate::db) fn retained_query_field_authority(
+        &self,
+        name: &str,
+    ) -> Option<(usize, Arc<AcceptedFieldKind>)> {
+        let field = schema_field_info(self.fields.as_slice(), name)?;
+        Some((field.slot, Arc::clone(&field.query_kind)))
     }
 
     /// Return the top-level physical row slot for one field.
@@ -675,7 +686,7 @@ impl SchemaInfo {
     ) -> Option<Value> {
         let field = schema_field_info(self.fields.as_slice(), field_name)?;
 
-        let kind = &field.query_kind;
+        let kind = field.query_kind.as_ref();
         if matches!(kind, AcceptedFieldKind::Enum { .. }) {
             let Value::Text(variant) = value else {
                 return None;
@@ -701,7 +712,7 @@ impl SchemaInfo {
             return Ok(None);
         };
 
-        let kind = &field.query_kind;
+        let kind = field.query_kind.as_ref();
         if matches!(kind, AcceptedFieldKind::Enum { .. }) {
             let Some(input) = loose_enum_filter_input(kind, value, work)? else {
                 return Ok(None);
@@ -728,7 +739,7 @@ impl SchemaInfo {
         let Some(field) = schema_field_info(self.fields.as_slice(), field_name) else {
             return Ok(None);
         };
-        let element_kind = match &field.query_kind {
+        let element_kind = match field.query_kind.as_ref() {
             AcceptedFieldKind::List(element_kind) | AcceptedFieldKind::Set(element_kind) => {
                 element_kind.as_ref()
             }
@@ -803,7 +814,7 @@ impl SchemaInfo {
                         leaf_codec: field.leaf_codec(),
                         #[cfg(feature = "sql")]
                         sql_capabilities: accepted_sql_capabilities(&query_kind, &value_catalog),
-                        query_kind,
+                        query_kind: Arc::new(query_kind),
                         accepted_value_contract,
                         indexed: indexed_field_ids.contains(&field.id()),
                         nested_leaves: field.nested_leaves().to_vec(),
@@ -1007,6 +1018,7 @@ fn schema_index_field_path_info_from_accepted(
 #[cfg(test)]
 mod tests {
     use icydb_schema::ScalarKind;
+    use std::sync::Arc;
 
     use crate::{
         db::{
@@ -1021,7 +1033,7 @@ mod tests {
                 TestEnumDefinition, TestEnumVariant, ValidateError,
                 build_accepted_enum_catalog_for_tests,
                 build_record_newtype_composite_catalog_for_tests,
-                empty_accepted_enum_catalog_for_tests,
+                empty_accepted_enum_catalog_for_tests, field_type_from_persisted_kind,
             },
         },
         value::Value,
@@ -1259,6 +1271,134 @@ mod tests {
                 .and_then(|slot| slot.accepted_kind().cloned()),
             Some(AcceptedFieldKind::Text { max_len: Some(64) })
         ));
+    }
+
+    #[test]
+    fn borrowed_group_labels_match_retained_key_eligibility() {
+        use crate::db::query::plan::GroupField;
+
+        let schema = newtype_query_schema();
+        for label in [
+            "id",
+            "name",
+            "profile",
+            "aliases",
+            "profile.name",
+            "profile.missing",
+            "profile..name",
+            ".name",
+            "profile.",
+            "missing",
+            "",
+            "名",
+        ] {
+            assert_eq!(
+                GroupField::accepted_kind_for_label(&schema, label).is_some(),
+                GroupField::resolve_with_schema(&schema, label).is_some(),
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn retained_field_slots_share_detached_accepted_query_kinds() {
+        use crate::db::query::plan::FieldSlot;
+
+        let schema = newtype_query_schema();
+        let cloned_schema = schema.clone();
+        let mut retained = Vec::new();
+        for field in ["id", "name", "profile", "aliases"] {
+            let slot = FieldSlot::resolve_with_schema(&schema, field).unwrap();
+            let cloned_slot = slot.clone();
+            let resolved_again = FieldSlot::resolve_with_schema(&cloned_schema, field).unwrap();
+            let accepted_kind = schema.accepted_query_field_kind(field).unwrap();
+            // Sharing is the ownership contract: neither resolving a key nor
+            // cloning its plan/view may recursively copy this metadata tree.
+            for candidate in [&slot, &cloned_slot, &resolved_again] {
+                assert!(std::ptr::eq(
+                    candidate.accepted_kind().unwrap(),
+                    accepted_kind
+                ));
+                assert_eq!(candidate.index(), schema.field_slot_index(field).unwrap());
+                assert_eq!(candidate.field(), field);
+            }
+            retained.push(slot);
+        }
+        assert!(FieldSlot::resolve_with_schema(&schema, "missing").is_none());
+        drop(cloned_schema);
+        drop(schema);
+        assert!(matches!(
+            retained[0].accepted_kind(),
+            Some(AcceptedFieldKind::Nat64)
+        ));
+        assert!(matches!(
+            retained[1].accepted_kind(),
+            Some(AcceptedFieldKind::Text { max_len: Some(64) })
+        ));
+        assert!(matches!(
+            retained[2].accepted_kind(),
+            Some(AcceptedFieldKind::Composite { .. })
+        ));
+        assert!(
+            matches!(retained[3].accepted_kind(), Some(AcceptedFieldKind::Set(inner))
+            if matches!(inner.as_ref(), AcceptedFieldKind::Text { max_len: Some(64) }))
+        );
+    }
+
+    #[test]
+    fn retained_group_rebinding_selects_current_metadata_without_mutating_old_slots() {
+        use crate::db::query::plan::{FieldSlot, GroupFieldSet};
+
+        let mut current = newtype_query_schema();
+        let old_slot = FieldSlot::resolve_with_schema(&current, "name").unwrap();
+        let retained = GroupFieldSet::Direct(vec![old_slot.clone()]);
+        // A second schema view has the same field identity but a different kind.
+        // Retained metadata is immutable; only explicit rebinding selects it.
+        let (_, field) = current
+            .fields
+            .iter_mut()
+            .find(|(name, _)| name == "name")
+            .unwrap();
+        field.query_kind = Arc::new(AcceptedFieldKind::Bool);
+        field.ty = field_type_from_persisted_kind(&field.query_kind);
+        let rebound = retained.resolve_with_schema(&current).unwrap();
+        let rebound_slot = &rebound.as_direct().unwrap()[0];
+        assert_eq!(
+            old_slot, *rebound_slot,
+            "field identity is independent of metadata ownership"
+        );
+        assert!(matches!(
+            old_slot.accepted_kind(),
+            Some(AcceptedFieldKind::Text { max_len: Some(64) })
+        ));
+        assert!(matches!(
+            rebound_slot.accepted_kind(),
+            Some(AcceptedFieldKind::Bool)
+        ));
+        assert!(std::ptr::eq(
+            rebound_slot.accepted_kind().unwrap(),
+            current.accepted_query_field_kind("name").unwrap()
+        ));
+    }
+
+    #[test]
+    fn retained_slot_accounting_includes_shared_kind_header_and_nested_payload() {
+        use crate::{db::query::plan::FieldSlot, retained::RetainedBytes};
+
+        let schema = newtype_query_schema();
+        let slot = FieldSlot::resolve_with_schema(&schema, "aliases").unwrap();
+        let kind_bytes = RetainedBytes::measure(slot.accepted_kind().unwrap(), usize::MAX).unwrap();
+        let expected =
+            size_of::<FieldSlot>() + slot.field.capacity() + 2 * size_of::<usize>() + kind_bytes;
+        assert_eq!(RetainedBytes::measure(&slot, expected), Some(expected));
+        assert_eq!(RetainedBytes::measure(&slot, expected - 1), None);
+        // Independent residents remain conservatively charged for shared data.
+        for resident in [slot.clone(), slot] {
+            assert_eq!(
+                RetainedBytes::measure(&resident, usize::MAX),
+                Some(expected)
+            );
+        }
     }
 
     #[test]

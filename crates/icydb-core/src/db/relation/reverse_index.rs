@@ -1166,6 +1166,31 @@ fn accepted_relation_from_binding<C>(
 where
     C: CanisterKind,
 {
+    let relation_id = binding.reverse_identity.relation_id;
+    match compile_accepted_relation_binding(db, source_path, source_row_contract, binding) {
+        Ok(relation) => Ok(relation),
+        Err(error) => {
+            // Resolve diagnostic identity only on failure; successful planning
+            // needs no additional catalog lookup or allocated context.
+            let Ok(source) = db.accepted_runtime_entity_for_path(source_path) else {
+                // An absent source has no accepted identity to report. Keep
+                // the original cause instead of replacing it during enrichment.
+                return Err(error);
+            };
+            Err(error.with_relation_identity(source.entity_tag().value(), relation_id.get()))
+        }
+    }
+}
+
+fn compile_accepted_relation_binding<C>(
+    db: &Db<C>,
+    source_path: &str,
+    source_row_contract: &StructuralRowContract,
+    binding: AcceptedRelationBinding<'_>,
+) -> Result<AcceptedRelationInfo, InternalError>
+where
+    C: CanisterKind,
+{
     let AcceptedRelationBinding {
         constraint,
         reverse_identity,
@@ -1173,28 +1198,25 @@ where
         target_path,
         source,
     } = binding;
-    let slots = match source {
-        AcceptedRelationBindingSource::Direct(slots) => slots,
-        AcceptedRelationBindingSource::Nested { root_slot, steps } => {
-            let (nested, terminal) =
-                accepted_nested_relation_source(root_slot, steps, source_row_contract)?;
-            let local_component =
-                AcceptedRelationTupleEdgeLocalComponent::new(name, terminal.kind());
-            let descriptor = accepted_relation_tuple_edge_descriptor(
-                db,
-                source_path,
-                name,
-                target_path,
-                std::slice::from_ref(&local_component),
-            )?;
-            return AcceptedRelationInfo::new_nested(
-                constraint,
-                reverse_identity,
-                name,
-                nested,
-                descriptor.into_target_contract(),
-            );
-        }
+    if let Some((nested, terminal)) = accepted_relation_traversal(&source, source_row_contract)? {
+        let local_component = AcceptedRelationTupleEdgeLocalComponent::new(name, terminal.kind());
+        let descriptor = accepted_relation_tuple_edge_descriptor(
+            db,
+            source_path,
+            name,
+            target_path,
+            std::slice::from_ref(&local_component),
+        )?;
+        return AcceptedRelationInfo::new_nested(
+            constraint,
+            reverse_identity,
+            name,
+            nested,
+            descriptor.into_target_contract(),
+        );
+    }
+    let AcceptedRelationBindingSource::Direct(slots) = source else {
+        return Err(InternalError::store_invariant());
     };
     let local_fields = slots
         .iter()
@@ -1326,6 +1348,36 @@ where
                 },
             )
         }
+    }
+}
+
+// Direct collection edges carry target identity in the accepted edge, not in
+// their element kind. Compile every collection through one bounded traversal;
+// scalar/tuple sources retain their direct component projection.
+fn accepted_relation_traversal(
+    source: &AcceptedRelationBindingSource<'_>,
+    row_contract: &StructuralRowContract,
+) -> Result<Option<(AcceptedNestedRelationSource, AcceptedRelationValueContract)>, InternalError> {
+    match source {
+        AcceptedRelationBindingSource::Nested { root_slot, steps } => {
+            accepted_nested_relation_source(*root_slot, steps, row_contract).map(Some)
+        }
+        AcceptedRelationBindingSource::Direct([slot]) => {
+            let field = row_contract.required_accepted_field_decode_contract(*slot)?;
+            let step = match field.kind() {
+                AcceptedFieldKind::List(_) => PersistedRelationPathStepSnapshot::ListItems,
+                AcceptedFieldKind::Set(_) => PersistedRelationPathStepSnapshot::SetItems,
+                _ => return Ok(None),
+            };
+            let steps = [PersistedRelationPathStepSnapshot::OptionalSome, step];
+            accepted_nested_relation_source(
+                *slot,
+                &steps[usize::from(!field.nullable())..],
+                row_contract,
+            )
+            .map(Some)
+        }
+        AcceptedRelationBindingSource::Direct(_) => Ok(None),
     }
 }
 

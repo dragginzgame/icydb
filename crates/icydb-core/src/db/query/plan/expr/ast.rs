@@ -99,6 +99,26 @@ impl PathSpec {
         label
     }
 
+    /// Compare the rendered label without allocating it. This compares text,
+    /// not structural path identity: dots inside components remain literal.
+    #[cfg(feature = "sql")]
+    #[must_use]
+    pub(in crate::db) fn matches_dotted_label(&self, label: &str) -> bool {
+        let Some(mut remaining) = label.strip_prefix(self.root.as_str()) else {
+            return false;
+        };
+        for segment in &self.path {
+            let Some(tail) = remaining
+                .strip_prefix('.')
+                .and_then(|tail| tail.strip_prefix(segment.as_str()))
+            else {
+                return false;
+            };
+            remaining = tail;
+        }
+        remaining.is_empty()
+    }
+
     /// Return whether this path is expected to resolve to a scalar leaf.
     #[must_use]
     pub(in crate::db) const fn is_scalar_leaf(&self) -> bool {
@@ -770,6 +790,36 @@ mod tests {
         );
 
         assert_eq!(path.dotted_label(), "profile.location.country");
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn path_label_comparison_matches_rendering_without_normalizing_components() {
+        for (root, segments) in [
+            ("profile", vec!["location", "country"]),
+            ("profile.location", vec!["country"]),
+            ("profile", vec!["location.country"]),
+            ("", vec!["", "name"]),
+            ("profile", vec![""]),
+            ("é", vec!["名", "🌍"]),
+        ] {
+            let path = PathSpec::new(root, segments.into_iter().map(str::to_string).collect());
+            let rendered = path.dotted_label();
+            for label in [
+                rendered.clone(),
+                format!("{rendered}."),
+                format!("x{rendered}"),
+                rendered.trim_end_matches('.').to_string(),
+                "profile.location.country".to_string(),
+                String::new(),
+            ] {
+                assert_eq!(path.matches_dotted_label(&label), rendered == label);
+            }
+            // Check every valid UTF-8 truncation, including component interiors.
+            for (end, _) in rendered.char_indices() {
+                assert!(!path.matches_dotted_label(&rendered[..end]));
+            }
+        }
     }
 }
 

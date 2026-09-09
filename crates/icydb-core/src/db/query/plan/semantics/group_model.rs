@@ -22,7 +22,7 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 
 /// Normalize an owned lowering intermediate in place. Unlike ordinary filter
 /// conversion, grouped lists retain children that do not convert. On exhaustion
@@ -202,7 +202,11 @@ impl FieldSlot {
         }
     }
 
-    fn from_accepted_kind(index: usize, field: impl Into<String>, kind: AcceptedFieldKind) -> Self {
+    fn from_accepted_kind(
+        index: usize,
+        field: impl Into<String>,
+        kind: Arc<AcceptedFieldKind>,
+    ) -> Self {
         Self {
             index,
             field: field.into(),
@@ -213,8 +217,7 @@ impl FieldSlot {
     /// Resolve one field through exactly one schema authority lane.
     #[must_use]
     pub(in crate::db) fn resolve_with_schema(schema: &SchemaInfo, field: &str) -> Option<Self> {
-        let index = schema.field_slot_index(field)?;
-        let kind = schema.accepted_query_field_kind(field)?.clone();
+        let (index, kind) = schema.retained_query_field_authority(field)?;
         Some(Self::from_accepted_kind(index, field, kind))
     }
 
@@ -232,9 +235,9 @@ impl FieldSlot {
 
     /// Borrow the accepted field kind frozen by schema-backed planning.
     #[must_use]
-    pub(in crate::db) const fn accepted_kind(&self) -> Option<&AcceptedFieldKind> {
+    pub(in crate::db) fn accepted_kind(&self) -> Option<&AcceptedFieldKind> {
         match &self.authority {
-            FieldSlotAuthority::Accepted(kind) => Some(kind),
+            FieldSlotAuthority::Accepted(kind) => Some(kind.as_ref()),
             FieldSlotAuthority::Unresolved => None,
         }
     }
@@ -253,7 +256,7 @@ impl FieldSlot {
         field: impl Into<String>,
         kind: AcceptedFieldKind,
     ) -> Self {
-        Self::from_accepted_kind(index, field, kind)
+        Self::from_accepted_kind(index, field, Arc::new(kind))
     }
 }
 

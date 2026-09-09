@@ -1,7 +1,7 @@
 use crate::db::query::preparation::PreparationWork;
 use crate::db::{
     query::plan::{
-        GroupField, GroupFieldSet,
+        GroupField,
         expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSelection},
     },
     schema::SchemaInfo,
@@ -16,7 +16,7 @@ use crate::db::{
         parser::{SqlAggregateCall, SqlProjection, SqlSelectItem},
     },
 };
-use icydb_diagnostic_code::QueryFieldRole;
+use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, QueryFieldRole};
 
 ///
 /// LoweredSqlProjectionSelection
@@ -167,15 +167,16 @@ pub(super) fn lower_grouped_projection(
     let SqlProjection::Items(items) = projection else {
         return Err(SqlLoweringError::grouped_projection_requires_explicit_list());
     };
-    let mut group_fields = GroupFieldSet::empty();
+    // Validate every declared key, even if no projected expression references
+    // it. Retained execution keys belong to structural planning, not this proof.
     for field in group_by {
-        let Some(group_field) = GroupField::resolve_with_schema(schema, field) else {
+        work.charge(Resource::PredicateExpressionSteps, 1 + field.len() as u64)?;
+        if GroupField::accepted_kind_for_label(schema, field).is_none() {
             return Err(SqlLoweringError::unknown_field(
                 QueryFieldRole::GroupBy,
                 field,
             ));
-        };
-        group_fields.push(group_field);
+        }
     }
 
     let mut seen_aggregate = false;
@@ -193,7 +194,7 @@ pub(super) fn lower_grouped_projection(
                 index,
             ));
         }
-        validate_grouped_projection_expr(index, &group_fields, schema, expr_facts)?;
+        validate_grouped_projection_expr(index, group_by, schema, expr_facts, work)?;
         seen_aggregate |= contains_aggregate;
         if contains_aggregate {
             aggregate_call_interner.extend_select_item(&mut aggregate_calls, &item);
@@ -224,9 +225,10 @@ pub(super) fn lower_grouped_projection(
 // while preserving specific unknown-field diagnostics.
 fn validate_grouped_projection_expr(
     index: usize,
-    group_fields: &GroupFieldSet,
+    group_fields: &[String],
     schema: &SchemaInfo,
     analysis: &LoweredExprAnalysis,
+    work: &PreparationWork<'_>,
 ) -> Result<(), SqlLoweringError> {
     if let Some(field) = analysis.first_unknown_field_for_schema(schema) {
         return Err(SqlLoweringError::unknown_field(
@@ -234,7 +236,7 @@ fn validate_grouped_projection_expr(
             field,
         ));
     }
-    if !analysis.references_only_group_fields(group_fields) {
+    if !analysis.references_only_group_fields(group_fields, work)? {
         return Err(SqlLoweringError::grouped_projection_references_non_group_field(index));
     }
 
@@ -267,7 +269,7 @@ fn grouped_projection_is_canonical_identity(
             ProjectionField::Scalar {
                 expr: Expr::FieldPath(path),
                 alias: None,
-            } => path.path_spec().dotted_label() == *group_by,
+            } => path.path_spec().matches_dotted_label(group_by),
             ProjectionField::Scalar { .. } => false,
         })
         && aggregate_fields.iter().all(|field| {
@@ -383,4 +385,36 @@ pub(in crate::db::sql::lowering) fn lower_analyzed_select_item_expr(
     Ok(AnalyzedLoweredExpr::new(lower_select_item_expr(
         item, phase, work,
     )?))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::db::{
+        query::plan::expr::{Alias, Expr, FieldPath, ProjectionField},
+        sql::lowering::select::projection::grouped_projection_is_canonical_identity,
+    };
+
+    #[test]
+    fn grouped_path_identity_preserves_exact_labels_and_alias_policy() {
+        let mut fields = [ProjectionField::Scalar {
+            expr: Expr::FieldPath(FieldPath::new("profile", vec!["city".into()])),
+            alias: None,
+        }];
+        assert!(grouped_projection_is_canonical_identity(
+            &fields,
+            &["profile.city".into()],
+        ));
+        for label in ["profile", "profile.city.code", "profile.city."] {
+            assert!(!grouped_projection_is_canonical_identity(
+                &fields,
+                &[label.into()],
+            ));
+        }
+        let ProjectionField::Scalar { alias, .. } = &mut fields[0];
+        *alias = Some(Alias::new("city"));
+        assert!(!grouped_projection_is_canonical_identity(
+            &fields,
+            &["profile.city".into()],
+        ));
+    }
 }

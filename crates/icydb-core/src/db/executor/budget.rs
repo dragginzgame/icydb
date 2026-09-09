@@ -231,6 +231,12 @@ impl HardExecutionContext {
     pub(in crate::db) const fn with_scope(self, scope: DiagnosticExecutionBudgetScope) -> Self {
         Self { scope, ..self }
     }
+
+    /// Preserve the caller's lane when entering a request preparation segment.
+    #[must_use]
+    pub(in crate::db) const fn lane(self) -> DiagnosticExecutionLane {
+        self.lane
+    }
 }
 
 /// Build literal-free attribution for one prepared read shape.

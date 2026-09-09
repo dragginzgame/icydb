@@ -1525,6 +1525,22 @@ impl InternalError {
         Self::executor_internal()
     }
 
+    /// Identify the accepted source and relation when runtime contract compilation fails.
+    pub(crate) fn with_relation_identity(self, entity_tag: u64, relation_id: u32) -> Self {
+        if self.diagnostic().error_code() != diagnostic_code::ErrorCode::RUNTIME_INTERNAL {
+            return self;
+        }
+        let mut facts = vec![
+            (diagnostic_code::DiagnosticFactTag::EntityTag, entity_tag),
+            (
+                diagnostic_code::DiagnosticFactTag::RelationId,
+                u64::from(relation_id),
+            ),
+        ];
+        facts.extend(self.diagnostic_facts());
+        Self::with_diagnostic_facts(self.class, self.origin, None, facts)
+    }
+
     /// Construct one accepted relation target primary-key arity mismatch.
     pub(crate) fn relation_target_primary_key_arity_mismatch(
         expected_arity: usize,

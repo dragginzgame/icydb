@@ -3150,6 +3150,8 @@ fn write_allocation_identity(
 
 #[cfg(test)]
 mod tests {
+    mod collection_relations;
+
     #[cfg(feature = "migration")]
     mod nested_migration;
 

@@ -744,11 +744,11 @@ fn validate_diagnostic_fact_schema(
 
 const fn diagnostic_fact_maximum(code: ErrorCode) -> usize {
     match code.raw() {
-        5 | 15 | 17 | 23 | 186 | 187 | 220 | 226 | 227 | 253 => 3,
+        5 | 15 | 17 | 186 | 187 | 220 | 226 | 227 | 253 => 3,
         133 | 134 | 158 | 159 | 164 | 222 => 1,
         18 | 20 | 130 | 166 | 167 | 169 | 190 | 191 | 192 | 194 | 223 | 224 | 225 | 248 | 249
         | 250 | 251 | 262 | 264 => 2,
-        3 | 19 => 5,
+        3 | 19 | 23 => 5,
         22 | 252 => 6,
         185 | 221 | 263 => 4,
         210 => 73,
@@ -1030,6 +1030,21 @@ fn runtime_unsupported_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8
 }
 
 fn runtime_internal_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
+    // Accepted relation compilation adds source identity ahead of the existing
+    // bounded cause facts; identity must not hide or relax the cause schema.
+    if fact_count >= 2
+        && fact_at(0).0 == DiagnosticFactTag::EntityTag.raw()
+        && fact_at(1).0 == DiagnosticFactTag::RelationId.raw()
+    {
+        return runtime_internal_detail_schema(fact_count - 2, &|index| fact_at(index + 2));
+    }
+    runtime_internal_detail_schema(fact_count, fact_at)
+}
+
+fn runtime_internal_detail_schema(
+    fact_count: usize,
+    fact_at: &impl Fn(usize) -> (u8, u64),
+) -> bool {
     fact_count == 0
         || tags_match(
             fact_count,

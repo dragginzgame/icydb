@@ -599,6 +599,53 @@ fn malformed_numeric_facts_fail_compactly_at_the_public_facade() {
 }
 
 #[test]
+fn relation_contract_identity_survives_facade_and_candid() {
+    use icydb_diagnostic_code::{
+        Diagnostic, DiagnosticCode, DiagnosticComponentKind, DiagnosticFactTag,
+    };
+
+    let facts = [
+        (DiagnosticFactTag::EntityTag, u64::MAX),
+        (DiagnosticFactTag::RelationId, 3),
+        (
+            DiagnosticFactTag::ComponentKind,
+            DiagnosticComponentKind::RelationTargetPrimaryKey.raw(),
+        ),
+        (DiagnosticFactTag::ExpectedArity, 2),
+        (DiagnosticFactTag::ActualArity, 1),
+    ];
+    let diagnostic = Diagnostic::new(
+        DiagnosticCode::RuntimeInternal,
+        icydb_diagnostic_code::ErrorOrigin::Executor,
+        None,
+    );
+    for length in [2, 5] {
+        let error = Error::from_diagnostic_and_facts(diagnostic.clone(), facts[..length].to_vec());
+        assert_eq!(
+            error.code(),
+            icydb_diagnostic_code::ErrorCode::RUNTIME_INTERNAL
+        );
+        let bytes = Encode!(&error).expect("relation diagnostic should encode");
+        let decoded = Decode!(&bytes, Error).expect("relation diagnostic should decode");
+        assert_eq!(
+            decoded
+                .core_facts()
+                .expect("relation fact tags should decode"),
+            facts[..length]
+        );
+    }
+    let incomplete = Error::from_diagnostic_and_facts(diagnostic, facts[..4].to_vec());
+    assert_eq!(
+        incomplete.code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_INVARIANT_VIOLATION
+    );
+    assert!(
+        incomplete.facts().is_empty(),
+        "identity cannot make incomplete cause facts valid"
+    );
+}
+
+#[test]
 fn database_bootstrap_preserves_typed_cause_until_public_projection() {
     let cause: RuntimeBootstrapError<std::convert::Infallible> =
         RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess);

@@ -1,13 +1,16 @@
+#[cfg(test)]
+mod group_membership_tests;
+
 use crate::db::{
+    QueryError,
     query::{
         builder::AggregateExpr,
-        plan::{
-            GroupFieldSet,
-            expr::{Expr, FieldPath},
-        },
+        plan::expr::{Expr, FieldPath},
+        preparation::PreparationWork,
     },
     schema::SchemaInfo,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 ///
 /// AnalyzedLoweredExpr
@@ -139,21 +142,45 @@ impl LoweredExprAnalysis {
     }
 
     /// Return whether every outer field/path leaf is one declared group key.
-    #[must_use]
     pub(in crate::db::sql::lowering) fn references_only_group_fields(
         &self,
-        group_fields: &GroupFieldSet,
-    ) -> bool {
-        self.source_refs.iter().all(|source_ref| {
-            group_fields.iter().any(|group_field| match source_ref {
-                LoweredExprSourceRef::Direct(field) => group_field
-                    .as_direct()
-                    .is_some_and(|group_field| group_field.field() == field),
-                LoweredExprSourceRef::Path(path) => group_field
-                    .as_scalar_path()
-                    .is_some_and(|group_path| group_path.path() == path.path_spec()),
-            })
-        })
+        group_fields: &[String],
+        work: &PreparationWork<'_>,
+    ) -> Result<bool, QueryError> {
+        // Labels have already passed the shared grouping eligibility check.
+        // Compare components directly: rendering paths or retaining execution
+        // keys would allocate an intermediate used only for this membership test.
+        for source_ref in &self.source_refs {
+            let mut found = false;
+            for label in group_fields {
+                // One candidate and two label-byte passes: splitting/path
+                // detection and comparison, charged before either runs.
+                work.charge(
+                    Resource::PredicateExpressionSteps,
+                    1 + (label.len() as u64).saturating_mul(2),
+                )?;
+                found = match source_ref {
+                    LoweredExprSourceRef::Direct(field) => !label.contains('.') && label == field,
+                    LoweredExprSourceRef::Path(path) => {
+                        label.split_once('.').is_some_and(|(root, nested)| {
+                            root == path.root().as_str()
+                                && nested.split('.').eq(path
+                                    .path_spec()
+                                    .segments()
+                                    .iter()
+                                    .map(String::as_str))
+                        })
+                    }
+                };
+                if found {
+                    break;
+                }
+            }
+            if !found {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Borrow the first unknown field discovered during left-to-right tree walk.

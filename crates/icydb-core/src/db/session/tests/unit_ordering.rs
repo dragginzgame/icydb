@@ -8,6 +8,7 @@ mod direct_projection;
 mod input_admission;
 mod membership;
 mod sql_construction;
+mod template_accounting;
 
 use crate::{
     db::{

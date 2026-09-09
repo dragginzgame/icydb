@@ -31,6 +31,12 @@ Without exact accepted-schema metadata, this remains a complete numeric report.
 Categorical values such as constraint kind and mutation operation still receive
 host-owned labels.
 
+An E23 raised while compiling an accepted relation includes `entity_tag` and
+`relation_id`, identifying the source entity and its relation in the accepted
+catalog. Existing cause facts, such as expected and actual target-key arity,
+follow those identities. These remain numeric diagnostics and do not disclose
+schema names or row values.
+
 ## Live schema resolution
 
 When the deployed canister explicitly exports `icydb_schema`, add its canister

@@ -18,6 +18,7 @@ use crate::{
         query::{
             intent::StructuralQuery,
             plan::{CardinalityTiebreakRoutePin, PreparedQueryParameterContract, VisibleIndexes},
+            preparation::PreparationWork,
         },
         schema::{
             AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
@@ -293,27 +294,6 @@ impl<C: CanisterKind> DbSession<C> {
                 plan.attach_cache_retention(&entry);
             }
         });
-    }
-
-    fn remember_shared_query_template_bound_plan(
-        &self,
-        cache_key: &QueryPlanCacheKey,
-        predicate_fingerprint: [u8; 32],
-        prepared_plan: SharedPreparedExecutionPlan,
-    ) {
-        let template = self.with_query_plan_cache(|cache| {
-            cache
-                .get(cache_key)
-                .and_then(CachedQueryArtifact::parameterized_template)
-                .cloned()
-        });
-        if let Some(mut template) = template {
-            template.remember_bound_plan(predicate_fingerprint, prepared_plan);
-            self.insert_shared_query_artifact(
-                cache_key.clone(),
-                CachedQueryArtifact::ParameterizedTemplate(template),
-            );
-        }
     }
 
     fn lookup_shared_query_plan_for_authority(
@@ -662,7 +642,7 @@ impl<C: CanisterKind> DbSession<C> {
         );
         let cached_template =
             self.lookup_shared_query_template_for_authority(authority, &cache_key);
-        if let Some(template) = cached_template {
+        if let Some(mut template) = cached_template {
             if let Some(prepared_plan) = template.reused_bound_plan(bound_predicate_fingerprint)
                 && self.cached_cardinality_tiebreak_is_current(authority, &prepared_plan)?
             {
@@ -680,11 +660,10 @@ impl<C: CanisterKind> DbSession<C> {
                 schema.fingerprint(),
             )
             .map_err(QueryError::execute)?;
-            self.remember_shared_query_template_bound_plan(
-                &cache_key,
-                bound_predicate_fingerprint,
-                prepared_plan.clone(),
-            );
+            // Binding is synchronous and does not publish into the cache. Keep
+            // the checked-out memo unchanged until the complete plan succeeds.
+            template.remember_bound_plan(bound_predicate_fingerprint, prepared_plan.clone());
+            self.insert_shared_query_template_for_authority(authority, cache_key, template);
 
             return Ok((prepared_plan, QueryPlanCacheReuse::Hit));
         }
@@ -705,8 +684,16 @@ impl<C: CanisterKind> DbSession<C> {
             visible_indexes.accepted_semantic_index_contracts(),
             plan,
         )?;
-        let mut template =
-            PreparedQueryTemplate::new(visible_indexes.accepted_semantic_index_contracts());
+        let mut template = PreparationWork::run(
+            self.db.request_execution_scope(),
+            planning_context.lane(),
+            |work| {
+                PreparedQueryTemplate::new(
+                    visible_indexes.accepted_semantic_index_contracts(),
+                    work,
+                )
+            },
+        )?;
         let prepared_plan =
             SharedPreparedExecutionPlan::from_plan(authority.clone(), plan, schema.fingerprint())
                 .map_err(QueryError::execute)?;

@@ -18,6 +18,7 @@ use crate::db::{
     },
     schema::AcceptedFieldKind,
 };
+use std::sync::Arc;
 
 ///
 /// QueryMode
@@ -700,7 +701,7 @@ impl GroupedPlanAggregateFamily {
 #[derive(Clone, Debug)]
 pub(in crate::db::query::plan) enum FieldSlotAuthority {
     Unresolved,
-    Accepted(AcceptedFieldKind),
+    Accepted(Arc<AcceptedFieldKind>),
 }
 
 #[derive(Clone, Debug)]
