@@ -106,9 +106,6 @@ fn measure_repeated_scan_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
     })
 }
 
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
-
 /// Measure grouped declaration preparation and empty execution on warm calls.
 #[ic_cdk::query]
 fn measure_repeated_grouped_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
@@ -136,3 +133,7 @@ fn measure_repeated_grouped_queries(repetitions: u16) -> ((u16, u16, u32, u64),)
         ((executions, failures, rows, local_instructions),)
     })
 }
+
+// Export after all endpoints so the generated interface includes every method.
+#[cfg(feature = "candid-export")]
+ic_cdk::export_candid!();
