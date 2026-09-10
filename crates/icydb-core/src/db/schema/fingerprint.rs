@@ -35,6 +35,7 @@ pub(in crate::db) fn accepted_schema_cache_fingerprint(
 ///
 /// Commit markers must follow the same accepted persisted schema authority as
 /// row decode, write validation, and index planning.
+#[cfg(any(test, feature = "migration"))]
 pub(in crate::db) fn accepted_commit_schema_fingerprint(
     schema: &AcceptedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {

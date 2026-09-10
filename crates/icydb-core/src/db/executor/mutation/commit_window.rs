@@ -8,10 +8,10 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitGuard, CommitMarker, CommitPrepareContext, CommitRowOp, PreparedRowCommitOp,
-            begin_commit, begin_mutation_progress_commit, database_incarnation_id, finish_commit,
-            generate_commit_id, generate_marker_batch_id, next_database_commit_sequence,
-            prepare_row_commit_with_context,
+            CommitGuard, CommitMarker, CommitPrepareContextCache, CommitPrepareMode, CommitRowOp,
+            PreparedRowCommitOp, begin_commit, begin_mutation_progress_commit,
+            database_incarnation_id, finish_commit, generate_commit_id, generate_marker_batch_id,
+            next_database_commit_sequence, prepare_row_commit_with_context,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         direction::Direction,
@@ -40,7 +40,6 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     ops::Bound,
     ptr,
-    rc::Rc,
     thread::LocalKey,
 };
 
@@ -509,45 +508,26 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
     }
 
     let mut batch = PreparedRowOpBatch::with_row_capacity(row_ops.len(), fixed_commit_work_units)?;
-    let mut contexts: Vec<(
-        Rc<str>,
-        [u8; 16],
-        crate::types::EntityTag,
-        CommitPrepareContext,
-    )> = Vec::new();
+    let mut contexts = CommitPrepareContextCache::new(CommitPrepareMode::NormalWrite);
 
     for row_op in row_ops {
-        let context_index = contexts.iter().position(|(path, fingerprint, _, _)| {
-            path.as_ref() == row_op.entity_path.as_ref()
-                && *fingerprint == row_op.schema_fingerprint
-        });
-        let context_index = if let Some(index) = context_index {
-            index
-        } else {
-            let runtime_entity =
-                db.accepted_runtime_entity_for_path(row_op.entity_path.as_ref())?;
-            let context = runtime_entity.prepare_commit_context(
-                db,
-                row_op.schema_fingerprint,
-                crate::db::commit::CommitPrepareMode::NormalWrite,
-            )?;
-            contexts.push((
-                runtime_entity.entity_path_handle(),
-                row_op.schema_fingerprint,
-                runtime_entity.entity_tag(),
-                context,
-            ));
-            contexts.len().saturating_sub(1)
-        };
+        let context = contexts.get_or_prepare(
+            row_op.entity_path.as_ref(),
+            row_op.schema_fingerprint,
+            |mode| {
+                db.accepted_runtime_entity_for_path(row_op.entity_path.as_ref())?
+                    .prepare_commit_context(db, row_op.schema_fingerprint, mode)
+            },
+        )?;
         let decoded_key = DecodedDataStoreKey::try_from_raw(&row_op.key)
             .map_err(|_| InternalError::query_executor_invariant())?;
-        if decoded_key.entity_tag() != contexts[context_index].2 {
+        if decoded_key.entity_tag() != context.entity_tag() {
             return Err(InternalError::query_executor_invariant());
         }
         let row = prepare_row_commit_with_context(
             db,
             row_op,
-            &contexts[context_index].3,
+            context,
             overlay,
             overlay,
             relation_budget,

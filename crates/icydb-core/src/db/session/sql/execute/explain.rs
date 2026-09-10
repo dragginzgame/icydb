@@ -552,13 +552,13 @@ impl<C: CanisterKind> DbSession<C> {
 
         let visible_indexes =
             self.visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
-        let prefix_keys =
-            crate::db::session::query::exact_count_cardinality_prefix_keys_for_accepted_authority(
-                authority,
-                command.query(),
-                &visible_indexes,
-                schema_info,
-            )?;
+        let prefix_keys = self.exact_count_cardinality_prefix_keys_for_accepted_authority(
+            authority,
+            command.query(),
+            &visible_indexes,
+            schema_info,
+            DiagnosticExecutionLane::Diagnostic,
+        )?;
         let prefix_count = prefix_keys.as_ref().map_or(0, Vec::len);
         execution.node_properties.insert(
             property_keys::AGGREGATE_DIRECT_COUNT_METADATA_ELIGIBLE,

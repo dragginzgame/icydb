@@ -33,4 +33,5 @@ pub(in crate::db) use group_model::group_aggregate_spec_expr;
 pub(in crate::db) use grouped_strategy::grouped_plan_strategy;
 pub(in crate::db) use grouped_strategy::{GroupedPlanFallbackReason, GroupedPlanStrategy};
 pub(in crate::db) use identity::{AggregateIdentity, AggregateSemanticKey};
+pub(in crate::db::query) use logical::residual_filter_facts_for_access;
 pub(in crate::db) use pushdown::{LogicalPushdownEligibility, derive_logical_pushdown_eligibility};

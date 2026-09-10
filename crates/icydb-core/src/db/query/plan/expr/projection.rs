@@ -37,6 +37,25 @@ pub(in crate::db) enum ProjectionSelection {
     Exprs(Vec<ProjectionField>),
 }
 
+impl ProjectionSelection {
+    /// Retain authored projection operands under the caller's request budget.
+    /// Declaration order, duplicates and aliases are preserved exactly.
+    pub(in crate::db) fn copy_for_preparation(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Ok(match self {
+            Self::All => Self::All,
+            Self::Fields(fields) => Self::Fields(work.copy_slice(fields, |field| {
+                Ok(FieldId::new(work.copy_text(field.as_str())?))
+            })?),
+            Self::Exprs(fields) => {
+                Self::Exprs(work.copy_slice(fields, |field| field.copy_for_preparation(work))?)
+            }
+        })
+    }
+}
+
 ///
 /// ProjectionField
 ///
@@ -146,6 +165,21 @@ impl ProjectionSpec {
 }
 
 impl ProjectionField {
+    /// Retain one complete output expression and alias under the current budget.
+    pub(in crate::db) fn copy_for_preparation(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        let Self::Scalar { expr, alias } = self;
+        Ok(Self::Scalar {
+            expr: work.copy_expr(expr)?,
+            alias: alias
+                .as_ref()
+                .map(|alias| work.copy_text(alias.as_str()).map(Alias::new))
+                .transpose()?,
+        })
+    }
+
     /// Borrow the canonical expression owned by this projection field.
     #[must_use]
     pub(in crate::db) const fn expr(&self) -> &Expr {

@@ -12,10 +12,10 @@ use crate::{
     },
     error::{InternalError, RecoveryFormatMarkerError},
 };
+use ic_memory::RuntimeMemory;
+use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory;
-use ic_stable_structures::memory_manager::VirtualMemory;
-use ic_stable_structures::{DefaultMemoryImpl, Memory};
 use std::cell::RefCell;
 
 pub(in crate::db) const DATABASE_BOOT_RECORD_BYTES: usize = 15;
@@ -131,7 +131,7 @@ struct StoreRoleMemories<M> {
     journal: M,
 }
 
-impl StoreRoleMemories<VirtualMemory<DefaultMemoryImpl>> {
+impl StoreRoleMemories<RuntimeMemory<DefaultMemoryImpl>> {
     fn open(allocations: StoreAllocationIdentities) -> Result<Self, InternalError> {
         Ok(Self {
             data: store_memory_handle(required_allocation(allocations.data())?)?,
@@ -265,7 +265,7 @@ pub(in crate::db) fn validate_current_boot_record<M: Memory>(
 
 #[cfg(test)]
 pub(in crate::db) fn initialize_current_database_control_for_tests(
-    memory: &VirtualMemory<DefaultMemoryImpl>,
+    memory: &RuntimeMemory<DefaultMemoryImpl>,
 ) {
     write_current_boot_record(memory).expect("test database control memory should grow");
     crate::db::commit::initialize_current_commit_control_for_tests(memory.clone())
@@ -274,7 +274,7 @@ pub(in crate::db) fn initialize_current_database_control_for_tests(
 
 fn open_registered_store_roles<C: crate::traits::CanisterKind>(
     db: &crate::db::Db<C>,
-) -> Result<Vec<StoreRoleMemories<VirtualMemory<DefaultMemoryImpl>>>, InternalError> {
+) -> Result<Vec<StoreRoleMemories<RuntimeMemory<DefaultMemoryImpl>>>, InternalError> {
     db.with_store_registry(|registry| {
         registry
             .iter()
@@ -289,7 +289,7 @@ fn open_registered_store_roles<C: crate::traits::CanisterKind>(
 
 fn open_registered_store_roles_from_registry(
     stores: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
-) -> Result<Vec<StoreRoleMemories<VirtualMemory<DefaultMemoryImpl>>>, InternalError> {
+) -> Result<Vec<StoreRoleMemories<RuntimeMemory<DefaultMemoryImpl>>>, InternalError> {
     stores.with(|registry| {
         registry
             .iter()
@@ -400,7 +400,7 @@ fn map_admission_error(error: DatabaseFormatAdmissionError) -> InternalError {
 thread_local! {
     #[cfg(test)]
     static TEST_STORE_ROLE_MEMORIES: RefCell<
-        Vec<(StoreAllocationIdentity, VirtualMemory<DefaultMemoryImpl>)>
+        Vec<(StoreAllocationIdentity, RuntimeMemory<DefaultMemoryImpl>)>
     > = const { RefCell::new(Vec::new()) };
     // Generated stable-memory stores are thread-local. Admission authority
     // must have the same lifetime so one runtime cannot inherit readiness for
@@ -412,7 +412,7 @@ thread_local! {
 #[cfg(test)]
 pub(in crate::db) fn store_memory_handle(
     allocation: StoreAllocationIdentity,
-) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     TEST_STORE_ROLE_MEMORIES.with(|memories| {
         let mut memories = memories.borrow_mut();
         if let Some((_, memory)) = memories
@@ -431,7 +431,7 @@ pub(in crate::db) fn store_memory_handle(
 #[cfg(not(test))]
 pub(in crate::db) fn store_memory_handle(
     allocation: StoreAllocationIdentity,
-) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory(allocation.stable_key(), allocation.memory_id())
         .map_err(InternalError::database_format_memory_registration_failed)
 }
@@ -440,7 +440,7 @@ pub(in crate::db) fn store_memory_handle(
 pub(in crate::db) fn open_registered_store_memory(
     memory_id: u8,
     stable_key: &str,
-) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory(stable_key, memory_id)
         .map_err(InternalError::database_format_memory_registration_failed)
 }

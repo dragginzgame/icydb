@@ -467,7 +467,7 @@ impl<C: CanisterKind> DbSession<C> {
                 return Ok(None);
             };
             let prepared_plan =
-                SharedPreparedExecutionPlan::from_plan(authority, plan, schema_fingerprint)
+                SharedPreparedExecutionPlan::from_plan(authority, plan, schema_fingerprint, work)
                     .map_err(QueryError::execute)?;
 
             Ok(Some(prepared_plan))
@@ -626,6 +626,7 @@ impl<C: CanisterKind> DbSession<C> {
                     authority.clone(),
                     plan,
                     schema.fingerprint(),
+                    work,
                 )
                 .map_err(QueryError::execute)
             },
@@ -678,6 +679,7 @@ impl<C: CanisterKind> DbSession<C> {
                         authority.clone(),
                         bound,
                         schema.fingerprint(),
+                        work,
                     )
                     .map_err(QueryError::execute)
                 },
@@ -722,6 +724,7 @@ impl<C: CanisterKind> DbSession<C> {
                     authority.clone(),
                     plan,
                     schema.fingerprint(),
+                    work,
                 )
                 .map_err(QueryError::execute)?;
                 Ok((prepared_plan, template))
@@ -811,6 +814,7 @@ impl<C: CanisterKind> DbSession<C> {
                     authority.clone(),
                     plan,
                     schema_identity.fingerprint(),
+                    work,
                 )
                 .map_err(QueryError::execute)
             },

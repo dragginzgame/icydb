@@ -17,9 +17,10 @@ use crate::{
     },
     error::InternalError,
 };
-use ic_stable_structures::{
+use ic_memory::RuntimeMemory;
+use ic_memory::ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Memory, RestrictedMemory, Storable,
-    memory_manager::VirtualMemory, storable::Bound,
+    storable::Bound,
 };
 use icydb_schema::{
     ExpectedAcceptedHead, ExpectedSchemaFingerprint, MAX_SCHEMA_SUBMISSION_KEY_BYTES,
@@ -48,7 +49,7 @@ const WASM_PAGE_BYTES: u64 = 65_536;
 const APPLICATION_MEMORY_START_PAGE: u64 = MAX_COMMIT_BYTES as u64 / WASM_PAGE_BYTES + 1;
 const APPLICATION_MEMORY_END_PAGE: u64 = 4_096;
 
-type ApplicationMemory = RestrictedMemory<VirtualMemory<DefaultMemoryImpl>>;
+type ApplicationMemory = RestrictedMemory<RuntimeMemory<DefaultMemoryImpl>>;
 type ApplicationRecordWriter = SchemaWireWriter<
     { MAX_SCHEMA_APPLICATION_RECORD_BYTES as usize - APPLICATION_RECORD_HEADER_BYTES },
 >;
@@ -718,7 +719,7 @@ mod tests {
         testing::test_memory,
         types::EntityTag,
     };
-    use ic_stable_structures::RestrictedMemory;
+    use ic_memory::ic_stable_structures::RestrictedMemory;
     use icydb_schema::{
         ExpectedAcceptedHead, ExpectedSchemaFingerprint, MAX_SCHEMA_SUBMISSION_KEY_BYTES,
         SchemaProposalDigest, SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,

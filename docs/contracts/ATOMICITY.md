@@ -63,12 +63,22 @@ System recovery:
 
 * Executes only through the lifecycle-owned replicated startup driver; ordinary
   guarded operation boundaries perform state-only admission and never drive it
-* Leaves the database in a fully consistent state
+* Leaves the database in a fully consistent state on completion
 * Is not part of the current mutation’s atomicity scope
 * Is not observable by reads as partial state
 * Is idempotent, bounded, and deterministic; while it is incomplete, ordinary
   entrypoints return the dedicated retryable startup-pending diagnostic and do
   not proceed to reads or mutation planning
+
+Nonempty startup uses separate driver calls for marker replay, each complete
+journal-batch fold, and final effect verification. Successful replay resets
+disposable journal overlays once before folding. A volatile continuation is
+bound to the current marker identity; losing it restarts idempotent replay
+without undoing durable fold watermarks. Errors do not advance the stage, and
+marker authority and admission barriers remain until final verification succeeds.
+Debt-free startup may complete directly; ordinary online convergence still folds
+one complete batch per call. These stage boundaries do not themselves establish
+instruction or allocation bounds for every construction operation within a stage.
 
 ### Commit boundary
 

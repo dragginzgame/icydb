@@ -3197,7 +3197,8 @@ mod tests {
         testing::test_memory,
         traits::{CanisterKind, Path},
     };
-    use ic_stable_structures::{DefaultMemoryImpl, memory_manager::VirtualMemory};
+    use ic_memory::RuntimeMemory;
+    use ic_memory::ic_stable_structures::DefaultMemoryImpl;
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, DeclaredEntityVersion, EntityFragment,
         EntitySourceKey, EntityStoreAssignment, ExpectedAcceptedHead, ExpectedSchemaFingerprint,
@@ -3317,10 +3318,10 @@ mod tests {
     }
 
     thread_local! {
-        static ABORT_DATA_MEMORY: VirtualMemory<DefaultMemoryImpl> = test_memory(180);
-        static ABORT_INDEX_MEMORY: VirtualMemory<DefaultMemoryImpl> = test_memory(181);
-        static ABORT_SCHEMA_MEMORY: VirtualMemory<DefaultMemoryImpl> = test_memory(182);
-        static ABORT_JOURNAL_MEMORY: VirtualMemory<DefaultMemoryImpl> = test_memory(183);
+        static ABORT_DATA_MEMORY: RuntimeMemory<DefaultMemoryImpl> = test_memory(180);
+        static ABORT_INDEX_MEMORY: RuntimeMemory<DefaultMemoryImpl> = test_memory(181);
+        static ABORT_SCHEMA_MEMORY: RuntimeMemory<DefaultMemoryImpl> = test_memory(182);
+        static ABORT_JOURNAL_MEMORY: RuntimeMemory<DefaultMemoryImpl> = test_memory(183);
         static ABORT_DATA: RefCell<DataStore> =
             ABORT_DATA_MEMORY.with(|memory| {
                 RefCell::new(DataStore::init_journaled(memory.clone()))

@@ -5,6 +5,7 @@
 
 pub(in crate::db) mod admission;
 pub(in crate::db) mod builder;
+pub(in crate::db) mod construction;
 mod dynamic;
 pub(in crate::db) mod explain;
 pub(in crate::db) mod expr;

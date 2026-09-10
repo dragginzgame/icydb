@@ -164,6 +164,7 @@ pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_plan
         normalized_predicate.as_ref(),
         access_order,
         None,
+        work,
     )?;
     let (access_plan_value, planned_non_index_reason) =
         access_selection.into_access_and_non_index_reason();
@@ -250,12 +251,15 @@ fn assemble_query_model_plan(
         logical_inputs,
         normalized_predicate,
         query.consistency(),
-    );
-    let logical = build_logical_plan(&schema_info, logical_query);
+        work,
+    )?;
+    let logical = build_logical_plan(&schema_info, logical_query, work)?;
     let mut plan = AccessPlannedQuery::from_planned_access_with_projection(
         logical,
         access_plan_value,
-        query.scalar_projection_selection().clone(),
+        query
+            .scalar_projection_selection()
+            .copy_for_preparation(work)?,
         planned_non_index_reason,
     );
     let preferred_access = rerank_access_plan_by_residual_burden_with_semantic_indexes(
@@ -265,9 +269,9 @@ fn assemble_query_model_plan(
     );
     if let Some(preferred_access) = preferred_access {
         plan = AccessPlannedQuery::from_planned_access_with_projection(
-            plan.logical.clone(),
+            plan.logical,
             preferred_access,
-            plan.projection_selection.clone(),
+            plan.projection_selection,
             None,
         );
     }
@@ -289,12 +293,13 @@ fn finalize_query_model_plan(
 
     // Phase 5: validate the assembled plan against schema, access-shape, and
     // planner-policy contracts before projecting explain metadata.
-    validate_plan_semantics(schema_info, &plan)?;
+    let projection = plan.prepare_projection(schema_info, work)?;
+    validate_plan_semantics(schema_info, &plan, &projection, work)?;
 
     // Phase 6: freeze planner-owned execution metadata only after semantic
     // validation succeeds so user-facing projection/order errors remain
     // planner-domain failures instead of executor invariant violations.
-    plan.finalize_static_execution_planning_contract_with_schema(schema_info, work)?;
+    plan.finalize_static_execution_planning_contract_with_schema(schema_info, projection, work)?;
 
     Ok(plan)
 }
@@ -595,25 +600,28 @@ pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info(
         query.mode(),
         None,
         false,
-        query.scalar_order_for_trivial_fast_path().cloned(),
+        query.scalar_order_for_trivial_fast_path(),
         false,
         None,
         None,
     );
     let logical_query =
-        logical_query_from_logical_inputs(logical_inputs, None, query.consistency());
-    let logical = build_logical_plan(&schema_info, logical_query);
+        logical_query_from_logical_inputs(logical_inputs, None, query.consistency(), work)?;
+    let logical = build_logical_plan(&schema_info, logical_query, work)?;
     let mut plan = AccessPlannedQuery::from_planned_access_with_projection(
         logical,
         AccessPlan::<Value>::full_scan(),
-        query.scalar_projection_selection().clone(),
+        query
+            .scalar_projection_selection()
+            .copy_for_preparation(work)?,
         Some(PlannedNonIndexAccessReason::PlannerFullScanFallback),
     );
 
     // Phase 3: preserve the finalized planner/executor contracts produced by
     // the general pipeline for this same simple shape.
     plan.finalize_planner_route_profile_for_model_with_schema(&schema_info);
-    plan.finalize_static_execution_planning_contract_with_schema(&schema_info, work)?;
+    let projection = plan.prepare_projection(&schema_info, work)?;
+    plan.finalize_static_execution_planning_contract_with_schema(&schema_info, projection, work)?;
 
     Ok(Some(plan))
 }
@@ -655,6 +663,7 @@ fn plan_access_from_normalized_predicate(
     normalized_predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
     key_access_override: Option<AccessPlan<Value>>,
+    work: &PreparationWork<'_>,
 ) -> Result<PlannedAccessSelection, QueryError> {
     let limit_zero_window = is_limit_zero_load_window(query.mode());
     let constant_false_predicate = predicate_is_constant_false(normalized_predicate);
@@ -678,8 +687,8 @@ fn plan_access_from_normalized_predicate(
         order,
         query.is_grouped(),
         key_access_override,
+        work,
     )
-    .map_err(QueryError::from)
 }
 
 // Keep grouped and scalar semantic validation behind one pipeline-local gate so
@@ -687,11 +696,13 @@ fn plan_access_from_normalized_predicate(
 fn validate_plan_semantics(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
+    projection: &crate::db::query::plan::expr::ProjectionSpec,
+    work: &PreparationWork<'_>,
 ) -> Result<(), QueryError> {
     if plan.grouped_plan().is_some() {
-        validate_group_query_semantics_with_schema(schema_info, plan)?;
+        validate_group_query_semantics_with_schema(schema_info, plan, projection, work)?;
     } else {
-        validate_query_semantics_with_schema(schema_info, plan)?;
+        validate_query_semantics_with_schema(schema_info, plan, projection, work)?;
     }
 
     Ok(())

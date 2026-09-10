@@ -45,7 +45,7 @@ use crate::{
     types::EntityTag,
 };
 
-use ic_stable_structures::{Storable, storable::Bound};
+use ic_memory::ic_stable_structures::{Storable, storable::Bound};
 use std::borrow::Cow;
 use std::convert::Infallible;
 

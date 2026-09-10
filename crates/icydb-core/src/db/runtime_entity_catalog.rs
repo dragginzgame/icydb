@@ -7,7 +7,7 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitPrepareContext, CommitRowOp, CommitSchemaFingerprint, PreparedRowCommitOp,
+            CommitPrepareContextCache, CommitPrepareMode, CommitRowOp, PreparedRowCommitOp,
             prepare_commit_context_for_runtime_entity, prepare_row_commit_with_context,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
@@ -353,56 +353,20 @@ fn merge_unique_entity_match(
     Ok(())
 }
 
-/// Resolve an entity from an unpublished candidate during marker-bound recovery.
-pub(in crate::db) fn candidate_runtime_entity_for_path(
-    candidate: &crate::db::schema::CandidateSchemaRevision,
-    registered_store_path: &'static str,
-    entity_path: &str,
-) -> Result<AcceptedRuntimeEntity, InternalError> {
-    if candidate.store_path() != registered_store_path {
-        return Err(InternalError::store_corruption());
-    }
-    let mut matched = None;
-    for (entity_tag, snapshot) in candidate.bundle().entity_snapshots() {
-        if snapshot.entity_path() != entity_path {
-            continue;
-        }
-        let entity = AcceptedRuntimeEntity::from_accepted_snapshot(
-            candidate.bundle(),
-            *entity_tag,
-            snapshot,
-            registered_store_path,
-        )?;
-        if matched.replace(entity).is_some() {
-            return Err(InternalError::store_corruption());
-        }
-    }
-
-    matched.ok_or_else(InternalError::store_corruption)
-}
-
-pub(in crate::db) fn prepare_row_commit<C: CanisterKind>(
+/// Prepare one final marker-effect verification under current accepted authority.
+pub(in crate::db) fn prepare_row_commit_for_rebuild<C: CanisterKind>(
     db: &Db<C>,
     op: &CommitRowOp,
-    mode: crate::db::commit::CommitPrepareMode,
+    contexts: &mut CommitPrepareContextCache,
 ) -> Result<PreparedRowCommitOp, InternalError> {
-    let entity = if matches!(mode, crate::db::commit::CommitPrepareMode::RecoveryReplay) {
-        match find_canonical_runtime_entity_for_path(db, op.entity_path.as_ref())? {
-            Some(entity) => entity,
-            None => accepted_runtime_entity_for_path(db, op.entity_path.as_ref())?,
-        }
-    } else {
-        accepted_runtime_entity_for_path(db, op.entity_path.as_ref())?
-    };
+    let entity = accepted_runtime_entity_for_path(db, op.entity_path.as_ref())?;
     let store = entity.store(db)?;
-    let context = entity.prepare_commit_context(db, op.schema_fingerprint, mode)?;
+    let context =
+        contexts.get_or_prepare(op.entity_path.as_ref(), op.schema_fingerprint, |mode| {
+            entity.prepare_commit_context(db, op.schema_fingerprint, mode)
+        })?;
     let mut relation_budget = RelationCommitBudget::default();
-    if matches!(mode, crate::db::commit::CommitPrepareMode::RecoveryReplay) {
-        let reader = CanonicalCommitReader::from_row_ops(db, std::slice::from_ref(op))?;
-        prepare_row_commit_with_context(db, op, &context, &reader, &reader, &mut relation_budget)
-    } else {
-        prepare_row_commit_with_context(db, op, &context, db, &store, &mut relation_budget)
-    }
+    prepare_row_commit_with_context(db, op, context, db, &store, &mut relation_budget)
 }
 
 /// Prepare one recovery batch while resolving immutable accepted authority once per entity.
@@ -411,51 +375,28 @@ pub(in crate::db) fn prepare_row_commit_batch_for_replay<C: CanisterKind>(
     ops: &[CommitRowOp],
 ) -> Result<Vec<PreparedRowCommitOp>, InternalError> {
     let reader = CanonicalCommitReader::from_row_ops(db, ops)?;
-    let mut contexts: Vec<(
-        Rc<str>,
-        CommitSchemaFingerprint,
-        EntityTag,
-        CommitPrepareContext,
-    )> = Vec::new();
+    let mut contexts = CommitPrepareContextCache::new(CommitPrepareMode::RecoveryReplay);
     let mut prepared = Vec::with_capacity(ops.len());
     let mut relation_budget = RelationCommitBudget::default();
     for op in ops {
-        let context_index = contexts
-            .iter()
-            .position(|(entity_path, fingerprint, _, _)| {
-                entity_path.as_ref() == op.entity_path.as_ref()
-                    && *fingerprint == op.schema_fingerprint
-            });
-        let context_index = if let Some(index) = context_index {
-            index
-        } else {
-            let entity = match find_canonical_runtime_entity_for_path(db, op.entity_path.as_ref())?
-            {
-                Some(entity) => entity,
-                None => accepted_runtime_entity_for_path(db, op.entity_path.as_ref())?,
-            };
-            let context = entity.prepare_commit_context(
-                db,
-                op.schema_fingerprint,
-                crate::db::commit::CommitPrepareMode::RecoveryReplay,
-            )?;
-            contexts.push((
-                entity.entity_path_handle(),
-                op.schema_fingerprint,
-                entity.entity_tag(),
-                context,
-            ));
-            contexts.len().saturating_sub(1)
-        };
+        let context =
+            contexts.get_or_prepare(op.entity_path.as_ref(), op.schema_fingerprint, |mode| {
+                let entity =
+                    match find_canonical_runtime_entity_for_path(db, op.entity_path.as_ref())? {
+                        Some(entity) => entity,
+                        None => accepted_runtime_entity_for_path(db, op.entity_path.as_ref())?,
+                    };
+                entity.prepare_commit_context(db, op.schema_fingerprint, mode)
+            })?;
         let decoded_key = DecodedDataStoreKey::try_from_raw(&op.key)
             .map_err(|_| InternalError::store_corruption())?;
-        if decoded_key.entity_tag() != contexts[context_index].2 {
+        if decoded_key.entity_tag() != context.entity_tag() {
             return Err(InternalError::store_corruption());
         }
         prepared.push(prepare_row_commit_with_context(
             db,
             op,
-            &contexts[context_index].3,
+            context,
             &reader,
             &reader,
             &mut relation_budget,

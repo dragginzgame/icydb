@@ -54,7 +54,8 @@ fn schema(names: &[&str], key_ids: &[u32]) -> SchemaInfo {
 
 fn finalize(plan: &mut AccessPlannedQuery, schema: &SchemaInfo) {
     with_preparation_work(|work| {
-        plan.finalize_static_execution_planning_contract_with_schema(schema, work)
+        let projection = plan.prepare_projection(schema, work)?;
+        plan.finalize_static_execution_planning_contract_with_schema(schema, projection, work)
     })
     .unwrap();
 }

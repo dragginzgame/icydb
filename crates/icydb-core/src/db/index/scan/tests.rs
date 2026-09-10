@@ -5,7 +5,7 @@ use crate::{
     },
     testing::test_memory,
 };
-use ic_stable_structures::Storable;
+use ic_memory::ic_stable_structures::Storable;
 use std::{borrow::Cow, cell::Cell, ops::Bound};
 
 fn raw_key(value: u8) -> RawIndexStoreKey {

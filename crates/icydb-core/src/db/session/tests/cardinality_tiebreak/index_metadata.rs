@@ -78,8 +78,11 @@ fn static_index_metadata_preserves_layout_at_exact_construction_limits() {
                 let mut candidate = plan.clone();
                 let old_slots = candidate.slot_map().unwrap().as_ptr();
                 let result = PreparationWork::run(&root.scope(), lane, |work| {
+                    let projection =
+                        candidate.prepare_projection(catalog.accepted_schema_info(), work)?;
                     candidate.finalize_static_execution_planning_contract_with_schema(
                         catalog.accepted_schema_info(),
+                        projection,
                         work,
                     )
                 });

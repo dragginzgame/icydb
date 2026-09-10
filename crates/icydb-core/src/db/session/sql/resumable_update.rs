@@ -1517,12 +1517,20 @@ fn prepare_mutation_job_traversal_runtime(
     .map_err(|_| {
         MutationJobExecutionPreparationError::Restart(MutationJobRestartReason::IntentIneligible)
     })?;
-    let compiled_scope =
-        compile_scalar_projection_expr_with_schema(catalog.accepted_schema_info(), scope).ok_or(
-            MutationJobExecutionPreparationError::Restart(
-                MutationJobRestartReason::IntentIneligible,
-            ),
-        )?;
+    let compiled_scope = compile_scalar_projection_expr_with_schema(
+        catalog.accepted_schema_info(),
+        scope,
+        &crate::db::executor::budget::ExecutionConstructionBudget,
+    )
+    .map_err(
+        |error| match mutation_job_execution_budget_restart_reason(&error) {
+            Some(reason) => MutationJobExecutionPreparationError::Restart(reason),
+            None => MutationJobExecutionPreparationError::Failure(MutationJobError::Internal),
+        },
+    )?
+    .ok_or(MutationJobExecutionPreparationError::Restart(
+        MutationJobRestartReason::IntentIneligible,
+    ))?;
 
     Ok(PreparedMutationJobTraversalRuntime {
         compiled_scope,

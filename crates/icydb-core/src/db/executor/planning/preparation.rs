@@ -3,6 +3,9 @@
 //! Does not own: access planning or runtime route policy.
 //! Boundary: one-time preparation object consumed by execution paths.
 
+#[cfg(test)]
+mod tests;
+
 use crate::db::{
     index::{
         IndexCompilePolicy, IndexPredicateProgram, compile_index_program,
@@ -17,6 +20,7 @@ use crate::db::{
         AccessPlannedQuery, EffectiveRuntimeFilterProgram, covering_strict_predicate_compatible,
     },
 };
+use std::borrow::Cow;
 
 ///
 /// ExecutionPreparation
@@ -30,15 +34,33 @@ pub(in crate::db::executor) struct ExecutionPreparation {
     compiled_predicate: Option<PredicateProgram>,
     effective_runtime_filter_program: Option<EffectiveRuntimeFilterProgram>,
     compile_targets: Option<Vec<IndexCompileTarget>>,
-    conservative_mode: Option<IndexPredicateProgram>,
+    index_program: Option<PreparedIndexProgram>,
     predicate_capability_profile: Option<PredicateCapabilityProfile>,
     slot_map: Option<Vec<usize>>,
-    strict_mode: Option<IndexPredicateProgram>,
 }
 
-impl std::fmt::Debug for ExecutionPreparation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("ExecutionPreparation(..)")
+/// One completed compiler result, including a successful unsupported result.
+/// Absence of this record means no policy was requested, not failed compilation.
+#[derive(Clone)]
+struct PreparedIndexProgram {
+    policy: IndexCompilePolicy,
+    program: Option<IndexPredicateProgram>,
+}
+
+impl PreparedIndexProgram {
+    // Only the same policy may reuse absence. A different policy still needs
+    // its own compilation; supported results are borrowed without cloning.
+    fn resolve(
+        prepared: Option<&Self>,
+        policy: IndexCompilePolicy,
+        compile: impl FnOnce() -> Option<IndexPredicateProgram>,
+    ) -> Option<Cow<'_, IndexPredicateProgram>> {
+        match prepared {
+            Some(prepared) if prepared.policy == policy => {
+                prepared.program.as_ref().map(Cow::Borrowed)
+            }
+            Some(_) | None => compile().map(Cow::Owned),
+        }
     }
 }
 
@@ -54,8 +76,7 @@ enum PreparationPredicateSource {
 struct PreparationBuildConfig {
     predicate_source: PreparationPredicateSource,
     include_predicate_capability_profile: bool,
-    strict_policy: Option<IndexCompilePolicy>,
-    conservative_policy: Option<IndexCompilePolicy>,
+    index_policy: Option<IndexCompilePolicy>,
 }
 
 impl ExecutionPreparation {
@@ -71,8 +92,7 @@ impl ExecutionPreparation {
             PreparationBuildConfig {
                 predicate_source: PreparationPredicateSource::ExecutionPreparation,
                 include_predicate_capability_profile: true,
-                strict_policy: Some(IndexCompilePolicy::StrictAllOrNone),
-                conservative_policy: None,
+                index_policy: Some(IndexCompilePolicy::StrictAllOrNone),
             },
         )
     }
@@ -95,8 +115,7 @@ impl ExecutionPreparation {
             PreparationBuildConfig {
                 predicate_source: PreparationPredicateSource::ExecutionPreparation,
                 include_predicate_capability_profile: true,
-                strict_policy: None,
-                conservative_policy: None,
+                index_policy: None,
             },
         )
     }
@@ -120,8 +139,7 @@ impl ExecutionPreparation {
             PreparationBuildConfig {
                 predicate_source: PreparationPredicateSource::EffectiveRuntime,
                 include_predicate_capability_profile: false,
-                strict_policy: None,
-                conservative_policy: Some(IndexCompilePolicy::ConservativeSubset),
+                index_policy: Some(IndexCompilePolicy::ConservativeSubset),
             },
         )
     }
@@ -139,20 +157,32 @@ impl ExecutionPreparation {
     }
 
     #[must_use]
-    pub(in crate::db::executor) const fn conservative_mode(
+    pub(in crate::db::executor) fn prepared_index_program(
         &self,
+        policy: IndexCompilePolicy,
     ) -> Option<&IndexPredicateProgram> {
-        self.conservative_mode.as_ref()
+        self.index_program
+            .as_ref()
+            .filter(|prepared| prepared.policy == policy)
+            .and_then(|prepared| prepared.program.as_ref())
     }
 
+    /// Reuse a completed result, or compile an unprepared policy at the same
+    /// owner used by eager preparation. `None` never triggers a second compile
+    /// when that policy already completed successfully without a program.
     #[must_use]
-    pub(in crate::db::executor) fn slot_map(&self) -> Option<&[usize]> {
-        self.slot_map.as_deref()
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) fn compile_targets(&self) -> Option<&[IndexCompileTarget]> {
-        self.compile_targets.as_deref()
+    pub(in crate::db::executor) fn resolve_index_program(
+        &self,
+        policy: IndexCompilePolicy,
+    ) -> Option<Cow<'_, IndexPredicateProgram>> {
+        PreparedIndexProgram::resolve(self.index_program.as_ref(), policy, || {
+            compile_index_program_for_preparation(
+                self.compiled_predicate.as_ref(),
+                self.compile_targets.as_deref(),
+                self.slot_map.as_deref(),
+                policy,
+            )
+        })
     }
 
     #[must_use]
@@ -163,11 +193,6 @@ impl ExecutionPreparation {
         // Predicate interpretation and capability meaning stay owned by
         // `db::predicate::capability`.
         self.predicate_capability_profile
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) const fn strict_mode(&self) -> Option<&IndexPredicateProgram> {
-        self.strict_mode.as_ref()
     }
 
     // Build the canonical preparation bundle once from one planner predicate
@@ -205,33 +230,33 @@ impl ExecutionPreparation {
             None
         };
 
-        // Phase 3: compile whichever index-predicate programs this boundary needs.
-        let strict_mode = config.strict_policy.and_then(|policy| {
-            compile_index_program_for_preparation(
+        // Phase 3: retain completion for the one policy this boundary needs,
+        // including an unsupported result. Lightweight route preparation asks
+        // for no program and leaves on-demand compilation available.
+        let index_program = config.index_policy.map(|policy| PreparedIndexProgram {
+            policy,
+            program: compile_index_program_for_preparation(
                 compiled_predicate.as_ref(),
                 compile_targets.as_deref(),
                 slot_map.as_deref(),
                 policy,
-            )
-        });
-        let conservative_mode = config.conservative_policy.and_then(|policy| {
-            compile_index_program_for_preparation(
-                compiled_predicate.as_ref(),
-                compile_targets.as_deref(),
-                slot_map.as_deref(),
-                policy,
-            )
+            ),
         });
 
         Self {
             compiled_predicate,
             effective_runtime_filter_program,
             compile_targets,
-            conservative_mode,
+            index_program,
             predicate_capability_profile,
             slot_map,
-            strict_mode,
         }
+    }
+}
+
+impl std::fmt::Debug for ExecutionPreparation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ExecutionPreparation(..)")
     }
 }
 
@@ -315,5 +340,8 @@ fn index_compile_targets_for_model_plan(
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.
 crate::retained::retained_fields!(ExecutionPreparation {
-Self{compiled_predicate,effective_runtime_filter_program,compile_targets,conservative_mode,predicate_capability_profile,slot_map,strict_mode} => [compiled_predicate,effective_runtime_filter_program,compile_targets,conservative_mode,predicate_capability_profile,slot_map,strict_mode],
+Self{compiled_predicate,effective_runtime_filter_program,compile_targets,index_program,predicate_capability_profile,slot_map} => [compiled_predicate,effective_runtime_filter_program,compile_targets,index_program,predicate_capability_profile,slot_map],
+});
+crate::retained::retained_fields!(PreparedIndexProgram {
+Self{policy: _,program} => [program],
 });

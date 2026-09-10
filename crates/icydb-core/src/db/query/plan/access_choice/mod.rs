@@ -7,6 +7,9 @@
 mod evaluator;
 mod model;
 
+#[cfg(test)]
+mod tests;
+
 pub(in crate::db) use self::model::{
     AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceRejectedIndex,
     AccessChoiceResidualBurden, AccessChoiceSelectedReason, PrimaryKeyInputResourceSummary,
@@ -29,6 +32,7 @@ use crate::{
                 model::{AccessChoiceCandidateKind, AccessChoiceFamily},
             },
             plan_access_selection_with_order_and_semantic_indexes,
+            residual_filter_facts_for_access,
         },
         schema::SchemaInfo,
     },
@@ -114,8 +118,7 @@ pub(in crate::db) fn exact_cardinality_tiebreak_candidates(
         if candidate_family != family || candidate_prefix_arity != consumed_prefix_arity {
             continue;
         }
-        let candidate_plan = candidate_plan_with_access(plan, candidate_access.clone());
-        if residual_burden_for_plan(&candidate_plan) != chosen_burden {
+        if residual_burden_for_candidate(plan, &candidate_access) != chosen_burden {
             continue;
         }
         candidates.push(CardinalityTiebreakCandidate::new(
@@ -225,8 +228,7 @@ fn project_access_choice_explain_snapshot_from_authority(
                 if let Some(candidate_access) =
                     eligible_candidate_access_for_index(schema_info, plan, index)
                 {
-                    let candidate_plan = candidate_plan_with_access(plan, candidate_access.clone());
-                    let residual_burden = residual_burden_for_plan(&candidate_plan);
+                    let residual_burden = residual_burden_for_candidate(plan, &candidate_access);
                     candidates.push(project_candidate_explain_summary(
                         candidate_kind,
                         index_name.clone(),
@@ -483,19 +485,6 @@ fn eligible_candidate_access_for_index(
     .map(super::planner::PlannedAccessSelection::into_access)
 }
 
-// Rebuild one coupled logical+access plan shell so residual burden can be
-// measured against the same logical filter contract across candidates.
-fn candidate_plan_with_access(
-    plan: &AccessPlannedQuery,
-    access: AccessPlan<Value>,
-) -> AccessPlannedQuery {
-    AccessPlannedQuery::from_logical_access_and_projection(
-        plan.logical.clone(),
-        access,
-        plan.projection_selection.clone(),
-    )
-}
-
 // Project one verbose explain summary for an eligible candidate route using
 // the same candidate score and residual profile used by planner ranking.
 fn project_candidate_explain_summary(
@@ -519,7 +508,7 @@ fn project_candidate_explain_summary(
 
 // Enumerate same-family, same-score competing index routes by rebuilding each
 // candidate through the existing single-index planner entry and deriving its
-// residual burden from the coupled logical+access plan.
+// residual burden from borrowed scalar semantics and the candidate access.
 fn same_score_competing_candidate_plans(
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
@@ -568,10 +557,10 @@ fn same_score_competing_candidate_plans(
             continue;
         }
 
-        let candidate_plan = candidate_plan_with_access(plan, candidate_access.clone());
+        let residual_burden = residual_burden_for_candidate(plan, &candidate_access);
         candidates.push(ResidualComparableCandidate {
             access: candidate_access,
-            residual_burden: residual_burden_for_plan(&candidate_plan),
+            residual_burden,
         });
     }
 
@@ -581,12 +570,29 @@ fn same_score_competing_candidate_plans(
 // Project one bounded residual burden category from the coupled logical+access
 // plan without inventing numeric costs or selectivity math.
 fn residual_burden_for_plan(plan: &AccessPlannedQuery) -> ResidualBurdenProfile {
-    let predicate_term_count = plan
-        .effective_execution_predicate()
-        .as_ref()
-        .map_or(0, count_predicate_terms);
-    let kind_rank =
-        ResidualBurdenProfile::kind_rank_for_residual_shape(plan.residual_filter_shape());
+    residual_burden_from_filter_facts(
+        plan.residual_filter_shape(),
+        plan.effective_execution_predicate().as_ref(),
+    )
+}
+
+// Candidate routes have no finalized contract. Share the semantic derivation
+// without copying the logical query, projection or candidate access plan.
+fn residual_burden_for_candidate(
+    plan: &AccessPlannedQuery,
+    access: &AccessPlan<Value>,
+) -> ResidualBurdenProfile {
+    let (shape, predicate) = residual_filter_facts_for_access(plan.scalar_plan(), access);
+
+    residual_burden_from_filter_facts(shape, predicate.as_ref())
+}
+
+fn residual_burden_from_filter_facts(
+    shape: ResidualFilterShape,
+    predicate: Option<&Predicate>,
+) -> ResidualBurdenProfile {
+    let predicate_term_count = predicate.map_or(0, count_predicate_terms);
+    let kind_rank = ResidualBurdenProfile::kind_rank_for_residual_shape(shape);
 
     ResidualBurdenProfile {
         kind_rank,

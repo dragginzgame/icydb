@@ -58,11 +58,6 @@ impl EncodedValue {
         Self::try_new(raw)
     }
 
-    /// Encode all values in order into cached wrappers.
-    pub(crate) fn try_encode_all(values: &[Value]) -> Result<Vec<Self>, OrderedValueEncodeError> {
-        values.iter().map(Self::try_from_ref).collect()
-    }
-
     #[must_use]
     pub(crate) const fn encoded(&self) -> &[u8] {
         self.encoded.as_slice()

@@ -1392,86 +1392,106 @@ fn scan_unique_validation_page(
     dependency_fields: &[crate::db::schema::FieldId],
     mode: UniqueValidationMode,
 ) -> Result<UniqueValidationPageScan, InternalError> {
-    let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
-    let lower = checkpoint.cloned().map_or_else(
-        || Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
-        Bound::Excluded,
-    );
-    let upper = range
-        .upper_exclusive()
-        .map(RawDataStoreKey::from_store_range_bound)
-        .map_or(Bound::Unbounded, Bound::Excluded);
-    let mut final_checkpoint = checkpoint.cloned();
-    let mut rows_scanned = 0usize;
-    let mut decoded_bytes = 0usize;
-    let mut staged_bytes = 0usize;
-    let mut findings = Vec::new();
-    let mut staged_entries = Vec::new();
-    let mut page_keys = Vec::new();
-    let mut has_more = false;
+    use crate::db::query::construction::ConstructionBudget;
+    use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
-    store.with_data(|data| {
-        data.visit_range((lower, upper), |raw_key, raw_row| {
-            let row_bytes = raw_row.len();
-            if rows_scanned == MAX_VALIDATION_ROWS_PER_PAGE
-                || findings.len() == MAX_VALIDATION_FINDINGS_PER_PAGE
-                || (rows_scanned != 0
-                    && decoded_bytes.saturating_add(row_bytes)
-                        > MAX_VALIDATION_DECODED_BYTES_PER_PAGE)
-            {
-                has_more = true;
-                return Ok(StoreVisit::Stop);
-            }
-            let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
-                .map_err(|_| InternalError::identity_corruption())?;
-            if decoded_key.entity_tag() != entity_tag {
-                return Err(InternalError::identity_corruption());
-            }
-            let row = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-                raw_row, contract,
-            )?;
-            row.validate_primary_key(&decoded_key)?;
-            let candidate_key = projection.derive_key(&decoded_key.primary_key_value(), &row)?;
-            if let Some(candidate_key) = candidate_key {
-                let next_staged_bytes = staged_bytes.saturating_add(candidate_key.as_bytes().len());
-                if rows_scanned != 0 && next_staged_bytes > MAX_VALIDATION_STAGED_BYTES_PER_PAGE {
-                    has_more = true;
-                    return Ok(StoreVisit::Stop);
-                }
-                let conflict =
-                    candidate_unique_key_conflicts(store, &candidate_key, page_keys.as_slice())?;
-                let missing = mode == UniqueValidationMode::Verify
-                    && store.with_index(|index_store| index_store.get(&candidate_key).is_none());
-                if conflict || missing {
-                    let error = InternalError::index_conflict();
-                    findings.push(ConstraintValidationFinding::new(
-                        raw_key.clone(),
-                        dependency_fields.to_vec(),
-                        error.diagnostic().error_code().raw(),
-                    ));
-                } else {
-                    staged_bytes = next_staged_bytes;
-                    page_keys.push(candidate_key.clone());
-                    if mode == UniqueValidationMode::Forward {
-                        staged_entries.push(candidate_key);
+    crate::db::executor::budget::MaintenanceConstructionBudget::new().run(
+        |work| {
+            let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
+            let lower = checkpoint.cloned().map_or_else(
+                || Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
+                Bound::Excluded,
+            );
+            let upper = range
+                .upper_exclusive()
+                .map(RawDataStoreKey::from_store_range_bound)
+                .map_or(Bound::Unbounded, Bound::Excluded);
+            let mut final_checkpoint = checkpoint.cloned();
+            let mut rows_scanned = 0usize;
+            let mut decoded_bytes = 0usize;
+            let mut staged_bytes = 0usize;
+            let mut findings = Vec::new();
+            let mut staged_entries = Vec::new();
+            let mut page_keys = Vec::new();
+            let mut has_more = false;
+
+            store.with_data(|data| {
+                data.visit_range((lower, upper), |raw_key, raw_row| {
+                    let row_bytes = raw_row.len();
+                    if rows_scanned == MAX_VALIDATION_ROWS_PER_PAGE
+                        || findings.len() == MAX_VALIDATION_FINDINGS_PER_PAGE
+                        || (rows_scanned != 0
+                            && decoded_bytes.saturating_add(row_bytes)
+                                > MAX_VALIDATION_DECODED_BYTES_PER_PAGE)
+                    {
+                        has_more = true;
+                        return Ok(StoreVisit::Stop);
                     }
-                }
-            }
-            decoded_bytes = decoded_bytes.saturating_add(row_bytes);
-            rows_scanned = rows_scanned.saturating_add(1);
-            final_checkpoint = Some(raw_key.clone());
-            Ok(StoreVisit::Continue)
-        })
-    })?;
-    icydb_schema::compact_sort_unstable_by(&mut staged_entries, Ord::cmp);
+                    work.charge(Resource::RowsVisited, 1)?;
+                    work.charge(Resource::StoredBytesRead, raw_row.len() as u64)?;
+                    let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
+                        .map_err(|_| InternalError::identity_corruption())?;
+                    if decoded_key.entity_tag() != entity_tag {
+                        return Err(InternalError::identity_corruption());
+                    }
+                    let row = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                        raw_row, contract,
+                    )?;
+                    row.validate_primary_key(&decoded_key)?;
+                    work.charge(Resource::PredicateExpressionSteps, 1)?;
+                    let candidate_key =
+                        projection.derive_key(&decoded_key.primary_key_value(), &row)?;
+                    if let Some(candidate_key) = candidate_key {
+                        let next_staged_bytes =
+                            staged_bytes.saturating_add(candidate_key.as_bytes().len());
+                        if rows_scanned != 0
+                            && next_staged_bytes > MAX_VALIDATION_STAGED_BYTES_PER_PAGE
+                        {
+                            has_more = true;
+                            return Ok(StoreVisit::Stop);
+                        }
+                        let conflict = candidate_unique_key_conflicts(
+                            store,
+                            &candidate_key,
+                            page_keys.as_slice(),
+                        )?;
+                        let missing = mode == UniqueValidationMode::Verify
+                            && store.with_index(|index_store| {
+                                index_store.get(&candidate_key).is_none()
+                            });
+                        if conflict || missing {
+                            let error = InternalError::index_conflict();
+                            findings.push(ConstraintValidationFinding::new(
+                                raw_key.clone(),
+                                dependency_fields.to_vec(),
+                                error.diagnostic().error_code().raw(),
+                            ));
+                        } else {
+                            staged_bytes = next_staged_bytes;
+                            page_keys.push(candidate_key.clone());
+                            if mode == UniqueValidationMode::Forward {
+                                staged_entries.push(candidate_key);
+                            }
+                        }
+                    }
+                    decoded_bytes = decoded_bytes.saturating_add(row_bytes);
+                    rows_scanned = rows_scanned.saturating_add(1);
+                    final_checkpoint = Some(raw_key.clone());
+                    Ok(StoreVisit::Continue)
+                })
+            })?;
+            icydb_schema::compact_sort_unstable_by(&mut staged_entries, Ord::cmp);
 
-    Ok(UniqueValidationPageScan {
-        checkpoint: final_checkpoint,
-        rows_scanned,
-        findings,
-        staged_entries,
-        exhausted: !has_more,
-    })
+            Ok(UniqueValidationPageScan {
+                checkpoint: final_checkpoint,
+                rows_scanned,
+                findings,
+                staged_entries,
+                exhausted: !has_more,
+            })
+        },
+        std::convert::identity,
+    )
 }
 
 fn unique_index_key_fields(

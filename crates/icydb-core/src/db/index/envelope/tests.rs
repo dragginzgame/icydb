@@ -15,7 +15,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin},
     value::Value,
 };
-use ic_stable_structures::Storable;
+use ic_memory::ic_stable_structures::Storable;
 use proptest::prelude::*;
 use std::{borrow::Cow, cmp::Ordering, ops::Bound};
 
@@ -191,7 +191,10 @@ fn property_index_id() -> IndexId {
 
 // Build one canonical raw index key from semantic composite components.
 fn canonical_raw_key(values: &[Value]) -> RawIndexStoreKey {
-    let encoded = EncodedValue::try_encode_all(values)
+    let encoded = values
+        .iter()
+        .map(EncodedValue::try_from_ref)
+        .collect::<Result<Vec<_>, _>>()
         .expect("property-domain values must remain canonically index-encodable");
     let (lower, _) = build_index_prefix_bounds_for_encoded_components(
         &property_index_id(),
@@ -355,7 +358,7 @@ proptest! {
 
 #[test]
 fn canonical_ordering_property_domain_rejects_null_components() {
-    let err = EncodedValue::try_encode_all(&[Value::Null, Value::Text("a".to_string())])
+    let err = EncodedValue::try_from_ref(&Value::Null)
         .expect_err("null values must remain non-indexable for canonical key domains");
     std::assert_matches!(err, OrderedValueEncodeError::NullNotIndexable);
 }

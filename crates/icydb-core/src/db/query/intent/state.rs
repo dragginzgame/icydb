@@ -532,9 +532,11 @@ impl QueryIntent {
 
     /// Project logical-planning inputs from intent-owned query state.
     #[must_use]
-    pub(in crate::db::query::intent) fn planning_logical_inputs(&self) -> LogicalPlanningInputs {
+    pub(in crate::db::query::intent) fn planning_logical_inputs(
+        &self,
+    ) -> LogicalPlanningInputs<'_> {
         let (group, having_expr) = match self.grouped() {
-            Some(grouped) => (Some(grouped.group.clone()), grouped.having_expr.clone()),
+            Some(grouped) => (Some(&grouped.group), grouped.having_expr.as_ref()),
             None => (None, None),
         };
 
@@ -543,13 +545,12 @@ impl QueryIntent {
             self.scalar()
                 .filter
                 .as_ref()
-                .and_then(NormalizedFilter::logical_filter_expr)
-                .cloned(),
+                .and_then(NormalizedFilter::logical_filter_expr),
             self.scalar()
                 .filter
                 .as_ref()
                 .is_some_and(NormalizedFilter::predicate_subset_covers_expr),
-            self.scalar().order.clone(),
+            self.scalar().order.as_ref(),
             self.scalar().distinct,
             group,
             having_expr,

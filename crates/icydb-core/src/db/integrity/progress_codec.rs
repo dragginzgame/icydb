@@ -1364,7 +1364,9 @@ pub(super) fn current_job_codec_fixture() -> IntegrityJob {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::{ConstraintValuePath, ConstraintValuePathComponent};
+    use crate::error::{
+        ConstraintValuePath, ConstraintValuePathComponent, InternalError as RuntimeError,
+    };
     use sha2::{Digest, Sha256};
 
     #[test]
@@ -1406,6 +1408,50 @@ mod tests {
     fn current_job_payload_rejects_oversized_input_before_decoding() {
         let oversized = vec![0; MAX_INTEGRITY_JOB_PAYLOAD_BYTES + 1];
         assert!(decode_integrity_job_payload(&oversized).is_err());
+    }
+
+    #[test]
+    fn current_job_payload_preserves_resource_terminal_and_acknowledgement() {
+        let mut job = current_job_codec_fixture();
+        let error = RuntimeError::relation_budget_exceeded(
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::NestedValueSteps,
+            10,
+            11,
+        );
+        let outcome = IntegrityTerminalOutcome::from_internal(&error);
+        assert!(matches!(
+            outcome,
+            IntegrityTerminalOutcome::ResourceLimited(_)
+        ));
+        // Exhaustion publishes no candidate findings or checkpoint advancement.
+        // The maintained page count tracks receipt advancement, including this
+        // terminal receipt; it does not prove that the failed atom completed.
+        job.pages_completed = 1;
+        job.last_receipt = IntegrityReceiptEnvelope {
+            replay_key: IntegrityReceiptReplayKey::Continue {
+                acknowledged_sequence: 0,
+            },
+            receipt: IntegrityJobReceipt::Page(DeepIntegrityPage {
+                job_id: job.id,
+                page_sequence: 1,
+                phase: job.checkpoint.phase(),
+                status: DeepIntegrityPageStatus::Terminal(outcome.clone()),
+                pages_completed: 1,
+                findings_seen: 0,
+                findings: Vec::new(),
+                blocked_verifier_families: Vec::new(),
+            }),
+        };
+        for receipt_acknowledged in [false, true] {
+            job.state = IntegrityJobState::Terminal {
+                outcome: outcome.clone(),
+                receipt_acknowledged,
+            };
+            job.validate().expect("resource terminal should be valid");
+            let payload = encode_integrity_job_payload(&job).expect("job should encode");
+            let decoded = decode_integrity_job_payload(&payload).expect("job should decode");
+            assert_eq!(decoded, job);
+        }
     }
 
     #[test]

@@ -74,7 +74,11 @@ where
         .terminals()
         .iter()
         .map(|terminal| {
-            compile_structural_scalar_aggregate_terminal(request.schema_info(), terminal)
+            compile_structural_scalar_aggregate_terminal(
+                request.schema_info(),
+                terminal,
+                &crate::db::executor::budget::ExecutionConstructionBudget,
+            )
         })
         .collect::<Result<Vec<_>, _>>()?;
     let ordered_values = execute_scalar_aggregate_terminals(

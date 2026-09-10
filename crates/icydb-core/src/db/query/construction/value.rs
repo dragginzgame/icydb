@@ -1,16 +1,17 @@
 //! Copy admitted values without a separate sizing walk or semantic conversion.
 
 use crate::{
-    db::{QueryError, query::preparation::PreparationWork},
+    db::query::construction::ConstructionBudget,
+    error::InternalError,
     value::{CanonicalEnumBody, Value, ValueEnum},
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
-impl PreparationWork<'_> {
+impl dyn ConstructionBudget + '_ {
     /// Copy one admitted operand, charging each visit and requested backing
     /// before allocation. Preserve tags, order, duplicates and enum identities;
     /// this is neither value admission nor retained-cache capacity accounting.
-    pub(in crate::db) fn copy_value(&self, value: &Value) -> Result<Value, QueryError> {
+    pub(in crate::db) fn copy_value(&self, value: &Value) -> Result<Value, InternalError> {
         self.charge(Resource::NestedValueSteps, 1)?;
         let bytes = match value {
             Value::Text(text) => text.len() as u64,

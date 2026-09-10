@@ -10,6 +10,7 @@ use crate::{
             ExecutionPreparation, planning::route::FastPathOrder,
             route::primary_key_stream_window_shape_supported,
         },
+        index::IndexCompilePolicy,
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
@@ -74,14 +75,16 @@ pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
 
 /// Return whether aggregate routing must force materialized mode due to predicate uncertainty.
 #[must_use]
-pub(super) const fn aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+pub(super) fn aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
     execution_preparation: &ExecutionPreparation,
 ) -> bool {
     execution_preparation.compiled_predicate().is_some()
         &&
         // Route strict-mode uncertainty must remain aligned with the shared
         // kernel predicate compiler boundary.
-        execution_preparation.strict_mode().is_none()
+        execution_preparation
+            .prepared_index_program(IndexCompilePolicy::StrictAllOrNone)
+            .is_none()
 }
 
 /// Return whether one plan shape supports primary-key ordered stream execution.

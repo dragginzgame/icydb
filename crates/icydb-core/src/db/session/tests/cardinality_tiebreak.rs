@@ -2,6 +2,7 @@
 
 mod index_metadata;
 mod order_metadata;
+mod prefix_accounting;
 mod projection_metadata;
 mod secondary_order;
 mod sparse_indexes;
@@ -473,6 +474,73 @@ fn unavailable_fallback_refreshes_only_on_lifecycle_change_and_keeps_cursor_rout
         ready.contains("cardinality_evidence: exact_at_selection"),
         "{ready}"
     );
+}
+
+// Reuse accepted session authority for direct evidence-owner qualification.
+pub(in crate::db::session) fn ranking_candidates_for_tests() -> (
+    DbSession<impl CanisterKind>,
+    crate::db::executor::EntityAuthority,
+    Vec<crate::db::query::plan::CardinalityTiebreakCandidate>,
+) {
+    use crate::{db::predicate::Predicate, value::Value};
+
+    candidate_fixture_for_tests(Predicate::And(vec![
+        Predicate::eq("common".into(), Value::Text("everyone".into())),
+        Predicate::eq("rare".into(), Value::Text("group-a".into())),
+    ]))
+}
+
+pub(in crate::db::session) fn probe_candidates_for_tests(
+    value_count: usize,
+) -> (
+    DbSession<impl CanisterKind>,
+    crate::db::executor::EntityAuthority,
+    Vec<crate::db::query::plan::CardinalityTiebreakCandidate>,
+) {
+    candidate_fixture_for_tests(crate::db::predicate::Predicate::in_(
+        "common".into(),
+        (0..value_count)
+            .map(|value| crate::value::Value::Text(format!("probe-{value:04}")))
+            .collect(),
+    ))
+}
+
+fn candidate_fixture_for_tests(
+    predicate: crate::db::predicate::Predicate,
+) -> (
+    DbSession<TestCanister>,
+    crate::db::executor::EntityAuthority,
+    Vec<crate::db::query::plan::CardinalityTiebreakCandidate>,
+) {
+    let session = initialize();
+    let catalog = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    let query = StructuralQuery::new(MissingRowPolicy::Ignore)
+        .filter_normalized_predicate(predicate)
+        .order_spec(OrderSpec {
+            fields: vec![asc("id").lower()],
+        })
+        .limit(3);
+    let (prepared, _) = session
+        .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+            catalog.accepted_entity_authority(),
+            &catalog,
+            &query,
+            DiagnosticExecutionLane::PublicRead,
+        )
+        .unwrap();
+    let indexes = session
+        .visible_indexes_for_store_accepted_schema(STORE_PATH, catalog.accepted_schema_info())
+        .unwrap();
+    let candidates = crate::db::query::plan::exact_cardinality_tiebreak_candidates(
+        indexes.accepted_semantic_index_contracts(),
+        catalog.accepted_schema_info(),
+        prepared.logical_plan(),
+    )
+    .unwrap();
+
+    (session, catalog.accepted_entity_authority(), candidates)
 }
 
 fn selective_dynamic_query() -> DynamicQuery {

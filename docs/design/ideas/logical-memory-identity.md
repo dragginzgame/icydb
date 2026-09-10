@@ -60,10 +60,15 @@ explicit string identity at each ownership level, with no inference mode.
 
 ## Current Dependency Boundary
 
-The repository pins `ic-memory` 0.12.3. Its declarations require a stable key
+The repository uses `ic-memory` 0.13.1. Its declarations require a stable key
 and a physical slot. Its durable ledger validates that an existing key has not
 moved and that a slot has not been reused for a different key; it does not
 currently choose free slots for key-only declarations.
+
+Version 0.13.0 adds bounded physical allocation reports and explicit bucket
+configuration. Reports expose current bindings, unknown allocations and bucket
+slack, which can inform the ownership audit below. Neither capability supplies
+automatic slot placement, reclamation, data migration or payload occupancy.
 
 IcyDB currently derives store keys from the explicit memory ID and role,
 deliberately avoiding source-name identity. Generated startup wiring passes

@@ -21,7 +21,7 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use ic_stable_structures::{Storable, storable::Bound};
+use ic_memory::ic_stable_structures::{Storable, storable::Bound};
 #[cfg(any(test, feature = "migration"))]
 use icydb_schema::SchemaMigrationPlanDigest;
 use sha2::{Digest, Sha256};

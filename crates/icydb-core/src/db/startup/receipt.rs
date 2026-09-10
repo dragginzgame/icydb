@@ -3,8 +3,8 @@
 //! Does not own: failure classification, recovery progress, or publication policy.
 //! Boundary: typed failure and maintained binding -> one 2,048-byte stable control cell.
 
-use ic_memory::StableKey;
-use ic_stable_structures::{DefaultMemoryImpl, Memory, memory_manager::VirtualMemory};
+use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
+use ic_memory::{RuntimeMemory, StableKey};
 use icydb_diagnostic_code::{
     DiagnosticFactTag, ErrorCode, ErrorOrigin, MAX_PUBLIC_DIAGNOSTIC_FACTS,
     validate_raw_diagnostic_fact_schema,
@@ -570,13 +570,13 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 thread_local! {
     static TEST_STARTUP_MEMORIES: RefCell<
-        Vec<(u8, &'static str, VirtualMemory<DefaultMemoryImpl>)>
+        Vec<(u8, &'static str, RuntimeMemory<DefaultMemoryImpl>)>
     > = const { RefCell::new(Vec::new()) };
 }
 
 #[cfg(test)]
 pub(in crate::db) fn startup_memory<C: CanisterKind>()
--> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+-> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     TEST_STARTUP_MEMORIES.with(|memories| {
         let mut memories = memories.borrow_mut();
         if let Some((_, _, memory)) = memories.iter().find(|(memory_id, stable_key, _)| {
@@ -594,7 +594,7 @@ pub(in crate::db) fn startup_memory<C: CanisterKind>()
 mod tests {
     use super::*;
     use crate::traits::Path;
-    use ic_stable_structures::VectorMemory;
+    use ic_memory::ic_stable_structures::VectorMemory;
 
     struct ReceiptCanister;
 
@@ -785,7 +785,7 @@ mod tests {
 
 #[cfg(not(test))]
 pub(in crate::db) fn startup_memory<C: CanisterKind>()
--> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+-> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory(C::STARTUP_STABLE_KEY, C::STARTUP_MEMORY_ID)
         .map_err(InternalError::database_format_memory_registration_failed)
 }

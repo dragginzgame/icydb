@@ -9,7 +9,7 @@ use std::{
     ops::Bound,
 };
 
-use icydb_diagnostic_code::SchemaMigrationCode;
+use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, SchemaMigrationCode};
 
 use crate::{
     db::{
@@ -157,76 +157,85 @@ pub(in crate::db::schema) fn rewrite_migration_page<C: CanisterKind>(
     before_progress: &PersistedSchemaMigrationProgress,
     plan_digest: icydb_schema::SchemaMigrationPlanDigest,
 ) -> Result<MigrationRewritePage, InternalError> {
-    #[cfg(not(test))]
-    let mut remaining_rows = MAX_MIGRATION_REWRITE_ROWS_PER_PAGE;
-    #[cfg(test)]
-    let mut remaining_rows = migration_rewrite_row_limit();
-    let mut remaining_row_bytes = MAX_MIGRATION_REWRITE_ROW_BYTES_PER_PAGE;
-    let mut remaining_index_bytes = MAX_MIGRATION_REWRITE_INDEX_BYTES_PER_PAGE;
-    let mut remaining_effects = MAX_JOURNAL_BATCH_RECORDS;
-    let mut remaining_journal_bytes = MAX_MIGRATION_REWRITE_JOURNAL_BYTES_PER_PAGE;
-    let mut rows_rewritten = 0_u64;
-    let mut effects = Vec::new();
-    let mut final_cursor = before_progress.row_cursor().cloned();
-    let mut exhausted = true;
+    crate::db::executor::budget::MaintenanceConstructionBudget::new().run(
+        |work| {
+            #[cfg(not(test))]
+            let mut remaining_rows = MAX_MIGRATION_REWRITE_ROWS_PER_PAGE;
+            #[cfg(test)]
+            let mut remaining_rows = migration_rewrite_row_limit();
+            let mut remaining_row_bytes = MAX_MIGRATION_REWRITE_ROW_BYTES_PER_PAGE;
+            let mut remaining_index_bytes = MAX_MIGRATION_REWRITE_INDEX_BYTES_PER_PAGE;
+            let mut remaining_effects = MAX_JOURNAL_BATCH_RECORDS;
+            let mut remaining_journal_bytes = MAX_MIGRATION_REWRITE_JOURNAL_BYTES_PER_PAGE;
+            let mut rows_rewritten = 0_u64;
+            let mut effects = Vec::new();
+            let mut final_cursor = before_progress.row_cursor().cloned();
+            let mut exhausted = true;
 
-    for program in planned.programs() {
-        let cursor = before_progress.row_cursor();
-        if cursor.is_some_and(|cursor| {
-            (program.store(), program.entity()) < (cursor.store(), cursor.entity())
-        }) {
-            continue;
-        }
-        if remaining_rows == 0
-            || remaining_row_bytes == 0
-            || remaining_index_bytes == 0
-            || remaining_effects == 0
-            || remaining_journal_bytes == 0
-        {
-            exhausted = false;
-            break;
-        }
-        let candidate = candidate_for_program(planned, program)?;
-        let prepared = prepare_candidate_entity(db, program, candidate)?;
-        let store = db.store_handle(program.store_path())?;
-        require_journaled(store)?;
-        let page = rewrite_entity_page(
-            store,
-            program,
-            &prepared,
-            cursor.filter(|cursor| {
-                cursor.store() == program.store() && cursor.entity() == program.entity()
-            }),
-            remaining_rows,
-            remaining_row_bytes,
-            remaining_index_bytes,
-            remaining_effects,
-            remaining_journal_bytes,
-            plan_digest,
-        )?;
-        remaining_rows = remaining_rows.saturating_sub(page.rows);
-        remaining_row_bytes = remaining_row_bytes.saturating_sub(page.row_bytes);
-        remaining_index_bytes = remaining_index_bytes.saturating_sub(page.index_bytes);
-        remaining_effects = remaining_effects.saturating_sub(page.effects.len());
-        remaining_journal_bytes = remaining_journal_bytes.saturating_sub(page.journal_bytes);
-        rows_rewritten = rows_rewritten
-            .checked_add(u64::try_from(page.rows).map_err(|_| InternalError::store_invariant())?)
-            .ok_or_else(InternalError::store_invariant)?;
-        if let Some(cursor) = page.cursor {
-            final_cursor = Some(cursor);
-        }
-        effects.extend(page.effects);
-        if !page.exhausted {
-            exhausted = false;
-            break;
-        }
-    }
-    let progress = before_progress.with_rewrite_page(final_cursor, rows_rewritten)?;
-    Ok(MigrationRewritePage {
-        progress,
-        effects,
-        exhausted,
-    })
+            for program in planned.programs() {
+                let cursor = before_progress.row_cursor();
+                if cursor.is_some_and(|cursor| {
+                    (program.store(), program.entity()) < (cursor.store(), cursor.entity())
+                }) {
+                    continue;
+                }
+                if remaining_rows == 0
+                    || remaining_row_bytes == 0
+                    || remaining_index_bytes == 0
+                    || remaining_effects == 0
+                    || remaining_journal_bytes == 0
+                {
+                    exhausted = false;
+                    break;
+                }
+                let candidate = candidate_for_program(planned, program)?;
+                let prepared = prepare_candidate_entity(db, program, candidate)?;
+                let store = db.store_handle(program.store_path())?;
+                require_journaled(store)?;
+                let page = rewrite_entity_page(
+                    store,
+                    program,
+                    &prepared,
+                    cursor.filter(|cursor| {
+                        cursor.store() == program.store() && cursor.entity() == program.entity()
+                    }),
+                    remaining_rows,
+                    remaining_row_bytes,
+                    remaining_index_bytes,
+                    remaining_effects,
+                    remaining_journal_bytes,
+                    plan_digest,
+                    work,
+                )?;
+                remaining_rows = remaining_rows.saturating_sub(page.rows);
+                remaining_row_bytes = remaining_row_bytes.saturating_sub(page.row_bytes);
+                remaining_index_bytes = remaining_index_bytes.saturating_sub(page.index_bytes);
+                remaining_effects = remaining_effects.saturating_sub(page.effects.len());
+                remaining_journal_bytes =
+                    remaining_journal_bytes.saturating_sub(page.journal_bytes);
+                rows_rewritten = rows_rewritten
+                    .checked_add(
+                        u64::try_from(page.rows).map_err(|_| InternalError::store_invariant())?,
+                    )
+                    .ok_or_else(InternalError::store_invariant)?;
+                if let Some(cursor) = page.cursor {
+                    final_cursor = Some(cursor);
+                }
+                effects.extend(page.effects);
+                if !page.exhausted {
+                    exhausted = false;
+                    break;
+                }
+            }
+            let progress = before_progress.with_rewrite_page(final_cursor, rows_rewritten)?;
+            Ok(MigrationRewritePage {
+                progress,
+                effects,
+                exhausted,
+            })
+        },
+        std::convert::identity,
+    )
 }
 
 struct EntityRewritePage {
@@ -258,6 +267,7 @@ fn rewrite_entity_page(
     effect_budget: usize,
     journal_byte_budget: usize,
     plan_digest: icydb_schema::SchemaMigrationPlanDigest,
+    work: &dyn crate::db::query::construction::ConstructionBudget,
 ) -> Result<EntityRewritePage, InternalError> {
     let before_selection = store
         .with_schema(|schema| {
@@ -305,6 +315,8 @@ fn rewrite_entity_page(
                     raw_row,
                     &before_contract,
                 )?;
+                work.charge(Resource::RowsVisited, 1)?;
+                work.charge(Resource::StoredBytesRead, raw_row.len() as u64)?;
                 let decoded = DecodedDataStoreKey::try_from_raw(raw_key)
                     .map_err(|_| InternalError::store_corruption())?;
                 before.validate_primary_key(&decoded)?;
@@ -327,6 +339,7 @@ fn rewrite_entity_page(
                 let mut row_effects = Vec::new();
                 let mut row_index_bytes = 0usize;
                 for projection in &prepared.indexes {
+                    work.charge(Resource::PredicateExpressionSteps, 1)?;
                     let Some(key) =
                         projection.derive_key(&decoded.primary_key_value(), &candidate_reader)?
                     else {
@@ -646,49 +659,55 @@ pub(in crate::db::schema) fn final_validate_migration_page<C: CanisterKind>(
     planned: &PlannedSchemaMigration,
     before_progress: &PersistedSchemaMigrationProgress,
 ) -> Result<MigrationFinalValidationPage, InternalError> {
-    let mut remaining_rows = MAX_MIGRATION_FINAL_VALIDATION_ROWS_PER_PAGE;
-    let mut remaining_bytes = MAX_MIGRATION_FINAL_VALIDATION_BYTES_PER_PAGE;
-    let mut final_cursor = before_progress.row_cursor().cloned();
-    let mut exhausted = true;
-    for program in planned.programs() {
-        let cursor = before_progress.row_cursor();
-        if cursor.is_some_and(|cursor| {
-            (program.store(), program.entity()) < (cursor.store(), cursor.entity())
-        }) {
-            continue;
-        }
-        if remaining_rows == 0 || remaining_bytes == 0 {
-            exhausted = false;
-            break;
-        }
-        let candidate = candidate_for_program(planned, program)?;
-        let prepared = prepare_candidate_entity(db, program, candidate)?;
-        let store = db.store_handle(program.store_path())?;
-        let page = final_validate_entity_page(
-            store,
-            program,
-            &prepared,
-            cursor.filter(|cursor| {
-                cursor.store() == program.store() && cursor.entity() == program.entity()
-            }),
-            remaining_rows,
-            remaining_bytes,
-        )?;
-        remaining_rows = remaining_rows.saturating_sub(page.rows);
-        remaining_bytes = remaining_bytes.saturating_sub(page.bytes);
-        if let Some(cursor) = page.cursor {
-            final_cursor = Some(cursor);
-        }
-        if !page.exhausted {
-            exhausted = false;
-            break;
-        }
-    }
-    let progress = before_progress.with_rewrite_page(final_cursor, 0)?;
-    Ok(MigrationFinalValidationPage {
-        progress,
-        exhausted,
-    })
+    crate::db::executor::budget::MaintenanceConstructionBudget::new().run(
+        |work| {
+            let mut remaining_rows = MAX_MIGRATION_FINAL_VALIDATION_ROWS_PER_PAGE;
+            let mut remaining_bytes = MAX_MIGRATION_FINAL_VALIDATION_BYTES_PER_PAGE;
+            let mut final_cursor = before_progress.row_cursor().cloned();
+            let mut exhausted = true;
+            for program in planned.programs() {
+                let cursor = before_progress.row_cursor();
+                if cursor.is_some_and(|cursor| {
+                    (program.store(), program.entity()) < (cursor.store(), cursor.entity())
+                }) {
+                    continue;
+                }
+                if remaining_rows == 0 || remaining_bytes == 0 {
+                    exhausted = false;
+                    break;
+                }
+                let candidate = candidate_for_program(planned, program)?;
+                let prepared = prepare_candidate_entity(db, program, candidate)?;
+                let store = db.store_handle(program.store_path())?;
+                let page = final_validate_entity_page(
+                    store,
+                    program,
+                    &prepared,
+                    cursor.filter(|cursor| {
+                        cursor.store() == program.store() && cursor.entity() == program.entity()
+                    }),
+                    remaining_rows,
+                    remaining_bytes,
+                    work,
+                )?;
+                remaining_rows = remaining_rows.saturating_sub(page.rows);
+                remaining_bytes = remaining_bytes.saturating_sub(page.bytes);
+                if let Some(cursor) = page.cursor {
+                    final_cursor = Some(cursor);
+                }
+                if !page.exhausted {
+                    exhausted = false;
+                    break;
+                }
+            }
+            let progress = before_progress.with_rewrite_page(final_cursor, 0)?;
+            Ok(MigrationFinalValidationPage {
+                progress,
+                exhausted,
+            })
+        },
+        std::convert::identity,
+    )
 }
 
 struct FinalEntityPage {
@@ -705,6 +724,7 @@ fn final_validate_entity_page(
     checkpoint: Option<&PersistedSchemaMigrationRowCursor>,
     row_budget: usize,
     byte_budget: usize,
+    work: &dyn crate::db::query::construction::ConstructionBudget,
 ) -> Result<FinalEntityPage, InternalError> {
     let range = RawDataStoreKeyRange::entity_prefix(program.entity());
     let lower = match checkpoint {
@@ -740,6 +760,8 @@ fn final_validate_entity_page(
                 page.exhausted = false;
                 return Ok(StoreVisit::Stop);
             }
+            work.charge(Resource::RowsVisited, 1)?;
+            work.charge(Resource::StoredBytesRead, raw_row.len() as u64)?;
             let decoded = DecodedDataStoreKey::try_from_raw(raw_key)
                 .map_err(|_| InternalError::store_corruption())?;
             let row = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
@@ -755,6 +777,7 @@ fn final_validate_entity_page(
                     InternalError::schema_migration(SchemaMigrationCode::CandidateMismatch)
                 })?;
             for projection in &prepared.indexes {
+                work.charge(Resource::PredicateExpressionSteps, 1)?;
                 if let Some(key) = projection.derive_key(&decoded.primary_key_value(), &row)?
                     && store.with_index(|index| index.get(&key))
                         != Some(IndexEntryValue::presence())

@@ -14,9 +14,8 @@ use crate::{
     },
     types::EntityTag,
 };
-use ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
-};
+use ic_memory::RuntimeMemory;
+use ic_memory::ic_stable_structures::{BTreeMap as StableBTreeMap, DefaultMemoryImpl};
 #[cfg(test)]
 use std::cell::Cell;
 use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet};
@@ -53,7 +52,7 @@ pub struct DataStore {
 enum DataStoreBackend {
     Heap(HeapBTreeMap<RawDataStoreKey, RawRow>),
     Journaled {
-        canonical: StableBTreeMap<RawDataStoreKey, RawRow, VirtualMemory<DefaultMemoryImpl>>,
+        canonical: StableBTreeMap<RawDataStoreKey, RawRow, RuntimeMemory<DefaultMemoryImpl>>,
         live: HeapBTreeMap<RawDataStoreKey, RawRow>,
         tombstones: BTreeSet<RawDataStoreKey>,
         positions: PositionedOverlayMetadata<RawDataStoreKey>,
@@ -136,7 +135,7 @@ impl DataStore {
     /// is the future fold target and is not mutated by this wrapper's write
     /// methods.
     #[must_use]
-    pub fn init_journaled(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
+    pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
         let canonical = StableBTreeMap::init(memory);
         let entity_cardinality = if canonical.is_empty() {
             EntityCardinality::empty()
@@ -273,6 +272,7 @@ impl DataStore {
     }
 
     /// Apply one recovered journal row put into the volatile projection.
+    #[cfg(any(test, feature = "migration"))]
     pub(in crate::db) fn apply_recovered_journal_put(
         &mut self,
         key: RawDataStoreKey,
@@ -299,35 +299,6 @@ impl DataStore {
         self.entity_cardinality
             .apply_insert(&cardinality_key, previous.as_ref());
         self.apply_entity_overlay_delta(&cardinality_key, previous.is_some(), true);
-        self.bump_generation();
-
-        Ok(previous)
-    }
-
-    /// Apply one recovered journal row delete into the volatile projection.
-    pub(in crate::db) fn apply_recovered_journal_delete(
-        &mut self,
-        key: &RawDataStoreKey,
-    ) -> Result<Option<RawRow>, crate::error::InternalError> {
-        let DataStoreBackend::Journaled {
-            canonical,
-            live,
-            tombstones,
-            ..
-        } = &mut self.backend
-        else {
-            return Err(crate::error::InternalError::store_invariant());
-        };
-
-        let previous = if tombstones.contains(key) {
-            None
-        } else {
-            live.get(key).cloned().or_else(|| canonical.get(key))
-        };
-        live.remove(key);
-        tombstones.insert(key.clone());
-        self.entity_cardinality.apply_remove(key, previous.as_ref());
-        self.apply_entity_overlay_delta(key, previous.is_some(), false);
         self.bump_generation();
 
         Ok(previous)

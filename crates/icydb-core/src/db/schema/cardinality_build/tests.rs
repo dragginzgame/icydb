@@ -13,7 +13,7 @@ use crate::{
     },
     testing::test_memory,
 };
-use ic_stable_structures::Memory;
+use ic_memory::ic_stable_structures::Memory;
 
 fn allocations() -> StoreAllocationIdentities {
     StoreAllocationIdentities::new_journaled(

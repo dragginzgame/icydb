@@ -1340,9 +1340,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.12.3"
+version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c66256c945be302111688ebcf1d19d505b272f43f897a62739903b476c65236"
+checksum = "43534430545ba0eab9f9712e7ad0ef661c0e7af1600cfbdca6c336d7d0a602b0"
 dependencies = [
  "ciborium",
  "ctor",
@@ -1579,7 +1579,6 @@ dependencies = [
  "getrandom 0.4.3",
  "ic-cdk",
  "ic-memory",
- "ic-stable-structures",
  "icydb-diagnostic-code",
  "icydb-schema",
  "icydb-testing-sql-generator",

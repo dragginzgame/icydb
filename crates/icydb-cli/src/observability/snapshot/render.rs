@@ -3,7 +3,10 @@
 //! Does not own: endpoint calls, Candid decoding, or endpoint publication.
 //! Boundary: receives decoded storage reports and returns user-facing text.
 
-use icydb::db::{DataStoreSnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport};
+use icydb::db::{
+    DataStoreSnapshot, IndexStoreSnapshot, MemoryAllocationBinding, MemoryAllocations,
+    SchemaStoreSnapshot, StorageReport,
+};
 
 use crate::table::{ColumnAlign, append_indented_table};
 
@@ -44,6 +47,13 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
         .as_str(),
     );
     output.push('\n');
+    match report.memory_allocations() {
+        Some(allocations) => append_memory_allocations(&mut output, allocations),
+        None => output.push_str(
+            "physical allocations (canister-wide)\n  unavailable: no default memory runtime\n",
+        ),
+    }
+    output.push('\n');
     append_data_store_table(&mut output, data_rows.as_slice());
     output.push('\n');
     append_index_store_table(&mut output, index_rows.as_slice());
@@ -53,6 +63,76 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     append_entity_table(&mut output, entity_rows.as_slice());
 
     output
+}
+
+fn append_memory_allocations(output: &mut String, report: &MemoryAllocations) {
+    output.push_str("physical allocations (canister-wide; includes ledger)\n");
+    output.push_str(&format!(
+        "  physical bytes: {}\n  virtual bytes: {}\n  manager metadata bytes: {}\n  allocated bucket bytes: {}\n  bucket slack bytes: {}\n  known binding bytes: {}\n  unknown binding bytes: {}\n  unmanaged bytes: {}\n  bucket pages: {}\n  buckets remaining: {} / {}\n  payload occupancy: unavailable\n",
+        report.physical_extent.bytes,
+        report.virtual_extent.bytes,
+        report.manager_metadata_bytes,
+        report.allocated_bucket_bytes,
+        report.bucket_slack_bytes,
+        report.known_binding_bytes,
+        report.unknown_binding_bytes,
+        report.unmanaged_bytes,
+        report.bucket_size_pages,
+        report.remaining_buckets,
+        report.bucket_capacity,
+    ));
+    let rows = report
+        .memories
+        .iter()
+        .map(|memory| {
+            let (binding, owner, key) = match &memory.binding {
+                MemoryAllocationBinding::Current { stable_key, owner } => {
+                    ("current", owner.as_str(), stable_key.as_str())
+                }
+                MemoryAllocationBinding::Ledger { stable_key, owner } => {
+                    ("ledger", owner.as_str(), stable_key.as_str())
+                }
+                MemoryAllocationBinding::Unknown => ("unknown", "-", "-"),
+            };
+            [
+                memory.memory_manager_id.to_string(),
+                binding.to_string(),
+                owner.to_string(),
+                key.to_string(),
+                memory.allocated_bytes.to_string(),
+                memory.virtual_extent.bytes.to_string(),
+                memory.bucket_slack_bytes.to_string(),
+                memory
+                    .payload_bytes
+                    .map_or_else(|| "unavailable".to_string(), |bytes| bytes.to_string()),
+            ]
+        })
+        .collect::<Vec<_>>();
+    append_indented_table(
+        output,
+        "  ",
+        &[
+            "id",
+            "binding",
+            "owner",
+            "stable key",
+            "allocated bytes",
+            "virtual bytes",
+            "bucket slack",
+            "payload bytes",
+        ],
+        &rows,
+        &[
+            ColumnAlign::Right,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Left,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+            ColumnAlign::Right,
+        ],
+    );
 }
 
 fn data_store_row(row: &DataStoreSnapshot) -> [String; 13] {

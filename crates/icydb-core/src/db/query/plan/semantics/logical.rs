@@ -34,6 +34,7 @@ use crate::{
         schema::SchemaInfo,
     },
     error::InternalError,
+    value::Value,
 };
 
 impl QueryMode {
@@ -98,14 +99,22 @@ impl AccessPlannedQuery {
         }
     }
 
-    /// Lower this plan through accepted schema projection authority.
-    #[must_use]
-    pub(in crate::db) fn projection_spec_with_schema(&self, schema: &SchemaInfo) -> ProjectionSpec {
-        if let Some(static_contract) = &self.static_execution_planning_contract {
-            return static_contract.projection_spec.clone();
-        }
+    /// Borrow the projection retained by successful accepted-schema finalization.
+    /// Unprepared plans cannot reconstruct execution metadata on demand.
+    pub(in crate::db) fn projection_spec(&self) -> Result<&ProjectionSpec, QueryError> {
+        self.static_execution_planning_contract
+            .as_ref()
+            .map(|contract| &contract.projection_spec)
+            .ok_or_else(QueryError::invariant)
+    }
 
-        lower_projection_intent_with_schema(schema, &self.logical, &self.projection_selection)
+    /// Construct the projection once for semantic validation and finalization.
+    pub(in crate::db) fn prepare_projection(
+        &self,
+        schema: &SchemaInfo,
+        work: &PreparationWork<'_>,
+    ) -> Result<ProjectionSpec, QueryError> {
+        lower_projection_intent_with_schema(schema, &self.logical, &self.projection_selection, work)
     }
 
     /// Lower this plan into one projection semantic shape for identity hashing.
@@ -125,7 +134,7 @@ impl AccessPlannedQuery {
             return static_contract.execution_preparation_predicate.clone();
         }
 
-        derive_execution_preparation_predicate(self)
+        derive_execution_preparation_predicate(self.scalar_plan(), &self.access)
     }
 
     /// Return the executor-facing residual predicate after removing any
@@ -140,7 +149,7 @@ impl AccessPlannedQuery {
                 .cloned();
         }
 
-        derive_residual_filter_predicate(self)
+        derive_residual_filter_predicate(self.scalar_plan(), &self.access)
     }
 
     /// Return whether one explicit residual predicate survives access
@@ -181,16 +190,7 @@ impl AccessPlannedQuery {
             return static_contract.residual_filter_contract.shape();
         }
 
-        // Normalize pre-finalization candidate shells to the same execution
-        // shape later frozen in the static contract. A filter expression fully
-        // represented by its predicate executes through that predicate, not a
-        // second expression program.
-        let expression_required = self.scalar_plan().filter_expr.is_some()
-            && !derive_semantic_filter_fully_satisfied_by_access_contract(self);
-        ResidualFilterShape::from_presence(
-            expression_required,
-            self.effective_execution_predicate().is_some(),
-        )
+        residual_filter_facts_for_access(self.scalar_plan(), &self.access).0
     }
 
     /// Return the planner-owned predicate pushdown label consumed by verbose
@@ -283,16 +283,23 @@ impl AccessPlannedQuery {
         self.set_planner_route_profile(project_planner_route_profile_for_schema(schema_info, self));
     }
 
-    /// Freeze planner-owned executor metadata with explicit schema authority.
+    /// Freeze planner-owned executor metadata, consuming the validated projection.
+    /// Accepted group keys are already resolved during intent conversion;
+    /// rebinding refreshes slot authority without changing projection expressions.
     pub(in crate::db) fn finalize_static_execution_planning_contract_with_schema(
         &mut self,
         schema_info: &SchemaInfo,
+        projection: ProjectionSpec,
         work: &PreparationWork<'_>,
     ) -> Result<(), QueryError> {
         self.bind_group_field_slots_to_schema(schema_info, work)?;
-        self.static_execution_planning_contract = Some(
-            project_static_execution_planning_contract_with_schema(schema_info, self, work)?,
-        );
+        self.static_execution_planning_contract =
+            Some(project_static_execution_planning_contract_with_schema(
+                schema_info,
+                self,
+                projection,
+                work,
+            )?);
 
         Ok(())
     }
@@ -509,13 +516,13 @@ pub(in crate::db) fn project_planner_route_profile_for_schema(
 fn project_static_execution_planning_contract_with_schema(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
+    projection_spec: ProjectionSpec,
     work: &PreparationWork<'_>,
 ) -> Result<StaticExecutionPlanningContract, QueryError> {
-    let projection_spec =
-        lower_projection_intent_with_schema(schema_info, &plan.logical, &plan.projection_selection);
     let execution_preparation_predicate = plan.execution_preparation_predicate();
     let residual_filter_predicate = derive_residual_filter_predicate_from_preparation(
-        plan,
+        plan.scalar_plan(),
+        &plan.access,
         execution_preparation_predicate.as_ref(),
     );
     let residual_filter_expr = derive_residual_filter_expr(plan);
@@ -523,6 +530,7 @@ fn project_static_execution_planning_contract_with_schema(
         schema_info,
         residual_filter_expr.as_ref(),
         residual_filter_predicate.as_ref(),
+        work,
     )
     .map_err(QueryError::execute)?;
     let residual_filter_contract = ResidualFilterContract::new(
@@ -533,21 +541,22 @@ fn project_static_execution_planning_contract_with_schema(
     let residual_filter_shape = residual_filter_contract.shape();
     let execution_preparation_compiled_predicate =
         (should_compile_execution_preparation_predicate(residual_filter_shape)
-            && !planner_predicate_requires_expression_runtime(plan))
+            && !planner_predicate_requires_expression_runtime(plan.scalar_plan()))
         .then(|| compile_optional_predicate(schema_info, execution_preparation_predicate.as_ref()))
         .flatten();
     let predicate_pushdown_diagnostics =
         derive_predicate_pushdown_diagnostics(plan, residual_filter_shape);
     let scalar_projection_plan = if plan.grouped_plan().is_none() {
         Some(
-            compile_scalar_projection_plan_with_schema(schema_info, &projection_spec)
+            compile_scalar_projection_plan_with_schema(schema_info, &projection_spec, work)
+                .map_err(QueryError::execute)?
                 .ok_or_else(|| QueryError::execute(InternalError::query_executor_invariant()))?,
         )
     } else {
         None
     };
     let (grouped_aggregate_execution_specs, grouped_distinct_execution_strategy) =
-        resolve_grouped_static_planning_semantics(schema_info, plan, &projection_spec)
+        resolve_grouped_static_planning_semantics(schema_info, plan, &projection_spec, work)
             .map_err(QueryError::execute)?;
     let (projection_direct_slots, projection_data_row_direct_slots) =
         lower_direct_projection_layouts_with_schema(
@@ -598,6 +607,7 @@ fn compile_effective_runtime_filter_program(
     schema_info: &SchemaInfo,
     residual_filter_expr: Option<&Expr>,
     residual_filter_predicate: Option<&Predicate>,
+    work: &PreparationWork<'_>,
 ) -> Result<Option<EffectiveRuntimeFilterProgram>, InternalError> {
     // Keep the existing predicate fast path when the residual semantics still
     // fit the derived predicate contract. The expression-owned lane is only
@@ -610,7 +620,7 @@ fn compile_effective_runtime_filter_program(
     }
 
     if let Some(filter_expr) = residual_filter_expr {
-        let compiled = compile_scalar_projection_expr_with_schema(schema_info, filter_expr)
+        let compiled = compile_scalar_projection_expr_with_schema(schema_info, filter_expr, work)?
             .ok_or_else(InternalError::query_invalid_logical_plan)?;
 
         return Ok(Some(EffectiveRuntimeFilterProgram::expression(compiled)));
@@ -622,10 +632,13 @@ fn compile_effective_runtime_filter_program(
 // Derive the executor-preparation predicate once from the selected access path.
 // This strips only filtered-index guard clauses while preserving access-bound
 // equalities that still matter to preparation/explain consumers.
-fn derive_execution_preparation_predicate(plan: &AccessPlannedQuery) -> Option<Predicate> {
-    let query_predicate = plan.scalar_plan().predicate.as_ref()?;
+fn derive_execution_preparation_predicate(
+    scalar: &ScalarPlan,
+    access: &AccessPlan<Value>,
+) -> Option<Predicate> {
+    let query_predicate = scalar.predicate.as_ref()?;
 
-    match plan.access.selected_index_contract() {
+    match access.selected_index_contract() {
         Some(index) => {
             residual_query_predicate_after_filtered_access_contract(index, query_predicate)
         }
@@ -636,23 +649,27 @@ fn derive_execution_preparation_predicate(plan: &AccessPlannedQuery) -> Option<P
 // Derive the final residual predicate once from the already-filtered
 // preparation predicate plus any equality bounds guaranteed by the concrete
 // access path.
-fn derive_residual_filter_predicate(plan: &AccessPlannedQuery) -> Option<Predicate> {
-    let filtered_residual = derive_execution_preparation_predicate(plan);
+fn derive_residual_filter_predicate(
+    scalar: &ScalarPlan,
+    access: &AccessPlan<Value>,
+) -> Option<Predicate> {
+    let filtered_residual = derive_execution_preparation_predicate(scalar, access);
 
-    derive_residual_filter_predicate_from_preparation(plan, filtered_residual.as_ref())
+    derive_residual_filter_predicate_from_preparation(scalar, access, filtered_residual.as_ref())
 }
 
 fn derive_residual_filter_predicate_from_preparation(
-    plan: &AccessPlannedQuery,
+    scalar: &ScalarPlan,
+    access: &AccessPlan<Value>,
     execution_preparation_predicate: Option<&Predicate>,
 ) -> Option<Predicate> {
     let execution_preparation_predicate = execution_preparation_predicate?;
 
     let residual = residual_query_predicate_after_access_path_bounds(
-        plan.access.as_path(),
+        access.as_path(),
         execution_preparation_predicate,
     );
-    if residual.is_some() && planner_predicate_requires_expression_runtime(plan) {
+    if residual.is_some() && planner_predicate_requires_expression_runtime(scalar) {
         return None;
     }
 
@@ -664,8 +681,8 @@ fn derive_residual_filter_predicate_from_preparation(
 // runtime filtering still survives access satisfaction.
 fn derive_residual_filter_expr(plan: &AccessPlannedQuery) -> Option<Expr> {
     let filter_expr = plan.scalar_plan().filter_expr.as_ref()?;
-    if derive_semantic_filter_fully_satisfied_by_access_contract(plan)
-        && (!planner_predicate_requires_expression_runtime(plan)
+    if derive_semantic_filter_fully_satisfied_by_access_contract(plan.scalar_plan())
+        && (!planner_predicate_requires_expression_runtime(plan.scalar_plan())
             || planner_predicate_is_fully_satisfied_by_access_contract(plan))
     {
         return None;
@@ -678,17 +695,17 @@ fn derive_residual_filter_expr(plan: &AccessPlannedQuery) -> Option<Expr> {
 // addresses top-level row slots. Keep the already-compiled expression as the
 // execution authority unless the selected access path proves the predicate in
 // full and no runtime filter remains.
-fn planner_predicate_requires_expression_runtime(plan: &AccessPlannedQuery) -> bool {
-    plan.scalar_plan().predicate_covers_filter_expr
-        && plan
-            .scalar_plan()
+fn planner_predicate_requires_expression_runtime(scalar: &ScalarPlan) -> bool {
+    scalar.predicate_covers_filter_expr
+        && scalar
             .filter_expr
             .as_ref()
             .is_some_and(Expr::contains_field_path)
 }
 
 fn planner_predicate_is_fully_satisfied_by_access_contract(plan: &AccessPlannedQuery) -> bool {
-    let Some(predicate) = derive_execution_preparation_predicate(plan) else {
+    let Some(predicate) = derive_execution_preparation_predicate(plan.scalar_plan(), &plan.access)
+    else {
         return false;
     };
 
@@ -729,19 +746,36 @@ fn derive_predicate_pushdown_diagnostics(
 // access planning and no semantic residual filter expression survives.
 fn derive_predicate_fully_satisfied_by_access_contract(plan: &AccessPlannedQuery) -> bool {
     plan.scalar_plan().predicate.is_some()
-        && derive_residual_filter_predicate(plan).is_none()
+        && derive_residual_filter_predicate(plan.scalar_plan(), &plan.access).is_none()
         && derive_residual_filter_expr(plan).is_none()
 }
 
 // Return true when the semantic filter expression is entirely represented by
 // the planner-owned predicate contract and the chosen access path satisfies
 // that predicate without any runtime remainder.
-const fn derive_semantic_filter_fully_satisfied_by_access_contract(
-    plan: &AccessPlannedQuery,
-) -> bool {
-    plan.scalar_plan().filter_expr.is_some()
-        && plan.scalar_plan().predicate.is_some()
-        && plan.scalar_plan().predicate_covers_filter_expr
+const fn derive_semantic_filter_fully_satisfied_by_access_contract(scalar: &ScalarPlan) -> bool {
+    scalar.filter_expr.is_some()
+        && scalar.predicate.is_some()
+        && scalar.predicate_covers_filter_expr
+}
+
+/// Derive pre-finalization residual facts from borrowed candidate inputs.
+/// Finalized plans must continue reading their frozen residual contract instead.
+#[must_use]
+pub(in crate::db::query) fn residual_filter_facts_for_access(
+    scalar: &ScalarPlan,
+    access: &AccessPlan<Value>,
+) -> (ResidualFilterShape, Option<Predicate>) {
+    let predicate = derive_residual_filter_predicate(scalar, access);
+    // Preserve the pre-finalization shape policy: a fully predicate-represented
+    // filter does not add a second expression category to candidate ranking.
+    let expression_required = scalar.filter_expr.is_some()
+        && !derive_semantic_filter_fully_satisfied_by_access_contract(scalar);
+
+    (
+        ResidualFilterShape::from_presence(expression_required, predicate.is_some()),
+        predicate,
+    )
 }
 
 // Compile one optional planner-frozen predicate program while keeping the
@@ -770,6 +804,7 @@ fn resolve_grouped_static_planning_semantics(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
     projection_spec: &ProjectionSpec,
+    work: &PreparationWork<'_>,
 ) -> Result<
     (
         Option<Vec<GroupedAggregateExecutionSpec>>,
@@ -791,6 +826,7 @@ fn resolve_grouped_static_planning_semantics(
     let grouped_aggregate_execution_specs = Some(grouped_aggregate_execution_specs(
         schema_info,
         aggregate_specs.as_slice(),
+        work,
     )?);
     let grouped_distinct_execution_strategy = Some(
         resolved_grouped_distinct_execution_strategy_with_schema_info(
@@ -859,7 +895,8 @@ fn resolved_order_value_source_for_term(
     validate_resolved_order_scalar_seam(term.expr(), work)?;
     // Scalar compilation owns accepted field resolution. Do not resolve every
     // field again in the seam check or render a label for payload-free errors.
-    let compiled = compile_scalar_projection_expr_with_schema(schema_info, term.expr())
+    let compiled = compile_scalar_projection_expr_with_schema(schema_info, term.expr(), work)
+        .map_err(QueryError::execute)?
         .ok_or_else(|| QueryError::execute(InternalError::query_invalid_logical_plan()))?;
 
     Ok(ResolvedOrderValueSource::expression(compiled))

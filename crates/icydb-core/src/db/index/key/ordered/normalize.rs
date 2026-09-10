@@ -3,6 +3,9 @@
 //! Does not own: cross-kind canonical tagging.
 //! Boundary: internal helper for ordered component encoding.
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::index::key::ordered::{
         NEGATIVE_MARKER, OrderedValueEncodeError, POSITIVE_MARKER, ZERO_MARKER,
@@ -80,24 +83,27 @@ pub(super) fn push_signed_big_integer_payload(
     value: &IntBig,
 ) -> Result<(), OrderedValueEncodeError> {
     let (negative, limbs) = value.sign_and_u32_digits();
-    let digits = u32_limbs_to_decimal_digits(limbs);
+    let chunks = u32_limbs_to_decimal_chunks(limbs);
 
-    if digits.len() == 1 && digits[0] == b'0' {
+    if chunks.is_empty() {
         out.push(ZERO_MARKER);
         return Ok(());
     }
 
-    let digits_len = encode_segment_len(digits.len())?;
+    let digit_count = decimal_chunk_digit_count(&chunks)?;
+    let digits_len = encode_segment_len(digit_count)?;
+    // Validate length before allocating the final payload. Chunks write directly
+    // into this destination; there is no intermediate ASCII buffer to copy.
+    out.reserve_exact(1 + digits_len.len() + digit_count);
 
     if negative {
         out.push(NEGATIVE_MARKER);
         push_inverted(out, &digits_len);
-        push_inverted(out, &digits);
     } else {
         out.push(POSITIVE_MARKER);
         out.extend_from_slice(&digits_len);
-        out.extend_from_slice(&digits);
     }
+    push_decimal_chunk_digits(out, &chunks, negative);
 
     Ok(())
 }
@@ -107,11 +113,13 @@ pub(super) fn push_unsigned_big_integer_payload(
     out: &mut Vec<u8>,
     value: &NatBig,
 ) -> Result<(), OrderedValueEncodeError> {
-    let digits = u32_limbs_to_decimal_digits(value.u32_digits());
+    let chunks = u32_limbs_to_decimal_chunks(value.u32_digits());
 
-    let digits_len = encode_segment_len(digits.len())?;
+    let digit_count = decimal_chunk_digit_count(&chunks)?;
+    let digits_len = encode_segment_len(digit_count)?;
+    out.reserve_exact(digits_len.len() + digit_count);
     out.extend_from_slice(&digits_len);
-    out.extend_from_slice(&digits);
+    push_decimal_chunk_digits(out, &chunks, false);
 
     Ok(())
 }
@@ -134,12 +142,12 @@ fn decimal_exponent(scale: u32, digit_len: usize) -> Result<i32, OrderedValueEnc
     i32::try_from(exponent).map_err(|_| OrderedValueEncodeError::DecimalExponentOverflow)
 }
 
-/// Convert little-endian base-2^32 limbs to ASCII decimal digits.
-/// This avoids decimal String formatting but still uses temporary vectors.
-fn u32_limbs_to_decimal_digits(mut quotient: Vec<u32>) -> Vec<u8> {
+/// Convert little-endian base-2^32 limbs into little-endian base-1e9 chunks.
+/// Empty chunks represent zero; both integer families share this conversion.
+fn u32_limbs_to_decimal_chunks(mut quotient: Vec<u32>) -> Vec<u32> {
     trim_zero_limbs(&mut quotient);
     if quotient.is_empty() {
-        return vec![b'0'];
+        return Vec::new();
     }
 
     // base-2^32 and base-1e9 are close in radix width, so chunks are roughly
@@ -158,7 +166,7 @@ fn u32_limbs_to_decimal_digits(mut quotient: Vec<u32>) -> Vec<u8> {
         trim_zero_limbs(&mut quotient);
     }
 
-    chunks_to_decimal_digits(chunks)
+    chunks
 }
 
 fn trim_zero_limbs(limbs: &mut Vec<u32>) {
@@ -167,45 +175,45 @@ fn trim_zero_limbs(limbs: &mut Vec<u32>) {
     }
 }
 
-fn chunks_to_decimal_digits(mut chunks: Vec<u32>) -> Vec<u8> {
-    let mut out = Vec::with_capacity(chunks.len().saturating_mul(BIGINT_DECIMAL_CHUNK_WIDTH));
+// The digit length follows from chunk count plus at most nine leading digits;
+// no digit traversal or temporary text allocation is needed for admission.
+fn decimal_chunk_digit_count(chunks: &[u32]) -> Result<usize, OrderedValueEncodeError> {
+    let Some(&leading) = chunks.last() else {
+        return Ok(1);
+    };
+    (chunks.len() - 1)
+        .checked_mul(BIGINT_DECIMAL_CHUNK_WIDTH)
+        .and_then(|padded| padded.checked_add(decimal_chunk_width(leading)))
+        .ok_or(OrderedValueEncodeError::SegmentTooLarge)
+}
 
-    if let Some(most_significant) = chunks.pop() {
-        push_unpadded_chunk_digits(&mut out, most_significant);
+fn push_decimal_chunk_digits(out: &mut Vec<u8>, chunks: &[u32], inverted: bool) {
+    let Some((&leading, remaining)) = chunks.split_last() else {
+        out.push(if inverted { !b'0' } else { b'0' });
+        return;
+    };
+    push_chunk_digits(out, leading, decimal_chunk_width(leading), inverted);
+    for &chunk in remaining.iter().rev() {
+        push_chunk_digits(out, chunk, BIGINT_DECIMAL_CHUNK_WIDTH, inverted);
+    }
+}
+
+fn decimal_chunk_width(chunk: u32) -> usize {
+    chunk.checked_ilog10().unwrap_or(0) as usize + 1
+}
+
+// A fixed stack scratch covers both the unpadded leading chunk and all padded
+// chunks. Negative signed values invert these same bytes, preserving ordering.
+fn push_chunk_digits(out: &mut Vec<u8>, mut chunk: u32, width: usize, inverted: bool) {
+    let mut scratch = [b'0'; BIGINT_DECIMAL_CHUNK_WIDTH];
+    for digit in scratch[..width].iter_mut().rev() {
+        *digit = digit_to_ascii(chunk % 10);
+        chunk /= 10;
+    }
+    if inverted {
+        push_inverted(out, &scratch[..width]);
     } else {
-        out.push(b'0');
-        return out;
-    }
-
-    while let Some(chunk) = chunks.pop() {
-        push_padded_chunk_digits(&mut out, chunk);
-    }
-
-    out
-}
-
-fn push_unpadded_chunk_digits(out: &mut Vec<u8>, chunk: u32) {
-    let mut scratch = [0u8; BIGINT_DECIMAL_CHUNK_WIDTH];
-    let mut write_idx = BIGINT_DECIMAL_CHUNK_WIDTH;
-    let mut value = chunk;
-
-    loop {
-        write_idx = write_idx.saturating_sub(1);
-        scratch[write_idx] = digit_to_ascii(value % 10);
-        value /= 10;
-        if value == 0 {
-            break;
-        }
-    }
-
-    out.extend_from_slice(&scratch[write_idx..BIGINT_DECIMAL_CHUNK_WIDTH]);
-}
-
-fn push_padded_chunk_digits(out: &mut Vec<u8>, chunk: u32) {
-    let mut divisor = 100_000_000u32;
-    for _ in 0..BIGINT_DECIMAL_CHUNK_WIDTH {
-        out.push(digit_to_ascii((chunk / divisor) % 10));
-        divisor = if divisor > 1 { divisor / 10 } else { 1 };
+        out.extend_from_slice(&scratch[..width]);
     }
 }
 

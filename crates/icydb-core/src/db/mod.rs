@@ -70,8 +70,9 @@ pub use codec::hex::encode_hex_lower;
 pub use commit::install_startup_recovery_wakeup;
 pub use data::DataStore;
 pub use diagnostics::{
-    DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport,
-    StoreSnapshotStorageMode,
+    DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, MemoryAllocation,
+    MemoryAllocationBinding, MemoryAllocationRangeClaim, MemoryAllocations, MemoryExtent,
+    SchemaStoreSnapshot, StorageReport, StoreSnapshotStorageMode,
 };
 #[doc(hidden)]
 pub use dynamic_write::{
@@ -333,19 +334,6 @@ impl<C: CanisterKind> Db<C> {
         diagnostics::storage_report_default(self)
     }
 
-    // Rebuild one already-authorized marker effect without re-running current
-    // accepted relation-target admission.
-    pub(in crate::db) fn prepare_row_commit_op_for_replay(
-        &self,
-        op: &CommitRowOp,
-    ) -> Result<PreparedRowCommitOp, InternalError> {
-        runtime_entity_catalog::prepare_row_commit(
-            self,
-            op,
-            commit::CommitPrepareMode::RecoveryReplay,
-        )
-    }
-
     // Rebuild one complete batch against shared immutable accepted authority.
     pub(in crate::db) fn prepare_row_commit_batch_for_replay(
         &self,
@@ -359,12 +347,9 @@ impl<C: CanisterKind> Db<C> {
     pub(in crate::db) fn prepare_row_commit_op_for_rebuild(
         &self,
         op: &CommitRowOp,
+        contexts: &mut commit::CommitPrepareContextCache,
     ) -> Result<PreparedRowCommitOp, InternalError> {
-        runtime_entity_catalog::prepare_row_commit(
-            self,
-            op,
-            commit::CommitPrepareMode::DerivedRebuild,
-        )
+        runtime_entity_catalog::prepare_row_commit_for_rebuild(self, op, contexts)
     }
 
     // Validate relation constraints for delete-selected target keys.

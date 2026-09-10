@@ -17,10 +17,7 @@ use crate::{
         schema::AcceptedFieldKind,
         session::{
             AcceptedSchemaCatalogContext,
-            query::{
-                StructuralProjectionContract,
-                exact_count_cardinality_prefix_keys_for_accepted_authority,
-            },
+            query::StructuralProjectionContract,
             sql::{
                 CompiledSqlCommand, SqlCompiledSchemaFingerprint, SqlGlobalAggregateCachedPlan,
                 SqlGlobalAggregatePlanCacheEntry, SqlStatementResult,
@@ -365,11 +362,12 @@ impl<C: CanisterKind> DbSession<C> {
         let visible_indexes = Self::visible_indexes_for_accepted_schema(schema_info, visibility);
         let entry = direct_count_cardinality_plan_entry_from_prefix_keys(
             catalog,
-            exact_count_cardinality_prefix_keys_for_accepted_authority(
+            self.exact_count_cardinality_prefix_keys_for_accepted_authority(
                 authority,
                 command.query(),
                 &visible_indexes,
                 schema_info,
+                DiagnosticExecutionLane::TrustedRead,
             )?,
         );
 

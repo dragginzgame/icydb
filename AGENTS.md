@@ -15,6 +15,11 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Use absolute filesystem paths in final file references.
 - Before `1.0.0`, follow the hard-cut compatibility rules below; do not keep legacy fallbacks.
 - For wasm decisions, prioritize raw non-gzipped `.wasm` bytes; gzip is secondary context.
+- Performance metrics are Wasm size, IC cycles, and instruction counts only.
+  Never use wall-clock/native timing as a performance metric, proxy, or release
+  gate; do not run timing benchmarks or investigate timing regressions.
+  If the relevant permitted measurement is unavailable, report it as unmeasured
+  rather than substituting elapsed time.
 
 ## SemVer Terminology
 
@@ -109,7 +114,7 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Run focused checks after edits; run broader checks only when the slice is otherwise ready.
 - When validation reports a clippy failure, stop later validation work, run `make clippy`, fix every warning, and rerun the focused gate before handing back to the user.
 - Do not repeatedly rerun expensive failing commands; capture the first failure and report it.
-- Report perf and wasm-size deltas alongside a complexity delta: files touched,
+- Report measured cycle/instruction and wasm-size deltas alongside a complexity delta: files touched,
   approximate line delta, and whether the implementation shape got simpler,
   stayed neutral, or became more complex.
 

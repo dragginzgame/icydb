@@ -35,11 +35,10 @@ use crate::{
         },
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
-            AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
-            ConstraintActivationKind, ConstraintActivationState, ConstraintId, ConstraintOrigin,
-            ConstraintValidationJob, FieldId, PersistedIndexKeyItemSnapshot,
-            PersistedIndexKeySnapshot, PersistedSchemaSnapshot, SchemaVersion,
-            accepted_schema_cache_fingerprint,
+            AcceptedFieldKind, AcceptedSchemaSnapshot, ConstraintActivationKind,
+            ConstraintActivationState, ConstraintId, ConstraintOrigin, ConstraintValidationJob,
+            FieldId, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+            PersistedSchemaSnapshot, SchemaVersion, accepted_schema_cache_fingerprint,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             accepted_schema_cache_fingerprint_method_version, decode_constraint_validation_job,
             decode_persisted_schema_snapshot, encode_constraint_validation_job,
@@ -57,9 +56,9 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
-    storable::Bound as StorableBound,
+use ic_memory::RuntimeMemory;
+use ic_memory::ic_stable_structures::{
+    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound as StorableBound,
 };
 use sha2::Digest;
 use std::borrow::Cow;
@@ -93,32 +92,6 @@ const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_COMPOSITE: u8 = 32;
 const RAW_SCHEMA_SNAPSHOT_MAGIC: &[u8; 8] = b"ICYDBCAT";
 const RAW_SCHEMA_SNAPSHOT_VALUE_VERSION: u8 = 1;
 const RAW_SCHEMA_SNAPSHOT_HEADER_BYTES: usize = 25;
-
-/// Load one accepted entity snapshot through the current immutable bundle.
-///
-/// The persisted root and row-layout contract are both validated before the
-/// snapshot can become runtime authority.
-pub(in crate::db) fn load_accepted_schema_snapshot(
-    schema_store: &SchemaStore,
-    entity_tag: EntityTag,
-    entity_path: &str,
-) -> Result<AcceptedSchemaSnapshot, InternalError> {
-    let bundle = schema_store
-        .current_accepted_schema_bundle()?
-        .ok_or_else(InternalError::store_corruption)?;
-    let snapshot = bundle
-        .entity_snapshots()
-        .get(&entity_tag)
-        .cloned()
-        .ok_or_else(InternalError::store_corruption)?;
-    if snapshot.entity_path() != entity_path {
-        return Err(InternalError::store_corruption());
-    }
-    let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
-    let _runtime_contract = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)?;
-
-    Ok(accepted)
-}
 
 #[cfg(test)]
 thread_local! {
@@ -548,7 +521,8 @@ impl AcceptedCatalogSnapshotSelection {
     }
 
     /// Select one entity snapshot and catalog directly from a verified schema
-    /// candidate while recovery is still applying its accepted root.
+    /// candidate during migration preparation.
+    #[cfg(any(test, feature = "migration"))]
     pub(in crate::db) fn from_candidate(
         candidate: &CandidateSchemaRevision,
         entity_tag: EntityTag,
@@ -853,7 +827,7 @@ enum SchemaStoreBackend {
     Heap(StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>),
     Journaled {
         canonical:
-            StableBTreeMap<RawSchemaKey, RawSchemaSnapshot, VirtualMemory<DefaultMemoryImpl>>,
+            StableBTreeMap<RawSchemaKey, RawSchemaSnapshot, RuntimeMemory<DefaultMemoryImpl>>,
         live: StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>,
         tombstones: BTreeSet<RawSchemaKey>,
         positions: PositionedOverlayMetadata<RawSchemaKey>,
@@ -947,7 +921,7 @@ impl SchemaStore {
     /// Normal schema publication writes only the live projection. Canonical
     /// stable schema history is updated by future journal fold/recovery paths.
     #[must_use]
-    pub fn init_journaled(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
+    pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
         Self {
             backend: SchemaStoreBackend::Journaled {
                 canonical: StableBTreeMap::init(memory),
@@ -4144,7 +4118,7 @@ impl SchemaStore {
         canonical: &StableBTreeMap<
             RawSchemaKey,
             RawSchemaSnapshot,
-            VirtualMemory<DefaultMemoryImpl>,
+            RuntimeMemory<DefaultMemoryImpl>,
         >,
         live: &StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>,
         tombstones: &BTreeSet<RawSchemaKey>,

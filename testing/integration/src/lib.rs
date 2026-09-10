@@ -48,8 +48,10 @@ const WATCHDOG_MESSAGE_COMPLETION_TICKS: usize = 24;
 
 /// Maximum watchdog deliveries in the frozen normal convergence residual proof.
 ///
-/// This is `B_0 + C_driver`, or `64 + 4`, for the maximum admitted backlog.
-pub const MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES: usize = 68;
+/// This is `B_0 + C_driver`, or `64 + 6`, for the maximum admitted backlog:
+/// the original four driver deliveries plus separate replay and verification.
+/// Ordinary online convergence still needs at most one fold per batch.
+pub const MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES: usize = 70;
 
 /// Canonical instruction and completion evidence returned by the SQL audit
 /// canister's generated startup watchdog.

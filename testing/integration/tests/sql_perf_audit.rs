@@ -1,5 +1,7 @@
 //! Total-only instruction coverage for the SQL performance actor.
 
+mod indexed_recovery;
+
 use candid::CandidType;
 use icydb::{Error, db::sql::SqlQueryResult};
 use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
@@ -8,6 +10,12 @@ use serde::Deserialize;
 #[derive(CandidType, Debug, Deserialize)]
 struct ReadTotalOnlyPerfResult {
     row_count: u32,
+    instructions: u64,
+}
+
+#[derive(CandidType, Debug, Deserialize)]
+struct IndexedBigIntegerAttempt {
+    outcome: Result<u32, Error>,
     instructions: u64,
 }
 
@@ -399,6 +407,74 @@ fn big_integer_write_wasm_cost_matrix() {
                 "big_integer_write_cost digits={digits} repeat={repeat} instructions={} cycles={cycles}",
                 sample.instructions
             );
+        }
+    }
+}
+
+/// Exercise the existing scalar index boundary, including late batch rejection.
+#[test]
+#[ignore = "manual wasm-release indexed scalar admission instruction and cycle measurement"]
+fn indexed_big_integer_write_wasm_cost_matrix() {
+    let module = preparation_measurement_wasm();
+    for negative in [false, true] {
+        for digits in [20_u32, 300, 4_092, 4_093, 4_094] {
+            for rows in [1_u16, 32] {
+                let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(
+                    "sql_perf",
+                    module.clone(),
+                );
+                let prepared: Result<(), Error> = fixture
+                    .update_candid("prepare_indexed_big_integer_fixture", ())
+                    .expect("fixed index setup should decode");
+                prepared.expect("empty accepted indexes should publish");
+                settle_measurement_rounds(&fixture);
+                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+                let sample: Result<IndexedBigIntegerAttempt, Error> = fixture
+                    .update_candid(
+                        "measure_indexed_big_integer_write",
+                        (negative, digits, rows),
+                    )
+                    .expect("indexed scalar measurement should decode");
+                let cycles = before
+                    .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+                    .expect("the update should charge cycles");
+                let sample = sample.expect("the fixed measurement input should be valid");
+                let accepted = digits <= if negative { 4_092 } else { 4_093 };
+                assert!(sample.instructions > 0);
+                if accepted {
+                    assert_eq!(
+                        sample.outcome.expect("bounded index components should fit"),
+                        u32::from(rows)
+                    );
+                } else {
+                    assert_eq!(
+                        sample
+                            .outcome
+                            .expect_err("oversized components must reject")
+                            .origin(),
+                        icydb::ErrorOrigin::Index,
+                    );
+                }
+                let result: Result<SqlQueryResult, Error> = fixture
+                    .query_candid(
+                        "query_user",
+                        ("SELECT id FROM PerfAuditIndexedBigInteger ORDER BY id".to_string(),),
+                    )
+                    .expect("post-write row inspection should decode");
+                let SqlQueryResult::Projection(projection) =
+                    result.expect("row inspection should succeed")
+                else {
+                    panic!("row inspection must return a projection");
+                };
+                assert_eq!(
+                    projection.rows.len(),
+                    if accepted { usize::from(rows) } else { 0 }
+                );
+                println!(
+                    "indexed_big_integer_write_cost negative={negative} digits={digits} rows={rows} accepted={accepted} instructions={} cycles={cycles}",
+                    sample.instructions,
+                );
+            }
         }
     }
 }

@@ -79,6 +79,56 @@ fn assert_exhausted(error: QueryError, root: &RequestExecutionRoot, lane: Diagno
 }
 
 #[test]
+fn logical_clause_exhaustion_keeps_cold_cache_empty_and_warm_hits_skip_copies() {
+    let setup = initialize();
+    let catalog = setup
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    for lane in [
+        DiagnosticExecutionLane::PublicRead,
+        DiagnosticExecutionLane::TrustedRead,
+        DiagnosticExecutionLane::Diagnostic,
+    ] {
+        for query in [
+            query(),
+            query().filter_normalized_predicate(Predicate::False),
+        ] {
+            setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+            let root = RequestExecutionRoot::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(
+                    16_000_000,
+                    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                )
+                .with_limit_for_tests(Resource::TemporaryBytes, 0),
+            );
+            let session = new_request_session_with_root(&root);
+            let error = plan(&session, &catalog, &query, lane).unwrap_err();
+            assert!(error.diagnostic_facts().contains(&(
+                DiagnosticFactTag::BudgetResource,
+                Resource::TemporaryBytes.raw(),
+            )));
+            assert_eq!(setup.shared_query_cache_usage_for_tests(), (0, 0));
+            let fresh = request(false, lane);
+            assert!(
+                !plan(
+                    &new_request_session_with_root(&fresh),
+                    &catalog,
+                    &query,
+                    lane
+                )
+                .unwrap()
+                .is_hit()
+            );
+            let bytes = root.observed(Resource::TemporaryBytes);
+            assert!(plan(&session, &catalog, &query, lane).unwrap().is_hit());
+            assert_eq!(root.observed(Resource::TemporaryBytes), bytes);
+            assert_eq!(root.observed(Resource::RowsVisited), 0);
+            assert_eq!(root.observed(Resource::QueryExecutions), 0);
+        }
+    }
+}
+
+#[test]
 fn cold_plan_watermark_precedes_publication_and_hits_skip_construction() {
     let setup = initialize();
     let catalog = setup
@@ -245,11 +295,39 @@ fn executor_handoff_requires_and_preserves_finalized_planner_metadata() {
             assert!(finalized.has_static_execution_planning_contract());
             let expected_profile = finalized.planner_route_profile().clone();
             let expected_signature = prepared.continuation_signature_for_runtime().unwrap();
-            let rebound = SharedPreparedExecutionPlan::from_plan(
-                catalog.accepted_entity_authority(),
-                finalized.clone(),
-                catalog.fingerprint(),
-            )
+            let denied = RequestExecutionRoot::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(
+                    16_000_000,
+                    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                )
+                .with_limit_for_tests(Resource::PredicateExpressionSteps, 0),
+            );
+            let before = setup.shared_query_cache_usage_for_tests();
+            let error = PreparationWork::run(&denied.scope(), lane, |work| {
+                SharedPreparedExecutionPlan::from_plan(
+                    catalog.accepted_entity_authority(),
+                    finalized.clone(),
+                    catalog.fingerprint(),
+                    work,
+                )
+                .map_err(QueryError::execute)
+            })
+            .unwrap_err();
+            assert!(error.diagnostic_facts().contains(&(
+                icydb_diagnostic_code::DiagnosticFactTag::BudgetResource,
+                Resource::PredicateExpressionSteps.raw(),
+            )));
+            assert_eq!(denied.observed(Resource::PredicateExpressionSteps), 1);
+            assert_eq!(denied.observed(Resource::RowsVisited), 0);
+            assert_eq!(setup.shared_query_cache_usage_for_tests(), before);
+            let rebound = crate::db::query::preparation::with_preparation_work(|work| {
+                SharedPreparedExecutionPlan::from_plan(
+                    catalog.accepted_entity_authority(),
+                    finalized.clone(),
+                    catalog.fingerprint(),
+                    work,
+                )
+            })
             .unwrap();
             assert_eq!(
                 rebound.logical_plan().planner_route_profile(),
@@ -263,11 +341,14 @@ fn executor_handoff_requires_and_preserves_finalized_planner_metadata() {
             let mut incomplete = finalized.clone();
             incomplete.static_execution_planning_contract = None;
             let before = setup.shared_query_cache_usage_for_tests();
-            let error = SharedPreparedExecutionPlan::from_plan(
-                catalog.accepted_entity_authority(),
-                incomplete,
-                catalog.fingerprint(),
-            )
+            let error = crate::db::query::preparation::with_preparation_work(|work| {
+                SharedPreparedExecutionPlan::from_plan(
+                    catalog.accepted_entity_authority(),
+                    incomplete,
+                    catalog.fingerprint(),
+                    work,
+                )
+            })
             .unwrap_err();
             assert_eq!(error.class(), ErrorClass::InvariantViolation);
             assert_eq!(error.origin(), ErrorOrigin::Query);

@@ -27,18 +27,15 @@ use crate::{
         },
     },
     error::{ErrorClass, ErrorOrigin},
-    testing::test_memory,
+    testing::{test_memory, test_memory_with_backing},
     types::EntityTag,
 };
-use ic_stable_structures::{
-    Memory, Storable, VectorMemory,
-    memory_manager::{MemoryId, MemoryManager},
-};
+use ic_memory::ic_stable_structures::{Memory, Storable, VectorMemory};
 use icydb_schema::SchemaMigrationPlanDigest;
 use sha2::{Digest, Sha256};
 use std::{borrow::Cow, mem::size_of};
 
-const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 1 + 128;
+const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 128;
 
 fn raw_data_store_key(fill: u64) -> RawDataStoreKey {
     raw_data_store_key_for(EntityTag::new(1), fill)
@@ -1951,15 +1948,17 @@ fn journal_tail_store_is_empty_before_append() {
 #[test]
 fn journal_tail_tiny_append_stays_within_one_memory_manager_bucket() {
     let memory = VectorMemory::default();
-    let manager = MemoryManager::init(memory.clone());
-    let mut store = JournalTailStore::init(manager.get(MemoryId::new(17)));
+    let journal_memory = test_memory_with_backing(17, memory.clone());
+    // Attribute only the store's growth, excluding the bootstrapped ledger.
+    let bootstrap_pages = memory.size();
+    let mut store = JournalTailStore::init(journal_memory);
 
     store
         .append_batch(&batch(1))
         .expect("tiny batch should append");
 
     assert!(
-        memory.size() <= SINGLE_MEMORY_MANAGER_BUCKET_PAGES,
+        memory.size() - bootstrap_pages <= SINGLE_MEMORY_MANAGER_BUCKET_PAGES,
         "tiny journal append should not allocate extra MemoryManager buckets; pages={}",
         memory.size()
     );
@@ -1968,9 +1967,7 @@ fn journal_tail_tiny_append_stays_within_one_memory_manager_bucket() {
 #[test]
 fn entity_revision_metadata_stays_bounded_at_the_accepted_entity_limit() {
     fn revision_pages(entity_count: usize, memory_id: u8) -> (u64, u64) {
-        let memory = VectorMemory::default();
-        let manager = MemoryManager::init(memory);
-        let journal_memory = manager.get(MemoryId::new(memory_id));
+        let journal_memory = test_memory(memory_id);
         let observation = journal_memory.clone();
         let mut store = JournalTailStore::init(journal_memory);
         store
@@ -2025,7 +2022,7 @@ fn entity_revision_metadata_stays_bounded_at_the_accepted_entity_limit() {
 fn journal_tail_chunk_storable_bound_caps_raw_tail_value_bytes() {
     assert_eq!(
         RawJournalChunk::BOUND,
-        ic_stable_structures::storable::Bound::Bounded {
+        ic_memory::ic_stable_structures::storable::Bound::Bounded {
             max_size: JOURNAL_TAIL_CHUNK_BYTES,
             is_fixed_size: false,
         }

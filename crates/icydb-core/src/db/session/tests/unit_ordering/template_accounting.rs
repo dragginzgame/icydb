@@ -8,7 +8,7 @@ use crate::db::{
     predicate::IndexCompileTarget,
     query::{
         intent::StructuralQuery,
-        plan::{OrderSpec, ResolvedOrderField, VisibleIndexes},
+        plan::{OrderSpec, OrderTerm, ResolvedOrderField, VisibleIndexes},
         preparation::PreparationWork,
     },
 };
@@ -40,12 +40,11 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
     let bytes =
         (size_of_val(visible.accepted_semantic_index_contracts()) + 2 * size_of::<usize>()) as u64;
     let queries = ["singleton", "missing", "singleton"].map(|label| indexed_query(&setup, label));
-    let (projection_bytes, projection_steps) = projection_cost(&setup, &queries[0]);
-    let metadata_bytes = projection_bytes
-        + (size_of::<ResolvedOrderField>()
-            + 5 * size_of::<usize>()
-            + size_of::<IndexCompileTarget>()) as u64;
-    let metadata_steps = projection_steps + 4 + "label".len() as u64 + "id".len() as u64;
+    let (metadata_bytes, metadata_steps) = metadata_and_lowering_cost(&setup, &queries[0]);
+    let (access_order_bytes, access_order_steps) = access_order_cost();
+    let clauses = queries
+        .each_ref()
+        .map(|query| logical_clause_cost(&setup, query));
     for lane in [
         DiagnosticExecutionLane::PublicRead,
         DiagnosticExecutionLane::TrustedRead,
@@ -53,13 +52,13 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
         for (resource, exact, rebound) in [
             (
                 Resource::TemporaryBytes,
-                bytes + metadata_bytes,
-                metadata_bytes,
+                bytes + metadata_bytes + clauses[0].0 + access_order_bytes,
+                [clauses[1].0, clauses[2].0].map(|clause| metadata_bytes + clause),
             ),
             (
                 Resource::PredicateExpressionSteps,
-                count as u64 + metadata_steps,
-                metadata_steps,
+                count as u64 + metadata_steps + clauses[0].1 + access_order_steps,
+                [clauses[1].1, clauses[2].1].map(|clause| metadata_steps + clause),
             ),
         ] {
             setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
@@ -111,8 +110,9 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
             assert_eq!(setup.shared_query_cache_usage_for_tests().0, 1);
             // A memo hit skips construction. A/B/A rebinding rebuilds static
             // metadata but retains the candidate array instead of copying it.
-            let warm = request(resource, 2 * rebound);
+            let warm = request(resource, rebound.iter().sum());
             let session = new_request_session_with_root(&warm);
+            let mut expected = 0;
             for (position, query) in queries.iter().enumerate() {
                 let (_, reuse) = session
                     .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
@@ -123,12 +123,80 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
                     )
                     .unwrap();
                 assert!(reuse.is_hit());
-                assert_eq!(warm.observed(resource), position as u64 * rebound);
+                if position > 0 {
+                    expected += rebound[position - 1];
+                }
+                assert_eq!(warm.observed(resource), expected);
                 assert_eq!(warm.observed(Resource::PlanCompilations), 0);
                 assert_eq!(setup.shared_query_cache_usage_for_tests().0, 1);
             }
         }
     }
+}
+
+fn metadata_and_lowering_cost(
+    setup: &DbSession<TestCanister>,
+    query: &StructuralQuery,
+) -> (u64, u64) {
+    let (projection_bytes, projection_steps) = projection_cost(setup, query);
+    let metadata_bytes = projection_bytes
+        + (size_of::<ResolvedOrderField>()
+            + 5 * size_of::<usize>()
+            + size_of::<IndexCompileTarget>()) as u64;
+    let metadata_steps = projection_steps + 4 + "label".len() as u64 + "id".len() as u64;
+    // One access node and component are lowered on cold preparation and rebind;
+    // an identical bound memo hit skips metadata construction and lowering.
+    let lowering_bytes = (4 * size_of::<crate::db::access::LoweredIndexPrefixSpec>()
+        + size_of::<crate::db::index::EncodedValue>()) as u64;
+    // Logical assembly canonicalizes the already-copied id order on cold and
+    // rebound paths: one key visit, one term visit, two compared name bytes.
+    // Duplicate and primary-key consistency checks each visit/compare id (4).
+    (metadata_bytes + lowering_bytes, metadata_steps + 2 + 4 + 8)
+}
+
+const fn access_order_cost() -> (u64, u64) {
+    // Initial access selection also copies and canonicalizes the id order.
+    // Template rebinding retains its existing topology and skips this work.
+    ((size_of::<OrderTerm>() + "id".len()) as u64, 4 + 4)
+}
+
+// These indexed fixtures retain their authored filter and id order unchanged.
+// Reuse the independently tested copy owners: A/B/A literals have different
+// lengths, so cold/rebound allowances must follow the actual bound payloads.
+fn logical_clause_cost(setup: &DbSession<TestCanister>, query: &StructuralQuery) -> (u64, u64) {
+    let catalog = setup
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    let (plan, _) = setup
+        .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+            catalog.accepted_entity_authority(),
+            &catalog,
+            query,
+            DiagnosticExecutionLane::PublicRead,
+        )
+        .unwrap();
+    let root = request(Resource::TemporaryBytes, 16_000_000);
+    PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
+        let scalar = plan.logical_plan().scalar_plan();
+        work.copy_expr(
+            scalar
+                .filter_expr
+                .as_ref()
+                .expect("authored filter retained"),
+        )?;
+        work.copy_order_spec(
+            scalar
+                .order
+                .as_ref()
+                .expect("authored id ordering retained"),
+        )?;
+        Ok(())
+    })
+    .unwrap();
+    (
+        root.observed(Resource::TemporaryBytes),
+        root.observed(Resource::PredicateExpressionSteps),
+    )
 }
 
 fn indexed_query(setup: &DbSession<TestCanister>, label: &str) -> StructuralQuery {
@@ -171,7 +239,13 @@ fn projection_cost(setup: &DbSession<TestCanister>, query: &StructuralQuery) -> 
     PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
         let projection = plan
             .logical_plan()
-            .projection_spec_with_schema(catalog.accepted_schema_info());
+            .prepare_projection(catalog.accepted_schema_info(), work)?;
+        crate::db::query::plan::expr::compile_scalar_projection_plan_with_schema(
+            catalog.accepted_schema_info(),
+            &projection,
+            work,
+        )
+        .map_err(QueryError::execute)?;
         crate::db::query::plan::lower_direct_projection_layouts_with_schema(
             catalog.accepted_schema_info(),
             &plan.logical_plan().logical,

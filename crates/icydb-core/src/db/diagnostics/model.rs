@@ -4,6 +4,7 @@
 //! Boundary: report assembly modules construct these DTOs; public callers read them.
 
 use crate::db::{
+    diagnostics::MemoryAllocations,
     index::IndexState,
     registry::{
         StoreAllocationIdentityCapability, StoreCommitParticipation, StoreDurability,
@@ -16,6 +17,7 @@ use serde::Deserialize;
 #[cfg_attr(doc, doc = "StorageReport\n\nLive storage snapshot payload.")]
 #[derive(CandidType, Clone, Debug, Default, Deserialize)]
 pub struct StorageReport {
+    pub(crate) memory_allocations: Option<MemoryAllocations>,
     pub(crate) storage_data: Vec<DataStoreSnapshot>,
     pub(crate) storage_index: Vec<IndexStoreSnapshot>,
     pub(crate) schema_storage: Vec<SchemaStoreSnapshot>,
@@ -34,8 +36,10 @@ impl StorageReport {
         entity_storage: Vec<EntitySnapshot>,
         corrupted_keys: u64,
         corrupted_entries: u64,
+        memory_allocations: Option<MemoryAllocations>,
     ) -> Self {
         Self {
+            memory_allocations,
             storage_data,
             storage_index,
             schema_storage,
@@ -43,6 +47,15 @@ impl StorageReport {
             corrupted_keys,
             corrupted_entries,
         }
+    }
+
+    /// Borrow canister-wide physical allocation accounting.
+    ///
+    /// Absent when no default memory runtime exists. This includes other
+    /// libraries' allocations and the ledger, not just this database's stores.
+    #[must_use]
+    pub const fn memory_allocations(&self) -> Option<&MemoryAllocations> {
+        self.memory_allocations.as_ref()
     }
 
     /// Borrow data-store snapshots.

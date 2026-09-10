@@ -4,10 +4,7 @@
 #[cfg(test)]
 mod tests;
 
-use std::{
-    cmp::Ordering,
-    fmt::{self, Write},
-};
+use std::cmp::Ordering;
 
 use crate::db::{
     QueryError,
@@ -17,49 +14,6 @@ use crate::db::{
     },
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
-
-struct OrderingText<'a, 'scope> {
-    work: &'a PreparationWork<'scope>,
-    text: String,
-    error: Option<QueryError>,
-}
-
-impl<'a, 'scope> OrderingText<'a, 'scope> {
-    fn render(
-        work: &'a PreparationWork<'scope>,
-        render: impl FnOnce(&mut Self) -> fmt::Result,
-    ) -> Result<String, QueryError> {
-        let mut output = Self {
-            work,
-            text: String::new(),
-            error: None,
-        };
-        let result = render(&mut output);
-        if let Some(error) = output.error {
-            return Err(error);
-        }
-        result.map_err(|_| QueryError::invariant())?;
-        Ok(output.text)
-    }
-}
-
-impl Write for OrderingText<'_, '_> {
-    fn write_str(&mut self, text: &str) -> fmt::Result {
-        if self.error.is_some() {
-            return Err(fmt::Error);
-        }
-        let admission = self
-            .work
-            .charge(Resource::PredicateExpressionSteps, text.len() as u64)
-            .and_then(|()| self.work.reserve_string(&mut self.text, text.len()));
-        if let Err(error) = admission {
-            self.error = Some(error);
-            return Err(fmt::Error);
-        }
-        self.text.push_str(text);
-        Ok(())
-    }
-}
 
 // Keys live only for this sort. Render each label once, and each typed Debug
 // key only if a label ties; no operand is cloned or retained by another owner.
@@ -73,9 +27,7 @@ impl<'a> OrderingKey<'a> {
     fn new(expr: &'a Expr, work: &PreparationWork<'_>) -> Result<Self, QueryError> {
         Ok(Self {
             expr,
-            label: OrderingText::render(work, |out| {
-                write_scalar_projection_expr_plan_label(expr, out)
-            })?,
+            label: work.render_text(|out| write_scalar_projection_expr_plan_label(expr, out))?,
             debug: None,
         })
     }
@@ -83,7 +35,7 @@ impl<'a> OrderingKey<'a> {
     fn prepare_debug(&mut self, work: &PreparationWork<'_>) -> Result<(), QueryError> {
         if self.debug.is_none() {
             let expr = self.expr;
-            self.debug = Some(OrderingText::render(work, |out| write!(out, "{expr:?}"))?);
+            self.debug = Some(work.render_text(|out| write!(out, "{expr:?}"))?);
         }
         Ok(())
     }

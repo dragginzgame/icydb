@@ -8,54 +8,6 @@ use crate::{db::index::EncodedValue, value::Value};
 use std::ops::Bound;
 
 ///
-/// IndexBoundsSpec
-///
-/// Semantic index-bound request accepted by the canonical lowering path.
-/// Callers choose the logical shape; this module owns the conversion into raw
-/// index-key bounds without changing ordered-component encoding semantics.
-///
-
-pub(in crate::db) enum IndexBoundsSpec<'a> {
-    /// Component range lookup after zero or more exact prefix components.
-    ComponentRange {
-        prefix: &'a [Value],
-        lower: &'a Bound<Value>,
-        upper: &'a Bound<Value>,
-    },
-    /// Text starts-with lookup after zero or more exact prefix components.
-    TextPrefixRange {
-        prefix: &'a [Value],
-        text_prefix: &'a str,
-        mode: TextPrefixBoundMode,
-    },
-}
-
-impl<'a> IndexBoundsSpec<'a> {
-    /// Build a component-range spec, preserving canonical text-prefix shape
-    /// when the semantic bounds match one of the starts-with envelopes.
-    #[must_use]
-    pub(in crate::db) fn component_range(
-        prefix: &'a [Value],
-        lower: &'a Bound<Value>,
-        upper: &'a Bound<Value>,
-    ) -> Self {
-        if let Some((text_prefix, mode)) = text_prefix_mode_for_component_bounds(lower, upper) {
-            return Self::TextPrefixRange {
-                prefix,
-                text_prefix,
-                mode,
-            };
-        }
-
-        Self::ComponentRange {
-            prefix,
-            lower,
-            upper,
-        }
-    }
-}
-
-///
 /// TextPrefixBoundMode
 ///
 /// Planner-visible text-prefix envelope policy. Strict field-key lookups use
@@ -81,7 +33,6 @@ pub(in crate::db) enum TextPrefixBoundMode {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum IndexRangeBoundEncodeError {
-    Prefix,
     Lower,
     Upper,
     RawKey,
@@ -130,45 +81,6 @@ impl IndexBoundsLowering {
     }
 }
 
-///
-/// build_index_bounds
-///
-/// Canonical semantic-to-raw index-bound conversion path.
-/// This is the only function that should lower semantic prefix/range/prefix-text
-/// requests into executable raw index-key scan bounds.
-///
-
-/// Build raw index-key bounds and return the encoded equality-prefix bytes
-/// produced by the same canonical lowering pass.
-pub(in crate::db) fn build_index_bounds_lowering_for_arity(
-    index_id: &IndexId,
-    index_len: usize,
-    spec: IndexBoundsSpec<'_>,
-) -> Result<IndexBoundsLowering, IndexRangeBoundEncodeError> {
-    match spec {
-        IndexBoundsSpec::ComponentRange {
-            prefix,
-            lower,
-            upper,
-        } => {
-            raw_bounds_for_semantic_index_component_range(index_id, index_len, prefix, lower, upper)
-        }
-        IndexBoundsSpec::TextPrefixRange {
-            prefix,
-            text_prefix,
-            mode,
-        } => {
-            let Some((lower, upper)) = starts_with_component_bounds(text_prefix, mode) else {
-                return Err(IndexRangeBoundEncodeError::Lower);
-            };
-
-            raw_bounds_for_semantic_index_component_range(
-                index_id, index_len, prefix, &lower, &upper,
-            )
-        }
-    }
-}
-
 /// Build the semantic component interval for one starts-with predicate.
 #[must_use]
 pub(in crate::db) fn starts_with_component_bounds(
@@ -197,27 +109,6 @@ fn text_prefix_component_bounds(
     };
 
     Some((lower, upper))
-}
-
-fn text_prefix_mode_for_component_bounds<'a>(
-    lower: &'a Bound<Value>,
-    upper: &Bound<Value>,
-) -> Option<(&'a str, TextPrefixBoundMode)> {
-    let Bound::Included(Value::Text(prefix)) = lower else {
-        return None;
-    };
-
-    if text_prefix_component_bounds(prefix, TextPrefixBoundMode::Strict)
-        .is_some_and(|(_, strict_upper)| &strict_upper == upper)
-    {
-        return Some((prefix, TextPrefixBoundMode::Strict));
-    }
-
-    if matches!(upper, Bound::Unbounded) {
-        return Some((prefix, TextPrefixBoundMode::LowerOnly));
-    }
-
-    None
 }
 
 ///
@@ -287,38 +178,6 @@ pub(in crate::db) fn build_index_component_range_with_encoded_prefix(
 ) -> Result<IndexBoundsLowering, IndexRangeBoundEncodeError> {
     let encoded_lower = encode_semantic_component_bound(lower, IndexRangeBoundEncodeError::Lower)?;
     let encoded_upper = encode_semantic_component_bound(upper, IndexRangeBoundEncodeError::Upper)?;
-    let (lower, upper) = raw_bounds_for_encoded_index_component_range(
-        index_id,
-        index_len,
-        encoded_prefix.as_slice(),
-        &encoded_lower,
-        &encoded_upper,
-    )?;
-
-    Ok(IndexBoundsLowering::new(lower, upper, encoded_prefix))
-}
-
-///
-/// raw_bounds_for_semantic_index_component_range
-///
-/// Build raw key-space bounds from semantic index components.
-/// This is the semantic-to-physical lowering boundary for index-range access.
-///
-
-fn raw_bounds_for_semantic_index_component_range(
-    index_id: &IndexId,
-    index_len: usize,
-    prefix: &[Value],
-    lower: &Bound<Value>,
-    upper: &Bound<Value>,
-) -> Result<IndexBoundsLowering, IndexRangeBoundEncodeError> {
-    // Phase 1: encode semantic values into canonical index-component bytes.
-    let encoded_prefix =
-        EncodedValue::try_encode_all(prefix).map_err(|_| IndexRangeBoundEncodeError::Prefix)?;
-    let encoded_lower = encode_semantic_component_bound(lower, IndexRangeBoundEncodeError::Lower)?;
-    let encoded_upper = encode_semantic_component_bound(upper, IndexRangeBoundEncodeError::Upper)?;
-
-    // Phase 2: lower encoded bounds to canonical raw index-key bounds.
     let (lower, upper) = raw_bounds_for_encoded_index_component_range(
         index_id,
         index_len,

@@ -7,7 +7,7 @@ use crate::{
     db::{
         DbSession, DynamicQuery, DynamicTypedEntityBinding, QueryError,
         access::{
-            MAX_INDEX_BRANCH_SET_VALUES,
+            LoweredAccessError, MAX_INDEX_BRANCH_SET_VALUES,
             lower_exact_user_index_prefix_cardinality_keys_for_prefix_access,
         },
         executor::{
@@ -19,6 +19,7 @@ use crate::{
             expr::{CompareOperator, FilterExpr, SetOperator},
             intent::StructuralQuery,
             plan::VisibleIndexes,
+            preparation::PreparationWork,
         },
         schema::SchemaInfo,
         session::AcceptedSchemaCatalogContext,
@@ -32,28 +33,42 @@ enum ExactCountPlan {
     UserIndexPrefixes(Vec<UserIndexPrefixCardinalityKey>),
 }
 
-pub(in crate::db::session) fn exact_count_cardinality_prefix_keys_for_accepted_authority(
-    authority: &EntityAuthority,
-    query: &StructuralQuery,
-    visible_indexes: &VisibleIndexes,
-    schema_info: &SchemaInfo,
-) -> Result<Option<Vec<UserIndexPrefixCardinalityKey>>, QueryError> {
-    let Some(access) = query
-        .try_build_count_cardinality_prefix_access_with_schema_info(visible_indexes, schema_info)?
-    else {
-        return Ok(None);
-    };
-    let prefix_keys = lower_exact_user_index_prefix_cardinality_keys_for_prefix_access(
-        authority.entity_tag(),
-        &access,
-        schema_info,
-    )
-    .map_err(|_err| QueryError::invariant())?;
-
-    Ok((!prefix_keys.is_empty()).then_some(prefix_keys))
-}
-
 impl<C: CanisterKind> DbSession<C> {
+    pub(in crate::db::session) fn exact_count_cardinality_prefix_keys_for_accepted_authority(
+        &self,
+        authority: &EntityAuthority,
+        query: &StructuralQuery,
+        visible_indexes: &VisibleIndexes,
+        schema_info: &SchemaInfo,
+        lane: DiagnosticExecutionLane,
+    ) -> Result<Option<Vec<UserIndexPrefixCardinalityKey>>, QueryError> {
+        // Metadata shortcuts and explain borrow the current request authority;
+        // neither creates an execution root nor needs an active row executor.
+        PreparationWork::run(self.db.request_execution_scope(), lane, |work| {
+            let Some(access) = query.try_build_count_cardinality_prefix_access_with_schema_info(
+                visible_indexes,
+                schema_info,
+            )?
+            else {
+                return Ok(None);
+            };
+            let prefix_keys = lower_exact_user_index_prefix_cardinality_keys_for_prefix_access(
+                authority.entity_tag(),
+                &access,
+                schema_info,
+                work,
+            )
+            .map_err(|error| match error {
+                LoweredAccessError::Construction(error) => QueryError::execute(error),
+                LoweredAccessError::IndexPrefix | LoweredAccessError::IndexRange => {
+                    QueryError::invariant()
+                }
+            })?;
+
+            Ok((!prefix_keys.is_empty()).then_some(prefix_keys))
+        })
+    }
+
     fn exact_count_request_is_scalar_metadata_shape(request: &DynamicQuery) -> bool {
         if !request.order_terms().is_empty()
             || !request.selected_fields().is_empty()
@@ -107,13 +122,15 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = catalog.accepted_entity_authority();
         let visible_indexes =
             self.visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
-        let prefix_keys = exact_count_cardinality_prefix_keys_for_accepted_authority(
-            &authority,
-            &query,
-            &visible_indexes,
-            schema_info,
-        )?
-        .ok_or_else(QueryError::unsupported_query)?;
+        let prefix_keys = self
+            .exact_count_cardinality_prefix_keys_for_accepted_authority(
+                &authority,
+                &query,
+                &visible_indexes,
+                schema_info,
+                DiagnosticExecutionLane::PublicRead,
+            )?
+            .ok_or_else(QueryError::unsupported_query)?;
 
         Ok(ExactCountPlan::UserIndexPrefixes(prefix_keys))
     }

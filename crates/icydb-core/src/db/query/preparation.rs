@@ -2,11 +2,15 @@
 //! Counters are never created here or retained in prepared/cached artifacts.
 
 mod expr;
-mod value;
+mod text;
 
 use crate::{
-    db::{QueryError, executor::budget::HardExecutionContext, session::RequestExecutionScope},
+    db::{
+        QueryError, executor::budget::HardExecutionContext,
+        query::construction::ConstructionBudget, session::RequestExecutionScope,
+    },
     error::InternalError,
+    value::Value,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
@@ -24,15 +28,16 @@ pub(in crate::db) struct PreparationWork<'a> {
 impl PreparationWork<'_> {
     /// Copy an admitted name, charging traversal, bytes and destination backing.
     pub(in crate::db) fn copy_text(&self, text: &str) -> Result<String, QueryError> {
-        self.charge(
-            DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
-            1 + text.len() as u64,
-        )?;
-        self.charge(
-            DiagnosticExecutionBudgetResource::TemporaryBytes,
-            text.len() as u64,
-        )?;
-        Ok(text.to_string())
+        (self as &dyn ConstructionBudget)
+            .copy_text(text)
+            .map_err(QueryError::execute)
+    }
+
+    /// Copy admitted values through the shared construction owner.
+    pub(in crate::db) fn copy_value(&self, value: &Value) -> Result<Value, QueryError> {
+        (self as &dyn ConstructionBudget)
+            .copy_value(value)
+            .map_err(QueryError::execute)
     }
 
     /// Reserve once for a known output length. Child construction owns its
@@ -52,11 +57,9 @@ impl PreparationWork<'_> {
     /// Charge known destination backing before allocating a clause container.
     /// Callers must not grow the vector beyond this admitted capacity.
     pub(in crate::db) fn vec_with_capacity<T>(&self, len: usize) -> Result<Vec<T>, QueryError> {
-        self.charge(
-            DiagnosticExecutionBudgetResource::TemporaryBytes,
-            (len as u64).saturating_mul(size_of::<T>() as u64),
-        )?;
-        Ok(Vec::with_capacity(len))
+        (self as &dyn ConstructionBudget)
+            .vec_with_capacity(len)
+            .map_err(QueryError::execute)
     }
 
     /// Run one preparation segment without resetting request counters. Capture
@@ -74,7 +77,8 @@ impl PreparationWork<'_> {
             charges_since_watermark: Cell::new(0),
         };
         let result = run(&work);
-        work.check_instruction_watermark()?;
+        work.check_instruction_watermark()
+            .map_err(QueryError::execute)?;
 
         result
     }
@@ -86,17 +90,7 @@ impl PreparationWork<'_> {
         resource: DiagnosticExecutionBudgetResource,
         amount: u64,
     ) -> Result<(), QueryError> {
-        self.scope
-            .charge(self.context, resource, amount)
-            .map_err(InternalError::from)
-            .map_err(QueryError::execute)?;
-        let charges = self.charges_since_watermark.get() + 1;
-        self.charges_since_watermark.set(charges);
-        if charges == 64 {
-            self.check_instruction_watermark()?;
-        }
-
-        Ok(())
+        ConstructionBudget::charge(self, resource, amount).map_err(QueryError::execute)
     }
 
     /// Charge the requested new backing allocation (including retained-prefix
@@ -107,12 +101,9 @@ impl PreparationWork<'_> {
         values: &mut Vec<T>,
         additional: usize,
     ) -> Result<(), QueryError> {
-        let capacity =
-            self.reserve_capacity(values.len(), values.capacity(), additional, size_of::<T>())?;
-        if capacity > values.capacity() {
-            values.reserve_exact(capacity - values.len());
-        }
-        Ok(())
+        (self as &dyn ConstructionBudget)
+            .reserve_vec(values, additional)
+            .map_err(QueryError::execute)
     }
 
     /// Reserve text construction under the same cumulative allocation policy.
@@ -121,35 +112,12 @@ impl PreparationWork<'_> {
         text: &mut String,
         additional: usize,
     ) -> Result<(), QueryError> {
-        let capacity = self.reserve_capacity(text.len(), text.capacity(), additional, 1)?;
-        if capacity > text.capacity() {
-            text.reserve_exact(capacity - text.len());
-        }
-        Ok(())
+        (self as &dyn ConstructionBudget)
+            .reserve_string(text, additional)
+            .map_err(QueryError::execute)
     }
 
-    fn reserve_capacity(
-        &self,
-        len: usize,
-        capacity: usize,
-        additional: usize,
-        element_bytes: usize,
-    ) -> Result<usize, QueryError> {
-        let required = len
-            .checked_add(additional)
-            .ok_or_else(QueryError::invariant)?;
-        if required <= capacity {
-            return Ok(capacity);
-        }
-        let next = required.max(capacity.saturating_mul(2)).max(4);
-        self.charge(
-            DiagnosticExecutionBudgetResource::TemporaryBytes,
-            (next as u64).saturating_mul(element_bytes as u64),
-        )?;
-        Ok(next)
-    }
-
-    fn check_instruction_watermark(&self) -> Result<(), QueryError> {
+    fn check_instruction_watermark(&self) -> Result<(), InternalError> {
         let current = crate::runtime::local_instruction_counter();
         let previous = self.last_instruction_counter.replace(current);
         self.charges_since_watermark.set(0);
@@ -160,7 +128,24 @@ impl PreparationWork<'_> {
                 current.saturating_sub(previous),
             )
             .map_err(InternalError::from)
-            .map_err(QueryError::execute)
+    }
+}
+
+impl ConstructionBudget for PreparationWork<'_> {
+    fn charge(
+        &self,
+        resource: DiagnosticExecutionBudgetResource,
+        amount: u64,
+    ) -> Result<(), InternalError> {
+        self.scope
+            .charge(self.context, resource, amount)
+            .map_err(InternalError::from)?;
+        let charges = self.charges_since_watermark.get() + 1;
+        self.charges_since_watermark.set(charges);
+        if charges == 64 {
+            self.check_instruction_watermark()?;
+        }
+        Ok(())
     }
 }
 

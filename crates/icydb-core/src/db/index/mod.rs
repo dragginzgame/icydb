@@ -44,8 +44,8 @@ pub(in crate::db) use predicate::{
 };
 pub(in crate::db) use range::raw_keys_for_component_prefix_with_kind;
 pub(in crate::db) use range::{
-    IndexBoundsSpec, IndexRangeBoundEncodeError, TextPrefixBoundMode,
-    build_index_bounds_lowering_for_arity, build_index_component_range_with_encoded_prefix,
+    IndexRangeBoundEncodeError, TextPrefixBoundMode,
+    build_index_component_range_with_encoded_prefix,
     build_index_prefix_bounds_for_encoded_components, starts_with_component_bounds,
 };
 pub(in crate::db) use readers::{

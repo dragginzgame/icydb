@@ -203,7 +203,7 @@ mod tests {
         testing::test_memory,
         traits::Path,
     };
-    use ic_stable_structures::Memory;
+    use ic_memory::ic_stable_structures::Memory;
     use icydb_diagnostic_code::{ErrorCode, ErrorOrigin as DiagnosticOrigin};
     use icydb_schema::{SchemaProposalDigest, SchemaSubmissionKey};
     use std::cell::RefCell;
@@ -673,15 +673,16 @@ mod tests {
             &JOURNAL_RECOVERY_FAILURE_STORES,
             &request_root,
         );
-        assert_eq!(
+        let drive = || {
             drive_generated_startup_recovery_page(
                 &session,
                 &JOURNAL_RECOVERY_FAILURE_STORES,
                 SUBMISSION,
             )
-            .expect("journal corruption should publish one durable receipt"),
-            GeneratedStartupDriverStep::Terminal,
-        );
+            .expect("the driver should progress or persist a durable failure")
+        };
+        assert_eq!(drive(), GeneratedStartupDriverStep::Recovering);
+        assert_eq!(drive(), GeneratedStartupDriverStep::Terminal);
 
         let failure = observe_generated_startup_state::<JournalRecoveryFailureCanister>(
             &JOURNAL_RECOVERY_FAILURE_STORES,
@@ -693,15 +694,7 @@ mod tests {
             failure.diagnostic().error_code(),
             ErrorCode::STORE_CORRUPTION,
         );
-        assert_eq!(
-            drive_generated_startup_recovery_page(
-                &session,
-                &JOURNAL_RECOVERY_FAILURE_STORES,
-                SUBMISSION,
-            )
-            .expect("exact terminal replay should stop without retrying recovery"),
-            GeneratedStartupDriverStep::Terminal,
-        );
+        assert_eq!(drive(), GeneratedStartupDriverStep::Terminal);
 
         let changed_record =
             JournalRecord::schema_put(JOURNAL_RECOVERY_FAILURE_STORE_PATH, vec![0xfe; 8])

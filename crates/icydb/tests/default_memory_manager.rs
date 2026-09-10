@@ -1,5 +1,6 @@
 use ic_memory::{
-    MemoryManagerRangeMode, RuntimeOpenError, committed_allocations,
+    AllocationBinding, MemoryManagerRangeMode, RuntimeDiagnosticError, RuntimeOpenError,
+    committed_allocations, default_memory_manager_memory_allocations,
     open_default_memory_manager_memory, register_static_memory_manager_declaration,
     register_static_memory_manager_range,
 };
@@ -11,6 +12,10 @@ const STABLE_KEY: &str = "icydb.ensure_default_memory_manager_test.data.v1";
 
 #[test]
 fn ensure_bootstraps_once_then_reuses_committed_allocations() {
+    assert!(matches!(
+        default_memory_manager_memory_allocations(),
+        Err(RuntimeDiagnosticError::NotBootstrapped)
+    ));
     assert!(matches!(
         committed_allocations(),
         Err(RuntimeOpenError::NotBootstrapped)
@@ -40,4 +45,24 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
     );
     open_default_memory_manager_memory(STABLE_KEY, MEMORY_ID)
         .expect("the ensured allocation should open");
+
+    let allocations = default_memory_manager_memory_allocations()
+        .expect("the ensured runtime should report allocations");
+    assert_eq!(allocations.current_generation, Some(generation));
+    assert_eq!(allocations.bucket_size_pages, 128);
+    let allocation = allocations
+        .memories
+        .iter()
+        .find(|allocation| allocation.memory_manager_id == MEMORY_ID)
+        .expect("the ensured slot should be reported");
+    assert!(matches!(
+        &allocation.binding,
+        AllocationBinding::Current { stable_key, owner }
+            if stable_key == STABLE_KEY && owner == AUTHORITY
+    ));
+    assert_eq!(
+        default_memory_manager_memory_allocations()
+            .expect("repeated allocation inspection should succeed"),
+        allocations,
+    );
 }

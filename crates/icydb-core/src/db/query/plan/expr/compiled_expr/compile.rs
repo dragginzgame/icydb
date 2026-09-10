@@ -10,6 +10,7 @@ use crate::{
         QueryError,
         query::{
             builder::AggregateExpr,
+            construction::ConstructionBudget,
             plan::{
                 GroupedAggregateExecutionSpec,
                 expr::{
@@ -20,61 +21,115 @@ use crate::{
         },
         schema::SchemaInfo,
     },
+    error::InternalError,
     value::Value,
 };
-use icydb_diagnostic_code::QueryProjectionCode;
+use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, QueryProjectionCode};
 
-/// Compile a scalar expression directly against the caller's accepted schema.
-/// Every child must be available before its parent is specialized, including
-/// branches that a constant CASE condition will subsequently discard.
+/// Compile against accepted authority, distinguishing unsupported syntax from budget failure.
 pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
     schema: &SchemaInfo,
     expr: &Expr,
-) -> Option<CompiledExpr> {
-    CompiledExpr::compile_scalar(expr, &|leaf| compile_scalar_leaf(schema, leaf).ok_or(())).ok()
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<CompiledExpr>, InternalError> {
+    match CompiledExpr::compile_scalar(
+        expr,
+        &|leaf| {
+            compile_scalar_leaf(schema, leaf, budget)
+                .map_err(ScalarCompilationError::Budget)?
+                .ok_or(ScalarCompilationError::Unavailable)
+        },
+        budget,
+        ScalarCompilationError::Budget,
+    ) {
+        Ok(compiled) => Ok(Some(compiled)),
+        Err(ScalarCompilationError::Unavailable) => Ok(None),
+        Err(ScalarCompilationError::Budget(error)) => Err(error),
+    }
+}
+
+// Internal-only distinction; callers retain their existing unsupported-shape errors.
+enum ScalarCompilationError {
+    Unavailable,
+    Budget(InternalError),
 }
 
 /// Compile the scalar projection directly into its final row-slot programs.
 pub(in crate::db) fn compile_scalar_projection_plan_with_schema(
     schema: &SchemaInfo,
     projection: &ProjectionSpec,
-) -> Option<Vec<CompiledExpr>> {
-    let mut compiled_fields = Vec::with_capacity(projection.len());
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Vec<CompiledExpr>>, InternalError> {
+    let mut fields = budget.vec_with_capacity(projection.len())?;
     for field in projection.fields() {
-        compiled_fields.push(compile_scalar_projection_expr_with_schema(
-            schema,
-            field.expr(),
-        )?);
+        let Some(compiled) =
+            compile_scalar_projection_expr_with_schema(schema, field.expr(), budget)?
+        else {
+            return Ok(None);
+        };
+        fields.push(compiled);
     }
-
-    Some(compiled_fields)
+    Ok(Some(fields))
 }
 
-// Schema and single-value previews keep their existing leaf admission policies;
-// recursion, container construction and specialization have one compiler owner.
-fn compile_scalar_leaf(schema: &SchemaInfo, expr: &Expr) -> Option<CompiledExpr> {
-    Some(match expr {
-        Expr::Field(field) => CompiledExpr::Slot {
-            slot: schema.field_slot_index(field.as_str())?,
-            field: field.as_str().to_string(),
-        },
-        Expr::FieldPath(path) => {
-            let root_slot = schema.field_slot_index(path.root().as_str())?;
-            let segment_bytes = path
-                .segments()
-                .iter()
-                .map(|segment| segment.as_bytes().to_vec().into_boxed_slice())
-                .collect::<Vec<_>>()
-                .into_boxed_slice();
-            CompiledExpr::FieldPath {
-                root_slot,
-                field: path.path_spec().dotted_label(),
-                segments: path.segments().to_vec().into_boxed_slice(),
-                segment_bytes,
+// Slot lookup internals remain separately owned; labels and path buffers charge here.
+fn compile_scalar_leaf(
+    schema: &SchemaInfo,
+    expr: &Expr,
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<CompiledExpr>, InternalError> {
+    Ok(Some(match expr {
+        Expr::Field(field) => {
+            budget.charge(
+                Resource::PredicateExpressionSteps,
+                1 + field.as_str().len() as u64,
+            )?;
+            let Some(slot) = schema.field_slot_index(field.as_str()) else {
+                return Ok(None);
+            };
+            CompiledExpr::Slot {
+                slot,
+                field: budget.copy_text(field.as_str())?,
             }
         }
-        _ => return None,
-    })
+        Expr::FieldPath(path) => {
+            budget.charge(
+                Resource::PredicateExpressionSteps,
+                1 + path.root().as_str().len() as u64,
+            )?;
+            let Some(root_slot) = schema.field_slot_index(path.root().as_str()) else {
+                return Ok(None);
+            };
+            let mut field = budget.copy_text(path.root().as_str())?;
+            let mut segments = budget.vec_with_capacity(path.segments().len())?;
+            let mut segment_bytes = budget.vec_with_capacity(path.segments().len())?;
+            for segment in path.segments() {
+                segments.push(budget.copy_text(segment)?);
+                budget.charge(Resource::PredicateExpressionSteps, segment.len() as u64)?;
+                let mut bytes = budget.vec_with_capacity(segment.len())?;
+                bytes.extend_from_slice(segment.as_bytes());
+                segment_bytes.push(bytes.into_boxed_slice());
+                budget.push_text(&mut field, ".")?;
+                budget.push_text(&mut field, segment)?;
+            }
+            CompiledExpr::FieldPath {
+                root_slot,
+                field,
+                segments: segments.into_boxed_slice(),
+                segment_bytes: segment_bytes.into_boxed_slice(),
+            }
+        }
+        _ => return Ok(None),
+    }))
+}
+
+// Standalone builders have no database request. This private adapter cannot be
+// selected by a database caller; request/execution compilation requires an owner.
+struct PreviewConstructionBudget;
+impl ConstructionBudget for PreviewConstructionBudget {
+    fn charge(&self, _resource: Resource, _amount: u64) -> Result<(), InternalError> {
+        Ok(())
+    }
 }
 
 /// Compile a single-value preview with its existing field/path admission policy.
@@ -83,59 +138,76 @@ pub(in crate::db::query::plan::expr) fn compile_builder_preview_expr(
     field_name: &str,
     value_slot: usize,
 ) -> Result<CompiledExpr, QueryError> {
-    CompiledExpr::compile_scalar(expr, &|leaf| match leaf {
-        Expr::Field(field) if field.as_str() == field_name => Ok(CompiledExpr::Slot {
-            slot: value_slot,
-            field: field.as_str().to_string(),
-        }),
-        Expr::FieldPath(_) => Err(QueryError::unsupported_projection(
-            QueryProjectionCode::NestedFieldPathPreview,
-        )),
-        _ => Err(QueryError::invariant()),
-    })
+    CompiledExpr::compile_scalar(
+        expr,
+        &|leaf| match leaf {
+            Expr::Field(field) if field.as_str() == field_name => Ok(CompiledExpr::Slot {
+                slot: value_slot,
+                field: field.as_str().to_string(),
+            }),
+            Expr::FieldPath(_) => Err(QueryError::unsupported_projection(
+                QueryProjectionCode::NestedFieldPathPreview,
+            )),
+            _ => Err(QueryError::invariant()),
+        },
+        &PreviewConstructionBudget,
+        QueryError::execute,
+    )
 }
 
 impl CompiledExpr {
-    fn compile_scalar<E>(expr: &Expr, leaf: &impl Fn(&Expr) -> Result<Self, E>) -> Result<Self, E> {
+    fn compile_scalar<E>(
+        expr: &Expr,
+        leaf: &impl Fn(&Expr) -> Result<Self, E>,
+        budget: &dyn ConstructionBudget,
+        budget_error: fn(InternalError) -> E,
+    ) -> Result<Self, E> {
+        budget
+            .charge(Resource::PredicateExpressionSteps, 1)
+            .map_err(budget_error)?;
         Ok(match expr {
             Expr::Field(_) | Expr::FieldPath(_) | Expr::Aggregate(_) => leaf(expr)?,
-            Expr::Literal(value) => Self::Literal(value.clone()),
-            Expr::FunctionCall { function, args } => Self::FunctionCall {
-                function: *function,
-                args: args
-                    .iter()
-                    .map(|arg| Self::compile_scalar(arg, leaf))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_boxed_slice(),
-            },
+            Expr::Literal(value) => Self::Literal(budget.copy_value(value).map_err(budget_error)?),
+            Expr::FunctionCall { function, args } => {
+                let mut compiled = budget.vec_with_capacity(args.len()).map_err(budget_error)?;
+                for arg in args {
+                    compiled.push(Self::compile_scalar(arg, leaf, budget, budget_error)?);
+                }
+                Self::FunctionCall {
+                    function: *function,
+                    args: compiled.into_boxed_slice(),
+                }
+            }
             Expr::Unary { op, expr } => Self::Unary {
                 op: *op,
-                expr: Box::new(Self::compile_scalar(expr, leaf)?),
+                expr: budget
+                    .boxed(Self::compile_scalar(expr, leaf, budget, budget_error)?)
+                    .map_err(budget_error)?,
             },
             Expr::Case {
                 when_then_arms,
                 else_expr,
             } => {
-                let arms = when_then_arms
-                    .iter()
-                    .map(|arm| {
-                        Ok(CompiledExprCaseArm::new(
-                            Self::compile_scalar(arm.condition(), leaf)?,
-                            Self::compile_scalar(arm.result(), leaf)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, E>>()?;
-                let else_expr = Self::compile_scalar(else_expr, leaf)?;
-                Self::compile_case(arms, else_expr)
+                let mut arms = budget
+                    .vec_with_capacity(when_then_arms.len())
+                    .map_err(budget_error)?;
+                // Admit every condition/result/ELSE before parent specialization.
+                for arm in when_then_arms {
+                    arms.push(CompiledExprCaseArm::new(
+                        Self::compile_scalar(arm.condition(), leaf, budget, budget_error)?,
+                        Self::compile_scalar(arm.result(), leaf, budget, budget_error)?,
+                    ));
+                }
+                let else_expr = Self::compile_scalar(else_expr, leaf, budget, budget_error)?;
+                Self::compile_case(arms, else_expr, budget).map_err(budget_error)?
             }
             Expr::Binary { op, left, right } => {
-                let left = Self::compile_scalar(left, leaf)?;
-                let right = Self::compile_scalar(right, leaf)?;
-
-                Self::compile_binary(*op, left, right)
+                let left = Self::compile_scalar(left, leaf, budget, budget_error)?;
+                let right = Self::compile_scalar(right, leaf, budget, budget_error)?;
+                Self::compile_binary(*op, left, right, budget).map_err(budget_error)?
             }
             #[cfg(test)]
-            Expr::Alias { expr, .. } => Self::compile_scalar(expr, leaf)?,
+            Expr::Alias { expr, .. } => Self::compile_scalar(expr, leaf, budget, budget_error)?,
         })
     }
 
@@ -143,24 +215,33 @@ impl CompiledExpr {
     // the condition shape can be decided without evaluating a boolean Value.
     // Multi-arm searched CASE keeps the generic arm list to preserve normal
     // short-circuit behavior without adding a broader expression VM.
-    fn compile_case(when_then_arms: Vec<CompiledExprCaseArm>, else_expr: Self) -> Self {
+    fn compile_case(
+        when_then_arms: Vec<CompiledExprCaseArm>,
+        else_expr: Self,
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Self, InternalError> {
         match <[CompiledExprCaseArm; 1]>::try_from(when_then_arms) {
             Ok([arm]) => {
                 let CompiledExprCaseArm { condition, result } = arm;
-                Self::compile_single_arm_case(condition, result, else_expr)
+                Self::compile_single_arm_case(condition, result, else_expr, budget)
             }
-            Err(arms) => Self::Case {
+            Err(arms) => Ok(Self::Case {
                 when_then_arms: arms.into_boxed_slice(),
-                else_expr: Box::new(else_expr),
-            },
+                else_expr: budget.boxed(else_expr)?,
+            }),
         }
     }
 
     // Convert common searched-CASE conditions into direct slot predicates.
     // Constant TRUE/FALSE/NULL conditions are selected once during grouped
     // setup, which removes invariant condition evaluation from the row loop.
-    fn compile_single_arm_case(condition: Self, then_expr: Self, else_expr: Self) -> Self {
-        match condition {
+    fn compile_single_arm_case(
+        condition: Self,
+        then_expr: Self,
+        else_expr: Self,
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Self, InternalError> {
+        Ok(match condition {
             Self::Literal(Value::Bool(true)) => then_expr,
             Self::Literal(Value::Bool(false) | Value::Null) => else_expr,
             Self::BinarySlotLiteral {
@@ -175,27 +256,35 @@ impl CompiledExpr {
                 field,
                 literal,
                 slot_on_left,
-                then_expr: Box::new(then_expr),
-                else_expr: Box::new(else_expr),
+                then_expr: budget.boxed(then_expr)?,
+                else_expr: budget.boxed(else_expr)?,
             },
             Self::Slot { slot, field } => Self::CaseSlotBool {
                 slot,
                 field,
-                then_expr: Box::new(then_expr),
-                else_expr: Box::new(else_expr),
+                then_expr: budget.boxed(then_expr)?,
+                else_expr: budget.boxed(else_expr)?,
             },
-            condition => Self::Case {
-                when_then_arms: vec![CompiledExprCaseArm::new(condition, then_expr)]
-                    .into_boxed_slice(),
-                else_expr: Box::new(else_expr),
-            },
-        }
+            condition => {
+                let mut arms = budget.vec_with_capacity(1)?;
+                arms.push(CompiledExprCaseArm::new(condition, then_expr));
+                Self::Case {
+                    when_then_arms: arms.into_boxed_slice(),
+                    else_expr: budget.boxed(else_expr)?,
+                }
+            }
+        })
     }
 
     // Specialization consumes the already-owned operands. Moving labels and
     // literals avoids copying payloads that the temporary operand nodes then drop.
-    fn compile_binary(op: BinaryOp, left: Self, right: Self) -> Self {
-        match (left, right) {
+    fn compile_binary(
+        op: BinaryOp,
+        left: Self,
+        right: Self,
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Self, InternalError> {
+        Ok(match (left, right) {
             (
                 Self::Slot {
                     slot: left_slot,
@@ -205,7 +294,14 @@ impl CompiledExpr {
                     slot: right_slot,
                     field: right_field,
                 },
-            ) => Self::compile_slot_slot_binary(op, left_slot, left_field, right_slot, right_field),
+            ) => Self::compile_slot_slot_binary(
+                op,
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
+                budget,
+            )?,
             (Self::Slot { field, slot }, Self::Literal(literal)) => Self::BinarySlotLiteral {
                 op,
                 slot,
@@ -222,10 +318,10 @@ impl CompiledExpr {
             },
             (left, right) => Self::Binary {
                 op,
-                left: Box::new(left),
-                right: Box::new(right),
+                left: budget.boxed(left)?,
+                right: budget.boxed(right)?,
             },
-        }
+        })
     }
 
     // Preserve the established direct arithmetic/comparison variants. Boolean
@@ -236,8 +332,9 @@ impl CompiledExpr {
         left_field: String,
         right_slot: usize,
         right_field: String,
-    ) -> Self {
-        match op {
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Self, InternalError> {
+        Ok(match op {
             BinaryOp::Add => Self::Add {
                 left_slot,
                 left_field,
@@ -300,16 +397,16 @@ impl CompiledExpr {
             },
             BinaryOp::Or | BinaryOp::And => Self::Binary {
                 op,
-                left: Box::new(Self::Slot {
+                left: budget.boxed(Self::Slot {
                     slot: left_slot,
                     field: left_field,
-                }),
-                right: Box::new(Self::Slot {
+                })?,
+                right: budget.boxed(Self::Slot {
                     slot: right_slot,
                     field: right_field,
-                }),
+                })?,
             },
-        }
+        })
     }
 }
 
@@ -475,6 +572,7 @@ const fn is_comparison_op(op: BinaryOp) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::PreviewConstructionBudget;
     use crate::{
         db::query::plan::expr::{
             BinaryOp, CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader,
@@ -525,7 +623,9 @@ mod tests {
                 let compiled = CompiledExpr::compile_case(
                     arms,
                     CompiledExpr::Literal(Value::Text("else".into())),
-                );
+                    &PreviewConstructionBudget,
+                )
+                .unwrap();
                 let row = Row([Value::Null, Value::Null]);
                 let result = compiled.evaluate(&row).unwrap();
                 if count > 0 && selected {
@@ -546,7 +646,13 @@ mod tests {
         let left = "left".to_string();
         let right = "right".to_string();
         let pointers = (left.as_ptr(), right.as_ptr());
-        let compiled = CompiledExpr::compile_binary(BinaryOp::Add, slot(0, left), slot(1, right));
+        let compiled = CompiledExpr::compile_binary(
+            BinaryOp::Add,
+            slot(0, left),
+            slot(1, right),
+            &PreviewConstructionBudget,
+        )
+        .unwrap();
         let CompiledExpr::Add {
             left_slot,
             left_field,
@@ -570,7 +676,9 @@ mod tests {
             } else {
                 (literal, field)
             };
-            let compiled = CompiledExpr::compile_binary(BinaryOp::Lt, left, right);
+            let compiled =
+                CompiledExpr::compile_binary(BinaryOp::Lt, left, right, &PreviewConstructionBudget)
+                    .unwrap();
             let CompiledExpr::BinarySlotLiteral {
                 op,
                 slot,
@@ -632,7 +740,9 @@ mod tests {
                         left: Box::new(left.clone()),
                         right: Box::new(right.clone()),
                     };
-                    let compiled = CompiledExpr::compile_binary(op, left, right);
+                    let compiled =
+                        CompiledExpr::compile_binary(op, left, right, &PreviewConstructionBudget)
+                            .unwrap();
                     assert_eq!(compiled.evaluate(&row), generic.evaluate(&row), "{op:?}");
                 }
             }
@@ -647,8 +757,10 @@ mod tests {
                     CompiledExpr::Literal(Value::Bool(false)),
                     CompiledExpr::Literal(Value::Text("then".into())),
                 )],
-                CompiledExpr::Literal(Value::Text("else".into()))
-            ),
+                CompiledExpr::Literal(Value::Text("else".into())),
+                &PreviewConstructionBudget,
+            )
+            .unwrap(),
             CompiledExpr::Literal(Value::Text("else".to_string())),
         );
     }

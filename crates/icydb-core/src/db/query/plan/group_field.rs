@@ -254,6 +254,38 @@ pub(in crate::db) enum GroupFieldSet {
 }
 
 impl GroupFieldSet {
+    /// Copy already-resolved keys without re-resolving authority or re-running
+    /// uniqueness checks. Shared direct slots allocate no label/kind payload.
+    pub(in crate::db) fn copy_for_preparation(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        let copy_direct = |field: &FieldSlot| {
+            work.charge(Resource::PredicateExpressionSteps, 1)?;
+            Ok(field.clone())
+        };
+        Ok(match self {
+            Self::Direct(fields) => Self::Direct(work.copy_slice(fields, copy_direct)?),
+            Self::PathAware(fields) => Self::PathAware(work.copy_slice(fields, |field| {
+                Ok(match field {
+                    GroupField::Direct(field) => GroupField::Direct(copy_direct(field)?),
+                    GroupField::ScalarPath(path) => {
+                        work.charge(Resource::PredicateExpressionSteps, 1)?;
+                        GroupField::ScalarPath(ScalarGroupPath {
+                            label: work.copy_text(&path.label)?,
+                            path: PathSpec::new(
+                                FieldId::new(work.copy_text(path.path.root().as_str())?),
+                                work.copy_slice(path.path.segments(), |part| work.copy_text(part))?,
+                            ),
+                            root_slot: path.root_slot,
+                            identity_group_canonical_form: path.identity_group_canonical_form,
+                        })
+                    }
+                })
+            })?),
+        })
+    }
+
     /// Build the empty direct representation used before any grouping key is added.
     #[must_use]
     pub(in crate::db) const fn empty() -> Self {

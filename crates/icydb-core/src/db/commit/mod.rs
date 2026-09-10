@@ -64,8 +64,8 @@ pub(in crate::db) use memory::{
     current_commit_memory_allocation,
 };
 pub(in crate::db) use prepare::{
-    CommitPrepareContext, CommitPrepareMode, prepare_commit_context_for_runtime_entity,
-    prepare_row_commit_with_context,
+    CommitPrepareContext, CommitPrepareContextCache, CommitPrepareMode,
+    prepare_commit_context_for_runtime_entity, prepare_row_commit_with_context,
 };
 pub(in crate::db) use prepared_op::{PreparedIndexMutation, PreparedRowCommitOp};
 pub(in crate::db) use recovery::{

@@ -136,6 +136,7 @@ pub(in crate::db::query) use projection::{
 pub(in crate::db) use semantics::access_plan_label;
 #[cfg(feature = "sql")]
 pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_expr;
+pub(in crate::db::query) use semantics::residual_filter_facts_for_access;
 pub(in crate::db) use semantics::{
     AccessPlanProjection, AggregateIdentity, AggregateSemanticKey, GroupDistinctAdmissibility,
     GroupDistinctPolicyReason, GroupedCursorPolicyViolation, GroupedPlanFallbackReason,

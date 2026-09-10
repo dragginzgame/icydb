@@ -19,9 +19,10 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
+use ic_memory::RuntimeMemory;
+use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory;
-use ic_stable_structures::{DefaultMemoryImpl, Memory, memory_manager::VirtualMemory};
 
 pub(in crate::db) const APP_MEMORY_ID_MIN: u8 = 100;
 pub(in crate::db) const APP_MEMORY_ID_MAX: u8 = 254;
@@ -41,7 +42,7 @@ struct GeneratedStoreProposal {
 
 pub(super) fn ensure_current_convergence_format<C: CanisterKind>(
     db: &Db<C>,
-    control_memory: &VirtualMemory<DefaultMemoryImpl>,
+    control_memory: &RuntimeMemory<DefaultMemoryImpl>,
     fresh_database_boot: bool,
 ) -> Result<(), InternalError> {
     let proposals = generated_store_proposals::<C>(db)?;
@@ -93,7 +94,7 @@ pub(super) fn ensure_current_convergence_format<C: CanisterKind>(
 }
 
 fn initialize_controls(
-    control_memory: &VirtualMemory<DefaultMemoryImpl>,
+    control_memory: &RuntimeMemory<DefaultMemoryImpl>,
     incarnation: crate::db::DatabaseIncarnationId,
     cursor_authentication_key: [u8; 32],
     database_commit_sequence: u64,
@@ -129,7 +130,7 @@ fn initialize_controls(
 }
 
 fn reconcile_current_registry(
-    control_memory: &VirtualMemory<DefaultMemoryImpl>,
+    control_memory: &RuntimeMemory<DefaultMemoryImpl>,
     incarnation: crate::db::DatabaseIncarnationId,
     cursor_authentication_key: [u8; 32],
     database_commit_sequence: u64,
@@ -358,21 +359,21 @@ fn required_allocations(
 #[cfg(test)]
 thread_local! {
     static TEST_CONVERGENCE_MEMORIES: std::cell::RefCell<
-        Vec<(u8, String, VirtualMemory<DefaultMemoryImpl>)>
+        Vec<(u8, String, RuntimeMemory<DefaultMemoryImpl>)>
     > = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 #[cfg(test)]
 fn store_memory(
     allocation: StoreAllocationIdentity,
-) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     store_memory_owned(allocation.memory_id(), allocation.stable_key())
 }
 
 #[cfg(not(test))]
 fn store_memory(
     allocation: StoreAllocationIdentity,
-) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     store_memory_owned(allocation.memory_id(), allocation.stable_key())
 }
 
@@ -380,7 +381,7 @@ fn store_memory(
 fn store_memory_owned(
     memory_id: u8,
     stable_key: &str,
-) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     TEST_CONVERGENCE_MEMORIES.with(|memories| {
         let mut memories = memories.borrow_mut();
         if let Some((_, _, memory)) = memories
@@ -399,7 +400,7 @@ fn store_memory_owned(
 fn store_memory_owned(
     memory_id: u8,
     stable_key: &str,
-) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory(stable_key, memory_id)
         .map_err(InternalError::database_format_memory_registration_failed)
 }

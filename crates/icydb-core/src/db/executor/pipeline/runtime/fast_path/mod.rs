@@ -13,105 +13,12 @@ use crate::{
             AccessStreamExecutionPolicy, ExecutionRoutePlan,
             pipeline::{contracts::ResolvedExecutionKeyStream, runtime::ExecutionAttemptKernel},
         },
-        index::{
-            IndexCompilePolicy, compile_index_program, compile_index_program_for_targets,
-            predicate::{IndexPredicateExecution, IndexPredicateProgram},
-        },
+        index::{IndexCompilePolicy, predicate::IndexPredicateExecution},
     },
     error::InternalError,
 };
 
-///
-/// ResolvedIndexPredicateProgram
-///
-///
-/// ResolvedIndexPredicateProgram keeps fast-path index predicate preparation
-/// behind one explicit execution-input-owned boundary.
-/// It carries either one borrowed precompiled program or one owned on-demand
-/// compile so later resolution code only asks whether a program is available.
-///
-
-enum ResolvedIndexPredicateProgram<'a> {
-    None,
-    Borrowed(&'a IndexPredicateProgram),
-    Owned(IndexPredicateProgram),
-}
-
-impl<'a> ResolvedIndexPredicateProgram<'a> {
-    // Borrow the resolved program without exposing whether it was borrowed or
-    // compiled on demand.
-    const fn execution(&'a self) -> Option<IndexPredicateExecution<'a>> {
-        Some(match self {
-            Self::None => return None,
-            Self::Borrowed(program) => program,
-            Self::Owned(program) => program,
-        })
-    }
-}
-
 impl ExecutionAttemptKernel<'_> {
-    // Resolve the index predicate program for one execution attempt, reusing
-    // the prepared mode when available and compiling on demand only when needed.
-    fn resolve_index_predicate_program(
-        &self,
-        predicate_compile_mode: IndexCompilePolicy,
-    ) -> ResolvedIndexPredicateProgram<'_> {
-        match predicate_compile_mode {
-            IndexCompilePolicy::ConservativeSubset => self
-                .inputs
-                .execution_preparation()
-                .conservative_mode()
-                .map_or_else(
-                    || self.compile_index_predicate_program(predicate_compile_mode),
-                    ResolvedIndexPredicateProgram::Borrowed,
-                ),
-            IndexCompilePolicy::StrictAllOrNone => self
-                .inputs
-                .execution_preparation()
-                .strict_mode()
-                .map_or_else(
-                    || self.compile_index_predicate_program(predicate_compile_mode),
-                    ResolvedIndexPredicateProgram::Borrowed,
-                ),
-        }
-    }
-
-    // Compile one index predicate program only when execution preparation did
-    // not already freeze the requested compile mode.
-    fn compile_index_predicate_program(
-        &self,
-        predicate_compile_mode: IndexCompilePolicy,
-    ) -> ResolvedIndexPredicateProgram<'_> {
-        let Some(compiled_predicate) = self.inputs.execution_preparation().compiled_predicate()
-        else {
-            return ResolvedIndexPredicateProgram::None;
-        };
-
-        let compiled_index_predicate =
-            if let Some(compile_targets) = self.inputs.execution_preparation().compile_targets() {
-                compile_index_program_for_targets(
-                    compiled_predicate.executable(),
-                    compile_targets,
-                    predicate_compile_mode,
-                )
-            } else {
-                let Some(slot_map) = self.inputs.execution_preparation().slot_map() else {
-                    return ResolvedIndexPredicateProgram::None;
-                };
-
-                compile_index_program(
-                    compiled_predicate.executable(),
-                    slot_map,
-                    predicate_compile_mode,
-                )
-            };
-
-        compiled_index_predicate.map_or(
-            ResolvedIndexPredicateProgram::None,
-            ResolvedIndexPredicateProgram::Owned,
-        )
-    }
-
     // Resolve the canonical access stream when no fast path produced rows.
     fn resolve_fallback_execution_key_stream(
         &self,
@@ -148,8 +55,11 @@ impl ExecutionAttemptKernel<'_> {
         // Phase 0: reuse precompiled runtime index predicates when the
         // execution-preparation boundary already owns the requested mode, and
         // only fall back to one on-demand compile when it does not.
-        let index_predicate_program = self.resolve_index_predicate_program(predicate_compile_mode);
-        let index_predicate_execution = index_predicate_program.execution();
+        let index_predicate_program = self
+            .inputs
+            .execution_preparation()
+            .resolve_index_program(predicate_compile_mode);
+        let index_predicate_execution = index_predicate_program.as_deref();
 
         // Phase 1: streaming routes try canonical fast-path precedence before
         // falling back; materialized routes proceed directly to fallback.

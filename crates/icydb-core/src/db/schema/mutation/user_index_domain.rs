@@ -4,6 +4,8 @@
 //! Boundary: accepted schema + authoritative rows + current index view -> staged raw replacement.
 
 #[cfg(any(test, feature = "sql"))]
+use crate::db::query::construction::ConstructionBudget;
+#[cfg(any(test, feature = "sql"))]
 use crate::db::{
     commit::CommitSchemaFingerprint,
     index::IndexId,
@@ -31,6 +33,8 @@ use crate::{
     error::{InternalError, SchemaTransitionBudgetResource},
     types::EntityTag,
 };
+#[cfg(any(test, feature = "sql"))]
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 #[cfg(any(test, feature = "sql"))]
 use std::collections::BTreeSet;
 use std::mem::size_of;
@@ -251,6 +255,7 @@ impl StagedUserIndexDomainReplacement {
 
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) struct StagedUserIndexDomainReplacementBuilder {
+    construction: crate::db::executor::budget::MaintenanceConstructionBudget,
     store_path: &'static str,
     entity_tag: EntityTag,
     accepted_before_identity: AcceptedCatalogIdentity,
@@ -265,6 +270,14 @@ pub(in crate::db) struct StagedUserIndexDomainReplacementBuilder {
 
 #[cfg(any(test, feature = "sql"))]
 impl StagedUserIndexDomainReplacementBuilder {
+    #[cfg(test)]
+    pub(in crate::db) fn set_construction_budget_for_tests(
+        &mut self,
+        construction: crate::db::executor::budget::MaintenanceConstructionBudget,
+    ) {
+        self.construction = construction;
+    }
+
     /// Begin one stage from accepted schema authority and a Ready physical view.
     pub(in crate::db) fn new(
         accepted_before_identity: AcceptedCatalogIdentity,
@@ -296,6 +309,7 @@ impl StagedUserIndexDomainReplacementBuilder {
         )?;
         Ok(Self {
             store_path: accepted_before_identity.store_path(),
+            construction: crate::db::executor::budget::MaintenanceConstructionBudget::new(),
             entity_tag,
             accepted_before_identity,
             accepted_after_version: accepted_after.version(),
@@ -317,20 +331,29 @@ impl StagedUserIndexDomainReplacementBuilder {
         &mut self,
         row: &SchemaUserIndexDomainRow<'_>,
     ) -> Result<(), StagedUserIndexDomainError> {
-        self.budget.consume_source_row(row.encoded_row_bytes)?;
-        self.before_projection.derive_row(
-            self.entity_tag,
-            row,
-            row.accepted_before_slots,
-            &mut self.expected_before,
-            &mut self.budget,
-        )?;
-        self.after_projection.derive_row(
-            self.entity_tag,
-            row,
-            row.accepted_after_slots,
-            &mut self.final_entries,
-            &mut self.budget,
+        self.construction.run(
+            |work| {
+                work.charge(Resource::RowsVisited, 1)
+                    .map_err(StagedUserIndexDomainError::KeyDerivation)?;
+                self.budget.consume_source_row(row.encoded_row_bytes)?;
+                self.before_projection.derive_row(
+                    self.entity_tag,
+                    row,
+                    row.accepted_before_slots,
+                    &mut self.expected_before,
+                    &mut self.budget,
+                    work,
+                )?;
+                self.after_projection.derive_row(
+                    self.entity_tag,
+                    row,
+                    row.accepted_after_slots,
+                    &mut self.final_entries,
+                    &mut self.budget,
+                    work,
+                )
+            },
+            StagedUserIndexDomainError::KeyDerivation,
         )
     }
 
@@ -340,51 +363,59 @@ impl StagedUserIndexDomainReplacementBuilder {
         mut self,
         index_store: &IndexStore,
     ) -> Result<StagedUserIndexDomainReplacement, StagedUserIndexDomainError> {
-        if index_store.state() != IndexState::Ready {
-            return Err(StagedUserIndexDomainError::IndexStoreNotReady);
-        }
-        validate_projection(
-            &mut self.expected_before,
-            &self.before_projection.unique_index_ids,
-            ProjectionAuthority::AcceptedBefore,
-        )?;
-        validate_projection(
-            &mut self.final_entries,
-            &self.after_projection.unique_index_ids,
-            ProjectionAuthority::CandidateAfter,
-        )?;
-        let observed_before =
-            observe_current_user_index_domain(index_store, self.entity_tag, &mut self.budget)?;
-        if observed_before != self.expected_before {
-            return Err(StagedUserIndexDomainError::CurrentDomainMismatch);
-        }
+        self.construction.run(
+            |_work| {
+                if index_store.state() != IndexState::Ready {
+                    return Err(StagedUserIndexDomainError::IndexStoreNotReady);
+                }
+                validate_projection(
+                    &mut self.expected_before,
+                    &self.before_projection.unique_index_ids,
+                    ProjectionAuthority::AcceptedBefore,
+                )?;
+                validate_projection(
+                    &mut self.final_entries,
+                    &self.after_projection.unique_index_ids,
+                    ProjectionAuthority::CandidateAfter,
+                )?;
+                let observed_before = observe_current_user_index_domain(
+                    index_store,
+                    self.entity_tag,
+                    &mut self.budget,
+                )?;
+                if observed_before != self.expected_before {
+                    return Err(StagedUserIndexDomainError::CurrentDomainMismatch);
+                }
 
-        let deletion_keys = observed_before
-            .into_iter()
-            .map(|entry| entry.key)
-            .collect::<Vec<_>>();
-        // The complete current user domain was decoded and proved equal to
-        // row-derived accepted-before truth above. A final raw user key can
-        // therefore exist only inside this exact deletion domain; a second
-        // point lookup for every accepted-after key cannot prove more.
-        self.budget.finish_sort_workspace(
-            self.expected_before.len(),
-            self.final_entries.len(),
-            deletion_keys.len(),
-        )?;
-        self.budget
-            .record_projection_counts(self.expected_before.len(), self.final_entries.len());
+                let deletion_keys = observed_before
+                    .into_iter()
+                    .map(|entry| entry.key)
+                    .collect::<Vec<_>>();
+                // The complete current user domain was decoded and proved equal to
+                // row-derived accepted-before truth above. A final raw user key can
+                // therefore exist only inside this exact deletion domain; a second
+                // point lookup for every accepted-after key cannot prove more.
+                self.budget.finish_sort_workspace(
+                    self.expected_before.len(),
+                    self.final_entries.len(),
+                    deletion_keys.len(),
+                )?;
+                self.budget
+                    .record_projection_counts(self.expected_before.len(), self.final_entries.len());
 
-        Ok(StagedUserIndexDomainReplacement {
-            store_path: self.store_path,
-            entity_tag: self.entity_tag,
-            accepted_before_identity: self.accepted_before_identity,
-            accepted_after_version: self.accepted_after_version,
-            accepted_after_fingerprint: self.accepted_after_fingerprint,
-            deletion_keys,
-            final_entries: self.final_entries,
-            usage: self.budget.usage(),
-        })
+                Ok(StagedUserIndexDomainReplacement {
+                    store_path: self.store_path,
+                    entity_tag: self.entity_tag,
+                    accepted_before_identity: self.accepted_before_identity,
+                    accepted_after_version: self.accepted_after_version,
+                    accepted_after_fingerprint: self.accepted_after_fingerprint,
+                    deletion_keys,
+                    final_entries: self.final_entries,
+                    usage: self.budget.usage(),
+                })
+            },
+            StagedUserIndexDomainError::KeyDerivation,
+        )
     }
 }
 
@@ -743,9 +774,12 @@ impl PreparedUserIndexProjection {
         slots: &dyn CanonicalSlotReader,
         entries: &mut Vec<StagedUserIndexDomainEntry>,
         budget: &mut StagedUserIndexDomainBudget,
+        work: &dyn crate::db::query::construction::ConstructionBudget,
     ) -> Result<(), StagedUserIndexDomainError> {
         for index in &self.indexes {
             budget.consume_projection_work()?;
+            work.charge(Resource::PredicateExpressionSteps, 1)
+                .map_err(StagedUserIndexDomainError::KeyDerivation)?;
             let Some(key) = index.derive_key(entity_tag, row, slots)? else {
                 continue;
             };

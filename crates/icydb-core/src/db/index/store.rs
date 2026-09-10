@@ -19,9 +19,8 @@ use crate::db::{
 };
 
 use candid::CandidType;
-use ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, memory_manager::VirtualMemory,
-};
+use ic_memory::RuntimeMemory;
+use ic_memory::ic_stable_structures::{BTreeMap as StableBTreeMap, DefaultMemoryImpl};
 use serde::Deserialize;
 #[cfg(test)]
 use std::cell::Cell;
@@ -118,7 +117,7 @@ pub(super) enum IndexStoreBackend {
     Heap(HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>),
     Journaled {
         canonical:
-            StableBTreeMap<RawIndexStoreKey, IndexEntryValue, VirtualMemory<DefaultMemoryImpl>>,
+            StableBTreeMap<RawIndexStoreKey, IndexEntryValue, RuntimeMemory<DefaultMemoryImpl>>,
         live: HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>,
         tombstones: BTreeSet<RawIndexStoreKey>,
         positions: PositionedOverlayMetadata<RawIndexStoreKey>,
@@ -168,7 +167,7 @@ impl IndexStore {
     /// Normal writes update only the live materialized projection. The
     /// canonical stable index is updated by future fold/rebuild paths.
     #[must_use]
-    pub fn init_journaled(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
+    pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
         let canonical = StableBTreeMap::init(memory);
         let prefix_cardinality = if canonical.is_empty() {
             IndexPrefixCardinality::synchronized_empty()
@@ -1076,7 +1075,7 @@ mod tests {
         testing::test_memory,
         types::EntityTag,
     };
-    use ic_stable_structures::Storable;
+    use ic_memory::ic_stable_structures::Storable;
     use std::{borrow::Cow, convert::Infallible};
 
     fn raw_key(value: u8) -> RawIndexStoreKey {

@@ -7,6 +7,10 @@
 
 use std::{collections::BTreeMap, ops::Bound};
 
+use crate::db::{
+    executor::budget::MaintenanceConstructionBudget, query::construction::ConstructionBudget,
+};
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use icydb_diagnostic_code::SchemaMigrationCode;
 
 use super::migration_record::MAX_SCHEMA_MIGRATION_FINDINGS;
@@ -81,76 +85,89 @@ pub(in crate::db::schema) fn validate_migration_page<C: CanisterKind>(
     planned: &PlannedSchemaMigration,
     before_progress: &PersistedSchemaMigrationProgress,
 ) -> Result<MigrationValidationPage, InternalError> {
-    let mut remaining_rows = MAX_MIGRATION_VALIDATION_ROWS_PER_PAGE;
-    let mut remaining_decoded_bytes = MAX_MIGRATION_VALIDATION_DECODED_BYTES_PER_PAGE;
-    let mut remaining_staged_bytes = MAX_MIGRATION_VALIDATION_STAGED_BYTES_PER_PAGE;
-    let mut rows_validated = 0_u64;
-    let mut findings = Vec::new();
-    let mut staged_entries = Vec::new();
-    let mut final_cursor = before_progress.row_cursor().cloned();
-    let mut exhausted = true;
+    MaintenanceConstructionBudget::new().run(
+        |work| {
+            let mut remaining_rows = MAX_MIGRATION_VALIDATION_ROWS_PER_PAGE;
+            let mut remaining_decoded_bytes = MAX_MIGRATION_VALIDATION_DECODED_BYTES_PER_PAGE;
+            let mut remaining_staged_bytes = MAX_MIGRATION_VALIDATION_STAGED_BYTES_PER_PAGE;
+            let mut rows_validated = 0_u64;
+            let mut findings = Vec::new();
+            let mut staged_entries = Vec::new();
+            let mut final_cursor = before_progress.row_cursor().cloned();
+            let mut exhausted = true;
 
-    for program in planned.programs() {
-        let cursor = before_progress.row_cursor();
-        if cursor.is_some_and(|cursor| {
-            (program.store(), program.entity()) < (cursor.store(), cursor.entity())
-        }) {
-            continue;
-        }
-        if remaining_rows == 0 || remaining_decoded_bytes == 0 || remaining_staged_bytes == 0 {
-            exhausted = false;
-            break;
-        }
-        let candidate = planned
-            .candidates()
-            .iter()
-            .find(|candidate| candidate.store_path() == program.store_path())
-            .ok_or_else(InternalError::store_invariant)?;
-        let store = db.store_handle(program.store_path())?;
-        if store.storage_capabilities().recovery()
-            != StoreRecoveryCapability::StableBasePlusJournalReplay
-        {
-            return Err(InternalError::store_unsupported());
-        }
-        let page = validate_entity_page(
-            db,
-            store,
-            program,
-            candidate,
-            cursor.filter(|cursor| {
-                cursor.store() == program.store() && cursor.entity() == program.entity()
-            }),
-            remaining_rows,
-            remaining_decoded_bytes,
-            remaining_staged_bytes,
-            MAX_SCHEMA_MIGRATION_FINDINGS.saturating_sub(findings.len()),
-        )?;
-        remaining_rows = remaining_rows.saturating_sub(page.rows);
-        remaining_decoded_bytes = remaining_decoded_bytes.saturating_sub(page.decoded_bytes);
-        remaining_staged_bytes = remaining_staged_bytes.saturating_sub(page.staged_bytes);
-        rows_validated = rows_validated
-            .checked_add(u64::try_from(page.rows).map_err(|_| InternalError::store_invariant())?)
-            .ok_or_else(InternalError::store_invariant)?;
-        if let Some(cursor) = page.cursor {
-            final_cursor = Some(cursor);
-        }
-        findings.extend(page.findings);
-        staged_entries.extend(page.staged_entries);
-        if !page.exhausted {
-            exhausted = false;
-            break;
-        }
-        if !findings.is_empty() {
-            exhausted = false;
-            break;
-        }
-    }
-    let progress = before_progress.with_validation_page(final_cursor, rows_validated, findings)?;
-    Ok(MigrationValidationPage {
-        progress,
-        staged_entries,
-        exhausted,
-    })
+            for program in planned.programs() {
+                let cursor = before_progress.row_cursor();
+                if cursor.is_some_and(|cursor| {
+                    (program.store(), program.entity()) < (cursor.store(), cursor.entity())
+                }) {
+                    continue;
+                }
+                if remaining_rows == 0
+                    || remaining_decoded_bytes == 0
+                    || remaining_staged_bytes == 0
+                {
+                    exhausted = false;
+                    break;
+                }
+                let candidate = planned
+                    .candidates()
+                    .iter()
+                    .find(|candidate| candidate.store_path() == program.store_path())
+                    .ok_or_else(InternalError::store_invariant)?;
+                let store = db.store_handle(program.store_path())?;
+                if store.storage_capabilities().recovery()
+                    != StoreRecoveryCapability::StableBasePlusJournalReplay
+                {
+                    return Err(InternalError::store_unsupported());
+                }
+                let page = validate_entity_page(
+                    db,
+                    store,
+                    program,
+                    candidate,
+                    cursor.filter(|cursor| {
+                        cursor.store() == program.store() && cursor.entity() == program.entity()
+                    }),
+                    remaining_rows,
+                    remaining_decoded_bytes,
+                    remaining_staged_bytes,
+                    MAX_SCHEMA_MIGRATION_FINDINGS.saturating_sub(findings.len()),
+                    work,
+                )?;
+                remaining_rows = remaining_rows.saturating_sub(page.rows);
+                remaining_decoded_bytes =
+                    remaining_decoded_bytes.saturating_sub(page.decoded_bytes);
+                remaining_staged_bytes = remaining_staged_bytes.saturating_sub(page.staged_bytes);
+                rows_validated = rows_validated
+                    .checked_add(
+                        u64::try_from(page.rows).map_err(|_| InternalError::store_invariant())?,
+                    )
+                    .ok_or_else(InternalError::store_invariant)?;
+                if let Some(cursor) = page.cursor {
+                    final_cursor = Some(cursor);
+                }
+                findings.extend(page.findings);
+                staged_entries.extend(page.staged_entries);
+                if !page.exhausted {
+                    exhausted = false;
+                    break;
+                }
+                if !findings.is_empty() {
+                    exhausted = false;
+                    break;
+                }
+            }
+            let progress =
+                before_progress.with_validation_page(final_cursor, rows_validated, findings)?;
+            Ok(MigrationValidationPage {
+                progress,
+                staged_entries,
+                exhausted,
+            })
+        },
+        std::convert::identity,
+    )
 }
 
 struct EntityValidationPage {
@@ -181,6 +198,7 @@ fn validate_entity_page<C: CanisterKind>(
     decoded_budget: usize,
     staged_budget: usize,
     finding_budget: usize,
+    work: &dyn ConstructionBudget,
 ) -> Result<EntityValidationPage, InternalError> {
     let before_selection = store
         .with_schema(|schema| {
@@ -321,6 +339,8 @@ fn validate_entity_page<C: CanisterKind>(
                     page.exhausted = false;
                     return Ok(StoreVisit::Stop);
                 }
+                work.charge(Resource::RowsVisited, 1)?;
+                work.charge(Resource::StoredBytesRead, raw_row.len() as u64)?;
                 let decoded = DecodedDataStoreKey::try_from_raw(raw_key)
                     .map_err(|_| InternalError::identity_corruption())?;
                 let before = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
@@ -394,6 +414,7 @@ fn validate_entity_page<C: CanisterKind>(
                 }
                 let mut row_unique_keys = Vec::new();
                 for projection in &unique {
+                    work.charge(Resource::PredicateExpressionSteps, 1)?;
                     let Some(key) =
                         projection.derive_key(&decoded.primary_key_value(), &candidate_reader)?
                     else {

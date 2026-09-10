@@ -38,7 +38,7 @@ use crate::{
     types::{EntityTag, U256},
     value::{InputValue, OutputValue, Value},
 };
-use ic_stable_structures::Storable;
+use ic_memory::ic_stable_structures::Storable;
 use icydb_diagnostic_code::{DiagnosticFactTag, QueryFieldRole};
 use icydb_schema::{FieldSourceKey, ScalarType};
 use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, rc::Rc};

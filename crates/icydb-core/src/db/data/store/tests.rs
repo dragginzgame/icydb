@@ -7,15 +7,12 @@ use crate::{
         positioned_overlay::{JournalOverlayPosition, PositionedOverlayRetirement},
         registry::StoreAllocationIdentity,
     },
-    testing::test_memory,
+    testing::{test_memory, test_memory_with_backing},
 };
-use ic_stable_structures::{
-    Memory, VectorMemory,
-    memory_manager::{MemoryId, MemoryManager},
-};
+use ic_memory::ic_stable_structures::{Memory, VectorMemory};
 use std::ops::Bound;
 
-const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 1 + 128;
+const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 128;
 
 fn raw_key(entity: u64, id: u64) -> RawDataStoreKey {
     DecodedDataStoreKey::new(
@@ -150,15 +147,17 @@ fn positioned_data_overlay_retires_exactly_across_delete_and_reinsert() {
 #[test]
 fn data_store_tiny_fold_stays_within_one_memory_manager_bucket() {
     let memory = VectorMemory::default();
-    let manager = MemoryManager::init(memory.clone());
-    let mut store = DataStore::init_journaled(manager.get(MemoryId::new(23)));
+    let data_memory = test_memory_with_backing(23, memory.clone());
+    // Attribute only the store's growth, excluding the bootstrapped ledger.
+    let bootstrap_pages = memory.size();
+    let mut store = DataStore::init_journaled(data_memory);
 
     store
         .fold_recovered_journal_put(raw_key(1, 1), raw_row(7))
         .expect("tiny folded row should persist");
 
     assert!(
-        memory.size() <= SINGLE_MEMORY_MANAGER_BUCKET_PAGES,
+        memory.size() - bootstrap_pages <= SINGLE_MEMORY_MANAGER_BUCKET_PAGES,
         "tiny data fold should not allocate extra MemoryManager buckets; pages={}",
         memory.size()
     );
@@ -287,9 +286,7 @@ fn data_store_entity_cardinality_tracks_journaled_overlay_writes() {
     store
         .apply_recovered_journal_put(raw_key(1, 3), raw_row(33))
         .expect("live replacement should apply");
-    store
-        .apply_recovered_journal_delete(&raw_key(1, 1))
-        .expect("live delete should apply");
+    store.remove(&raw_key(1, 1));
     assert_eq!(
         store.exact_entity_count(EntityTag::new(1)),
         Some(2),
@@ -323,9 +320,7 @@ fn data_store_entity_cardinality_ignores_fold_updates_hidden_by_live_overlay() {
     store
         .apply_recovered_journal_put(raw_key(1, 2), raw_row(22))
         .expect("live replacement should apply");
-    store
-        .apply_recovered_journal_delete(&raw_key(1, 3))
-        .expect("live delete should apply");
+    store.remove(&raw_key(1, 3));
     assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(2));
 
     store
@@ -499,9 +494,7 @@ fn journaled_mixed_data_range_traversal_streams_without_snapshot() {
     store
         .apply_recovered_journal_put(raw_key(1, 5), raw_row(55))
         .expect("live override should apply");
-    store
-        .apply_recovered_journal_delete(&raw_key(1, 1))
-        .expect("live delete should apply");
+    store.remove(&raw_key(1, 1));
 
     let mut asc = Vec::new();
     let _: Result<(), Infallible> = store.visit_range(

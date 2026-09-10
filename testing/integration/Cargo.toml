@@ -103,3 +103,7 @@ path = "tests/recovery_closeout.rs"
 [[test]]
 name = "convergence_candidate"
 path = "tests/convergence_candidate.rs"
+
+[[test]]
+name = "memory_allocations"
+path = "tests/memory_allocations.rs"

@@ -87,7 +87,10 @@ fn scalar_compilation_resolves_accepted_slots_and_preserves_syntax() {
         let original = expr.clone();
         for _ in 0..2 {
             assert_eq!(
-                compile_scalar_projection_expr_with_schema(&schema, &expr),
+                crate::db::query::preparation::with_preparation_work(|work| {
+                    compile_scalar_projection_expr_with_schema(&schema, &expr, work)
+                })
+                .unwrap(),
                 Some(expected.clone())
             );
             assert_eq!(expr, original);
@@ -148,7 +151,13 @@ fn scalar_compilation_validates_discarded_case_branches() {
             },
         ];
         for expr in cases {
-            assert!(compile_scalar_projection_expr_with_schema(&schema, &expr).is_none());
+            assert!(
+                crate::db::query::preparation::with_preparation_work(|work| {
+                    compile_scalar_projection_expr_with_schema(&schema, &expr, work)
+                })
+                .unwrap()
+                .is_none()
+            );
         }
     }
 }
@@ -167,7 +176,10 @@ fn scalar_compilation_specializes_admitted_constant_cases() {
             literal(Value::Nat64(2)),
         );
         assert_eq!(
-            compile_scalar_projection_expr_with_schema(&schema, &expr),
+            crate::db::query::preparation::with_preparation_work(|work| {
+                compile_scalar_projection_expr_with_schema(&schema, &expr, work)
+            })
+            .unwrap(),
             Some(CompiledExpr::Literal(Value::Nat64(expected)))
         );
     }

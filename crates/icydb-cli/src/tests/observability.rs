@@ -91,6 +91,7 @@ fn snapshot_report_rendering_uses_human_tables() {
     let text = render_snapshot_report(&icydb::db::StorageReport::default());
 
     assert!(text.contains("IcyDB storage snapshot"));
+    assert!(text.contains("unavailable: no default memory runtime"));
     assert!(text.contains("data stores\n  None"));
     assert!(text.contains("index stores\n  None"));
     assert!(text.contains("schema stores\n  None"));

@@ -28,6 +28,7 @@ use crate::{
             terminal::RetainedSlotRow,
             with_production_scalar_page_work,
         },
+        index::IndexCompilePolicy,
     },
     error::InternalError,
     metrics::EntityMetricsSpan,
@@ -263,9 +264,12 @@ where
                     slot_map_for_model_plan(prepared_plan.logical_plan()),
                 )
             });
-        let index_predicate_execution = covering_execution_preparation
-            .as_ref()
-            .and_then(ExecutionPreparation::strict_mode);
+        let index_predicate_execution =
+            covering_execution_preparation
+                .as_ref()
+                .and_then(|prepared| {
+                    prepared.prepared_index_program(IndexCompilePolicy::StrictAllOrNone)
+                });
 
         if let Some(projected) = try_execute_prepared_covering_projection_rows_for_canister(
             db,

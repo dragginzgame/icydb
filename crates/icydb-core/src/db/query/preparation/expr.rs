@@ -3,13 +3,31 @@
 use crate::db::{
     QueryError,
     query::{
-        plan::expr::{CaseWhenArm, Expr, FieldId, FieldPath},
+        plan::{
+            OrderSpec, OrderTerm,
+            expr::{CaseWhenArm, Expr, FieldId, FieldPath},
+        },
         preparation::PreparationWork,
     },
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 impl PreparationWork<'_> {
+    /// Copy ordering operands without canonicalization or a second sizing walk.
+    pub(in crate::db) fn copy_order_spec(
+        &self,
+        order: &OrderSpec,
+    ) -> Result<OrderSpec, QueryError> {
+        Ok(OrderSpec {
+            fields: self.copy_slice(&order.fields, |term| {
+                Ok(OrderTerm::new(
+                    self.copy_expr(term.expr())?,
+                    term.direction(),
+                ))
+            })?,
+        })
+    }
+
     /// Copy an input-admitted tree under the current request. Callers must
     /// validate input depth before entering this recursive construction path;
     /// partial results cannot exceed that depth and are discarded on failure.

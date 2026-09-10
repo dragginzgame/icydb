@@ -14,8 +14,9 @@ use crate::db::{
     journal::JournalInspectionCheckpoint,
     schema::MAX_ACCEPTED_TARGET_PATH_COMPONENTS,
 };
-use crate::error::{ConstraintValuePath, ConstraintValuePathComponent};
+use crate::error::{ConstraintValuePath, ConstraintValuePathComponent, InternalError};
 use candid::CandidType;
+use icydb_diagnostic_code::{DiagnosticDetail, RuntimeBoundaryCode};
 use serde::Deserialize;
 
 pub(in crate::db) const MAX_INTEGRITY_OWNER_BYTES: usize = 256;
@@ -235,6 +236,27 @@ pub enum IntegrityTerminalOutcome {
     Expired,
     /// The authorized owner aborted the job.
     Aborted,
+}
+
+impl IntegrityTerminalOutcome {
+    /// Classify a failed inspection without confusing exhaustion with invalid
+    /// authority. The exact typed boundary, not the broad Unsupported class,
+    /// distinguishes existing relation and construction budget failures.
+    pub(in crate::db::integrity) fn from_internal(error: &InternalError) -> Self {
+        if matches!(
+            error.diagnostic().detail(),
+            Some(DiagnosticDetail::RuntimeBoundary {
+                boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded
+                    | RuntimeBoundaryCode::PageUnitTooLarge,
+            })
+        ) {
+            return Self::ResourceLimited(IntegrityResourceDiagnostic {
+                diagnostic_code: error.diagnostic_code().error_code().raw(),
+            });
+        }
+
+        Self::Uninspectable(IntegrityAuthorityDiagnostic::from_internal(error))
+    }
 }
 
 /// Durable job lifecycle state.
@@ -798,6 +820,51 @@ impl From<crate::error::InternalError> for IntegrityDeepError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::{ErrorClass, ErrorOrigin};
+    use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+
+    #[test]
+    fn inspection_resource_failures_keep_their_typed_terminal_and_wire_code() {
+        for error in [
+            InternalError::relation_budget_exceeded(Resource::NestedValueSteps, 10, 11),
+            InternalError::relation_budget_exceeded(Resource::TemporaryBytes, 10, 11),
+            InternalError::page_unit_too_large(Resource::TemporaryBytes, 10, 11),
+        ] {
+            let outcome = IntegrityTerminalOutcome::from_internal(&error);
+            let IntegrityTerminalOutcome::ResourceLimited(diagnostic) = &outcome else {
+                panic!("resource exhaustion must not become an authority failure");
+            };
+            assert_eq!(
+                diagnostic.diagnostic_code(),
+                error.diagnostic_code().error_code().raw(),
+            );
+            let bytes = candid::encode_one(&outcome).expect("terminal should encode");
+            let decoded: IntegrityTerminalOutcome =
+                candid::decode_one(&bytes).expect("terminal should decode");
+            assert_eq!(decoded, outcome);
+        }
+    }
+
+    #[test]
+    fn inspection_authority_failures_are_not_classified_as_exhaustion() {
+        for class in [
+            ErrorClass::Corruption,
+            ErrorClass::IncompatiblePersistedFormat,
+            ErrorClass::InvariantViolation,
+            ErrorClass::Unsupported,
+            ErrorClass::NotFound,
+            ErrorClass::Conflict,
+            ErrorClass::Internal,
+        ] {
+            let error = InternalError::classified(class, ErrorOrigin::Store);
+            assert_eq!(
+                IntegrityTerminalOutcome::from_internal(&error),
+                IntegrityTerminalOutcome::Uninspectable(
+                    IntegrityAuthorityDiagnostic::from_internal(&error),
+                ),
+            );
+        }
+    }
 
     #[test]
     fn public_job_inputs_revalidate_after_wire_decode() {

@@ -294,6 +294,19 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
     if let Some(predicate_program) = predicate_program {
         predicate_program.mark_referenced_slots(&mut referenced_slots);
     }
+    // Verification rebuilds every after-image key. Admit it even when the
+    // indexed inputs are unchanged, then reuse it without reading index state.
+    let new_key = match new_slots.as_ref() {
+        Some(slots) => load_structural_accepted_field_path_index_key(
+            IndexKeyLane::New,
+            entity_tag,
+            accepted_index,
+            predicate_program,
+            new_primary_key,
+            &**slots,
+        )?,
+        None => None,
+    };
     if unchanged_index_inputs(
         old_primary_key,
         old_slots
@@ -318,17 +331,6 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
             accepted_index,
             predicate_program,
             old_primary_key,
-            slots,
-        )?,
-        None => None,
-    };
-    let new_key = match new_slots {
-        Some(slots) => load_structural_accepted_field_path_index_key(
-            IndexKeyLane::New,
-            entity_tag,
-            accepted_index,
-            predicate_program,
-            new_primary_key,
             slots,
         )?,
         None => None,
@@ -397,6 +399,19 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
     if let Some(predicate_program) = predicate_program {
         predicate_program.mark_referenced_slots(&mut referenced_slots);
     }
+    // Verification rebuilds every after-image key. Admit it even when the
+    // indexed inputs are unchanged, then reuse it without reading index state.
+    let new_key = match new_slots.as_ref() {
+        Some(slots) => load_structural_accepted_expression_index_key(
+            IndexKeyLane::New,
+            entity_tag,
+            accepted_index,
+            predicate_program,
+            new_primary_key,
+            &**slots,
+        )?,
+        None => None,
+    };
     if unchanged_index_inputs(
         old_primary_key,
         old_slots
@@ -422,17 +437,6 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
             accepted_index,
             predicate_program,
             old_primary_key,
-            slots,
-        )?,
-        None => None,
-    };
-    let new_key = match new_slots {
-        Some(slots) => load_structural_accepted_expression_index_key(
-            IndexKeyLane::New,
-            entity_tag,
-            accepted_index,
-            predicate_program,
-            new_primary_key,
             slots,
         )?,
         None => None,

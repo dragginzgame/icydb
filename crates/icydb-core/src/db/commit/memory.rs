@@ -4,9 +4,10 @@
 //! Boundary: commit::{recovery,store} -> commit::memory (one-way).
 
 use crate::error::InternalError;
+use ic_memory::RuntimeMemory;
+use ic_memory::ic_stable_structures::DefaultMemoryImpl;
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory;
-use ic_stable_structures::{DefaultMemoryImpl, memory_manager::VirtualMemory};
 #[cfg(test)]
 use std::cell::RefCell;
 use std::{
@@ -21,7 +22,7 @@ thread_local! {
         const { Cell::new(None) };
     #[cfg(test)]
     static TEST_COMMIT_MEMORIES: RefCell<
-        Vec<(CommitMemoryAllocation, VirtualMemory<DefaultMemoryImpl>)>
+        Vec<(CommitMemoryAllocation, RuntimeMemory<DefaultMemoryImpl>)>
     > = const { RefCell::new(Vec::new()) };
 }
 
@@ -69,7 +70,7 @@ pub(in crate::db) fn configure_commit_memory_id(
 #[cfg(test)]
 pub(in crate::db) fn commit_memory_handle(
     allocation: CommitMemoryAllocation,
-) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     TEST_COMMIT_MEMORIES.with(|memories| {
         let mut memories = memories.borrow_mut();
         if let Some((_, memory)) = memories
@@ -89,7 +90,7 @@ pub(in crate::db) fn commit_memory_handle(
 #[cfg(not(test))]
 pub(in crate::db) fn commit_memory_handle(
     allocation: CommitMemoryAllocation,
-) -> Result<VirtualMemory<DefaultMemoryImpl>, InternalError> {
+) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory(allocation.stable_key, allocation.memory_id)
         .map_err(InternalError::commit_memory_id_registration_failed)
 }

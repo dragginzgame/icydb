@@ -10,16 +10,15 @@ use crate::{
         integrity::{
             DatabaseIncarnationId, DeepIntegrityPage, DeepIntegrityPageStatus,
             DerivedInspectionLimits, IntegrityAbortReceipt, IntegrityAbortStatus,
-            IntegrityAuthorityDiagnostic, IntegrityCheckpoint, IntegrityDeepError,
-            IntegrityEntityIdentity, IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind,
-            IntegrityJob, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
-            IntegrityJobReceipt, IntegrityJobState, IntegrityPendingTerminal, IntegrityPhase,
-            IntegrityReceiptEnvelope, IntegrityReceiptReplayKey, IntegrityResourceDiagnostic,
-            IntegritySeverity, IntegritySubmissionKey, IntegrityTerminalOutcome,
-            IntegrityVerifierFamily, MAX_INTEGRITY_IN_PROGRESS_PAGES, PhysicalUnitCheckpoint,
-            QuickIntegrityStatus, RowInspectionLimits, capture_integrity_proof_vector,
-            execute_index_integrity_page, execute_quick_integrity, execute_reverse_integrity_page,
-            execute_row_integrity_page,
+            IntegrityCheckpoint, IntegrityDeepError, IntegrityEntityIdentity, IntegrityFinding,
+            IntegrityFindingClass, IntegrityFindingKind, IntegrityJob, IntegrityJobError,
+            IntegrityJobId, IntegrityJobOwner, IntegrityJobReceipt, IntegrityJobState,
+            IntegrityPendingTerminal, IntegrityPhase, IntegrityReceiptEnvelope,
+            IntegrityReceiptReplayKey, IntegrityResourceDiagnostic, IntegritySeverity,
+            IntegritySubmissionKey, IntegrityTerminalOutcome, IntegrityVerifierFamily,
+            MAX_INTEGRITY_IN_PROGRESS_PAGES, PhysicalUnitCheckpoint, QuickIntegrityStatus,
+            RowInspectionLimits, capture_integrity_proof_vector, execute_index_integrity_page,
+            execute_quick_integrity, execute_reverse_integrity_page, execute_row_integrity_page,
             progress_store::{InsertJobResult, with_progress_store},
         },
         journal::{JournalInspectionCheckpoint, JournalInspectionLimits, JournalIntegrityIssue},
@@ -171,9 +170,7 @@ pub(in crate::db) fn continue_deep_integrity_job<C: CanisterKind>(
                 Err(error) => {
                     return terminalize::<C>(
                         &mut job,
-                        IntegrityTerminalOutcome::Uninspectable(
-                            IntegrityAuthorityDiagnostic::from_internal(&error),
-                        ),
+                        IntegrityTerminalOutcome::from_internal(&error),
                         acknowledged_sequence,
                         Vec::new(),
                     );
@@ -378,9 +375,7 @@ fn advance_job<C: CanisterKind>(
         Err(error) => {
             return terminalize::<C>(
                 &mut job,
-                IntegrityTerminalOutcome::Uninspectable(
-                    IntegrityAuthorityDiagnostic::from_internal(&error),
-                ),
+                IntegrityTerminalOutcome::from_internal(&error),
                 acknowledged_sequence,
                 Vec::new(),
             );
@@ -398,9 +393,7 @@ fn advance_job<C: CanisterKind>(
     let candidate = match execute_candidate_page(db, plan, &job) {
         Ok(candidate) => candidate,
         Err(error) => {
-            let outcome = IntegrityTerminalOutcome::Uninspectable(
-                IntegrityAuthorityDiagnostic::from_internal(&error),
-            );
+            let outcome = IntegrityTerminalOutcome::from_internal(&error);
             return terminalize::<C>(&mut job, outcome, acknowledged_sequence, Vec::new());
         }
     };
@@ -410,9 +403,7 @@ fn advance_job<C: CanisterKind>(
         Err(error) => {
             return terminalize::<C>(
                 &mut job,
-                IntegrityTerminalOutcome::Uninspectable(
-                    IntegrityAuthorityDiagnostic::from_internal(&error),
-                ),
+                IntegrityTerminalOutcome::from_internal(&error),
                 acknowledged_sequence,
                 Vec::new(),
             );

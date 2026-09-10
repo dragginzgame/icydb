@@ -131,14 +131,14 @@ impl<C: CanisterKind> DbSession<C> {
         let schema_fingerprint = authority.accepted_schema_fingerprint();
         let prepared_plan = self
             .cached_primary_only_query_plan_for_accepted_authority_with_schema_fingerprint(
-                authority.clone(),
+                authority,
                 accepted_schema,
                 schema_fingerprint,
                 query,
                 DiagnosticExecutionLane::Mutation,
             )?;
 
-        Self::sql_select_projection_from_prepared_plan(prepared_plan, authority)
+        Self::sql_select_projection_from_prepared_plan(prepared_plan)
     }
 
     fn select_authority_for_context(
@@ -157,24 +157,20 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<(SharedPreparedExecutionPlan, StructuralProjectionContract), QueryError> {
         let prepared_plan = self.cached_shared_query_plan_for_accepted_authority_with_catalog(
-            authority.clone(),
+            authority,
             catalog,
             query,
             DiagnosticExecutionLane::TrustedRead,
         )?;
-        Self::sql_select_projection_from_prepared_plan(prepared_plan, authority)
+        Self::sql_select_projection_from_prepared_plan(prepared_plan)
     }
 
     fn sql_select_projection_from_prepared_plan(
         prepared_plan: SharedPreparedExecutionPlan,
-        authority: EntityAuthority,
     ) -> Result<(SharedPreparedExecutionPlan, StructuralProjectionContract), QueryError> {
-        let projection_spec = prepared_plan.logical_plan().projection_spec_with_schema(
-            authority
-                .accepted_schema_info()
-                .ok_or_else(QueryError::invariant)?,
+        let projection = StructuralProjectionContract::from_projection_spec(
+            prepared_plan.logical_plan().projection_spec()?,
         );
-        let projection = StructuralProjectionContract::from_projection_spec(&projection_spec);
 
         Ok((prepared_plan, projection))
     }

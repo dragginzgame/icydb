@@ -31,7 +31,7 @@ const INDEX_MANY_BINARY_SEARCH_MIN_CANDIDATES: usize = 16;
 /// `StrictAllOrNone` compiles only when every predicate node is supported.
 ///
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum IndexCompilePolicy {
     ConservativeSubset,
     StrictAllOrNone,

@@ -367,11 +367,12 @@ impl ResolvedStructuralAggregateTerminal<'_> {
     fn into_prepared(
         self,
         schema: &SchemaInfo,
+        budget: &dyn crate::db::query::construction::ConstructionBudget,
     ) -> Result<PreparedScalarAggregateTerminal, InternalError> {
-        let input = self.input.into_prepared(schema)?;
+        let input = self.input.into_prepared(schema, budget)?;
         let filter = self
             .filter_expr
-            .map(|expr| compile_structural_aggregate_expr(schema, expr))
+            .map(|expr| compile_structural_aggregate_expr(schema, expr, budget))
             .transpose()?;
 
         Ok(PreparedScalarAggregateTerminal::from_validated_inputs(
@@ -416,15 +417,19 @@ impl ResolvedStructuralAggregateInput<'_> {
         }
     }
 
-    fn into_prepared(self, schema: &SchemaInfo) -> Result<ScalarAggregateInput, InternalError> {
+    fn into_prepared(
+        self,
+        schema: &SchemaInfo,
+        budget: &dyn crate::db::query::construction::ConstructionBudget,
+    ) -> Result<ScalarAggregateInput, InternalError> {
         match self {
             Self::Rows => Ok(ScalarAggregateInput::Rows),
             Self::Field(target_slot) => Ok(ScalarAggregateInput::Field {
                 slot: target_slot.index(),
-                field: target_slot.field().to_string(),
+                field: budget.copy_text(target_slot.field())?,
             }),
             Self::Expr(input_expr) => Ok(ScalarAggregateInput::Expr(
-                compile_structural_aggregate_expr(schema, input_expr)?,
+                compile_structural_aggregate_expr(schema, input_expr, budget)?,
             )),
             Self::MissingFieldTarget => Err(InternalError::query_executor_invariant()),
         }
@@ -464,8 +469,9 @@ pub(super) const fn resolve_structural_aggregate_terminal(
 pub(super) fn compile_structural_scalar_aggregate_terminal(
     schema: &SchemaInfo,
     terminal: &StructuralAggregateTerminal,
+    budget: &dyn crate::db::query::construction::ConstructionBudget,
 ) -> Result<PreparedScalarAggregateTerminal, InternalError> {
-    resolve_structural_aggregate_terminal(terminal).into_prepared(schema)
+    resolve_structural_aggregate_terminal(terminal).into_prepared(schema, budget)
 }
 
 impl StructuralAggregateTerminalKind {
@@ -487,10 +493,11 @@ impl StructuralAggregateTerminalKind {
 fn compile_structural_aggregate_expr(
     schema: &SchemaInfo,
     expr: &Expr,
+    budget: &dyn crate::db::query::construction::ConstructionBudget,
 ) -> Result<CompiledExpr, InternalError> {
     // The scalar compiler owns field/root admission as well as construction.
     // Unsupported shapes and unknown fields share this payload-free boundary.
-    let scalar = compile_scalar_projection_expr_with_schema(schema, expr)
+    let scalar = compile_scalar_projection_expr_with_schema(schema, expr, budget)?
         .ok_or_else(InternalError::query_executor_invariant)?;
 
     Ok(scalar)
@@ -589,7 +596,10 @@ mod tests {
         for name in ["id", "id_now"] {
             let schema = scalar_schema(name);
             for expr in &expressions {
-                let expected = compile_scalar_projection_expr_with_schema(&schema, expr);
+                let expected = crate::db::query::preparation::with_preparation_work(|work| {
+                    compile_scalar_projection_expr_with_schema(&schema, expr, work)
+                })
+                .unwrap();
                 for input in [true, false] {
                     let terminal = StructuralAggregateTerminal::new(
                         if input {
@@ -603,7 +613,9 @@ mod tests {
                         false,
                     );
                     match (
-                        compile_structural_scalar_aggregate_terminal(&schema, &terminal),
+                        crate::db::query::preparation::with_preparation_work(|work| {
+                            compile_structural_scalar_aggregate_terminal(&schema, &terminal, work)
+                        }),
                         &expected,
                     ) {
                         (Ok(prepared), Some(expected)) => {

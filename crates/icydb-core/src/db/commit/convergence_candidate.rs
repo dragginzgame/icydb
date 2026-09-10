@@ -24,10 +24,8 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use ic_stable_structures::{
-    DefaultMemoryImpl, Memory, VectorMemory,
-    memory_manager::{MemoryId, MemoryManager, VirtualMemory},
-};
+use ic_memory::RuntimeMemory;
+use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory, VectorMemory};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Frozen cumulative limits proved by the convergence candidate.
@@ -68,7 +66,7 @@ const ENCODED_BYTE_HEAP_MULTIPLIER: u64 = 4;
 const BATCH_HEAP_BYTES: u64 = 256;
 const STORE_HEAP_BYTES: u64 = 4_096;
 
-type CandidateMemory = VirtualMemory<DefaultMemoryImpl>;
+type CandidateMemory = RuntimeMemory<DefaultMemoryImpl>;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct CandidateHeadOrder {
@@ -405,10 +403,9 @@ fn proposal(batches: Vec<JournalBatch>) -> PreparedBacklogProposal {
 fn isolated_memories(count: usize) -> Vec<CandidateMemory> {
     (0..count)
         .map(|ordinal| {
-            let manager = MemoryManager::init(DefaultMemoryImpl::default());
-            manager.get(MemoryId::new(
-                u8::try_from(ordinal + 1).expect("test memory id should fit"),
-            ))
+            crate::testing::test_memory(
+                u8::try_from(ordinal + 10).expect("test memory id should fit"),
+            )
         })
         .collect()
 }
@@ -613,8 +610,7 @@ fn maximum_store_scan_and_accepted_index_retirement_use_the_canonical_owners() {
 fn maximum_batch_and_byte_fill_drain_refill_reuses_stable_high_water() {
     const ROW_BYTES: usize = 255 * 1_024;
     let physical = VectorMemory::default();
-    let manager = MemoryManager::init(physical.clone());
-    let memory = manager.get(MemoryId::new(1));
+    let memory = crate::testing::test_memory_with_backing(10, physical.clone());
     let mut candidate = DormantConvergenceCandidate::new([memory]);
     let mut high_water = None;
     let mut measured_encoded_bytes = 0;

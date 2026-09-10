@@ -923,10 +923,11 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
         ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
     );
 
-    report_convergence_observation(
-        "post-upgrade-debt",
-        run_bounded_convergence_watchdog(&populated),
-    );
+    let upgrade_convergence = run_bounded_convergence_watchdog(&populated);
+    // Unlike debt-free startup, this upgrade must cross replay, retained
+    // batch folds and final verification before admitting ordinary reads.
+    assert!(upgrade_convergence.work_samples >= 3);
+    report_convergence_observation("post-upgrade-debt", upgrade_convergence);
     assert_eq!(
         startup_observation(&populated).state,
         DatabaseStartupState::Ready,

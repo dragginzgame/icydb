@@ -113,8 +113,9 @@ impl GroupedAggregateExecutionSpec {
         _kind: AggregateKind,
         _role: &'static str,
         expr: &Expr,
+        budget: &dyn crate::db::query::construction::ConstructionBudget,
     ) -> Result<CompiledExpr, InternalError> {
-        let scalar = compile_scalar_projection_expr_with_schema(schema_info, expr)
+        let scalar = compile_scalar_projection_expr_with_schema(schema_info, expr, budget)?
             .ok_or_else(InternalError::planner_executor_invariant)?;
 
         Ok(scalar)
@@ -159,15 +160,18 @@ impl GroupedAggregateExecutionSpec {
     pub(in crate::db) fn resolve_with_schema_info(
         &self,
         schema_info: &SchemaInfo,
+        budget: &dyn crate::db::query::construction::ConstructionBudget,
     ) -> Result<Self, InternalError> {
         let compiled_input_expr = self
             .input_expr()
-            .map(|expr| Self::compile_attached_scalar_expr(schema_info, self.kind(), "input", expr))
+            .map(|expr| {
+                Self::compile_attached_scalar_expr(schema_info, self.kind(), "input", expr, budget)
+            })
             .transpose()?;
         let compiled_filter_expr = self
             .filter_expr()
             .map(|expr| {
-                Self::compile_attached_scalar_expr(schema_info, self.kind(), "filter", expr)
+                Self::compile_attached_scalar_expr(schema_info, self.kind(), "filter", expr, budget)
             })
             .transpose()?;
         let target_slot = self
@@ -596,10 +600,11 @@ pub(in crate::db) fn grouped_executor_handoff(
 pub(in crate::db) fn grouped_aggregate_execution_specs(
     schema_info: &SchemaInfo,
     aggregate_specs: &[GroupedAggregateExecutionSpec],
+    budget: &dyn crate::db::query::construction::ConstructionBudget,
 ) -> Result<Vec<GroupedAggregateExecutionSpec>, InternalError> {
     aggregate_specs
         .iter()
-        .map(|aggregate_spec| aggregate_spec.resolve_with_schema_info(schema_info))
+        .map(|aggregate_spec| aggregate_spec.resolve_with_schema_info(schema_info, budget))
         .collect()
 }
 

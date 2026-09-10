@@ -9,7 +9,9 @@ use crate::db::{
         builder::aggregate::AggregateExpr,
         plan::{
             GroupAggregateSpec, LogicalPlan,
-            expr::{Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec},
+            expr::{
+                Expr, FieldId, FieldPath, ProjectionField, ProjectionSelection, ProjectionSpec,
+            },
             semantics::group_aggregate_spec_expr,
         },
         preparation::PreparationWork,
@@ -19,38 +21,70 @@ use crate::db::{
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 /// Lower one accepted-schema logical plan into canonical projection semantics.
-#[must_use]
 pub(in crate::db::query) fn lower_projection_intent_with_schema(
     schema: &SchemaInfo,
     logical: &LogicalPlan,
     selection: &ProjectionSelection,
-) -> ProjectionSpec {
-    match logical {
-        LogicalPlan::Scalar(_) => {
-            let fields = match selection {
-                ProjectionSelection::All => schema
-                    .field_names_in_slot_order()
-                    .into_iter()
-                    .map(|field| direct_field_projection(FieldId::new(field)))
-                    .collect(),
-                ProjectionSelection::Fields(field_ids) => field_ids
-                    .iter()
-                    .cloned()
-                    .map(direct_field_projection)
-                    .collect(),
-                ProjectionSelection::Exprs(fields) => fields.clone(),
-            };
-
-            ProjectionSpec::new(fields)
-        }
-        LogicalPlan::Grouped(grouped) => match selection {
-            ProjectionSelection::Exprs(fields) => ProjectionSpec::new(fields.clone()),
-            ProjectionSelection::All | ProjectionSelection::Fields(_) => lower_grouped_projection(
-                &grouped.group.group_fields,
-                grouped.group.aggregates.as_slice(),
-            ),
+    work: &PreparationWork<'_>,
+) -> Result<ProjectionSpec, QueryError> {
+    let fields = match logical {
+        LogicalPlan::Scalar(_) => match selection {
+            ProjectionSelection::All => work.copy_slice(
+                &schema.field_names_in_slot_order_for_preparation(work)?,
+                |field| {
+                    Ok(direct_field_projection(FieldId::new(
+                        work.copy_text(field)?,
+                    )))
+                },
+            )?,
+            ProjectionSelection::Fields(field_ids) => work.copy_slice(field_ids, |field| {
+                Ok(direct_field_projection(FieldId::new(
+                    work.copy_text(field.as_str())?,
+                )))
+            })?,
+            ProjectionSelection::Exprs(fields) => {
+                work.copy_slice(fields, |field| field.copy_for_preparation(work))?
+            }
         },
-    }
+        LogicalPlan::Grouped(grouped) => match selection {
+            ProjectionSelection::Exprs(fields) => {
+                work.copy_slice(fields, |field| field.copy_for_preparation(work))?
+            }
+            ProjectionSelection::All | ProjectionSelection::Fields(_) => {
+                let group = &grouped.group;
+                let mut fields = work.vec_with_capacity(
+                    group
+                        .group_fields
+                        .len()
+                        .saturating_add(group.aggregates.len()),
+                )?;
+                for field in group.group_fields.iter() {
+                    work.charge(Resource::PredicateExpressionSteps, 1)?;
+                    let expr = if let Some(path) = field.as_scalar_path() {
+                        Expr::FieldPath(FieldPath::new(
+                            work.copy_text(path.path().root().as_str())?,
+                            work.copy_slice(path.path().segments(), |segment| {
+                                work.copy_text(segment)
+                            })?,
+                        ))
+                    } else {
+                        Expr::Field(FieldId::new(work.copy_text(field.field())?))
+                    };
+                    fields.push(ProjectionField::Scalar { expr, alias: None });
+                }
+                for aggregate in &group.aggregates {
+                    fields.push(aggregate_projection(AggregateExpr::from_shape(
+                        aggregate
+                            .shape()
+                            .copy_for_preparation(work)?
+                            .with_raw_distinct(aggregate.semantic_distinct()),
+                    )));
+                }
+                fields
+            }
+        },
+    };
+    Ok(ProjectionSpec::new(fields))
 }
 
 /// Lower one already-validated global aggregate output field list into the

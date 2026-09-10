@@ -27,12 +27,12 @@ use crate::{
     traits::CanisterKind,
 };
 use candid::CandidType;
+use ic_memory::RuntimeMemory;
+use ic_memory::ic_stable_structures::{
+    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound,
+};
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory;
-use ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
-    storable::Bound,
-};
 use serde::Deserialize;
 use sha2::Digest;
 use std::borrow::Cow;
@@ -322,11 +322,11 @@ pub(super) struct ProgressScanPage {
 }
 
 pub(in crate::db) struct InspectionProgressStore {
-    map: StableBTreeMap<ProgressRecordKey, ProgressRecordBytes, VirtualMemory<DefaultMemoryImpl>>,
+    map: StableBTreeMap<ProgressRecordKey, ProgressRecordBytes, RuntimeMemory<DefaultMemoryImpl>>,
 }
 
 impl InspectionProgressStore {
-    fn open(memory: VirtualMemory<DefaultMemoryImpl>) -> Result<Self, IntegrityJobError> {
+    fn open(memory: RuntimeMemory<DefaultMemoryImpl>) -> Result<Self, IntegrityJobError> {
         let mut store = Self {
             map: StableBTreeMap::init(memory),
         };
@@ -1120,11 +1120,11 @@ pub(in crate::db) fn verify_mutation_progress_record_op<C: CanisterKind>(
 }
 
 #[cfg(test)]
-fn progress_memory<C: CanisterKind>() -> Result<VirtualMemory<DefaultMemoryImpl>, IntegrityJobError>
+fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>, IntegrityJobError>
 {
     thread_local! {
         static MEMORIES: RefCell<
-            Vec<(u8, &'static str, VirtualMemory<DefaultMemoryImpl>)>
+            Vec<(u8, &'static str, RuntimeMemory<DefaultMemoryImpl>)>
         > = const { RefCell::new(Vec::new()) };
     }
 
@@ -1146,7 +1146,7 @@ fn progress_memory<C: CanisterKind>() -> Result<VirtualMemory<DefaultMemoryImpl>
 }
 
 #[cfg(not(test))]
-fn progress_memory<C: CanisterKind>() -> Result<VirtualMemory<DefaultMemoryImpl>, IntegrityJobError>
+fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>, IntegrityJobError>
 {
     open_default_memory_manager_memory(
         C::INTEGRITY_PROGRESS_STABLE_KEY,
@@ -1168,7 +1168,7 @@ mod tests {
         },
         testing::test_memory,
     };
-    use ic_stable_structures::Memory;
+    use ic_memory::ic_stable_structures::Memory;
 
     fn current_resumable_record() -> ResumableJobRecord {
         let proof = ReadSetRevisionProof::from_parts(

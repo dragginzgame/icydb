@@ -824,30 +824,6 @@ impl AccessPlannedQuery {
         Self::seeded_unfinalized(logical, access, projection_selection, access_choice)
     }
 
-    /// Construct an access-planned query from logical + access + projection stages.
-    #[must_use]
-    pub(in crate::db) fn from_logical_access_and_projection<K>(
-        logical: LogicalPlan,
-        access: AccessPlan<K>,
-        projection_selection: ProjectionSelection,
-    ) -> Self
-    where
-        K: KeyValueCodec,
-    {
-        let access = access.into_value_plan();
-
-        Self::seeded_unfinalized(
-            logical,
-            access.clone(),
-            projection_selection,
-            if access.has_selected_index_access_path() {
-                AccessChoiceExplainSnapshot::selected_index_not_projected()
-            } else {
-                non_index_access_choice_snapshot_for_access_plan(&access)
-            },
-        )
-    }
-
     /// Construct an access-planned query from planner-owned access selection.
     #[must_use]
     pub(in crate::db::query) fn from_planned_access_with_projection<K>(

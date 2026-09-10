@@ -21,7 +21,6 @@ migration = []
 candid = { workspace = true }
 ic-cdk = { workspace = true }
 ic-memory = { workspace = true }
-ic-stable-structures = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
 icydb-schema = { workspace = true }
 num-bigint = { workspace = true }

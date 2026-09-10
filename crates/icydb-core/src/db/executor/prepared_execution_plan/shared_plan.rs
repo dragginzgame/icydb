@@ -14,6 +14,7 @@ use crate::{
                 build_prepared_execution_plan_core_with_schema_fingerprint,
             },
         },
+        query::construction::ConstructionBudget,
     },
     error::InternalError,
 };
@@ -51,6 +52,7 @@ impl SharedPreparedExecutionPlan {
         authority: EntityAuthority,
         plan: AccessPlannedQuery,
         schema_fingerprint: CommitSchemaFingerprint,
+        budget: &dyn ConstructionBudget,
     ) -> Result<Self, InternalError> {
         Ok(Self {
             authority: authority.clone(),
@@ -58,6 +60,7 @@ impl SharedPreparedExecutionPlan {
                 authority,
                 plan,
                 Some(schema_fingerprint),
+                budget,
             )?,
         })
     }

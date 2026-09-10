@@ -88,7 +88,10 @@ fn direct_order_construction_limits_preserve_directions_and_duplicate_slots() {
                 let mut candidate = plan.clone();
                 let before = candidate.clone();
                 let result = PreparationWork::run(&root.scope(), lane, |work| {
-                    candidate.finalize_static_execution_planning_contract_with_schema(schema, work)
+                    let projection = candidate.prepare_projection(schema, work)?;
+                    candidate.finalize_static_execution_planning_contract_with_schema(
+                        schema, projection, work,
+                    )
                 });
                 if limit == exact {
                     result.unwrap();
@@ -126,20 +129,27 @@ fn expression_order_seam_is_budgeted_and_preserves_compiled_output() {
         right: Box::new(Expr::Field(FieldId::new("id"))),
     };
     let expected = ResolvedOrderValueSource::expression(
-        compile_scalar_projection_expr_with_schema(schema, &expr).unwrap(),
+        crate::db::query::preparation::with_preparation_work(|work| {
+            compile_scalar_projection_expr_with_schema(schema, &expr, work)
+        })
+        .unwrap()
+        .unwrap(),
     );
     let plan = order_plan(&setup, vec![OrderTerm::new(expr, OrderDirection::Asc)]);
     let (_, projection_steps) = projection_metadata::cost(&plan, schema);
-    // Three source-expression seam nodes, then one order field, one compiled
-    // node, two slot visits and one duplicate comparison.
-    for limit in [7, 8] {
+    // Three seam nodes, fifteen compiler steps (three nodes and two lookup/copy
+    // label pairs), then one order field, one compiled node, two slots and a duplicate comparison.
+    for limit in [22, 23] {
         let root = request(Resource::PredicateExpressionSteps, projection_steps + limit);
         let mut candidate = plan.clone();
         let result =
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
-                candidate.finalize_static_execution_planning_contract_with_schema(schema, work)
+                let projection = candidate.prepare_projection(schema, work)?;
+                candidate.finalize_static_execution_planning_contract_with_schema(
+                    schema, projection, work,
+                )
             });
-        if limit == 8 {
+        if limit == 23 {
             result.unwrap();
             assert_eq!(
                 candidate.resolved_order().unwrap().fields()[0].source(),
@@ -153,7 +163,7 @@ fn expression_order_seam_is_budgeted_and_preserves_compiled_output() {
         }
         assert_eq!(
             root.observed(Resource::PredicateExpressionSteps),
-            projection_steps + 8
+            projection_steps + 23
         );
         assert_eq!(root.observed(Resource::RowsVisited), 0);
     }
@@ -184,8 +194,10 @@ fn order_seam_and_missing_fields_keep_typed_rejections() {
             setup.db.request_execution_scope(),
             DiagnosticExecutionLane::PublicRead,
             |work| {
+                let projection = plan.prepare_projection(catalog.accepted_schema_info(), work)?;
                 plan.finalize_static_execution_planning_contract_with_schema(
                     catalog.accepted_schema_info(),
+                    projection,
                     work,
                 )
             },

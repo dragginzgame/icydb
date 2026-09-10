@@ -16,9 +16,9 @@ use crate::{
     error::{ErrorClass, InternalError},
     types::EntityTag,
 };
-use ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, memory_manager::VirtualMemory,
-    storable::Bound as StorableBound,
+use ic_memory::RuntimeMemory;
+use ic_memory::ic_stable_structures::{
+    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound as StorableBound,
 };
 use std::borrow::Cow;
 use std::collections::BTreeSet;
@@ -389,7 +389,7 @@ impl FoldWatermark {
 /// journal batches start at sequence `1`.
 ///
 pub struct JournalTailStore {
-    map: StableBTreeMap<JournalTailKey, RawJournalChunk, VirtualMemory<DefaultMemoryImpl>>,
+    map: StableBTreeMap<JournalTailKey, RawJournalChunk, RuntimeMemory<DefaultMemoryImpl>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -520,7 +520,7 @@ impl Storable for RawJournalChunk {
 impl JournalTailStore {
     /// Initialize a journal-tail store with the provided backing memory.
     #[must_use]
-    pub fn init(memory: VirtualMemory<DefaultMemoryImpl>) -> Self {
+    pub fn init(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
         Self {
             map: StableBTreeMap::init(memory),
         }

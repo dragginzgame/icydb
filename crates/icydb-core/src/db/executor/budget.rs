@@ -3,7 +3,10 @@
 //! Does not own: request-root propagation or paging progress.
 //! Boundary: charges one named resource before or during bounded work and returns typed exhaustion.
 
-use std::cell::RefCell;
+#[cfg(test)]
+mod maintenance_tests;
+
+use std::cell::{Cell, RefCell};
 
 #[cfg(test)]
 use crate::db::QueryError;
@@ -666,6 +669,9 @@ pub(in crate::db) fn with_mutation_execution_budget<T, E>(
 }
 
 /// Charge one maintained physical resource in the innermost active execution.
+///
+/// Optional execution instrumentation uses this helper. Compiler construction
+/// instead requires the strict `ExecutionConstructionBudget` adapter below.
 pub(in crate::db) fn charge_current_execution_budget(
     resource: DiagnosticExecutionBudgetResource,
     amount: u64,
@@ -685,6 +691,119 @@ pub(in crate::db) fn charge_current_execution_budget(
             .charge_periodic(resource, amount)
             .map_err(InternalError::from)
     })
+}
+
+/// Explicit, volatile authority for one maintenance page or complete staged
+/// schema operation. It shares the mutation policy, not its thread-local tracker.
+/// Callers retain one instance across all rows/indexes and publish only after
+/// `run` succeeds. Existing soft page limits remain separate yield decisions.
+pub(in crate::db) struct MaintenanceConstructionBudget {
+    tracker: RefCell<HardExecutionBudgetTracker>,
+    exhausted: Cell<Option<ExecutionBudgetExceeded>>,
+}
+
+impl MaintenanceConstructionBudget {
+    #[cfg(test)]
+    pub(in crate::db) fn with_limit_for_tests(
+        resource: DiagnosticExecutionBudgetResource,
+        limit: u64,
+    ) -> Self {
+        Self {
+            exhausted: Cell::new(None),
+            tracker: RefCell::new(HardExecutionBudgetTracker::new_for_tests(
+                MUTATION_HARD_BUDGET.with_limit_for_tests(resource, limit),
+                HardExecutionContext::new(
+                    DiagnosticExecutionBudgetScope::Execution,
+                    DiagnosticExecutionLane::Mutation,
+                    0,
+                ),
+            )),
+        }
+    }
+
+    /// Reuse the engine's mutation ceilings without introducing another profile.
+    pub(in crate::db) fn new() -> Self {
+        Self {
+            exhausted: Cell::new(None),
+            tracker: RefCell::new(HardExecutionBudgetTracker::new(
+                &MUTATION_HARD_BUDGET,
+                HardExecutionContext::new(
+                    DiagnosticExecutionBudgetScope::Execution,
+                    DiagnosticExecutionLane::Mutation,
+                    0,
+                ),
+            )),
+        }
+    }
+
+    /// Account a construction segment, including failed work, without resetting
+    /// counters. Complete staged builders may call this for successive rows.
+    /// A hard failure is an error, never a successful empty page or retry signal.
+    pub(in crate::db) fn run<T, E>(
+        &self,
+        run: impl FnOnce(&Self) -> Result<T, E>,
+        map_error: fn(InternalError) -> E,
+    ) -> Result<T, E> {
+        self.with_tracker(HardExecutionBudgetTracker::check_instruction_watermark)
+            .map_err(map_error)?;
+        let result = run(self);
+        self.with_tracker(HardExecutionBudgetTracker::check_instruction_watermark)
+            .map_err(map_error)?;
+        result
+    }
+
+    // Retain the first exhaustion without retaining payloads. Even if an inner
+    // caller swallows a charge failure, later segments/finish cannot publish.
+    fn with_tracker(
+        &self,
+        charge: impl FnOnce(&mut HardExecutionBudgetTracker) -> Result<(), ExecutionBudgetExceeded>,
+    ) -> Result<(), InternalError> {
+        if let Some(error) = self.exhausted.get() {
+            return Err(error.into());
+        }
+        let mut tracker = self
+            .tracker
+            .try_borrow_mut()
+            .map_err(|_| InternalError::query_executor_invariant())?;
+        charge(&mut tracker).map_err(|error| {
+            self.exhausted.set(Some(error));
+            InternalError::from(error)
+        })
+    }
+}
+
+impl crate::db::query::construction::ConstructionBudget for MaintenanceConstructionBudget {
+    fn charge(
+        &self,
+        resource: DiagnosticExecutionBudgetResource,
+        amount: u64,
+    ) -> Result<(), InternalError> {
+        self.with_tracker(|tracker| tracker.charge_periodic(resource, amount))
+    }
+}
+
+/// Borrow the active execution's counters without starting another instruction interval.
+/// Missing execution authority is an invariant error, never an unmetered fallback.
+pub(in crate::db) struct ExecutionConstructionBudget;
+
+impl crate::db::query::construction::ConstructionBudget for ExecutionConstructionBudget {
+    fn charge(
+        &self,
+        resource: DiagnosticExecutionBudgetResource,
+        amount: u64,
+    ) -> Result<(), InternalError> {
+        ACTIVE_EXECUTION_BUDGET.with(|budget| {
+            let mut budget = budget
+                .try_borrow_mut()
+                .map_err(|_| InternalError::query_executor_invariant())?;
+            let budget = budget
+                .as_mut()
+                .ok_or_else(InternalError::query_executor_invariant)?;
+            budget
+                .charge_periodic(resource, amount)
+                .map_err(InternalError::from)
+        })
+    }
 }
 
 /// Return complete equal-cost units remaining in both the active execution
@@ -1114,6 +1233,40 @@ mod tests {
     use icydb_diagnostic_code::{DiagnosticDetail, DiagnosticFactTag, RuntimeBoundaryCode};
 
     const TEST_HEADROOM: HardExecutionFailureHeadroom = HardExecutionFailureHeadroom::new(500, 256);
+
+    #[test]
+    fn construction_requires_active_authority_and_shares_execution_request_counters() {
+        use crate::db::query::construction::ConstructionBudget;
+        let resource = DiagnosticExecutionBudgetResource::TemporaryBytes;
+        let construction = &ExecutionConstructionBudget as &dyn ConstructionBudget;
+        assert!(construction.charge(resource, 0).is_err());
+        let root = RequestExecutionRoot::new_for_tests(
+            HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+                .with_limit_for_tests(resource, 3),
+        );
+        with_execution_budget(
+            HardExecutionBudgetTracker::new_with_request_scope(
+                &BUNDLE_EXECUTION_BUDGET,
+                TEST_CONTEXT,
+                &root.scope(),
+            ),
+            || {
+                construction.copy_text("abc")?;
+                assert_eq!(current_execution_budget_usage()?.observed(resource), 3);
+                assert_eq!(root.observed(resource), 3);
+                let err = construction.copy_text("x").unwrap_err();
+                assert!(
+                    err.diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+                );
+                Ok::<_, InternalError>(())
+            },
+            std::convert::identity,
+            ExecutionBudgetFinish::Automatic,
+        )
+        .unwrap();
+        assert!(construction.copy_text("x").is_err());
+    }
     const TEST_CONTEXT: HardExecutionContext = HardExecutionContext::new(
         DiagnosticExecutionBudgetScope::Execution,
         DiagnosticExecutionLane::PublicRead,

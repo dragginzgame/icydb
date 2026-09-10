@@ -431,13 +431,14 @@ impl IndexBranchSetSpec {
         self.index.key_item_at(self.branch_slot())
     }
 
-    /// Build the concrete prefix values for one branch scan.
-    #[must_use]
-    pub(in crate::db) fn branch_prefix_values(&self, branch_value: &Value) -> Vec<Value> {
-        let mut values = Vec::with_capacity(self.branch_prefix_len());
-        values.extend_from_slice(self.fixed_values());
-        values.push(branch_value.clone());
-        values
+    /// Borrow the fixed prefix followed by one branch value, without copying operands.
+    pub(in crate::db) fn branch_prefix_values<'a>(
+        &'a self,
+        branch_value: &'a Value,
+    ) -> impl Iterator<Item = &'a Value> {
+        self.fixed_values()
+            .iter()
+            .chain(std::iter::once(branch_value))
     }
 
     /// Consume the spec into its raw storage parts for canonicalization.

@@ -181,18 +181,15 @@ impl<C: CanisterKind> DbSession<C> {
         let schema_fingerprint = authority.accepted_schema_fingerprint();
         let prepared_plan = self
             .cached_shared_query_plan_for_accepted_authority_with_schema_fingerprint(
-                authority.clone(),
+                authority,
                 accepted_schema,
                 schema_fingerprint,
                 query,
                 lane,
             )?;
-        let projection_spec = prepared_plan.logical_plan().projection_spec_with_schema(
-            authority
-                .accepted_schema_info()
-                .ok_or_else(QueryError::invariant)?,
+        let projection = StructuralProjectionContract::from_projection_spec(
+            prepared_plan.logical_plan().projection_spec()?,
         );
-        let projection = StructuralProjectionContract::from_projection_spec(&projection_spec);
 
         Ok((prepared_plan, projection))
     }
@@ -208,7 +205,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let schema_fingerprint = authority.accepted_schema_fingerprint();
         let Some(prepared_plan) = self.shared_query_plan_for_accepted_authority_with_route_pin(
-            authority.clone(),
+            authority,
             accepted_schema,
             schema_fingerprint,
             query,
@@ -218,12 +215,9 @@ impl<C: CanisterKind> DbSession<C> {
         else {
             return Ok(None);
         };
-        let projection_spec = prepared_plan.logical_plan().projection_spec_with_schema(
-            authority
-                .accepted_schema_info()
-                .ok_or_else(QueryError::invariant)?,
+        let projection = StructuralProjectionContract::from_projection_spec(
+            prepared_plan.logical_plan().projection_spec()?,
         );
-        let projection = StructuralProjectionContract::from_projection_spec(&projection_spec);
 
         Ok(Some((prepared_plan, projection)))
     }

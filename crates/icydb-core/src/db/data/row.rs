@@ -5,7 +5,7 @@
 
 use crate::db::data::DecodedDataStoreKey;
 use crate::{db::codec::MAX_ROW_BYTES, error::InternalError};
-use ic_stable_structures::{Storable, storable::Bound};
+use ic_memory::ic_stable_structures::{Storable, storable::Bound};
 use std::borrow::Cow;
 
 ///

@@ -73,6 +73,53 @@ pub(in crate::db) struct CommitPrepareContext {
     mode: CommitPrepareMode,
 }
 
+impl CommitPrepareContext {
+    /// Accepted entity identity retained with this preparation authority.
+    pub(in crate::db) const fn entity_tag(&self) -> EntityTag {
+        self.authority.entity_tag
+    }
+}
+
+/// Reuse immutable accepted setup within one synchronous preparation operation.
+/// The caller chooses current/canonical authority; this owner only shares its
+/// successful contexts. Never retain it across callbacks or catalog mutations.
+pub(in crate::db) struct CommitPrepareContextCache {
+    mode: CommitPrepareMode,
+    contexts: Vec<CommitPrepareContext>,
+}
+
+impl CommitPrepareContextCache {
+    pub(in crate::db) const fn new(mode: CommitPrepareMode) -> Self {
+        Self {
+            mode,
+            contexts: Vec::new(),
+        }
+    }
+
+    /// Resolve once per entity/schema pair, without caching failed preparation.
+    pub(in crate::db) fn get_or_prepare(
+        &mut self,
+        entity_path: &str,
+        fingerprint: CommitSchemaFingerprint,
+        prepare: impl FnOnce(CommitPrepareMode) -> Result<CommitPrepareContext, InternalError>,
+    ) -> Result<&CommitPrepareContext, InternalError> {
+        let index = if let Some(index) = self.contexts.iter().position(|context| {
+            context.authority.entity_path.as_ref() == entity_path
+                && context.authority.schema_fingerprint == fingerprint
+        }) {
+            index
+        } else {
+            let context = prepare(self.mode)?;
+            let index = self.contexts.len();
+            self.contexts.push(context);
+            index
+        };
+        self.contexts
+            .get(index)
+            .ok_or_else(InternalError::query_executor_invariant)
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(in crate::db) enum CommitPrepareMode {
     NormalWrite,
@@ -295,7 +342,7 @@ where
     // so path/schema mismatches fail before constraint or maintenance work.
     let authority = &context.authority;
     let constraint_schedule = &context.constraint_schedule;
-    let structural = prepare_row_commit_structural_inputs(op, authority)?;
+    let structural = prepare_row_commit_structural_inputs(op, authority, context.mode)?;
 
     // Phase 2: decode the persisted row images once through the structural
     // slot-reader boundary before any forward-index planning runs.
@@ -669,6 +716,7 @@ fn prepare_candidate_unique_index_commit_ops(
 fn prepare_row_commit_structural_inputs(
     op: &CommitRowOp,
     authority: &CommitPrepareAuthority,
+    mode: CommitPrepareMode,
 ) -> Result<CommitInputs, InternalError> {
     if op.entity_path.as_ref() != authority.entity_path.as_ref() {
         return Err(InternalError::store_corruption());
@@ -695,7 +743,11 @@ fn prepare_row_commit_structural_inputs(
         .map(|bytes| RawRow::from_untrusted_bytes(bytes.clone()))
         .transpose()?;
 
-    if old_row.is_none() && new_row.is_none() {
+    // A marker-owned deletion may already be reflected in direct storage.
+    // Replay still validates key/schema authority, but absence is its correct
+    // terminal state. Ordinary writes cannot prepare an empty transition.
+    if old_row.is_none() && new_row.is_none() && !matches!(mode, CommitPrepareMode::RecoveryReplay)
+    {
         return Err(InternalError::store_corruption());
     }
 

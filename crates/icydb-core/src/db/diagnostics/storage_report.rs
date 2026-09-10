@@ -12,6 +12,7 @@ use crate::{
             DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IndexStoreSnapshotStats,
             SchemaStoreSnapshot, StorageReport, StoreSnapshotAllocationIdentity,
             StoreSnapshotSchemaMetadata, StoreSnapshotStorageMode,
+            memory_allocations::collect_memory_allocations,
         },
         index::{IndexKey, IndexStoreVisit},
         registry::{StoreAllocationIdentity, StoreRuntimeStorageMode},
@@ -284,7 +285,7 @@ pub(in crate::db) fn storage_report_default<C: CanisterKind>(
 ) -> Result<StorageReport, InternalError> {
     db.ensure_recovered_state()?;
 
-    Ok(build_storage_report(db, &StorageReportMode::Default))
+    build_storage_report(db, &StorageReportMode::Default)
 }
 
 #[cfg_attr(
@@ -307,19 +308,20 @@ pub(in crate::db) fn storage_report<C: CanisterKind>(
             .or_insert_with(|| storage_report_name_for_runtime_entity(&name_map, &runtime_entity));
     }
 
-    Ok(build_storage_report(
+    build_storage_report(
         db,
         &StorageReportMode::Explicit {
             name_map,
             tag_name_map,
         },
-    ))
+    )
 }
 
 fn build_storage_report<C: CanisterKind>(
     db: &Db<C>,
     mode: &StorageReportMode<'_>,
-) -> StorageReport {
+) -> Result<StorageReport, InternalError> {
+    let memory_allocations = collect_memory_allocations()?;
     let mut data = Vec::new();
     let mut index = Vec::new();
     let mut schema = Vec::new();
@@ -425,12 +427,13 @@ fn build_storage_report<C: CanisterKind>(
     entity_storage
         .sort_by(|left, right| (left.store(), left.path()).cmp(&(right.store(), right.path())));
 
-    StorageReport::new(
+    Ok(StorageReport::new(
         data,
         index,
         schema,
         entity_storage,
         corrupted_keys,
         corrupted_entries,
-    )
+        memory_allocations,
+    ))
 }

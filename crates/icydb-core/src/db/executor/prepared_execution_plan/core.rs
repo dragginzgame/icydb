@@ -26,6 +26,7 @@ use crate::{
             projection::{PreparedProjectionContract, prepare_projection_contract_from_plan},
             terminal::RetainedSlotLayout,
         },
+        query::construction::ConstructionBudget,
     },
     error::InternalError,
     retained::{Retained, RetainedBytes},
@@ -607,6 +608,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     authority: EntityAuthority,
     plan: AccessPlannedQuery,
     schema_fingerprint: Option<CommitSchemaFingerprint>,
+    budget: &dyn ConstructionBudget,
 ) -> Result<PreparedExecutionPlanCore, InternalError> {
     // Metadata construction belongs to the planner's preparation boundary.
     // Reject incomplete handoffs before lowering or retaining executor state.
@@ -631,10 +633,10 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         authority
             .accepted_schema_info()
             .ok_or_else(InternalError::query_executor_invariant)?,
+        budget,
     )
     .map_err(LoweredAccessError::into_internal_error)?;
-    let (_, index_prefix_specs, index_range_specs) =
-        lowered_access.into_executable_and_index_specs();
+    let (index_prefix_specs, index_range_specs) = lowered_access.into_index_specs();
 
     Ok(build_prepared_execution_plan_core_with_lowered_access(
         authority,

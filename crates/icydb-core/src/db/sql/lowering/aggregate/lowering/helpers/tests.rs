@@ -155,7 +155,11 @@ fn analyzed_scalar_admission_matches_compiler_across_expression_shapes() {
         },
     ];
     for expr in cases {
-        let expected = compile_scalar_projection_expr_with_schema(&schema, &expr).is_some();
+        let expected = crate::db::query::preparation::with_preparation_work(|work| {
+            compile_scalar_projection_expr_with_schema(&schema, &expr, work)
+        })
+        .unwrap()
+        .is_some();
         let analyzed = AnalyzedLoweredExpr::new(expr);
         assert_eq!(
             validate(&schema, &analyzed).is_ok(),

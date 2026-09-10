@@ -6,13 +6,15 @@
 
 use crate::{
     db::{
+        QueryError,
         access::AccessPlan,
         predicate::{Predicate, normalize, normalize_enum_literals},
         query::plan::{
-            OrderSpec, PlannedAccessSelection, PlannerError, VisibleIndexes,
+            OrderSpec, PlannedAccessSelection, VisibleIndexes,
             canonicalize_order_spec_for_grouping,
             plan_access_selection_with_order_and_semantic_indexes,
         },
+        query::preparation::PreparationWork,
         schema::{SchemaInfo, ValidateError},
     },
     value::Value,
@@ -81,7 +83,8 @@ pub(in crate::db::query) fn plan_query_access_with_accepted_schema(
     order: Option<&OrderSpec>,
     grouped: bool,
     key_access_override: Option<AccessPlan<Value>>,
-) -> Result<PlannedAccessSelection, PlannerError> {
+    work: &PreparationWork<'_>,
+) -> Result<PlannedAccessSelection, QueryError> {
     if let Some(plan) = key_access_override {
         return Ok(PlannedAccessSelection::new(
             plan,
@@ -89,8 +92,12 @@ pub(in crate::db::query) fn plan_query_access_with_accepted_schema(
         ));
     }
 
-    let canonical_order =
-        canonicalize_order_spec_for_grouping(schema_info, order.cloned(), grouped);
+    let canonical_order = canonicalize_order_spec_for_grouping(
+        schema_info.primary_key_names(),
+        order.map(|order| work.copy_order_spec(order)).transpose()?,
+        grouped,
+        work,
+    )?;
     plan_access_selection_with_order_and_semantic_indexes(
         visible_indexes.accepted_semantic_index_contracts(),
         schema_info,
@@ -98,4 +105,5 @@ pub(in crate::db::query) fn plan_query_access_with_accepted_schema(
         canonical_order.as_ref(),
         grouped,
     )
+    .map_err(QueryError::from)
 }

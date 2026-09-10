@@ -1,7 +1,61 @@
+mod after_image;
+
 use super::*;
 
 const ENTITY_PATH: &str = "test::MutationEntity";
 const STORE_PATH: &str = "test::mutation::entity";
+
+#[test]
+fn complete_domain_construction_exhaustion_prevents_partial_finish_or_store_writes() {
+    use crate::db::executor::budget::MaintenanceConstructionBudget;
+    use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
+
+    let before = base_snapshot();
+    let after = snapshot_with_indexes(&before, vec![domain_field_index(1, "by_name", false)]);
+    let store = IndexStore::init_heap();
+    let physical_before = index_store_entries(&store);
+    let first = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Ada".into()))],
+    };
+    let second = RebuildSlotReader {
+        values: vec![None, Some(Value::Text("Grace".into()))],
+    };
+    let mut builder = super::StagedUserIndexDomainReplacementBuilder::new(
+        accepted_identity(&before),
+        &before,
+        &after,
+        None,
+        None,
+        &store,
+    )
+    .map_err(super::StagedUserIndexDomainError::into_internal_error)
+    .unwrap();
+    builder.set_construction_budget_for_tests(MaintenanceConstructionBudget::with_limit_for_tests(
+        Resource::PredicateExpressionSteps,
+        1,
+    ));
+    builder
+        .observe_row(&domain_row(1, &first))
+        .map_err(super::StagedUserIndexDomainError::into_internal_error)
+        .unwrap();
+    let error = builder
+        .observe_row(&domain_row(2, &second))
+        .unwrap_err()
+        .into_internal_error();
+    assert!(error.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::PredicateExpressionSteps.raw()
+    )));
+    let error = match builder.finish(&store) {
+        Ok(_) => panic!("exhausted staging cannot finish"),
+        Err(error) => error.into_internal_error(),
+    };
+    assert!(error.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::PredicateExpressionSteps.raw()
+    )));
+    assert_eq!(index_store_entries(&store), physical_before);
+}
 
 #[test]
 fn complete_domain_stage_builds_field_and_expression_projection_without_writes() {

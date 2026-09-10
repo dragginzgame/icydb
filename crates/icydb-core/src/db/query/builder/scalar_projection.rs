@@ -79,7 +79,7 @@ pub(in crate::db) fn render_scalar_projection_expr_plan_label(expr: &Expr) -> St
 /// a write before retaining its bytes; rendering stops at that first failure.
 pub(in crate::db) fn write_scalar_projection_expr_plan_label(
     expr: &Expr,
-    output: &mut impl Write,
+    output: &mut (impl Write + ?Sized),
 ) -> fmt::Result {
     write_scalar_projection_expr_plan_label_with_parent(expr, None, false, output)
 }
@@ -88,7 +88,7 @@ fn write_scalar_projection_expr_plan_label_with_parent(
     expr: &Expr,
     parent_op: Option<crate::db::query::plan::expr::BinaryOp>,
     is_right_child: bool,
-    output: &mut impl Write,
+    output: &mut (impl Write + ?Sized),
 ) -> fmt::Result {
     match expr {
         Expr::Field(field) => output.write_str(field.as_str()),
@@ -226,7 +226,10 @@ const fn binary_op_symbol(op: crate::db::query::plan::expr::BinaryOp) -> &'stati
     }
 }
 
-fn write_scalar_projection_literal(value: &Value, output: &mut impl Write) -> fmt::Result {
+fn write_scalar_projection_literal(
+    value: &Value,
+    output: &mut (impl Write + ?Sized),
+) -> fmt::Result {
     match value {
         Value::Null => output.write_str("NULL"),
         Value::Text(text) => {

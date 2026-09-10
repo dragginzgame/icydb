@@ -27,9 +27,9 @@ use crate::{
     },
     error::InternalError,
 };
-use ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, RestrictedMemory, Storable,
-    memory_manager::VirtualMemory, storable::Bound,
+use ic_memory::RuntimeMemory;
+use ic_memory::ic_stable_structures::{
+    BTreeMap as StableBTreeMap, DefaultMemoryImpl, RestrictedMemory, Storable, storable::Bound,
 };
 use sha2::{Digest, Sha256};
 use std::{borrow::Cow, cell::Cell};
@@ -67,7 +67,7 @@ const MAX_LIVE_SCHEMA_CHECKPOINT_BYTES: usize = CHECKPOINT_FIXED_BYTES
 const CHECKPOINT_MEMORY_START_PAGE: u64 = 4_096;
 const CHECKPOINT_MEMORY_END_PAGE: u64 = 4_194_304;
 
-type CheckpointMemory = RestrictedMemory<VirtualMemory<DefaultMemoryImpl>>;
+type CheckpointMemory = RestrictedMemory<RuntimeMemory<DefaultMemoryImpl>>;
 type CheckpointWriter = SchemaWireWriter<MAX_LIVE_SCHEMA_CHECKPOINT_BYTES>;
 type CheckpointReader<'a> = SchemaWireReader<'a>;
 
@@ -881,7 +881,7 @@ mod tests {
         },
         testing::test_memory,
     };
-    use ic_stable_structures::RestrictedMemory;
+    use ic_memory::ic_stable_structures::RestrictedMemory;
     use icydb_schema::{
         EntitySourceDigest, EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint,
         SchemaMigrationPlanDigest, SchemaProposalDigest, TargetDatabaseIdentity,

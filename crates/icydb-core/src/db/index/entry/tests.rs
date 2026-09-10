@@ -8,7 +8,7 @@ use crate::{
     },
     types::{EntityTag, Principal},
 };
-use ic_stable_structures::Storable;
+use ic_memory::ic_stable_structures::Storable;
 use std::borrow::Cow;
 
 fn raw_key_for(key: PrimaryKeyComponent) -> RawIndexStoreKey {

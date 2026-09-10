@@ -96,7 +96,7 @@ impl QueryModel {
     }
 
     #[must_use]
-    pub(in crate::db::query) fn planning_logical_inputs(&self) -> LogicalPlanningInputs {
+    pub(in crate::db::query) fn planning_logical_inputs(&self) -> LogicalPlanningInputs<'_> {
         self.intent.planning_logical_inputs()
     }
 

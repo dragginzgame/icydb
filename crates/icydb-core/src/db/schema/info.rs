@@ -533,6 +533,37 @@ impl SchemaInfo {
         fields.into_iter().map(|(_, name)| name).collect()
     }
 
+    /// Admit the shared slot-order projection before its scratch allocation and
+    /// sort. The compact heapsort uses two position vectors and at most two
+    /// comparisons per level for each heap build/extraction root. Reserve a
+    /// conservative bound; do not introduce a second ordering implementation.
+    pub(in crate::db) fn field_names_in_slot_order_for_preparation(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<Vec<&str>, QueryError> {
+        use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+
+        let len = self.field_count() as u64;
+        let levels = u64::from(u64::BITS - len.leading_zeros());
+        let scratch_per_field = size_of::<(usize, &str)>()
+            + size_of::<&str>()
+            + if len > 1 { 2 * size_of::<usize>() } else { 0 };
+        work.charge(
+            Resource::TemporaryBytes,
+            len.saturating_mul(scratch_per_field as u64),
+        )?;
+        work.charge(
+            Resource::SortComparisons,
+            len.saturating_mul(levels).saturating_mul(3),
+        )?;
+        work.charge(
+            Resource::PredicateExpressionSteps,
+            len.saturating_mul(3 * levels + 4),
+        )?;
+
+        Ok(self.field_names_in_slot_order())
+    }
+
     /// Return whether one top-level row slot is backed by a scalar leaf codec.
     ///
     /// Persisted accepted field snapshots select the codec class.
@@ -1031,7 +1062,9 @@ fn schema_index_field_path_info_from_accepted(
 #[cfg(test)]
 mod tests {
     mod primary_key_names;
+    mod projection_construction;
     mod projection_identity;
+    mod scalar_accounting;
     mod scalar_compilation;
 
     use icydb_schema::ScalarKind;

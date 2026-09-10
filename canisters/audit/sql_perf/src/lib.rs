@@ -3,6 +3,12 @@
 //! access-shape coverage.
 //!
 
+#[cfg(feature = "test-admin-api")]
+mod indexed_big_integer;
+
+#[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
+use crate::indexed_big_integer::IndexedBigIntegerAttempt;
+
 #[cfg(feature = "sql")]
 use candid::{CandidType, Deserialize};
 #[cfg(feature = "sql")]

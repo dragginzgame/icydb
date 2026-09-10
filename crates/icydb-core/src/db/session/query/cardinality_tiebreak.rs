@@ -3,12 +3,19 @@
 //! Does not own: candidate ranking, cardinality maintenance, cache policy, or execution.
 //! Boundary: final planner tie set + store evidence -> one advisory plan selection.
 
+#[cfg(all(test, feature = "sql"))]
+mod lowering_tests;
+#[cfg(all(test, feature = "sql"))]
+mod probe_tests;
+#[cfg(all(test, feature = "sql"))]
+mod ranking_tests;
+
 use crate::db::query::preparation::PreparationWork;
 
 use crate::{
     db::{
         DbSession, QueryError,
-        access::{SemanticIndexAccessContract, lower_access_with_schema_info},
+        access::{LoweredAccessError, SemanticIndexAccessContract, lower_access_with_schema_info},
         executor::EntityAuthority,
         index::{IndexId, RawIndexStoreKey, UserIndexPrefixCardinalityKey},
         query::plan::{
@@ -23,6 +30,7 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 const MAX_CARDINALITY_TIEBREAK_CANDIDATES: usize = 64;
 const MAX_CARDINALITY_TIEBREAK_PREFIX_PROBES: usize = 256;
@@ -35,6 +43,12 @@ struct PreparedCardinalityCandidate {
     probe_start: usize,
     probe_end: usize,
 }
+
+// Candidate probe ranges and their single ordered key buffer travel together.
+type PreparedCardinalityProbes = (
+    Vec<PreparedCardinalityCandidate>,
+    Vec<UserIndexPrefixCardinalityKey>,
+);
 
 enum CardinalityTiebreakAttempt {
     Exact {
@@ -66,7 +80,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .ok_or_else(QueryError::invariant)?;
 
         let (selected_access, state) =
-            match self.cardinality_tiebreak_attempt(authority, candidates)? {
+            match self.cardinality_tiebreak_attempt(authority, candidates, work)? {
                 CardinalityTiebreakAttempt::Exact { selected, evidence } => (
                     Some(selected.into_access()),
                     CardinalityTiebreakState::ExactAtSelection(evidence),
@@ -133,6 +147,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         authority: &EntityAuthority,
         candidates: Vec<CardinalityTiebreakCandidate>,
+        work: &PreparationWork<'_>,
     ) -> Result<CardinalityTiebreakAttempt, QueryError> {
         if !cardinality_candidate_count_is_admitted(candidates.len()) {
             return Ok(CardinalityTiebreakAttempt::PolicyFallback);
@@ -156,7 +171,7 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_schema_info()
             .ok_or_else(QueryError::invariant)?;
         let Some((prepared, keys)) =
-            prepare_cardinality_candidates(authority.entity_tag(), schema_info, candidates)
+            prepare_cardinality_candidates(authority.entity_tag(), schema_info, candidates, work)?
         else {
             return Ok(CardinalityTiebreakAttempt::PolicyFallback);
         };
@@ -178,7 +193,9 @@ impl<C: CanisterKind> DbSession<C> {
             authority.entity_tag(),
             prepared,
             counts.as_slice(),
-        ) else {
+            work,
+        )?
+        else {
             return Ok(CardinalityTiebreakAttempt::PolicyFallback);
         };
 
@@ -186,50 +203,85 @@ impl<C: CanisterKind> DbSession<C> {
     }
 }
 
+// Admit every candidate's prefix count before constructing encoded bounds or
+// output buffers. Shape facts are constant-size projections, not value walks.
+fn admitted_cardinality_probe_count(
+    candidates: &[CardinalityTiebreakCandidate],
+    work: &PreparationWork<'_>,
+) -> Result<Option<usize>, QueryError> {
+    if !cardinality_candidate_count_is_admitted(candidates.len()) {
+        return Ok(None);
+    }
+    let mut total = 0;
+    for candidate in candidates {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        let Some(path) = candidate.access().as_path() else {
+            return Ok(None);
+        };
+        let probes = path.shape_facts().index_prefix_spec_count();
+        if probes == 0 {
+            return Ok(None);
+        }
+        let Some((admitted, _)) = admit_cardinality_candidate_shape(total, probes, 0, 0, 0) else {
+            return Ok(None);
+        };
+        total = admitted;
+    }
+    Ok(Some(total))
+}
+
 fn prepare_cardinality_candidates(
     entity_tag: EntityTag,
     schema_info: &crate::db::schema::SchemaInfo,
     candidates: Vec<CardinalityTiebreakCandidate>,
-) -> Option<(
-    Vec<PreparedCardinalityCandidate>,
-    Vec<UserIndexPrefixCardinalityKey>,
-)> {
+    work: &PreparationWork<'_>,
+) -> Result<Option<PreparedCardinalityProbes>, QueryError> {
+    let Some(admitted_probes) = admitted_cardinality_probe_count(&candidates, work)? else {
+        return Ok(None);
+    };
     let mut total_probes = 0usize;
     let mut total_lowered_bytes = 0usize;
-    let mut prepared = Vec::with_capacity(candidates.len());
-    let mut keys: Vec<UserIndexPrefixCardinalityKey> = Vec::new();
+    let mut prepared = work.vec_with_capacity(candidates.len())?;
+    let mut keys = work.vec_with_capacity(admitted_probes)?;
 
     for candidate in candidates {
-        let Ok(lowered) =
-            lower_access_with_schema_info(entity_tag, candidate.access(), schema_info)
-        else {
-            return None;
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        let lowered = match lower_access_with_schema_info(
+            entity_tag,
+            candidate.access(),
+            schema_info,
+            work,
+        ) {
+            Ok(lowered) => lowered,
+            Err(LoweredAccessError::IndexPrefix | LoweredAccessError::IndexRange) => {
+                return Ok(None);
+            }
+            Err(LoweredAccessError::Construction(error)) => return Err(QueryError::execute(error)),
         };
-        let (_executable, prefix_specs, range_specs) = lowered.into_executable_and_index_specs();
+        let (prefix_specs, range_specs) = lowered.into_index_specs();
         if !range_specs.is_empty() || prefix_specs.is_empty() {
-            return None;
+            return Ok(None);
         }
-        let candidate_component_bytes = prefix_specs.iter().try_fold(0usize, |total, spec| {
-            spec.prefix_components()
-                .iter()
-                .try_fold(total, |total, component| total.checked_add(component.len()))
-        })?;
-        let candidate_transient_bytes =
-            prefix_specs
-                .iter()
-                .try_fold(candidate_component_bytes, |total, spec| {
-                    let (lower, upper) = spec.raw_bounds().ok()?;
-                    total
-                        .checked_add(RawIndexStoreKey::bound_backing_bytes(lower))?
-                        .checked_add(RawIndexStoreKey::bound_backing_bytes(upper))
-                })?;
-        (total_probes, total_lowered_bytes) = admit_cardinality_candidate_shape(
+        let Some((component_bytes, transient_bytes)) =
+            cardinality_lowered_bytes(&prefix_specs, work)?
+        else {
+            return Ok(None);
+        };
+        let Some(admitted) = admit_cardinality_candidate_shape(
             total_probes,
             prefix_specs.len(),
             total_lowered_bytes,
-            candidate_component_bytes,
-            candidate_transient_bytes,
-        )?;
+            component_bytes,
+            transient_bytes,
+        ) else {
+            return Ok(None);
+        };
+        (total_probes, total_lowered_bytes) = admitted;
+        // Do not grow the charged output buffer if lowered shape disagrees
+        // with the semantic count admitted before encoding.
+        if total_probes > admitted_probes {
+            return Ok(None);
+        }
 
         let index_id = IndexId::new_with_generation(
             entity_tag,
@@ -239,11 +291,10 @@ fn prepare_cardinality_candidates(
         let probe_start = keys.len();
         for spec in prefix_specs {
             let key = UserIndexPrefixCardinalityKey::new(index_id, spec.into_prefix_components());
-            if keys.iter().any(|prior| {
-                prior.index_id() == key.index_id()
-                    && prior.prefix_components() == key.prefix_components()
-            }) {
-                return None;
+            for prior in &keys {
+                if cardinality_probe_keys_equal(prior, &key, work)? {
+                    return Ok(None);
+                }
             }
             keys.push(key);
         }
@@ -253,44 +304,128 @@ fn prepare_cardinality_candidates(
             probe_end: keys.len(),
         });
     }
+    if total_probes != admitted_probes {
+        return Ok(None);
+    }
 
-    Some((prepared, keys))
+    Ok(Some((prepared, keys)))
 }
 
+// Inspect encoded sizes once. Encoding itself is a separate, still-unmetered
+// owner; these observations enforce the existing post-encoding byte policy.
+fn cardinality_lowered_bytes(
+    specs: &[crate::db::access::LoweredIndexPrefixSpec],
+    work: &PreparationWork<'_>,
+) -> Result<Option<(usize, usize)>, QueryError> {
+    let mut components = 0usize;
+    let mut bounds = 0usize;
+    for spec in specs {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        for component in spec.prefix_components() {
+            work.charge(Resource::PredicateExpressionSteps, 1)?;
+            let Some(next) = components.checked_add(component.len()) else {
+                return Ok(None);
+            };
+            components = next;
+        }
+        let Ok((lower, upper)) = spec.raw_bounds() else {
+            return Ok(None);
+        };
+        let Some(next) = bounds
+            .checked_add(RawIndexStoreKey::bound_backing_bytes(lower))
+            .and_then(|total| total.checked_add(RawIndexStoreKey::bound_backing_bytes(upper)))
+        else {
+            return Ok(None);
+        };
+        bounds = next;
+    }
+    Ok(components
+        .checked_add(bounds)
+        .map(|transient| (components, transient)))
+}
+
+// Index identity short-circuits unrelated keys. For matching identities,
+// admit each component's byte-comparison allowance before slice equality.
+fn cardinality_probe_keys_equal(
+    left: &UserIndexPrefixCardinalityKey,
+    right: &UserIndexPrefixCardinalityKey,
+    work: &PreparationWork<'_>,
+) -> Result<bool, QueryError> {
+    work.charge(Resource::PredicateExpressionSteps, 1)?;
+    if left.index_id() != right.index_id() {
+        return Ok(false);
+    }
+    let left = left.prefix_components();
+    let right = right.prefix_components();
+    work.charge(Resource::PredicateExpressionSteps, 1)?;
+    if left.len() != right.len() {
+        return Ok(false);
+    }
+    for (left, right) in left.iter().zip(right) {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        if left.len() != right.len() {
+            return Ok(false);
+        }
+        work.charge(Resource::PredicateExpressionSteps, left.len() as u64)?;
+        if left != right {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
 fn rank_prepared_cardinality_candidates(
     entity_tag: EntityTag,
     prepared: Vec<PreparedCardinalityCandidate>,
     counts: &[u64],
-) -> Option<(
-    CardinalityTiebreakCandidate,
-    ExactCardinalityTiebreakEvidence,
-)> {
-    let mut ranked = Vec::with_capacity(prepared.len());
+    work: &PreparationWork<'_>,
+) -> Result<
+    Option<(
+        CardinalityTiebreakCandidate,
+        ExactCardinalityTiebreakEvidence,
+    )>,
+    QueryError,
+> {
+    let mut evidence = work.vec_with_capacity(prepared.len())?;
+    let mut selected: Option<(CardinalityTiebreakCandidate, u64)> = None;
     for prepared_candidate in prepared {
-        let exact_prefix_entries = counts
-            .get(prepared_candidate.probe_start..prepared_candidate.probe_end)
-            .and_then(checked_exact_prefix_entries)?;
-        ranked.push((prepared_candidate.candidate, exact_prefix_entries));
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        let Some(prefix_counts) =
+            counts.get(prepared_candidate.probe_start..prepared_candidate.probe_end)
+        else {
+            return Ok(None);
+        };
+        let Some(exact_prefix_entries) = checked_exact_prefix_entries(prefix_counts, work)? else {
+            return Ok(None);
+        };
+        evidence.push(CardinalityTiebreakCandidateEvidence::new(
+            work.copy_text(prepared_candidate.candidate.index().name())?,
+            exact_prefix_entries,
+        ));
+        // Keep the first candidate at the minimum, matching the planner's
+        // deterministic tie order. Only the winner needs retained access data.
+        let replace = if let Some((_, minimum)) = selected.as_ref() {
+            work.charge(Resource::PredicateExpressionSteps, 1)?;
+            exact_prefix_entries < *minimum
+        } else {
+            true
+        };
+        if replace {
+            selected = Some((prepared_candidate.candidate, exact_prefix_entries));
+        }
     }
 
-    let selected_index = ranked
-        .iter()
-        .enumerate()
-        .min_by_key(|(_index, (_candidate, count))| *count)
-        .map(|(index, _)| index)?;
-    let route_pin = ranked[selected_index].0.route_pin(entity_tag)?;
-    let evidence = ranked
-        .iter()
-        .map(|(candidate, count)| {
-            CardinalityTiebreakCandidateEvidence::new(candidate.index().name().to_string(), *count)
-        })
-        .collect();
-    let selected = ranked.swap_remove(selected_index).0;
+    let Some((selected, _)) = selected else {
+        return Ok(None);
+    };
+    work.charge(Resource::PredicateExpressionSteps, 1)?;
+    let Some(route_pin) = selected.route_pin(entity_tag) else {
+        return Ok(None);
+    };
 
-    Some((
+    Ok(Some((
         selected,
         ExactCardinalityTiebreakEvidence::new(route_pin, evidence),
-    ))
+    )))
 }
 
 fn exact_selected_route_pin(
@@ -348,10 +483,20 @@ fn admit_cardinality_candidate_shape(
     Some((admitted_probes, admitted_lowered_bytes))
 }
 
-fn checked_exact_prefix_entries(counts: &[u64]) -> Option<u64> {
-    counts
-        .iter()
-        .try_fold(0u64, |total, count| total.checked_add(*count))
+fn checked_exact_prefix_entries(
+    counts: &[u64],
+    work: &PreparationWork<'_>,
+) -> Result<Option<u64>, QueryError> {
+    let mut total = 0u64;
+    for count in counts {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        let Some(next) = total.checked_add(*count) else {
+            return Ok(None);
+        };
+        total = next;
+    }
+
+    Ok(Some(total))
 }
 
 #[cfg(test)]
@@ -366,8 +511,16 @@ mod tests {
 
     #[test]
     fn exact_prefix_entry_sum_is_checked() {
-        assert_eq!(checked_exact_prefix_entries(&[2, 3, 5]), Some(10));
-        assert_eq!(checked_exact_prefix_entries(&[u64::MAX, 1]), None);
+        crate::db::query::preparation::with_preparation_work(|work| {
+            assert_eq!(
+                checked_exact_prefix_entries(&[2, 3, 5], work).unwrap(),
+                Some(10)
+            );
+            assert_eq!(
+                checked_exact_prefix_entries(&[u64::MAX, 1], work).unwrap(),
+                None
+            );
+        });
     }
 
     #[test]

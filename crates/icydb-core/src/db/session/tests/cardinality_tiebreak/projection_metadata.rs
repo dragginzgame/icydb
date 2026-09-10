@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::db::{
-    RequestExecutionRoot,
+    QueryError, RequestExecutionRoot,
     executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     query::{
         plan::{
@@ -139,7 +139,15 @@ fn non_direct_or_unresolved_layout_is_unavailable_not_a_budget_error() {
 pub(super) fn cost(plan: &AccessPlannedQuery, schema: &SchemaInfo) -> (u64, u64) {
     let root = request(Resource::TemporaryBytes, 16_000_000);
     PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
-        let projection = plan.projection_spec_with_schema(schema);
+        let projection = plan.prepare_projection(schema, work)?;
+        if plan.grouped_plan().is_none() {
+            crate::db::query::plan::expr::compile_scalar_projection_plan_with_schema(
+                schema,
+                &projection,
+                work,
+            )
+            .map_err(QueryError::execute)?;
+        }
         crate::db::query::plan::lower_direct_projection_layouts_with_schema(
             schema,
             &plan.logical,

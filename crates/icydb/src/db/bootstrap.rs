@@ -122,10 +122,10 @@ impl std::error::Error for DatabaseBootstrapError {
 mod tests {
     use super::*;
     use ic_memory::{
-        AllocationPolicy, AllocationSlotDescriptor, MemoryManagerRangeMode, PolicyIdentity,
-        PolicyIdentityError, RuntimeBootstrapPolicy, StableKey,
-        bootstrap_default_memory_manager_with_policy, register_static_memory_manager_declaration,
-        register_static_memory_manager_range,
+        AllocationPolicy, AllocationSlotDescriptor, MemoryManagerConfig, MemoryManagerRangeMode,
+        PolicyIdentity, PolicyIdentityError, RuntimeBootstrapPolicy, StableKey,
+        bootstrap_default_memory_manager_with_config, default_memory_manager_memory_allocations,
+        register_static_memory_manager_declaration, register_static_memory_manager_range,
     };
 
     const TEST_AUTHORITY: &str = "icydb.bootstrap-adoption-test";
@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn adopts_runtime_bootstrapped_by_a_different_policy() {
+    fn adopts_runtime_bootstrapped_by_a_different_policy_and_bucket_size() {
         register_static_memory_manager_range(
             TEST_MEMORY_ID,
             TEST_MEMORY_ID,
@@ -216,8 +216,11 @@ mod tests {
         )
         .expect("test allocation should register");
 
-        let upstream = bootstrap_default_memory_manager_with_policy(&ExistingRuntimePolicy)
-            .expect("existing policy identity should bootstrap the shared runtime");
+        let upstream = bootstrap_default_memory_manager_with_config(
+            MemoryManagerConfig::new(16).expect("test bucket size should admit"),
+            &ExistingRuntimePolicy,
+        )
+        .expect("existing policy identity should bootstrap the shared runtime");
         let generation = upstream.generation();
 
         ensure_default_memory_manager(TEST_AUTHORITY)
@@ -228,6 +231,12 @@ mod tests {
                 .expect("adopted allocations should remain available")
                 .generation(),
             generation,
+        );
+        assert_eq!(
+            default_memory_manager_memory_allocations()
+                .expect("adopted runtime should report its persisted bucket size")
+                .bucket_size_pages,
+            16,
         );
         assert!(matches!(
             bootstrap_default_memory_manager(),

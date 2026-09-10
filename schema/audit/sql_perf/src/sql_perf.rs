@@ -84,6 +84,19 @@ pub struct PerfAuditUser {}
 )]
 pub struct PerfAuditBigLiteral {}
 
+/// Wide scalar fixture whose field bound admits the 4-KiB index-component edge.
+/// The original big-literal fixture retains its default 256-byte field bound.
+#[entity(store = "PerfAuditStore",
+    version = 1,
+    pk(fields = ["id"]),
+    fields(
+        field(name = "id", value(item(prim = "Int32"))),
+        field(name = "signed", value(item(prim = "IntBig", max_bytes = 2048))),
+        field(name = "unsigned", value(item(prim = "NatBig", max_bytes = 2048)))
+    )
+)]
+pub struct PerfAuditIndexedBigInteger {}
+
 ///
 /// PerfAuditMaxFanout
 ///

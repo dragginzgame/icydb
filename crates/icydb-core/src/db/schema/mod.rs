@@ -212,14 +212,15 @@ pub(in crate::db) use field_kind_semantics::AcceptedFieldKindSemantics;
 pub(in crate::db) use field_kind_semantics::{
     AcceptedFieldKindCategory, classify_accepted_field_kind,
 };
-pub(in crate::db) use fingerprint::{
-    accepted_commit_schema_fingerprint, accepted_schema_cache_fingerprint,
-    accepted_schema_cache_fingerprint_for_persisted_snapshot,
-    accepted_schema_cache_fingerprint_method_version,
-};
+#[cfg(any(test, feature = "migration"))]
+pub(in crate::db) use fingerprint::accepted_commit_schema_fingerprint;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) use fingerprint::{
     accepted_schema_admission_fingerprint, accepted_schema_admission_fingerprint_method_version,
+};
+pub(in crate::db) use fingerprint::{
+    accepted_schema_cache_fingerprint, accepted_schema_cache_fingerprint_for_persisted_snapshot,
+    accepted_schema_cache_fingerprint_method_version,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use format::show_indexes_for_schema_info_with_runtime_state;
@@ -405,7 +406,7 @@ pub use store::SchemaStore;
 pub(in crate::db) use store::{
     AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, PreparedCardinalityMaintenance,
     PreparedSchemaPositionPublication, PreparedSchemaPositionRetirement,
-    SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata, load_accepted_schema_snapshot,
+    SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata,
 };
 
 #[cfg(test)]

@@ -4402,6 +4402,7 @@ mod mixed_relation_batch_tests {
 #[cfg(test)]
 mod identity_pre_key_tests {
     mod nested_relation_tests;
+    mod replay_construction_tests;
     mod result_boundary_tests;
 
     use super::DynamicTypedEntityBinding;
@@ -4485,7 +4486,6 @@ mod identity_pre_key_tests {
     use std::{
         cell::{Cell, RefCell},
         collections::BTreeMap,
-        time::Instant,
     };
 
     const STORE_PATH: &str = "session::write::identity_pre_key_tests::Store";
@@ -7455,12 +7455,7 @@ mod identity_pre_key_tests {
                 row_count_before,
                 "state-only admission must not mutate target rows",
             );
-            assert!(
-                session
-                    .db
-                    .drive_startup_recovery_page()
-                    .expect("dedicated driver should finish target and progress together"),
-            );
+            drive_journaled_recovery_to_completion(&session);
             let retained = with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
                 store.load_mutation(before.state().job_id)
             })
@@ -7520,12 +7515,7 @@ mod identity_pre_key_tests {
             pending.diagnostic().error_code(),
             icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
         );
-        assert!(
-            session
-                .db
-                .drive_startup_recovery_page()
-                .expect("post-clear driver recovery should fold the retained batch"),
-        );
+        drive_journaled_recovery_to_completion(&session);
         assert_eq!(
             JOURNALED_TAIL_STORE
                 .with(|tail| tail.borrow().entity_mutation_revision(ENTITY_TAG))
@@ -8470,7 +8460,14 @@ mod identity_pre_key_tests {
         forget_recovered_domain_for_tests(&session.db)
             .expect("upgrade should reset recovery ownership");
         assert!(
-            session
+            !session
+                .db
+                .drive_startup_recovery_page()
+                .expect("replay should precede folding")
+        );
+        assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 0);
+        assert!(
+            !session
                 .db
                 .drive_startup_recovery_page()
                 .expect("the complete batch recovery page should commit"),
@@ -8481,6 +8478,13 @@ mod identity_pre_key_tests {
             let tail = tail.borrow();
             assert!(!tail.has_stored_batch());
         });
+        assert!(session.db.ensure_recovered_state().is_err());
+        assert!(
+            session
+                .db
+                .drive_startup_recovery_page()
+                .expect("verification should finish startup")
+        );
         assert_dynamic_payload(&session, 1, 0);
         assert_dynamic_payload(&session, 129, 128);
     }
@@ -8531,6 +8535,12 @@ mod identity_pre_key_tests {
 
         forget_recovered_domain_for_tests(&session.db)
             .expect("upgrade should reset recovery ownership");
+        assert!(
+            !session
+                .db
+                .drive_startup_recovery_page()
+                .expect("replay should precede fold validation")
+        );
         let error = session
             .db
             .drive_startup_recovery_page()
@@ -8602,6 +8612,12 @@ mod identity_pre_key_tests {
 
         forget_recovered_domain_for_tests(&session.db)
             .expect("upgrade should reset recovery ownership");
+        assert!(
+            !session
+                .db
+                .drive_startup_recovery_page()
+                .expect("replay should precede row preparation")
+        );
         let error = session
             .db
             .drive_startup_recovery_page()
@@ -8662,60 +8678,6 @@ mod identity_pre_key_tests {
         assert_eq!(
             recovered.rows,
             vec![expected_dynamic_row(2, 20), expected_dynamic_row(3, 30)],
-        );
-    }
-
-    #[test]
-    #[ignore = "release-closeout native timing probe for one marker-authorized driver recovery"]
-    fn identity_recovery_closeout_reports_driver_time() {
-        let session = initialize_journaled();
-        let catalog = session
-            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
-            .expect("journaled identity catalog should resolve");
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-            .expect("journaled identity row layout should build");
-
-        interrupt_next_mutation_commit_for_tests(MutationCommitInterruption::RowsPublished);
-        let interrupted = session.execute_accepted_structural_save_batch(
-            &catalog,
-            &descriptor,
-            batch(&[1]),
-            Timestamp::from_millis(10),
-            Ok,
-        );
-        assert!(
-            interrupted.is_err(),
-            "the selected publication boundary should interrupt",
-        );
-
-        let start = Instant::now();
-        assert!(
-            session
-                .db
-                .drive_startup_recovery_page()
-                .expect("dedicated driver should recover before allocation"),
-        );
-        let committed = session
-            .execute_accepted_structural_save_batch(
-                &catalog,
-                &descriptor,
-                batch(&[2]),
-                Timestamp::from_millis(11),
-                Ok,
-            )
-            .expect("post-recovery allocation should commit");
-        let elapsed = start.elapsed();
-        assert_eq!(
-            committed
-                .into_iter()
-                .map(|row| row.values)
-                .collect::<Vec<_>>(),
-            vec![vec![Value::Nat64(2), Value::Nat64(2)]],
-        );
-
-        println!(
-            "identity recovery closeout: driver_nanos={}",
-            elapsed.as_nanos(),
         );
     }
 }
