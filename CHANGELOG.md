@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.257.md](docs/changelog/0.257.md)
 
-- `0.257.4` strengthens query preparation and write admission, simplifies recovery, expands diagnostic and upgrade qualification and adds physical allocation reporting with `ic-memory 0.13.1` (breaking for low-level memory handles and snapshot consumers; newly validated work can reject, startup needs additional driver calls, and affected inspection outcomes change).
+- `0.257.4` strengthens query preparation and write admission, simplifies recovery, expands diagnostic and upgrade qualification and adds physical allocation reports and CLI rendering with `ic-memory 0.13.1` (breaking for low-level memory handles and snapshot consumers; newly validated work can reject, startup needs additional driver calls, and affected inspection outcomes change).
 - `0.257.3` simplifies and budgets planner preparation, bounds metrics reporting, and renames the native convergence test driver (breaking; newly counted work can reject, and metrics consumers/native test callers must update).
 - `0.257.2` reduces query-preparation copies, extends work accounting and fixes direct collection-relation admission; requests exhausted by newly counted work reject (potentially breaking).
 - `0.257.1` bounds query-preparation copies, fixes nullable-index completeness and audit interfaces, and updates Rust 1.98.1 tooling and regression coverage; unsafe or exhausted requests now reject (potentially breaking).

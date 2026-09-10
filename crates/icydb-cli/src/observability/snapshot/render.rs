@@ -7,6 +7,7 @@ use icydb::db::{
     DataStoreSnapshot, IndexStoreSnapshot, MemoryAllocationBinding, MemoryAllocations,
     SchemaStoreSnapshot, StorageReport,
 };
+use std::fmt::Write as _;
 
 use crate::table::{ColumnAlign, append_indented_table};
 
@@ -67,8 +68,10 @@ pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
 
 fn append_memory_allocations(output: &mut String, report: &MemoryAllocations) {
     output.push_str("physical allocations (canister-wide; includes ledger)\n");
-    output.push_str(&format!(
-        "  physical bytes: {}\n  virtual bytes: {}\n  manager metadata bytes: {}\n  allocated bucket bytes: {}\n  bucket slack bytes: {}\n  known binding bytes: {}\n  unknown binding bytes: {}\n  unmanaged bytes: {}\n  bucket pages: {}\n  buckets remaining: {} / {}\n  payload occupancy: unavailable\n",
+    // Formatting integers into a String is infallible and needs no temporary buffer.
+    let _ = writeln!(
+        output,
+        "  physical bytes: {}\n  virtual bytes: {}\n  manager metadata bytes: {}\n  allocated bucket bytes: {}\n  bucket slack bytes: {}\n  known binding bytes: {}\n  unknown binding bytes: {}\n  unmanaged bytes: {}\n  bucket pages: {}\n  buckets remaining: {} / {}\n  payload occupancy: unavailable",
         report.physical_extent.bytes,
         report.virtual_extent.bytes,
         report.manager_metadata_bytes,
@@ -80,7 +83,7 @@ fn append_memory_allocations(output: &mut String, report: &MemoryAllocations) {
         report.bucket_size_pages,
         report.remaining_buckets,
         report.bucket_capacity,
-    ));
+    );
     let rows = report
         .memories
         .iter()
