@@ -17,9 +17,10 @@ use icydb_testing_integration::{
     install_fixture_canister_without_startup_delivery,
 };
 
-// PocketIC 16 measures the converged post-upgrade participant at 11,138,241
-// instructions. Retain roughly one percent of review headroom.
-const PARTICIPANT_INSTRUCTION_CEILING: u64 = 11_250_000;
+// Reviewed with Rust 1.98.1, PocketIC 16 and ic-memory 0.13.2: the converged
+// post-upgrade participant uses 12,579,497 instructions. The user-approved
+// ceiling accepts that cost with 1.36% headroom; production limits are unchanged.
+const PARTICIPANT_INSTRUCTION_CEILING: u64 = 12_750_000;
 const INSTALL_CODE_RETRY_LIMIT: usize = 4;
 const INSTALL_CODE_COOLDOWN: Duration = Duration::from_mins(5);
 
@@ -89,17 +90,11 @@ fn assert_synchronous_ordering(
     expected_hook: LifecycleHook,
     phase: &str,
 ) {
-    assert_eq!(snapshot.hook, expected_hook);
+    assert_eq!(snapshot.hook, expected_hook, "{phase}");
     assert_eq!(snapshot.activation, ApplicationActivationState::Prepared);
     assert_eq!(snapshot.ingress_authority_order, 1);
     assert_eq!(snapshot.participant_order, 2);
     assert!(snapshot.participant_instructions > 0);
-    assert!(
-        snapshot.participant_instructions <= PARTICIPANT_INSTRUCTION_CEILING,
-        "{phase} participant instructions {} exceed the frozen {} ceiling",
-        snapshot.participant_instructions,
-        PARTICIPANT_INSTRUCTION_CEILING,
-    );
     assert_eq!(
         snapshot.startup_after_participant,
         Some(Ok(icydb::db::DatabaseStartupState::Recovering)),
@@ -111,6 +106,15 @@ fn assert_synchronous_ordering(
     assert_eq!(snapshot.database_work_runs, 0);
     assert!(snapshot.startup_failure.is_none());
     assert!(snapshot.database_failure.is_none());
+}
+
+fn assert_participant_cost(snapshot: &LifecycleCompositionSnapshot, phase: &str) {
+    assert!(
+        snapshot.participant_instructions <= PARTICIPANT_INSTRUCTION_CEILING,
+        "{phase} participant instructions {} exceed the frozen {} ceiling",
+        snapshot.participant_instructions,
+        PARTICIPANT_INSTRUCTION_CEILING,
+    );
 }
 
 fn advance_until_active(fixture: &StandaloneCanisterFixture) -> LifecycleCompositionSnapshot {
@@ -175,6 +179,10 @@ fn upgrade_preserving_stable_extent(
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one causal lifecycle proof reports all upgrade phases before enforcing their cost ceilings"
+)]
 fn framework_neutral_root_orders_both_lifecycle_phases_before_deferred_database_work() {
     let fixture = install_fixture_canister_without_startup_delivery("lifecycle_participant");
 
@@ -278,6 +286,16 @@ fn framework_neutral_root_orders_both_lifecycle_phases_before_deferred_database_
         populated_stable_bytes_before_upgrade,
         PARTICIPANT_INSTRUCTION_CEILING,
     );
+    // Complete the semantic and preservation proof before enforcing cost, so
+    // one exceeded sample cannot hide later upgrade behavior or measurements.
+    for (phase, sample) in [
+        ("init", &installed),
+        ("empty post-upgrade", &upgraded),
+        ("populated post-upgrade", &populated_upgrade),
+        ("converged post-upgrade", &converged_upgrade),
+    ] {
+        assert_participant_cost(sample, phase);
+    }
 }
 
 #[test]
@@ -329,6 +347,7 @@ fn trapped_post_upgrade_rolls_back_participation_and_allows_a_clean_retry() {
     );
     let retried = snapshot(&fixture);
     assert_synchronous_ordering(&retried, LifecycleHook::PostUpgrade, "retried post-upgrade");
+    assert_participant_cost(&retried, "retried post-upgrade");
     let retried_active = advance_until_active(&fixture);
     assert_eq!(retried_active.database_work_runs, 1);
     assert!(

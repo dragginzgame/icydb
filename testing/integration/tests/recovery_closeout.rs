@@ -206,7 +206,7 @@ fn run_bounded_convergence_watchdog(
         .expect("production convergence should record a maximum instruction sample");
     assert!(
         maximum_instructions < CONVERGENCE_CALLBACK_INSTRUCTION_LIMIT,
-        "every recorded production callback should stay below 30B instructions",
+        "production callback used {maximum_instructions} instructions; ceiling is {CONVERGENCE_CALLBACK_INSTRUCTION_LIMIT}; before={before:?}; after={after:?}",
     );
     assert!(
         memory_after.1 >= memory_before.1,
@@ -641,7 +641,10 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
     assert_eq!(after_ready.page, before_ready.page);
     assert!(
         after_ready.instructions <= PINNED_POST_UPGRADE_INSTRUCTION_CEILING,
-        "post-upgrade pinned continuation exceeded its reviewed ceiling",
+        "post-upgrade pinned continuation used {} instructions; ceiling is {}; pre-upgrade used {}",
+        after_ready.instructions,
+        PINNED_POST_UPGRADE_INSTRUCTION_CEILING,
+        before_ready.instructions,
     );
     cursor_rows = cursor_rows.saturating_add(after_ready.page.row_count);
     assert_eq!(cursor_rows, 2);
