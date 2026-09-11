@@ -435,7 +435,8 @@ fn direct_count_exact_composite_prefix_access<'predicate>(
         MAX_EXACT_COUNT_PREFIX_CARDINALITY_KEYS,
     )?;
     let path = access.as_path()?;
-    if residual_query_predicate_after_access_path_bounds(Some(path), normalized_predicate).is_some()
+    if residual_query_predicate_after_access_path_bounds(Some(path), normalized_predicate.clone())
+        .is_some()
     {
         return None;
     }

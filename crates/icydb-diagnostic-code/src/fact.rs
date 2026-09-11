@@ -706,6 +706,11 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::Actual,
             ],
         ),
+        271 | 272 => tags_match(
+            fact_count,
+            &fact_at,
+            &[DiagnosticFactTag::Limit, DiagnosticFactTag::Actual],
+        ),
         226 => tags_match(
             fact_count,
             &fact_at,
@@ -747,7 +752,7 @@ const fn diagnostic_fact_maximum(code: ErrorCode) -> usize {
         5 | 15 | 17 | 186 | 187 | 220 | 226 | 227 | 253 => 3,
         133 | 134 | 158 | 159 | 164 | 222 => 1,
         18 | 20 | 130 | 166 | 167 | 169 | 190 | 191 | 192 | 194 | 223 | 224 | 225 | 248 | 249
-        | 250 | 251 | 262 | 264 => 2,
+        | 250 | 251 | 262 | 264 | 271 | 272 => 2,
         3 | 19 | 23 => 5,
         22 | 252 => 6,
         185 | 221 | 263 => 4,

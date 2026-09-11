@@ -114,8 +114,12 @@ pub(super) fn push_binary_decimal_payload(out: &mut Vec<u8>, mantissa: i128, sca
 }
 
 /// Append the canonical Structural Binary signed big-integer payload.
-pub(super) fn push_binary_int_big_payload(out: &mut Vec<u8>, is_negative: bool, digits: &[u32]) {
-    let sign = if digits.is_empty() {
+pub(super) fn push_binary_int_big_payload(
+    out: &mut Vec<u8>,
+    is_negative: bool,
+    digits: impl ExactSizeIterator<Item = u32>,
+) {
+    let sign = if digits.len() == 0 {
         0
     } else if is_negative {
         -1
@@ -129,15 +133,18 @@ pub(super) fn push_binary_int_big_payload(out: &mut Vec<u8>, is_negative: bool, 
 }
 
 /// Append the canonical Structural Binary unsigned big-integer payload.
-pub(super) fn push_binary_nat_big_payload(out: &mut Vec<u8>, digits: &[u32]) {
+pub(super) fn push_binary_nat_big_payload(
+    out: &mut Vec<u8>,
+    digits: impl ExactSizeIterator<Item = u32>,
+) {
     push_binary_u32_digit_list(out, digits);
 }
 
 // Emit one canonical big-integer magnitude limb sequence.
-fn push_binary_u32_digit_list(out: &mut Vec<u8>, digits: &[u32]) {
+fn push_binary_u32_digit_list(out: &mut Vec<u8>, digits: impl ExactSizeIterator<Item = u32>) {
     push_binary_list_len(out, digits.len());
     for digit in digits {
-        push_binary_nat64(out, u64::from(*digit));
+        push_binary_nat64(out, u64::from(digit));
     }
 }
 

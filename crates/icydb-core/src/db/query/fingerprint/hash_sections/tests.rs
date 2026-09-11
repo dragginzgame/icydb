@@ -1,51 +1,43 @@
-use super::profile::{CONTINUATION_STEPS, ExplainHashField, ExplainHashProfile, FINGERPRINT_STEPS};
+use crate::db::{
+    codec::new_hash_sha256,
+    query::{
+        fingerprint::{
+            finalize_sha256_digest,
+            hash_sections::{hash_order_fields, hash_order_spec},
+        },
+        plan::{OrderDirection, OrderSpec, OrderTerm},
+    },
+};
 
 #[test]
-fn fingerprint_profile_excludes_grouping_shape_field() {
-    let has_grouping_shape = FINGERPRINT_STEPS
-        .iter()
-        .any(|step| step.field == ExplainHashField::GroupingShape);
-
-    assert!(
-        !has_grouping_shape,
-        "Fingerprint must remain semantic and exclude grouped strategy/handoff metadata fields",
+fn order_identity_preserves_empty_source_and_term_order_contracts() {
+    let hash_spec = |order: Option<&OrderSpec>| {
+        let mut hasher = new_hash_sha256();
+        hash_order_spec(&mut hasher, order);
+        finalize_sha256_digest(hasher)
+    };
+    let empty = OrderSpec { fields: vec![] };
+    assert_eq!(hash_spec(None), hash_spec(Some(&empty)));
+    let mut order = OrderSpec {
+        fields: vec![
+            OrderTerm::field("owner_λ", OrderDirection::Asc),
+            OrderTerm::field("amount", OrderDirection::Desc),
+        ],
+    };
+    let mut hasher = new_hash_sha256();
+    hash_order_fields(
+        &mut hasher,
+        [
+            ("owner_λ", OrderDirection::Asc),
+            ("amount", OrderDirection::Desc),
+        ]
+        .into_iter(),
     );
-}
-
-#[test]
-fn continuation_profile_includes_grouping_shape_field() {
-    let has_grouping_shape = CONTINUATION_STEPS
-        .iter()
-        .any(|step| step.field == ExplainHashField::GroupingShape);
-
-    assert!(
-        has_grouping_shape,
-        "Continuation profile must remain grouped-shape aware for resume compatibility",
-    );
-}
-
-#[test]
-fn fingerprint_profile_projection_slot_is_stable() {
-    let projection_slots = FINGERPRINT_STEPS
-        .iter()
-        .filter(|step| step.field == ExplainHashField::ProjectionSpec)
-        .count();
-
-    assert_eq!(
-        projection_slots, 1,
-        "Fingerprint must keep exactly one projection-semantic hash slot",
-    );
-}
-
-#[test]
-fn continuation_profile_declares_entity_path_contract_slot() {
-    let spec = ExplainHashProfile::Continuation {
-        entity_path: "tests::Entity",
-    }
-    .spec();
-
-    assert!(
-        spec.entity_path.is_some(),
-        "Continuation profile must remain entity-path aware for cursor signature isolation",
-    );
+    let expected = finalize_sha256_digest(hasher);
+    assert_eq!(hash_spec(Some(&order)), expected);
+    order.fields.reverse();
+    assert_ne!(hash_spec(Some(&order)), expected);
+    order.fields.reverse();
+    order.fields[1] = OrderTerm::field("amount", OrderDirection::Asc);
+    assert_ne!(hash_spec(Some(&order)), expected);
 }

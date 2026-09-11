@@ -94,10 +94,10 @@ impl ScalarLiteral {
             Self::Text(value) if value.len() > MAX_PROPOSAL_LITERAL_BYTES => {
                 Err(SchemaContractError::InvalidLiteral)
             }
-            Self::IntBig(value) if value.to_leb128().len() > MAX_PROPOSAL_LITERAL_BYTES => {
+            Self::IntBig(value) if value.leb128_len() > MAX_PROPOSAL_LITERAL_BYTES as u64 => {
                 Err(SchemaContractError::InvalidLiteral)
             }
-            Self::NatBig(value) if value.to_leb128().len() > MAX_PROPOSAL_LITERAL_BYTES => {
+            Self::NatBig(value) if value.leb128_len() > MAX_PROPOSAL_LITERAL_BYTES as u64 => {
                 Err(SchemaContractError::InvalidLiteral)
             }
             _ => Ok(()),

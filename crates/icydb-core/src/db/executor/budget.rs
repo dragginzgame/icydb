@@ -1052,14 +1052,8 @@ pub(in crate::db::executor) fn runtime_value_work(value: &Value) -> (u64, u64) {
     match value {
         Value::Blob(value) => (VALUE_OVERHEAD.saturating_add(usize_as_u64(value.len())), 1),
         Value::Text(value) => (VALUE_OVERHEAD.saturating_add(usize_as_u64(value.len())), 1),
-        Value::IntBig(value) => (
-            VALUE_OVERHEAD.saturating_add(usize_as_u64(value.to_leb128().len())),
-            1,
-        ),
-        Value::NatBig(value) => (
-            VALUE_OVERHEAD.saturating_add(usize_as_u64(value.to_leb128().len())),
-            1,
-        ),
+        Value::IntBig(value) => (VALUE_OVERHEAD.saturating_add(value.leb128_len()), 1),
+        Value::NatBig(value) => (VALUE_OVERHEAD.saturating_add(value.leb128_len()), 1),
         Value::Principal(value) => (
             VALUE_OVERHEAD.saturating_add(usize_as_u64(value.as_slice().len())),
             1,
@@ -1233,6 +1227,20 @@ mod tests {
     use icydb_diagnostic_code::{DiagnosticDetail, DiagnosticFactTag, RuntimeBoundaryCode};
 
     const TEST_HEADROOM: HardExecutionFailureHeadroom = HardExecutionFailureHeadroom::new(500, 256);
+
+    #[test]
+    fn bigint_runtime_work_preserves_encoded_size_and_nested_node_charges() {
+        for integer in [-8193_i32, -8192, -65, -64, -1, 0, 63, 64, 8191, 8192] {
+            let signed = crate::types::IntBig::from(integer);
+            let unsigned = crate::types::NatBig::from(integer.unsigned_abs());
+            let payload_bytes = (signed.to_leb128().len() + unsigned.to_leb128().len()) as u64;
+            let value = Value::List(vec![Value::IntBig(signed), Value::NatBig(unsigned)]);
+            assert_eq!(
+                runtime_value_work(&value),
+                (3 * RUNTIME_VALUE_NODE_OVERHEAD_BYTES + payload_bytes, 3)
+            );
+        }
+    }
 
     #[test]
     fn construction_requires_active_authority_and_shares_execution_request_counters() {

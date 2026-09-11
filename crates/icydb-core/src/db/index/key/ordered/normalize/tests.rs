@@ -1,7 +1,10 @@
 //! Integer chunk emission preserves canonical digits, signs and segment limits.
 
 use super::*;
-use crate::{db::index::key::ordered::encode_canonical_index_component, value::Value};
+use crate::{
+    db::index::key::ordered::encode_canonical_index_component,
+    value::{Value, decimal::DECIMAL_CHUNK_WIDTH},
+};
 
 #[test]
 fn integer_components_match_decimal_reference_at_chunk_boundaries() {
@@ -72,8 +75,8 @@ fn chunk_digit_count_and_emission_agree_at_segment_limit() {
         u16::MAX as usize,
         u16::MAX as usize + 1,
     ] {
-        let leading_width = (len - 1) % BIGINT_DECIMAL_CHUNK_WIDTH + 1;
-        let mut chunks = vec![0; len.div_ceil(BIGINT_DECIMAL_CHUNK_WIDTH)];
+        let leading_width = (len - 1) % DECIMAL_CHUNK_WIDTH + 1;
+        let mut chunks = vec![0; len.div_ceil(DECIMAL_CHUNK_WIDTH)];
         *chunks.last_mut().unwrap() = 10_u32.pow(u32::try_from(leading_width).unwrap() - 1);
         let actual = decimal_chunk_digit_count(&chunks).unwrap();
         assert_eq!(actual, len);
@@ -105,23 +108,4 @@ fn chunk_digit_count_and_emission_agree_at_segment_limit() {
     let mut zero = Vec::new();
     push_decimal_chunk_digits(&mut zero, &[], false);
     assert_eq!(zero, b"0");
-}
-
-#[test]
-fn chunk_conversion_handles_zero_limbs_and_binary_radix_boundaries() {
-    for (limbs, decimal) in [
-        (vec![], "0"),
-        (vec![0, 0], "0"),
-        (vec![1, 0], "1"),
-        (vec![u32::MAX], "4294967295"),
-        (vec![0, 1], "4294967296"),
-        (vec![u32::MAX, u32::MAX], "18446744073709551615"),
-        (vec![0, 0, 1], "18446744073709551616"),
-    ] {
-        let chunks = u32_limbs_to_decimal_chunks(limbs);
-        let mut out = Vec::new();
-        push_decimal_chunk_digits(&mut out, &chunks, false);
-        assert_eq!(out, decimal.as_bytes());
-        assert_eq!(decimal_chunk_digit_count(&chunks).unwrap(), out.len());
-    }
 }

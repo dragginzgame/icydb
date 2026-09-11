@@ -72,7 +72,7 @@ pub(in crate::db) struct RawRow(Vec<u8>);
 
 impl RawRow {
     /// Validate serialized row size against protocol bounds.
-    const fn ensure_size(bytes: &[u8]) -> Result<(), RawRowError> {
+    pub(in crate::db) const fn ensure_size(bytes: &[u8]) -> Result<(), RawRowError> {
         if bytes.len() > MAX_ROW_BYTES as usize {
             return Err(RawRowError::TooLarge { len: bytes.len() });
         }

@@ -1061,9 +1061,11 @@ fn schema_index_field_path_info_from_accepted(
 
 #[cfg(test)]
 mod tests {
+    mod grouped_attachment;
     mod primary_key_names;
     mod projection_construction;
     mod projection_identity;
+    mod residual_borrowing;
     mod scalar_accounting;
     mod scalar_compilation;
 

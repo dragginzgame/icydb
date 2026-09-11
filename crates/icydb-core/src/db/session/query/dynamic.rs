@@ -146,6 +146,7 @@ impl<C: CanisterKind> DbSession<C> {
         lane: DiagnosticExecutionLane,
     ) -> Result<StructuralQuery, QueryError> {
         validate_dynamic_query_input(request)?;
+        Self::validate_dynamic_query_shape(request)?;
         PreparationWork::run(self.db.request_execution_scope(), lane, |work| {
             let schema = catalog.accepted_schema_info();
             let mut query = StructuralQuery::new(MissingRowPolicy::Ignore);
@@ -206,6 +207,56 @@ impl<C: CanisterKind> DbSession<C> {
             }
 
             Ok(query)
+        })
+    }
+
+    // Dynamic execution and typed diagnostics accept the same grouped shape.
+    // Execution-only scan/sort policy remains at the execution terminal.
+    fn validate_dynamic_query_shape(request: &DynamicQuery) -> Result<(), QueryError> {
+        if request.has_grouping() {
+            if request.grouped_execution_limits().is_none() {
+                return Err(QueryReadAdmissionCode::GroupedQueryRequiresLimits.into());
+            }
+            if !request.selected_fields().is_empty() {
+                return Err(QueryError::intent(
+                    IntentError::grouped_output_defined_by_group_and_aggregates(),
+                ));
+            }
+        } else if request.grouped_execution_limits().is_some() {
+            return Err(QueryError::intent(
+                IntentError::scalar_terminal_requires_scalar_query(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Project a logical query under the binding's current accepted authority.
+    /// `None` means the binding is stale. No row execution or cursor decoding occurs.
+    #[doc(hidden)]
+    pub fn explain_query_for_typed_binding(
+        &self,
+        binding: &DynamicTypedEntityBinding,
+        request: &DynamicQuery,
+    ) -> Result<Option<crate::db::ExplainPlan>, QueryError> {
+        let Some(catalog) = self
+            .current_typed_entity_binding_catalog(binding)
+            .map_err(QueryError::execute)?
+        else {
+            return Ok(None);
+        };
+        if request.continuation_cursor().is_some() {
+            return Err(QueryReadAdmissionCode::ExplainDoesNotAcceptCursor.into());
+        }
+        let lane = DiagnosticExecutionLane::Diagnostic;
+        let query = self.structural_query_from_dynamic_request(request, &catalog, lane)?;
+        let plan = self.cached_shared_query_plan_for_accepted_authority_with_catalog(
+            catalog.accepted_entity_authority(),
+            &catalog,
+            &query,
+            lane,
+        )?;
+        PreparationWork::run(self.db.request_execution_scope(), lane, |work| {
+            plan.explain(work).map(Some)
         })
     }
 
@@ -333,14 +384,6 @@ impl<C: CanisterKind> DbSession<C> {
         if !request.has_grouping() {
             return Err(QueryError::intent(
                 IntentError::grouped_terminal_requires_grouped_query(),
-            ));
-        }
-        if request.grouped_execution_limits().is_none() {
-            return Err(QueryReadAdmissionCode::GroupedQueryRequiresLimits.into());
-        }
-        if !request.selected_fields().is_empty() {
-            return Err(QueryError::intent(
-                IntentError::grouped_output_defined_by_group_and_aggregates(),
             ));
         }
         let query =

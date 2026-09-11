@@ -1,6 +1,8 @@
+#[cfg(test)]
+mod tests;
+
 use crate::db::query::{
     builder::{AggregateExpr, scalar_projection::render_scalar_projection_expr_plan_label},
-    explain::{ExplainGroupAggregate, ExplainGroupField},
     fingerprint::hash_sections::{
         GROUP_HAVING_ABSENT_TAG, GROUP_HAVING_AND_TAG, GROUP_HAVING_COMPARE_TAG,
         GROUP_HAVING_PRESENT_TAG, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG,
@@ -11,7 +13,7 @@ use crate::db::query::{
         GROUP_HAVING_VALUE_UNARY_TAG, write_str, write_tag, write_u32, write_value,
     },
     plan::{
-        AggregateIdentity, AggregateSemanticKey, GroupAggregateSpec, GroupFieldSet,
+        AggregateIdentity, AggregateSemanticKeyRef, GroupAggregateSpec, GroupFieldSet,
         expr::{BinaryOp, CaseWhenArm, Expr, UnaryOp},
     },
 };
@@ -19,80 +21,51 @@ use sha2::Sha256;
 
 const GROUP_HAVING_MISSING_SLOT_SENTINEL: u32 = u32::MAX;
 
-/// Canonical grouped HAVING expression source shared by plan and explain hashing.
-pub(super) enum GroupHavingFingerprintSource<'a> {
-    Explain {
-        expr: &'a Expr,
-        group_fields: &'a [ExplainGroupField],
-        aggregates: &'a [ExplainGroupAggregate],
-    },
-    Plan {
-        expr: &'a Expr,
-        group_fields: &'a GroupFieldSet,
-        aggregates: &'a [GroupAggregateSpec],
-    },
+/// Borrowed planner semantics used by continuation HAVING identity.
+pub(super) struct GroupHavingFingerprintSource<'a> {
+    pub(super) expr: &'a Expr,
+    pub(super) group_fields: &'a GroupFieldSet,
+    pub(super) aggregates: &'a [GroupAggregateSpec],
 }
-
-enum GroupHavingFingerprintContext<'a> {
-    Explain {
-        group_fields: &'a [ExplainGroupField],
-        aggregates: &'a [ExplainGroupAggregate],
-    },
-    Plan {
-        group_fields: &'a GroupFieldSet,
-        aggregates: &'a [GroupAggregateSpec],
-    },
-}
-
-impl GroupHavingFingerprintContext<'_> {
+impl GroupHavingFingerprintSource<'_> {
     fn group_field<'a>(&'a self, expr: &Expr) -> Option<(u32, &'a str)> {
-        match self {
-            Self::Explain { group_fields, .. } => {
-                let Expr::Field(field_id) = expr else {
-                    return None;
-                };
-                group_fields
-                    .iter()
-                    .find(|field| field.field() == field_id.as_str())
-                    .map(|field| (field.slot_index() as u32, field.field()))
-            }
-            Self::Plan { group_fields, .. } => group_fields
-                .iter()
-                .find(|field| field.matches_expr(expr))
-                .map(|field| (field.root_slot() as u32, field.field())),
-        }
+        self.group_fields
+            .iter()
+            .find(|field| field.matches_expr(expr))
+            .map(|field| (field.root_slot() as u32, field.field()))
     }
 
-    fn aggregate_index(&self, aggregate_expr: &AggregateExpr) -> Option<usize> {
-        match self {
-            Self::Explain { aggregates, .. } => {
-                let semantic_distinct =
-                    AggregateIdentity::from_aggregate_expr(aggregate_expr).distinct();
-                let input_expr = aggregate_expr
-                    .input_expr()
-                    .map(render_scalar_projection_expr_plan_label);
-                let filter_expr = aggregate_expr
-                    .filter_expr()
-                    .map(render_scalar_projection_expr_plan_label);
+    // Matched slots use borrowed semantic keys; only missing slots render labels.
+    fn hash_aggregate_expr(&self, hasher: &mut Sha256, aggregate_expr: &AggregateExpr) {
+        write_tag(hasher, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG);
 
-                aggregates.iter().position(|aggregate| {
-                    let input_matches = aggregate.input_expr() == input_expr.as_deref();
-                    let filter_matches = aggregate.filter_expr() == filter_expr.as_deref();
-
-                    aggregate.kind() == aggregate_expr.kind()
-                        && aggregate.target_field() == aggregate_expr.target_field()
-                        && input_matches
-                        && filter_matches
-                        && aggregate.distinct() == semantic_distinct
-                })
-            }
-            Self::Plan { aggregates, .. } => {
-                let semantic_key = AggregateSemanticKey::from_aggregate_expr(aggregate_expr);
-                aggregates
-                    .iter()
-                    .position(|aggregate| aggregate.semantic_key() == semantic_key)
-            }
+        let semantic_key = AggregateSemanticKeyRef::from_aggregate_expr(aggregate_expr);
+        if let Some(index) = self
+            .aggregates
+            .iter()
+            .position(|aggregate| aggregate.semantic_key() == semantic_key)
+        {
+            write_u32(hasher, index as u32);
+            return;
         }
+
+        let semantic_distinct = AggregateIdentity::normalize_distinct_for_kind(
+            aggregate_expr.kind(),
+            aggregate_expr.is_distinct(),
+        );
+        let input_expr = aggregate_expr
+            .input_expr()
+            .map(render_scalar_projection_expr_plan_label);
+        let filter_expr = aggregate_expr
+            .filter_expr()
+            .map(render_scalar_projection_expr_plan_label);
+
+        write_u32(hasher, GROUP_HAVING_MISSING_SLOT_SENTINEL);
+        write_tag(hasher, aggregate_expr.kind().fingerprint_tag());
+        write_optional_str(hasher, aggregate_expr.target_field());
+        write_optional_str(hasher, input_expr.as_deref());
+        write_optional_str(hasher, filter_expr.as_deref());
+        write_bool(hasher, semantic_distinct);
     }
 }
 
@@ -106,98 +79,29 @@ pub(super) fn hash_group_having_projection(
     };
 
     write_tag(hasher, GROUP_HAVING_PRESENT_TAG);
-    match expr {
-        GroupHavingFingerprintSource::Explain {
-            expr,
-            group_fields,
-            aggregates,
-        } => hash_group_having_expr(
-            hasher,
-            expr,
-            &GroupHavingFingerprintContext::Explain {
-                group_fields,
-                aggregates,
-            },
-        ),
-        GroupHavingFingerprintSource::Plan {
-            expr,
-            group_fields,
-            aggregates,
-        } => hash_group_having_expr(
-            hasher,
-            expr,
-            &GroupHavingFingerprintContext::Plan {
-                group_fields,
-                aggregates,
-            },
-        ),
-    }
+    hash_group_having_expr(hasher, expr.expr, expr);
 }
 
 fn hash_group_having_expr(
     hasher: &mut Sha256,
     expr: &Expr,
-    context: &GroupHavingFingerprintContext<'_>,
+    context: &GroupHavingFingerprintSource<'_>,
 ) {
     match expr {
         Expr::Binary {
-            op: BinaryOp::Eq,
+            op:
+                op @ (BinaryOp::Eq
+                | BinaryOp::Ne
+                | BinaryOp::Lt
+                | BinaryOp::Lte
+                | BinaryOp::Gt
+                | BinaryOp::Gte),
             left,
             right,
         } => {
             write_tag(hasher, GROUP_HAVING_COMPARE_TAG);
             hash_group_having_value_expr(hasher, left, context);
-            write_tag(hasher, 0x03);
-            hash_group_having_value_expr(hasher, right, context);
-        }
-        Expr::Binary {
-            op: BinaryOp::Ne,
-            left,
-            right,
-        } => {
-            write_tag(hasher, GROUP_HAVING_COMPARE_TAG);
-            hash_group_having_value_expr(hasher, left, context);
-            write_tag(hasher, 0x04);
-            hash_group_having_value_expr(hasher, right, context);
-        }
-        Expr::Binary {
-            op: BinaryOp::Lt,
-            left,
-            right,
-        } => {
-            write_tag(hasher, GROUP_HAVING_COMPARE_TAG);
-            hash_group_having_value_expr(hasher, left, context);
-            write_tag(hasher, 0x05);
-            hash_group_having_value_expr(hasher, right, context);
-        }
-        Expr::Binary {
-            op: BinaryOp::Lte,
-            left,
-            right,
-        } => {
-            write_tag(hasher, GROUP_HAVING_COMPARE_TAG);
-            hash_group_having_value_expr(hasher, left, context);
-            write_tag(hasher, 0x06);
-            hash_group_having_value_expr(hasher, right, context);
-        }
-        Expr::Binary {
-            op: BinaryOp::Gt,
-            left,
-            right,
-        } => {
-            write_tag(hasher, GROUP_HAVING_COMPARE_TAG);
-            hash_group_having_value_expr(hasher, left, context);
-            write_tag(hasher, 0x07);
-            hash_group_having_value_expr(hasher, right, context);
-        }
-        Expr::Binary {
-            op: BinaryOp::Gte,
-            left,
-            right,
-        } => {
-            write_tag(hasher, GROUP_HAVING_COMPARE_TAG);
-            hash_group_having_value_expr(hasher, left, context);
-            write_tag(hasher, 0x08);
+            write_tag(hasher, grouped_having_binary_op_tag(*op));
             hash_group_having_value_expr(hasher, right, context);
         }
         Expr::Binary {
@@ -220,7 +124,7 @@ fn hash_group_having_expr(
 fn hash_group_having_value_expr(
     hasher: &mut Sha256,
     expr: &Expr,
-    context: &GroupHavingFingerprintContext<'_>,
+    context: &GroupHavingFingerprintSource<'_>,
 ) {
     match expr {
         Expr::Field(field_id) => {
@@ -242,13 +146,7 @@ fn hash_group_having_value_expr(
             }
         }
         Expr::Aggregate(aggregate_expr) => {
-            write_tag(hasher, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG);
-            if let Some(index) = context.aggregate_index(aggregate_expr) {
-                write_u32(hasher, index as u32);
-            } else {
-                write_u32(hasher, GROUP_HAVING_MISSING_SLOT_SENTINEL);
-                hash_missing_group_having_aggregate_expr(hasher, aggregate_expr);
-            }
+            context.hash_aggregate_expr(hasher, aggregate_expr);
         }
         Expr::Literal(value) => {
             write_tag(hasher, GROUP_HAVING_VALUE_LITERAL_TAG);
@@ -291,22 +189,6 @@ fn hash_group_having_value_expr(
     }
 }
 
-fn hash_missing_group_having_aggregate_expr(hasher: &mut Sha256, aggregate_expr: &AggregateExpr) {
-    let identity = AggregateIdentity::from_aggregate_expr(aggregate_expr);
-    let input_expr = aggregate_expr
-        .input_expr()
-        .map(render_scalar_projection_expr_plan_label);
-    let filter_expr = aggregate_expr
-        .filter_expr()
-        .map(render_scalar_projection_expr_plan_label);
-
-    write_tag(hasher, aggregate_expr.kind().fingerprint_tag());
-    write_optional_str(hasher, aggregate_expr.target_field());
-    write_optional_str(hasher, input_expr.as_deref());
-    write_optional_str(hasher, filter_expr.as_deref());
-    write_bool(hasher, identity.distinct());
-}
-
 fn write_optional_str(hasher: &mut Sha256, value: Option<&str>) {
     if let Some(value) = value {
         write_tag(hasher, 1);
@@ -323,7 +205,7 @@ fn write_bool(hasher: &mut Sha256, value: bool) {
 fn hash_group_having_case_arm(
     hasher: &mut Sha256,
     expr: &CaseWhenArm,
-    context: &GroupHavingFingerprintContext<'_>,
+    context: &GroupHavingFingerprintSource<'_>,
 ) {
     write_tag(hasher, GROUP_HAVING_VALUE_CASE_ARM_TAG);
     hash_group_having_value_expr(hasher, expr.condition(), context);

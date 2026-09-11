@@ -10,6 +10,7 @@ use crate::{
     },
     value::{CanonicalEnumBody, Value, ValueEnum, canonicalize_value_set, casefold_text},
 };
+use std::borrow::Cow;
 
 const SORT_PRED_TRUE: u8 = 0x00;
 const SORT_PRED_FALSE: u8 = 0x01;
@@ -162,7 +163,10 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
         Value::Float64(v) => out.extend_from_slice(&v.to_be_bytes()),
         Value::Int64(v) => out.extend_from_slice(&v.to_be_bytes()),
         Value::Int128(v) => out.extend_from_slice(&v.to_be_bytes()),
-        Value::IntBig(v) => push_bytes_u64(out, &v.to_leb128()),
+        Value::IntBig(v) => {
+            out.extend_from_slice(&v.leb128_len().to_be_bytes());
+            out.extend(v.leb128_bytes());
+        }
         Value::List(items) => {
             push_len_u64(out, items.len());
             for item in items {
@@ -175,7 +179,7 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
             // predicate sort-key determinism.
             let ordered = Value::ordered_map_entries(entries);
 
-            push_len_u64(out, ordered.len());
+            push_len_u64(out, entries.len());
             for (key, value) in ordered {
                 push_value_sort_key_framed(out, key);
                 push_value_sort_key_framed(out, value);
@@ -188,7 +192,10 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
         Value::Timestamp(v) => out.extend_from_slice(&v.as_millis().to_be_bytes()),
         Value::Nat64(v) => out.extend_from_slice(&v.to_be_bytes()),
         Value::Nat128(v) => out.extend_from_slice(&v.to_be_bytes()),
-        Value::NatBig(v) => push_bytes_u64(out, &v.to_leb128()),
+        Value::NatBig(v) => {
+            out.extend_from_slice(&v.leb128_len().to_be_bytes());
+            out.extend(v.leb128_bytes());
+        }
         Value::Ulid(v) => out.extend_from_slice(&v.to_bytes()),
         Value::U256(v) => out.extend_from_slice(&v.to_be_bytes()),
     }
@@ -208,15 +215,8 @@ fn encode_compare_value_sort_key_into(
         if compare_lists_already_canonical {
             push_len_u64(out, items.len());
             for item in items {
-                match coercion {
-                    CoercionId::Strict | CoercionId::CollectionElement => {
-                        push_value_sort_key_framed(out, item);
-                    }
-                    CoercionId::NumericWiden | CoercionId::TextCasefold => {
-                        let canonical = canonicalize_compare_literal_for_coercion(coercion, item);
-                        push_value_sort_key_framed(out, &canonical);
-                    }
-                }
+                let canonical = canonicalize_compare_literal_for_coercion(coercion, item);
+                push_value_sort_key_framed(out, &canonical);
             }
         } else {
             let ordered = canonicalize_compare_literal_list_for_coercion(coercion, items);
@@ -233,22 +233,27 @@ fn encode_compare_value_sort_key_into(
     encode_value_sort_key_into(out, &canonical);
 }
 
-fn canonicalize_compare_literal_for_coercion(coercion: CoercionId, value: &Value) -> Value {
+// Encoding borrows unchanged operands, including nested containers. Only an
+// actual coercion constructs a value; scalar and membership paths share this owner.
+fn canonicalize_compare_literal_for_coercion(
+    coercion: CoercionId,
+    value: &Value,
+) -> Cow<'_, Value> {
     match coercion {
-        CoercionId::Strict | CoercionId::CollectionElement => value.clone(),
+        CoercionId::Strict | CoercionId::CollectionElement => Cow::Borrowed(value),
         CoercionId::NumericWiden => {
             if let Some(decimal) = coerce_numeric_decimal(value) {
-                return Value::Decimal(decimal);
+                return Cow::Owned(Value::Decimal(decimal));
             }
 
-            value.clone()
+            Cow::Borrowed(value)
         }
         CoercionId::TextCasefold => {
             if let Value::Text(text) = value {
-                return Value::Text(casefold_text(text));
+                return Cow::Owned(Value::Text(casefold_text(text)));
             }
 
-            value.clone()
+            Cow::Borrowed(value)
         }
     }
 }
@@ -284,7 +289,7 @@ fn encode_coercion_sort_key_into(out: &mut Vec<u8>, spec: &CoercionSpec) {
 fn canonicalize_compare_literal_list_for_coercion(
     coercion: CoercionId,
     items: &[Value],
-) -> Vec<Value> {
+) -> Vec<Cow<'_, Value>> {
     let mut ordered = items
         .iter()
         .map(|item| canonicalize_compare_literal_for_coercion(coercion, item))

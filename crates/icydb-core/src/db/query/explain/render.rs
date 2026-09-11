@@ -10,7 +10,7 @@ use crate::db::query::explain::{
         execution_mode_detail_label, fast_path_reason, fast_path_selected, predicate_pushdown_mode,
     },
 };
-use crate::db::query::plan::explain_access_strategy_label;
+use crate::db::query::plan::write_explain_access_strategy_label;
 use std::fmt::Write;
 
 impl ExplainExecutionNodeDescriptor {
@@ -91,7 +91,7 @@ impl ExplainExecutionNodeDescriptor {
         if let Some(access_strategy) = self.access_strategy.as_ref() {
             push_rendered_line_prefix_with_base_depth(out, base_indent, field_depth);
             out.push_str("access_strategy=");
-            out.push_str(explain_access_strategy_label(access_strategy).as_str());
+            let _ = write_explain_access_strategy_label(access_strategy, out);
         }
         if let Some(predicate_pushdown) = self.predicate_pushdown.as_ref() {
             push_rendered_line_prefix_with_base_depth(out, base_indent, field_depth);

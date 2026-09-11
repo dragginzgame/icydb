@@ -1,38 +1,31 @@
 //! Module: db::schema::application_store
 //! Responsibility: persist bounded schema-application records in one database-control region.
 //! Does not own: proposal lowering, accepted-schema publication, or activation advancement.
-//! Boundary: marker-owned exact record replacement -> disjoint current-form stable BTreeMap.
+//! Boundary: marker-owned exact record replacement -> shared schema-control namespace.
 
 use crate::{
     db::{
-        commit::{MAX_COMMIT_BYTES, commit_memory_handle, current_commit_memory_allocation},
         database_format::crc32c,
         schema::{
             SchemaApplicationRecord, SchemaChangeActivation, SchemaChangeJob, SchemaChangeJobId,
             SchemaChangeOutcome, SchemaChangeReceipt,
             application_receipt::MAX_SCHEMA_CHANGE_ACTIVATIONS,
+            control_store::{
+                ControlMemory, ControlRecordFamily, SchemaControlBytes, SchemaControlMap,
+                control_memory,
+            },
             derive_schema_change_job_id,
             wire::{SchemaWireReader, SchemaWireWriter},
         },
     },
     error::InternalError,
 };
-use ic_memory::RuntimeMemory;
-use ic_memory::ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Memory, RestrictedMemory, Storable,
-    storable::Bound,
-};
 use icydb_schema::{
     ExpectedAcceptedHead, ExpectedSchemaFingerprint, MAX_SCHEMA_SUBMISSION_KEY_BYTES,
     SchemaProposalDigest, SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
 };
 use sha2::{Digest, Sha256};
-use std::borrow::Cow;
 
-const APPLICATION_HEADER_KEY: ApplicationRecordKey = ApplicationRecordKey([0; 32]);
-const APPLICATION_HEADER_MAGIC: &[u8; 8] = b"ICYSAH01";
-const APPLICATION_HEADER_VERSION: u8 = 1;
-const APPLICATION_HEADER_BYTES: usize = 8 + 1 + 4;
 const APPLICATION_RECORD_MAGIC: &[u8; 8] = b"ICYSAR01";
 const APPLICATION_RECORD_VERSION: u8 = 1;
 const APPLICATION_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
@@ -43,13 +36,8 @@ const OUTCOME_NO_OP_TAG: u8 = 1;
 const OUTCOME_APPLIED_TAG: u8 = 2;
 const OUTCOME_PENDING_TAG: u8 = 3;
 const OUTCOME_ABORTED_TAG: u8 = 4;
-const MAX_SCHEMA_APPLICATION_RECORDS: u64 = 64;
+pub(super) const MAX_SCHEMA_APPLICATION_RECORDS: u64 = 64;
 const APPLICATION_RECORD_KEY_PROFILE: &[u8] = b"icydb.schema-application.record-key.v1";
-const WASM_PAGE_BYTES: u64 = 65_536;
-const APPLICATION_MEMORY_START_PAGE: u64 = MAX_COMMIT_BYTES as u64 / WASM_PAGE_BYTES + 1;
-const APPLICATION_MEMORY_END_PAGE: u64 = 4_096;
-
-type ApplicationMemory = RestrictedMemory<RuntimeMemory<DefaultMemoryImpl>>;
 type ApplicationRecordWriter = SchemaWireWriter<
     { MAX_SCHEMA_APPLICATION_RECORD_BYTES as usize - APPLICATION_RECORD_HEADER_BYTES },
 >;
@@ -76,7 +64,7 @@ impl ApplicationRecordKey {
         hasher.update(key_len.to_le_bytes());
         hasher.update(key_bytes);
         let key = Self(hasher.finalize().into());
-        if key == APPLICATION_HEADER_KEY {
+        if key.0 == [0; 32] {
             return Err(InternalError::store_invariant());
         }
         Ok(key)
@@ -88,6 +76,18 @@ impl ApplicationRecordKey {
 
     fn from_receipt(receipt: &SchemaChangeReceipt) -> Result<Self, InternalError> {
         Self::new(receipt.database_identity(), receipt.submission_key())
+    }
+}
+
+impl From<[u8; 32]> for ApplicationRecordKey {
+    fn from(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+}
+
+impl From<ApplicationRecordKey> for [u8; 32] {
+    fn from(key: ApplicationRecordKey) -> Self {
+        key.0
     }
 }
 
@@ -149,7 +149,7 @@ impl SchemaApplicationRecordOp {
     }
 
     pub(in crate::db) fn validate(&self) -> Result<(), InternalError> {
-        if self.key == APPLICATION_HEADER_KEY {
+        if self.key.0 == [0; 32] {
             return Err(InternalError::store_corruption());
         }
         let after = decode_application_record(&self.after, self.key)?;
@@ -185,53 +185,8 @@ fn valid_record_transition(
     }
 }
 
-impl Storable for ApplicationRecordKey {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(&self.0)
-    }
-
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        let mut key = [0; 32];
-        if bytes.len() == key.len() {
-            key.copy_from_slice(bytes.as_ref());
-        }
-        Self(key)
-    }
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.0.to_vec()
-    }
-
-    const BOUND: Bound = Bound::Bounded {
-        max_size: 32,
-        is_fixed_size: true,
-    };
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ApplicationRecordBytes(Vec<u8>);
-
-impl Storable for ApplicationRecordBytes {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(self.0.as_slice())
-    }
-
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self(bytes.into_owned())
-    }
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.0
-    }
-
-    const BOUND: Bound = Bound::Bounded {
-        max_size: MAX_SCHEMA_APPLICATION_RECORD_BYTES,
-        is_fixed_size: false,
-    };
-}
-
 pub(in crate::db) struct SchemaApplicationStore {
-    map: StableBTreeMap<ApplicationRecordKey, ApplicationRecordBytes, ApplicationMemory>,
+    map: SchemaControlMap<ApplicationRecordKey>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -243,51 +198,23 @@ pub(in crate::db) enum SchemaApplicationRecordPreflight {
 }
 
 impl SchemaApplicationStore {
-    fn open(memory: ApplicationMemory) -> Result<Self, InternalError> {
-        let mut store = Self {
-            map: StableBTreeMap::init(memory),
+    fn open(memory: ControlMemory) -> Result<Self, InternalError> {
+        let store = Self {
+            map: SchemaControlMap::open(memory, ControlRecordFamily::Application)?,
         };
-        if store.map.is_empty() {
-            store.map.insert(
-                APPLICATION_HEADER_KEY,
-                ApplicationRecordBytes(encode_application_header()),
-            );
-        } else {
-            let header = store
-                .map
-                .get(&APPLICATION_HEADER_KEY)
-                .ok_or_else(InternalError::store_corruption)?;
-            decode_application_header(&header.0)?;
-            if store.record_count()? > MAX_SCHEMA_APPLICATION_RECORDS {
-                return Err(InternalError::store_corruption());
-            }
+        if store.record_count() > MAX_SCHEMA_APPLICATION_RECORDS {
+            return Err(InternalError::store_corruption());
         }
         Ok(store)
     }
 
-    fn open_existing(memory: ApplicationMemory) -> Result<Option<Self>, InternalError> {
-        if memory.size() == 0 {
+    fn open_existing(memory: ControlMemory) -> Result<Option<Self>, InternalError> {
+        let Some(map) = SchemaControlMap::open_existing(memory, ControlRecordFamily::Application)?
+        else {
             return Ok(None);
-        }
-        let mut header = [0_u8; 28];
-        memory.read(0, &mut header);
-        if &header[..3] != b"BTR" || header[3] != 2 {
-            return Err(InternalError::store_corruption());
-        }
-        let mut allocator_header = [0_u8; 4];
-        memory.read(52, &mut allocator_header);
-        if &allocator_header[..3] != b"BTA" || allocator_header[3] != 1 {
-            return Err(InternalError::store_corruption());
-        }
-        let store = Self {
-            map: StableBTreeMap::load(memory),
         };
-        let application_header = store
-            .map
-            .get(&APPLICATION_HEADER_KEY)
-            .ok_or_else(InternalError::store_corruption)?;
-        decode_application_header(&application_header.0)?;
-        if store.record_count()? > MAX_SCHEMA_APPLICATION_RECORDS {
+        let store = Self { map };
+        if store.record_count() > MAX_SCHEMA_APPLICATION_RECORDS {
             return Err(InternalError::store_corruption());
         }
         Ok(Some(store))
@@ -317,12 +244,12 @@ impl SchemaApplicationStore {
         job_id: SchemaChangeJobId,
     ) -> Result<Option<SchemaApplicationRecord>, InternalError> {
         let mut found = None;
-        for entry in self.map.iter() {
-            let key = *entry.key();
-            if key == APPLICATION_HEADER_KEY {
-                continue;
-            }
-            let record = decode_application_record(&entry.value().0, key)?;
+        for key in self.map.keys() {
+            let raw = self
+                .map
+                .get(&key)
+                .ok_or_else(InternalError::store_corruption)?;
+            let record = decode_application_record(&raw.0, key)?;
             let matches_job =
                 !matches!(record.receipt().outcome(), SchemaChangeOutcome::NoOp { .. })
                     && derive_schema_change_job_id(
@@ -358,7 +285,7 @@ impl SchemaApplicationStore {
 
         self.map.insert(
             operation.key(),
-            ApplicationRecordBytes(operation.after_bytes().to_vec()),
+            SchemaControlBytes(operation.after_bytes().to_vec()),
         );
         Ok(())
     }
@@ -379,7 +306,7 @@ impl SchemaApplicationStore {
             return Err(InternalError::store_corruption());
         }
         let retired_terminal =
-            if current.is_none() && self.record_count()? >= MAX_SCHEMA_APPLICATION_RECORDS {
+            if current.is_none() && self.record_count() >= MAX_SCHEMA_APPLICATION_RECORDS {
                 Some(
                     self.terminal_retention_candidate()?
                         .ok_or_else(InternalError::schema_application_conflict)?,
@@ -402,20 +329,17 @@ impl SchemaApplicationStore {
         Ok(ApplicationRecordKey::from_receipt(record.receipt())? == key && raw.0 == expected)
     }
 
-    fn record_count(&self) -> Result<u64, InternalError> {
-        self.map
-            .len()
-            .checked_sub(1)
-            .ok_or_else(InternalError::store_corruption)
+    fn record_count(&self) -> u64 {
+        self.map.len()
     }
 
     fn terminal_retention_candidate(&self) -> Result<Option<ApplicationRecordKey>, InternalError> {
-        for entry in self.map.iter() {
-            let key = *entry.key();
-            if key == APPLICATION_HEADER_KEY {
-                continue;
-            }
-            let record = decode_application_record(&entry.value().0, key)?;
+        for key in self.map.keys() {
+            let raw = self
+                .map
+                .get(&key)
+                .ok_or_else(InternalError::store_corruption)?;
+            let record = decode_application_record(&raw.0, key)?;
             if !matches!(
                 record.receipt().outcome(),
                 SchemaChangeOutcome::Pending { .. }
@@ -619,42 +543,10 @@ fn decode_schema_change_outcome(
     }
 }
 
-fn encode_application_header() -> Vec<u8> {
-    let mut encoded = Vec::with_capacity(APPLICATION_HEADER_BYTES);
-    encoded.extend_from_slice(APPLICATION_HEADER_MAGIC);
-    encoded.push(APPLICATION_HEADER_VERSION);
-    encoded.extend_from_slice(&crc32c(&encoded).to_le_bytes());
-    encoded
-}
-
-fn decode_application_header(bytes: &[u8]) -> Result<(), InternalError> {
-    if bytes.len() != APPLICATION_HEADER_BYTES
-        || &bytes[..8] != APPLICATION_HEADER_MAGIC
-        || bytes[8] != APPLICATION_HEADER_VERSION
-        || crc32c(&bytes[..9])
-            != u32::from_le_bytes(
-                bytes[9..13]
-                    .try_into()
-                    .map_err(|_| InternalError::store_corruption())?,
-            )
-    {
-        return Err(InternalError::store_corruption());
-    }
-    Ok(())
-}
-
-fn application_memory() -> Result<ApplicationMemory, InternalError> {
-    let memory = commit_memory_handle(current_commit_memory_allocation()?)?;
-    Ok(RestrictedMemory::new(
-        memory,
-        APPLICATION_MEMORY_START_PAGE..APPLICATION_MEMORY_END_PAGE,
-    ))
-}
-
 pub(in crate::db) fn with_schema_application_store<R>(
     f: impl FnOnce(&mut SchemaApplicationStore) -> Result<R, InternalError>,
 ) -> Result<R, InternalError> {
-    let mut store = SchemaApplicationStore::open(application_memory()?)?;
+    let mut store = SchemaApplicationStore::open(control_memory()?)?;
     f(&mut store)
 }
 
@@ -662,7 +554,7 @@ pub(in crate::db) fn load_schema_application_record_read_only(
     database_identity: TargetDatabaseIdentity,
     submission_key: &SchemaSubmissionKey,
 ) -> Result<Option<SchemaApplicationRecord>, InternalError> {
-    let Some(store) = SchemaApplicationStore::open_existing(application_memory()?)? else {
+    let Some(store) = SchemaApplicationStore::open_existing(control_memory()?)? else {
         return Ok(None);
     };
     store.load(database_identity, submission_key)
@@ -695,11 +587,10 @@ pub(in crate::db) fn verify_schema_application_record_op(
 #[cfg(test)]
 mod tests {
     use super::{
-        APPLICATION_HEADER_KEY, APPLICATION_MEMORY_START_PAGE, APPLICATION_RECORD_HEADER_BYTES,
-        APPLICATION_RECORD_MAGIC, APPLICATION_RECORD_VERSION, ApplicationRecordBytes,
+        APPLICATION_RECORD_HEADER_BYTES, APPLICATION_RECORD_MAGIC, APPLICATION_RECORD_VERSION,
         ApplicationRecordKey, MAX_SCHEMA_APPLICATION_RECORDS, SchemaApplicationRecordOp,
-        SchemaApplicationStore, crc32c, decode_application_header, decode_application_record,
-        encode_application_header, encode_application_record,
+        SchemaApplicationStore, SchemaControlBytes, crc32c, decode_application_record,
+        encode_application_record,
     };
     use crate::{
         db::schema::migration_lineage::{
@@ -1057,9 +948,7 @@ mod tests {
         assert!(store.apply(&wrong_replace).is_err());
 
         let key = ApplicationRecordKey::from_receipt(first.receipt()).expect("key should derive");
-        store
-            .map
-            .insert(key, ApplicationRecordBytes(vec![0xFF; 32]));
+        store.map.insert(key, SchemaControlBytes(vec![0xFF; 32]));
         assert!(store.load_key(key).is_err());
     }
 
@@ -1132,19 +1021,6 @@ mod tests {
     }
 
     #[test]
-    fn application_header_and_control_region_are_disjoint() {
-        assert_eq!(APPLICATION_MEMORY_START_PAGE, 257);
-        let store = empty_store(222);
-        assert!(store.map.contains_key(&APPLICATION_HEADER_KEY));
-
-        let mut malformed_magic = encode_application_header();
-        malformed_magic[0] ^= 1;
-        let checksum = crc32c(&malformed_magic[..9]);
-        malformed_magic[9..].copy_from_slice(&checksum.to_le_bytes());
-        assert!(decode_application_header(&malformed_magic).is_err());
-    }
-
-    #[test]
     fn application_store_capacity_preserves_pending_evidence() {
         let mut store = empty_store(223);
         for ordinal in 0..MAX_SCHEMA_APPLICATION_RECORDS {
@@ -1158,12 +1034,7 @@ mod tests {
             SchemaApplicationRecordOp::insert(&overflow).expect("overflow should prepare");
 
         assert!(store.preflight(&operation).is_err());
-        assert_eq!(
-            store
-                .record_count()
-                .expect("record count should remain readable"),
-            MAX_SCHEMA_APPLICATION_RECORDS,
-        );
+        assert_eq!(store.record_count(), MAX_SCHEMA_APPLICATION_RECORDS,);
     }
 
     #[test]
@@ -1195,12 +1066,7 @@ mod tests {
             .apply(&operation)
             .expect("one terminal receipt should make bounded room");
 
-        assert_eq!(
-            store
-                .record_count()
-                .expect("record count should remain readable"),
-            MAX_SCHEMA_APPLICATION_RECORDS,
-        );
+        assert_eq!(store.record_count(), MAX_SCHEMA_APPLICATION_RECORDS,);
         assert!(
             store
                 .load_key(retired)

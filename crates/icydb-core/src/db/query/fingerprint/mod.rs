@@ -4,10 +4,10 @@
 //! Boundary: hash surface over planner-owned contracts for plan identity checks.
 
 mod aggregate_hash;
-mod fingerprint;
 mod hash_sections;
 mod projection_hash;
 mod shape_signature;
+
 use crate::db::codec::{finalize_hash_sha256, new_hash_sha256_prefixed};
 #[cfg(feature = "sql")]
 use crate::db::query::{
@@ -15,15 +15,9 @@ use crate::db::query::{
 };
 use sha2::Sha256;
 
-const PLAN_FINGERPRINT_PROFILE_TAG: &[u8] = b"planfp";
 const CONTINUATION_SIGNATURE_PROFILE_TAG: &[u8] = b"contsig";
 #[cfg(feature = "sql")]
 const RESUMABLE_UPDATE_SCOPE_FINGERPRINT_PROFILE_TAG: &[u8] = b"resumable_update_scope_v1";
-
-// Build one SHA256 stream pre-seeded with the plan fingerprint profile tag.
-pub(in crate::db::query::fingerprint) fn new_plan_fingerprint_hasher() -> Sha256 {
-    new_hash_sha256_prefixed(PLAN_FINGERPRINT_PROFILE_TAG)
-}
 
 // Build one SHA256 stream pre-seeded with the continuation-signature profile tag.
 pub(in crate::db::query::fingerprint) fn new_continuation_signature_hasher() -> Sha256 {

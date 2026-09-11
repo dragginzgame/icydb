@@ -1,9 +1,10 @@
+#[cfg(test)]
+mod tests;
+
 use crate::{
-    db::KeyValueCodec,
     db::{
         access::AccessPlan,
         query::{
-            explain::ExplainAccessPath,
             fingerprint::hash_sections::{
                 ACCESS_TAG_BY_KEY, ACCESS_TAG_BY_KEYS, ACCESS_TAG_FULL_SCAN,
                 ACCESS_TAG_INDEX_BRANCH_SET, ACCESS_TAG_INDEX_MULTI_LOOKUP,
@@ -11,7 +12,7 @@ use crate::{
                 ACCESS_TAG_KEY_RANGE, ACCESS_TAG_UNION, write_str, write_tag, write_u32,
                 write_value, write_value_bound,
             },
-            plan::{AccessPlanProjection, project_access_plan, project_explain_access_path},
+            plan::{AccessPlanProjection, project_access_plan},
         },
     },
     value::Value,
@@ -22,38 +23,32 @@ use std::ops::Bound;
 ///
 /// AccessFingerprintVisitor
 ///
-/// Shared access hash visitor over both planner-owned `AccessPlan<K>` inputs
-/// and explain-surface `ExplainAccessPath` DTOs.
-/// This keeps canonical child-before-parent structural hashing on one owner
-/// seam instead of maintaining parallel visitors for the two access surfaces.
+/// Hash planner-owned lowered values without converting or copying keys.
 ///
 struct AccessFingerprintVisitor<'a> {
     hasher: &'a mut Sha256,
 }
 
-/// Hash explain access paths into the plan hash stream.
-pub(super) fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
-    let mut visitor = AccessFingerprintVisitor { hasher };
-    project_explain_access_path(access, &mut visitor);
-}
-
 /// Hash planner-owned access contracts into the plan hash stream.
-pub(in crate::db::query::fingerprint::hash_sections) fn hash_access_plan<K>(
+pub(in crate::db::query::fingerprint::hash_sections) fn hash_access_plan(
     hasher: &mut Sha256,
-    access: &AccessPlan<K>,
-) where
-    K: KeyValueCodec,
-{
+    access: &AccessPlan<Value>,
+) {
     let mut visitor = AccessFingerprintVisitor { hasher };
     project_access_plan(access, &mut visitor);
 }
 
-fn write_access_fields(hasher: &mut Sha256, tag: u8, name: &str, fields: &[String]) {
+fn write_access_fields<'a>(
+    hasher: &mut Sha256,
+    tag: u8,
+    name: &str,
+    fields: impl ExactSizeIterator<Item = &'a str> + Clone,
+) {
     write_tag(hasher, tag);
     write_str(hasher, name);
     write_u32(hasher, fields.len() as u32);
     for field in fields {
-        write_str(hasher, field.as_str());
+        write_str(hasher, field);
     }
 }
 
@@ -64,42 +59,29 @@ fn write_values(hasher: &mut Sha256, values: &[Value]) {
     }
 }
 
-fn write_field_values<K>(hasher: &mut Sha256, values: &[K])
-where
-    K: KeyValueCodec,
-{
-    write_u32(hasher, values.len() as u32);
-    for value in values {
-        write_value(hasher, &value.to_key_value());
-    }
-}
-
-impl<K> AccessPlanProjection<K> for AccessFingerprintVisitor<'_>
-where
-    K: KeyValueCodec,
-{
+impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
     type Output = ();
 
-    fn by_key(&mut self, key: &K) -> Self::Output {
+    fn by_key(&mut self, key: &Value) -> Self::Output {
         write_tag(self.hasher, ACCESS_TAG_BY_KEY);
-        write_value(self.hasher, &key.to_key_value());
+        write_value(self.hasher, key);
     }
 
-    fn by_keys(&mut self, keys: &[K]) -> Self::Output {
+    fn by_keys(&mut self, keys: &[Value]) -> Self::Output {
         write_tag(self.hasher, ACCESS_TAG_BY_KEYS);
-        write_field_values(self.hasher, keys);
+        write_values(self.hasher, keys);
     }
 
-    fn key_range(&mut self, start: &K, end: &K) -> Self::Output {
+    fn key_range(&mut self, start: &Value, end: &Value) -> Self::Output {
         write_tag(self.hasher, ACCESS_TAG_KEY_RANGE);
-        write_value(self.hasher, &start.to_key_value());
-        write_value(self.hasher, &end.to_key_value());
+        write_value(self.hasher, start);
+        write_value(self.hasher, end);
     }
 
-    fn index_prefix(
+    fn index_prefix<'a>(
         &mut self,
         name: &str,
-        fields: &[String],
+        fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output {
@@ -108,20 +90,20 @@ where
         write_values(self.hasher, values);
     }
 
-    fn index_multi_lookup(
+    fn index_multi_lookup<'a>(
         &mut self,
         name: &str,
-        fields: &[String],
+        fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         values: &[Value],
     ) -> Self::Output {
         write_access_fields(self.hasher, ACCESS_TAG_INDEX_MULTI_LOOKUP, name, fields);
         write_values(self.hasher, values);
     }
 
-    fn index_branch_set(
+    fn index_branch_set<'a>(
         &mut self,
         name: &str,
-        fields: &[String],
+        fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         fixed_values: &[Value],
         branch_values: &[Value],
     ) -> Self::Output {
@@ -130,10 +112,10 @@ where
         write_values(self.hasher, branch_values);
     }
 
-    fn index_range(
+    fn index_range<'a>(
         &mut self,
         name: &str,
-        fields: &[String],
+        fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         prefix_len: usize,
         prefix: &[Value],
         lower: &Bound<Value>,
@@ -150,12 +132,27 @@ where
         write_tag(self.hasher, ACCESS_TAG_FULL_SCAN);
     }
 
-    fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
+    fn union<T>(
+        &mut self,
+        children: &[T],
+        project: impl Fn(&T, &mut Self) -> Self::Output,
+    ) -> Self::Output {
+        // Identity uses the maintained postorder stream, without a child Vec.
+        for child in children {
+            project(child, self);
+        }
         write_tag(self.hasher, ACCESS_TAG_UNION);
         write_u32(self.hasher, children.len() as u32);
     }
 
-    fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
+    fn intersection<T>(
+        &mut self,
+        children: &[T],
+        project: impl Fn(&T, &mut Self) -> Self::Output,
+    ) -> Self::Output {
+        for child in children {
+            project(child, self);
+        }
         write_tag(self.hasher, ACCESS_TAG_INTERSECTION);
         write_u32(self.hasher, children.len() as u32);
     }

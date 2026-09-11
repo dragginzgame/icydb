@@ -207,6 +207,50 @@ Supported shapes:
 
 `EXPLAIN` is an operational SQL surface.
 
+Logical explain constructs plan metadata and labels without an additional identity
+hash. Compare the structured DTO or canonical reports for planner diagnostics.
+Cache and cursor identity remain owned by ordinary query preparation.
+
+Logical diagnostic projection admits at most 128 access-tree levels, counting
+both root and leaf. The visitor rejects before child allocation/descent would
+exceed this bound with `RuntimeBoundaryCode::QueryExplainDepthExceeded`,
+`Limit=128` and `Actual=129` (the first rejected level, not the full tree depth).
+No partial DTO is returned. This bounds derived diagnostic access shapes, not
+ordinary query admission or query/cursor identity. Existing request accounting
+still charges visited work, including failed and repeated projections. Plans
+returned by projection inherit this access-depth bound during detached canonical
+rendering; unrestricted Debug and standalone public child enums do not.
+
+Logical text/JSON reports have a fixed 1-MiB UTF-8 output limit, including
+escaping. Rendering rejects before exceeding that destination size, with
+`RuntimeBoundaryCode::QueryExplainOutputExceeded` and numeric `Limit`/`Actual`
+facts; it never returns truncated output. This is separate from endpoint reply
+limits, earlier query planning and diagnostic model construction. Execution
+descriptor reports retain their existing output policy. Rust callers of
+`ExplainPlan::render_text_canonical` and `render_json_canonical` must handle
+`Result<String, QueryError>`; detached rendering does not acquire a session.
+`Actual` is the rejected append's attempted output length, not a prediction of
+the complete report's size.
+
+Canonical logical reports describe plans, not complete internal syntax dumps.
+Access objects expose counts (`key_count`, `value_count`, `branch_count`), index
+fields and bound inclusivity instead of operand values. `has_predicate` replaces
+the predicate dump. `grouping` is null or an object containing strategy, fields,
+aggregate labels, `has_having` and grouped limits. Text's access, access-decision
+and grouping lines use those same JSON objects. Existing scalar filter and
+aggregate labels can still contain literals; output is not guaranteed redacted.
+Execution JSON uses the same access-object contract; its other fields and output
+policy are unchanged. There is no compact/detailed access-output switch.
+
+Predicate and access DTO construction in logical and execution explain uses the
+current request's construction budget and propagates exhaustion. Access projection admits
+final child backing before descent and stops at the first construction failure.
+Logical decision reports also charge candidate/alternative/rejection list backing,
+names, streamed labels, selected-identity matching and composite constraint counts.
+These diagnostic checks do not participate in ordinary query fingerprints or
+cursor identity. They are not a bound on earlier candidate enumeration/planning,
+effective-residual derivation or remaining execution-descriptor construction.
+
 ### Introspection
 
 Supported commands:

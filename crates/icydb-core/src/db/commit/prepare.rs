@@ -21,12 +21,14 @@ use crate::{
             plan_index_mutation_for_slot_reader_structural,
         },
         key_taxonomy::PrimaryKeyValue,
-        registry::StoreRecoveryCapability,
         relation::{
             RelationCommitBudget, RelationConstraintProjection, RelationProjectionBudget,
             ReverseRelationSourceInfo,
         },
-        schema::{ConstraintActivationKind, ConstraintId, SchemaInfo, UniqueConstraintProjection},
+        schema::{
+            AcceptedCatalogSnapshotSelection, ConstraintActivationKind, ConstraintId, SchemaInfo,
+            UniqueConstraintProjection,
+        },
     },
     error::{AcceptedConstraintFactContext, ErrorClass, InternalError},
     traits::CanisterKind,
@@ -138,19 +140,19 @@ impl CommitPrepareMode {
 }
 
 impl CommitPrepareAuthority {
-    fn from_runtime_parts(
-        entity_path: impl Into<Rc<str>>,
-        entity_tag: EntityTag,
+    fn from_catalog_selection(
+        selection: &AcceptedCatalogSnapshotSelection,
         schema_fingerprint: CommitSchemaFingerprint,
-        data_store_path: &'static str,
     ) -> Self {
-        let entity_path = entity_path.into();
+        let identity = selection.identity();
+        let entity_path = identity.entity_path_handle();
+        let entity_tag = identity.entity_tag();
         Self {
             relation_source: ReverseRelationSourceInfo::new(entity_path.clone(), entity_tag),
             entity_path,
             entity_tag,
             schema_fingerprint,
-            data_store_path,
+            data_store_path: identity.store_path(),
         }
     }
 }
@@ -164,8 +166,7 @@ impl CommitPrepareAuthority {
 struct CommitInputs {
     raw_key: RawDataStoreKey,
     data_key: DecodedDataStoreKey,
-    old_row: Option<RawRow>,
-    new_row: Option<RawRow>,
+    rows: CommitRowImages<RawRow>,
 }
 
 impl CommitInputs {
@@ -180,16 +181,64 @@ impl CommitInputs {
 }
 
 ///
-/// DecodedCommitRows
+/// CommitRowImages
 ///
-/// Reusable structural slot readers for one commit-marker row transition.
-/// This keeps commit-preflight row decoding on one owned pass so validation and
-/// forward-index planning do not each rebuild the same slot-reader state.
+/// Byte-identical before/after images share construction, not semantics: both
+/// sides remain present to every index and relation consumer. The same shape
+/// carries raw rows and their validated readers without another ownership layer.
 ///
 
-struct DecodedCommitRows<'a> {
-    old_slots: Option<StructuralSlotReader<'a>>,
-    new_slots: Option<StructuralSlotReader<'a>>,
+enum CommitRowImages<T> {
+    Shared(T),
+    Distinct { before: Option<T>, after: Option<T> },
+}
+
+impl<T> CommitRowImages<T> {
+    const fn as_refs(&self) -> (Option<&T>, Option<&T>) {
+        match self {
+            Self::Shared(row) => (Some(row), Some(row)),
+            Self::Distinct { before, after } => (before.as_ref(), after.as_ref()),
+        }
+    }
+
+    // Preserve sharing through fallible construction; neither a partly mapped
+    // pair nor a successful first side escapes if the other side rejects.
+    fn try_map_ref<'a, U>(
+        &'a self,
+        mut map: impl FnMut(&'a T) -> Result<U, InternalError>,
+    ) -> Result<CommitRowImages<U>, InternalError> {
+        match self {
+            Self::Shared(row) => Ok(CommitRowImages::Shared(map(row)?)),
+            Self::Distinct { before, after } => Ok(CommitRowImages::Distinct {
+                before: before.as_ref().map(&mut map).transpose()?,
+                after: after.as_ref().map(map).transpose()?,
+            }),
+        }
+    }
+}
+
+impl CommitRowImages<RawRow> {
+    fn from_bytes(before: Option<&[u8]>, after: Option<&[u8]>) -> Result<Self, InternalError> {
+        // Reject oversized input before the equality walk or destination copy.
+        for bytes in [before, after].into_iter().flatten() {
+            RawRow::ensure_size(bytes)?;
+        }
+        // Exact persisted bytes under one accepted contract can share all row
+        // validation. Semantically equivalent but differently encoded rows cannot.
+        if let (Some(before), Some(after)) = (before, after)
+            && before == after
+        {
+            return Ok(Self::Shared(RawRow::from_untrusted_bytes(after.to_vec())?));
+        }
+        Ok(Self::Distinct {
+            before: before
+                .map(|bytes| RawRow::from_untrusted_bytes(bytes.to_vec()))
+                .transpose()?,
+            after: after
+                .map(|bytes| RawRow::from_untrusted_bytes(bytes.to_vec()))
+                .transpose()?,
+        })
+    }
 }
 
 ///
@@ -257,34 +306,19 @@ where
     }
 }
 
-/// Resolve immutable accepted-schema commit authority from one accepted
-/// runtime entity.
-pub(in crate::db) fn prepare_commit_context_for_runtime_entity<C: CanisterKind>(
+/// Build operation-local commit authority from the caller's accepted selection.
+/// The caller owns current/canonical selection; mechanical preparation mode
+/// must not silently select a different schema. The recorded row fingerprint
+/// stays separate because validated historical replay can use a later schema.
+pub(in crate::db) fn prepare_commit_context_from_catalog_selection<C: CanisterKind>(
     db: &Db<C>,
-    entity_path: impl Into<Rc<str>>,
-    entity_tag: EntityTag,
-    data_store_path: &'static str,
+    selection: &AcceptedCatalogSnapshotSelection,
     schema_fingerprint: CommitSchemaFingerprint,
     mode: CommitPrepareMode,
 ) -> Result<CommitPrepareContext, InternalError> {
-    prepare_commit_context(
-        db,
-        CommitPrepareAuthority::from_runtime_parts(
-            entity_path,
-            entity_tag,
-            schema_fingerprint,
-            data_store_path,
-        ),
-        mode,
-    )
-}
-
-fn prepare_commit_context<C: CanisterKind>(
-    db: &Db<C>,
-    authority: CommitPrepareAuthority,
-    mode: CommitPrepareMode,
-) -> Result<CommitPrepareContext, InternalError> {
-    let constraint_schedule = accepted_storage_constraint_schedule(db, &authority, mode)?;
+    let authority = CommitPrepareAuthority::from_catalog_selection(selection, schema_fingerprint);
+    let constraint_schedule =
+        accepted_storage_constraint_schedule(db, &authority, selection, mode)?;
 
     Ok(CommitPrepareContext {
         authority,
@@ -309,19 +343,10 @@ pub(in crate::db) fn prepare_row_commit_with_context<C: CanisterKind>(
 // boundary once so malformed fields fail closed before index planning.
 fn decode_commit_marker_rows_for_preflight<'a>(
     data_key: &DecodedDataStoreKey,
-    before: Option<&'a RawRow>,
-    after: Option<&'a RawRow>,
-    row_contract: StructuralRowContract,
-) -> Result<DecodedCommitRows<'a>, InternalError> {
-    let old_slots =
-        decode_optional_commit_marker_row_slots(data_key, before, "before", row_contract.clone())?;
-    let new_slots =
-        decode_optional_commit_marker_row_slots(data_key, after, "after", row_contract)?;
-
-    Ok(DecodedCommitRows {
-        old_slots,
-        new_slots,
-    })
+    rows: &'a CommitRowImages<RawRow>,
+    row_contract: &'a StructuralRowContract,
+) -> Result<CommitRowImages<StructuralSlotReader<'a>>, InternalError> {
+    rows.try_map_ref(|row| decode_commit_marker_structural_slots(data_key, row, row_contract))
 }
 
 // Keep the full commit-preparation body out of the thin wrapper entrypoints so
@@ -347,11 +372,10 @@ where
     // Phase 2: decode the persisted row images once through the structural
     // slot-reader boundary before any forward-index planning runs.
     let (decoded, forward_index_ops) = {
-        let mut decoded = decode_commit_marker_rows_for_preflight(
+        let decoded = decode_commit_marker_rows_for_preflight(
             &structural.data_key,
-            structural.old_row.as_ref(),
-            structural.new_row.as_ref(),
-            constraint_schedule.row_contract.clone(),
+            &structural.rows,
+            &constraint_schedule.row_contract,
         )?;
 
         // Phase 3: derive forward index work from the already validated
@@ -365,19 +389,20 @@ where
                 constraint_schedule,
                 op.mutation_diagnostic_context,
                 &structural.data_key,
-                &mut decoded,
+                &decoded,
             )?
         } else {
             empty_forward_index_plan()
         };
         let mut forward_index_ops = materialize_forward_index_commit_ops(db, index_plan)?;
+        let (old_slots, new_slots) = decoded.as_refs();
         forward_index_ops.extend(prepare_candidate_unique_index_commit_ops(
             constraint_schedule.candidate_unique.as_ref(),
             authority,
             op.mutation_diagnostic_context,
             &structural.data_key,
-            decoded.old_slots.as_ref(),
-            decoded.new_slots.as_ref(),
+            old_slots,
+            new_slots,
         )?);
 
         (decoded, forward_index_ops)
@@ -387,6 +412,7 @@ where
     let mut reverse_index_ops = Vec::new();
     let mut old_relation_budget = RelationProjectionBudget::default();
     let mut new_relation_budget = RelationProjectionBudget::default();
+    let (old_slots, new_slots) = decoded.as_refs();
     for relation in &constraint_schedule.relations {
         reverse_index_ops.extend(relation.prepare_source_transition(
             row_reader,
@@ -394,16 +420,14 @@ where
             authority.schema_fingerprint,
             op.mutation_diagnostic_context,
             &source_primary_key,
-            decoded.old_slots.as_ref(),
-            decoded.new_slots.as_ref(),
+            old_slots,
+            new_slots,
             &mut old_relation_budget,
             &mut new_relation_budget,
             relation_budget,
         )?);
     }
-    let data_value = decoded
-        .new_slots
-        .as_ref()
+    let data_value = new_slots
         .map(canonical_row_from_structural_slot_reader_with_accepted_contract)
         .transpose()?;
 
@@ -436,7 +460,7 @@ fn prepare_forward_index_commit_leaf<C>(
     constraint_schedule: &AcceptedStorageConstraintSchedule,
     mutation: Option<crate::error::MutationDiagnosticContext>,
     data_key: &DecodedDataStoreKey,
-    decoded: &mut DecodedCommitRows<'_>,
+    decoded: &CommitRowImages<StructuralSlotReader<'_>>,
 ) -> Result<IndexMutationPlan, InternalError>
 where
     C: crate::traits::CanisterKind,
@@ -451,6 +475,7 @@ where
         row_reader,
         index_reader,
     };
+    let (old_slots, new_slots) = decoded.as_refs();
 
     match plan_index_mutation_for_slot_reader_structural(
         authority.entity_tag,
@@ -459,32 +484,14 @@ where
         schema_info,
         &read_view,
         &constraint_schedule.row_contract,
-        decoded.old_slots.as_ref().map(|_| &primary_key),
-        decoded
-            .old_slots
-            .as_mut()
-            .map(|slots| slots as &mut dyn CanonicalSlotReader),
-        decoded.new_slots.as_ref().map(|_| &primary_key),
-        decoded
-            .new_slots
-            .as_mut()
-            .map(|slots| slots as &mut dyn CanonicalSlotReader),
+        old_slots.map(|_| &primary_key),
+        old_slots.map(|slots| slots as &dyn CanonicalSlotReader),
+        new_slots.map(|_| &primary_key),
+        new_slots.map(|slots| slots as &dyn CanonicalSlotReader),
     ) {
         Ok(index_plan) => Ok(index_plan),
         Err(err) => Err(err.into_internal_error()),
     }
-}
-
-// Decode one optional commit-marker row into one validated structural slot
-// reader for forward-index planning.
-fn decode_optional_commit_marker_row_slots<'a>(
-    data_key: &DecodedDataStoreKey,
-    row: Option<&'a RawRow>,
-    label: &str,
-    row_contract: StructuralRowContract,
-) -> Result<Option<StructuralSlotReader<'a>>, InternalError> {
-    row.map(|row| decode_commit_marker_structural_slots(data_key, row, label, row_contract))
-        .transpose()
 }
 
 // Decode one commit-marker row into one validated slot reader so both
@@ -492,17 +499,17 @@ fn decode_optional_commit_marker_row_slots<'a>(
 fn decode_commit_marker_structural_slots<'a>(
     data_key: &DecodedDataStoreKey,
     row: &'a RawRow,
-    _label: &str,
-    row_contract: StructuralRowContract,
+    row_contract: &'a StructuralRowContract,
 ) -> Result<StructuralSlotReader<'a>, InternalError> {
-    let slots = StructuralSlotReader::from_raw_row_with_validated_contract(row, row_contract)
-        .map_err(|err| {
-            if err.class() == ErrorClass::IncompatiblePersistedFormat {
-                InternalError::serialize_incompatible_persisted_format()
-            } else {
-                InternalError::serialize_corruption()
-            }
-        })?;
+    let slots =
+        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, row_contract)
+            .map_err(|err| {
+                if err.class() == ErrorClass::IncompatiblePersistedFormat {
+                    InternalError::serialize_incompatible_persisted_format()
+                } else {
+                    InternalError::serialize_corruption()
+                }
+            })?;
     slots
         .validate_primary_key(data_key)
         .map_err(|_| InternalError::store_corruption())?;
@@ -520,35 +527,15 @@ fn decode_commit_marker_structural_slots<'a>(
 fn accepted_storage_constraint_schedule<C>(
     db: &Db<C>,
     authority: &CommitPrepareAuthority,
+    selection: &AcceptedCatalogSnapshotSelection,
     mode: CommitPrepareMode,
 ) -> Result<AcceptedStorageConstraintSchedule, InternalError>
 where
     C: CanisterKind,
 {
-    let store = db.with_store_registry(|reg| reg.try_get_store(authority.data_store_path))?;
-    let selection = store
-        .with_schema(|schema_store| {
-            if matches!(mode, CommitPrepareMode::RecoveryReplay)
-                && store.storage_capabilities().recovery()
-                    == StoreRecoveryCapability::StableBasePlusJournalReplay
-            {
-                schema_store.current_canonical_accepted_catalog_selection(
-                    authority.entity_tag,
-                    authority.entity_path.as_ref(),
-                    authority.data_store_path,
-                )
-            } else {
-                schema_store.current_accepted_catalog_selection(
-                    authority.entity_tag,
-                    authority.entity_path.as_ref(),
-                    authority.data_store_path,
-                )
-            }
-        })?
-        .ok_or_else(InternalError::store_corruption)?;
     let accepted_authority = AcceptedStructuralRowAuthority::from_catalog_selection(
         authority.entity_path.as_ref(),
-        &selection,
+        selection,
     )?;
     let value_catalog = selection.value_catalog_handle().clone();
     let (accepted, row_contract) = accepted_authority.into_parts();
@@ -732,21 +719,14 @@ fn prepare_row_commit_structural_inputs(
     let raw_key = op.key.clone();
     let data_key = DecodedDataStoreKey::try_from_raw(&raw_key)
         .map_err(|_| InternalError::store_corruption())?;
-    let old_row = op
-        .before
-        .as_ref()
-        .map(|bytes| RawRow::from_untrusted_bytes(bytes.clone()))
-        .transpose()?;
-    let new_row = op
-        .after
-        .as_ref()
-        .map(|bytes| RawRow::from_untrusted_bytes(bytes.clone()))
-        .transpose()?;
+    let rows = CommitRowImages::from_bytes(op.before.as_deref(), op.after.as_deref())?;
 
     // A marker-owned deletion may already be reflected in direct storage.
     // Replay still validates key/schema authority, but absence is its correct
     // terminal state. Ordinary writes cannot prepare an empty transition.
-    if old_row.is_none() && new_row.is_none() && !matches!(mode, CommitPrepareMode::RecoveryReplay)
+    if op.before.is_none()
+        && op.after.is_none()
+        && !matches!(mode, CommitPrepareMode::RecoveryReplay)
     {
         return Err(InternalError::store_corruption());
     }
@@ -754,8 +734,7 @@ fn prepare_row_commit_structural_inputs(
     Ok(CommitInputs {
         raw_key,
         data_key,
-        old_row,
-        new_row,
+        rows,
     })
 }
 
@@ -960,6 +939,8 @@ fn push_commit_op_for_index_entry(
 
 #[cfg(test)]
 mod tests {
+    mod images;
+
     use super::CommitPrepareMode;
 
     #[test]

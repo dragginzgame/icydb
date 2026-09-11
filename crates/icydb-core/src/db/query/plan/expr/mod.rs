@@ -126,6 +126,8 @@ pub(in crate::db) use projection::{
     GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility, ProjectionField,
     ProjectionSelection, ProjectionSpec, classify_grouped_order_term_for_field,
     classify_grouped_top_k_order_term, grouped_top_k_order_term_requires_heap,
+    try_classify_grouped_order_term_for_field, try_classify_grouped_top_k_order_term,
+    try_grouped_top_k_order_term_requires_heap,
 };
 pub(in crate::db) use projection_eval::{
     ProjectionFunctionEvalError, eval_builder_expr_for_value_preview,

@@ -74,25 +74,28 @@ pub(in crate::db) fn grouped_cursor_policy_violation(
     None
 }
 
-pub(in crate::db::query::plan::semantics) fn grouped_having_streaming_compatible(
+pub(in crate::db::query::plan::semantics) fn grouped_having_streaming_compatible<E>(
     having_expr: Option<&Expr>,
-) -> bool {
-    having_expr.is_none_or(grouped_having_expr_streaming_compatible)
-}
-
-fn grouped_having_expr_streaming_compatible(expr: &Expr) -> bool {
-    expr.all_tree_expr(&mut |node| match node {
-        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) | Expr::Aggregate(_) => true,
-        Expr::FunctionCall { .. } | Expr::Unary { .. } | Expr::Case { .. } => true,
-        Expr::Binary { op, .. } => {
-            if let Some(compare_op) = grouped_having_binary_compare_op(*op) {
-                grouped_having_compare_op_supported(compare_op)
-            } else {
-                matches!(op, BinaryOp::And)
+    observe: &mut impl FnMut(u64) -> Result<(), E>,
+) -> Result<bool, E> {
+    let Some(expr) = having_expr else {
+        return Ok(true);
+    };
+    expr.try_all_tree_expr(&mut |node| {
+        observe(1)?;
+        Ok(match node {
+            Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) | Expr::Aggregate(_) => true,
+            Expr::FunctionCall { .. } | Expr::Unary { .. } | Expr::Case { .. } => true,
+            Expr::Binary { op, .. } => {
+                if let Some(compare_op) = grouped_having_binary_compare_op(*op) {
+                    grouped_having_compare_op_supported(compare_op)
+                } else {
+                    matches!(op, BinaryOp::And)
+                }
             }
-        }
-        #[cfg(test)]
-        Expr::Alias { .. } => true,
+            #[cfg(test)]
+            Expr::Alias { .. } => true,
+        })
     })
 }
 

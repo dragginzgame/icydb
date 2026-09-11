@@ -163,14 +163,14 @@ impl ScalarType {
             (Self::Int32, ScalarLiteral::Int(value)) => i32::try_from(*value).is_ok(),
             (Self::Int64, ScalarLiteral::Int(value)) => i64::try_from(*value).is_ok(),
             (Self::IntBig { max_bytes }, ScalarLiteral::IntBig(value)) => {
-                value.to_leb128().len() <= max_bytes as usize
+                value.leb128_len() <= u64::from(max_bytes)
             }
             (Self::Nat8, ScalarLiteral::Nat(value)) => u8::try_from(*value).is_ok(),
             (Self::Nat16, ScalarLiteral::Nat(value)) => u16::try_from(*value).is_ok(),
             (Self::Nat32, ScalarLiteral::Nat(value)) => u32::try_from(*value).is_ok(),
             (Self::Nat64, ScalarLiteral::Nat(value)) => u64::try_from(*value).is_ok(),
             (Self::NatBig { max_bytes }, ScalarLiteral::NatBig(value)) => {
-                value.to_leb128().len() <= max_bytes as usize
+                value.leb128_len() <= u64::from(max_bytes)
             }
             (Self::Decimal { scale }, ScalarLiteral::Decimal(value)) => {
                 decimal_fits_scale(*value, scale)

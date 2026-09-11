@@ -3,6 +3,8 @@
 //! that flow into structural execution.
 
 #[cfg(test)]
+mod grouped_order_tests;
+#[cfg(test)]
 mod slot_tests;
 
 use crate::{
@@ -321,285 +323,6 @@ pub(in crate::db) enum GroupedTopKOrderTermAdmissibility {
     UnsupportedExpression,
 }
 
-///
-/// GroupedCanonicalOrderShape
-///
-/// One local grouped canonical-order proof shape for one already-parsed
-/// expression.
-/// This exists so canonical grouped-key prefix proof and broader grouped Top-K
-/// admission can read one shared analysis result instead of reclassifying the
-/// same expression separately.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum GroupedCanonicalOrderShape {
-    CanonicalGroupField,
-    GroupFieldPlusConstant,
-    GroupFieldMinusConstant,
-    OtherField,
-    OtherFieldOffset,
-    Unsupported,
-}
-
-///
-/// GroupedOrderExprAnalysis
-///
-/// One shared grouped-order proof summary for one already-parsed planner
-/// expression.
-/// This exists so canonical grouped-key validation, grouped Top-K admission,
-/// and grouped heap selection all read one recursive ownership seam.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct GroupedOrderExprAnalysis {
-    canonical_shape: GroupedCanonicalOrderShape,
-    flags: GroupedOrderExprFlags,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct GroupedOrderExprFlags {
-    bits: u8,
-}
-
-impl GroupedOrderExprFlags {
-    const REFERENCES_ONLY_GROUP_FIELDS: u8 = 1 << 0;
-    const CONTAINS_AGGREGATE: u8 = 1 << 1;
-    const CONTAINS_CASE: u8 = 1 << 2;
-    const CONTAINS_NON_AGGREGATE_WRAPPER_FN: u8 = 1 << 3;
-
-    const fn field_reference(is_group_field: bool) -> Self {
-        if is_group_field {
-            Self::group_field_only()
-        } else {
-            Self::empty()
-        }
-    }
-
-    const fn empty() -> Self {
-        Self { bits: 0 }
-    }
-
-    const fn group_field_only() -> Self {
-        Self {
-            bits: Self::REFERENCES_ONLY_GROUP_FIELDS,
-        }
-    }
-
-    const fn aggregate() -> Self {
-        Self {
-            bits: Self::REFERENCES_ONLY_GROUP_FIELDS | Self::CONTAINS_AGGREGATE,
-        }
-    }
-
-    const fn with_case(self) -> Self {
-        Self {
-            bits: self.bits | Self::CONTAINS_CASE,
-        }
-    }
-
-    const fn with_non_aggregate_wrapper_fn(self) -> Self {
-        Self {
-            bits: self.bits | Self::CONTAINS_NON_AGGREGATE_WRAPPER_FN,
-        }
-    }
-
-    const fn merge_with(self, other: Self) -> Self {
-        let mut bits = (self.bits | other.bits) & !Self::REFERENCES_ONLY_GROUP_FIELDS;
-        if self.references_only_group_fields() && other.references_only_group_fields() {
-            bits |= Self::REFERENCES_ONLY_GROUP_FIELDS;
-        }
-
-        Self { bits }
-    }
-
-    const fn references_only_group_fields(self) -> bool {
-        self.bits & Self::REFERENCES_ONLY_GROUP_FIELDS != 0
-    }
-
-    const fn contains_aggregate(self) -> bool {
-        self.bits & Self::CONTAINS_AGGREGATE != 0
-    }
-
-    const fn contains_case(self) -> bool {
-        self.bits & Self::CONTAINS_CASE != 0
-    }
-
-    const fn contains_non_aggregate_wrapper_fn(self) -> bool {
-        self.bits & Self::CONTAINS_NON_AGGREGATE_WRAPPER_FN != 0
-    }
-}
-
-impl GroupedOrderExprAnalysis {
-    // Build the shared grouped-order proof summary for one expression tree
-    // while keeping canonical grouped-key proof and broader Top-K admission on
-    // the same recursive owner.
-    fn from_expr(
-        expr: &Expr,
-        group_fields: Option<&GroupFieldSet>,
-        expected_group_field: Option<GroupFieldRef<'_>>,
-    ) -> Self {
-        match expr {
-            Expr::Field(_) | Expr::FieldPath(_) => Self {
-                canonical_shape: expected_group_field.map_or(
-                    GroupedCanonicalOrderShape::Unsupported,
-                    |expected_group_field| {
-                        if expected_group_field.matches_expr(expr) {
-                            GroupedCanonicalOrderShape::CanonicalGroupField
-                        } else {
-                            GroupedCanonicalOrderShape::OtherField
-                        }
-                    },
-                ),
-                flags: GroupedOrderExprFlags::field_reference(
-                    group_fields.is_some_and(|group_fields| group_fields.contains_expr(expr)),
-                ),
-            },
-            Expr::Aggregate(_) => Self {
-                canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-                flags: GroupedOrderExprFlags::aggregate(),
-            },
-            Expr::Literal(_) => Self {
-                canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-                flags: GroupedOrderExprFlags::group_field_only(),
-            },
-            Expr::FunctionCall { args, .. } => {
-                let child = args.iter().fold(
-                    Self {
-                        canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-                        flags: GroupedOrderExprFlags::group_field_only(),
-                    },
-                    |current, arg| current.merge_with(Self::from_expr(arg, group_fields, None)),
-                );
-
-                Self {
-                    canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-                    flags: if !child.flags.contains_aggregate()
-                        || child.flags.contains_non_aggregate_wrapper_fn()
-                    {
-                        child.flags.with_non_aggregate_wrapper_fn()
-                    } else {
-                        child.flags
-                    },
-                }
-            }
-            Expr::Case {
-                when_then_arms,
-                else_expr,
-            } => {
-                let child = when_then_arms.iter().fold(
-                    Self::from_expr(else_expr.as_ref(), group_fields, None),
-                    |current, arm| {
-                        current
-                            .merge_with(Self::from_expr(arm.condition(), group_fields, None))
-                            .merge_with(Self::from_expr(arm.result(), group_fields, None))
-                    },
-                );
-
-                Self {
-                    flags: child.flags.with_case(),
-                    ..child
-                }
-            }
-            Expr::Binary { op, left, right } => {
-                let left_expr = left.as_ref();
-                let right_expr = right.as_ref();
-                let left = Self::from_expr(left_expr, group_fields, None);
-                let right = Self::from_expr(right_expr, group_fields, None);
-
-                Self {
-                    canonical_shape: classify_grouped_canonical_order_shape(
-                        *op,
-                        left_expr,
-                        right_expr,
-                        expected_group_field,
-                    ),
-                    ..left.merge_with(right)
-                }
-            }
-            #[cfg(test)]
-            Expr::Alias { expr, .. } => Self {
-                canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-                ..Self::from_expr(expr.as_ref(), group_fields, None)
-            },
-            Expr::Unary { expr, .. } => Self {
-                canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-                ..Self::from_expr(expr.as_ref(), group_fields, None)
-            },
-        }
-    }
-
-    // Merge one child analysis into the current grouped-order proof summary
-    // without widening canonical grouped-key proof beyond the parent node.
-    const fn merge_with(self, other: Self) -> Self {
-        Self {
-            canonical_shape: GroupedCanonicalOrderShape::Unsupported,
-            flags: self.flags.merge_with(other.flags),
-        }
-    }
-
-    // Convert the shared canonical grouped-key proof shape into the
-    // caller-facing admissibility contract used by grouped validation.
-    const fn canonical_admissibility(self) -> GroupedOrderTermAdmissibility {
-        match self.canonical_shape {
-            GroupedCanonicalOrderShape::CanonicalGroupField => {
-                GroupedOrderTermAdmissibility::Preserves(GroupedOrderExprClass::CanonicalGroupField)
-            }
-            GroupedCanonicalOrderShape::GroupFieldPlusConstant => {
-                GroupedOrderTermAdmissibility::Preserves(
-                    GroupedOrderExprClass::GroupFieldPlusConstant,
-                )
-            }
-            GroupedCanonicalOrderShape::GroupFieldMinusConstant => {
-                GroupedOrderTermAdmissibility::Preserves(
-                    GroupedOrderExprClass::GroupFieldMinusConstant,
-                )
-            }
-            GroupedCanonicalOrderShape::OtherField
-            | GroupedCanonicalOrderShape::OtherFieldOffset => {
-                GroupedOrderTermAdmissibility::PrefixMismatch
-            }
-            GroupedCanonicalOrderShape::Unsupported => {
-                GroupedOrderTermAdmissibility::UnsupportedExpression
-            }
-        }
-    }
-}
-
-// Keep canonical grouped-key proof intentionally syntactic and fail closed so
-// only the admitted field-preserving offset family can reuse the resumable
-// grouped-order lane.
-fn classify_grouped_canonical_order_shape(
-    op: BinaryOp,
-    left: &Expr,
-    right: &Expr,
-    expected_group_field: Option<GroupFieldRef<'_>>,
-) -> GroupedCanonicalOrderShape {
-    let Some(expected_group_field) = expected_group_field else {
-        return GroupedCanonicalOrderShape::Unsupported;
-    };
-
-    match (op, left, right) {
-        (BinaryOp::Add, Expr::Field(_) | Expr::FieldPath(_), right)
-            if expected_group_field.matches_expr(left)
-                && is_numeric_order_offset_literal(right) =>
-        {
-            GroupedCanonicalOrderShape::GroupFieldPlusConstant
-        }
-        (BinaryOp::Sub, Expr::Field(_) | Expr::FieldPath(_), right)
-            if expected_group_field.matches_expr(left)
-                && is_numeric_order_offset_literal(right) =>
-        {
-            GroupedCanonicalOrderShape::GroupFieldMinusConstant
-        }
-        (BinaryOp::Add | BinaryOp::Sub, Expr::Field(_) | Expr::FieldPath(_), right)
-            if is_numeric_order_offset_literal(right) =>
-        {
-            GroupedCanonicalOrderShape::OtherFieldOffset
-        }
-        _ => GroupedCanonicalOrderShape::Unsupported,
-    }
-}
-
 // Classify one grouped ORDER BY term against one expected grouped key field
 // so grouped validation can distinguish prefix mismatch from unsupported-but-
 // evaluable grouped order expressions.
@@ -608,8 +331,59 @@ pub(in crate::db) fn classify_grouped_order_term_for_field(
     expr: &Expr,
     expected_group_field: GroupFieldRef<'_>,
 ) -> GroupedOrderTermAdmissibility {
-    GroupedOrderExprAnalysis::from_expr(expr, None, Some(expected_group_field))
-        .canonical_admissibility()
+    match try_classify_grouped_order_term_for_field(expr, expected_group_field, &mut |_| {
+        Ok::<_, std::convert::Infallible>(())
+    }) {
+        Ok(result) => result,
+        Err(never) => match never {},
+    }
+}
+
+/// Classify the same canonical shape with observation before inspections.
+pub(in crate::db) fn try_classify_grouped_order_term_for_field<E>(
+    expr: &Expr,
+    expected_group_field: GroupFieldRef<'_>,
+    observe: &mut impl FnMut(u64) -> Result<(), E>,
+) -> Result<GroupedOrderTermAdmissibility, E> {
+    observe(1)?;
+    // The canonical proof admits only a field or field +/- numeric literal.
+    // Reject other roots without walking descendants that cannot change that
+    // syntactic proof. Keep mismatched fields distinct from unsupported shapes.
+    let (field, class) = match expr {
+        Expr::Field(_) | Expr::FieldPath(_) => (expr, GroupedOrderExprClass::CanonicalGroupField),
+        Expr::Binary { op, left, right }
+            if matches!(left.as_ref(), Expr::Field(_) | Expr::FieldPath(_))
+                && is_numeric_order_offset_literal(right) =>
+        {
+            let class = match op {
+                BinaryOp::Add => GroupedOrderExprClass::GroupFieldPlusConstant,
+                BinaryOp::Sub => GroupedOrderExprClass::GroupFieldMinusConstant,
+                _ => return Ok(GroupedOrderTermAdmissibility::UnsupportedExpression),
+            };
+            (left.as_ref(), class)
+        }
+        _ => return Ok(GroupedOrderTermAdmissibility::UnsupportedExpression),
+    };
+
+    Ok(
+        if try_group_field_matches_expr(expected_group_field, field, observe)? {
+            GroupedOrderTermAdmissibility::Preserves(class)
+        } else {
+            GroupedOrderTermAdmissibility::PrefixMismatch
+        },
+    )
+}
+
+// A stored label covers its root, path component bytes and separators. Its
+// length bounds the equal-prefix work of the shared borrowed leaf comparator;
+// mismatched representation/length may consume less. No label is constructed.
+fn try_group_field_matches_expr<E>(
+    field: GroupFieldRef<'_>,
+    expr: &Expr,
+    observe: &mut impl FnMut(u64) -> Result<(), E>,
+) -> Result<bool, E> {
+    observe(1_u64.saturating_add(field.field().len() as u64))?;
+    Ok(field.matches_expr(expr))
 }
 
 // Additive constant offsets preserve both ascending and descending order for
@@ -639,27 +413,81 @@ pub(in crate::db) fn classify_grouped_top_k_order_term(
     expr: &Expr,
     group_fields: &GroupFieldSet,
 ) -> GroupedTopKOrderTermAdmissibility {
-    let analysis = GroupedOrderExprAnalysis::from_expr(expr, Some(group_fields), None);
+    match try_classify_grouped_top_k_order_term(expr, group_fields, &mut |_| {
+        Ok::<_, std::convert::Infallible>(())
+    }) {
+        Ok(result) => result,
+        Err(never) => match never {},
+    }
+}
 
-    if analysis.flags.references_only_group_fields() {
-        if !analysis.flags.contains_aggregate()
-            && analysis.flags.contains_non_aggregate_wrapper_fn()
-        {
-            return GroupedTopKOrderTermAdmissibility::UnsupportedExpression;
-        }
+/// Observe each Top-K expression visit and candidate field comparison before work.
+pub(in crate::db) fn try_classify_grouped_top_k_order_term<E>(
+    expr: &Expr,
+    group_fields: &GroupFieldSet,
+    observe: &mut impl FnMut(u64) -> Result<(), E>,
+) -> Result<GroupedTopKOrderTermAdmissibility, E> {
+    // A non-group field always rejects, regardless of later aggregates. When
+    // there is no aggregate, any function is an unsupported scalar wrapper.
+    // Aggregate inputs/filters remain leaves owned by pre-group validation.
+    let mut contains_aggregate = false;
+    let mut contains_function = false;
+    let only_group_fields = expr.try_all_tree_expr(&mut |node| {
+        observe(1)?;
+        Ok(match node {
+            Expr::Field(_) | Expr::FieldPath(_) => {
+                for field in group_fields.iter() {
+                    if try_group_field_matches_expr(field, node, observe)? {
+                        return Ok(true);
+                    }
+                }
+                false
+            }
+            Expr::Aggregate(_) => {
+                contains_aggregate = true;
+                true
+            }
+            Expr::FunctionCall { .. } => {
+                contains_function = true;
+                true
+            }
+            Expr::Literal(_) | Expr::Binary { .. } | Expr::Unary { .. } | Expr::Case { .. } => true,
+            #[cfg(test)]
+            Expr::Alias { .. } => true,
+        })
+    })?;
 
-        return GroupedTopKOrderTermAdmissibility::Admissible;
+    if !only_group_fields {
+        return Ok(GroupedTopKOrderTermAdmissibility::NonGroupFieldReference);
+    }
+    if !contains_aggregate && contains_function {
+        return Ok(GroupedTopKOrderTermAdmissibility::UnsupportedExpression);
     }
 
-    GroupedTopKOrderTermAdmissibility::NonGroupFieldReference
+    Ok(GroupedTopKOrderTermAdmissibility::Admissible)
 }
 
 /// Return true when one grouped post-aggregate order expression must leave the
 /// canonical grouped-key ordered lane for bounded Top-K finalization.
 #[must_use]
 pub(in crate::db) fn grouped_top_k_order_term_requires_heap(expr: &Expr) -> bool {
-    let analysis = GroupedOrderExprAnalysis::from_expr(expr, None, None);
-    analysis.flags.contains_aggregate() || analysis.flags.contains_case()
+    match try_grouped_top_k_order_term_requires_heap(expr, &mut |_| {
+        Ok::<_, std::convert::Infallible>(())
+    }) {
+        Ok(result) => result,
+        Err(never) => match never {},
+    }
+}
+
+/// Observe the shared short-circuit heap search before inspecting each node.
+pub(in crate::db) fn try_grouped_top_k_order_term_requires_heap<E>(
+    expr: &Expr,
+    observe: &mut impl FnMut(u64) -> Result<(), E>,
+) -> Result<bool, E> {
+    Ok(!expr.try_all_tree_expr(&mut |node| {
+        observe(1)?;
+        Ok(!matches!(node, Expr::Aggregate(_) | Expr::Case { .. }))
+    })?)
 }
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.

@@ -60,10 +60,16 @@ fn static_index_metadata_preserves_layout_at_exact_construction_limits() {
     let (projection_bytes, projection_steps) =
         projection_metadata::cost(plan, catalog.accepted_schema_info());
     let bytes = projection_bytes
+        // Static finalization owns both preparation and residual predicate copies.
+        + 2 * ("rare".len() + "group-a".len()) as u64
         + (size_of::<ResolvedOrderField>()
             + 5 * size_of::<usize>()
             + size_of::<IndexCompileTarget>()) as u64;
-    let steps = projection_steps + 4 + "rare".len() as u64 + "id".len() as u64;
+    let steps = projection_steps
+        + 4
+        + "rare".len() as u64
+        + "id".len() as u64
+        + 2 * (2 + "rare".len() + "group-a".len()) as u64;
 
     for lane in [
         DiagnosticExecutionLane::PublicRead,

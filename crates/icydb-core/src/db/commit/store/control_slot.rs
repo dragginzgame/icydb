@@ -3,6 +3,9 @@
 //! Does not own: stable-cell lifecycle, marker semantics, or recovery orchestration.
 //! Boundary: convergence/commit lifecycle -> one framed control-slot authority.
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{
         commit::{
@@ -165,9 +168,33 @@ pub(super) struct CommitControlSlotRef<'a> {
     pub(super) database_incarnation_id: DatabaseIncarnationId,
     pub(super) cursor_authentication_key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES],
     pub(super) database_commit_sequence: u64,
-    pub(super) registry: Vec<PersistedStoreAllocation>,
+    registry: Vec<StoreAllocationRef<'a>>,
     pub(super) marker_length_offset: usize,
     pub(super) marker_bytes: &'a [u8],
+}
+
+impl CommitControlSlotRef<'_> {
+    /// Materialize registry ownership only when it must outlive the control bytes.
+    pub(super) fn to_owned_registry(&self) -> Vec<PersistedStoreAllocation> {
+        self.registry
+            .iter()
+            .map(|entry| PersistedStoreAllocation {
+                state: entry.state,
+                roles: entry.roles.map(|(memory_id, stable_key)| {
+                    PersistedStoreAllocationIdentity {
+                        memory_id,
+                        stable_key: stable_key.to_string(),
+                    }
+                }),
+            })
+            .collect()
+    }
+}
+
+/// Fixed role identities borrowing names from the bounded control payload.
+struct StoreAllocationRef<'a> {
+    state: PersistedStoreAllocationState,
+    roles: [(u8, &'a str); STORE_ALLOCATION_ROLES],
 }
 
 pub(super) struct CommitControlHeader {
@@ -337,17 +364,17 @@ fn checked_control_slot_lengths(
     })
 }
 
-struct ParsedCurrentControl {
+struct ParsedCurrentControl<'a> {
     database_incarnation_id: DatabaseIncarnationId,
     cursor_authentication_key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES],
     database_commit_sequence: u64,
-    registry: Vec<PersistedStoreAllocation>,
+    registry: Vec<StoreAllocationRef<'a>>,
     marker_offset: usize,
     marker_len: usize,
     encoded_len: usize,
 }
 
-fn parse_current_control(bytes: &[u8]) -> Result<ParsedCurrentControl, InternalError> {
+fn parse_current_control(bytes: &[u8]) -> Result<ParsedCurrentControl<'_>, InternalError> {
     if control_version(bytes)? != COMMIT_CONTROL_STATE_VERSION_CURRENT {
         return Err(InternalError::serialize_incompatible_persisted_format());
     }
@@ -366,7 +393,7 @@ fn parse_current_control(bytes: &[u8]) -> Result<ParsedCurrentControl, InternalE
     for _ in 0..registry_count {
         registry.push(read_registry_entry(bytes, &mut cursor)?);
     }
-    validate_registry(&registry)?;
+    validate_registry(registry.iter().map(|entry| entry.roles))?;
     let marker_len = read_u32_le(bytes, &mut cursor, "commit control-slot")? as usize;
     let encoded_len = cursor
         .checked_add(marker_len)
@@ -393,7 +420,12 @@ fn write_current_control_prefix(
     registry: &[PersistedStoreAllocation],
 ) -> Result<(), InternalError> {
     validate_cursor_key(cursor_authentication_key)?;
-    validate_registry(registry)?;
+    validate_registry(registry.iter().map(|entry| {
+        entry
+            .roles
+            .each_ref()
+            .map(|role| (role.memory_id, role.stable_key()))
+    }))?;
     out.extend_from_slice(&COMMIT_CONTROL_MAGIC);
     out.push(COMMIT_CONTROL_STATE_VERSION_CURRENT);
     out.extend_from_slice(&database_incarnation_id.to_bytes());
@@ -417,17 +449,17 @@ fn write_current_control_prefix(
     Ok(())
 }
 
-fn read_registry_entry(
-    bytes: &[u8],
+fn read_registry_entry<'a>(
+    bytes: &'a [u8],
     cursor: &mut usize,
-) -> Result<PersistedStoreAllocation, InternalError> {
+) -> Result<StoreAllocationRef<'a>, InternalError> {
     let state = match read_u8(bytes, cursor)? {
         1 => PersistedStoreAllocationState::Active,
         2 => PersistedStoreAllocationState::Retired,
         _ => return Err(control_slot_canonical_envelope_required()),
     };
-    let mut roles = Vec::with_capacity(STORE_ALLOCATION_ROLES);
-    for _ in 0..STORE_ALLOCATION_ROLES {
+    let mut roles = [(0, ""); STORE_ALLOCATION_ROLES];
+    for role in &mut roles {
         let memory_id = read_u8(bytes, cursor)?;
         let key_len = usize::from(read_u8(bytes, cursor)?);
         let key_end = cursor
@@ -439,39 +471,33 @@ fn read_registry_entry(
         *cursor = key_end;
         let stable_key = std::str::from_utf8(key_bytes)
             .map_err(|_| control_slot_canonical_envelope_required())?;
-        roles.push(PersistedStoreAllocationIdentity {
-            memory_id,
-            stable_key: stable_key.to_string(),
-        });
+        *role = (memory_id, stable_key);
     }
-    let roles = roles
-        .try_into()
-        .map_err(|_| control_slot_canonical_envelope_required())?;
-    Ok(PersistedStoreAllocation { state, roles })
+    Ok(StoreAllocationRef { state, roles })
 }
 
-fn validate_registry(registry: &[PersistedStoreAllocation]) -> Result<(), InternalError> {
+// Owned encoder inputs and borrowed decoder inputs share all registry checks.
+// Ordering needs only four IDs, not an allocated key per entry.
+fn validate_registry<'a>(
+    registry: impl ExactSizeIterator<Item = [(u8, &'a str); STORE_ALLOCATION_ROLES]>,
+) -> Result<(), InternalError> {
     if registry.len() > MAX_PERSISTED_STORE_ALLOCATIONS {
         return Err(InternalError::store_unsupported());
     }
     let mut prior = None;
     let mut memory_ids = Vec::with_capacity(registry.len() * STORE_ALLOCATION_ROLES);
     let mut stable_keys = Vec::with_capacity(registry.len() * STORE_ALLOCATION_ROLES);
-    for entry in registry {
-        for role in &entry.roles {
-            validate_stable_key(role.stable_key())?;
-            if memory_ids.contains(&role.memory_id) || stable_keys.contains(&role.stable_key()) {
+    for roles in registry {
+        for (memory_id, stable_key) in roles {
+            validate_stable_key(stable_key)?;
+            if memory_ids.contains(&memory_id) || stable_keys.contains(&stable_key) {
                 return Err(control_slot_canonical_envelope_required());
             }
-            memory_ids.push(role.memory_id);
-            stable_keys.push(role.stable_key());
+            memory_ids.push(memory_id);
+            stable_keys.push(stable_key);
         }
-        let key = entry
-            .roles
-            .iter()
-            .map(|role| role.memory_id)
-            .collect::<Vec<_>>();
-        if prior.as_ref().is_some_and(|prior: &Vec<u8>| prior >= &key) {
+        let key = roles.map(|(memory_id, _)| memory_id);
+        if prior.is_some_and(|prior| prior >= key) {
             return Err(control_slot_canonical_envelope_required());
         }
         prior = Some(key);
@@ -488,7 +514,12 @@ pub(in crate::db) fn canonicalize_store_registry(
             .map(|role| role.memory_id)
             .cmp(right.roles.iter().map(|role| role.memory_id))
     });
-    validate_registry(registry)
+    validate_registry(registry.iter().map(|entry| {
+        entry
+            .roles
+            .each_ref()
+            .map(|role| (role.memory_id, role.stable_key()))
+    }))
 }
 
 fn control_version(bytes: &[u8]) -> Result<u8, InternalError> {

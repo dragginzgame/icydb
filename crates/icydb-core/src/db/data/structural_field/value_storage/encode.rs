@@ -377,7 +377,7 @@ fn push_int_big_payload(out: &mut Vec<u8>, value: &IntBig) {
     let (is_negative, digits) = value.sign_and_u32_digits();
 
     push_binary_tag(out, VALUE_BINARY_TAG_INT_BIG);
-    push_binary_int_big_payload(out, is_negative, digits.as_slice());
+    push_binary_int_big_payload(out, is_negative, digits);
 }
 
 // Encode one binary `Value::NatBig` payload as a limb sequence.
@@ -385,5 +385,5 @@ fn push_nat_big_payload(out: &mut Vec<u8>, value: &NatBig) {
     let digits = value.u32_digits();
 
     push_binary_tag(out, VALUE_BINARY_TAG_NAT_BIG);
-    push_binary_nat_big_payload(out, digits.as_slice());
+    push_binary_nat_big_payload(out, digits);
 }

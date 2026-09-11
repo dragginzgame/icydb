@@ -4,30 +4,38 @@
 //! Does not own: execution descriptor rendering or access visitor adapters.
 //! Boundary: explain DTOs and plan-side projection logic for query observability.
 
+mod predicate;
+
+#[cfg(test)]
+mod tests;
+
 use crate::{
-    db::KeyValueCodec,
+    db::QueryError,
     db::{
         access::AccessPlan,
-        predicate::{CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
+        executor::SharedPreparedExecutionPlan,
+        predicate::{CoercionSpec, CompareOp, MissingRowPolicy},
         query::{
-            builder::scalar_projection::render_scalar_projection_expr_plan_label,
+            builder::scalar_projection::write_scalar_projection_expr_plan_label,
             explain::{
-                access_projection::write_access_json_detailed, explain_access_plan,
-                writer::JsonWriter,
+                access_projection::write_access_json,
+                explain_access_plan,
+                writer::{JsonWriter, render_logical},
             },
             plan::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
                 AccessChoiceRejectedIndex, AccessChoiceResidualBurden, AccessChoiceSelectedReason,
-                AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupedPlanAggregateFamily,
-                GroupedPlanFallbackReason, GroupedPlanStrategy, LogicalPlan, OrderDirection,
-                OrderSpec, PageSpec, QueryMode, ScalarPlan, explain_access_strategy_label,
+                AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupedPlanFallbackReason,
+                LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
                 expr::{Expr, PathSpec},
-                grouped_plan_strategy, render_scalar_filter_expr_plan_label,
+                grouped_plan_strategy_for_explain, write_explain_access_strategy_label,
             },
+            preparation::PreparationWork,
         },
     },
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::{fmt, ops::Bound};
 
 ///
@@ -38,20 +46,18 @@ use std::{fmt, ops::Bound};
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct ExplainPlan {
-    pub(in crate::db) mode: QueryMode,
-    pub(in crate::db) access: ExplainAccessPath,
-    pub(in crate::db) access_decision: ExplainAccessDecision,
-    pub(in crate::db) filter_expr: Option<String>,
-    filter_expr_model: Option<Expr>,
-    pub(in crate::db) predicate: ExplainPredicate,
-    predicate_model: Option<Predicate>,
-    pub(in crate::db) order_by: ExplainOrderBy,
-    pub(in crate::db) distinct: bool,
-    pub(in crate::db) grouping: ExplainGrouping,
-    pub(in crate::db) order_pushdown: ExplainOrderPushdown,
-    pub(in crate::db) page: ExplainPagination,
-    pub(in crate::db) delete_limit: ExplainDeleteLimit,
-    pub(in crate::db) consistency: MissingRowPolicy,
+    mode: QueryMode,
+    access: ExplainAccessPath,
+    access_decision: ExplainAccessDecision,
+    filter_expr: Option<String>,
+    predicate: ExplainPredicate,
+    order_by: ExplainOrderBy,
+    distinct: bool,
+    grouping: ExplainGrouping,
+    order_pushdown: ExplainOrderPushdown,
+    page: ExplainPagination,
+    delete_limit: ExplainDeleteLimit,
+    consistency: MissingRowPolicy,
 }
 
 #[expect(clippy::missing_fields_in_debug)]
@@ -61,9 +67,7 @@ impl fmt::Debug for ExplainPlan {
             .field("mode", &self.mode)
             .field("access", &self.access)
             .field("filter_expr", &self.filter_expr)
-            .field("filter_expr_model", &self.filter_expr_model)
             .field("predicate", &self.predicate)
-            .field("predicate_model", &self.predicate_model)
             .field("order_by", &self.order_by)
             .field("distinct", &self.distinct)
             .field("grouping", &self.grouping)
@@ -98,25 +102,6 @@ impl ExplainPlan {
     #[must_use]
     pub fn filter_expr(&self) -> Option<&str> {
         self.filter_expr.as_deref()
-    }
-
-    /// Borrow the canonical scalar filter model used for identity hashing.
-    #[must_use]
-    pub(in crate::db::query) fn filter_expr_model_for_hash(&self) -> Option<&Expr> {
-        if let Some(filter_expr_model) = &self.filter_expr_model {
-            debug_assert_eq!(
-                self.filter_expr(),
-                Some(render_scalar_filter_expr_plan_label(filter_expr_model).as_str()),
-                "explain scalar filter label drifted from canonical filter model"
-            );
-            Some(filter_expr_model)
-        } else {
-            debug_assert!(
-                self.filter_expr.is_none(),
-                "missing canonical filter model requires filter_expr=None"
-            );
-            None
-        }
     }
 
     /// Borrow projected predicate shape.
@@ -169,79 +154,55 @@ impl ExplainPlan {
 }
 
 impl ExplainPlan {
-    /// Return the canonical predicate model used as the fallback hash surface.
-    ///
-    /// When a semantic scalar `filter_expr` exists, hashing now prefers that
-    /// canonical filter surface instead. The explain predicate projection must
-    /// still remain a faithful rendering of this fallback model.
-    #[must_use]
-    pub(in crate::db::query) fn predicate_model_for_hash(&self) -> Option<&Predicate> {
-        if let Some(predicate) = &self.predicate_model {
-            debug_assert_eq!(
-                self.predicate,
-                ExplainPredicate::from_predicate(predicate),
-                "explain predicate surface drifted from canonical predicate model"
-            );
-            Some(predicate)
-        } else {
-            debug_assert!(
-                matches!(self.predicate, ExplainPredicate::None),
-                "missing canonical predicate model requires ExplainPredicate::None"
-            );
-            None
-        }
-    }
-
     /// Render this logical explain plan as deterministic canonical text.
     ///
-    /// This surface is frontend-facing and intentionally stable for SQL/CLI
-    /// explain output and snapshot-style diagnostics.
-    #[must_use]
-    pub fn render_text_canonical(&self) -> String {
-        format!(
-            concat!(
-                "mode={:?}\n",
-                "access={:?}\n",
-                "access_decision={}\n",
-                "filter_expr={:?}\n",
-                "predicate={:?}\n",
-                "order_by={:?}\n",
-                "distinct={}\n",
-                "grouping={:?}\n",
-                "order_pushdown={:?}\n",
-                "page={:?}\n",
-                "delete_limit={:?}\n",
-                "consistency={:?}",
-            ),
-            self.mode(),
-            self.access(),
-            self.access_decision().render_compact_summary(),
-            self.filter_expr(),
-            self.predicate(),
-            self.order_by(),
-            self.distinct(),
-            self.grouping(),
-            self.order_pushdown(),
-            self.page(),
-            self.delete_limit(),
-            self.consistency(),
-        )
+    /// Output is limited to 1 MiB of UTF-8 bytes per call. Limit or formatter
+    /// failure returns an error, never partial text. This detached operation
+    /// does not charge a session, bound prior planning, or redact values.
+    /// Access operands and predicate/HAVING trees are summarized, not dumped.
+    /// Existing clause labels can still contain literal values.
+    pub fn render_text_canonical(&self) -> Result<String, QueryError> {
+        render_logical(|out| {
+            write!(out, "mode={:?}\naccess=", self.mode())?;
+            write_access_json(self.access(), out)?;
+            out.write_str("\naccess_decision=")?;
+            write_access_decision_json(self.access_decision(), out)?;
+            write!(
+                out,
+                "\nfilter_expr={:?}\nhas_predicate={}\norder_by={:?}\ndistinct={}\ngrouping=",
+                self.filter_expr(),
+                !matches!(self.predicate(), ExplainPredicate::None),
+                self.order_by(),
+                self.distinct(),
+            )?;
+            write_grouping_json(self.grouping(), out)?;
+            write!(
+                out,
+                "\norder_pushdown={:?}\npage={:?}\ndelete_limit={:?}\nconsistency={:?}",
+                self.order_pushdown(),
+                self.page(),
+                self.delete_limit(),
+                self.consistency(),
+            )
+        })
     }
 
     /// Render this logical explain plan as canonical JSON.
-    #[must_use]
-    pub fn render_json_canonical(&self) -> String {
-        let mut out = String::new();
-        write_logical_explain_json(self, &mut out);
-
-        out
+    ///
+    /// Output is limited to 1 MiB of UTF-8 bytes, including JSON escaping.
+    /// Failure returns no partial JSON. This detached operation does not charge
+    /// a session, bound prior planning, or redact values.
+    /// Access operands and predicate/HAVING trees are summarized, not dumped.
+    /// Existing clause labels can still contain literal values.
+    pub fn render_json_canonical(&self) -> Result<String, QueryError> {
+        render_logical(|out| write_logical_explain_json(self, out))
     }
 }
 
 ///
 /// ExplainGrouping
 ///
-/// Grouped-shape annotation for deterministic explain/fingerprint surfaces.
+/// Grouped-shape annotation for deterministic explain reports.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -261,7 +222,7 @@ pub enum ExplainGrouping {
 ///
 /// ExplainGroupField
 ///
-/// Stable grouped-key field identity carried by explain/hash surfaces.
+/// Stable grouped-key field identity carried by explain reports.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -343,14 +304,6 @@ impl ExplainGroupAggregate {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainGroupHaving {
     pub(in crate::db) expr: Expr,
-}
-
-impl ExplainGroupHaving {
-    /// Borrow grouped HAVING expression.
-    #[must_use]
-    pub(in crate::db) const fn expr(&self) -> &Expr {
-        &self.expr
-    }
 }
 
 ///
@@ -484,52 +437,68 @@ impl ExplainAccessDecision {
     fn from_snapshot(
         selected_access: &ExplainAccessPath,
         snapshot: &AccessChoiceExplainSnapshot,
-    ) -> Self {
-        let selected_label = explain_access_strategy_label(selected_access);
-        let selected_candidate =
-            selected_candidate_summary(selected_index_name(selected_access), &snapshot.candidates);
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        let selected_label =
+            work.render_text(|out| write_explain_access_strategy_label(selected_access, out))?;
+        let index_name = selected_index_name(selected_access)
+            .map(|name| work.copy_text(name))
+            .transpose()?;
+        // Match the first selected identity while copying candidates, avoiding
+        // a second list walk. Labels are diagnostic text, never matching keys.
+        let mut selected_candidate = None;
+        let mut candidates = work.vec_with_capacity(snapshot.candidates.len())?;
+        for candidate in &snapshot.candidates {
+            let copied = ExplainAccessCandidate::from_candidate(candidate, work)?;
+            if selected_candidate.is_none()
+                && let Some(name) = index_name.as_deref()
+                && name.len() == candidate.index_name().len()
+            {
+                work.charge(Resource::PredicateExpressionSteps, name.len() as u64)?;
+                if name == candidate.index_name() {
+                    selected_candidate = Some(candidate);
+                }
+            }
+            candidates.push(copied);
+        }
 
-        Self {
+        Ok(Self {
             selected: ExplainSelectedAccess {
                 kind: ExplainAccessDecisionKind::from_access_path(selected_access),
-                index_name: selected_index_name(selected_access).map(ToOwned::to_owned),
+                index_name,
                 label: selected_label,
                 reason: snapshot.chosen_reason().code(),
             },
-            candidates: snapshot
-                .candidates
-                .iter()
-                .map(ExplainAccessCandidate::from_candidate)
-                .collect(),
-            alternatives: snapshot
-                .alternatives
-                .iter()
-                .map(|index_name| ExplainEligibleAlternative {
-                    index_name: index_name.clone(),
+            candidates,
+            alternatives: work.copy_slice(&snapshot.alternatives, |name| {
+                Ok(ExplainEligibleAlternative {
+                    index_name: work.copy_text(name)?,
                 })
-                .collect(),
-            rejections: snapshot
-                .rejected
-                .iter()
-                .map(ExplainRejectedIndex::from_rejection)
-                .collect(),
+            })?,
+            rejections: work.copy_slice(&snapshot.rejected, |rejection| {
+                ExplainRejectedIndex::from_rejection(rejection, work)
+            })?,
             residual: ExplainResidualSummary::from_selected_access_and_candidate(
-                selected_access,
+                access_bound_predicate_count(selected_access, work)?,
                 selected_candidate,
                 snapshot.chosen_reason(),
             ),
             cardinality_evidence_state: snapshot.cardinality_evidence_state,
-        }
+        })
     }
+}
 
-    fn render_compact_summary(&self) -> String {
+impl fmt::Display for ExplainAccessDecision {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
         let index = self
             .selected
             .index_name
             .as_deref()
             .map_or("none", |index| index);
 
-        format!(
+        write!(
+            out,
             "kind={} index={} reason={} residual={} cardinality_evidence={} candidates={} alternatives={} rejections={}",
             self.selected.kind.code(),
             index,
@@ -635,9 +604,13 @@ pub struct ExplainAccessCandidate {
 }
 
 impl ExplainAccessCandidate {
-    fn from_candidate(candidate: &AccessChoiceCandidateExplainSummary) -> Self {
-        Self {
-            label: candidate.label(),
+    fn from_candidate(
+        candidate: &AccessChoiceCandidateExplainSummary,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        Ok(Self {
+            label: work.render_text(|out| write!(out, "{candidate}"))?,
             exact: candidate.exact,
             filtered: candidate.filtered,
             range_bound_count: candidate.range_bound_count,
@@ -645,7 +618,7 @@ impl ExplainAccessCandidate {
             residual_burden: candidate.residual_burden.label(),
             residual_predicate_terms: candidate.residual_predicate_terms,
             exact_prefix_entries: candidate.exact_prefix_entries,
-        }
+        })
     }
 }
 
@@ -668,12 +641,16 @@ pub struct ExplainRejectedIndex {
 }
 
 impl ExplainRejectedIndex {
-    fn from_rejection(rejection: &AccessChoiceRejectedIndex) -> Self {
-        Self {
-            index_name: Some(rejection.index_name().to_string()),
-            reason: Some(rejection.reason_code().to_string()),
-            label: rejection.label(),
-        }
+    fn from_rejection(
+        rejection: &AccessChoiceRejectedIndex,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        Ok(Self {
+            index_name: Some(work.copy_text(rejection.index_name())?),
+            reason: Some(work.copy_text(rejection.reason_code())?),
+            label: work.render_text(|out| write!(out, "{rejection}"))?,
+        })
     }
 }
 
@@ -693,8 +670,8 @@ pub struct ExplainResidualSummary {
 }
 
 impl ExplainResidualSummary {
-    fn from_selected_access_and_candidate(
-        selected_access: &ExplainAccessPath,
+    const fn from_selected_access_and_candidate(
+        access_bound_predicate_count: usize,
         selected_candidate: Option<&AccessChoiceCandidateExplainSummary>,
         selected_reason: AccessChoiceSelectedReason,
     ) -> Self {
@@ -706,30 +683,27 @@ impl ExplainResidualSummary {
                     AccessChoiceResidualBurden::ScalarExpression
                 ),
                 has_residual_predicate: candidate.residual_predicate_terms > 0,
-                access_bound_predicate_count: access_bound_predicate_count(selected_access),
+                access_bound_predicate_count,
                 residual_predicate_count: candidate.residual_predicate_terms,
             }
+        } else if matches!(
+            selected_reason,
+            AccessChoiceSelectedReason::PlannerExactIndexIntersection
+        ) {
+            Self {
+                burden_class: AccessChoiceResidualBurden::PredicateOnly.label(),
+                has_residual_filter: false,
+                has_residual_predicate: true,
+                access_bound_predicate_count,
+                residual_predicate_count: access_bound_predicate_count,
+            }
         } else {
-            let access_bound_predicate_count = access_bound_predicate_count(selected_access);
-            if matches!(
-                selected_reason,
-                AccessChoiceSelectedReason::PlannerExactIndexIntersection
-            ) {
-                Self {
-                    burden_class: AccessChoiceResidualBurden::PredicateOnly.label(),
-                    has_residual_filter: false,
-                    has_residual_predicate: true,
-                    access_bound_predicate_count,
-                    residual_predicate_count: access_bound_predicate_count,
-                }
-            } else {
-                Self {
-                    burden_class: AccessChoiceResidualBurden::None.label(),
-                    has_residual_filter: false,
-                    has_residual_predicate: false,
-                    access_bound_predicate_count,
-                    residual_predicate_count: 0,
-                }
+            Self {
+                burden_class: AccessChoiceResidualBurden::None.label(),
+                has_residual_filter: false,
+                has_residual_predicate: false,
+                access_bound_predicate_count,
+                residual_predicate_count: 0,
             }
         }
     }
@@ -739,7 +713,7 @@ impl ExplainResidualSummary {
 /// ExplainPredicate
 ///
 /// Deterministic projection of canonical predicate structure for explain output.
-/// This preserves normalized predicate shape used by hashing/fingerprints.
+/// This preserves the planner's normalized predicate shape for inspection.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -850,30 +824,33 @@ pub enum ExplainDeleteLimit {
     Window { limit: Option<u32>, offset: u32 },
 }
 
+impl SharedPreparedExecutionPlan {
+    /// Project a finalized shared plan without rebuilding its execution facts.
+    /// The session must establish current authority and cache validity before
+    /// calling; this operation owns diagnostic construction only.
+    pub(in crate::db) fn explain(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<ExplainPlan, QueryError> {
+        self.logical_plan().project_explain(work)
+    }
+}
+
 impl AccessPlannedQuery {
     /// Produce a stable, deterministic explanation of this logical plan.
-    #[must_use]
-    pub(in crate::db) fn explain(&self) -> ExplainPlan {
-        self.explain_inner()
-    }
+    /// Diagnostic construction consumes the caller's existing request budget;
+    /// it never mutates the borrowed plan or resets that budget on cache hits.
+    pub(in crate::db::query) fn project_explain(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<ExplainPlan, QueryError> {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
 
-    fn explain_inner(&self) -> ExplainPlan {
         // Phase 1: project logical plan variant into scalar core + grouped metadata.
         let (logical, grouping) = match &self.logical {
             LogicalPlan::Scalar(logical) => (logical, ExplainGrouping::None),
             LogicalPlan::Grouped(logical) => {
-                let grouped_strategy = grouped_plan_strategy(self).unwrap_or_else(|| {
-                    debug_assert!(
-                        grouped_plan_strategy(self).is_some(),
-                        "grouped logical explain projection requires planner-owned grouped strategy",
-                    );
-                    GroupedPlanStrategy::hash_group_with_aggregate_family(
-                        GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
-                        GroupedPlanAggregateFamily::from_grouped_aggregates(
-                            logical.group.aggregates.as_slice(),
-                        ),
-                    )
-                });
+                let grouped_strategy = grouped_plan_strategy_for_explain(self, logical, work)?;
 
                 (
                     &logical.scalar,
@@ -882,33 +859,49 @@ impl AccessPlannedQuery {
                         fallback_reason: grouped_strategy
                             .fallback_reason()
                             .map(GroupedPlanFallbackReason::code),
-                        group_fields: logical
-                            .group
-                            .group_fields
-                            .iter()
-                            .map(|group_field| ExplainGroupField {
-                                slot_index: group_field.root_slot(),
-                                field: group_field.field().to_string(),
-                                path: group_field.as_scalar_path().map(|path| path.path().clone()),
-                            })
-                            .collect(),
-                        aggregates: logical
-                            .group
-                            .aggregates
-                            .iter()
-                            .map(|aggregate| ExplainGroupAggregate {
+                        group_fields: {
+                            let mut fields =
+                                work.vec_with_capacity(logical.group.group_fields.len())?;
+                            for group_field in logical.group.group_fields.iter() {
+                                fields.push(ExplainGroupField {
+                                    slot_index: group_field.root_slot(),
+                                    field: work.copy_text(group_field.field())?,
+                                    path: group_field
+                                        .as_scalar_path()
+                                        .map(|path| {
+                                            let path = path.path();
+                                            Ok::<_, QueryError>(PathSpec::new(
+                                                work.copy_text(path.root().as_str())?,
+                                                work.copy_slice(path.segments(), |segment| {
+                                                    work.copy_text(segment)
+                                                })?,
+                                            ))
+                                        })
+                                        .transpose()?,
+                                });
+                            }
+                            fields
+                        },
+                        aggregates: work.copy_slice(&logical.group.aggregates, |aggregate| {
+                            work.charge(Resource::PredicateExpressionSteps, 1)?;
+                            Ok(ExplainGroupAggregate {
                                 kind: aggregate.kind(),
-                                target_field: aggregate.target_field().map(str::to_string),
+                                target_field: aggregate
+                                    .target_field()
+                                    .map(|field| work.copy_text(field))
+                                    .transpose()?,
                                 input_expr: aggregate
                                     .input_expr()
-                                    .map(render_scalar_projection_expr_plan_label),
+                                    .map(|expr| explain_expr_label(expr, work))
+                                    .transpose()?,
                                 filter_expr: aggregate
                                     .filter_expr()
-                                    .map(render_scalar_projection_expr_plan_label),
+                                    .map(|expr| explain_expr_label(expr, work))
+                                    .transpose()?,
                                 distinct: aggregate.raw_distinct(),
                             })
-                            .collect(),
-                        having: explain_group_having(logical),
+                        })?,
+                        having: explain_group_having(logical, work)?,
                         max_groups: logical.group.execution.max_groups(),
                         max_group_bytes: logical.group.execution.max_group_bytes(),
                     },
@@ -917,55 +910,64 @@ impl AccessPlannedQuery {
         };
 
         // Phase 2: project scalar plan + access path into deterministic explain surface.
-        explain_scalar_inner(logical, grouping, &self.access, self.access_choice())
+        explain_scalar_inner(logical, grouping, &self.access, self.access_choice(), work)
     }
 }
 
-fn explain_group_having(logical: &crate::db::query::plan::GroupPlan) -> Option<ExplainGroupHaving> {
-    Some(ExplainGroupHaving {
-        expr: logical.having_expr()?.clone(),
-    })
+fn explain_group_having(
+    logical: &crate::db::query::plan::GroupPlan,
+    work: &PreparationWork<'_>,
+) -> Result<Option<ExplainGroupHaving>, QueryError> {
+    logical
+        .having_expr()
+        .map(|expr| {
+            Ok(ExplainGroupHaving {
+                expr: work.copy_expr(expr)?,
+            })
+        })
+        .transpose()
 }
 
-fn explain_scalar_inner<K>(
+// Render the canonical model directly into the request-owned construction
+// sink. Do not re-normalize syntax or allocate an uncharged intermediate label.
+fn explain_expr_label(expr: &Expr, work: &PreparationWork<'_>) -> Result<String, QueryError> {
+    work.render_text(|out| write_scalar_projection_expr_plan_label(expr, out))
+}
+
+fn explain_scalar_inner(
     logical: &ScalarPlan,
     grouping: ExplainGrouping,
-    access: &AccessPlan<K>,
+    access: &AccessPlan<Value>,
     access_choice: &AccessChoiceExplainSnapshot,
-) -> ExplainPlan
-where
-    K: KeyValueCodec,
-{
+    work: &PreparationWork<'_>,
+) -> Result<ExplainPlan, QueryError> {
     // Phase 1: consume canonical predicate model from planner-owned scalar semantics.
     let filter_expr = logical
         .filter_expr
         .as_ref()
-        .map(render_scalar_filter_expr_plan_label);
-    let filter_expr_model = logical.filter_expr.clone();
-    let predicate_model = logical.predicate.clone();
-    let predicate = match &predicate_model {
-        Some(predicate) => ExplainPredicate::from_predicate(predicate),
+        .map(|expr| explain_expr_label(expr, work))
+        .transpose()?;
+    let predicate = match &logical.predicate {
+        Some(predicate) => ExplainPredicate::from_predicate(predicate, work)?,
         None => ExplainPredicate::None,
     };
 
     // Phase 2: project scalar-plan fields into explain-specific enums.
-    let order_by = explain_order(logical.order.as_ref());
+    let order_by = explain_order(logical.order.as_ref(), work)?;
     let order_pushdown = explain_order_pushdown();
     let page = explain_page(logical.page.as_ref());
     let delete_limit = explain_delete_limit(logical.delete_limit.as_ref());
 
     // Phase 3: assemble one stable explain payload.
-    let access = explain_access_plan(access);
-    let access_decision = ExplainAccessDecision::from_snapshot(&access, access_choice);
+    let access = explain_access_plan(access, work)?;
+    let access_decision = ExplainAccessDecision::from_snapshot(&access, access_choice, work)?;
 
-    ExplainPlan {
+    Ok(ExplainPlan {
         mode: logical.mode,
         access,
         access_decision,
         filter_expr,
-        filter_expr_model,
         predicate,
-        predicate_model,
         order_by,
         distinct: logical.distinct,
         grouping,
@@ -973,18 +975,7 @@ where
         page,
         delete_limit,
         consistency: logical.consistency,
-    }
-}
-
-fn selected_candidate_summary<'a>(
-    selected_index_name: Option<&str>,
-    candidates: &'a [AccessChoiceCandidateExplainSummary],
-) -> Option<&'a AccessChoiceCandidateExplainSummary> {
-    let selected_index_name = selected_index_name?;
-
-    candidates
-        .iter()
-        .find(|candidate| candidate.index_name() == selected_index_name)
+    })
 }
 
 const fn selected_index_name(access: &ExplainAccessPath) -> Option<&str> {
@@ -1002,8 +993,12 @@ const fn selected_index_name(access: &ExplainAccessPath) -> Option<&str> {
     }
 }
 
-fn access_bound_predicate_count(access: &ExplainAccessPath) -> usize {
-    match access {
+fn access_bound_predicate_count(
+    access: &ExplainAccessPath,
+    work: &PreparationWork<'_>,
+) -> Result<usize, QueryError> {
+    work.charge(Resource::PredicateExpressionSteps, 1)?;
+    Ok(match access {
         ExplainAccessPath::ByKey { .. }
         | ExplainAccessPath::ByKeys { .. }
         | ExplainAccessPath::IndexMultiLookup { .. } => 1,
@@ -1022,9 +1017,13 @@ fn access_bound_predicate_count(access: &ExplainAccessPath) -> usize {
         } => *prefix_len + bound_constraint_count(lower) + bound_constraint_count(upper),
         ExplainAccessPath::FullScan => 0,
         ExplainAccessPath::Union(children) | ExplainAccessPath::Intersection(children) => {
-            children.iter().map(access_bound_predicate_count).sum()
+            let mut count = 0;
+            for child in children {
+                count += access_bound_predicate_count(child, work)?;
+            }
+            count
         }
-    }
+    })
 }
 
 const fn bound_constraint_count(bound: &Bound<Value>) -> usize {
@@ -1034,88 +1033,35 @@ const fn bound_constraint_count(bound: &Bound<Value>) -> usize {
     }
 }
 
-const fn explain_order_pushdown() -> ExplainOrderPushdown {
+pub(in crate::db) const fn explain_order_pushdown() -> ExplainOrderPushdown {
     // Query explain does not own physical pushdown feasibility routing.
     ExplainOrderPushdown::MissingModelContext
 }
 
-impl ExplainPredicate {
-    pub(in crate::db) fn from_predicate(predicate: &Predicate) -> Self {
-        match predicate {
-            Predicate::True => Self::True,
-            Predicate::False => Self::False,
-            Predicate::And(children) => {
-                Self::And(children.iter().map(Self::from_predicate).collect())
-            }
-            Predicate::Or(children) => {
-                Self::Or(children.iter().map(Self::from_predicate).collect())
-            }
-            Predicate::Not(inner) => Self::Not(Box::new(Self::from_predicate(inner))),
-            Predicate::Compare(compare) => Self::from_compare(compare),
-            Predicate::CompareFields(compare) => Self::CompareFields {
-                left_field: compare.left_field().to_string(),
-                op: compare.op(),
-                right_field: compare.right_field().to_string(),
-                coercion: compare.coercion().clone(),
-            },
-            Predicate::IsNull { field } => Self::IsNull {
-                field: field.clone(),
-            },
-            Predicate::IsNotNull { field } => Self::IsNotNull {
-                field: field.clone(),
-            },
-            Predicate::IsMissing { field } => Self::IsMissing {
-                field: field.clone(),
-            },
-            Predicate::IsEmpty { field } => Self::IsEmpty {
-                field: field.clone(),
-            },
-            Predicate::IsNotEmpty { field } => Self::IsNotEmpty {
-                field: field.clone(),
-            },
-            Predicate::TextContains { field, value } => Self::TextContains {
-                field: field.clone(),
-                value: value.clone(),
-            },
-            Predicate::TextContainsCi { field, value } => Self::TextContainsCi {
-                field: field.clone(),
-                value: value.clone(),
-            },
-        }
-    }
-
-    fn from_compare(compare: &ComparePredicate) -> Self {
-        Self::Compare {
-            field: compare.field.clone(),
-            op: compare.op,
-            value: compare.value.clone(),
-            coercion: compare.coercion.clone(),
-        }
-    }
-}
-
-fn explain_order(order: Option<&OrderSpec>) -> ExplainOrderBy {
+fn explain_order(
+    order: Option<&OrderSpec>,
+    work: &PreparationWork<'_>,
+) -> Result<ExplainOrderBy, QueryError> {
     let Some(order) = order else {
-        return ExplainOrderBy::None;
+        return Ok(ExplainOrderBy::None);
     };
 
     if order.fields.is_empty() {
-        return ExplainOrderBy::None;
+        return Ok(ExplainOrderBy::None);
     }
 
-    ExplainOrderBy::Fields(
-        order
-            .fields
-            .iter()
-            .map(|term| ExplainOrder {
-                field: term.rendered_label(),
+    Ok(ExplainOrderBy::Fields(work.copy_slice(
+        &order.fields,
+        |term| {
+            Ok(ExplainOrder {
+                field: explain_expr_label(term.expr(), work)?,
                 direction: term.direction(),
             })
-            .collect(),
-    )
+        },
+    )?))
 }
 
-const fn explain_page(page: Option<&PageSpec>) -> ExplainPagination {
+pub(in crate::db) const fn explain_page(page: Option<&PageSpec>) -> ExplainPagination {
     match page {
         Some(page) => ExplainPagination::Page {
             limit: page.limit,
@@ -1142,182 +1088,266 @@ const fn explain_delete_limit(limit: Option<&DeleteLimitSpec>) -> ExplainDeleteL
     }
 }
 
-fn write_logical_explain_json(explain: &ExplainPlan, out: &mut String) {
-    let mut object = JsonWriter::begin_object(out);
+fn write_logical_explain_json(explain: &ExplainPlan, out: &mut dyn fmt::Write) -> fmt::Result {
+    let mut object = JsonWriter::begin_object(out)?;
     object.field_with("mode", |out| {
-        let mut object = JsonWriter::begin_object(out);
+        let mut object = JsonWriter::begin_object(out)?;
         match explain.mode() {
             QueryMode::Load(spec) => {
-                object.field_str("type", "Load");
+                object.field_str("type", "Load")?;
                 match spec.limit() {
-                    Some(limit) => object.field_u64("limit", u64::from(limit)),
-                    None => object.field_null("limit"),
+                    Some(limit) => object.field_u64("limit", u64::from(limit))?,
+                    None => object.field_null("limit")?,
                 }
-                object.field_u64("offset", u64::from(spec.offset()));
+                object.field_u64("offset", u64::from(spec.offset()))?;
             }
             QueryMode::Delete(spec) => {
-                object.field_str("type", "Delete");
+                object.field_str("type", "Delete")?;
                 match spec.limit() {
-                    Some(limit) => object.field_u64("limit", u64::from(limit)),
-                    None => object.field_null("limit"),
+                    Some(limit) => object.field_u64("limit", u64::from(limit))?,
+                    None => object.field_null("limit")?,
                 }
             }
         }
-        object.finish();
-    });
+        object.finish()?;
+        Ok(())
+    })?;
     object.field_with("access", |out| {
-        write_access_json_detailed(explain.access(), out);
-    });
+        write_access_json(explain.access(), out)?;
+        Ok(())
+    })?;
     object.field_with("access_decision", |out| {
-        write_access_decision_json(explain.access_decision(), out);
-    });
+        write_access_decision_json(explain.access_decision(), out)?;
+        Ok(())
+    })?;
     match explain.filter_expr() {
-        Some(filter_expr) => object.field_str("filter_expr", filter_expr),
-        None => object.field_null("filter_expr"),
+        Some(filter_expr) => object.field_str("filter_expr", filter_expr)?,
+        None => object.field_null("filter_expr")?,
     }
-    object.field_value_debug("predicate", explain.predicate());
-    object.field_value_debug("order_by", explain.order_by());
-    object.field_bool("distinct", explain.distinct());
-    object.field_value_debug("grouping", explain.grouping());
-    object.field_value_debug("order_pushdown", explain.order_pushdown());
+    object.field_bool(
+        "has_predicate",
+        !matches!(explain.predicate(), ExplainPredicate::None),
+    )?;
+    object.field_value_debug("order_by", explain.order_by())?;
+    object.field_bool("distinct", explain.distinct())?;
+    object.field_with("grouping", |out| {
+        write_grouping_json(explain.grouping(), out)
+    })?;
+    object.field_value_debug("order_pushdown", explain.order_pushdown())?;
     object.field_with("page", |out| {
-        let mut object = JsonWriter::begin_object(out);
+        let mut object = JsonWriter::begin_object(out)?;
         match explain.page() {
             ExplainPagination::None => {
-                object.field_str("type", "None");
+                object.field_str("type", "None")?;
             }
             ExplainPagination::Page { limit, offset } => {
-                object.field_str("type", "Page");
+                object.field_str("type", "Page")?;
                 match limit {
-                    Some(limit) => object.field_u64("limit", u64::from(*limit)),
-                    None => object.field_null("limit"),
+                    Some(limit) => object.field_u64("limit", u64::from(*limit))?,
+                    None => object.field_null("limit")?,
                 }
-                object.field_u64("offset", u64::from(*offset));
+                object.field_u64("offset", u64::from(*offset))?;
             }
         }
-        object.finish();
-    });
+        object.finish()?;
+        Ok(())
+    })?;
     object.field_with("delete_limit", |out| {
-        let mut object = JsonWriter::begin_object(out);
+        let mut object = JsonWriter::begin_object(out)?;
         match explain.delete_limit() {
             ExplainDeleteLimit::None => {
-                object.field_str("type", "None");
+                object.field_str("type", "None")?;
             }
             ExplainDeleteLimit::Limit { max_rows } => {
-                object.field_str("type", "Limit");
-                object.field_u64("max_rows", u64::from(*max_rows));
+                object.field_str("type", "Limit")?;
+                object.field_u64("max_rows", u64::from(*max_rows))?;
             }
             ExplainDeleteLimit::Window { limit, offset } => {
-                object.field_str("type", "Window");
+                object.field_str("type", "Window")?;
                 object.field_with("limit", |out| match limit {
-                    Some(limit) => out.push_str(&limit.to_string()),
-                    None => out.push_str("null"),
-                });
-                object.field_u64("offset", u64::from(*offset));
+                    Some(limit) => write!(out, "{limit}"),
+                    None => out.write_str("null"),
+                })?;
+                object.field_u64("offset", u64::from(*offset))?;
             }
         }
-        object.finish();
-    });
-    object.field_value_debug("consistency", &explain.consistency());
-    object.finish();
+        object.finish()?;
+        Ok(())
+    })?;
+    object.field_value_debug("consistency", &explain.consistency())?;
+    object.finish()
 }
 
-fn write_access_decision_json(decision: &ExplainAccessDecision, out: &mut String) {
-    let mut object = JsonWriter::begin_object(out);
-    object.field_with("selected", |out| {
-        let mut selected = JsonWriter::begin_object(out);
-        selected.field_str("kind", decision.selected.kind.code());
-        match decision.selected.index_name.as_deref() {
-            Some(index_name) => selected.field_str("index_name", index_name),
-            None => selected.field_null("index_name"),
+// Canonical output describes grouping decisions and already-admitted labels.
+// It never formats the retained HAVING expression or its arbitrary-size values.
+fn write_grouping_json(grouping: &ExplainGrouping, out: &mut dyn fmt::Write) -> fmt::Result {
+    let ExplainGrouping::Grouped {
+        strategy,
+        fallback_reason,
+        group_fields,
+        aggregates,
+        having,
+        max_groups,
+        max_group_bytes,
+    } = grouping
+    else {
+        return out.write_str("null");
+    };
+    let mut object = JsonWriter::begin_object(out)?;
+    object.field_str("strategy", strategy)?;
+    match fallback_reason {
+        Some(reason) => object.field_str("fallback_reason", reason)?,
+        None => object.field_null("fallback_reason")?,
+    }
+    object.field_with("group_fields", |out| {
+        out.write_char('[')?;
+        for (index, field) in group_fields.iter().enumerate() {
+            if index != 0 {
+                out.write_char(',')?;
+            }
+            let mut field_object = JsonWriter::begin_object(out)?;
+            field_object.field_u64("slot_index", field.slot_index as u64)?;
+            field_object.field_str("field", &field.field)?;
+            field_object.finish()?;
         }
-        selected.field_str("label", decision.selected.label.as_str());
-        selected.field_str("reason", decision.selected.reason);
-        selected.finish();
-    });
+        out.write_char(']')
+    })?;
+    object.field_with("aggregates", |out| {
+        out.write_char('[')?;
+        for (index, aggregate) in aggregates.iter().enumerate() {
+            if index != 0 {
+                out.write_char(',')?;
+            }
+            let mut aggregate_object = JsonWriter::begin_object(out)?;
+            aggregate_object.field_value_debug("kind", &aggregate.kind)?;
+            for (name, label) in [
+                ("target_field", aggregate.target_field()),
+                ("input_expr", aggregate.input_expr()),
+                ("filter_expr", aggregate.filter_expr()),
+            ] {
+                match label {
+                    Some(label) => aggregate_object.field_str(name, label)?,
+                    None => aggregate_object.field_null(name)?,
+                }
+            }
+            aggregate_object.field_bool("distinct", aggregate.distinct)?;
+            aggregate_object.finish()?;
+        }
+        out.write_char(']')
+    })?;
+    object.field_bool("has_having", having.is_some())?;
+    object.field_u64("max_groups", *max_groups)?;
+    object.field_u64("max_group_bytes", *max_group_bytes)?;
+    object.finish()
+}
+
+fn write_access_decision_json(
+    decision: &ExplainAccessDecision,
+    out: &mut dyn fmt::Write,
+) -> fmt::Result {
+    let mut object = JsonWriter::begin_object(out)?;
+    object.field_with("selected", |out| {
+        let mut selected = JsonWriter::begin_object(out)?;
+        selected.field_str("kind", decision.selected.kind.code())?;
+        match decision.selected.index_name.as_deref() {
+            Some(index_name) => selected.field_str("index_name", index_name)?,
+            None => selected.field_null("index_name")?,
+        }
+        selected.field_str("label", decision.selected.label.as_str())?;
+        selected.field_str("reason", decision.selected.reason)?;
+        selected.finish()?;
+        Ok(())
+    })?;
     object.field_with("candidates", |out| {
-        out.push('[');
+        out.write_char('[')?;
         for (index, candidate) in decision.candidates.iter().enumerate() {
             if index > 0 {
-                out.push(',');
+                out.write_char(',')?;
             }
-            write_access_candidate_json(candidate, out);
+            write_access_candidate_json(candidate, out)?;
         }
-        out.push(']');
-    });
+        out.write_char(']')?;
+        Ok(())
+    })?;
     object.field_with("alternatives", |out| {
-        out.push('[');
+        out.write_char('[')?;
         for (index, alternative) in decision.alternatives.iter().enumerate() {
             if index > 0 {
-                out.push(',');
+                out.write_char(',')?;
             }
-            let mut object = JsonWriter::begin_object(out);
-            object.field_str("index_name", alternative.index_name.as_str());
-            object.finish();
+            let mut object = JsonWriter::begin_object(out)?;
+            object.field_str("index_name", alternative.index_name.as_str())?;
+            object.finish()?;
         }
-        out.push(']');
-    });
+        out.write_char(']')?;
+        Ok(())
+    })?;
     object.field_with("rejections", |out| {
-        out.push('[');
+        out.write_char('[')?;
         for (index, rejection) in decision.rejections.iter().enumerate() {
             if index > 0 {
-                out.push(',');
+                out.write_char(',')?;
             }
-            let mut object = JsonWriter::begin_object(out);
+            let mut object = JsonWriter::begin_object(out)?;
             match rejection.index_name.as_deref() {
-                Some(index_name) => object.field_str("index_name", index_name),
-                None => object.field_null("index_name"),
+                Some(index_name) => object.field_str("index_name", index_name)?,
+                None => object.field_null("index_name")?,
             }
             match rejection.reason.as_deref() {
-                Some(reason) => object.field_str("reason", reason),
-                None => object.field_null("reason"),
+                Some(reason) => object.field_str("reason", reason)?,
+                None => object.field_null("reason")?,
             }
-            object.field_str("label", rejection.label.as_str());
-            object.finish();
+            object.field_str("label", rejection.label.as_str())?;
+            object.finish()?;
         }
-        out.push(']');
-    });
+        out.write_char(']')?;
+        Ok(())
+    })?;
     object.field_with("residual", |out| {
-        let mut residual = JsonWriter::begin_object(out);
-        residual.field_str("burden_class", decision.residual.burden_class);
-        residual.field_bool("has_residual_filter", decision.residual.has_residual_filter);
+        let mut residual = JsonWriter::begin_object(out)?;
+        residual.field_str("burden_class", decision.residual.burden_class)?;
+        residual.field_bool("has_residual_filter", decision.residual.has_residual_filter)?;
         residual.field_bool(
             "has_residual_predicate",
             decision.residual.has_residual_predicate,
-        );
+        )?;
         residual.field_u64(
             "access_bound_predicate_count",
             decision.residual.access_bound_predicate_count as u64,
-        );
+        )?;
         residual.field_u64(
             "residual_predicate_count",
             decision.residual.residual_predicate_count as u64,
-        );
-        residual.finish();
-    });
+        )?;
+        residual.finish()?;
+        Ok(())
+    })?;
     object.field_str(
         "cardinality_evidence_state",
         decision.cardinality_evidence_state,
-    );
-    object.finish();
+    )?;
+    object.finish()
 }
 
-fn write_access_candidate_json(candidate: &ExplainAccessCandidate, out: &mut String) {
-    let mut object = JsonWriter::begin_object(out);
-    object.field_str("label", candidate.label.as_str());
-    object.field_bool("exact", candidate.exact);
-    object.field_bool("filtered", candidate.filtered);
-    object.field_u64("range_bound_count", candidate.range_bound_count as u64);
-    object.field_bool("order_compatible", candidate.order_compatible);
-    object.field_str("residual_burden", candidate.residual_burden);
+fn write_access_candidate_json(
+    candidate: &ExplainAccessCandidate,
+    out: &mut dyn fmt::Write,
+) -> fmt::Result {
+    let mut object = JsonWriter::begin_object(out)?;
+    object.field_str("label", candidate.label.as_str())?;
+    object.field_bool("exact", candidate.exact)?;
+    object.field_bool("filtered", candidate.filtered)?;
+    object.field_u64("range_bound_count", candidate.range_bound_count as u64)?;
+    object.field_bool("order_compatible", candidate.order_compatible)?;
+    object.field_str("residual_burden", candidate.residual_burden)?;
     object.field_u64(
         "residual_predicate_terms",
         candidate.residual_predicate_terms as u64,
-    );
+    )?;
     if let Some(entries) = candidate.exact_prefix_entries {
-        object.field_u64("exact_prefix_entries", entries);
+        object.field_u64("exact_prefix_entries", entries)?;
     } else {
-        object.field_null("exact_prefix_entries");
+        object.field_null("exact_prefix_entries")?;
     }
-    object.finish();
+    object.finish()
 }

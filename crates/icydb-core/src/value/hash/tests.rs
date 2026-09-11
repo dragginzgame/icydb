@@ -15,6 +15,63 @@ fn hash_contract_seed_and_version_are_frozen() {
 }
 
 #[test]
+fn bigint_hash_streams_preserve_candid_bytes_and_single_list_framing() {
+    for bit in [
+        0_usize, 6, 7, 31, 32, 63, 64, 447, 448, 449, 895, 896, 897, 16384,
+    ] {
+        let magnitude = num_bigint::BigUint::from(1_u8) << bit;
+        let mut unsigned_bytes = Vec::new();
+        candid::Nat::from(magnitude.clone())
+            .encode(&mut unsigned_bytes)
+            .unwrap();
+        let mut cases = vec![(
+            Value::NatBig(crate::types::NatBig::from_biguint(magnitude.clone())),
+            unsigned_bytes,
+        )];
+        for integer in [
+            num_bigint::BigInt::from(magnitude.clone()),
+            -num_bigint::BigInt::from(magnitude),
+        ] {
+            let mut bytes = Vec::new();
+            candid::Int::from(integer.clone())
+                .encode(&mut bytes)
+                .unwrap();
+            cases.push((
+                Value::IntBig(crate::types::IntBig::from_bigint(integer)),
+                bytes,
+            ));
+        }
+        for (value, bytes) in cases {
+            for list in [false, true] {
+                let mut expected = Xxh3::with_seed(VALUE_HASH_SEED);
+                feed_u8(&mut expected, VALUE_HASH_VERSION);
+                if list {
+                    feed_u8(&mut expected, ValueTag::List.to_u8());
+                    feed_u32(&mut expected, 1);
+                    feed_u8(&mut expected, 0xFF);
+                }
+                feed_u8(&mut expected, value.canonical_tag().to_u8());
+                feed_len_u32(&mut expected, bytes.len()).unwrap();
+                feed_bytes(&mut expected, &bytes);
+                let expected = expected.digest128().to_be_bytes();
+                if list {
+                    assert_eq!(
+                        hash_value(&Value::List(vec![value.clone()])).unwrap(),
+                        expected
+                    );
+                    assert_eq!(
+                        hash_single_list_identity_canonical_value(&value).unwrap(),
+                        Some(expected)
+                    );
+                } else {
+                    assert_eq!(hash_value(&value).unwrap(), expected);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn hash_digest_contract_vectors_are_frozen_for_upgrade_stability() {
     let vectors = vec![
         (

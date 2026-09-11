@@ -28,6 +28,7 @@ pub enum TraitKind {
     Ord,
     PartialEq,
     PartialOrd,
+    Serialize,
 
     // math
     Add,
@@ -90,6 +91,7 @@ impl ApplicationTypeKind {
         baseline: &TraitSet,
     ) -> Option<ConfigurableTraitPolicy> {
         match trait_kind {
+            TraitKind::Serialize => Some(ConfigurableTraitPolicy::OptIn),
             TraitKind::Copy | TraitKind::Hash | TraitKind::Ord | TraitKind::PartialOrd => Some(
                 ConfigurableTraitPolicy::from_baseline(baseline.contains(trait_kind)),
             ),
@@ -191,6 +193,7 @@ impl FromStr for TraitKind {
             "Debug" => Ok(Self::Debug),
             "Default" => Ok(Self::Default),
             "Deserialize" => Ok(Self::Deserialize),
+            "Serialize" => Ok(Self::Serialize),
             "Deref" => Ok(Self::Deref),
             "DerefMut" => Ok(Self::DerefMut),
             "Display" => Ok(Self::Display),
@@ -247,6 +250,7 @@ const REQUIRED_TYPE_TRAITS: &[TraitKind] = &[
 ];
 
 const CONFIGURABLE_TYPE_TRAITS: &[TraitKind] = &[
+    TraitKind::Serialize,
     TraitKind::Copy,
     TraitKind::Default,
     TraitKind::Deref,
@@ -338,6 +342,7 @@ impl TraitKind {
             Self::RemAssign => Some(quote!(
                 ::icydb_model::__reexports::icydb_model_macros::RemAssign
             )),
+            Self::Serialize => Some(quote!(::icydb_model::__reexports::serde::Serialize)),
             Self::Sub => Some(quote!(::icydb_model::__reexports::icydb_model_macros::Sub)),
             Self::SubAssign => Some(quote!(
                 ::icydb_model::__reexports::icydb_model_macros::SubAssign
@@ -414,6 +419,9 @@ impl ToTokens for TraitKind {
             }
             Self::Deserialize => {
                 quote!(::icydb_model::__reexports::serde::Deserialize).to_tokens(tokens);
+            }
+            Self::Serialize => {
+                quote!(::icydb_model::__reexports::serde::Serialize).to_tokens(tokens);
             }
             Self::NormalizeAuto
             | Self::NormalizeCustom
@@ -688,6 +696,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn serialize_is_opt_in_for_generated_application_values() {
+        let baseline = application_type_trait_set();
+        assert!(!baseline.contains(TraitKind::Serialize));
+        let builder = TraitBuilder {
+            add: TraitListMeta(vec![TraitKind::Serialize]),
+            remove: TraitListMeta::default(),
+        };
+        assert!(
+            builder
+                .validate_for_type(ApplicationTypeKind::Record, baseline.clone())
+                .is_ok()
+        );
+        assert!(
+            builder
+                .build_for_type(baseline)
+                .contains(TraitKind::Serialize)
+        );
+    }
+
+    #[test]
     fn required_type_traits_are_emitted_without_author_directives() {
         let traits = TraitBuilder::default().build_for_type(application_type_trait_set());
 
@@ -885,8 +913,8 @@ mod tests {
             .copied()
             .collect();
         assert_eq!(REQUIRED_TYPE_TRAITS.len(), 10);
-        assert_eq!(CONFIGURABLE_TYPE_TRAITS.len(), 28);
-        assert_eq!(complete_inventory.len(), 38);
+        assert_eq!(CONFIGURABLE_TYPE_TRAITS.len(), 29);
+        assert_eq!(complete_inventory.len(), 39);
 
         for node_kind in application_nodes {
             for trait_kind in CONFIGURABLE_TYPE_TRAITS {

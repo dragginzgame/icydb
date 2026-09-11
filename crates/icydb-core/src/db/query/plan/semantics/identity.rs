@@ -55,6 +55,19 @@ pub(in crate::db) enum AggregateIdentity {
 }
 
 impl AggregateIdentity {
+    /// Inspect row-count identity without constructing or copying its input.
+    /// Owned identity normalization uses this same rule.
+    #[must_use]
+    pub(in crate::db) fn is_count_rows_input(
+        kind: AggregateKind,
+        input_expr: Option<&Expr>,
+        distinct: bool,
+    ) -> bool {
+        kind == AggregateKind::Count
+            && !distinct
+            && input_expr.is_none_or(aggregate_count_input_expr_is_non_null_literal)
+    }
+
     /// Build aggregate identity from its kind, input, and DISTINCT bit.
     ///
     /// Non-distinct `COUNT` over a non-null literal normalizes to row count
@@ -179,18 +192,6 @@ impl AggregateIdentity {
         Some(field.as_str())
     }
 
-    /// Return whether this aggregate is the optimized `COUNT(*)` identity shape.
-    #[must_use]
-    pub(in crate::db) const fn is_count_rows_only(&self) -> bool {
-        matches!(
-            self,
-            Self::Count {
-                input_expr: None,
-                distinct: false
-            }
-        )
-    }
-
     /// Return whether grouped DISTINCT needs per-value deduplication.
     #[must_use]
     pub(in crate::db) const fn uses_grouped_distinct_value_dedup(&self) -> bool {
@@ -208,12 +209,7 @@ fn normalize_aggregate_identity_input(
     input_expr: Option<Expr>,
     distinct: bool,
 ) -> Option<Expr> {
-    if kind == AggregateKind::Count
-        && !distinct
-        && input_expr
-            .as_ref()
-            .is_some_and(aggregate_count_input_expr_is_non_null_literal)
-    {
+    if AggregateIdentity::is_count_rows_input(kind, input_expr.as_ref(), distinct) {
         return None;
     }
 
@@ -228,13 +224,26 @@ fn normalize_aggregate_identity_input(
 /// observable aggregate function/input/DISTINCT meaning, while this wrapper
 /// keeps aggregate-local filters as a separate semantic dimension.
 ///
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(any(feature = "sql", test))]
+#[derive(Clone, Debug, Eq)]
 pub(in crate::db) struct AggregateSemanticKey {
     identity: AggregateIdentity,
     filter_expr: Option<Expr>,
 }
 
+#[cfg(any(feature = "sql", test))]
 impl AggregateSemanticKey {
+    /// Borrow the retained key through the same comparison form as raw inputs.
+    #[must_use]
+    pub(in crate::db) fn as_ref(&self) -> AggregateSemanticKeyRef<'_> {
+        AggregateSemanticKeyRef::new(
+            self.identity.kind(),
+            self.identity.input_expr(),
+            self.filter_expr.as_ref(),
+            self.identity.distinct(),
+        )
+    }
+
     /// Build one semantic key from one raw aggregate expression.
     #[must_use]
     pub(in crate::db) fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
@@ -244,22 +253,61 @@ impl AggregateSemanticKey {
         }
     }
 
-    /// Build one semantic key from one aggregate identity plus filter.
+    /// Move this key into its identity and filter components.
     #[must_use]
-    pub(in crate::db) const fn from_identity(
-        identity: AggregateIdentity,
-        filter_expr: Option<Expr>,
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn into_identity_and_filter(self) -> (AggregateIdentity, Option<Expr>) {
+        (self.identity, self.filter_expr)
+    }
+}
+
+#[cfg(any(feature = "sql", test))]
+impl PartialEq for AggregateSemanticKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_ref() == other.as_ref()
+    }
+}
+
+/// Borrowed semantic comparison; owning a key is necessary only for retention.
+/// COUNT input and DISTINCT normalization remain owned by AggregateIdentity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AggregateSemanticKeyRef<'a> {
+    kind: AggregateKind,
+    input_expr: Option<&'a Expr>,
+    filter_expr: Option<&'a Expr>,
+    distinct: bool,
+}
+
+impl<'a> AggregateSemanticKeyRef<'a> {
+    /// Borrow canonical identity components without copying input/filter trees.
+    #[must_use]
+    pub(in crate::db) fn new(
+        kind: AggregateKind,
+        input_expr: Option<&'a Expr>,
+        filter_expr: Option<&'a Expr>,
+        distinct: bool,
     ) -> Self {
         Self {
-            identity,
+            kind,
+            input_expr: if AggregateIdentity::is_count_rows_input(kind, input_expr, distinct) {
+                None
+            } else {
+                input_expr
+            },
             filter_expr,
+            distinct: AggregateIdentity::normalize_distinct_for_kind(kind, distinct),
         }
     }
 
-    /// Move this key into its identity and filter components.
+    /// Borrow one authored aggregate's semantic comparison key.
     #[must_use]
-    pub(in crate::db) fn into_identity_and_filter(self) -> (AggregateIdentity, Option<Expr>) {
-        (self.identity, self.filter_expr)
+    pub(in crate::db) fn from_aggregate_expr(aggregate: &'a AggregateExpr) -> Self {
+        Self::new(
+            aggregate.kind(),
+            aggregate.input_expr(),
+            aggregate.filter_expr(),
+            aggregate.is_distinct(),
+        )
     }
 }
 
@@ -268,6 +316,77 @@ mod tests {
     use crate::value::Value;
 
     use super::*;
+
+    #[test]
+    fn borrowed_semantic_keys_preserve_owned_identity_and_filter_equivalence() {
+        use crate::db::query::plan::AggregateShape;
+
+        let mut expressions = Vec::new();
+        for kind in [
+            AggregateKind::Count,
+            AggregateKind::Sum,
+            AggregateKind::Avg,
+            AggregateKind::Min,
+            AggregateKind::Max,
+            AggregateKind::Exists,
+            AggregateKind::First,
+            AggregateKind::Last,
+        ] {
+            for distinct in [false, true] {
+                for input in [
+                    None,
+                    Some(Expr::Literal(Value::Null)),
+                    Some(Expr::Literal(Value::Nat64(1))),
+                    Some(Expr::Literal(Value::Nat64(2))),
+                    Some(Expr::Field("amount".into())),
+                    Some(Expr::Field("rank".into())),
+                ] {
+                    for filter in [
+                        None,
+                        Some(Expr::Literal(Value::Bool(true))),
+                        Some(Expr::Literal(Value::Bool(false))),
+                    ] {
+                        let mut shape = input
+                            .clone()
+                            .map_or_else(
+                                || AggregateShape::terminal(kind),
+                                |input| AggregateShape::from_expression_input(kind, input),
+                            )
+                            .with_raw_distinct(distinct);
+                        if let Some(filter) = filter {
+                            shape = shape.with_filter_expr(filter);
+                        }
+                        expressions.push(AggregateExpr::from_shape(shape));
+                    }
+                }
+            }
+        }
+        let owned: Vec<_> = expressions
+            .iter()
+            .map(AggregateSemanticKey::from_aggregate_expr)
+            .collect();
+        for (left_expr, left) in expressions.iter().zip(&owned) {
+            let borrowed = AggregateSemanticKeyRef::from_aggregate_expr(left_expr);
+            assert_eq!(borrowed, left.as_ref());
+            // Canonical views share retained expression nodes; normalization
+            // may omit COUNT's input, but never copies or rewrites the source.
+            if let Some(input) = borrowed.input_expr {
+                assert!(std::ptr::eq(input, left_expr.input_expr().unwrap()));
+            }
+            if let Some(filter) = borrowed.filter_expr {
+                assert!(std::ptr::eq(filter, left_expr.filter_expr().unwrap()));
+            }
+            for (right_expr, right) in expressions.iter().zip(&owned) {
+                let expected =
+                    left.identity == right.identity && left.filter_expr == right.filter_expr;
+                assert_eq!(
+                    borrowed == AggregateSemanticKeyRef::from_aggregate_expr(right_expr),
+                    expected
+                );
+                assert_eq!(left == right, expected);
+            }
+        }
+    }
 
     #[test]
     fn aggregate_identity_normalizes_only_non_distinct_count_non_null_literals() {
@@ -287,7 +406,13 @@ mod tests {
             true,
         );
 
-        assert!(literal_count.is_count_rows_only());
+        assert!(matches!(
+            literal_count,
+            AggregateIdentity::Count {
+                input_expr: None,
+                distinct: false,
+            }
+        ));
         assert!(matches!(
             null_count.input_expr(),
             Some(Expr::Literal(Value::Null))

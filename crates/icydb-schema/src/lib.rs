@@ -16,6 +16,7 @@ mod expression;
 mod fragment;
 mod int_big;
 mod key;
+mod leb128;
 mod migration;
 mod naming;
 mod nat_big;

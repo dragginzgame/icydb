@@ -61,12 +61,10 @@ impl NatBig {
         Self::from_candid(WrappedNat::from(value))
     }
 
-    /// Return base-2^32 limbs for decimal key encoding.
-    ///
-    /// This allocates for the returned limb vector.
+    /// Borrow little-endian base-2^32 limbs without allocation.
     #[must_use]
-    pub fn u32_digits(&self) -> Vec<u32> {
-        self.0.0.to_u32_digits()
+    pub fn u32_digits(&self) -> impl DoubleEndedIterator<Item = u32> + ExactSizeIterator + '_ {
+        self.0.0.iter_u32_digits()
     }
 
     /// Convert to `u128` when the value is in range.
@@ -88,14 +86,12 @@ impl NatBig {
     /// Serialize this arbitrary-precision natural for internal hash and sort-key framing.
     #[must_use]
     pub fn to_leb128(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        let encoded = self.0.encode(&mut out);
-        debug_assert!(
-            encoded.is_ok(),
-            "Vec-backed unsigned LEB128 encoding failed"
-        );
+        self.leb128_bytes().collect()
+    }
 
-        out
+    /// Iterate canonical unsigned LEB128 bytes with constant scratch and no allocation.
+    pub fn leb128_bytes(&self) -> impl Iterator<Item = u8> + '_ {
+        crate::leb128::bytes(self.u32_digits(), false, self.leb128_len())
     }
 
     pub(crate) fn to_magnitude_bytes(&self) -> Vec<u8> {

@@ -964,6 +964,9 @@ const fn query_read_admission_reason_text(reason: QueryReadAdmissionCode) -> &'s
         QueryReadAdmissionCode::InputBytesExceeded => {
             "query input payload exceeds the preparation limit"
         }
+        QueryReadAdmissionCode::ExplainDoesNotAcceptCursor => {
+            "logical explain does not accept a continuation cursor"
+        }
     }
 }
 
@@ -999,6 +1002,9 @@ const fn query_read_admission_fix_text(reason: QueryReadAdmissionCode) -> &'stat
             "reduce query width or split large operand lists"
         }
         QueryReadAdmissionCode::InputBytesExceeded => "reduce literal and identifier payload sizes",
+        QueryReadAdmissionCode::ExplainDoesNotAcceptCursor => {
+            "remove the cursor before explaining the logical query"
+        }
     }
 }
 
@@ -1080,6 +1086,12 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         }
         RuntimeBoundaryCode::SqlQueryReplyBytesExceeded => {
             "SQL query result exceeds the public reply byte limit"
+        }
+        RuntimeBoundaryCode::QueryExplainOutputExceeded => {
+            "logical explain output exceeds the render byte limit"
+        }
+        RuntimeBoundaryCode::QueryExplainDepthExceeded => {
+            "logical explain access tree exceeds the diagnostic depth limit"
         }
         RuntimeBoundaryCode::DatabaseStartupRecoveryPending => {
             "database startup recovery is still in progress"
@@ -2340,6 +2352,7 @@ mod tests {
             icydb::diagnostic::QueryReadAdmissionCode::InputDepthExceeded,
             icydb::diagnostic::QueryReadAdmissionCode::InputNodesExceeded,
             icydb::diagnostic::QueryReadAdmissionCode::InputBytesExceeded,
+            icydb::diagnostic::QueryReadAdmissionCode::ExplainDoesNotAcceptCursor,
         ];
 
         for reason in reasons {
@@ -2535,6 +2548,30 @@ mod tests {
         assert_eq!(
             render_error(&err),
             "E_RUNTIME_UNSUPPORTED: SQL query result exceeds the public reply byte limit",
+        );
+    }
+
+    #[test]
+    fn renders_logical_explain_output_boundary_detail() {
+        let err = icydb::Error::from_runtime_boundary(
+            icydb::diagnostic::RuntimeBoundaryCode::QueryExplainOutputExceeded,
+            icydb::ErrorOrigin::Query,
+        );
+        assert_eq!(
+            render_error(&err),
+            "E_RUNTIME_UNSUPPORTED: logical explain output exceeds the render byte limit",
+        );
+    }
+
+    #[test]
+    fn renders_logical_explain_depth_boundary_detail() {
+        let err = icydb::Error::from_runtime_boundary(
+            icydb::diagnostic::RuntimeBoundaryCode::QueryExplainDepthExceeded,
+            icydb::ErrorOrigin::Query,
+        );
+        assert_eq!(
+            render_error(&err),
+            "E_RUNTIME_UNSUPPORTED: logical explain access tree exceeds the diagnostic depth limit",
         );
     }
 

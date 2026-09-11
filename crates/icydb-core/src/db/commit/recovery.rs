@@ -64,6 +64,7 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
+use ic_memory::ic_stable_structures::Storable;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
@@ -769,11 +770,10 @@ fn prepare_recovered_row_transitions<C: CanisterKind>(
             } => (entity_path, primary_key, None, *schema_fingerprint),
             _ => continue,
         };
-        let before = handle.with_data(|store| {
-            store
-                .get_canonical(primary_key)
-                .map(|row| row.as_bytes().to_vec())
-        });
+        // Canonical reads already own their payload. Transfer that buffer into
+        // the transition instead of retaining a second copy during acquisition.
+        let before =
+            handle.with_data(|store| store.get_canonical(primary_key).map(Storable::into_bytes));
         row_ops.push(CommitRowOp::try_new_bytes(
             entity_path.as_str(),
             primary_key.as_bytes(),

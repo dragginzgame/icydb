@@ -10,7 +10,7 @@ use crate::{
     },
     value::Value,
 };
-use std::{fmt::Write, ops::Bound};
+use std::{fmt, ops::Bound};
 
 ///
 /// AccessPlanProjection
@@ -25,41 +25,52 @@ pub(in crate::db) trait AccessPlanProjection<K> {
     fn by_key(&mut self, key: &K) -> Self::Output;
     fn by_keys(&mut self, keys: &[K]) -> Self::Output;
     fn key_range(&mut self, start: &K, end: &K) -> Self::Output;
-    fn index_prefix(
+    fn index_prefix<'a>(
         &mut self,
         index_name: &str,
-        index_fields: &[String],
+        index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output;
-    fn index_multi_lookup(
+    fn index_multi_lookup<'a>(
         &mut self,
         index_name: &str,
-        index_fields: &[String],
+        index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         values: &[Value],
     ) -> Self::Output;
-    fn index_branch_set(
+    fn index_branch_set<'a>(
         &mut self,
         index_name: &str,
-        index_fields: &[String],
+        index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         fixed_values: &[Value],
         branch_values: &[Value],
     ) -> Self::Output;
-    fn index_range(
+    fn index_range<'a>(
         &mut self,
         index_name: &str,
-        index_fields: &[String],
+        index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         prefix_len: usize,
         prefix: &[Value],
         lower: &Bound<Value>,
         upper: &Bound<Value>,
     ) -> Self::Output;
     fn full_scan(&mut self) -> Self::Output;
-    fn union(&mut self, children: Vec<Self::Output>) -> Self::Output;
-    fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output;
+    // Borrowed, on-demand children let budgeted collectors admit destination
+    // backing before calling `project`. Summaries may skip children; hashing
+    // must preserve child-before-parent order.
+    fn union<T>(
+        &mut self,
+        children: &[T],
+        project: impl Fn(&T, &mut Self) -> Self::Output,
+    ) -> Self::Output;
+    fn intersection<T>(
+        &mut self,
+        children: &[T],
+        project: impl Fn(&T, &mut Self) -> Self::Output,
+    ) -> Self::Output;
 }
 
-/// Project an access plan by exhaustively walking canonical access variants.
+/// Project canonical access variants, letting the visitor control child descent.
 pub(in crate::db) fn project_access_plan<K, P>(
     plan: &AccessPlan<K>,
     projection: &mut P,
@@ -71,25 +82,15 @@ where
 }
 
 impl<K> AccessPlan<K> {
-    // Project this plan by recursively visiting all access nodes.
+    // Dispatch this node; each visitor decides whether to project its children.
     fn project<P>(&self, projection: &mut P) -> P::Output
     where
         P: AccessPlanProjection<K>,
     {
         match self {
             Self::Path(path) => path.project(projection),
-            Self::Union(children) => {
-                let child_projections =
-                    project_projection_children(children.iter(), projection, Self::project);
-
-                projection.union(child_projections)
-            }
-            Self::Intersection(children) => {
-                let child_projections =
-                    project_projection_children(children.iter(), projection, Self::project);
-
-                projection.intersection(child_projections)
-            }
+            Self::Union(children) => projection.union(children, Self::project),
+            Self::Intersection(children) => projection.intersection(children, Self::project),
         }
     }
 }
@@ -107,19 +108,19 @@ impl<K> AccessPath<K> {
             Self::IndexPrefix { index, values } => {
                 let fields = index_contract_key_fields(index);
 
-                projection.index_prefix(index.name(), fields.as_slice(), values.len(), values)
+                projection.index_prefix(index.name(), fields, values.len(), values)
             }
             Self::IndexMultiLookup { index, values } => {
                 let fields = index_contract_key_fields(index);
 
-                projection.index_multi_lookup(index.name(), fields.as_slice(), values)
+                projection.index_multi_lookup(index.name(), fields, values)
             }
             Self::IndexBranchSet { spec } => {
                 let fields = index_contract_key_fields(spec.index_ref());
 
                 projection.index_branch_set(
                     spec.index_ref().name(),
-                    fields.as_slice(),
+                    fields,
                     spec.fixed_values(),
                     spec.branch_values(),
                 )
@@ -130,7 +131,7 @@ impl<K> AccessPath<K> {
 
                 projection.index_range(
                     contract.name(),
-                    fields.as_slice(),
+                    fields,
                     spec.prefix_values().len(),
                     spec.prefix_values(),
                     spec.lower(),
@@ -142,12 +143,10 @@ impl<K> AccessPath<K> {
     }
 }
 
-fn index_contract_key_fields(index: &SemanticIndexAccessContract) -> Vec<String> {
-    index
-        .key_items()
-        .iter()
-        .map(|item| item.as_ref().field().to_string())
-        .collect()
+fn index_contract_key_fields(
+    index: &SemanticIndexAccessContract,
+) -> impl ExactSizeIterator<Item = &str> + Clone {
+    index.key_items().iter().map(|item| item.as_ref().field())
 }
 
 pub(in crate::db) fn project_explain_access_path<P>(
@@ -166,12 +165,12 @@ where
             fields,
             prefix_len,
             values,
-        } => projection.index_prefix(name, fields, *prefix_len, values),
+        } => projection.index_prefix(name, fields.iter().map(String::as_str), *prefix_len, values),
         ExplainAccessPath::IndexMultiLookup {
             name,
             fields,
             values,
-        } => projection.index_multi_lookup(name, fields, values),
+        } => projection.index_multi_lookup(name, fields.iter().map(String::as_str), values),
         ExplainAccessPath::IndexBranchSet {
             name,
             fields,
@@ -183,7 +182,12 @@ where
                 branch_field.as_deref(),
                 fields.get(fixed_values.len()).map(String::as_str)
             );
-            projection.index_branch_set(name, fields, fixed_values, branch_values)
+            projection.index_branch_set(
+                name,
+                fields.iter().map(String::as_str),
+                fixed_values,
+                branch_values,
+            )
         }
         ExplainAccessPath::IndexRange {
             name,
@@ -192,25 +196,20 @@ where
             prefix,
             lower,
             upper,
-        } => projection.index_range(name, fields, *prefix_len, prefix, lower, upper),
+        } => projection.index_range(
+            name,
+            fields.iter().map(String::as_str),
+            *prefix_len,
+            prefix,
+            lower,
+            upper,
+        ),
         ExplainAccessPath::FullScan => projection.full_scan(),
         ExplainAccessPath::Union(children) => {
-            let child_projections = project_projection_children(
-                children.iter(),
-                projection,
-                project_explain_access_path,
-            );
-
-            projection.union(child_projections)
+            projection.union(children, project_explain_access_path)
         }
         ExplainAccessPath::Intersection(children) => {
-            let child_projections = project_projection_children(
-                children.iter(),
-                projection,
-                project_explain_access_path,
-            );
-
-            projection.intersection(child_projections)
+            projection.intersection(children, project_explain_access_path)
         }
     }
 }
@@ -224,119 +223,124 @@ where
 /// duplicating the label ladder in planner and explain consumers.
 ///
 
-struct AccessStrategyLabelProjection;
+struct AccessStrategyLabelProjection<'a> {
+    out: &'a mut dyn fmt::Write,
+}
 
-impl<K> AccessPlanProjection<K> for AccessStrategyLabelProjection {
-    type Output = String;
+impl<K> AccessPlanProjection<K> for AccessStrategyLabelProjection<'_> {
+    type Output = fmt::Result;
 
     fn by_key(&mut self, _key: &K) -> Self::Output {
-        "ByKey".to_string()
+        self.out.write_str("ByKey")
     }
 
     fn by_keys(&mut self, _keys: &[K]) -> Self::Output {
-        "ByKeys".to_string()
+        self.out.write_str("ByKeys")
     }
 
     fn key_range(&mut self, _start: &K, _end: &K) -> Self::Output {
-        "KeyRange".to_string()
+        self.out.write_str("KeyRange")
     }
 
-    fn index_prefix(
+    fn index_prefix<'a>(
         &mut self,
         index_name: &str,
-        _index_fields: &[String],
+        _index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         _prefix_len: usize,
         _values: &[Value],
     ) -> Self::Output {
-        let mut label = String::new();
-        let _ = write!(&mut label, "IndexPrefix({index_name})");
-
-        label
+        write!(self.out, "IndexPrefix({index_name})")
     }
 
-    fn index_multi_lookup(
+    fn index_multi_lookup<'a>(
         &mut self,
         index_name: &str,
-        _index_fields: &[String],
+        _index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         _values: &[Value],
     ) -> Self::Output {
-        let mut label = String::new();
-        let _ = write!(&mut label, "IndexMultiLookup({index_name})");
-
-        label
+        write!(self.out, "IndexMultiLookup({index_name})")
     }
 
-    fn index_branch_set(
+    fn index_branch_set<'a>(
         &mut self,
         index_name: &str,
-        _index_fields: &[String],
+        _index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         _fixed_values: &[Value],
         _branch_values: &[Value],
     ) -> Self::Output {
-        let mut label = String::new();
-        let _ = write!(&mut label, "IndexBranchSet({index_name})");
-
-        label
+        write!(self.out, "IndexBranchSet({index_name})")
     }
 
-    fn index_range(
+    fn index_range<'a>(
         &mut self,
         index_name: &str,
-        _index_fields: &[String],
+        _index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         _prefix_len: usize,
         _prefix: &[Value],
         _lower: &Bound<Value>,
         _upper: &Bound<Value>,
     ) -> Self::Output {
-        let mut label = String::new();
-        let _ = write!(&mut label, "IndexRange({index_name})");
-
-        label
+        write!(self.out, "IndexRange({index_name})")
     }
 
     fn full_scan(&mut self) -> Self::Output {
-        "FullScan".to_string()
+        self.out.write_str("FullScan")
     }
 
-    fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
-        let mut label = String::new();
-        let _ = write!(&mut label, "Union({})", children.len());
-
-        label
+    fn union<T>(
+        &mut self,
+        children: &[T],
+        _project: impl Fn(&T, &mut Self) -> Self::Output,
+    ) -> Self::Output {
+        write!(self.out, "Union({})", children.len())
     }
 
-    fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
-        let mut label = String::new();
-        let _ = write!(&mut label, "Intersection({})", children.len());
-
-        label
+    fn intersection<T>(
+        &mut self,
+        children: &[T],
+        _project: impl Fn(&T, &mut Self) -> Self::Output,
+    ) -> Self::Output {
+        write!(self.out, "Intersection({})", children.len())
     }
 }
 
 /// Render one stable planner-owned access label without routing through explain transport.
 #[cfg(feature = "sql")]
 pub(in crate::db) fn access_plan_label<K>(plan: &AccessPlan<K>) -> String {
-    project_access_plan(plan, &mut AccessStrategyLabelProjection)
+    let mut label = String::new();
+    // String writes are infallible; both sources share the streaming visitor.
+    let _ = project_access_plan(plan, &mut AccessStrategyLabelProjection { out: &mut label });
+    label
 }
 
-/// Render one stable explain access label from the canonical explain-access DTO.
-pub(in crate::db) fn explain_access_strategy_label(access: &ExplainAccessPath) -> String {
-    project_explain_access_path(access, &mut AccessStrategyLabelProjection)
+/// Write a stable access label directly into the caller's fallible destination.
+pub(in crate::db) fn write_explain_access_strategy_label(
+    access: &ExplainAccessPath,
+    out: &mut dyn fmt::Write,
+) -> fmt::Result {
+    project_explain_access_path(access, &mut AccessStrategyLabelProjection { out })
 }
 
-// Recurse over one child collection with the caller-owned projection adapter so
-// access-plan and explain-path walkers share the same union/intersection child
-// traversal contract.
-fn project_projection_children<'a, T: 'a, P, I, F, O>(
-    children: I,
-    projection: &mut P,
-    project_child: F,
-) -> Vec<O>
-where
-    I: Iterator<Item = &'a T>,
-    F: Fn(&'a T, &mut P) -> O,
-{
-    children
-        .map(|child| project_child(child, projection))
-        .collect()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn access_projection_labels_only_need_composite_root_and_child_count() {
+        let children = [(), (), ()];
+        let mut output = String::new();
+        let mut projection = AccessStrategyLabelProjection { out: &mut output };
+        AccessPlanProjection::<Value>::union(&mut projection, &children, |(), _| {
+            panic!("label must not inspect child payloads")
+        })
+        .unwrap();
+        assert_eq!(output, "Union(3)");
+        output.clear();
+        let mut projection = AccessStrategyLabelProjection { out: &mut output };
+        AccessPlanProjection::<Value>::intersection(&mut projection, &children, |(), _| {
+            panic!("label must not inspect child payloads")
+        })
+        .unwrap();
+        assert_eq!(output, "Intersection(3)");
+    }
 }

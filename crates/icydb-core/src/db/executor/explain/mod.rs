@@ -12,10 +12,11 @@ use crate::db::{
         admission::{QueryAdmissionLane, QueryAdmissionPolicy, QueryAdmissionSummary},
         explain::{
             ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainOrderPushdown,
-            FinalizedQueryDiagnostics,
+            FinalizedQueryDiagnostics, explain_order_pushdown, explain_page,
         },
         intent::{QueryError, StructuralQuery},
         plan::AccessPlannedQuery,
+        preparation::PreparationWork,
     },
 };
 
@@ -84,14 +85,16 @@ impl StructuralQuery {
         plan: &AccessPlannedQuery,
         route_facts: &crate::db::executor::explain::descriptor::LoadExecutionRouteFacts,
         reuse: Option<QueryPlanCacheReuse>,
+        work: &PreparationWork<'_>,
     ) -> Result<FinalizedQueryDiagnostics, QueryError> {
         let descriptor =
-            assemble_load_execution_node_descriptor_from_route_facts(plan, route_facts)
-                .map_err(QueryError::execute)?;
+            assemble_load_execution_node_descriptor_from_route_facts(plan, route_facts, work)?;
         let route_diagnostics =
             assemble_load_execution_verbose_diagnostics_from_route_facts(plan, route_facts)
                 .map_err(QueryError::execute)?;
-        let explain = plan.explain();
+        // Verbose execution needs only these fixed-size scalar facts, not an
+        // owned logical DTO with copies of every predicate and access operand.
+        let scalar = plan.scalar_plan();
 
         // Phase 1: add descriptor-stage summaries for key execution operators.
         let stage_presence = DescriptorStagePresence::from_descriptor(&descriptor);
@@ -114,10 +117,10 @@ impl StructuralQuery {
         ));
 
         // Phase 2: append logical-plan diagnostics relevant to verbose explain.
-        logical_diagnostics.push(format!("diag.p.mode={:?}", explain.mode()));
+        logical_diagnostics.push(format!("diag.p.mode={:?}", scalar.mode));
         logical_diagnostics.push(format!(
             "diag.p.order_pushdown={}",
-            plan_order_pushdown_label(explain.order_pushdown())
+            plan_order_pushdown_label(&explain_order_pushdown())
         ));
         logical_diagnostics.push(format!(
             "diag.p.predicate_pushdown={}",
@@ -131,9 +134,12 @@ impl StructuralQuery {
             "diag.p.predicate_pushdown_reason={}",
             plan.predicate_pushdown_reason_label()
         ));
-        logical_diagnostics.push(format!("diag.p.distinct={}", explain.distinct()));
-        logical_diagnostics.push(format!("diag.p.page={:?}", explain.page()));
-        logical_diagnostics.push(format!("diag.p.consistency={:?}", explain.consistency()));
+        logical_diagnostics.push(format!("diag.p.distinct={}", scalar.distinct));
+        logical_diagnostics.push(format!(
+            "diag.p.page={:?}",
+            explain_page(scalar.page.as_ref())
+        ));
+        logical_diagnostics.push(format!("diag.p.consistency={:?}", scalar.consistency));
 
         let admission = QueryAdmissionPolicy::diagnostic_explain().evaluate(
             QueryAdmissionSummary::from_plan(QueryAdmissionLane::DiagnosticExplain, plan),
@@ -156,12 +162,17 @@ impl StructuralQuery {
         plan: &AccessPlannedQuery,
         authority: &EntityAuthority,
         reuse: Option<QueryPlanCacheReuse>,
+        work: &PreparationWork<'_>,
         mutate_descriptor: impl FnOnce(&mut ExplainExecutionNodeDescriptor),
     ) -> Result<FinalizedQueryDiagnostics, QueryError> {
         let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan)
             .map_err(QueryError::execute)?;
-        let mut diagnostics =
-            Self::finalized_execution_diagnostics_from_route_facts(plan, &route_facts, reuse)?;
+        let mut diagnostics = Self::finalized_execution_diagnostics_from_route_facts(
+            plan,
+            &route_facts,
+            reuse,
+            work,
+        )?;
         mutate_descriptor(&mut diagnostics.execution);
 
         Ok(diagnostics)

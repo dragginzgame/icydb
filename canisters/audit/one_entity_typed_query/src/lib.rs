@@ -2,6 +2,9 @@
 //! One-entity typed-query canister used for wasm-footprint auditing.
 //!
 
+#[cfg(any(feature = "typed-explain-measurement", feature = "sql"))]
+mod explain_measurement;
+
 use icydb::types::{Id, Ulid};
 #[cfg(feature = "exact-key-measurement")]
 use icydb::{db::DynamicQuery, db::query::FieldRef};
@@ -117,6 +120,8 @@ ic_cdk::export_candid!();
 
 #[cfg(test)]
 mod tests {
+    mod explain;
+
     use crate::db;
     use icydb::{
         db::{

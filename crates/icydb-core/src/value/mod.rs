@@ -13,6 +13,8 @@ mod canonical_enum;
 mod cleanup;
 mod coercion;
 mod compare;
+pub(crate) mod decimal;
+pub(crate) mod format;
 mod hash;
 mod input;
 mod map;

@@ -195,9 +195,15 @@ migration's own exact record transaction may publish its candidate authority.
 Recovery retains the reservation, so an admitted schema edit cannot strand
 advance or pre-rewrite abort on a changed head.
 
-Schema-application receipts use a checksummed BTreeMap region after the
-bounded commit-control region in the same database-control allocation. The
-restricted regions cannot overlap. The current version-1 marker carries at most four
+Schema-application receipts, live-schema checkpoints, source lineage and
+migration progress share one variable-page BTreeMap after the first 257 Wasm
+pages reserved for bounded commit control. A fixed key prefix separates
+application and checkpoint records; lineage and migration retain their
+reserved checkpoint keys. One checksummed version-1 `ICYSCMAP` header owns
+the tree, with no fixed partition between record families. The current
+`ICYDBCTL` version-1 boot identity requires database recreation when replacing
+an incompatible layout; there is no conversion or compatibility reader.
+The marker and metadata regions cannot overlap. The current version-1 marker carries at most four
 canonically ordered exact before/after database-control effects. Normal apply
 and recovery accept only each recorded compare value or its already-applied
 final bytes. Receipt, lineage, and migration progress therefore cannot become

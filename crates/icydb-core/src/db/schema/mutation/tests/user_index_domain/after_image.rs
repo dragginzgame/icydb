@@ -133,8 +133,8 @@ fn after_image_schema(index: PersistedIndexSnapshot) -> (SchemaInfo, StructuralR
 fn plan_name_update(
     schema: &SchemaInfo,
     contract: &StructuralRowContract,
-    old: &mut ObservedNameRow,
-    new: &mut ObservedNameRow,
+    old: &ObservedNameRow,
+    new: &ObservedNameRow,
 ) -> Result<IndexMutationPlan, InternalError> {
     let primary_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Ulid(crate::types::Ulid::MIN));
     match plan_index_mutation_for_slot_reader_structural(
@@ -161,9 +161,9 @@ fn unchanged_field_and_expression_inputs_admit_after_image_without_index_reads()
         domain_expression_index(1, "by_lower_name", true, None),
     ] {
         let (schema, contract) = after_image_schema(index);
-        let mut old = ObservedNameRow::new("Ada", false);
-        let mut new = ObservedNameRow::new("Ada", false);
-        let plan = plan_name_update(&schema, &contract, &mut old, &mut new)
+        let old = ObservedNameRow::new("Ada", false);
+        let new = ObservedNameRow::new("Ada", false);
+        let plan = plan_name_update(&schema, &contract, &old, &new)
             .expect("unchanged membership should admit");
         assert!(plan.groups.is_empty());
         assert_eq!(
@@ -186,9 +186,9 @@ fn unchanged_field_and_expression_inputs_preserve_after_image_rejection() {
         domain_expression_index(1, "by_lower_name", false, None),
     ] {
         let (schema, contract) = after_image_schema(index);
-        let mut old = ObservedNameRow::new("Ada", false);
-        let mut new = ObservedNameRow::new("Ada", true);
-        let error = plan_name_update(&schema, &contract, &mut old, &mut new)
+        let old = ObservedNameRow::new("Ada", false);
+        let new = ObservedNameRow::new("Ada", true);
+        let error = plan_name_update(&schema, &contract, &old, &new)
             .expect_err("after-image failure must reject");
         assert!(error.diagnostic_facts().contains(&(
             DiagnosticFactTag::BudgetResource,
@@ -203,9 +203,9 @@ fn unchanged_field_and_expression_inputs_preserve_after_image_rejection() {
 fn changed_expression_input_reuses_its_admitted_after_image_key() {
     let (schema, contract) =
         after_image_schema(domain_expression_index(1, "by_lower_name", true, None));
-    let mut old = ObservedNameRow::new("Ada", false);
-    let mut new = ObservedNameRow::new("ADA", false);
-    let plan = plan_name_update(&schema, &contract, &mut old, &mut new)
+    let old = ObservedNameRow::new("Ada", false);
+    let new = ObservedNameRow::new("ADA", false);
+    let plan = plan_name_update(&schema, &contract, &old, &new)
         .expect("equal derived keys need no index reads");
     assert!(plan.groups.is_empty());
     assert_eq!(old.visits.get(), 1);
@@ -224,10 +224,10 @@ fn false_index_membership_does_not_force_after_image_component_encoding() {
         true,
         Some("name = 'Grace'".to_string()),
     ));
-    let mut old = ObservedNameRow::new("Ada", false);
-    let mut new = ObservedNameRow::new("Ada", true);
-    let plan = plan_name_update(&schema, &contract, &mut old, &mut new)
-        .expect("nonmember rows need no component");
+    let old = ObservedNameRow::new("Ada", false);
+    let new = ObservedNameRow::new("Ada", true);
+    let plan =
+        plan_name_update(&schema, &contract, &old, &new).expect("nonmember rows need no component");
     assert!(plan.groups.is_empty());
     assert_eq!(old.visits.get(), 0);
     assert_eq!(new.visits.get(), 0);

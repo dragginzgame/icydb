@@ -155,20 +155,9 @@ fn database_boot_record_malformed_corpus_fails_closed() {
         vec![(DiagnosticFactTag::ExpectedVersion, 1)],
     );
 
-    let predecessor = validate_current_boot_record(&memory_with_prefix(&database_boot_record(
-        *b"ICYDB001",
-        1,
-        1,
-    )))
-    .expect_err("predecessor database identity must not admit");
-    assert_eq!(
-        predecessor.diagnostic_facts(),
-        vec![(DiagnosticFactTag::ExpectedVersion, 1)],
-    );
-
     assert!(
         validate_current_boot_record(&memory_with_prefix(&database_boot_record(
-            *b"ICYDB253",
+            *b"ICYDBCTL",
             1,
             1,
         )))
@@ -176,9 +165,9 @@ fn database_boot_record_malformed_corpus_fails_closed() {
         "current version-1 hard-cut identity should admit",
     );
 
-    let mut corrupt_magic = database_boot_record(*b"ICYDB253", 1, 1);
+    let mut corrupt_magic = database_boot_record(*b"ICYDBCTL", 1, 1);
     corrupt_magic[0] = b'X';
-    let mut corrupt_checksum = database_boot_record(*b"ICYDB253", 1, 1);
+    let mut corrupt_checksum = database_boot_record(*b"ICYDBCTL", 1, 1);
     corrupt_checksum[DATABASE_BOOT_RECORD_BYTES - 1] ^= 0xff;
     let cases = [
         (
@@ -188,7 +177,7 @@ fn database_boot_record_malformed_corpus_fails_closed() {
         ),
         (
             "unsupported database version",
-            database_boot_record(*b"ICYDB253", 2, 1),
+            database_boot_record(*b"ICYDBCTL", 2, 1),
             vec![
                 (DiagnosticFactTag::ExpectedVersion, 1),
                 (DiagnosticFactTag::ActualVersion, 2),
@@ -196,7 +185,7 @@ fn database_boot_record_malformed_corpus_fails_closed() {
         ),
         (
             "unknown database boot state",
-            database_boot_record(*b"ICYDB253", 1, 0xff),
+            database_boot_record(*b"ICYDBCTL", 1, 0xff),
             vec![(
                 DiagnosticFactTag::DecodeReason,
                 DiagnosticDecodeReason::RecoveryMarkerState.raw(),

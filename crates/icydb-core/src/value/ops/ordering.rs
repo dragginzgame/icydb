@@ -20,18 +20,6 @@ fn canonical_cmp_map_entry(
         .then_with(|| Value::canonical_cmp(left_value, right_value))
 }
 
-/// Build one borrowed canonical map-entry order for hashing and
-/// fingerprint-adjacent encoding surfaces.
-#[must_use]
-fn ordered_map_entries(entries: &[(Value, Value)]) -> Vec<&(Value, Value)> {
-    let mut ordered = entries.iter().collect::<Vec<_>>();
-    ordered.sort_unstable_by(|left, right| {
-        canonical_cmp_map_entry(&left.0, &left.1, &right.0, &right.1)
-    });
-
-    ordered
-}
-
 /// Strict comparator for identical orderable variants.
 #[must_use]
 pub(crate) fn strict_order_cmp(left: &Value, right: &Value) -> Option<Ordering> {
@@ -108,11 +96,26 @@ impl Value {
         canonical_cmp_map_entry(left_key, left_value, right_key, right_value)
     }
 
-    /// Build one borrowed canonical map-entry order for hashing and
-    /// fingerprint-adjacent encoding surfaces.
-    #[must_use]
-    pub(crate) fn ordered_map_entries(entries: &[(Self, Self)]) -> Vec<&(Self, Self)> {
-        ordered_map_entries(entries)
+    /// Borrow canonical entries directly; unordered input retains only sorted
+    /// references. Hashing and predicate encoding share this ordering authority.
+    pub(crate) fn ordered_map_entries(
+        entries: &[(Self, Self)],
+    ) -> impl Iterator<Item = &(Self, Self)> {
+        let compare = |left: &(Self, Self), right: &(Self, Self)| {
+            canonical_cmp_map_entry(&left.0, &left.1, &right.0, &right.1)
+        };
+        let mut sorted = Vec::new();
+        // Check key AND value order: raw maps may contain duplicate keys. The
+        // empty Vec allocates nothing when the source already has that order.
+        let borrowed = if entries.is_sorted_by(|left, right| compare(left, right).is_le()) {
+            entries
+        } else {
+            sorted.extend(entries);
+            sorted.sort_unstable_by(|left, right| compare(left, right));
+            &[]
+        };
+
+        borrowed.iter().chain(sorted)
     }
 
     /// Strict comparator for identical orderable variants.

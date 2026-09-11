@@ -28,8 +28,8 @@ const AGGREGATE_FILTER_EXPR_ABSENT_TAG: u8 = 0x06;
 pub(in crate::db::query::fingerprint) struct AggregateHashShape<'a> {
     kind: AggregateKind,
     target_field: Option<&'a str>,
-    input_expr: Option<String>,
-    filter_expr: Option<String>,
+    input_expr: Option<&'a str>,
+    filter_expr: Option<&'a str>,
     distinct: bool,
 }
 
@@ -39,8 +39,8 @@ impl<'a> AggregateHashShape<'a> {
     pub(in crate::db::query::fingerprint) const fn semantic(
         kind: AggregateKind,
         target_field: Option<&'a str>,
-        input_expr: Option<String>,
-        filter_expr: Option<String>,
+        input_expr: Option<&'a str>,
+        filter_expr: Option<&'a str>,
         distinct: bool,
     ) -> Self {
         Self {
@@ -81,11 +81,11 @@ pub(in crate::db::query::fingerprint) fn hash_group_aggregate_structural_fingerp
             AGGREGATE_NON_DISTINCT_TAG
         },
     );
-    if let Some(input_expr) = shape.input_expr.as_deref() {
+    if let Some(input_expr) = shape.input_expr {
         write_tag(hasher, AGGREGATE_INPUT_EXPR_PRESENT_TAG);
         write_str(hasher, input_expr);
     }
-    if let Some(filter_expr) = shape.filter_expr.as_deref() {
+    if let Some(filter_expr) = shape.filter_expr {
         write_tag(hasher, AGGREGATE_FILTER_EXPR_PRESENT_TAG);
         write_str(hasher, filter_expr);
     } else {
@@ -120,8 +120,8 @@ mod tests {
     struct AggregateSource<'a> {
         kind: AggregateKind,
         target_field: Option<&'a str>,
-        input_expr: Option<String>,
-        filter_expr: Option<String>,
+        input_expr: Option<&'a str>,
+        filter_expr: Option<&'a str>,
         distinct: bool,
         alias: Option<&'a str>,
         explain_projection_tag: Option<u8>,
@@ -135,8 +135,8 @@ mod tests {
             AggregateHashShape::semantic(
                 self.kind,
                 self.target_field,
-                self.input_expr.clone(),
-                self.filter_expr.clone(),
+                self.input_expr,
+                self.filter_expr,
                 self.distinct,
             )
         }
@@ -201,21 +201,23 @@ mod tests {
     fn aggregate_expr_and_helper_shapes_hash_identically() {
         let aggregate_expr = count_by("rank").distinct();
         let helper_shape = GroupAggregateSpec::from_aggregate_expr(aggregate_expr);
+        let input_expr = helper_shape.input_expr().map(
+            crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label,
+        );
+        let filter_expr = helper_shape.filter_expr().map(
+            crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label,
+        );
         let from_helper = AggregateHashShape::semantic(
             helper_shape.kind(),
             helper_shape.target_field(),
-            helper_shape
-                .input_expr()
-                .map(crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label),
-            helper_shape
-                .filter_expr()
-                .map(crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label),
+            input_expr.as_deref(),
+            filter_expr.as_deref(),
             helper_shape.semantic_distinct(),
         );
         let manual = AggregateHashShape::semantic(
             AggregateKind::Count,
             Some("rank"),
-            Some("rank".to_string()),
+            Some("rank"),
             None,
             true,
         );
@@ -228,17 +230,12 @@ mod tests {
         let direct = AggregateHashShape::semantic(
             AggregateKind::Avg,
             Some("rank"),
-            Some("rank".to_string()),
+            Some("rank"),
             None,
             false,
         );
-        let widened = AggregateHashShape::semantic(
-            AggregateKind::Avg,
-            None,
-            Some("rank + 1".to_string()),
-            None,
-            false,
-        );
+        let widened =
+            AggregateHashShape::semantic(AggregateKind::Avg, None, Some("rank + 1"), None, false);
 
         assert_ne!(
             hash_shapes(&[direct]),
@@ -276,14 +273,14 @@ mod tests {
             AggregateKind::Count,
             None,
             None,
-            Some("rank >= 10".to_string()),
+            Some("rank >= 10"),
             false,
         );
         let threshold_varied = AggregateHashShape::semantic(
             AggregateKind::Count,
             None,
             None,
-            Some("rank >= 20".to_string()),
+            Some("rank >= 20"),
             false,
         );
         let unfiltered =

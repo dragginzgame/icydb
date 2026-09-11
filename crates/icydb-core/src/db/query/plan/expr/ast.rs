@@ -565,57 +565,59 @@ impl Expr {
     /// supplied predicate.
     #[must_use]
     pub(in crate::db) fn any_tree_expr(&self, predicate: &mut impl FnMut(&Self) -> bool) -> bool {
-        if predicate(self) {
-            return true;
-        }
-
-        match self {
-            Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => false,
-            Self::FunctionCall { args, .. } => args.iter().any(|arg| arg.any_tree_expr(predicate)),
-            Self::Unary { expr, .. } => expr.any_tree_expr(predicate),
-            Self::Binary { left, right, .. } => {
-                left.any_tree_expr(predicate) || right.any_tree_expr(predicate)
-            }
-            Self::Case {
-                when_then_arms,
-                else_expr,
-            } => {
-                when_then_arms.iter().any(|arm| {
-                    arm.condition().any_tree_expr(predicate)
-                        || arm.result().any_tree_expr(predicate)
-                }) || else_expr.any_tree_expr(predicate)
-            }
-            #[cfg(test)]
-            Self::Alias { expr, .. } => expr.any_tree_expr(predicate),
-        }
+        !self.all_tree_expr(&mut |node| !predicate(node))
     }
 
     /// Return true when every visited planner expression node satisfies the
     /// supplied predicate.
     #[must_use]
     pub(in crate::db) fn all_tree_expr(&self, predicate: &mut impl FnMut(&Self) -> bool) -> bool {
-        if !predicate(self) {
-            return false;
+        match self.try_all_tree_expr(&mut |node| Ok::<_, std::convert::Infallible>(predicate(node)))
+        {
+            Ok(result) => result,
+            Err(never) => match never {},
+        }
+    }
+
+    /// Visit borrowed expression nodes in preorder, stopping before later
+    /// children on either false or error. Aggregate inputs remain separate.
+    pub(in crate::db) fn try_all_tree_expr<E>(
+        &self,
+        predicate: &mut impl FnMut(&Self) -> Result<bool, E>,
+    ) -> Result<bool, E> {
+        if !predicate(self)? {
+            return Ok(false);
         }
 
         match self {
-            Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => true,
-            Self::FunctionCall { args, .. } => args.iter().all(|arg| arg.all_tree_expr(predicate)),
-            Self::Unary { expr, .. } => expr.all_tree_expr(predicate),
+            Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => Ok(true),
+            Self::FunctionCall { args, .. } => {
+                for arg in args {
+                    if !arg.try_all_tree_expr(predicate)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            Self::Unary { expr, .. } => expr.try_all_tree_expr(predicate),
             Self::Binary { left, right, .. } => {
-                left.all_tree_expr(predicate) && right.all_tree_expr(predicate)
+                Ok(left.try_all_tree_expr(predicate)? && right.try_all_tree_expr(predicate)?)
             }
             Self::Case {
                 when_then_arms,
                 else_expr,
             } => {
-                when_then_arms.iter().all(|arm| {
-                    arm.condition().all_tree_expr(predicate)
-                        && arm.result().all_tree_expr(predicate)
-                }) && else_expr.all_tree_expr(predicate)
+                for arm in when_then_arms {
+                    if !arm.condition().try_all_tree_expr(predicate)?
+                        || !arm.result().try_all_tree_expr(predicate)?
+                    {
+                        return Ok(false);
+                    }
+                }
+                else_expr.try_all_tree_expr(predicate)
             }
             #[cfg(test)]
-            Self::Alias { expr, .. } => expr.all_tree_expr(predicate),
+            Self::Alias { expr, .. } => expr.try_all_tree_expr(predicate),
         }
     }
 
@@ -625,36 +627,11 @@ impl Expr {
         &self,
         visit: &mut impl FnMut(&Self) -> Result<(), E>,
     ) -> Result<(), E> {
-        visit(self)?;
-
-        match self {
-            Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => Ok(()),
-            Self::FunctionCall { args, .. } => {
-                for arg in args {
-                    arg.try_for_each_tree_expr(visit)?;
-                }
-
-                Ok(())
-            }
-            Self::Unary { expr, .. } => expr.try_for_each_tree_expr(visit),
-            Self::Binary { left, right, .. } => {
-                left.try_for_each_tree_expr(visit)?;
-                right.try_for_each_tree_expr(visit)
-            }
-            Self::Case {
-                when_then_arms,
-                else_expr,
-            } => {
-                for arm in when_then_arms {
-                    arm.condition().try_for_each_tree_expr(visit)?;
-                    arm.result().try_for_each_tree_expr(visit)?;
-                }
-
-                else_expr.try_for_each_tree_expr(visit)
-            }
-            #[cfg(test)]
-            Self::Alias { expr, .. } => expr.try_for_each_tree_expr(visit),
-        }
+        self.try_all_tree_expr(&mut |node| {
+            visit(node)?;
+            Ok(true)
+        })
+        .map(|_| ())
     }
 
     /// Visit every planner expression node in this tree through the owner-local

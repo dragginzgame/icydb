@@ -6,6 +6,7 @@
 
 use crate::{
     db::{
+        QueryError,
         executor::{
             EntityAuthority, ExecutionPreparation,
             planning::{preparation::slot_map_for_model_plan, route::GroupedExecutionMode},
@@ -23,12 +24,13 @@ use crate::{
             },
             plan::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
-                AccessChoiceRejectedIndex, AccessChoiceResidualBurden, AccessPlannedQuery,
-                CoveringExistingRowMode, CoveringHybridReadExecutionPlan, CoveringProjectionOrder,
+                AccessChoiceResidualBurden, AccessPlannedQuery, CoveringExistingRowMode,
+                CoveringHybridReadExecutionPlan, CoveringProjectionOrder,
                 CoveringReadExecutionPlan, CoveringReadFieldSource, access_plan_label,
                 covering_read_reason_code_for_load_plan, covering_strict_predicate_compatible,
                 grouped_executor_handoff,
             },
+            preparation::PreparationWork,
         },
     },
     error::InternalError,
@@ -214,7 +216,8 @@ struct GroupedExecutionProjection {
 pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
     plan: &AccessPlannedQuery,
     route_facts: &LoadExecutionRouteFacts,
-) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
+    work: &PreparationWork<'_>,
+) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
     let route_plan = &route_facts.route_plan;
     let explain_preparation = &route_facts.explain_preparation;
 
@@ -233,7 +236,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
 
     // Phase 2: derive one canonical access projection and reuse it across
     // descriptor assembly instead of re-projecting the chosen route again.
-    let access_strategy = explain_access_plan(&plan.access);
+    let access_strategy = explain_access_plan(&plan.access, work)?;
     let mut root =
         crate::db::executor::explain::descriptor::shared::access_execution_node_descriptor(
             access_strategy,
@@ -249,7 +252,8 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
         property_keys::ORDER_ROUTE_REASON,
         Value::from(order_observability.reason),
     );
-    annotate_access_choice_node_properties(&mut root, plan.access_choice())?;
+    annotate_access_choice_node_properties(&mut root, plan.access_choice())
+        .map_err(QueryError::execute)?;
     let covering_scan = covering_projection_selected;
     root.covering_scan = Some(covering_scan);
     root.node_properties.insert(
@@ -267,7 +271,8 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
             Value::from(predicate_index_capability_label(capability)),
         );
     }
-    annotate_projection_pushdown_node_properties(&mut root, plan, covering_scan)?;
+    annotate_projection_pushdown_node_properties(&mut root, plan, covering_scan)
+        .map_err(QueryError::execute)?;
     root.node_properties.insert(
         property_keys::COVERING_READ_ROUTE,
         Value::from(if covering_projection_selected {
@@ -286,7 +291,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
     annotate_fast_path_reason_node_properties(&mut root, route_plan);
 
     // Phase 3: project route/planner modifiers in execution order as descriptor children.
-    let explain_predicate = explain_predicate_for_plan(plan);
+    let explain_predicate = explain_predicate_for_plan(plan, work)?;
     for predicate_stage in predicate_stage_descriptors(
         explain_filter_expr_for_plan(plan),
         explain_residual_filter_expr_for_plan(plan),
@@ -485,7 +490,7 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
         .access_choice
         .rejected
         .iter()
-        .map(AccessChoiceRejectedIndex::label)
+        .map(ToString::to_string)
         .collect::<Vec<_>>();
     lines.push(route_diagnostic_line_debug(
         "access_choice_rejections",
@@ -523,11 +528,11 @@ fn render_access_choice_verbose_section(
         lines.push(format!("    - {}", verbose_preparation.chosen_access_label));
     } else {
         for candidate in &verbose_preparation.access_choice.candidates {
-            lines.push(format!("    - {}", candidate.label()));
+            lines.push(format!("    - {candidate}"));
         }
         lines.push("  Scoring:".to_string());
         for candidate in &verbose_preparation.access_choice.candidates {
-            lines.push(format!("    {}:", candidate.label()));
+            lines.push(format!("    {candidate}:"));
             if candidate.exact {
                 lines.push("      exact_match: true".to_string());
             }

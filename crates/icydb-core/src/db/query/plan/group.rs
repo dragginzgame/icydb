@@ -8,7 +8,7 @@ use crate::{
         query::{
             builder::AggregateExpr,
             plan::{
-                AccessPlannedQuery, AggregateIdentity, AggregateKind, AggregateSemanticKey,
+                AccessPlannedQuery, AggregateIdentity, AggregateKind, AggregateSemanticKeyRef,
                 FieldSlot, GlobalDistinctAggregateKind, GroupAggregateSpec,
                 GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupedExecutionConfig,
                 GroupedPlanStrategy,
@@ -23,6 +23,7 @@ use crate::{
     },
     error::InternalError,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 ///
 /// PlannedProjectionLayout
@@ -158,10 +159,11 @@ impl GroupedAggregateExecutionSpec {
 
     /// Resolve planner-owned grouped aggregate execution attachments from schema authority.
     pub(in crate::db) fn resolve_with_schema_info(
-        &self,
+        &mut self,
         schema_info: &SchemaInfo,
         budget: &dyn crate::db::query::construction::ConstructionBudget,
-    ) -> Result<Self, InternalError> {
+    ) -> Result<(), InternalError> {
+        budget.charge(Resource::PredicateExpressionSteps, 1)?;
         let compiled_input_expr = self
             .input_expr()
             .map(|expr| {
@@ -182,13 +184,12 @@ impl GroupedAggregateExecutionSpec {
             })
             .transpose()?;
 
-        Ok(Self {
-            identity: self.identity.clone(),
-            target_slot,
-            filter_expr: self.filter_expr().cloned(),
-            compiled_input_expr,
-            compiled_filter_expr,
-        })
+        // Compile every attachment before changing the owned carrier. Failure
+        // preserves the original spec; success keeps its identity/filter buffers.
+        self.target_slot = target_slot;
+        self.compiled_input_expr = compiled_input_expr;
+        self.compiled_filter_expr = compiled_filter_expr;
+        Ok(())
     }
 
     /// Return the grouped aggregate kind.
@@ -224,16 +225,15 @@ impl GroupedAggregateExecutionSpec {
         self.filter_expr.as_ref()
     }
 
-    /// Build the aggregate identity represented by this execution spec.
+    /// Borrow the filter-aware semantic key represented by this execution spec.
     #[must_use]
-    pub(in crate::db) fn identity(&self) -> AggregateIdentity {
-        self.identity.clone()
-    }
-
-    /// Build the filter-aware semantic key represented by this execution spec.
-    #[must_use]
-    pub(in crate::db) fn semantic_key(&self) -> AggregateSemanticKey {
-        AggregateSemanticKey::from_identity(self.identity(), self.filter_expr().cloned())
+    pub(in crate::db) fn semantic_key(&self) -> AggregateSemanticKeyRef<'_> {
+        AggregateSemanticKeyRef::new(
+            self.kind(),
+            self.input_expr(),
+            self.filter_expr(),
+            self.distinct(),
+        )
     }
 
     /// Return whether the grouped aggregate uses DISTINCT semantics.
@@ -280,7 +280,7 @@ impl GroupedAggregateExecutionSpec {
     /// Return whether one aggregate expression matches this grouped execution spec semantically.
     #[must_use]
     pub(in crate::db) fn matches_aggregate_expr(&self, aggregate_expr: &AggregateExpr) -> bool {
-        self.semantic_key() == AggregateSemanticKey::from_aggregate_expr(aggregate_expr)
+        self.semantic_key() == AggregateSemanticKeyRef::from_aggregate_expr(aggregate_expr)
     }
 
     /// Build one grouped aggregate execution spec directly for tests that do
@@ -599,13 +599,15 @@ pub(in crate::db) fn grouped_executor_handoff(
 /// projection specs and explicit schema authority.
 pub(in crate::db) fn grouped_aggregate_execution_specs(
     schema_info: &SchemaInfo,
-    aggregate_specs: &[GroupedAggregateExecutionSpec],
+    mut aggregate_specs: Vec<GroupedAggregateExecutionSpec>,
     budget: &dyn crate::db::query::construction::ConstructionBudget,
 ) -> Result<Vec<GroupedAggregateExecutionSpec>, InternalError> {
-    aggregate_specs
-        .iter()
-        .map(|aggregate_spec| aggregate_spec.resolve_with_schema_info(schema_info, budget))
-        .collect()
+    // The caller transfers its unpublished list. Reuse its backing instead of
+    // cloning syntax into a second list; no partial list escapes on failure.
+    for aggregate_spec in &mut aggregate_specs {
+        aggregate_spec.resolve_with_schema_info(schema_info, budget)?;
+    }
+    Ok(aggregate_specs)
 }
 
 /// Lower grouped aggregate specs directly from canonical grouped

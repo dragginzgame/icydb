@@ -7,11 +7,14 @@
 use crate::db::schema::migration_record::SchemaMigrationRecordOp;
 use crate::{
     db::{
-        commit::{commit_memory_handle, current_commit_memory_allocation},
         database_format::crc32c,
         integrity::DatabaseIncarnationId,
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision,
+            control_store::{
+                ControlMemory, ControlRecordFamily, SchemaControlBytes, SchemaControlMap,
+                control_memory,
+            },
             enum_catalog::{
                 ACCEPTED_SCHEMA_ROOT_BYTES, MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES,
                 MAX_SCHEMA_STORE_PATH_BYTES,
@@ -27,12 +30,8 @@ use crate::{
     },
     error::InternalError,
 };
-use ic_memory::RuntimeMemory;
-use ic_memory::ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, RestrictedMemory, Storable, storable::Bound,
-};
 use sha2::{Digest, Sha256};
-use std::{borrow::Cow, cell::Cell};
+use std::cell::Cell;
 
 const MIGRATION_GATE_UNKNOWN: u8 = 0;
 const MIGRATION_GATE_READY: u8 = 1;
@@ -48,10 +47,6 @@ use crate::db::schema::migration_lineage::{
     decode_entity_source_lineage_catalog,
 };
 
-const CHECKPOINT_HEADER_KEY: LiveSchemaCheckpointKey = LiveSchemaCheckpointKey([0; 32]);
-const CHECKPOINT_HEADER_MAGIC: &[u8; 8] = b"ICYSLVHD";
-const CHECKPOINT_HEADER_VERSION: u8 = 1;
-const CHECKPOINT_HEADER_BYTES: usize = 8 + 1 + 4;
 const CHECKPOINT_MAGIC: &[u8; 8] = b"ICYSLIVE";
 const CHECKPOINT_VERSION: u8 = 1;
 const CHECKPOINT_FIXED_BYTES: usize = 8 + 1 + 4 + 4 + 4 + 4 + 4;
@@ -64,10 +59,6 @@ const MAX_LIVE_SCHEMA_CHECKPOINT_BYTES: usize = CHECKPOINT_FIXED_BYTES
     + MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES
     + ACCEPTED_SCHEMA_ROOT_BYTES
     + MAX_IDENTITY_STATE_RECORDS_PER_DATABASE * IDENTITY_STATE_RECORD_BYTES;
-const CHECKPOINT_MEMORY_START_PAGE: u64 = 4_096;
-const CHECKPOINT_MEMORY_END_PAGE: u64 = 4_194_304;
-
-type CheckpointMemory = RestrictedMemory<RuntimeMemory<DefaultMemoryImpl>>;
 type CheckpointWriter = SchemaWireWriter<MAX_LIVE_SCHEMA_CHECKPOINT_BYTES>;
 type CheckpointReader<'a> = SchemaWireReader<'a>;
 
@@ -98,60 +89,23 @@ impl LiveSchemaCheckpointKey {
         hasher.update(path_len.to_be_bytes());
         hasher.update(store_path.as_bytes());
         let key = Self(hasher.finalize().into());
-        if key == CHECKPOINT_HEADER_KEY || key == Self::lineage() || key == Self::migration() {
+        if key.0 == [0; 32] || key == Self::lineage() || key == Self::migration() {
             return Err(InternalError::store_invariant());
         }
         Ok(key)
     }
 }
 
-impl Storable for LiveSchemaCheckpointKey {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(&self.0)
+impl From<[u8; 32]> for LiveSchemaCheckpointKey {
+    fn from(bytes: [u8; 32]) -> Self {
+        Self(bytes)
     }
-
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        let mut key = [0; 32];
-        if bytes.len() == key.len() {
-            key.copy_from_slice(bytes.as_ref());
-        }
-        Self(key)
-    }
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.0.to_vec()
-    }
-
-    const BOUND: Bound = Bound::Bounded {
-        max_size: 32,
-        is_fixed_size: true,
-    };
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct LiveSchemaCheckpointBytes(Vec<u8>);
-
-impl Storable for LiveSchemaCheckpointBytes {
-    fn to_bytes(&self) -> Cow<'_, [u8]> {
-        Cow::Borrowed(self.0.as_slice())
+impl From<LiveSchemaCheckpointKey> for [u8; 32] {
+    fn from(key: LiveSchemaCheckpointKey) -> Self {
+        key.0
     }
-
-    fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        Self(bytes.into_owned())
-    }
-
-    fn into_bytes(self) -> Vec<u8> {
-        self.0
-    }
-
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "the compile-time checkpoint ceiling is less than 24 MiB"
-    )]
-    const BOUND: Bound = Bound::Bounded {
-        max_size: MAX_LIVE_SCHEMA_CHECKPOINT_BYTES as u32,
-        is_fixed_size: false,
-    };
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -178,31 +132,30 @@ impl LiveSchemaCheckpoint {
 }
 
 struct LiveSchemaCheckpointStore {
-    map: StableBTreeMap<LiveSchemaCheckpointKey, LiveSchemaCheckpointBytes, CheckpointMemory>,
+    map: SchemaControlMap<LiveSchemaCheckpointKey>,
 }
 
 impl LiveSchemaCheckpointStore {
-    fn open(memory: CheckpointMemory) -> Result<Self, InternalError> {
-        let mut store = Self {
-            map: StableBTreeMap::init(memory),
-        };
-        if store.map.is_empty() {
-            store.map.insert(
-                CHECKPOINT_HEADER_KEY,
-                LiveSchemaCheckpointBytes(encode_checkpoint_header()),
-            );
-        } else {
-            let header = store
-                .map
-                .get(&CHECKPOINT_HEADER_KEY)
-                .ok_or_else(InternalError::store_corruption)?;
-            decode_checkpoint_header(&header.0)?;
-            if let Some(record) = store.map.get(&LiveSchemaCheckpointKey::migration()) {
-                decode_schema_migration_record(&record.0)?;
-            }
-            if store.checkpoint_count()? > MAX_LIVE_SCHEMA_CHECKPOINTS {
-                return Err(InternalError::store_corruption());
-            }
+    fn open(memory: ControlMemory) -> Result<Self, InternalError> {
+        Self::from_map(SchemaControlMap::open(
+            memory,
+            ControlRecordFamily::Checkpoint,
+        )?)
+    }
+
+    fn open_existing(memory: ControlMemory) -> Result<Option<Self>, InternalError> {
+        SchemaControlMap::open_existing(memory, ControlRecordFamily::Checkpoint)?
+            .map(Self::from_map)
+            .transpose()
+    }
+
+    fn from_map(map: SchemaControlMap<LiveSchemaCheckpointKey>) -> Result<Self, InternalError> {
+        let store = Self { map };
+        if let Some(record) = store.map.get(&LiveSchemaCheckpointKey::migration()) {
+            decode_schema_migration_record(&record.0)?;
+        }
+        if store.checkpoint_count()? > MAX_LIVE_SCHEMA_CHECKPOINTS {
+            return Err(InternalError::store_corruption());
         }
         Ok(store)
     }
@@ -242,7 +195,7 @@ impl LiveSchemaCheckpointStore {
         let key = LiveSchemaCheckpointKey::for_store(store_path)?;
         self.map.insert(
             key,
-            LiveSchemaCheckpointBytes(encode_checkpoint(store_path, &checkpoint)?),
+            SchemaControlBytes(encode_checkpoint(store_path, &checkpoint)?),
         );
         Ok(())
     }
@@ -303,12 +256,8 @@ impl LiveSchemaCheckpointStore {
     }
 
     fn checkpoint_count(&self) -> Result<u64, InternalError> {
-        let non_header = self
-            .map
+        self.map
             .len()
-            .checked_sub(1)
-            .ok_or_else(InternalError::store_corruption)?;
-        non_header
             .checked_sub(u64::from(
                 self.map.get(&LiveSchemaCheckpointKey::lineage()).is_some(),
             ))
@@ -361,7 +310,7 @@ impl LiveSchemaCheckpointStore {
         }
         self.map.insert(
             LiveSchemaCheckpointKey::migration(),
-            LiveSchemaCheckpointBytes(operation.after_bytes().to_vec()),
+            SchemaControlBytes(operation.after_bytes().to_vec()),
         );
         Ok(())
     }
@@ -404,7 +353,7 @@ impl LiveSchemaCheckpointStore {
         }
         self.map.insert(
             LiveSchemaCheckpointKey::lineage(),
-            LiveSchemaCheckpointBytes(operation.after_bytes().to_vec()),
+            SchemaControlBytes(operation.after_bytes().to_vec()),
         );
         Ok(())
     }
@@ -443,7 +392,7 @@ impl LiveSchemaCheckpointStore {
         let checkpoint_key = LiveSchemaCheckpointKey::for_store(store_path)?;
         self.map.insert(
             checkpoint_key,
-            LiveSchemaCheckpointBytes(encode_checkpoint(store_path, &checkpoint)?),
+            SchemaControlBytes(encode_checkpoint(store_path, &checkpoint)?),
         );
         Ok(())
     }
@@ -575,53 +524,15 @@ fn decode_checkpoint(
     Ok(checkpoint)
 }
 
-fn encode_checkpoint_header() -> Vec<u8> {
-    let mut encoded = Vec::with_capacity(CHECKPOINT_HEADER_BYTES);
-    encoded.extend_from_slice(CHECKPOINT_HEADER_MAGIC);
-    encoded.push(CHECKPOINT_HEADER_VERSION);
-    encoded.extend_from_slice(&crc32c(&encoded).to_be_bytes());
-    encoded
-}
-
-fn decode_checkpoint_header(bytes: &[u8]) -> Result<(), InternalError> {
-    if bytes.len() != CHECKPOINT_HEADER_BYTES
-        || &bytes[..8] != CHECKPOINT_HEADER_MAGIC
-        || bytes[8] != CHECKPOINT_HEADER_VERSION
-        || crc32c(&bytes[..9])
-            != u32::from_be_bytes(
-                bytes[9..13]
-                    .try_into()
-                    .map_err(|_| InternalError::store_corruption())?,
-            )
-    {
-        return Err(InternalError::store_corruption());
-    }
-    Ok(())
-}
-
-fn checkpoint_memory() -> Result<CheckpointMemory, InternalError> {
-    let memory = commit_memory_handle(current_commit_memory_allocation()?)?;
-    Ok(RestrictedMemory::new(
-        memory,
-        CHECKPOINT_MEMORY_START_PAGE..CHECKPOINT_MEMORY_END_PAGE,
-    ))
-}
-
-/// Corrupt the live-schema checkpoint header for a focused startup-recovery test.
-#[cfg(test)]
-pub(in crate::db) fn corrupt_live_schema_checkpoint_header_for_tests() -> Result<(), InternalError>
-{
-    let mut store = LiveSchemaCheckpointStore::open(checkpoint_memory()?)?;
-    store
-        .map
-        .insert(CHECKPOINT_HEADER_KEY, LiveSchemaCheckpointBytes(vec![0xff]));
-    Ok(())
-}
-
 pub(in crate::db) fn load_live_schema_checkpoint(
     store_path: &str,
 ) -> Result<Option<LiveSchemaCheckpoint>, InternalError> {
-    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.load(store_path)
+    let Some(store) = LiveSchemaCheckpointStore::open_existing(control_memory()?)? else {
+        // Preserve path admission even when there is no checkpoint allocation yet.
+        LiveSchemaCheckpointKey::for_store(store_path)?;
+        return Ok(None);
+    };
+    store.load(store_path)
 }
 
 pub(in crate::db) fn preflight_live_schema_checkpoint(
@@ -630,7 +541,7 @@ pub(in crate::db) fn preflight_live_schema_checkpoint(
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
 ) -> Result<LiveSchemaCheckpointPreflight, InternalError> {
-    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.preflight(
+    LiveSchemaCheckpointStore::open(control_memory()?)?.preflight(
         incarnation,
         store_path,
         expected_revision,
@@ -644,7 +555,7 @@ pub(in crate::db) fn apply_live_schema_checkpoint(
     expected_revision: AcceptedSchemaRevision,
     candidate: &CandidateSchemaRevision,
 ) -> Result<(), InternalError> {
-    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.apply(
+    LiveSchemaCheckpointStore::open(control_memory()?)?.apply(
         incarnation,
         store_path,
         expected_revision,
@@ -670,8 +581,7 @@ pub(in crate::db) fn preflight_live_identity_range_checkpoint(
     store_path: &str,
     range: IdentityRangeAdvance,
 ) -> Result<(), InternalError> {
-    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?
-        .preflight_identity_range(store_path, range)
+    LiveSchemaCheckpointStore::open(control_memory()?)?.preflight_identity_range(store_path, range)
 }
 
 pub(in crate::db) fn apply_live_identity_range_checkpoint(
@@ -679,7 +589,7 @@ pub(in crate::db) fn apply_live_identity_range_checkpoint(
     range: IdentityRangeAdvance,
     advance_id: IdentityAdvanceId,
 ) -> Result<(), InternalError> {
-    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?
+    LiveSchemaCheckpointStore::open(control_memory()?)?
         .apply_identity_range(store_path, range, advance_id)
 }
 
@@ -704,7 +614,10 @@ pub(in crate::db) fn verify_live_identity_range_checkpoint(
 
 pub(in crate::db) fn load_schema_migration_record()
 -> Result<Option<SchemaMigrationRecord>, InternalError> {
-    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.load_migration()
+    let Some(store) = LiveSchemaCheckpointStore::open_existing(control_memory()?)? else {
+        return Ok(None);
+    };
+    store.load_migration()
 }
 
 /// Reject ordinary database work while one durable offline migration owns the
@@ -760,14 +673,14 @@ const fn schema_migration_record_blocks_ordinary_operations(
 pub(in crate::db) fn preflight_schema_migration_record_op(
     operation: &SchemaMigrationRecordOp,
 ) -> Result<LiveSchemaCheckpointPreflight, InternalError> {
-    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.preflight_migration(operation)
+    LiveSchemaCheckpointStore::open(control_memory()?)?.preflight_migration(operation)
 }
 
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) fn apply_schema_migration_record_op(
     operation: &SchemaMigrationRecordOp,
 ) -> Result<(), InternalError> {
-    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.apply_migration(operation)?;
+    LiveSchemaCheckpointStore::open(control_memory()?)?.apply_migration(operation)?;
     let after = decode_schema_migration_record(operation.after_bytes())?;
     let state = if schema_migration_record_blocks_ordinary_operations(
         &after,
@@ -785,7 +698,7 @@ pub(in crate::db) fn apply_schema_migration_record_op(
 pub(in crate::db) fn verify_schema_migration_record_op(
     operation: &SchemaMigrationRecordOp,
 ) -> Result<(), InternalError> {
-    let current = LiveSchemaCheckpointStore::open(checkpoint_memory()?)?
+    let current = LiveSchemaCheckpointStore::open(control_memory()?)?
         .map
         .get(&LiveSchemaCheckpointKey::migration())
         .ok_or_else(InternalError::recovery_effect_verification_failed)?;
@@ -798,7 +711,10 @@ pub(in crate::db) fn verify_schema_migration_record_op(
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db::schema) fn load_entity_source_lineage_catalog()
 -> Result<Option<AcceptedEntitySourceLineageCatalog>, InternalError> {
-    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.load_lineage()
+    let Some(store) = LiveSchemaCheckpointStore::open_existing(control_memory()?)? else {
+        return Ok(None);
+    };
+    store.load_lineage()
 }
 
 #[cfg(test)]
@@ -831,21 +747,21 @@ pub(in crate::db) fn schema_migration_record_matches_for_tests(
 pub(in crate::db) fn preflight_entity_source_lineage_catalog_op(
     operation: &EntitySourceLineageCatalogOp,
 ) -> Result<LiveSchemaCheckpointPreflight, InternalError> {
-    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.preflight_lineage(operation)
+    LiveSchemaCheckpointStore::open(control_memory()?)?.preflight_lineage(operation)
 }
 
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) fn apply_entity_source_lineage_catalog_op(
     operation: &EntitySourceLineageCatalogOp,
 ) -> Result<(), InternalError> {
-    LiveSchemaCheckpointStore::open(checkpoint_memory()?)?.apply_lineage(operation)
+    LiveSchemaCheckpointStore::open(control_memory()?)?.apply_lineage(operation)
 }
 
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) fn verify_entity_source_lineage_catalog_op(
     operation: &EntitySourceLineageCatalogOp,
 ) -> Result<(), InternalError> {
-    let current = LiveSchemaCheckpointStore::open(checkpoint_memory()?)?
+    let current = LiveSchemaCheckpointStore::open(control_memory()?)?
         .map
         .get(&LiveSchemaCheckpointKey::lineage())
         .ok_or_else(InternalError::recovery_effect_verification_failed)?;
@@ -859,8 +775,8 @@ pub(in crate::db) fn verify_entity_source_lineage_catalog_op(
 mod tests {
     use super::{
         IdentityStateInventory, LiveSchemaCheckpointKey, LiveSchemaCheckpointPreflight,
-        LiveSchemaCheckpointStore, decode_checkpoint, encode_checkpoint,
-        schema_migration_record_blocks_ordinary_operations,
+        LiveSchemaCheckpointStore, MAX_LIVE_SCHEMA_CHECKPOINT_BYTES, decode_checkpoint,
+        encode_checkpoint, schema_migration_record_blocks_ordinary_operations,
     };
     use crate::{
         db::{
@@ -881,12 +797,47 @@ mod tests {
         },
         testing::test_memory,
     };
-    use ic_memory::ic_stable_structures::RestrictedMemory;
+    use ic_memory::ic_stable_structures::{Memory, RestrictedMemory};
     use icydb_schema::{
         EntitySourceDigest, EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint,
         SchemaMigrationPlanDigest, SchemaProposalDigest, TargetDatabaseIdentity,
         TargetStoreIdentity,
     };
+
+    #[test]
+    fn small_checkpoint_tree_uses_one_wasm_page_and_preserves_record_limits() {
+        let memory = RestrictedMemory::new(test_memory(242), 0..4_096);
+        let mut store = LiveSchemaCheckpointStore::open(memory.clone()).unwrap();
+        let candidate = empty_accepted_schema_candidate_for_tests(
+            "test::Compact",
+            AcceptedSchemaRevision::new(1),
+        );
+        store
+            .apply(
+                DatabaseIncarnationId::for_tests(0x63),
+                "test::Compact",
+                AcceptedSchemaRevision::NONE,
+                &candidate,
+            )
+            .unwrap();
+        assert_eq!(memory.size(), 1);
+        let reopened = LiveSchemaCheckpointStore::open_existing(memory.clone())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            reopened
+                .load("test::Compact")
+                .unwrap()
+                .unwrap()
+                .candidate()
+                .encoded_bundle(),
+            candidate.encoded_bundle()
+        );
+        assert_eq!(memory.size(), 1);
+        let oversized = vec![0; MAX_LIVE_SCHEMA_CHECKPOINT_BYTES + 1];
+        let key = LiveSchemaCheckpointKey::for_store("test::Compact").unwrap();
+        assert!(decode_checkpoint(&oversized, key).is_err());
+    }
 
     fn prepared_migration_record() -> SchemaMigrationRecord {
         SchemaMigrationRecord::prepared(

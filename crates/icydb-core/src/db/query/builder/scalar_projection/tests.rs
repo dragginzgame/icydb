@@ -22,6 +22,15 @@ fn binary(op: BinaryOp, left: Expr, right: Expr) -> Expr {
 
 fn fixtures() -> Vec<(Expr, &'static str)> {
     vec![
+        (Expr::Literal(Value::NatBig("0".parse().unwrap())), "0"),
+        (
+            Expr::Literal(Value::NatBig("1000000001".parse().unwrap())),
+            "1_000_000_001",
+        ),
+        (
+            Expr::Literal(Value::IntBig("-1000000000000000001".parse().unwrap())),
+            "-1_000_000_000_000_000_001",
+        ),
         (Expr::Literal(Value::Text("é'\\\n'".into())), "'é''\\\n'''"),
         (
             Expr::FieldPath(FieldPath::new(
@@ -88,6 +97,12 @@ struct LimitedOutput {
     remaining: usize,
     rendered: String,
     rejected: bool,
+}
+
+impl crate::value::decimal::ValueFormatWriter for LimitedOutput {
+    fn admit_scratch(&mut self, _bytes: u64, _steps: u64) -> fmt::Result {
+        Ok(())
+    }
 }
 
 impl Write for LimitedOutput {

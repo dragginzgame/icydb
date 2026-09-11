@@ -2,6 +2,7 @@
 //! Counters are never created here or retained in prepared/cached artifacts.
 
 mod expr;
+mod predicate;
 mod text;
 
 use crate::{

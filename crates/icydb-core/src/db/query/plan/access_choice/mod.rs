@@ -572,7 +572,7 @@ fn same_score_competing_candidate_plans(
 fn residual_burden_for_plan(plan: &AccessPlannedQuery) -> ResidualBurdenProfile {
     residual_burden_from_filter_facts(
         plan.residual_filter_shape(),
-        plan.effective_execution_predicate().as_ref(),
+        plan.effective_execution_predicate().as_deref(),
     )
 }
 

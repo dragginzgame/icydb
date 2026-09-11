@@ -637,6 +637,64 @@ fn canonical_cmp_map_entry_orders_by_key_then_value() {
 }
 
 #[test]
+fn ordered_map_entries_borrow_source_and_preserve_full_entry_order() {
+    let nested = Value::Map(vec![(v_txt("nested"), Value::List(vec![v_i(1), v_i(2)]))]);
+    let cases = [
+        vec![],
+        vec![(v_txt("a"), nested.clone())],
+        vec![(v_txt("a"), v_i(1)), (v_txt("b"), nested.clone())],
+        vec![(v_txt("b"), nested.clone()), (v_txt("a"), v_i(1))],
+        vec![(v_txt("k"), v_i(1)), (v_txt("k"), v_i(2))],
+        vec![(v_txt("k"), v_i(2)), (v_txt("k"), v_i(1))],
+        vec![(v_txt("k"), nested.clone()), (v_txt("k"), nested)],
+    ];
+    for entries in cases {
+        let before = entries.clone();
+        let mut expected = entries.iter().collect::<Vec<_>>();
+        expected.sort_unstable_by(|left, right| {
+            Value::canonical_cmp_map_entry(&left.0, &left.1, &right.0, &right.1)
+        });
+        for _ in 0..2 {
+            let actual = Value::ordered_map_entries(&entries).collect::<Vec<_>>();
+            assert_eq!(actual, expected);
+            assert!(
+                actual
+                    .iter()
+                    .all(|entry| entries.iter().any(|source| std::ptr::eq(*entry, source)))
+            );
+            assert_eq!(entries, before);
+        }
+    }
+}
+
+#[test]
+fn ordered_map_entries_preserve_wide_nested_hashes() {
+    let ordered: Vec<_> = (0..256_u64)
+        .map(|index| {
+            (
+                Value::Nat64(index / 2),
+                Value::List(vec![Value::Nat64(index)]),
+            )
+        })
+        .collect();
+    let mut unordered = ordered.clone();
+    unordered.reverse();
+    let expected = hash_value(&Value::Map(ordered.clone())).unwrap();
+    assert_eq!(
+        hash_value(&Value::Map(unordered.clone())).unwrap(),
+        expected
+    );
+    assert_eq!(
+        Value::ordered_map_entries(&unordered).collect::<Vec<_>>(),
+        ordered.iter().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        Value::ordered_map_entries(&ordered).collect::<Vec<_>>(),
+        ordered.iter().collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn canonicalize_value_set_preserves_sorted_unique_fast_path_semantics() {
     let mut values = vec![v_txt("a"), v_txt("b"), v_txt("c")];
     canonicalize_value_set(&mut values);

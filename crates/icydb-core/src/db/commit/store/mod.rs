@@ -261,7 +261,7 @@ impl CommitStore {
         &self,
     ) -> Result<Vec<PersistedStoreAllocation>, InternalError> {
         let bytes = self.read_framed_control_slot()?;
-        inspect_commit_control_slot(&bytes).map(|slot| slot.registry)
+        inspect_commit_control_slot(&bytes).map(|slot| slot.to_owned_registry())
     }
 
     /// Preview the next database-wide commit order without durable mutation.
@@ -411,7 +411,7 @@ impl CommitStore {
             slot.database_incarnation_id,
             slot.cursor_authentication_key,
             slot.database_commit_sequence,
-            &slot.registry,
+            &slot.to_owned_registry(),
         )
         .expect("test empty control should encode");
         self.write_control_slot(&encoded)
@@ -437,7 +437,7 @@ impl CommitStore {
                 slot.database_incarnation_id,
                 slot.cursor_authentication_key,
                 slot.database_commit_sequence,
-                &slot.registry,
+                &slot.to_owned_registry(),
             )
             .expect("test empty control should encode")
         } else {
@@ -563,7 +563,7 @@ pub(in crate::db) fn inspect_persisted_commit_control(
         incarnation: current.database_incarnation_id,
         cursor_authentication_key: current.cursor_authentication_key,
         database_commit_sequence: current.database_commit_sequence,
-        registry: current.registry,
+        registry: current.to_owned_registry(),
         marker_present: !current.marker_bytes.is_empty(),
     })
 }

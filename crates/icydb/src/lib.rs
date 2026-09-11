@@ -109,11 +109,17 @@ pub mod build {
     ///
     /// Returns an environment or filesystem error when Cargo does not provide
     /// `OUT_DIR` or the generated actor cannot be written.
+    ///
+    /// # Panics
+    ///
+    /// Panics if model validation fails, the canonical path is not a canister,
+    /// or the consuming package's IcyDB dependency cannot be resolved.
     #[doc(hidden)]
     pub fn __emit_canister_for_build_script(
         canister_path: &str,
+        build_script: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("cargo:rerun-if-changed=build.rs");
+        println!("cargo:rerun-if-changed={build_script}");
         println!("cargo:rustc-check-cfg=cfg(feature, values(\"test-admin-api\"))");
         let out_dir = std::env::var("OUT_DIR")?;
         let actor_file = std::path::PathBuf::from(out_dir).join("actor.rs");
@@ -230,12 +236,23 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 //
 
 /// Generate one canister's private actor module from its authored schema type.
+///
+/// Resolves the type through its canonical model [`Path`](model::Path), so
+/// relative and imported type paths use the same registered identity.
+/// Track shared declaration files with Cargo `rerun-if-changed` directives.
+///
+/// # Panics
+///
+/// Panics if model validation fails, the type is not a registered canister,
+/// or the consuming package's IcyDB dependency cannot be resolved.
 #[cfg(not(target_arch = "wasm32"))]
 #[macro_export]
 macro_rules! build_canister {
     ($canister_ty:ty) => {{
-        let _ = ::std::any::TypeId::of::<$canister_ty>();
-        $crate::build::__emit_canister_for_build_script(stringify!($canister_ty))
+        $crate::build::__emit_canister_for_build_script(
+            <$canister_ty as $crate::model::Path>::PATH,
+            file!(),
+        )
     }};
 }
 
@@ -1069,6 +1086,10 @@ mod tests {
         }
     }
 
+    impl icydb_model::Path for ModelWrapper {
+        const PATH: &'static str = "icydb::tests::ModelWrapper";
+    }
+
     #[test]
     fn build_facade_exports_typed_entrypoint() {
         fn assert_model_inner<T: crate::traits::Inner<u64>>() {}
@@ -1084,7 +1105,7 @@ mod tests {
     }
 
     fn build_facade_macros_resolve() -> Result<(), Box<dyn std::error::Error>> {
-        build::build_canister!(())?;
+        build::build_canister!(ModelWrapper)?;
 
         Ok(())
     }

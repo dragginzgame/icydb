@@ -5,6 +5,7 @@
 
 use crate::db::{QueryError, query::preparation::PreparationWork};
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+use std::borrow::Cow;
 
 use crate::db::predicate::MissingRowPolicy;
 use crate::{
@@ -128,28 +129,46 @@ impl AccessPlannedQuery {
     ///
     /// This conservative form is used by preparation/explain surfaces that
     /// still need to see access-bound equalities as index-predicate input.
-    #[must_use]
-    pub(in crate::db) fn execution_preparation_predicate(&self) -> Option<Predicate> {
+    /// Copies are admitted before construction; guard pruning consumes them.
+    pub(in crate::db) fn execution_preparation_predicate(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<Option<Predicate>, QueryError> {
         if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
-            return static_contract.execution_preparation_predicate.clone();
+            return static_contract
+                .execution_preparation_predicate
+                .as_ref()
+                .map(|predicate| work.copy_predicate(predicate))
+                .transpose();
         }
 
-        derive_execution_preparation_predicate(self.scalar_plan(), &self.access)
+        let predicate = self
+            .scalar_plan()
+            .predicate
+            .as_ref()
+            .map(|predicate| work.copy_predicate(predicate))
+            .transpose()?;
+        Ok(derive_execution_preparation_predicate(
+            &self.access,
+            predicate,
+        ))
     }
 
     /// Return the executor-facing residual predicate after removing any
     /// filtered-index guard clauses and fixed access-bound equalities already
     /// guaranteed by the chosen path.
+    /// Finalized plans lend their frozen predicate; only pre-finalization
+    /// derivation owns a temporary. Presence and projection must not copy it.
     #[must_use]
-    pub(in crate::db) fn effective_execution_predicate(&self) -> Option<Predicate> {
+    pub(in crate::db) fn effective_execution_predicate(&self) -> Option<Cow<'_, Predicate>> {
         if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
             return static_contract
                 .residual_filter_contract
                 .residual_filter_predicate()
-                .cloned();
+                .map(Cow::Borrowed);
         }
 
-        derive_residual_filter_predicate(self.scalar_plan(), &self.access)
+        derive_residual_filter_predicate(self.scalar_plan(), &self.access).map(Cow::Owned)
     }
 
     /// Return whether one explicit residual predicate survives access
@@ -519,11 +538,17 @@ fn project_static_execution_planning_contract_with_schema(
     projection_spec: ProjectionSpec,
     work: &PreparationWork<'_>,
 ) -> Result<StaticExecutionPlanningContract, QueryError> {
-    let execution_preparation_predicate = plan.execution_preparation_predicate();
+    let execution_preparation_predicate = plan.execution_preparation_predicate(work)?;
+    // Preparation retains its predicate independently. Admit the residual's
+    // owned copy before pruning it in place; pruning creates no new predicate backing.
+    let residual_input = execution_preparation_predicate
+        .as_ref()
+        .map(|predicate| work.copy_predicate(predicate))
+        .transpose()?;
     let residual_filter_predicate = derive_residual_filter_predicate_from_preparation(
         plan.scalar_plan(),
         &plan.access,
-        execution_preparation_predicate.as_ref(),
+        residual_input,
     );
     let residual_filter_expr = derive_residual_filter_expr(plan);
     let effective_runtime_filter_program = compile_effective_runtime_filter_program(
@@ -633,16 +658,16 @@ fn compile_effective_runtime_filter_program(
 // This strips only filtered-index guard clauses while preserving access-bound
 // equalities that still matter to preparation/explain consumers.
 fn derive_execution_preparation_predicate(
-    scalar: &ScalarPlan,
     access: &AccessPlan<Value>,
+    query_predicate: Option<Predicate>,
 ) -> Option<Predicate> {
-    let query_predicate = scalar.predicate.as_ref()?;
+    let query_predicate = query_predicate?;
 
     match access.selected_index_contract() {
         Some(index) => {
             residual_query_predicate_after_filtered_access_contract(index, query_predicate)
         }
-        None => Some(query_predicate.clone()),
+        None => Some(query_predicate),
     }
 }
 
@@ -653,15 +678,16 @@ fn derive_residual_filter_predicate(
     scalar: &ScalarPlan,
     access: &AccessPlan<Value>,
 ) -> Option<Predicate> {
-    let filtered_residual = derive_execution_preparation_predicate(scalar, access);
+    let filtered_residual =
+        derive_execution_preparation_predicate(access, scalar.predicate.clone());
 
-    derive_residual_filter_predicate_from_preparation(scalar, access, filtered_residual.as_ref())
+    derive_residual_filter_predicate_from_preparation(scalar, access, filtered_residual)
 }
 
 fn derive_residual_filter_predicate_from_preparation(
     scalar: &ScalarPlan,
     access: &AccessPlan<Value>,
-    execution_preparation_predicate: Option<&Predicate>,
+    execution_preparation_predicate: Option<Predicate>,
 ) -> Option<Predicate> {
     let execution_preparation_predicate = execution_preparation_predicate?;
 
@@ -704,12 +730,13 @@ fn planner_predicate_requires_expression_runtime(scalar: &ScalarPlan) -> bool {
 }
 
 fn planner_predicate_is_fully_satisfied_by_access_contract(plan: &AccessPlannedQuery) -> bool {
-    let Some(predicate) = derive_execution_preparation_predicate(plan.scalar_plan(), &plan.access)
+    let Some(predicate) =
+        derive_execution_preparation_predicate(&plan.access, plan.scalar_plan().predicate.clone())
     else {
         return false;
     };
 
-    residual_query_predicate_after_access_path_bounds(plan.access.as_path(), &predicate).is_none()
+    residual_query_predicate_after_access_path_bounds(plan.access.as_path(), predicate).is_none()
 }
 
 // Return whether any residual filtering survives after access planning. This
@@ -825,7 +852,7 @@ fn resolve_grouped_static_planning_semantics(
 
     let grouped_aggregate_execution_specs = Some(grouped_aggregate_execution_specs(
         schema_info,
-        aggregate_specs.as_slice(),
+        aggregate_specs,
         work,
     )?);
     let grouped_distinct_execution_strategy = Some(

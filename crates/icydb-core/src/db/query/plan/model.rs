@@ -178,6 +178,7 @@ impl PartialEq<OrderTerm> for (String, OrderDirection) {
 
 /// Render one planner-owned scalar filter expression label for explain and
 /// diagnostics surfaces.
+#[cfg(any(feature = "sql", test))]
 #[must_use]
 pub(in crate::db) fn render_scalar_filter_expr_plan_label(expr: &Expr) -> String {
     // Intent owns canonicalization. Residual filters retain that same tree;
@@ -672,20 +673,36 @@ impl GroupedPlanAggregateFamily {
     /// Derive the grouped aggregate-family profile from one planner aggregate list.
     #[must_use]
     pub(in crate::db) fn from_grouped_aggregates(aggregates: &[GroupAggregateSpec]) -> Self {
-        if matches!(aggregates, [aggregate] if aggregate.identity().is_count_rows_only()) {
-            return Self::CountRowsOnly;
+        match Self::try_from_grouped_aggregates(aggregates, &mut |_| {
+            Ok::<_, std::convert::Infallible>(())
+        }) {
+            Ok(result) => result,
+            Err(never) => match never {},
+        }
+    }
+
+    /// Inspect aggregate facts with observation before each borrowed visit.
+    pub(in crate::db) fn try_from_grouped_aggregates<E>(
+        aggregates: &[GroupAggregateSpec],
+        observe: &mut impl FnMut(u64) -> Result<(), E>,
+    ) -> Result<Self, E> {
+        observe(1)?;
+        if matches!(aggregates, [aggregate] if aggregate.is_count_rows_only()) {
+            return Ok(Self::CountRowsOnly);
         }
 
-        if aggregates.iter().all(|aggregate| {
-            aggregate
+        for aggregate in aggregates {
+            observe(1)?;
+            if aggregate
                 .kind()
                 .grouped_plan_family(aggregate.target_field().is_some())
-                == Self::FieldTargetRows
-        }) {
-            return Self::FieldTargetRows;
+                != Self::FieldTargetRows
+            {
+                return Ok(Self::GenericRows);
+            }
         }
 
-        Self::GenericRows
+        Ok(Self::FieldTargetRows)
     }
 }
 

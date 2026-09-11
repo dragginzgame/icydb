@@ -4,9 +4,13 @@
 //! Does not own: candidate enumeration or final execution-plan assembly.
 //! Boundary: keeps planner access-choice data structures separate from evaluator logic.
 
+#[cfg(test)]
+mod diagnostic_tests;
+
 use crate::db::query::plan::{
     CardinalityTiebreakCandidateEvidence, CardinalityTiebreakState, PlannedNonIndexAccessReason,
 };
+use std::fmt;
 
 pub(super) use crate::db::query::plan::planner::AccessCandidateScore as CandidateScore;
 
@@ -306,17 +310,11 @@ impl AccessChoiceCandidateExplainSummary {
     pub(in crate::db) const fn index_name(&self) -> &str {
         self.index_name.as_str()
     }
+}
 
-    /// Render the stable candidate label at an outward diagnostics boundary.
-    #[must_use]
-    pub(in crate::db) fn label(&self) -> String {
-        let prefix = self.kind.label_prefix();
-        let mut label = String::with_capacity(prefix.len() + self.index_name.len() + 2);
-        label.push_str(prefix);
-        label.push('(');
-        label.push_str(self.index_name.as_str());
-        label.push(')');
-        label
+impl fmt::Display for AccessChoiceCandidateExplainSummary {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(out, "{}({})", self.kind.label_prefix(), self.index_name)
     }
 }
 
@@ -524,18 +522,11 @@ impl AccessChoiceRejectedIndex {
     pub(in crate::db) const fn reason_code(&self) -> &'static str {
         self.reason.code()
     }
+}
 
-    /// Render the stable diagnostics label at an outward boundary.
-    #[must_use]
-    pub(in crate::db) fn label(&self) -> String {
-        let reason = self.reason_code();
-        let mut label =
-            String::with_capacity("index:".len() + self.index_name.len() + 1 + reason.len());
-        label.push_str("index:");
-        label.push_str(self.index_name.as_str());
-        label.push('=');
-        label.push_str(reason);
-        label
+impl fmt::Display for AccessChoiceRejectedIndex {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(out, "index:{}={}", self.index_name, self.reason_code())
     }
 }
 

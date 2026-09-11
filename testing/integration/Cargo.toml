@@ -29,6 +29,14 @@ name = "sql_canister"
 path = "tests/sql_canister.rs"
 
 [[test]]
+name = "typed_explain_measurement"
+path = "tests/typed_explain_measurement.rs"
+
+[[test]]
+name = "model_facade"
+path = "tests/model_facade.rs"
+
+[[test]]
 name = "sql_guard"
 path = "tests/sql_guard.rs"
 

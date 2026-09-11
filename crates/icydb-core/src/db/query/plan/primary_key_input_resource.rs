@@ -55,7 +55,7 @@ pub(super) fn estimate_value_payload_bytes(value: &Value) -> u32 {
         | Value::Timestamp(_) => 8,
         Value::Enum(value) => estimate_enum_payload_bytes(value),
         Value::Int128(_) | Value::Nat128(_) | Value::Ulid(_) => 16,
-        Value::IntBig(value) => byte_len_u32(value.to_leb128().len()),
+        Value::IntBig(value) => u32::try_from(value.leb128_len()).unwrap_or(u32::MAX),
         Value::List(values) => values.iter().fold(0u32, |total, value| {
             total.saturating_add(estimate_value_payload_bytes(value))
         }),
@@ -64,7 +64,7 @@ pub(super) fn estimate_value_payload_bytes(value: &Value) -> u32 {
                 .saturating_add(estimate_value_payload_bytes(key))
                 .saturating_add(estimate_value_payload_bytes(value))
         }),
-        Value::NatBig(value) => byte_len_u32(value.to_leb128().len()),
+        Value::NatBig(value) => u32::try_from(value.leb128_len()).unwrap_or(u32::MAX),
         Value::Null | Value::Unit => 0,
         Value::Principal(value) => byte_len_u32(value.as_slice().len()),
         Value::Subaccount(_) | Value::U256(_) => 32,
@@ -83,4 +83,25 @@ fn estimate_enum_payload_bytes(value: &ValueEnum) -> u32 {
 
 fn byte_len_u32(len: usize) -> u32 {
     u32::try_from(len).unwrap_or(u32::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::estimate_value_payload_bytes;
+    use crate::{
+        types::{IntBig, NatBig},
+        value::Value,
+    };
+
+    #[test]
+    fn bigint_key_payload_estimates_match_encoded_lengths() {
+        for integer in [-8193_i32, -8192, -65, -64, -1, 0, 63, 64, 8191, 8192] {
+            let signed = IntBig::from(integer);
+            let unsigned = NatBig::from(integer.unsigned_abs());
+            let expected =
+                u32::try_from(signed.to_leb128().len() + unsigned.to_leb128().len()).unwrap();
+            let values = Value::List(vec![Value::IntBig(signed), Value::NatBig(unsigned)]);
+            assert_eq!(estimate_value_payload_bytes(&values), expected);
+        }
+    }
 }

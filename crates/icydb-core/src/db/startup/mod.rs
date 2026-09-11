@@ -195,7 +195,7 @@ mod tests {
             schema::{
                 SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeOutcome,
                 SchemaChangeReceipt, SchemaStore, apply_schema_application_record_op,
-                corrupt_live_schema_checkpoint_header_for_tests, generated_schema_authority,
+                corrupt_schema_control_header_for_tests, generated_schema_authority,
                 load_schema_application_record_read_only,
             },
             session::RequestExecutionRoot,
@@ -581,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn heap_only_checkpoint_corruption_becomes_a_durable_database_control_failure() {
+    fn heap_only_schema_control_corruption_becomes_a_durable_database_control_failure() {
         const SUBMISSION: &str = "generated/76543210fedcba98";
 
         configure_commit_memory_id(
@@ -594,8 +594,8 @@ mod tests {
         )
         .expect("commit memory should open");
         initialize_current_database_control_for_tests(&memory);
-        corrupt_live_schema_checkpoint_header_for_tests()
-            .expect("checkpoint authority should admit focused corruption");
+        corrupt_schema_control_header_for_tests()
+            .expect("schema-control authority should admit focused corruption");
 
         let request_root = RequestExecutionRoot::__new_runtime_root();
         let session = crate::db::DbSession::<HeapCheckpointFailureCanister>::new(

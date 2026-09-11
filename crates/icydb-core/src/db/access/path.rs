@@ -288,6 +288,12 @@ pub(crate) struct SemanticIndexRangeSpec {
 }
 
 impl SemanticIndexRangeSpec {
+    /// Borrow the selected index contract without copying its shared handle.
+    #[must_use]
+    pub(in crate::db) const fn index_ref(&self) -> &SemanticIndexAccessContract {
+        &self.index
+    }
+
     #[must_use]
     pub(crate) fn from_access_contract(
         index: SemanticIndexAccessContract,

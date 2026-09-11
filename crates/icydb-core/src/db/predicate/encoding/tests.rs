@@ -1,9 +1,145 @@
 use crate::{
     db::predicate::{
-        CoercionId, CompareOp, ComparePredicate, Predicate, encoding::encode_predicate_sort_key,
+        CoercionId, CompareOp, ComparePredicate, Predicate,
+        encoding::{
+            canonicalize_compare_literal_for_coercion, encode_compare_value_sort_key_into,
+            encode_predicate_sort_key, encode_value_sort_key_into, push_bytes_u64, push_len_u64,
+            push_value_sort_key_framed,
+        },
     },
     value::Value,
 };
+use std::borrow::Cow;
+
+#[test]
+fn compare_encoding_borrows_unchanged_literals_and_owns_coercions() {
+    let nested = Value::List(vec![Value::Map(vec![(
+        Value::Text("key".repeat(256)),
+        Value::NatBig(crate::types::NatBig::from_biguint(
+            num_bigint::BigUint::from(1_u8) << 4096_usize,
+        )),
+    )])]);
+    for coercion in [
+        CoercionId::Strict,
+        CoercionId::CollectionElement,
+        CoercionId::NumericWiden,
+        CoercionId::TextCasefold,
+    ] {
+        let canonical = canonicalize_compare_literal_for_coercion(coercion, &nested);
+        assert!(
+            matches!(canonical, Cow::Borrowed(value) if std::ptr::eq(value, &raw const nested))
+        );
+    }
+    for (coercion, value, expected) in [
+        (
+            CoercionId::NumericWiden,
+            Value::Int64(7),
+            Value::Decimal(crate::types::Decimal::new(7, 0)),
+        ),
+        (
+            CoercionId::TextCasefold,
+            Value::Text("ADA".to_string()),
+            Value::Text("ada".to_string()),
+        ),
+    ] {
+        let canonical = canonicalize_compare_literal_for_coercion(coercion, &value);
+        assert!(matches!(canonical, Cow::Owned(_)));
+        assert_eq!(*canonical, expected);
+    }
+}
+
+#[test]
+fn borrowed_compare_encoding_preserves_scalar_and_membership_bytes() {
+    // Explicit expected values pin coercion separately from the borrowing helper.
+    // Large/nested inputs exercise unchanged payloads in scalar and list encoding.
+    let nested = Value::Map(vec![(Value::Text("z".repeat(256)), Value::Nat64(7))]);
+    let source = vec![
+        Value::Text("ADA".to_string()),
+        nested.clone(),
+        Value::Int64(7),
+        Value::Text("ada".to_string()),
+        nested,
+        Value::Decimal(crate::types::Decimal::new(7, 0)),
+    ];
+    let snapshot = source.clone();
+    for coercion in [
+        CoercionId::Strict,
+        CoercionId::CollectionElement,
+        CoercionId::NumericWiden,
+        CoercionId::TextCasefold,
+    ] {
+        let mut expected_values = source.clone();
+        match coercion {
+            CoercionId::NumericWiden => {
+                expected_values[2] = Value::Decimal(crate::types::Decimal::new(7, 0));
+            }
+            CoercionId::TextCasefold => {
+                expected_values[0] = Value::Text("ada".to_string());
+            }
+            CoercionId::Strict | CoercionId::CollectionElement => {}
+        }
+        for (value, expected_value) in source.iter().zip(&expected_values) {
+            let mut expected = Vec::new();
+            encode_value_sort_key_into(&mut expected, expected_value);
+            let mut actual = Vec::new();
+            encode_compare_value_sort_key_into(&mut actual, CompareOp::Eq, coercion, value, false);
+            assert_eq!(actual, expected);
+        }
+        for normalized in [false, true] {
+            let mut values = expected_values.clone();
+            // Independent owned reference: canonical value order and equality
+            // remain the set contract, regardless of temporary ownership.
+            values.sort_unstable_by(Value::canonical_cmp);
+            values.dedup();
+            let input = Value::List(if normalized {
+                values.clone()
+            } else {
+                source.clone()
+            });
+            let mut expected = vec![input.canonical_tag().to_u8()];
+            push_len_u64(&mut expected, values.len());
+            for value in &values {
+                push_value_sort_key_framed(&mut expected, value);
+            }
+            for op in [CompareOp::In, CompareOp::NotIn] {
+                let mut actual = Vec::new();
+                encode_compare_value_sort_key_into(&mut actual, op, coercion, &input, normalized);
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+    assert_eq!(source, snapshot);
+}
+
+#[test]
+fn bigint_sort_key_stream_preserves_length_and_candid_payload() {
+    let magnitude = num_bigint::BigUint::from(1_u8) << 4096_usize;
+    let mut unsigned = Vec::new();
+    candid::Nat::from(magnitude.clone())
+        .encode(&mut unsigned)
+        .unwrap();
+    let negative = -num_bigint::BigInt::from(magnitude.clone());
+    let mut signed = Vec::new();
+    candid::Int::from(negative.clone())
+        .encode(&mut signed)
+        .unwrap();
+    for (value, bytes) in [
+        (
+            Value::NatBig(crate::types::NatBig::from_biguint(magnitude)),
+            unsigned,
+        ),
+        (
+            Value::IntBig(crate::types::IntBig::from_bigint(negative)),
+            signed,
+        ),
+    ] {
+        let mut expected = vec![value.canonical_tag().to_u8()];
+        push_bytes_u64(&mut expected, &bytes);
+        let mut actual = Vec::new();
+        encode_value_sort_key_into(&mut actual, &value);
+        assert_eq!(actual, expected);
+    }
+}
 
 #[test]
 fn predicate_sort_key_normalizes_map_entry_order() {

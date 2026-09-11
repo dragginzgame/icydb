@@ -14,9 +14,10 @@ mod pushdown;
 
 #[cfg(feature = "sql")]
 pub(in crate::db) use access_projection::access_plan_label;
+#[cfg(any(feature = "sql", test))]
+pub(in crate::db) use access_projection::project_explain_access_path;
 pub(in crate::db) use access_projection::{
-    AccessPlanProjection, explain_access_strategy_label, project_access_plan,
-    project_explain_access_path,
+    AccessPlanProjection, project_access_plan, write_explain_access_strategy_label,
 };
 pub(in crate::db) use group_distinct::{
     GroupDistinctAdmissibility, GroupDistinctPolicyReason, grouped_distinct_admissibility,
@@ -30,8 +31,12 @@ pub(in crate::db) use group_having::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use group_model::canonicalize_grouped_having_numeric_literal_for_expr;
 pub(in crate::db) use group_model::group_aggregate_spec_expr;
-pub(in crate::db) use grouped_strategy::grouped_plan_strategy;
 pub(in crate::db) use grouped_strategy::{GroupedPlanFallbackReason, GroupedPlanStrategy};
-pub(in crate::db) use identity::{AggregateIdentity, AggregateSemanticKey};
+pub(in crate::db) use grouped_strategy::{
+    grouped_plan_strategy, grouped_plan_strategy_for_explain,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db) use identity::AggregateSemanticKey;
+pub(in crate::db) use identity::{AggregateIdentity, AggregateSemanticKeyRef};
 pub(in crate::db::query) use logical::residual_filter_facts_for_access;
 pub(in crate::db) use pushdown::{LogicalPushdownEligibility, derive_logical_pushdown_eligibility};

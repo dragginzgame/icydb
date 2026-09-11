@@ -5,6 +5,7 @@
 //! Boundary: projects aggregate execution contracts into descriptor fields consumed by explain surfaces.
 
 use crate::db::{
+    QueryError,
     executor::{
         ExecutionPreparation,
         explain::descriptor::shared::{
@@ -20,6 +21,7 @@ use crate::db::{
     query::{
         explain::{ExplainExecutionDescriptor, explain_access_plan},
         plan::{AccessPlannedQuery, AggregateKind},
+        preparation::PreparationWork,
     },
 };
 
@@ -74,12 +76,14 @@ pub(in crate::db) fn assemble_scalar_aggregate_execution_descriptor_with_project
     aggregate: AggregateRouteShape<'_>,
     aggregation: AggregateKind,
     projected_field: Option<&str>,
-) -> ExplainExecutionDescriptor {
+    work: &PreparationWork<'_>,
+) -> Result<ExplainExecutionDescriptor, QueryError> {
     assemble_aggregate_terminal_execution_descriptor_from_shape(
         plan,
         aggregate,
         aggregation,
         projected_field,
+        work,
     )
 }
 
@@ -88,7 +92,8 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
     aggregate: AggregateRouteShape<'_>,
     aggregation: AggregateKind,
     projected_field: Option<&str>,
-) -> ExplainExecutionDescriptor {
+    work: &PreparationWork<'_>,
+) -> Result<ExplainExecutionDescriptor, QueryError> {
     // Phase 1: derive one aggregate route plan using precomputed execution preparation.
     let explain_preparation = AggregateExplainPreparation::from_shape(plan, aggregate, aggregation);
 
@@ -107,8 +112,8 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
     // surface. COUNT/EXISTS/extrema use their own planner-visible route
     // contracts, so aggregate EXPLAIN should not reintroduce load-side
     // correctness vocabulary here.
-    ExplainExecutionDescriptor {
-        access_strategy: explain_access_plan(&plan.access),
+    Ok(ExplainExecutionDescriptor {
+        access_strategy: explain_access_plan(&plan.access, work)?,
         // Covering flag reflects index-only aggregate fast-path eligibility for
         // scalar aggregate terminals.
         covering_projection: explain_preparation.covering_projection,
@@ -118,5 +123,5 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
         limit: explain_preparation.route_plan.continuation().limit(),
         cursor: explain_preparation.route_plan.continuation().applied(),
         node_properties,
-    }
+    })
 }

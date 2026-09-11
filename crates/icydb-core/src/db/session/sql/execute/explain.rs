@@ -8,7 +8,8 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError, QueryPlanCacheReuse,
         executor::{
-            EntityAuthority, assemble_load_execution_node_descriptor_from_route_facts,
+            EntityAuthority, SharedPreparedExecutionPlan,
+            assemble_load_execution_node_descriptor_from_route_facts,
             explain::assemble_scalar_aggregate_execution_descriptor_with_projection,
             freeze_load_execution_route_facts_for_authority,
         },
@@ -58,7 +59,9 @@ fn render_sql_execution_explain(diagnostics: &FinalizedQueryDiagnostics) -> Stri
     lines.join("\n")
 }
 
-fn render_sql_execution_explain_json(diagnostics: &FinalizedQueryDiagnostics) -> String {
+fn render_sql_execution_explain_json(
+    diagnostics: &FinalizedQueryDiagnostics,
+) -> Result<String, QueryError> {
     diagnostics.render_json_canonical()
 }
 
@@ -90,7 +93,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         catalog: &AcceptedSchemaCatalogContext,
         structural: &StructuralQuery,
-        map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
+        map: impl FnOnce(&SharedPreparedExecutionPlan) -> Result<T, QueryError>,
     ) -> Result<(T, QueryPlanCacheReuse), QueryError> {
         let (prepared_plan, reuse) = self
             .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
@@ -99,7 +102,7 @@ impl<C: CanisterKind> DbSession<C> {
                 structural,
                 DiagnosticExecutionLane::Diagnostic,
             )?;
-        let mapped = map(prepared_plan.logical_plan())?;
+        let mapped = map(&prepared_plan)?;
 
         Ok((mapped, reuse))
     }
@@ -206,10 +209,14 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             &structural,
             |plan| {
-                let explain = plan.explain();
+                let explain = PreparationWork::run(
+                    self.db.request_execution_scope(),
+                    DiagnosticExecutionLane::Diagnostic,
+                    |work| plan.explain(work),
+                )?;
                 let rendered = match mode {
-                    SqlExplainMode::Plan => explain.render_text_canonical(),
-                    SqlExplainMode::Json => explain.render_json_canonical(),
+                    SqlExplainMode::Plan => explain.render_text_canonical()?,
+                    SqlExplainMode::Json => explain.render_json_canonical()?,
                     SqlExplainMode::Execution | SqlExplainMode::ExecutionJson => {
                         return Err(QueryError::execute(
                             InternalError::query_executor_invariant(),
@@ -269,17 +276,23 @@ impl<C: CanisterKind> DbSession<C> {
                 schema_info,
             );
             let projection = plan.frozen_projection_spec().map_err(QueryError::execute)?;
-            let diagnostics =
-                StructuralQuery::finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
-                    &plan,
-                    &authority,
-                    Some(reuse),
-                    |descriptor| {
-                        annotate_sql_projection_debug_on_execution_descriptor(
-                            descriptor, &plan, projection,
-                        );
-                    },
-                )?;
+            let diagnostics = PreparationWork::run(
+                self.db.request_execution_scope(),
+                DiagnosticExecutionLane::Diagnostic,
+                |work| {
+                    StructuralQuery::finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
+                        &plan,
+                        &authority,
+                        Some(reuse),
+                        work,
+                        |descriptor| {
+                            annotate_sql_projection_debug_on_execution_descriptor(
+                                descriptor, &plan, projection,
+                            );
+                        },
+                    )
+                },
+            )?;
 
             return Ok(Some(render_sql_execution_explain(&diagnostics)));
         }
@@ -289,12 +302,21 @@ impl<C: CanisterKind> DbSession<C> {
             catalog,
             &structural,
             |plan| {
+                let plan = plan.logical_plan();
                 let route_facts = freeze_load_execution_route_facts_for_authority(&authority, plan)
                     .map_err(QueryError::execute)?;
                 let projection = plan.frozen_projection_spec().map_err(QueryError::execute)?;
-                let mut descriptor =
-                    assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts)
-                        .map_err(QueryError::execute)?;
+                let mut descriptor = PreparationWork::run(
+                    self.db.request_execution_scope(),
+                    DiagnosticExecutionLane::Diagnostic,
+                    |work| {
+                        assemble_load_execution_node_descriptor_from_route_facts(
+                            plan,
+                            &route_facts,
+                            work,
+                        )
+                    },
+                )?;
                 annotate_sql_projection_debug_on_execution_descriptor(
                     &mut descriptor,
                     plan,
@@ -307,7 +329,7 @@ impl<C: CanisterKind> DbSession<C> {
                 Ok(match mode {
                     SqlExplainMode::Execution => render_sql_execution_explain(&diagnostics),
                     SqlExplainMode::ExecutionJson => {
-                        render_sql_execution_explain_json(&diagnostics)
+                        render_sql_execution_explain_json(&diagnostics)?
                     }
                     SqlExplainMode::Plan | SqlExplainMode::Json => {
                         return Err(QueryError::execute(
@@ -329,7 +351,7 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         catalog: &AcceptedSchemaCatalogContext,
         command: &SqlGlobalAggregateCommand,
-        map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
+        map: impl FnOnce(&SharedPreparedExecutionPlan) -> Result<T, QueryError>,
     ) -> Result<T, QueryError> {
         let (mapped, _) = self.try_map_cached_sql_query_explain_plan_for_accepted_authority(
             authority,
@@ -361,7 +383,14 @@ impl<C: CanisterKind> DbSession<C> {
                     authority,
                     catalog,
                     &command,
-                    |plan| Ok(plan.explain().render_text_canonical()),
+                    |plan| {
+                        PreparationWork::run(
+                            self.db.request_execution_scope(),
+                            DiagnosticExecutionLane::Diagnostic,
+                            |work| plan.explain(work),
+                        )?
+                        .render_text_canonical()
+                    },
                 ),
             SqlExplainMode::Execution => {
                 let _ = verbose;
@@ -374,7 +403,7 @@ impl<C: CanisterKind> DbSession<C> {
                         self.render_global_aggregate_execution_explain(
                             &command,
                             strategies,
-                            plan,
+                            plan.logical_plan(),
                             &authority,
                             schema_info,
                         )
@@ -392,7 +421,7 @@ impl<C: CanisterKind> DbSession<C> {
                         self.render_global_aggregate_execution_explain_json(
                             &command,
                             strategies,
-                            plan,
+                            plan.logical_plan(),
                             &authority,
                             schema_info,
                         )
@@ -404,7 +433,14 @@ impl<C: CanisterKind> DbSession<C> {
                     authority,
                     catalog,
                     &command,
-                    |plan| Ok(plan.explain().render_json_canonical()),
+                    |plan| {
+                        PreparationWork::run(
+                            self.db.request_execution_scope(),
+                            DiagnosticExecutionLane::Diagnostic,
+                            |work| plan.explain(work),
+                        )?
+                        .render_json_canonical()
+                    },
                 ),
         }
     }
@@ -501,7 +537,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .with_admission(diagnostic_explain_admission_for_plan(plan));
 
-        Ok(render_sql_execution_explain_json(&diagnostics))
+        render_sql_execution_explain_json(&diagnostics)
     }
 
     fn global_aggregate_terminal_execution_descriptor(
@@ -512,14 +548,22 @@ impl<C: CanisterKind> DbSession<C> {
         authority: &EntityAuthority,
         schema_info: &SchemaInfo,
     ) -> Result<ExplainExecutionDescriptor, QueryError> {
-        let mut execution = assemble_scalar_aggregate_execution_descriptor_with_projection(
-            plan,
-            authority
-                .aggregate_route_shape(strategy.aggregate_kind(), strategy.projected_field())
-                .map_err(QueryError::execute)?,
-            strategy.aggregate_kind(),
-            strategy.projected_field(),
-        );
+        let aggregate = authority
+            .aggregate_route_shape(strategy.aggregate_kind(), strategy.projected_field())
+            .map_err(QueryError::execute)?;
+        let mut execution = PreparationWork::run(
+            self.db.request_execution_scope(),
+            DiagnosticExecutionLane::Diagnostic,
+            |work| {
+                assemble_scalar_aggregate_execution_descriptor_with_projection(
+                    plan,
+                    aggregate,
+                    strategy.aggregate_kind(),
+                    strategy.projected_field(),
+                    work,
+                )
+            },
+        )?;
         if let Some(filter_expr) = strategy.filter_expr() {
             execution.node_properties.insert(
                 property_keys::FILTER_EXPR,

@@ -88,21 +88,6 @@ impl AggregateShape {
         }
     }
 
-    /// Construct one aggregate declaration from an optional field input.
-    #[must_use]
-    pub(in crate::db) fn from_optional_field_input(
-        kind: AggregateKind,
-        target_field: Option<String>,
-        distinct: bool,
-    ) -> Self {
-        Self {
-            kind,
-            input_expr: target_field.map(|field| Box::new(Expr::Field(FieldId::new(field)))),
-            filter_expr: None,
-            distinct,
-        }
-    }
-
     /// Attach one pre-aggregate filter expression.
     #[must_use]
     pub(in crate::db) fn with_filter_expr(mut self, filter_expr: Expr) -> Self {

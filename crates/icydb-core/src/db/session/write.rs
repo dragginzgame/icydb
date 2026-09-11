@@ -736,94 +736,104 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(InternalError::store_invariant().into());
         }
         let store = self.db.recovered_store(identity.store_path())?;
-        let bundle = store
-            .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
-            .ok_or_else(InternalError::store_invariant)?;
-        let entity_tag = identity.entity_tag();
-        if bundle.source_bindings().entity(&entity_source) != Some(entity_tag)
-            || bundle.revision() != catalog.revision()
-        {
-            return Err(InternalError::store_invariant().into());
-        }
-        let snapshot = bundle
-            .entity_snapshots()
-            .get(&entity_tag)
-            .ok_or_else(InternalError::store_invariant)?;
-        if descriptor.primary_key_source_keys.len() != snapshot.primary_key_field_ids().len() {
-            return Err(DynamicTypedBindingError::IncompatibleField);
-        }
-        for (source_key, accepted_field_id) in descriptor
-            .primary_key_source_keys
-            .iter()
-            .zip(snapshot.primary_key_field_ids())
-        {
-            let source = FieldSourceKey::try_new((*source_key).to_string())
-                .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?;
-            let descriptor_field_id = bundle
-                .source_bindings()
-                .field(entity_tag, &source)
-                .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
-            if descriptor_field_id != *accepted_field_id {
-                return Err(DynamicTypedBindingError::IncompatibleField);
-            }
-        }
-        let row_contract = catalog.inspection_plan().row_contract();
-        let mut fields = Vec::with_capacity(descriptor.fields.len());
-        for field_descriptor in descriptor.fields {
-            let source = FieldSourceKey::try_new(field_descriptor.source_key.to_string())
-                .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?;
-            let field_id = bundle
-                .source_bindings()
-                .field(entity_tag, &source)
-                .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
-            let field = snapshot
-                .fields()
-                .iter()
-                .find(|field| field.id() == field_id)
+        // Binding issuance only projects owned adapter data. Borrow the verified
+        // authority in place instead of cloning every entity's schema bundle;
+        // release the borrow before the returned binding can execute or mutate.
+        store.with_schema(|schema| {
+            let bundle = schema
+                .borrow_current_accepted_schema_bundle()?
                 .ok_or_else(InternalError::store_invariant)?;
-            let runtime_field =
-                row_contract.required_accepted_field_contract(usize::from(field.slot().get()))?;
-            if runtime_field.field_id() != field_id {
+            let entity_tag = identity.entity_tag();
+            if bundle.source_bindings().entity(&entity_source) != Some(entity_tag)
+                || bundle.revision() != catalog.revision()
+            {
                 return Err(InternalError::store_invariant().into());
             }
-            let field_type = typed_descriptor_field_type(field_descriptor.field_type)?;
-            let expected_kind = lower_field_type(&field_type, bundle.source_bindings())
-                .map_err(|_| DynamicTypedBindingError::IncompatibleField)?;
-            if field.nullable() != field_descriptor.nullable
-                || !typed_adapter_field_kind_matches(field.kind(), &expected_kind)
-            {
+            let snapshot = bundle
+                .entity_snapshots()
+                .get(&entity_tag)
+                .ok_or_else(InternalError::store_invariant)?;
+            if descriptor.primary_key_source_keys.len() != snapshot.primary_key_field_ids().len() {
                 return Err(DynamicTypedBindingError::IncompatibleField);
             }
-            fields.push((
-                source.as_str().to_string(),
-                field_id.get(),
-                field.slot().get(),
-                field.name().to_string(),
-            ));
-        }
-        let adapter_names = bundle.typed_adapter_names()?;
+            for (source_key, accepted_field_id) in descriptor
+                .primary_key_source_keys
+                .iter()
+                .zip(snapshot.primary_key_field_ids())
+            {
+                let source = FieldSourceKey::try_new((*source_key).to_string())
+                    .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?;
+                let descriptor_field_id = bundle
+                    .source_bindings()
+                    .field(entity_tag, &source)
+                    .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
+                if descriptor_field_id != *accepted_field_id {
+                    return Err(DynamicTypedBindingError::IncompatibleField);
+                }
+            }
+            let row_contract = catalog.inspection_plan().row_contract();
+            let mut fields = Vec::with_capacity(descriptor.fields.len());
+            for field_descriptor in descriptor.fields {
+                let source = FieldSourceKey::try_new(field_descriptor.source_key.to_string())
+                    .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?;
+                let field_id = bundle
+                    .source_bindings()
+                    .field(entity_tag, &source)
+                    .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
+                let field = snapshot
+                    .fields()
+                    .iter()
+                    .find(|field| field.id() == field_id)
+                    .ok_or_else(InternalError::store_invariant)?;
+                let runtime_field = row_contract
+                    .required_accepted_field_contract(usize::from(field.slot().get()))?;
+                if runtime_field.field_id() != field_id {
+                    return Err(InternalError::store_invariant().into());
+                }
+                let field_type = typed_descriptor_field_type(field_descriptor.field_type)?;
+                let expected_kind = lower_field_type(&field_type, bundle.source_bindings())
+                    .map_err(|_| DynamicTypedBindingError::IncompatibleField)?;
+                if field.nullable() != field_descriptor.nullable
+                    || !typed_adapter_field_kind_matches(field.kind(), &expected_kind)
+                {
+                    return Err(DynamicTypedBindingError::IncompatibleField);
+                }
+                fields.push((
+                    source.as_str().to_string(),
+                    field_id.get(),
+                    field.slot().get(),
+                    field.name().to_string(),
+                ));
+            }
+            let adapter_names = bundle.typed_adapter_names()?;
 
-        DynamicTypedEntityBinding::new(
-            database_incarnation_id()?.to_bytes(),
-            entity_source.as_str().to_string(),
-            snapshot.entity_name().to_string(),
-            entity_tag.value(),
-            catalog.revision().get(),
-            catalog.fingerprint(),
-            row_contract.current_layout_version().get(),
-            fields,
-            adapter_names.named_types,
-            adapter_names.enum_variants,
-            adapter_names.composite_fields,
-        )
-        .map_err(Into::into)
+            DynamicTypedEntityBinding::new(
+                database_incarnation_id()?.to_bytes(),
+                entity_source.as_str().to_string(),
+                snapshot.entity_name().to_string(),
+                entity_tag.value(),
+                catalog.revision().get(),
+                catalog.fingerprint(),
+                row_contract.current_layout_version().get(),
+                fields,
+                adapter_names.named_types,
+                adapter_names.enum_variants,
+                adapter_names.composite_fields,
+            )
+            .map_err(Into::into)
+        })
     }
 
     pub(in crate::db::session) fn current_typed_entity_binding_catalog(
         &self,
         binding: &DynamicTypedEntityBinding,
     ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
-        if database_incarnation_id()?.to_bytes() != binding.database_incarnation {
+        // Select this session's commit domain before inspecting its identity.
+        // The checked value is local to this synchronous validation, not the
+        // binding lifetime; catalog lookup and matching retain their live checks.
+        self.db.ensure_recovered_state()?;
+        let incarnation = database_incarnation_id()?.to_bytes();
+        if incarnation != binding.database_incarnation {
             return Ok(None);
         }
         let Some(catalog) = self.find_accepted_schema_catalog_context_for_entity_source_key(
@@ -832,7 +842,7 @@ impl<C: CanisterKind> DbSession<C> {
         else {
             return Ok(None);
         };
-        self.typed_entity_binding_matches_catalog(binding, &catalog)
+        self.typed_entity_binding_matches_catalog(binding, &catalog, incarnation)
             .map(|current| current.then_some(catalog))
     }
 
@@ -840,8 +850,9 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         binding: &DynamicTypedEntityBinding,
         catalog: &AcceptedSchemaCatalogContext,
+        incarnation: [u8; 16],
     ) -> Result<bool, InternalError> {
-        if database_incarnation_id()?.to_bytes() != binding.database_incarnation {
+        if incarnation != binding.database_incarnation {
             return Ok(false);
         }
         let row_contract = catalog.inspection_plan().row_contract();
@@ -1927,7 +1938,11 @@ impl<C: CanisterKind> DbSession<C> {
             let Some(item_catalog) = catalog.for_entity_path(binding.entity_source.as_str()) else {
                 return Ok(None);
             };
-            if !self.typed_entity_binding_matches_catalog(&binding, &item_catalog)? {
+            if !self.typed_entity_binding_matches_catalog(
+                &binding,
+                &item_catalog,
+                database_incarnation_id()?.to_bytes(),
+            )? {
                 return Ok(None);
             }
             let item_identity = item_catalog.identity();
@@ -2006,6 +2021,7 @@ impl<C: CanisterKind> DbSession<C> {
 
 #[cfg(test)]
 mod typed_adapter_tests {
+    mod incarnation_tests;
     mod input_handoff_tests;
 
     use super::{

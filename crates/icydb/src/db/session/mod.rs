@@ -306,6 +306,16 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(Into::into)
     }
 
+    pub(crate) fn explain_typed_query(
+        &self,
+        binding: &TypedEntityBinding,
+        request: &crate::db::DynamicQuery,
+    ) -> Result<Option<crate::db::query::ExplainPlan>, crate::Error> {
+        self.inner
+            .explain_query_for_typed_binding(binding.inner(), request)
+            .map_err(Into::into)
+    }
+
     pub(crate) fn execute_public_typed_exhaustive_page(
         &self,
         binding: &TypedEntityBinding,

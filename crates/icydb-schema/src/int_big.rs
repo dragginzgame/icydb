@@ -68,14 +68,17 @@ impl IntBig {
         Self::from_candid(WrappedInt::from(value))
     }
 
-    /// Return sign and base-2^32 magnitude limbs for decimal key encoding.
-    ///
-    /// This allocates for the returned limb vector.
+    /// Borrow sign and little-endian base-2^32 magnitude limbs without allocation.
     #[must_use]
-    pub fn sign_and_u32_digits(&self) -> (bool, Vec<u32>) {
+    pub fn sign_and_u32_digits(
+        &self,
+    ) -> (
+        bool,
+        impl DoubleEndedIterator<Item = u32> + ExactSizeIterator + '_,
+    ) {
         (
-            self.0.0.cmp(&0.into()).is_lt(),
-            self.0.0.magnitude().to_u32_digits(),
+            self.0.0.sign() == num_bigint::Sign::Minus,
+            self.0.0.magnitude().iter_u32_digits(),
         )
     }
 
@@ -98,11 +101,13 @@ impl IntBig {
     /// Serialize this arbitrary-precision integer for internal hash and sort-key framing.
     #[must_use]
     pub fn to_leb128(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        let encoded = self.0.encode(&mut out);
-        debug_assert!(encoded.is_ok(), "Vec-backed signed LEB128 encoding failed");
+        self.leb128_bytes().collect()
+    }
 
-        out
+    /// Iterate canonical signed LEB128 bytes with constant scratch and no allocation.
+    pub fn leb128_bytes(&self) -> impl Iterator<Item = u8> + '_ {
+        let (negative, limbs) = self.sign_and_u32_digits();
+        crate::leb128::bytes(limbs, negative, self.leb128_len())
     }
 
     pub(crate) fn to_sign_and_magnitude_bytes(&self) -> (bool, Vec<u8>) {

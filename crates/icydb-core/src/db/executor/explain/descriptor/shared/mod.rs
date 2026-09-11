@@ -25,9 +25,9 @@ use crate::{
                 property_keys, property_values,
             },
             plan::{
-                AccessChoiceExplainSnapshot, AccessChoiceRejectedIndex, AccessPlanProjection,
-                AccessPlannedQuery, AggregateKind, DistinctExecutionStrategy, OrderDirection,
-                OrderSpec, explain_access_strategy_label, project_explain_access_path,
+                AccessChoiceExplainSnapshot, AccessPlanProjection, AccessPlannedQuery,
+                AggregateKind, DistinctExecutionStrategy, OrderDirection, OrderSpec,
+                project_explain_access_path, write_explain_access_strategy_label,
             },
         },
     },
@@ -112,10 +112,10 @@ impl AccessPlanProjection<Value> for ExplainAccessNodeDescriptorProjection {
         )
     }
 
-    fn index_prefix(
+    fn index_prefix<'a>(
         &mut self,
         _index_name: &str,
-        _index_fields: &[String],
+        _index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         _prefix_len: usize,
         _values: &[Value],
     ) -> Self::Output {
@@ -125,10 +125,10 @@ impl AccessPlanProjection<Value> for ExplainAccessNodeDescriptorProjection {
         )
     }
 
-    fn index_multi_lookup(
+    fn index_multi_lookup<'a>(
         &mut self,
         _index_name: &str,
-        _index_fields: &[String],
+        _index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         _values: &[Value],
     ) -> Self::Output {
         empty_execution_node_descriptor(
@@ -137,10 +137,10 @@ impl AccessPlanProjection<Value> for ExplainAccessNodeDescriptorProjection {
         )
     }
 
-    fn index_branch_set(
+    fn index_branch_set<'a>(
         &mut self,
         _index_name: &str,
-        _index_fields: &[String],
+        _index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         _fixed_values: &[Value],
         _branch_values: &[Value],
     ) -> Self::Output {
@@ -150,10 +150,10 @@ impl AccessPlanProjection<Value> for ExplainAccessNodeDescriptorProjection {
         )
     }
 
-    fn index_range(
+    fn index_range<'a>(
         &mut self,
         _index_name: &str,
-        _index_fields: &[String],
+        _index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         _prefix_len: usize,
         _prefix: &[Value],
         _lower: &std::ops::Bound<Value>,
@@ -169,19 +169,27 @@ impl AccessPlanProjection<Value> for ExplainAccessNodeDescriptorProjection {
         empty_execution_node_descriptor(ExplainExecutionNodeType::FullScan, self.execution_mode)
     }
 
-    fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
+    fn union<T>(
+        &mut self,
+        children: &[T],
+        project: impl Fn(&T, &mut Self) -> Self::Output,
+    ) -> Self::Output {
         let mut node =
             empty_execution_node_descriptor(ExplainExecutionNodeType::Union, self.execution_mode);
-        node.children = children;
+        node.children = children.iter().map(|child| project(child, self)).collect();
         node
     }
 
-    fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
+    fn intersection<T>(
+        &mut self,
+        children: &[T],
+        project: impl Fn(&T, &mut Self) -> Self::Output,
+    ) -> Self::Output {
         let mut node = empty_execution_node_descriptor(
             ExplainExecutionNodeType::Intersection,
             self.execution_mode,
         );
-        node.children = children;
+        node.children = children.iter().map(|child| project(child, self)).collect();
         node
     }
 }
@@ -261,7 +269,9 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_
         .access_strategy
         .as_ref()
         .ok_or_else(InternalError::query_executor_invariant)?;
-    let chosen_label = explain_access_strategy_label(access_strategy);
+    let mut chosen_label = String::new();
+    write_explain_access_strategy_label(access_strategy, &mut chosen_label)
+        .map_err(|_| InternalError::query_executor_invariant())?;
     node.node_properties
         .insert(property_keys::ACCESS_CHOICE, Value::from(chosen_label));
     node.node_properties.insert(
@@ -274,12 +284,7 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_
     );
     node.node_properties.insert(
         property_keys::ACCESS_REJECTIONS,
-        value_list(
-            access_choice
-                .rejected
-                .iter()
-                .map(AccessChoiceRejectedIndex::label),
-        ),
+        value_list(access_choice.rejected.iter().map(ToString::to_string)),
     );
 
     Ok(())

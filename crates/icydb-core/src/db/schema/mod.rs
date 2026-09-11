@@ -19,6 +19,7 @@ mod composite_catalog;
 mod constraint;
 mod constraint_activation_runner;
 mod constraint_validation;
+mod control_store;
 mod describe;
 pub(in crate::db) mod enum_catalog;
 mod errors;
@@ -183,6 +184,8 @@ pub(in crate::db) use constraint_validation::{
     ConstraintValidationPhase, ConstraintValidationReceipt, MAX_CONSTRAINT_VALIDATION_JOB_BYTES,
     decode_constraint_validation_job, encode_constraint_validation_job,
 };
+#[cfg(test)]
+pub(in crate::db) use control_store::corrupt_schema_control_header_for_tests;
 pub(in crate::db) use describe::{
     AcceptedEntityDescriptionMetadata, describe_accepted_entity_with_persisted_schema,
     describe_accepted_identity,
@@ -248,6 +251,8 @@ pub(in crate::db) use integrity::{
     validate_schema_snapshot_acceptance,
 };
 pub(in crate::db) use layout::{RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout, SchemaVersion};
+#[cfg(test)]
+pub(in crate::db) use live_schema_checkpoint::entity_source_lineage_matches_for_tests;
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use live_schema_checkpoint::load_schema_migration_record;
 #[cfg(test)]
@@ -267,10 +272,6 @@ pub(in crate::db) use live_schema_checkpoint::{
 pub(in crate::db) use live_schema_checkpoint::{
     apply_schema_migration_record_op, preflight_schema_migration_record_op,
     verify_schema_migration_record_op,
-};
-#[cfg(test)]
-pub(in crate::db) use live_schema_checkpoint::{
-    corrupt_live_schema_checkpoint_header_for_tests, entity_source_lineage_matches_for_tests,
 };
 pub(in crate::db) use live_schema_checkpoint::{
     ensure_schema_migration_ready_for_ordinary_operations,

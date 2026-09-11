@@ -1,11 +1,15 @@
 //! End-to-end proof for the bounded exact-cardinality planner tie-break.
 
+mod access_projection;
 mod index_metadata;
 mod order_metadata;
 mod prefix_accounting;
+mod prepared_explain;
 mod projection_metadata;
+mod residual_bounds;
 mod secondary_order;
 mod sparse_indexes;
+mod typed_explain;
 
 use crate::{
     db::{

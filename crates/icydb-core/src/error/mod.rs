@@ -1131,6 +1131,38 @@ impl InternalError {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Query)
     }
 
+    /// Detached explain rendering exceeded its fixed output policy, not a
+    /// request/execution budget. Retain numeric facts without report contents.
+    pub(crate) fn query_explain_output_exceeded(limit: u64, observed: u64) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Query,
+            Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: diagnostic_code::RuntimeBoundaryCode::QueryExplainOutputExceeded,
+            }),
+            vec![
+                (diagnostic_code::DiagnosticFactTag::Limit, limit),
+                (diagnostic_code::DiagnosticFactTag::Actual, observed),
+            ],
+        )
+    }
+
+    /// Derived diagnostic access depth exceeded its fixed projection policy.
+    /// This does not reject or change the identity of an ordinary query.
+    pub(crate) fn query_explain_depth_exceeded(limit: u64, observed: u64) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Query,
+            Some(diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: diagnostic_code::RuntimeBoundaryCode::QueryExplainDepthExceeded,
+            }),
+            vec![
+                (diagnostic_code::DiagnosticFactTag::Limit, limit),
+                (diagnostic_code::DiagnosticFactTag::Actual, observed),
+            ],
+        )
+    }
+
     /// Construct a query-origin conflict for execution against a superseded
     /// accepted schema revision.
     #[cold]

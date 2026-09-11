@@ -89,27 +89,23 @@ fn validate_canonical_order_lane(
         ));
     }
 
-    for (index, term) in order.fields.iter().enumerate() {
-        let order_field = term.rendered_label();
-
-        if index < group_fields.len() {
-            let Some(group_field) = group_fields.get(index) else {
+    for (index, term) in order.fields.iter().take(group_fields.len()).enumerate() {
+        let Some(group_field) = group_fields.get(index) else {
+            return Err(PlanError::from(
+                GroupPlanError::order_prefix_not_aligned_with_group_keys(),
+            ));
+        };
+        match classify_grouped_order_term_for_field(term.expr(), group_field) {
+            GroupedOrderTermAdmissibility::Preserves(_) => {}
+            GroupedOrderTermAdmissibility::PrefixMismatch => {
                 return Err(PlanError::from(
                     GroupPlanError::order_prefix_not_aligned_with_group_keys(),
                 ));
-            };
-            match classify_grouped_order_term_for_field(term.expr(), group_field) {
-                GroupedOrderTermAdmissibility::Preserves(_) => {}
-                GroupedOrderTermAdmissibility::PrefixMismatch => {
-                    return Err(PlanError::from(
-                        GroupPlanError::order_prefix_not_aligned_with_group_keys(),
-                    ));
-                }
-                GroupedOrderTermAdmissibility::UnsupportedExpression => {
-                    return Err(PlanError::from(
-                        GroupPlanError::order_expression_not_admissible(order_field),
-                    ));
-                }
+            }
+            GroupedOrderTermAdmissibility::UnsupportedExpression => {
+                return Err(PlanError::from(
+                    GroupPlanError::order_expression_not_admissible(term.rendered_label()),
+                ));
             }
         }
     }
@@ -126,8 +122,6 @@ fn validate_top_k_order_lane(
     group_fields: &GroupFieldSet,
 ) -> Result<GroupedOrderCursorLane, PlanError> {
     for term in &order.fields {
-        let order_field = term.rendered_label();
-
         match classify_grouped_top_k_order_term(term.expr(), group_fields) {
             GroupedTopKOrderTermAdmissibility::Admissible => {}
             GroupedTopKOrderTermAdmissibility::NonGroupFieldReference => {
@@ -137,7 +131,7 @@ fn validate_top_k_order_lane(
             }
             GroupedTopKOrderTermAdmissibility::UnsupportedExpression => {
                 return Err(PlanError::from(
-                    GroupPlanError::order_expression_not_admissible(order_field),
+                    GroupPlanError::order_expression_not_admissible(term.rendered_label()),
                 ));
             }
         }

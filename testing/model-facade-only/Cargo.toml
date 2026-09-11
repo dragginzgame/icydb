@@ -1,5 +1,6 @@
 [package]
 name = "icydb-testing-model-facade-only"
+build = "src/build.rs"
 edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
@@ -10,7 +11,19 @@ repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
+candid = { workspace = true }
+ic-cdk = { workspace = true }
 runtime_api = { package = "icydb", path = "../../crates/icydb" }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[build-dependencies]
+runtime_api = { package = "icydb", path = "../../crates/icydb" }
+
+[dev-dependencies]
+ic-memory = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

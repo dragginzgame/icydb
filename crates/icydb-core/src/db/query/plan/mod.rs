@@ -86,6 +86,7 @@ pub(in crate::db::query) use logical_builder::{
 pub(in crate::db::query::plan) use model::FieldSlotAuthority;
 pub use model::OrderDirection;
 pub(in crate::db) use model::OrderTerm;
+#[cfg(any(feature = "sql", test))]
 pub(in crate::db) use model::render_scalar_filter_expr_plan_label;
 pub(in crate::db) use model::{AggregateKind, DistinctExecutionStrategy};
 pub(in crate::db) use model::{ContinuationPolicy, ExecutionShapeSignature, PlannerRouteProfile};
@@ -133,20 +134,24 @@ pub(in crate::db::query) use projection::{
     lower_projection_identity, lower_projection_intent_with_schema,
 };
 #[cfg(feature = "sql")]
+pub(in crate::db) use semantics::AggregateSemanticKey;
+#[cfg(feature = "sql")]
 pub(in crate::db) use semantics::access_plan_label;
 #[cfg(feature = "sql")]
 pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_expr;
+#[cfg(any(feature = "sql", test))]
+pub(in crate::db) use semantics::project_explain_access_path;
 pub(in crate::db::query) use semantics::residual_filter_facts_for_access;
 pub(in crate::db) use semantics::{
-    AccessPlanProjection, AggregateIdentity, AggregateSemanticKey, GroupDistinctAdmissibility,
+    AccessPlanProjection, AggregateIdentity, AggregateSemanticKeyRef, GroupDistinctAdmissibility,
     GroupDistinctPolicyReason, GroupedCursorPolicyViolation, GroupedPlanFallbackReason,
-    GroupedPlanStrategy, explain_access_strategy_label, grouped_distinct_admissibility,
-    grouped_having_binary_compare_op, grouped_having_compare_op_supported, project_access_plan,
-    project_explain_access_path, resolve_global_distinct_field_aggregate,
+    GroupedPlanStrategy, grouped_distinct_admissibility, grouped_having_binary_compare_op,
+    grouped_having_compare_op_supported, project_access_plan,
+    resolve_global_distinct_field_aggregate, write_explain_access_strategy_label,
 };
 pub(in crate::db) use semantics::{
     LogicalPushdownEligibility, derive_logical_pushdown_eligibility,
-    grouped_cursor_policy_violation, grouped_plan_strategy,
+    grouped_cursor_policy_violation, grouped_plan_strategy, grouped_plan_strategy_for_explain,
 };
 pub(crate) use validate::PlanError;
 pub(crate) use validate::PolicyPlanError;

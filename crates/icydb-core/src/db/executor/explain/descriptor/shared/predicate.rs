@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        QueryError,
         executor::ExecutionPreparation,
         predicate::{IndexPredicateCapability, PredicateCapabilityProfile},
         query::{
@@ -13,6 +14,7 @@ use crate::{
                 index_covering_existing_rows_terminal_eligible, project_explain_access_path,
                 render_scalar_filter_expr_plan_label,
             },
+            preparation::PreparationWork,
         },
     },
     value::Value,
@@ -186,23 +188,23 @@ impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
         None
     }
 
-    fn index_prefix(
+    fn index_prefix<'a>(
         &mut self,
         _index_name: &str,
-        index_fields: &[String],
+        index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output {
         prefix_predicate_text(index_fields, values, prefix_len)
     }
 
-    fn index_multi_lookup(
+    fn index_multi_lookup<'a>(
         &mut self,
         _index_name: &str,
-        index_fields: &[String],
+        mut index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         values: &[Value],
     ) -> Self::Output {
-        let field = index_fields.first()?;
+        let field = index_fields.next()?;
         if values.is_empty() {
             None
         } else {
@@ -210,19 +212,20 @@ impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
         }
     }
 
-    fn index_branch_set(
+    fn index_branch_set<'a>(
         &mut self,
         _index_name: &str,
-        index_fields: &[String],
+        mut index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         fixed_values: &[Value],
         branch_values: &[Value],
     ) -> Self::Output {
         let mut parts = Vec::new();
-        if let Some(prefix) = prefix_predicate_text(index_fields, fixed_values, fixed_values.len())
+        if let Some(prefix) =
+            prefix_predicate_text(index_fields.clone(), fixed_values, fixed_values.len())
         {
             parts.push(prefix);
         }
-        if let Some(field) = index_fields.get(fixed_values.len())
+        if let Some(field) = index_fields.nth(fixed_values.len())
             && !branch_values.is_empty()
         {
             parts.push(format!("{field} IN {branch_values:?}"));
@@ -231,10 +234,10 @@ impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
         (!parts.is_empty()).then(|| parts.join(" AND "))
     }
 
-    fn index_range(
+    fn index_range<'a>(
         &mut self,
         _index_name: &str,
-        index_fields: &[String],
+        index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         prefix_len: usize,
         prefix: &[Value],
         lower: &Bound<Value>,
@@ -247,45 +250,57 @@ impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
         None
     }
 
-    fn union(&mut self, _children: Vec<Self::Output>) -> Self::Output {
+    fn union<T>(
+        &mut self,
+        _children: &[T],
+        _project: impl Fn(&T, &mut Self) -> Self::Output,
+    ) -> Self::Output {
         None
     }
 
-    fn intersection(&mut self, _children: Vec<Self::Output>) -> Self::Output {
+    fn intersection<T>(
+        &mut self,
+        _children: &[T],
+        _project: impl Fn(&T, &mut Self) -> Self::Output,
+    ) -> Self::Output {
         None
     }
 }
 
-fn prefix_predicate_text(fields: &[String], values: &[Value], prefix_len: usize) -> Option<String> {
+fn prefix_predicate_text<'a>(
+    fields: impl ExactSizeIterator<Item = &'a str> + Clone,
+    values: &[Value],
+    prefix_len: usize,
+) -> Option<String> {
     let applied_len = prefix_len.min(fields.len()).min(values.len());
     if applied_len == 0 {
         return None;
     }
 
     let mut out = String::new();
-    for idx in 0..applied_len {
+    for (idx, (field, value)) in fields.zip(values).take(applied_len).enumerate() {
         if idx > 0 {
             out.push_str(" AND ");
         }
-        let _ = write!(out, "{}={:?}", fields[idx], values[idx]);
+        let _ = write!(out, "{field}={value:?}");
     }
 
     Some(out)
 }
 
-fn index_range_pushdown_predicate_text(
-    fields: &[String],
+fn index_range_pushdown_predicate_text<'a>(
+    mut fields: impl ExactSizeIterator<Item = &'a str> + Clone,
     prefix_len: usize,
     prefix: &[Value],
     lower: &Bound<Value>,
     upper: &Bound<Value>,
 ) -> Option<String> {
     let mut out = String::new();
-    if let Some(prefix_text) = prefix_predicate_text(fields, prefix, prefix_len) {
+    if let Some(prefix_text) = prefix_predicate_text(fields.clone(), prefix, prefix_len) {
         out.push_str(&prefix_text);
     }
 
-    let range_field = fields.get(prefix_len).map_or("index_range", String::as_str);
+    let range_field = fields.nth(prefix_len).unwrap_or("index_range");
     match lower {
         Bound::Included(value) => {
             if !out.is_empty() {
@@ -322,10 +337,12 @@ fn index_range_pushdown_predicate_text(
 
 pub(in crate::db::executor::explain::descriptor) fn explain_predicate_for_plan(
     plan: &AccessPlannedQuery,
-) -> Option<ExplainPredicate> {
+    work: &PreparationWork<'_>,
+) -> Result<Option<ExplainPredicate>, QueryError> {
     plan.effective_execution_predicate()
-        .as_ref()
-        .map(ExplainPredicate::from_predicate)
+        .as_deref()
+        .map(|predicate| ExplainPredicate::from_predicate(predicate, work))
+        .transpose()
 }
 
 // Return whether one scalar aggregate terminal can remain index-only under the
@@ -349,10 +366,47 @@ pub(in crate::db::executor::explain::descriptor) fn aggregate_covering_projectio
 
 #[cfg(test)]
 mod tests {
+    use super::explain_predicate_for_plan;
     use crate::db::{
+        Predicate, RequestExecutionRoot,
+        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         executor::explain::descriptor::shared::PredicateStageObservability,
-        query::plan::ResidualFilterShape,
+        predicate::MissingRowPolicy,
+        query::{
+            plan::{AccessPlannedQuery, LogicalPlan, ResidualFilterShape},
+            preparation::PreparationWork,
+        },
     };
+    use crate::value::Value;
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+    };
+
+    #[test]
+    fn execution_predicate_projection_uses_request_budget_without_identity_copy() {
+        let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
+        let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+            unreachable!()
+        };
+        scalar.predicate = Some(Predicate::eq("abc".into(), Value::Text("payload".into())));
+        let root = RequestExecutionRoot::new_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                16_000_000,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(Resource::TemporaryBytes, 10),
+        );
+        let run = || {
+            PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+                explain_predicate_for_plan(&plan, work)
+            })
+        };
+        assert!(run().unwrap().is_some());
+        assert_eq!(root.observed(Resource::TemporaryBytes), 10);
+        assert_eq!(root.observed(Resource::NestedValueSteps), 1);
+        assert!(run().is_err());
+        assert_eq!(root.observed(Resource::RowsVisited), 0);
+    }
 
     #[test]
     fn predicate_stage_observability_prefers_strict_prefilter() {

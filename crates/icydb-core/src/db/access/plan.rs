@@ -443,6 +443,84 @@ mod tests {
         assert!(plan.has_selected_index_access_path());
         assert!(!AccessPlan::<Value>::by_key(Value::Unit).has_selected_index_access_path());
     }
+
+    #[test]
+    fn grouped_strategy_charges_index_prefix_comparisons_before_order_proof() {
+        use crate::db::{
+            RequestExecutionRoot,
+            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+            predicate::MissingRowPolicy,
+            query::{
+                builder::aggregate::count,
+                plan::{
+                    AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupFieldSet, GroupPlan,
+                    GroupSpec, GroupedExecutionConfig, LogicalPlan, grouped_plan_strategy,
+                    grouped_plan_strategy_for_explain,
+                },
+                preparation::PreparationWork,
+            },
+            schema::AcceptedFieldKind,
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+            DiagnosticFactTag,
+        };
+
+        for equality_prefix in [false, true] {
+            let mut index = accepted_index_contract();
+            let values = if equality_prefix {
+                Arc::get_mut(&mut index.inner)
+                    .unwrap()
+                    .key_items
+                    .insert(0, SemanticIndexKeyItem::Field("tenant".into()));
+                vec![Value::Nat64(7)]
+            } else {
+                vec![]
+            };
+            let mut query = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
+            query.access = AccessPlan::index_prefix_from_contract(index, values);
+            query.logical = LogicalPlan::Grouped(GroupPlan {
+                scalar: query.scalar_plan().clone(),
+                group: GroupSpec {
+                    group_fields: GroupFieldSet::Direct(vec![FieldSlot::from_test_accepted_kind(
+                        0,
+                        "label",
+                        AcceptedFieldKind::Text { max_len: Some(64) },
+                    )]),
+                    aggregates: vec![GroupAggregateSpec::from_aggregate_expr(count())],
+                    execution: GroupedExecutionConfig::planner_default_bounded(),
+                },
+                having_expr: None,
+            });
+            let expected = grouped_plan_strategy(&query).unwrap();
+            assert!(expected.is_ordered_group());
+            // Five fixed visits, plus one label comparison per examined key.
+            let used = 5 + 6 * if equality_prefix { 2 } else { 1 };
+            for limit in [used - 1, used] {
+                let root = RequestExecutionRoot::new_for_tests(
+                    HardExecutionBudget::uniform_for_tests(
+                        16_000_000,
+                        HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                    )
+                    .with_limit_for_tests(Resource::PredicateExpressionSteps, limit),
+                );
+                let result = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+                    grouped_plan_strategy_for_explain(&query, query.grouped_plan().unwrap(), work)
+                });
+                if limit == used {
+                    assert_eq!(result.unwrap(), expected);
+                    assert_eq!(root.observed(Resource::PredicateExpressionSteps), used);
+                } else {
+                    assert!(result.unwrap_err().diagnostic_facts().contains(&(
+                        DiagnosticFactTag::BudgetResource,
+                        Resource::PredicateExpressionSteps.raw(),
+                    )));
+                }
+                assert_eq!(root.observed(Resource::TemporaryBytes), 0);
+                assert_eq!(root.observed(Resource::RowsVisited), 0);
+            }
+        }
+    }
 }
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.

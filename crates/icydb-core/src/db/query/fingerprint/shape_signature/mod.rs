@@ -1,6 +1,6 @@
 //! Module: query::fingerprint::shape_signature
 //! Responsibility: deterministic query-shape signature derivation from planned
-//! and explained query contracts.
+//! query contracts.
 //! Does not own: continuation token decoding/validation.
 //! Boundary: shared query-shape hashing surface used by execution identity and
 //! cursor token checks.
@@ -32,12 +32,7 @@ fn continuation_signature_for_plan_with_projection(
     projection: &crate::db::query::plan::expr::ProjectionSpec,
 ) -> ContinuationSignature {
     let mut hasher = new_continuation_signature_hasher();
-    hash_sections::hash_planned_query_profile_with_projection(
-        &mut hasher,
-        plan,
-        hash_sections::ExplainHashProfile::Continuation { entity_path },
-        projection,
-    );
+    hash_sections::hash_continuation_with_projection(&mut hasher, plan, entity_path, projection);
     ContinuationSignature::from_bytes(finalize_sha256_digest(hasher))
 }
 

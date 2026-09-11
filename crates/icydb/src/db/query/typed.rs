@@ -196,6 +196,26 @@ where
         self
     }
 
+    /// Inspect the accepted planner's logical plan without executing rows.
+    ///
+    /// This consuming terminal works without the `sql` feature and rechecks
+    /// the binding and current index visibility, including on cache hits.
+    /// A valid cached choice need not be reoptimized after every cardinality change.
+    /// Any supplied cursor, including an empty string, is rejected. Grouped
+    /// queries require explicit positive group and memory limits.
+    ///
+    /// Logical scans and sorts may be inspected even when public execution
+    /// would reject them: a plan is not an execution permit. The detached result
+    /// holds no session borrow. Its fallible canonical renderers have a separate
+    /// 1-MiB output limit and do not charge this request or redact literal values.
+    pub fn explain(self) -> Result<crate::db::query::ExplainPlan, TypedOperationError> {
+        self.session
+            .explain_typed_query(&self.binding, &self.request)?
+            .ok_or(TypedOperationError::Adapter(
+                crate::db::TypedAdapterError::StaleBinding,
+            ))
+    }
+
     /// Return exact visible cardinality without scanning rows.
     ///
     /// This terminal accepts a bare entity query or one strict equality or

@@ -181,6 +181,7 @@ const fn primitive_supports_generated_trait(primitive: Primitive, trait_kind: Tr
         | TraitKind::Debug
         | TraitKind::Default
         | TraitKind::Deserialize
+        | TraitKind::Serialize
         | TraitKind::Deref
         | TraitKind::DerefMut
         | TraitKind::Display

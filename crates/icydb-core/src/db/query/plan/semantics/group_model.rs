@@ -4,6 +4,8 @@
 //! Boundary: derives planner-owned grouped semantic projections from query/model inputs.
 
 #[cfg(test)]
+mod aggregate_facts_tests;
+#[cfg(test)]
 mod having_tests;
 
 use crate::{
@@ -12,7 +14,7 @@ use crate::{
         query::{
             builder::AggregateExpr,
             plan::{
-                AggregateIdentity, AggregateKind, AggregateSemanticKey, AggregateShape, FieldSlot,
+                AggregateIdentity, AggregateKind, AggregateSemanticKeyRef, FieldSlot,
                 FieldSlotAuthority, GroupAggregateSpec, GroupPlan, expr::Expr,
             },
             preparation::PreparationWork,
@@ -83,20 +85,6 @@ impl GroupAggregateSpec {
         Self::from_shape(aggregate.into_shape())
     }
 
-    /// Build one grouped aggregate spec from an optional field input.
-    #[must_use]
-    pub(in crate::db) fn from_optional_field_input(
-        kind: AggregateKind,
-        target_field: Option<String>,
-        distinct: bool,
-    ) -> Self {
-        Self::from_shape(AggregateShape::from_optional_field_input(
-            kind,
-            target_field,
-            distinct,
-        ))
-    }
-
     /// Return the canonical grouped aggregate terminal kind.
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> AggregateKind {
@@ -113,10 +101,15 @@ impl GroupAggregateSpec {
         )
     }
 
-    /// Build the filter-aware semantic key for this grouped aggregate.
+    /// Borrow the filter-aware semantic key for this grouped aggregate.
     #[must_use]
-    pub(in crate::db) fn semantic_key(&self) -> AggregateSemanticKey {
-        AggregateSemanticKey::from_identity(self.identity(), self.filter_expr().cloned())
+    pub(in crate::db) fn semantic_key(&self) -> AggregateSemanticKeyRef<'_> {
+        AggregateSemanticKeyRef::new(
+            self.kind(),
+            self.input_expr(),
+            self.filter_expr(),
+            self.raw_distinct(),
+        )
     }
 
     /// Return the optional grouped aggregate target field.
@@ -153,8 +146,14 @@ impl GroupAggregateSpec {
 
     /// Return whether this grouped aggregate terminal uses DISTINCT in identity.
     #[must_use]
-    pub(in crate::db) fn semantic_distinct(&self) -> bool {
-        self.identity().distinct()
+    pub(in crate::db) const fn semantic_distinct(&self) -> bool {
+        AggregateIdentity::normalize_distinct_for_kind(self.kind(), self.raw_distinct())
+    }
+
+    /// Inspect row-count identity without owning or traversing aggregate input.
+    #[must_use]
+    pub(in crate::db) fn is_count_rows_only(&self) -> bool {
+        AggregateIdentity::is_count_rows_input(self.kind(), self.input_expr(), self.raw_distinct())
     }
 
     /// Return the raw authored DISTINCT bit before semantic normalization.

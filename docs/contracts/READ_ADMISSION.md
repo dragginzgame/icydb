@@ -204,6 +204,7 @@ See [the read-intent guide](../guides/read-intent.md) for maintained examples.
 | `QueryReadAdmissionCode::InputDepthExceeded` | Authored expression/value nesting exceeds 128 levels. | Simplify nesting; use flat boolean or membership inputs where equivalent. Trusted execution does not bypass this limit. |
 | `QueryReadAdmissionCode::InputNodesExceeded` | Counted input nodes across the request exceed 4,096. | Reduce query components or batch inputs with application-owned combination semantics. Trusted execution does not bypass this limit. |
 | `QueryReadAdmissionCode::InputBytesExceeded` | Counted variable input payload exceeds 2 MiB. | Reduce literal/name payload or effective repeated bindings. Trusted execution does not bypass this limit. |
+| `QueryReadAdmissionCode::ExplainDoesNotAcceptCursor` | Logical explain received a cursor, including an empty string. | Remove the cursor; explain describes the request before pagination rewrites. |
 
 ## Regression Guard
 

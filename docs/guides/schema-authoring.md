@@ -197,17 +197,69 @@ in a row remain whole-field aggregates even when an explicit nested scalar
 relation enforces target lifetime. The exact decision matrix is maintained in
 the [nested storage contract](../contracts/NESTED_STORAGE.md).
 
+## Serializing Generated Values Into Application Blobs
+
+Use `traits(add(Serialize))` on a generated value that an application codec
+serializes. `Deserialize` remains generated automatically; `Serialize` is
+opt-in, not a new default for every model.
+
+```rust
+#[record(
+    traits(add(Serialize)),
+    fields(field(name = "rank", value(item(prim = "Nat64"))))
+)]
+pub struct Profile {}
+
+// Ordinary collection serialization then composes with the generated record.
+let bytes = serde_json::to_vec(&vec![Profile { rank: 7 }])?;
+let profiles: Vec<Profile> = serde_json::from_slice(&bytes)?;
+```
+
+Use the trait directive, not an outer `#[derive(Serialize)]` on a declaration
+whose fields the model macro generates. Opt in each generated nested value
+that needs serialization too; all contained types must implement the trait.
+The compiler emits the serializer through its existing trait-generation path,
+including when the IcyDB dependency is renamed. No handwritten field inventory
+or direct dependency on IcyDB implementation crates is needed.
+
+The chosen blob codec and its input-size/decode limits belong to the application.
+Serde serialization does not validate accepted database constraints, make the
+blob's members queryable, or change IcyDB's persisted row encoding. Use the
+ordinary typed input adapter when storing structured fields instead of blobs.
+
 ## Host Build And Runtime Model Boundary
 
 Cargo compiles `build.rs` for the host, even when the library target is Wasm.
 The build script loads the model declarations so IcyDB can validate the whole
-graph and generate the canister actor. The canister library also depends on
-that same schema/model library for its generated Rust types and adapters.
-Therefore the schema/model library belongs in both `[dependencies]` and
-`[build-dependencies]` of the canister package; use the same IcyDB release and
-feature contract on both sides.
+graph and generate the canister actor. The runtime compiles those same
+declarations for its generated Rust types and adapters. Use the same IcyDB
+release and feature contract on both sides.
 
-A small single-canister workspace normally has this shape:
+A single canister can keep its declarations in one package:
+
+```text
+canisters/app/Cargo.toml        # [package] build = "src/build.rs"
+canisters/app/src/design/mod.rs # canister, store, entity and named-type declarations
+canisters/app/src/build.rs      # mod design; main calls build_canister!(design::AppCanister)
+canisters/app/src/lib.rs        # mod design; icydb::start!(); application endpoints
+```
+
+Put `icydb` in both `[dependencies]` and `[build-dependencies]`. The build
+script's `main` returns `Result<(), Box<dyn std::error::Error>>`, prints
+`cargo:rerun-if-changed=src/design`, and returns the result of
+`icydb::build::build_canister!(design::AppCanister)`. Cargo's explicit build
+script path lets both targets use ordinary `mod design;` module discovery.
+Keep that module limited to declarations available to both targets, not runtime
+endpoint code. Normal canister endpoint dependencies still belong to the runtime.
+
+`build_canister!` resolves the supplied type through its canonical model `Path`,
+not its spelling at the call site. Relative paths and imported type names work
+without rewriting host crate names or manufacturing aliases. The maintained
+[single-package fixture](../../testing/model-facade-only) covers a renamed
+IcyDB dependency, generated lifecycle, typed writes/reads and same-code upgrade.
+
+A separate schema library is also supported when sharing it is useful. Put
+that library in both dependency sections of each consuming canister:
 
 ```text
 crates/app-schema/       # canister, store, entity, and named-type declarations
@@ -215,8 +267,9 @@ canisters/app/build.rs   # depends on app-schema and calls build_canister!
 canisters/app/src/lib.rs # depends on app-schema and runs the generated actor
 ```
 
-For several canisters, keep declarations shared only where the Rust domain is
-actually shared:
+For several canisters, share declarations only where the Rust domain is
+actually shared; independent canisters can each use the single-package layout.
+A workspace with genuinely shared model libraries might instead use:
 
 ```text
 crates/domain-model/     # reusable named values, if any

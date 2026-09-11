@@ -40,10 +40,10 @@ impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
         self.by_key(&Value::Null)
     }
 
-    fn index_prefix(
+    fn index_prefix<'a>(
         &mut self,
         index_name: &str,
-        index_fields: &[String],
+        index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         prefix_len: usize,
         _values: &[Value],
     ) -> Self::Output {
@@ -60,10 +60,10 @@ impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
         )
     }
 
-    fn index_multi_lookup(
+    fn index_multi_lookup<'a>(
         &mut self,
         index_name: &str,
-        index_fields: &[String],
+        index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         _values: &[Value],
     ) -> Self::Output {
         (
@@ -73,10 +73,10 @@ impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
         )
     }
 
-    fn index_branch_set(
+    fn index_branch_set<'a>(
         &mut self,
         index_name: &str,
-        index_fields: &[String],
+        index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         fixed_values: &[Value],
         _branch_values: &[Value],
     ) -> Self::Output {
@@ -94,10 +94,10 @@ impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
         )
     }
 
-    fn index_range(
+    fn index_range<'a>(
         &mut self,
         index_name: &str,
-        _index_fields: &[String],
+        _index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         prefix_len: usize,
         _prefix: &[Value],
         lower: &std::ops::Bound<Value>,
@@ -120,11 +120,19 @@ impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
         self.by_key(&Value::Null)
     }
 
-    fn union(&mut self, _children: Vec<Self::Output>) -> Self::Output {
+    fn union<T>(
+        &mut self,
+        _children: &[T],
+        _project: impl Fn(&T, &mut Self) -> Self::Output,
+    ) -> Self::Output {
         self.by_key(&Value::Null)
     }
 
-    fn intersection(&mut self, _children: Vec<Self::Output>) -> Self::Output {
+    fn intersection<T>(
+        &mut self,
+        _children: &[T],
+        _project: impl Fn(&T, &mut Self) -> Self::Output,
+    ) -> Self::Output {
         self.by_key(&Value::Null)
     }
 }

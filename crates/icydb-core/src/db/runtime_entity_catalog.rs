@@ -8,7 +8,7 @@ use crate::{
         Db,
         commit::{
             CommitPrepareContextCache, CommitPrepareMode, CommitRowOp, PreparedRowCommitOp,
-            prepare_commit_context_for_runtime_entity, prepare_row_commit_with_context,
+            prepare_commit_context_from_catalog_selection, prepare_row_commit_with_context,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         index::{
@@ -31,24 +31,24 @@ use std::{
     thread::LocalKey,
 };
 
-/// Canonical predecessor reads used only while folding one retained batch.
+/// Canonical predecessor reads during one recovery batch's preparation.
 struct CanonicalCommitReader<'a, C: CanisterKind> {
     db: &'a Db<C>,
-    batch_final_rows: BTreeMap<RawDataStoreKey, Option<RawRow>>,
+    batch_final_rows: BTreeMap<&'a RawDataStoreKey, Option<&'a [u8]>>,
 }
 
 impl<'a, C: CanisterKind> CanonicalCommitReader<'a, C> {
     /// Build the canonical predecessor reader with one immutable final-row
-    /// view for same-batch uniqueness release proofs.
-    fn from_row_ops(db: &'a Db<C>, ops: &[CommitRowOp]) -> Result<Self, InternalError> {
+    /// view for same-batch uniqueness release proofs. The operations already
+    /// own these images; retain only references until preparation finishes.
+    fn from_row_ops(db: &'a Db<C>, ops: &'a [CommitRowOp]) -> Result<Self, InternalError> {
         let mut batch_final_rows = BTreeMap::new();
         for op in ops {
-            let final_row = op
-                .after
-                .as_ref()
-                .map(|bytes| RawRow::from_untrusted_bytes(bytes.clone()))
-                .transpose()?;
-            if batch_final_rows.insert(op.key.clone(), final_row).is_some() {
+            let final_row = op.after.as_deref();
+            if let Some(bytes) = final_row {
+                RawRow::ensure_size(bytes)?;
+            }
+            if batch_final_rows.insert(&op.key, final_row).is_some() {
                 return Err(InternalError::store_corruption());
             }
         }
@@ -63,7 +63,12 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for CanonicalCommitReader<'_, C
     fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
         let raw_key = key.to_raw()?;
         if let Some(final_row) = self.batch_final_rows.get(&raw_key) {
-            return Ok(final_row.clone());
+            // The reader contract returns owned witnesses. Copy only the
+            // requested final row; a tombstone must not fall through to storage.
+            return final_row
+                .map(|bytes| RawRow::from_untrusted_bytes(bytes.to_vec()))
+                .transpose()
+                .map_err(InternalError::from);
         }
         let runtime_entity = canonical_runtime_entity_for_tag(self.db, key.entity_tag())?;
         let store = runtime_entity.store(self.db)?;
@@ -181,21 +186,36 @@ impl AcceptedRuntimeEntity {
         db.store_handle(self.store_path)
     }
 
-    /// Resolve accepted commit authority for this accepted runtime entity.
+    /// Resolve this runtime operation's live/canonical accepted authority before
+    /// handing it to the explicit-selection context constructor.
     pub(in crate::db) fn prepare_commit_context<C: CanisterKind>(
         &self,
         db: &Db<C>,
         schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
         mode: crate::db::commit::CommitPrepareMode,
     ) -> Result<crate::db::commit::CommitPrepareContext, InternalError> {
-        prepare_commit_context_for_runtime_entity(
-            db,
-            self.entity_path_handle(),
-            self.entity_tag,
-            self.store_path,
-            schema_fingerprint,
-            mode,
-        )
+        let store = self.store(db)?;
+        let selection = store
+            .with_schema(|schema_store| {
+                if matches!(mode, CommitPrepareMode::RecoveryReplay)
+                    && store.storage_capabilities().recovery()
+                        == StoreRecoveryCapability::StableBasePlusJournalReplay
+                {
+                    schema_store.current_canonical_accepted_catalog_selection(
+                        self.entity_tag,
+                        self.entity_path(),
+                        self.store_path,
+                    )
+                } else {
+                    schema_store.current_accepted_catalog_selection(
+                        self.entity_tag,
+                        self.entity_path(),
+                        self.store_path,
+                    )
+                }
+            })?
+            .ok_or_else(InternalError::store_corruption)?;
+        prepare_commit_context_from_catalog_selection(db, &selection, schema_fingerprint, mode)
     }
 }
 
@@ -444,6 +464,8 @@ pub(in crate::db) fn validate_delete_relations<C: CanisterKind>(
 
 #[cfg(test)]
 mod tests {
+    mod recovery_reader;
+
     use super::*;
     use crate::{
         db::{
@@ -500,8 +522,9 @@ mod tests {
         };
     }
 
-    #[test]
-    fn accepted_bundle_alone_supplies_runtime_entity_routing() {
+    fn test_db() -> Db<TestCanister> {
+        DATA_STORE.with_borrow_mut(|store| *store = DataStore::init_heap());
+        INDEX_STORE.with_borrow_mut(|store| *store = IndexStore::init_heap());
         let entity_tag = EntityTag::new(91);
         let snapshot = PersistedSchemaSnapshot::new(
             SchemaVersion::initial(),
@@ -538,10 +561,16 @@ mod tests {
                 .expect("accepted runtime candidate should publish");
         });
 
-        let db = Db::<TestCanister>::new(
+        Db::<TestCanister>::new(
             &STORE_REGISTRY,
             crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
-        );
+        )
+    }
+
+    #[test]
+    fn accepted_bundle_alone_supplies_runtime_entity_routing() {
+        let db = test_db();
+        let entity_tag = EntityTag::new(91);
         let by_tag =
             accepted_runtime_entity_for_tag(&db, entity_tag).expect("accepted tag should route");
         let by_path =

@@ -19,7 +19,7 @@ use ic_memory::open_default_memory_manager_memory;
 use std::cell::RefCell;
 
 pub(in crate::db) const DATABASE_BOOT_RECORD_BYTES: usize = 15;
-const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDB253";
+const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDBCTL";
 // `ic-memory` initializes the control slot as a stable cell before IcyDB writes
 // its database boot record. Treat that pre-boot header as an empty marker.
 const PRE_BOOT_STABLE_CELL_MAGIC: &[u8; 3] = b"SCL";

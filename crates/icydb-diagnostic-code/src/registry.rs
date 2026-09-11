@@ -682,4 +682,10 @@ define_error_code_registry! {
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::InputNodesExceeded });
     QUERY_READ_INPUT_BYTES_EXCEEDED = 270 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::InputBytesExceeded });
+    RUNTIME_BOUNDARY_QUERY_EXPLAIN_OUTPUT_EXCEEDED = 271 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::QueryExplainOutputExceeded });
+    RUNTIME_BOUNDARY_QUERY_EXPLAIN_DEPTH_EXCEEDED = 272 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::QueryExplainDepthExceeded });
+    QUERY_READ_EXPLAIN_DOES_NOT_ACCEPT_CURSOR = 273 => QueryReadAdmission,
+        detail(QueryReadAdmission { reason: QueryReadAdmissionCode::ExplainDoesNotAcceptCursor });
 }

@@ -4,18 +4,25 @@
 //! Does not own: grouped executor runtime implementation.
 //! Boundary: keeps grouped planning semantics explicit before executor handoff.
 
+#[cfg(test)]
+mod tests;
+
 use crate::db::{
+    QueryError,
     access::AccessPlan,
     query::plan::{
-        AccessPlannedQuery, GroupAggregateSpec, GroupFieldSet, GroupedPlanAggregateFamily,
-        OrderSpec,
+        AccessPlannedQuery, GroupAggregateSpec, GroupFieldSet, GroupPlan,
+        GroupedPlanAggregateFamily, OrderSpec,
         expr::{
             GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
-            classify_grouped_order_term_for_field, classify_grouped_top_k_order_term,
-            grouped_top_k_order_term_requires_heap,
+            try_classify_grouped_order_term_for_field, try_classify_grouped_top_k_order_term,
+            try_grouped_top_k_order_term_requires_heap,
         },
     },
+    query::preparation::PreparationWork,
 };
+
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 // Keep the raw grouped family selector internal so downstream code consumes the
 // planner-owned `GroupedPlanStrategy` artifact instead of rebuilding behavior
@@ -176,21 +183,53 @@ impl GroupedPlanStrategy {
 pub(in crate::db) fn grouped_plan_strategy(
     plan: &AccessPlannedQuery,
 ) -> Option<GroupedPlanStrategy> {
+    plan.grouped_plan().map(|grouped| {
+        match derive_grouped_plan_strategy(plan, grouped, &mut |_| {
+            Ok::<_, std::convert::Infallible>(())
+        }) {
+            Ok(strategy) => strategy,
+            Err(never) => match never {},
+        }
+    })
+}
+
+/// Project grouped diagnostic strategy under the current request allowance.
+/// This never substitutes an identity result after diagnostic exhaustion.
+pub(in crate::db) fn grouped_plan_strategy_for_explain(
+    plan: &AccessPlannedQuery,
+    grouped: &GroupPlan,
+    work: &PreparationWork<'_>,
+) -> Result<GroupedPlanStrategy, QueryError> {
+    derive_grouped_plan_strategy(plan, grouped, &mut |steps| {
+        work.charge(Resource::PredicateExpressionSteps, steps)
+    })
+}
+
+// One borrowed evaluator owns selection for ordinary identity and diagnostics.
+// The required observer runs before each visit/comparison and can stop the walk.
+fn derive_grouped_plan_strategy<E>(
+    plan: &AccessPlannedQuery,
+    grouped: &GroupPlan,
+    observe: &mut impl FnMut(u64) -> Result<(), E>,
+) -> Result<GroupedPlanStrategy, E> {
+    observe(1)?;
     // Phase 1: project the grouped ORDER BY lane early so aggregate-streaming
     // compatibility only gates the canonical ordered-group family. The bounded
     // Top-K family runs through grouped fold/finalize instead of ordered
     // grouped streaming, so widened aggregate-input expressions must not get
     // rejected here before the planner can reserve that lane.
-    let grouped = plan.grouped_plan()?;
-    let aggregate_family =
-        GroupedPlanAggregateFamily::from_grouped_aggregates(grouped.group.aggregates.as_slice());
+    let aggregate_family = GroupedPlanAggregateFamily::try_from_grouped_aggregates(
+        grouped.group.aggregates.as_slice(),
+        observe,
+    )?;
     let order_strategy_projection = grouped_order_strategy_projection(
         grouped.scalar.order.as_ref(),
         &grouped.group.group_fields,
-    );
+        observe,
+    )?;
 
     if grouped.scalar.distinct {
-        return Some(hash_group_fallback_strategy(
+        return Ok(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::DistinctGroupingNotAdmitted,
             aggregate_family,
         ));
@@ -204,7 +243,7 @@ pub(in crate::db) fn grouped_plan_strategy(
         order_strategy_projection,
         GroupedOrderStrategyProjection::TopK
     ) {
-        return Some(GroupedPlanStrategy::top_k_group_with_aggregate_family(
+        return Ok(GroupedPlanStrategy::top_k_group_with_aggregate_family(
             aggregate_family,
         ));
     }
@@ -214,7 +253,7 @@ pub(in crate::db) fn grouped_plan_strategy(
     // residual predicate filters rows without disturbing group-key order;
     // preserve the older direct-only fallback rule outside that proof.
     if plan.has_any_residual_filter() && grouped.group.group_fields.as_path_aware().is_none() {
-        return Some(hash_group_fallback_strategy(
+        return Ok(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::ResidualFilterBlocksGroupedOrder,
             aggregate_family,
         ));
@@ -222,17 +261,18 @@ pub(in crate::db) fn grouped_plan_strategy(
     if !matches!(
         order_strategy_projection,
         GroupedOrderStrategyProjection::TopK
-    ) && !grouped_aggregates_streaming_compatible(grouped.group.aggregates.as_slice())
+    ) && !grouped_aggregates_streaming_compatible(grouped.group.aggregates.as_slice(), observe)?
     {
-        return Some(hash_group_fallback_strategy(
+        return Ok(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::AggregateStreamingNotSupported,
             aggregate_family,
         ));
     }
     if !crate::db::query::plan::semantics::group_having::grouped_having_streaming_compatible(
         grouped.having_expr.as_ref(),
-    ) {
-        return Some(hash_group_fallback_strategy(
+        observe,
+    )? {
+        return Ok(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::HavingBlocksGroupedOrder,
             aggregate_family,
         ));
@@ -242,30 +282,37 @@ pub(in crate::db) fn grouped_plan_strategy(
     match order_strategy_projection {
         GroupedOrderStrategyProjection::Canonical => {}
         GroupedOrderStrategyProjection::TopK => {
-            return Some(GroupedPlanStrategy::top_k_group_with_aggregate_family(
+            return Ok(GroupedPlanStrategy::top_k_group_with_aggregate_family(
                 aggregate_family,
             ));
         }
         GroupedOrderStrategyProjection::HashFallback(reason) => {
-            return Some(hash_group_fallback_strategy(reason, aggregate_family));
+            return Ok(hash_group_fallback_strategy(reason, aggregate_family));
         }
     }
-    if grouped_access_path_proves_group_order(&grouped.group.group_fields, &plan.access) {
-        return Some(GroupedPlanStrategy::ordered_group_with_aggregate_family(
+    if grouped_access_path_proves_group_order(&grouped.group.group_fields, &plan.access, observe)? {
+        return Ok(GroupedPlanStrategy::ordered_group_with_aggregate_family(
             aggregate_family,
         ));
     }
 
-    Some(hash_group_fallback_strategy(
+    Ok(hash_group_fallback_strategy(
         GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
         aggregate_family,
     ))
 }
 
-fn grouped_aggregates_streaming_compatible(aggregates: &[GroupAggregateSpec]) -> bool {
-    aggregates
-        .iter()
-        .all(GroupAggregateSpec::streaming_compatible)
+fn grouped_aggregates_streaming_compatible<E>(
+    aggregates: &[GroupAggregateSpec],
+    observe: &mut impl FnMut(u64) -> Result<(), E>,
+) -> Result<bool, E> {
+    for aggregate in aggregates {
+        observe(1)?;
+        if !aggregate.streaming_compatible() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 // Lift the repeated hash-group fallback constructor so grouped strategy
@@ -291,99 +338,102 @@ enum GroupedOrderStrategyProjection {
     HashFallback(GroupedPlanFallbackReason),
 }
 
-fn grouped_order_strategy_projection(
+fn grouped_order_strategy_projection<E>(
     order: Option<&OrderSpec>,
-    group_fields: &crate::db::query::plan::GroupFieldSet,
-) -> GroupedOrderStrategyProjection {
+    group_fields: &GroupFieldSet,
+    observe: &mut impl FnMut(u64) -> Result<(), E>,
+) -> Result<GroupedOrderStrategyProjection, E> {
     let Some(order) = order else {
-        return GroupedOrderStrategyProjection::Canonical;
+        return Ok(GroupedOrderStrategyProjection::Canonical);
     };
-    let top_k_required = order
-        .fields
-        .iter()
-        .any(|term| grouped_top_k_order_term_requires_heap(term.expr()));
-
-    if top_k_required {
-        return grouped_top_k_strategy_projection(order, group_fields);
+    for term in &order.fields {
+        observe(1)?;
+        if try_grouped_top_k_order_term_requires_heap(term.expr(), observe)? {
+            return grouped_top_k_strategy_projection(order, group_fields, observe);
+        }
     }
 
-    grouped_canonical_order_strategy_projection(order, group_fields)
+    grouped_canonical_order_strategy_projection(order, group_fields, observe)
 }
 
-fn grouped_canonical_order_strategy_projection(
+fn grouped_canonical_order_strategy_projection<E>(
     order: &OrderSpec,
-    group_fields: &crate::db::query::plan::GroupFieldSet,
-) -> GroupedOrderStrategyProjection {
+    group_fields: &GroupFieldSet,
+    observe: &mut impl FnMut(u64) -> Result<(), E>,
+) -> Result<GroupedOrderStrategyProjection, E> {
+    observe(1)?;
     if order.fields.len() < group_fields.len() {
-        return GroupedOrderStrategyProjection::HashFallback(
+        return Ok(GroupedOrderStrategyProjection::HashFallback(
             GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
-        );
+        ));
     }
 
-    // Phase 1: walk the user-declared grouped ORDER BY list once and keep
-    // canonical grouped-key proof separate from the broader grouped Top-K
-    // expression family.
+    // Only the grouped-key prefix contributes to this proof. Heap detection
+    // already inspected the complete ORDER BY list before choosing this lane.
     let mut canonical_direction = None;
-    for (index, term) in order.fields.iter().enumerate() {
-        if index < group_fields.len() {
-            let direction = term.direction();
-            if canonical_direction.is_some_and(|expected| expected != direction) {
-                return GroupedOrderStrategyProjection::HashFallback(
-                    GroupedPlanFallbackReason::GroupKeyOrderDirectionMismatch,
-                );
-            }
-            canonical_direction.get_or_insert(direction);
-            let Some(group_field) = group_fields.get(index) else {
-                return GroupedOrderStrategyProjection::HashFallback(
+    for (index, term) in order.fields.iter().take(group_fields.len()).enumerate() {
+        observe(1)?;
+        let direction = term.direction();
+        if canonical_direction.is_some_and(|expected| expected != direction) {
+            return Ok(GroupedOrderStrategyProjection::HashFallback(
+                GroupedPlanFallbackReason::GroupKeyOrderDirectionMismatch,
+            ));
+        }
+        canonical_direction.get_or_insert(direction);
+        let Some(group_field) = group_fields.get(index) else {
+            return Ok(GroupedOrderStrategyProjection::HashFallback(
+                GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
+            ));
+        };
+        match try_classify_grouped_order_term_for_field(term.expr(), group_field, observe)? {
+            GroupedOrderTermAdmissibility::Preserves(_) => {}
+            GroupedOrderTermAdmissibility::PrefixMismatch => {
+                return Ok(GroupedOrderStrategyProjection::HashFallback(
                     GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
-                );
-            };
-            match classify_grouped_order_term_for_field(term.expr(), group_field) {
-                GroupedOrderTermAdmissibility::Preserves(_) => {}
-                GroupedOrderTermAdmissibility::PrefixMismatch => {
-                    return GroupedOrderStrategyProjection::HashFallback(
-                        GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
-                    );
-                }
-                GroupedOrderTermAdmissibility::UnsupportedExpression => {
-                    return GroupedOrderStrategyProjection::HashFallback(
-                        GroupedPlanFallbackReason::GroupKeyOrderExpressionNotAdmissible,
-                    );
-                }
+                ));
+            }
+            GroupedOrderTermAdmissibility::UnsupportedExpression => {
+                return Ok(GroupedOrderStrategyProjection::HashFallback(
+                    GroupedPlanFallbackReason::GroupKeyOrderExpressionNotAdmissible,
+                ));
             }
         }
     }
 
-    GroupedOrderStrategyProjection::Canonical
+    Ok(GroupedOrderStrategyProjection::Canonical)
 }
 
-fn grouped_top_k_strategy_projection(
+fn grouped_top_k_strategy_projection<E>(
     order: &OrderSpec,
-    group_fields: &crate::db::query::plan::GroupFieldSet,
-) -> GroupedOrderStrategyProjection {
+    group_fields: &GroupFieldSet,
+    observe: &mut impl FnMut(u64) -> Result<(), E>,
+) -> Result<GroupedOrderStrategyProjection, E> {
     for term in &order.fields {
-        match classify_grouped_top_k_order_term(term.expr(), group_fields) {
+        observe(1)?;
+        match try_classify_grouped_top_k_order_term(term.expr(), group_fields, observe)? {
             GroupedTopKOrderTermAdmissibility::Admissible => {}
             GroupedTopKOrderTermAdmissibility::NonGroupFieldReference => {
-                return GroupedOrderStrategyProjection::HashFallback(
+                return Ok(GroupedOrderStrategyProjection::HashFallback(
                     GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
-                );
+                ));
             }
             GroupedTopKOrderTermAdmissibility::UnsupportedExpression => {
-                return GroupedOrderStrategyProjection::HashFallback(
+                return Ok(GroupedOrderStrategyProjection::HashFallback(
                     GroupedPlanFallbackReason::GroupKeyOrderExpressionNotAdmissible,
-                );
+                ));
             }
         }
     }
 
-    GroupedOrderStrategyProjection::TopK
+    Ok(GroupedOrderStrategyProjection::TopK)
 }
 
-fn grouped_access_path_proves_group_order<K>(
+fn grouped_access_path_proves_group_order<K, E>(
     group_fields: &GroupFieldSet,
     access: &AccessPlan<K>,
-) -> bool {
+    observe: &mut impl FnMut(u64) -> Result<(), E>,
+) -> Result<bool, E> {
+    observe(1)?;
     // Derive grouped-order evidence from the normalized executable access contract so
     // planner strategy hints do not branch on raw AccessPath variants directly.
     //
@@ -395,13 +445,13 @@ fn grouped_access_path_proves_group_order<K>(
     // not the raw range bounds themselves.
     let executable = access.executable_contract();
     let Some(path) = executable.as_path() else {
-        return false;
+        return Ok(false);
     };
     let Some(details) = path
         .index_prefix_details()
         .or_else(|| path.index_range_details())
     else {
-        return false;
+        return Ok(false);
     };
     let prefix_len = details.slot_arity();
     let mut cursor = 0usize;
@@ -411,21 +461,26 @@ fn grouped_access_path_proves_group_order<K>(
     // Any gap beyond the equality prefix remains unfixed and therefore blocks
     // ordered grouping.
     for group_field in group_fields.iter() {
-        while cursor < prefix_len
-            && cursor < details.key_arity()
-            && details.key_field_at(cursor) != Some(group_field.field())
-        {
+        observe(1)?;
+        let comparison_steps = 1_u64.saturating_add(group_field.field().len() as u64);
+        while cursor < prefix_len && cursor < details.key_arity() {
+            observe(comparison_steps)?;
+            if details.key_field_at(cursor) == Some(group_field.field()) {
+                break;
+            }
             cursor = cursor.saturating_add(1);
         }
-        if cursor >= details.key_arity()
-            || details.key_field_at(cursor) != Some(group_field.field())
-        {
-            return false;
+        if cursor >= details.key_arity() {
+            return Ok(false);
+        }
+        observe(comparison_steps)?;
+        if details.key_field_at(cursor) != Some(group_field.field()) {
+            return Ok(false);
         }
         cursor = cursor.saturating_add(1);
     }
 
-    true
+    Ok(true)
 }
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.

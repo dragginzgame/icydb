@@ -261,7 +261,7 @@ fn encode_int_big_value_bytes(
 
     let (is_negative, digits) = value.sign_and_u32_digits();
     let mut encoded = Vec::new();
-    push_binary_int_big_payload(&mut encoded, is_negative, digits.as_slice());
+    push_binary_int_big_payload(&mut encoded, is_negative, digits);
 
     Ok(encoded)
 }
@@ -281,14 +281,13 @@ fn encode_nat_big_value_bytes(
         .map_err(|_| InternalError::persisted_row_field_encode_internal(field_name))?;
 
     let mut encoded = Vec::new();
-    push_binary_nat_big_payload(&mut encoded, value.u32_digits().as_slice());
+    push_binary_nat_big_payload(&mut encoded, value.u32_digits());
 
     Ok(encoded)
 }
 
 fn ensure_int_big_max_bytes(value: &IntBig, max_bytes: u32) -> Result<(), FieldDecodeError> {
-    let len = value.to_leb128().len();
-    if len > max_bytes as usize {
+    if value.leb128_len() > u64::from(max_bytes) {
         return Err(FieldDecodeError::new());
     }
 
@@ -296,8 +295,7 @@ fn ensure_int_big_max_bytes(value: &IntBig, max_bytes: u32) -> Result<(), FieldD
 }
 
 fn ensure_nat_big_max_bytes(value: &NatBig, max_bytes: u32) -> Result<(), FieldDecodeError> {
-    let len = value.to_leb128().len();
-    if len > max_bytes as usize {
+    if value.leb128_len() > u64::from(max_bytes) {
         return Err(FieldDecodeError::new());
     }
 
@@ -324,6 +322,43 @@ mod tests {
         value::Value,
     };
     use icydb_schema::DEFAULT_BIG_INT_MAX_BYTES;
+    #[test]
+    fn bigint_leaf_byte_limits_preserve_exact_and_rejected_boundaries() {
+        for integer in [-8193_i32, -8192, -65, -64, -1, 0, 63, 64, 8191, 8192] {
+            let signed = IntBig::from(integer);
+            let unsigned = NatBig::from(integer.unsigned_abs());
+            let cases = [
+                (
+                    u32::try_from(signed.to_leb128().len()).unwrap(),
+                    Value::IntBig(signed),
+                ),
+                (
+                    u32::try_from(unsigned.to_leb128().len()).unwrap(),
+                    Value::NatBig(unsigned),
+                ),
+            ];
+            for (length, value) in cases {
+                for max_bytes in [length - 1, length, length + 1] {
+                    let kind = match &value {
+                        Value::IntBig(_) => AcceptedFieldKind::IntBig { max_bytes },
+                        _ => AcceptedFieldKind::NatBig { max_bytes },
+                    };
+                    let encoded = encode_leaf_field_binary_bytes(&kind, &value, "field");
+                    assert_eq!(encoded.is_ok(), max_bytes >= length);
+                    if let Ok(Some(bytes)) = encoded {
+                        assert_eq!(
+                            decode_leaf_field_by_kind_bytes(&bytes, &kind)
+                                .unwrap()
+                                .unwrap(),
+                            value
+                        );
+                        validate_structural_field_by_accepted_kind_bytes(&bytes, &kind).unwrap();
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn leaf_field_binary_roundtrips_supported_leaf_wrappers() {
         let cases = vec![

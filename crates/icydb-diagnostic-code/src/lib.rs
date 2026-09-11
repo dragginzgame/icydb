@@ -430,6 +430,8 @@ pub enum QueryReadAdmissionCode {
     InputNodesExceeded,
     /// Authored query payload exceeds the shared byte ceiling.
     InputBytesExceeded,
+    /// Logical explain describes a request before any cursor boundary.
+    ExplainDoesNotAcceptCursor,
 }
 
 impl fmt::Debug for QueryReadAdmissionCode {
@@ -535,6 +537,9 @@ pub enum RuntimeBoundaryCode {
     RequestExecutionRootMismatch,
     /// A successful generated SQL query reply exceeds the deployed IC query-response limit.
     SqlQueryReplyBytesExceeded,
+    QueryExplainOutputExceeded,
+    /// A derived logical explain access tree exceeds the diagnostic depth limit.
+    QueryExplainDepthExceeded,
     /// Startup recovery remains incomplete and ordinary database work must retry later.
     DatabaseStartupRecoveryPending,
     /// An application guard denied access to the generated SQL read surface.
@@ -1067,7 +1072,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 270);
+        assert_eq!(last, 273);
     }
 
     #[test]

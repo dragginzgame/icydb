@@ -375,11 +375,25 @@ and debugging; they are not correctness proofs.
 
 ### Guarantees
 
+- Typed `Query::explain()` consumes the query and returns a detached
+  `db::query::ExplainPlan` without requiring the `sql` feature or executing rows.
+  It rechecks the current binding and uses the ordinary accepted planner/cache.
+  Grouped queries require explicit positive group and memory limits. Any supplied
+  cursor, including an empty string, rejects before conversion.
+- Explain may describe an unbounded logical scan or materialized sort that public
+  execution would reject. It describes the logical request, not rewritten live/
+  exhaustive pagination or the specialized exact-count path, and grants no
+  execution permission. A valid cached choice need not refresh after every
+  cardinality change; index lifecycle invalidation follows ordinary planning.
+- Projection consumes the existing cumulative request budget. Canonical text/JSON
+  renderers return a result with a separate 1-MiB UTF-8 output ceiling; they have
+  no session lifetime or cumulative request charge and are not a redaction boundary.
 - Explain determinism: `ExplainPlan` is deterministic for equivalent queries and plans.
-- Fingerprint stability: `PlanFingerprint` is stable within a major version and is
-  derived from the normalized explain projection.
+- Compare structured explain fields or canonical reports when testing planner choices.
+  Runtime cache and cursor identity are independent of diagnostic projection.
 - No implicit execution: diagnostics never execute a query unless explicitly requested.
-- Observational only: diagnostics do not affect planning, execution, or results.
+- Diagnostics do not mutate the source logical plan or execute result rows. They
+  may populate the ordinary plan cache and consume preparation resources.
 
 ### Best-effort / May Change
 
