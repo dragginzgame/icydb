@@ -10,13 +10,13 @@ description = "Compile contract for model authoring through the IcyDB facade"
 repository = { workspace = true }
 authors = { workspace = true }
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
 runtime_api = { package = "icydb", path = "../../crates/icydb" }
-
-[lib]
-crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
 runtime_api = { package = "icydb", path = "../../crates/icydb" }
