@@ -8121,8 +8121,14 @@ mod identity_pre_key_tests {
         assert_eq!(
             drive_generated_startup_recovery_page(&session, &JOURNALED_STORE_REGISTRY, SUBMISSION,)
                 .expect("online convergence should commit"),
-            GeneratedStartupDriverStep::Terminal,
-            "the quiescent generated driver should stop",
+            GeneratedStartupDriverStep::ApplyGeneratedSchema,
+            "journal convergence does not complete an unsubmitted generated schema",
+        );
+        assert!(
+            session
+                .db
+                .drive_startup_recovery_page()
+                .expect("the drained journal should remain quiescent"),
         );
 
         assert_eq!(JOURNALED_DATA_STORE.with(|store| store.borrow().len()), 65);
