@@ -24,7 +24,7 @@ use crate::{
     value::{InputValue, canonicalize_value_set},
 };
 
-/// Normalize a predicate into a canonical, deterministic form.
+/// Consume a predicate into canonical, deterministic form without copying leaves.
 ///
 /// Normalization guarantees:
 /// - Logical equivalence is preserved
@@ -41,7 +41,7 @@ use crate::{
 /// - consistent caching / equality checks
 /// - predictable test behavior
 #[must_use]
-pub(in crate::db) fn normalize(predicate: &Predicate) -> Predicate {
+pub(in crate::db) fn normalize(predicate: Predicate) -> Predicate {
     // Normalize recursively while preserving logical equivalence.
     match predicate {
         Predicate::True => Predicate::True,
@@ -49,50 +49,7 @@ pub(in crate::db) fn normalize(predicate: &Predicate) -> Predicate {
 
         Predicate::And(children) => normalize_and(children),
         Predicate::Or(children) => normalize_or(children),
-        Predicate::Not(inner) => normalize_not(inner),
-
-        Predicate::Compare(cmp) => Predicate::Compare(cmp.clone()),
-        Predicate::CompareFields(cmp) => Predicate::CompareFields(cmp.clone()),
-
-        Predicate::IsNull { field } => Predicate::IsNull {
-            field: field.clone(),
-        },
-        Predicate::IsNotNull { field } => Predicate::IsNotNull {
-            field: field.clone(),
-        },
-        Predicate::IsMissing { field } => Predicate::IsMissing {
-            field: field.clone(),
-        },
-        Predicate::IsEmpty { field } => Predicate::IsEmpty {
-            field: field.clone(),
-        },
-        Predicate::IsNotEmpty { field } => Predicate::IsNotEmpty {
-            field: field.clone(),
-        },
-        Predicate::TextContains { field, value } => Predicate::TextContains {
-            field: field.clone(),
-            value: value.clone(),
-        },
-        Predicate::TextContainsCi { field, value } => Predicate::TextContainsCi {
-            field: field.clone(),
-            value: value.clone(),
-        },
-    }
-}
-
-/// Normalize an already-owned predicate into the same canonical,
-/// deterministic form as [`normalize`] without cloning leaf payloads.
-#[must_use]
-#[cfg(test)]
-fn normalize_owned(predicate: Predicate) -> Predicate {
-    // Normalize recursively while preserving logical equivalence.
-    match predicate {
-        Predicate::True => Predicate::True,
-        Predicate::False => Predicate::False,
-
-        Predicate::And(children) => normalize_and_owned(children),
-        Predicate::Or(children) => normalize_or_owned(children),
-        Predicate::Not(inner) => normalize_not_owned(*inner),
+        Predicate::Not(inner) => normalize_not(*inner),
 
         Predicate::Compare(cmp) => Predicate::Compare(cmp),
         Predicate::CompareFields(cmp) => Predicate::CompareFields(cmp),
@@ -579,21 +536,12 @@ fn normalize_numeric_value_for_target(
 /// Eliminates double negation:
 ///     NOT (NOT x)  →  x
 ///
-fn normalize_not(inner: &Predicate) -> Predicate {
-    normalize_not_from_normalized(normalize(inner), |predicate| normalize(&predicate))
-}
-
-#[cfg(test)]
-fn normalize_not_owned(inner: Predicate) -> Predicate {
-    normalize_not_from_normalized(normalize_owned(inner), normalize_owned)
-}
-
-fn normalize_not_from_normalized(
-    normalized: Predicate,
-    normalize_double_inner: impl FnOnce(Predicate) -> Predicate,
-) -> Predicate {
+fn normalize_not(inner: Predicate) -> Predicate {
+    let normalized = normalize(inner);
     if let Predicate::Not(double) = normalized {
-        return normalize_double_inner(*double);
+        // The inner subtree is already canonical; removing both NOT nodes
+        // must not traverse, sort or rebuild it a second time.
+        return *double;
     }
     Predicate::Not(Box::new(normalized))
 }
@@ -609,21 +557,10 @@ fn normalize_not_from_normalized(
 ///
 /// Children are sorted deterministically.
 ///
-fn normalize_and(children: &[Predicate]) -> Predicate {
-    normalize_and_from_normalized(children.iter().map(normalize))
-}
-
-#[cfg(test)]
-fn normalize_and_owned(children: Vec<Predicate>) -> Predicate {
-    normalize_and_from_normalized(children.into_iter().map(normalize_owned))
-}
-
-fn normalize_and_from_normalized(
-    normalized_children: impl IntoIterator<Item = Predicate>,
-) -> Predicate {
+fn normalize_and(children: Vec<Predicate>) -> Predicate {
     let mut out = Vec::new();
 
-    for normalized in normalized_children {
+    for normalized in children.into_iter().map(normalize) {
         match normalized {
             Predicate::True => {}
             Predicate::False => return Predicate::False,
@@ -664,21 +601,10 @@ fn normalize_and_from_normalized(
 ///
 /// Children are sorted deterministically.
 ///
-fn normalize_or(children: &[Predicate]) -> Predicate {
-    normalize_or_from_normalized(children.iter().map(normalize))
-}
-
-#[cfg(test)]
-fn normalize_or_owned(children: Vec<Predicate>) -> Predicate {
-    normalize_or_from_normalized(children.into_iter().map(normalize_owned))
-}
-
-fn normalize_or_from_normalized(
-    normalized_children: impl IntoIterator<Item = Predicate>,
-) -> Predicate {
+fn normalize_or(children: Vec<Predicate>) -> Predicate {
     let mut out = Vec::new();
 
-    for normalized in normalized_children {
+    for normalized in children.into_iter().map(normalize) {
         match normalized {
             Predicate::False => {}
             Predicate::True => return Predicate::True,

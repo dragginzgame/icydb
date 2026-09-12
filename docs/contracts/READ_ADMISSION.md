@@ -61,6 +61,13 @@ allocation; selected names and implicit accepted-primary-key ordering are also
 charged. Clauses retain authored order and duplicate projections. These charges
 do not establish complete bounds for downstream planning.
 
+General scalar preparation also charges its instruction interval for predicate
+normalization, parameter-contract derivation and predicate fingerprinting before
+shared-plan lookup. Filtered cache hits repeat this work and can reject for
+instruction exhaustion without changing the retained plan. Existing filterless
+fast hits skip this interval. Completion accounting covers successful and failed
+preparation; it does not establish an intra-operation allocation or stack bound.
+
 Grouped key and aggregate destination vectors also charge backing before
 allocation. Group keys select the existing direct/path representation up front;
 that name scan charges preparation work. Authored key count determines reserved

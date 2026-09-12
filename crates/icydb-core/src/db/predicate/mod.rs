@@ -68,10 +68,7 @@ pub(in crate::db) fn normalized_accepted_index_predicate(
 ) -> Option<Predicate> {
     let predicate_sql = predicate_sql?;
 
-    Some(
-        parse_sql_predicate(predicate_sql)
-            .map_or(Predicate::False, |predicate| normalize(&predicate)),
-    )
+    Some(parse_sql_predicate(predicate_sql).map_or(Predicate::False, normalize))
 }
 
 /// Return the literal prefix from the supported single-trailing-wildcard

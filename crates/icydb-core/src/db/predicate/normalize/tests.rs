@@ -11,7 +11,7 @@ use crate::{
 };
 
 #[test]
-fn normalize_owned_matches_borrowed_normalize_for_compact_membership_conjunction() {
+fn normalize_compact_membership_conjunction_is_idempotent() {
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(
             "stage",
@@ -32,11 +32,68 @@ fn normalize_owned_matches_borrowed_normalize_for_compact_membership_conjunction
         ))))),
     ]);
 
-    assert_eq!(
-        super::normalize_owned(predicate.clone()),
-        normalize(&predicate),
-        "owned normalization must preserve borrowed normalization semantics",
-    );
+    let normalized = normalize(predicate);
+    assert_eq!(normalize(normalized.clone()), normalized);
+}
+
+#[test]
+fn normalize_moves_nested_text_operands_through_identity_rewrites() {
+    let field = "description".to_string();
+    let value = "payload".repeat(128);
+    let field_backing = field.as_ptr();
+    let value_backing = value.as_ptr();
+    let predicate = Predicate::Or(vec![
+        Predicate::False,
+        Predicate::And(vec![
+            Predicate::True,
+            Predicate::Not(Box::new(Predicate::Not(Box::new(
+                Predicate::TextContains {
+                    field,
+                    value: Value::Text(value),
+                },
+            )))),
+        ]),
+    ]);
+
+    let Predicate::TextContains {
+        field,
+        value: Value::Text(value),
+    } = normalize(predicate)
+    else {
+        panic!("identity rewrites preserve the text predicate");
+    };
+    assert_eq!(field, "description");
+    assert_eq!(value, "payload".repeat(128));
+    assert_eq!(field.as_ptr(), field_backing);
+    assert_eq!(value.as_ptr(), value_backing);
+}
+
+#[test]
+fn normalize_nested_negation_preserves_constants_and_canonical_children() {
+    let leaf = Predicate::eq("rank".to_string(), Value::Nat64(7));
+    for predicate in [
+        Predicate::True,
+        Predicate::False,
+        leaf.clone(),
+        Predicate::And(vec![Predicate::True, leaf.clone(), leaf.clone()]),
+        Predicate::Or(vec![Predicate::False, leaf.clone(), leaf]),
+    ] {
+        let expected = normalize(predicate.clone());
+        for depth in [1, 2, 3, 4, 32] {
+            let mut nested = predicate.clone();
+            for _ in 0..depth {
+                nested = Predicate::Not(Box::new(nested));
+            }
+            let normalized = normalize(nested);
+            let expected = if depth % 2 == 0 {
+                expected.clone()
+            } else {
+                Predicate::Not(Box::new(expected.clone()))
+            };
+            assert_eq!(normalized, expected);
+            assert_eq!(normalize(normalized.clone()), normalized);
+        }
+    }
 }
 
 #[test]
@@ -46,7 +103,7 @@ fn normalize_and_dedups_identical_children_and_collapses_to_singleton() {
         Predicate::eq("rank".to_string(), Value::Nat64(7)),
     ]);
 
-    let normalized = normalize(&duplicated);
+    let normalized = normalize(duplicated);
 
     assert_eq!(
         normalized,
@@ -62,7 +119,7 @@ fn normalize_or_dedups_identical_children_and_collapses_to_singleton() {
         Predicate::eq("rank".to_string(), Value::Nat64(7)),
     ]);
 
-    let normalized = normalize(&duplicated);
+    let normalized = normalize(duplicated);
 
     assert_eq!(
         normalized,
@@ -81,7 +138,7 @@ fn normalize_and_orders_cheaper_predicates_before_text_contains() {
         Predicate::eq("rank".to_string(), Value::Nat64(7)),
     ]);
 
-    let normalized = normalize(&mixed);
+    let normalized = normalize(mixed);
     let Predicate::And(children) = normalized else {
         panic!("normalized mixed predicate should remain AND with two children");
     };
@@ -118,7 +175,7 @@ fn normalize_and_orders_scalar_compares_before_membership() {
         ),
     ]);
 
-    let normalized = normalize(&mixed);
+    let normalized = normalize(mixed);
     let Predicate::And(children) = normalized else {
         panic!("normalized mixed predicate should remain AND with two children");
     };
@@ -156,7 +213,7 @@ fn normalize_and_conflicting_eq_literals_collapses_to_false() {
         Predicate::eq("rank".to_string(), Value::Nat64(2)),
     ]);
 
-    let normalized = normalize(&predicate);
+    let normalized = normalize(predicate);
 
     assert_eq!(
         normalized,
@@ -172,7 +229,7 @@ fn normalize_and_tightens_lower_bounds() {
         Predicate::Compare(ComparePredicate::gte("rank".to_string(), Value::Nat64(5))),
     ]);
 
-    let normalized = normalize(&predicate);
+    let normalized = normalize(predicate);
 
     assert_eq!(
         normalized,
@@ -188,7 +245,7 @@ fn normalize_and_tightens_upper_bounds() {
         Predicate::Compare(ComparePredicate::lte("rank".to_string(), Value::Nat64(7))),
     ]);
 
-    let normalized = normalize(&predicate);
+    let normalized = normalize(predicate);
 
     assert_eq!(
         normalized,
@@ -204,7 +261,7 @@ fn normalize_and_eq_with_satisfied_bound_collapses_to_eq() {
         Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Nat64(5))),
     ]);
 
-    let normalized = normalize(&predicate);
+    let normalized = normalize(predicate);
 
     assert_eq!(
         normalized,
@@ -220,7 +277,7 @@ fn normalize_and_eq_with_conflicting_bound_collapses_to_false() {
         Predicate::Compare(ComparePredicate::gt("rank".to_string(), Value::Nat64(5))),
     ]);
 
-    let normalized = normalize(&predicate);
+    let normalized = normalize(predicate);
 
     assert_eq!(
         normalized,
@@ -246,7 +303,7 @@ fn normalize_and_equal_lower_and_upper_collapse_to_eq() {
         )),
     ]);
 
-    let normalized = normalize(&predicate);
+    let normalized = normalize(predicate);
 
     assert_eq!(
         normalized,
@@ -262,7 +319,7 @@ fn normalize_and_crossed_bounds_collapse_to_false() {
         Predicate::Compare(ComparePredicate::lt("rank".to_string(), Value::Nat64(5))),
     ]);
 
-    let normalized = normalize(&predicate);
+    let normalized = normalize(predicate);
 
     assert_eq!(
         normalized,
@@ -294,7 +351,7 @@ fn normalize_or_same_field_eq_collapses_to_in() {
         )),
     ]);
 
-    let normalized = normalize(&predicate);
+    let normalized = normalize(predicate);
     let Predicate::Compare(compare) = normalized else {
         panic!("same-field strict OR-equality should collapse to one IN compare");
     };
@@ -333,7 +390,7 @@ fn normalize_or_mixed_eq_coercions_do_not_collapse_to_in() {
         )),
     ]);
 
-    let normalized = normalize(&predicate);
+    let normalized = normalize(predicate);
     let Predicate::Or(children) = normalized else {
         panic!("mixed coercion OR-equality should remain OR in canonical form");
     };
@@ -358,7 +415,7 @@ fn normalize_or_list_equality_literals_do_not_collapse_to_in() {
         )),
     ]);
 
-    let normalized = normalize(&predicate);
+    let normalized = normalize(predicate);
     let Predicate::Or(children) = normalized else {
         panic!("list-literal OR-equality should remain OR in canonical form");
     };

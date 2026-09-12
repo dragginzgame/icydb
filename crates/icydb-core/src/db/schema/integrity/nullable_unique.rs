@@ -73,7 +73,7 @@ pub(in crate::db) fn validate_nullable_unique_index_contract(
         .map(|sql| {
             let predicate = parse_sql_predicate(sql)
                 .map_err(|_| super::SchemaSnapshotAcceptanceError::Predicate)?;
-            let predicate = normalize(&predicate);
+            let predicate = normalize(predicate);
             if !predicate_fields_bind(fields, &predicate) {
                 return Err(super::SchemaSnapshotAcceptanceError::Predicate);
             }

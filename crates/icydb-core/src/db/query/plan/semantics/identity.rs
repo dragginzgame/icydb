@@ -279,6 +279,30 @@ pub(in crate::db) struct AggregateSemanticKeyRef<'a> {
 }
 
 impl<'a> AggregateSemanticKeyRef<'a> {
+    /// Return the canonical aggregate function.
+    #[must_use]
+    pub(in crate::db) const fn kind(self) -> AggregateKind {
+        self.kind
+    }
+
+    /// Borrow the canonical input, including COUNT row-count normalization.
+    #[must_use]
+    pub(in crate::db) const fn input_expr(self) -> Option<&'a Expr> {
+        self.input_expr
+    }
+
+    /// Borrow the aggregate-local filter without formatting or copying it.
+    #[must_use]
+    pub(in crate::db) const fn filter_expr(self) -> Option<&'a Expr> {
+        self.filter_expr
+    }
+
+    /// Return whether DISTINCT is observable for this function.
+    #[must_use]
+    pub(in crate::db) const fn distinct(self) -> bool {
+        self.distinct
+    }
+
     /// Borrow canonical identity components without copying input/filter trees.
     #[must_use]
     pub(in crate::db) fn new(

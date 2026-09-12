@@ -54,12 +54,12 @@ fn compile_normalized_bool_expr_to_predicate_impl(expr: &Expr) -> Option<Predica
     }
 
     if let Some(predicate) = collapse_membership_bool_expr(expr) {
-        return Some(crate::db::predicate::normalize(&predicate));
+        return Some(crate::db::predicate::normalize(predicate));
     }
 
     let when_true = compile_bool_truth_predicate(expr, BoolTruth::True)?;
 
-    Some(crate::db::predicate::normalize(&when_true))
+    Some(crate::db::predicate::normalize(when_true))
 }
 
 /// Derive the strongest predicate subset supported by the runtime predicate

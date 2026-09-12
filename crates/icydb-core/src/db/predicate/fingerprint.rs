@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 
 /// Hash canonical predicate structure into the plan hash stream.
 pub(in crate::db) fn hash_predicate(hasher: &mut Sha256, predicate: &Predicate) {
-    let normalized = normalize(predicate);
+    let normalized = normalize(predicate.clone());
     hash_predicate_structural(hasher, &normalized);
 }
 
@@ -88,7 +88,7 @@ mod tests {
             Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int64(1))),
         ]);
 
-        assert_eq!(normalize(&left), normalize(&right));
+        assert_eq!(normalize(left.clone()), normalize(right.clone()));
         assert_eq!(digest(&left), digest(&right));
     }
 
@@ -103,7 +103,7 @@ mod tests {
             Predicate::Compare(ComparePredicate::eq("a".to_string(), Value::Int64(1))),
         ]);
 
-        assert_eq!(normalize(&left), normalize(&right));
+        assert_eq!(normalize(left.clone()), normalize(right.clone()));
         assert_eq!(digest(&left), digest(&right));
     }
 
@@ -136,7 +136,7 @@ mod tests {
             CoercionId::Strict,
         ));
 
-        assert_eq!(normalize(&or_eq), normalize(&in_list));
+        assert_eq!(normalize(or_eq.clone()), normalize(in_list.clone()));
         assert_eq!(digest(&or_eq), digest(&in_list));
     }
 
@@ -151,7 +151,7 @@ mod tests {
             vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)],
         ));
 
-        assert_ne!(normalize(&left), normalize(&right));
+        assert_ne!(normalize(left.clone()), normalize(right.clone()));
         assert_eq!(digest(&left), digest(&right));
     }
 
@@ -171,7 +171,7 @@ mod tests {
             vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)],
         ));
 
-        assert_ne!(normalize(&left), normalize(&right));
+        assert_ne!(normalize(left.clone()), normalize(right.clone()));
         assert_eq!(digest(&left), digest(&right));
     }
 
@@ -185,7 +185,7 @@ mod tests {
             CoercionId::Strict,
         ));
 
-        assert_eq!(normalize(&left), normalize(&right));
+        assert_eq!(normalize(left.clone()), normalize(right.clone()));
         assert_eq!(digest(&left), digest(&right));
     }
 
@@ -204,7 +204,7 @@ mod tests {
             CoercionId::NumericWiden,
         ));
 
-        assert_ne!(normalize(&strict), normalize(&numeric_widen));
+        assert_ne!(normalize(strict.clone()), normalize(numeric_widen.clone()));
         assert_ne!(digest(&strict), digest(&numeric_widen));
     }
 

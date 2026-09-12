@@ -322,7 +322,7 @@ fn compile_predicate(
         let predicate = parse_sql_predicate(sql).map_err(|_| InternalError::store_corruption())?;
         Ok(PredicateProgram::compile_with_row_contract(
             row_contract,
-            &normalize(&predicate),
+            &normalize(predicate),
         ))
     })
     .transpose()

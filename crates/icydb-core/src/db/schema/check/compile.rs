@@ -1130,7 +1130,7 @@ fn unique_index_dependency_slots(
             )
         })?;
         let program =
-            PredicateProgram::compile_with_row_contract(&row_contract, &normalize(&predicate));
+            PredicateProgram::compile_with_row_contract(&row_contract, &normalize(predicate));
         program.mark_referenced_slots(required.as_mut_slice());
     }
     Ok(required

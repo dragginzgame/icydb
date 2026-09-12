@@ -67,7 +67,7 @@ pub(in crate::db::query) fn normalize_query_predicate(
         .map(|predicate| {
             let predicate = normalize_enum_literals(schema_info, predicate)?;
 
-            Ok::<Predicate, ValidateError>(normalize(&predicate))
+            Ok::<Predicate, ValidateError>(normalize(predicate))
         })
         .transpose()
 }

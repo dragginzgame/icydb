@@ -44,9 +44,8 @@ impl StructuralQuery {
         }
     }
 
-    // Rewrap one updated generic-free intent model back into the structural
-    // query shell so local transformation helpers do not rebuild `Self`
-    // ad hoc at each boundary method.
+    // Every intent change discards memoized identity. A cloned or previously
+    // planned query must never keep the key of its pre-edit shape.
     const fn from_intent(intent: QueryModel) -> Self {
         Self {
             intent,
@@ -104,9 +103,8 @@ impl StructuralQuery {
 
     /// Append one predicate that has already been normalized by the caller.
     #[must_use]
-    pub(in crate::db) fn filter_normalized_predicate(mut self, predicate: Predicate) -> Self {
-        self.intent = self.intent.filter_normalized_predicate(predicate);
-        self
+    pub(in crate::db) fn filter_normalized_predicate(self, predicate: Predicate) -> Self {
+        self.map_intent(|intent| intent.filter_normalized_predicate(predicate))
     }
 
     pub(in crate::db) fn filter_for_schema(
@@ -119,55 +117,49 @@ impl StructuralQuery {
     }
 
     pub(in crate::db) fn filter_expr_with_normalized_predicate(
-        mut self,
+        self,
         expr: Expr,
         predicate: Predicate,
         work: &PreparationWork<'_>,
     ) -> Result<Self, QueryError> {
-        self.intent = self
-            .intent
-            .filter_expr_with_normalized_predicate(expr, predicate, work)?;
-        Ok(self)
+        self.try_map_intent(|intent| {
+            intent.filter_expr_with_normalized_predicate(expr, predicate, work)
+        })
     }
     // Keep the exact expression-owned scalar filter lane available for
     // internal SQL lowering and parity callers that must preserve one planner
     // expression without routing through the public typed `FilterExpr` surface.
     pub(in crate::db) fn filter_expr(
-        mut self,
+        self,
         expr: Expr,
         work: &PreparationWork<'_>,
     ) -> Result<Self, QueryError> {
-        self.intent = self.intent.filter_expr(expr, work)?;
-        Ok(self)
+        self.try_map_intent(|intent| intent.filter_expr(expr, work))
     }
 
     #[must_use]
-    pub(in crate::db) fn order_spec(mut self, order: OrderSpec) -> Self {
-        self.intent = self.intent.order_spec(order);
-        self
+    pub(in crate::db) fn order_spec(self, order: OrderSpec) -> Self {
+        self.map_intent(|intent| intent.order_spec(order))
     }
 
     #[must_use]
-    pub(in crate::db) fn distinct(mut self) -> Self {
-        self.intent = self.intent.distinct();
-        self
+    pub(in crate::db) fn distinct(self) -> Self {
+        self.map_intent(QueryModel::distinct)
     }
 
     #[cfg(feature = "sql")]
     #[must_use]
-    pub(in crate::db) fn select_fields<I, S>(mut self, fields: I) -> Self
+    pub(in crate::db) fn select_fields<I, S>(self, fields: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        self.intent = self.intent.select_fields(fields);
-        self
+        self.map_intent(|intent| intent.select_fields(fields))
     }
 
     #[must_use]
-    pub(in crate::db) fn projection_selection(mut self, selection: ProjectionSelection) -> Self {
-        self.intent = self.intent.projection_selection(selection);
-        self
+    pub(in crate::db) fn projection_selection(self, selection: ProjectionSelection) -> Self {
+        self.map_intent(|intent| intent.projection_selection(selection))
     }
 
     pub(in crate::db) fn group_fields_with_schema(
@@ -180,16 +172,14 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    pub(in crate::db) fn group_aggregates(mut self, aggregates: Vec<GroupAggregateSpec>) -> Self {
-        self.intent = self.intent.group_aggregates(aggregates);
-        self
+    pub(in crate::db) fn group_aggregates(self, aggregates: Vec<GroupAggregateSpec>) -> Self {
+        self.map_intent(|intent| intent.group_aggregates(aggregates))
     }
 
     /// Set explicit hard limits for grouped execution.
     #[must_use]
-    pub(in crate::db) fn grouped_limits(mut self, max_groups: u64, max_group_bytes: u64) -> Self {
-        self.intent = self.intent.grouped_limits(max_groups, max_group_bytes);
-        self
+    pub(in crate::db) fn grouped_limits(self, max_groups: u64, max_group_bytes: u64) -> Self {
+        self.map_intent(|intent| intent.grouped_limits(max_groups, max_group_bytes))
     }
 
     pub(in crate::db) fn having_expr_preserving_shape(
@@ -201,9 +191,8 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    pub(in crate::db) fn delete(mut self) -> Self {
-        self.intent = self.intent.delete();
-        self
+    pub(in crate::db) fn delete(self) -> Self {
+        self.map_intent(QueryModel::delete)
     }
 
     /// Re-express a delete target as a load selection for structural mutation staging.
@@ -213,15 +202,13 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    pub(in crate::db) fn limit(mut self, limit: u32) -> Self {
-        self.intent = self.intent.limit(limit);
-        self
+    pub(in crate::db) fn limit(self, limit: u32) -> Self {
+        self.map_intent(|intent| intent.limit(limit))
     }
 
     #[must_use]
-    pub(in crate::db) fn offset(mut self, offset: u32) -> Self {
-        self.intent = self.intent.offset(offset);
-        self
+    pub(in crate::db) fn offset(self, offset: u32) -> Self {
+        self.map_intent(|intent| intent.offset(offset))
     }
 
     pub(in crate::db) fn prepare_scalar_planning_state_with_schema_info(

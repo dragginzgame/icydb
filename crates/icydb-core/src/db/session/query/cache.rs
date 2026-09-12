@@ -569,17 +569,27 @@ impl<C: CanisterKind> DbSession<C> {
             );
         }
 
-        let planning_state = query.prepare_scalar_planning_state_with_schema_info(schema_info)?;
-        let parameter_contract = query
-            .filter_predicate_fully_covers_expression()
-            .then(|| planning_state.normalized_predicate())
-            .flatten()
-            .and_then(PreparedQueryParameterContract::from_normalized_predicate);
+        // Filtered hits still normalize current operands and derive identity.
+        // Finish their instruction interval before cache lookup; it must not
+        // overlap the separate miss/rebind construction interval below.
+        let (planning_state, parameter_contract, normalized_predicate_fingerprint) =
+            PreparationWork::run(self.db.request_execution_scope(), lane, |_| {
+                let planning_state =
+                    query.prepare_scalar_planning_state_with_schema_info(schema_info)?;
+                let parameter_contract = query
+                    .filter_predicate_fully_covers_expression()
+                    .then(|| planning_state.normalized_predicate())
+                    .flatten()
+                    .and_then(PreparedQueryParameterContract::from_normalized_predicate);
+                let fingerprint = planning_state
+                    .normalized_predicate()
+                    .map(predicate_fingerprint_normalized);
+
+                Ok((planning_state, parameter_contract, fingerprint))
+            })?;
         if let Some(parameter_contract) = parameter_contract {
-            let bound_predicate_fingerprint = planning_state
-                .normalized_predicate()
-                .map(predicate_fingerprint_normalized)
-                .ok_or_else(QueryError::invariant)?;
+            let bound_predicate_fingerprint =
+                normalized_predicate_fingerprint.ok_or_else(QueryError::invariant)?;
 
             return self.resolve_parameterized_query_plan_for_authority(
                 &authority,
@@ -593,9 +603,6 @@ impl<C: CanisterKind> DbSession<C> {
                 planning_context,
             );
         }
-        let normalized_predicate_fingerprint = planning_state
-            .normalized_predicate()
-            .map(predicate_fingerprint_normalized);
         let cache_key = QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
             authority.clone(),
             schema_identity,

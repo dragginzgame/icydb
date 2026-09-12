@@ -2,6 +2,7 @@
 
 mod aggregate_contracts;
 mod bindings_parity;
+mod cache_identity;
 mod case_budget;
 mod collection_emptiness;
 mod direct_projection;

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.257.md](docs/changelog/0.257.md)
 
+- `0.257.6` hardens query preparation and fixes plan-cache errors affecting query results and column names (potentially breaking for budget-exhausted requests; no data migration).
 - `0.257.5` adds SQL-free typed query explanations, improves application model integration, reduces startup allocation and preparation overhead, and strengthens cache/startup regression coverage (breaking: databases require recreation; explain fingerprints are removed; canonical summaries replace raw dumps and return results; excessive diagnostic depth rejects; bigint limb helpers return borrowed iterators; newly charged construction can reject requests).
 - `0.257.4` strengthens query preparation and write admission, simplifies recovery, updates lifecycle and instruction-budget qualification and adds physical allocation reports and CLI rendering with `ic-memory 0.13.2` (breaking for low-level memory handles and snapshot consumers; newly validated work can reject, startup needs additional driver calls, and affected inspection outcomes change).
 - `0.257.3` simplifies and budgets planner preparation, bounds metrics reporting, and renames the native convergence test driver (breaking; newly counted work can reject, and metrics consumers/native test callers must update).

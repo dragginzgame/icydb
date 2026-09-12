@@ -7,13 +7,10 @@ use crate::{
     db::{
         predicate::MissingRowPolicy,
         query::{
-            builder::{
-                aggregate::AggregateExpr,
-                scalar_projection::render_scalar_projection_expr_plan_label,
-            },
+            builder::aggregate::AggregateExpr,
             intent::{model::QueryModel, state::GroupedIntent},
             plan::{
-                AggregateIdentity, OrderDirection, OrderSpec, PreparedQueryParameterContract,
+                AggregateSemanticKeyRef, OrderDirection, OrderSpec, PreparedQueryParameterContract,
                 QueryMode,
                 expr::{Expr, Function, ProjectionField, ProjectionSelection},
             },
@@ -37,7 +34,7 @@ pub(in crate::db) struct StructuralQueryCacheKey {
     predicate: Option<[u8; 32]>,
     parameter_contract: Option<PreparedQueryParameterContract>,
     filter_expr: Option<ProjectionExprCacheKey>,
-    order: Option<Vec<OrderFieldCacheKey>>,
+    order: Option<Vec<OrderTermCacheKey>>,
     distinct: bool,
     projection: ProjectionCacheKey,
     grouping: Option<GroupingCacheKey>,
@@ -76,17 +73,17 @@ impl DiagnosticCacheKey {
 }
 
 ///
-/// OrderFieldCacheKey
+/// OrderTermCacheKey
 ///
-/// Canonical representation of one `ORDER BY` field in the structural query
+/// Canonical representation of one `ORDER BY` term in the structural query
 /// cache key.
-/// This wrapper keeps the field name and normalized direction explicit so cache
-/// hits do not accidentally cross different sort layouts.
+/// Typed expression identity, rather than its display label, keeps cache hits
+/// from crossing different operand domains or sort layouts.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct OrderFieldCacheKey {
-    field: String,
+struct OrderTermCacheKey {
+    expr: ProjectionExprCacheKey,
     direction: OrderDirectionCacheKey,
 }
 
@@ -100,7 +97,8 @@ enum OrderDirectionCacheKey {
 enum ProjectionCacheKey {
     All,
     Fields(Vec<String>),
-    Exprs(Vec<ProjectionExprCacheKey>),
+    // Cached projections retain output aliases as well as evaluation semantics.
+    Exprs(Vec<(ProjectionExprCacheKey, Option<String>)>),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -169,9 +167,8 @@ enum UnaryOpCacheKey {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct AggregateCacheKey {
     kind_tag: u8,
-    target_field: Option<String>,
-    input_expr: Option<String>,
-    filter_expr: Option<String>,
+    input_expr: Option<Box<ProjectionExprCacheKey>>,
+    filter_expr: Option<Box<ProjectionExprCacheKey>>,
     distinct: bool,
 }
 
@@ -255,7 +252,7 @@ impl StructuralQueryCacheKey {
             order: scalar
                 .order
                 .as_ref()
-                .map(OrderFieldCacheKey::from_order_spec),
+                .map(OrderTermCacheKey::from_order_spec),
             distinct: scalar.distinct,
             projection: ProjectionCacheKey::from_projection_selection(&scalar.projection_selection),
             grouping: model
@@ -292,13 +289,13 @@ impl ValueCacheKey {
     }
 }
 
-impl OrderFieldCacheKey {
+impl OrderTermCacheKey {
     fn from_order_spec(order: &OrderSpec) -> Vec<Self> {
         order
             .fields
             .iter()
             .map(|term| Self {
-                field: term.rendered_label(),
+                expr: ProjectionExprCacheKey::from_expr(term.expr()),
                 direction: OrderDirectionCacheKey::from_order_direction(term.direction()),
             })
             .collect()
@@ -327,7 +324,12 @@ impl ProjectionCacheKey {
             ProjectionSelection::Exprs(fields) => Self::Exprs(
                 fields
                     .iter()
-                    .map(ProjectionExprCacheKey::from_projection_field)
+                    .map(|ProjectionField::Scalar { expr, alias }| {
+                        (
+                            ProjectionExprCacheKey::from_expr(expr),
+                            alias.as_ref().map(|alias| alias.as_str().to_string()),
+                        )
+                    })
                     .collect(),
             ),
         }
@@ -335,12 +337,6 @@ impl ProjectionCacheKey {
 }
 
 impl ProjectionExprCacheKey {
-    fn from_projection_field(field: &ProjectionField) -> Self {
-        match field {
-            ProjectionField::Scalar { expr, alias: _ } => Self::from_expr(expr),
-        }
-    }
-
     fn from_expr(expr: &Expr) -> Self {
         match expr {
             Expr::Field(field) => Self::Field(field.as_str().to_string()),
@@ -429,33 +425,25 @@ impl CaseWhenArmCacheKey {
 
 impl AggregateCacheKey {
     fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
-        Self::from_identity(
-            AggregateIdentity::from_aggregate_expr(aggregate),
-            aggregate.target_field(),
-            aggregate.filter_expr(),
-        )
+        Self::from_semantic_key(AggregateSemanticKeyRef::from_aggregate_expr(aggregate))
     }
 
     fn from_group_aggregate_spec(aggregate: &crate::db::query::plan::GroupAggregateSpec) -> Self {
-        Self::from_identity(
-            aggregate.identity(),
-            aggregate.target_field(),
-            aggregate.filter_expr(),
-        )
+        Self::from_semantic_key(aggregate.semantic_key())
     }
 
-    fn from_identity(
-        identity: AggregateIdentity,
-        target_field: Option<&str>,
-        filter_expr: Option<&crate::db::query::plan::expr::Expr>,
-    ) -> Self {
+    // Labels are presentation, not identity: Decimal(1) and U256(1) both render
+    // as "1" but have different query semantics. Reuse structural expression
+    // keys after the shared aggregate owner decides COUNT/DISTINCT equivalence.
+    fn from_semantic_key(identity: AggregateSemanticKeyRef<'_>) -> Self {
         Self {
             kind_tag: identity.kind().fingerprint_tag(),
-            target_field: target_field.map(str::to_owned),
             input_expr: identity
                 .input_expr()
-                .map(render_scalar_projection_expr_plan_label),
-            filter_expr: filter_expr.map(render_scalar_projection_expr_plan_label),
+                .map(|expr| Box::new(ProjectionExprCacheKey::from_expr(expr))),
+            filter_expr: identity
+                .filter_expr()
+                .map(|expr| Box::new(ProjectionExprCacheKey::from_expr(expr))),
             distinct: identity.distinct(),
         }
     }
@@ -500,12 +488,203 @@ mod tests {
     use crate::{
         db::query::{
             builder::aggregate,
-            plan::{GroupAggregateSpec, expr::Expr},
+            plan::{
+                AggregateKind, GroupAggregateSpec, OrderDirection, OrderSpec, OrderTerm,
+                expr::{Alias, Expr, ProjectionField, ProjectionSelection},
+            },
         },
+        retained::RetainedBytes,
+        types::{Decimal, U256},
         value::Value,
     };
 
-    use super::AggregateCacheKey;
+    use super::{AggregateCacheKey, OrderTermCacheKey, ProjectionCacheKey};
+
+    #[test]
+    fn projection_cache_keys_preserve_optional_alias_text() {
+        let key = |alias: Option<&str>| {
+            ProjectionCacheKey::from_projection_selection(&ProjectionSelection::Exprs(vec![
+                ProjectionField::Scalar {
+                    expr: Expr::Field("label".into()),
+                    alias: alias.map(Alias::new),
+                },
+            ]))
+        };
+        let aliases = [None, Some(""), Some("first"), Some("second"), Some("FIRST")];
+        for left in aliases {
+            for right in aliases {
+                assert_eq!(key(left) == key(right), left == right);
+            }
+        }
+    }
+
+    #[test]
+    fn projection_cache_retention_includes_alias_backing() {
+        let alias = "output".repeat(100);
+        let key = ProjectionCacheKey::from_projection_selection(&ProjectionSelection::Exprs(vec![
+            ProjectionField::Scalar {
+                expr: Expr::Field("label".into()),
+                alias: Some(Alias::new(alias.as_str())),
+            },
+        ]));
+        let bytes = RetainedBytes::measure(&key, usize::MAX).unwrap();
+        assert!(
+            bytes
+                >= size_of::<ProjectionCacheKey>()
+                    + size_of::<(super::ProjectionExprCacheKey, Option<String>)>()
+                    + "label".len()
+                    + alias.len()
+        );
+        assert_eq!(RetainedBytes::measure(&key, bytes), Some(bytes));
+        assert!(RetainedBytes::measure(&key, bytes - 1).is_none());
+        let cloned = key.clone();
+        assert_eq!(RetainedBytes::measure(&cloned, usize::MAX), Some(bytes));
+        assert_eq!(key, cloned);
+    }
+
+    #[test]
+    fn order_cache_keys_preserve_typed_operands_and_direction() {
+        let key = |expr, direction| {
+            OrderTermCacheKey::from_order_spec(&OrderSpec {
+                fields: vec![OrderTerm::new(expr, direction)],
+            })
+        };
+        let decimal = Expr::Literal(Value::Decimal(Decimal::from(1_u64)));
+        let wide = Expr::Literal(Value::U256(U256::from(1_u64)));
+        for (left, right) in [
+            (decimal.clone(), wide.clone()),
+            (
+                Expr::Aggregate(aggregate::AggregateExpr::from_expression_input(
+                    AggregateKind::Sum,
+                    decimal,
+                )),
+                Expr::Aggregate(aggregate::AggregateExpr::from_expression_input(
+                    AggregateKind::Sum,
+                    wide,
+                )),
+            ),
+        ] {
+            assert_ne!(
+                key(left, OrderDirection::Asc),
+                key(right, OrderDirection::Asc)
+            );
+        }
+        let field = Expr::Field("label".into());
+        assert_ne!(
+            key(field.clone(), OrderDirection::Asc),
+            key(field, OrderDirection::Desc),
+        );
+        assert_eq!(
+            key(Expr::Aggregate(aggregate::count()), OrderDirection::Asc),
+            key(
+                Expr::Aggregate(aggregate::AggregateExpr::from_expression_input(
+                    AggregateKind::Count,
+                    Expr::Literal(Value::Nat64(1)),
+                )),
+                OrderDirection::Asc,
+            ),
+        );
+    }
+
+    #[test]
+    fn order_cache_retention_includes_nested_operands() {
+        let field = "amount".repeat(100);
+        let filter = "filter".repeat(100);
+        let order = OrderSpec {
+            fields: vec![OrderTerm::new(
+                Expr::Aggregate(
+                    aggregate::sum(field.clone())
+                        .with_filter_expr(Expr::Field(filter.clone().into())),
+                ),
+                OrderDirection::Desc,
+            )],
+        };
+        let key = OrderTermCacheKey::from_order_spec(&order);
+        let bytes = RetainedBytes::measure(&key, usize::MAX).unwrap();
+        assert!(
+            bytes
+                >= size_of_val(&key)
+                    + size_of::<OrderTermCacheKey>()
+                    + 2 * size_of::<super::ProjectionExprCacheKey>()
+                    + field.len()
+                    + filter.len()
+        );
+        assert_eq!(RetainedBytes::measure(&key, bytes), Some(bytes));
+        assert!(RetainedBytes::measure(&key, bytes - 1).is_none());
+    }
+
+    #[test]
+    fn aggregate_cache_keys_preserve_typed_inputs_and_canonical_equivalence() {
+        let from_input = |kind, value| {
+            aggregate::AggregateExpr::from_expression_input(kind, Expr::Literal(value))
+        };
+        for kind in [AggregateKind::Sum, AggregateKind::Min, AggregateKind::Max] {
+            let decimal = from_input(kind, Value::Decimal(Decimal::from(1_u64)));
+            let wide = from_input(kind, Value::U256(U256::from(1_u64)));
+            assert_ne!(
+                AggregateCacheKey::from_aggregate_expr(&decimal),
+                AggregateCacheKey::from_aggregate_expr(&wide),
+            );
+            for aggregate in [decimal, wide] {
+                assert_eq!(
+                    AggregateCacheKey::from_aggregate_expr(&aggregate),
+                    AggregateCacheKey::from_group_aggregate_spec(
+                        &GroupAggregateSpec::from_aggregate_expr(aggregate.clone()),
+                    ),
+                );
+            }
+        }
+        for value in [Value::Nat64(1), Value::U256(U256::from(1_u64))] {
+            assert_eq!(
+                AggregateCacheKey::from_aggregate_expr(&aggregate::count()),
+                AggregateCacheKey::from_aggregate_expr(&from_input(AggregateKind::Count, value)),
+            );
+        }
+        assert_ne!(
+            AggregateCacheKey::from_aggregate_expr(
+                &from_input(AggregateKind::Count, Value::Nat64(1)).distinct(),
+            ),
+            AggregateCacheKey::from_aggregate_expr(
+                &from_input(AggregateKind::Count, Value::U256(U256::from(1_u64))).distinct(),
+            ),
+        );
+        for aggregate in [aggregate::min_by("amount"), aggregate::max_by("amount")] {
+            assert_eq!(
+                AggregateCacheKey::from_aggregate_expr(&aggregate),
+                AggregateCacheKey::from_aggregate_expr(&aggregate.clone().distinct()),
+            );
+        }
+        assert_eq!(
+            AggregateCacheKey::from_aggregate_expr(&from_input(
+                AggregateKind::Sum,
+                Value::Nat64(1)
+            )),
+            AggregateCacheKey::from_aggregate_expr(&from_input(
+                AggregateKind::Sum,
+                Value::Decimal(Decimal::from(1_u64)),
+            )),
+        );
+    }
+
+    #[test]
+    fn aggregate_cache_retention_includes_both_structural_operands() {
+        let field = "input".repeat(100);
+        let filter = "filter".repeat(100);
+        let aggregate =
+            aggregate::sum(field.clone()).with_filter_expr(Expr::Field(filter.clone().into()));
+        let key = AggregateCacheKey::from_aggregate_expr(&aggregate);
+        let bytes = RetainedBytes::measure(&key, usize::MAX).unwrap();
+        let minimum = size_of::<AggregateCacheKey>()
+            + 2 * size_of::<super::ProjectionExprCacheKey>()
+            + field.len()
+            + filter.len();
+        assert!(bytes >= minimum);
+        assert_eq!(RetainedBytes::measure(&key, bytes), Some(bytes));
+        assert!(RetainedBytes::measure(&key, bytes - 1).is_none());
+        let cloned = key.clone();
+        assert_eq!(RetainedBytes::measure(&cloned, usize::MAX), Some(bytes));
+        assert_eq!(key, cloned);
+    }
 
     #[test]
     fn scalar_and_grouped_aggregate_cache_identity_stays_shared() {
@@ -539,7 +718,7 @@ mod tests {
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.
 crate::retained::retained_fields!(AggregateCacheKey {
-Self{kind_tag,target_field,input_expr,filter_expr,distinct} => [kind_tag,target_field,input_expr,filter_expr,distinct],
+Self{kind_tag,input_expr,filter_expr,distinct} => [kind_tag,input_expr,filter_expr,distinct],
 });
 crate::retained::retained_copy!(BinaryOpCacheKey);
 crate::retained::retained_fields!(CaseWhenArmCacheKey {
@@ -551,8 +730,8 @@ crate::retained::retained_fields!(GroupingCacheKey {
 Self{group_fields,aggregates,having_expr,max_groups,max_group_bytes} => [group_fields,aggregates,having_expr,max_groups,max_group_bytes],
 });
 crate::retained::retained_copy!(OrderDirectionCacheKey);
-crate::retained::retained_fields!(OrderFieldCacheKey {
-Self{field,direction} => [field,direction],
+crate::retained::retained_fields!(OrderTermCacheKey {
+Self{expr,direction} => [expr,direction],
 });
 crate::retained::retained_fields!(ProjectionCacheKey {
 Self::All => [],

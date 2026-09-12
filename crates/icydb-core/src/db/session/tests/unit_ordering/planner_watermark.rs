@@ -137,43 +137,40 @@ fn cold_plan_watermark_precedes_publication_and_hits_skip_construction() {
     for lane in [
         DiagnosticExecutionLane::PublicRead,
         DiagnosticExecutionLane::TrustedRead,
+        DiagnosticExecutionLane::Diagnostic,
     ] {
-        for query in [
-            query(),
-            query().filter_normalized_predicate(Predicate::False),
-        ] {
-            setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
-            let root = request(true, lane);
-            let session = new_request_session_with_root(&root);
-            for _ in 0..2 {
-                assert_exhausted(
-                    plan(&session, &catalog, &query, lane).unwrap_err(),
-                    &root,
-                    lane,
-                );
-                assert_eq!(setup.shared_query_cache_usage_for_tests(), (0, 0));
-            }
-            assert_eq!(root.observed(Resource::PlanCompilations), 2);
-            let fresh = request(false, lane);
-            assert!(
-                !plan(
-                    &new_request_session_with_root(&fresh),
-                    &catalog,
-                    &query,
-                    lane
-                )
-                .unwrap()
-                .is_hit()
+        let query = query();
+        setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+        let root = request(true, lane);
+        let session = new_request_session_with_root(&root);
+        for _ in 0..2 {
+            assert_exhausted(
+                plan(&session, &catalog, &query, lane).unwrap_err(),
+                &root,
+                lane,
             );
-            // A planning-only cache hit performs no guarded compilation. This
-            // does not assert that executing with an exhausted request is valid.
-            assert!(plan(&session, &catalog, &query, lane).unwrap().is_hit());
+            assert_eq!(setup.shared_query_cache_usage_for_tests(), (0, 0));
         }
+        assert_eq!(root.observed(Resource::PlanCompilations), 2);
+        let fresh = request(false, lane);
+        assert!(
+            !plan(
+                &new_request_session_with_root(&fresh),
+                &catalog,
+                &query,
+                lane
+            )
+            .unwrap()
+            .is_hit()
+        );
+        // A planning-only cache hit performs no guarded compilation. This
+        // does not assert that executing with an exhausted request is valid.
+        assert!(plan(&session, &catalog, &query, lane).unwrap().is_hit());
     }
 }
 
 #[test]
-fn failed_rebinding_keeps_the_previous_bound_memo() {
+fn filtered_preparation_watermark_keeps_the_previous_bound_memo() {
     let setup = initialize();
     let catalog = setup
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
@@ -197,6 +194,7 @@ fn failed_rebinding_keeps_the_previous_bound_memo() {
     for lane in [
         DiagnosticExecutionLane::PublicRead,
         DiagnosticExecutionLane::TrustedRead,
+        DiagnosticExecutionLane::Diagnostic,
     ] {
         setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
         let root = request(true, lane);
@@ -216,10 +214,59 @@ fn failed_rebinding_keeps_the_previous_bound_memo() {
                 lane,
             );
             assert_eq!(setup.shared_query_cache_usage_for_tests(), before);
-            assert!(plan(&session, &catalog, &first, lane).unwrap().is_hit());
+            assert_exhausted(
+                plan(&session, &catalog, &first, lane).unwrap_err(),
+                &root,
+                lane,
+            );
+            assert!(plan(&setup, &catalog, &first, lane).unwrap().is_hit());
         }
-        assert_eq!(root.observed(Resource::PlanCompilations), 1);
+        assert_eq!(root.observed(Resource::PlanCompilations), 0);
         assert!(plan(&setup, &catalog, &second, lane).unwrap().is_hit());
+    }
+}
+
+#[test]
+fn filtered_nonparameterized_hits_finish_preparation_before_cache_reuse() {
+    let setup = initialize();
+    let catalog = setup
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    for lane in [
+        DiagnosticExecutionLane::PublicRead,
+        DiagnosticExecutionLane::TrustedRead,
+        DiagnosticExecutionLane::Diagnostic,
+    ] {
+        for query in [
+            query().filter_normalized_predicate(Predicate::False),
+            query().filter_normalized_predicate(Predicate::True),
+            query()
+                .filter_normalized_predicate(Predicate::False)
+                .limit(0),
+        ] {
+            setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+            let root = request(true, lane);
+            let session = new_request_session_with_root(&root);
+            assert_exhausted(
+                plan(&session, &catalog, &query, lane).unwrap_err(),
+                &root,
+                lane,
+            );
+            assert_eq!(setup.shared_query_cache_usage_for_tests(), (0, 0));
+            assert_eq!(root.observed(Resource::PlanCompilations), 0);
+            assert!(!plan(&setup, &catalog, &query, lane).unwrap().is_hit());
+            let retained = setup.shared_query_cache_usage_for_tests();
+            for _ in 0..2 {
+                assert_exhausted(
+                    plan(&session, &catalog, &query, lane).unwrap_err(),
+                    &root,
+                    lane,
+                );
+                assert_eq!(setup.shared_query_cache_usage_for_tests(), retained);
+            }
+            assert!(plan(&setup, &catalog, &query, lane).unwrap().is_hit());
+            assert_eq!(root.observed(Resource::PlanCompilations), 0);
+        }
     }
 }
 
