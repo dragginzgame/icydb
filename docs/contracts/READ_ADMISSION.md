@@ -68,6 +68,20 @@ instruction exhaustion without changing the retained plan. Existing filterless
 fast hits skip this interval. Completion accounting covers successful and failed
 preparation; it does not establish an intra-operation allocation or stack bound.
 
+Shared-plan key construction, lookup comparisons and warm lifecycle validation
+also charge instructions before returning a cached plan or compiling/rebinding.
+This includes filterless early hits. Hits still skip compilation, and exhaustion
+does not replace shared cache entries. These intervals are separate from the
+normalization and compilation intervals.
+
+Cache-key names, aliases, expression/container backing and the shared payload
+charge existing construction resources before allocation. Only complete keys
+enter the memo; failed construction can retry under a fresh request. Reusing an
+immutable key skips those copies, but a bound-plan hit still constructs its
+parameterized key. Value-hash errors propagate instead of becoming cache keys.
+Literal-hash scratch, parameter-contract construction and insertion accounting
+remain separate, incomplete work.
+
 Grouped key and aggregate destination vectors also charge backing before
 allocation. Group keys select the existing direct/path representation up front;
 that name scan charges preparation work. Authored key count determines reserved

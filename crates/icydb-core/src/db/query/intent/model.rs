@@ -58,18 +58,25 @@ impl QueryModel {
     pub(in crate::db::query) fn structural_cache_key_with_normalized_predicate_fingerprint(
         &self,
         predicate_fingerprint: Option<[u8; 32]>,
-    ) -> StructuralQueryCacheKey {
+        work: &PreparationWork<'_>,
+    ) -> Result<StructuralQueryCacheKey, QueryError> {
         StructuralQueryCacheKey::from_query_model_with_normalized_predicate_fingerprint(
             self,
             predicate_fingerprint,
+            work,
         )
     }
 
     pub(in crate::db::query) fn structural_cache_key_with_parameter_contract(
         &self,
         parameter_contract: PreparedQueryParameterContract,
-    ) -> StructuralQueryCacheKey {
-        StructuralQueryCacheKey::from_query_model_with_parameter_contract(self, parameter_contract)
+        work: &PreparationWork<'_>,
+    ) -> Result<StructuralQueryCacheKey, QueryError> {
+        StructuralQueryCacheKey::from_query_model_with_parameter_contract(
+            self,
+            parameter_contract,
+            work,
+        )
     }
 
     #[must_use]

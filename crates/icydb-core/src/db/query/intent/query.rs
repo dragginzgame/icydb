@@ -276,31 +276,35 @@ impl StructuralQuery {
             .trivial_scalar_load_fast_path_eligible_with_schema(schema_info)
     }
 
-    #[must_use]
     pub(in crate::db) fn structural_cache_key_with_normalized_predicate_fingerprint(
         &self,
         predicate_fingerprint: Option<[u8; 32]>,
-    ) -> crate::db::query::intent::StructuralQueryCacheKey {
+        work: &PreparationWork<'_>,
+    ) -> Result<crate::db::query::intent::StructuralQueryCacheKey, QueryError> {
         if predicate_fingerprint.is_none() {
-            return self
-                .structural_cache_key
-                .get_or_init(|| {
-                    self.intent
-                        .structural_cache_key_with_normalized_predicate_fingerprint(None)
-                })
-                .clone();
+            if let Some(key) = self.structural_cache_key.get() {
+                return Ok(key.clone());
+            }
+            // Publish only a complete key. A rejected construction leaves the
+            // memo retryable; successful shared handles perform no further copies.
+            let key = self
+                .intent
+                .structural_cache_key_with_normalized_predicate_fingerprint(None, work)?;
+            let _ = self.structural_cache_key.set(key.clone());
+            return Ok(key);
         }
 
         self.intent
-            .structural_cache_key_with_normalized_predicate_fingerprint(predicate_fingerprint)
+            .structural_cache_key_with_normalized_predicate_fingerprint(predicate_fingerprint, work)
     }
 
     pub(in crate::db) fn structural_cache_key_with_parameter_contract(
         &self,
         parameter_contract: PreparedQueryParameterContract,
-    ) -> crate::db::query::intent::StructuralQueryCacheKey {
+        work: &PreparationWork<'_>,
+    ) -> Result<crate::db::query::intent::StructuralQueryCacheKey, QueryError> {
         self.intent
-            .structural_cache_key_with_parameter_contract(parameter_contract)
+            .structural_cache_key_with_parameter_contract(parameter_contract, work)
     }
 
     #[must_use]

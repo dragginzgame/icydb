@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.257.md](docs/changelog/0.257.md)
 
+- `0.257.8` budgets shared-plan cache construction and lookup, including work repeated on warm hits (potentially breaking for budget-exhausted requests; no migration).
 - `0.257.7` reduces copying and binary wire/storage overhead and fixes Serde round trips (breaking: regenerate ULID bindings, binary/JSON snapshots and saved cursors; recreate affected databases/job records).
 - `0.257.6` hardens query preparation and fixes plan-cache errors affecting query results and column names (potentially breaking for budget-exhausted requests; no data migration).
 - `0.257.5` adds SQL-free typed query explanations, improves application model integration, reduces startup allocation and preparation overhead, and strengthens cache/startup regression coverage (breaking: databases require recreation; explain fingerprints are removed; canonical summaries replace raw dumps and return results; excessive diagnostic depth rejects; bigint limb helpers return borrowed iterators; newly charged construction can reject requests).

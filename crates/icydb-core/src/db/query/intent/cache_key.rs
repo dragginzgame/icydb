@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        QueryError,
         predicate::MissingRowPolicy,
         query::{
             builder::aggregate::AggregateExpr,
@@ -14,11 +15,12 @@ use crate::{
                 QueryMode,
                 expr::{Expr, Function, ProjectionField, ProjectionSelection},
             },
+            preparation::PreparationWork,
         },
     },
-    error::InternalError,
     value::{Value, hash_value},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::rc::Rc;
 
 ///
@@ -55,29 +57,10 @@ enum QueryModeCacheKey {
     Delete { limit: Option<u32>, offset: u32 },
 }
 
-// Value identity uses the existing canonical value hash while preserving one
-// stable fallback when some nested structured value cannot hash cleanly.
+// Hash failures reject key construction; errors are never reusable identities.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum ValueCacheKey {
     Canonical([u8; 16]),
-    HashError(DiagnosticCacheKey),
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct DiagnosticCacheKey {
-    code: u16,
-    origin: u16,
-}
-
-impl DiagnosticCacheKey {
-    fn from_internal_error(err: &InternalError) -> Self {
-        let diagnostic = err.diagnostic();
-
-        Self {
-            code: diagnostic.error_code().raw(),
-            origin: diagnostic.origin() as u16,
-        }
-    }
 }
 
 ///
@@ -212,15 +195,22 @@ impl StructuralQueryCacheKey {
     pub(in crate::db::query) fn from_query_model_with_normalized_predicate_fingerprint(
         model: &QueryModel,
         predicate_fingerprint: Option<[u8; 32]>,
-    ) -> Self {
-        Self::from_query_model_with_optional_predicate_key(model, predicate_fingerprint, None)
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Self::from_query_model_with_optional_predicate_key(model, predicate_fingerprint, None, work)
     }
 
     pub(in crate::db::query) fn from_query_model_with_parameter_contract(
         model: &QueryModel,
         parameter_contract: PreparedQueryParameterContract,
-    ) -> Self {
-        Self::from_query_model_with_optional_predicate_key(model, None, Some(parameter_contract))
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Self::from_query_model_with_optional_predicate_key(
+            model,
+            None,
+            Some(parameter_contract),
+            work,
+        )
     }
 
     // Build the shared structural cache key from one optional predicate-key
@@ -230,7 +220,12 @@ impl StructuralQueryCacheKey {
         model: &QueryModel,
         predicate: Option<[u8; 32]>,
         parameter_contract: Option<PreparedQueryParameterContract>,
-    ) -> Self {
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        work.charge(
+            Resource::TemporaryBytes,
+            (size_of::<StructuralQueryCacheKeyData>() + 2 * size_of::<usize>()) as u64,
+        )?;
         let scalar = model.scalar_intent_for_cache_key();
         // The fully-covered parameter contract is the semantic filter
         // authority. Equivalent IN filters may lower to different-width OR
@@ -239,13 +234,14 @@ impl StructuralQueryCacheKey {
         let filter_expr = if parameter_contract.is_some() {
             None
         } else {
-            scalar.filter.as_ref().and_then(|filter| {
-                filter
-                    .logical_filter_expr()
-                    .map(ProjectionExprCacheKey::from_expr)
-            })
+            scalar
+                .filter
+                .as_ref()
+                .and_then(|filter| filter.logical_filter_expr())
+                .map(|expr| ProjectionExprCacheKey::from_expr(expr, work))
+                .transpose()?
         };
-        Self(Rc::new(StructuralQueryCacheKeyData {
+        Ok(Self(Rc::new(StructuralQueryCacheKeyData {
             mode: QueryModeCacheKey::from_query_mode(model.mode()),
             // Canonical scalar `filter_expr` owns semantic filter identity when
             // present. The derived predicate key remains only for plans that
@@ -260,16 +256,21 @@ impl StructuralQueryCacheKey {
             order: scalar
                 .order
                 .as_ref()
-                .map(OrderTermCacheKey::from_order_spec),
+                .map(|order| OrderTermCacheKey::from_order_spec(order, work))
+                .transpose()?,
             distinct: scalar.distinct,
-            projection: ProjectionCacheKey::from_projection_selection(&scalar.projection_selection),
+            projection: ProjectionCacheKey::from_projection_selection(
+                &scalar.projection_selection,
+                work,
+            )?,
             grouping: model
                 .grouped_intent_for_cache_key()
-                .map(GroupingCacheKey::from_grouped_intent),
+                .map(|grouped| GroupingCacheKey::from_grouped_intent(grouped, work))
+                .transpose()?,
             consistency: ConsistencyCacheKey::from_missing_row_policy(
                 model.consistency_for_cache_key(),
             ),
-        }))
+        })))
     }
 }
 
@@ -289,24 +290,24 @@ impl QueryModeCacheKey {
 }
 
 impl ValueCacheKey {
-    fn from_value(value: &Value) -> Self {
-        match hash_value(value) {
-            Ok(digest) => Self::Canonical(digest),
-            Err(err) => Self::HashError(DiagnosticCacheKey::from_internal_error(&err)),
-        }
+    fn from_value(value: &Value) -> Result<Self, QueryError> {
+        hash_value(value)
+            .map(Self::Canonical)
+            .map_err(QueryError::execute)
     }
 }
 
 impl OrderTermCacheKey {
-    fn from_order_spec(order: &OrderSpec) -> Vec<Self> {
-        order
-            .fields
-            .iter()
-            .map(|term| Self {
-                expr: ProjectionExprCacheKey::from_expr(term.expr()),
+    fn from_order_spec(
+        order: &OrderSpec,
+        work: &PreparationWork<'_>,
+    ) -> Result<Vec<Self>, QueryError> {
+        work.copy_slice(&order.fields, |term| {
+            Ok(Self {
+                expr: ProjectionExprCacheKey::from_expr(term.expr(), work)?,
                 direction: OrderDirectionCacheKey::from_order_direction(term.direction()),
             })
-            .collect()
+        })
     }
 }
 
@@ -320,78 +321,90 @@ impl OrderDirectionCacheKey {
 }
 
 impl ProjectionCacheKey {
-    fn from_projection_selection(projection: &ProjectionSelection) -> Self {
-        match projection {
+    fn from_projection_selection(
+        projection: &ProjectionSelection,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Ok(match projection {
             ProjectionSelection::All => Self::All,
-            ProjectionSelection::Fields(fields) => Self::Fields(
-                fields
-                    .iter()
-                    .map(|field| field.as_str().to_string())
-                    .collect(),
-            ),
-            ProjectionSelection::Exprs(fields) => Self::Exprs(
-                fields
-                    .iter()
-                    .map(|ProjectionField::Scalar { expr, alias }| {
-                        (
-                            ProjectionExprCacheKey::from_expr(expr),
-                            alias.as_ref().map(|alias| alias.as_str().to_string()),
-                        )
-                    })
-                    .collect(),
-            ),
-        }
+            ProjectionSelection::Fields(fields) => {
+                Self::Fields(work.copy_slice(fields, |field| work.copy_text(field.as_str()))?)
+            }
+            ProjectionSelection::Exprs(fields) => Self::Exprs(work.copy_slice(
+                fields,
+                |ProjectionField::Scalar { expr, alias }| {
+                    Ok((
+                        ProjectionExprCacheKey::from_expr(expr, work)?,
+                        alias
+                            .as_ref()
+                            .map(|alias| work.copy_text(alias.as_str()))
+                            .transpose()?,
+                    ))
+                },
+            )?),
+        })
     }
 }
 
 impl ProjectionExprCacheKey {
-    fn from_expr(expr: &Expr) -> Self {
-        match expr {
-            Expr::Field(field) => Self::Field(field.as_str().to_string()),
+    fn from_expr(expr: &Expr, work: &PreparationWork<'_>) -> Result<Self, QueryError> {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        Ok(match expr {
+            Expr::Field(field) => Self::Field(work.copy_text(field.as_str())?),
             Expr::FieldPath(path) => Self::FieldPath {
-                root: path.root().as_str().to_string(),
-                segments: path.segments().to_vec(),
+                root: work.copy_text(path.root().as_str())?,
+                segments: work.copy_slice(path.segments(), |segment| work.copy_text(segment))?,
             },
-            Expr::Literal(value) => Self::Literal(ValueCacheKey::from_value(value)),
+            Expr::Literal(value) => Self::Literal(ValueCacheKey::from_value(value)?),
             Expr::FunctionCall { function, args } => Self::FunctionCall {
                 function: *function,
-                args: args.iter().map(Self::from_expr).collect(),
+                args: work.copy_slice(args, |expr| Self::from_expr(expr, work))?,
             },
             Expr::Unary { op, expr } => Self::Unary {
                 op: UnaryOpCacheKey::from_unary_op(*op),
-                expr: Box::new(Self::from_expr(expr.as_ref())),
+                expr: Self::boxed_from_expr(expr, work)?,
             },
             Expr::Case {
                 when_then_arms,
                 else_expr,
             } => Self::Case {
-                when_then_arms: when_then_arms
-                    .iter()
-                    .map(CaseWhenArmCacheKey::from_arm)
-                    .collect(),
-                else_expr: Box::new(Self::from_expr(else_expr.as_ref())),
+                when_then_arms: work.copy_slice(when_then_arms, |arm| {
+                    CaseWhenArmCacheKey::from_arm(arm, work)
+                })?,
+                else_expr: Self::boxed_from_expr(else_expr, work)?,
             },
             Expr::Binary { op, left, right } => Self::Binary {
                 op: BinaryOpCacheKey::from_binary_op(*op),
-                left: Box::new(Self::from_expr(left.as_ref())),
-                right: Box::new(Self::from_expr(right.as_ref())),
+                left: Self::boxed_from_expr(left, work)?,
+                right: Self::boxed_from_expr(right, work)?,
             },
             Expr::Aggregate(aggregate) => {
-                Self::Aggregate(AggregateCacheKey::from_aggregate_expr(aggregate))
+                Self::Aggregate(AggregateCacheKey::from_aggregate_expr(aggregate, work)?)
             }
             #[cfg(test)]
-            Expr::Alias { expr, name: _ } => Self::from_expr(expr.as_ref()),
-        }
+            Expr::Alias { expr, name: _ } => Self::from_expr(expr.as_ref(), work)?,
+        })
     }
 
-    fn from_group_field(field: crate::db::query::plan::GroupFieldRef<'_>) -> Self {
-        match field.as_scalar_path() {
+    // Admit backing before recursively constructing a child; failed partial
+    // keys remain local and add no nesting beyond the borrowed source tree.
+    fn boxed_from_expr(expr: &Expr, work: &PreparationWork<'_>) -> Result<Box<Self>, QueryError> {
+        work.charge(Resource::TemporaryBytes, size_of::<Self>() as u64)?;
+        Ok(Box::new(Self::from_expr(expr, work)?))
+    }
+
+    fn from_group_field(
+        field: crate::db::query::plan::GroupFieldRef<'_>,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Ok(match field.as_scalar_path() {
             Some(path) => Self::FieldPath {
-                root: path.path().root().as_str().to_string(),
-                segments: path.path().segments().to_vec(),
+                root: work.copy_text(path.path().root().as_str())?,
+                segments: work
+                    .copy_slice(path.path().segments(), |segment| work.copy_text(segment))?,
             },
-            None => Self::Field(field.field().to_string()),
-        }
+            None => Self::Field(work.copy_text(field.field())?),
+        })
     }
 }
 
@@ -423,62 +436,79 @@ impl UnaryOpCacheKey {
 }
 
 impl CaseWhenArmCacheKey {
-    fn from_arm(arm: &crate::db::query::plan::expr::CaseWhenArm) -> Self {
-        Self {
-            condition: ProjectionExprCacheKey::from_expr(arm.condition()),
-            result: ProjectionExprCacheKey::from_expr(arm.result()),
-        }
+    fn from_arm(
+        arm: &crate::db::query::plan::expr::CaseWhenArm,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Ok(Self {
+            condition: ProjectionExprCacheKey::from_expr(arm.condition(), work)?,
+            result: ProjectionExprCacheKey::from_expr(arm.result(), work)?,
+        })
     }
 }
 
 impl AggregateCacheKey {
-    fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
-        Self::from_semantic_key(AggregateSemanticKeyRef::from_aggregate_expr(aggregate))
+    fn from_aggregate_expr(
+        aggregate: &AggregateExpr,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Self::from_semantic_key(
+            AggregateSemanticKeyRef::from_aggregate_expr(aggregate),
+            work,
+        )
     }
 
-    fn from_group_aggregate_spec(aggregate: &crate::db::query::plan::GroupAggregateSpec) -> Self {
-        Self::from_semantic_key(aggregate.semantic_key())
+    fn from_group_aggregate_spec(
+        aggregate: &crate::db::query::plan::GroupAggregateSpec,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Self::from_semantic_key(aggregate.semantic_key(), work)
     }
 
     // Labels are presentation, not identity: Decimal(1) and U256(1) both render
     // as "1" but have different query semantics. Reuse structural expression
     // keys after the shared aggregate owner decides COUNT/DISTINCT equivalence.
-    fn from_semantic_key(identity: AggregateSemanticKeyRef<'_>) -> Self {
-        Self {
+    fn from_semantic_key(
+        identity: AggregateSemanticKeyRef<'_>,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Ok(Self {
             kind_tag: identity.kind().fingerprint_tag(),
             input_expr: identity
                 .input_expr()
-                .map(|expr| Box::new(ProjectionExprCacheKey::from_expr(expr))),
+                .map(|expr| ProjectionExprCacheKey::boxed_from_expr(expr, work))
+                .transpose()?,
             filter_expr: identity
                 .filter_expr()
-                .map(|expr| Box::new(ProjectionExprCacheKey::from_expr(expr))),
+                .map(|expr| ProjectionExprCacheKey::boxed_from_expr(expr, work))
+                .transpose()?,
             distinct: identity.distinct(),
-        }
+        })
     }
 }
 
 impl GroupingCacheKey {
-    fn from_grouped_intent(grouped: &GroupedIntent) -> Self {
-        Self {
-            group_fields: grouped
-                .group
-                .group_fields
-                .iter()
-                .map(ProjectionExprCacheKey::from_group_field)
-                .collect(),
-            aggregates: grouped
-                .group
-                .aggregates
-                .iter()
-                .map(AggregateCacheKey::from_group_aggregate_spec)
-                .collect(),
+    fn from_grouped_intent(
+        grouped: &GroupedIntent,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        let mut group_fields = work.vec_with_capacity(grouped.group.group_fields.len())?;
+        for field in grouped.group.group_fields.iter() {
+            group_fields.push(ProjectionExprCacheKey::from_group_field(field, work)?);
+        }
+        Ok(Self {
+            group_fields,
+            aggregates: work.copy_slice(&grouped.group.aggregates, |aggregate| {
+                AggregateCacheKey::from_group_aggregate_spec(aggregate, work)
+            })?,
             having_expr: grouped
                 .having_expr
                 .as_ref()
-                .map(ProjectionExprCacheKey::from_expr),
+                .map(|expr| ProjectionExprCacheKey::from_expr(expr, work))
+                .transpose()?,
             max_groups: grouped.group.execution.max_groups,
             max_group_bytes: grouped.group.execution.max_group_bytes,
-        }
+        })
     }
 }
 
@@ -511,256 +541,390 @@ mod tests {
     };
 
     use super::{AggregateCacheKey, OrderTermCacheKey, ProjectionCacheKey};
+    use crate::db::{
+        QueryError, RequestExecutionRoot,
+        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        query::{
+            plan::expr::{BinaryOp, CaseWhenArm, FieldPath, Function, UnaryOp},
+            preparation::{PreparationWork, with_preparation_work},
+        },
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
+    };
     use std::{
         hash::{BuildHasher, BuildHasherDefault, DefaultHasher},
         rc::Rc,
     };
 
     #[test]
-    fn shared_structural_key_preserves_content_identity_and_retention() {
-        let make_key = || {
+    fn key_construction_admits_backing_and_retries_without_partial_memos() {
+        let make_query = || {
+            let expr = Expr::Case {
+                when_then_arms: vec![CaseWhenArm::new(
+                    Expr::Binary {
+                        op: BinaryOp::Eq,
+                        left: Box::new(Expr::FieldPath(FieldPath::new(
+                            "record",
+                            vec!["inner".into()],
+                        ))),
+                        right: Box::new(Expr::Unary {
+                            op: UnaryOp::Not,
+                            expr: Box::new(Expr::Literal(Value::Null)),
+                        }),
+                    },
+                    Expr::Aggregate(
+                        aggregate::sum("amount").with_filter_expr(Expr::Field("flag".into())),
+                    ),
+                )],
+                else_expr: Box::new(Expr::FunctionCall {
+                    function: Function::Coalesce,
+                    args: vec![Expr::Field("fallback".into())],
+                }),
+            };
             StructuralQuery::new(MissingRowPolicy::Ignore)
+                .order_spec(OrderSpec {
+                    fields: vec![OrderTerm::new(expr.clone(), OrderDirection::Asc)],
+                })
                 .projection_selection(ProjectionSelection::Exprs(vec![ProjectionField::Scalar {
-                    expr: Expr::Aggregate(aggregate::sum("amount".repeat(100))),
-                    alias: Some(Alias::new("output".repeat(100))),
+                    expr,
+                    alias: Some(Alias::new("output")),
                 }]))
-                .structural_cache_key_with_normalized_predicate_fingerprint(None)
         };
-        let key = make_key();
-        let cloned = key.clone();
-        // Sharing is the resource contract of key cloning, not pointer-based identity.
-        assert!(Rc::ptr_eq(&key.0, &cloned.0));
-        let independent = make_key();
-        assert!(!Rc::ptr_eq(&key.0, &independent.0));
-        assert_eq!(key, independent);
-        let hash = BuildHasherDefault::<DefaultHasher>::default();
-        assert_eq!(hash.hash_one(&key), hash.hash_one(&independent));
-        // The handle must preserve the payload's existing content hash.
-        assert_eq!(hash.hash_one(&key), hash.hash_one(key.0.as_ref()));
+        let request = |resource, limit| {
+            RequestExecutionRoot::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(
+                    16_000_000,
+                    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                )
+                .with_limit_for_tests(resource, limit),
+            )
+        };
+        let build = |query: &StructuralQuery, root: &RequestExecutionRoot| {
+            PreparationWork::run(&root.scope(), DiagnosticExecutionLane::Diagnostic, |work| {
+                query.structural_cache_key_with_normalized_predicate_fingerprint(None, work)
+            })
+        };
+        let measured = request(Resource::TemporaryBytes, 16_000_000);
+        let expected = build(&make_query(), &measured).unwrap();
+        // Independent retained traversal counts exactly the new backing for this
+        // key: the handle itself is returned inline, not allocated separately.
+        assert_eq!(
+            measured.observed(Resource::TemporaryBytes),
+            (RetainedBytes::measure(&expected, usize::MAX).unwrap() - size_of_val(&expected))
+                as u64
+        );
+        for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+            let exact = measured.observed(resource);
+            let query = make_query();
+            let denied = request(resource, exact - 1);
+            for _ in 0..2 {
+                let error: QueryError = build(&query, &denied).unwrap_err();
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+                );
+            }
+            let admitted = request(resource, exact);
+            assert_eq!(build(&query, &admitted).unwrap(), expected);
+            assert_eq!(admitted.observed(resource), exact);
+            // A completed memo can be shared without allocating/copying again.
+            assert_eq!(build(&query, &denied).unwrap(), expected);
+            assert_eq!(build(&query, &admitted).unwrap(), expected);
+            assert_eq!(admitted.observed(resource), exact);
+        }
+    }
 
-        let bytes = RetainedBytes::measure(&key, usize::MAX).unwrap();
-        let payload_bytes = RetainedBytes::measure(key.0.as_ref(), usize::MAX).unwrap();
-        assert!(bytes >= size_of_val(&key) + 2 * size_of::<usize>() + payload_bytes);
-        assert_eq!(RetainedBytes::measure(&key, bytes), Some(bytes));
-        assert!(RetainedBytes::measure(&key, bytes - 1).is_none());
-        drop(key);
-        assert_eq!(cloned, independent);
-        assert_eq!(RetainedBytes::measure(&cloned, usize::MAX), Some(bytes));
+    #[test]
+    fn shared_structural_key_preserves_content_identity_and_retention() {
+        with_preparation_work(|work| {
+            let make_key = || {
+                StructuralQuery::new(MissingRowPolicy::Ignore)
+                    .projection_selection(ProjectionSelection::Exprs(vec![
+                        ProjectionField::Scalar {
+                            expr: Expr::Aggregate(aggregate::sum("amount".repeat(100))),
+                            alias: Some(Alias::new("output".repeat(100))),
+                        },
+                    ]))
+                    .structural_cache_key_with_normalized_predicate_fingerprint(None, work)
+                    .unwrap()
+            };
+            let key = make_key();
+            let cloned = key.clone();
+            // Sharing is the resource contract of key cloning, not pointer-based identity.
+            assert!(Rc::ptr_eq(&key.0, &cloned.0));
+            let independent = make_key();
+            assert!(!Rc::ptr_eq(&key.0, &independent.0));
+            assert_eq!(key, independent);
+            let hash = BuildHasherDefault::<DefaultHasher>::default();
+            assert_eq!(hash.hash_one(&key), hash.hash_one(&independent));
+            // The handle must preserve the payload's existing content hash.
+            assert_eq!(hash.hash_one(&key), hash.hash_one(key.0.as_ref()));
+
+            let bytes = RetainedBytes::measure(&key, usize::MAX).unwrap();
+            let payload_bytes = RetainedBytes::measure(key.0.as_ref(), usize::MAX).unwrap();
+            assert!(bytes >= size_of_val(&key) + 2 * size_of::<usize>() + payload_bytes);
+            assert_eq!(RetainedBytes::measure(&key, bytes), Some(bytes));
+            assert!(RetainedBytes::measure(&key, bytes - 1).is_none());
+            drop(key);
+            assert_eq!(cloned, independent);
+            assert_eq!(RetainedBytes::measure(&cloned, usize::MAX), Some(bytes));
+        });
     }
 
     #[test]
     fn projection_cache_keys_preserve_optional_alias_text() {
-        let key = |alias: Option<&str>| {
-            ProjectionCacheKey::from_projection_selection(&ProjectionSelection::Exprs(vec![
-                ProjectionField::Scalar {
-                    expr: Expr::Field("label".into()),
-                    alias: alias.map(Alias::new),
-                },
-            ]))
-        };
-        let aliases = [None, Some(""), Some("first"), Some("second"), Some("FIRST")];
-        for left in aliases {
-            for right in aliases {
-                assert_eq!(key(left) == key(right), left == right);
+        with_preparation_work(|work| {
+            let key = |alias: Option<&str>| {
+                ProjectionCacheKey::from_projection_selection(
+                    &ProjectionSelection::Exprs(vec![ProjectionField::Scalar {
+                        expr: Expr::Field("label".into()),
+                        alias: alias.map(Alias::new),
+                    }]),
+                    work,
+                )
+                .unwrap()
+            };
+            let aliases = [None, Some(""), Some("first"), Some("second"), Some("FIRST")];
+            for left in aliases {
+                for right in aliases {
+                    assert_eq!(key(left) == key(right), left == right);
+                }
             }
-        }
+        });
     }
 
     #[test]
     fn projection_cache_retention_includes_alias_backing() {
-        let alias = "output".repeat(100);
-        let key = ProjectionCacheKey::from_projection_selection(&ProjectionSelection::Exprs(vec![
-            ProjectionField::Scalar {
-                expr: Expr::Field("label".into()),
-                alias: Some(Alias::new(alias.as_str())),
-            },
-        ]));
-        let bytes = RetainedBytes::measure(&key, usize::MAX).unwrap();
-        assert!(
-            bytes
-                >= size_of::<ProjectionCacheKey>()
-                    + size_of::<(super::ProjectionExprCacheKey, Option<String>)>()
-                    + "label".len()
-                    + alias.len()
-        );
-        assert_eq!(RetainedBytes::measure(&key, bytes), Some(bytes));
-        assert!(RetainedBytes::measure(&key, bytes - 1).is_none());
-        let cloned = key.clone();
-        assert_eq!(RetainedBytes::measure(&cloned, usize::MAX), Some(bytes));
-        assert_eq!(key, cloned);
+        with_preparation_work(|work| {
+            let alias = "output".repeat(100);
+            let key = ProjectionCacheKey::from_projection_selection(
+                &ProjectionSelection::Exprs(vec![ProjectionField::Scalar {
+                    expr: Expr::Field("label".into()),
+                    alias: Some(Alias::new(alias.as_str())),
+                }]),
+                work,
+            )
+            .unwrap();
+            let bytes = RetainedBytes::measure(&key, usize::MAX).unwrap();
+            assert!(
+                bytes
+                    >= size_of::<ProjectionCacheKey>()
+                        + size_of::<(super::ProjectionExprCacheKey, Option<String>)>()
+                        + "label".len()
+                        + alias.len()
+            );
+            assert_eq!(RetainedBytes::measure(&key, bytes), Some(bytes));
+            assert!(RetainedBytes::measure(&key, bytes - 1).is_none());
+            let cloned = key.clone();
+            assert_eq!(RetainedBytes::measure(&cloned, usize::MAX), Some(bytes));
+            assert_eq!(key, cloned);
+        });
     }
 
     #[test]
     fn order_cache_keys_preserve_typed_operands_and_direction() {
-        let key = |expr, direction| {
-            OrderTermCacheKey::from_order_spec(&OrderSpec {
-                fields: vec![OrderTerm::new(expr, direction)],
-            })
-        };
-        let decimal = Expr::Literal(Value::Decimal(Decimal::from(1_u64)));
-        let wide = Expr::Literal(Value::U256(U256::from(1_u64)));
-        for (left, right) in [
-            (decimal.clone(), wide.clone()),
-            (
-                Expr::Aggregate(aggregate::AggregateExpr::from_expression_input(
-                    AggregateKind::Sum,
-                    decimal,
-                )),
-                Expr::Aggregate(aggregate::AggregateExpr::from_expression_input(
-                    AggregateKind::Sum,
-                    wide,
-                )),
-            ),
-        ] {
+        with_preparation_work(|work| {
+            let key = |expr, direction| {
+                OrderTermCacheKey::from_order_spec(
+                    &OrderSpec {
+                        fields: vec![OrderTerm::new(expr, direction)],
+                    },
+                    work,
+                )
+                .unwrap()
+            };
+            let decimal = Expr::Literal(Value::Decimal(Decimal::from(1_u64)));
+            let wide = Expr::Literal(Value::U256(U256::from(1_u64)));
+            for (left, right) in [
+                (decimal.clone(), wide.clone()),
+                (
+                    Expr::Aggregate(aggregate::AggregateExpr::from_expression_input(
+                        AggregateKind::Sum,
+                        decimal,
+                    )),
+                    Expr::Aggregate(aggregate::AggregateExpr::from_expression_input(
+                        AggregateKind::Sum,
+                        wide,
+                    )),
+                ),
+            ] {
+                assert_ne!(
+                    key(left, OrderDirection::Asc),
+                    key(right, OrderDirection::Asc)
+                );
+            }
+            let field = Expr::Field("label".into());
             assert_ne!(
-                key(left, OrderDirection::Asc),
-                key(right, OrderDirection::Asc)
+                key(field.clone(), OrderDirection::Asc),
+                key(field, OrderDirection::Desc),
             );
-        }
-        let field = Expr::Field("label".into());
-        assert_ne!(
-            key(field.clone(), OrderDirection::Asc),
-            key(field, OrderDirection::Desc),
-        );
-        assert_eq!(
-            key(Expr::Aggregate(aggregate::count()), OrderDirection::Asc),
-            key(
-                Expr::Aggregate(aggregate::AggregateExpr::from_expression_input(
-                    AggregateKind::Count,
-                    Expr::Literal(Value::Nat64(1)),
-                )),
-                OrderDirection::Asc,
-            ),
-        );
+            assert_eq!(
+                key(Expr::Aggregate(aggregate::count()), OrderDirection::Asc),
+                key(
+                    Expr::Aggregate(aggregate::AggregateExpr::from_expression_input(
+                        AggregateKind::Count,
+                        Expr::Literal(Value::Nat64(1)),
+                    )),
+                    OrderDirection::Asc,
+                ),
+            );
+        });
     }
 
     #[test]
     fn order_cache_retention_includes_nested_operands() {
-        let field = "amount".repeat(100);
-        let filter = "filter".repeat(100);
-        let order = OrderSpec {
-            fields: vec![OrderTerm::new(
-                Expr::Aggregate(
-                    aggregate::sum(field.clone())
-                        .with_filter_expr(Expr::Field(filter.clone().into())),
-                ),
-                OrderDirection::Desc,
-            )],
-        };
-        let key = OrderTermCacheKey::from_order_spec(&order);
-        let bytes = RetainedBytes::measure(&key, usize::MAX).unwrap();
-        assert!(
-            bytes
-                >= size_of_val(&key)
-                    + size_of::<OrderTermCacheKey>()
-                    + 2 * size_of::<super::ProjectionExprCacheKey>()
-                    + field.len()
-                    + filter.len()
-        );
-        assert_eq!(RetainedBytes::measure(&key, bytes), Some(bytes));
-        assert!(RetainedBytes::measure(&key, bytes - 1).is_none());
+        with_preparation_work(|work| {
+            let field = "amount".repeat(100);
+            let filter = "filter".repeat(100);
+            let order = OrderSpec {
+                fields: vec![OrderTerm::new(
+                    Expr::Aggregate(
+                        aggregate::sum(field.clone())
+                            .with_filter_expr(Expr::Field(filter.clone().into())),
+                    ),
+                    OrderDirection::Desc,
+                )],
+            };
+            let key = OrderTermCacheKey::from_order_spec(&order, work).unwrap();
+            let bytes = RetainedBytes::measure(&key, usize::MAX).unwrap();
+            assert!(
+                bytes
+                    >= size_of_val(&key)
+                        + size_of::<OrderTermCacheKey>()
+                        + 2 * size_of::<super::ProjectionExprCacheKey>()
+                        + field.len()
+                        + filter.len()
+            );
+            assert_eq!(RetainedBytes::measure(&key, bytes), Some(bytes));
+            assert!(RetainedBytes::measure(&key, bytes - 1).is_none());
+        });
     }
 
     #[test]
     fn aggregate_cache_keys_preserve_typed_inputs_and_canonical_equivalence() {
-        let from_input = |kind, value| {
-            aggregate::AggregateExpr::from_expression_input(kind, Expr::Literal(value))
-        };
-        for kind in [AggregateKind::Sum, AggregateKind::Min, AggregateKind::Max] {
-            let decimal = from_input(kind, Value::Decimal(Decimal::from(1_u64)));
-            let wide = from_input(kind, Value::U256(U256::from(1_u64)));
-            assert_ne!(
-                AggregateCacheKey::from_aggregate_expr(&decimal),
-                AggregateCacheKey::from_aggregate_expr(&wide),
-            );
-            for aggregate in [decimal, wide] {
+        with_preparation_work(|work| {
+            let from_input = |kind, value| {
+                aggregate::AggregateExpr::from_expression_input(kind, Expr::Literal(value))
+            };
+            for kind in [AggregateKind::Sum, AggregateKind::Min, AggregateKind::Max] {
+                let decimal = from_input(kind, Value::Decimal(Decimal::from(1_u64)));
+                let wide = from_input(kind, Value::U256(U256::from(1_u64)));
+                assert_ne!(
+                    AggregateCacheKey::from_aggregate_expr(&decimal, work).unwrap(),
+                    AggregateCacheKey::from_aggregate_expr(&wide, work).unwrap(),
+                );
+                for aggregate in [decimal, wide] {
+                    assert_eq!(
+                        AggregateCacheKey::from_aggregate_expr(&aggregate, work).unwrap(),
+                        AggregateCacheKey::from_group_aggregate_spec(
+                            &GroupAggregateSpec::from_aggregate_expr(aggregate.clone()),
+                            work
+                        )
+                        .unwrap(),
+                    );
+                }
+            }
+            for value in [Value::Nat64(1), Value::U256(U256::from(1_u64))] {
                 assert_eq!(
-                    AggregateCacheKey::from_aggregate_expr(&aggregate),
-                    AggregateCacheKey::from_group_aggregate_spec(
-                        &GroupAggregateSpec::from_aggregate_expr(aggregate.clone()),
-                    ),
+                    AggregateCacheKey::from_aggregate_expr(&aggregate::count(), work).unwrap(),
+                    AggregateCacheKey::from_aggregate_expr(
+                        &from_input(AggregateKind::Count, value),
+                        work
+                    )
+                    .unwrap(),
                 );
             }
-        }
-        for value in [Value::Nat64(1), Value::U256(U256::from(1_u64))] {
-            assert_eq!(
-                AggregateCacheKey::from_aggregate_expr(&aggregate::count()),
-                AggregateCacheKey::from_aggregate_expr(&from_input(AggregateKind::Count, value)),
+            assert_ne!(
+                AggregateCacheKey::from_aggregate_expr(
+                    &from_input(AggregateKind::Count, Value::Nat64(1)).distinct(),
+                    work
+                )
+                .unwrap(),
+                AggregateCacheKey::from_aggregate_expr(
+                    &from_input(AggregateKind::Count, Value::U256(U256::from(1_u64))).distinct(),
+                    work
+                )
+                .unwrap(),
             );
-        }
-        assert_ne!(
-            AggregateCacheKey::from_aggregate_expr(
-                &from_input(AggregateKind::Count, Value::Nat64(1)).distinct(),
-            ),
-            AggregateCacheKey::from_aggregate_expr(
-                &from_input(AggregateKind::Count, Value::U256(U256::from(1_u64))).distinct(),
-            ),
-        );
-        for aggregate in [aggregate::min_by("amount"), aggregate::max_by("amount")] {
+            for aggregate in [aggregate::min_by("amount"), aggregate::max_by("amount")] {
+                assert_eq!(
+                    AggregateCacheKey::from_aggregate_expr(&aggregate, work).unwrap(),
+                    AggregateCacheKey::from_aggregate_expr(&aggregate.clone().distinct(), work)
+                        .unwrap(),
+                );
+            }
             assert_eq!(
-                AggregateCacheKey::from_aggregate_expr(&aggregate),
-                AggregateCacheKey::from_aggregate_expr(&aggregate.clone().distinct()),
+                AggregateCacheKey::from_aggregate_expr(
+                    &from_input(AggregateKind::Sum, Value::Nat64(1)),
+                    work
+                )
+                .unwrap(),
+                AggregateCacheKey::from_aggregate_expr(
+                    &from_input(AggregateKind::Sum, Value::Decimal(Decimal::from(1_u64)),),
+                    work
+                )
+                .unwrap(),
             );
-        }
-        assert_eq!(
-            AggregateCacheKey::from_aggregate_expr(&from_input(
-                AggregateKind::Sum,
-                Value::Nat64(1)
-            )),
-            AggregateCacheKey::from_aggregate_expr(&from_input(
-                AggregateKind::Sum,
-                Value::Decimal(Decimal::from(1_u64)),
-            )),
-        );
+        });
     }
 
     #[test]
     fn aggregate_cache_retention_includes_both_structural_operands() {
-        let field = "input".repeat(100);
-        let filter = "filter".repeat(100);
-        let aggregate =
-            aggregate::sum(field.clone()).with_filter_expr(Expr::Field(filter.clone().into()));
-        let key = AggregateCacheKey::from_aggregate_expr(&aggregate);
-        let bytes = RetainedBytes::measure(&key, usize::MAX).unwrap();
-        let minimum = size_of::<AggregateCacheKey>()
-            + 2 * size_of::<super::ProjectionExprCacheKey>()
-            + field.len()
-            + filter.len();
-        assert!(bytes >= minimum);
-        assert_eq!(RetainedBytes::measure(&key, bytes), Some(bytes));
-        assert!(RetainedBytes::measure(&key, bytes - 1).is_none());
-        let cloned = key.clone();
-        assert_eq!(RetainedBytes::measure(&cloned, usize::MAX), Some(bytes));
-        assert_eq!(key, cloned);
+        with_preparation_work(|work| {
+            let field = "input".repeat(100);
+            let filter = "filter".repeat(100);
+            let aggregate =
+                aggregate::sum(field.clone()).with_filter_expr(Expr::Field(filter.clone().into()));
+            let key = AggregateCacheKey::from_aggregate_expr(&aggregate, work).unwrap();
+            let bytes = RetainedBytes::measure(&key, usize::MAX).unwrap();
+            let minimum = size_of::<AggregateCacheKey>()
+                + 2 * size_of::<super::ProjectionExprCacheKey>()
+                + field.len()
+                + filter.len();
+            assert!(bytes >= minimum);
+            assert_eq!(RetainedBytes::measure(&key, bytes), Some(bytes));
+            assert!(RetainedBytes::measure(&key, bytes - 1).is_none());
+            let cloned = key.clone();
+            assert_eq!(RetainedBytes::measure(&cloned, usize::MAX), Some(bytes));
+            assert_eq!(key, cloned);
+        });
     }
 
     #[test]
     fn scalar_and_grouped_aggregate_cache_identity_stays_shared() {
-        let aggregate = aggregate::sum("amount")
-            .with_filter_expr(Expr::Literal(Value::Bool(true)))
-            .distinct();
-        let grouped = GroupAggregateSpec::from_aggregate_expr(aggregate.clone());
+        with_preparation_work(|work| {
+            let aggregate = aggregate::sum("amount")
+                .with_filter_expr(Expr::Literal(Value::Bool(true)))
+                .distinct();
+            let grouped = GroupAggregateSpec::from_aggregate_expr(aggregate.clone());
 
-        assert_eq!(
-            AggregateCacheKey::from_aggregate_expr(&aggregate),
-            AggregateCacheKey::from_group_aggregate_spec(&grouped),
-        );
+            assert_eq!(
+                AggregateCacheKey::from_aggregate_expr(&aggregate, work).unwrap(),
+                AggregateCacheKey::from_group_aggregate_spec(&grouped, work).unwrap(),
+            );
 
-        let different_filter = aggregate::sum("amount")
-            .with_filter_expr(Expr::Literal(Value::Bool(false)))
-            .distinct();
-        assert_ne!(
-            AggregateCacheKey::from_aggregate_expr(&aggregate),
-            AggregateCacheKey::from_aggregate_expr(&different_filter),
-        );
-        assert_ne!(
-            AggregateCacheKey::from_aggregate_expr(&aggregate),
-            AggregateCacheKey::from_aggregate_expr(&aggregate::sum("other_amount").distinct()),
-        );
-        assert_ne!(
-            AggregateCacheKey::from_aggregate_expr(&aggregate),
-            AggregateCacheKey::from_aggregate_expr(&aggregate::sum("amount")),
-        );
+            let different_filter = aggregate::sum("amount")
+                .with_filter_expr(Expr::Literal(Value::Bool(false)))
+                .distinct();
+            assert_ne!(
+                AggregateCacheKey::from_aggregate_expr(&aggregate, work).unwrap(),
+                AggregateCacheKey::from_aggregate_expr(&different_filter, work).unwrap(),
+            );
+            assert_ne!(
+                AggregateCacheKey::from_aggregate_expr(&aggregate, work).unwrap(),
+                AggregateCacheKey::from_aggregate_expr(
+                    &aggregate::sum("other_amount").distinct(),
+                    work
+                )
+                .unwrap(),
+            );
+            assert_ne!(
+                AggregateCacheKey::from_aggregate_expr(&aggregate, work).unwrap(),
+                AggregateCacheKey::from_aggregate_expr(&aggregate::sum("amount"), work).unwrap(),
+            );
+        });
     }
 }
 
@@ -773,7 +937,6 @@ crate::retained::retained_fields!(CaseWhenArmCacheKey {
 Self{condition,result} => [condition,result],
 });
 crate::retained::retained_copy!(ConsistencyCacheKey);
-crate::retained::retained_copy!(DiagnosticCacheKey);
 crate::retained::retained_fields!(GroupingCacheKey {
 Self{group_fields,aggregates,having_expr,max_groups,max_group_bytes} => [group_fields,aggregates,having_expr,max_groups,max_group_bytes],
 });
@@ -809,5 +972,4 @@ Self{mode,predicate,parameter_contract,filter_expr,order,distinct,projection,gro
 crate::retained::retained_copy!(UnaryOpCacheKey);
 crate::retained::retained_fields!(ValueCacheKey {
 Self::Canonical(field_0) => [field_0],
-Self::HashError(field_0) => [field_0],
 });

@@ -49,16 +49,18 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
         // preparation constructs candidate backing and selects its initial order.
         assert_eq!(costs[0].0 - costs[2].0, bytes + access_order_bytes);
         assert_eq!(costs[0].1 - costs[2].1, count as u64 + access_order_steps);
-        for (resource, exact, rebound) in [
+        for (resource, exact, rebound, memo) in [
             (
                 Resource::TemporaryBytes,
                 costs[0].0,
                 [costs[1].0, costs[2].0],
+                costs[3].0,
             ),
             (
                 Resource::PredicateExpressionSteps,
                 costs[0].1,
                 [costs[1].1, costs[2].1],
+                costs[3].1,
             ),
         ] {
             setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
@@ -108,10 +110,11 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
             assert!(!reuse.is_hit());
             assert_eq!(admitted.observed(resource), exact);
             assert_eq!(setup.shared_query_cache_usage_for_tests().0, 1);
-            // A memo hit skips construction. A/B/A rebinding rebuilds static
-            // metadata but retains the candidate array instead of copying it.
-            let warm = request(resource, rebound.iter().sum());
+            // A bound-plan hit still constructs its template key, but skips
+            // plan construction. Rebinding retains the candidate array.
+            let warm = request(resource, memo + rebound.iter().sum::<u64>());
             let session = new_request_session_with_root(&warm);
+            let charges = [memo, rebound[0], rebound[1]];
             let mut expected = 0;
             for (position, query) in queries.iter().enumerate() {
                 let (_, reuse) = session
@@ -123,9 +126,7 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
                     )
                     .unwrap();
                 assert!(reuse.is_hit());
-                if position > 0 {
-                    expected += rebound[position - 1];
-                }
+                expected += charges[position];
                 assert_eq!(warm.observed(resource), expected);
                 assert_eq!(warm.observed(Resource::PlanCompilations), 0);
                 assert_eq!(setup.shared_query_cache_usage_for_tests().0, 1);
@@ -136,13 +137,13 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
 
 // Observe shared preparation owners instead of maintaining a second formula for
 // projection, metadata, operand copies and access lowering. The test independently
-// pins cold-only candidate/order costs, zero-charge memo hits and cache publication
+// pins cold-only candidate/order costs, cheaper bound-plan hits and cache publication
 // at the observed exact boundary (including rejection one unit below it).
 fn construction_costs(
     setup: &DbSession<TestCanister>,
     queries: &[StructuralQuery; 3],
     lane: DiagnosticExecutionLane,
-) -> [(u64, u64); 3] {
+) -> [(u64, u64); 4] {
     setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
     let catalog = setup
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
@@ -154,7 +155,8 @@ fn construction_costs(
             .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
                 catalog.accepted_entity_authority(),
                 &catalog,
-                &queries[position],
+                // A/B/A/A separates cold, rebound and identical-bound work.
+                &queries[position.min(2)],
                 lane,
             )
             .unwrap();

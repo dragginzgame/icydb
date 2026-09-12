@@ -331,13 +331,23 @@ impl<C: CanisterKind> DbSession<C> {
     fn resolve_shared_query_plan_for_authority(
         &self,
         authority: &EntityAuthority,
-        cache_key: QueryPlanCacheKey,
+        build_cache_key: impl FnOnce(&PreparationWork<'_>) -> Result<QueryPlanCacheKey, QueryError>,
         planning_context: HardExecutionContext,
         build_prepared_plan: impl FnOnce(
             &PreparationWork<'_>,
         ) -> Result<SharedPreparedExecutionPlan, QueryError>,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheReuse), QueryError> {
-        let cached_plan = self.lookup_shared_query_plan_for_authority(authority, &cache_key)?;
+        // Key construction, hashing/comparison and current lifecycle validation
+        // complete before reuse or compilation, without overlapping its interval.
+        let (cache_key, cached_plan) = PreparationWork::run(
+            self.db.request_execution_scope(),
+            planning_context.lane(),
+            |work| {
+                let cache_key = build_cache_key(work)?;
+                let cached = self.lookup_shared_query_plan_for_authority(authority, &cache_key)?;
+                Ok((cache_key, cached))
+            },
+        )?;
         if let Some(cached_plan) = cached_plan {
             return Ok(cached_plan);
         }
@@ -553,7 +563,8 @@ impl<C: CanisterKind> DbSession<C> {
             schema_identity,
             visibility,
             query,
-        ) {
+            lane,
+        )? {
             return Ok(cached);
         }
         let schema_info =
@@ -603,18 +614,20 @@ impl<C: CanisterKind> DbSession<C> {
                 planning_context,
             );
         }
-        let cache_key = QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
-            authority.clone(),
-            schema_identity,
-            visibility,
-            query,
-            normalized_predicate_fingerprint,
-        );
         let visible_indexes =
             Self::visible_indexes_for_accepted_schema(planning_state.schema_info(), visibility);
         self.resolve_shared_query_plan_for_authority(
             &authority,
-            cache_key,
+            |work| {
+                QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
+                    authority.clone(),
+                    schema_identity,
+                    visibility,
+                    query,
+                    normalized_predicate_fingerprint,
+                    work,
+                )
+            },
             planning_context,
             |work| {
                 let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
@@ -656,21 +669,35 @@ impl<C: CanisterKind> DbSession<C> {
         bound_predicate_fingerprint: [u8; 32],
         planning_context: HardExecutionContext,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheReuse), QueryError> {
-        let cache_key = QueryPlanCacheKey::for_authority_with_parameter_contract(
-            authority.clone(),
-            schema_identity,
-            visibility,
-            query,
-            parameter_contract,
-        );
-        let cached_template =
-            self.lookup_shared_query_template_for_authority(authority, &cache_key);
+        let (cache_key, cached_template, reused_plan) = PreparationWork::run(
+            self.db.request_execution_scope(),
+            planning_context.lane(),
+            |work| {
+                let cache_key = QueryPlanCacheKey::for_authority_with_parameter_contract(
+                    authority.clone(),
+                    schema_identity,
+                    visibility,
+                    query,
+                    parameter_contract,
+                    work,
+                )?;
+                let template =
+                    self.lookup_shared_query_template_for_authority(authority, &cache_key);
+                let mut reused = template
+                    .as_ref()
+                    .and_then(|template| template.reused_bound_plan(bound_predicate_fingerprint));
+                if let Some(plan) = &reused
+                    && !self.cached_cardinality_tiebreak_is_current(authority, plan)?
+                {
+                    reused = None;
+                }
+                Ok((cache_key, template, reused))
+            },
+        )?;
+        if let Some(prepared_plan) = reused_plan {
+            return Ok((prepared_plan, QueryPlanCacheReuse::Hit));
+        }
         if let Some(mut template) = cached_template {
-            if let Some(prepared_plan) = template.reused_bound_plan(bound_predicate_fingerprint)
-                && self.cached_cardinality_tiebreak_is_current(authority, &prepared_plan)?
-            {
-                return Ok((prepared_plan, QueryPlanCacheReuse::Hit));
-            }
             let prepared_plan = PreparationWork::run(
                 self.db.request_execution_scope(),
                 planning_context.lane(),
@@ -749,44 +776,23 @@ impl<C: CanisterKind> DbSession<C> {
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
-    ) -> Option<(SharedPreparedExecutionPlan, QueryPlanCacheReuse)> {
-        self.try_cached_filterless_query_plan_for_entity_path(
-            authority.entity_path(),
-            schema_identity,
-            visibility,
-            query,
-        )
-    }
-
-    fn try_cached_filterless_query_plan_for_entity_path(
-        &self,
-        entity_path: &str,
-        schema_identity: SchemaCacheIdentity,
-        visibility: QueryPlanVisibility,
-        query: &StructuralQuery,
-    ) -> Option<(SharedPreparedExecutionPlan, QueryPlanCacheReuse)> {
+        lane: DiagnosticExecutionLane,
+    ) -> Result<CachedPreparedPlanLookup, QueryError> {
         if query.has_scalar_filter() {
-            return None;
+            return Ok(None);
         }
 
-        let cache_key = QueryPlanCacheKey::for_entity_path_with_normalized_predicate_fingerprint(
-            entity_path,
-            schema_identity,
-            visibility,
-            query,
-            None,
-        );
-        let cached = self.with_query_plan_cache(|cache| {
-            cache
-                .get(&cache_key)
-                .and_then(CachedQueryArtifact::prepared_plan)
-                .cloned()
-        });
-        if let Some(prepared_plan) = cached {
-            return Some((prepared_plan, QueryPlanCacheReuse::Hit));
-        }
-
-        None
+        PreparationWork::run(self.db.request_execution_scope(), lane, |work| {
+            let cache_key = QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
+                authority.clone(),
+                schema_identity,
+                visibility,
+                query,
+                None,
+                work,
+            )?;
+            self.lookup_shared_query_plan_for_authority(authority, &cache_key)
+        })
     }
 
     fn cached_trivial_scalar_load_plan_for_authority(
@@ -798,17 +804,18 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
         planning_context: HardExecutionContext,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheReuse), QueryError> {
-        let cache_key = QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
-            authority.clone(),
-            schema_identity,
-            visibility,
-            query,
-            None,
-        );
-
         self.resolve_shared_query_plan_for_authority(
             &authority,
-            cache_key,
+            |work| {
+                QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
+                    authority.clone(),
+                    schema_identity,
+                    visibility,
+                    query,
+                    None,
+                    work,
+                )
+            },
             planning_context,
             |work| {
                 let Some(plan) =

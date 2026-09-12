@@ -5,11 +5,13 @@
 //! session query cache owner.
 
 use crate::db::{
+    QueryError,
     commit::CommitSchemaFingerprint,
     executor::EntityAuthority,
     query::{
         intent::{StructuralQuery, StructuralQueryCacheKey},
         plan::PreparedQueryParameterContract,
+        preparation::PreparationWork,
     },
     schema::{
         AcceptedSchemaRevision, AcceptedSchemaRuntimeRootIdentity, AcceptedSchemaSnapshot,
@@ -152,31 +154,15 @@ impl<'schema> QueryPlanAcceptedSchema<'schema> {
 }
 
 impl QueryPlanCacheKey {
-    // Assemble the canonical cache-key shell once so the test and
-    // normalized-predicate constructors only decide which structural query key
-    // they feed into the shared session cache identity.
+    // Assemble the authority shell once; callers only choose structural identity.
     fn from_authority_cache_inputs(
         authority: EntityAuthority,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         structural_query: StructuralQueryCacheKey,
     ) -> Self {
-        Self::from_entity_path_cache_inputs(
-            authority.entity_path_handle(),
-            schema_identity,
-            visibility,
-            structural_query,
-        )
-    }
-
-    fn from_entity_path_cache_inputs(
-        entity_path: impl Into<Rc<str>>,
-        schema_identity: SchemaCacheIdentity,
-        visibility: QueryPlanVisibility,
-        structural_query: StructuralQueryCacheKey,
-    ) -> Self {
         Self {
-            entity_path: entity_path.into(),
+            entity_path: authority.entity_path_handle(),
             schema_identity,
             visibility,
             structural_query,
@@ -189,15 +175,17 @@ impl QueryPlanCacheKey {
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
         normalized_predicate_fingerprint: Option<[u8; 32]>,
-    ) -> Self {
-        Self::from_authority_cache_inputs(
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Ok(Self::from_authority_cache_inputs(
             authority,
             schema_identity,
             visibility,
             query.structural_cache_key_with_normalized_predicate_fingerprint(
                 normalized_predicate_fingerprint,
-            ),
-        )
+                work,
+            )?,
+        ))
     }
 
     pub(super) fn for_authority_with_parameter_contract(
@@ -206,30 +194,14 @@ impl QueryPlanCacheKey {
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
         parameter_contract: PreparedQueryParameterContract,
-    ) -> Self {
-        Self::from_authority_cache_inputs(
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
+        Ok(Self::from_authority_cache_inputs(
             authority,
             schema_identity,
             visibility,
-            query.structural_cache_key_with_parameter_contract(parameter_contract),
-        )
-    }
-
-    pub(super) fn for_entity_path_with_normalized_predicate_fingerprint(
-        entity_path: &str,
-        schema_identity: SchemaCacheIdentity,
-        visibility: QueryPlanVisibility,
-        query: &StructuralQuery,
-        normalized_predicate_fingerprint: Option<[u8; 32]>,
-    ) -> Self {
-        Self::from_entity_path_cache_inputs(
-            entity_path,
-            schema_identity,
-            visibility,
-            query.structural_cache_key_with_normalized_predicate_fingerprint(
-                normalized_predicate_fingerprint,
-            ),
-        )
+            query.structural_cache_key_with_parameter_contract(parameter_contract, work)?,
+        ))
     }
 }
 

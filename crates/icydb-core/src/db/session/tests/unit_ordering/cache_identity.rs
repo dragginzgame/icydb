@@ -255,19 +255,29 @@ fn assert_current_identity(
     base: impl Fn() -> StructuralQuery,
     change: impl Fn(StructuralQuery) -> StructuralQuery,
 ) {
-    let original = base();
-    let old_key = original.structural_cache_key_with_normalized_predicate_fingerprint(None);
-    let changed = change(original.clone());
-    let fresh_key = change(base()).structural_cache_key_with_normalized_predicate_fingerprint(None);
-    assert_ne!(fresh_key, old_key, "fixture must change semantic identity");
-    assert_eq!(
-        changed.structural_cache_key_with_normalized_predicate_fingerprint(None),
-        fresh_key,
-    );
-    assert_eq!(
-        original.structural_cache_key_with_normalized_predicate_fingerprint(None),
-        old_key,
-    );
+    with_preparation_work(|work| {
+        let original = base();
+        let old_key = original
+            .structural_cache_key_with_normalized_predicate_fingerprint(None, work)
+            .unwrap();
+        let changed = change(original.clone());
+        let fresh_key = change(base())
+            .structural_cache_key_with_normalized_predicate_fingerprint(None, work)
+            .unwrap();
+        assert_ne!(fresh_key, old_key, "fixture must change semantic identity");
+        assert_eq!(
+            changed
+                .structural_cache_key_with_normalized_predicate_fingerprint(None, work)
+                .unwrap(),
+            fresh_key,
+        );
+        assert_eq!(
+            original
+                .structural_cache_key_with_normalized_predicate_fingerprint(None, work)
+                .unwrap(),
+            old_key,
+        );
+    });
 }
 
 #[test]

@@ -79,7 +79,7 @@ fn assert_exhausted(error: QueryError, root: &RequestExecutionRoot, lane: Diagno
 }
 
 #[test]
-fn logical_clause_exhaustion_keeps_cold_cache_empty_and_warm_hits_skip_copies() {
+fn construction_exhaustion_keeps_cold_cache_empty_and_memoized_keys_skip_copies() {
     let setup = initialize();
     let catalog = setup
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
@@ -120,8 +120,19 @@ fn logical_clause_exhaustion_keeps_cold_cache_empty_and_warm_hits_skip_copies() 
                 .is_hit()
             );
             let bytes = root.observed(Resource::TemporaryBytes);
-            assert!(plan(&session, &catalog, &query, lane).unwrap().is_hit());
-            assert_eq!(root.observed(Resource::TemporaryBytes), bytes);
+            let retained = setup.shared_query_cache_usage_for_tests();
+            if query.has_scalar_filter() {
+                let error = plan(&session, &catalog, &query, lane).unwrap_err();
+                assert!(error.diagnostic_facts().contains(&(
+                    DiagnosticFactTag::BudgetResource,
+                    Resource::TemporaryBytes.raw(),
+                )));
+                assert!(root.observed(Resource::TemporaryBytes) > bytes);
+            } else {
+                assert!(plan(&session, &catalog, &query, lane).unwrap().is_hit());
+                assert_eq!(root.observed(Resource::TemporaryBytes), bytes);
+            }
+            assert_eq!(setup.shared_query_cache_usage_for_tests(), retained);
             assert_eq!(root.observed(Resource::RowsVisited), 0);
             assert_eq!(root.observed(Resource::QueryExecutions), 0);
         }
@@ -129,7 +140,7 @@ fn logical_clause_exhaustion_keeps_cold_cache_empty_and_warm_hits_skip_copies() 
 }
 
 #[test]
-fn cold_plan_watermark_precedes_publication_and_hits_skip_construction() {
+fn cache_lookup_watermark_precedes_compilation_and_warm_reuse() {
     let setup = initialize();
     let catalog = setup
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
@@ -151,7 +162,7 @@ fn cold_plan_watermark_precedes_publication_and_hits_skip_construction() {
             );
             assert_eq!(setup.shared_query_cache_usage_for_tests(), (0, 0));
         }
-        assert_eq!(root.observed(Resource::PlanCompilations), 2);
+        assert_eq!(root.observed(Resource::PlanCompilations), 0);
         let fresh = request(false, lane);
         assert!(
             !plan(
@@ -163,9 +174,19 @@ fn cold_plan_watermark_precedes_publication_and_hits_skip_construction() {
             .unwrap()
             .is_hit()
         );
-        // A planning-only cache hit performs no guarded compilation. This
-        // does not assert that executing with an exhausted request is valid.
-        assert!(plan(&session, &catalog, &query, lane).unwrap().is_hit());
+        let retained = setup.shared_query_cache_usage_for_tests();
+        // Warm lookup still hashes/compares the key. Exhaustion cannot return
+        // a plan, replace its cache entry, or start compilation on a changed key.
+        for current in [&query, &query.clone().limit(2), &query] {
+            assert_exhausted(
+                plan(&session, &catalog, current, lane).unwrap_err(),
+                &root,
+                lane,
+            );
+            assert_eq!(setup.shared_query_cache_usage_for_tests(), retained);
+        }
+        assert!(plan(&setup, &catalog, &query, lane).unwrap().is_hit());
+        assert_eq!(root.observed(Resource::PlanCompilations), 0);
     }
 }
 
