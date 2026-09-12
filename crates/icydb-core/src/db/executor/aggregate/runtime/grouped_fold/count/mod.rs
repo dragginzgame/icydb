@@ -24,7 +24,7 @@ use crate::{
             },
             value_reducer::finalize_count,
         },
-        group::{GroupKey, KeyCanonicalError},
+        group::GroupKey,
         pipeline::{
             contracts::{GroupedCursorPage, GroupedRouteStage},
             runtime::{GroupedFoldStage, GroupedStreamStage},
@@ -148,8 +148,7 @@ fn execute_ordered_grouped_count_fold_stage(
                 let Some(group_value) = group_value? else {
                     continue;
                 };
-                let group_key = GroupKey::from_single_canonical_group_value(group_value)
-                    .map_err(KeyCanonicalError::into_internal_error)?;
+                let group_key = GroupKey::from_single_canonical_group_value(group_value)?;
                 early_scan_stop = apply_ordered_count_row(
                     &mut transitions,
                     grouped_execution_context,

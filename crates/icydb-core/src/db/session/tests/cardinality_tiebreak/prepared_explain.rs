@@ -43,7 +43,7 @@ fn explain(
 
 fn assert_projection_rejections(plan: &SharedPreparedExecutionPlan, resource: Resource, cost: u64) {
     let original = plan.logical_plan().clone();
-    let signature = original.continuation_signature(ENTITY_NAME);
+    let signature = original.continuation_signature(ENTITY_NAME).unwrap();
     // A prepared plan retains neither a diagnostic allowance nor a partial
     // result after failing partway through projection.
     for limit in [0, cost / 2, cost - 1] {
@@ -56,7 +56,9 @@ fn assert_projection_rejections(plan: &SharedPreparedExecutionPlan, resource: Re
         );
         assert_eq!(plan.logical_plan(), &original);
         assert_eq!(
-            plan.logical_plan().continuation_signature(ENTITY_NAME),
+            plan.logical_plan()
+                .continuation_signature(ENTITY_NAME)
+                .unwrap(),
             signature
         );
         assert_eq!(short.observed(Resource::RowsVisited), 0);
@@ -109,7 +111,7 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
         assert!(warm.logical_plan().has_any_residual_filter());
         assert_eq!(cold.logical_plan(), warm.logical_plan());
         let original = warm.logical_plan().clone();
-        let signature = original.continuation_signature(ENTITY_NAME);
+        let signature = original.continuation_signature(ENTITY_NAME).unwrap();
         let generous = request(Resource::TemporaryBytes, 16_000_000);
         let expected = explain(&cold, &generous).unwrap();
         assert_eq!(
@@ -146,7 +148,9 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
             assert_eq!(root.observed(Resource::PlanCompilations), 0);
             assert_eq!(warm.logical_plan(), &original);
             assert_eq!(
-                warm.logical_plan().continuation_signature(ENTITY_NAME),
+                warm.logical_plan()
+                    .continuation_signature(ENTITY_NAME)
+                    .unwrap(),
                 signature
             );
             // Detached rendering neither borrows nor restarts the exhausted request.

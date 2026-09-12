@@ -239,8 +239,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn materialize_gro
             (true, None) => GroupKey::from_single_canonical_group_value(group_value),
             (false, Some(hash)) => GroupKey::from_single_group_value_with_hash(group_value, hash),
             (false, None) => GroupKey::from_single_group_value(group_value),
-        }
-        .map_err(crate::db::executor::group::KeyCanonicalError::into_internal_error);
+        };
     }
 
     let group_values = row_view.group_values(group_fields)?;
@@ -248,5 +247,4 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn materialize_gro
         Some(hash) => GroupKey::from_group_values_with_hash(group_values, hash),
         None => GroupKey::from_group_values(group_values),
     }
-    .map_err(crate::db::executor::group::KeyCanonicalError::into_internal_error)
 }

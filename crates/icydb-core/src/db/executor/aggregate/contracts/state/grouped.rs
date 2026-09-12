@@ -24,7 +24,7 @@ use crate::{
                     compare_orderable_field_values_with_slot,
                 },
             },
-            group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
+            group::{CanonicalKey, GroupKeySet},
             pipeline::runtime::RowView,
             projection::ProjectionEvalError,
         },
@@ -331,10 +331,7 @@ impl GroupedTerminalAggregateState {
                 return Ok(false);
             };
 
-            value
-                .canonical_key()
-                .map_err(KeyCanonicalError::into_internal_error)
-                .map_err(GroupError::from)?
+            value.canonical_key().map_err(GroupError::from)?
         } else {
             canonical_key_from_data_key(key).map_err(GroupError::from)?
         };

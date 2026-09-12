@@ -282,6 +282,75 @@ pub enum MutationJobError {
     },
 }
 
+#[cfg(feature = "sql")]
+impl MutationJobError {
+    // Identity preparation failures are not evidence of corrupt persisted data
+    // or ineligible syntax. Keep the existing bounded resource error intact.
+    pub(in crate::db) fn from_internal_error(error: &crate::error::InternalError) -> Self {
+        use icydb_diagnostic_code::{
+            DiagnosticDetail, DiagnosticFactTag as Fact, RuntimeBoundaryCode,
+        };
+
+        if !matches!(
+            error.diagnostic().detail(),
+            Some(DiagnosticDetail::RuntimeBoundary {
+                boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+            })
+        ) {
+            return Self::Internal;
+        }
+        let facts = error.diagnostic_facts();
+        let [
+            Some(resource),
+            Some(limit),
+            Some(observed),
+            Some(scope),
+            Some(lane),
+            Some(prefix),
+        ] = [
+            Fact::BudgetResource,
+            Fact::Limit,
+            Fact::Actual,
+            Fact::ExecutionBudgetScope,
+            Fact::ExecutionLane,
+            Fact::QueryShapeFingerprintPrefix,
+        ]
+        .map(|tag| {
+            facts
+                .iter()
+                .find(|(fact, _)| *fact == tag)
+                .map(|(_, value)| *value)
+        })
+        else {
+            return Self::Internal;
+        };
+        Self::ExecutionBudgetExceeded {
+            resource,
+            limit,
+            observed,
+            scope,
+            lane,
+            normalized_shape_fingerprint_prefix: prefix,
+        }
+    }
+
+    pub(in crate::db) fn from_query_error(error: crate::db::query::intent::QueryError) -> Self {
+        match error {
+            crate::db::query::intent::QueryError::Execute(error) => {
+                if matches!(
+                    error.diagnostic().detail(),
+                    Some(icydb_diagnostic_code::DiagnosticDetail::SqlWriteBoundary { .. })
+                ) {
+                    Self::IneligibleIntent
+                } else {
+                    Self::from_internal_error(error.as_internal())
+                }
+            }
+            _ => Self::IneligibleIntent,
+        }
+    }
+}
+
 impl fmt::Display for MutationJobError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("mutation job operation failed")

@@ -22,14 +22,18 @@ use crate::db::{
         },
     },
 };
+use crate::error::InternalError;
 use sha2::Sha256;
 
 // Grouping is hashed both as a continuation section and alongside projection.
 // Preserve both occurrences: projection alone does not encode grouped HAVING.
-pub(super) fn hash_grouping_shape(hasher: &mut Sha256, plan: &AccessPlannedQuery) {
+pub(super) fn hash_grouping_shape(
+    hasher: &mut Sha256,
+    plan: &AccessPlannedQuery,
+) -> Result<(), InternalError> {
     let Some(grouped) = plan.grouped_plan() else {
         write_tag(hasher, GROUPING_NONE_TAG);
-        return;
+        return Ok(());
     };
     let strategy = grouped_plan_strategy(plan).unwrap_or_else(|| {
         debug_assert!(
@@ -52,20 +56,22 @@ pub(super) fn hash_grouping_shape(hasher: &mut Sha256, plan: &AccessPlannedQuery
             group_fields: &grouped.group.group_fields,
             aggregates: &grouped.group.aggregates,
         });
-    hash_group_having_projection(hasher, having.as_ref());
+    hash_group_having_projection(hasher, having.as_ref())?;
     write_hash_u64(hasher, grouped.group.execution.max_groups);
     write_hash_u64(hasher, grouped.group.execution.max_group_bytes);
+    Ok(())
 }
 
 pub(super) fn hash_projection_spec(
     hasher: &mut Sha256,
     projection: &ProjectionSpec,
     plan: &AccessPlannedQuery,
-) {
-    hash_projection_structural_fingerprint(hasher, projection);
+) -> Result<(), InternalError> {
+    hash_projection_structural_fingerprint(hasher, projection)?;
     if plan.grouped_plan().is_some() {
-        hash_grouping_shape(hasher, plan);
+        hash_grouping_shape(hasher, plan)?;
     }
+    Ok(())
 }
 
 fn hash_group_field_slots(hasher: &mut Sha256, fields: &GroupFieldSet) {

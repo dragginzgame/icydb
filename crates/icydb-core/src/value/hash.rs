@@ -98,11 +98,15 @@ impl ValueHashWriter {
     /// Write one virtual list element using the canonical list-item framing.
     pub(crate) fn write_list_value(&mut self, value: &Value) -> Result<(), InternalError> {
         feed_u8(&mut self.hasher, 0xFF);
-        write_to_hasher(value, &mut self.hasher)
+        self.write_value(value)
     }
 
     /// Write one canonical value payload into this hash stream.
     pub(crate) fn write_value(&mut self, value: &Value) -> Result<(), InternalError> {
+        #[cfg(test)]
+        if let Some(Err(error)) = test_hash_override() {
+            return Err(error);
+        }
         write_to_hasher(value, &mut self.hasher)
     }
 
@@ -110,7 +114,7 @@ impl ValueHashWriter {
     #[must_use]
     pub(crate) fn finish(self) -> [u8; 16] {
         #[cfg(test)]
-        if let Some(override_hash) = test_hash_override() {
+        if let Some(Ok(override_hash)) = test_hash_override() {
             return override_hash;
         }
 
@@ -127,7 +131,7 @@ pub(crate) fn hash_single_list_identity_canonical_value(
 ) -> Result<Option<[u8; 16]>, InternalError> {
     #[cfg(test)]
     if let Some(override_hash) = test_hash_override() {
-        return Ok(Some(override_hash));
+        return override_hash.map(Some);
     }
 
     let mut hasher = Xxh3::with_seed(VALUE_HASH_SEED);
@@ -196,22 +200,44 @@ pub(crate) fn hash_single_list_identity_canonical_value(
 }
 
 #[cfg(test)]
+type TestHashOverride = Result<[u8; 16], fn() -> InternalError>;
+
+/// Fixed typed failure used to qualify consumers without spending real IC work.
+#[cfg(test)]
+pub(crate) fn test_hash_budget_error() -> InternalError {
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionBudgetScope as Scope,
+        DiagnosticExecutionLane as Lane,
+    };
+    InternalError::execution_budget_exceeded(
+        Resource::TemporaryBytes,
+        10,
+        11,
+        Scope::Execution,
+        Lane::Mutation,
+        7,
+    )
+}
+
+#[cfg(test)]
 thread_local! {
-    static TEST_HASH_OVERRIDE: std::cell::Cell<Option<[u8; 16]>> =
+    static TEST_HASH_OVERRIDE: std::cell::Cell<Option<TestHashOverride>> =
         const { std::cell::Cell::new(None) };
 }
 
 #[cfg(test)]
-#[expect(clippy::redundant_closure_for_method_calls)]
-fn test_hash_override() -> Option<[u8; 16]> {
-    TEST_HASH_OVERRIDE.with(|cell| cell.get())
+fn test_hash_override() -> Option<Result<[u8; 16], InternalError>> {
+    TEST_HASH_OVERRIDE.with(|cell| {
+        cell.get()
+            .map(|result| result.map_err(|make_error| make_error()))
+    })
 }
 
 // Execute one closure with a thread-local test hash override and always restore
 // the previous override state, even if the closure panics.
 #[cfg(test)]
 pub(crate) fn with_test_hash_override<T>(
-    override_hash: [u8; 16],
+    override_hash: TestHashOverride,
     f: impl FnOnce() -> T + std::panic::UnwindSafe,
 ) -> T {
     let previous = TEST_HASH_OVERRIDE.with(|cell| cell.replace(Some(override_hash)));
@@ -325,10 +351,6 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
             feed_bytes(h, &s.to_bytes());
         }
         Value::Text(s) => {
-            // If you need case/Unicode insensitivity, normalize; else skip (much faster)
-            // let norm = normalize_nfkc_casefold(s);
-            // feed_u32( h, norm.len() as u32);
-            // feed_bytes( h, norm.as_bytes());
             feed_u32(h, s.len() as u32);
             feed_bytes(h, s.as_bytes());
         }
@@ -361,7 +383,7 @@ fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
 pub(crate) fn hash_value(value: &Value) -> Result<[u8; 16], InternalError> {
     #[cfg(test)]
     if let Some(override_hash) = test_hash_override() {
-        return Ok(override_hash);
+        return override_hash;
     }
 
     let mut writer = ValueHashWriter::new();

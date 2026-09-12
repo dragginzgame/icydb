@@ -1,12 +1,27 @@
 use super::canonical_group_key_equals;
 use crate::{
-    db::executor::group::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError},
+    db::executor::group::{CanonicalKey, GroupKey, GroupKeySet},
     types::{Decimal, U256},
-    value::{MapValueError, Value, with_test_hash_override},
+    value::{Value, with_test_hash_override},
 };
 
 fn map_value(entries: Vec<(Value, Value)>) -> Value {
     Value::Map(entries)
+}
+
+#[test]
+fn canonical_key_preserves_hash_failure() {
+    use crate::value::test_hash_budget_error;
+    let value = Value::List(vec![Value::Nat64(7)]);
+    with_test_hash_override(Err(test_hash_budget_error), || {
+        let error = value.canonical_key().unwrap_err();
+        assert_eq!(error.diagnostic(), test_hash_budget_error().diagnostic());
+        assert_eq!(
+            error.diagnostic_facts(),
+            test_hash_budget_error().diagnostic_facts()
+        );
+    });
+    assert!(value.canonical_key().is_ok());
 }
 
 #[test]
@@ -49,9 +64,9 @@ fn canonical_key_rejects_duplicate_map_keys_after_normalization() {
     let err = value
         .canonical_key()
         .expect_err("duplicate map keys should fail");
-    std::assert_matches!(
-        err,
-        KeyCanonicalError::InvalidMapValue(MapValueError::DuplicateKey { .. })
+    assert_eq!(
+        err.diagnostic(),
+        crate::error::InternalError::executor_invariant().diagnostic()
     );
 }
 
@@ -163,7 +178,7 @@ fn canonical_equal_keys_always_share_stable_hash() {
 
 #[test]
 fn group_key_set_handles_hash_collisions_with_equality_check() {
-    with_test_hash_override([0xAB; 16], || {
+    with_test_hash_override(Ok([0xAB; 16]), || {
         let mut set = GroupKeySet::default();
         let first = Value::Text("alpha".to_string())
             .canonical_key()

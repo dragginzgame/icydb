@@ -119,7 +119,7 @@ fn grouped_count_fast_path_rejects_structured_group_values() {
 
 #[test]
 fn grouped_count_fast_path_handles_hash_collisions_without_merging_groups() {
-    with_test_hash_override([0xAB; 16], || {
+    with_test_hash_override(Ok([0xAB; 16]), || {
         let mut grouped_execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
         let group_fields = group_fields(&[0]);
         let alpha = RowView::new(vec![Some(Value::Text("alpha".to_string()))]);

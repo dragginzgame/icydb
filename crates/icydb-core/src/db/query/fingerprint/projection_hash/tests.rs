@@ -8,9 +8,27 @@ use crate::db::{
 };
 use crate::{types::Decimal, value::Value};
 
+#[test]
+fn projection_hash_propagates_nested_aggregate_failure() {
+    use crate::value::{test_hash_budget_error, with_test_hash_override};
+    let spec = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+        expr: Expr::Aggregate(count().with_filter_expr(Expr::Literal(Value::Bool(true)))),
+        alias: None,
+    }]);
+    with_test_hash_override(Err(test_hash_budget_error), || {
+        let error =
+            hash_projection_structural_fingerprint(&mut new_hash_sha256(), &spec).unwrap_err();
+        assert_eq!(error.diagnostic(), test_hash_budget_error().diagnostic());
+        assert_eq!(
+            error.diagnostic_facts(),
+            test_hash_budget_error().diagnostic_facts()
+        );
+    });
+}
+
 fn hash_projection(spec: &ProjectionSpec) -> [u8; 32] {
     let mut hasher = new_hash_sha256();
-    hash_projection_structural_fingerprint(&mut hasher, spec);
+    hash_projection_structural_fingerprint(&mut hasher, spec).unwrap();
     super::super::finalize_sha256_digest(hasher)
 }
 

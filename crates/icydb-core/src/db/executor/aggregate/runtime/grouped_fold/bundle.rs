@@ -32,7 +32,7 @@ use crate::{
             },
             budget::charge_sort_work,
             group::{
-                GroupKey, KeyCanonicalError, StableHash, StableHashBuildHasher, StableHashMap,
+                GroupKey, StableHash, StableHashBuildHasher, StableHashMap,
                 retained_hash_entry_backing_bytes, try_reserve_hash_entry,
                 try_reserve_vec_elements,
             },
@@ -355,12 +355,9 @@ impl OrderedGroupedAggregateFold {
                 .clone();
             if field.has_identity_group_canonical_form() {
                 GroupKey::from_single_canonical_group_value(group_value)
-                    .map_err(KeyCanonicalError::into_internal_error)
                     .map_err(GroupError::from)?
             } else {
-                GroupKey::from_single_group_value(group_value)
-                    .map_err(KeyCanonicalError::into_internal_error)
-                    .map_err(GroupError::from)?
+                GroupKey::from_single_group_value(group_value).map_err(GroupError::from)?
             }
         } else {
             let hash =
@@ -648,7 +645,6 @@ impl GroupedAggregateBundle {
                 )
             } else {
                 GroupKey::from_single_group_value_with_hash(group_value.clone(), group_hash)
-                    .map_err(KeyCanonicalError::into_internal_error)
                     .map_err(GroupError::from)?
             };
             return self.insert_new_group(group_key, execution_context);

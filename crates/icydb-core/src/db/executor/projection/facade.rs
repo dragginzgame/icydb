@@ -383,7 +383,7 @@ where
         continuation
     };
     let scalar_runtime = if distinct {
-        scalar_runtime.into_scalar_page_suppressed()
+        scalar_runtime.into_scalar_page_suppressed()?
     } else {
         scalar_runtime
     };

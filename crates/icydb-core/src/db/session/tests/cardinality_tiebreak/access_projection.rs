@@ -55,7 +55,7 @@ fn decision_projection_matches_first_selected_identity_on_a_warm_plan() {
     let (cold, warm) = (prepare(), prepare());
     let original = warm.logical_plan();
     assert_eq!(original, cold.logical_plan());
-    let signature = original.continuation_signature(ENTITY_NAME);
+    let signature = original.continuation_signature(ENTITY_NAME).unwrap();
     let mut planned = original.clone();
     let selected_name = planned
         .access
@@ -113,11 +113,11 @@ fn decision_projection_matches_first_selected_identity_on_a_warm_plan() {
         assert!(run().is_err());
         assert_eq!(exact.observed(Resource::RowsVisited), 0);
     }
-    assert_eq!(original.continuation_signature(ENTITY_NAME), signature);
+    let current_signature = original.continuation_signature(ENTITY_NAME).unwrap();
+    assert_eq!(current_signature, signature);
     assert_eq!(prepare().logical_plan(), original);
-    assert_eq!(projection_rows(&session,
-        "SELECT id FROM PlannerRow WHERE common = 'everyone' AND rare = 'group-a' ORDER BY id LIMIT 3"
-    ).len(), 3);
+    let sql = "SELECT id FROM PlannerRow WHERE common = 'everyone' AND rare = 'group-a' ORDER BY id LIMIT 3";
+    assert_eq!(projection_rows(&session, sql).len(), 3);
 }
 
 #[test]

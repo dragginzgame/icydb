@@ -9,7 +9,7 @@ use crate::{
         executor::{
             budget::{charge_current_execution_budget, runtime_value_work},
             group::{
-                GroupKey, KeyCanonicalError, StableHash, retained_hash_entry_backing_bytes,
+                GroupKey, StableHash, retained_hash_entry_backing_bytes,
                 retained_vec_element_backing_bytes, stable_hash_from_digest,
                 try_reserve_hash_entry, try_reserve_vec_elements,
             },
@@ -164,8 +164,7 @@ impl DistinctProjectionRowSet {
             return self.insert_row_with_owned_canonicalization(row);
         }
 
-        let hash =
-            stable_hash_projected_row(row).map_err(KeyCanonicalError::into_internal_error)?;
+        let hash = stable_hash_projected_row(row)?;
         if self
             .buckets
             .get(&hash)
@@ -174,9 +173,7 @@ impl DistinctProjectionRowSet {
             return Ok(false);
         }
 
-        let canonical = GroupKey::from_group_values(row.values().to_vec())
-            .map_err(KeyCanonicalError::into_internal_error)?
-            .into_canonical_value();
+        let canonical = GroupKey::from_group_values(row.values().to_vec())?.into_canonical_value();
         charge_distinct_key(&canonical)?;
         self.retain_unique_canonical(hash, canonical)?;
 
@@ -187,8 +184,7 @@ impl DistinctProjectionRowSet {
         &mut self,
         row: &RowView,
     ) -> Result<bool, InternalError> {
-        let key = GroupKey::from_group_values(row.values().to_vec())
-            .map_err(KeyCanonicalError::into_internal_error)?;
+        let key = GroupKey::from_group_values(row.values().to_vec())?;
         let hash = key.hash();
         let canonical = key.into_canonical_value();
         if self
@@ -441,9 +437,7 @@ pub(super) fn collect_distinct_projected_rows<I>(
 }
 
 fn canonical_projected_row(row: &RowView) -> Result<Value, InternalError> {
-    GroupKey::from_group_values(row.values().to_vec())
-        .map(GroupKey::into_canonical_value)
-        .map_err(KeyCanonicalError::into_internal_error)
+    GroupKey::from_group_values(row.values().to_vec()).map(GroupKey::into_canonical_value)
 }
 
 fn projected_row_matches_canonical(
@@ -500,13 +494,11 @@ fn charge_distinct_structural_backing(bytes: u64) -> Result<(), InternalError> {
     )
 }
 
-fn stable_hash_projected_row(row: &RowView) -> Result<StableHash, KeyCanonicalError> {
+fn stable_hash_projected_row(row: &RowView) -> Result<StableHash, InternalError> {
     let mut hash_writer = ValueHashWriter::new();
     hash_writer.write_list_prefix(row.values().len());
-    for (index, value) in row.values().iter().enumerate() {
-        hash_writer
-            .write_list_value(value)
-            .map_err(|_| KeyCanonicalError::projected_row_hashing_failed(index, value))?;
+    for value in row.values() {
+        hash_writer.write_list_value(value)?;
     }
 
     Ok(stable_hash_from_digest(hash_writer.finish()))
@@ -599,6 +591,20 @@ mod tests {
 
     fn text_rows(rows: Vec<RowView>) -> Vec<Vec<Value>> {
         rows.into_iter().map(RowView::into_owned).collect()
+    }
+
+    #[test]
+    fn borrowed_row_hash_preserves_typed_failure() {
+        use crate::value::{test_hash_budget_error, with_test_hash_override};
+        with_test_hash_override(Err(test_hash_budget_error), || {
+            let row = RowView::owned(vec![Value::Nat64(7)]);
+            let error = stable_hash_projected_row(&row).unwrap_err();
+            assert_eq!(error.diagnostic(), test_hash_budget_error().diagnostic());
+            assert_eq!(
+                error.diagnostic_facts(),
+                test_hash_budget_error().diagnostic_facts()
+            );
+        });
     }
 
     fn collect_with_output_limit(

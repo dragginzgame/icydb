@@ -669,15 +669,20 @@ impl SqlExpr {
 
     /// Visit every aggregate leaf owned by this SQL expression tree through
     /// the canonical parser traversal contract.
-    pub(in crate::db::sql) fn for_each_tree_aggregate(
+    pub(in crate::db::sql) fn try_for_each_tree_aggregate<E>(
         &self,
-        visit: &mut impl FnMut(&SqlAggregateCall),
-    ) {
-        self.for_each_tree_expr(&mut |expr| {
+        visit: &mut impl FnMut(&SqlAggregateCall) -> Result<(), E>,
+    ) -> Result<(), E> {
+        // Reuse the short-circuiting tree owner: a rejected aggregate must stop
+        // the traversal before later leaves are interned.
+        let mut result = Ok(());
+        self.any_tree_expr(&mut |expr| {
             if let Self::Aggregate(aggregate) = expr {
-                visit(aggregate);
+                result = visit(aggregate);
             }
+            result.is_err()
         });
+        result
     }
 
     // Local identifiers are already in the parser/planner leaf form and do

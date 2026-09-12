@@ -345,12 +345,13 @@ impl AccessPlannedQuery {
     }
 
     /// Build one immutable execution-shape signature contract for runtime layers.
-    #[must_use]
     pub(in crate::db) fn execution_shape_signature(
         &self,
         entity_path: &str,
-    ) -> ExecutionShapeSignature {
-        ExecutionShapeSignature::new(self.continuation_signature(entity_path))
+    ) -> Result<ExecutionShapeSignature, InternalError> {
+        Ok(ExecutionShapeSignature::new(
+            self.continuation_signature(entity_path)?,
+        ))
     }
 
     /// Return whether the chosen access contract fully satisfies the current

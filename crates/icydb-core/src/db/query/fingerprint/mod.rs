@@ -13,6 +13,8 @@ use crate::db::codec::{finalize_hash_sha256, new_hash_sha256_prefixed};
 use crate::db::query::{
     fingerprint::projection_hash::hash_scalar_filter_expr_structural_fingerprint, plan::expr::Expr,
 };
+#[cfg(feature = "sql")]
+use crate::error::InternalError;
 use sha2::Sha256;
 
 const CONTINUATION_SIGNATURE_PROFILE_TAG: &[u8] = b"contsig";
@@ -34,11 +36,12 @@ pub(in crate::db::query::fingerprint) fn finalize_sha256_digest(hasher: Sha256) 
 /// This uses the same semantic expression encoder as plan and continuation
 /// identity, but a distinct domain tag prevents scope identity from being
 /// confused with a complete query-plan fingerprint.
-#[must_use]
 #[cfg(feature = "sql")]
-pub(in crate::db) fn resumable_update_scope_fingerprint(expr: &Expr) -> [u8; 32] {
+pub(in crate::db) fn resumable_update_scope_fingerprint(
+    expr: &Expr,
+) -> Result<[u8; 32], InternalError> {
     let mut hasher = new_hash_sha256_prefixed(RESUMABLE_UPDATE_SCOPE_FINGERPRINT_PROFILE_TAG);
-    hash_scalar_filter_expr_structural_fingerprint(&mut hasher, expr);
+    hash_scalar_filter_expr_structural_fingerprint(&mut hasher, expr)?;
 
-    finalize_hash_sha256(hasher)
+    Ok(finalize_hash_sha256(hasher))
 }

@@ -297,7 +297,10 @@ fn explain_preserves_scalar_and_grouped_continuation_identity() {
         let root = request(Resource::TemporaryBytes, 16_000_000);
         let plan = project(&query, &root).unwrap();
         assert_eq!(
-            query.continuation_signature("tests::Entity").to_string(),
+            query
+                .continuation_signature("tests::Entity")
+                .unwrap()
+                .to_string(),
             continuation
         );
         drop(query);
@@ -335,7 +338,7 @@ fn explain_projection_charges_repeated_borrowed_calls_without_changing_identity(
     scalar.filter_expr = None;
     for query in [scalar_query(), grouped_query(), predicate_only] {
         let before = query.clone();
-        let signature = query.continuation_signature("tests::Entity");
+        let signature = query.continuation_signature("tests::Entity").unwrap();
         let generous = request(Resource::TemporaryBytes, 16_000_000);
         let expected = project(&query, &generous).unwrap();
         assert_eq!(
@@ -366,7 +369,10 @@ fn explain_projection_charges_repeated_borrowed_calls_without_changing_identity(
                             .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
                     );
                     assert_eq!(query, before);
-                    assert_eq!(query.continuation_signature("tests::Entity"), signature);
+                    assert_eq!(
+                        query.continuation_signature("tests::Entity").unwrap(),
+                        signature
+                    );
                     assert_eq!(short.observed(Resource::RowsVisited), 0);
                     assert_eq!(short.observed(Resource::PlanCompilations), 0);
                 }
@@ -383,7 +389,10 @@ fn explain_projection_charges_repeated_borrowed_calls_without_changing_identity(
                     .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
             );
             assert_eq!(query, before);
-            assert_eq!(query.continuation_signature("tests::Entity"), signature);
+            assert_eq!(
+                query.continuation_signature("tests::Entity").unwrap(),
+                signature
+            );
             assert_eq!(exact.observed(Resource::RowsVisited), 0);
 
             let exhausted = exact.observed(resource);
@@ -422,14 +431,17 @@ fn explain_access_depth_bounds_detached_rendering_without_changing_query_identit
 
     query.access = AccessPlan::Union(vec![query.access]);
     let before = query.clone();
-    let identity = query.continuation_signature("tests::Entity");
+    let identity = query.continuation_signature("tests::Entity").unwrap();
     let error = project(&query, &root).unwrap_err();
     assert_eq!(
         error.diagnostic(),
         crate::error::InternalError::query_explain_depth_exceeded(128, 129).diagnostic(),
     );
     assert_eq!(query, before);
-    assert_eq!(query.continuation_signature("tests::Entity"), identity);
+    assert_eq!(
+        query.continuation_signature("tests::Entity").unwrap(),
+        identity
+    );
     assert_eq!(root.observed(Resource::RowsVisited), 0);
     assert!(admitted.render_json_canonical().is_ok());
 }

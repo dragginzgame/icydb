@@ -15,6 +15,7 @@ use crate::{
             plan::{AccessPlanProjection, project_access_plan},
         },
     },
+    error::InternalError,
     value::Value,
 };
 use sha2::Sha256;
@@ -33,9 +34,10 @@ struct AccessFingerprintVisitor<'a> {
 pub(in crate::db::query::fingerprint::hash_sections) fn hash_access_plan(
     hasher: &mut Sha256,
     access: &AccessPlan<Value>,
-) {
+) -> Result<(), InternalError> {
     let mut visitor = AccessFingerprintVisitor { hasher };
-    project_access_plan(access, &mut visitor);
+    project_access_plan(access, &mut visitor)?;
+    Ok(())
 }
 
 fn write_access_fields<'a>(
@@ -52,30 +54,34 @@ fn write_access_fields<'a>(
     }
 }
 
-fn write_values(hasher: &mut Sha256, values: &[Value]) {
+fn write_values(hasher: &mut Sha256, values: &[Value]) -> Result<(), InternalError> {
     write_u32(hasher, values.len() as u32);
     for value in values {
-        write_value(hasher, value);
+        write_value(hasher, value)?;
     }
+    Ok(())
 }
 
 impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
-    type Output = ();
+    type Output = Result<(), InternalError>;
 
     fn by_key(&mut self, key: &Value) -> Self::Output {
         write_tag(self.hasher, ACCESS_TAG_BY_KEY);
-        write_value(self.hasher, key);
+        write_value(self.hasher, key)?;
+        Ok(())
     }
 
     fn by_keys(&mut self, keys: &[Value]) -> Self::Output {
         write_tag(self.hasher, ACCESS_TAG_BY_KEYS);
-        write_values(self.hasher, keys);
+        write_values(self.hasher, keys)?;
+        Ok(())
     }
 
     fn key_range(&mut self, start: &Value, end: &Value) -> Self::Output {
         write_tag(self.hasher, ACCESS_TAG_KEY_RANGE);
-        write_value(self.hasher, start);
-        write_value(self.hasher, end);
+        write_value(self.hasher, start)?;
+        write_value(self.hasher, end)?;
+        Ok(())
     }
 
     fn index_prefix<'a>(
@@ -87,7 +93,8 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
     ) -> Self::Output {
         write_access_fields(self.hasher, ACCESS_TAG_INDEX_PREFIX, name, fields);
         write_u32(self.hasher, prefix_len as u32);
-        write_values(self.hasher, values);
+        write_values(self.hasher, values)?;
+        Ok(())
     }
 
     fn index_multi_lookup<'a>(
@@ -97,7 +104,8 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
         values: &[Value],
     ) -> Self::Output {
         write_access_fields(self.hasher, ACCESS_TAG_INDEX_MULTI_LOOKUP, name, fields);
-        write_values(self.hasher, values);
+        write_values(self.hasher, values)?;
+        Ok(())
     }
 
     fn index_branch_set<'a>(
@@ -108,8 +116,9 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
         branch_values: &[Value],
     ) -> Self::Output {
         write_access_fields(self.hasher, ACCESS_TAG_INDEX_BRANCH_SET, name, fields);
-        write_values(self.hasher, fixed_values);
-        write_values(self.hasher, branch_values);
+        write_values(self.hasher, fixed_values)?;
+        write_values(self.hasher, branch_values)?;
+        Ok(())
     }
 
     fn index_range<'a>(
@@ -123,13 +132,15 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
     ) -> Self::Output {
         write_access_fields(self.hasher, ACCESS_TAG_INDEX_RANGE, name, fields);
         write_u32(self.hasher, prefix_len as u32);
-        write_values(self.hasher, prefix);
-        write_value_bound(self.hasher, lower);
-        write_value_bound(self.hasher, upper);
+        write_values(self.hasher, prefix)?;
+        write_value_bound(self.hasher, lower)?;
+        write_value_bound(self.hasher, upper)?;
+        Ok(())
     }
 
     fn full_scan(&mut self) -> Self::Output {
         write_tag(self.hasher, ACCESS_TAG_FULL_SCAN);
+        Ok(())
     }
 
     fn union<T>(
@@ -139,10 +150,11 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
     ) -> Self::Output {
         // Identity uses the maintained postorder stream, without a child Vec.
         for child in children {
-            project(child, self);
+            project(child, self)?;
         }
         write_tag(self.hasher, ACCESS_TAG_UNION);
         write_u32(self.hasher, children.len() as u32);
+        Ok(())
     }
 
     fn intersection<T>(
@@ -151,9 +163,10 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
         project: impl Fn(&T, &mut Self) -> Self::Output,
     ) -> Self::Output {
         for child in children {
-            project(child, self);
+            project(child, self)?;
         }
         write_tag(self.hasher, ACCESS_TAG_INTERSECTION);
         write_u32(self.hasher, children.len() as u32);
+        Ok(())
     }
 }

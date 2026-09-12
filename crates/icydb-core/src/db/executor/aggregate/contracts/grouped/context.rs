@@ -699,8 +699,7 @@ impl ExecutionContext {
     pub(in crate::db::executor) fn record_implicit_single_group(
         &mut self,
     ) -> Result<(), GroupError> {
-        let implicit_key = GroupKey::from_group_values(Vec::new())
-            .map_err(|error| GroupError::from(error.into_internal_error()))?;
+        let implicit_key = GroupKey::from_group_values(Vec::new()).map_err(GroupError::from)?;
         self.record_new_group(0, 0, &implicit_key)
     }
 }

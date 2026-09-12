@@ -197,7 +197,7 @@ pub(super) fn lower_grouped_projection(
         validate_grouped_projection_expr(index, group_by, schema, expr_facts, work)?;
         seen_aggregate |= contains_aggregate;
         if contains_aggregate {
-            aggregate_call_interner.extend_select_item(&mut aggregate_calls, &item);
+            aggregate_call_interner.extend_select_item(&mut aggregate_calls, &item)?;
         }
 
         let (expr, expr_facts) = analyzed.into_parts();

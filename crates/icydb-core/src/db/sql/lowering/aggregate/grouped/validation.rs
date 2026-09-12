@@ -1,6 +1,9 @@
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{
-        query::builder::AggregateExpr,
+        query::{builder::AggregateExpr, intent::QueryError},
         schema::SchemaInfo,
         sql::{
             lowering::{
@@ -39,61 +42,63 @@ impl SqlAggregateCallInterner {
 
     pub(in crate::db::sql::lowering) fn from_existing(
         aggregate_calls: &[SqlAggregateCall],
-    ) -> Self {
+    ) -> Result<Self, SqlLoweringError> {
         let mut interner = Self::new();
         for (index, aggregate) in aggregate_calls.iter().enumerate() {
             interner
                 .indices_by_fingerprint
-                .entry(sql_aggregate_call_fingerprint(aggregate))
+                .entry(sql_aggregate_call_fingerprint(aggregate)?)
                 .or_default()
                 .push(index);
         }
 
-        interner
+        Ok(interner)
     }
 
     pub(in crate::db::sql::lowering) fn extend_expr(
         &mut self,
         aggregate_calls: &mut Vec<SqlAggregateCall>,
         expr: &SqlExpr,
-    ) {
-        expr.for_each_tree_aggregate(&mut |aggregate| {
-            self.push_unique(aggregate_calls, aggregate.clone());
-        });
+    ) -> Result<(), SqlLoweringError> {
+        expr.try_for_each_tree_aggregate(&mut |aggregate| {
+            self.push_unique(aggregate_calls, aggregate.clone())
+        })
     }
 
     pub(in crate::db::sql::lowering) fn extend_select_item(
         &mut self,
         aggregate_calls: &mut Vec<SqlAggregateCall>,
         item: &SqlSelectItem,
-    ) {
+    ) -> Result<(), SqlLoweringError> {
         match item {
             SqlSelectItem::Field(_) => {}
             SqlSelectItem::Aggregate(aggregate) => {
-                self.push_unique(aggregate_calls, aggregate.clone());
+                self.push_unique(aggregate_calls, aggregate.clone())?;
             }
             SqlSelectItem::Expr(expr) => {
-                self.extend_expr(aggregate_calls, expr);
+                self.extend_expr(aggregate_calls, expr)?;
             }
         }
+        Ok(())
     }
 
     fn push_unique(
         &mut self,
         aggregate_calls: &mut Vec<SqlAggregateCall>,
         aggregate: SqlAggregateCall,
-    ) {
-        let fingerprint = sql_aggregate_call_fingerprint(&aggregate);
+    ) -> Result<(), SqlLoweringError> {
+        let fingerprint = sql_aggregate_call_fingerprint(&aggregate)?;
         let indices = self.indices_by_fingerprint.entry(fingerprint).or_default();
         if indices
             .iter()
             .any(|index| aggregate_calls.get(*index) == Some(&aggregate))
         {
-            return;
+            return Ok(());
         }
 
         indices.push(aggregate_calls.len());
         aggregate_calls.push(aggregate);
+        Ok(())
     }
 }
 
@@ -142,26 +147,26 @@ pub(in crate::db::sql::lowering::aggregate) fn validate_grouped_aggregate_scalar
     Ok(())
 }
 
-fn sql_aggregate_call_fingerprint(aggregate: &SqlAggregateCall) -> u64 {
+fn sql_aggregate_call_fingerprint(aggregate: &SqlAggregateCall) -> Result<u64, SqlLoweringError> {
     let mut hasher = DefaultHasher::new();
     "aggregate".hash(&mut hasher);
     sql_aggregate_kind_tag(aggregate.kind).hash(&mut hasher);
     aggregate.distinct.hash(&mut hasher);
-    sql_expr_option_fingerprint(aggregate.input.as_deref()).hash(&mut hasher);
-    sql_expr_option_fingerprint(aggregate.filter_expr.as_deref()).hash(&mut hasher);
-    hasher.finish()
+    sql_expr_option_fingerprint(aggregate.input.as_deref())?.hash(&mut hasher);
+    sql_expr_option_fingerprint(aggregate.filter_expr.as_deref())?.hash(&mut hasher);
+    Ok(hasher.finish())
 }
 
-fn sql_expr_option_fingerprint(expr: Option<&SqlExpr>) -> u64 {
+fn sql_expr_option_fingerprint(expr: Option<&SqlExpr>) -> Result<u64, SqlLoweringError> {
     let mut hasher = DefaultHasher::new();
     expr.is_some().hash(&mut hasher);
     if let Some(expr) = expr {
-        sql_expr_fingerprint(expr).hash(&mut hasher);
+        sql_expr_fingerprint(expr)?.hash(&mut hasher);
     }
-    hasher.finish()
+    Ok(hasher.finish())
 }
 
-fn sql_expr_fingerprint(expr: &SqlExpr) -> u64 {
+fn sql_expr_fingerprint(expr: &SqlExpr) -> Result<u64, SqlLoweringError> {
     let mut hasher = DefaultHasher::new();
     match expr {
         SqlExpr::Field(field) => {
@@ -175,11 +180,11 @@ fn sql_expr_fingerprint(expr: &SqlExpr) -> u64 {
         }
         SqlExpr::Aggregate(aggregate) => {
             2_u8.hash(&mut hasher);
-            sql_aggregate_call_fingerprint(aggregate).hash(&mut hasher);
+            sql_aggregate_call_fingerprint(aggregate)?.hash(&mut hasher);
         }
         SqlExpr::Literal(value) => {
             3_u8.hash(&mut hasher);
-            value_fingerprint(value).hash(&mut hasher);
+            value_fingerprint(value)?.hash(&mut hasher);
         }
         SqlExpr::Param { index } => {
             4_u8.hash(&mut hasher);
@@ -191,13 +196,13 @@ fn sql_expr_fingerprint(expr: &SqlExpr) -> u64 {
             negated,
         } => {
             5_u8.hash(&mut hasher);
-            sql_expr_fingerprint(expr).hash(&mut hasher);
+            sql_expr_fingerprint(expr)?.hash(&mut hasher);
             negated.hash(&mut hasher);
             values.len().hash(&mut hasher);
             for value in values {
                 match value {
                     crate::db::sql::parser::SqlMembershipValue::Literal(value) => {
-                        value_fingerprint(value).hash(&mut hasher);
+                        value_fingerprint(value)?.hash(&mut hasher);
                     }
                     crate::db::sql::parser::SqlMembershipValue::Param { index } => {
                         1_u8.hash(&mut hasher);
@@ -208,7 +213,7 @@ fn sql_expr_fingerprint(expr: &SqlExpr) -> u64 {
         }
         SqlExpr::NullTest { expr, negated } => {
             6_u8.hash(&mut hasher);
-            sql_expr_fingerprint(expr).hash(&mut hasher);
+            sql_expr_fingerprint(expr)?.hash(&mut hasher);
             negated.hash(&mut hasher);
         }
         SqlExpr::Like {
@@ -218,7 +223,7 @@ fn sql_expr_fingerprint(expr: &SqlExpr) -> u64 {
             casefold,
         } => {
             7_u8.hash(&mut hasher);
-            sql_expr_fingerprint(expr).hash(&mut hasher);
+            sql_expr_fingerprint(expr)?.hash(&mut hasher);
             pattern.hash(&mut hasher);
             negated.hash(&mut hasher);
             casefold.hash(&mut hasher);
@@ -228,44 +233,38 @@ fn sql_expr_fingerprint(expr: &SqlExpr) -> u64 {
             sql_scalar_function_tag(*function).hash(&mut hasher);
             args.len().hash(&mut hasher);
             for arg in args {
-                sql_expr_fingerprint(arg).hash(&mut hasher);
+                sql_expr_fingerprint(arg)?.hash(&mut hasher);
             }
         }
         SqlExpr::Unary { op, expr } => {
             9_u8.hash(&mut hasher);
             sql_unary_op_tag(*op).hash(&mut hasher);
-            sql_expr_fingerprint(expr).hash(&mut hasher);
+            sql_expr_fingerprint(expr)?.hash(&mut hasher);
         }
         SqlExpr::Binary { op, left, right } => {
             10_u8.hash(&mut hasher);
             sql_binary_op_tag(*op).hash(&mut hasher);
-            sql_expr_fingerprint(left).hash(&mut hasher);
-            sql_expr_fingerprint(right).hash(&mut hasher);
+            sql_expr_fingerprint(left)?.hash(&mut hasher);
+            sql_expr_fingerprint(right)?.hash(&mut hasher);
         }
         SqlExpr::Case { arms, else_expr } => {
             11_u8.hash(&mut hasher);
             arms.len().hash(&mut hasher);
             for arm in arms {
-                sql_expr_fingerprint(&arm.condition).hash(&mut hasher);
-                sql_expr_fingerprint(&arm.result).hash(&mut hasher);
+                sql_expr_fingerprint(&arm.condition)?.hash(&mut hasher);
+                sql_expr_fingerprint(&arm.result)?.hash(&mut hasher);
             }
-            sql_expr_option_fingerprint(else_expr.as_deref()).hash(&mut hasher);
+            sql_expr_option_fingerprint(else_expr.as_deref())?.hash(&mut hasher);
         }
     }
 
-    hasher.finish()
+    Ok(hasher.finish())
 }
 
-fn value_fingerprint(value: &Value) -> [u8; 16] {
-    hash_value(value).unwrap_or_else(|_| {
-        let mut hasher = DefaultHasher::new();
-        value.canonical_tag().to_u8().hash(&mut hasher);
-        let digest = hasher.finish().to_be_bytes();
-        let mut out = [0_u8; 16];
-        out[..8].copy_from_slice(&digest);
-        out[8..].copy_from_slice(&digest);
-        out
-    })
+fn value_fingerprint(value: &Value) -> Result<[u8; 16], SqlLoweringError> {
+    hash_value(value)
+        .map_err(QueryError::execute)
+        .map_err(SqlLoweringError::from)
 }
 
 const fn sql_aggregate_kind_tag(kind: crate::db::sql::parser::SqlAggregateKind) -> u8 {

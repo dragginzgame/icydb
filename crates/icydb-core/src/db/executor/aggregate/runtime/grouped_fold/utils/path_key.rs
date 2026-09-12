@@ -8,7 +8,7 @@ use std::cmp::Ordering;
 use crate::{
     db::{
         executor::{
-            group::{GroupKey, KeyCanonicalError, StableHash, stable_hash_from_digest},
+            group::{GroupKey, StableHash, stable_hash_from_digest},
             pipeline::runtime::RowView,
             projection::resolve_value_field_path,
         },
@@ -94,7 +94,6 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn materialize_pat
     }
 
     GroupKey::from_group_values_with_hash(values, hash)
-        .map_err(KeyCanonicalError::into_internal_error)
 }
 
 #[cfg(test)]

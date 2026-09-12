@@ -18,7 +18,7 @@ use crate::{
                 },
                 value_reducer::ValueReducerState,
             },
-            group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
+            group::{CanonicalKey, GroupKeySet},
             pipeline::contracts::ResolvedExecutionKeyStream,
             pipeline::runtime::{RowView, StructuralGroupedRowRuntime},
         },
@@ -209,9 +209,7 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
         *filtered_rows = (*filtered_rows).saturating_add(1);
 
         let distinct_value = dispatcher.extract(&row_view)?;
-        let distinct_key = distinct_value
-            .canonical_key()
-            .map_err(KeyCanonicalError::into_internal_error)?;
+        let distinct_key = distinct_value.canonical_key()?;
         let admitted = grouped_execution_context
             .admit_distinct_key(
                 &mut distinct_values,

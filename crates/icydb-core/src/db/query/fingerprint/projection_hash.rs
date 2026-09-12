@@ -15,6 +15,7 @@ use crate::db::query::{
         expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec},
     },
 };
+use crate::error::InternalError;
 #[cfg(test)]
 use crate::value::Value;
 use sha2::Sha256;
@@ -80,7 +81,7 @@ impl<'a> ProjectionHashShape<'a> {
 pub(in crate::db::query::fingerprint) fn hash_projection_structural_fingerprint(
     hasher: &mut Sha256,
     projection: &ProjectionSpec,
-) {
+) -> Result<(), InternalError> {
     let shape = ProjectionHashShape::semantic(projection);
 
     write_tag(hasher, PROJECTION_STRUCTURAL_FINGERPRINT_TAG);
@@ -89,8 +90,9 @@ pub(in crate::db::query::fingerprint) fn hash_projection_structural_fingerprint(
         u32::try_from(shape.projection.fields().count()).unwrap_or(u32::MAX),
     );
     for field in shape.projection.fields() {
-        hash_projection_field(hasher, field);
+        hash_projection_field(hasher, field)?;
     }
+    Ok(())
 }
 
 ///
@@ -103,18 +105,27 @@ pub(in crate::db::query::fingerprint) fn hash_projection_structural_fingerprint(
 pub(in crate::db::query::fingerprint) fn hash_scalar_filter_expr_structural_fingerprint(
     hasher: &mut Sha256,
     expr: &Expr,
-) {
-    hash_expr(hasher, expr, false);
+) -> Result<(), InternalError> {
+    hash_expr(hasher, expr, false)?;
+    Ok(())
 }
 
-fn hash_projection_field(hasher: &mut Sha256, field: &ProjectionField) {
+fn hash_projection_field(
+    hasher: &mut Sha256,
+    field: &ProjectionField,
+) -> Result<(), InternalError> {
     // Field aliases are explain/display metadata and must not affect
     // projection semantic identity.
     write_tag(hasher, PROJECTION_FIELD_SCALAR_TAG);
-    hash_expr(hasher, field.expr(), false);
+    hash_expr(hasher, field.expr(), false)?;
+    Ok(())
 }
 
-fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
+fn hash_expr(
+    hasher: &mut Sha256,
+    expr: &Expr,
+    numeric_literal_context: bool,
+) -> Result<(), InternalError> {
     #[cfg(not(test))]
     let _ = numeric_literal_context;
 
@@ -139,24 +150,24 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
             #[cfg(test)]
             if numeric_literal_context {
                 let Some(decimal) = coerce_numeric_decimal(value) else {
-                    write_value(hasher, value);
-                    return;
+                    write_value(hasher, value)?;
+                    return Ok(());
                 };
 
                 write_tag(hasher, NUMERIC_LITERAL_CANONICAL_DECIMAL_TAG);
-                write_value(hasher, &Value::Decimal(decimal));
+                write_value(hasher, &Value::Decimal(decimal))?;
             } else {
-                write_value(hasher, value);
+                write_value(hasher, value)?;
             }
             #[cfg(not(test))]
-            write_value(hasher, value);
+            write_value(hasher, value)?;
         }
         Expr::FunctionCall { function, args } => {
             write_tag(hasher, EXPR_FUNCTION_CALL_TAG);
             write_str(hasher, function.canonical_label());
             write_u32(hasher, u32::try_from(args.len()).unwrap_or(u32::MAX));
             for arg in args {
-                hash_expr(hasher, arg, numeric_literal_context);
+                hash_expr(hasher, arg, numeric_literal_context)?;
             }
         }
         Expr::Case {
@@ -169,15 +180,15 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
                 u32::try_from(when_then_arms.len()).unwrap_or(u32::MAX),
             );
             for arm in when_then_arms {
-                hash_expr(hasher, arm.condition(), false);
-                hash_expr(hasher, arm.result(), numeric_literal_context);
+                hash_expr(hasher, arm.condition(), false)?;
+                hash_expr(hasher, arm.result(), numeric_literal_context)?;
             }
-            hash_expr(hasher, else_expr.as_ref(), numeric_literal_context);
+            hash_expr(hasher, else_expr.as_ref(), numeric_literal_context)?;
         }
         Expr::Unary { op, expr } => {
             write_tag(hasher, EXPR_UNARY_TAG);
             write_tag(hasher, unary_op_tag(*op));
-            hash_expr(hasher, expr.as_ref(), numeric_literal_context);
+            hash_expr(hasher, expr.as_ref(), numeric_literal_context)?;
         }
         Expr::Binary { op, left, right } => {
             write_tag(hasher, EXPR_BINARY_TAG);
@@ -186,19 +197,20 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
             // normalization is intentionally out-of-scope for structural identity.
             let binary_numeric_literal_context =
                 numeric_literal_context || binary_op_uses_numeric_widen_semantics(*op);
-            hash_expr(hasher, left.as_ref(), binary_numeric_literal_context);
-            hash_expr(hasher, right.as_ref(), binary_numeric_literal_context);
+            hash_expr(hasher, left.as_ref(), binary_numeric_literal_context)?;
+            hash_expr(hasher, right.as_ref(), binary_numeric_literal_context)?;
         }
         Expr::Aggregate(aggregate) => {
             write_tag(hasher, EXPR_AGGREGATE_TAG);
-            hash_aggregate_expr(hasher, aggregate);
+            hash_aggregate_expr(hasher, aggregate)?;
         }
         #[cfg(test)]
         Expr::Alias { expr, name: _ } => {
             // Expression alias wrappers are presentation metadata only.
-            hash_expr(hasher, expr.as_ref(), numeric_literal_context);
+            hash_expr(hasher, expr.as_ref(), numeric_literal_context)?;
         }
     }
+    Ok(())
 }
 
 const fn binary_op_uses_numeric_widen_semantics(op: BinaryOp) -> bool {
@@ -217,7 +229,10 @@ const fn binary_op_uses_numeric_widen_semantics(op: BinaryOp) -> bool {
     }
 }
 
-fn hash_aggregate_expr(hasher: &mut Sha256, aggregate: &AggregateExpr) {
+fn hash_aggregate_expr(
+    hasher: &mut Sha256,
+    aggregate: &AggregateExpr,
+) -> Result<(), InternalError> {
     let identity = AggregateIdentity::from_aggregate_expr(aggregate);
 
     write_tag(hasher, identity.kind().fingerprint_tag());
@@ -228,7 +243,7 @@ fn hash_aggregate_expr(hasher: &mut Sha256, aggregate: &AggregateExpr) {
         }
         (_, Some(input_expr)) => {
             write_tag(hasher, AGGREGATE_TARGET_PRESENT_TAG);
-            hash_expr(hasher, input_expr, false);
+            hash_expr(hasher, input_expr, false)?;
         }
         (_, None) => write_tag(hasher, AGGREGATE_TARGET_ABSENT_TAG),
     }
@@ -242,10 +257,11 @@ fn hash_aggregate_expr(hasher: &mut Sha256, aggregate: &AggregateExpr) {
     );
     if let Some(filter_expr) = aggregate.filter_expr() {
         write_tag(hasher, AGGREGATE_FILTER_PRESENT_TAG);
-        hash_expr(hasher, filter_expr, false);
+        hash_expr(hasher, filter_expr, false)?;
     } else {
         write_tag(hasher, AGGREGATE_FILTER_ABSENT_TAG);
     }
+    Ok(())
 }
 
 const fn unary_op_tag(op: UnaryOp) -> u8 {

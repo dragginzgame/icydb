@@ -638,13 +638,13 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     .map_err(LoweredAccessError::into_internal_error)?;
     let (index_prefix_specs, index_range_specs) = lowered_access.into_index_specs();
 
-    Ok(build_prepared_execution_plan_core_with_lowered_access(
+    build_prepared_execution_plan_core_with_lowered_access(
         authority,
         plan,
         continuation_identity,
         Arc::from(index_prefix_specs),
         Arc::from(index_range_specs),
-    ))
+    )
 }
 
 // Rebuild prepared metadata from one already-finalized logical plan plus
@@ -656,7 +656,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     continuation_identity: Option<AcceptedContinuationIdentity>,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     index_range_specs: Arc<[LoweredIndexRangeSpec]>,
-) -> PreparedExecutionPlanCore {
+) -> Result<PreparedExecutionPlanCore, InternalError> {
     build_prepared_execution_plan_core_with_shared_lowered_access(
         authority,
         Rc::new(plan),
@@ -701,22 +701,22 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     continuation_identity: Option<AcceptedContinuationIdentity>,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     index_range_specs: Arc<[LoweredIndexRangeSpec]>,
-) -> PreparedExecutionPlanCore {
+) -> Result<PreparedExecutionPlanCore, InternalError> {
     // Recompute continuation after the logical-shape rewrite so grouped cursor
     // signatures and boundary arity reflect the grouped plan, not the scalar
     // aggregate source plan.
     let continuation = plan.planned_continuation_contract_with_accepted_identity(
         authority.entity_path(),
         continuation_identity,
-    );
+    )?;
     let execution_shape_fingerprint_prefix = read_shape_fingerprint_prefix(&authority, &plan);
 
-    PreparedExecutionPlanCore::new(
+    Ok(PreparedExecutionPlanCore::new(
         plan,
         execution_shape_fingerprint_prefix,
         continuation_identity,
         continuation,
         index_prefix_specs,
         index_range_specs,
-    )
+    ))
 }

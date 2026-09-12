@@ -17,6 +17,7 @@ use crate::db::query::{
         expr::{BinaryOp, CaseWhenArm, Expr, UnaryOp},
     },
 };
+use crate::error::InternalError;
 use sha2::Sha256;
 
 const GROUP_HAVING_MISSING_SLOT_SENTINEL: u32 = u32::MAX;
@@ -72,21 +73,22 @@ impl GroupHavingFingerprintSource<'_> {
 pub(super) fn hash_group_having_projection(
     hasher: &mut Sha256,
     expr: Option<&GroupHavingFingerprintSource<'_>>,
-) {
+) -> Result<(), InternalError> {
     let Some(expr) = expr else {
         write_tag(hasher, GROUP_HAVING_ABSENT_TAG);
-        return;
+        return Ok(());
     };
 
     write_tag(hasher, GROUP_HAVING_PRESENT_TAG);
-    hash_group_having_expr(hasher, expr.expr, expr);
+    hash_group_having_expr(hasher, expr.expr, expr)?;
+    Ok(())
 }
 
 fn hash_group_having_expr(
     hasher: &mut Sha256,
     expr: &Expr,
     context: &GroupHavingFingerprintSource<'_>,
-) {
+) -> Result<(), InternalError> {
     match expr {
         Expr::Binary {
             op:
@@ -100,9 +102,9 @@ fn hash_group_having_expr(
             right,
         } => {
             write_tag(hasher, GROUP_HAVING_COMPARE_TAG);
-            hash_group_having_value_expr(hasher, left, context);
+            hash_group_having_value_expr(hasher, left, context)?;
             write_tag(hasher, grouped_having_binary_op_tag(*op));
-            hash_group_having_value_expr(hasher, right, context);
+            hash_group_having_value_expr(hasher, right, context)?;
         }
         Expr::Binary {
             op: BinaryOp::And,
@@ -111,21 +113,22 @@ fn hash_group_having_expr(
         } => {
             write_tag(hasher, GROUP_HAVING_AND_TAG);
             write_u32(hasher, 2);
-            hash_group_having_expr(hasher, left, context);
-            hash_group_having_expr(hasher, right, context);
+            hash_group_having_expr(hasher, left, context)?;
+            hash_group_having_expr(hasher, right, context)?;
         }
         _ => {
             write_tag(hasher, GROUP_HAVING_VALUE_EXPR_TAG);
-            hash_group_having_value_expr(hasher, expr, context);
+            hash_group_having_value_expr(hasher, expr, context)?;
         }
     }
+    Ok(())
 }
 
 fn hash_group_having_value_expr(
     hasher: &mut Sha256,
     expr: &Expr,
     context: &GroupHavingFingerprintSource<'_>,
-) {
+) -> Result<(), InternalError> {
     match expr {
         Expr::Field(field_id) => {
             write_tag(hasher, GROUP_HAVING_VALUE_GROUP_FIELD_TAG);
@@ -150,20 +153,20 @@ fn hash_group_having_value_expr(
         }
         Expr::Literal(value) => {
             write_tag(hasher, GROUP_HAVING_VALUE_LITERAL_TAG);
-            write_value(hasher, value);
+            write_value(hasher, value)?;
         }
         Expr::FunctionCall { function, args } => {
             write_tag(hasher, GROUP_HAVING_VALUE_FUNCTION_TAG);
             write_str(hasher, function.canonical_label());
             write_u32(hasher, args.len() as u32);
             for arg in args {
-                hash_group_having_value_expr(hasher, arg, context);
+                hash_group_having_value_expr(hasher, arg, context)?;
             }
         }
         Expr::Unary { op, expr } => {
             write_tag(hasher, GROUP_HAVING_VALUE_UNARY_TAG);
             write_tag(hasher, grouped_having_unary_op_tag(*op));
-            hash_group_having_value_expr(hasher, expr, context);
+            hash_group_having_value_expr(hasher, expr, context)?;
         }
         Expr::Case {
             when_then_arms,
@@ -172,21 +175,22 @@ fn hash_group_having_value_expr(
             write_tag(hasher, GROUP_HAVING_VALUE_CASE_TAG);
             write_u32(hasher, when_then_arms.len() as u32);
             for arm in when_then_arms {
-                hash_group_having_case_arm(hasher, arm, context);
+                hash_group_having_case_arm(hasher, arm, context)?;
             }
-            hash_group_having_value_expr(hasher, else_expr, context);
+            hash_group_having_value_expr(hasher, else_expr, context)?;
         }
         Expr::Binary { op, left, right } => {
             write_tag(hasher, GROUP_HAVING_VALUE_BINARY_TAG);
             write_tag(hasher, grouped_having_binary_op_tag(*op));
-            hash_group_having_value_expr(hasher, left, context);
-            hash_group_having_value_expr(hasher, right, context);
+            hash_group_having_value_expr(hasher, left, context)?;
+            hash_group_having_value_expr(hasher, right, context)?;
         }
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
-            hash_group_having_value_expr(hasher, expr, context);
+            hash_group_having_value_expr(hasher, expr, context)?;
         }
     }
+    Ok(())
 }
 
 fn write_optional_str(hasher: &mut Sha256, value: Option<&str>) {
@@ -206,10 +210,11 @@ fn hash_group_having_case_arm(
     hasher: &mut Sha256,
     expr: &CaseWhenArm,
     context: &GroupHavingFingerprintSource<'_>,
-) {
+) -> Result<(), InternalError> {
     write_tag(hasher, GROUP_HAVING_VALUE_CASE_ARM_TAG);
-    hash_group_having_value_expr(hasher, expr.condition(), context);
-    hash_group_having_value_expr(hasher, expr.result(), context);
+    hash_group_having_value_expr(hasher, expr.condition(), context)?;
+    hash_group_having_value_expr(hasher, expr.result(), context)?;
+    Ok(())
 }
 
 const fn grouped_having_unary_op_tag(op: UnaryOp) -> u8 {

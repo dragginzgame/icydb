@@ -71,8 +71,6 @@ const GROUP_HAVING_VALUE_FIELD_PATH_TAG: u8 = 0x81;
 const GROUP_FIELD_DIRECT_TAG: u8 = 0x82;
 const GROUP_FIELD_SCALAR_PATH_TAG: u8 = 0x83;
 
-const HASH_VALUE_ERROR_TAG: u8 = 0xEE;
-
 const VALUE_BOUND_UNBOUNDED_TAG: u8 = 0x00;
 const VALUE_BOUND_INCLUDED_TAG: u8 = 0x01;
 const VALUE_BOUND_EXCLUDED_TAG: u8 = 0x02;
@@ -119,15 +117,16 @@ pub(super) fn hash_scalar_semantic_filter(
     hasher: &mut Sha256,
     filter_expr: Option<&Expr>,
     predicate: Option<&Predicate>,
-) {
+) -> Result<(), InternalError> {
     if let Some(filter_expr) = filter_expr {
         write_tag(hasher, FILTER_EXPR_PRESENT_TAG);
-        hash_scalar_filter_expr_structural_fingerprint(hasher, filter_expr);
+        hash_scalar_filter_expr_structural_fingerprint(hasher, filter_expr)?;
 
-        return;
+        return Ok(());
     }
 
     hash_predicate(hasher, predicate);
+    Ok(())
 }
 
 // Render only the order term currently being hashed.
@@ -171,31 +170,34 @@ pub(super) fn hash_mode(hasher: &mut Sha256, mode: QueryMode) {
 /// Encode one value digest into the plan hash stream.
 ///
 
-pub(in crate::db::query::fingerprint) fn write_value(hasher: &mut Sha256, value: &Value) {
-    match hash_value(value) {
-        Ok(digest) => hasher.update(digest),
-        Err(err) => {
-            write_tag(hasher, HASH_VALUE_ERROR_TAG);
-            write_internal_error_identity(hasher, &err);
-        }
-    }
+pub(in crate::db::query::fingerprint) fn write_value(
+    hasher: &mut Sha256,
+    value: &Value,
+) -> Result<(), InternalError> {
+    // An incomplete value hash must never become a usable identity.
+    hasher.update(hash_value(value)?);
+    Ok(())
 }
 
 ///
 /// Encode one value bound into the plan hash stream.
 ///
-pub(super) fn write_value_bound(hasher: &mut Sha256, bound: &Bound<Value>) {
+pub(super) fn write_value_bound(
+    hasher: &mut Sha256,
+    bound: &Bound<Value>,
+) -> Result<(), InternalError> {
     match bound {
         Bound::Unbounded => write_tag(hasher, VALUE_BOUND_UNBOUNDED_TAG),
         Bound::Included(value) => {
             write_tag(hasher, VALUE_BOUND_INCLUDED_TAG);
-            write_value(hasher, value);
+            write_value(hasher, value)?;
         }
         Bound::Excluded(value) => {
             write_tag(hasher, VALUE_BOUND_EXCLUDED_TAG);
-            write_value(hasher, value);
+            write_value(hasher, value)?;
         }
     }
+    Ok(())
 }
 
 ///
@@ -212,20 +214,6 @@ pub(in crate::db::query::fingerprint) fn write_str(hasher: &mut Sha256, value: &
 
 pub(in crate::db::query::fingerprint) fn write_u32(hasher: &mut Sha256, value: u32) {
     write_hash_u32(hasher, value);
-}
-
-///
-/// Encode one compact internal-error identity into the plan hash stream.
-///
-
-pub(in crate::db::query::fingerprint) fn write_internal_error_identity(
-    hasher: &mut Sha256,
-    err: &InternalError,
-) {
-    let diagnostic = err.diagnostic();
-
-    write_u32(hasher, u32::from(diagnostic.error_code().raw()));
-    write_u32(hasher, diagnostic.origin() as u32);
 }
 
 ///

@@ -85,7 +85,8 @@ impl CanonicalMutationIntent {
         validate_path(&target_entity_path)?;
         let canonical_scope = encode_scope(scope)?;
         let canonical_fixed_patch = encode_fixed_patch(fixed_patch)?;
-        let scope_fingerprint = resumable_update_scope_fingerprint(scope);
+        let scope_fingerprint = resumable_update_scope_fingerprint(scope)
+            .map_err(|error| MutationJobError::from_internal_error(&error))?;
         let patch_fingerprint = fixed_patch.fingerprint();
         let target_entity_identity = target_entity_identity(&target_entity_path, target_entity_tag);
         let start_request_fingerprint = start_request_fingerprint(
@@ -310,7 +311,9 @@ impl CanonicalMutationIntent {
         let patch = decode_fixed_patch(&self.canonical_fixed_patch)?;
         if self.target_entity_identity
             != target_entity_identity(&self.target_entity_path, self.target_entity_tag)
-            || self.scope_fingerprint != resumable_update_scope_fingerprint(&scope)
+            || self.scope_fingerprint
+                != resumable_update_scope_fingerprint(&scope)
+                    .map_err(|error| MutationJobError::from_internal_error(&error))?
             || self.patch_fingerprint != patch.fingerprint()
             || self.start_request_fingerprint
                 != start_request_fingerprint(
@@ -938,6 +941,44 @@ mod tests {
             17,
         )
         .expect("bounded canonical intent should admit")
+    }
+
+    #[test]
+    fn intent_identity_failure_is_not_corruption_and_can_be_retried() {
+        use crate::{
+            db::QueryError,
+            value::{test_hash_budget_error, with_test_hash_override},
+        };
+        let current = intent(7, 100);
+        let bytes = current.encode().unwrap();
+        let expected = MutationJobError::ExecutionBudgetExceeded {
+            resource: icydb_diagnostic_code::DiagnosticExecutionBudgetResource::TemporaryBytes
+                .raw(),
+            limit: 10,
+            observed: 11,
+            scope: icydb_diagnostic_code::DiagnosticExecutionBudgetScope::Execution.raw(),
+            lane: icydb_diagnostic_code::DiagnosticExecutionLane::Mutation.raw(),
+            normalized_shape_fingerprint_prefix: 7,
+        };
+        with_test_hash_override(Err(test_hash_budget_error), || {
+            for _ in 0..2 {
+                assert_eq!(
+                    CanonicalMutationIntent::decode(&bytes),
+                    Err(expected.clone())
+                );
+            }
+            assert_eq!(
+                MutationJobError::from_query_error(QueryError::execute(test_hash_budget_error())),
+                expected
+            );
+        });
+        assert_eq!(CanonicalMutationIntent::decode(&bytes).unwrap(), current);
+        assert_eq!(
+            MutationJobError::from_query_error(QueryError::sql_write_boundary(
+                icydb_diagnostic_code::SqlWriteBoundaryCode::ResumableUpdateScopeDependsOnAssignedField,
+            )),
+            MutationJobError::IneligibleIntent,
+        );
     }
 
     #[test]

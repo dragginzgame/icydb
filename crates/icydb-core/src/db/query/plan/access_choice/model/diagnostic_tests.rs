@@ -120,7 +120,7 @@ fn decision_projection_preserves_candidate_facts_labels_and_list_order() {
 fn decision_projection_repeated_calls_exhaust_without_mutating_identity() {
     let query = fixture();
     let before = query.clone();
-    let signature = query.continuation_signature("tests::Entity");
+    let signature = query.continuation_signature("tests::Entity").unwrap();
     let generous = root(Resource::TemporaryBytes, 16_000_000);
     let expected = project(&query, &generous).unwrap();
     for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
@@ -135,7 +135,10 @@ fn decision_projection_repeated_calls_exhaust_without_mutating_identity() {
                     .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
             );
             assert_eq!(query, before);
-            assert_eq!(query.continuation_signature("tests::Entity"), signature);
+            assert_eq!(
+                query.continuation_signature("tests::Entity").unwrap(),
+                signature
+            );
             assert_eq!(short.observed(Resource::RowsVisited), 0);
         }
         let exact = root(resource, 2 * used);
@@ -148,7 +151,10 @@ fn decision_projection_repeated_calls_exhaust_without_mutating_identity() {
                 .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
         );
         assert_eq!(query, before);
-        assert_eq!(query.continuation_signature("tests::Entity"), signature);
+        assert_eq!(
+            query.continuation_signature("tests::Entity").unwrap(),
+            signature
+        );
         assert_eq!(exact.observed(Resource::RowsVisited), 0);
         let exhausted = exact.observed(resource);
         assert!(expected.render_json_canonical().is_ok());

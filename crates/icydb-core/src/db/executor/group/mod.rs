@@ -19,7 +19,7 @@ pub(in crate::db::executor) use hash::{
     retained_vec_element_backing_bytes, stable_hash_from_digest, stable_hash_value,
     try_reserve_hash_entry, try_reserve_hash_set_entry, try_reserve_vec_elements,
 };
-pub(in crate::db::executor) use key::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError};
+pub(in crate::db::executor) use key::{CanonicalKey, GroupKey, GroupKeySet};
 
 ///
 /// Grouped execution ownership boundary.

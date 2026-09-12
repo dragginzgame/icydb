@@ -4,6 +4,7 @@ use crate::db::executor::{
     EntityAuthority, ExecutionPreparation, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
     PreparedScalarPlanCore, projection::PreparedProjectionContract, terminal::RetainedSlotLayout,
 };
+use crate::error::InternalError;
 use std::{rc::Rc, sync::Arc};
 
 ///
@@ -31,7 +32,9 @@ impl PreparedScalarRuntimeHandoff {
     /// DISTINCT projection materialization needs this execution-only shape so
     /// route planning and ordered windows do not bound the stream before the
     /// final projected-row DISTINCT window runs.
-    pub(in crate::db::executor) fn into_scalar_page_suppressed(self) -> Self {
+    pub(in crate::db::executor) fn into_scalar_page_suppressed(
+        self,
+    ) -> Result<Self, InternalError> {
         let Self {
             authority,
             execution_preparation,
@@ -47,15 +50,15 @@ impl PreparedScalarRuntimeHandoff {
             residents.continuation_identity,
             residents.index_prefix_specs,
             residents.index_range_specs,
-        );
+        )?;
 
-        Self {
+        Ok(Self {
             authority,
             execution_preparation,
             prepared_projection_contract,
             retained_slot_layout,
             plan_core: PreparedScalarPlanCore { core },
-        }
+        })
     }
 }
 

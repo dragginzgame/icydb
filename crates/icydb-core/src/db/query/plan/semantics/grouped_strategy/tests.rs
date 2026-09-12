@@ -141,7 +141,7 @@ fn assert_budget_error(error: &QueryError) {
 fn grouped_strategy_diagnostic_work_is_cumulative_and_identity_independent() {
     for query in cases() {
         let before = query.clone();
-        let identity = query.continuation_signature("test::Entity");
+        let identity = query.continuation_signature("test::Entity").unwrap();
         let expected = grouped_plan_strategy(&query).unwrap();
         let generous = request(16_000_000);
         assert_eq!(project(&query, &generous).unwrap(), expected);
@@ -159,7 +159,10 @@ fn grouped_strategy_diagnostic_work_is_cumulative_and_identity_independent() {
         assert_eq!(exact.observed(Resource::PredicateExpressionSteps), 2 * used);
         assert_budget_error(&project(&query, &exact).unwrap_err());
         assert_eq!(grouped_plan_strategy(&query), Some(expected));
-        assert_eq!(query.continuation_signature("test::Entity"), identity);
+        assert_eq!(
+            query.continuation_signature("test::Entity").unwrap(),
+            identity
+        );
         assert_eq!(query, before);
     }
 }
@@ -192,7 +195,7 @@ fn grouped_strategy_observer_failure_stops_at_every_boundary() {
 #[test]
 fn grouped_explain_rejects_strategy_before_allocating_a_dto() {
     let query = query();
-    let before = query.continuation_signature("test::Entity");
+    let before = query.continuation_signature("test::Entity").unwrap();
     let root = request(1); // The outer explain visit consumes the allowance.
     let error = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         query.project_explain(work)
@@ -201,7 +204,10 @@ fn grouped_explain_rejects_strategy_before_allocating_a_dto() {
     assert_budget_error(&error);
     assert_eq!(root.observed(Resource::TemporaryBytes), 0);
     assert_eq!(root.observed(Resource::RowsVisited), 0);
-    assert_eq!(query.continuation_signature("test::Entity"), before);
+    assert_eq!(
+        query.continuation_signature("test::Entity").unwrap(),
+        before
+    );
 }
 
 #[test]

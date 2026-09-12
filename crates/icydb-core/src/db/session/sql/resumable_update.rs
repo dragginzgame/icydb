@@ -493,7 +493,7 @@ impl<C: CanisterKind> DbSession<C> {
                 &dispatch,
                 operation_timestamp,
             )
-            .map_err(|_| MutationJobError::IneligibleIntent)?;
+            .map_err(MutationJobError::from_query_error)?;
         let intent = CanonicalMutationIntent::new(
             database_incarnation_id()
                 .map_err(|_| MutationJobError::Internal)?
@@ -621,7 +621,11 @@ impl<C: CanisterKind> DbSession<C> {
             .decode_fixed_patch()
             .map_err(MutationJobExecutionPreparationError::Failure)?;
         let eligibility = ResumableUpdateEligibility {
-            scope_fingerprint: resumable_update_scope_fingerprint(&scope),
+            scope_fingerprint: resumable_update_scope_fingerprint(&scope).map_err(|error| {
+                MutationJobExecutionPreparationError::Failure(
+                    MutationJobError::from_internal_error(&error),
+                )
+            })?,
             patch_fingerprint: fixed_patch.fingerprint(),
         };
         validate_resumable_update_bindings(
@@ -1796,7 +1800,8 @@ fn prove_resumable_update_fixed_eligibility(
     }
 
     Ok(ResumableUpdateEligibility {
-        scope_fingerprint: resumable_update_scope_fingerprint(scope),
+        scope_fingerprint: resumable_update_scope_fingerprint(scope)
+            .map_err(QueryError::execute)?,
         patch_fingerprint: patch.fingerprint(),
     })
 }

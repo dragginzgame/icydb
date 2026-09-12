@@ -6,53 +6,12 @@
 use crate::{
     db::executor::group::{StableHash, stable_hash_value, try_reserve_hash_set_entry},
     error::InternalError,
-    value::{MapValueError, Value, ValueTag},
+    value::Value,
 };
 use std::{
     collections::HashSet,
     hash::{Hash, Hasher},
 };
-
-///
-/// KeyCanonicalError
-///
-/// KeyCanonicalError reports canonicalization failures while materializing one
-/// grouping/distinct key from a runtime value.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum KeyCanonicalError {
-    InvalidMapValue(MapValueError),
-    HashingFailed { value: ValueTag },
-    ProjectedRowHashingFailed { value_index: usize, value: ValueTag },
-}
-
-impl KeyCanonicalError {
-    pub(in crate::db::executor) const fn projected_row_hashing_failed(
-        value_index: usize,
-        value: &Value,
-    ) -> Self {
-        Self::ProjectedRowHashingFailed {
-            value_index,
-            value: value.canonical_tag(),
-        }
-    }
-
-    // Build the canonical grouped-key invariant for invalid map payloads.
-    fn invalid_map_value(_err: &MapValueError) -> InternalError {
-        InternalError::executor_invariant()
-    }
-
-    /// Convert one key-canonicalization failure into the executor error surface.
-    pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
-        match self {
-            Self::InvalidMapValue(err) => Self::invalid_map_value(&err),
-            Self::HashingFailed { .. } | Self::ProjectedRowHashingFailed { .. } => {
-                InternalError::executor_internal()
-            }
-        }
-    }
-}
 
 ///
 /// CanonicalValue
@@ -93,10 +52,8 @@ fn canonical_group_key_equals(left: &GroupKey, right: &GroupKey) -> bool {
 }
 
 impl GroupKey {
-    fn from_raw(raw: Value) -> Result<Self, KeyCanonicalError> {
-        let hash = stable_hash_value(&raw).map_err(|_| KeyCanonicalError::HashingFailed {
-            value: raw.canonical_tag(),
-        })?;
+    fn from_raw(raw: Value) -> Result<Self, InternalError> {
+        let hash = stable_hash_value(&raw)?;
 
         Ok(Self::from_raw_with_hash(raw, hash))
     }
@@ -131,7 +88,7 @@ impl GroupKey {
     // cloning them back through the borrowed canonicalization path.
     pub(in crate::db::executor) fn from_group_values(
         group_values: Vec<Value>,
-    ) -> Result<Self, KeyCanonicalError> {
+    ) -> Result<Self, InternalError> {
         let canonical = canonicalize_owned_value(Value::List(group_values))?;
 
         Self::from_raw(canonical)
@@ -143,7 +100,7 @@ impl GroupKey {
     pub(in crate::db::executor) fn from_group_values_with_hash(
         group_values: Vec<Value>,
         hash: StableHash,
-    ) -> Result<Self, KeyCanonicalError> {
+    ) -> Result<Self, InternalError> {
         let canonical = canonicalize_owned_value(Value::List(group_values))?;
 
         Ok(Self::from_raw_with_hash(canonical, hash))
@@ -153,7 +110,7 @@ impl GroupKey {
     // intermediate one-element `Vec<Value>` only to wrap it back into a list.
     pub(in crate::db::executor) fn from_single_group_value(
         group_value: Value,
-    ) -> Result<Self, KeyCanonicalError> {
+    ) -> Result<Self, InternalError> {
         let canonical_group_value = canonicalize_owned_value(group_value)?;
 
         Self::from_raw(Value::List(vec![canonical_group_value]))
@@ -164,7 +121,7 @@ impl GroupKey {
     pub(in crate::db::executor) fn from_single_group_value_with_hash(
         group_value: Value,
         hash: StableHash,
-    ) -> Result<Self, KeyCanonicalError> {
+    ) -> Result<Self, InternalError> {
         let canonical_group_value = canonicalize_owned_value(group_value)?;
 
         Ok(Self::from_raw_with_hash(
@@ -177,7 +134,7 @@ impl GroupKey {
     // the grouped value is in canonical grouped-equality form.
     pub(in crate::db::executor) fn from_single_canonical_group_value(
         group_value: Value,
-    ) -> Result<Self, KeyCanonicalError> {
+    ) -> Result<Self, InternalError> {
         Self::from_raw(Value::List(vec![group_value]))
     }
 
@@ -205,18 +162,18 @@ impl GroupKey {
 
 pub(in crate::db::executor) trait CanonicalKey {
     /// Materialize one canonical grouped key from this value.
-    fn canonical_key(&self) -> Result<GroupKey, KeyCanonicalError>;
+    fn canonical_key(&self) -> Result<GroupKey, InternalError>;
 }
 
 impl CanonicalKey for Value {
-    fn canonical_key(&self) -> Result<GroupKey, KeyCanonicalError> {
+    fn canonical_key(&self) -> Result<GroupKey, InternalError> {
         let canonical = canonicalize_value(self)?;
         GroupKey::from_raw(canonical)
     }
 }
 
 impl CanonicalKey for &Value {
-    fn canonical_key(&self) -> Result<GroupKey, KeyCanonicalError> {
+    fn canonical_key(&self) -> Result<GroupKey, InternalError> {
         (*self).canonical_key()
     }
 }
@@ -274,7 +231,7 @@ impl Default for GroupKeySet {
 }
 
 // Canonicalize one runtime value into grouped-key equality form.
-fn canonicalize_value(value: &Value) -> Result<Value, KeyCanonicalError> {
+fn canonicalize_value(value: &Value) -> Result<Value, InternalError> {
     match value {
         Value::Decimal(decimal) => Ok(Value::Decimal(decimal.normalize())),
         Value::List(items) => items
@@ -288,7 +245,7 @@ fn canonicalize_value(value: &Value) -> Result<Value, KeyCanonicalError> {
 }
 
 // Canonicalize map entries recursively and normalize key ordering.
-fn canonicalize_map_entries(entries: &[(Value, Value)]) -> Result<Value, KeyCanonicalError> {
+fn canonicalize_map_entries(entries: &[(Value, Value)]) -> Result<Value, InternalError> {
     normalize_canonical_map_entries(
         entries
             .iter()
@@ -298,7 +255,7 @@ fn canonicalize_map_entries(entries: &[(Value, Value)]) -> Result<Value, KeyCano
 
 // Canonicalize one owned runtime value into grouped-key equality form while
 // preserving ownership of already-materialized grouped slot payloads.
-fn canonicalize_owned_value(value: Value) -> Result<Value, KeyCanonicalError> {
+fn canonicalize_owned_value(value: Value) -> Result<Value, InternalError> {
     match value {
         Value::Decimal(decimal) => Ok(Value::Decimal(decimal.normalize())),
         Value::List(items) => items
@@ -313,9 +270,7 @@ fn canonicalize_owned_value(value: Value) -> Result<Value, KeyCanonicalError> {
 
 // Canonicalize one owned map payload recursively while preserving stable
 // grouped-key map normalization.
-fn canonicalize_owned_map_entries(
-    entries: Vec<(Value, Value)>,
-) -> Result<Value, KeyCanonicalError> {
+fn canonicalize_owned_map_entries(entries: Vec<(Value, Value)>) -> Result<Value, InternalError> {
     normalize_canonical_map_entries(entries.into_iter().map(|(key, value)| {
         Ok((
             canonicalize_owned_value(key)?,
@@ -327,11 +282,11 @@ fn canonicalize_owned_map_entries(
 // Normalize already-canonicalized map entries behind the single map ordering
 // boundary shared by borrowed and owned grouped-key canonicalization paths.
 fn normalize_canonical_map_entries(
-    entries: impl IntoIterator<Item = Result<(Value, Value), KeyCanonicalError>>,
-) -> Result<Value, KeyCanonicalError> {
+    entries: impl IntoIterator<Item = Result<(Value, Value), InternalError>>,
+) -> Result<Value, InternalError> {
     let canonical_entries = entries.into_iter().collect::<Result<Vec<_>, _>>()?;
     let normalized = Value::normalize_map_entries(canonical_entries)
-        .map_err(KeyCanonicalError::InvalidMapValue)?;
+        .map_err(|_| InternalError::executor_invariant())?;
 
     Ok(Value::Map(normalized))
 }

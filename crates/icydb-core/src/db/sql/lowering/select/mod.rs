@@ -291,9 +291,9 @@ pub(in crate::db::sql::lowering) fn lower_select_shape_with_schema(
         let projection_aggregate_count = grouped_projection.aggregate_calls().len();
         let mut grouped_aggregates = grouped_projection.aggregate_calls().to_vec();
         let mut aggregate_call_interner =
-            SqlAggregateCallInterner::from_existing(grouped_aggregates.as_slice());
+            SqlAggregateCallInterner::from_existing(grouped_aggregates.as_slice())?;
         for expr in having.as_slice() {
-            aggregate_call_interner.extend_expr(&mut grouped_aggregates, expr);
+            aggregate_call_interner.extend_expr(&mut grouped_aggregates, expr)?;
         }
         let projection_selection = grouped_projection.into_projection_selection(
             projection_aggregate_count == grouped_aggregates.len(),

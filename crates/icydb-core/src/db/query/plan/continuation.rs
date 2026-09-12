@@ -15,6 +15,7 @@ use crate::{
         },
         schema::{AcceptedSchemaAuthority, AcceptedSchemaFingerprint, AcceptedSchemaRevision},
     },
+    error::InternalError,
     value::Value,
 };
 use sha2::Digest;
@@ -420,18 +421,17 @@ impl AccessPlannedQuery {
 
     /// Build one immutable continuation contract from planner-owned semantics
     /// and an optional accepted schema identity.
-    #[must_use]
     pub(in crate::db) fn planned_continuation_contract_with_accepted_identity(
         &self,
         entity_path: &str,
         accepted_identity: Option<AcceptedContinuationIdentity>,
-    ) -> Option<PlannedContinuationContract> {
+    ) -> Result<Option<PlannedContinuationContract>, InternalError> {
         if !self.scalar_plan().mode.is_load() {
-            return None;
+            return Ok(None);
         }
 
         let page_window = PlannedPageWindow::from_query(self);
-        let shape_signature = self.execution_shape_signature(entity_path);
+        let shape_signature = self.execution_shape_signature(entity_path)?;
         let boundary_arity = self.grouped_plan().map_or_else(
             || {
                 self.scalar_plan()
@@ -449,7 +449,7 @@ impl AccessPlannedQuery {
             .grouped_plan()
             .and_then(|grouped| grouped_cursor_policy_violation(grouped, true));
 
-        Some(
+        Ok(Some(
             PlannedContinuationContract::new(
                 shape_signature,
                 boundary_arity,
@@ -460,7 +460,7 @@ impl AccessPlannedQuery {
                 grouped_cursor_policy_violation,
             )
             .with_accepted_identity(accepted_identity),
-        )
+        ))
     }
 }
 

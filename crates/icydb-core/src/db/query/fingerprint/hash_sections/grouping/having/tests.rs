@@ -21,6 +21,25 @@ fn aggregates() -> Vec<AggregateExpr> {
     vec![min_by("amount").distinct(), sum.clone(), sum]
 }
 
+#[test]
+fn having_hash_propagates_literal_failure() {
+    use crate::value::{test_hash_budget_error, with_test_hash_override};
+    let source = GroupHavingFingerprintSource {
+        expr: &Expr::Literal(Value::Bool(true)),
+        group_fields: &GroupFieldSet::Direct(vec![]),
+        aggregates: &[],
+    };
+    with_test_hash_override(Err(test_hash_budget_error), || {
+        let error =
+            hash_group_having_projection(&mut new_hash_sha256(), Some(&source)).unwrap_err();
+        assert_eq!(error.diagnostic(), test_hash_budget_error().diagnostic());
+        assert_eq!(
+            error.diagnostic_facts(),
+            test_hash_budget_error().diagnostic_facts()
+        );
+    });
+}
+
 fn cases() -> Vec<Expr> {
     let mut cases = vec![
         Expr::Field("owner".into()),
@@ -83,7 +102,7 @@ fn having_hash_preserves_planner_expression_grammar() {
         .collect();
     let plan_fields = GroupFieldSet::Direct(vec![FieldSlot::unresolved(2, "owner")]);
     let mut plan_hash = new_hash_sha256();
-    hash_group_having_projection(&mut plan_hash, None);
+    hash_group_having_projection(&mut plan_hash, None).unwrap();
     for expr in cases() {
         hash_group_having_projection(
             &mut plan_hash,
@@ -92,7 +111,8 @@ fn having_hash_preserves_planner_expression_grammar() {
                 group_fields: &plan_fields,
                 aggregates: &planned,
             }),
-        );
+        )
+        .unwrap();
     }
     assert_eq!(
         encode_hex_lower(&finalize_sha256_digest(plan_hash)),
