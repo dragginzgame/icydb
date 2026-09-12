@@ -157,8 +157,31 @@ fn exhausted_index_metadata_does_not_publish_a_plan() {
                 lane,
             )
             .unwrap();
+        let retained = setup.shared_query_cache_usage_for_tests();
+        // A bound-plan hit still builds its template key. Exhaustion must not
+        // replace the cached plan or turn an unsuccessful lookup into a miss.
+        for _ in 0..2 {
+            let error = session
+                .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+                    catalog.accepted_entity_authority(),
+                    &catalog,
+                    &query,
+                    lane,
+                )
+                .unwrap_err();
+            assert!(error.diagnostic_facts().contains(&(
+                DiagnosticFactTag::BudgetResource,
+                Resource::TemporaryBytes.raw(),
+            )));
+            assert_eq!(setup.shared_query_cache_usage_for_tests(), retained);
+        }
+        assert_eq!(root.observed(Resource::PlanCompilations), 0);
+        assert_eq!(root.observed(Resource::RowsVisited), 0);
+        assert_eq!(root.observed(Resource::QueryExecutions), 0);
+
+        let fresh = request(Resource::TemporaryBytes, 16_000_000);
         assert!(
-            session
+            new_request_session(&fresh)
                 .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
                     catalog.accepted_entity_authority(),
                     &catalog,
@@ -169,5 +192,8 @@ fn exhausted_index_metadata_does_not_publish_a_plan() {
                 .1
                 .is_hit()
         );
+        assert!(fresh.observed(Resource::TemporaryBytes) > 0);
+        assert_eq!(fresh.observed(Resource::PlanCompilations), 0);
+        assert_eq!(setup.shared_query_cache_usage_for_tests(), retained);
     }
 }
