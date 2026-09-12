@@ -156,8 +156,8 @@ define_fact_tag_registry! {
 pub enum DiagnosticDecodeReason {
     CursorEmpty,
     CursorTooLong,
-    CursorOddLength,
-    CursorInvalidHex,
+    CursorInvalidLength,
+    CursorInvalidBase64,
     CursorGroupedDirectionMismatch,
     CursorTokenEncode,
     CursorTokenDecode,
@@ -433,8 +433,8 @@ impl DiagnosticDecodeReason {
         match self {
             Self::CursorEmpty => 1,
             Self::CursorTooLong => 2,
-            Self::CursorOddLength => 3,
-            Self::CursorInvalidHex => 4,
+            Self::CursorInvalidLength => 3,
+            Self::CursorInvalidBase64 => 4,
             Self::CursorGroupedDirectionMismatch => 5,
             Self::CursorTokenEncode => 6,
             Self::CursorTokenDecode => 7,
@@ -450,8 +450,8 @@ impl DiagnosticDecodeReason {
         match raw {
             1 => Some(Self::CursorEmpty),
             2 => Some(Self::CursorTooLong),
-            3 => Some(Self::CursorOddLength),
-            4 => Some(Self::CursorInvalidHex),
+            3 => Some(Self::CursorInvalidLength),
+            4 => Some(Self::CursorInvalidBase64),
             5 => Some(Self::CursorGroupedDirectionMismatch),
             6 => Some(Self::CursorTokenEncode),
             7 => Some(Self::CursorTokenDecode),
@@ -1307,8 +1307,8 @@ mod tests {
         let reasons = [
             DiagnosticDecodeReason::CursorEmpty,
             DiagnosticDecodeReason::CursorTooLong,
-            DiagnosticDecodeReason::CursorOddLength,
-            DiagnosticDecodeReason::CursorInvalidHex,
+            DiagnosticDecodeReason::CursorInvalidLength,
+            DiagnosticDecodeReason::CursorInvalidBase64,
             DiagnosticDecodeReason::CursorGroupedDirectionMismatch,
             DiagnosticDecodeReason::CursorTokenEncode,
             DiagnosticDecodeReason::CursorTokenDecode,

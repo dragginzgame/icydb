@@ -983,4 +983,47 @@ mod tests {
             .is_err()
         );
     }
+
+    #[test]
+    fn current_intent_preserves_compact_bigint_decimal_and_account_literals() {
+        use crate::types::{Account, Decimal, IntBig, NatBig, Principal, Subaccount};
+        use num_bigint::{BigInt, BigUint, Sign};
+
+        let magnitude = (BigUint::from(1_u8) << 256_usize) - BigUint::from(1_u8);
+        let values = [
+            Value::NatBig(NatBig::from_biguint(magnitude.clone())),
+            Value::IntBig(IntBig::from_bigint(BigInt::from_biguint(
+                Sign::Minus,
+                magnitude,
+            ))),
+            Value::Decimal(Decimal::from_i128_with_scale(i128::MIN, 28)),
+            Value::Account(Account::new(Principal::MAX, Some(Subaccount::MAX))),
+        ];
+        for value in values {
+            let scope = Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("value"))),
+                right: Box::new(Expr::Literal(value)),
+            };
+            let current = CanonicalMutationIntent::new(
+                [1; 16],
+                [2; 32],
+                "journaled".to_string(),
+                "schema::Token".to_string(),
+                7,
+                11,
+                1,
+                [3; 16],
+                &scope,
+                &fixed_patch(),
+                Timestamp::from_millis(100),
+                17,
+            )
+            .unwrap();
+            let bytes = current.encode().unwrap();
+            let decoded = CanonicalMutationIntent::decode(&bytes).unwrap();
+            assert_eq!(decoded.decode_scope().unwrap(), scope);
+            assert_eq!(decoded.encode().unwrap(), bytes);
+        }
+    }
 }

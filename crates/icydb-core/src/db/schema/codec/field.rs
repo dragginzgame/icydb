@@ -428,6 +428,12 @@ direct_unit_enum_codec! {
         13 => ScalarCodec::Ulid,
         14 => ScalarCodec::Unit,
         15 => ScalarCodec::U256,
+        16 => ScalarCodec::Int8,
+        17 => ScalarCodec::Int16,
+        18 => ScalarCodec::Int32,
+        19 => ScalarCodec::Nat8,
+        20 => ScalarCodec::Nat16,
+        21 => ScalarCodec::Nat32,
     }
 }
 

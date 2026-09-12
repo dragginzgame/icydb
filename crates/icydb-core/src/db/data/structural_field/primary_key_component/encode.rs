@@ -14,56 +14,27 @@ use crate::{
     value::Value,
 };
 
-/// Encode relation target keys into the owner-local Structural Binary
-/// v1 primary-key-component lane.
-pub(in crate::db) fn encode_relation_target_primary_key_components_binary_bytes(
-    keys: &[PrimaryKeyComponent],
-    kind: &AcceptedFieldKind,
-    field_name: &str,
-) -> Result<Vec<u8>, InternalError> {
-    let mut encoded = Vec::new();
-    encode_relation_target_primary_key_components_binary_into(
-        &mut encoded,
-        keys,
-        kind,
-        field_name,
-    )?;
-
-    Ok(encoded)
-}
-
-/// Encode one canonical primary-key component into the owner-local Structural Binary v1
-/// primary-key-component lane.
-pub(in crate::db) fn encode_primary_key_component_field_binary_bytes(
-    key: PrimaryKeyComponent,
-    kind: &AcceptedFieldKind,
-    field_name: &str,
-) -> Result<Vec<u8>, InternalError> {
-    let mut encoded = Vec::new();
-    encode_primary_key_component_field_binary_into(&mut encoded, key, kind, field_name)?;
-
-    Ok(encoded)
-}
-
 /// Encode one primary-key-component runtime value through the owner-local
 /// Structural Binary v1 lane.
-pub(in crate::db) fn encode_primary_key_component_binary_value_bytes(
+pub(in crate::db) fn push_primary_key_component_binary_value_bytes(
+    out: &mut Vec<u8>,
     kind: &AcceptedFieldKind,
     value: &Value,
     field_name: &str,
-) -> Result<Option<Vec<u8>>, InternalError> {
+) -> Result<bool, InternalError> {
     if !supports_primary_key_component_binary_kind(kind) {
-        return Ok(None);
+        return Ok(false);
     }
-
-    let encoded = match kind {
-        AcceptedFieldKind::Relation { .. } => {
-            let keys = match value {
-                Value::Null => Vec::new(),
-                value => vec![primary_key_component_from_runtime_value(value, field_name)?],
-            };
-            encode_relation_target_primary_key_components_binary_bytes(&keys, kind, field_name)?
-        }
+    match kind {
+        AcceptedFieldKind::Relation { .. } => match value {
+            Value::Null => push_binary_null(out),
+            value => encode_primary_key_component_field_binary_into(
+                out,
+                primary_key_component_from_runtime_value(value, field_name)?,
+                kind,
+                field_name,
+            )?,
+        },
         AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner)
             if matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. }) =>
         {
@@ -72,75 +43,39 @@ pub(in crate::db) fn encode_primary_key_component_binary_value_bytes(
                     field_name,
                 ));
             };
-            let mut keys = Vec::with_capacity(items.len());
+            push_binary_list_len(
+                out,
+                items
+                    .iter()
+                    .filter(|item| !matches!(item, Value::Null))
+                    .count(),
+            );
             for item in items {
                 if matches!(item, Value::Null) {
                     continue;
                 }
-                keys.push(primary_key_component_from_runtime_value(item, field_name)?);
+                encode_primary_key_component_field_binary_into(
+                    out,
+                    primary_key_component_from_runtime_value(item, field_name)?,
+                    inner,
+                    field_name,
+                )?;
             }
-            encode_relation_target_primary_key_components_binary_bytes(&keys, kind, field_name)?
         }
-        _ if matches!(value, Value::Null) => {
-            let mut encoded = Vec::new();
-            push_binary_null(&mut encoded);
-            encoded
-        }
-        _ => encode_primary_key_component_field_binary_bytes(
+        _ if matches!(value, Value::Null) => push_binary_null(out),
+        _ => encode_primary_key_component_field_binary_into(
+            out,
             primary_key_component_from_runtime_value(value, field_name)?,
             kind,
             field_name,
         )?,
-    };
-
-    Ok(Some(encoded))
-}
-
-// Encode one relation field into the primary-key-component Structural Binary v1
-// lane without routing through runtime `Value`.
-fn encode_relation_target_primary_key_components_binary_into(
-    out: &mut Vec<u8>,
-    keys: &[PrimaryKeyComponent],
-    kind: &AcceptedFieldKind,
-    field_name: &str,
-) -> Result<(), InternalError> {
-    match kind {
-        AcceptedFieldKind::Relation { key_kind, .. } => match keys {
-            [] => {
-                push_binary_null(out);
-                Ok(())
-            }
-            [key] => {
-                encode_primary_key_component_field_binary_into(out, *key, key_kind, field_name)
-            }
-            _ => Err(InternalError::persisted_row_field_encode_internal(
-                field_name,
-            )),
-        },
-        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => match inner.as_ref() {
-            AcceptedFieldKind::Relation { key_kind, .. } => {
-                push_binary_list_len(out, keys.len());
-                for key in keys {
-                    encode_primary_key_component_field_binary_into(
-                        out, *key, key_kind, field_name,
-                    )?;
-                }
-
-                Ok(())
-            }
-            _ => Err(InternalError::persisted_row_field_encode_internal(
-                field_name,
-            )),
-        },
-        _ => Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        )),
     }
+    Ok(true)
 }
 
 // Encode one primary-key-component field into the owner-local Structural
 // Binary v1 lane.
-fn encode_primary_key_component_field_binary_into(
+pub(super) fn encode_primary_key_component_field_binary_into(
     out: &mut Vec<u8>,
     key: PrimaryKeyComponent,
     kind: &AcceptedFieldKind,

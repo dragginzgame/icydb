@@ -59,7 +59,7 @@ pub(in crate::db) use publication::{
     empty_accepted_schema_candidate_for_tests,
 };
 pub(in crate::db) use value_wire::{
-    CanonicalEnumWireError, decode_canonical_enum_value, encode_canonical_enum_value,
+    CanonicalEnumWireError, decode_canonical_enum_value, push_canonical_enum_value,
 };
 
 /// Canonical enum ordering contract.

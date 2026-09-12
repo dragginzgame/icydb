@@ -895,7 +895,7 @@ mod tests {
                     nullable.contains(&name),
                     SchemaInsertDefault::None,
                     FieldStorageDecode::ByKind,
-                    LeafCodec::Scalar(ScalarCodec::Int64),
+                    LeafCodec::Scalar(ScalarCodec::Int32),
                 )
             })
             .collect::<Vec<_>>();

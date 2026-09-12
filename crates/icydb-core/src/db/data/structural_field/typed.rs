@@ -23,9 +23,9 @@ use super::{
 // sibling lanes before they add their own outer framing.
 pub(in crate::db::data::structural_field) fn encode_account_payload_bytes(
     value: Account,
-) -> Result<Vec<u8>, InternalError> {
+) -> Result<[u8; 62], InternalError> {
     value
-        .to_bytes()
+        .to_stored_bytes()
         .map_err(InternalError::persisted_row_encode_failed)
 }
 
@@ -39,11 +39,10 @@ pub(in crate::db::data::structural_field) fn decode_account_payload_bytes(
 
 // Encode one principal payload into its canonical raw byte form.
 pub(in crate::db::data::structural_field) fn encode_principal_payload_bytes(
-    value: Principal,
-) -> Result<Vec<u8>, InternalError> {
+    value: &Principal,
+) -> Result<&[u8], InternalError> {
     value
         .stored_bytes()
-        .map(<[u8]>::to_vec)
         .map_err(InternalError::persisted_row_encode_failed)
 }
 
@@ -186,39 +185,32 @@ pub(in crate::db::data::structural_field) const fn decode_duration_payload_milli
     Duration::from_millis(millis)
 }
 
-// Split one decimal into the canonical `(mantissa, scale)` pair shared by the
-// structural sibling lanes.
-pub(in crate::db::data::structural_field) const fn decimal_payload_mantissa_and_scale(
+// Decimal retains its full signed mantissa domain; the type bounds scale to
+// 0..=28, so its low byte is the complete stored scale, not a truncation policy.
+pub(in crate::db::data::structural_field) fn encode_decimal_payload_bytes(
     value: Decimal,
-) -> (i128, u32) {
-    let decimal_parts = value.parts();
-    (decimal_parts.mantissa(), decimal_parts.scale())
+) -> [u8; 17] {
+    let parts = value.parts();
+    let mut bytes = [0; 17];
+    bytes[..16].copy_from_slice(&parts.mantissa().to_be_bytes());
+    bytes[16] = parts.scale().to_le_bytes()[0];
+    bytes
 }
 
-// Apply Decimal's mantissa/scale validation locally so all structural lanes
-// share one normalization rule instead of drifting independently.
-pub(in crate::db::data::structural_field) fn decode_decimal_payload_mantissa_and_scale(
-    mantissa: i128,
-    scale: u32,
+// Persisted metadata must fit the current scale domain exactly. Domain-level
+// constructors may normalize other inputs, but storage never repairs them.
+pub(in crate::db::data::structural_field) fn decode_decimal_payload_bytes(
+    bytes: &[u8],
 ) -> Result<Decimal, FieldDecodeError> {
-    if scale <= Decimal::max_supported_scale() {
-        return Decimal::try_from_i128_with_scale(mantissa, scale)
-            .ok_or_else(FieldDecodeError::new);
+    let bytes: &[u8; 17] = bytes.try_into().map_err(|_| FieldDecodeError::new())?;
+    let scale = u32::from(bytes[16]);
+    if scale > Decimal::max_supported_scale() {
+        return Err(FieldDecodeError::new());
     }
-
-    let mut value = mantissa;
-    let mut normalized_scale = scale;
-    while normalized_scale > Decimal::max_supported_scale() {
-        if value == 0 {
-            return Decimal::try_from_i128_with_scale(0, Decimal::max_supported_scale())
-                .ok_or_else(FieldDecodeError::new);
-        }
-        if value % 10 != 0 {
-            return Err(FieldDecodeError::new());
-        }
-        value /= 10;
-        normalized_scale -= 1;
-    }
-
-    Decimal::try_from_i128_with_scale(value, normalized_scale).ok_or_else(FieldDecodeError::new)
+    let mantissa = i128::from_be_bytes(
+        bytes[..16]
+            .try_into()
+            .map_err(|_| FieldDecodeError::new())?,
+    );
+    Decimal::try_from_i128_with_scale(mantissa, scale).ok_or_else(FieldDecodeError::new)
 }

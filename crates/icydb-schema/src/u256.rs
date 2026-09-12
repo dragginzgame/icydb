@@ -3,13 +3,13 @@
 use candid::{CandidType, Nat, types::Serializer, types::Type, types::TypeInner};
 use ethnum::U256 as EthU256;
 use num_bigint::BigUint;
-use serde::{
-    Deserialize, Deserializer, Serialize, Serializer as SerdeSerializer,
-    de::{self, Visitor},
-};
+use serde::{Deserialize, Deserializer, Serialize, Serializer as SerdeSerializer};
 use std::{fmt, str::FromStr};
 
-use crate::{Decimal, NumericValue};
+use crate::{
+    Decimal, NumericValue,
+    integer_wire::{self, IntegerWire},
+};
 
 const MAX_DECIMAL_DIGITS: usize = 78;
 const DECIMAL_CHUNK_BASE: u64 = 100_000_000;
@@ -34,7 +34,8 @@ impl std::error::Error for ParseU256Error {}
 ///
 /// Runtime values are inline and allocation-free. Candid exposes this type as
 /// `nat`; ingress rejects values greater than [`U256::MAX`]. Persistence and
-/// index encodings are owned separately by IcyDB.
+/// index encodings are owned separately by IcyDB. Human-readable Serde uses
+/// decimal text; binary Serde uses u64 or tagged little-endian magnitude bytes.
 #[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct U256(EthU256);
@@ -263,41 +264,21 @@ impl<'de> Deserialize<'de> for U256 {
     where
         D: Deserializer<'de>,
     {
-        struct U256Visitor;
+        integer_wire::deserialize_integer(deserializer)
+    }
+}
 
-        impl Visitor<'_> for U256Visitor {
-            type Value = U256;
+impl IntegerWire for U256 {
+    fn from_signed(value: i64) -> Option<Self> {
+        u64::try_from(value).ok().map(Self::from)
+    }
 
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("an unsigned 256-bit integer")
-            }
+    fn from_unsigned(value: u64) -> Self {
+        Self::from(value)
+    }
 
-            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
-                Ok(U256::from(value))
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                value.parse().map_err(E::custom)
-            }
-
-            fn visit_byte_buf<E>(self, value: Vec<u8>) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                let Some((&marker, magnitude)) = value.split_first() else {
-                    return Err(E::custom(ParseU256Error));
-                };
-                if marker != 1 {
-                    return Err(E::custom(ParseU256Error));
-                }
-                U256::from_little_endian_magnitude(magnitude).map_err(E::custom)
-            }
-        }
-
-        deserializer.deserialize_any(U256Visitor)
+    fn from_wire_bytes(value: &[u8]) -> Option<Self> {
+        Self::from_little_endian_magnitude(integer_wire::unsigned_body(value)?).ok()
     }
 }
 
@@ -306,7 +287,22 @@ impl Serialize for U256 {
     where
         S: SerdeSerializer,
     {
-        serializer.serialize_str(self.to_string().as_str())
+        if serializer.is_human_readable() {
+            return serializer.collect_str(self);
+        }
+        if let Some(value) = self.to_u128().and_then(|value| u64::try_from(value).ok()) {
+            return serializer.serialize_u64(value);
+        }
+        // Keep this fixed-width atom's binary serialization on the stack.
+        let magnitude = self.0.to_le_bytes();
+        let len = magnitude
+            .iter()
+            .rposition(|byte| *byte != 0)
+            .map_or(1, |index| index + 1);
+        let mut bytes = [0_u8; 33];
+        bytes[0] = 1;
+        bytes[1..=len].copy_from_slice(&magnitude[..len]);
+        serializer.serialize_bytes(&bytes[..=len])
     }
 }
 

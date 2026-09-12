@@ -64,17 +64,17 @@ pub(in crate::db) fn resolve_sql_ddl_field_type_contract(
         "int8" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Int8,
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Int64),
+            LeafCodec::Scalar(ScalarCodec::Int8),
         )),
         "int16" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Int16,
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Int64),
+            LeafCodec::Scalar(ScalarCodec::Int16),
         )),
         "int32" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Int32,
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Int64),
+            LeafCodec::Scalar(ScalarCodec::Int32),
         )),
         "int64" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Int64,
@@ -89,17 +89,17 @@ pub(in crate::db) fn resolve_sql_ddl_field_type_contract(
         "nat8" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Nat8,
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
+            LeafCodec::Scalar(ScalarCodec::Nat8),
         )),
         "nat16" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Nat16,
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
+            LeafCodec::Scalar(ScalarCodec::Nat16),
         )),
         "nat32" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Nat32,
             FieldStorageDecode::ByKind,
-            LeafCodec::Scalar(ScalarCodec::Nat64),
+            LeafCodec::Scalar(ScalarCodec::Nat32),
         )),
         "nat64" => Some(SchemaDdlFieldTypeContract::new(
             AcceptedFieldKind::Nat64,
@@ -160,4 +160,41 @@ fn sql_big_int_type_max_bytes(normalized: &str, type_name: &str) -> Option<u32> 
     }
 
     Some(max_bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn narrow_sql_integer_contracts_match_accepted_kind_widths() {
+        for (name, expected) in [
+            ("int8", ScalarCodec::Int8),
+            ("int16", ScalarCodec::Int16),
+            ("int32", ScalarCodec::Int32),
+            ("nat8", ScalarCodec::Nat8),
+            ("nat16", ScalarCodec::Nat16),
+            ("nat32", ScalarCodec::Nat32),
+        ] {
+            let contract = resolve_sql_ddl_field_type_contract(name).unwrap();
+            assert_eq!(contract.leaf_codec(), LeafCodec::Scalar(expected));
+            assert_eq!(
+                contract.leaf_codec(),
+                contract
+                    .kind()
+                    .leaf_codec_for_storage(contract.storage_decode())
+            );
+            let relation = AcceptedFieldKind::Relation {
+                target_path: "tests::Target".to_string(),
+                target_entity_name: "Target".to_string(),
+                target_entity_tag: crate::types::EntityTag::new(1),
+                target_store_path: "tests::Store".to_string(),
+                key_kind: Box::new(contract.kind().clone()),
+            };
+            assert_eq!(
+                relation.leaf_codec_for_storage(FieldStorageDecode::ByKind),
+                contract.leaf_codec()
+            );
+        }
+    }
 }

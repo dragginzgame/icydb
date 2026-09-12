@@ -38,6 +38,31 @@ fn v_txt(s: &str) -> Value {
 }
 
 #[test]
+fn ulid_public_value_carriers_roundtrip_binary_scalars_and_collections() {
+    for value in [Ulid::MIN, Ulid::from_u128(42), Ulid::MAX] {
+        for input in [
+            InputValue::ulid(value),
+            InputValue::list(vec![InputValue::ulid(value), InputValue::null()]),
+        ] {
+            let encoded = candid::encode_one(&input).expect("ULID input should encode");
+            let decoded =
+                candid::decode_one::<InputValue>(&encoded).expect("ULID input should decode");
+            assert_eq!(decoded, input);
+
+            let output = OutputValue::from_public(input.into_public());
+            assert_eq!(
+                candid::encode_one(&output).expect("ULID output should encode"),
+                encoded,
+            );
+            assert_eq!(
+                candid::decode_one::<OutputValue>(&encoded).expect("ULID output should decode"),
+                output,
+            );
+        }
+    }
+}
+
+#[test]
 fn u256_public_value_carriers_roundtrip_candid_nat_boundaries() {
     for value in [U256::MIN, U256::ONE, U256::MAX] {
         let input = InputValue::u256(value);
@@ -68,6 +93,37 @@ fn public_value_root_wrappers_share_one_candid_shape() {
                 .expect("an enum input should accept one recursive payload"),
         ),
         (InputValue::text("missing".to_string()), InputValue::null()),
+        (
+            InputValue::text("wide integers".to_string()),
+            InputValue::list(vec![
+                InputValue::int_big(IntBig::from_bigint(
+                    -(num_bigint::BigInt::from(1_u8) << 256_usize),
+                )),
+                InputValue::nat_big(NatBig::from_biguint(
+                    num_bigint::BigUint::from(1_u8) << 256_usize,
+                )),
+                InputValue::u256(U256::MAX),
+            ]),
+        ),
+        (
+            InputValue::text("decimal".to_string()),
+            InputValue::list(vec![
+                InputValue::decimal(Decimal::ZERO),
+                InputValue::decimal(Decimal::from_i128_with_scale(i128::MIN, 28)),
+            ]),
+        ),
+        (
+            InputValue::text("dates and accounts".to_string()),
+            InputValue::list(vec![
+                InputValue::date(Date::MIN),
+                InputValue::date(Date::MAX),
+                InputValue::subaccount(Subaccount::MAX),
+                InputValue::account(Account::from_owner_and_subaccount(
+                    Principal::anonymous(),
+                    Some(Subaccount::MAX),
+                )),
+            ]),
+        ),
     ]);
     let value = input.as_public().clone();
     let output = OutputValue::from_public(value.clone());

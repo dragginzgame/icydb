@@ -18,6 +18,7 @@ metrics = []
 migration = []
 
 [dependencies]
+base64 = { workspace = true }
 candid = { workspace = true }
 ic-cdk = { workspace = true }
 ic-memory = { workspace = true }

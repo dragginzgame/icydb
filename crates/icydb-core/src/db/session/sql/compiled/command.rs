@@ -15,10 +15,7 @@ use crate::db::{
         parser::{SqlDescribeMode, SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
     },
 };
-use std::{
-    rc::Rc,
-    sync::{Arc, OnceLock},
-};
+use std::{rc::Rc, sync::OnceLock};
 
 ///
 /// CompiledSqlCommand
@@ -26,20 +23,21 @@ use std::{
 /// CompiledSqlCommand is the generic-free SQL compile artifact stored in the
 /// session SQL cache and later dispatched by the SQL execution boundary.
 /// It deliberately carries syntax-surface commands, not executor scratch state.
+/// Query and plan handles are session-local and share the same Rc ownership.
 ///
 
 #[derive(Clone, Debug)]
 pub(in crate::db) enum CompiledSqlCommand {
     Select {
-        query: Arc<StructuralQuery>,
+        query: Rc<StructuralQuery>,
         plan_cache: Rc<OnceLock<Rc<SqlSelectPlanCacheEntry>>>,
     },
     Delete {
-        query: Arc<StructuralQuery>,
+        query: Rc<StructuralQuery>,
         returning: Option<SqlReturningProjection>,
     },
     GlobalAggregate {
-        command: Arc<SqlGlobalAggregateCommand>,
+        command: Rc<SqlGlobalAggregateCommand>,
         plan_cache: Rc<OnceLock<Rc<SqlGlobalAggregatePlanCacheEntry>>>,
     },
     #[cfg(feature = "sql")]
@@ -77,7 +75,7 @@ pub(in crate::db) enum CompiledSqlCommand {
 #[derive(Clone, Debug)]
 pub(in crate::db) struct CompiledSqlInsertCommand {
     statement: SqlInsertStatement,
-    source_query: Option<Arc<StructuralQuery>>,
+    source_query: Option<Rc<StructuralQuery>>,
 }
 
 impl CompiledSqlInsertCommand {
@@ -90,7 +88,7 @@ impl CompiledSqlInsertCommand {
     ) -> Self {
         Self {
             statement,
-            source_query: source_query.map(Arc::new),
+            source_query: source_query.map(Rc::new),
         }
     }
 
@@ -112,7 +110,7 @@ impl CompiledSqlCommand {
     #[must_use]
     pub(in crate::db) fn select(query: StructuralQuery) -> Self {
         Self::Select {
-            query: Arc::new(query),
+            query: Rc::new(query),
             plan_cache: Rc::new(OnceLock::new()),
         }
     }
@@ -120,7 +118,7 @@ impl CompiledSqlCommand {
     #[must_use]
     pub(in crate::db) fn global_aggregate(command: SqlGlobalAggregateCommand) -> Self {
         Self::GlobalAggregate {
-            command: Arc::new(command),
+            command: Rc::new(command),
             plan_cache: Rc::new(OnceLock::new()),
         }
     }

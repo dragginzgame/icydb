@@ -1,16 +1,15 @@
 //! Module: cursor::string
 //! Responsibility: external continuation cursor token string formatting.
 //! Does not own: binary token wire encoding or continuation validation semantics.
-//! Boundary: cursor-owned binary token bytes -> lowercase hex external token text.
+//! Boundary: cursor-owned binary token bytes -> unpadded URL-safe Base64 external token text.
 
-use crate::db::codec::hex::encode_hex_lower;
 use crate::db::cursor::token::MAX_CURSOR_TOKEN_BYTES;
 #[cfg(test)]
 use crate::db::cursor::{GroupedContinuationToken, TokenWireError};
+use base64::{DecodeError, Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
-// External cursor tokens are lowercase hex over binary cursor token bytes, so
-// the string limit must allow the full binary token budget after hex expansion.
-const MAX_CURSOR_TOKEN_HEX_LEN: usize = MAX_CURSOR_TOKEN_BYTES * 2;
+// Unpadded Base64 needs ceil(4N/3) symbols for N binary bytes.
+const MAX_CURSOR_TOKEN_TEXT_LEN: usize = (MAX_CURSOR_TOKEN_BYTES * 4).div_ceil(3);
 
 ///
 /// CursorDecodeError
@@ -24,15 +23,15 @@ pub enum CursorDecodeError {
 
     TooLong { len: usize, max: usize },
 
-    OddLength,
+    InvalidLength,
 
-    InvalidHex { position: usize },
+    InvalidBase64 { position: usize },
 }
 
-/// Encode raw cursor bytes as a lowercase hex token.
+/// Encode raw cursor bytes as an unpadded URL-safe Base64 token.
 #[must_use]
 pub(in crate::db) fn encode_cursor(bytes: &[u8]) -> String {
-    encode_hex_lower(bytes)
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 /// Encode one grouped continuation token as an external cursor token string.
@@ -45,7 +44,7 @@ pub(in crate::db) fn encode_grouped_cursor_token(
         .map(|encoded| encode_cursor(encoded.as_slice()))
 }
 
-/// Decode a lowercase/uppercase hex cursor token into raw bytes.
+/// Decode a canonical unpadded URL-safe Base64 token into raw bytes.
 ///
 /// The token may include surrounding whitespace, which is trimmed.
 pub(in crate::db) fn decode_cursor(token: &str) -> Result<Vec<u8>, CursorDecodeError> {
@@ -56,41 +55,23 @@ pub(in crate::db) fn decode_cursor(token: &str) -> Result<Vec<u8>, CursorDecodeE
         return Err(CursorDecodeError::Empty);
     }
 
-    if token.len() > MAX_CURSOR_TOKEN_HEX_LEN {
+    if token.len() > MAX_CURSOR_TOKEN_TEXT_LEN {
         return Err(CursorDecodeError::TooLong {
             len: token.len(),
-            max: MAX_CURSOR_TOKEN_HEX_LEN,
+            max: MAX_CURSOR_TOKEN_TEXT_LEN,
         });
     }
 
-    if !token.len().is_multiple_of(2) {
-        return Err(CursorDecodeError::OddLength);
-    }
-
-    // Phase 2: decode validated hex pairs into raw cursor bytes.
-    let mut out = Vec::with_capacity(token.len() / 2);
-    let bytes = token.as_bytes();
-
-    for idx in (0..bytes.len()).step_by(2) {
-        let hi =
-            decode_hex_nibble(bytes[idx]).ok_or(CursorDecodeError::InvalidHex { position: idx })?;
-
-        let lo = decode_hex_nibble(bytes[idx + 1])
-            .ok_or(CursorDecodeError::InvalidHex { position: idx + 1 })?;
-
-        out.push((hi << 4) | lo);
-    }
-
-    Ok(out)
-}
-
-const fn decode_hex_nibble(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
+    // The text ceiling bounds allocation and implies at most the binary budget.
+    // The engine rejects padding and nonzero unused bits in the final symbol.
+    URL_SAFE_NO_PAD.decode(token).map_err(|error| match error {
+        DecodeError::InvalidLength(_) | DecodeError::InvalidPadding => {
+            CursorDecodeError::InvalidLength
+        }
+        DecodeError::InvalidByte(position, _) | DecodeError::InvalidLastSymbol(position, _) => {
+            CursorDecodeError::InvalidBase64 { position }
+        }
+    })
 }
 
 ///
@@ -99,61 +80,61 @@ const fn decode_hex_nibble(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::cursor::string::{
-        CursorDecodeError, MAX_CURSOR_TOKEN_HEX_LEN, decode_cursor, encode_cursor,
-    };
+    use super::*;
 
     #[test]
-    fn decode_cursor_rejects_empty_and_whitespace_tokens() {
-        let err = decode_cursor("").expect_err("empty token should be rejected");
-        assert_eq!(err, CursorDecodeError::Empty);
-
-        let err = decode_cursor("   \n\t").expect_err("whitespace token should be rejected");
-        assert_eq!(err, CursorDecodeError::Empty);
+    fn cursor_text_round_trips_canonical_vectors_and_whitespace() {
+        for (raw, encoded) in [
+            (b"f".as_slice(), "Zg"),
+            (b"fo".as_slice(), "Zm8"),
+            (b"foo".as_slice(), "Zm9v"),
+            ([0xfb, 0xff].as_slice(), "-_8"),
+            ([0x00, 0x01, 0x0a, 0xff].as_slice(), "AAEK_w"),
+        ] {
+            assert_eq!(encode_cursor(raw), encoded);
+            assert_eq!(decode_cursor(&format!("  {encoded} \n")).unwrap(), raw);
+        }
     }
 
     #[test]
-    fn decode_cursor_rejects_odd_length_tokens() {
-        let err = decode_cursor("abc").expect_err("odd-length token should be rejected");
-        assert_eq!(err, CursorDecodeError::OddLength);
+    fn cursor_text_rejects_empty_invalid_length_alphabet_and_trailing_bits() {
+        for text in ["", " \n\t"] {
+            assert_eq!(decode_cursor(text), Err(CursorDecodeError::Empty));
+        }
+        assert_eq!(decode_cursor("A"), Err(CursorDecodeError::InvalidLength));
+        for text in ["A!", "A/", "A+", "AB", "Aé"] {
+            assert_eq!(
+                decode_cursor(text),
+                Err(CursorDecodeError::InvalidBase64 { position: 1 })
+            );
+        }
+        for text in ["AA=", "AA==", "AA A"] {
+            assert!(decode_cursor(text).is_err());
+        }
     }
 
     #[test]
-    fn decode_cursor_enforces_max_token_length() {
-        let accepted = "aa".repeat(MAX_CURSOR_TOKEN_HEX_LEN / 2);
-        let accepted_bytes = decode_cursor(&accepted).expect("max-sized token should decode");
-        assert_eq!(accepted_bytes.len(), MAX_CURSOR_TOKEN_HEX_LEN / 2);
-
-        let rejected = format!("{accepted}aa");
-        let err = decode_cursor(&rejected).expect_err("oversized token should be rejected");
+    fn cursor_text_enforces_binary_budget_for_all_final_symbol_lengths() {
+        for len in [
+            1,
+            2,
+            3,
+            MAX_CURSOR_TOKEN_BYTES - 2,
+            MAX_CURSOR_TOKEN_BYTES - 1,
+            MAX_CURSOR_TOKEN_BYTES,
+        ] {
+            let raw = vec![0xff; len];
+            let text = encode_cursor(&raw);
+            assert_eq!(text.len(), (len * 4).div_ceil(3));
+            assert_eq!(decode_cursor(&text).unwrap(), raw);
+        }
+        let rejected = encode_cursor(&vec![0; MAX_CURSOR_TOKEN_BYTES + 1]);
         assert_eq!(
-            err,
-            CursorDecodeError::TooLong {
-                len: MAX_CURSOR_TOKEN_HEX_LEN + 2,
-                max: MAX_CURSOR_TOKEN_HEX_LEN
-            }
+            decode_cursor(&rejected),
+            Err(CursorDecodeError::TooLong {
+                len: rejected.len(),
+                max: MAX_CURSOR_TOKEN_TEXT_LEN,
+            })
         );
-    }
-
-    #[test]
-    fn decode_cursor_rejects_invalid_hex_with_position() {
-        let err = decode_cursor("0x").expect_err("invalid hex nibble should be rejected");
-        assert_eq!(err, CursorDecodeError::InvalidHex { position: 1 });
-    }
-
-    #[test]
-    fn decode_cursor_accepts_mixed_case_and_surrounding_whitespace() {
-        let bytes = decode_cursor("  0aFf10  ").expect("mixed-case hex token should decode");
-        assert_eq!(bytes, vec![0x0a, 0xff, 0x10]);
-    }
-
-    #[test]
-    fn encode_decode_cursor_round_trip_is_stable() {
-        let raw = vec![0x00, 0x01, 0x0a, 0xff];
-        let encoded = encode_cursor(&raw);
-        assert_eq!(encoded, "00010aff");
-
-        let decoded = decode_cursor(&encoded).expect("encoded token should decode");
-        assert_eq!(decoded, raw);
     }
 }

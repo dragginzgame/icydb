@@ -5,10 +5,9 @@ use crate::{
             decode_primary_key_component_binary_value_bytes,
             decode_primary_key_component_field_binary_bytes,
         },
-        encode::encode_relation_target_primary_key_components_binary_bytes,
         encode::{
-            encode_primary_key_component_binary_value_bytes,
-            encode_primary_key_component_field_binary_bytes,
+            encode_primary_key_component_field_binary_into,
+            push_primary_key_component_binary_value_bytes,
         },
         validate_primary_key_component_binary_value_bytes,
     },
@@ -158,7 +157,8 @@ fn primary_key_component_binary_roundtrips_all_supported_scalar_kinds() {
     ];
 
     for (kind, key, value) in cases {
-        let encoded = encode_primary_key_component_field_binary_bytes(key, &kind, "field")
+        let mut encoded = Vec::new();
+        encode_primary_key_component_field_binary_into(&mut encoded, key, &kind, "field")
             .expect("primary-key component payload should encode");
         let decoded_key =
             decode_primary_key_component_field_binary_bytes(encoded.as_slice(), &kind)
@@ -183,20 +183,26 @@ fn primary_key_component_binary_roundtrips_128_bit_relation_payloads() {
     let int_key = i128::MIN + 123;
     let nat_key = u128::MAX - 123;
 
-    let encoded_int = encode_primary_key_component_binary_value_bytes(
-        &INT128_RELATION_KIND,
-        &Value::Int128(int_key),
-        "int_relation",
-    )
-    .expect("int128 relation should encode")
-    .expect("int128 relation kind should stay on primary-key component lane");
-    let encoded_nat = encode_primary_key_component_binary_value_bytes(
-        &NAT128_RELATION_KIND,
-        &Value::Nat128(nat_key),
-        "nat_relation",
-    )
-    .expect("nat128 relation should encode")
-    .expect("nat128 relation kind should stay on primary-key component lane");
+    let mut encoded_int = Vec::new();
+    assert!(
+        push_primary_key_component_binary_value_bytes(
+            &mut encoded_int,
+            &INT128_RELATION_KIND,
+            &Value::Int128(int_key),
+            "int_relation",
+        )
+        .expect("primary-key component should append")
+    );
+    let mut encoded_nat = Vec::new();
+    assert!(
+        push_primary_key_component_binary_value_bytes(
+            &mut encoded_nat,
+            &NAT128_RELATION_KIND,
+            &Value::Nat128(nat_key),
+            "nat_relation",
+        )
+        .expect("primary-key component should append")
+    );
 
     assert_eq!(
         decode_accepted_relation_target_primary_key_components_binary_bytes(
@@ -220,20 +226,26 @@ fn primary_key_component_binary_roundtrips_128_bit_relation_payloads() {
 fn primary_key_component_binary_roundtrips_relation_payloads() {
     let left = Ulid::from_u128(100);
     let right = Ulid::from_u128(200);
-    let single = encode_primary_key_component_binary_value_bytes(
-        &RELATION_KIND,
-        &Value::Ulid(left),
-        "relation",
-    )
-    .expect("single relation should encode")
-    .expect("relation kind should stay on primary-key-component lane");
-    let many = encode_primary_key_component_binary_value_bytes(
-        &RELATION_LIST_KIND,
-        &Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]),
-        "relations",
-    )
-    .expect("many relation should encode")
-    .expect("relation list kind should stay on primary-key-component lane");
+    let mut single = Vec::new();
+    assert!(
+        push_primary_key_component_binary_value_bytes(
+            &mut single,
+            &RELATION_KIND,
+            &Value::Ulid(left),
+            "relation",
+        )
+        .expect("primary-key component should append")
+    );
+    let mut many = Vec::new();
+    assert!(
+        push_primary_key_component_binary_value_bytes(
+            &mut many,
+            &RELATION_LIST_KIND,
+            &Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]),
+            "relations",
+        )
+        .expect("primary-key component should append")
+    );
 
     assert_eq!(
         decode_primary_key_component_binary_value_bytes(single.as_slice(), &RELATION_KIND)
@@ -387,14 +399,26 @@ fn primary_key_component_binary_rejects_non_unit_unit_payload() {
 #[test]
 fn primary_key_component_relation_decode_preserves_scalar_null_semantics() {
     let target = Ulid::from_u128(7);
-    let target_bytes =
-        encode_primary_key_component_binary_value_bytes(&RELATION_KIND, &Value::Ulid(target), "id")
-            .expect("relation primary-key component bytes should encode")
-            .expect("relation kind should use primary-key component binary lane");
-    let null_bytes =
-        encode_primary_key_component_binary_value_bytes(&RELATION_KIND, &Value::Null, "id")
-            .expect("null relation bytes should encode")
-            .expect("relation kind should use primary-key component binary lane");
+    let mut target_bytes = Vec::new();
+    assert!(
+        push_primary_key_component_binary_value_bytes(
+            &mut target_bytes,
+            &RELATION_KIND,
+            &Value::Ulid(target),
+            "id"
+        )
+        .expect("primary-key component should append")
+    );
+    let mut null_bytes = Vec::new();
+    assert!(
+        push_primary_key_component_binary_value_bytes(
+            &mut null_bytes,
+            &RELATION_KIND,
+            &Value::Null,
+            "id"
+        )
+        .expect("primary-key component should append")
+    );
 
     let decoded = decode_accepted_relation_target_primary_key_components_binary_bytes(
         &target_bytes,
@@ -418,13 +442,16 @@ fn primary_key_component_relation_decode_preserves_scalar_null_semantics() {
 fn primary_key_component_relation_list_decode_skips_null_items() {
     let left = Ulid::from_u128(8);
     let right = Ulid::from_u128(9);
-    let bytes = encode_primary_key_component_binary_value_bytes(
-        &RELATION_LIST_KIND,
-        &Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]),
-        "ids",
-    )
-    .expect("relation list bytes should encode")
-    .expect("relation list should use primary-key component binary lane");
+    let mut bytes = Vec::new();
+    assert!(
+        push_primary_key_component_binary_value_bytes(
+            &mut bytes,
+            &RELATION_LIST_KIND,
+            &Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]),
+            "ids",
+        )
+        .expect("primary-key component should append")
+    );
 
     let decoded = decode_accepted_relation_target_primary_key_components_binary_bytes(
         &bytes,
@@ -502,12 +529,19 @@ fn primary_key_component_scalar_decoders_accept_supported_binary_shapes() {
 fn primary_key_component_relation_encode_binary_bytes_preserves_list_shape() {
     let left = PrimaryKeyComponent::Ulid(Ulid::from_u128(1));
     let right = PrimaryKeyComponent::Ulid(Ulid::from_u128(2));
-    let encoded = encode_relation_target_primary_key_components_binary_bytes(
-        &[left, right],
-        &RELATION_LIST_KIND,
-        "relations",
-    )
-    .expect("relation list keys should encode");
+    let mut encoded = Vec::new();
+    assert!(
+        push_primary_key_component_binary_value_bytes(
+            &mut encoded,
+            &RELATION_LIST_KIND,
+            &Value::List(vec![
+                Value::Ulid(Ulid::from_u128(1)),
+                Value::Ulid(Ulid::from_u128(2))
+            ]),
+            "relations",
+        )
+        .expect("relation list keys should encode")
+    );
 
     let decoded = decode_accepted_relation_target_primary_key_components_binary_bytes(
         &encoded,
@@ -543,7 +577,8 @@ fn primary_key_component_scalar_encode_roundtrips_supported_kinds() {
     ];
 
     for (kind, key) in cases {
-        let encoded = encode_primary_key_component_field_binary_bytes(key, &kind, "field")
+        let mut encoded = Vec::new();
+        encode_primary_key_component_field_binary_into(&mut encoded, key, &kind, "field")
             .expect("scalar key should encode");
         let decoded = decode_primary_key_component_field_binary_bytes(&encoded, &kind)
             .expect("scalar key should decode");

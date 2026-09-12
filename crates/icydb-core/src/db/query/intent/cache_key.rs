@@ -19,6 +19,7 @@ use crate::{
     error::InternalError,
     value::{Value, hash_value},
 };
+use std::rc::Rc;
 
 ///
 /// StructuralQueryCacheKey
@@ -26,10 +27,17 @@ use crate::{
 /// Canonical semantic identity for the shared structural query-plan cache.
 /// This key is intentionally explicit: normalization owns semantic equivalence,
 /// while `Hash` ownership stays mechanical at the map boundary.
+/// Clones share immutable content; query edits replace the memoized key rather
+/// than mutating it. Accepted runtime authority stays in the session key shell.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(in crate::db) struct StructuralQueryCacheKey {
+pub(in crate::db) struct StructuralQueryCacheKey(Rc<StructuralQueryCacheKeyData>);
+
+// One completed payload per construction, shared by memo and cache key copies.
+// Keep it private and non-Clone so the handle owns all key sharing.
+#[derive(Debug, Eq, Hash, PartialEq)]
+struct StructuralQueryCacheKeyData {
     mode: QueryModeCacheKey,
     predicate: Option<[u8; 32]>,
     parameter_contract: Option<PreparedQueryParameterContract>,
@@ -237,7 +245,7 @@ impl StructuralQueryCacheKey {
                     .map(ProjectionExprCacheKey::from_expr)
             })
         };
-        Self {
+        Self(Rc::new(StructuralQueryCacheKeyData {
             mode: QueryModeCacheKey::from_query_mode(model.mode()),
             // Canonical scalar `filter_expr` owns semantic filter identity when
             // present. The derived predicate key remains only for plans that
@@ -261,7 +269,7 @@ impl StructuralQueryCacheKey {
             consistency: ConsistencyCacheKey::from_missing_row_policy(
                 model.consistency_for_cache_key(),
             ),
-        }
+        }))
     }
 }
 
@@ -486,11 +494,15 @@ impl ConsistencyCacheKey {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::query::{
-            builder::aggregate,
-            plan::{
-                AggregateKind, GroupAggregateSpec, OrderDirection, OrderSpec, OrderTerm,
-                expr::{Alias, Expr, ProjectionField, ProjectionSelection},
+        db::{
+            predicate::MissingRowPolicy,
+            query::{
+                builder::aggregate,
+                intent::StructuralQuery,
+                plan::{
+                    AggregateKind, GroupAggregateSpec, OrderDirection, OrderSpec, OrderTerm,
+                    expr::{Alias, Expr, ProjectionField, ProjectionSelection},
+                },
             },
         },
         retained::RetainedBytes,
@@ -499,6 +511,42 @@ mod tests {
     };
 
     use super::{AggregateCacheKey, OrderTermCacheKey, ProjectionCacheKey};
+    use std::{
+        hash::{BuildHasher, BuildHasherDefault, DefaultHasher},
+        rc::Rc,
+    };
+
+    #[test]
+    fn shared_structural_key_preserves_content_identity_and_retention() {
+        let make_key = || {
+            StructuralQuery::new(MissingRowPolicy::Ignore)
+                .projection_selection(ProjectionSelection::Exprs(vec![ProjectionField::Scalar {
+                    expr: Expr::Aggregate(aggregate::sum("amount".repeat(100))),
+                    alias: Some(Alias::new("output".repeat(100))),
+                }]))
+                .structural_cache_key_with_normalized_predicate_fingerprint(None)
+        };
+        let key = make_key();
+        let cloned = key.clone();
+        // Sharing is the resource contract of key cloning, not pointer-based identity.
+        assert!(Rc::ptr_eq(&key.0, &cloned.0));
+        let independent = make_key();
+        assert!(!Rc::ptr_eq(&key.0, &independent.0));
+        assert_eq!(key, independent);
+        let hash = BuildHasherDefault::<DefaultHasher>::default();
+        assert_eq!(hash.hash_one(&key), hash.hash_one(&independent));
+        // The handle must preserve the payload's existing content hash.
+        assert_eq!(hash.hash_one(&key), hash.hash_one(key.0.as_ref()));
+
+        let bytes = RetainedBytes::measure(&key, usize::MAX).unwrap();
+        let payload_bytes = RetainedBytes::measure(key.0.as_ref(), usize::MAX).unwrap();
+        assert!(bytes >= size_of_val(&key) + 2 * size_of::<usize>() + payload_bytes);
+        assert_eq!(RetainedBytes::measure(&key, bytes), Some(bytes));
+        assert!(RetainedBytes::measure(&key, bytes - 1).is_none());
+        drop(key);
+        assert_eq!(cloned, independent);
+        assert_eq!(RetainedBytes::measure(&cloned, usize::MAX), Some(bytes));
+    }
 
     #[test]
     fn projection_cache_keys_preserve_optional_alias_text() {
@@ -753,6 +801,9 @@ Self::Load{limit,offset} => [limit,offset],
 Self::Delete{limit,offset} => [limit,offset],
 });
 crate::retained::retained_fields!(StructuralQueryCacheKey {
+Self(data) => [data],
+});
+crate::retained::retained_fields!(StructuralQueryCacheKeyData {
 Self{mode,predicate,parameter_contract,filter_expr,order,distinct,projection,grouping,consistency} => [mode,predicate,parameter_contract,filter_expr,order,distinct,projection,grouping,consistency],
 });
 crate::retained::retained_copy!(UnaryOpCacheKey);

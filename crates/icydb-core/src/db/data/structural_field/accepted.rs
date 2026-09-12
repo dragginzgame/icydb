@@ -11,10 +11,10 @@ use crate::{
                 push_binary_list_len, push_binary_map_len, walk_binary_list_items,
                 walk_binary_map_entries,
             },
-            leaf::{decode_leaf_field_by_kind_bytes, encode_leaf_field_binary_bytes},
+            leaf::{decode_leaf_field_by_kind_bytes, push_leaf_field_binary_bytes},
             primary_key_component::supports_primary_key_component_binary_kind,
             scalar::{
-                decode_scalar_fast_path_bytes, encode_scalar_fast_path_binary_bytes,
+                decode_scalar_fast_path_bytes, push_scalar_fast_path_binary_bytes,
                 validate_scalar_fast_path_binary_bytes,
             },
         },
@@ -89,17 +89,6 @@ pub(in crate::db) fn encode_structural_field_by_accepted_kind_bytes(
     value: &Value,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
-    if let Some(encoded) = encode_scalar_fast_path_binary_bytes(kind, value, field_name)? {
-        return Ok(encoded);
-    }
-    if !matches!(
-        kind,
-        AcceptedFieldKind::Composite { .. } | AcceptedFieldKind::Enum { .. }
-    ) && let Some(encoded) = encode_leaf_field_binary_bytes(kind, value, field_name)?
-    {
-        return Ok(encoded);
-    }
-
     let mut encoded = Vec::new();
     encode_accepted_binary_field_into(&mut encoded, kind, value, field_name)?;
 
@@ -183,16 +172,14 @@ fn encode_accepted_binary_field_into(
     value: &Value,
     field_name: &str,
 ) -> Result<(), InternalError> {
-    if let Some(bytes) = encode_scalar_fast_path_binary_bytes(kind, value, field_name)? {
-        out.extend_from_slice(bytes.as_slice());
+    if push_scalar_fast_path_binary_bytes(out, kind, value, field_name)? {
         return Ok(());
     }
     if !matches!(
         kind,
         AcceptedFieldKind::Composite { .. } | AcceptedFieldKind::Enum { .. }
-    ) && let Some(bytes) = encode_leaf_field_binary_bytes(kind, value, field_name)?
+    ) && push_leaf_field_binary_bytes(out, kind, value, field_name)?
     {
-        out.extend_from_slice(bytes.as_slice());
         return Ok(());
     }
 

@@ -9,7 +9,10 @@ use crate::db::data::structural_field::{
         TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NAT64, TAG_NULL, TAG_TEXT,
         TAG_TRUE, TAG_UNIT, parse_binary_head, skip_binary_value,
     },
-    value_storage::{next_value_storage_decode_depth, tags::is_local_value_storage_tag},
+    value_storage::{
+        next_value_storage_decode_depth,
+        tags::{fixed_value_storage_payload_len, is_nested_value_storage_tag},
+    },
 };
 
 // Skip one binary `Value` envelope without delegating nested `Value` items
@@ -31,12 +34,22 @@ pub(super) fn skip_value_storage_binary_value_at_depth(
         return Err(FieldDecodeError::new());
     };
 
+    if let Some(len) = fixed_value_storage_payload_len(tag) {
+        let end = offset
+            .checked_add(1 + len)
+            .ok_or_else(FieldDecodeError::new)?;
+        raw_bytes
+            .get(offset..end)
+            .ok_or_else(FieldDecodeError::new)?;
+        return Ok(end);
+    }
+
     match tag {
         TAG_NULL | TAG_UNIT | TAG_FALSE | TAG_TRUE | TAG_INT64 | TAG_NAT64 | TAG_TEXT
         | TAG_BYTES => skip_binary_value(raw_bytes, offset),
         TAG_LIST => skip_value_storage_binary_list(raw_bytes, offset, depth),
         TAG_MAP => skip_value_storage_binary_map(raw_bytes, offset, depth),
-        other if is_local_value_storage_tag(other) => {
+        other if is_nested_value_storage_tag(other) => {
             skip_value_storage_binary_value_at_depth(raw_bytes, offset + 1, depth)
         }
         _ => Err(FieldDecodeError::new()),

@@ -1,6 +1,9 @@
 //! Canonical arbitrary-precision signed-integer atom.
 
-use crate::{Decimal, NumericValue};
+use crate::{
+    Decimal, NumericValue,
+    integer_wire::{self, IntegerWire},
+};
 use candid::{CandidType, Int as WrappedInt};
 use derive_more::{Add, AddAssign, Sub, SubAssign};
 use num_bigint::BigInt;
@@ -28,12 +31,13 @@ use std::{
     Hash,
     Ord,
     PartialOrd,
-    Serialize,
-    Deserialize,
     Sub,
     SubAssign,
 )]
 /// Arbitrary-precision signed integer used by schema and typed values.
+///
+/// Candid uses its native integer type; human-readable Serde uses decimal text.
+/// Binary Serde uses native small integers and tagged little-endian wide bytes.
 pub struct IntBig(WrappedInt);
 
 impl IntBig {
@@ -139,6 +143,12 @@ impl IntBig {
     }
 }
 
+impl<'de> Deserialize<'de> for IntBig {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        integer_wire::deserialize_integer(deserializer)
+    }
+}
+
 impl fmt::Display for IntBig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
@@ -179,6 +189,21 @@ impl From<i64> for IntBig {
     }
 }
 
+impl IntegerWire for IntBig {
+    fn from_signed(value: i64) -> Option<Self> {
+        Some(Self::from(value))
+    }
+
+    fn from_unsigned(value: u64) -> Self {
+        Self::from_candid(WrappedInt::from(value))
+    }
+
+    fn from_wire_bytes(value: &[u8]) -> Option<Self> {
+        integer_wire::signed_body(value)
+            .map(|body| Self::from_bigint(BigInt::from_signed_bytes_le(body)))
+    }
+}
+
 impl Mul for IntBig {
     type Output = Self;
 
@@ -214,6 +239,22 @@ impl NumericValue for IntBig {
 impl Product for IntBig {
     fn product<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.fold(Self::from(1), |acc, value| acc * value)
+    }
+}
+
+impl Serialize for IntBig {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            return serializer.collect_str(&self.0.0);
+        }
+        if let Some(value) = self.to_i64() {
+            return serializer.serialize_i64(value);
+        }
+        if let Ok(value) = u64::try_from(&self.0.0) {
+            return serializer.serialize_u64(value);
+        }
+        let (negative, limbs) = self.sign_and_u32_digits();
+        serializer.serialize_bytes(&integer_wire::signed_bytes(negative, limbs))
     }
 }
 

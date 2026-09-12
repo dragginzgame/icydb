@@ -122,60 +122,6 @@ where
     })
 }
 
-// Encode one fixed-width slot table plus concatenated slot payload bytes into
-// the canonical row payload container.
-pub(in crate::db::data::persisted_row) fn encode_slot_payload_from_table_and_bytes(
-    slot_count: usize,
-    slot_table: &[(u32, u32)],
-    payload_bytes: &[u8],
-) -> Result<Vec<u8>, InternalError> {
-    let field_count =
-        u16::try_from(slot_count).map_err(|_| InternalError::persisted_row_encode_internal())?;
-    let mut encoded = Vec::with_capacity(
-        usize::from(field_count) * (u32::BITS as usize / 4) + 2 + payload_bytes.len(),
-    );
-    encoded.extend_from_slice(&field_count.to_be_bytes());
-    for (start, len) in slot_table {
-        encoded.extend_from_slice(&start.to_be_bytes());
-        encoded.extend_from_slice(&len.to_be_bytes());
-    }
-    encoded.extend_from_slice(payload_bytes);
-
-    Ok(encoded)
-}
-
-// Flatten one dense slot payload image into the canonical slot container while
-// letting the caller keep ownership of slot-local overflow error wording.
-fn encode_slot_payload_from_dense_slot_image<FS, FL>(
-    slot_payloads: &[Vec<u8>],
-    mut start_error: FS,
-    mut len_error: FL,
-) -> Result<Vec<u8>, InternalError>
-where
-    FS: FnMut(usize) -> InternalError,
-    FL: FnMut(usize) -> InternalError,
-{
-    let payload_capacity = slot_payloads
-        .iter()
-        .try_fold(0usize, |len, payload| len.checked_add(payload.len()))
-        .ok_or_else(InternalError::persisted_row_encode_internal)?;
-    let mut payload_bytes = Vec::with_capacity(payload_capacity);
-    let mut slot_table = Vec::with_capacity(slot_payloads.len());
-
-    for (slot, payload) in slot_payloads.iter().enumerate() {
-        let start = u32::try_from(payload_bytes.len()).map_err(|_| start_error(slot))?;
-        let len = u32::try_from(payload.len()).map_err(|_| len_error(slot))?;
-        payload_bytes.extend_from_slice(payload.as_slice());
-        slot_table.push((start, len));
-    }
-
-    encode_slot_payload_from_table_and_bytes(
-        slot_payloads.len(),
-        slot_table.as_slice(),
-        &payload_bytes,
-    )
-}
-
 // Build and emit one canonical row from runtime values through accepted field
 // contracts.
 pub(in crate::db) fn canonical_row_from_runtime_value_source_with_accepted_contract<'a, F>(
@@ -198,20 +144,7 @@ where
     )
 }
 
-// Wrap one already-encoded canonical slot payload container in the shared row
-// envelope so callers that already own a dense slot payload image do not have
-// to rebuild the row wrapper choreography themselves.
-fn canonical_row_from_slot_payload_bytes(
-    layout_version: crate::db::schema::RowLayoutVersion,
-    row_payload: Vec<u8>,
-) -> Result<CanonicalRow, InternalError> {
-    let encoded = serialize_row_payload(layout_version, row_payload)?;
-    let raw_row = RawRow::from_untrusted_bytes(encoded).map_err(InternalError::from)?;
-
-    Ok(CanonicalRow::from_canonical_raw_row(raw_row))
-}
-
-// Emit one raw row from a dense canonical slot image.
+// Emit the directory and admitted field images directly into the bounded row.
 pub(in crate::db) fn emit_raw_row_from_slot_payloads(
     layout_version: crate::db::schema::RowLayoutVersion,
     expected_slot_count: usize,
@@ -220,18 +153,32 @@ pub(in crate::db) fn emit_raw_row_from_slot_payloads(
     if slot_payloads.len() != expected_slot_count {
         return Err(InternalError::persisted_row_encode_internal());
     }
-
-    // Phase 1: flatten the already canonicalized dense slot image directly so
-    // row re-emission does not clone each slot payload back through the
-    // mutable slot-writer staging buffer first.
-    let row_payload = encode_slot_payload_from_dense_slot_image(
-        slot_payloads,
-        |_| InternalError::persisted_row_encode_internal(),
-        |_| InternalError::persisted_row_encode_internal(),
-    )?;
-
-    // Phase 2: wrap the canonical slot container in the shared row envelope.
-    canonical_row_from_slot_payload_bytes(layout_version, row_payload)
+    let field_count = u16::try_from(slot_payloads.len())
+        .map_err(|_| InternalError::persisted_row_encode_internal())?;
+    let directory_len = 2 + usize::from(field_count) * 8;
+    let payload_len = slot_payloads
+        .iter()
+        .try_fold(directory_len, |len, payload| len.checked_add(payload.len()))
+        .ok_or_else(InternalError::persisted_row_encode_internal)?;
+    let encoded = serialize_row_payload(layout_version, payload_len, |encoded| {
+        encoded.extend_from_slice(&field_count.to_be_bytes());
+        let mut start = 0_u32;
+        for payload in slot_payloads {
+            let len = u32::try_from(payload.len())
+                .map_err(|_| InternalError::persisted_row_encode_internal())?;
+            encoded.extend_from_slice(&start.to_be_bytes());
+            encoded.extend_from_slice(&len.to_be_bytes());
+            start = start
+                .checked_add(len)
+                .ok_or_else(InternalError::persisted_row_encode_internal)?;
+        }
+        for payload in slot_payloads {
+            encoded.extend_from_slice(payload);
+        }
+        Ok(())
+    })?;
+    let raw_row = RawRow::from_untrusted_bytes(encoded).map_err(InternalError::from)?;
+    Ok(CanonicalRow::from_canonical_raw_row(raw_row))
 }
 
 // Decode one non-scalar slot through the accepted persisted schema contract.
@@ -339,4 +286,50 @@ fn nullable_non_primary_key_component_accepted_slot_payload_is_structural_null(
     value_storage_bytes_are_null(raw_value).map_err(|err| {
         InternalError::persisted_row_field_kind_decode_failed(field.field_name(), field.kind(), err)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{
+        codec::decode_row_payload_bytes,
+        data::encode_structural_field_by_accepted_kind_bytes,
+        schema::{AcceptedFieldKind, RowLayoutVersion},
+    };
+
+    #[test]
+    fn row_emission_preserves_collection_bytes_and_slot_offsets() {
+        let kind = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat64));
+        let value = Value::List((0..1_000).map(Value::Nat64).collect());
+        let field = encode_structural_field_by_accepted_kind_bytes(&kind, &value, "numbers")
+            .expect("the accepted list should encode");
+        assert_eq!(field.len(), 9_005);
+        let mut fields = vec![field];
+        let row = emit_raw_row_from_slot_payloads(RowLayoutVersion::INITIAL, 1, &fields)
+            .expect("one collection field should emit");
+        assert_eq!(row.as_raw_row().as_bytes().len(), 9_026);
+
+        fields.push(vec![0]);
+        let row = emit_raw_row_from_slot_payloads(RowLayoutVersion::INITIAL, 2, &fields)
+            .expect("the collection and null slots should emit");
+        let raw = row.as_raw_row().as_bytes();
+        let decoded = decode_row_payload_bytes(raw).expect("the row envelope should decode");
+        assert_eq!(decoded.layout_version(), RowLayoutVersion::INITIAL);
+        let payload = decoded.into_payload();
+        // Frozen count/offset/length directory: list at 0, null at 9,005.
+        assert_eq!(
+            &payload[..18],
+            &[
+                0, 2, 0, 0, 0, 0, 0, 0, 0x23, 0x2d, 0, 0, 0x23, 0x2d, 0, 0, 0, 1
+            ],
+        );
+        assert_eq!(&payload[18..18 + 9_005], fields[0]);
+        assert_eq!(&payload[18 + 9_005..], fields[1]);
+        assert_eq!(
+            decode_structural_field_by_accepted_kind_bytes(&payload[18..18 + 9_005], &kind)
+                .expect("the emitted collection should decode"),
+            value,
+        );
+        assert!(emit_raw_row_from_slot_payloads(RowLayoutVersion::INITIAL, 1, &fields).is_err());
+    }
 }

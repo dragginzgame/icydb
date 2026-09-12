@@ -156,3 +156,235 @@ fn bigint_leb128_streams_mixed_limbs_and_large_values() {
         }
     }
 }
+
+// Freeze complete current messages, including their type tables and vector framing.
+fn assert_candid_sizes<T>(value: T, one_bytes: usize, batch_bytes: usize)
+where
+    T: candid::CandidType + serde::de::DeserializeOwned + Clone + PartialEq + std::fmt::Debug,
+{
+    let encoded = candid::encode_one(&value).expect("the integer should encode");
+    assert_eq!(encoded.len(), one_bytes);
+    assert_eq!(
+        candid::decode_one::<T>(&encoded).expect("the integer should decode"),
+        value,
+    );
+    let values = vec![value; 1_000];
+    let encoded = candid::encode_one(&values).expect("the integer batch should encode");
+    assert_eq!(encoded.len(), batch_bytes);
+    assert_eq!(
+        candid::decode_one::<Vec<T>>(&encoded).expect("the integer batch should decode"),
+        values,
+    );
+}
+
+#[test]
+fn public_128_bit_integers_use_compact_native_candid_values() {
+    use candid::CandidType;
+
+    assert_eq!(<u128 as candid::CandidType>::ty(), candid::Nat::ty());
+    assert_eq!(<i128 as candid::CandidType>::ty(), candid::Int::ty());
+    for (value, one, batch) in [(0_u128, 8, 1_011), (128, 9, 2_011), (u128::MAX, 26, 19_011)] {
+        assert_candid_sizes(value, one, batch);
+    }
+    for (value, one, batch) in [
+        (0_i128, 8, 1_011),
+        (-64, 8, 1_011),
+        (64, 9, 2_011),
+        (-65, 9, 2_011),
+        (i128::MIN, 26, 19_011),
+        (i128::MAX, 26, 19_011),
+    ] {
+        assert_candid_sizes(value, one, batch);
+    }
+}
+
+#[test]
+fn public_bigints_and_u256_share_native_candid_integer_sizes() {
+    use candid::CandidType;
+
+    assert_eq!(NatBig::ty(), candid::Nat::ty());
+    assert_eq!(IntBig::ty(), candid::Int::ty());
+    assert_eq!(crate::U256::ty(), candid::Nat::ty());
+    for (bits, one, batch) in [
+        (0_usize, 8, 1_011),
+        (1, 8, 1_011),
+        (64, 17, 10_011),
+        (128, 26, 19_011),
+        (256, 44, 37_011),
+        (1024, 154, 147_011),
+    ] {
+        let magnitude = (BigUint::from(1_u8) << bits) - 1_u8;
+        assert_candid_sizes(NatBig::from_biguint(magnitude.clone()), one, batch);
+        let signed = BigInt::from(magnitude.clone());
+        assert_candid_sizes(IntBig::from_bigint(signed.clone()), one, batch);
+        assert_candid_sizes(IntBig::from_bigint(-signed), one, batch);
+        if bits <= 256 {
+            let value = magnitude
+                .to_string()
+                .parse::<crate::U256>()
+                .expect("the magnitude should fit U256");
+            assert_candid_sizes(value, one, batch);
+        }
+    }
+}
+
+fn cbor_bytes<T: serde::Serialize + ?Sized>(value: &T) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    ciborium::ser::into_writer(value, &mut bytes).expect("the value should encode as CBOR");
+    bytes
+}
+
+fn assert_integer_serde_roundtrip<T>(value: T, text: &str)
+where
+    T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
+{
+    let bytes = cbor_bytes(&value);
+    assert_eq!(
+        ciborium::de::from_reader::<T, _>(bytes.as_slice()).expect("CBOR should round-trip"),
+        value,
+    );
+    let json = serde_json::to_string(&value).expect("JSON should encode");
+    assert_eq!(
+        json,
+        serde_json::to_string(text).expect("text should encode")
+    );
+    assert_eq!(
+        serde_json::from_str::<T>(&json).expect("JSON should round-trip"),
+        value
+    );
+}
+
+#[test]
+fn integer_serde_roundtrips_native_and_wide_boundaries() {
+    for bits in [
+        0_usize, 1, 7, 8, 31, 32, 63, 64, 65, 95, 96, 127, 128, 255, 256, 257, 1024,
+    ] {
+        let power = BigUint::from(1_u8) << bits;
+        for magnitude in [&power - 1_u8, power.clone(), &power + 1_u8] {
+            assert_integer_serde_roundtrip(
+                NatBig::from_biguint(magnitude.clone()),
+                &magnitude.to_string(),
+            );
+            if magnitude.bits() <= 256 {
+                let value = magnitude
+                    .to_string()
+                    .parse::<crate::U256>()
+                    .expect("U256 should fit");
+                assert_integer_serde_roundtrip(value, &magnitude.to_string());
+            }
+            let integer = BigInt::from(magnitude);
+            for integer in [integer.clone(), -integer] {
+                assert_integer_serde_roundtrip(
+                    IntBig::from_bigint(integer.clone()),
+                    &integer.to_string(),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn tagged_integer_bodies_match_independent_bigint_byte_encoders() {
+    for bits in 0_usize..=512 {
+        let magnitude = BigUint::from(1_u8) << bits;
+        for magnitude in [&magnitude - 1_u8, magnitude.clone(), &magnitude + 1_u8] {
+            let unsigned = NatBig::from_biguint(magnitude.clone());
+            let mut expected = vec![1];
+            expected.extend_from_slice(&magnitude.to_bytes_le());
+            assert_eq!(
+                crate::integer_wire::unsigned_bytes(unsigned.u32_digits()),
+                expected
+            );
+            let integer = BigInt::from(magnitude);
+            for integer in [integer.clone(), -integer] {
+                let signed = IntBig::from_bigint(integer.clone());
+                let (negative, limbs) = signed.sign_and_u32_digits();
+                let mut expected = vec![0];
+                expected.extend_from_slice(&integer.to_signed_bytes_le());
+                assert_eq!(crate::integer_wire::signed_bytes(negative, limbs), expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn binary_integer_ingress_rejects_malformed_current_bodies() {
+    for body in [vec![], vec![1], vec![2, 1], vec![1, 1, 0]] {
+        let encoded = cbor_bytes(serde_bytes::Bytes::new(&body));
+        assert!(ciborium::de::from_reader::<NatBig, _>(encoded.as_slice()).is_err());
+        assert!(ciborium::de::from_reader::<crate::U256, _>(encoded.as_slice()).is_err());
+    }
+    for body in [
+        vec![],
+        vec![0],
+        vec![2, 1],
+        vec![0, 0, 0],
+        vec![0, 0xff, 0xff],
+    ] {
+        let encoded = cbor_bytes(serde_bytes::Bytes::new(&body));
+        assert!(ciborium::de::from_reader::<IntBig, _>(encoded.as_slice()).is_err());
+    }
+    let negative = cbor_bytes(&-1_i64);
+    assert!(ciborium::de::from_reader::<NatBig, _>(negative.as_slice()).is_err());
+    assert!(ciborium::de::from_reader::<crate::U256, _>(negative.as_slice()).is_err());
+    for len in [31, 32, 33] {
+        let mut body = vec![1];
+        body.extend(std::iter::repeat_n(0xff, len));
+        let encoded = cbor_bytes(serde_bytes::Bytes::new(&body));
+        let decoded = ciborium::de::from_reader::<crate::U256, _>(encoded.as_slice());
+        assert_eq!(decoded.is_ok(), len <= 32);
+        for prefix in 0..encoded.len() {
+            assert!(ciborium::de::from_reader::<NatBig, _>(&encoded[..prefix]).is_err());
+        }
+    }
+}
+
+#[test]
+fn native_candid_naturals_still_widen_to_signed_bigints() {
+    for bits in [0_usize, 63, 64, 65, 128, 256] {
+        let value = BigUint::from(1_u8) << bits;
+        let encoded = candid::encode_one(candid::Nat(value.clone())).expect("Nat should encode");
+        assert_eq!(
+            candid::decode_one::<IntBig>(&encoded).expect("Nat should widen to IntBig"),
+            IntBig::from_bigint(BigInt::from(value)),
+        );
+    }
+}
+
+fn assert_cbor_integer_size<T>(value: T, expected_size: usize)
+where
+    T: serde::Serialize + serde::de::DeserializeOwned + Clone + PartialEq + std::fmt::Debug,
+{
+    assert_eq!(cbor_bytes(&value).len(), expected_size);
+    let values = vec![value; 1_000];
+    let bytes = cbor_bytes(&values);
+    assert_eq!(bytes.len(), 3 + 1_000 * expected_size);
+    assert_eq!(
+        ciborium::de::from_reader::<Vec<T>, _>(bytes.as_slice())
+            .expect("the batch should round-trip"),
+        values,
+    );
+}
+
+#[test]
+fn integer_binary_serde_sizes_cover_dense_and_sparse_batches() {
+    assert_cbor_integer_size(NatBig::from(0_u64), 1);
+    assert_cbor_integer_size(IntBig::from(0_i64), 1);
+    assert_cbor_integer_size(IntBig::from(-1_i64), 1);
+    assert_cbor_integer_size(crate::U256::ZERO, 1);
+    assert_cbor_integer_size(NatBig::from(u64::MAX), 9);
+    for (bits, unsigned_size, signed_size, sparse_size) in [
+        (128_usize, 18, 19, 19),
+        (256, 35, 36, 36),
+        (1024, 131, 132, 132),
+    ] {
+        let power = BigUint::from(1_u8) << bits;
+        let magnitude = &power - 1_u8;
+        assert_cbor_integer_size(NatBig::from_biguint(magnitude.clone()), unsigned_size);
+        assert_cbor_integer_size(NatBig::from_biguint(power), sparse_size);
+        for signed in [BigInt::from(magnitude.clone()), -BigInt::from(magnitude)] {
+            assert_cbor_integer_size(IntBig::from_bigint(signed), signed_size);
+        }
+    }
+    assert_cbor_integer_size(crate::U256::MAX, 35);
+}

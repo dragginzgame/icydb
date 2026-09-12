@@ -7,33 +7,28 @@ use crate::{
     db::{
         data::structural_field::{
             FieldDecodeError,
-            binary::{TAG_LIST, TAG_MAP, parse_binary_head},
+            binary::{
+                TAG_LIST, TAG_MAP, parse_binary_head, push_binary_bool, push_binary_bytes,
+                push_binary_int64, push_binary_list_len, push_binary_map_len, push_binary_nat64,
+                push_binary_null, push_binary_text, push_binary_unit,
+            },
             value_storage::{
-                decode_structural_value_storage_bytes, encode_account, encode_decimal, encode_int,
-                encode_int128, encode_nat, encode_nat128,
-                encode_structural_value_storage_blob_bytes,
-                encode_structural_value_storage_bool_bytes,
-                encode_structural_value_storage_date_bytes,
-                encode_structural_value_storage_duration_bytes,
-                encode_structural_value_storage_float32_bytes,
-                encode_structural_value_storage_float64_bytes,
-                encode_structural_value_storage_i64_bytes,
-                encode_structural_value_storage_null_bytes,
-                encode_structural_value_storage_principal_bytes,
-                encode_structural_value_storage_subaccount_bytes,
-                encode_structural_value_storage_timestamp_bytes,
-                encode_structural_value_storage_u64_bytes,
-                encode_structural_value_storage_ulid_bytes,
-                encode_structural_value_storage_unit_bytes, encode_u256,
-                encode_value_storage_owned_list_items, encode_value_storage_owned_map_entries,
-                encode_value_storage_text, skip::skip_value_storage_binary_value,
+                decode_structural_value_storage_bytes,
+                encode::{
+                    push_account_payload, push_date_payload, push_decimal_payload,
+                    push_duration_payload, push_float32_payload, push_float64_payload,
+                    push_int_big_payload, push_int128_payload, push_nat_big_payload,
+                    push_nat128_payload, push_principal_payload, push_subaccount_payload,
+                    push_timestamp_payload, push_u256_payload, push_ulid_payload,
+                },
+                skip::skip_value_storage_binary_value,
             },
         },
         schema::{
             MAX_ACCEPTED_RECURSIVE_DEPTH_U16,
             enum_catalog::{
                 CanonicalEnumWireError, CanonicalValue, decode_canonical_enum_value,
-                encode_canonical_enum_value,
+                push_canonical_enum_value,
             },
         },
     },
@@ -44,105 +39,67 @@ use crate::{
 const CANONICAL_ENUM_HEADER_BYTES: usize = 14;
 const CANONICAL_ENUM_VALUE_TAG: u8 = 0x84;
 
-type EncodedCanonicalMapEntry = (Vec<u8>, Vec<u8>);
-type EncodedCanonicalMapEntries = Vec<EncodedCanonicalMapEntry>;
-
-/// Encode one accepted canonical value without constructing runtime `Value`.
+/// Encode one accepted canonical value into a single recursive destination.
 pub(in crate::db) fn encode_canonical_value_storage_bytes(
     value: &CanonicalValue,
 ) -> Result<Vec<u8>, InternalError> {
-    encode_canonical_value_storage(value, 0)
+    let mut encoded = Vec::new();
+    push_canonical_value_storage(&mut encoded, value, 0)?;
+    Ok(encoded)
 }
 
-fn encode_canonical_value_storage(
+// Each nested value appends to its root buffer; depth admission precedes writes.
+fn push_canonical_value_storage(
+    out: &mut Vec<u8>,
     value: &CanonicalValue,
     depth: u16,
-) -> Result<Vec<u8>, InternalError> {
+) -> Result<(), InternalError> {
     ensure_depth(depth).map_err(|_| InternalError::persisted_row_encode_internal())?;
-
     match value {
-        CanonicalValue::Account(value) => encode_account(*value),
-        CanonicalValue::Blob(value) => {
-            Ok(encode_structural_value_storage_blob_bytes(value.as_slice()))
-        }
-        CanonicalValue::Bool(value) => Ok(encode_structural_value_storage_bool_bytes(*value)),
-        CanonicalValue::Date(value) => Ok(encode_structural_value_storage_date_bytes(*value)),
-        CanonicalValue::Decimal(value) => Ok(encode_decimal(*value)),
-        CanonicalValue::Duration(value) => {
-            Ok(encode_structural_value_storage_duration_bytes(*value))
-        }
+        CanonicalValue::Account(value) => push_account_payload(out, *value)?,
+        CanonicalValue::Blob(value) => push_binary_bytes(out, value),
+        CanonicalValue::Bool(value) => push_binary_bool(out, *value),
+        CanonicalValue::Date(value) => push_date_payload(out, *value),
+        CanonicalValue::Decimal(value) => push_decimal_payload(out, *value),
+        CanonicalValue::Duration(value) => push_duration_payload(out, *value),
         CanonicalValue::Enum(value) => {
-            encode_canonical_enum_value(value.canonical(), |payload, encoded| {
-                let payload = encode_canonical_value_storage(payload, depth.saturating_add(1))
-                    .map_err(|_| CanonicalEnumWireError::PayloadCodec)?;
-                encoded.extend_from_slice(payload.as_slice());
-                Ok(())
+            push_canonical_enum_value(out, value.canonical(), |payload, encoded| {
+                push_canonical_value_storage(encoded, payload, depth.saturating_add(1))
+                    .map_err(|_| CanonicalEnumWireError::PayloadCodec)
             })
-            .map_err(|_| InternalError::persisted_row_encode_internal())
+            .map_err(|_| InternalError::persisted_row_encode_internal())?;
         }
-        CanonicalValue::Float32(value) => Ok(encode_structural_value_storage_float32_bytes(*value)),
-        CanonicalValue::Float64(value) => Ok(encode_structural_value_storage_float64_bytes(*value)),
-        CanonicalValue::Int64(value) => Ok(encode_structural_value_storage_i64_bytes(*value)),
-        CanonicalValue::Int128(value) => Ok(encode_int128(*value)),
-        CanonicalValue::IntBig(value) => Ok(encode_int(value)),
+        CanonicalValue::Float32(value) => push_float32_payload(out, *value),
+        CanonicalValue::Float64(value) => push_float64_payload(out, *value),
+        CanonicalValue::Int64(value) => push_binary_int64(out, *value),
+        CanonicalValue::Int128(value) => push_int128_payload(out, *value),
+        CanonicalValue::IntBig(value) => push_int_big_payload(out, value),
         CanonicalValue::List(items) => {
-            let encoded = encode_canonical_list(items, depth)?;
-            Ok(encode_value_storage_owned_list_items(encoded.as_slice()))
+            push_binary_list_len(out, items.len());
+            for item in items {
+                push_canonical_value_storage(out, item, depth.saturating_add(1))?;
+            }
         }
         CanonicalValue::Map(entries) => {
-            let encoded = encode_canonical_map(entries, depth)?;
-            Ok(encode_value_storage_owned_map_entries(encoded.as_slice()))
+            push_binary_map_len(out, entries.len());
+            for (key, value) in entries {
+                push_canonical_value_storage(out, key, depth.saturating_add(1))?;
+                push_canonical_value_storage(out, value, depth.saturating_add(1))?;
+            }
         }
-        CanonicalValue::Null => Ok(encode_structural_value_storage_null_bytes()),
-        CanonicalValue::Principal(value) => encode_structural_value_storage_principal_bytes(*value),
-        CanonicalValue::Subaccount(value) => {
-            Ok(encode_structural_value_storage_subaccount_bytes(*value))
-        }
-        CanonicalValue::Text(value) => Ok(encode_value_storage_text(value)),
-        CanonicalValue::Timestamp(value) => {
-            Ok(encode_structural_value_storage_timestamp_bytes(*value))
-        }
-        CanonicalValue::Nat64(value) => Ok(encode_structural_value_storage_u64_bytes(*value)),
-        CanonicalValue::Nat128(value) => Ok(encode_nat128(*value)),
-        CanonicalValue::NatBig(value) => Ok(encode_nat(value)),
-        CanonicalValue::Ulid(value) => Ok(encode_structural_value_storage_ulid_bytes(*value)),
-        CanonicalValue::Unit => Ok(encode_structural_value_storage_unit_bytes()),
-        CanonicalValue::U256(value) => Ok(encode_u256(*value)),
+        CanonicalValue::Null => push_binary_null(out),
+        CanonicalValue::Principal(value) => push_principal_payload(out, *value)?,
+        CanonicalValue::Subaccount(value) => push_subaccount_payload(out, *value),
+        CanonicalValue::Text(value) => push_binary_text(out, value),
+        CanonicalValue::Timestamp(value) => push_timestamp_payload(out, *value),
+        CanonicalValue::Nat64(value) => push_binary_nat64(out, *value),
+        CanonicalValue::Nat128(value) => push_nat128_payload(out, *value),
+        CanonicalValue::NatBig(value) => push_nat_big_payload(out, value),
+        CanonicalValue::Ulid(value) => push_ulid_payload(out, *value),
+        CanonicalValue::Unit => push_binary_unit(out),
+        CanonicalValue::U256(value) => push_u256_payload(out, *value),
     }
-}
-
-fn encode_canonical_list(
-    items: &[CanonicalValue],
-    depth: u16,
-) -> Result<Vec<Vec<u8>>, InternalError> {
-    let mut encoded = Vec::new();
-    encoded
-        .try_reserve(items.len())
-        .map_err(|_| InternalError::persisted_row_encode_internal())?;
-    for item in items {
-        encoded.push(encode_canonical_value_storage(
-            item,
-            depth.saturating_add(1),
-        )?);
-    }
-    Ok(encoded)
-}
-
-fn encode_canonical_map(
-    entries: &[(CanonicalValue, CanonicalValue)],
-    depth: u16,
-) -> Result<EncodedCanonicalMapEntries, InternalError> {
-    let mut encoded = Vec::new();
-    encoded
-        .try_reserve(entries.len())
-        .map_err(|_| InternalError::persisted_row_encode_internal())?;
-    for (key, value) in entries {
-        encoded.push((
-            encode_canonical_value_storage(key, depth.saturating_add(1))?,
-            encode_canonical_value_storage(value, depth.saturating_add(1))?,
-        ));
-    }
-    Ok(encoded)
+    Ok(())
 }
 
 /// Decode one current-format accepted canonical value fail-closed.
@@ -351,6 +308,8 @@ const fn ensure_depth(depth: u16) -> Result<(), FieldDecodeError> {
 
 #[cfg(test)]
 mod tests {
+    mod fixed_width;
+
     use super::*;
     use crate::db::schema::MAX_ACCEPTED_RECURSIVE_DEPTH;
     use crate::types::{Decimal, IntBig, NatBig};
@@ -394,7 +353,11 @@ mod tests {
             CanonicalValue::Text("state".to_string()),
             CanonicalValue::List(vec![
                 canonical_enum(None),
-                canonical_enum(Some(CanonicalValue::Nat64(9))),
+                canonical_enum(Some(CanonicalValue::List(vec![
+                    canonical_enum(Some(CanonicalValue::Nat64(9))),
+                    CanonicalValue::Text("after nested enum".to_string()),
+                ]))),
+                CanonicalValue::Bool(true),
             ]),
         )]);
 
@@ -414,7 +377,7 @@ mod tests {
             let encoded = encode_canonical_value_storage_bytes(&canonical)
                 .expect("canonical U256 should encode");
 
-            assert_eq!(encoded.len(), 38);
+            assert_eq!(encoded.len(), 33);
             assert_eq!(
                 decode_canonical_value_storage_bytes(&encoded)
                     .expect("canonical U256 should decode"),

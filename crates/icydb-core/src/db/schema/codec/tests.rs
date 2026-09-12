@@ -28,6 +28,49 @@ fn encode_unchecked_schema_fixture(snapshot: &PersistedSchemaSnapshot) -> Vec<u8
 }
 
 #[test]
+fn persisted_schema_snapshot_round_trips_narrow_integer_codecs() {
+    let kinds = [
+        AcceptedFieldKind::Int8,
+        AcceptedFieldKind::Int16,
+        AcceptedFieldKind::Int32,
+        AcceptedFieldKind::Nat8,
+        AcceptedFieldKind::Nat16,
+        AcceptedFieldKind::Nat32,
+    ];
+    let fields = kinds
+        .into_iter()
+        .enumerate()
+        .map(|(slot, kind)| {
+            let codec = kind.leaf_codec_for_storage(FieldStorageDecode::ByKind);
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(u32::try_from(slot + 1).unwrap()),
+                format!("integer_{slot}"),
+                SchemaFieldSlot::new(u16::try_from(slot).unwrap()),
+                kind,
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                codec,
+            )
+        })
+        .collect::<Vec<_>>();
+    let snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "tests::Narrow".to_string(),
+        "Narrow".to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(fields.iter().map(|f| (f.id(), f.slot())).collect()),
+        fields,
+    );
+    let encoded = encode_persisted_schema_snapshot(&snapshot).unwrap();
+    assert_eq!(
+        decode_persisted_schema_snapshot(&encoded).unwrap(),
+        snapshot
+    );
+}
+
+#[test]
 fn persisted_schema_snapshot_codec_enforces_shared_byte_bound_before_decode() {
     super::reset_persisted_schema_snapshot_decode_count_for_tests();
 
@@ -1473,7 +1516,7 @@ fn persisted_schema_snapshot_round_trips_nested_relation_path_identities() {
                 false,
                 SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::Scalar(ScalarCodec::Int64),
+                LeafCodec::Scalar(ScalarCodec::Int32),
             ),
             PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),

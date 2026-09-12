@@ -19,39 +19,47 @@ pub(in crate::db) enum CanonicalEnumWireError {
     PayloadCodec,
 }
 
-/// Encode one canonical enum value with a caller-owned recursive payload codec.
-pub(in crate::db) fn encode_canonical_enum_value<V>(
+/// Append one canonical enum using the caller's recursive destination.
+/// The payload callback must append bytes; failures invalidate this destination.
+pub(in crate::db) fn push_canonical_enum_value<V>(
+    encoded: &mut Vec<u8>,
     value: &CanonicalEnumValue<V>,
     encode_payload: impl FnOnce(&V, &mut Vec<u8>) -> Result<(), CanonicalEnumWireError>,
-) -> Result<Vec<u8>, CanonicalEnumWireError> {
-    let mut encoded = Vec::with_capacity(ENUM_VALUE_HEADER_BYTES);
+) -> Result<(), CanonicalEnumWireError> {
     encoded.push(ENUM_VALUE_TAG);
     encoded.extend_from_slice(&value.type_id().get().to_be_bytes());
     encoded.extend_from_slice(&value.variant_id().get().to_be_bytes());
-
     match value.body() {
         CanonicalEnumBody::Unit => {
             encoded.push(ENUM_UNIT_BODY_TAG);
             encoded.extend_from_slice(&0_u32.to_be_bytes());
         }
         CanonicalEnumBody::Payload(payload) => {
-            let mut payload_bytes = Vec::new();
-            encode_payload(payload, &mut payload_bytes)?;
-            if payload_bytes.is_empty() {
+            encoded.push(ENUM_PAYLOAD_BODY_TAG);
+            let length_offset = encoded.len();
+            encoded.extend_from_slice(&0_u32.to_be_bytes());
+            let payload_start = encoded.len();
+            encode_payload(payload, encoded)?;
+            let payload_len = encoded
+                .len()
+                .checked_sub(payload_start)
+                .ok_or(CanonicalEnumWireError::InvalidBodyLength)?;
+            if payload_len == 0 {
                 return Err(CanonicalEnumWireError::InvalidBodyLength);
             }
-            if payload_bytes.len() > MAX_ENUM_PAYLOAD_BYTES {
+            if payload_len > MAX_ENUM_PAYLOAD_BYTES {
                 return Err(CanonicalEnumWireError::PayloadTooLarge);
             }
-            let payload_len = u32::try_from(payload_bytes.len())
-                .map_err(|_| CanonicalEnumWireError::PayloadTooLarge)?;
-            encoded.push(ENUM_PAYLOAD_BODY_TAG);
-            encoded.extend_from_slice(&payload_len.to_be_bytes());
-            encoded.extend_from_slice(payload_bytes.as_slice());
+            let payload_len =
+                u32::try_from(payload_len).map_err(|_| CanonicalEnumWireError::PayloadTooLarge)?;
+            // Length is relative to this enum, including when nested after a prefix.
+            encoded
+                .get_mut(length_offset..payload_start)
+                .ok_or(CanonicalEnumWireError::InvalidBodyLength)?
+                .copy_from_slice(&payload_len.to_be_bytes());
         }
     }
-
-    Ok(encoded)
+    Ok(())
 }
 
 /// Decode one canonical enum value with a caller-owned recursive payload codec.
@@ -115,9 +123,38 @@ mod tests {
     }
 
     #[test]
+    fn canonical_enum_payload_budget_is_relative_to_its_header() {
+        let value = CanonicalEnumValue::new(
+            type_id(),
+            variant_id(),
+            CanonicalEnumBody::Payload(Box::new(())),
+        );
+        let prefix = [0xab; 19];
+        let mut encoded = prefix.to_vec();
+        push_canonical_enum_value(&mut encoded, &value, |(), out| {
+            out.resize(out.len() + MAX_ENUM_PAYLOAD_BYTES, 0xcd);
+            Ok(())
+        })
+        .expect("a maximum-size enum payload should append after a prefix");
+        assert_eq!(&encoded[..prefix.len()], &prefix);
+        assert_eq!(
+            encoded.len(),
+            prefix.len() + ENUM_VALUE_HEADER_BYTES + MAX_ENUM_PAYLOAD_BYTES,
+        );
+        let decoded = decode_canonical_enum_value(&encoded[prefix.len()..], |payload| {
+            assert_eq!(payload.len(), MAX_ENUM_PAYLOAD_BYTES);
+            assert!(payload.iter().all(|byte| *byte == 0xcd));
+            Ok(())
+        })
+        .expect("the prefixed enum should decode with its own payload length");
+        assert_eq!(decoded, value);
+    }
+
+    #[test]
     fn canonical_unit_enum_wire_vector_is_frozen() {
         let value = CanonicalEnumValue::<u8>::new(type_id(), variant_id(), CanonicalEnumBody::Unit);
-        let encoded = encode_canonical_enum_value(&value, |_payload, _encoded| {
+        let mut encoded = Vec::new();
+        push_canonical_enum_value(&mut encoded, &value, |_payload, _encoded| {
             Err(CanonicalEnumWireError::PayloadCodec)
         })
         .expect("unit enum should encode without a payload callback");
@@ -156,7 +193,8 @@ mod tests {
             variant_id(),
             CanonicalEnumBody::Payload(Box::new(0xaabb_u16)),
         );
-        let encoded = encode_canonical_enum_value(&value, |payload, encoded| {
+        let mut encoded = Vec::new();
+        push_canonical_enum_value(&mut encoded, &value, |payload, encoded| {
             encoded.extend_from_slice(&payload.to_be_bytes());
             Ok(())
         })
@@ -197,7 +235,8 @@ mod tests {
     #[test]
     fn canonical_enum_decode_rejects_invalid_ids_body_and_framing() {
         let unit = CanonicalEnumValue::<u8>::new(type_id(), variant_id(), CanonicalEnumBody::Unit);
-        let valid = encode_canonical_enum_value(&unit, |_payload, _encoded| Ok(()))
+        let mut valid = Vec::new();
+        push_canonical_enum_value(&mut valid, &unit, |_payload, _encoded| Ok(()))
             .expect("unit enum should encode");
 
         let cases = [
@@ -244,18 +283,24 @@ mod tests {
             CanonicalEnumBody::Payload(Box::new(())),
         );
         assert_eq!(
-            encode_canonical_enum_value(&payload, |_payload, _encoded| Ok(())),
+            push_canonical_enum_value(&mut Vec::new(), &payload, |_payload, _encoded| Ok(())),
             Err(CanonicalEnumWireError::InvalidBodyLength),
         );
         assert_eq!(
-            encode_canonical_enum_value(&payload, |_payload, _encoded| {
+            push_canonical_enum_value(&mut Vec::new(), &payload, |_payload, _encoded| {
                 Err(CanonicalEnumWireError::PayloadCodec)
             }),
             Err(CanonicalEnumWireError::PayloadCodec),
         );
         assert_eq!(
-            encode_canonical_enum_value(&payload, |_payload, encoded| {
-                encoded.resize(MAX_ENUM_PAYLOAD_BYTES.saturating_add(1), 0);
+            push_canonical_enum_value(&mut Vec::new(), &payload, |_payload, encoded| {
+                encoded.resize(
+                    encoded
+                        .len()
+                        .saturating_add(MAX_ENUM_PAYLOAD_BYTES)
+                        .saturating_add(1),
+                    0,
+                );
                 Ok(())
             }),
             Err(CanonicalEnumWireError::PayloadTooLarge),

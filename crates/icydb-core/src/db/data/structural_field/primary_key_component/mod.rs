@@ -18,7 +18,7 @@ use crate::db::{
 pub(in crate::db) use crate::db::data::structural_field::primary_key_component::decode::validate_primary_key_component_binary_value_bytes;
 pub(in crate::db) use crate::db::data::structural_field::primary_key_component::{
     decode::decode_primary_key_component_binary_value_bytes,
-    encode::encode_primary_key_component_binary_value_bytes,
+    encode::push_primary_key_component_binary_value_bytes,
 };
 
 /// Return whether this field kind is owned by the Structural Binary v1

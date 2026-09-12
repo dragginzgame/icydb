@@ -144,28 +144,28 @@ fn prepare_grouped_cursor_rejects_offset_mismatch() {
 
 #[test]
 fn external_cursor_decode_facts_preserve_bounds_and_zero_based_positions() {
-    let err = decode_optional_cursor_token(Some("0x"))
-        .expect_err("invalid cursor hex should fail before token decode");
+    let err = decode_optional_cursor_token(Some("A!"))
+        .expect_err("invalid cursor Base64 should fail before token decode");
     assert_eq!(
         err.diagnostic_facts(),
         vec![
             (DiagnosticFactTag::ComponentIndex, 1),
             (
                 DiagnosticFactTag::DecodeReason,
-                DiagnosticDecodeReason::CursorInvalidHex.raw(),
+                DiagnosticDecodeReason::CursorInvalidBase64.raw(),
             ),
         ],
     );
 
     let err = CursorPlanError::invalid_continuation_cursor(CursorDecodeError::TooLong {
-        len: 16_386,
-        max: 16_384,
+        len: 10_924,
+        max: 10_923,
     });
     assert_eq!(
         err.diagnostic_facts(),
         vec![
-            (DiagnosticFactTag::ActualLength, 16_386),
-            (DiagnosticFactTag::Maximum, 16_384),
+            (DiagnosticFactTag::ActualLength, 10_924),
+            (DiagnosticFactTag::Maximum, 10_923),
             (
                 DiagnosticFactTag::DecodeReason,
                 DiagnosticDecodeReason::CursorTooLong.raw(),

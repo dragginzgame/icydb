@@ -156,3 +156,97 @@ fn walk_binary_map_entries_yields_raw_entry_slices() {
         vec![(left_key, left_value), (right_key, right_value)],
     );
 }
+
+#[test]
+fn big_integer_binary_magnitudes_preserve_bits_signs_and_exact_sizes() {
+    use super::{
+        TAG_BYTES, decode_binary_int_big_payload, decode_binary_nat_big_payload,
+        push_binary_int_big_payload, push_binary_nat_big_payload,
+    };
+    use num_bigint::{BigInt, BigUint, Sign};
+
+    for bits in [
+        0_usize, 1, 7, 8, 9, 31, 32, 33, 63, 64, 65, 255, 256, 257, 1024,
+    ] {
+        let magnitude = (BigUint::from(1_u32) << bits) - BigUint::from(1_u32);
+        let bytes = if bits == 0 {
+            Vec::new()
+        } else {
+            magnitude.to_bytes_le()
+        };
+        let mut encoded = Vec::new();
+        push_binary_nat_big_payload(&mut encoded, magnitude.iter_u32_digits());
+        assert_eq!(encoded[0], TAG_BYTES);
+        assert_eq!(encoded.len(), 5 + bytes.len());
+        assert_eq!(&encoded[5..], bytes);
+        assert_eq!(decode_binary_nat_big_payload(&encoded).unwrap(), magnitude);
+        for negative in [false, true] {
+            encoded.clear();
+            push_binary_int_big_payload(&mut encoded, negative, magnitude.iter_u32_digits());
+            assert_eq!(encoded.len(), 6 + bytes.len());
+            assert_eq!(
+                encoded[5],
+                if bits == 0 {
+                    0
+                } else if negative {
+                    2
+                } else {
+                    1
+                }
+            );
+            assert_eq!(&encoded[6..], bytes);
+            let sign = if negative { Sign::Minus } else { Sign::Plus };
+            assert_eq!(
+                decode_binary_int_big_payload(&encoded).unwrap(),
+                BigInt::from_biguint(sign, magnitude.clone())
+            );
+        }
+    }
+    // Nonuniform bytes check order across both byte and limb boundaries.
+    let magnitude = BigUint::from_bytes_le(&[0, 1, 2, 3, 0, 4, 5]);
+    let mut encoded = Vec::new();
+    push_binary_nat_big_payload(&mut encoded, magnitude.iter_u32_digits());
+    assert_eq!(&encoded[5..], &[0, 1, 2, 3, 0, 4, 5]);
+    assert_eq!(decode_binary_nat_big_payload(&encoded).unwrap(), magnitude);
+}
+
+#[test]
+fn big_integer_binary_payloads_reject_noncanonical_and_malformed_bytes() {
+    use super::{
+        TAG_BYTES, decode_binary_int_big_payload, decode_binary_nat_big_payload, push_binary_bytes,
+    };
+
+    for payload in [
+        &[][..],
+        &[0, 1],
+        &[1],
+        &[2],
+        &[3, 1],
+        &[255, 1],
+        &[1, 0],
+        &[2, 1, 0],
+        &[0, 0],
+    ] {
+        let mut encoded = Vec::new();
+        push_binary_bytes(&mut encoded, payload);
+        assert!(decode_binary_int_big_payload(&encoded).is_err());
+    }
+    for payload in [&[0][..], &[1, 0], &[0, 0]] {
+        let mut encoded = Vec::new();
+        push_binary_bytes(&mut encoded, payload);
+        assert!(decode_binary_nat_big_payload(&encoded).is_err());
+    }
+    // This is a complete canonical value in both maintained byte grammars.
+    let mut encoded = Vec::new();
+    push_binary_bytes(&mut encoded, &[1, 42]);
+    for end in 0..encoded.len() {
+        assert!(decode_binary_int_big_payload(&encoded[..end]).is_err());
+        assert!(decode_binary_nat_big_payload(&encoded[..end]).is_err());
+    }
+    encoded.push(7);
+    assert!(decode_binary_int_big_payload(&encoded).is_err());
+    assert!(decode_binary_nat_big_payload(&encoded).is_err());
+    let deceptive = [TAG_BYTES, 255, 255, 255, 255];
+    assert!(decode_binary_int_big_payload(&deceptive).is_err());
+    assert!(decode_binary_nat_big_payload(&deceptive).is_err());
+}

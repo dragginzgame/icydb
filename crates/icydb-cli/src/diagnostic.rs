@@ -2099,7 +2099,7 @@ mod tests {
                 },
                 {
                     "tag": icydb::diagnostic::DiagnosticFactTag::DecodeReason.raw(),
-                    "value": icydb::diagnostic::DiagnosticDecodeReason::CursorInvalidHex.raw(),
+                    "value": icydb::diagnostic::DiagnosticDecodeReason::CursorInvalidBase64.raw(),
                 },
             ],
         }))

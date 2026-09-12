@@ -62,6 +62,7 @@ license = "Apache-2.0 OR MIT"
 repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
+base64 = "0.22.1"
 blake3 = "1.8.5"
 candid = "0.10"
 ciborium = "0.2"

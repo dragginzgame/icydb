@@ -1,46 +1,35 @@
-//! Integer chunk emission preserves canonical digits, signs and segment limits.
+//! Binary magnitudes preserve numeric order, canonical zero and segment limits.
 
 use super::*;
-use crate::{
-    db::index::key::ordered::encode_canonical_index_component,
-    value::{Value, decimal::DECIMAL_CHUNK_WIDTH},
-};
+use crate::{db::index::key::ordered::encode_canonical_index_component, value::Value};
+use num_bigint::{BigInt, BigUint, Sign};
 
 #[test]
-fn integer_components_match_decimal_reference_at_chunk_boundaries() {
-    for digits in [
-        "0",
-        "1",
-        "9",
-        "10",
-        "999999999",
-        "1000000000",
-        "1000000001",
-        "999999999999999999",
-        "1000000000000000000",
-        "1000000000000000001",
-        "1000000000000000000000000001",
-        "340282366920938463463374607431768211455",
-    ] {
-        let length = u16::try_from(digits.len()).unwrap().to_be_bytes();
-        let unsigned = Value::NatBig(digits.parse().unwrap());
+fn integer_components_match_binary_magnitudes_at_byte_and_limb_boundaries() {
+    for bits in [0_usize, 1, 8, 9, 31, 32, 33, 64, 65, 256, 1024] {
+        let magnitude = (BigUint::from(1_u8) << bits) - BigUint::from(1_u8);
+        let bytes = if bits == 0 {
+            vec![]
+        } else {
+            magnitude.to_bytes_be()
+        };
+        let length = u16::try_from(bytes.len()).unwrap().to_be_bytes();
+        let unsigned = Value::NatBig(NatBig::from_biguint(magnitude.clone()));
         let mut expected = vec![unsigned.canonical_tag().to_u8()];
         expected.extend_from_slice(&length);
-        expected.extend_from_slice(digits.as_bytes());
+        expected.extend_from_slice(&bytes);
         assert_eq!(
             encode_canonical_index_component(&unsigned).unwrap(),
             expected
         );
-
         for negative in [false, true] {
-            let text = if negative {
-                format!("-{digits}")
-            } else {
-                digits.to_string()
-            };
-            let signed = Value::IntBig(text.parse().unwrap());
+            let sign = if negative { Sign::Minus } else { Sign::Plus };
+            let signed = Value::IntBig(IntBig::from_bigint(BigInt::from_biguint(
+                sign,
+                magnitude.clone(),
+            )));
             let mut expected = vec![signed.canonical_tag().to_u8()];
-            if digits == "0" {
+            if bits == 0 {
                 expected.push(ZERO_MARKER);
             } else {
                 expected.push(if negative {
@@ -49,11 +38,10 @@ fn integer_components_match_decimal_reference_at_chunk_boundaries() {
                     POSITIVE_MARKER
                 });
                 expected.extend(
-                    length.iter().chain(digits.as_bytes()).map(
-                        |&byte| {
-                            if negative { !byte } else { byte }
-                        },
-                    ),
+                    length
+                        .iter()
+                        .chain(&bytes)
+                        .map(|&byte| if negative { !byte } else { byte }),
                 );
             }
             assert_eq!(encode_canonical_index_component(&signed).unwrap(), expected);
@@ -62,50 +50,52 @@ fn integer_components_match_decimal_reference_at_chunk_boundaries() {
 }
 
 #[test]
-fn chunk_digit_count_and_emission_agree_at_segment_limit() {
-    // Exercise the existing u16 digit-length boundary directly, without a huge
-    // binary-to-decimal conversion hiding which construction contract is tested.
-    for len in [
-        1_usize,
-        8,
-        9,
-        10,
-        18,
-        19,
-        u16::MAX as usize,
-        u16::MAX as usize + 1,
-    ] {
-        let leading_width = (len - 1) % DECIMAL_CHUNK_WIDTH + 1;
-        let mut chunks = vec![0; len.div_ceil(DECIMAL_CHUNK_WIDTH)];
-        *chunks.last_mut().unwrap() = 10_u32.pow(u32::try_from(leading_width).unwrap() - 1);
-        let actual = decimal_chunk_digit_count(&chunks).unwrap();
-        assert_eq!(actual, len);
-        if len > u16::MAX as usize {
-            assert!(matches!(
-                encode_segment_len(actual),
-                Err(OrderedValueEncodeError::SegmentTooLarge)
-            ));
-            continue;
-        }
-        assert_eq!(
-            u16::from_be_bytes(encode_segment_len(actual).unwrap()) as usize,
-            len
-        );
-        for negative in [false, true] {
-            let mut out = Vec::with_capacity(len);
-            push_decimal_chunk_digits(&mut out, &chunks, negative);
-            let mut expected = vec![b'0'; len];
-            expected[0] = b'1';
-            if negative {
-                for byte in &mut expected {
-                    *byte = !*byte;
-                }
+fn binary_magnitude_length_checks_precede_destination_growth() {
+    for len in [u16::MAX as usize, u16::MAX as usize + 1] {
+        let magnitude = BigUint::from(1_u8) << (len * 8 - 1);
+        let value = NatBig::from_biguint(magnitude);
+        for negative in [None, Some(false), Some(true)] {
+            let mut out = vec![0x42];
+            let result = push_big_integer_magnitude(&mut out, negative, value.u32_digits());
+            if len > u16::MAX as usize {
+                assert!(matches!(
+                    result,
+                    Err(OrderedValueEncodeError::SegmentTooLarge)
+                ));
+                assert_eq!(out, [0x42]);
+            } else {
+                result.unwrap();
+                assert_eq!(out.len(), 1 + usize::from(negative.is_some()) + 2 + len);
             }
-            assert_eq!(out, expected);
         }
     }
-    assert_eq!(decimal_chunk_digit_count(&[]).unwrap(), 1);
-    let mut zero = Vec::new();
-    push_decimal_chunk_digits(&mut zero, &[], false);
-    assert_eq!(zero, b"0");
+}
+
+#[test]
+fn binary_magnitude_order_crosses_byte_limb_and_length_prefix_boundaries() {
+    for bits in [8_usize, 32, 64, 2040, 2048] {
+        let middle = BigInt::from(1_u8) << bits;
+        let lower = &middle - 1_u8;
+        let upper = &middle + 1_u8;
+        let ordered = [
+            -&upper,
+            -&middle,
+            -&lower,
+            BigInt::from(0_u8),
+            lower,
+            middle,
+            upper,
+        ];
+        for pair in ordered.windows(2) {
+            let left = encode_canonical_index_component(&Value::IntBig(IntBig::from_bigint(
+                pair[0].clone(),
+            )))
+            .unwrap();
+            let right = encode_canonical_index_component(&Value::IntBig(IntBig::from_bigint(
+                pair[1].clone(),
+            )))
+            .unwrap();
+            assert_eq!(left.cmp(&right), pair[0].cmp(&pair[1]));
+        }
+    }
 }

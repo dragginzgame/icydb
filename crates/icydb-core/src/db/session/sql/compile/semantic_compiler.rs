@@ -5,7 +5,7 @@
 //! Boundary: lowers prepared SQL into session-owned compiled command artifacts.
 
 use crate::db::query::preparation::PreparationWork;
-use std::sync::Arc;
+use std::rc::Rc;
 
 #[cfg(feature = "sql")]
 use crate::db::sql::lowering::lower_sql_explain_command_from_prepared_statement_with_schema;
@@ -181,7 +181,7 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::from_sql_lowering_error)?;
 
         Ok(CompiledSqlCommand::Delete {
-            query: Arc::new(query),
+            query: Rc::new(query),
             returning,
         })
     }

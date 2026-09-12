@@ -3791,7 +3791,7 @@ mod mixed_relation_batch_tests {
         let mut tampered = cursor.as_bytes().to_vec();
         let last = tampered.len().saturating_sub(1);
         tampered[last] = if tampered[last] == b'0' { b'1' } else { b'0' };
-        let tampered = String::from_utf8(tampered).expect("hex cursor should remain UTF-8");
+        let tampered = String::from_utf8(tampered).expect("Base64 cursor should remain UTF-8");
         let error = session
             .execute_public_live_page(&query, Some(tampered.as_str()))
             .expect_err("tampered cursor must fail closed");

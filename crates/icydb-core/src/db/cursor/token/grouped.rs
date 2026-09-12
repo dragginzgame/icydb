@@ -140,15 +140,15 @@ mod tests {
     }
 
     #[test]
-    fn grouped_continuation_token_encode_hex_matches_hex_of_encoded_bytes() {
+    fn grouped_continuation_token_external_encoding_matches_encoded_bytes() {
         let token = grouped_token_fixture(Direction::Asc);
         let encoded = token
             .encode()
             .expect("grouped continuation token should encode");
-        let encoded_hex = encode_grouped_cursor_token(&token)
-            .expect("grouped continuation token hex encoder should succeed");
+        let encoded_text = encode_grouped_cursor_token(&token)
+            .expect("grouped continuation token text encoder should succeed");
 
-        assert_eq!(encoded_hex, encode_cursor(encoded.as_slice()));
+        assert_eq!(encoded_text, encode_cursor(encoded.as_slice()));
     }
 
     #[test]
@@ -158,10 +158,10 @@ mod tests {
         let encoded = token
             .encode()
             .expect("grouped continuation token should encode");
-        let actual_hex = encode_cursor(encoded.as_slice());
+        let actual_text = encode_cursor(encoded.as_slice());
         assert_eq!(
-            actual_hex,
-            "4943595101024242424242424242424242424242424242424242424242424242424242424242000000000400000003110000000874656e616e742d611300000000000000070201"
+            actual_text,
+            "SUNZUQECQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkIAAAAABAAAAAMRAAAACHRlbmFudC1hEwAAAAAAAAAHAgE"
         );
     }
 
@@ -172,10 +172,10 @@ mod tests {
         let encoded = token
             .encode()
             .expect("grouped continuation token should encode");
-        let actual_hex = encode_cursor(encoded.as_slice());
+        let actual_text = encode_cursor(encoded.as_slice());
         assert_eq!(
-            actual_hex,
-            "4943595101024242424242424242424242424242424242424242424242424242424242424242010000000400000003110000000874656e616e742d611300000000000000070201",
+            actual_text,
+            "SUNZUQECQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkIBAAAABAAAAAMRAAAACHRlbmFudC1hEwAAAAAAAAAHAgE",
             "grouped continuation token DESC wire encoding must remain stable",
         );
     }
@@ -226,5 +226,29 @@ mod tests {
         expected.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 1, 6, 0, 0, 0, 2, 0, 0, 0, 3, 0]);
 
         assert_eq!(encoded, expected);
+    }
+
+    #[test]
+    fn compact_grouped_cursor_round_trips_and_measures_external_bytes() {
+        use crate::{db::cursor::decode_cursor, types::NatBig};
+        use num_bigint::BigUint;
+
+        let magnitude = (BigUint::from(1_u8) << 256_usize) - BigUint::from(1_u8);
+        let token = GroupedContinuationToken::new_with_direction(
+            ContinuationSignature::from_bytes([0x42; 32]),
+            vec![Value::NatBig(NatBig::from_biguint(magnitude))],
+            Direction::Desc,
+            4,
+        );
+        for _ in 0..1000 {
+            let bytes = token.encode().unwrap();
+            let text = encode_cursor(&bytes);
+            assert_eq!(bytes.len(), 84);
+            assert_eq!(text.len(), 112);
+            let decoded = GroupedContinuationToken::decode(&decode_cursor(&text).unwrap()).unwrap();
+            assert_eq!(decoded.last_group_key(), token.last_group_key());
+            assert_eq!(decoded.direction(), token.direction());
+            assert_eq!(decoded.initial_offset(), token.initial_offset());
+        }
     }
 }

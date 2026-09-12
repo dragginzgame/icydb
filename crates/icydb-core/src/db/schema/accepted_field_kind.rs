@@ -148,16 +148,18 @@ impl AcceptedFieldKind {
             Self::Duration => LeafCodec::Scalar(ScalarCodec::Duration),
             Self::Float32 => LeafCodec::Scalar(ScalarCodec::Float32),
             Self::Float64 => LeafCodec::Scalar(ScalarCodec::Float64),
-            Self::Int8 | Self::Int16 | Self::Int32 | Self::Int64 => {
-                LeafCodec::Scalar(ScalarCodec::Int64)
-            }
+            Self::Int8 => LeafCodec::Scalar(ScalarCodec::Int8),
+            Self::Int16 => LeafCodec::Scalar(ScalarCodec::Int16),
+            Self::Int32 => LeafCodec::Scalar(ScalarCodec::Int32),
+            Self::Int64 => LeafCodec::Scalar(ScalarCodec::Int64),
             Self::Principal => LeafCodec::Scalar(ScalarCodec::Principal),
             Self::Subaccount => LeafCodec::Scalar(ScalarCodec::Subaccount),
             Self::Text { .. } => LeafCodec::Scalar(ScalarCodec::Text),
             Self::Timestamp => LeafCodec::Scalar(ScalarCodec::Timestamp),
-            Self::Nat8 | Self::Nat16 | Self::Nat32 | Self::Nat64 => {
-                LeafCodec::Scalar(ScalarCodec::Nat64)
-            }
+            Self::Nat8 => LeafCodec::Scalar(ScalarCodec::Nat8),
+            Self::Nat16 => LeafCodec::Scalar(ScalarCodec::Nat16),
+            Self::Nat32 => LeafCodec::Scalar(ScalarCodec::Nat32),
+            Self::Nat64 => LeafCodec::Scalar(ScalarCodec::Nat64),
             Self::Relation { key_kind, .. } => key_kind.leaf_codec_for_storage(storage_decode),
             Self::Ulid => LeafCodec::Scalar(ScalarCodec::Ulid),
             Self::Unit => LeafCodec::Scalar(ScalarCodec::Unit),

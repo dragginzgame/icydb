@@ -18,7 +18,7 @@ use crate::{
     },
     value::{CanonicalEnumBody, EnumTypeId, EnumVariantId, Value, ValueEnum},
 };
-use num_bigint::{BigInt, BigUint};
+use num_bigint::{BigInt, BigUint, Sign};
 
 const VALUE_ACCOUNT: u8 = 0;
 const VALUE_BLOB: u8 = 1;
@@ -159,7 +159,8 @@ pub(in crate::db::cursor::token) fn write_value(
         }
         Value::IntBig(value) => {
             out.push(VALUE_INT_BIG);
-            write_string(out, &value.to_string())
+            let (negative, digits) = value.sign_and_u32_digits();
+            write_big_magnitude(out, Some(negative), digits)
         }
         Value::List(items) => {
             out.push(VALUE_LIST);
@@ -203,7 +204,7 @@ pub(in crate::db::cursor::token) fn write_value(
         }
         Value::NatBig(value) => {
             out.push(VALUE_NAT_BIG);
-            write_string(out, &value.to_string())
+            write_big_magnitude(out, None, value.u32_digits())
         }
         Value::Ulid(value) => {
             out.push(VALUE_ULID);
@@ -223,9 +224,12 @@ pub(in crate::db::cursor::token) fn write_value(
 }
 
 fn write_account(out: &mut Vec<u8>, value: Account) -> Result<(), TokenWireError> {
-    let bytes = value.to_bytes().map_err(|_| TokenWireError::encode())?;
+    let bytes = value
+        .to_stored_bytes()
+        .map_err(|_| TokenWireError::encode())?;
 
-    write_len_prefixed_bytes(out, bytes.as_slice())
+    out.extend_from_slice(&bytes);
+    Ok(())
 }
 
 fn write_principal(out: &mut Vec<u8>, value: Principal) -> Result<(), TokenWireError> {
@@ -241,7 +245,8 @@ fn write_i32_days(out: &mut Vec<u8>, value: Date) {
 fn write_decimal(out: &mut Vec<u8>, value: Decimal) {
     let decimal_parts = value.parts();
     write_i128(out, decimal_parts.mantissa());
-    write_u32(out, decimal_parts.scale());
+    // Valid Decimal scales are 0–28; the full mantissa remains unchanged.
+    out.push(decimal_parts.scale().to_be_bytes()[3]);
 }
 
 fn write_value_enum(out: &mut Vec<u8>, value: &ValueEnum) -> Result<(), TokenWireError> {
@@ -317,7 +322,8 @@ fn read_bool(cursor: &mut ByteCursor<'_>) -> Result<Value, TokenWireError> {
 }
 
 fn read_account(cursor: &mut ByteCursor<'_>) -> Result<Account, TokenWireError> {
-    Account::try_from_bytes(cursor.read_len_prefixed_bytes()?).map_err(|_| TokenWireError::decode())
+    Account::try_from_bytes(cursor.read_exact(Account::STORED_SIZE as usize)?)
+        .map_err(|_| TokenWireError::decode())
 }
 
 fn read_principal(cursor: &mut ByteCursor<'_>) -> Result<Principal, TokenWireError> {
@@ -332,7 +338,7 @@ fn read_date(cursor: &mut ByteCursor<'_>) -> Result<Date, TokenWireError> {
 
 fn read_decimal(cursor: &mut ByteCursor<'_>) -> Result<Decimal, TokenWireError> {
     let mantissa = cursor.read_i128()?;
-    let scale = cursor.read_u32()?;
+    let scale = u32::from(cursor.read_u8()?);
     Decimal::try_from_i128_with_scale(mantissa, scale)
         .filter(|value| value.parts().scale() == scale && value.parts().mantissa() == mantissa)
         .ok_or_else(TokenWireError::decode)
@@ -351,18 +357,68 @@ fn read_value_enum(cursor: &mut ByteCursor<'_>) -> Result<ValueEnum, TokenWireEr
     Ok(ValueEnum::new(type_id, variant_id, body))
 }
 
-fn read_big_int(cursor: &mut ByteCursor<'_>) -> Result<IntBig, TokenWireError> {
-    let text = cursor.read_string()?;
-    let big = BigInt::parse_bytes(text.as_bytes(), 10).ok_or_else(TokenWireError::decode)?;
+// Stream the atom's borrowed limbs directly into one canonical magnitude frame.
+// Signed zero has sign 0 and no magnitude; nonzero signs are 1 (+) and 2 (-).
+fn write_big_magnitude(
+    out: &mut Vec<u8>,
+    negative: Option<bool>,
+    mut digits: impl DoubleEndedIterator<Item = u32> + ExactSizeIterator,
+) -> Result<(), TokenWireError> {
+    let high = digits.next_back();
+    let high_len = high.map_or(0, |digit| {
+        (u32::BITS - digit.leading_zeros()).div_ceil(8) as usize
+    });
+    let len = digits
+        .len()
+        .checked_mul(4)
+        .and_then(|len| len.checked_add(high_len))
+        .ok_or_else(TokenWireError::encode)?;
+    if let Some(negative) = negative {
+        out.push(if len == 0 {
+            0
+        } else if negative {
+            2
+        } else {
+            1
+        });
+    }
+    write_u32(out, checked_len_u32(len)?);
+    for digit in digits {
+        out.extend_from_slice(&digit.to_le_bytes());
+    }
+    if let Some(high) = high {
+        out.extend_from_slice(&high.to_le_bytes()[..high_len]);
+    }
+    Ok(())
+}
 
-    Ok(IntBig::from_bigint(big))
+fn read_big_int(cursor: &mut ByteCursor<'_>) -> Result<IntBig, TokenWireError> {
+    let sign = match cursor.read_u8()? {
+        0 => Sign::NoSign,
+        1 => Sign::Plus,
+        2 => Sign::Minus,
+        _ => return Err(TokenWireError::decode()),
+    };
+    let magnitude = read_big_magnitude(cursor)?;
+    if (sign == Sign::NoSign) != magnitude.is_empty() {
+        return Err(TokenWireError::decode());
+    }
+    Ok(IntBig::from_bigint(BigInt::from_bytes_le(sign, magnitude)))
 }
 
 fn read_big_nat(cursor: &mut ByteCursor<'_>) -> Result<NatBig, TokenWireError> {
-    let text = cursor.read_string()?;
-    let big = BigUint::parse_bytes(text.as_bytes(), 10).ok_or_else(TokenWireError::decode)?;
+    Ok(NatBig::from_biguint(BigUint::from_bytes_le(
+        read_big_magnitude(cursor)?,
+    )))
+}
 
-    Ok(NatBig::from_biguint(big))
+// Validate the full borrowed frame before allocating a decoded integer.
+fn read_big_magnitude<'a>(cursor: &mut ByteCursor<'a>) -> Result<&'a [u8], TokenWireError> {
+    let magnitude = cursor.read_len_prefixed_bytes()?;
+    if magnitude.last() == Some(&0) {
+        return Err(TokenWireError::decode());
+    }
+    Ok(magnitude)
 }
 
 fn read_map_value(cursor: &mut ByteCursor<'_>) -> Result<Value, TokenWireError> {
@@ -412,5 +468,85 @@ mod tests {
         encoded.extend_from_slice(&[0; 31]);
 
         assert!(read_value(&mut ByteCursor::new(encoded.as_slice())).is_err());
+    }
+
+    #[test]
+    fn compact_cursor_values_preserve_sizes_domains_and_nested_boundaries() {
+        let mut cases = Vec::new();
+        for bits in [0_usize, 1, 8, 9, 32, 33, 256, 1024] {
+            let magnitude = (BigUint::from(1_u8) << bits) - BigUint::from(1_u8);
+            let width = bits.div_ceil(8);
+            cases.push((
+                Value::NatBig(NatBig::from_biguint(magnitude.clone())),
+                5 + width,
+            ));
+            for sign in [Sign::Plus, Sign::Minus] {
+                cases.push((
+                    Value::IntBig(IntBig::from_bigint(BigInt::from_biguint(
+                        sign,
+                        magnitude.clone(),
+                    ))),
+                    6 + width,
+                ));
+            }
+        }
+        for subaccount in [None, Some(Subaccount::MAX)] {
+            cases.push((Value::Account(Account::new(Principal::MAX, subaccount)), 63));
+        }
+        for mantissa in [i128::MIN, -1200, 0, 1200, i128::MAX] {
+            for scale in [0, 2, 28] {
+                cases.push((
+                    Value::Decimal(Decimal::from_i128_with_scale(mantissa, scale)),
+                    18,
+                ));
+            }
+        }
+        for (value, width) in cases {
+            let mut encoded = Vec::new();
+            write_value(&mut encoded, &value).unwrap();
+            assert_eq!(encoded.len(), width);
+            let mut cursor = ByteCursor::new(&encoded);
+            let decoded = read_value(&mut cursor).unwrap();
+            cursor.finish().unwrap();
+            assert_eq!(decoded, value);
+            if let (Value::Decimal(expected), Value::Decimal(actual)) = (&value, decoded) {
+                assert_eq!(expected.parts(), actual.parts());
+            }
+            for len in 0..encoded.len() {
+                assert!(read_value(&mut ByteCursor::new(&encoded[..len])).is_err());
+            }
+            let nested = Value::List(vec![value; 1000]);
+            encoded.clear();
+            write_value(&mut encoded, &nested).unwrap();
+            assert_eq!(encoded.len(), 5 + 1000 * width);
+            let mut cursor = ByteCursor::new(&encoded);
+            assert_eq!(read_value(&mut cursor).unwrap(), nested);
+            cursor.finish().unwrap();
+        }
+    }
+
+    #[test]
+    fn compact_cursor_values_reject_noncanonical_magnitudes_and_metadata() {
+        for payload in [
+            vec![VALUE_NAT_BIG, 0, 0, 0, 1, 0],
+            vec![VALUE_NAT_BIG, 0, 0, 0, 2, 1, 0],
+            vec![VALUE_NAT_BIG, 255, 255, 255, 255],
+            vec![VALUE_INT_BIG, 3, 0, 0, 0, 0],
+            vec![VALUE_INT_BIG, 1, 0, 0, 0, 0],
+            vec![VALUE_INT_BIG, 2, 0, 0, 0, 0],
+            vec![VALUE_INT_BIG, 0, 0, 0, 0, 1, 1],
+            vec![VALUE_INT_BIG, 2, 0, 0, 0, 1, 0],
+        ] {
+            assert!(read_value(&mut ByteCursor::new(&payload)).is_err());
+        }
+        for scale in [29, 255] {
+            let mut payload = vec![VALUE_DECIMAL];
+            payload.extend_from_slice(&0_i128.to_be_bytes());
+            payload.push(scale);
+            assert!(read_value(&mut ByteCursor::new(&payload)).is_err());
+        }
+        let mut invalid_account = vec![VALUE_ACCOUNT];
+        invalid_account.extend_from_slice(&[255; 62]);
+        assert!(read_value(&mut ByteCursor::new(&invalid_account)).is_err());
     }
 }

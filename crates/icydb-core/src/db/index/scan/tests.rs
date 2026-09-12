@@ -1,9 +1,15 @@
 use crate::{
     db::{
         direction::Direction,
-        index::{IndexEntryValue, IndexStore, IndexStoreVisit, RawIndexStoreKey},
+        index::{
+            IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexStore, IndexStoreVisit,
+            RawIndexStoreKey, key::EncodedValue,
+        },
+        key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
     },
     testing::test_memory,
+    types::{EntityTag, IntBig},
+    value::Value,
 };
 use ic_memory::ic_stable_structures::Storable;
 use std::{borrow::Cow, cell::Cell, ops::Bound};
@@ -224,4 +230,110 @@ fn merged_ranges_admit_complete_structural_state_before_reading() {
     assert!(admitted.get() > retained_bound_bytes);
     assert_eq!(decode_calls.get(), 0);
     assert_eq!(visit_calls.get(), 0);
+}
+
+fn bigint_scan_key(value: i64, suffix: u64) -> RawIndexStoreKey {
+    let components = [
+        Value::Text("tenant".into()),
+        Value::IntBig(IntBig::from(value)),
+        Value::Nat64(suffix),
+    ]
+    .map(|value| EncodedValue::try_new(&value).unwrap().into_bytes());
+    IndexKey::new_from_components_with_primary_key_value(
+        &IndexId::new(EntityTag::new(17), 0),
+        IndexKeyKind::User,
+        &components,
+        &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(suffix)),
+    )
+    .unwrap()
+    .to_raw()
+    .unwrap()
+}
+
+fn bigint_scan_page(
+    store: &IndexStore,
+    lower: &Bound<RawIndexStoreKey>,
+    upper: &Bound<RawIndexStoreKey>,
+    direction: Direction,
+    limit: usize,
+) -> Vec<RawIndexStoreKey> {
+    let mut keys = Vec::new();
+    store
+        .visit_raw_entries_in_range((lower, upper), direction, |key, _| {
+            keys.push(key.clone());
+            Ok(keys.len() == limit)
+        })
+        .unwrap();
+    keys
+}
+
+#[test]
+fn binary_bigint_index_ranges_resume_after_fold_and_reopen() {
+    let memory = test_memory(96);
+    let mut store = IndexStore::init_journaled(memory.clone());
+    let values = [-65536, -257, -256, -255, -1, 0, 1, 255, 256, 257, 65536];
+    for value in values.into_iter().rev() {
+        for suffix in [2, 1] {
+            store.insert(bigint_scan_key(value, suffix), IndexEntryValue::presence());
+        }
+    }
+    store.fold_journaled_materialized_view().unwrap();
+    drop(store);
+    let store = IndexStore::init_journaled(memory);
+    let prefix = [EncodedValue::try_new(&Value::Text("tenant".into()))
+        .unwrap()
+        .into_bytes()];
+    for inclusive in [false, true] {
+        let low = EncodedValue::try_new(&Value::IntBig(IntBig::from(-256)))
+            .unwrap()
+            .into_bytes();
+        let high = EncodedValue::try_new(&Value::IntBig(IntBig::from(256)))
+            .unwrap()
+            .into_bytes();
+        let low = if inclusive {
+            Bound::Included(low)
+        } else {
+            Bound::Excluded(low)
+        };
+        let high = if inclusive {
+            Bound::Included(high)
+        } else {
+            Bound::Excluded(high)
+        };
+        let (lower, upper) = IndexKey::raw_bounds_for_prefix_component_range_with_kind(
+            &IndexId::new(EntityTag::new(17), 0),
+            IndexKeyKind::User,
+            3,
+            &prefix,
+            &low,
+            &high,
+        )
+        .unwrap();
+        let expected: Vec<_> = values
+            .into_iter()
+            .filter(|&value| {
+                if inclusive {
+                    (-256..=256).contains(&value)
+                } else {
+                    (-255..256).contains(&value)
+                }
+            })
+            .flat_map(|value| [bigint_scan_key(value, 1), bigint_scan_key(value, 2)])
+            .collect();
+        for direction in [Direction::Asc, Direction::Desc] {
+            let mut expected = expected.clone();
+            if direction == Direction::Desc {
+                expected.reverse();
+            }
+            let mut actual = bigint_scan_page(&store, &lower, &upper, direction, 3);
+            let boundary = Bound::Excluded(actual.last().unwrap().clone());
+            let rest = if direction == Direction::Asc {
+                bigint_scan_page(&store, &boundary, &upper, direction, usize::MAX)
+            } else {
+                bigint_scan_page(&store, &lower, &boundary, direction, usize::MAX)
+            };
+            actual.extend(rest);
+            assert_eq!(actual, expected);
+        }
+    }
 }

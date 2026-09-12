@@ -16,6 +16,44 @@ use crate::db::{
 use icydb_diagnostic_code::DiagnosticExecutionLane;
 
 #[test]
+fn memoized_query_keys_survive_weighted_cache_eviction() {
+    let session = initialize();
+    let catalog = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    let prepare = |query: &StructuralQuery| {
+        session
+            .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+                catalog.accepted_entity_authority(),
+                &catalog,
+                query,
+                DiagnosticExecutionLane::TrustedRead,
+            )
+            .unwrap()
+    };
+    let original = query();
+    let (held_plan, reuse) = prepare(&original);
+    assert!(!reuse.is_hit());
+    let capacity = session.shared_query_cache_usage_for_tests().1;
+    let changed = original.clone().limit(2);
+
+    // Keep the query memo and a detached plan alive while a one-entry byte
+    // allowance forces the cache to release each preceding key/artifact.
+    session.clear_shared_query_cache_for_tests(capacity);
+    for current in [&original, &changed, &original] {
+        assert!(!prepare(current).1.is_hit());
+        assert!(prepare(current).1.is_hit());
+        let (entries, bytes) = session.shared_query_cache_usage_for_tests();
+        assert_eq!(entries, 1);
+        assert!(bytes <= capacity);
+    }
+    assert!(matches!(
+        held_plan.logical_plan().scalar_plan().mode,
+        QueryMode::Load(spec) if spec.limit() == Some(1),
+    ));
+}
+
+#[test]
 fn projection_cache_preserves_aliases_across_warm_calls() {
     for suffix in ["", ", COUNT(*)"] {
         for sequence in [[0, 1, 0], [1, 0, 1]] {

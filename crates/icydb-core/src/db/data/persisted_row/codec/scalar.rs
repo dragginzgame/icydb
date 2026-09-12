@@ -197,32 +197,68 @@ pub(in crate::db::data::persisted_row::codec) fn encode_null_slot_payload() -> V
 
 // Compute the encoded scalar payload size before writing the slot envelope so
 // the hot scalar writer can reserve exactly once for fixed-width values.
-const fn scalar_value_payload_len(value: ScalarValueRef<'_>) -> usize {
-    match value {
+fn scalar_value_payload_len(value: ScalarValueRef<'_>, codec: ScalarCodec) -> Option<usize> {
+    Some(match value {
         ScalarValueRef::Blob(bytes) => bytes.len(),
         ScalarValueRef::Bool(_) => 1,
         ScalarValueRef::Date(_) | ScalarValueRef::Float32(_) => 4,
-        ScalarValueRef::Duration(_)
-        | ScalarValueRef::Float64(_)
-        | ScalarValueRef::Int(_)
-        | ScalarValueRef::Timestamp(_)
-        | ScalarValueRef::Nat(_) => 8,
+        ScalarValueRef::Duration(_) | ScalarValueRef::Float64(_) | ScalarValueRef::Timestamp(_) => {
+            8
+        }
+        ScalarValueRef::Int(value) => match codec {
+            ScalarCodec::Int8 => {
+                i8::try_from(value).ok()?;
+                1
+            }
+            ScalarCodec::Int16 => {
+                i16::try_from(value).ok()?;
+                2
+            }
+            ScalarCodec::Int32 => {
+                i32::try_from(value).ok()?;
+                4
+            }
+            ScalarCodec::Int64 => 8,
+            _ => return None,
+        },
+        ScalarValueRef::Nat(value) => match codec {
+            ScalarCodec::Nat8 => {
+                u8::try_from(value).ok()?;
+                1
+            }
+            ScalarCodec::Nat16 => {
+                u16::try_from(value).ok()?;
+                2
+            }
+            ScalarCodec::Nat32 => {
+                u32::try_from(value).ok()?;
+                4
+            }
+            ScalarCodec::Nat64 => 8,
+            _ => return None,
+        },
         ScalarValueRef::Principal(value) => value.as_slice().len(),
         ScalarValueRef::Subaccount(_) | ScalarValueRef::U256(_) => 32,
         ScalarValueRef::Text(value) => value.len(),
         ScalarValueRef::Ulid(_) => 16,
         ScalarValueRef::Unit => 0,
-    }
+    })
 }
 
 // Encode one scalar slot value into the canonical prefixed scalar envelope.
 pub(in crate::db::data::persisted_row) fn encode_scalar_slot_value(
     value: ScalarSlotValueRef<'_>,
-) -> Vec<u8> {
+    codec: ScalarCodec,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
     match value {
-        ScalarSlotValueRef::Null => encode_null_slot_payload(),
+        ScalarSlotValueRef::Null => Ok(encode_null_slot_payload()),
         ScalarSlotValueRef::Value(value) => {
-            let mut encoded = Vec::with_capacity(2 + scalar_value_payload_len(value));
+            // Validate the accepted integer range before taking its low little-endian
+            // bytes. Reads sign/zero extend back into the existing runtime value family.
+            let payload_len = scalar_value_payload_len(value, codec)
+                .ok_or_else(|| InternalError::persisted_row_field_encode_internal(field_name))?;
+            let mut encoded = Vec::with_capacity(2 + payload_len);
             write_scalar_envelope_prefix(&mut encoded, false);
 
             match value {
@@ -240,14 +276,18 @@ pub(in crate::db::data::persisted_row) fn encode_scalar_slot_value(
                 ScalarValueRef::Float64(value) => {
                     encoded.extend_from_slice(&value.get().to_bits().to_le_bytes());
                 }
-                ScalarValueRef::Int(value) => encoded.extend_from_slice(&value.to_le_bytes()),
+                ScalarValueRef::Int(value) => {
+                    encoded.extend_from_slice(&value.to_le_bytes()[..payload_len]);
+                }
                 ScalarValueRef::Principal(value) => encoded.extend_from_slice(value.as_slice()),
                 ScalarValueRef::Subaccount(value) => encoded.extend_from_slice(&value.to_bytes()),
                 ScalarValueRef::Text(value) => encoded.extend_from_slice(value.as_bytes()),
                 ScalarValueRef::Timestamp(value) => {
                     encoded.extend_from_slice(&value.as_millis().to_le_bytes());
                 }
-                ScalarValueRef::Nat(value) => encoded.extend_from_slice(&value.to_le_bytes()),
+                ScalarValueRef::Nat(value) => {
+                    encoded.extend_from_slice(&value.to_le_bytes()[..payload_len]);
+                }
                 ScalarValueRef::Ulid(value) => encoded.extend_from_slice(&value.to_bytes()),
                 ScalarValueRef::Unit => {}
                 ScalarValueRef::U256(value) => {
@@ -255,7 +295,7 @@ pub(in crate::db::data::persisted_row) fn encode_scalar_slot_value(
                 }
             }
 
-            encoded
+            Ok(encoded)
         }
     }
 }
@@ -335,6 +375,15 @@ pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
                 .ok_or_else(|| InternalError::persisted_row_field_payload_non_finite(field_name))?;
             ScalarValueRef::Float64(value)
         }
+        ScalarCodec::Int8 => ScalarValueRef::Int(i64::from(i8::from_le_bytes(decode_fixed(
+            payload, field_name,
+        )?))),
+        ScalarCodec::Int16 => ScalarValueRef::Int(i64::from(i16::from_le_bytes(decode_fixed(
+            payload, field_name,
+        )?))),
+        ScalarCodec::Int32 => ScalarValueRef::Int(i64::from(i32::from_le_bytes(decode_fixed(
+            payload, field_name,
+        )?))),
         ScalarCodec::Int64 => ScalarValueRef::Int(decode_i64_payload(payload, field_name)?),
         ScalarCodec::Principal => ScalarValueRef::Principal(
             Principal::try_from_bytes(payload)
@@ -354,6 +403,15 @@ pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
             let millis = decode_i64_payload(payload, field_name)?;
             ScalarValueRef::Timestamp(Timestamp::from_millis(millis))
         }
+        ScalarCodec::Nat8 => ScalarValueRef::Nat(u64::from(u8::from_le_bytes(decode_fixed(
+            payload, field_name,
+        )?))),
+        ScalarCodec::Nat16 => ScalarValueRef::Nat(u64::from(u16::from_le_bytes(decode_fixed(
+            payload, field_name,
+        )?))),
+        ScalarCodec::Nat32 => ScalarValueRef::Nat(u64::from(u32::from_le_bytes(decode_fixed(
+            payload, field_name,
+        )?))),
         ScalarCodec::Nat64 => ScalarValueRef::Nat(decode_u64_payload(payload, field_name)?),
         ScalarCodec::Ulid => {
             let bytes = decode_fixed(payload, field_name)?;
@@ -374,6 +432,117 @@ pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn narrow_integer_slots_preserve_boundaries_and_exact_widths() {
+        for (codec, width, min, max) in [
+            (ScalarCodec::Int8, 1, i64::from(i8::MIN), i64::from(i8::MAX)),
+            (
+                ScalarCodec::Int16,
+                2,
+                i64::from(i16::MIN),
+                i64::from(i16::MAX),
+            ),
+            (
+                ScalarCodec::Int32,
+                4,
+                i64::from(i32::MIN),
+                i64::from(i32::MAX),
+            ),
+        ] {
+            for value in [min, -1, 0, 1, max] {
+                let encoded = encode_scalar_slot_value(
+                    ScalarSlotValueRef::Value(ScalarValueRef::Int(value)),
+                    codec,
+                    "signed",
+                )
+                .unwrap();
+                assert_eq!(encoded.len(), 2 + width);
+                assert_eq!(&encoded[2..], &value.to_le_bytes()[..width]);
+                assert_eq!(
+                    decode_scalar_slot_value(&encoded, codec, "signed")
+                        .unwrap()
+                        .into_value(),
+                    Value::Int64(value)
+                );
+            }
+            for value in [min - 1, max + 1] {
+                assert!(
+                    encode_scalar_slot_value(
+                        ScalarSlotValueRef::Value(ScalarValueRef::Int(value)),
+                        codec,
+                        "signed",
+                    )
+                    .is_err()
+                );
+            }
+        }
+        for (codec, width, max) in [
+            (ScalarCodec::Nat8, 1, u64::from(u8::MAX)),
+            (ScalarCodec::Nat16, 2, u64::from(u16::MAX)),
+            (ScalarCodec::Nat32, 4, u64::from(u32::MAX)),
+        ] {
+            for value in [0, 1, max] {
+                let encoded = encode_scalar_slot_value(
+                    ScalarSlotValueRef::Value(ScalarValueRef::Nat(value)),
+                    codec,
+                    "unsigned",
+                )
+                .unwrap();
+                assert_eq!(encoded.len(), 2 + width);
+                assert_eq!(&encoded[2..], &value.to_le_bytes()[..width]);
+                assert_eq!(
+                    decode_scalar_slot_value(&encoded, codec, "unsigned")
+                        .unwrap()
+                        .into_value(),
+                    Value::Nat64(value)
+                );
+            }
+            assert!(
+                encode_scalar_slot_value(
+                    ScalarSlotValueRef::Value(ScalarValueRef::Nat(max + 1)),
+                    codec,
+                    "unsigned",
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn narrow_integer_slots_validate_payload_lengths_and_null_envelopes() {
+        for (codec, width) in [
+            (ScalarCodec::Int8, 1),
+            (ScalarCodec::Int16, 2),
+            (ScalarCodec::Int32, 4),
+            (ScalarCodec::Nat8, 1),
+            (ScalarCodec::Nat16, 2),
+            (ScalarCodec::Nat32, 4),
+        ] {
+            for len in [width - 1, width + 1] {
+                let mut encoded = vec![SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_VALUE];
+                encoded.resize(2 + len, 0);
+                assert_eq!(
+                    decode_scalar_slot_value(&encoded, codec, "narrow")
+                        .unwrap_err()
+                        .class(),
+                    crate::error::ErrorClass::Corruption
+                );
+            }
+            let encoded =
+                encode_scalar_slot_value(ScalarSlotValueRef::Null, codec, "narrow").unwrap();
+            assert_eq!(encoded, [SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_NULL]);
+            assert_eq!(
+                decode_scalar_slot_value(&encoded, codec, "narrow")
+                    .unwrap()
+                    .into_value(),
+                Value::Null
+            );
+            let mut trailing = encoded;
+            trailing.push(0);
+            assert!(decode_scalar_slot_value(&trailing, codec, "narrow").is_err());
+        }
+    }
 
     fn encoded_date_slot(days: i32) -> Vec<u8> {
         let mut encoded = vec![SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_VALUE];
@@ -433,9 +602,12 @@ mod tests {
     #[test]
     fn time_scalar_slots_roundtrip_exact_primitive_payloads() {
         let duration = Duration::from_millis(u64::MAX);
-        let encoded_duration = encode_scalar_slot_value(ScalarSlotValueRef::Value(
-            ScalarValueRef::Duration(duration),
-        ));
+        let encoded_duration = encode_scalar_slot_value(
+            ScalarSlotValueRef::Value(ScalarValueRef::Duration(duration)),
+            ScalarCodec::Duration,
+            "elapsed",
+        )
+        .unwrap();
         assert_eq!(&encoded_duration[2..], &duration.as_millis().to_le_bytes());
         assert!(matches!(
             decode_scalar_slot_value(&encoded_duration, ScalarCodec::Duration, "elapsed"),
@@ -443,9 +615,12 @@ mod tests {
         ));
 
         let timestamp = Timestamp::from_millis(i64::MIN);
-        let encoded_timestamp = encode_scalar_slot_value(ScalarSlotValueRef::Value(
-            ScalarValueRef::Timestamp(timestamp),
-        ));
+        let encoded_timestamp = encode_scalar_slot_value(
+            ScalarSlotValueRef::Value(ScalarValueRef::Timestamp(timestamp)),
+            ScalarCodec::Timestamp,
+            "created_at",
+        )
+        .unwrap();
         assert_eq!(
             &encoded_timestamp[2..],
             &timestamp.as_millis().to_le_bytes()
@@ -459,8 +634,12 @@ mod tests {
     #[test]
     fn u256_scalar_slot_roundtrips_exact_fixed_width_payload() {
         for value in [U256::ZERO, U256::ONE, U256::MAX] {
-            let encoded =
-                encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::U256(value)));
+            let encoded = encode_scalar_slot_value(
+                ScalarSlotValueRef::Value(ScalarValueRef::U256(value)),
+                ScalarCodec::U256,
+                "amount",
+            )
+            .unwrap();
 
             assert_eq!(encoded.len(), 34);
             assert_eq!(&encoded[..2], &[SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_VALUE]);

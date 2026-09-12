@@ -8,15 +8,14 @@ use crate::{
         FieldDecodeError,
         binary::{
             TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NAT64, TAG_NULL, TAG_TEXT,
-            TAG_TRUE, TAG_UNIT, decode_binary_decimal_payload, decode_binary_int_big_payload,
-            decode_binary_nat_big_payload, decode_binary_required_bytes,
-            decode_binary_required_i64, decode_binary_required_u64,
+            TAG_TRUE, TAG_UNIT, decode_binary_int_big_payload, decode_binary_nat_big_payload,
+            decode_binary_required_bytes,
         },
+        primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
         typed::{
-            decode_account_payload_bytes, decode_date_payload_days,
-            decode_decimal_payload_mantissa_and_scale, decode_duration_payload_millis,
-            decode_float32_payload_bytes, decode_float64_payload_bytes,
-            decode_int128_payload_bytes, decode_nat128_payload_bytes,
+            decode_account_payload_bytes, decode_date_payload_days, decode_decimal_payload_bytes,
+            decode_duration_payload_millis, decode_float32_payload_bytes,
+            decode_float64_payload_bytes, decode_int128_payload_bytes, decode_nat128_payload_bytes,
             decode_principal_payload_bytes, decode_subaccount_payload_bytes,
             decode_timestamp_payload_millis, decode_ulid_payload_bytes,
         },
@@ -37,6 +36,7 @@ use crate::{
                 VALUE_BINARY_TAG_INT_BIG, VALUE_BINARY_TAG_INT128, VALUE_BINARY_TAG_NAT_BIG,
                 VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL, VALUE_BINARY_TAG_SUBACCOUNT,
                 VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_U256, VALUE_BINARY_TAG_ULID,
+                fixed_value_storage_payload_len,
             },
             walk::{
                 decode_value_storage_binary_list_items_single_pass,
@@ -83,37 +83,25 @@ pub(in crate::db) fn value_storage_bytes_are_null(
 /// Decode one canonical structural value-storage account payload.
 pub(in crate::db) fn decode_account(raw_bytes: &[u8]) -> Result<Account, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_ACCOUNT)?;
-    let bytes = decode_binary_required_bytes(payload)?;
-
-    decode_account_payload_bytes(bytes)
+    decode_account_payload_bytes(payload)
 }
 
 /// Decode one canonical structural value-storage decimal payload.
 pub(in crate::db) fn decode_decimal(raw_bytes: &[u8]) -> Result<Decimal, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_DECIMAL)?;
-    let (mantissa, scale) = decode_binary_decimal_payload(payload)?;
-
-    decode_decimal_payload_mantissa_and_scale(mantissa, scale)
+    decode_decimal_payload_bytes(payload)
 }
 
 /// Decode one canonical structural value-storage int128 payload.
 pub(in crate::db) fn decode_int128(raw_bytes: &[u8]) -> Result<i128, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_INT128)?;
-    let bytes: [u8; 16] = decode_binary_required_bytes(payload)?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new())?;
-
-    decode_int128_payload_bytes(bytes.as_slice())
+    decode_int128_payload_bytes(payload)
 }
 
 /// Decode one canonical structural value-storage nat128 payload.
 pub(in crate::db) fn decode_nat128(raw_bytes: &[u8]) -> Result<u128, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_NAT128)?;
-    let bytes: [u8; 16] = decode_binary_required_bytes(payload)?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new())?;
-
-    decode_nat128_payload_bytes(bytes.as_slice())
+    decode_nat128_payload_bytes(payload)
 }
 
 /// Decode one canonical structural value-storage `Value::IntBig` payload.
@@ -127,17 +115,15 @@ pub(in crate::db) fn decode_int(raw_bytes: &[u8]) -> Result<IntBig, FieldDecodeE
 /// Decode one canonical structural value-storage `Value::NatBig` payload.
 pub(in crate::db) fn decode_nat(raw_bytes: &[u8]) -> Result<NatBig, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_NAT_BIG)?;
-    let digits = decode_binary_nat_big_payload(payload)?;
+    let value = decode_binary_nat_big_payload(payload)?;
 
-    Ok(NatBig::from_biguint(digits))
+    Ok(NatBig::from_biguint(value))
 }
 
 /// Decode one canonical structural value-storage `Value::U256` payload.
 pub(in crate::db) fn decode_u256(raw_bytes: &[u8]) -> Result<U256, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_U256)?;
-    let bytes = decode_binary_required_bytes(payload)?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new())?;
+    let bytes = payload.try_into().map_err(|_| FieldDecodeError::new())?;
     Ok(U256::from_be_bytes(bytes))
 }
 
@@ -147,9 +133,7 @@ pub(in crate::db) fn decode_structural_value_storage_float32_bytes(
     raw_bytes: &[u8],
 ) -> Result<Float32, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_FLOAT32)?;
-    let bytes = decode_binary_required_bytes(payload)?;
-
-    decode_float32_payload_bytes(bytes)
+    decode_float32_payload_bytes(payload)
 }
 
 /// Decode one canonical structural value-storage float64 payload without
@@ -158,9 +142,7 @@ pub(in crate::db) fn decode_structural_value_storage_float64_bytes(
     raw_bytes: &[u8],
 ) -> Result<Float64, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_FLOAT64)?;
-    let bytes = decode_binary_required_bytes(payload)?;
-
-    decode_float64_payload_bytes(bytes)
+    decode_float64_payload_bytes(payload)
 }
 
 /// Decode one canonical structural value-storage date payload without
@@ -169,7 +151,9 @@ pub(in crate::db) fn decode_structural_value_storage_date_bytes(
     raw_bytes: &[u8],
 ) -> Result<Date, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_DATE)?;
-    let days = decode_binary_required_i64(payload)?;
+    let days = i64::from(i32::from_be_bytes(
+        payload.try_into().map_err(|_| FieldDecodeError::new())?,
+    ));
 
     decode_date_payload_days(days)
 }
@@ -181,7 +165,7 @@ pub(in crate::db) fn decode_structural_value_storage_duration_bytes(
 ) -> Result<Duration, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_DURATION)?;
 
-    Ok(decode_duration_payload_millis(decode_binary_required_u64(
+    Ok(decode_duration_payload_millis(decode_u64_payload_bytes(
         payload,
     )?))
 }
@@ -203,7 +187,7 @@ pub(in crate::db) fn decode_structural_value_storage_subaccount_bytes(
     raw_bytes: &[u8],
 ) -> Result<Subaccount, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_SUBACCOUNT)?;
-    decode_subaccount_payload_bytes(decode_binary_required_bytes(payload)?)
+    decode_subaccount_payload_bytes(payload)
 }
 
 /// Decode one canonical structural value-storage timestamp payload without
@@ -213,7 +197,7 @@ pub(in crate::db) fn decode_structural_value_storage_timestamp_bytes(
 ) -> Result<Timestamp, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_TIMESTAMP)?;
 
-    Ok(decode_timestamp_payload_millis(decode_binary_required_i64(
+    Ok(decode_timestamp_payload_millis(decode_i64_payload_bytes(
         payload,
     )?))
 }
@@ -224,7 +208,7 @@ pub(in crate::db) fn decode_structural_value_storage_ulid_bytes(
     raw_bytes: &[u8],
 ) -> Result<Ulid, FieldDecodeError> {
     let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_ULID)?;
-    decode_ulid_payload_bytes(decode_binary_required_bytes(payload)?)
+    decode_ulid_payload_bytes(payload)
 }
 
 /// Decode one `FieldStorageDecode::CatalogValue` payload from the parallel
@@ -348,6 +332,13 @@ fn decode_value_storage_binary_payload(
     };
     if tag != expected_tag {
         return Err(FieldDecodeError::new());
+    }
+
+    if let Some(len) = fixed_value_storage_payload_len(tag) {
+        if raw_bytes.len() != 1 + len {
+            return Err(FieldDecodeError::new());
+        }
+        return raw_bytes.get(1..).ok_or_else(FieldDecodeError::new);
     }
 
     let payload_end = skip_value_storage_binary_value(raw_bytes, 1)?;

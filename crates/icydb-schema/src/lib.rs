@@ -15,6 +15,7 @@ mod error;
 mod expression;
 mod fragment;
 mod int_big;
+mod integer_wire;
 mod key;
 mod leb128;
 mod migration;

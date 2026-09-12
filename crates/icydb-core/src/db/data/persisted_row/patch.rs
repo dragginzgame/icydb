@@ -1070,14 +1070,191 @@ fn structural_slot_reader_value<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::data::{CanonicalSlotReader, FieldSlot};
     use crate::db::schema::{
-        AcceptedCompositeCatalog, AcceptedConstraintKind, AcceptedRowLayoutRuntimeContract,
-        AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, FieldId,
-        FieldStorageDecode, LeafCodec, PersistedFieldSnapshot, PersistedSchemaSnapshot,
-        ScalarCodec, SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
-        empty_accepted_enum_catalog_for_tests,
+        AcceptedCompositeCatalog, AcceptedConstraintKind, AcceptedFieldKind,
+        AcceptedRowLayoutRuntimeContract, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
+        AcceptedValueCatalogHandle, FieldId, FieldStorageDecode, LeafCodec, PersistedFieldSnapshot,
+        PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot, SchemaInsertDefault,
+        SchemaRowLayout, SchemaVersion, empty_accepted_enum_catalog_for_tests,
     };
     use crate::error::MutationDiagnosticContext;
+
+    fn narrow_integer_snapshot(kind: AcceptedFieldKind, width: usize) -> AcceptedSchemaSnapshot {
+        let codec = kind.leaf_codec_for_storage(FieldStorageDecode::ByKind);
+        let mut default = vec![0xff, 1, 7];
+        default.resize(2 + width, 0);
+        let fields = vec![
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(1),
+                "id".to_string(),
+                SchemaFieldSlot::new(0),
+                kind.clone(),
+                Vec::new(),
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                codec,
+            ),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(2),
+                "amount".to_string(),
+                SchemaFieldSlot::new(1),
+                kind,
+                Vec::new(),
+                true,
+                SchemaInsertDefault::SlotPayload(default),
+                FieldStorageDecode::ByKind,
+                codec,
+            ),
+        ];
+        AcceptedSchemaSnapshot::try_new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            "tests::NarrowWrite".to_string(),
+            "NarrowWrite".to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(fields.iter().map(|f| (f.id(), f.slot())).collect()),
+            fields,
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn narrow_integer_writes_preserve_defaults_updates_and_primary_keys() {
+        for (kind, width, initial, boundary, invalid) in [
+            (
+                AcceptedFieldKind::Int8,
+                1,
+                Value::Int64(7),
+                Value::Int64(-128),
+                Value::Int64(128),
+            ),
+            (
+                AcceptedFieldKind::Int16,
+                2,
+                Value::Int64(7),
+                Value::Int64(-32768),
+                Value::Int64(32768),
+            ),
+            (
+                AcceptedFieldKind::Int32,
+                4,
+                Value::Int64(7),
+                Value::Int64(i64::from(i32::MIN)),
+                Value::Int64(i64::from(i32::MAX) + 1),
+            ),
+            (
+                AcceptedFieldKind::Nat8,
+                1,
+                Value::Nat64(7),
+                Value::Nat64(255),
+                Value::Nat64(256),
+            ),
+            (
+                AcceptedFieldKind::Nat16,
+                2,
+                Value::Nat64(7),
+                Value::Nat64(65535),
+                Value::Nat64(65536),
+            ),
+            (
+                AcceptedFieldKind::Nat32,
+                4,
+                Value::Nat64(7),
+                Value::Nat64(u64::from(u32::MAX)),
+                Value::Nat64(u64::from(u32::MAX) + 1),
+            ),
+        ] {
+            assert_narrow_integer_write(kind, width, initial, boundary, invalid);
+        }
+    }
+
+    fn assert_narrow_integer_write(
+        kind: AcceptedFieldKind,
+        width: usize,
+        initial: Value,
+        boundary: Value,
+        invalid: Value,
+    ) {
+        use crate::db::key_taxonomy::PrimaryKeyComponent;
+        use icydb_diagnostic_code::DiagnosticMutationOperation;
+
+        let accepted = narrow_integer_snapshot(kind, width);
+        let catalog = AcceptedValueCatalogHandle::new_for_tests(
+            empty_accepted_enum_catalog_for_tests(),
+            AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
+        let fingerprint = [7; 16];
+        let constraints =
+            CompiledAcceptedRowConstraints::compile(&accepted, &catalog, fingerprint).unwrap();
+        let layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted).unwrap();
+        let contract = StructuralRowContract::from_accepted_decode_contract(
+            accepted.entity_path(),
+            layout.row_decode_contract(catalog.clone()),
+        );
+        let input = |value: &Value| match value {
+            Value::Int64(value) => InputValue::int64(*value),
+            Value::Nat64(value) => InputValue::nat64(*value),
+            Value::Null => InputValue::null(),
+            _ => panic!("integer fixture"),
+        };
+        let patch = AcceptedMutationIntentPatch::new()
+            .set_authored(FieldSlot::from_validated_index(0), input(&initial));
+        let write = AcceptedWriteContext::new(crate::types::Timestamp::from_millis(1));
+        let row = resolve_insert_structural_patch_with_accepted_contract(
+            accepted.entity_path(),
+            layout.row_decode_contract(catalog.clone()),
+            fingerprint,
+            &constraints,
+            &patch,
+            write,
+            MutationDiagnosticContext::new(1, DiagnosticMutationOperation::Insert, 0),
+            None,
+        )
+        .unwrap()
+        .into_parts()
+        .0
+        .into_raw_row();
+        let reader =
+            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&row, &contract)
+                .unwrap();
+        assert_eq!(reader.required_cached_value(1).unwrap(), &initial);
+        assert_eq!(reader.required_bytes(1).unwrap().len(), 2 + width);
+        let key = PrimaryKeyComponent::from_runtime_value(&initial)
+            .unwrap()
+            .into();
+        reader.validate_primary_key_value(&key).unwrap();
+        for value in [boundary, Value::Null, invalid.clone()] {
+            let patch = AcceptedMutationIntentPatch::new()
+                .set_authored(FieldSlot::from_validated_index(1), input(&value));
+            let result = resolve_update_structural_patch_with_accepted_contract(
+                accepted.entity_path(),
+                layout.row_decode_contract(catalog.clone()),
+                fingerprint,
+                &constraints,
+                &row,
+                &patch,
+                write,
+                MutationDiagnosticContext::new(1, DiagnosticMutationOperation::Update, 0),
+            );
+            if value == invalid {
+                assert!(result.is_err());
+                continue;
+            }
+            let updated = result.unwrap().into_parts().0.into_raw_row();
+            let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                &updated, &contract,
+            )
+            .unwrap();
+            assert_eq!(reader.required_cached_value(1).unwrap(), &value);
+            assert_eq!(
+                reader.required_bytes(1).unwrap().len(),
+                if value == Value::Null { 2 } else { 2 + width }
+            );
+            reader.validate_primary_key_value(&key).unwrap();
+        }
+    }
 
     #[test]
     fn managed_timestamp_progression_uses_the_current_managed_write_time() {

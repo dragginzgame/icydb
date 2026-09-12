@@ -105,63 +105,63 @@ pub(super) fn validate_scalar_fast_path_binary_bytes(
 }
 
 /// Encode one scalar field directly into Structural Binary v1 bytes.
-pub(super) fn encode_scalar_fast_path_binary_bytes(
+pub(super) fn push_scalar_fast_path_binary_bytes(
+    encoded: &mut Vec<u8>,
     kind: &AcceptedFieldKind,
     value: &Value,
     field_name: &str,
-) -> Result<Option<Vec<u8>>, InternalError> {
+) -> Result<bool, InternalError> {
     if !supports_scalar_binary_fast_path(kind) {
-        return Ok(None);
+        return Ok(false);
     }
 
-    let mut encoded = Vec::new();
     match (kind, value) {
-        (_, Value::Null) => push_binary_null(&mut encoded),
+        (_, Value::Null) => push_binary_null(encoded),
         (AcceptedFieldKind::Blob { .. }, Value::Blob(value)) => {
-            push_binary_bytes(&mut encoded, value.as_slice());
+            push_binary_bytes(encoded, value.as_slice());
         }
-        (AcceptedFieldKind::Bool, Value::Bool(value)) => push_binary_bool(&mut encoded, *value),
+        (AcceptedFieldKind::Bool, Value::Bool(value)) => push_binary_bool(encoded, *value),
         (AcceptedFieldKind::Float32, Value::Float32(value)) => {
-            push_binary_float32(&mut encoded, value.get());
+            push_binary_float32(encoded, value.get());
         }
         (AcceptedFieldKind::Float64, Value::Float64(value)) => {
-            push_binary_float64(&mut encoded, value.get());
+            push_binary_float64(encoded, value.get());
         }
         (AcceptedFieldKind::Int64, Value::Int64(value)) => {
-            push_binary_int64(&mut encoded, *value);
+            push_binary_int64(encoded, *value);
         }
         (AcceptedFieldKind::Int8, Value::Int64(value)) if i8::try_from(*value).is_ok() => {
-            push_binary_int64(&mut encoded, *value);
+            push_binary_int64(encoded, *value);
         }
         (AcceptedFieldKind::Int16, Value::Int64(value)) if i16::try_from(*value).is_ok() => {
-            push_binary_int64(&mut encoded, *value);
+            push_binary_int64(encoded, *value);
         }
         (AcceptedFieldKind::Int32, Value::Int64(value)) if i32::try_from(*value).is_ok() => {
-            push_binary_int64(&mut encoded, *value);
+            push_binary_int64(encoded, *value);
         }
         (AcceptedFieldKind::Int128, Value::Int128(value)) => {
-            push_binary_bytes(&mut encoded, &encode_int128_payload_bytes(*value));
+            push_binary_bytes(encoded, &encode_int128_payload_bytes(*value));
         }
         (AcceptedFieldKind::Text { .. }, Value::Text(value)) => {
-            push_binary_text(&mut encoded, value);
+            push_binary_text(encoded, value);
         }
         (AcceptedFieldKind::Nat64, Value::Nat64(value)) => {
-            push_binary_nat64(&mut encoded, *value);
+            push_binary_nat64(encoded, *value);
         }
         (AcceptedFieldKind::Nat8, Value::Nat64(value)) if u8::try_from(*value).is_ok() => {
-            push_binary_nat64(&mut encoded, *value);
+            push_binary_nat64(encoded, *value);
         }
         (AcceptedFieldKind::Nat16, Value::Nat64(value)) if u16::try_from(*value).is_ok() => {
-            push_binary_nat64(&mut encoded, *value);
+            push_binary_nat64(encoded, *value);
         }
         (AcceptedFieldKind::Nat32, Value::Nat64(value)) if u32::try_from(*value).is_ok() => {
-            push_binary_nat64(&mut encoded, *value);
+            push_binary_nat64(encoded, *value);
         }
         (AcceptedFieldKind::Nat128, Value::Nat128(value)) => {
-            push_binary_bytes(&mut encoded, &encode_nat128_payload_bytes(*value));
+            push_binary_bytes(encoded, &encode_nat128_payload_bytes(*value));
         }
         (AcceptedFieldKind::Ulid, Value::Ulid(value)) => {
-            push_binary_bytes(&mut encoded, &encode_ulid_payload_bytes(*value));
+            push_binary_bytes(encoded, &encode_ulid_payload_bytes(*value));
         }
         _ => {
             return Err(InternalError::persisted_row_field_encode_internal(
@@ -170,7 +170,7 @@ pub(super) fn encode_scalar_fast_path_binary_bytes(
         }
     }
 
-    Ok(Some(encoded))
+    Ok(true)
 }
 
 // Decode one binary scalar fast-path payload whose persisted shape is bytes.

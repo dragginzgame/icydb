@@ -749,6 +749,12 @@ const fn scalar_codec_tag(codec: crate::db::schema::ScalarCodec) -> u8 {
         C::Ulid => 12,
         C::Unit => 13,
         C::U256 => 14,
+        C::Int8 => 15,
+        C::Int16 => 16,
+        C::Int32 => 17,
+        C::Nat8 => 18,
+        C::Nat16 => 19,
+        C::Nat32 => 20,
     }
 }
 

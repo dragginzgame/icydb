@@ -1116,7 +1116,7 @@ mod tests {
                 false,
                 SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::Scalar(ScalarCodec::Int64),
+                LeafCodec::Scalar(ScalarCodec::Int32),
             )],
         ))
         .expect("test schema should be accepted");

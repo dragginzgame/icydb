@@ -12,14 +12,14 @@ use time::{Date as TimeDate, Duration as TimeDuration, Month};
 // Invariant:
 // Date is internally represented as days since Unix epoch (`i32`) and is
 // bounded to the proleptic Gregorian calendar range 0000-01-01..=9999-12-31.
-// API/JSON deserialization accepts ISO-8601 text (`YYYY-MM-DD`).
+// Human-readable Serde uses ISO-8601 text; binary Serde uses epoch days.
 // Ordering and arithmetic remain numeric and deterministic over day counts.
 
 //
 // Date
 //
 // Represented as days since Unix epoch.
-// API/JSON decode expects ISO-8601 text (`YYYY-MM-DD`).
+// Candid uses int32 epoch days; JSON uses ISO-8601 text (`YYYY-MM-DD`).
 //
 
 #[derive(CandidType, Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -191,46 +191,13 @@ impl<'de> Deserialize<'de> for Date {
     where
         D: Deserializer<'de>,
     {
-        struct DateVisitor;
-
-        impl serde::de::Visitor<'_> for DateVisitor {
-            type Value = Date;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("ISO date text or canonical epoch-day integer")
-            }
-
-            fn visit_i32<E>(self, value: i32) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Date::try_from_days_since_epoch(value)
-                    .ok_or_else(|| E::custom(TypeParseError::InvalidDate))
-            }
-
-            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Date::try_from_i64(value).ok_or_else(|| E::custom(TypeParseError::InvalidDate))
-            }
-
-            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Date::try_from_u64(value).ok_or_else(|| E::custom(TypeParseError::InvalidDate))
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Date::parse(value).ok_or_else(|| E::custom(TypeParseError::InvalidDate))
-            }
+        if deserializer.is_human_readable() {
+            return Self::parse(&String::deserialize(deserializer)?)
+                .ok_or_else(|| serde::de::Error::custom(TypeParseError::InvalidDate));
         }
-
-        deserializer.deserialize_any(DateVisitor)
+        // Integer ingress enforces both the wire width and calendar domain.
+        Self::try_from_days_since_epoch(i32::deserialize(deserializer)?)
+            .ok_or_else(|| serde::de::Error::custom(TypeParseError::InvalidDate))
     }
 }
 
@@ -239,7 +206,11 @@ impl Serialize for Date {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        if serializer.is_human_readable() {
+            serializer.collect_str(self)
+        } else {
+            serializer.serialize_i32(self.0)
+        }
     }
 }
 
@@ -266,6 +237,59 @@ fn parse_ascii_u8(bytes: &[u8]) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serde_calendar_boundaries_and_batches_use_compact_days() {
+        let today = Date::try_new(2026, 9, 12).unwrap();
+        for (date, width) in [(Date::EPOCH, 1), (today, 3), (Date::MIN, 5), (Date::MAX, 5)] {
+            let mut encoded = Vec::new();
+            ciborium::into_writer(&date, &mut encoded).unwrap();
+            assert_eq!(encoded.len(), width);
+            let wire: ciborium::Value = ciborium::from_reader(encoded.as_slice()).unwrap();
+            assert_eq!(
+                wire,
+                ciborium::Value::Integer(date.as_days_since_epoch().into())
+            );
+            assert_eq!(
+                ciborium::from_reader::<Date, _>(encoded.as_slice()).unwrap(),
+                date
+            );
+
+            let json = serde_json::to_string(&date).unwrap();
+            assert_eq!(json, format!("\"{date}\""));
+            assert_eq!(serde_json::from_str::<Date>(&json).unwrap(), date);
+
+            let candid = candid::encode_one(date).unwrap();
+            assert_eq!(
+                candid,
+                candid::encode_one(date.as_days_since_epoch()).unwrap()
+            );
+            assert_eq!(candid::decode_one::<Date>(&candid).unwrap(), date);
+
+            let batch = vec![date; 1_000];
+            encoded.clear();
+            ciborium::into_writer(&batch, &mut encoded).unwrap();
+            assert_eq!(encoded.len(), 3 + 1_000 * width);
+            assert_eq!(
+                ciborium::from_reader::<Vec<Date>, _>(encoded.as_slice()).unwrap(),
+                batch
+            );
+        }
+    }
+
+    #[test]
+    fn binary_serde_rejects_days_outside_calendar_domain() {
+        for day in [
+            i64::MIN,
+            i64::from(Date::MIN.as_days_since_epoch()) - 1,
+            i64::from(Date::MAX.as_days_since_epoch()) + 1,
+            i64::MAX,
+        ] {
+            let mut encoded = Vec::new();
+            ciborium::into_writer(&day, &mut encoded).unwrap();
+            assert!(ciborium::from_reader::<Date, _>(encoded.as_slice()).is_err());
+        }
+    }
 
     // Internal semantic/storage representation behavior.
 

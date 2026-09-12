@@ -1,7 +1,6 @@
 use crate::{TypeParseError, decimal::Decimal};
 use candid::CandidType;
 use serde::{Deserialize, Serialize};
-use serde_bytes::ByteBuf;
 
 impl CandidType for Decimal {
     fn ty() -> candid::types::Type {
@@ -25,43 +24,10 @@ impl<'de> Deserialize<'de> for Decimal {
     where
         D: serde::Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum DecimalPayload {
-            Binary((ByteBuf, u32)),
-            Text(String),
-        }
-
-        if deserializer.is_human_readable() {
-            let s = String::deserialize(deserializer)?;
-            return s
-                .parse::<Self>()
-                .map_err(|_| serde::de::Error::custom(TypeParseError::InvalidDecimal));
-        }
-
-        // Candid currently reports non-human-readable, but Decimal's Candid wire type is `text`.
-        // Accept both payloads here so Candid decode remains correct while binary formats
-        // continue to use the canonical `(mantissa_bytes, scale)` shape.
-        let payload: DecimalPayload = Deserialize::deserialize(deserializer)?;
-        let (mantissa_bytes, scale) = match payload {
-            DecimalPayload::Binary(parts) => parts,
-            DecimalPayload::Text(s) => {
-                return s
-                    .parse::<Self>()
-                    .map_err(|_| serde::de::Error::custom(TypeParseError::InvalidDecimal));
-            }
-        };
-
-        if mantissa_bytes.len() != 16 {
-            return Err(serde::de::Error::custom(TypeParseError::InvalidDecimal));
-        }
-
-        let mut mantissa_buf = [0u8; 16];
-        mantissa_buf.copy_from_slice(mantissa_bytes.as_ref());
-        let mantissa = i128::from_be_bytes(mantissa_buf);
-
-        Self::checked_from_mantissa_scale(mantissa, scale)
-            .ok_or_else(|| serde::de::Error::custom(TypeParseError::InvalidDecimal))
+        // Candid and Serde both emit text, including non-human-readable formats.
+        let text = String::deserialize(deserializer)?;
+        text.parse::<Self>()
+            .map_err(|_| serde::de::Error::custom(TypeParseError::InvalidDecimal))
     }
 }
 

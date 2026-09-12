@@ -61,7 +61,7 @@ pub(in crate::db::data::structural_field::primary_key_component) fn encode_scala
             Ok(())
         }
         (AcceptedFieldKind::Principal, PrimaryKeyComponent::Principal(value)) => {
-            push_binary_bytes(out, encode_principal_payload_bytes(value)?.as_slice());
+            push_binary_bytes(out, encode_principal_payload_bytes(&value)?);
             Ok(())
         }
         (AcceptedFieldKind::Subaccount, PrimaryKeyComponent::Subaccount(value)) => {

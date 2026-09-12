@@ -43,7 +43,8 @@ pub use unit::*;
 // Notes
 // - Display for fixed‑point types prints normalized decimal (human‑readable),
 //   not raw atomics.
-// - Ulid serde deserialization fails on invalid strings.
+// - Ulid uses exactly 16 bytes in Candid/binary Serde and canonical text in
+//   human-readable Serde.
 
 pub type Bool = bool;
 pub type Int8 = i8;

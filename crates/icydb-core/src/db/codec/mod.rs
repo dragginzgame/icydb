@@ -48,14 +48,6 @@ impl<'a> DecodedRowPayload<'a> {
     }
 }
 
-/// Wrap an already-serialized entity payload in the canonical persisted row envelope.
-pub(in crate::db) fn serialize_row_payload(
-    layout_version: RowLayoutVersion,
-    payload: Vec<u8>,
-) -> Result<Vec<u8>, InternalError> {
-    serialize_row_payload_with_version(layout_version, payload, ROW_FORMAT_VERSION_CURRENT)
-}
-
 /// Decode one canonical row envelope into borrowed payload bytes.
 ///
 /// Enforces the DB row-envelope budget, magic bytes, format version, and
@@ -128,34 +120,82 @@ fn validate_row_format_version(format_version: u8) -> Result<(), InternalError> 
     Err(InternalError::serialize_incompatible_persisted_format())
 }
 
-/// Encode one persisted row envelope at an explicit format version.
-///
-/// The version parameter is intentionally exposed inside the DB boundary so
-/// the current writer and malformed-envelope tests share one bounded encoder.
-pub(in crate::db) fn serialize_row_payload_with_version(
+/// Emit the current row envelope and its known-size payload in one allocation.
+/// The payload callback appends exactly `payload_len` bytes or the row is rejected.
+pub(in crate::db) fn serialize_row_payload(
     layout_version: RowLayoutVersion,
-    payload: Vec<u8>,
-    format_version: u8,
+    payload_len: usize,
+    write_payload: impl FnOnce(&mut Vec<u8>) -> Result<(), InternalError>,
 ) -> Result<Vec<u8>, InternalError> {
-    // Phase 1: validate the payload against the bounded row envelope budget.
     let total_len = ROW_ENVELOPE_HEADER_LEN
-        .checked_add(payload.len())
+        .checked_add(payload_len)
+        .filter(|len| *len <= MAX_ROW_BYTES as usize)
         .ok_or_else(InternalError::persisted_row_encode_internal)?;
-    if total_len > MAX_ROW_BYTES as usize {
-        return Err(InternalError::persisted_row_encode_internal());
-    }
-
-    // Phase 2: write the fixed-width row envelope header and payload bytes.
+    let payload_len =
+        u32::try_from(payload_len).map_err(|_| InternalError::persisted_row_encode_internal())?;
     let mut encoded = Vec::with_capacity(total_len);
     encoded.extend_from_slice(&ROW_ENVELOPE_MAGIC);
-    encoded.push(format_version);
+    encoded.push(ROW_FORMAT_VERSION_CURRENT);
     encoded.extend_from_slice(&layout_version.get().to_be_bytes());
-    encoded.extend_from_slice(
-        &u32::try_from(payload.len())
-            .map_err(|_| InternalError::persisted_row_encode_internal())?
-            .to_be_bytes(),
-    );
-    encoded.extend_from_slice(&payload);
-
+    encoded.extend_from_slice(&payload_len.to_be_bytes());
+    write_payload(&mut encoded)?;
+    if encoded.len() != total_len {
+        return Err(InternalError::persisted_row_encode_internal());
+    }
     Ok(encoded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn row_encoder_checks_size_before_writing_payload() {
+        for payload_len in [MAX_ROW_BYTES as usize, usize::MAX] {
+            let mut called = false;
+            let result = serialize_row_payload(RowLayoutVersion::INITIAL, payload_len, |_| {
+                called = true;
+                Ok(())
+            });
+            assert!(result.is_err());
+            assert!(!called);
+        }
+    }
+
+    #[test]
+    fn row_encoder_accepts_exact_envelope_budget() {
+        let payload_len = MAX_ROW_BYTES as usize - ROW_ENVELOPE_HEADER_LEN;
+        let encoded = serialize_row_payload(RowLayoutVersion::INITIAL, payload_len, |out| {
+            out.resize(out.len() + payload_len, 0xab);
+            Ok(())
+        })
+        .expect("an exact-budget row should encode");
+        assert_eq!(encoded.len(), MAX_ROW_BYTES as usize);
+        let decoded = decode_row_payload_bytes(&encoded).expect("the envelope should decode");
+        assert_eq!(decoded.layout_version(), RowLayoutVersion::INITIAL);
+        let payload = decoded.into_payload();
+        assert!(matches!(payload, Cow::Borrowed(_)));
+        assert_eq!(payload.len(), payload_len);
+        assert!(payload.iter().all(|byte| *byte == 0xab));
+    }
+
+    #[test]
+    fn row_encoder_rejects_incomplete_or_failed_payloads() {
+        for written in [0, 2] {
+            assert!(
+                serialize_row_payload(RowLayoutVersion::INITIAL, 1, |out| {
+                    out.resize(out.len() + written, 0);
+                    Ok(())
+                })
+                .is_err()
+            );
+        }
+        assert!(
+            serialize_row_payload(RowLayoutVersion::INITIAL, 1, |out| {
+                out.push(0);
+                Err(InternalError::persisted_row_encode_internal())
+            })
+            .is_err()
+        );
+    }
 }

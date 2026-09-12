@@ -156,15 +156,15 @@ impl CursorPlanError {
                         DiagnosticDecodeReason::CursorTooLong.raw(),
                     ),
                 ],
-                CursorDecodeError::OddLength => vec![(
+                CursorDecodeError::InvalidLength => vec![(
                     DiagnosticFactTag::DecodeReason,
-                    DiagnosticDecodeReason::CursorOddLength.raw(),
+                    DiagnosticDecodeReason::CursorInvalidLength.raw(),
                 )],
-                CursorDecodeError::InvalidHex { position } => vec![
+                CursorDecodeError::InvalidBase64 { position } => vec![
                     (DiagnosticFactTag::ComponentIndex, *position as u64),
                     (
                         DiagnosticFactTag::DecodeReason,
-                        DiagnosticDecodeReason::CursorInvalidHex.raw(),
+                        DiagnosticDecodeReason::CursorInvalidBase64.raw(),
                     ),
                 ],
             },

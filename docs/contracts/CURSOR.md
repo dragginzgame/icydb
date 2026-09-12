@@ -9,15 +9,24 @@ Continuations are opaque and authenticated, but not encrypted. Applications
 must pass them back unchanged, authorize every ordered field represented by a
 cursor, and must not treat cursor contents as a field-level secrecy boundary.
 
-IcyDB emits lowercase hexadecimal text over a bounded binary token. Decode
-accepts either hex case. Empty, odd-length, non-hexadecimal, oversized,
-truncated, modified, wrong-database, and unsupported-version tokens fail
-closed before execution. Binary scalar tokens are capped at 8 KiB.
+IcyDB emits canonical unpadded URL-safe Base64 over a bounded binary token.
+Decode trims surrounding whitespace and rejects invalid lengths, alphabet,
+padding, or nonzero unused trailing bits. Empty, oversized, truncated, modified,
+wrong-database, and unsupported-version tokens fail closed before execution.
+Binary tokens are capped at 8 KiB; external text is capped at 10,923 bytes.
+Applications must regenerate saved continuations after a representation hard cut.
 
 ## Current Wires
 
 Grouped continuation and scalar live/exhaustive pages retain their sole current
-bounded version-1 wires. No legacy scalar decoder or translation path exists.
+bounded version-1 wires. No compatibility decoder or translation path exists.
+
+Big-integer values carry a u32 byte count and minimal little-endian magnitude;
+signed integers prefix sign 0/1/2 for zero/positive/negative. Zero has no
+magnitude bytes. Redundant high zero bytes and inconsistent signs reject.
+Account retains its fixed 62-byte payload directly after the value tag; Decimal
+retains its full i128 mantissa and one scale byte (0–28). The same value codec
+owns stored mutation-job literals, so affected job records require recreation.
 
 The scalar MAC covers the current payload before semantic fields are used. Its
 contract binds:

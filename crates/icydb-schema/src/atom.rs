@@ -290,6 +290,9 @@ pub enum UlidDecodeError {
 }
 
 /// Canonical ULID atom without generation authority.
+///
+/// Candid and binary Serde carry exactly 16 bytes. Human-readable Serde and
+/// display use canonical 26-character text.
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Ulid([u8; 16]);
@@ -371,18 +374,18 @@ impl FromStr for Ulid {
 
 impl CandidType for Ulid {
     fn ty() -> candid::types::Type {
-        <String as CandidType>::ty()
+        <Vec<u8> as CandidType>::ty()
     }
 
     fn _ty() -> candid::types::Type {
-        <String as CandidType>::_ty()
+        <Vec<u8> as CandidType>::_ty()
     }
 
     fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
     where
         S: candid::types::Serializer,
     {
-        serializer.serialize_text(&self.to_string())
+        serializer.serialize_blob(&self.0)
     }
 }
 
@@ -391,9 +394,42 @@ impl<'de> Deserialize<'de> for Ulid {
     where
         D: Deserializer<'de>,
     {
-        String::deserialize(deserializer)?
-            .parse()
-            .map_err(D::Error::custom)
+        // Sequence decoding checks the Candid element type before reading into
+        // a fixed buffer. Consume at most one excess byte to enforce the width.
+        struct UlidBytesVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for UlidBytesVisitor {
+            type Value = Ulid;
+
+            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+                formatter.write_str("exactly 16 ULID bytes")
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut sequence: A,
+            ) -> Result<Ulid, A::Error> {
+                let mut bytes = [0; 16];
+                for (index, byte) in bytes.iter_mut().enumerate() {
+                    *byte = sequence
+                        .next_element()?
+                        .ok_or_else(|| A::Error::invalid_length(index, &self))?;
+                }
+                if sequence.next_element::<u8>()?.is_some() {
+                    return Err(A::Error::invalid_length(17, &self));
+                }
+
+                Ok(Ulid::from_bytes(bytes))
+            }
+        }
+
+        if deserializer.is_human_readable() {
+            return String::deserialize(deserializer)?
+                .parse()
+                .map_err(D::Error::custom);
+        }
+
+        deserializer.deserialize_seq(UlidBytesVisitor)
     }
 }
 
@@ -402,7 +438,11 @@ impl Serialize for Ulid {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        if serializer.is_human_readable() {
+            serializer.serialize_str(&self.to_string())
+        } else {
+            serializer.serialize_bytes(&self.0)
+        }
     }
 }
 

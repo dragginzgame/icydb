@@ -13,9 +13,7 @@ use crate::{
         semantics::ordered_i32_bytes,
     },
     types::{Decimal, IntBig, NatBig},
-    value::decimal::{digit_count, signed_chunks, unsigned_chunks, visit_digits},
 };
-use std::convert::Infallible;
 
 const DECIMAL_DIGIT_BUFFER_LEN: usize = 39;
 
@@ -77,53 +75,66 @@ fn write_u128_decimal_digits(mut value: u128, out: &mut [u8; DECIMAL_DIGIT_BUFFE
     len
 }
 
-/// `Value::IntBig` ordering uses sign bucket + digit length + digit bytes.
+/// `Value::IntBig` ordering uses a sign bucket and a binary magnitude.
 pub(super) fn push_signed_big_integer_payload(
     out: &mut Vec<u8>,
     value: &IntBig,
 ) -> Result<(), OrderedValueEncodeError> {
-    // Encoding retains its current infallible construction policy. The shared
-    // converter still requires an observer; R5 owns budget propagation here.
-    let (negative, chunks) =
-        signed_chunks(value, |_, _| Ok::<_, Infallible>(())).unwrap_or_else(|never| match never {});
-
-    if chunks.is_empty() {
-        out.push(ZERO_MARKER);
-        return Ok(());
-    }
-
-    let digit_count = decimal_chunk_digit_count(&chunks)?;
-    let digits_len = encode_segment_len(digit_count)?;
-    // Validate length before allocating the final payload. Chunks write directly
-    // into this destination; there is no intermediate ASCII buffer to copy.
-    out.reserve_exact(1 + digits_len.len() + digit_count);
-
-    if negative {
-        out.push(NEGATIVE_MARKER);
-        push_inverted(out, &digits_len);
-    } else {
-        out.push(POSITIVE_MARKER);
-        out.extend_from_slice(&digits_len);
-    }
-    push_decimal_chunk_digits(out, &chunks, negative);
-
-    Ok(())
+    let (negative, digits) = value.sign_and_u32_digits();
+    push_big_integer_magnitude(out, Some(negative), digits)
 }
 
-/// `Value::NatBig` ordering is length + digit bytes.
+/// `Value::NatBig` ordering uses byte length followed by big-endian magnitude.
 pub(super) fn push_unsigned_big_integer_payload(
     out: &mut Vec<u8>,
     value: &NatBig,
 ) -> Result<(), OrderedValueEncodeError> {
-    let chunks = unsigned_chunks(value, |_, _| Ok::<_, Infallible>(()))
-        .unwrap_or_else(|never| match never {});
+    push_big_integer_magnitude(out, None, value.u32_digits())
+}
 
-    let digit_count = decimal_chunk_digit_count(&chunks)?;
-    let digits_len = encode_segment_len(digit_count)?;
-    out.reserve_exact(digits_len.len() + digit_count);
-    out.extend_from_slice(&digits_len);
-    push_decimal_chunk_digits(out, &chunks, false);
-
+// Equal-length big-endian magnitudes compare numerically. Inverting both length
+// and magnitude reverses that order for negatives. Borrowed canonical limbs
+// write directly to the destination without decimal chunks or a magnitude Vec.
+fn push_big_integer_magnitude(
+    out: &mut Vec<u8>,
+    negative: Option<bool>,
+    mut digits: impl DoubleEndedIterator<Item = u32> + ExactSizeIterator,
+) -> Result<(), OrderedValueEncodeError> {
+    let high = digits.next_back();
+    let high_len = high.map_or(0, |digit| {
+        (u32::BITS - digit.leading_zeros()).div_ceil(8) as usize
+    });
+    let len = digits
+        .len()
+        .checked_mul(4)
+        .and_then(|len| len.checked_add(high_len))
+        .ok_or(OrderedValueEncodeError::SegmentTooLarge)?;
+    if negative.is_some() && len == 0 {
+        out.push(ZERO_MARKER);
+        return Ok(());
+    }
+    let length = encode_segment_len(len)?;
+    out.reserve_exact(usize::from(negative.is_some()) + length.len() + len);
+    if let Some(negative) = negative {
+        out.push(if negative {
+            NEGATIVE_MARKER
+        } else {
+            POSITIVE_MARKER
+        });
+    }
+    let mask = if negative == Some(true) { u8::MAX } else { 0 };
+    out.extend(length.map(|byte| byte ^ mask));
+    if let Some(high) = high {
+        // A u32 high limb contributes at most its four initialized bytes.
+        out.extend(
+            high.to_be_bytes()[4 - high_len..]
+                .iter()
+                .map(|byte| byte ^ mask),
+        );
+    }
+    for digit in digits.rev() {
+        out.extend(digit.to_be_bytes().map(|byte| byte ^ mask));
+    }
     Ok(())
 }
 
@@ -143,23 +154,6 @@ fn decimal_exponent(scale: u32, digit_len: usize) -> Result<i32, OrderedValueEnc
         .ok_or(OrderedValueEncodeError::DecimalExponentOverflow)?;
 
     i32::try_from(exponent).map_err(|_| OrderedValueEncodeError::DecimalExponentOverflow)
-}
-
-// The shared magnitude owner counts digits without constructing output text.
-fn decimal_chunk_digit_count(chunks: &[u32]) -> Result<usize, OrderedValueEncodeError> {
-    digit_count(chunks).ok_or(OrderedValueEncodeError::SegmentTooLarge)
-}
-
-fn push_decimal_chunk_digits(out: &mut Vec<u8>, chunks: &[u32], inverted: bool) {
-    visit_digits(chunks, |digits| {
-        if inverted {
-            push_inverted(out, digits);
-        } else {
-            out.extend_from_slice(digits);
-        }
-        Ok::<_, Infallible>(())
-    })
-    .unwrap_or_else(|never| match never {});
 }
 
 fn digit_to_ascii(value: u32) -> u8 {

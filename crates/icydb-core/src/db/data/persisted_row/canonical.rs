@@ -114,7 +114,7 @@ fn encode_canonical_value_for_decode_contract(
                         InternalError::persisted_row_field_encode_internal(field.field_name())
                     })?;
 
-                Ok(encode_scalar_slot_value(scalar))
+                encode_scalar_slot_value(scalar, codec, field.field_name())
             }
             LeafCodec::Structural => encode_structural_field_by_accepted_kind_bytes(
                 field.kind(),
@@ -140,7 +140,9 @@ fn encode_accepted_null_slot_value(
             InternalError::persisted_row_field_encode_internal(field.field_name()),
         ),
         FieldStorageDecode::ByKind => match field.leaf_codec() {
-            LeafCodec::Scalar(_) => Ok(encode_scalar_slot_value(ScalarSlotValueRef::Null)),
+            LeafCodec::Scalar(codec) => {
+                encode_scalar_slot_value(ScalarSlotValueRef::Null, codec, field.field_name())
+            }
             LeafCodec::Structural
                 if accepted_kind_supports_primary_key_component_binary(field.kind()) =>
             {
@@ -167,12 +169,18 @@ const fn scalar_slot_value_ref_from_accepted_value(
         (ScalarCodec::Duration, Value::Duration(value)) => ScalarValueRef::Duration(*value),
         (ScalarCodec::Float32, Value::Float32(value)) => ScalarValueRef::Float32(*value),
         (ScalarCodec::Float64, Value::Float64(value)) => ScalarValueRef::Float64(*value),
-        (ScalarCodec::Int64, Value::Int64(value)) => ScalarValueRef::Int(*value),
+        (
+            ScalarCodec::Int8 | ScalarCodec::Int16 | ScalarCodec::Int32 | ScalarCodec::Int64,
+            Value::Int64(value),
+        ) => ScalarValueRef::Int(*value),
         (ScalarCodec::Principal, Value::Principal(value)) => ScalarValueRef::Principal(*value),
         (ScalarCodec::Subaccount, Value::Subaccount(value)) => ScalarValueRef::Subaccount(*value),
         (ScalarCodec::Text, Value::Text(value)) => ScalarValueRef::Text(value.as_str()),
         (ScalarCodec::Timestamp, Value::Timestamp(value)) => ScalarValueRef::Timestamp(*value),
-        (ScalarCodec::Nat64, Value::Nat64(value)) => ScalarValueRef::Nat(*value),
+        (
+            ScalarCodec::Nat8 | ScalarCodec::Nat16 | ScalarCodec::Nat32 | ScalarCodec::Nat64,
+            Value::Nat64(value),
+        ) => ScalarValueRef::Nat(*value),
         (ScalarCodec::Ulid, Value::Ulid(value)) => ScalarValueRef::Ulid(*value),
         (ScalarCodec::Unit, Value::Unit) => ScalarValueRef::Unit,
         (ScalarCodec::U256, Value::U256(value)) => ScalarValueRef::U256(*value),

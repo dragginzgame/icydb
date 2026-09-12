@@ -20,6 +20,7 @@ use crate::{
     },
     value::Value,
 };
+use num_bigint::{BigInt, BigUint, Sign};
 use proptest::prelude::*;
 use std::cmp::Ordering;
 
@@ -32,28 +33,6 @@ fn assert_encoded_order(left: Value, right: Value, expected: Ordering) {
     let right_bytes = encode_canonical_index_component(&right).expect("right should encode");
 
     assert_eq!(left_bytes.cmp(&right_bytes), expected);
-}
-
-fn normalize_unsigned_decimal_text(raw: &str) -> String {
-    let trimmed = raw.trim_start_matches('0');
-    if trimmed.is_empty() {
-        return "0".to_string();
-    }
-
-    trimmed.to_string()
-}
-
-fn normalize_signed_decimal_text(raw: &str) -> String {
-    if let Some(unsigned) = raw.strip_prefix('-') {
-        let digits = normalize_unsigned_decimal_text(unsigned);
-        if digits == "0" {
-            return digits;
-        }
-
-        return format!("-{digits}");
-    }
-
-    normalize_unsigned_decimal_text(raw)
 }
 
 fn decode_int_big_payload(encoded: &[u8]) -> (u8, Vec<u8>) {
@@ -74,7 +53,7 @@ fn decode_int_big_payload(encoded: &[u8]) -> (u8, Vec<u8>) {
                 2,
                 "zero int-big payload must be exactly two bytes: {encoded:?}"
             );
-            (marker, vec![b'0'])
+            (marker, vec![])
         }
         POSITIVE_MARKER => {
             assert!(
@@ -82,9 +61,9 @@ fn decode_int_big_payload(encoded: &[u8]) -> (u8, Vec<u8>) {
                 "positive int-big payload must include length: {encoded:?}"
             );
             let len = usize::from(u16::from_be_bytes([encoded[2], encoded[3]]));
-            let digits = encoded[4..].to_vec();
-            assert_eq!(len, digits.len(), "int-big length mismatch");
-            (marker, digits)
+            let magnitude = encoded[4..].to_vec();
+            assert_eq!(len, magnitude.len(), "int-big length mismatch");
+            (marker, magnitude)
         }
         NEGATIVE_MARKER => {
             assert!(
@@ -92,9 +71,9 @@ fn decode_int_big_payload(encoded: &[u8]) -> (u8, Vec<u8>) {
                 "negative int-big payload must include length: {encoded:?}"
             );
             let len = usize::from(u16::from_be_bytes([!encoded[2], !encoded[3]]));
-            let digits: Vec<u8> = encoded[4..].iter().map(|byte| !byte).collect();
-            assert_eq!(len, digits.len(), "int-big length mismatch");
-            (marker, digits)
+            let magnitude: Vec<u8> = encoded[4..].iter().map(|byte| !byte).collect();
+            assert_eq!(len, magnitude.len(), "int-big length mismatch");
+            (marker, magnitude)
         }
         other => panic!("unexpected int-big marker {other:#x}"),
     }
@@ -111,30 +90,24 @@ fn decode_nat_big_payload(encoded: &[u8]) -> Vec<u8> {
     );
 
     let len = usize::from(u16::from_be_bytes([encoded[1], encoded[2]]));
-    let digits = encoded[3..].to_vec();
-    assert_eq!(len, digits.len(), "nat-big length mismatch");
-    digits
+    let magnitude = encoded[3..].to_vec();
+    assert_eq!(len, magnitude.len(), "nat-big length mismatch");
+    magnitude
 }
 
 fn decode_int_big_from_ordered_bytes(encoded: &[u8]) -> IntBig {
-    let (marker, digits) = decode_int_big_payload(encoded);
-    let digits_text = String::from_utf8(digits).expect("int-big digits must be utf8");
-
-    let text = match marker {
-        ZERO_MARKER | POSITIVE_MARKER => digits_text,
-        NEGATIVE_MARKER => format!("-{digits_text}"),
+    let (marker, magnitude) = decode_int_big_payload(encoded);
+    let sign = match marker {
+        NEGATIVE_MARKER => Sign::Minus,
+        ZERO_MARKER => Sign::NoSign,
+        POSITIVE_MARKER => Sign::Plus,
         _ => unreachable!("unexpected int-big marker"),
     };
-
-    text.parse().expect("decoded int-big text should parse")
+    IntBig::from_bigint(BigInt::from_bytes_be(sign, &magnitude))
 }
 
 fn decode_nat_big_from_ordered_bytes(encoded: &[u8]) -> NatBig {
-    let digits = decode_nat_big_payload(encoded);
-    let digits_text = String::from_utf8(digits).expect("nat-big digits must be utf8");
-    digits_text
-        .parse()
-        .expect("decoded nat-big text should parse")
+    NatBig::from_biguint(BigUint::from_bytes_be(&decode_nat_big_payload(encoded)))
 }
 
 #[test]
@@ -292,58 +265,29 @@ fn canonical_encoder_int_big_negative_zero_collapses_to_zero_marker() {
 }
 
 #[test]
-fn canonical_encoder_value_int_big_and_nat_big_payloads_use_minimal_digits() {
-    let int_literals = vec![
+fn canonical_encoder_bigint_magnitudes_have_no_leading_zero_bytes() {
+    for literal in [
         "-000123456789",
         "-18446744073709551616",
         "0",
         "0004294967296",
         "340282366920938463463374607431768211455",
-    ];
-
-    for literal in int_literals {
-        let value = Value::IntBig(literal.parse().expect("int literal"));
-        let encoded =
-            encode_canonical_index_component(&value).expect("Value::IntBig should encode");
-        let (_, digits) = decode_int_big_payload(&encoded);
-        assert!(digits.iter().all(u8::is_ascii_digit));
-
-        let expected = normalize_signed_decimal_text(literal);
-        let expected_digits = expected.strip_prefix('-').unwrap_or(&expected);
-        assert_eq!(digits, expected_digits.as_bytes());
-
-        if digits != b"0" {
-            assert_ne!(
-                digits[0], b'0',
-                "Value::IntBig payload must not lead with zero"
-            );
-        }
-    }
-
-    let nat_literals = vec![
-        "0",
-        "000123456789",
-        "4294967296",
-        "00018446744073709551616",
-        "340282366920938463463374607431768211455",
-    ];
-
-    for literal in nat_literals {
-        let value = Value::NatBig(literal.parse().expect("nat literal"));
-        let encoded =
-            encode_canonical_index_component(&value).expect("Value::NatBig should encode");
-        let digits = decode_nat_big_payload(&encoded);
-        assert!(digits.iter().all(u8::is_ascii_digit));
-
-        let expected = normalize_unsigned_decimal_text(literal);
-        assert_eq!(digits, expected.as_bytes());
-
-        if digits != b"0" {
-            assert_ne!(
-                digits[0], b'0',
-                "Value::NatBig payload must not lead with zero"
-            );
-        }
+    ] {
+        let signed = Value::IntBig(literal.parse().unwrap());
+        let encoded = encode_canonical_index_component(&signed).unwrap();
+        let (_, magnitude) = decode_int_big_payload(&encoded);
+        assert_ne!(magnitude.first(), Some(&0));
+        assert_eq!(
+            Value::IntBig(decode_int_big_from_ordered_bytes(&encoded)),
+            signed
+        );
+        let unsigned = Value::NatBig(literal.trim_start_matches('-').parse().unwrap());
+        let encoded = encode_canonical_index_component(&unsigned).unwrap();
+        assert_ne!(decode_nat_big_payload(&encoded).first(), Some(&0));
+        assert_eq!(
+            Value::NatBig(decode_nat_big_from_ordered_bytes(&encoded)),
+            unsigned
+        );
     }
 }
 
@@ -557,12 +501,12 @@ fn canonical_encoder_golden_vectors_freeze_primitive_bytes() {
         (
             "IntBig(-7)",
             Value::IntBig(IntBig::from(-7i32)),
-            vec![0x0C, 0x00, 0xFF, 0xFE, 0xC8],
+            vec![0x0C, 0x00, 0xFF, 0xFE, 0xF8],
         ),
         (
             "NatBig(70)",
             Value::NatBig(NatBig::from(70u64)),
-            vec![0x16, 0x00, 0x02, 0x37, 0x30],
+            vec![0x16, 0x00, 0x01, 0x46],
         ),
         (
             "Ulid(1)",

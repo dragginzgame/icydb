@@ -1575,6 +1575,7 @@ dependencies = [
 name = "icydb-core"
 version = "0.257.6"
 dependencies = [
+ "base64 0.22.1",
  "candid",
  "getrandom 0.4.3",
  "ic-cdk",

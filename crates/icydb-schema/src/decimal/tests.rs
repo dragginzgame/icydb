@@ -248,3 +248,45 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn decimal_text_transports_preserve_values_and_measured_sizes() {
+    for (text, one, batch, binary) in [
+        ("0", 9, 2_011, 2),
+        ("-1", 10, 3_011, 3),
+        ("42.5", 12, 5_011, 5),
+        ("123.45", 14, 7_011, 7),
+        ("0.00000001", 18, 11_011, 11),
+        ("1234567890.123456789", 28, 21_011, 21),
+        ("170141183460469231731687303715884105727", 47, 40_011, 41),
+        ("-170141183460469231731687303715884105728", 48, 41_011, 42),
+    ] {
+        let value: Decimal = text.parse().expect("the decimal should parse");
+        assert_eq!(encode_one(value).expect("Candid should encode").len(), one);
+        let values = vec![value; 1_000];
+        let encoded = encode_one(&values).expect("the decimal batch should encode");
+        assert_eq!(encoded.len(), batch);
+        assert_eq!(
+            decode_one::<Vec<Decimal>>(&encoded).expect("the decimal batch should decode"),
+            values,
+        );
+        let mut encoded = Vec::new();
+        ciborium::ser::into_writer(&value, &mut encoded).expect("CBOR should encode");
+        assert_eq!(encoded.len(), binary);
+        assert_eq!(
+            ciborium::de::from_reader::<String, _>(encoded.as_slice())
+                .expect("CBOR should contain decimal text"),
+            text,
+        );
+        assert_eq!(
+            ciborium::de::from_reader::<Decimal, _>(encoded.as_slice())
+                .expect("CBOR should decode the decimal"),
+            value,
+        );
+        let json = serde_json::to_string(&value).expect("JSON should encode");
+        assert_eq!(
+            serde_json::from_str::<Decimal>(&json).expect("JSON should decode the decimal"),
+            value,
+        );
+    }
+}

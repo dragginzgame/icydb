@@ -38,6 +38,69 @@ fixed-width maximum during ingress. Persistence and index keys use IcyDB-owned
 32-byte encodings rather than Candid's variable-length wire representation.
 Database arithmetic is checked, not Ethereum-style wrapping arithmetic.
 
+`Ulid` uses a Candid `blob` (`vec nat8`) containing exactly 16 bytes in
+`Ulid::to_bytes()` order. Generated clients must send and receive those bytes;
+regenerate bindings when adopting this wire contract. Human-readable Serde
+(including JSON), display, and SQL literals use canonical 26-character ULID
+text. Binary Serde uses the same 16-byte byte-string payload as Candid;
+external binary snapshots must be regenerated. Database row and key payloads
+already store ULID bytes and require no recreation for this transport change.
+
+`Date` uses native Candid `int32` epoch days and ISO `YYYY-MM-DD` text in JSON.
+Binary Serde emits integer epoch days and rejects dates outside years 0000–9999;
+human-readable ingress accepts ISO text. `Subaccount` uses exactly 32 bytes in
+Candid and binary Serde, while JSON retains its 32-element byte array. Binary
+Serde emits a byte string and checks exact length with bounded decoding.
+Regenerate external binary snapshots containing these atoms, including nested
+Accounts. Their custom database/index/cursor encodings stay unchanged; Account
+still reserves its fixed 62-byte database payload.
+
+`Decimal` uses decimal text for both Candid and Serde, including binary Serde
+formats such as CBOR. Clients should submit that same text representation.
+`Int128`/`IntBig` use native Candid `int`; `Nat128`/`NatBig` and `U256` use
+native `nat`. These variable-length integer carriers keep small values compact;
+internal row/index/cursor encodings have separate contracts.
+
+`IntBig`, `NatBig` and `U256` use decimal strings in human-readable Serde
+(including JSON). Binary Serde uses native i64/u64 for representable values;
+larger values use byte strings containing a marker followed by minimal
+little-endian bytes: marker 0 and two's complement for signed integers, marker
+1 and unsigned magnitude for naturals/U256. U256 still rejects values above
+256 bits. These carriers match Candid's integer visitor; public Candid remains
+native `int`/`nat`. Regenerate affected external binary snapshots and bigint
+JSON snapshots when adopting this hard cut. Custom database row/index/cursor
+formats are unchanged by this Serde change.
+
+Binary CBOR becomes smaller for small and dense values. Sparse bigints such as
+large powers of two can grow because their low zero limbs previously occupied
+one CBOR byte each. See the
+[storage comparison](../design/0.257-typed-query-explain/0.257-storage-size.md#s9--compact-round-trippable-integer-serde)
+for measured examples and the retained trade-off.
+
+Direct row fields declared `Int8`/`Nat8`, `Int16`/`Nat16`, and `Int32`/`Nat32`
+store 1, 2, and 4 little-endian payload bytes respectively, plus the two-byte
+scalar slot envelope. Null slots use only that envelope. The accepted schema
+selects the width, including direct relations with narrow integer keys; writes
+reject out-of-range values. Adopting this format requires affected databases
+and persisted row/default/catalog data to be recreated. Index keys, decoded
+runtime integers, and nested structural values retain their own representations.
+
+`IntBig` and `NatBig` structural storage uses a minimal little-endian magnitude
+inside a byte-string frame. Signed values include one sign byte; zero uses an
+empty magnitude. This applies to both ordinary structural fields and nested
+canonical values, including encoded defaults. Recreate affected databases and
+regenerate encoded artifacts when adopting this representation. The accepted
+`max_bytes` bound still measures canonical signed/unsigned LEB128 length; it is
+not the length of the stored magnitude or its framing.
+
+Nested fixed-width scalars store one type tag followed by the fixed payload,
+without an inner tag or length prefix. Date uses four epoch-day bytes. Account
+retains all 62 payload bytes, with or without a subaccount. Decimal stores its
+full 16-byte signed mantissa and one scale byte (0–28), preserving both parts;
+ordinary structural Decimal wraps these same 17 bytes in a generic byte frame.
+Adopting these layouts requires affected data/default/snapshot artifacts to be
+recreated. Invalid persisted Decimal scales are rejected rather than normalized.
+
 `Text` is deliberately not a primary-key domain. For a human-readable slug,
 keep a durable generated identity such as `Ulid` or `Identity::next` as the
 primary key and put the slug in an ordinary indexed field. The slug can change

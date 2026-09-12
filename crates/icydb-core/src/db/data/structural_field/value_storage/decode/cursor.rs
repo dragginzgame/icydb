@@ -41,7 +41,7 @@ use crate::{
 // Decode one nested value-storage payload from `offset` and return the cursor
 // immediately after that payload. Collection variants use the single-pass
 // decode helpers; local extension tags keep the existing skip-then-decode lane
-// so their nested validation behavior stays narrow and familiar.
+// so fixed widths and variable payloads share the same boundary validation.
 pub(super) fn decode_value_storage_binary_value_at(
     raw_bytes: &[u8],
     offset: usize,

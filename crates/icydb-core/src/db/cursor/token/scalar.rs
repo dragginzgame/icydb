@@ -419,4 +419,50 @@ mod tests {
 
         assert!(token.encode(&[0x66; 32]).is_err());
     }
+
+    #[test]
+    fn authenticated_compact_scalar_cursor_round_trips_and_measures_external_bytes() {
+        use crate::{
+            db::cursor::{decode_cursor, encode_cursor},
+            types::{IntBig, NatBig},
+        };
+        use num_bigint::{BigInt, BigUint, Sign};
+
+        let key = [0x66; 32];
+        let magnitude = (BigUint::from(1_u8) << 256_usize) - BigUint::from(1_u8);
+        let mut current = token();
+        current.progress.last_emitted_logical = Some(CursorBoundary {
+            slots: vec![
+                CursorBoundarySlot::Present(Value::IntBig(IntBig::from_bigint(
+                    BigInt::from_biguint(Sign::Minus, magnitude.clone()),
+                ))),
+                CursorBoundarySlot::Missing,
+                CursorBoundarySlot::Present(Value::NatBig(NatBig::from_biguint(magnitude))),
+            ],
+        });
+        for mode in [ScalarPageMode::Live, ScalarPageMode::Exhaustive] {
+            current.mode = mode;
+            let bytes = current.encode(&key).unwrap();
+            let text = encode_cursor(&bytes);
+            assert_eq!(bytes.len(), 327);
+            assert_eq!(text.len(), 436);
+            assert_eq!(
+                ScalarPageToken::decode(&decode_cursor(&text).unwrap(), &key).unwrap(),
+                current
+            );
+            let mut changed = bytes.clone();
+            changed[bytes.len() - 33] ^= 1;
+            assert!(
+                ScalarPageToken::decode(&decode_cursor(&encode_cursor(&changed)).unwrap(), &key)
+                    .is_err()
+            );
+            assert!(ScalarPageToken::decode(&bytes, &[0x67; 32]).is_err());
+            for len in [0, 9, bytes.len() - 1] {
+                assert!(ScalarPageToken::decode(&bytes[..len], &key).is_err());
+            }
+            let mut trailing = bytes;
+            trailing.push(0);
+            assert!(ScalarPageToken::decode(&trailing, &key).is_err());
+        }
+    }
 }
