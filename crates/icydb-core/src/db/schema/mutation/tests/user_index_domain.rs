@@ -6,6 +6,129 @@ const ENTITY_PATH: &str = "test::MutationEntity";
 const STORE_PATH: &str = "test::mutation::entity";
 
 #[test]
+fn complete_domain_setup_admits_both_projections_before_returning_a_builder() {
+    use crate::db::executor::budget::MaintenanceConstructionBudget;
+    use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
+
+    let snapshot = snapshot_with_indexes(
+        &base_snapshot(),
+        vec![domain_field_index(1, "by_name", false)],
+    );
+    let store = IndexStore::init_heap();
+    let physical_before = index_store_entries(&store);
+    for (resource, limit) in [
+        (Resource::TemporaryBytes, 0),
+        (Resource::PredicateExpressionSteps, 1),
+    ] {
+        let error = match super::StagedUserIndexDomainReplacementBuilder::new(
+            accepted_identity(&snapshot),
+            &snapshot,
+            &snapshot,
+            None,
+            None,
+            &store,
+            MaintenanceConstructionBudget::with_limit_for_tests(resource, limit),
+        ) {
+            Ok(_) => panic!("setup must admit both projections under one budget"),
+            Err(error) => error.into_internal_error(),
+        };
+        assert!(
+            error
+                .diagnostic_facts()
+                .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+        );
+        assert!(
+            error
+                .diagnostic_facts()
+                .contains(&(DiagnosticFactTag::Limit, limit))
+        );
+        if resource == Resource::PredicateExpressionSteps {
+            assert!(
+                error
+                    .diagnostic_facts()
+                    .contains(&(DiagnosticFactTag::Actual, 2))
+            );
+        }
+        assert_eq!(index_store_entries(&store), physical_before);
+    }
+    // Exactly enough index visits admits setup; finish does not reset or need
+    // another index visit when the authoritative row/index domain is empty.
+    let builder = super::StagedUserIndexDomainReplacementBuilder::new(
+        accepted_identity(&snapshot),
+        &snapshot,
+        &snapshot,
+        None,
+        None,
+        &store,
+        MaintenanceConstructionBudget::with_limit_for_tests(Resource::PredicateExpressionSteps, 2),
+    )
+    .map_err(super::StagedUserIndexDomainError::into_internal_error)
+    .unwrap();
+    builder
+        .finish(&store)
+        .map_err(super::StagedUserIndexDomainError::into_internal_error)
+        .unwrap();
+    assert_eq!(index_store_entries(&store), physical_before);
+}
+
+#[test]
+fn complete_domain_setup_keeps_source_exhaustion_distinct_from_predicate_rejection() {
+    use crate::db::executor::budget::MaintenanceConstructionBudget;
+    use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
+
+    let before = base_snapshot();
+    let after = snapshot_with_indexes(
+        &before,
+        vec![domain_expression_index(
+            1,
+            "by_lower_name",
+            false,
+            Some("name =".into()),
+        )],
+    );
+    let row_contract = accepted_row_contract(&after);
+    let store = IndexStore::init_heap();
+    let physical_before = index_store_entries(&store);
+    let construct = |construction| {
+        super::StagedUserIndexDomainReplacementBuilder::new(
+            accepted_identity(&before),
+            &before,
+            &after,
+            None,
+            Some(&row_contract),
+            &store,
+            construction,
+        )
+    };
+    let error = match construct(MaintenanceConstructionBudget::with_limit_for_tests(
+        Resource::PredicateExpressionSteps,
+        1,
+    )) {
+        Ok(_) => panic!("predicate source bytes must be admitted before parsing"),
+        Err(error) => error.into_internal_error(),
+    };
+    assert!(error.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::PredicateExpressionSteps.raw(),
+    )));
+    assert!(
+        error
+            .diagnostic_facts()
+            .contains(&(DiagnosticFactTag::Limit, 1))
+    );
+    assert!(
+        error
+            .diagnostic_facts()
+            .contains(&(DiagnosticFactTag::Actual, 7))
+    );
+    assert!(matches!(
+        construct(MaintenanceConstructionBudget::new()),
+        Err(super::StagedUserIndexDomainError::PredicateParse)
+    ));
+    assert_eq!(index_store_entries(&store), physical_before);
+}
+
+#[test]
 fn complete_domain_construction_exhaustion_prevents_partial_finish_or_store_writes() {
     use crate::db::executor::budget::MaintenanceConstructionBudget;
     use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
@@ -27,13 +150,10 @@ fn complete_domain_construction_exhaustion_prevents_partial_finish_or_store_writ
         None,
         None,
         &store,
+        MaintenanceConstructionBudget::with_limit_for_tests(Resource::PredicateExpressionSteps, 2),
     )
     .map_err(super::StagedUserIndexDomainError::into_internal_error)
     .unwrap();
-    builder.set_construction_budget_for_tests(MaintenanceConstructionBudget::with_limit_for_tests(
-        Resource::PredicateExpressionSteps,
-        1,
-    ));
     builder
         .observe_row(&domain_row(1, &first))
         .map_err(super::StagedUserIndexDomainError::into_internal_error)
@@ -46,14 +166,22 @@ fn complete_domain_construction_exhaustion_prevents_partial_finish_or_store_writ
         DiagnosticFactTag::BudgetResource,
         Resource::PredicateExpressionSteps.raw()
     )));
+    assert!(
+        error
+            .diagnostic_facts()
+            .contains(&(DiagnosticFactTag::Limit, 2))
+    );
+    assert!(
+        error
+            .diagnostic_facts()
+            .contains(&(DiagnosticFactTag::Actual, 3))
+    );
+    let first_exhaustion = error.diagnostic_facts();
     let error = match builder.finish(&store) {
         Ok(_) => panic!("exhausted staging cannot finish"),
         Err(error) => error.into_internal_error(),
     };
-    assert!(error.diagnostic_facts().contains(&(
-        DiagnosticFactTag::BudgetResource,
-        Resource::PredicateExpressionSteps.raw()
-    )));
+    assert_eq!(error.diagnostic_facts(), first_exhaustion.as_slice());
     assert_eq!(index_store_entries(&store), physical_before);
 }
 
@@ -712,6 +840,7 @@ fn stage_domain<'a>(
         row_contract,
         row_contract,
         store,
+        crate::db::executor::budget::MaintenanceConstructionBudget::new(),
     )?;
     for row in rows {
         builder.observe_row(&row)?;

@@ -6,7 +6,7 @@
 use crate::{
     db::predicate::{
         CoercionId, CompareOp, MembershipCompareLeaf, Predicate,
-        collapse_membership_compare_leaves, encoding::encode_predicate_sort_key,
+        collapse_membership_compare_leaves, encoding::write_predicate_sort_key,
         simplify::simplify_and_compare_constraints,
     },
     value::Value,
@@ -712,32 +712,23 @@ const fn compare_eval_cost_rank(op: CompareOp) -> u8 {
 // Canonicalize predicate child ordering for deterministic normalization and
 // cheap-first short-circuit behavior.
 fn canonicalize_predicate_children_for_eval(out: &mut Vec<Predicate>) {
-    out.sort_by(canonical_cmp_predicate_for_eval);
+    // Reuse two buffers for this sort, not one allocation pair per comparison
+    // or retained keys for every child. Different ranks need no encoded keys.
+    let mut left_key = Vec::new();
+    let mut right_key = Vec::new();
+    out.sort_by(|left, right| {
+        let rank = predicate_eval_cost_rank(left).cmp(&predicate_eval_cost_rank(right));
+        if rank != std::cmp::Ordering::Equal {
+            return rank;
+        }
+
+        left_key.clear();
+        right_key.clear();
+        write_predicate_sort_key(&mut left_key, left);
+        write_predicate_sort_key(&mut right_key, right);
+        left_key.cmp(&right_key)
+    });
     out.dedup();
-}
-
-// Compare predicate children with the same deterministic rank-first ordering
-// used by normalization, without routing through the cached-key tuple surface.
-fn canonical_cmp_predicate_for_eval(left: &Predicate, right: &Predicate) -> std::cmp::Ordering {
-    let rank = predicate_eval_cost_rank(left).cmp(&predicate_eval_cost_rank(right));
-    if rank != std::cmp::Ordering::Equal {
-        return rank;
-    }
-
-    sort_key(left).cmp(&sort_key(right))
-}
-
-///
-/// Generate a deterministic, length-prefixed key for a predicate.
-///
-/// This key is used **only for sorting**, not for display.
-/// Ordering ensures:
-/// - planner determinism
-/// - stable normalization
-/// - predictable equality
-///
-fn sort_key(predicate: &Predicate) -> Vec<u8> {
-    encode_predicate_sort_key(predicate)
 }
 
 ///

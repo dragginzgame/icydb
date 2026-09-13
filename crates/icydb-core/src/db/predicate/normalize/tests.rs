@@ -11,6 +11,46 @@ use crate::{
 };
 
 #[test]
+fn normalize_orders_varying_length_keys_for_both_connectives() {
+    let long = "x".repeat(1024);
+    let children = [
+        long.clone(),
+        "z".into(),
+        "a".into(),
+        "zz".into(),
+        "b".into(),
+    ]
+    .into_iter()
+    .map(|field| Predicate::IsNull { field })
+    .collect::<Vec<_>>();
+    let expected = ["a".into(), "b".into(), "z".into(), "zz".into(), long]
+        .into_iter()
+        .map(|field| Predicate::IsNull { field })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        normalize(Predicate::And(children.clone())),
+        Predicate::And(expected.clone())
+    );
+    assert_eq!(normalize(Predicate::Or(children)), Predicate::Or(expected));
+}
+
+#[test]
+fn normalize_preserves_structurally_distinct_equal_key_order() {
+    let leaf = |text: &str| {
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Ne,
+            Value::Text(text.to_string()),
+            CoercionId::TextCasefold,
+        ))
+    };
+    for children in [vec![leaf("A"), leaf("a")], vec![leaf("a"), leaf("A")]] {
+        let predicate = Predicate::Or(children);
+        assert_eq!(normalize(predicate.clone()), predicate);
+    }
+}
+
+#[test]
 fn normalize_compact_membership_conjunction_is_idempotent() {
     let predicate = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::with_coercion(

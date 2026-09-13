@@ -15,10 +15,14 @@ pub(in crate::db::schema) fn schema_snapshot_index_integrity_detail(
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
     indexes: &[PersistedIndexSnapshot],
+    candidate_indexes: &[PersistedIndexSnapshot],
 ) -> Option<()> {
-    for (index_offset, index) in indexes.iter().enumerate() {
-        let expected_ordinal = u16::try_from(index_offset).ok()?.checked_add(1)?;
-        if index.ordinal() != expected_ordinal {
+    // Keep one ordinal sequence and compare each entry against its whole
+    // remaining suffix, including candidates. Cloning this cursor copies
+    // iterator state, never schema metadata or its nested payloads.
+    let mut remaining = indexes.iter().chain(candidate_indexes).enumerate();
+    while let Some((index_offset, index)) = remaining.next() {
+        if usize::from(index.ordinal()) != index_offset + 1 {
             return Some(());
         }
 
@@ -30,7 +34,7 @@ pub(in crate::db::schema) fn schema_snapshot_index_integrity_detail(
             return Some(());
         }
 
-        for other in &indexes[index_offset + 1..] {
+        for (_, other) in remaining.clone() {
             if index.schema_id() == other.schema_id() {
                 return Some(());
             }

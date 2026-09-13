@@ -7,7 +7,7 @@ use crate::db::{
     codec::new_hash_sha256,
     predicate::{
         Predicate,
-        encoding::{encode_normalized_predicate_sort_key, encode_predicate_sort_key},
+        encoding::{write_normalized_predicate_sort_key, write_predicate_sort_key},
         normalize,
     },
 };
@@ -42,13 +42,17 @@ pub(in crate::db) fn predicate_fingerprint_normalized(predicate: &Predicate) -> 
 // for deterministic ordering. Reuse that same byte surface for hashing so the
 // predicate subsystem does not carry a second recursive encoding tree.
 fn hash_predicate_structural(hasher: &mut Sha256, predicate: &Predicate) {
-    hasher.update(encode_predicate_sort_key(predicate));
+    let mut encoded = Vec::new();
+    write_predicate_sort_key(&mut encoded, predicate);
+    hasher.update(encoded);
 }
 
 // Hash one planner-owned normalized predicate without repeating `IN` / `NOT IN`
 // list sort/dedup work that the schema-aware normalization boundary already did.
 fn hash_normalized_predicate_structural(hasher: &mut Sha256, predicate: &Predicate) {
-    hasher.update(encode_normalized_predicate_sort_key(predicate));
+    let mut encoded = Vec::new();
+    write_normalized_predicate_sort_key(&mut encoded, predicate);
+    hasher.update(encoded);
 }
 
 ///

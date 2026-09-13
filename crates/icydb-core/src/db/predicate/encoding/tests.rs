@@ -3,13 +3,56 @@ use crate::{
         CoercionId, CompareOp, ComparePredicate, Predicate,
         encoding::{
             canonicalize_compare_literal_for_coercion, encode_compare_value_sort_key_into,
-            encode_predicate_sort_key, encode_value_sort_key_into, push_bytes_u64, push_len_u64,
-            push_value_sort_key_framed,
+            encode_value_sort_key_into, push_bytes_u64, push_len_u64, push_value_sort_key_framed,
+            write_normalized_predicate_sort_key, write_predicate_sort_key,
         },
     },
     value::Value,
 };
 use std::borrow::Cow;
+
+fn sort_key(predicate: &Predicate) -> Vec<u8> {
+    let mut key = Vec::new();
+    write_predicate_sort_key(&mut key, predicate);
+    key
+}
+
+#[test]
+fn predicate_key_writers_append_framed_payloads_and_allow_buffer_reuse() {
+    let predicate = Predicate::Not(Box::new(Predicate::And(vec![
+        Predicate::IsNull {
+            field: "name".repeat(128),
+        },
+        Predicate::eq(
+            "payload".to_string(),
+            Value::Map(vec![
+                (
+                    Value::Text("z".to_string()),
+                    Value::List(vec![Value::Nat64(7)]),
+                ),
+                (Value::Text("a".to_string()), Value::Nat64(3)),
+            ]),
+        ),
+    ])));
+    let expected = sort_key(&predicate);
+    for writer in [
+        write_predicate_sort_key,
+        write_normalized_predicate_sort_key,
+    ] {
+        let prefix = vec![17, 23, 42];
+        let mut output = prefix.clone();
+        writer(&mut output, &predicate);
+        assert_eq!(&output[..prefix.len()], prefix);
+        assert_eq!(&output[prefix.len()..], expected);
+
+        output.clear();
+        let shorter = Predicate::IsNull {
+            field: "x".to_string(),
+        };
+        writer(&mut output, &shorter);
+        assert_eq!(output, sort_key(&shorter));
+    }
+}
 
 #[test]
 fn compare_encoding_borrows_unchanged_literals_and_owns_coercions() {
@@ -45,6 +88,56 @@ fn compare_encoding_borrows_unchanged_literals_and_owns_coercions() {
         let canonical = canonicalize_compare_literal_for_coercion(coercion, &value);
         assert!(matches!(canonical, Cow::Owned(_)));
         assert_eq!(*canonical, expected);
+    }
+}
+
+#[test]
+fn membership_encoding_preserves_canonical_sets_and_coercion_reordering() {
+    let nested = Value::Map(vec![(Value::Text("key".repeat(64)), Value::Nat64(7))]);
+    for source in [
+        vec![],
+        vec![nested.clone()],
+        (0..128).map(Value::Nat64).collect(),
+        vec![
+            Value::List(vec![Value::Nat64(1)]),
+            Value::List(vec![Value::Nat64(2)]),
+        ],
+        vec![nested.clone(), nested],
+        vec![Value::Nat64(2), Value::Nat64(1), Value::Nat64(2)],
+        // Raw text order reverses after casefolding; numeric subtypes can merge.
+        vec![Value::Text("Z".to_string()), Value::Text("a".to_string())],
+        vec![Value::Text("A".to_string()), Value::Text("a".to_string())],
+        vec![Value::Int64(7), Value::Nat64(7)],
+    ] {
+        for coercion in [
+            CoercionId::Strict,
+            CoercionId::CollectionElement,
+            CoercionId::TextCasefold,
+            CoercionId::NumericWiden,
+        ] {
+            // Owned reference always coerces before canonical ordering. Raw source
+            // ordering must not bypass transformations that change order/equality.
+            let mut expected_values = source
+                .iter()
+                .map(|value| {
+                    canonicalize_compare_literal_for_coercion(coercion, value).into_owned()
+                })
+                .collect::<Vec<_>>();
+            expected_values.sort_unstable_by(Value::canonical_cmp);
+            expected_values.dedup();
+            let input = Value::List(source.clone());
+            let mut expected = vec![input.canonical_tag().to_u8()];
+            push_len_u64(&mut expected, expected_values.len());
+            for value in &expected_values {
+                push_value_sort_key_framed(&mut expected, value);
+            }
+            for op in [CompareOp::In, CompareOp::NotIn] {
+                let mut actual = Vec::new();
+                encode_compare_value_sort_key_into(&mut actual, op, coercion, &input, false);
+                assert_eq!(actual, expected);
+                assert_eq!(input, Value::List(source.clone()));
+            }
+        }
     }
 }
 
@@ -154,10 +247,7 @@ fn predicate_sort_key_normalizes_map_entry_order() {
     let predicate_a = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_a));
     let predicate_b = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_b));
 
-    assert_eq!(
-        encode_predicate_sort_key(&predicate_a),
-        encode_predicate_sort_key(&predicate_b)
-    );
+    assert_eq!(sort_key(&predicate_a), sort_key(&predicate_b));
 }
 
 #[test]
@@ -173,10 +263,7 @@ fn predicate_sort_key_normalizes_duplicate_map_keys_by_value_order() {
     let predicate_a = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_a));
     let predicate_b = Predicate::Compare(ComparePredicate::eq("payload".to_string(), map_b));
 
-    assert_eq!(
-        encode_predicate_sort_key(&predicate_a),
-        encode_predicate_sort_key(&predicate_b)
-    );
+    assert_eq!(sort_key(&predicate_a), sort_key(&predicate_b));
 }
 
 #[test]
@@ -190,10 +277,7 @@ fn predicate_sort_key_normalizes_in_list_literal_order() {
         vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)],
     ));
 
-    assert_eq!(
-        encode_predicate_sort_key(&predicate_a),
-        encode_predicate_sort_key(&predicate_b)
-    );
+    assert_eq!(sort_key(&predicate_a), sort_key(&predicate_b));
 }
 
 #[test]
@@ -212,10 +296,7 @@ fn predicate_sort_key_normalizes_in_list_duplicate_literals() {
         vec![Value::Nat64(1), Value::Nat64(2), Value::Nat64(3)],
     ));
 
-    assert_eq!(
-        encode_predicate_sort_key(&predicate_a),
-        encode_predicate_sort_key(&predicate_b)
-    );
+    assert_eq!(sort_key(&predicate_a), sort_key(&predicate_b));
 }
 
 #[test]
@@ -233,10 +314,7 @@ fn predicate_sort_key_numeric_widen_treats_equivalent_literal_subtypes_as_identi
         CoercionId::NumericWiden,
     ));
 
-    assert_eq!(
-        encode_predicate_sort_key(&predicate_int),
-        encode_predicate_sort_key(&predicate_decimal)
-    );
+    assert_eq!(sort_key(&predicate_int), sort_key(&predicate_decimal));
 }
 
 #[test]
@@ -254,10 +332,7 @@ fn predicate_sort_key_strict_keeps_numeric_literal_subtypes_distinct() {
         CoercionId::Strict,
     ));
 
-    assert_ne!(
-        encode_predicate_sort_key(&predicate_int),
-        encode_predicate_sort_key(&predicate_decimal)
-    );
+    assert_ne!(sort_key(&predicate_int), sort_key(&predicate_decimal));
 }
 
 #[test]
@@ -275,10 +350,7 @@ fn predicate_sort_key_text_casefold_treats_case_only_literals_as_identical() {
         CoercionId::TextCasefold,
     ));
 
-    assert_eq!(
-        encode_predicate_sort_key(&predicate_lower),
-        encode_predicate_sort_key(&predicate_upper)
-    );
+    assert_eq!(sort_key(&predicate_lower), sort_key(&predicate_upper));
 }
 
 #[test]
@@ -296,10 +368,7 @@ fn predicate_sort_key_strict_keeps_text_case_variants_distinct() {
         CoercionId::Strict,
     ));
 
-    assert_ne!(
-        encode_predicate_sort_key(&predicate_lower),
-        encode_predicate_sort_key(&predicate_upper)
-    );
+    assert_ne!(sort_key(&predicate_lower), sort_key(&predicate_upper));
 }
 
 #[test]
@@ -324,8 +393,5 @@ fn predicate_sort_key_text_casefold_normalizes_in_list_case_variants() {
         CoercionId::TextCasefold,
     ));
 
-    assert_eq!(
-        encode_predicate_sort_key(&predicate_mixed),
-        encode_predicate_sort_key(&predicate_canonical)
-    );
+    assert_eq!(sort_key(&predicate_mixed), sort_key(&predicate_canonical));
 }

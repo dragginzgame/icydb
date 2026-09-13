@@ -34,7 +34,7 @@ use serde::{Deserialize, Deserializer, de};
 use std::{cmp::Ordering, fmt};
 
 // re-exports
-pub(crate) use canonical::canonicalize_value_set;
+pub(crate) use canonical::{canonicalize_value_set, value_set_is_strictly_canonical};
 pub(crate) use canonical_enum::{CanonicalEnumBody, CanonicalEnumValue, EnumTypeId, EnumVariantId};
 pub(crate) use cleanup::clear_value;
 pub use coercion::CoercionFamily;

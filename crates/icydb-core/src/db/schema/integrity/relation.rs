@@ -17,8 +17,12 @@ pub(in crate::db::schema) fn schema_snapshot_relation_integrity_detail(
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
     relations: &[PersistedRelationEdgeSnapshot],
+    candidate_relations: &[PersistedRelationEdgeSnapshot],
 ) -> Option<()> {
-    for (relation_offset, relation) in relations.iter().enumerate() {
+    // Borrow both sets so cross-boundary duplicates remain visible without
+    // constructing a merged relation list. Only the suffix cursor is copied.
+    let mut remaining = relations.iter().chain(candidate_relations);
+    while let Some(relation) = remaining.next() {
         if relation.name().is_empty() {
             return Some(());
         }
@@ -27,7 +31,7 @@ pub(in crate::db::schema) fn schema_snapshot_relation_integrity_detail(
             return Some(());
         }
 
-        for other in &relations[relation_offset + 1..] {
+        for other in remaining.clone() {
             if relation.id() == other.id() {
                 return Some(());
             }
@@ -300,6 +304,7 @@ mod tests {
                 &layout,
                 &fields,
                 std::slice::from_ref(&valid),
+                &[],
             ),
             None,
         );

@@ -9,6 +9,7 @@ use crate::{
             AcceptedStructuralRowAuthority, DecodedDataStoreKey, StoreVisit, StructuralRowContract,
             StructuralSlotReader,
         },
+        executor::budget::MaintenanceConstructionBudget,
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, PersistedSchemaSnapshot,
@@ -102,6 +103,7 @@ fn stage_user_index_domain_replacement(
             Some(&accepted_before_row_contract),
             Some(&accepted_after_row_contract),
             index_store,
+            MaintenanceConstructionBudget::new(),
         )
         .map_err(StagedUserIndexDomainError::into_internal_error)
     })?;

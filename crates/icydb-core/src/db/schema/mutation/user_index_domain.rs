@@ -270,15 +270,8 @@ pub(in crate::db) struct StagedUserIndexDomainReplacementBuilder {
 
 #[cfg(any(test, feature = "sql"))]
 impl StagedUserIndexDomainReplacementBuilder {
-    #[cfg(test)]
-    pub(in crate::db) fn set_construction_budget_for_tests(
-        &mut self,
-        construction: crate::db::executor::budget::MaintenanceConstructionBudget,
-    ) {
-        self.construction = construction;
-    }
-
     /// Begin one stage from accepted schema authority and a Ready physical view.
+    /// The caller's stage budget covers setup and is retained through finish.
     pub(in crate::db) fn new(
         accepted_before_identity: AcceptedCatalogIdentity,
         accepted_before: &PersistedSchemaSnapshot,
@@ -286,37 +279,48 @@ impl StagedUserIndexDomainReplacementBuilder {
         accepted_before_row_contract: Option<&StructuralRowContract>,
         accepted_after_row_contract: Option<&StructuralRowContract>,
         index_store: &IndexStore,
+        construction: crate::db::executor::budget::MaintenanceConstructionBudget,
     ) -> Result<Self, StagedUserIndexDomainError> {
-        validate_stage_authority(
-            &accepted_before_identity,
-            accepted_before,
-            accepted_after,
-            accepted_before_row_contract,
-            accepted_after_row_contract,
-            index_store,
-        )?;
-
         let entity_tag = accepted_before_identity.entity_tag();
-        let before_projection = PreparedUserIndexProjection::from_snapshot(
-            entity_tag,
-            accepted_before,
-            accepted_before_row_contract,
-        )?;
-        let after_projection = PreparedUserIndexProjection::from_snapshot(
-            entity_tag,
-            accepted_after,
-            accepted_after_row_contract,
+        // Setup is part of the same zero-write operation as row derivation.
+        // Failed validation/compilation also passes the final instruction check;
+        // no builder escapes until both projections and its identity are ready.
+        let (before_projection, after_projection, accepted_after_fingerprint) = construction.run(
+            |work| {
+                validate_stage_authority(
+                    &accepted_before_identity,
+                    accepted_before,
+                    accepted_after,
+                    accepted_before_row_contract,
+                    accepted_after_row_contract,
+                    index_store,
+                )?;
+                let before_projection = PreparedUserIndexProjection::from_snapshot(
+                    entity_tag,
+                    accepted_before,
+                    accepted_before_row_contract,
+                    work,
+                )?;
+                let after_projection = PreparedUserIndexProjection::from_snapshot(
+                    entity_tag,
+                    accepted_after,
+                    accepted_after_row_contract,
+                    work,
+                )?;
+                let fingerprint =
+                    accepted_schema_cache_fingerprint_for_persisted_snapshot(accepted_after)
+                        .map_err(StagedUserIndexDomainError::Fingerprint)?;
+                Ok((before_projection, after_projection, fingerprint))
+            },
+            StagedUserIndexDomainError::KeyDerivation,
         )?;
         Ok(Self {
             store_path: accepted_before_identity.store_path(),
-            construction: crate::db::executor::budget::MaintenanceConstructionBudget::new(),
+            construction,
             entity_tag,
             accepted_before_identity,
             accepted_after_version: accepted_after.version(),
-            accepted_after_fingerprint: accepted_schema_cache_fingerprint_for_persisted_snapshot(
-                accepted_after,
-            )
-            .map_err(StagedUserIndexDomainError::Fingerprint)?,
+            accepted_after_fingerprint,
             before_projection,
             after_projection,
             expected_before: Vec::new(),
@@ -745,8 +749,24 @@ impl PreparedUserIndexProjection {
         entity_tag: EntityTag,
         snapshot: &PersistedSchemaSnapshot,
         predicate_row_contract: Option<&StructuralRowContract>,
+        work: &dyn ConstructionBudget,
     ) -> Result<Self, StagedUserIndexDomainError> {
-        let mut indexes = Vec::with_capacity(snapshot.indexes().len());
+        // Admit source visits and destination backing before compiling any
+        // index. Predicate bytes count source traversal, not a bound on parser,
+        // normalization or sorting scratch; those remain shared-owner work.
+        work.charge(
+            Resource::PredicateExpressionSteps,
+            snapshot.indexes().len() as u64,
+        )
+        .map_err(StagedUserIndexDomainError::KeyDerivation)?;
+        let predicate_bytes = snapshot.indexes().iter().fold(0u64, |total, index| {
+            total.saturating_add(index.predicate_sql().map_or(0, |sql| sql.len() as u64))
+        });
+        work.charge(Resource::PredicateExpressionSteps, predicate_bytes)
+            .map_err(StagedUserIndexDomainError::KeyDerivation)?;
+        let mut indexes = work
+            .vec_with_capacity(snapshot.indexes().len())
+            .map_err(StagedUserIndexDomainError::KeyDerivation)?;
         let mut unique_index_ids = BTreeSet::new();
 
         for index in snapshot.indexes() {

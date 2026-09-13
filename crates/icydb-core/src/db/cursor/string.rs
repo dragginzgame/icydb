@@ -68,9 +68,10 @@ pub(in crate::db) fn decode_cursor(token: &str) -> Result<Vec<u8>, CursorDecodeE
         DecodeError::InvalidLength(_) | DecodeError::InvalidPadding => {
             CursorDecodeError::InvalidLength
         }
-        DecodeError::InvalidByte(position, _) | DecodeError::InvalidLastSymbol(position, _) => {
-            CursorDecodeError::InvalidBase64 { position }
-        }
+        DecodeError::InvalidByte(position, _)
+        | DecodeError::InvalidLastSymbol {
+            offset: position, ..
+        } => CursorDecodeError::InvalidBase64 { position },
     })
 }
 

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.257.md](docs/changelog/0.257.md)
 
+- `0.257.10` reduces preparation allocations, extends staging budgets and updates cursor/test dependencies (potentially breaking for exhausted schema changes; no migration).
 - `0.257.9` rejects failed query identity construction and preserves hashing errors through grouping and mutation preparation (potentially breaking error reporting; no migration).
 - `0.257.8` budgets shared-plan cache construction and lookup, including work repeated on warm hits (potentially breaking for budget-exhausted requests; no migration).
 - `0.257.7` reduces copying and binary wire/storage overhead and fixes Serde round trips (breaking: regenerate ULID bindings, binary/JSON snapshots and saved cursors; recreate affected databases/job records).

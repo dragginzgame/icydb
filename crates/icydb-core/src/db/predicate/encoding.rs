@@ -8,7 +8,10 @@ use crate::{
         numeric::coerce_numeric_decimal,
         predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
     },
-    value::{CanonicalEnumBody, Value, ValueEnum, canonicalize_value_set, casefold_text},
+    value::{
+        CanonicalEnumBody, Value, ValueEnum, canonicalize_value_set, casefold_text,
+        value_set_is_strictly_canonical,
+    },
 };
 use std::borrow::Cow;
 
@@ -28,30 +31,25 @@ const SORT_PRED_TEXT_CONTAINS: u8 = 0x0C;
 const SORT_PRED_TEXT_CONTAINS_CI: u8 = 0x0D;
 
 ///
-/// Encode a predicate into deterministic sort-key bytes.
+/// Append deterministic sort-key bytes to caller-owned scratch.
 ///
-#[must_use]
-pub(in crate::db::predicate) fn encode_predicate_sort_key(predicate: &Predicate) -> Vec<u8> {
-    let mut out = Vec::new();
-    encode_predicate_sort_key_into(&mut out, predicate, false);
-    out
+pub(in crate::db::predicate) fn write_predicate_sort_key(out: &mut Vec<u8>, predicate: &Predicate) {
+    encode_predicate_sort_key_into(out, predicate, false);
 }
 
 ///
-/// Encode an already-normalized predicate into deterministic sort-key bytes.
+/// Append an already-normalized predicate's deterministic sort-key bytes.
 ///
 /// This boundary is only for planner-owned normalized predicates. It reuses the
-/// same canonical framing as `encode_predicate_sort_key(...)` while skipping
+/// same canonical framing as `write_predicate_sort_key(...)` while skipping
 /// repeated list sort/dedup work for `IN` / `NOT IN` literals that were already
 /// canonicalized during schema-aware normalization.
 ///
-#[must_use]
-pub(in crate::db::predicate) fn encode_normalized_predicate_sort_key(
+pub(in crate::db::predicate) fn write_normalized_predicate_sort_key(
+    out: &mut Vec<u8>,
     predicate: &Predicate,
-) -> Vec<u8> {
-    let mut out = Vec::new();
-    encode_predicate_sort_key_into(&mut out, predicate, true);
-    out
+) {
+    encode_predicate_sort_key_into(out, predicate, true);
 }
 
 // Encode predicate keys with length-prefixed segments to avoid collisions.
@@ -212,7 +210,13 @@ fn encode_compare_value_sort_key_into(
         && let Value::List(items) = value
     {
         out.push(value.canonical_tag().to_u8());
-        if compare_lists_already_canonical {
+        // A non-coercing canonical source can use the same direct encoding as
+        // planner-normalized lists without constructing a vector of value views.
+        // Coercions may change order/equality, so source order alone is not proof.
+        if compare_lists_already_canonical
+            || (matches!(coercion, CoercionId::Strict | CoercionId::CollectionElement)
+                && value_set_is_strictly_canonical(items))
+        {
             push_len_u64(out, items.len());
             for item in items {
                 let canonical = canonicalize_compare_literal_for_coercion(coercion, item);
