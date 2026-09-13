@@ -394,6 +394,9 @@ retains only accepted entity and affected-row metadata. Authorization,
 operation IDs, lost-response handling, and domain error mapping remain
 application responsibilities.
 
+The [multi-canister workflow guide](multi-canister-workflows.md) shows where
+these local batches fit around durable intents, remote receipts and retries.
+
 `execute_trusted_structural_insert_batch` is the maintained atomic
 same-entity insert-batch surface. It either commits every patch or publishes
 none.

@@ -1,0 +1,10 @@
+[workspace]
+members = ["actor", "driver"]
+resolver = "2"
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"

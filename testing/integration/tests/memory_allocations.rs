@@ -26,7 +26,7 @@ fn generated_snapshot_reports_allocation_totals_without_mutation() {
         fixture.query_candid("icydb_snapshot", ()).unwrap();
     let report = response.unwrap();
     let allocations = report.memory_allocations().unwrap();
-    assert_eq!(allocations.bucket_size_pages, 128);
+    assert_eq!(allocations.bucket_size_pages, 16);
     assert_eq!(allocations.memories.len(), 255);
     assert_eq!(allocations.physical_extent.bytes, before.len() as u64);
     assert_eq!(

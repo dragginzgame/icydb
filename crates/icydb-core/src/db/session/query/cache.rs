@@ -105,8 +105,11 @@ fn artifact_retained_bytes(
             + size_of::<CacheEntryWeight>()
             + 3 * size_of::<usize>(),
     )?;
+    let before_key = bytes.total();
     bytes.visit(key)?;
-    bytes.visit(key)?;
+    // The FIFO copy has the same retained graph: charge it without walking again.
+    let key_heap_bytes = bytes.total() - before_key;
+    bytes.add(key_heap_bytes)?;
     bytes.visit(artifact)?;
     Some(bytes.total())
 }
@@ -195,6 +198,25 @@ impl<C: CanisterKind> DbSession<C> {
             *cache = QueryPlanCache::new_weighted(SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES, limit);
         });
     }
+
+    #[cfg(all(test, feature = "sql"))]
+    pub(in crate::db::session) fn retry_shared_query_cache_insertion_for_tests(
+        &self,
+        lane: DiagnosticExecutionLane,
+        before_insert: impl FnOnce(),
+    ) -> Result<(), QueryError> {
+        let (key, artifact) = self.with_query_plan_cache(|cache| {
+            cache
+                .retained_entries()
+                .next()
+                .map(|(key, artifact, _)| (key.clone(), artifact.clone()))
+                .expect("fixture has a prepared artifact")
+        });
+        // Isolate the final insertion boundary from earlier planner checks.
+        before_insert();
+        self.insert_shared_query_artifact(lane, key, artifact)
+    }
+
     fn cached_cardinality_tiebreak_is_current(
         &self,
         authority: &EntityAuthority,
@@ -257,43 +279,37 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
-    fn insert_shared_query_template_for_authority(
-        &self,
-        _authority: &EntityAuthority,
-        cache_key: QueryPlanCacheKey,
-        template: PreparedQueryTemplate,
-    ) {
-        self.insert_shared_query_artifact(
-            cache_key,
-            CachedQueryArtifact::ParameterizedTemplate(template),
-        );
-    }
-
     fn insert_shared_query_artifact(
         &self,
+        lane: DiagnosticExecutionLane,
         cache_key: QueryPlanCacheKey,
         artifact: CachedQueryArtifact,
-    ) {
+    ) -> Result<(), QueryError> {
         let retained_plan = artifact.retained_plan().cloned();
-        // An already attached core must not acquire a second independently
-        // charged cache owner whose lazy growth the first entry cannot observe.
-        if retained_plan
-            .as_ref()
-            .is_some_and(|plan| !plan.cache_retention_available())
-        {
-            return;
-        }
-        let Some(weight) = artifact_retained_bytes(&cache_key, &artifact) else {
-            return;
+        // Finish sizing's instruction charge before changing cache contents or
+        // attaching a lazy-growth handle. Retention ineligibility is not an error.
+        let weight = PreparationWork::run(self.db.request_execution_scope(), lane, |_| {
+            // An attached core cannot acquire another independent charge owner.
+            if retained_plan
+                .as_ref()
+                .is_some_and(|plan| !plan.cache_retention_available())
+            {
+                return Ok(None);
+            }
+            Ok(artifact_retained_bytes(&cache_key, &artifact))
+        })?;
+        let Some(weight) = weight else {
+            return Ok(());
         };
         self.with_query_plan_cache(|cache| {
-            cache.insert_weighted(cache_key.clone(), artifact, weight);
-            if let Some(plan) = retained_plan
-                && let Some(entry) = cache.entry_weight(&cache_key)
+            let admitted_entry = cache.insert_weighted(cache_key, artifact, weight);
+            if let Some(entry) = admitted_entry
+                && let Some(plan) = retained_plan
             {
-                plan.attach_cache_retention(&entry);
+                plan.attach_cache_retention(entry);
             }
         });
+        Ok(())
     }
 
     fn lookup_shared_query_plan_for_authority(
@@ -314,18 +330,6 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         Ok(None)
-    }
-
-    fn insert_shared_query_plan_for_authority(
-        &self,
-        _authority: &EntityAuthority,
-        cache_key: QueryPlanCacheKey,
-        prepared_plan: &SharedPreparedExecutionPlan,
-    ) {
-        self.insert_shared_query_artifact(
-            cache_key,
-            CachedQueryArtifact::PreparedPlan(prepared_plan.clone()),
-        );
     }
 
     fn resolve_shared_query_plan_for_authority(
@@ -364,7 +368,11 @@ impl<C: CanisterKind> DbSession<C> {
             planning_context.lane(),
             build_prepared_plan,
         )?;
-        self.insert_shared_query_plan_for_authority(authority, cache_key, &prepared_plan);
+        self.insert_shared_query_artifact(
+            planning_context.lane(),
+            cache_key,
+            CachedQueryArtifact::PreparedPlan(prepared_plan.clone()),
+        )?;
 
         Ok((prepared_plan, QueryPlanCacheReuse::Miss))
     }
@@ -721,7 +729,8 @@ impl<C: CanisterKind> DbSession<C> {
             // Binding is synchronous and does not publish into the cache. Keep
             // the checked-out memo unchanged until the complete plan succeeds.
             template.remember_bound_plan(bound_predicate_fingerprint, prepared_plan.clone());
-            self.insert_shared_query_template_for_authority(authority, cache_key, template);
+            let artifact = CachedQueryArtifact::ParameterizedTemplate(template);
+            self.insert_shared_query_artifact(planning_context.lane(), cache_key, artifact)?;
 
             return Ok((prepared_plan, QueryPlanCacheReuse::Hit));
         }
@@ -765,7 +774,8 @@ impl<C: CanisterKind> DbSession<C> {
             },
         )?;
         template.remember_bound_plan(bound_predicate_fingerprint, prepared_plan.clone());
-        self.insert_shared_query_template_for_authority(authority, cache_key, template);
+        let artifact = CachedQueryArtifact::ParameterizedTemplate(template);
+        self.insert_shared_query_artifact(planning_context.lane(), cache_key, artifact)?;
 
         Ok((prepared_plan, QueryPlanCacheReuse::Miss))
     }

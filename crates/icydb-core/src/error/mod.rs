@@ -129,23 +129,30 @@ const fn compact_message_for(_class: ErrorClass, origin: ErrorOrigin) -> &'stati
 //
 // ============================================================================
 
-/// Safe accepted mutation identity retained only when constructing a failure.
+/// Fixed-size accepted mutation identity carried through admission and staging.
+/// Numeric fact vectors are allocated only when constructing a failure.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MutationDiagnosticContext {
+    fingerprint_method: u8,
+    accepted_schema_fingerprint: [u8; 16],
     entity_tag: u64,
     operation: diagnostic_code::DiagnosticMutationOperation,
     batch_position: Option<u32>,
 }
 
 impl MutationDiagnosticContext {
-    /// Bind one mutation failure to its accepted entity, operation, and input.
+    /// Bind a mutation to its accepted schema, entity, operation, and input.
     #[must_use]
     pub(crate) const fn new(
+        fingerprint_method: u8,
+        accepted_schema_fingerprint: [u8; 16],
         entity_tag: u64,
         operation: diagnostic_code::DiagnosticMutationOperation,
         batch_position: u32,
     ) -> Self {
         Self {
+            fingerprint_method,
+            accepted_schema_fingerprint,
             entity_tag,
             operation,
             batch_position: Some(batch_position),
@@ -155,10 +162,14 @@ impl MutationDiagnosticContext {
     /// Bind a failure to an operation before any concrete input row is selected.
     #[must_use]
     pub(crate) const fn operation_only(
+        fingerprint_method: u8,
+        accepted_schema_fingerprint: [u8; 16],
         entity_tag: u64,
         operation: diagnostic_code::DiagnosticMutationOperation,
     ) -> Self {
         Self {
+            fingerprint_method,
+            accepted_schema_fingerprint,
             entity_tag,
             operation,
             batch_position: None,
@@ -167,7 +178,12 @@ impl MutationDiagnosticContext {
 
     fn facts(self, field_id: Option<u32>) -> Vec<(diagnostic_code::DiagnosticFactTag, u64)> {
         let mut facts = Vec::with_capacity(
-            2 + usize::from(field_id.is_some()) + usize::from(self.batch_position.is_some()),
+            5 + usize::from(field_id.is_some()) + usize::from(self.batch_position.is_some()),
+        );
+        append_accepted_schema_facts(
+            &mut facts,
+            self.fingerprint_method,
+            self.accepted_schema_fingerprint,
         );
         facts.push((
             diagnostic_code::DiagnosticFactTag::EntityTag,
@@ -179,16 +195,7 @@ impl MutationDiagnosticContext {
                 u64::from(field_id),
             ));
         }
-        facts.push((
-            diagnostic_code::DiagnosticFactTag::MutationOperation,
-            self.operation.raw(),
-        ));
-        if let Some(batch_position) = self.batch_position {
-            facts.push((
-                diagnostic_code::DiagnosticFactTag::BatchPosition,
-                u64::from(batch_position),
-            ));
-        }
+        self.append_operation_facts(&mut facts);
         facts
     }
 
@@ -2306,26 +2313,6 @@ impl AcceptedConstraintFactContext {
     }
 
     fn facts(self) -> Vec<(diagnostic_code::DiagnosticFactTag, u64)> {
-        let high = u64::from_be_bytes([
-            self.accepted_schema_fingerprint[0],
-            self.accepted_schema_fingerprint[1],
-            self.accepted_schema_fingerprint[2],
-            self.accepted_schema_fingerprint[3],
-            self.accepted_schema_fingerprint[4],
-            self.accepted_schema_fingerprint[5],
-            self.accepted_schema_fingerprint[6],
-            self.accepted_schema_fingerprint[7],
-        ]);
-        let low = u64::from_be_bytes([
-            self.accepted_schema_fingerprint[8],
-            self.accepted_schema_fingerprint[9],
-            self.accepted_schema_fingerprint[10],
-            self.accepted_schema_fingerprint[11],
-            self.accepted_schema_fingerprint[12],
-            self.accepted_schema_fingerprint[13],
-            self.accepted_schema_fingerprint[14],
-            self.accepted_schema_fingerprint[15],
-        ]);
         let path_len = self
             .value_path
             .as_ref()
@@ -2334,18 +2321,11 @@ impl AcceptedConstraintFactContext {
             1 + usize::from(mutation.batch_position.is_some())
         });
         let mut facts = Vec::with_capacity(7 + mutation_fact_count + path_len);
-        facts.push((
-            diagnostic_code::DiagnosticFactTag::AcceptedSchemaFingerprintMethod,
-            u64::from(self.fingerprint_method),
-        ));
-        facts.push((
-            diagnostic_code::DiagnosticFactTag::AcceptedSchemaFingerprintHigh,
-            high,
-        ));
-        facts.push((
-            diagnostic_code::DiagnosticFactTag::AcceptedSchemaFingerprintLow,
-            low,
-        ));
+        append_accepted_schema_facts(
+            &mut facts,
+            self.fingerprint_method,
+            self.accepted_schema_fingerprint,
+        );
         facts.push((
             diagnostic_code::DiagnosticFactTag::EntityTag,
             self.entity_tag,
@@ -2373,6 +2353,46 @@ impl AcceptedConstraintFactContext {
         debug_assert!(facts.len() <= diagnostic_code::MAX_PUBLIC_DIAGNOSTIC_FACTS);
         facts
     }
+}
+
+/// Mutation and constraint errors use the same lossless accepted-schema identity.
+fn append_accepted_schema_facts(
+    facts: &mut Vec<(diagnostic_code::DiagnosticFactTag, u64)>,
+    method: u8,
+    fingerprint: [u8; 16],
+) {
+    facts.extend([
+        (
+            diagnostic_code::DiagnosticFactTag::AcceptedSchemaFingerprintMethod,
+            u64::from(method),
+        ),
+        (
+            diagnostic_code::DiagnosticFactTag::AcceptedSchemaFingerprintHigh,
+            u64::from_be_bytes([
+                fingerprint[0],
+                fingerprint[1],
+                fingerprint[2],
+                fingerprint[3],
+                fingerprint[4],
+                fingerprint[5],
+                fingerprint[6],
+                fingerprint[7],
+            ]),
+        ),
+        (
+            diagnostic_code::DiagnosticFactTag::AcceptedSchemaFingerprintLow,
+            u64::from_be_bytes([
+                fingerprint[8],
+                fingerprint[9],
+                fingerprint[10],
+                fingerprint[11],
+                fingerprint[12],
+                fingerprint[13],
+                fingerprint[14],
+                fingerprint[15],
+            ]),
+        ),
+    ]);
 }
 
 fn constraint_value_path_fact(

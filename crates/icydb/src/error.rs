@@ -312,7 +312,37 @@ impl From<QueryError> for Error {
 }
 
 impl From<DatabaseBootstrapError> for Error {
-    fn from(_err: DatabaseBootstrapError) -> Self {
+    fn from(err: DatabaseBootstrapError) -> Self {
+        if let ic_memory::RuntimeBootstrapError::State(
+            ic_memory::RuntimeStateError::Construction(
+                ic_memory::RuntimeConstructionError::BucketSizeMismatch {
+                    persisted,
+                    requested,
+                },
+            ),
+        ) = err.cause()
+        {
+            // Only the bounded layout mismatch crosses this public boundary;
+            // unrelated upstream causes retain their compact internal mapping.
+            let diagnostic = Self::from_runtime_boundary(
+                icydb_diagnostic_code::RuntimeBoundaryCode::MemoryBucketSizeMismatch,
+                ErrorOrigin::Runtime,
+            )
+            .diagnostic();
+            return Self::from_diagnostic_and_facts(
+                diagnostic,
+                vec![
+                    (
+                        icydb_diagnostic_code::DiagnosticFactTag::Expected,
+                        u64::from(*requested),
+                    ),
+                    (
+                        icydb_diagnostic_code::DiagnosticFactTag::Actual,
+                        u64::from(*persisted),
+                    ),
+                ],
+            );
+        }
         Self::from_kind(
             ErrorKind::Runtime(RuntimeErrorKind::Internal),
             ErrorOrigin::Runtime,

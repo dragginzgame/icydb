@@ -161,6 +161,8 @@ impl AcceptedFixedUpdatePatch {
             accepted_schema_fingerprint,
             entity_tag,
             Some(MutationDiagnosticContext::operation_only(
+                crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                accepted_schema_fingerprint,
                 entity_tag,
                 icydb_diagnostic_code::DiagnosticMutationOperation::Update,
             )),
@@ -1209,7 +1211,13 @@ mod tests {
             &constraints,
             &patch,
             write,
-            MutationDiagnosticContext::new(1, DiagnosticMutationOperation::Insert, 0),
+            MutationDiagnosticContext::new(
+                crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                fingerprint,
+                1,
+                DiagnosticMutationOperation::Insert,
+                0,
+            ),
             None,
         )
         .unwrap()
@@ -1236,7 +1244,13 @@ mod tests {
                 &row,
                 &patch,
                 write,
-                MutationDiagnosticContext::new(1, DiagnosticMutationOperation::Update, 0),
+                MutationDiagnosticContext::new(
+                    crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                    fingerprint,
+                    1,
+                    DiagnosticMutationOperation::Update,
+                    0,
+                ),
             );
             if value == invalid {
                 assert!(result.is_err());
@@ -1323,6 +1337,8 @@ mod tests {
             &patch,
             AcceptedWriteContext::new(crate::types::Timestamp::from_millis(1)),
             MutationDiagnosticContext::new(
+                crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                fingerprint,
                 1,
                 icydb_diagnostic_code::DiagnosticMutationOperation::Insert,
                 0,

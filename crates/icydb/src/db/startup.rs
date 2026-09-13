@@ -126,6 +126,43 @@ mod tests {
     use candid::{Decode, Encode};
 
     #[test]
+    fn bucket_mismatch_startup_failure_preserves_pages_through_candid() {
+        for (persisted, requested) in [(128, 16), (16, 4), (4, 128)] {
+            let cause = ic_memory::RuntimeBootstrapError::State(
+                ic_memory::RuntimeStateError::Construction(
+                    ic_memory::RuntimeConstructionError::BucketSizeMismatch {
+                        persisted,
+                        requested,
+                    },
+                ),
+            );
+            let failure = __startup_bootstrap_failure(DatabaseBootstrapError::from(cause));
+            let bytes = Encode!(&failure).expect("bucket mismatch should encode");
+            let decoded = Decode!(&bytes, StartupFailure).expect("bucket mismatch should decode");
+            assert_eq!(decoded, failure);
+            assert_eq!(decoded.kind(), StartupFailureKind::DatabaseControl);
+            assert_eq!(
+                decoded.error().code(),
+                icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_MEMORY_BUCKET_SIZE_MISMATCH,
+            );
+            assert_eq!(decoded.error().origin(), crate::ErrorOrigin::Runtime);
+            assert_eq!(
+                decoded.error().core_facts().unwrap(),
+                vec![
+                    (
+                        icydb_diagnostic_code::DiagnosticFactTag::Expected,
+                        u64::from(requested)
+                    ),
+                    (
+                        icydb_diagnostic_code::DiagnosticFactTag::Actual,
+                        u64::from(persisted)
+                    ),
+                ],
+            );
+        }
+    }
+
+    #[test]
     fn public_startup_failure_candid_shape_round_trips_exactly() {
         let failure = StartupFailure {
             kind: StartupFailureKind::JournalRecovery,

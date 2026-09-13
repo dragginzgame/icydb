@@ -6,6 +6,22 @@
 use crate::prelude::*;
 use crate::validate::memory::{memory_id_out_of_range_error, memory_id_reserved_error};
 
+/// Macro vocabulary only; the model owns profile defaults and page counts.
+#[derive(Debug, FromMeta)]
+#[darling(rename_all = "snake_case")]
+enum MemoryProfile {
+    Compact,
+    General,
+    HighHeadroom,
+}
+
+impl ToTokens for MemoryProfile {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let variant = format_ident!("{self:?}");
+        tokens.extend(quote!(::icydb_model::node::CanisterMemoryProfile::#variant));
+    }
+}
+
 ///
 /// Canister
 /// regardless of the path, the name is used to uniquely identify each canister
@@ -17,6 +33,8 @@ pub struct Canister {
     pub(crate) def: Def,
 
     pub(crate) memory_namespace: String,
+    #[darling(default)]
+    memory_profile: Option<MemoryProfile>,
 
     // inclusive range of ic memories
     pub(crate) memory_min: u8,
@@ -120,6 +138,10 @@ impl HasSchemaPart for Canister {
     fn schema_part(&self) -> TokenStream {
         let def = self.def.schema_part();
         let memory_namespace = &self.memory_namespace;
+        let memory_profile = self
+            .memory_profile
+            .as_ref()
+            .map(|profile| quote!(.with_memory_profile(#profile)));
         let memory_min = self.memory_min;
         let memory_max = self.memory_max;
         let commit_memory_id = self.commit_memory_id;
@@ -141,7 +163,7 @@ impl HasSchemaPart for Canister {
                 #startup_memory_id,
                 #integrity_progress_memory_id,
                 #migration_plan,
-            )
+            ) #memory_profile
         }
     }
 }
@@ -204,6 +226,37 @@ impl ToTokens for Canister {
 mod tests {
     use super::*;
 
+    fn parse_canister(extra: TokenStream) -> Result<Canister, DarlingError> {
+        let items = darling::ast::NestedMeta::parse_meta_list(quote! {
+            memory_namespace = "test",
+            memory_min = 100, memory_max = 254,
+            commit_memory_id = 254, startup_memory_id = 252,
+            #extra
+        })
+        .expect("test macro arguments should parse");
+        Canister::from_list(&items)
+    }
+
+    #[test]
+    fn memory_profile_accepts_only_closed_names_and_omission() {
+        assert!(parse_canister(quote!()).unwrap().memory_profile.is_none());
+        for (name, expected) in [
+            ("compact", "Compact"),
+            ("general", "General"),
+            ("high_headroom", "HighHeadroom"),
+        ] {
+            let canister = parse_canister(quote!(memory_profile = #name)).unwrap();
+            let profile = canister.memory_profile.unwrap();
+            assert_eq!(format!("{profile:?}"), expected);
+            assert_eq!(
+                profile.to_token_stream().to_string(),
+                format!(":: icydb_model :: node :: CanisterMemoryProfile :: {expected}"),
+            );
+        }
+        assert!(parse_canister(quote!(memory_profile = "unknown")).is_err());
+        assert!(parse_canister(quote!(memory_profile = 16)).is_err());
+    }
+
     #[test]
     fn generated_commit_stable_key_matches_schema_formatter() {
         let item: syn::ItemStruct = syn::parse_quote! {
@@ -212,6 +265,7 @@ mod tests {
         let canister = Canister {
             def: Def::new(item),
             memory_namespace: "demo_rpg".to_string(),
+            memory_profile: None,
             memory_min: 100,
             memory_max: 254,
             commit_memory_id: 254,

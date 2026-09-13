@@ -688,4 +688,6 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::QueryExplainDepthExceeded });
     QUERY_READ_EXPLAIN_DOES_NOT_ACCEPT_CURSOR = 273 => QueryReadAdmission,
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::ExplainDoesNotAcceptCursor });
+    RUNTIME_BOUNDARY_MEMORY_BUCKET_SIZE_MISMATCH = 274 => RuntimeConflict,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MemoryBucketSizeMismatch });
 }

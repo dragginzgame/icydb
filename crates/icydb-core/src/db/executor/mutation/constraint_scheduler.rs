@@ -165,6 +165,8 @@ impl AcceptedMutationConstraintScheduler {
         let raw_key = data_key.to_raw()?;
         self.record_target_key(&raw_key, context.entity_tag, batch_position)?;
         let mutation = MutationDiagnosticContext::new(
+            context.fingerprint_method,
+            context.schema_fingerprint,
             context.entity_tag.value(),
             mode.diagnostic_operation(),
             batch_position,
@@ -236,6 +238,8 @@ impl AcceptedMutationConstraintScheduler {
         deleted_keys.insert(row_op.key.clone());
         self.rows.push(
             row_op.with_mutation_diagnostic_context(MutationDiagnosticContext::new(
+                crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                schema_fingerprint,
                 entity_tag.value(),
                 icydb_diagnostic_code::DiagnosticMutationOperation::Delete,
                 batch_position,

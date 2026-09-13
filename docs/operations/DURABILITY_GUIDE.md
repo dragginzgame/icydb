@@ -81,6 +81,10 @@ transaction across an `await`, cross-canister call, timer, background task, or
 multi-message workflow. If a workflow needs compensation after a later awaited
 step fails, that compensation belongs to application logic.
 
+The [multi-canister workflow guide](../guides/multi-canister-workflows.md)
+shows durable intent, target receipt and source finalization boundaries,
+including lost replies, concurrent retries and bounded recovery work.
+
 Bounded `VALIDATE CONSTRAINT` is an engine-owned multi-message workflow, not
 one transaction held open across calls. Each validation page, promotion, and
 abort is independently marker-atomic. A caller must retain and acknowledge the

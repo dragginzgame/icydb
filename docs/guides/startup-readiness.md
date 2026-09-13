@@ -94,6 +94,11 @@ Restore database-dependent application state exactly once after observing
 `Ready`. On `StartupFailure`, stop blind retries and retain the bounded kind,
 diagnostic, and facts for an application-authorized operational surface.
 
+For example, `E274` reports a memory bucket-size conflict with requested
+(`Expected`) and persisted (`Actual`) page counts. It requires configuration
+correction or explicit recreation, not another recovery poll. See
+[canister memory profiles](schema-authoring.md#canister-memory-profiles).
+
 Do not match `RUNTIME_CONFLICT`, error text, or a guessed delay. Ordinary
 database calls return the dedicated retryable
 `RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING` diagnostic while recovery

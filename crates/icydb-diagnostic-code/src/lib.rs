@@ -550,6 +550,8 @@ pub enum RuntimeBoundaryCode {
     MutationBatchCommitWorkExceeded,
     /// Retained journal debt leaves insufficient bounded convergence capacity.
     ConvergenceBacklogPressure,
+    /// Requested manager bucket pages differ from the existing memory layout.
+    MemoryBucketSizeMismatch,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -1072,7 +1074,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 273);
+        assert_eq!(last, 274);
     }
 
     #[test]

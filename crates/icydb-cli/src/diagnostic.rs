@@ -1096,6 +1096,9 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::DatabaseStartupRecoveryPending => {
             "database startup recovery is still in progress"
         }
+        RuntimeBoundaryCode::MemoryBucketSizeMismatch => {
+            "memory bucket size mismatch (pages: expected=requested, actual=persisted); retain the existing size or recreate the database"
+        }
         RuntimeBoundaryCode::ConvergenceBacklogPressure => {
             "journal convergence backlog exceeds its cumulative admission limit"
         }
@@ -1882,6 +1885,65 @@ mod tests {
     }
 
     #[test]
+    fn mutation_field_facts_resolve_only_with_exact_schema_identity() {
+        use icydb::diagnostic::DiagnosticFactTag as Tag;
+
+        let artifact = DiagnosticSchemaArtifact::test_fixture();
+        let half = u64::from_be_bytes([7; 8]);
+        let mut facts = vec![
+            (Tag::AcceptedSchemaFingerprintMethod, 1),
+            (Tag::AcceptedSchemaFingerprintHigh, half),
+            (Tag::AcceptedSchemaFingerprintLow, half),
+            (Tag::EntityTag, 42),
+            (Tag::FieldId, 1),
+            (Tag::MutationOperation, 1),
+        ]
+        .into_iter()
+        .map(|(tag, value)| RawDiagnosticFact {
+            tag: tag.raw(),
+            value,
+        })
+        .collect::<Vec<_>>();
+
+        // Operation-only admission and row-specific rejection share one identity.
+        for batch_position in [false, true] {
+            if batch_position {
+                facts.push(RawDiagnosticFact {
+                    tag: Tag::BatchPosition.raw(),
+                    value: 3,
+                });
+            }
+            let mut notes = Vec::new();
+            let report =
+                render_error_code_report_with_facts("E221", &facts, &[&artifact], &mut notes)
+                    .unwrap();
+            assert!(report.contains("entity_tag=42(Account)"), "{report}");
+            assert!(report.contains("field_id=1(id)"), "{report}");
+            assert!(notes.is_empty(), "{notes:?}");
+
+            // Every authority component participates; unrelated schemas may reuse IDs.
+            for index in 0..4 {
+                let mut mismatched = facts.clone();
+                mismatched[index].value += 1;
+                let report = render_error_code_report_with_facts(
+                    "E221",
+                    &mismatched,
+                    &[&artifact],
+                    &mut Vec::new(),
+                )
+                .unwrap();
+                assert!(!report.contains("Account"), "{report}");
+                assert!(!report.contains("field_id=1(id)"), "{report}");
+                assert!(report.contains("names withheld"), "{report}");
+            }
+            let report =
+                render_error_code_report_with_facts("E221", &facts, &[], &mut Vec::new()).unwrap();
+            assert!(report.contains("field_id=1"), "{report}");
+            assert!(!report.contains("field_id=1(id)"), "{report}");
+        }
+    }
+
+    #[test]
     fn exact_artifact_humanizes_constraint_facts_and_stale_artifact_does_not() {
         use icydb::diagnostic::DiagnosticFactTag;
 
@@ -2586,6 +2648,30 @@ mod tests {
             render_error(&err),
             "E_RUNTIME_CONFLICT: database startup recovery is still in progress",
         );
+    }
+
+    #[test]
+    fn renders_bucket_mismatch_with_requested_and_persisted_pages() {
+        let facts = [
+            RawDiagnosticFact {
+                tag: icydb::diagnostic::DiagnosticFactTag::Expected.raw(),
+                value: 16,
+            },
+            RawDiagnosticFact {
+                tag: icydb::diagnostic::DiagnosticFactTag::Actual.raw(),
+                value: 128,
+            },
+        ];
+        let mut notes = Vec::new();
+        let report = render_error_code_report_with_facts("E274", &facts, &[], &mut notes)
+            .expect("bucket mismatch should render without schema artifacts");
+        assert!(report.contains("memory bucket size mismatch"), "{report}");
+        assert!(
+            report.contains("expected=requested, actual=persisted"),
+            "{report}"
+        );
+        assert!(report.contains("expected=16"), "{report}");
+        assert!(report.contains("actual=128"), "{report}");
     }
 
     #[test]

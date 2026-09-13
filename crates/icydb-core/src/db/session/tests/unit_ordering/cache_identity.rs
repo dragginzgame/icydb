@@ -16,6 +16,45 @@ use crate::db::{
 use icydb_diagnostic_code::DiagnosticExecutionLane;
 
 #[test]
+fn shared_query_cache_admits_only_with_sufficient_retained_capacity() {
+    let session = initialize();
+    let catalog = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    let prepare = |query: &StructuralQuery| {
+        session
+            .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+                catalog.accepted_entity_authority(),
+                &catalog,
+                query,
+                DiagnosticExecutionLane::TrustedRead,
+            )
+            .unwrap()
+    };
+    assert!(!prepare(&query()).1.is_hit());
+    let (entries, required_bytes) = session.shared_query_cache_usage_for_tests();
+    assert_eq!(entries, 1);
+    assert!(required_bytes > 0);
+
+    for capacity in [required_bytes - 1, required_bytes, required_bytes + 1] {
+        session.clear_shared_query_cache_for_tests(capacity);
+        // Fresh syntax avoids retaining a memoized plan across cache resets.
+        let current = query();
+        assert!(!prepare(&current).1.is_hit());
+        let admitted = capacity >= required_bytes;
+        assert_eq!(
+            session.shared_query_cache_usage_for_tests(),
+            if admitted {
+                (1, required_bytes)
+            } else {
+                (0, 0)
+            },
+        );
+        assert_eq!(prepare(&query()).1.is_hit(), admitted);
+    }
+}
+
+#[test]
 fn memoized_query_keys_survive_weighted_cache_eviction() {
     let session = initialize();
     let catalog = session

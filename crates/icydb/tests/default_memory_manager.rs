@@ -31,12 +31,12 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
     register_static_memory_manager_declaration(MEMORY_ID, AUTHORITY, "Data", STABLE_KEY)
         .expect("test allocation should register");
 
-    ensure_default_memory_manager(AUTHORITY).expect("cold ensure should bootstrap the runtime");
+    ensure_default_memory_manager(AUTHORITY, 16).expect("cold ensure should bootstrap the runtime");
     let generation = committed_allocations()
         .expect("cold ensure should publish committed allocations")
         .generation();
 
-    ensure_default_memory_manager(AUTHORITY).expect("repeated ensure should adopt the runtime");
+    ensure_default_memory_manager(AUTHORITY, 16).expect("repeated ensure should adopt the runtime");
     assert_eq!(
         committed_allocations()
             .expect("repeated ensure should preserve committed allocations")
@@ -49,7 +49,7 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
     let allocations = default_memory_manager_memory_allocations()
         .expect("the ensured runtime should report allocations");
     assert_eq!(allocations.current_generation, Some(generation));
-    assert_eq!(allocations.bucket_size_pages, 128);
+    assert_eq!(allocations.bucket_size_pages, 16);
     let allocation = allocations
         .memories
         .iter()

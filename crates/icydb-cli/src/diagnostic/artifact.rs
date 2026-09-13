@@ -300,7 +300,10 @@ impl DiagnosticSchemaArtifact {
                 entity_tag: 42,
                 entity_name: "Account".to_string(),
                 entity_path: "schema::Account".to_string(),
-                fields: vec![],
+                fields: vec![DiagnosticArtifactIdentity {
+                    id: 1,
+                    name: "id".to_string(),
+                }],
                 constraints: vec![DiagnosticArtifactConstraint {
                     id: 3,
                     name: "account_name_unique".to_string(),

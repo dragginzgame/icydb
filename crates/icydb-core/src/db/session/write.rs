@@ -305,13 +305,15 @@ impl AcceptedStructuralMutationRow {
     }
 }
 
-const fn mutation_diagnostic_context(
-    entity_tag: crate::types::EntityTag,
+fn mutation_diagnostic_context(
+    catalog: &AcceptedSchemaCatalogContext,
     mode: MutationMode,
     batch_position: u32,
 ) -> MutationDiagnosticContext {
     MutationDiagnosticContext::new(
-        entity_tag.value(),
+        catalog.fingerprint_method_version(),
+        catalog.fingerprint(),
+        catalog.identity().entity_tag().value(),
         mode.diagnostic_operation(),
         batch_position,
     )
@@ -390,7 +392,7 @@ fn lower_dynamic_patch(
 }
 
 fn lower_dynamic_save_intent(
-    entity_tag: crate::types::EntityTag,
+    catalog: &AcceptedSchemaCatalogContext,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     patch: DynamicStructuralPatch,
     mode: MutationMode,
@@ -404,20 +406,21 @@ fn lower_dynamic_save_intent(
             descriptor,
             patch,
             mode,
-            mutation_diagnostic_context(entity_tag, mode, batch_position),
+            mutation_diagnostic_context(catalog, mode, batch_position),
         )?,
     ))
 }
 
 fn lower_dynamic_mutation_intent(
-    entity_tag: crate::types::EntityTag,
+    catalog: &AcceptedSchemaCatalogContext,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     request: DynamicMutation,
     batch_position: u32,
 ) -> Result<AcceptedStructuralMutation, InternalError> {
+    let entity_tag = catalog.identity().entity_tag();
     match request {
         DynamicMutation::Insert { patch, .. } => lower_dynamic_save_intent(
-            entity_tag,
+            catalog,
             descriptor,
             patch,
             MutationMode::Insert,
@@ -425,7 +428,7 @@ fn lower_dynamic_mutation_intent(
             batch_position,
         ),
         DynamicMutation::Update { key, patch, .. } => lower_dynamic_save_intent(
-            entity_tag,
+            catalog,
             descriptor,
             patch,
             MutationMode::Update,
@@ -433,7 +436,7 @@ fn lower_dynamic_mutation_intent(
             batch_position,
         ),
         DynamicMutation::Replace { key, patch, .. } => lower_dynamic_save_intent(
-            entity_tag,
+            catalog,
             descriptor,
             patch,
             MutationMode::Replace,
@@ -471,12 +474,13 @@ fn lower_typed_patch(
 }
 
 fn lower_typed_mutation_intent(
-    entity_tag: crate::types::EntityTag,
+    catalog: &AcceptedSchemaCatalogContext,
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     binding: &DynamicTypedEntityBinding,
     request: DynamicTypedMutation,
     batch_position: u32,
 ) -> Result<Option<AcceptedStructuralMutation>, InternalError> {
+    let entity_tag = catalog.identity().entity_tag();
     let (mode, target, patch) = match request {
         DynamicTypedMutation::Insert { patch } => (
             MutationMode::Insert,
@@ -507,7 +511,7 @@ fn lower_typed_mutation_intent(
         binding,
         patch,
         mode,
-        mutation_diagnostic_context(entity_tag, mode, batch_position),
+        mutation_diagnostic_context(catalog, mode, batch_position),
     )?;
     Ok(Some(AcceptedStructuralMutation::save(mode, target, patch)))
 }
@@ -1266,8 +1270,7 @@ impl<C: CanisterKind> DbSession<C> {
                 });
                 continue;
             };
-            let mutation_context =
-                mutation_diagnostic_context(identity.entity_tag(), mode, batch_input_ordinal);
+            let mutation_context = mutation_diagnostic_context(catalog, mode, batch_input_ordinal);
             let (expected_key, preloaded_before, pre_key_insert, mut keyed_patch) = match target {
                 AcceptedStructuralMutationTarget::ResolveFromAfterImage => {
                     let candidate_ordinal =
@@ -1692,12 +1695,8 @@ impl<C: CanisterKind> DbSession<C> {
             }
             let descriptor =
                 AcceptedRowLayoutRuntimeContract::from_accepted_schema(item_catalog.snapshot())?;
-            let mutation = lower_dynamic_mutation_intent(
-                item_identity.entity_tag(),
-                &descriptor,
-                request,
-                batch_position,
-            )?;
+            let mutation =
+                lower_dynamic_mutation_intent(&item_catalog, &descriptor, request, batch_position)?;
             if matches!(
                 mutation,
                 AcceptedStructuralMutation::Save {
@@ -1807,12 +1806,8 @@ impl<C: CanisterKind> DbSession<C> {
             if item_catalog.identity() != accepted_identity {
                 return Err(InternalError::query_executor_invariant());
             }
-            let mutation = lower_dynamic_mutation_intent(
-                accepted_identity.entity_tag(),
-                &descriptor,
-                request,
-                batch_position,
-            )?;
+            let mutation =
+                lower_dynamic_mutation_intent(&catalog, &descriptor, request, batch_position)?;
             mutations.push(mutation);
         }
 
@@ -1835,11 +1830,10 @@ impl<C: CanisterKind> DbSession<C> {
         let Some(catalog) = self.current_typed_entity_binding_catalog(binding)? else {
             return Ok(None);
         };
-        let identity = catalog.identity();
         let descriptor =
             AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
         let Some(mutation) =
-            lower_typed_mutation_intent(identity.entity_tag(), &descriptor, binding, request, 0)?
+            lower_typed_mutation_intent(&catalog, &descriptor, binding, request, 0)?
         else {
             return Ok(None);
         };
@@ -1868,7 +1862,6 @@ impl<C: CanisterKind> DbSession<C> {
         let Some(catalog) = self.current_typed_entity_binding_catalog(binding)? else {
             return Ok(None);
         };
-        let identity = catalog.identity();
         let descriptor =
             AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
         let mut mutations = Vec::with_capacity(requests.len());
@@ -1881,7 +1874,7 @@ impl<C: CanisterKind> DbSession<C> {
                 )
             })?;
             let Some(mutation) = lower_typed_mutation_intent(
-                identity.entity_tag(),
+                &catalog,
                 &descriptor,
                 binding,
                 request,
@@ -1963,7 +1956,7 @@ impl<C: CanisterKind> DbSession<C> {
             let descriptor =
                 AcceptedRowLayoutRuntimeContract::from_accepted_schema(item_catalog.snapshot())?;
             let Some(mutation) = lower_typed_mutation_intent(
-                item_identity.entity_tag(),
+                &item_catalog,
                 &descriptor,
                 &binding,
                 request,
@@ -6752,6 +6745,41 @@ mod identity_pre_key_tests {
         (before, after, operation)
     }
 
+    fn assert_mutation_facts(
+        error: &InternalError,
+        session: &DbSession<TestCanister>,
+        tail: Vec<(icydb_diagnostic_code::DiagnosticFactTag, u64)>,
+    ) {
+        use icydb_diagnostic_code::DiagnosticFactTag as Tag;
+        let catalog = session
+            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+            .unwrap();
+        let fingerprint = catalog.fingerprint();
+        let mut expected = vec![
+            (
+                Tag::AcceptedSchemaFingerprintMethod,
+                u64::from(catalog.fingerprint_method_version()),
+            ),
+            (
+                Tag::AcceptedSchemaFingerprintHigh,
+                u64::from_be_bytes(fingerprint[..8].try_into().unwrap()),
+            ),
+            (
+                Tag::AcceptedSchemaFingerprintLow,
+                u64::from_be_bytes(fingerprint[8..].try_into().unwrap()),
+            ),
+        ];
+        expected.extend(tail);
+        assert_eq!(error.diagnostic_facts(), expected);
+        assert_eq!(
+            icydb_diagnostic_code::validate_known_diagnostic_fact_schema(
+                error.diagnostic().error_code(),
+                &expected,
+            ),
+            Ok(()),
+        );
+    }
+
     fn assert_identity_boundary(error: &InternalError) {
         assert_eq!(error.class(), ErrorClass::Unsupported);
         assert_eq!(error.origin(), ErrorOrigin::Identity);
@@ -6827,8 +6855,9 @@ mod identity_pre_key_tests {
             .expect_err("an invalid split output must reject the staged source update");
         assert_eq!(rejected_split.class(), ErrorClass::Unsupported);
         assert_eq!(rejected_split.origin(), ErrorOrigin::Executor);
-        assert_eq!(
-            rejected_split.diagnostic_facts(),
+        assert_mutation_facts(
+            &rejected_split,
+            &session,
             vec![
                 (
                     icydb_diagnostic_code::DiagnosticFactTag::EntityTag,
@@ -6839,7 +6868,7 @@ mod identity_pre_key_tests {
                     icydb_diagnostic_code::DiagnosticFactTag::MutationOperation,
                     icydb_diagnostic_code::DiagnosticMutationOperation::Insert.raw(),
                 ),
-                (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 1,),
+                (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 1),
             ],
         );
         assert_dynamic_payload(&session, 1, 60);
@@ -7241,8 +7270,9 @@ mod identity_pre_key_tests {
                 .expect_err("structural Identity authorship and regeneration must reject");
             assert_eq!(error.class(), ErrorClass::Unsupported);
             assert_eq!(error.origin(), ErrorOrigin::Executor);
-            assert_eq!(
-                error.diagnostic_facts(),
+            assert_mutation_facts(
+                &error,
+                &session,
                 vec![
                     (
                         icydb_diagnostic_code::DiagnosticFactTag::EntityTag,
@@ -7253,7 +7283,7 @@ mod identity_pre_key_tests {
                         icydb_diagnostic_code::DiagnosticFactTag::MutationOperation,
                         operation.raw(),
                     ),
-                    (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 0,),
+                    (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 0),
                 ],
             );
         }
@@ -7292,8 +7322,9 @@ mod identity_pre_key_tests {
             .expect_err("typed Identity authorship must reject before allocation");
         assert_eq!(explicit_typed_error.class(), ErrorClass::Unsupported);
         assert_eq!(explicit_typed_error.origin(), ErrorOrigin::Executor);
-        assert_eq!(
-            explicit_typed_error.diagnostic_facts(),
+        assert_mutation_facts(
+            &explicit_typed_error,
+            &session,
             vec![
                 (
                     icydb_diagnostic_code::DiagnosticFactTag::EntityTag,
@@ -7304,7 +7335,7 @@ mod identity_pre_key_tests {
                     icydb_diagnostic_code::DiagnosticFactTag::MutationOperation,
                     icydb_diagnostic_code::DiagnosticMutationOperation::Insert.raw(),
                 ),
-                (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 0,),
+                (icydb_diagnostic_code::DiagnosticFactTag::BatchPosition, 0),
             ],
         );
 

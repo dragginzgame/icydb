@@ -307,6 +307,8 @@ fn accepted_constraint_facts_bind_exact_authority_operation_and_path() {
         41,
         icydb_diagnostic_code::DiagnosticConstraintKind::TargetedRule,
         Some(MutationDiagnosticContext::new(
+            3,
+            fingerprint,
             29,
             icydb_diagnostic_code::DiagnosticMutationOperation::Update,
             7,
@@ -871,16 +873,54 @@ fn classification_integrity_corruption_constructors_never_downgrade() {
 }
 
 #[test]
+fn mutation_fact_schema_admits_row_and_operation_contexts_without_partial_identity() {
+    use icydb_diagnostic_code::{
+        DiagnosticFactSchemaMismatch as Mismatch, DiagnosticMutationOperation as Operation,
+        validate_known_diagnostic_fact_schema as validate,
+    };
+    for context in [
+        MutationDiagnosticContext::new(1, [7; 16], 42, Operation::Insert, 3),
+        MutationDiagnosticContext::operation_only(1, [7; 16], 42, Operation::Update),
+    ] {
+        for error in [
+            InternalError::mutation_database_owned_field_explicit(context, 1),
+            InternalError::mutation_required_field_missing(context, 1),
+            InternalError::mutation_managed_timestamp_regression(context),
+        ] {
+            let code = error.diagnostic().error_code();
+            let facts = error.diagnostic_facts();
+            assert_eq!(validate(code, &facts), Ok(()));
+            for index in 0..3 {
+                let mut partial = facts.clone();
+                partial.remove(index);
+                assert_eq!(validate(code, &partial), Err(Mismatch::InvalidSequence));
+            }
+            let mut unordered = facts.clone();
+            unordered.swap(1, 2);
+            assert_eq!(validate(code, &unordered), Err(Mismatch::InvalidSequence));
+            let mut duplicate = facts;
+            duplicate.push(duplicate[0]);
+            assert!(validate(code, &duplicate).is_err());
+        }
+    }
+}
+
+#[test]
 fn mutation_error_details_project_exact_bounded_numeric_facts() {
     use icydb_diagnostic_code::{
         DiagnosticFactTag as Tag, DiagnosticMutationOperation as Operation,
     };
 
-    let context = MutationDiagnosticContext::new(17, Operation::Insert, 3);
+    let fingerprint = [0x12; 16];
+    let half = u64::from_be_bytes([0x12; 8]);
+    let context = MutationDiagnosticContext::new(1, fingerprint, 17, Operation::Insert, 3);
     let required = InternalError::mutation_required_field_missing(context, 9);
     assert_eq!(
         required.diagnostic_facts(),
         vec![
+            (Tag::AcceptedSchemaFingerprintMethod, 1),
+            (Tag::AcceptedSchemaFingerprintHigh, half),
+            (Tag::AcceptedSchemaFingerprintLow, half),
             (Tag::EntityTag, 17),
             (Tag::FieldId, 9),
             (Tag::MutationOperation, Operation::Insert.raw()),
@@ -892,6 +932,9 @@ fn mutation_error_details_project_exact_bounded_numeric_facts() {
     assert_eq!(
         explicit.diagnostic_facts(),
         vec![
+            (Tag::AcceptedSchemaFingerprintMethod, 1),
+            (Tag::AcceptedSchemaFingerprintHigh, half),
+            (Tag::AcceptedSchemaFingerprintLow, half),
             (Tag::EntityTag, 17),
             (Tag::FieldId, 11),
             (Tag::MutationOperation, Operation::Insert.raw()),
@@ -900,11 +943,14 @@ fn mutation_error_details_project_exact_bounded_numeric_facts() {
     );
 
     let managed = InternalError::mutation_managed_timestamp_regression(
-        MutationDiagnosticContext::new(17, Operation::Update, 5),
+        MutationDiagnosticContext::new(1, fingerprint, 17, Operation::Update, 5),
     );
     assert_eq!(
         managed.diagnostic_facts(),
         vec![
+            (Tag::AcceptedSchemaFingerprintMethod, 1),
+            (Tag::AcceptedSchemaFingerprintHigh, half),
+            (Tag::AcceptedSchemaFingerprintLow, half),
             (Tag::EntityTag, 17),
             (Tag::MutationOperation, Operation::Update.raw()),
             (Tag::BatchPosition, 5),

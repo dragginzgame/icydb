@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.257.md](docs/changelog/0.257.md)
 
+- `0.257.11` adds memory profiles, clearer diagnostics and integration guidance, simpler plan-cache accounting, and automatic pre-commit formatting (breaking: retain deployed bucket sizes explicitly or recreate, update diagnostic tooling; exhausted sizing requests now reject).
 - `0.257.10` reduces preparation allocations, extends staging budgets and updates cursor/test dependencies (potentially breaking for exhausted schema changes; no migration).
 - `0.257.9` rejects failed query identity construction and preserves hashing errors through grouping and mutation preparation (potentially breaking error reporting; no migration).
 - `0.257.8` budgets shared-plan cache construction and lookup, including work repeated on warm hits (potentially breaking for budget-exhausted requests; no migration).

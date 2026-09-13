@@ -123,30 +123,25 @@ where
         self.entries.get(key).map(|entry| &entry.value)
     }
 
-    pub(in crate::db::session) fn entry_weight(&self, key: &K) -> Option<Rc<CacheEntryWeight>> {
-        self.entries.get(key).map(|entry| Rc::clone(&entry.weight))
+    pub(in crate::db::session) fn insert(&mut self, key: K, value: V) {
+        self.insert_weighted(key, value, 0);
     }
 
-    pub(in crate::db::session) fn insert(&mut self, key: K, value: V) -> Option<V> {
-        self.insert_weighted(key, value, 0)
-    }
-
+    /// Borrow the admitted entry's accounting handle, never a previous entry's.
+    /// Rejected insertions leave existing values, charges and FIFO order intact.
     pub(in crate::db::session) fn insert_weighted(
         &mut self,
         key: K,
         value: V,
         weight: usize,
-    ) -> Option<V> {
+    ) -> Option<&Rc<CacheEntryWeight>> {
         if self.max_entries == 0 || weight > self.max_retained_weight {
             return None;
         }
 
-        let replaced = self.entries.remove(&key).map(|entry| {
+        if let Some(entry) = self.entries.remove(&key) {
             // Drop the old charge before reserving replacement space.
             entry.weight.release();
-            entry.value
-        });
-        if replaced.is_some() {
             self.insertion_order.retain(|existing| existing != &key);
         }
         self.evict_until_new_key_fits(weight);
@@ -158,10 +153,13 @@ where
             total: Rc::downgrade(&self.retained_weight),
             limit: self.max_retained_weight,
         });
-        self.entries
-            .insert(key, BoundedCacheEntry { value, weight });
+        let entry = self
+            .entries
+            .entry(key)
+            .insert_entry(BoundedCacheEntry { value, weight })
+            .into_mut();
 
-        replaced
+        Some(&entry.weight)
     }
 
     #[cfg(test)]
@@ -228,8 +226,10 @@ mod tests {
     #[test]
     fn retained_cache_lazy_reservation_rejects_overflow_and_releases_on_eviction() {
         let mut cache = BoundedCache::new_weighted(2, 10);
-        cache.insert_weighted("a", 1, 4);
-        let entry = cache.entry_weight(&"a").expect("entry charge");
+        let entry = cache
+            .insert_weighted("a", 1, 4)
+            .cloned()
+            .expect("entry charge");
         assert!(entry.reserve(6));
         assert!(!entry.reserve(1));
         assert!(!entry.reserve(usize::MAX));
@@ -245,13 +245,18 @@ mod tests {
     #[test]
     fn retained_cache_replacement_releases_lazy_charge_and_revokes_old_handle() {
         let mut cache = BoundedCache::new_weighted(2, 12);
-        cache.insert_weighted("a", 1, 3);
-        let old = cache.entry_weight(&"a").expect("entry charge");
+        let old = cache
+            .insert_weighted("a", 1, 3)
+            .cloned()
+            .expect("entry charge");
         assert!(old.reserve(7));
-        assert_eq!(cache.insert_weighted("a", 2, 4), Some(1));
+        let current = cache
+            .insert_weighted("a", 2, 4)
+            .cloned()
+            .expect("replacement charge");
+        assert_eq!(cache.get(&"a"), Some(&2));
         assert_eq!(cache.retained_weight(), 4);
         assert!(!old.reserve(1));
-        let current = cache.entry_weight(&"a").expect("replacement charge");
         assert!(current.reserve(8));
         assert_eq!(cache.retained_weight(), 12);
         drop(cache);
@@ -302,9 +307,39 @@ mod tests {
 
         let outcome = cache.insert_weighted("a", 3, 8);
 
-        assert_eq!(outcome, Some(1));
+        assert!(outcome.is_some());
         assert_eq!(cache.get(&"a"), Some(&3));
         assert!(cache.get(&"b").is_none());
         assert_eq!(cache.retained_weight(), 8);
+    }
+
+    #[test]
+    fn rejected_replacement_returns_no_handle_and_preserves_existing_charge_and_order() {
+        let mut cache = BoundedCache::new_weighted(2, 10);
+        let first = cache
+            .insert_weighted("a", 1, 3)
+            .cloned()
+            .expect("first charge");
+        cache.insert_weighted("b", 2, 3);
+
+        assert!(cache.insert_weighted("a", 99, 11).is_none());
+        assert_eq!(cache.get(&"a"), Some(&1));
+        assert_eq!(cache.retained_weight(), 6);
+        assert!(first.reserve(1));
+        assert_eq!(cache.retained_weight(), 7);
+
+        cache.insert_weighted("c", 3, 3);
+        assert!(cache.get(&"a").is_none());
+        assert!(!first.reserve(0));
+        assert_eq!(cache.get(&"b"), Some(&2));
+        assert_eq!(cache.retained_weight(), 6);
+    }
+
+    #[test]
+    fn disabled_cache_returns_no_accounting_handle() {
+        let mut cache = BoundedCache::new_weighted(0, 10);
+        assert!(cache.insert_weighted("a", 1, 1).is_none());
+        assert!(cache.is_empty());
+        assert_eq!(cache.retained_weight(), 0);
     }
 }

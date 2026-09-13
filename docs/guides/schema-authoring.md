@@ -347,6 +347,56 @@ Rust library does not create cross-canister relations, storage, atomicity, or a
 shared database. Put workflow coordination in application code only when the
 application has an explicit protocol for it.
 
+### Canister memory profiles
+
+The canister declaration selects the bucket size used when IcyDB initializes
+the shared memory manager. Omission selects `general`:
+
+```rust,ignore
+#[canister(
+    memory_namespace = "app",
+    memory_profile = "general",
+    memory_min = 100, memory_max = 110,
+    commit_memory_id = 109, startup_memory_id = 108
+)]
+pub struct AppCanister;
+```
+
+| Profile | Bucket size | Shared manager capacity |
+| --- | ---: | ---: |
+| `compact` | 4 pages / 256 KiB | 8 GiB |
+| `general` (default) | 16 pages / 1 MiB | 32 GiB |
+| `high_headroom` | 128 pages / 8 MiB | 256 GiB |
+
+Capacity is the manager's bucket-table ceiling before platform/backing limits,
+not payload capacity. Data, indexes, journals and other users of this manager
+share it. Smaller buckets reduce rounding slack, not encoded row size. Use
+`compact` for measured small deployments and `high_headroom` when growth needs
+more than the general profile's headroom. The
+[measured fixture](../reports/investigations/2026/09/13/bucket-sizing/01/report.md)
+supports `general` as a starting point, not a universal optimum.
+
+This is one physical bootstrap setting, not per-store configuration or a schema
+migration. The build-time model exposes `Canister::with_memory_profile` and
+`CanisterMemoryProfile`; generated code uses the same mapping. Existing memory
+must match the selected bucket size. Changing it requires recreation/reinstall;
+it cannot shrink an existing allocation. For a 128-page IcyDB-owned deployment,
+explicitly select `high_headroom` before upgrading to the new default, or recreate
+it. That preserves bucket geometry, not compatibility with unrelated format cuts.
+
+When IcyDB-owned bootstrap detects a size mismatch, public startup observation
+returns `E274` (`MemoryBucketSizeMismatch`). Its numeric facts are `Expected`
+(requested pages) and `Actual` (persisted pages); one page is 64 KiB. The CLI
+renders this without a schema artifact. This is a terminal configuration
+conflict, not pending recovery: retain the persisted size or explicitly recreate
+the database. No allocation is resized by the failed bootstrap.
+
+If the host explicitly bootstraps the shared manager before IcyDB participates,
+the host's policy and bucket size take precedence; this setting does not override
+them. IcyDB still validates its committed declarations. Inspect the existing
+allocation report for effective bucket size and usage. There is no second
+profile override on `start!` and no endpoint configuration argument.
+
 Host declarations produce schema proposals and generated adapters. After
 acceptance, the accepted schema snapshot is the sole runtime authority for row
 layout, constraints, indexes, planning, writes, and recovery. Generated

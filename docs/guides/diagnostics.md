@@ -124,6 +124,39 @@ The JSON artifact is a tooling format, not database state. It cannot authorize
 a write, apply a schema, recover data, or replace accepted schema authority.
 Only the current pre-1.0 artifact shape is accepted.
 
+## Rejected generated fields
+
+`E221` means a mutation supplied a database-owned field, such as a generated
+ID. Keep that rejection: omit the generated field and use the value returned
+by the successful insert instead. The error includes the accepted-schema
+fingerprint, entity tag, field ID, mutation operation and, for row-specific
+failures, batch position. `E185` (missing required field) and `E220` (managed
+timestamp regression) carry the same schema identity.
+
+Copy the facts from the actual error. For example, with representative numbers:
+
+```console
+icydb diagnostic E221 --artifact app.diagnostic.json \
+  --fact accepted_schema_fingerprint_method=1 \
+  --fact accepted_schema_fingerprint_high=123 \
+  --fact accepted_schema_fingerprint_low=456 \
+  --fact entity_tag=17 \
+  --fact field_id=3 \
+  --fact mutation_operation=1 \
+  --fact batch_position=0
+```
+
+Use an [exact accepted-schema artifact](#offline-diagnostic-artifact) to resolve
+the owning entity and field names. Without matching metadata, the CLI still
+explains the generated-field rule but leaves the identities numeric. Do not
+fill missing fingerprint facts from the latest source schema or an unrelated
+deployment to force name resolution.
+
+Update the CLI alongside the runtime. Application fixture/error wrappers must
+preserve the E-code and `Error::facts()`; replacing the error with an unstructured
+`InvalidFixture` loses the context before the CLI can use it. An older error
+without schema identity cannot be made name-resolvable by a CLI upgrade alone.
+
 ## Rejected query fields
 
 An E3 planning failure may include this optional public record:

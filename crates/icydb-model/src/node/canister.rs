@@ -19,6 +19,37 @@ use std::str::FromStr;
 pub type MigrationPlanConstructor =
     fn() -> Result<icydb_schema::SchemaMigrationPlan, icydb_schema::SchemaContractError>;
 
+///
+/// CanisterMemoryProfile
+///
+/// Build-time bucket sizing for IcyDB-owned shared memory bootstrap. This is
+/// physical configuration, not accepted schema authority or allocation access.
+/// A host that bootstraps first owns the effective setting instead.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanisterMemoryProfile {
+    /// 256 KiB buckets; 8 GiB shared manager capacity before backing limits.
+    Compact,
+    /// 1 MiB buckets; 32 GiB shared manager capacity before backing limits.
+    General,
+    /// 8 MiB buckets; 256 GiB shared manager capacity before backing limits.
+    HighHeadroom,
+}
+
+impl CanisterMemoryProfile {
+    /// Return the immutable bucket size in 64 KiB Wasm pages.
+    #[must_use]
+    pub const fn bucket_size_pages(self) -> u16 {
+        match self {
+            Self::Compact => 4,
+            Self::General => 16,
+            Self::HighHeadroom => 128,
+        }
+    }
+}
+
 /// Parse one macro-validated textual migration literal into its exact public atom.
 #[doc(hidden)]
 pub fn migration_literal_from_text(
@@ -108,6 +139,7 @@ const fn decode_hex_nibble(value: u8) -> Result<u8, icydb_schema::SchemaContract
 pub struct Canister {
     def: Def,
     memory_namespace: &'static str,
+    memory_profile: CanisterMemoryProfile,
     memory_min: u8,
     memory_max: u8,
     commit_memory_id: u8,
@@ -136,6 +168,7 @@ impl Canister {
         Self {
             def,
             memory_namespace,
+            memory_profile: CanisterMemoryProfile::General,
             memory_min,
             memory_max,
             commit_memory_id,
@@ -153,6 +186,21 @@ impl Canister {
     #[must_use]
     pub const fn memory_namespace(&self) -> &'static str {
         self.memory_namespace
+    }
+
+    /// Select the profile used when IcyDB owns memory bootstrap.
+    ///
+    /// Existing memory must match its bucket size; this does not resize it.
+    #[must_use]
+    pub const fn with_memory_profile(mut self, profile: CanisterMemoryProfile) -> Self {
+        self.memory_profile = profile;
+        self
+    }
+
+    /// Return the configured profile; newly constructed nodes use `General`.
+    #[must_use]
+    pub const fn memory_profile(&self) -> CanisterMemoryProfile {
+        self.memory_profile
     }
 
     #[must_use]

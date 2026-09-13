@@ -465,6 +465,7 @@ check-invariants:
 	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-mutation-atomicity-invariants.sh
 	bash scripts/ci/check-release-cleanup-invariants.sh
+	bash scripts/ci/test-pre-commit.sh
 	bash scripts/ci/check-durability-doc-invariants.sh
 	bash scripts/ci/check-read-admission-invariants.sh
 	bash scripts/ci/test-read-admission-invariants.sh

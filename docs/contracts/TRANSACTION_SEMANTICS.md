@@ -11,6 +11,10 @@ The broader operator-facing durability boundary is defined in
 `docs/contracts/DURABILITY.md`. Per-row strictness and mutation ingress are
 defined in `docs/contracts/WRITE_ADMISSION.md`.
 
+For application coordination around these local commits, see the
+[multi-canister workflow guide](../guides/multi-canister-workflows.md).
+Its intent/receipt protocol does not extend the transaction boundary.
+
 This document does not define database-session transactions. IcyDB does not
 provide Postgres-style transaction blocks, isolation levels, or automatic
 rollback when a canister update method returns `Err`. If application code

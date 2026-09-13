@@ -633,14 +633,16 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::Limit,
             ],
         ),
-        185 | 221 => tags_match(
+        185 | 221 => mutation_schema(
             fact_count,
             &fact_at,
             &[
+                DiagnosticFactTag::AcceptedSchemaFingerprintMethod,
+                DiagnosticFactTag::AcceptedSchemaFingerprintHigh,
+                DiagnosticFactTag::AcceptedSchemaFingerprintLow,
                 DiagnosticFactTag::EntityTag,
                 DiagnosticFactTag::FieldId,
                 DiagnosticFactTag::MutationOperation,
-                DiagnosticFactTag::BatchPosition,
             ],
         ),
         186 => tags_match(
@@ -668,13 +670,15 @@ fn validate_diagnostic_fact_schema(
         ),
         210 => constraint_schema(fact_count, &fact_at, true),
         212 => constraint_schema(fact_count, &fact_at, false),
-        220 => tags_match(
+        220 => mutation_schema(
             fact_count,
             &fact_at,
             &[
+                DiagnosticFactTag::AcceptedSchemaFingerprintMethod,
+                DiagnosticFactTag::AcceptedSchemaFingerprintHigh,
+                DiagnosticFactTag::AcceptedSchemaFingerprintLow,
                 DiagnosticFactTag::EntityTag,
                 DiagnosticFactTag::MutationOperation,
-                DiagnosticFactTag::BatchPosition,
             ],
         ),
         222 => {
@@ -711,6 +715,14 @@ fn validate_diagnostic_fact_schema(
             &fact_at,
             &[DiagnosticFactTag::Limit, DiagnosticFactTag::Actual],
         ),
+        274 => {
+            tags_match(
+                fact_count,
+                &fact_at,
+                &[DiagnosticFactTag::Expected, DiagnosticFactTag::Actual],
+            ) && (0..2).all(|index| (1..=u64::from(u16::MAX)).contains(&fact_at(index).1))
+                && fact_at(0).1 != fact_at(1).1
+        }
         226 => tags_match(
             fact_count,
             &fact_at,
@@ -749,13 +761,14 @@ fn validate_diagnostic_fact_schema(
 
 const fn diagnostic_fact_maximum(code: ErrorCode) -> usize {
     match code.raw() {
-        5 | 15 | 17 | 186 | 187 | 220 | 226 | 227 | 253 => 3,
+        5 | 15 | 17 | 186 | 187 | 226 | 227 | 253 => 3,
         133 | 134 | 158 | 159 | 164 | 222 => 1,
         18 | 20 | 130 | 166 | 167 | 169 | 190 | 191 | 192 | 194 | 223 | 224 | 225 | 248 | 249
-        | 250 | 251 | 262 | 264 | 271 | 272 => 2,
+        | 250 | 251 | 262 | 264 | 271 | 272 | 274 => 2,
         3 | 19 | 23 => 5,
-        22 | 252 => 6,
-        185 | 221 | 263 => 4,
+        22 | 220 | 252 => 6,
+        185 | 221 => 7,
+        263 => 4,
         210 => 73,
         212 => 9,
         _ => 0,
@@ -1116,6 +1129,19 @@ fn constraint_schema(
         })
 }
 
+// Input position exists only once a concrete row has been selected. SQL fixed
+// assignment admission reports the same schema identity before selecting rows.
+fn mutation_schema(
+    fact_count: usize,
+    fact_at: &impl Fn(usize) -> (u8, u64),
+    required: &[DiagnosticFactTag],
+) -> bool {
+    tags_prefix_matches(fact_count, fact_at, required)
+        && (fact_count == required.len()
+            || (fact_count == required.len() + 1
+                && fact_at(required.len()).0 == DiagnosticFactTag::BatchPosition.raw()))
+}
+
 fn tags_match(
     fact_count: usize,
     fact_at: &impl Fn(usize) -> (u8, u64),
@@ -1205,6 +1231,40 @@ mod tests {
         validate_raw_diagnostic_fact_schema,
     };
     use crate::ErrorCode;
+
+    #[test]
+    fn bucket_mismatch_requires_two_distinct_nonzero_page_counts() {
+        let code = ErrorCode::RUNTIME_BOUNDARY_MEMORY_BUCKET_SIZE_MISMATCH;
+        let expected = DiagnosticFactTag::Expected;
+        let actual = DiagnosticFactTag::Actual;
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(code, &[(expected, 16), (actual, 128)]),
+            Ok(()),
+        );
+        for facts in [
+            vec![],
+            vec![(expected, 16)],
+            vec![(actual, 128), (expected, 16)],
+            vec![(expected, 16), (expected, 128)],
+            vec![(expected, 16), (actual, 16)],
+            vec![(expected, 0), (actual, 128)],
+            vec![(expected, 16), (actual, 0)],
+            vec![(expected, 65_536), (actual, 128)],
+            vec![(expected, 16), (actual, 65_536)],
+        ] {
+            assert_eq!(
+                validate_known_diagnostic_fact_schema(code, &facts),
+                Err(DiagnosticFactSchemaMismatch::InvalidSequence),
+            );
+        }
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                code,
+                &[(expected, 16), (actual, 128), (actual, 128)],
+            ),
+            Err(DiagnosticFactSchemaMismatch::CodeMaximumExceeded),
+        );
+    }
 
     #[test]
     fn fact_tag_registry_is_fixed_unique_and_contiguous() {

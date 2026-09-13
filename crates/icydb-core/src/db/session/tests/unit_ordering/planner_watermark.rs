@@ -140,6 +140,70 @@ fn construction_exhaustion_keeps_cold_cache_empty_and_memoized_keys_skip_copies(
 }
 
 #[test]
+fn cache_sizing_watermark_rejects_before_publication() {
+    let setup = initialize();
+    let catalog = setup
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    let bound = PreparationWork::run(
+        setup.db.request_execution_scope(),
+        DiagnosticExecutionLane::TrustedRead,
+        |work| {
+            query().filter_for_schema(
+                catalog.accepted_schema_info(),
+                &FieldRef::new("label").eq("first"),
+                work,
+            )
+        },
+    )
+    .unwrap();
+    for lane in [
+        DiagnosticExecutionLane::PublicRead,
+        DiagnosticExecutionLane::TrustedRead,
+        DiagnosticExecutionLane::Diagnostic,
+    ] {
+        for current in [query(), bound.clone()] {
+            for keep_existing in [false, true] {
+                setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+                assert!(!plan(&setup, &catalog, &current, lane).unwrap().is_hit());
+                let retained = setup.shared_query_cache_usage_for_tests();
+                let root = request(false, lane);
+                let session = new_request_session_with_root(&root);
+                let error = session
+                    .retry_shared_query_cache_insertion_for_tests(lane, || {
+                        if !keep_existing {
+                            setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+                        }
+                        // Native counters are zero; inject exhaustion only after
+                        // obtaining a complete artifact, immediately before sizing.
+                        root.scope()
+                            .charge(
+                                HardExecutionContext::new(
+                                    DiagnosticExecutionBudgetScope::Request,
+                                    lane,
+                                    0,
+                                ),
+                                Resource::InstructionUnits,
+                                1,
+                            )
+                            .unwrap_err();
+                    })
+                    .unwrap_err();
+                assert_exhausted(error, &root, lane);
+                assert_eq!(
+                    setup.shared_query_cache_usage_for_tests(),
+                    if keep_existing { retained } else { (0, 0) },
+                );
+                assert_eq!(
+                    plan(&setup, &catalog, &current, lane).unwrap().is_hit(),
+                    keep_existing,
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn cache_lookup_watermark_precedes_compilation_and_warm_reuse() {
     let setup = initialize();
     let catalog = setup

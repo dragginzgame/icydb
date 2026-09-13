@@ -190,6 +190,8 @@ fn accepted_relation_violation_preserves_catalog_identity() {
         [0x44; 16],
         EntityTag::new(9),
         Some(crate::error::MutationDiagnosticContext::new(
+            crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+            [0x44; 16],
             9,
             icydb_diagnostic_code::DiagnosticMutationOperation::Delete,
             6,

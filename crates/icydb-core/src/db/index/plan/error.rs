@@ -72,6 +72,8 @@ mod tests {
         let error = IndexPlanError::unique_violation(
             [0xAB; 16],
             Some(MutationDiagnosticContext::new(
+                crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                [0xAB; 16],
                 23,
                 icydb_diagnostic_code::DiagnosticMutationOperation::Replace,
                 4,

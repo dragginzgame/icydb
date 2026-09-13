@@ -27,6 +27,7 @@ struct StoreRegistryTokens {
 
 /// Validated canister-owned memory declarations emitted around store wiring.
 struct CanisterMemoryWiring<'a> {
+    bucket_size_pages: u16,
     memory_min: u8,
     memory_max: u8,
     commit_memory_id: u8,
@@ -61,6 +62,7 @@ pub(super) fn generate_store_wiring(
         frontend_surfaces,
         schema_bootstrap,
         CanisterMemoryWiring {
+            bucket_size_pages: canister.memory_profile().bucket_size_pages(),
             memory_min,
             memory_max,
             commit_memory_id,
@@ -675,6 +677,7 @@ fn store_wiring_tokens(
         store_inits,
     } = store_registry;
     let CanisterMemoryWiring {
+        bucket_size_pages,
         memory_min,
         memory_max,
         commit_memory_id,
@@ -776,6 +779,7 @@ fn store_wiring_tokens(
                     .get_or_init(|| {
                         ::icydb::__macro::ensure_default_memory_manager(
                             #memory_authority,
+                            #bucket_size_pages,
                         )
                     })
                     .clone()
@@ -866,7 +870,7 @@ fn startup_observation_tokens() -> TokenStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::node::{Canister, Def, Schema};
+    use crate::node::{Canister, CanisterMemoryProfile, Def, Schema};
     use std::sync::Arc;
 
     fn compact_tokens(tokens: TokenStream) -> String {
@@ -901,6 +905,35 @@ mod tests {
                 .expect("empty test fragment should admit"),
             None,
         )
+    }
+
+    #[test]
+    fn profile_changes_bootstrap_without_changing_schema_authority() {
+        let baseline = actor_builder();
+        for (profile, pages) in [
+            (CanisterMemoryProfile::Compact, 4),
+            (CanisterMemoryProfile::General, 16),
+            (CanisterMemoryProfile::HighHeadroom, 128),
+        ] {
+            let builder = ActorBuilder::new(
+                Arc::clone(&baseline.schema),
+                baseline.canister.clone().with_memory_profile(profile),
+                icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new()).unwrap(),
+                None,
+            );
+            let rendered = compact_tokens(generate_store_wiring(&builder, quote!()));
+            assert!(rendered.contains(&format!(
+                "ensure_default_memory_manager(\"icydb.test\",{pages}u16,)"
+            )));
+            assert_eq!(
+                builder.schema_fragment_bytes,
+                baseline.schema_fragment_bytes
+            );
+            assert_eq!(
+                builder.schema_submission_key,
+                baseline.schema_submission_key
+            );
+        }
     }
 
     #[test]
@@ -1124,6 +1157,7 @@ mod tests {
             quote!(),
             quote!(),
             CanisterMemoryWiring {
+                bucket_size_pages: 16,
                 memory_min: 10,
                 memory_max: 19,
                 commit_memory_id: 18,
@@ -1146,7 +1180,8 @@ mod tests {
         assert!(rendered.contains("id=17u8"));
         assert!(rendered.contains("Result<(),::icydb::db::DatabaseBootstrapError>"));
         assert!(
-            rendered.contains("::icydb::__macro::ensure_default_memory_manager(\"icydb.demo\",)")
+            rendered
+                .contains("::icydb::__macro::ensure_default_memory_manager(\"icydb.demo\",16u16,)")
         );
         assert!(!rendered.contains("bootstrap_default_memory_manager()"));
         assert!(!rendered.contains("fn bootstrap_memory_manager()"));

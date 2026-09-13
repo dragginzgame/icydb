@@ -39,6 +39,18 @@ catalog and validation-job state without consulting the generated model.
 IcyDB has no non-strict entity or table mode. There is no trusted row-write
 bypass that disables accepted-schema validation.
 
+Mutation field diagnostics (`E185` missing required field, `E221` explicit
+database-owned field) carry the accepted-schema fingerprint method and both
+64-bit fingerprint halves, entity tag, field ID and mutation operation.
+`E220` managed-timestamp regression carries the same identity without a field
+ID. A concrete input adds its zero-based batch position; pre-row assignment
+admission does not invent one. These sequences contain at most seven, seven
+and six numeric facts respectively; the global diagnostic limit is unchanged.
+No authored values or runtime schema strings are included. Host tooling may
+resolve names only against an exact method/fingerprint/entity match, and must
+retain numeric diagnostics when that schema or field name is unavailable.
+Applications must preserve the structured error facts when wrapping failures.
+
 Every declared relation participates in referential-integrity checks. Ordinary
 key-typed fields may store identifiers without declaring a relation.
 

@@ -110,7 +110,7 @@ fn owned_dynamic_and_typed_lowering_move_nested_backing_and_keep_caller_order() 
             // retain arbitrary caller order. Lowering must preserve both.
             cells.reverse();
             lower_typed_mutation_intent(
-                catalog.identity().entity_tag(),
+                &catalog,
                 &descriptor,
                 &binding,
                 DynamicTypedMutation::Insert {
@@ -122,7 +122,7 @@ fn owned_dynamic_and_typed_lowering_move_nested_backing_and_keep_caller_order() 
             .unwrap()
         } else {
             lower_dynamic_mutation_intent(
-                catalog.identity().entity_tag(),
+                &catalog,
                 &descriptor,
                 DynamicMutation::Insert {
                     entity: "Entity".into(),
@@ -237,15 +237,7 @@ fn owned_typed_lowering_checks_keys_before_patch_binding() {
         .unwrap();
     let descriptor =
         AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot()).unwrap();
-    let lower = |request| {
-        lower_typed_mutation_intent(
-            catalog.identity().entity_tag(),
-            &descriptor,
-            &binding,
-            request,
-            7,
-        )
-    };
+    let lower = |request| lower_typed_mutation_intent(&catalog, &descriptor, &binding, request, 7);
     assert!(
         lower(DynamicTypedMutation::Insert {
             patch: DynamicTypedStructuralPatch::default()

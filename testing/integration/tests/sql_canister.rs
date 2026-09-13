@@ -4736,6 +4736,18 @@ fn sql_canister_update_endpoint_admits_primary_key_update_only() {
             .expect("post-update read should find alice"),
     );
     assert_eq!(after.rendered_rows(), string_rows(&[&["32"]]));
+
+    // Reset uses ordinary trusted DELETE lowering, so this also verifies
+    // deletion of populated rows under the generated memory configuration.
+    let reset: Result<(), Error> = fixture
+        .update_candid("icydb_fixtures_reset", ())
+        .expect("populated fixture reset should decode");
+    reset.expect("populated rows should delete");
+    let deleted = expect_projection(
+        query_sql(&fixture, "SELECT age FROM SqlTestUser WHERE name = 'alice'")
+            .expect("post-delete indexed query should execute"),
+    );
+    assert_eq!(deleted.row_count, 0);
 }
 
 #[test]

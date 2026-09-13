@@ -599,6 +599,37 @@ fn malformed_numeric_facts_fail_compactly_at_the_public_facade() {
 }
 
 #[test]
+fn mutation_schema_identity_survives_facade_and_candid() {
+    use icydb_diagnostic_code::{
+        Diagnostic, DiagnosticCode, DiagnosticDetail, DiagnosticFactTag as Tag, RuntimeBoundaryCode,
+    };
+    let diagnostic = Diagnostic::new(
+        DiagnosticCode::RuntimeUnsupported,
+        icydb_diagnostic_code::ErrorOrigin::Executor,
+        Some(DiagnosticDetail::RuntimeBoundary {
+            boundary: RuntimeBoundaryCode::MutationDatabaseOwnedFieldExplicit,
+        }),
+    );
+    let facts = [
+        (Tag::AcceptedSchemaFingerprintMethod, 1),
+        (Tag::AcceptedSchemaFingerprintHigh, u64::MAX),
+        (Tag::AcceptedSchemaFingerprintLow, 17),
+        (Tag::EntityTag, 42),
+        (Tag::FieldId, 1),
+        (Tag::MutationOperation, 1),
+        (Tag::BatchPosition, 3),
+    ];
+    for length in [6, 7] {
+        let error = Error::from_diagnostic_and_facts(diagnostic.clone(), facts[..length].to_vec());
+        assert_eq!(error.code(), diagnostic.error_code());
+        let bytes = Encode!(&error).unwrap();
+        let decoded = Decode!(&bytes, Error).unwrap();
+        assert_eq!(decoded.code(), diagnostic.error_code());
+        assert_eq!(decoded.core_facts().unwrap(), facts[..length]);
+    }
+}
+
+#[test]
 fn relation_contract_identity_survives_facade_and_candid() {
     use icydb_diagnostic_code::{
         Diagnostic, DiagnosticCode, DiagnosticComponentKind, DiagnosticFactTag,

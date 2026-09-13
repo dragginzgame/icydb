@@ -2,6 +2,30 @@ use crate::build::schema_write;
 
 use super::*;
 
+#[test]
+fn memory_profiles_have_one_default_and_fixed_bucket_sizes() {
+    let canister = Canister::new(
+        Def::new("profile", "Canister"),
+        "profile",
+        100,
+        254,
+        254,
+        252,
+        253,
+        None,
+    );
+    assert_eq!(canister.memory_profile(), CanisterMemoryProfile::General);
+    for (profile, pages) in [
+        (CanisterMemoryProfile::Compact, 4),
+        (CanisterMemoryProfile::General, 16),
+        (CanisterMemoryProfile::HighHeadroom, 128),
+    ] {
+        let configured = canister.clone().with_memory_profile(profile);
+        assert_eq!(configured.memory_profile().bucket_size_pages(), pages);
+        assert_eq!(configured.commit_stable_key(), canister.commit_stable_key());
+    }
+}
+
 fn insert_canister(path_module: &'static str, ident: &'static str) -> Canister {
     let canister = Canister::new(
         Def::new(path_module, ident),

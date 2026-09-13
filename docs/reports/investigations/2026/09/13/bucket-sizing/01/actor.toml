@@ -1,0 +1,18 @@
+[package]
+name = "icydb-bucket-actor"
+version = "0.0.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+candid = "=0.10.35"
+ic-cdk = "=0.20.2"
+ic-memory = "=0.13.2"
+icydb = { path = "/home/adam/projects/icydb/crates/icydb", default-features = false }
+icydb-testing-test-sql-fixtures = { path = "/home/adam/projects/icydb/schema/test/sql" }
+
+[build-dependencies]
+icydb = { path = "/home/adam/projects/icydb/crates/icydb", default-features = false }
+icydb-testing-test-sql-fixtures = { path = "/home/adam/projects/icydb/schema/test/sql" }

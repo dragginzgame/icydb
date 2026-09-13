@@ -41,9 +41,10 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
   `cargo fmt --all --check` matches CI's Rustfmt check; `make fmt-check` also
   enforces the repository's manifest and derive sorting policy.
 - The sole repository hook is a formatting-only pre-commit hook. It runs
-  `make fmt`, aborts when formatting changes files, and never stages them.
-  Partially staged Rust or Cargo-manifest paths are rejected because their
-  exact staged snapshot cannot be proved by formatting the working tree.
+  `make fmt`, refreshes already fully staged Rust/Cargo-manifest paths, and
+  continues the commit. Other formatted files remain unstaged. Partially staged
+  formatter inputs are rejected before formatting to avoid committing unrelated
+  edits. Formatter failures still stop the commit without refreshing the index.
 - `git push` performs no repository validation. `make test`, `make clippy`, and
   `make check` run only the operation they name; `make validate` explicitly
   composes the complete local validation workflow. Release preparation runs
