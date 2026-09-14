@@ -23,6 +23,27 @@ pub(crate) fn lower_text(input: &str) -> String {
     lowercase_text(input)
 }
 
+/// Conservative construction allowance for `lower_text` on the pinned Rust
+/// 1.98.1 implementation: cumulative requested backing and byte-work units.
+/// This is not allocator telemetry or an IC instruction estimate.
+#[must_use]
+pub(crate) fn lower_text_construction_allowance(input_len: usize) -> (u64, u64) {
+    let len = input_len as u64;
+    if len <= 1 {
+        // Empty/single-byte UTF-8 is necessarily ASCII and never grows:
+        // inspect, copy, then lowercase the copied bytes in place.
+        return (len, len.saturating_mul(3));
+    }
+    // Unicode lowercase output is at most twice the input byte length (the
+    // exhaustive mapping test pins this). Rust starts at `len`, then at most
+    // once grows to max(2 * len, 8), including its small byte-vector minimum.
+    let backing = len.saturating_add(len.saturating_mul(2).max(8));
+    // Input work: ASCII check (n), ASCII-prefix conversion (<=2n), scalar walk
+    // (n), and final-sigma context scans (<=2n: Sigma is not case-ignorable).
+    // Backing also covers output fills and the retained-prefix copy on growth.
+    (backing, len.saturating_mul(6).saturating_add(backing))
+}
+
 /// Apply the canonical `UPPER` transform used by query and index expressions.
 #[must_use]
 pub(crate) fn upper_text(input: &str) -> String {
@@ -130,7 +151,31 @@ impl Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{casefold_text, lower_text, upper_text};
+    use super::{casefold_text, lower_text, lower_text_construction_allowance, upper_text};
+
+    #[test]
+    fn lowercase_allowance_covers_unicode_expansion_and_output_growth() {
+        // Allocation-free qualification of every scalar mapping in the pinned
+        // toolchain. Contextual sigma changes spelling, not UTF-8 width.
+        for scalar in (0..=u32::from(char::MAX)).filter_map(char::from_u32) {
+            let output_bytes: usize = scalar.to_lowercase().map(char::len_utf8).sum();
+            assert!(output_bytes <= 2 * scalar.len_utf8(), "{scalar:?}");
+        }
+        for text in ["", "A", "İ", "Aİ", "İΣ", "ΟΣ\u{301}", "ΣΑ", "ASCII"] {
+            for repeats in [1, 2, 16, 1024] {
+                let input = text.repeat(repeats);
+                let output = lower_text(&input);
+                let (backing, _) = lower_text_construction_allowance(input.len());
+                let requested = if output.capacity() > input.len() {
+                    input.len() + output.capacity()
+                } else {
+                    input.len()
+                };
+                assert!(requested as u64 <= backing);
+                assert_eq!(output, input.to_lowercase());
+            }
+        }
+    }
 
     #[test]
     fn canonical_text_transforms_preserve_current_ascii_and_unicode_semantics() {

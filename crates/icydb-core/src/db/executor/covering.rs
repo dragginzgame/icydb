@@ -16,9 +16,11 @@ use crate::{
             FlatMergeStream, IndexComponentRow, IndexComponentRows, IndexComponentValues,
             IndexScan, KeyOrderComparator, PrefixSetExecutionShape, PrefixSetMergeSafety,
             active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
-            branch_stream_chunk_entries, budget::charge_current_execution_budget,
+            branch_stream_chunk_entries,
+            budget::{ExecutionConstructionBudget, charge_current_execution_budget},
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
-            index_stream_output_limit_for_chunk, route::IndexPrefixChildExpansionBudget,
+            index_stream_output_limit_for_chunk,
+            route::IndexPrefixChildExpansionBudget,
         },
         index::{
             RawIndexStoreKey, decode_canonical_index_int64_component,
@@ -256,7 +258,7 @@ where
     match PrefixSetExecutionShape::from_active_prefixes(active_specs, scan.merge_safety) {
         PrefixSetExecutionShape::Empty => Ok(Some(Vec::new())),
         PrefixSetExecutionShape::Single(active) => {
-            let (lower, upper) = active.prefix.raw_bounds()?;
+            let (lower, upper) = active.prefix.raw_bounds(&ExecutionConstructionBudget)?;
             resolve_covering_projection_components_for_index_bounds(
                 active.store,
                 entity_tag,
@@ -302,7 +304,7 @@ where
                 covering_branch_stream_chunk_entries(index_fetch_hint, active_specs.len());
             let mut streams = Vec::with_capacity(active_specs.len());
             for active in active_specs {
-                let (lower, upper) = active.prefix.raw_bounds()?;
+                let (lower, upper) = active.prefix.raw_bounds(&ExecutionConstructionBudget)?;
                 streams.push(CoveringComponentStreamBox::prefix(
                     active.store,
                     entity_tag,
@@ -339,7 +341,7 @@ fn direct_covering_prefix_merge_bounds(
         .checked_mul(size_of::<RawIndexBounds>())
         .ok_or_else(InternalError::executor_invariant)?;
     let retained_bytes = active_specs.iter().try_fold(slot_bytes, |bytes, active| {
-        let (lower, upper) = active.prefix.raw_bounds()?;
+        let (lower, upper) = active.prefix.raw_bounds(&ExecutionConstructionBudget)?;
         bytes
             .checked_add(RawIndexStoreKey::bound_backing_bytes(lower))
             .and_then(|bytes| bytes.checked_add(RawIndexStoreKey::bound_backing_bytes(upper)))
@@ -359,7 +361,7 @@ fn direct_covering_prefix_merge_bounds(
         .try_reserve_exact(active_specs.len())
         .map_err(|_| InternalError::executor_internal())?;
     for active in active_specs {
-        let (lower, upper) = active.prefix.raw_bounds()?;
+        let (lower, upper) = active.prefix.raw_bounds(&ExecutionConstructionBudget)?;
         bounds.push((lower.clone(), upper.clone()));
     }
 
@@ -382,7 +384,7 @@ fn resolve_branch_ordered_covering_projection_components_for_prefix_set(
         }
 
         let remaining = scan.limit.saturating_sub(rows.len());
-        let (lower, upper) = active.prefix.raw_bounds()?;
+        let (lower, upper) = active.prefix.raw_bounds(&ExecutionConstructionBudget)?;
         let mut stream = CoveringComponentStreamBox::prefix(
             active.store,
             entity_tag,
@@ -411,7 +413,7 @@ fn sort_active_covering_prefix_specs_by_raw_lower_key(
 ) -> Result<(), InternalError> {
     let mut keyed_specs = Vec::with_capacity(specs.len());
     for spec in specs.drain(..) {
-        let (lower, _upper) = spec.prefix.raw_bounds()?;
+        let (lower, _upper) = spec.prefix.raw_bounds(&ExecutionConstructionBudget)?;
         let Bound::Included(raw_key) = lower else {
             return Err(InternalError::query_executor_invariant());
         };

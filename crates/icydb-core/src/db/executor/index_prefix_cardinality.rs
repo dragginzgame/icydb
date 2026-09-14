@@ -7,7 +7,7 @@ use crate::{
     db::{
         access::{AccessPath, IndexShapeDetails, LoweredIndexPrefixSpec},
         data::DataStore,
-        executor::route::IndexPrefixChildExpansionHint,
+        executor::{budget::ExecutionConstructionBudget, route::IndexPrefixChildExpansionHint},
         index::{IndexId, IndexKey, IndexKeyKind, UserIndexPrefixCardinalityKey},
         integrity::DatabaseIncarnationId,
         query::plan::AccessPlannedQuery,
@@ -266,6 +266,7 @@ pub(in crate::db::executor) fn expand_index_prefix_family_with_exact_child_prefi
             index.index_contract(),
             IndexKeyKind::User,
             child_prefix,
+            &ExecutionConstructionBudget,
         )?);
     }
 
@@ -409,7 +410,9 @@ fn exact_cardinality_index_id_from_lowered_spec(spec: &LoweredIndexPrefixSpec) -
         return None;
     }
 
-    let Ok(Bound::Included(raw_key)) = spec.lower() else {
+    // Deferred specs returned their identity above without materialization.
+    // This branch only borrows already-built bounds and cannot charge a budget.
+    let Ok(Bound::Included(raw_key)) = spec.lower(&ExecutionConstructionBudget) else {
         return None;
     };
     let key = IndexKey::try_from_raw(raw_key).ok()?;

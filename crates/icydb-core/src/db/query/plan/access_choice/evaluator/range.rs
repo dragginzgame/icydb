@@ -9,8 +9,8 @@ use crate::db::{
         },
         field_key_contract_supports_operator,
         key_item_match::{
-            eq_lookup_value_for_key_item, key_item_matches_field_and_coercion,
-            starts_with_lookup_value_for_key_item,
+            key_item_matches_field_and_coercion, key_item_supports_lookup_value,
+            key_item_supports_starts_with_value,
         },
         planner::index_literal_matches_schema,
     },
@@ -211,15 +211,13 @@ fn evaluate_starts_with_range_compare_candidate(
     let (leading_key_item, literal_compatible) =
         prepare_single_range_compare_context(index_contract, schema, cmp)?;
 
-    if starts_with_lookup_value_for_key_item(
+    if key_item_supports_starts_with_value(
         leading_key_item,
         cmp.field.as_str(),
         cmp.value(),
         cmp.coercion.id,
         literal_compatible,
-    )
-    .is_some()
-    {
+    ) {
         return Ok(());
     }
 
@@ -241,15 +239,13 @@ fn evaluate_ordered_range_compare_candidate(
     let (leading_key_item, literal_compatible) =
         prepare_single_range_compare_context(index_contract, schema, cmp)?;
 
-    if eq_lookup_value_for_key_item(
+    if !key_item_supports_lookup_value(
         leading_key_item,
         cmp.field.as_str(),
         cmp.value(),
         cmp.coercion.id,
         literal_compatible,
-    )
-    .is_none()
-    {
+    ) {
         ensure_leading_lookup_match(
             leading_key_item,
             cmp.field.as_str(),

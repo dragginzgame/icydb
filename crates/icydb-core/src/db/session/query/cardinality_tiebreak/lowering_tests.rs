@@ -9,7 +9,7 @@ use crate::{
         },
         executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         index::{
-            EncodedValue, IndexId, TextPrefixBoundMode,
+            EncodedValue, IndexId, IndexKey, TextPrefixBoundMode,
             build_index_component_range_with_encoded_prefix,
             encode_accepted_index_literal_component, starts_with_component_bounds,
         },
@@ -255,8 +255,23 @@ fn composite_spec_growth_charges_replacement_backing_and_preserves_order() {
     let access = AccessPlan::Union(vec![candidates[0].access().clone(); 5]);
     // The fifth prefix grows the buffer from four to eight. Charge the new
     // eight-slot allocation, including the retained prefix, not just four slots.
-    let bytes =
-        ((4 + 8) * size_of::<LoweredIndexPrefixSpec>() + 5 * size_of::<EncodedValue>()) as u64;
+    let (index, values) = candidates[0]
+        .access()
+        .as_path()
+        .unwrap()
+        .as_index_prefix_contract()
+        .unwrap();
+    let encoded: Vec<_> = values
+        .iter()
+        .map(|value| EncodedValue::try_from_ref(value).unwrap())
+        .collect();
+    let raw_bytes = IndexKey::raw_prefix_bounds_retained_capacity(index.key_arity(), &encoded);
+    let scalar_bytes: usize = encoded
+        .into_iter()
+        .map(|value| value.into_bytes().capacity())
+        .sum();
+    let bytes = ((4 + 8) * size_of::<LoweredIndexPrefixSpec>()
+        + 5 * (size_of::<EncodedValue>() + raw_bytes + scalar_bytes)) as u64;
     for limit in [bytes - 1, bytes] {
         let root = RequestExecutionRoot::new_for_tests(
             HardExecutionBudget::uniform_for_tests(
@@ -298,8 +313,30 @@ fn multi_lookup_reservation_preserves_deferred_raw_bounds() {
         let access: AccessPlan<Value> =
             AccessPlan::index_multi_lookup_from_contract(index.clone(), values.clone());
         let capacity = if width == 0 { 0 } else { width.max(4) };
+        let scalar_bytes: usize = values
+            .iter()
+            .map(|value| {
+                EncodedValue::try_from_ref(value)
+                    .unwrap()
+                    .into_bytes()
+                    .capacity()
+            })
+            .sum();
+        let raw_bytes: usize = if width < 32 {
+            values
+                .iter()
+                .map(|value| {
+                    let encoded = EncodedValue::try_from_ref(value).unwrap();
+                    IndexKey::raw_prefix_bounds_retained_capacity(index.key_arity(), &[encoded])
+                })
+                .sum()
+        } else {
+            0
+        };
         let bytes = (capacity * size_of::<LoweredIndexPrefixSpec>()
-            + width * size_of::<EncodedValue>()) as u64;
+            + width * size_of::<EncodedValue>()
+            + raw_bytes
+            + scalar_bytes) as u64;
         let root = RequestExecutionRoot::new_for_tests(
             HardExecutionBudget::uniform_for_tests(
                 16_000_000,
@@ -336,8 +373,8 @@ fn multi_lookup_reservation_preserves_deferred_raw_bounds() {
                 .into_index_specs();
                 assert_eq!(spec.prefix_components(), expected[0].prefix_components());
                 assert_eq!(
-                    spec.raw_bounds().unwrap(),
-                    expected[0].raw_bounds().unwrap()
+                    spec.raw_bounds(work).unwrap(),
+                    expected[0].raw_bounds(work).unwrap()
                 );
             }
         });
@@ -391,6 +428,7 @@ fn accepted_composite_ranges_preserve_prefix_and_endpoint_contracts() {
                 vec![encoded],
                 &lower,
                 &upper,
+                work,
             )
             .unwrap()
             .into_bounds_and_prefix_components();
@@ -415,4 +453,46 @@ fn accepted_composite_ranges_preserve_prefix_and_endpoint_contracts() {
             assert_eq!(access, original);
         }
     });
+}
+
+#[test]
+fn cardinality_bounds_exhaustion_is_not_unavailable_evidence() {
+    let (_, authority, candidates) = ranking_candidates_for_tests();
+    let access: AccessPlan<Value> = AccessPlan::index_multi_lookup_from_contract(
+        candidates[0].index().clone(),
+        (0..32)
+            .map(|value| Value::Text(format!("value-{value}")))
+            .collect(),
+    );
+    let (prefixes, _) = with_preparation_work(|work| {
+        lower_access_with_schema_info(
+            authority.entity_tag(),
+            &access,
+            authority.accepted_schema_info().unwrap(),
+            work,
+        )
+    })
+    .unwrap()
+    .into_index_specs();
+    let root = RequestExecutionRoot::new_for_tests(
+        HardExecutionBudget::uniform_for_tests(
+            16_000_000,
+            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+        )
+        .with_limit_for_tests(Resource::TemporaryBytes, 0),
+    );
+    let error = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+        super::cardinality_lowered_bytes(&prefixes, work)
+    })
+    .unwrap_err();
+    assert!(error.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::TemporaryBytes.raw()
+    )));
+    assert_eq!(root.observed(Resource::RowsVisited), 0);
+    assert!(
+        with_preparation_work(|work| super::cardinality_lowered_bytes(&prefixes, work))
+            .unwrap()
+            .is_some()
+    );
 }

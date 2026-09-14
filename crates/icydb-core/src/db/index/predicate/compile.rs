@@ -3,20 +3,27 @@
 //! Does not own: predicate resolution or runtime key scanning.
 //! Boundary: planner/load uses this at compile/preflight time.
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{
         index::{
             IndexCompareOp, IndexLiteral, IndexPredicateProgram, TextPrefixBoundMode,
-            predicate::literal_index_component_bytes, starts_with_component_bounds,
+            admit_text_prefix_bounds, predicate::literal_index_component_bytes,
+            starts_with_component_bounds,
         },
         predicate::{
             CompareOp, ExecutableComparePredicate, ExecutablePredicate, IndexCompileTarget,
-            IndexPredicateCapability, PredicateCapabilityContext, classify_index_compare_component,
+            IndexPredicateCapability, PredicateCapabilityContext,
+            admit_index_compare_literal_for_kind, classify_index_compare_component,
             classify_index_compare_target, classify_predicate_capabilities,
-            classify_predicate_capabilities_for_targets, lower_index_compare_literal_for_target,
+            classify_predicate_capabilities_for_targets, lower_index_compare_literal_for_kind,
             lower_index_starts_with_prefix_for_target,
         },
+        query::construction::ConstructionBudget,
     },
+    error::InternalError,
     value::Value,
 };
 use std::ops::Bound;
@@ -61,63 +68,92 @@ impl ComponentBoundProgram {
     }
 }
 
-/// Compile one optional index-only predicate program from one resolved predicate.
-/// This is the single compile-mode switch boundary for subset vs strict policy.
-#[must_use]
+/// Compile using structural slots. Unsupported syntax is a successful absence;
+/// construction failure must never be treated as an optional optimization miss.
 pub(crate) fn compile_index_program(
     predicate: &ExecutablePredicate,
     index_slots: &[usize],
     mode: IndexCompilePolicy,
-) -> Option<IndexPredicateProgram> {
-    // Single policy switch boundary for conservative vs strict compilation.
-    match mode {
-        IndexCompilePolicy::ConservativeSubset => {
-            compile_index_program_from_resolved(predicate, index_slots)
-        }
-        IndexCompilePolicy::StrictAllOrNone => {
-            let capabilities = classify_predicate_capabilities(
-                predicate,
-                PredicateCapabilityContext::index_compile(index_slots),
-            );
-            match capabilities.index() {
-                IndexPredicateCapability::FullyIndexable => {
-                    compile_index_program_from_resolved_full(predicate, index_slots)
-                }
-                IndexPredicateCapability::PartiallyIndexable
-                | IndexPredicateCapability::RequiresFullScan => None,
-            }
-        }
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<IndexPredicateProgram>, InternalError> {
+    if mode == IndexCompilePolicy::StrictAllOrNone
+        && classify_predicate_capabilities(
+            predicate,
+            PredicateCapabilityContext::index_compile(index_slots),
+        )
+        .index()
+            != IndexPredicateCapability::FullyIndexable
+    {
+        return Ok(None);
     }
+
+    compile_tree(predicate, mode, &mut |cmp| {
+        let Some(component_index) = classify_index_compare_component(cmp, index_slots) else {
+            return Ok(None);
+        };
+        compile_compare(
+            cmp,
+            component_index,
+            &mut |value| literal_index_component_bytes(value, budget),
+            budget,
+        )
+    })
 }
 
-/// Compile one optional index-only predicate program from one resolved
-/// predicate using key-item-aware compile targets.
-#[must_use]
+/// Compile using planner-frozen key-item targets, sharing the boolean traversal
+/// and canonical scalar encoder with structural-slot compilation.
 pub(crate) fn compile_index_program_for_targets(
     predicate: &ExecutablePredicate,
     compile_targets: &[IndexCompileTarget],
     mode: IndexCompilePolicy,
-) -> Option<IndexPredicateProgram> {
-    match mode {
-        IndexCompilePolicy::ConservativeSubset => {
-            compile_index_program_from_resolved_for_targets(predicate, compile_targets)
-        }
-        IndexCompilePolicy::StrictAllOrNone => {
-            let capabilities =
-                classify_predicate_capabilities_for_targets(predicate, compile_targets);
-            match capabilities.index() {
-                IndexPredicateCapability::FullyIndexable => {
-                    compile_index_program_from_resolved_full_for_targets(predicate, compile_targets)
-                }
-                IndexPredicateCapability::PartiallyIndexable
-                | IndexPredicateCapability::RequiresFullScan => None,
-            }
-        }
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<IndexPredicateProgram>, InternalError> {
+    if mode == IndexCompilePolicy::StrictAllOrNone
+        && classify_predicate_capabilities_for_targets(predicate, compile_targets).index()
+            != IndexPredicateCapability::FullyIndexable
+    {
+        return Ok(None);
     }
+
+    compile_tree(predicate, mode, &mut |cmp| {
+        let Some(target) = classify_index_compare_target(cmp, compile_targets) else {
+            return Ok(None);
+        };
+        if cmp.op == CompareOp::StartsWith {
+            let Some(value) = cmp.right_literal() else {
+                return Ok(None);
+            };
+            admit_index_compare_literal_for_kind(target.kind, value, cmp.coercion.id, budget)?;
+            let Some(prefix) =
+                lower_index_starts_with_prefix_for_target(target, value, cmp.coercion.id)
+            else {
+                return Ok(None);
+            };
+            return compile_text_prefix_bounds_for_component(
+                target.component_index,
+                &prefix,
+                budget,
+            );
+        }
+
+        compile_compare(
+            cmp,
+            target.component_index,
+            &mut |value| {
+                admit_index_compare_literal_for_kind(target.kind, value, cmp.coercion.id, budget)?;
+                let Some(lowered) =
+                    lower_index_compare_literal_for_kind(target.kind, value, cmp.coercion.id)
+                else {
+                    return Ok(None);
+                };
+                literal_index_component_bytes(&lowered, budget)
+            },
+            budget,
+        )
+    })
 }
 
-// Map one predicate compare operator to the equivalent index compare opcode
-// when the index compiler can represent it directly.
+// Map semantic compare operators to the existing index opcodes.
 const fn index_compare_op(op: CompareOp) -> Option<IndexCompareOp> {
     match op {
         CompareOp::Eq => Some(IndexCompareOp::Eq),
@@ -132,108 +168,55 @@ const fn index_compare_op(op: CompareOp) -> Option<IndexCompareOp> {
     }
 }
 
-/// Compile one resolved predicate tree into one index-only program.
-fn compile_index_program_from_resolved(
+// One traversal for both slot and target compilers. Subset policy only flows
+// through AND: OR and NOT always require every child to compile.
+fn compile_tree(
     predicate: &ExecutablePredicate,
-    index_slots: &[usize],
-) -> Option<IndexPredicateProgram> {
-    // Compile a safe AND-subset: unsupported AND children are dropped so
-    // index-only filtering remains conservative (no false negatives).
-    if let ExecutablePredicate::And(children) = predicate {
-        return compile_index_program_and_subset(children, index_slots);
-    }
-
-    compile_index_program_from_resolved_full(predicate, index_slots)
-}
-
-// Compile one resolved predicate tree into one index-only program using
-// key-item-aware compile targets.
-fn compile_index_program_from_resolved_for_targets(
-    predicate: &ExecutablePredicate,
-    compile_targets: &[IndexCompileTarget],
-) -> Option<IndexPredicateProgram> {
-    if let ExecutablePredicate::And(children) = predicate {
-        return compile_index_program_and_subset_for_targets(children, compile_targets);
-    }
-
-    compile_index_program_from_resolved_full_for_targets(predicate, compile_targets)
-}
-
-/// Compile an AND node by retaining only safely compilable children.
-fn compile_index_program_and_subset(
-    children: &[ExecutablePredicate],
-    index_slots: &[usize],
-) -> Option<IndexPredicateProgram> {
-    compile_index_program_and_subset_with(children, &mut |child| {
-        compile_index_program_from_resolved_full(child, index_slots)
-    })
-}
-
-// Compile an AND node by retaining only safely compilable children for one
-// key-item-aware compile target set.
-fn compile_index_program_and_subset_for_targets(
-    children: &[ExecutablePredicate],
-    compile_targets: &[IndexCompileTarget],
-) -> Option<IndexPredicateProgram> {
-    compile_index_program_and_subset_with(children, &mut |child| {
-        compile_index_program_from_resolved_full_for_targets(child, compile_targets)
-    })
-}
-
-fn compile_index_program_and_subset_with(
-    children: &[ExecutablePredicate],
-    compile_child: &mut impl FnMut(&ExecutablePredicate) -> Option<IndexPredicateProgram>,
-) -> Option<IndexPredicateProgram> {
-    let mut compiled = Vec::new();
-    for child in children {
-        let child_program = if let ExecutablePredicate::And(nested) = child {
-            // Nested AND nodes can also be safely reduced to a conjunction subset.
-            compile_index_program_and_subset_with(nested, compile_child)
-        } else {
-            compile_child(child)
-        };
-
-        let Some(child_program) = child_program else {
-            continue;
-        };
-        match child_program {
-            IndexPredicateProgram::True => {}
-            IndexPredicateProgram::False => return Some(IndexPredicateProgram::False),
-            other => compiled.push(other),
-        }
-    }
-
-    match compiled.len() {
-        0 => None,
-        1 => compiled.pop(),
-        _ => Some(IndexPredicateProgram::And(compiled)),
-    }
-}
-
-/// Compile one resolved predicate tree only when every node is supported.
-fn compile_index_program_from_resolved_full(
-    predicate: &ExecutablePredicate,
-    index_slots: &[usize],
-) -> Option<IndexPredicateProgram> {
-    match predicate {
+    policy: IndexCompilePolicy,
+    compare: &mut impl FnMut(
+        &ExecutableComparePredicate,
+    ) -> Result<Option<IndexPredicateProgram>, InternalError>,
+) -> Result<Option<IndexPredicateProgram>, InternalError> {
+    let program = match predicate {
         ExecutablePredicate::True => Some(IndexPredicateProgram::True),
         ExecutablePredicate::False => Some(IndexPredicateProgram::False),
-        ExecutablePredicate::And(children) => Some(IndexPredicateProgram::And(
-            children
-                .iter()
-                .map(|child| compile_index_program_from_resolved_full(child, index_slots))
-                .collect::<Option<Vec<_>>>()?,
-        )),
-        ExecutablePredicate::Or(children) => Some(IndexPredicateProgram::Or(
-            children
-                .iter()
-                .map(|child| compile_index_program_from_resolved_full(child, index_slots))
-                .collect::<Option<Vec<_>>>()?,
-        )),
-        ExecutablePredicate::Not(inner) => Some(IndexPredicateProgram::Not(Box::new(
-            compile_index_program_from_resolved_full(inner, index_slots)?,
-        ))),
-        ExecutablePredicate::Compare(cmp) => compile_compare_index_node(cmp, index_slots),
+        ExecutablePredicate::And(children) | ExecutablePredicate::Or(children) => {
+            let is_and = matches!(predicate, ExecutablePredicate::And(_));
+            let subset = is_and && policy == IndexCompilePolicy::ConservativeSubset;
+            let mut compiled = Vec::new();
+            for child in children {
+                let child_policy = if subset {
+                    policy
+                } else {
+                    IndexCompilePolicy::StrictAllOrNone
+                };
+                let Some(program) = compile_tree(child, child_policy, compare)? else {
+                    if subset {
+                        continue;
+                    }
+                    return Ok(None);
+                };
+                match program {
+                    IndexPredicateProgram::True if subset => {}
+                    IndexPredicateProgram::False if subset => {
+                        return Ok(Some(IndexPredicateProgram::False));
+                    }
+                    program => compiled.push(program),
+                }
+            }
+            if subset && compiled.len() <= 1 {
+                compiled.pop()
+            } else if is_and {
+                Some(IndexPredicateProgram::And(compiled))
+            } else {
+                Some(IndexPredicateProgram::Or(compiled))
+            }
+        }
+        ExecutablePredicate::Not(inner) => {
+            compile_tree(inner, IndexCompilePolicy::StrictAllOrNone, compare)?
+                .map(|program| IndexPredicateProgram::Not(Box::new(program)))
+        }
+        ExecutablePredicate::Compare(cmp) => return compare(cmp),
         ExecutablePredicate::IsNull { .. }
         | ExecutablePredicate::IsNotNull { .. }
         | ExecutablePredicate::IsMissing { .. }
@@ -241,215 +224,114 @@ fn compile_index_program_from_resolved_full(
         | ExecutablePredicate::IsNotEmpty { .. }
         | ExecutablePredicate::TextContains { .. }
         | ExecutablePredicate::TextContainsCi { .. } => None,
-    }
+    };
+
+    Ok(program)
 }
 
-// Compile one resolved predicate tree only when every node is supported for
-// one key-item-aware compile target set.
-fn compile_index_program_from_resolved_full_for_targets(
-    predicate: &ExecutablePredicate,
-    compile_targets: &[IndexCompileTarget],
-) -> Option<IndexPredicateProgram> {
-    match predicate {
-        ExecutablePredicate::True => Some(IndexPredicateProgram::True),
-        ExecutablePredicate::False => Some(IndexPredicateProgram::False),
-        ExecutablePredicate::And(children) => Some(IndexPredicateProgram::And(
-            children
-                .iter()
-                .map(|child| {
-                    compile_index_program_from_resolved_full_for_targets(child, compile_targets)
-                })
-                .collect::<Option<Vec<_>>>()?,
-        )),
-        ExecutablePredicate::Or(children) => Some(IndexPredicateProgram::Or(
-            children
-                .iter()
-                .map(|child| {
-                    compile_index_program_from_resolved_full_for_targets(child, compile_targets)
-                })
-                .collect::<Option<Vec<_>>>()?,
-        )),
-        ExecutablePredicate::Not(inner) => Some(IndexPredicateProgram::Not(Box::new(
-            compile_index_program_from_resolved_full_for_targets(inner, compile_targets)?,
-        ))),
-        ExecutablePredicate::Compare(cmp) => {
-            compile_compare_index_node_for_targets(cmp, compile_targets)
-        }
-        ExecutablePredicate::IsNull { .. }
-        | ExecutablePredicate::IsNotNull { .. }
-        | ExecutablePredicate::IsMissing { .. }
-        | ExecutablePredicate::IsEmpty { .. }
-        | ExecutablePredicate::IsNotEmpty { .. }
-        | ExecutablePredicate::TextContains { .. }
-        | ExecutablePredicate::TextContainsCi { .. } => None,
-    }
-}
-
-/// Compile one resolved compare node into index-only compare bytes.
-fn compile_compare_index_node(
+// Scalar and membership assembly share one fallible literal translation owner.
+// Target coercion remains in the predicate subsystem, not this encoder.
+fn compile_compare(
     cmp: &ExecutableComparePredicate,
-    index_slots: &[usize],
-) -> Option<IndexPredicateProgram> {
-    // Capability classification owns index eligibility; translation only runs
-    // once the compare node is known to be indexable for this slot projection.
-    let component_index = classify_index_compare_component(cmp, index_slots)?;
-    let literal_value = cmp.right_literal()?;
-
-    if cmp.op.is_equality_family() || cmp.op.is_ordering_family() {
-        let literal = literal_index_component_bytes(literal_value)?;
-
-        Some(IndexPredicateProgram::Compare {
-            component_index,
-            op: index_compare_op(cmp.op)?,
-            literal: IndexLiteral::One(literal),
-        })
-    } else if cmp.op.is_membership_family() {
-        let Value::List(items) = literal_value else {
-            return None;
+    component_index: usize,
+    encode: &mut impl FnMut(&Value) -> Result<Option<Vec<u8>>, InternalError>,
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<IndexPredicateProgram>, InternalError> {
+    let Some(value) = cmp.right_literal() else {
+        return Ok(None);
+    };
+    if cmp.op == CompareOp::StartsWith {
+        let Value::Text(prefix) = value else {
+            return Ok(None);
         };
-        if items.is_empty() {
-            return None;
+        return compile_text_prefix_bounds_for_component(component_index, prefix, budget);
+    }
+    let Some(op) = index_compare_op(cmp.op) else {
+        return Ok(None);
+    };
+    let literal = if cmp.op.is_membership_family() {
+        let Value::List(items) = value else {
+            return Ok(None);
+        };
+        let mut literals = Vec::with_capacity(items.len());
+        for item in items {
+            let Some(bytes) = encode(item)? else {
+                return Ok(None);
+            };
+            literals.push(bytes);
         }
-        let literals = items
-            .iter()
-            .map(literal_index_component_bytes)
-            .collect::<Option<Vec<_>>>()?;
-
-        Some(IndexPredicateProgram::Compare {
-            component_index,
-            op: index_compare_op(cmp.op)?,
-            literal: compile_index_many_literal(literals)?,
-        })
-    } else if matches!(cmp.op, CompareOp::StartsWith) {
-        compile_starts_with_index_node(component_index, literal_value)
+        compile_index_many_literal(literals)
     } else {
-        None
-    }
-}
+        encode(value)?.map(IndexLiteral::One)
+    };
 
-// Compile one resolved compare node into index-only compare bytes for one
-// key-item-aware target set.
-fn compile_compare_index_node_for_targets(
-    cmp: &ExecutableComparePredicate,
-    compile_targets: &[IndexCompileTarget],
-) -> Option<IndexPredicateProgram> {
-    let target = classify_index_compare_target(cmp, compile_targets)?;
-    let literal_value = cmp.right_literal()?;
-
-    if cmp.op.is_equality_family() || cmp.op.is_ordering_family() {
-        let lowered =
-            lower_index_compare_literal_for_target(target, literal_value, cmp.coercion.id)?;
-        let literal = literal_index_component_bytes(&lowered)?;
-
-        Some(IndexPredicateProgram::Compare {
-            component_index: target.component_index,
-            op: index_compare_op(cmp.op)?,
-            literal: IndexLiteral::One(literal),
-        })
-    } else if cmp.op.is_membership_family() {
-        let Value::List(values) = literal_value else {
-            return None;
-        };
-        let literals = values
-            .iter()
-            .map(|value| {
-                let lowered =
-                    lower_index_compare_literal_for_target(target, value, cmp.coercion.id)?;
-                literal_index_component_bytes(&lowered)
-            })
-            .collect::<Option<Vec<_>>>()?;
-
-        Some(IndexPredicateProgram::Compare {
-            component_index: target.component_index,
-            op: index_compare_op(cmp.op)?,
-            literal: compile_index_many_literal(literals)?,
-        })
-    } else if matches!(cmp.op, CompareOp::StartsWith) {
-        compile_starts_with_index_node_for_target(literal_value, cmp.coercion.id, target)
-    } else {
-        None
-    }
+    Ok(literal.map(|literal| IndexPredicateProgram::Compare {
+        component_index,
+        op,
+        literal,
+    }))
 }
 
 fn compile_index_many_literal(mut literals: Vec<Vec<u8>>) -> Option<IndexLiteral> {
     if literals.is_empty() {
         return None;
     }
-
     if literals.len() < INDEX_MANY_BINARY_SEARCH_MIN_CANDIDATES {
         return Some(IndexLiteral::Many(literals));
     }
-
     literals.sort_unstable();
     literals.dedup();
 
     Some(IndexLiteral::ManySorted(literals))
 }
 
-fn compile_starts_with_index_node(
-    component_index: usize,
-    value: &Value,
-) -> Option<IndexPredicateProgram> {
-    let Value::Text(prefix) = value else {
-        return None;
-    };
-    if prefix.is_empty() {
-        return None;
-    }
-
-    compile_text_prefix_bounds_for_component(component_index, prefix)
-}
-
-// Compile one starts-with compare node into one canonical bounded text range
-// for one key-item-aware compile target.
-fn compile_starts_with_index_node_for_target(
-    value: &Value,
-    coercion: crate::db::predicate::CoercionId,
-    target: IndexCompileTarget,
-) -> Option<IndexPredicateProgram> {
-    let prefix = lower_index_starts_with_prefix_for_target(target, value, coercion)?;
-
-    compile_text_prefix_bounds_for_component(target.component_index, &prefix)
-}
-
-// Compile one text-prefix interval through the same semantic prefix-bound
-// authority used by planner range extraction and raw access lowering.
+// Admit semantic strings/scan first, then each separately encoded scalar buffer.
 fn compile_text_prefix_bounds_for_component(
     component_index: usize,
     prefix: &str,
-) -> Option<IndexPredicateProgram> {
-    let (lower, upper) = starts_with_component_bounds(prefix, TextPrefixBoundMode::Strict)?;
-    let lower = compile_component_bound(component_index, &lower, true)?;
-    let upper = compile_component_bound(component_index, &upper, false)?;
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<IndexPredicateProgram>, InternalError> {
+    admit_text_prefix_bounds(prefix, TextPrefixBoundMode::Strict, budget)?;
+    let Some((lower, upper)) = starts_with_component_bounds(prefix, TextPrefixBoundMode::Strict)
+    else {
+        return Ok(None);
+    };
+    let Some(lower) = compile_component_bound(component_index, &lower, true, budget)? else {
+        return Ok(None);
+    };
+    let Some(upper) = compile_component_bound(component_index, &upper, false, budget)? else {
+        return Ok(None);
+    };
 
-    match (lower.into_program(), upper.into_program()) {
+    Ok(match (lower.into_program(), upper.into_program()) {
         (None, None) => None,
         (Some(program), None) | (None, Some(program)) => Some(program),
         (Some(lower), Some(upper)) => Some(IndexPredicateProgram::And(vec![lower, upper])),
-    }
+    })
 }
 
-// Convert one semantic component bound into the equivalent byte-level predicate
-// comparison used by index-only predicate execution.
+// Convert semantic bounds without swallowing construction failures.
 fn compile_component_bound(
     component_index: usize,
     bound: &Bound<Value>,
     lower: bool,
-) -> Option<ComponentBoundProgram> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<ComponentBoundProgram>, InternalError> {
     let (value, op) = match (bound, lower) {
-        (Bound::Unbounded, _) => return Some(ComponentBoundProgram::Unbounded),
+        (Bound::Unbounded, _) => return Ok(Some(ComponentBoundProgram::Unbounded)),
         (Bound::Included(value), true) => (value, IndexCompareOp::Gte),
         (Bound::Excluded(value), true) => (value, IndexCompareOp::Gt),
         (Bound::Included(value), false) => (value, IndexCompareOp::Lte),
         (Bound::Excluded(value), false) => (value, IndexCompareOp::Lt),
     };
-    let literal = literal_index_component_bytes(value)?;
 
-    Some(ComponentBoundProgram::Program(
-        IndexPredicateProgram::Compare {
-            component_index,
-            op,
-            literal: IndexLiteral::One(literal),
-        },
-    ))
+    Ok(
+        literal_index_component_bytes(value, budget)?.map(|literal| {
+            ComponentBoundProgram::Program(IndexPredicateProgram::Compare {
+                component_index,
+                op,
+                literal: IndexLiteral::One(literal),
+            })
+        }),
+    )
 }

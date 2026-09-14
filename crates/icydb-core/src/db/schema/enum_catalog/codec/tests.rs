@@ -3,6 +3,7 @@ use crate::{
     db::schema::{
         AcceptedFieldKind, FieldStorageDecode, TestEnumDefinition, TestEnumVariant,
         build_accepted_enum_catalog_for_tests, empty_accepted_enum_catalog_for_tests,
+        enum_catalog::{EqualityCapability, equality_key::enum_equality_capability},
     },
     error::{ErrorClass, ErrorOrigin},
 };
@@ -138,6 +139,125 @@ fn accepted_enum_catalog_codec_round_trips_canonical_catalog() {
     let decoded = decode_accepted_enum_catalog(&encoded).expect("catalog should decode");
 
     assert_eq!(decoded, catalog);
+}
+
+#[test]
+fn equality_capability_matches_initial_and_decoded_definitions_without_wire_metadata() {
+    let type_id = EnumTypeId::new(1).unwrap();
+    for count in [1, 32, 256] {
+        for payload in [false, true] {
+            let names = (1..=count)
+                .map(|id| format!("V{id:03}"))
+                .collect::<Vec<_>>();
+            let variants = names
+                .iter()
+                .zip(1..=count)
+                .map(|(name, id)| {
+                    (
+                        EnumVariantId::new(id).unwrap(),
+                        (
+                            name.clone(),
+                            (payload && id == count)
+                                .then_some((AcceptedFieldKind::Nat64, FieldStorageDecode::ByKind)),
+                        ),
+                    )
+                })
+                .collect();
+            let catalog = AcceptedEnumCatalog::from_initial_definitions(BTreeMap::from([(
+                type_id,
+                ("codec::Capability".into(), variants),
+            )]))
+            .unwrap();
+            let expected = if payload {
+                EqualityCapability::PairwiseOnly
+            } else {
+                EqualityCapability::CanonicalStableKey
+            };
+            let bytes = encode_accepted_enum_catalog(&catalog).unwrap();
+            let wire = encode_test_wire(
+                ACCEPTED_ENUM_CATALOG_CODEC_VERSION,
+                &[TestType {
+                    id: 1,
+                    path: "codec::Capability",
+                    variants: names
+                        .iter()
+                        .zip(1..=count)
+                        .map(|(name, id)| TestVariant {
+                            id,
+                            name,
+                            body: if payload && id == count {
+                                TestVariantBody::Payload(TestKind::Nat64)
+                            } else {
+                                TestVariantBody::Unit
+                            },
+                        })
+                        .collect(),
+                }],
+            );
+            // The independent current-format fixture contains no derived flag.
+            assert_eq!(bytes, wire);
+            let decoded = decode_accepted_enum_catalog(&bytes).unwrap();
+            for current in [&catalog, &decoded, &decoded.clone()] {
+                assert_eq!(
+                    enum_equality_capability(current, type_id).unwrap(),
+                    expected
+                );
+            }
+            assert_eq!(catalog, decoded);
+            assert_eq!(encode_accepted_enum_catalog(&decoded).unwrap(), bytes);
+        }
+    }
+}
+
+#[test]
+fn equality_capability_follows_rebuilt_bodies_and_survives_renames() {
+    let unit = build_accepted_enum_catalog_for_tests(&[TestEnumDefinition::new(
+        "codec::Status",
+        vec![
+            TestEnumVariant::unit("Ready"),
+            TestEnumVariant::unit("Waiting"),
+        ],
+    )])
+    .unwrap();
+    let type_id = unit.type_id("codec::Status").unwrap();
+    let variant_id = unit
+        .enum_type(type_id)
+        .unwrap()
+        .variant_id("Ready")
+        .unwrap();
+    let renamed = unit
+        .clone()
+        .with_renamed_type(type_id, "codec::Renamed".into())
+        .unwrap()
+        .with_renamed_variant(type_id, variant_id, "Available".into())
+        .unwrap();
+    assert_eq!(
+        enum_equality_capability(&renamed, type_id).unwrap(),
+        EqualityCapability::CanonicalStableKey
+    );
+
+    let mixed = build_accepted_enum_catalog_for_tests(&[TestEnumDefinition::new(
+        "codec::Status",
+        vec![
+            TestEnumVariant::unit("Ready"),
+            TestEnumVariant::payload(
+                "Waiting",
+                AcceptedFieldKind::Nat64,
+                FieldStorageDecode::ByKind,
+            ),
+        ],
+    )])
+    .unwrap();
+    assert_eq!(mixed.type_id("codec::Status"), Some(type_id));
+    assert_eq!(
+        enum_equality_capability(&mixed, type_id).unwrap(),
+        EqualityCapability::PairwiseOnly
+    );
+    assert_eq!(
+        enum_equality_capability(&unit, type_id).unwrap(),
+        EqualityCapability::CanonicalStableKey
+    );
+    assert!(enum_equality_capability(&unit, EnumTypeId::new(u32::MAX).unwrap()).is_err());
 }
 
 #[test]

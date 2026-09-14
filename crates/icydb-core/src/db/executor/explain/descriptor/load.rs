@@ -71,7 +71,7 @@ impl LoadExplainPreparation {
     // capability and strict-compatibility view.
     fn from_plan(plan: &AccessPlannedQuery) -> Self {
         let execution_preparation =
-            ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
+            ExecutionPreparation::from_covering_route_plan(plan, slot_map_for_model_plan(plan));
         let predicate_index_capability = execution_preparation_predicate_index_capability(
             &execution_preparation,
         )
@@ -147,6 +147,7 @@ pub(in crate::db) struct LoadExecutionRouteFacts {
 fn freeze_grouped_load_execution_route_facts(
     plan: &AccessPlannedQuery,
     explain_preparation: LoadExplainPreparation,
+    work: &PreparationWork<'_>,
 ) -> Result<LoadExecutionRouteFacts, InternalError> {
     let grouped_handoff = grouped_executor_handoff(plan)?;
 
@@ -155,6 +156,11 @@ fn freeze_grouped_load_execution_route_facts(
             grouped_handoff.base(),
             RoutePlanRequest::Grouped {
                 grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
+                execution_preparation: &ExecutionPreparation::from_plan(
+                    plan,
+                    slot_map_for_model_plan(plan),
+                    work,
+                )?,
             },
         ),
         explain_preparation,
@@ -598,11 +604,12 @@ fn candidate_residual_burden_label(candidate: &AccessChoiceCandidateExplainSumma
 pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
     authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
+    work: &PreparationWork<'_>,
 ) -> Result<LoadExecutionRouteFacts, InternalError> {
     let explain_preparation = LoadExplainPreparation::from_plan(plan);
 
     if plan.grouped_plan().is_some() {
-        return freeze_grouped_load_execution_route_facts(plan, explain_preparation);
+        return freeze_grouped_load_execution_route_facts(plan, explain_preparation, work);
     }
 
     let load_terminal_fast_path = if plan.scalar_plan().mode.is_load() {

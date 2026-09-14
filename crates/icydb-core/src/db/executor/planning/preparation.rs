@@ -6,19 +6,23 @@
 #[cfg(test)]
 mod tests;
 
-use crate::db::{
-    index::{
-        IndexCompilePolicy, IndexPredicateProgram, compile_index_program,
-        compile_index_program_for_targets,
+use crate::{
+    db::{
+        index::{
+            IndexCompilePolicy, IndexPredicateProgram, compile_index_program,
+            compile_index_program_for_targets,
+        },
+        predicate::{
+            IndexCompileTarget, PredicateCapabilityContext, PredicateCapabilityProfile,
+            PredicateProgram, classify_predicate_capabilities,
+            classify_predicate_capabilities_for_targets,
+        },
+        query::construction::ConstructionBudget,
+        query::plan::{
+            AccessPlannedQuery, EffectiveRuntimeFilterProgram, covering_strict_predicate_compatible,
+        },
     },
-    predicate::{
-        IndexCompileTarget, PredicateCapabilityContext, PredicateCapabilityProfile,
-        PredicateProgram, classify_predicate_capabilities,
-        classify_predicate_capabilities_for_targets,
-    },
-    query::plan::{
-        AccessPlannedQuery, EffectiveRuntimeFilterProgram, covering_strict_predicate_compatible,
-    },
+    error::InternalError,
 };
 use std::borrow::Cow;
 
@@ -53,13 +57,13 @@ impl PreparedIndexProgram {
     fn resolve(
         prepared: Option<&Self>,
         policy: IndexCompilePolicy,
-        compile: impl FnOnce() -> Option<IndexPredicateProgram>,
-    ) -> Option<Cow<'_, IndexPredicateProgram>> {
+        compile: impl FnOnce() -> Result<Option<IndexPredicateProgram>, InternalError>,
+    ) -> Result<Option<Cow<'_, IndexPredicateProgram>>, InternalError> {
         match prepared {
             Some(prepared) if prepared.policy == policy => {
-                prepared.program.as_ref().map(Cow::Borrowed)
+                Ok(prepared.program.as_ref().map(Cow::Borrowed))
             }
-            Some(_) | None => compile().map(Cow::Owned),
+            Some(_) | None => Ok(compile()?.map(Cow::Owned)),
         }
     }
 }
@@ -76,25 +80,24 @@ enum PreparationPredicateSource {
 struct PreparationBuildConfig {
     predicate_source: PreparationPredicateSource,
     include_predicate_capability_profile: bool,
-    index_policy: Option<IndexCompilePolicy>,
 }
 
 impl ExecutionPreparation {
     /// Build execution preparation once for one validated access-planned query.
-    #[must_use]
     pub(in crate::db::executor) fn from_plan(
         plan: &AccessPlannedQuery,
         slot_map: Option<Vec<usize>>,
-    ) -> Self {
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Self, InternalError> {
         Self::build(
             plan,
             slot_map,
             PreparationBuildConfig {
                 predicate_source: PreparationPredicateSource::ExecutionPreparation,
                 include_predicate_capability_profile: true,
-                index_policy: Some(IndexCompilePolicy::StrictAllOrNone),
             },
         )
+        .compile_policy(IndexCompilePolicy::StrictAllOrNone, budget)
     }
 
     /// Build the lighter planner preparation needed by scalar covering-route
@@ -115,7 +118,6 @@ impl ExecutionPreparation {
             PreparationBuildConfig {
                 predicate_source: PreparationPredicateSource::ExecutionPreparation,
                 include_predicate_capability_profile: true,
-                index_policy: None,
             },
         )
     }
@@ -128,20 +130,38 @@ impl ExecutionPreparation {
     /// intentionally skips explain/aggregate-only capability snapshots and the
     /// additional strict predicate program that the scalar load runtime never
     /// consumes after route planning has already completed.
-    #[must_use]
     pub(in crate::db::executor) fn from_runtime_plan(
         plan: &AccessPlannedQuery,
         slot_map: Option<Vec<usize>>,
-    ) -> Self {
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Self, InternalError> {
         Self::build(
             plan,
             slot_map,
             PreparationBuildConfig {
                 predicate_source: PreparationPredicateSource::EffectiveRuntime,
                 include_predicate_capability_profile: false,
-                index_policy: Some(IndexCompilePolicy::ConservativeSubset),
             },
         )
+        .compile_policy(IndexCompilePolicy::ConservativeSubset, budget)
+    }
+
+    // Publish completion only after all requested literal construction succeeds.
+    fn compile_policy(
+        mut self,
+        policy: IndexCompilePolicy,
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Self, InternalError> {
+        let program = compile_index_program_for_preparation(
+            self.compiled_predicate.as_ref(),
+            self.compile_targets.as_deref(),
+            self.slot_map.as_deref(),
+            policy,
+            budget,
+        )?;
+        self.index_program = Some(PreparedIndexProgram { policy, program });
+
+        Ok(self)
     }
 
     #[must_use]
@@ -170,17 +190,18 @@ impl ExecutionPreparation {
     /// Reuse a completed result, or compile an unprepared policy at the same
     /// owner used by eager preparation. `None` never triggers a second compile
     /// when that policy already completed successfully without a program.
-    #[must_use]
     pub(in crate::db::executor) fn resolve_index_program(
         &self,
         policy: IndexCompilePolicy,
-    ) -> Option<Cow<'_, IndexPredicateProgram>> {
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Option<Cow<'_, IndexPredicateProgram>>, InternalError> {
         PreparedIndexProgram::resolve(self.index_program.as_ref(), policy, || {
             compile_index_program_for_preparation(
                 self.compiled_predicate.as_ref(),
                 self.compile_targets.as_deref(),
                 self.slot_map.as_deref(),
                 policy,
+                budget,
             )
         })
     }
@@ -230,24 +251,11 @@ impl ExecutionPreparation {
             None
         };
 
-        // Phase 3: retain completion for the one policy this boundary needs,
-        // including an unsupported result. Lightweight route preparation asks
-        // for no program and leaves on-demand compilation available.
-        let index_program = config.index_policy.map(|policy| PreparedIndexProgram {
-            policy,
-            program: compile_index_program_for_preparation(
-                compiled_predicate.as_ref(),
-                compile_targets.as_deref(),
-                slot_map.as_deref(),
-                policy,
-            ),
-        });
-
         Self {
             compiled_predicate,
             effective_runtime_filter_program,
             compile_targets,
-            index_program,
+            index_program: None,
             predicate_capability_profile,
             slot_map,
         }
@@ -309,17 +317,19 @@ fn compile_index_program_for_preparation(
     compile_targets: Option<&[IndexCompileTarget]>,
     slot_map: Option<&[usize]>,
     policy: IndexCompilePolicy,
-) -> Option<IndexPredicateProgram> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<IndexPredicateProgram>, InternalError> {
     match (compiled_predicate, compile_targets, slot_map) {
         (Some(compiled_predicate), Some(compile_targets), _) => compile_index_program_for_targets(
             compiled_predicate.executable(),
             compile_targets,
             policy,
+            budget,
         ),
         (Some(compiled_predicate), None, Some(slot_map)) => {
-            compile_index_program(compiled_predicate.executable(), slot_map, policy)
+            compile_index_program(compiled_predicate.executable(), slot_map, policy, budget)
         }
-        (Some(_) | None, None, None) | (None, Some(_), _) | (None, None, Some(_)) => None,
+        (Some(_) | None, None, None) | (None, Some(_), _) | (None, None, Some(_)) => Ok(None),
     }
 }
 

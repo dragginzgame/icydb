@@ -27,9 +27,10 @@ pub use row_policy::MissingRowPolicy;
 pub(in crate::db) use capability::{
     IndexCompileTarget, IndexCompileTargetKind, IndexPredicateCapability,
     PredicateCapabilityContext, PredicateCapabilityProfile, ScalarPredicateCapability,
-    classify_index_compare_component, classify_index_compare_target,
-    classify_predicate_capabilities, classify_predicate_capabilities_for_targets,
-    lower_index_compare_literal_for_target, lower_index_starts_with_prefix_for_target,
+    admit_index_compare_literal_for_kind, classify_index_compare_component,
+    classify_index_compare_target, classify_predicate_capabilities,
+    classify_predicate_capabilities_for_targets, lower_index_compare_literal_for_kind,
+    lower_index_starts_with_prefix_for_target,
 };
 pub(in crate::db) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;

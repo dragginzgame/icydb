@@ -12,7 +12,10 @@ use crate::{
         executor::{
             ExecutorError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
             LoweredKey,
-            budget::{charge_current_execution_budget, charge_current_execution_budget_pair},
+            budget::{
+                ExecutionConstructionBudget, charge_current_execution_budget,
+                charge_current_execution_budget_pair,
+            },
             lowered_index_prefix_exact_cardinalities,
         },
         index::{
@@ -364,7 +367,7 @@ impl IndexScan {
         additional_cursor_steps: u64,
         direction: Direction,
     ) -> Result<Vec<ExactIntersectionPrimaryKey>, InternalError> {
-        let bounds = spec.raw_bounds()?;
+        let bounds = spec.raw_bounds(&ExecutionConstructionBudget)?;
         Self::collect_exact_intersection_child_in_bounds(
             store,
             entity,
@@ -668,7 +671,7 @@ impl IndexScan {
         limit: usize,
         predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
-        let (lower, upper) = spec.raw_bounds()?;
+        let (lower, upper) = spec.raw_bounds(&ExecutionConstructionBudget)?;
         Self::resolve_data_values_in_raw_range_limited(
             store,
             entity_tag,

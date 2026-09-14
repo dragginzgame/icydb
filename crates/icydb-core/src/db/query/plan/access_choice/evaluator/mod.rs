@@ -21,7 +21,7 @@ use crate::db::{
 };
 
 pub(in crate::db::query::plan::access_choice) use ranking::{
-    chosen_access_shape_projection, chosen_selection_reason, ranked_rejection_reason,
+    CandidateRankingEvidence, chosen_access_shape_projection, ranked_rejection_reason,
 };
 
 #[derive(Clone, Copy)]

@@ -9,14 +9,21 @@ mod segments;
 mod semantics;
 
 #[cfg(test)]
+mod admission_tests;
+
+#[cfg(test)]
 use crate::db::key_taxonomy::PrimaryKeyComponent;
 #[cfg(test)]
 use crate::db::numeric::compare_numeric_or_strict_order;
 use crate::{
-    db::index::key::ordered::semantics::OrderedEncode,
+    db::{
+        index::key::ordered::semantics::OrderedEncode, query::construction::ConstructionBudget,
+        schema::UNIT_ENUM_EQUALITY_KEY_BYTES,
+    },
     error::InternalError,
     value::{Value, ValueTag},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 #[cfg(test)]
 use std::cmp::Ordering;
 
@@ -99,14 +106,82 @@ pub(crate) fn compare_index_component_values(left: &Value, right: &Value) -> Ord
 pub(crate) fn encode_canonical_index_component(
     value: &Value,
 ) -> Result<Vec<u8>, OrderedValueEncodeError> {
-    // Phase 1: emit canonical value tag to establish cross-kind ordering.
-    let mut out = Vec::new();
+    let capacity = component_capacity(value)?;
+    // Reserve once, then emit the canonical tag and unchanged ordered payload.
+    let mut out = Vec::with_capacity(capacity);
     out.push(value.canonical_tag().to_u8());
-
-    // Phase 2: encode kind-specific payload preserving in-kind ordering.
     encode_component_payload(&mut out, value)?;
 
     Ok(out)
+}
+
+/// Admit query operand construction without installing new write/replay limits.
+/// Both consumers use the same capacity and byte encoder, never a second format.
+pub(in crate::db) fn admit_query_index_component(
+    value: &Value,
+    budget: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
+    let capacity = if matches!(value, Value::Enum(_)) {
+        // Accepted unit-enum bytes have their own catalog-native encoder.
+        // Its validation remains authoritative; this only admits output backing.
+        UNIT_ENUM_EQUALITY_KEY_BYTES
+    } else {
+        match component_capacity(value) {
+            Ok(capacity) => capacity,
+            // Preserve unsupported/invalid-value handling at the caller's
+            // semantic boundary. The encoder rejects before allocating.
+            Err(_) => return Ok(()),
+        }
+    };
+    budget.charge(Resource::TemporaryBytes, capacity as u64)?;
+    budget.charge(Resource::PredicateExpressionSteps, capacity as u64)
+}
+
+// Capacity discovery reads only scalar metadata, not text bytes or bigint limbs.
+// Escaping and decimal digits use conservative bounds; no sizing buffer is built.
+fn component_capacity(value: &Value) -> Result<usize, OrderedValueEncodeError> {
+    let payload = match value {
+        Value::Unit => 0,
+        Value::Bool(_) => 1,
+        Value::Date(_) | Value::Float32(_) => 4,
+        Value::Duration(_)
+        | Value::Timestamp(_)
+        | Value::Int64(_)
+        | Value::Nat64(_)
+        | Value::Float64(_) => 8,
+        Value::Int128(_) | Value::Nat128(_) | Value::Ulid(_) => 16,
+        Value::Subaccount(_) | Value::U256(_) => 32,
+        Value::Account(_) => segments::ACCOUNT_PAYLOAD_BYTES,
+        Value::Decimal(_) => normalize::DECIMAL_PAYLOAD_MAX_BYTES,
+        Value::Text(text) => text
+            .len()
+            .checked_mul(2)
+            .and_then(|len| len.checked_add(2))
+            .ok_or(OrderedValueEncodeError::SegmentTooLarge)?,
+        Value::Principal(principal) => principal.as_slice().len() * 2 + 2,
+        Value::IntBig(value) => {
+            let bytes = value.magnitude_bits().div_ceil(8);
+            let bytes =
+                u16::try_from(bytes).map_err(|_| OrderedValueEncodeError::SegmentTooLarge)?;
+            if bytes == 0 {
+                1
+            } else {
+                usize::from(bytes) + 3
+            }
+        }
+        Value::NatBig(value) => {
+            let bytes = u16::try_from(value.magnitude_bits().div_ceil(8))
+                .map_err(|_| OrderedValueEncodeError::SegmentTooLarge)?;
+            usize::from(bytes) + 2
+        }
+        Value::Null => return Err(OrderedValueEncodeError::NullNotIndexable),
+        Value::Blob(_) | Value::Enum(_) | Value::List(_) | Value::Map(_) => {
+            return Err(OrderedValueEncodeError::UnsupportedValueKind);
+        }
+    };
+    payload
+        .checked_add(1)
+        .ok_or(OrderedValueEncodeError::SegmentTooLarge)
 }
 
 /// Decode the canonical signed-integer component shared by covering and

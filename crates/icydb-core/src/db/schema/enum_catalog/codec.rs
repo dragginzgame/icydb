@@ -186,12 +186,12 @@ fn decode_enum_type(
         }
     }
 
-    Ok(AcceptedEnumType {
+    Ok(AcceptedEnumType::new(
         path,
         variants_by_id,
         variant_id_by_name,
         ordering,
-    })
+    ))
 }
 
 fn decode_variant_body(

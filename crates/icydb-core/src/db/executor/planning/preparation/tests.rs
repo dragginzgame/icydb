@@ -5,6 +5,7 @@ use crate::{
     db::{
         index::{IndexCompareOp, IndexLiteral},
         predicate::{ExecutablePredicate, MissingRowPolicy},
+        query::preparation::with_preparation_work,
     },
     retained::RetainedBytes,
 };
@@ -23,7 +24,10 @@ fn completed_unsupported_programs_do_not_recompile_after_reuse_or_clone() {
     for policy in POLICIES {
         let prepared = PreparedIndexProgram {
             policy,
-            program: compile_index_program(&predicate, &[0], policy),
+            program: with_preparation_work(|work| {
+                compile_index_program(&predicate, &[0], policy, work)
+            })
+            .unwrap(),
         };
         assert!(prepared.program.is_none());
         for resident in [&prepared, &prepared.clone()] {
@@ -32,6 +36,7 @@ fn completed_unsupported_programs_do_not_recompile_after_reuse_or_clone() {
                     PreparedIndexProgram::resolve(Some(resident), policy, || {
                         panic!("a completed unsupported result must not compile again")
                     })
+                    .unwrap()
                     .is_none()
                 );
             }
@@ -49,6 +54,7 @@ fn completed_supported_programs_are_borrowed() {
         let resolved = PreparedIndexProgram::resolve(Some(&prepared), policy, || {
             panic!("a completed program must be reused")
         })
+        .unwrap()
         .expect("the prepared program should remain available");
         let Cow::Borrowed(program) = resolved else {
             panic!("reuse must borrow the existing program");
@@ -70,28 +76,35 @@ fn missing_or_different_policy_compiles_once_without_reusing_another_policy_resu
     for policy in POLICIES {
         let prepared = PreparedIndexProgram {
             policy,
-            program: compile_index_program(&predicate, &[0], policy),
+            program: with_preparation_work(|work| {
+                compile_index_program(&predicate, &[0], policy, work)
+            })
+            .unwrap(),
         };
         let other = if policy == IndexCompilePolicy::ConservativeSubset {
             IndexCompilePolicy::StrictAllOrNone
         } else {
             IndexCompilePolicy::ConservativeSubset
         };
-        let expected = compile_index_program(&predicate, &[0], other);
+        let expected =
+            with_preparation_work(|work| compile_index_program(&predicate, &[0], other, work))
+                .unwrap();
         assert_ne!(prepared.program, expected);
         for resident in [None, Some(&prepared)] {
             let calls = Cell::new(0);
             let resolved = PreparedIndexProgram::resolve(resident, other, || {
                 calls.set(calls.get() + 1);
-                compile_index_program(&predicate, &[0], other)
-            });
+                with_preparation_work(|work| compile_index_program(&predicate, &[0], other, work))
+            })
+            .unwrap();
             assert_eq!(calls.get(), 1);
             assert_eq!(resolved.as_deref(), expected.as_ref());
             assert!(resolved.is_none_or(|program| matches!(program, Cow::Owned(_))));
         }
         assert_eq!(
             prepared.program,
-            compile_index_program(&predicate, &[0], policy)
+            with_preparation_work(|work| compile_index_program(&predicate, &[0], policy, work))
+                .unwrap()
         );
     }
 }
@@ -99,8 +112,11 @@ fn missing_or_different_policy_compiles_once_without_reusing_another_policy_resu
 #[test]
 fn preparation_constructors_retain_completion_only_for_the_requested_policy() {
     let plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Error);
-    let aggregate = ExecutionPreparation::from_plan(&plan, None);
-    let scalar = ExecutionPreparation::from_runtime_plan(&plan, None);
+    let aggregate =
+        with_preparation_work(|work| ExecutionPreparation::from_plan(&plan, None, work)).unwrap();
+    let scalar =
+        with_preparation_work(|work| ExecutionPreparation::from_runtime_plan(&plan, None, work))
+            .unwrap();
     let route = ExecutionPreparation::from_covering_route_plan(&plan, None);
     assert!(matches!(
         aggregate.index_program,
@@ -120,7 +136,11 @@ fn preparation_constructors_retain_completion_only_for_the_requested_policy() {
     for preparation in [aggregate, scalar, route] {
         for policy in POLICIES {
             assert!(preparation.prepared_index_program(policy).is_none());
-            assert!(preparation.resolve_index_program(policy).is_none());
+            assert!(
+                with_preparation_work(|work| preparation.resolve_index_program(policy, work))
+                    .unwrap()
+                    .is_none()
+            );
         }
     }
 }

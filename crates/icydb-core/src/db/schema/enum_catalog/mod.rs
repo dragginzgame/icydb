@@ -35,9 +35,11 @@ pub(in crate::db::schema) use admission::{
     admit_canonical_value, validate_nullable_canonical_value, with_normalized_accepted_value,
 };
 pub(in crate::db::schema) use codec::{decode_accepted_enum_catalog, encode_accepted_enum_catalog};
-pub(in crate::db) use equality_key::encode_unit_enum_equality_key;
 #[cfg(feature = "sql")]
-pub(in crate::db) use equality_key::{EqualityCapability, enum_equality_capability};
+pub(in crate::db) use equality_key::enum_equality_capability;
+pub(in crate::db) use equality_key::{
+    EqualityCapability, UNIT_ENUM_EQUALITY_KEY_BYTES, encode_unit_enum_equality_key,
+};
 pub(in crate::db) use output::output_value_from_runtime;
 pub(in crate::db) use publication::AcceptedSchemaRevisionBundle;
 #[cfg(test)]
@@ -329,12 +331,12 @@ impl AcceptedEnumCatalog {
             }
             by_id.insert(
                 type_id,
-                AcceptedEnumType {
+                AcceptedEnumType::new(
                     path,
                     variants_by_id,
                     variant_id_by_name,
-                    ordering: EnumOrderingPolicy::EqualityOnly,
-                },
+                    EnumOrderingPolicy::EqualityOnly,
+                ),
             );
         }
         let catalog = Self { by_id, id_by_path };
@@ -506,9 +508,38 @@ pub(in crate::db) struct AcceptedEnumType {
     variants_by_id: BTreeMap<EnumVariantId, AcceptedEnumVariant>,
     variant_id_by_name: BTreeMap<String, EnumVariantId>,
     ordering: EnumOrderingPolicy,
+    // Derived once from immutable variant bodies; never persisted separately.
+    equality_capability: EqualityCapability,
 }
 
 impl AcceptedEnumType {
+    // Every definition origin uses this owner, including bounded catalog decode.
+    // Renames may change labels, but never the bodies that determine capability.
+    fn new(
+        path: String,
+        variants_by_id: BTreeMap<EnumVariantId, AcceptedEnumVariant>,
+        variant_id_by_name: BTreeMap<String, EnumVariantId>,
+        ordering: EnumOrderingPolicy,
+    ) -> Self {
+        let equality_capability = if !variants_by_id.is_empty()
+            && variants_by_id
+                .values()
+                .all(|variant| matches!(variant.body, AcceptedEnumVariantBody::Unit))
+        {
+            EqualityCapability::CanonicalStableKey
+        } else {
+            EqualityCapability::PairwiseOnly
+        };
+
+        Self {
+            path,
+            variants_by_id,
+            variant_id_by_name,
+            ordering,
+            equality_capability,
+        }
+    }
+
     #[must_use]
     pub(in crate::db::schema) const fn path(&self) -> &str {
         self.path.as_str()
@@ -899,12 +930,12 @@ fn accepted_enum_type_from_proposal(
         candidate_variant_id_by_name.insert(name, variant_id);
     }
 
-    Ok(AcceptedEnumType {
-        path: path.to_string(),
+    Ok(AcceptedEnumType::new(
+        path.to_string(),
         variants_by_id,
-        variant_id_by_name: candidate_variant_id_by_name,
-        ordering: EnumOrderingPolicy::EqualityOnly,
-    })
+        candidate_variant_id_by_name,
+        EnumOrderingPolicy::EqualityOnly,
+    ))
 }
 
 fn accepted_kind_matches_catalog(
@@ -1047,7 +1078,7 @@ crate::retained::retained_fields!(AcceptedEnumCatalog {
 Self{by_id,id_by_path} => [by_id,id_by_path],
 });
 crate::retained::retained_fields!(AcceptedEnumType {
-Self{path,variants_by_id,variant_id_by_name,ordering} => [path,variants_by_id,variant_id_by_name,ordering],
+Self{path,variants_by_id,variant_id_by_name,ordering,equality_capability} => [path,variants_by_id,variant_id_by_name,ordering,equality_capability],
 });
 crate::retained::retained_fields!(AcceptedEnumVariant {
 Self{name,body} => [name,body],

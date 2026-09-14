@@ -46,9 +46,11 @@ impl AggregateExplainPreparation {
         plan: &AccessPlannedQuery,
         aggregate: AggregateRouteShape<'_>,
         aggregation: AggregateKind,
-    ) -> Self {
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
         let execution_preparation =
-            ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
+            ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan), work)
+                .map_err(QueryError::execute)?;
         let route_plan = build_aggregate_execution_route_plan_for_explain(
             plan,
             aggregate,
@@ -57,10 +59,10 @@ impl AggregateExplainPreparation {
         let covering_projection =
             aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);
 
-        Self {
+        Ok(Self {
             route_plan,
             covering_projection,
-        }
+        })
     }
 }
 
@@ -95,7 +97,8 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
     work: &PreparationWork<'_>,
 ) -> Result<ExplainExecutionDescriptor, QueryError> {
     // Phase 1: derive one aggregate route plan using precomputed execution preparation.
-    let explain_preparation = AggregateExplainPreparation::from_shape(plan, aggregate, aggregation);
+    let explain_preparation =
+        AggregateExplainPreparation::from_shape(plan, aggregate, aggregation, work)?;
 
     // Phase 2: project route-owned ordering + execution semantics into explain fields.
     let ordering_source = explain_aggregate_ordering_source(&explain_preparation.route_plan);

@@ -885,22 +885,27 @@ impl AccessPlannedQuery {
         &mut self,
         semantic_indexes: &[SemanticIndexAccessContract],
         schema_info: &SchemaInfo,
-    ) {
+        work: &PreparationWork<'_>,
+    ) -> Result<(), InternalError> {
         if !self.access.has_selected_index_access_path() {
-            return;
+            return Ok(());
         }
 
-        let selected_index_name = self
-            .access
-            .selected_index_contract()
-            .map(|index| index.name().to_string());
+        let selected_index = self.access.selected_index_contract();
         self.access_choice =
             project_access_choice_explain_snapshot_with_semantic_indexes_and_schema(
                 semantic_indexes,
                 schema_info,
                 self,
-            )
-            .with_cardinality_tiebreak(&self.cardinality_tiebreak, selected_index_name.as_deref());
+                work,
+            )?
+            .with_cardinality_tiebreak(
+                &self.cardinality_tiebreak,
+                selected_index
+                    .as_ref()
+                    .map(SemanticIndexAccessContract::name),
+            );
+        Ok(())
     }
 
     /// Borrow the frozen planner-owned route profile.

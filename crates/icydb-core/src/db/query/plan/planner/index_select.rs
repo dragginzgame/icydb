@@ -10,10 +10,13 @@ use crate::{
         index::{TextPrefixBoundMode, starts_with_component_bounds},
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+        query::construction::ConstructionBudget,
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
+    error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::{
     borrow::Cow,
     cmp::Ordering,
@@ -25,16 +28,22 @@ pub(in crate::db::query) fn eligible_sorted_index_contracts(
     indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
     query_predicate: &Predicate,
-) -> Vec<SemanticIndexAccessContract> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Vec<SemanticIndexAccessContract>, InternalError> {
+    // Every visible index can survive filtering. Admit one destination and
+    // the outer visits before implication checks; contract clones share backing.
+    // Predicate proof work is separate from this list-construction allowance.
+    budget.charge(Resource::PredicateExpressionSteps, indexes.len() as u64)?;
+    let mut eligible = budget.vec_with_capacity(indexes.len())?;
     debug_assert!(index_contracts_are_sorted(indexes));
-    indexes
-        .iter()
-        .filter(|index| {
-            index_contract_predicate_implied_by_query(index, query_predicate)
-                && index_stream_is_complete_for_query(schema, index, query_predicate)
-        })
-        .cloned()
-        .collect()
+    for index in indexes {
+        if index_contract_predicate_implied_by_query(index, query_predicate)
+            && index_stream_is_complete_for_query(schema, index, query_predicate)
+        {
+            eligible.push(index.clone());
+        }
+    }
+    Ok(eligible)
 }
 
 /// Prove that every matching row has all physical index components. Nullable

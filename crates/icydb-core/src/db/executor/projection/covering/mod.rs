@@ -19,11 +19,12 @@ use crate::{
         cursor::IndexScanContinuationInput,
         executor::{
             EntityAuthority, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            decode_single_covering_projection_pairs, projection::MaterializedProjectionRows,
+            budget::ExecutionConstructionBudget, decode_single_covering_projection_pairs,
+            projection::MaterializedProjectionRows,
         },
         index::{
-            IndexKey, envelope_is_empty, predicate::IndexPredicateExecution,
-            raw_keys_for_component_prefix_with_kind,
+            IndexKey, admit_index_prefix_bounds, envelope_is_empty,
+            predicate::IndexPredicateExecution, raw_keys_for_component_prefix_with_kind,
         },
         predicate::MissingRowPolicy,
     },
@@ -149,6 +150,11 @@ where
         if decoded_anchor.component(0) != Some(projected_component.as_slice()) {
             return Err(InternalError::index_entry_decode_failed());
         }
+        admit_index_prefix_bounds(
+            decoded_anchor.component_count(),
+            row.2.as_ref(),
+            &ExecutionConstructionBudget,
+        )?;
         let (group_low, group_high) = raw_keys_for_component_prefix_with_kind(
             decoded_anchor.index_id(),
             decoded_anchor.key_kind(),

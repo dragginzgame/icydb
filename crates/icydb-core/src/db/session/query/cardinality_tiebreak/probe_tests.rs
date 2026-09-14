@@ -95,6 +95,29 @@ fn prelowering_count_policy_preserves_exact_and_first_excess_limits() {
 fn probe_preparation_charges_exact_backing_and_bookkeeping() {
     let (_, authority, candidates) = ranking_candidates_for_tests();
     let count = candidates.len() as u64;
+    let raw_bytes: u64 = candidates
+        .iter()
+        .map(|candidate| {
+            let (index, values) = candidate
+                .access()
+                .as_path()
+                .unwrap()
+                .as_index_prefix_contract()
+                .unwrap();
+            let encoded: Vec<_> = values
+                .iter()
+                .map(|value| crate::db::index::EncodedValue::try_from_ref(value).unwrap())
+                .collect();
+            crate::db::index::IndexKey::raw_prefix_bounds_retained_capacity(
+                index.key_arity(),
+                &encoded,
+            ) as u64
+                + encoded
+                    .into_iter()
+                    .map(|value| value.into_bytes().capacity() as u64)
+                    .sum::<u64>()
+        })
+        .sum();
     let costs = [
         (
             Resource::TemporaryBytes,
@@ -102,11 +125,12 @@ fn probe_preparation_charges_exact_backing_and_bookkeeping() {
                 * (size_of::<PreparedCardinalityCandidate>()
                     + size_of::<UserIndexPrefixCardinalityKey>()
                     + 4 * size_of::<LoweredIndexPrefixSpec>()
-                    + size_of::<crate::db::index::EncodedValue>()) as u64,
+                    + size_of::<crate::db::index::EncodedValue>()) as u64
+                + raw_bytes,
         ),
         (
             Resource::PredicateExpressionSteps,
-            6 * count + count * (count - 1) / 2,
+            6 * count + count * (count - 1) / 2 + raw_bytes,
         ),
     ];
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {

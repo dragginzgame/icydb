@@ -335,6 +335,60 @@ impl IndexKey {
         bound: &Bound<B>,
         side: RangeBoundSide,
     ) -> Result<RawIndexStoreKey, IndexKeyEncodeError> {
+        let capacity = Self::raw_component_range_bound_capacity(index_len, prefix, bound, side)?;
+        let suffix_count = index_len.saturating_sub(prefix.len()).saturating_sub(1);
+        let exclusive = matches!(bound, Bound::Excluded(_));
+        let mut bytes = Vec::with_capacity(capacity);
+        bytes.push(index_key_kind_to_store_key_kind(key_kind).tag());
+        bytes.extend_from_slice(&index_id.to_bytes());
+        let component_count =
+            u8::try_from(index_len).map_err(|_| IndexKeyEncodeError::TooManyComponents)?;
+        bytes.push(component_count);
+
+        for component in prefix {
+            push_segment(&mut bytes, component.as_ref())?;
+        }
+        push_component_bound_segment(&mut bytes, bound, side.unbounded_sentinel())?;
+        for _ in 0..suffix_count {
+            let sentinel = side.suffix_sentinel(exclusive);
+            push_repeated_segment(
+                &mut bytes,
+                sentinel.component_len(),
+                sentinel.component_byte(),
+            )?;
+        }
+        let pk_sentinel = side.primary_key_sentinel(exclusive);
+        push_repeated_segment(
+            &mut bytes,
+            pk_sentinel.primary_key_len(),
+            pk_sentinel.primary_key_byte(),
+        )?;
+        Ok(RawIndexStoreKey::from_persisted_bytes(bytes))
+    }
+
+    /// Query admission uses the encoder's capacities, including wildcard suffixes.
+    pub(in crate::db) fn raw_component_range_bounds_capacity<C: AsRef<[u8]>, B: AsRef<[u8]>>(
+        index_len: usize,
+        prefix: &[C],
+        lower: &Bound<B>,
+        upper: &Bound<B>,
+    ) -> Result<usize, IndexKeyEncodeError> {
+        Self::raw_component_range_bound_capacity(index_len, prefix, lower, RangeBoundSide::Lower)?
+            .checked_add(Self::raw_component_range_bound_capacity(
+                index_len,
+                prefix,
+                upper,
+                RangeBoundSide::Upper,
+            )?)
+            .ok_or(IndexKeyEncodeError::SegmentTooLarge)
+    }
+
+    fn raw_component_range_bound_capacity<C: AsRef<[u8]>, B: AsRef<[u8]>>(
+        index_len: usize,
+        prefix: &[C],
+        bound: &Bound<B>,
+        side: RangeBoundSide,
+    ) -> Result<usize, IndexKeyEncodeError> {
         let range_slot = prefix.len();
         let exclusive = matches!(bound, Bound::Excluded(_));
         let suffix_len = side.suffix_sentinel(exclusive).component_len();
@@ -355,33 +409,7 @@ impl IndexKey {
             )
             .ok_or(IndexKeyEncodeError::SegmentTooLarge)?;
 
-        let mut bytes = Vec::with_capacity(capacity);
-        bytes.push(index_key_kind_to_store_key_kind(key_kind).tag());
-        bytes.extend_from_slice(&index_id.to_bytes());
-        let component_count =
-            u8::try_from(index_len).map_err(|_| IndexKeyEncodeError::TooManyComponents)?;
-        bytes.push(component_count);
-
-        for component in prefix {
-            push_segment(&mut bytes, component.as_ref())?;
-        }
-        push_component_bound_segment(&mut bytes, bound, side.unbounded_sentinel())?;
-        for _ in 0..suffix_count {
-            let sentinel = side.suffix_sentinel(exclusive);
-            push_repeated_segment(
-                &mut bytes,
-                sentinel.component_len(),
-                sentinel.component_byte(),
-            )?;
-        }
-        let primary_key_sentinel = side.primary_key_sentinel(exclusive);
-        push_repeated_segment(
-            &mut bytes,
-            primary_key_sentinel.primary_key_len(),
-            primary_key_sentinel.primary_key_byte(),
-        )?;
-
-        Ok(RawIndexStoreKey::from_persisted_bytes(bytes))
+        Ok(capacity)
     }
 
     pub(crate) fn try_from_raw(raw: &RawIndexStoreKey) -> Result<Self, IndexKeyDecodeError> {

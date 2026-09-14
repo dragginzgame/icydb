@@ -13,7 +13,7 @@ use crate::{
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutionRoutePlan, ExecutorPlanError,
             GroupedPaginationWindow, ScalarContinuationContext,
-            budget::read_shape_fingerprint_prefix,
+            budget::{ExecutionConstructionBudget, read_shape_fingerprint_prefix},
             pipeline::{
                 contracts::{CursorEmissionMode, ProjectionMaterializationMode},
                 runtime::{
@@ -266,6 +266,21 @@ impl PreparedExecutionPlanCore {
         value
     }
 
+    // A failed builder never becomes a completed resident or changes its weight.
+    fn try_initialize_lazy<T: Retained + Clone>(
+        &self,
+        cell: &OnceLock<T>,
+        build: impl FnOnce() -> Result<T, InternalError>,
+    ) -> Result<T, InternalError> {
+        if let Some(value) = cell.get() {
+            return Ok(value.clone());
+        }
+        let value = build()?;
+        self.remember_lazy(cell, &value);
+
+        Ok(value)
+    }
+
     #[must_use]
     fn new(
         plan: Rc<AccessPlannedQuery>,
@@ -371,7 +386,8 @@ impl PreparedExecutionPlanCore {
                 let execution_preparation = ExecutionPreparation::from_runtime_plan(
                     &self.residents.plan,
                     self.residents.plan.slot_map().map(<[usize]>::to_vec),
-                );
+                    &ExecutionConstructionBudget,
+                )?;
                 let grouped_slot_layout = compile_grouped_row_slot_layout_from_inputs(
                     authority.row_layout()?,
                     &grouped_plan.group.group_fields,
@@ -403,15 +419,16 @@ impl PreparedExecutionPlanCore {
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_scalar_execution_preparation(
         &self,
-    ) -> ExecutionPreparation {
+    ) -> Result<ExecutionPreparation, InternalError> {
         // Scalar execution preparation is fully plan-deterministic: it depends
         // on the effective runtime predicate and slot map, but not on store
         // handles, cursor state, route retry policy, diagnostics, or
         // materialization mode.
-        self.initialize_lazy(&self.residents.scalar_execution_preparation, || {
+        self.try_initialize_lazy(&self.residents.scalar_execution_preparation, || {
             ExecutionPreparation::from_runtime_plan(
                 &self.residents.plan,
                 slot_map_for_model_plan(&self.residents.plan),
+                &ExecutionConstructionBudget,
             )
         })
     }
@@ -419,15 +436,16 @@ impl PreparedExecutionPlanCore {
     #[cfg(feature = "sql")]
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_aggregate_execution_preparation(
         &self,
-    ) -> ExecutionPreparation {
+    ) -> Result<ExecutionPreparation, InternalError> {
         // Aggregate route planning additionally consumes the predicate
         // capability snapshot and strict index program. Keep that immutable
         // preparation in the existing aggregate resident rather than
         // rebuilding it in SQL or terminal execution.
-        self.initialize_lazy(&self.residents.aggregate_execution_preparation, || {
+        self.try_initialize_lazy(&self.residents.aggregate_execution_preparation, || {
             ExecutionPreparation::from_plan(
                 &self.residents.plan,
                 slot_map_for_model_plan(&self.residents.plan),
+                &ExecutionConstructionBudget,
             )
         })
     }
@@ -576,9 +594,30 @@ fn retain_lazy<T: Retained + Clone>(
 
 #[cfg(test)]
 mod retention_tests {
-    use super::retain_lazy;
-    use crate::db::session::CacheEntryWeight;
-    use std::{rc::Rc, sync::OnceLock};
+    use super::{PreparedExecutionPlanCore, retain_lazy};
+    use crate::db::{
+        QueryError, RequestExecutionRoot,
+        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        index::{IndexCompilePolicy, compile_index_program},
+        predicate::{
+            CoercionId, CoercionSpec, CompareOp, ExecutableComparePredicate, ExecutablePredicate,
+            MissingRowPolicy,
+        },
+        query::{
+            plan::AccessPlannedQuery,
+            preparation::{PreparationWork, with_preparation_work},
+        },
+        session::CacheEntryWeight,
+    };
+    use crate::value::Value;
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+        DiagnosticFactTag,
+    };
+    use std::{
+        rc::Rc,
+        sync::{Arc, OnceLock},
+    };
 
     #[test]
     fn retained_lazy_attachments_reserve_once_and_leave_oversize_results_usable() {
@@ -601,6 +640,103 @@ mod retention_tests {
         assert_eq!(total.get(), 0);
         retain_lazy(&handle, &declined, &result);
         assert_eq!(declined.get(), Some(&result));
+    }
+
+    #[test]
+    fn failed_optional_compilation_is_not_published_or_charged_as_retention() {
+        for (op, value, limit) in [
+            (CompareOp::Eq, Value::Nat64(1), 8),
+            (CompareOp::StartsWith, Value::Text("abc".into()), 6),
+        ] {
+            let core = PreparedExecutionPlanCore::new(
+                Rc::new(AccessPlannedQuery::full_scan_for_test(
+                    MissingRowPolicy::Error,
+                )),
+                0,
+                None,
+                None,
+                Arc::default(),
+                Arc::default(),
+            );
+            let (entry, total) = CacheEntryWeight::for_tests(32, 4096);
+            core.attach_cache_retention(&entry);
+            let predicate =
+                ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+                    Some(0),
+                    op,
+                    value,
+                    CoercionSpec::new(CoercionId::Strict),
+                ));
+            let cell = OnceLock::new();
+            let request = RequestExecutionRoot::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(
+                    16_000_000,
+                    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                )
+                .with_limit_for_tests(Resource::TemporaryBytes, limit),
+            );
+            let result = PreparationWork::run(&request.scope(), Lane::PublicRead, |work| {
+                core.try_initialize_lazy(&cell, || {
+                    compile_index_program(
+                        &predicate,
+                        &[0],
+                        IndexCompilePolicy::ConservativeSubset,
+                        work,
+                    )
+                })
+                .map_err(QueryError::execute)
+            });
+            assert!(result.unwrap_err().diagnostic_facts().contains(&(
+                DiagnosticFactTag::BudgetResource,
+                Resource::TemporaryBytes.raw()
+            ),));
+            assert!(cell.get().is_none());
+            assert_eq!(total.get(), 32);
+
+            // Retry under a fresh request can complete; a warm lookup skips its builder.
+            let program = with_preparation_work(|work| {
+                core.try_initialize_lazy(&cell, || {
+                    compile_index_program(
+                        &predicate,
+                        &[0],
+                        IndexCompilePolicy::ConservativeSubset,
+                        work,
+                    )
+                })
+            })
+            .unwrap();
+            assert!(program.is_some());
+            let weight = total.get();
+            assert!(weight > 32);
+            assert_eq!(
+                core.try_initialize_lazy(&cell, || panic!("warm compilation must be skipped"))
+                    .unwrap(),
+                program
+            );
+            assert_eq!(total.get(), weight);
+
+            // Unsupported is also a completed result and remains reusable.
+            let absent = OnceLock::new();
+            with_preparation_work(|work| {
+                core.try_initialize_lazy(&absent, || {
+                    compile_index_program(
+                        &ExecutablePredicate::IsNull {
+                            field_slot: Some(0),
+                        },
+                        &[0],
+                        IndexCompilePolicy::ConservativeSubset,
+                        work,
+                    )
+                })
+            })
+            .unwrap();
+            assert!(matches!(absent.get(), Some(None)));
+            assert!(
+                core.try_initialize_lazy(&absent, || panic!("warm absence must be reused"))
+                    .unwrap()
+                    .is_none()
+            );
+        }
     }
 }
 

@@ -14,8 +14,9 @@ use crate::{
             PreparedLoadPlan, RetainedSlotLayout,
             aggregate::runtime::{
                 build_grouped_stream_with_runtime, execute_group_fold_stage,
-                finalize_grouped_output,
+                finalize_grouped_output, try_execute_grouped_count_metadata,
             },
+            budget::ExecutionConstructionBudget,
             budget::{
                 charge_current_execution_budget, charge_runtime_grouped_rows,
                 prepared_read_execution_context, runtime_value_work, with_read_execution_budget,
@@ -228,7 +229,8 @@ impl PreparedGroupedRouteRuntime {
             let execution_preparation = ExecutionPreparation::from_runtime_plan(
                 route.plan(),
                 route.plan().slot_map().map(<[usize]>::to_vec),
-            );
+                &ExecutionConstructionBudget,
+            )?;
             let grouped_slot_layout = compile_grouped_row_slot_layout_from_inputs(
                 runtime.authority.row_layout()?,
                 route.group_fields(),
@@ -282,6 +284,13 @@ fn execute_grouped_route_path(
     execution_preparation: ExecutionPreparation,
     grouped_slot_layout: RetainedSlotLayout,
 ) -> Result<GroupedCursorPage, InternalError> {
+    if let Some(page) = try_execute_grouped_count_metadata(
+        runtime.row_store,
+        runtime.authority.entity_tag(),
+        &route,
+    )? {
+        return Ok(page);
+    }
     let stream =
         runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)?;
     let folded = execute_group_fold_stage(&route, stream)?;

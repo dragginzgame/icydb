@@ -196,12 +196,15 @@ fn canonical_raw_key(values: &[Value]) -> RawIndexStoreKey {
         .map(EncodedValue::try_from_ref)
         .collect::<Result<Vec<_>, _>>()
         .expect("property-domain values must remain canonically index-encodable");
-    let (lower, _) = build_index_prefix_bounds_for_encoded_components(
-        &property_index_id(),
-        IndexKeyKind::User,
-        values.len(),
-        encoded.as_slice(),
-    )
+    let (lower, _) = crate::db::query::preparation::with_preparation_work(|work| {
+        build_index_prefix_bounds_for_encoded_components(
+            &property_index_id(),
+            IndexKeyKind::User,
+            values.len(),
+            encoded.as_slice(),
+            work,
+        )
+    })
     .expect("test index range bounds should encode");
 
     let Bound::Included(key) = lower else {

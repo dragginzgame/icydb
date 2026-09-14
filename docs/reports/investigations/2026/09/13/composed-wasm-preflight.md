@@ -69,7 +69,7 @@ test demonstrates pending activation resumption without the generated source
 model. These constrain any reduction; an empty generated entity list cannot
 replace accepted catalog, journal and schema-job authority.
 
-### Best next experiment
+### Selected experiment (completed below)
 
 Test a compiler outlining boundary on the existing startup-driver body before
 changing semantics or adding a new driver/result mode. The named timer closure's
@@ -91,6 +91,67 @@ established. The duplicated readiness read is a separate possible instruction
 optimization; combining it with an outlining experiment would obscure attribution.
 Do not add an empty-database mode, bypass recovery or transfer ownership to
 ic-timers from symbol names alone. Native checks do not establish IC cost savings.
+
+## Startup-driver outlining result
+
+The authorized follow-up tested exactly one source change: `#[inline(never)]`
+on the existing generated `startup_driver_attempt` in
+[the actor generator](../../../../../../crates/icydb-model/src/build/actor/db/store.rs).
+Both maintained production subjects are unchanged byte-for-byte, at both
+compiler-emitted and final deployable stages. **The annotation is discarded.**
+No new driver, recovery shortcut, result mode or compiler policy remains.
+
+| Production subject | Raw bytes, before = after | Defined functions, before = after | Code-section bytes, before = after |
+| --- | ---: | ---: | ---: |
+| Empty metrics | 1,829,471 | 4,644 | 1,719,170 |
+| Entity-bearing lifecycle participant | 2,035,056 | 5,261 | 1,909,085 |
+
+All raw-byte, code-section and function-count deltas are zero. Equality was
+checked with direct binary comparison, not just sizes. Generated actor outputs
+contain the annotation, and a traced lifecycle rebuild confirms Cargo work
+with the candidate. This is not evidence that a named closure contains no
+inlining; it establishes that this specific annotation produces no artifact
+change for these two subjects under this build configuration.
+
+Controls: clean published `.11` commit
+`8f830189fe2de079939ccc0264b87ca2eac31b1f`; the candidate differs only by the
+annotation. Cargo.lock SHA-256 stays
+`0228ae3b7863d13f0ba1b1d1b36d46b27ec451a570a5113fb509ff3a3f49e2e5`.
+Rust 1.98.1, `wasm-release` (`opt-level=z`, fat LTO, one codegen unit, panic
+abort), production build policy, SQL off and `candid-export` on are identical.
+The empty actor enables metrics; the lifecycle actor uses its maintained
+metrics-off policy. Neither enables `test-admin-api`. Both use the canonical
+artifact builder and pinned ic-wasm 0.11.1/Binaryen 132 finalization. Only
+within-subject before/after comparisons are optimization evidence.
+
+Identical before/after SHA-256 values:
+
+| Subject | Compiler-emitted | Final deployable |
+| --- | --- | --- |
+| Empty metrics | `45c8a16b0208dc17e8f98a5b4b07a80e57977aa7cc3ce1cd276357fa19ffa771` | `e0ff7fb1794b541ee2534b6370c9548286f5635855a64aa49cebbd294e555a87` |
+| Lifecycle participant | `3877c6eaef5e68eb6f03214719499ead7227c00a2b2520ba7fa8b660a411471f` | `394800604a8d2cb0b00caa7c7456bde252f8799b7f3e1f7da2778ca72861465f` |
+
+The generated-watchdog contract test and thirteen core startup tests pass,
+including persisted corruption classification, receipt-gated readiness and
+post-Ready cardinality quiescence. No new tests enforce the removed annotation.
+IC cycles/instructions were not measured: the size experiment was rejected and
+the binaries are identical. No PocketIC/ICP lifecycle action, full suite,
+dependency update or sibling edit occurred. Four documentation files retain the
+outcome; production line and independent-state deltas are zero.
+
+Local reproducibility evidence: `/tmp/icydb-033-outline.QH9QlN/` holds both
+compiler/final pairs and empty-actor structured reports; build/test logs use
+`/tmp/icydb-033-outline-*.log`. Empty builds use `wasm-size-report.sh
+--sql-variants sql-off --canister default_empty_metrics`; lifecycle builds use
+`build_fixture_canister lifecycle_participant --build-profile production
+--profile wasm-release --sql-mode off --candid-export on`. Retain each baseline
+before rebuilding its candidate, then compare final and compiler bytes.
+
+This closes the standalone annotation experiment, not ICYDB-033. The older
+Canic pair's large named timer closure remains a separate context. Testing this
+boundary there requires matched current-source composed artifacts using Canic's
+existing subject; no savings or application-cost attribution can be inferred
+from either the neutral standalone result or the older feature-cost subtraction.
 
 ## Initial standalone findings
 
@@ -220,8 +281,9 @@ The follow-up verifies Canic's raw artifact sizes/hashes without rebuilding.
 There were no runtime edits, network lifecycle changes or full-suite run.
 IC cycles/instructions and per-application increments remain unmeasured.
 
-Next for ICYDB-033: inspect the current generated startup/watchdog and recovery
-registration owner, preserving its accepted-schema and lifecycle obligations.
-Any candidate reduction needs a matched current-source before/after, not a
-subtraction from the older-pin pair. The ICYDB-003 guide is complete separately;
+Next for ICYDB-033: decide on matched current-source composed qualification at
+the existing Canic owner. The standalone driver annotation produced no change
+and was removed; do not repeat it as an untested local optimization candidate.
+Any composed candidate needs a matched before/after, not a subtraction from
+the older-pin pair. The ICYDB-003 guide is complete separately;
 its application interruption tests remain outside this measurement work.

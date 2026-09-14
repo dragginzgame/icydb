@@ -11,6 +11,7 @@ use crate::{
             ExecutionPreparation, PageWorkEnvelope, ProductionScalarOutputWork,
             SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeHandoff,
             StructuralCursorPage,
+            budget::ExecutionConstructionBudget,
             budget::{
                 charge_runtime_value_rows, prepared_read_execution_context,
                 with_read_execution_budget,
@@ -262,8 +263,10 @@ where
                 ExecutionPreparation::from_plan(
                     prepared_plan.logical_plan(),
                     slot_map_for_model_plan(prepared_plan.logical_plan()),
+                    &ExecutionConstructionBudget,
                 )
-            });
+            })
+            .transpose()?;
         let index_predicate_execution =
             covering_execution_preparation
                 .as_ref()

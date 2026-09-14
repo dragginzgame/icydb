@@ -15,7 +15,7 @@ use crate::db::executor::planning::route::planner::{
 use crate::db::{
     executor::{
         EntityAuthority, ExecutionPreparation, ExecutionRoutePlan,
-        planning::{continuation::ScalarContinuationContext, preparation::slot_map_for_model_plan},
+        planning::continuation::ScalarContinuationContext,
         route::derive_load_terminal_fast_path_contract_for_plan,
     },
     query::plan::{AccessPlannedQuery, CoveringReadExecutionPlan, GroupedPlanStrategy},
@@ -24,11 +24,11 @@ use crate::db::{
 ///
 /// RoutePlanRequest
 ///
-/// Canonical borrowed-state-free runtime route-build request surface.
-/// Scalar aggregates have a feature-gated entrypoint because their route
-/// shape borrows preparation state that runtime load/grouped requests do not.
+/// Canonical runtime route-build request. Grouped callers supply completed
+/// preparation, so pure route selection neither compiles nor hides failures.
+/// Scalar aggregates retain their feature-gated route-shape entrypoint.
 ///
-pub(in crate::db::executor) enum RoutePlanRequest {
+pub(in crate::db::executor) enum RoutePlanRequest<'a> {
     Load {
         continuation: ScalarContinuationContext,
         probe_fetch_hint: Option<usize>,
@@ -37,13 +37,14 @@ pub(in crate::db::executor) enum RoutePlanRequest {
     },
     Grouped {
         grouped_plan_strategy: GroupedPlanStrategy,
+        execution_preparation: &'a ExecutionPreparation,
     },
 }
 
 /// Build canonical staged execution routing from one structural route request.
 pub(in crate::db::executor) fn build_execution_route_plan(
     plan: &AccessPlannedQuery,
-    request: RoutePlanRequest,
+    request: RoutePlanRequest<'_>,
 ) -> ExecutionRoutePlan {
     match request {
         RoutePlanRequest::Load {
@@ -60,7 +61,8 @@ pub(in crate::db::executor) fn build_execution_route_plan(
         ),
         RoutePlanRequest::Grouped {
             grouped_plan_strategy,
-        } => build_grouped_execution_route_plan(plan, grouped_plan_strategy),
+            execution_preparation,
+        } => build_grouped_execution_route_plan(plan, grouped_plan_strategy, execution_preparation),
     }
 }
 
@@ -116,12 +118,11 @@ pub(in crate::db::executor) fn build_aggregate_execution_route_plan_for_explain(
 fn build_grouped_execution_route_plan(
     plan: &AccessPlannedQuery,
     grouped_plan_strategy: GroupedPlanStrategy,
+    execution_preparation: &ExecutionPreparation,
 ) -> ExecutionRoutePlan {
-    let execution_preparation =
-        ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
     let planner_route_profile = plan.planner_route_profile();
     let intent_stage =
-        derive_grouped_route_intent_stage(grouped_plan_strategy, &execution_preparation);
+        derive_grouped_route_intent_stage(grouped_plan_strategy, execution_preparation);
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
         plan,
         ScalarContinuationContext::initial(),

@@ -6,6 +6,7 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexAccessContract},
         predicate::Predicate,
+        query::construction::ConstructionBudget,
         query::plan::{
             OrderSpec, PlannedNonIndexAccessReason,
             key_item_match::eq_lookup_value_for_key_item,
@@ -21,6 +22,7 @@ use crate::{
     error::InternalError,
     value::{Value, canonicalize_value_set},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::cmp::Ordering;
 
 #[expect(
@@ -33,7 +35,9 @@ pub(super) fn plan_predicate(
     predicate: &Predicate,
     order: Option<&OrderSpec>,
     grouped: bool,
+    budget: &dyn ConstructionBudget,
 ) -> Result<PlannedAccessSelection, InternalError> {
+    budget.charge(Resource::PredicateExpressionSteps, 1)?;
     let plan = match predicate {
         Predicate::True
         | Predicate::False
@@ -67,6 +71,10 @@ pub(super) fn plan_predicate(
             }
         }
         Predicate::And(children) => {
+            // Admit the child destination before candidate extraction/recursion.
+            // At most three family routes are appended after child selection.
+            // Payload construction and implication proofs remain separate work.
+            let mut plans = budget.vec_with_capacity(children.len().saturating_add(3))?;
             // Phase 1: derive the planner-owned secondary-index candidates once
             // so child recursion can reuse the chosen index contract for
             // redundancy stripping without reopening candidate extraction.
@@ -94,20 +102,18 @@ pub(super) fn plan_predicate(
                         .map(|spec| AccessPlan::index_range(spec.clone()))
                 })
                 .or_else(|| prefix_access.clone());
-            let mut plans = children
-                .iter()
-                .filter(|child| {
-                    !child_is_redundant_under_selected_index_access(
-                        schema,
-                        selected_index_access.as_ref(),
-                        child,
-                    )
-                })
-                .map(|child| {
-                    plan_predicate(candidate_indexes, schema, child, order, grouped)
-                        .map(PlannedAccessSelection::into_access)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+            for child in children {
+                if !child_is_redundant_under_selected_index_access(
+                    schema,
+                    selected_index_access.as_ref(),
+                    child,
+                ) {
+                    plans.push(
+                        plan_predicate(candidate_indexes, schema, child, order, grouped, budget)?
+                            .into_access(),
+                    );
+                }
+            }
             let intersection_access = exact_index_intersection_candidate(
                 schema,
                 order,
@@ -146,25 +152,25 @@ pub(super) fn plan_predicate(
                 Some(PlannedNonIndexAccessReason::PlannerCompositeNonIndex),
             )
         }
-        Predicate::Or(children) => PlannedAccessSelection::new(
-            AccessPlan::union(
-                children
-                    .iter()
-                    .map(|child| {
-                        plan_predicate(candidate_indexes, schema, child, order, grouped)
-                            .map(PlannedAccessSelection::into_access)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
-            Some(PlannedNonIndexAccessReason::PlannerCompositeNonIndex),
-        ),
-        Predicate::Compare(cmp) => {
-            let access = compare::plan_compare(candidate_indexes, schema, cmp, order, grouped);
-
+        Predicate::Or(children) => {
+            let mut plans = budget.vec_with_capacity(children.len())?;
+            for child in children {
+                plans.push(
+                    plan_predicate(candidate_indexes, schema, child, order, grouped, budget)?
+                        .into_access(),
+                );
+            }
             PlannedAccessSelection::new(
-                access.clone(),
-                planned_non_index_reason_for_access(&access),
+                AccessPlan::union(plans),
+                Some(PlannedNonIndexAccessReason::PlannerCompositeNonIndex),
             )
+        }
+        Predicate::Compare(cmp) => {
+            let access =
+                compare::plan_compare(candidate_indexes, schema, cmp, order, grouped, budget)?;
+            let reason = planned_non_index_reason_for_access(&access);
+
+            PlannedAccessSelection::new(access, reason)
         }
     };
 

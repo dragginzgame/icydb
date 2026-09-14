@@ -4410,6 +4410,8 @@ mod mixed_relation_batch_tests {
 
 #[cfg(test)]
 mod identity_pre_key_tests {
+    #[cfg(feature = "sql")]
+    mod grouped_count_tests;
     mod nested_relation_tests;
     mod replay_construction_tests;
     mod result_boundary_tests;

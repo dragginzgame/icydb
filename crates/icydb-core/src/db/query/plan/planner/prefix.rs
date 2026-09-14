@@ -6,13 +6,17 @@
 use crate::{
     db::{
         access::{
-            AccessPlan, MAX_INDEX_BRANCH_SET_VALUES, SemanticIndexAccessContract,
+            AccessPath, AccessPlan, MAX_INDEX_BRANCH_SET_VALUES, SemanticIndexAccessContract,
             SemanticIndexKeyItemRef,
         },
-        predicate::{CoercionId, CompareOp, Predicate},
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+        query::construction::ConstructionBudget,
         query::plan::{
             OrderDirection, OrderSpec,
-            key_item_match::eq_lookup_value_for_key_item,
+            key_item_match::{
+                copy_lookup_value_for_key_item, eq_lookup_value_for_key_item,
+                key_item_matches_field_and_coercion, key_item_supports_lookup_value,
+            },
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
                 access_candidate_score_outranks, index_field_literal_matcher,
@@ -21,18 +25,22 @@ use crate::{
         },
         schema::SchemaInfo,
     },
+    error::InternalError,
     value::{Value, canonicalize_value_set},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 fn leading_index_prefix_lookup_value(
     index_contract: &SemanticIndexAccessContract,
     field: &str,
     value: &Value,
     coercion: CoercionId,
-    literal_compatible: bool,
-) -> Option<Value> {
-    let key_item = index_contract.key_item_at(0)?;
-    eq_lookup_value_for_key_item(key_item, field, value, coercion, literal_compatible)
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Value>, InternalError> {
+    let Some(key_item) = index_contract.key_item_at(0) else {
+        return Ok(None);
+    };
+    copy_lookup_value_for_key_item(key_item, field, value, coercion, true, budget)
 }
 
 // This helper now carries one explicit planner-visible index slice in addition
@@ -41,145 +49,108 @@ fn leading_index_prefix_lookup_value(
 pub(super) fn index_prefix_for_eq(
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
-    field: &str,
-    value: &Value,
-    coercion: CoercionId,
+    cmp: &ComparePredicate,
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> Option<AccessPlan<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
+    let (field, value, coercion) = (cmp.field(), cmp.value(), cmp.coercion.id);
     let literal_compatible = index_literal_matches_schema(schema, field, value);
-
-    let mut best: Option<(AccessCandidateScore, &SemanticIndexAccessContract, Value)> = None;
-    for index in candidate_indexes {
-        let Some(lookup_value) =
-            leading_index_prefix_lookup_value(index, field, value, coercion, literal_compatible)
-        else {
-            continue;
-        };
-
-        let score = access_candidate_score_from_index_contract(
-            schema,
-            order,
-            index,
-            1,
-            index.key_arity() == 1,
-            0,
-            grouped,
-        );
-        match best {
-            None => best = Some((score, index, lookup_value)),
-            Some((best_score, best_index, _))
-                if access_candidate_score_outranks(score, best_score, true)
-                    || (score == best_score && index.name() < best_index.name()) =>
-            {
-                best = Some((score, index, lookup_value));
-            }
-            _ => {}
-        }
+    if !literal_compatible {
+        return Ok(None);
     }
-
-    best.map(|(_, index, lookup_value)| {
-        AccessPlan::index_prefix_from_contract(index.clone(), vec![lookup_value])
-    })
+    let Some(index) =
+        best_leading_lookup_index(candidate_indexes, schema, order, grouped, budget, |key| {
+            key_item_supports_lookup_value(key, field, value, coercion, true)
+        })?
+    else {
+        return Ok(None);
+    };
+    let mut values = budget.vec_with_capacity(1)?;
+    let Some(value) = leading_index_prefix_lookup_value(index, field, value, coercion, budget)?
+    else {
+        return Ok(None);
+    };
+    values.push(value);
+    budget.charge(
+        Resource::TemporaryBytes,
+        size_of::<AccessPath<Value>>() as u64,
+    )?;
+    Ok(Some(AccessPlan::index_prefix_from_contract(
+        index.clone(),
+        values,
+    )))
 }
 
 pub(super) fn index_multi_lookup_for_in(
     candidate_indexes: &[SemanticIndexAccessContract],
     schema: &SchemaInfo,
-    field: &str,
+    cmp: &ComparePredicate,
     values: &[Value],
-    coercion: CoercionId,
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> Option<AccessPlan<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
+    let (field, coercion) = (cmp.field(), cmp.coercion.id);
     if values.is_empty() {
-        return None;
+        return Ok(None);
     }
 
     let matcher = index_field_literal_matcher(schema, field);
-    if coercion == CoercionId::Strict
-        && values.iter().all(|value| matcher.matches(value))
-        && let Some(index) =
-            best_strict_field_multi_lookup_index(candidate_indexes, schema, field, order, grouped)
-    {
-        return Some(AccessPlan::index_multi_lookup_from_contract(
-            index.clone(),
-            values.to_vec(),
-        ));
+    if !values.iter().all(|value| matcher.matches(value)) {
+        return Ok(None);
     }
-
-    // Cache schema/literal compatibility once per `IN` item so expression
-    // index candidate selection does not repeat schema checks on every index
-    // iteration.
-    let cached_values = values
-        .iter()
-        .map(|value| (value, matcher.matches(value)))
-        .collect::<Vec<_>>();
-
-    let mut best: Option<(
-        AccessCandidateScore,
-        &SemanticIndexAccessContract,
-        Vec<Value>,
-    )> = None;
-    for index in candidate_indexes {
-        let mut lookup_values = Vec::with_capacity(values.len());
-        for (value, literal_compatible) in &cached_values {
-            let Some(lookup_value) = leading_index_prefix_lookup_value(
-                index,
-                field,
-                value,
-                coercion,
-                *literal_compatible,
-            ) else {
-                lookup_values.clear();
-                break;
-            };
-
-            lookup_values.push(lookup_value);
-        }
-        if lookup_values.is_empty() {
-            continue;
-        }
-
-        let score = access_candidate_score_from_index_contract(
-            schema,
-            order,
-            index,
-            1,
-            index.key_arity() == 1,
-            0,
-            grouped,
-        );
-        match &best {
-            None => best = Some((score, index, lookup_values)),
-            Some((best_score, best_index, _))
-                if access_candidate_score_outranks(score, *best_score, true)
-                    || (score == *best_score && index.name() < best_index.name()) =>
-            {
-                best = Some((score, index, lookup_values));
-            }
-            Some(_) => {}
-        }
+    let Some(index) =
+        best_leading_lookup_index(candidate_indexes, schema, order, grouped, budget, |key| {
+            // Strict fields need no second literal walk after shared schema admission.
+            // Expression eligibility still uses the canonical per-value shape gate.
+            key_item_matches_field_and_coercion(key, field, coercion)
+                && (!key.is_expression()
+                    || values.iter().all(|value| {
+                        key_item_supports_lookup_value(key, field, value, coercion, true)
+                    }))
+        })?
+    else {
+        return Ok(None);
+    };
+    let mut lookup_values = budget.vec_with_capacity(values.len())?;
+    for value in values {
+        let Some(value) = leading_index_prefix_lookup_value(index, field, value, coercion, budget)?
+        else {
+            return Ok(None);
+        };
+        lookup_values.push(value);
     }
-
-    best.map(|(_, index, lookup_values)| {
-        AccessPlan::index_multi_lookup_from_contract(index.clone(), lookup_values)
-    })
+    budget.charge(
+        Resource::TemporaryBytes,
+        size_of::<AccessPath<Value>>() as u64,
+    )?;
+    Ok(Some(AccessPlan::index_multi_lookup_from_contract(
+        index.clone(),
+        lookup_values,
+    )))
 }
 
-fn best_strict_field_multi_lookup_index<'a>(
+// Rank borrowed identities before building any operand payload. Both lookup
+// families use the same structural score and accepted-name tie-break.
+fn best_leading_lookup_index<'a>(
     candidate_indexes: &'a [SemanticIndexAccessContract],
     schema: &SchemaInfo,
-    field: &str,
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> Option<&'a SemanticIndexAccessContract> {
+    budget: &dyn ConstructionBudget,
+    supports: impl Fn(SemanticIndexKeyItemRef<'_>) -> bool,
+) -> Result<Option<&'a SemanticIndexAccessContract>, InternalError> {
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        candidate_indexes.len() as u64,
+    )?;
     let mut best: Option<(AccessCandidateScore, &SemanticIndexAccessContract)> = None;
     for index in candidate_indexes {
-        let Some(SemanticIndexKeyItemRef::Field(key_field)) = index.key_item_at(0) else {
+        let Some(key) = index.key_item_at(0) else {
             continue;
         };
-        if key_field != field {
+        if !supports(key) {
             continue;
         }
 
@@ -204,7 +175,7 @@ fn best_strict_field_multi_lookup_index<'a>(
         }
     }
 
-    best.map(|(_, index)| index)
+    Ok(best.map(|(_, index)| index))
 }
 
 pub(super) fn index_prefix_from_and(

@@ -200,8 +200,8 @@ pub(in crate::db::schema) use enum_catalog::AcceptedStoreCatalogScope;
 pub(in crate::db) use enum_catalog::{
     AcceptedEnumCatalog, AcceptedSchemaFingerprint, AcceptedSchemaRevision,
     AcceptedSchemaRevisionBundle, AcceptedValueCatalogHandle, AcceptedValueContract,
-    CandidateSchemaRevision, ValueAdmissionBudget, encode_unit_enum_equality_key,
-    output_value_from_runtime,
+    CandidateSchemaRevision, UNIT_ENUM_EQUALITY_KEY_BYTES, ValueAdmissionBudget,
+    encode_unit_enum_equality_key, output_value_from_runtime,
 };
 #[cfg(test)]
 pub(in crate::db) use enum_catalog::{

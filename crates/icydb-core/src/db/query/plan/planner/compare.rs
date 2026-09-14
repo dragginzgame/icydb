@@ -3,17 +3,24 @@
 //! Does not own: runtime comparator enforcement or continuation resume execution details.
 //! Boundary: derives compare-driven `AccessPlan` semantics from schema/predicate contracts.
 
+#[cfg(test)]
+mod admission_tests;
+
 use crate::{
     db::{
         access::{
-            AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
+            AccessPath, AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
             SemanticIndexRangeSpec,
         },
         index::{TextPrefixBoundMode, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, ComparePredicate},
+        query::construction::ConstructionBudget,
         query::plan::{
             OrderSpec, field_key_contract_supports_operator,
-            key_item_match::{eq_lookup_value_for_key_item, starts_with_lookup_value_for_key_item},
+            key_item_match::{
+                copy_lookup_value_for_key_item, key_item_supports_lookup_value,
+                starts_with_lookup_value_for_key_item,
+            },
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
                 access_candidate_score_outranks, index_literal_matches_schema,
@@ -23,8 +30,10 @@ use crate::{
         },
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
+    error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::ops::Bound;
 
 pub(super) fn plan_compare(
@@ -33,7 +42,8 @@ pub(super) fn plan_compare(
     cmp: &ComparePredicate,
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> AccessPlan<Value> {
+    budget: &dyn ConstructionBudget,
+) -> Result<AccessPlan<Value>, InternalError> {
     // Exact primary-key predicate lowering is scalar-only. Composite primary
     // keys are addressed through full-key values at typed/structural
     // boundaries; partial component predicates must not masquerade as ByKey.
@@ -41,31 +51,25 @@ pub(super) fn plan_compare(
     if primary_key_exact_coercion_supports_access(cmp.coercion.id)
         && primary_key_name.is_some_and(|name| cmp.field == name)
         && let Some(field_type) = primary_key_name.and_then(|name| schema.field(name))
-        && let Some(path) = plan_pk_compare(field_type, &cmp.value, cmp.op)
+        && let Some(path) = plan_pk_compare(field_type, &cmp.value, cmp.op, budget)?
     {
-        return path;
+        return Ok(path);
     }
 
     match cmp.op {
         CompareOp::Eq => {
             if !coercion_supports_index_lookup(cmp.coercion.id) {
-                return AccessPlan::full_scan();
+                return Ok(AccessPlan::full_scan());
             }
-            if let Some(paths) = index_prefix_for_eq(
-                candidate_indexes,
-                schema,
-                &cmp.field,
-                &cmp.value,
-                cmp.coercion.id,
-                order,
-                grouped,
-            ) {
-                return paths;
+            if let Some(paths) =
+                index_prefix_for_eq(candidate_indexes, schema, cmp, order, grouped, budget)?
+            {
+                return Ok(paths);
             }
         }
         CompareOp::In => {
             if !coercion_supports_index_lookup(cmp.coercion.id) {
-                return AccessPlan::full_scan();
+                return Ok(AccessPlan::full_scan());
             }
             if let Value::List(items) = &cmp.value {
                 // Access canonicalization owns IN-list set normalization
@@ -73,39 +77,40 @@ pub(super) fn plan_compare(
                 // `IN ()` is a constant-empty predicate: no row can satisfy it.
                 // Lower directly to an empty access shape instead of full-scan fallback.
                 if items.is_empty() {
-                    return AccessPlan::by_keys(Vec::new());
+                    return Ok(AccessPlan::by_keys(Vec::new()));
                 }
                 if let Some(path) = index_multi_lookup_for_in(
                     candidate_indexes,
                     schema,
-                    &cmp.field,
+                    cmp,
                     items,
-                    cmp.coercion.id,
                     order,
                     grouped,
-                ) {
-                    return path;
+                    budget,
+                )? {
+                    return Ok(path);
                 }
             }
         }
         CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
             if !coercion_supports_index_lookup(cmp.coercion.id) {
-                return AccessPlan::full_scan();
+                return Ok(AccessPlan::full_scan());
             }
             let Some(field_type) = schema.field(&cmp.field) else {
-                return AccessPlan::full_scan();
+                return Ok(AccessPlan::full_scan());
             };
             if !field_supports_ordered_compare(field_type, cmp.coercion.id) {
-                return AccessPlan::full_scan();
+                return Ok(AccessPlan::full_scan());
             }
-            if let Some(path) = plan_ordered_compare(candidate_indexes, schema, cmp, order, grouped)
+            if let Some(path) =
+                plan_ordered_compare(candidate_indexes, schema, cmp, order, grouped, budget)?
             {
-                return path;
+                return Ok(path);
             }
         }
         CompareOp::StartsWith => {
             if !coercion_supports_index_lookup(cmp.coercion.id) {
-                return AccessPlan::full_scan();
+                return Ok(AccessPlan::full_scan());
             }
 
             // Keep the starts-with split explicit:
@@ -118,7 +123,7 @@ pub(super) fn plan_compare(
             if let Some(path) =
                 plan_starts_with_compare(candidate_indexes, schema, cmp, order, grouped)
             {
-                return path;
+                return Ok(path);
             }
         }
         _ => {
@@ -126,7 +131,7 @@ pub(super) fn plan_compare(
         }
     }
 
-    AccessPlan::full_scan()
+    Ok(AccessPlan::full_scan())
 }
 
 // Planner compare access only supports exact schema semantics or case-folded
@@ -156,39 +161,48 @@ fn plan_pk_compare(
     field_type: &FieldType,
     value: &Value,
     op: CompareOp,
-) -> Option<AccessPlan<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
     if !field_type.is_keyable() {
-        return None;
+        return Ok(None);
     }
 
-    match op {
+    let path = match op {
         CompareOp::Eq => {
             if !literal_matches_type(value, field_type) {
-                return None;
+                return Ok(None);
             }
 
-            Some(AccessPlan::by_key(value.clone()))
+            AccessPath::ByKey(budget.copy_value(value)?)
         }
         CompareOp::In => {
             let Value::List(items) = value else {
-                return None;
+                return Ok(None);
             };
 
             // Keep planner semantic-only: PK IN literal-set canonicalization is
             // performed by access-plan canonicalization.
             for item in items {
                 if !literal_matches_type(item, field_type) {
-                    return None;
+                    return Ok(None);
                 }
             }
 
-            Some(AccessPlan::by_keys(items.clone()))
+            // Keep original order/duplicates for access canonicalization.
+            // Admit each destination before copying; a failed copy publishes
+            // no route and is never interpreted as an unsupported candidate.
+            let mut keys = budget.vec_with_capacity(items.len())?;
+            for item in items {
+                keys.push(budget.copy_value(item)?);
+            }
+            AccessPath::ByKeys(keys)
         }
         _ => {
             // NOTE: Only Eq/In comparisons can be expressed as key access paths.
-            None
+            return Ok(None);
         }
-    }
+    };
+    Ok(Some(AccessPlan::Path(budget.boxed(path)?)))
 }
 
 fn plan_starts_with_compare(
@@ -276,93 +290,89 @@ fn plan_ordered_compare(
     cmp: &ComparePredicate,
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> Option<AccessPlan<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
     // Ordered bounds must reuse the same canonical literal-lowering authority
     // as Eq/In/prefix matching so expression-key comparisons stay aligned with
     // the stored normalized index value order.
     let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
+    if !literal_compatible
+        || !matches!(
+            cmp.op,
+            CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte
+        )
+    {
+        return Ok(None);
+    }
 
+    // Every supported comparison has exactly one bound. Rank borrowed index
+    // identities first, then admit and construct only the winning operand.
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        candidate_indexes.len() as u64,
+    )?;
     let mut best: Option<(
         AccessCandidateScore,
         &SemanticIndexAccessContract,
-        Bound<Value>,
-        Bound<Value>,
+        SemanticIndexKeyItemRef<'_>,
     )> = None;
     for index in candidate_indexes {
         let Some(leading_key_item) = index.key_item_at(0) else {
             continue;
         };
-        let Some(bound_value) = eq_lookup_value_for_key_item(
+        if !key_item_supports_lookup_value(
             leading_key_item,
             cmp.field.as_str(),
             &cmp.value,
             cmp.coercion.id,
             literal_compatible,
-        ) else {
+        ) {
             continue;
-        };
-
-        match leading_key_item {
-            SemanticIndexKeyItemRef::Field(_) => {
-                if cmp.coercion.id != CoercionId::Strict
-                    || !matches!(
-                        index.key_item_at(0),
-                        Some(SemanticIndexKeyItemRef::Field(field))
-                            if field == cmp.field.as_str()
-                    )
-                    || !field_key_contract_supports_operator(index, cmp.field.as_str(), cmp.op)
-                {
-                    continue;
-                }
-            }
-            SemanticIndexKeyItemRef::AcceptedExpression(_) => {
-                if cmp.coercion.id != CoercionId::TextCasefold {
-                    continue;
-                }
-            }
         }
-
-        let (lower, upper) = match cmp.op {
-            CompareOp::Gt => (Bound::Excluded(bound_value), Bound::Unbounded),
-            CompareOp::Gte => (Bound::Included(bound_value), Bound::Unbounded),
-            CompareOp::Lt => (Bound::Unbounded, Bound::Excluded(bound_value)),
-            CompareOp::Lte => (Bound::Unbounded, Bound::Included(bound_value)),
-            CompareOp::Eq
-            | CompareOp::Ne
-            | CompareOp::In
-            | CompareOp::NotIn
-            | CompareOp::Contains
-            | CompareOp::StartsWith
-            | CompareOp::EndsWith => return None,
-        };
-        let score = access_candidate_score_from_index_contract(
-            schema,
-            order,
-            index,
-            0,
-            false,
-            range_bound_count(&lower, &upper),
-            grouped,
-        );
+        if !leading_key_item.is_expression()
+            && !field_key_contract_supports_operator(index, cmp.field.as_str(), cmp.op)
+        {
+            continue;
+        }
+        let score =
+            access_candidate_score_from_index_contract(schema, order, index, 0, false, 1, grouped);
         match best {
-            None => best = Some((score, index, lower, upper)),
-            Some((best_score, best_index, _, _))
+            None => best = Some((score, index, leading_key_item)),
+            Some((best_score, best_index, _))
                 if access_candidate_score_outranks(score, best_score, false)
                     || (score == best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index, lower, upper));
+                best = Some((score, index, leading_key_item));
             }
             _ => {}
         }
     }
 
-    best.map(|(_, index, lower, upper)| {
-        AccessPlan::index_range(SemanticIndexRangeSpec::from_access_contract(
-            index.clone(),
-            vec![0usize],
-            Vec::new(),
-            lower,
-            upper,
-        ))
-    })
+    let Some((_, index, key)) = best else {
+        return Ok(None);
+    };
+    let Some(value) =
+        copy_lookup_value_for_key_item(key, &cmp.field, &cmp.value, cmp.coercion.id, true, budget)?
+    else {
+        return Ok(None);
+    };
+    let (lower, upper) = match cmp.op {
+        CompareOp::Gt => (Bound::Excluded(value), Bound::Unbounded),
+        CompareOp::Gte => (Bound::Included(value), Bound::Unbounded),
+        CompareOp::Lt => (Bound::Unbounded, Bound::Excluded(value)),
+        CompareOp::Lte => (Bound::Unbounded, Bound::Included(value)),
+        _ => return Ok(None),
+    };
+    let mut slots = budget.vec_with_capacity(1)?;
+    slots.push(0usize);
+    let spec = SemanticIndexRangeSpec::from_access_contract(
+        index.clone(),
+        slots,
+        Vec::new(),
+        lower,
+        upper,
+    );
+    Ok(Some(AccessPlan::Path(
+        budget.boxed(AccessPath::IndexRange { spec })?,
+    )))
 }

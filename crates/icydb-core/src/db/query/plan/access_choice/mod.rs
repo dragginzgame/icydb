@@ -21,12 +21,13 @@ use crate::{
     db::{
         access::{AccessPlan, SemanticIndexAccessContract},
         predicate::Predicate,
+        query::construction::ConstructionBudget,
         query::plan::{
             AccessPlannedQuery, CardinalityTiebreakCandidate, CardinalityTiebreakFamily,
             ResidualFilterShape,
             access_choice::{
                 evaluator::{
-                    chosen_access_shape_projection, chosen_selection_reason,
+                    CandidateRankingEvidence, chosen_access_shape_projection,
                     evaluate_index_candidate, ranked_rejection_reason,
                 },
                 model::{AccessChoiceCandidateKind, AccessChoiceFamily},
@@ -36,8 +37,10 @@ use crate::{
         },
         schema::SchemaInfo,
     },
+    error::InternalError,
     value::Value,
 };
+use std::borrow::Cow;
 
 ///
 /// project_access_choice_explain_snapshot_with_indexes
@@ -48,13 +51,18 @@ use crate::{
 
 /// Project planner-owned access-choice candidate metadata for EXPLAIN using
 /// already-projected semantic index contracts from the visible-index boundary.
-#[must_use]
 pub(in crate::db) fn project_access_choice_explain_snapshot_with_semantic_indexes_and_schema(
     semantic_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
-) -> AccessChoiceExplainSnapshot {
-    project_access_choice_explain_snapshot_from_authority(semantic_indexes, schema_info, plan)
+    budget: &dyn ConstructionBudget,
+) -> Result<AccessChoiceExplainSnapshot, InternalError> {
+    project_access_choice_explain_snapshot_from_authority(
+        semantic_indexes,
+        schema_info,
+        plan,
+        budget,
+    )
 }
 
 /// Enumerate the complete final tie set from the existing access-choice owner.
@@ -62,18 +70,22 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_semantic_indexe
 /// This does not read cardinality. It returns candidates only when at least two
 /// non-grouped routes remain equal under the maintained structural and residual
 /// policy, immediately before the predecessor lexicographic tie-break.
-#[must_use]
-pub(in crate::db) fn exact_cardinality_tiebreak_candidates(
+pub(in crate::db) fn exact_cardinality_tiebreak_candidates<'a>(
     semantic_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
-    plan: &AccessPlannedQuery,
-) -> Option<Vec<CardinalityTiebreakCandidate>> {
+    plan: &'a AccessPlannedQuery,
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Vec<CardinalityTiebreakCandidate<'a>>>, InternalError> {
     if plan.grouped_plan().is_some() {
-        return None;
+        return Ok(None);
     }
-    let (family, consumed_prefix_arity) = cardinality_family_and_arity(&plan.access)?;
+    let Some((family, consumed_prefix_arity)) = cardinality_family_and_arity(&plan.access) else {
+        return Ok(None);
+    };
     let explain_family = access_choice_family_for_cardinality(family);
-    let chosen_index = plan.access.selected_index_contract()?;
+    let Some(chosen_index) = plan.access.selected_index_contract() else {
+        return Ok(None);
+    };
     let predicate = plan.scalar_plan().predicate.as_ref();
     let order = plan.scalar_plan().order.as_ref();
     let chosen_score = match evaluate_index_candidate(
@@ -85,10 +97,12 @@ pub(in crate::db) fn exact_cardinality_tiebreak_candidates(
         false,
     ) {
         self::model::CandidateEvaluation::Eligible(score) => score,
-        self::model::CandidateEvaluation::Rejected(_) => return None,
+        self::model::CandidateEvaluation::Rejected(_) => return Ok(None),
     };
     let chosen_burden = residual_burden_for_plan(plan);
-    let mut candidates = Vec::new();
+    // At most one retained route per visible index. Route payload construction
+    // remains separately owned; admit list backing before retaining candidates.
+    let mut candidates = budget.vec_with_capacity(semantic_indexes.len())?;
     let mut chosen_seen = false;
 
     for index in semantic_indexes {
@@ -96,7 +110,7 @@ pub(in crate::db) fn exact_cardinality_tiebreak_candidates(
             if !chosen_seen {
                 chosen_seen = true;
                 candidates.push(CardinalityTiebreakCandidate::new(
-                    plan.access.clone(),
+                    Cow::Borrowed(&plan.access),
                     chosen_index.clone(),
                     family,
                     consumed_prefix_arity,
@@ -112,9 +126,16 @@ pub(in crate::db) fn exact_cardinality_tiebreak_candidates(
         if score != chosen_score {
             continue;
         }
-        let candidate_access = eligible_candidate_access_for_index(schema_info, plan, index)?;
-        let (candidate_family, candidate_prefix_arity) =
-            cardinality_family_and_arity(&candidate_access)?;
+        let Some(candidate_access) =
+            eligible_candidate_access_for_index(schema_info, plan, index, budget)?
+        else {
+            return Ok(None);
+        };
+        let Some((candidate_family, candidate_prefix_arity)) =
+            cardinality_family_and_arity(&candidate_access)
+        else {
+            return Ok(None);
+        };
         if candidate_family != family || candidate_prefix_arity != consumed_prefix_arity {
             continue;
         }
@@ -122,17 +143,17 @@ pub(in crate::db) fn exact_cardinality_tiebreak_candidates(
             continue;
         }
         candidates.push(CardinalityTiebreakCandidate::new(
-            candidate_access,
+            Cow::Owned(candidate_access),
             index.clone(),
             candidate_family,
             candidate_prefix_arity,
         ));
     }
     if !chosen_seen || candidates.len() < 2 {
-        return None;
+        return Ok(None);
     }
 
-    Some(candidates)
+    Ok(Some(candidates))
 }
 
 fn cardinality_family_and_arity(
@@ -167,21 +188,22 @@ fn project_access_choice_explain_snapshot_from_authority(
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
-) -> AccessChoiceExplainSnapshot {
+    budget: &dyn ConstructionBudget,
+) -> Result<AccessChoiceExplainSnapshot, InternalError> {
     // Phase 1: classify chosen access family and reuse one already-frozen
     // planner-owned non-index snapshot when the selected route never entered
     // index candidate projection at all.
     let (family, chosen_index_name, chosen_score_hint) =
         chosen_access_shape_projection(&plan.access);
     if matches!(family, AccessChoiceFamily::NonIndex) {
-        return plan.access_choice().clone();
+        return Ok(plan.access_choice().clone());
     }
     let Some(candidate_kind) = family.candidate_kind() else {
-        return AccessChoiceExplainSnapshot::selected_index_not_projected();
+        return Ok(AccessChoiceExplainSnapshot::selected_index_not_projected());
     };
 
     let Some(chosen_index_name) = chosen_index_name else {
-        return AccessChoiceExplainSnapshot::selected_index_not_projected();
+        return Ok(AccessChoiceExplainSnapshot::selected_index_not_projected());
     };
 
     let predicate = plan.scalar_plan().predicate.as_ref();
@@ -190,17 +212,19 @@ fn project_access_choice_explain_snapshot_from_authority(
     let chosen_score = chosen_score_for_visible_indexes(
         family,
         chosen_score_hint,
-        chosen_index_name.as_str(),
+        chosen_index_name.name(),
         visible_indexes,
         schema_info,
         predicate,
         order,
         grouped,
     );
-    let mut alternatives = Vec::new();
-    let mut candidates = Vec::new();
-    let mut rejected = Vec::new();
-    let mut eligible_other_scores = Vec::new();
+    // Each visible index contributes at most one element to each retained list.
+    // Reserve once before evaluating candidates; names are charged when copied.
+    let mut alternatives = budget.vec_with_capacity(visible_indexes.len())?;
+    let mut candidates = budget.vec_with_capacity(visible_indexes.len())?;
+    let mut rejected = budget.vec_with_capacity(visible_indexes.len())?;
+    let mut ranking = CandidateRankingEvidence::new();
     let chosen_burden = residual_burden_for_plan(plan);
     let mut found_lower_residual_burden = false;
     let mut found_higher_residual_burden = false;
@@ -209,10 +233,10 @@ fn project_access_choice_explain_snapshot_from_authority(
     // projection stays under one evaluation owner after the chosen score has
     // already been frozen from planner evaluation.
     for index in visible_indexes {
-        let index_name = index.name().to_string();
+        let index_name = budget.copy_text(index.name())?;
         match evaluate_index_candidate(family, index, schema_info, predicate, order, grouped) {
             self::model::CandidateEvaluation::Eligible(score)
-                if index_name == chosen_index_name.as_str() =>
+                if index_name == chosen_index_name.name() =>
             {
                 candidates.push(project_candidate_explain_summary(
                     candidate_kind,
@@ -222,16 +246,16 @@ fn project_access_choice_explain_snapshot_from_authority(
                 ));
             }
             self::model::CandidateEvaluation::Eligible(score) => {
-                alternatives.push(index_name.clone());
-                eligible_other_scores.push(score);
+                alternatives.push(budget.copy_text(&index_name)?);
+                ranking.observe(family, chosen_score, score);
                 let mut rejected_on_residual_burden = false;
                 if let Some(candidate_access) =
-                    eligible_candidate_access_for_index(schema_info, plan, index)
+                    eligible_candidate_access_for_index(schema_info, plan, index, budget)?
                 {
                     let residual_burden = residual_burden_for_candidate(plan, &candidate_access);
                     candidates.push(project_candidate_explain_summary(
                         candidate_kind,
-                        index_name.clone(),
+                        budget.copy_text(&index_name)?,
                         score,
                         residual_burden,
                     ));
@@ -265,19 +289,14 @@ fn project_access_choice_explain_snapshot_from_authority(
 
     // Phase 3: derive deterministic winner/rejection reason codes from the
     // one-pass candidate evaluation results above.
-    AccessChoiceExplainSnapshot {
-        chosen_reason: chosen_selection_reason(
-            family,
-            chosen_score,
-            &eligible_other_scores,
-            residual_burden_preferred,
-        ),
+    Ok(AccessChoiceExplainSnapshot {
+        chosen_reason: ranking.selected_reason(chosen_score, residual_burden_preferred),
         candidates,
         alternatives,
         rejected,
         primary_key_input_resource: None,
         cardinality_evidence_state: "not_applicable",
-    }
+    })
 }
 
 // Keep non-index chosen-reason projection explicit and shape-based until the
@@ -338,31 +357,38 @@ pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
 
 /// Return one reranked access plan using already-projected semantic index
 /// contracts from the runtime visible-index boundary.
-#[must_use]
 pub(in crate::db::query) fn rerank_access_plan_by_residual_burden_with_semantic_indexes(
     semantic_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
-) -> Option<AccessPlan<Value>> {
-    rerank_access_plan_by_residual_burden_from_authority(semantic_indexes, schema_info, plan)
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
+    rerank_access_plan_by_residual_burden_from_authority(
+        semantic_indexes,
+        schema_info,
+        plan,
+        budget,
+    )
 }
 
 fn rerank_access_plan_by_residual_burden_from_authority(
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
-) -> Option<AccessPlan<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
     if residual_burden_for_plan(plan).is_empty() {
-        return None;
+        return Ok(None);
     }
 
     let preferred = preferred_same_score_competing_access_by_residual_burden(
         visible_indexes,
         schema_info,
         plan,
+        budget,
     )?;
 
-    Some(preferred.access)
+    Ok(preferred.map(|preferred| preferred.access))
 }
 
 ///
@@ -411,36 +437,6 @@ struct ResidualComparableCandidate {
     residual_burden: ResidualBurdenProfile,
 }
 
-// Build the best same-score competing access route that leaves less residual
-// work than the current chosen route.
-fn preferred_same_score_competing_access_by_residual_burden(
-    visible_indexes: &[SemanticIndexAccessContract],
-    schema_info: &SchemaInfo,
-    plan: &AccessPlannedQuery,
-) -> Option<ResidualComparableCandidate> {
-    let chosen_burden = residual_burden_for_plan(plan);
-    let mut best: Option<ResidualComparableCandidate> = None;
-
-    for candidate in same_score_competing_candidate_plans(visible_indexes, schema_info, plan)
-        .into_iter()
-        .flatten()
-    {
-        if candidate.residual_burden >= chosen_burden {
-            continue;
-        }
-
-        match &best {
-            None => best = Some(candidate),
-            Some(existing) if candidate.residual_burden < existing.residual_burden => {
-                best = Some(candidate);
-            }
-            Some(_) => {}
-        }
-    }
-
-    best
-}
-
 #[expect(
     clippy::too_many_arguments,
     reason = "access-choice scoring keeps candidate authority and query shape explicit"
@@ -473,16 +469,24 @@ fn eligible_candidate_access_for_index(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
     index: &SemanticIndexAccessContract,
-) -> Option<AccessPlan<Value>> {
-    plan_access_selection_with_order_and_semantic_indexes(
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
+    use crate::db::query::plan::planner::PlannerError;
+
+    match plan_access_selection_with_order_and_semantic_indexes(
         std::slice::from_ref(index),
         schema_info,
         plan.scalar_plan().predicate.as_ref(),
         plan.scalar_plan().order.as_ref(),
         plan.grouped_plan().is_some(),
-    )
-    .ok()
-    .map(super::planner::PlannedAccessSelection::into_access)
+        budget,
+    ) {
+        Ok(selection) => Ok(Some(selection.into_access())),
+        // A semantic non-candidate is still optional; construction failure is
+        // not missing evidence and must not select a partial/fallback result.
+        Err(PlannerError::Plan(_)) => Ok(None),
+        Err(PlannerError::Internal(error)) => Err(*error),
+    }
 }
 
 // Project one verbose explain summary for an eligible candidate route using
@@ -509,25 +513,31 @@ fn project_candidate_explain_summary(
 // Enumerate same-family, same-score competing index routes by rebuilding each
 // candidate through the existing single-index planner entry and deriving its
 // residual burden from borrowed scalar semantics and the candidate access.
-fn same_score_competing_candidate_plans(
+// Keep only the best same-score alternative rather than retaining every plan.
+// Visit all candidates even after finding an empty residual: a later failed
+// candidate still cancels reranking under the existing fail-closed policy.
+fn preferred_same_score_competing_access_by_residual_burden(
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
-) -> Option<Vec<ResidualComparableCandidate>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<ResidualComparableCandidate>, InternalError> {
     let (family, chosen_index_name, chosen_score_hint) =
         chosen_access_shape_projection(&plan.access);
     if matches!(family, AccessChoiceFamily::NonIndex) {
-        return None;
+        return Ok(None);
     }
 
-    let chosen_index_name = chosen_index_name?;
+    let Some(chosen_index_name) = chosen_index_name else {
+        return Ok(None);
+    };
     let predicate = plan.scalar_plan().predicate.as_ref();
     let order = plan.scalar_plan().order.as_ref();
     let grouped = plan.grouped_plan().is_some();
     let chosen_score = chosen_score_for_visible_indexes(
         family,
         chosen_score_hint,
-        chosen_index_name.as_str(),
+        chosen_index_name.name(),
         visible_indexes,
         schema_info,
         predicate,
@@ -535,9 +545,10 @@ fn same_score_competing_candidate_plans(
         grouped,
     );
 
-    let mut candidates = Vec::new();
+    let chosen_burden = residual_burden_for_plan(plan);
+    let mut best: Option<ResidualComparableCandidate> = None;
     for index in visible_indexes {
-        if index.name() == chosen_index_name.as_str() {
+        if index.name() == chosen_index_name.name() {
             continue;
         }
         let self::model::CandidateEvaluation::Eligible(score) =
@@ -549,22 +560,33 @@ fn same_score_competing_candidate_plans(
             continue;
         }
 
-        let candidate_access = eligible_candidate_access_for_index(schema_info, plan, index)?;
-        let candidate_access_name = candidate_access
+        let Some(candidate_access) =
+            eligible_candidate_access_for_index(schema_info, plan, index, budget)?
+        else {
+            return Ok(None);
+        };
+        if candidate_access
             .selected_index_contract()
-            .map(|contract| contract.name().to_string());
-        if candidate_access_name.as_deref() != Some(index.name()) {
+            .is_none_or(|contract| contract.name() != index.name())
+        {
             continue;
         }
 
         let residual_burden = residual_burden_for_candidate(plan, &candidate_access);
-        candidates.push(ResidualComparableCandidate {
-            access: candidate_access,
-            residual_burden,
-        });
+        // Equal burden retains the first candidate in accepted-name order.
+        if residual_burden < chosen_burden
+            && best
+                .as_ref()
+                .is_none_or(|existing| residual_burden < existing.residual_burden)
+        {
+            best = Some(ResidualComparableCandidate {
+                access: candidate_access,
+                residual_burden,
+            });
+        }
     }
 
-    Some(candidates)
+    Ok(best)
 }
 
 // Project one bounded residual burden category from the coupled logical+access

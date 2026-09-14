@@ -18,7 +18,9 @@ use crate::{
             OrderedKeyStreamBox, PrefixSetExecutionShape, PrefixSetMergeSafety, PrimaryScan,
             active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
             branch_stream_chunk_entries,
-            budget::{charge_current_execution_budget, charge_sort_work},
+            budget::{
+                ExecutionConstructionBudget, charge_current_execution_budget, charge_sort_work,
+            },
             expand_index_prefix_family_with_exact_child_prefixes,
             index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
             index_stream_output_limit_for_chunk, lowered_index_prefix_liveness,
@@ -675,7 +677,7 @@ fn charge_prefix_family_construction(
                 .checked_add(component.len())
                 .ok_or_else(InternalError::executor_invariant)?;
         }
-        let (lower, upper) = spec.raw_bounds()?;
+        let (lower, upper) = spec.raw_bounds(&ExecutionConstructionBudget)?;
         descriptor_bytes = descriptor_bytes
             .checked_add(RawIndexStoreKey::bound_backing_bytes(lower))
             .and_then(|bytes| bytes.checked_add(RawIndexStoreKey::bound_backing_bytes(upper)))
@@ -744,7 +746,7 @@ fn sort_lowered_index_prefix_specs_by_raw_lower_key(
 ) -> Result<(), InternalError> {
     let mut keyed_specs = Vec::with_capacity(specs.len());
     for spec in specs.drain(..) {
-        let (lower, _upper) = spec.raw_bounds()?;
+        let (lower, _upper) = spec.raw_bounds(&ExecutionConstructionBudget)?;
         let Bound::Included(raw_key) = lower else {
             return Err(InternalError::query_executor_invariant());
         };
@@ -758,7 +760,7 @@ fn sort_lowered_index_prefix_specs_by_raw_lower_key(
 }
 
 fn lowered_prefix_start_key(spec: &LoweredIndexPrefixSpec) -> Result<IndexKey, InternalError> {
-    let (lower, _upper) = spec.raw_bounds()?;
+    let (lower, _upper) = spec.raw_bounds(&ExecutionConstructionBudget)?;
     let Bound::Included(raw_key) = lower else {
         return Err(InternalError::query_executor_invariant());
     };
@@ -1433,7 +1435,7 @@ impl IndexRangeKeyStream {
         chunk_entries: usize,
         primary_key_ordered: bool,
     ) -> Result<Self, InternalError> {
-        let (lower, upper) = spec.raw_bounds()?;
+        let (lower, upper) = spec.raw_bounds(&ExecutionConstructionBudget)?;
         let primary_key_seek = primary_key_ordered
             .then(|| IndexPrimaryKeySeek::new(index, spec))
             .transpose()?;

@@ -5,7 +5,10 @@
 
 pub(crate) mod compile;
 use crate::{
-    db::index::{EncodedValue, IndexKey},
+    db::{
+        index::{EncodedValue, IndexKey, admit_query_index_component},
+        query::construction::ConstructionBudget,
+    },
     error::InternalError,
     value::Value,
 };
@@ -231,11 +234,15 @@ pub(in crate::db) fn eval_index_execution_on_decoded_key(
 }
 
 /// Build canonical index-component bytes for one literal.
-#[must_use]
-pub(in crate::db) fn literal_index_component_bytes(value: &Value) -> Option<Vec<u8>> {
-    let encoded = EncodedValue::try_from_ref(value).ok()?;
+pub(in crate::db) fn literal_index_component_bytes(
+    value: &Value,
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Vec<u8>>, InternalError> {
+    admit_query_index_component(value, budget)?;
 
-    Some(encoded.encoded().to_vec())
+    Ok(EncodedValue::try_from_ref(value)
+        .ok()
+        .map(EncodedValue::into_bytes))
 }
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.

@@ -11,6 +11,7 @@ use crate::{
     db::{
         executor::{
             AccessStreamExecutionPolicy, ExecutionRoutePlan,
+            budget::ExecutionConstructionBudget,
             pipeline::{contracts::ResolvedExecutionKeyStream, runtime::ExecutionAttemptKernel},
         },
         index::{IndexCompilePolicy, predicate::IndexPredicateExecution},
@@ -58,7 +59,7 @@ impl ExecutionAttemptKernel<'_> {
         let index_predicate_program = self
             .inputs
             .execution_preparation()
-            .resolve_index_program(predicate_compile_mode);
+            .resolve_index_program(predicate_compile_mode, &ExecutionConstructionBudget)?;
         let index_predicate_execution = index_predicate_program.as_deref();
 
         // Phase 1: streaming routes try canonical fast-path precedence before

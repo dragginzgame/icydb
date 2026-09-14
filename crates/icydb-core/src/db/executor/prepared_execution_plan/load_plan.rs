@@ -62,7 +62,7 @@ impl PreparedLoadPlan {
         let aggregate = self
             .authority
             .aggregate_route_shape(kind, Some(target_field))?;
-        let execution_preparation = self.core.get_or_init_aggregate_execution_preparation();
+        let execution_preparation = self.core.get_or_init_aggregate_execution_preparation()?;
 
         Ok(Some(build_aggregate_execution_route_plan_for_explain(
             self.logical_plan(),
@@ -96,21 +96,20 @@ impl PreparedLoadPlan {
 
     /// Consume one typed prepared execution plan into scalar runtime handoff
     /// while using a caller-owned retained-slot layout for this execution only.
-    #[must_use]
     pub(in crate::db::executor) fn into_scalar_runtime_handoff_with_retained_slot_layout(
         self,
         retained_slot_layout: RetainedSlotLayout,
-    ) -> PreparedScalarRuntimeHandoff {
+    ) -> Result<PreparedScalarRuntimeHandoff, InternalError> {
         let Self { authority, core } = self;
-        let execution_preparation = core.get_or_init_scalar_execution_preparation();
+        let execution_preparation = core.get_or_init_scalar_execution_preparation()?;
 
-        PreparedScalarRuntimeHandoff {
+        Ok(PreparedScalarRuntimeHandoff {
             authority,
             execution_preparation,
             prepared_projection_contract: None,
             retained_slot_layout: Some(retained_slot_layout),
             plan_core: PreparedScalarPlanCore { core },
-        }
+        })
     }
 
     /// Clone cached grouped preparation and layout as one provenance-bound

@@ -90,12 +90,18 @@ fn component_admission_precedes_invalid_encoding_in_every_index_shape() {
     ];
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
         for (access, outer_bytes, components, is_range) in &cases {
+            // Only the two-component branch fixture encodes a valid operand
+            // ("all": at most nine escaped/tagged bytes) before its invalid Null.
+            let scalar_bytes = if *components == 2 { 9 } else { 0 };
             for (resource, exact) in [
                 (
                     Resource::TemporaryBytes,
-                    (outer_bytes + components * size_of::<EncodedValue>()) as u64,
+                    (outer_bytes + components * size_of::<EncodedValue>()) as u64 + scalar_bytes,
                 ),
-                (Resource::PredicateExpressionSteps, 1 + *components as u64),
+                (
+                    Resource::PredicateExpressionSteps,
+                    1 + *components as u64 + scalar_bytes,
+                ),
             ] {
                 for limit in [exact - 1, exact] {
                     let root = request(resource, limit);
@@ -133,6 +139,10 @@ fn component_admission_precedes_invalid_encoding_in_every_index_shape() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep exact limits, repeated calls and all read lanes in one boundary matrix."
+)]
 fn exact_count_prefix_construction_is_cumulative_and_row_free_in_every_lane() {
     let setup = initialize();
     let catalog = setup
@@ -198,14 +208,28 @@ fn exact_count_prefix_construction_is_cumulative_and_row_free_in_every_lane() {
             })
             .collect();
         let components = values.iter().map(Vec::len).sum::<usize>();
+        let scalar_bytes: u64 = values
+            .iter()
+            .flatten()
+            .map(|value| {
+                EncodedValue::try_from_ref(value)
+                    .unwrap()
+                    .into_bytes()
+                    .capacity() as u64
+            })
+            .sum();
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             for (resource, exact) in [
                 (
                     Resource::TemporaryBytes,
                     (values.len() * size_of::<UserIndexPrefixCardinalityKey>()
-                        + components * size_of::<EncodedValue>()) as u64,
+                        + components * size_of::<EncodedValue>()) as u64
+                        + scalar_bytes,
                 ),
-                (Resource::PredicateExpressionSteps, components as u64),
+                (
+                    Resource::PredicateExpressionSteps,
+                    components as u64 + scalar_bytes,
+                ),
             ] {
                 for limit in [exact - 1, exact, 2 * exact] {
                     let root = request(resource, limit);

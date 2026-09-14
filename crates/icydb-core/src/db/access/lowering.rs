@@ -11,6 +11,7 @@ use crate::{
         access::{AccessPath, AccessPlan},
         index::{
             EncodedValue, IndexId, IndexKeyKind, IndexRangeBoundEncodeError, RawIndexStoreKey,
+            admit_index_prefix_bounds, admit_query_index_component,
             build_index_component_range_with_encoded_prefix,
             build_index_prefix_bounds_for_encoded_components,
             encode_accepted_index_literal_component, raw_keys_for_component_prefix_with_kind,
@@ -250,6 +251,7 @@ impl LoweredIndexPrefixRawBounds {
     fn raw_bounds(
         &self,
         prefix_components: &[Vec<u8>],
+        budget: &dyn ConstructionBudget,
     ) -> Result<(&Bound<LoweredKey>, &Bound<LoweredKey>), InternalError> {
         match self {
             Self::Materialized { lower, upper } => Ok((lower, upper)),
@@ -258,13 +260,14 @@ impl LoweredIndexPrefixRawBounds {
                     return Ok((&bounds.0, &bounds.1));
                 }
 
+                admit_index_prefix_bounds(source.key_arity, prefix_components, budget)?;
                 let (lower, upper) = raw_keys_for_component_prefix_with_kind(
                     &source.index_id,
                     source.key_kind,
                     source.key_arity,
                     prefix_components,
                 )
-                .map_err(validated_spec_not_indexable)?;
+                .map_err(IndexRangeBoundEncodeError::into_internal_error)?;
                 record_deferred_index_prefix_raw_bound_materialization();
                 let _ = raw_bounds.set((Bound::Included(lower), Bound::Included(upper)));
                 raw_bounds
@@ -335,11 +338,13 @@ impl LoweredIndexPrefixSpec {
         index: crate::db::access::SemanticIndexAccessContract,
         key_kind: IndexKeyKind,
         prefix_components: Vec<Vec<u8>>,
+        budget: &dyn ConstructionBudget,
     ) -> Result<Self, InternalError> {
         if prefix_components.is_empty() || prefix_components.len() > index.key_arity() {
             return Err(InternalError::query_executor_invariant());
         }
 
+        admit_index_prefix_bounds(index.key_arity(), &prefix_components, budget)?;
         let index_id =
             IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
         let (lower, upper) = raw_keys_for_component_prefix_with_kind(
@@ -348,7 +353,7 @@ impl LoweredIndexPrefixSpec {
             index.key_arity(),
             prefix_components.as_slice(),
         )
-        .map_err(validated_spec_not_indexable)?;
+        .map_err(IndexRangeBoundEncodeError::into_internal_error)?;
 
         Ok(Self::new(
             index,
@@ -365,12 +370,16 @@ impl LoweredIndexPrefixSpec {
 
     pub(in crate::db) fn raw_bounds(
         &self,
+        budget: &dyn ConstructionBudget,
     ) -> Result<(&Bound<LoweredKey>, &Bound<LoweredKey>), InternalError> {
-        self.raw_bounds.raw_bounds(self.prefix_components())
+        self.raw_bounds.raw_bounds(self.prefix_components(), budget)
     }
 
-    pub(in crate::db) fn lower(&self) -> Result<&Bound<LoweredKey>, InternalError> {
-        self.raw_bounds().map(|bounds| bounds.0)
+    pub(in crate::db) fn lower(
+        &self,
+        budget: &dyn ConstructionBudget,
+    ) -> Result<&Bound<LoweredKey>, InternalError> {
+        self.raw_bounds(budget).map(|bounds| bounds.0)
     }
 
     #[must_use]
@@ -449,12 +458,6 @@ impl LoweredIndexRangeSpec {
     }
 }
 
-// Build the canonical lowering-time invariant for validated index specs that
-// still fail raw bound encoding.
-fn validated_spec_not_indexable(_err: IndexRangeBoundEncodeError) -> InternalError {
-    InternalError::query_executor_invariant()
-}
-
 // Lower one semantic range envelope into byte bounds with stable reason mapping.
 fn lower_index_range_bounds_for_scope(
     entity_tag: EntityTag,
@@ -479,8 +482,12 @@ fn lower_index_range_bounds_for_scope(
         encoded_prefix,
         lower,
         upper,
+        budget,
     )
-    .map_err(|_| LoweredAccessError::IndexRange)?;
+    .map_err(|error| match error {
+        IndexRangeBoundEncodeError::Construction(error) => LoweredAccessError::Construction(error),
+        _ => LoweredAccessError::IndexRange,
+    })?;
 
     Ok(lowering.into_bounds_and_prefix_components())
 }
@@ -736,8 +743,8 @@ fn lower_index_prefix_values_for_specs<'a>(
         encoded_values,
         specs,
         false,
+        budget,
     )
-    .map_err(|_| LoweredAccessError::IndexPrefix)
 }
 
 fn push_lowered_index_prefix_spec_from_encoded_components(
@@ -747,7 +754,8 @@ fn push_lowered_index_prefix_spec_from_encoded_components(
     encoded_values: Vec<EncodedValue>,
     specs: &mut Vec<LoweredIndexPrefixSpec>,
     defer_raw_bounds: bool,
-) -> Result<(), InternalError> {
+    budget: &dyn ConstructionBudget,
+) -> Result<(), LoweredAccessError> {
     let index_id =
         IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation());
     let raw_bounds = if defer_raw_bounds {
@@ -759,8 +767,14 @@ fn push_lowered_index_prefix_spec_from_encoded_components(
                 IndexKeyKind::User,
                 index.key_arity(),
                 &encoded_values,
+                budget,
             )
-            .map_err(validated_spec_not_indexable)?,
+            .map_err(|error| match error {
+                IndexRangeBoundEncodeError::Construction(error) => {
+                    LoweredAccessError::Construction(error)
+                }
+                _ => LoweredAccessError::IndexPrefix,
+            })?,
         )
     };
     // Raw bounds only borrow the encoded values. Keep those allocations in
@@ -809,8 +823,8 @@ fn lower_single_component_index_prefix_values_for_specs(
             encoded,
             specs,
             defer_raw_bounds,
-        )
-        .map_err(|_| LoweredAccessError::IndexPrefix)?;
+            budget,
+        )?;
     }
 
     Ok(())
@@ -835,6 +849,7 @@ fn encode_index_prefix_values<'a>(
         budget
             .reserve_vec(&mut encoded, 1)
             .map_err(LoweredAccessError::Construction)?;
+        admit_query_index_component(value, budget).map_err(LoweredAccessError::Construction)?;
         encoded.push(
             encode_index_component(schema_info, index, component_index, value)
                 .map_err(|_| LoweredAccessError::IndexPrefix)?,
@@ -890,7 +905,10 @@ mod retention_tests {
                 };
                 let before =
                     RetainedBytes::measure(&spec, usize::MAX).expect("reserved bound capacity");
-                let (lower, upper) = spec.raw_bounds().expect("valid prefix");
+                let (lower, upper) = crate::db::query::preparation::with_preparation_work(|work| {
+                    spec.raw_bounds(work)
+                })
+                .expect("valid prefix");
                 let mut materialized = RetainedBytes::new(usize::MAX);
                 materialized.visit(lower).expect("known lower allocation");
                 materialized.visit(upper).expect("known upper allocation");

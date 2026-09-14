@@ -1,13 +1,12 @@
 //! Canonical equality-key capability and bytes for admitted enum values.
 use super::{
-    AcceptedEnumCatalog, AcceptedEnumVariantBody, AcceptedFieldKind, EnumTypeId,
-    EnumValueResolutionError,
+    AcceptedEnumCatalog, AcceptedFieldKind, EnumTypeId, EnumValueResolutionError,
     admission::{AcceptedValueRef, CanonicalValue},
 };
 use crate::value::{CanonicalEnumBody, ValueTag};
 
 const ENUM_EQUALITY_KEY_VERSION: u8 = 1;
-const UNIT_ENUM_EQUALITY_KEY_BYTES: usize = 11;
+pub(in crate::db) const UNIT_ENUM_EQUALITY_KEY_BYTES: usize = 11;
 const UNIT_ENUM_BODY_TAG: u8 = 0;
 
 /// Equality operations supported by one accepted enum definition.
@@ -34,17 +33,8 @@ pub(in crate::db) fn enum_equality_capability(
     let definition = catalog
         .enum_type(type_id)
         .ok_or(EnumEqualityKeyError::UnknownEnumType)?;
-    let all_unit = !definition.variants_by_id.is_empty()
-        && definition
-            .variants_by_id
-            .values()
-            .all(|variant| matches!(variant.body, AcceptedEnumVariantBody::Unit));
 
-    Ok(if all_unit {
-        EqualityCapability::CanonicalStableKey
-    } else {
-        EqualityCapability::PairwiseOnly
-    })
+    Ok(definition.equality_capability)
 }
 
 pub(in crate::db) fn encode_unit_enum_equality_key(
@@ -83,3 +73,5 @@ pub(in crate::db) fn encode_unit_enum_equality_key(
     encoded[10] = UNIT_ENUM_BODY_TAG;
     Ok(encoded)
 }
+
+crate::retained::retained_copy!(EqualityCapability);

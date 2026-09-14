@@ -18,6 +18,7 @@ use crate::{
     db::{
         access::{AccessPlan, SemanticIndexAccessContract, normalize_access_plan_value},
         predicate::Predicate,
+        query::construction::ConstructionBudget,
         query::plan::{OrderSpec, PlanError, PlannedNonIndexAccessReason},
         schema::SchemaInfo,
     },
@@ -114,6 +115,7 @@ pub(in crate::db::query) fn plan_access_selection_with_order_and_semantic_indexe
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
     grouped: bool,
+    budget: &dyn ConstructionBudget,
 ) -> Result<PlannedAccessSelection, PlannerError> {
     plan_access_selection_with_order(
         semantic_candidate_indexes,
@@ -121,6 +123,7 @@ pub(in crate::db::query) fn plan_access_selection_with_order_and_semantic_indexe
         predicate,
         order,
         grouped,
+        budget,
     )
 }
 
@@ -130,11 +133,12 @@ fn plan_access_selection_with_order(
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
     grouped: bool,
+    budget: &dyn ConstructionBudget,
 ) -> Result<PlannedAccessSelection, PlannerError> {
     let Some(predicate) = predicate else {
         let true_predicate = Predicate::True;
         let eligible_indexes =
-            eligible_sorted_index_contracts(visible_indexes, schema, &true_predicate);
+            eligible_sorted_index_contracts(visible_indexes, schema, &true_predicate, budget)?;
 
         return Ok(order_fallback_selection(
             eligible_indexes.as_slice(),
@@ -145,7 +149,8 @@ fn plan_access_selection_with_order(
         ));
     };
 
-    let eligible_indexes = eligible_sorted_index_contracts(visible_indexes, schema, predicate);
+    let eligible_indexes =
+        eligible_sorted_index_contracts(visible_indexes, schema, predicate, budget)?;
 
     // Planner determinism guarantee:
     // Given accepted schema and a canonical predicate, planning is pure and deterministic.
@@ -165,6 +170,7 @@ fn plan_access_selection_with_order(
         predicate,
         order,
         grouped,
+        budget,
     )?;
     let (access, planned_non_index_reason) = selection.into_access_and_non_index_reason();
     let plan = normalize_access_plan_value(access);

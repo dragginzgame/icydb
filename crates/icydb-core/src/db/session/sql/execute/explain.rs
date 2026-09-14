@@ -271,15 +271,17 @@ impl<C: CanisterKind> DbSession<C> {
             )?;
             let visible_indexes = self
                 .visible_indexes_for_store_accepted_schema(authority.store_path(), schema_info)?;
-            plan.finalize_access_choice_with_semantic_indexes_and_schema(
-                visible_indexes.accepted_semantic_index_contracts(),
-                schema_info,
-            );
-            let projection = plan.frozen_projection_spec().map_err(QueryError::execute)?;
             let diagnostics = PreparationWork::run(
                 self.db.request_execution_scope(),
                 DiagnosticExecutionLane::Diagnostic,
                 |work| {
+                    plan.finalize_access_choice_with_semantic_indexes_and_schema(
+                        visible_indexes.accepted_semantic_index_contracts(),
+                        schema_info,
+                        work,
+                    )
+                    .map_err(QueryError::execute)?;
+                    let projection = plan.frozen_projection_spec().map_err(QueryError::execute)?;
                     StructuralQuery::finalized_execution_diagnostics_from_plan_with_authority_and_descriptor_mutator(
                         &plan,
                         &authority,
@@ -303,13 +305,14 @@ impl<C: CanisterKind> DbSession<C> {
             &structural,
             |plan| {
                 let plan = plan.logical_plan();
-                let route_facts = freeze_load_execution_route_facts_for_authority(&authority, plan)
-                    .map_err(QueryError::execute)?;
                 let projection = plan.frozen_projection_spec().map_err(QueryError::execute)?;
                 let mut descriptor = PreparationWork::run(
                     self.db.request_execution_scope(),
                     DiagnosticExecutionLane::Diagnostic,
                     |work| {
+                        let route_facts =
+                            freeze_load_execution_route_facts_for_authority(&authority, plan, work)
+                                .map_err(QueryError::execute)?;
                         assemble_load_execution_node_descriptor_from_route_facts(
                             plan,
                             &route_facts,

@@ -203,6 +203,7 @@ pub(in crate::db::query) fn build_query_model_plan_from_parameterized_template(
         &schema_info,
         normalized_predicate.as_ref(),
         access_order,
+        work,
     )?;
     let (access_plan_value, planned_non_index_reason) =
         access_selection.into_access_and_non_index_reason();
@@ -266,7 +267,9 @@ fn assemble_query_model_plan(
         rerank_indexes,
         &schema_info,
         &plan,
-    );
+        work,
+    )
+    .map_err(QueryError::execute)?;
     if let Some(preferred_access) = preferred_access {
         plan = AccessPlannedQuery::from_planned_access_with_projection(
             plan.logical,
@@ -338,6 +341,7 @@ fn plan_access_from_parameterized_template(
     schema_info: &SchemaInfo,
     normalized_predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
+    work: &PreparationWork<'_>,
 ) -> Result<PlannedAccessSelection, QueryError> {
     let limit_zero_window = is_limit_zero_load_window(query.mode());
     let constant_false_predicate = predicate_is_constant_false(normalized_predicate);
@@ -358,6 +362,7 @@ fn plan_access_from_parameterized_template(
         normalized_predicate,
         order,
         query.is_grouped(),
+        work,
     )
     .map_err(QueryError::from)
 }
@@ -869,6 +874,8 @@ fn simplify_limit_one_page_for_by_key_access(plan: &mut AccessPlannedQuery) {
 
 #[cfg(all(test, feature = "sql"))]
 mod tests {
+    mod candidate_outputs;
+
     use super::{VisibleIndexes, exact_first_component_metadata_index};
     use crate::db::schema::{
         AcceptedCompositeCatalog, AcceptedFieldKind, AcceptedSchemaRevision,
@@ -954,6 +961,253 @@ mod tests {
         );
 
         SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog, true)
+    }
+
+    #[test]
+    fn residual_reranking_keeps_first_best_candidate_and_preserves_the_source() {
+        use crate::{
+            db::{
+                access::AccessPlan,
+                predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
+                query::plan::{
+                    AccessPlannedQuery, LogicalPlan,
+                    access_choice::rerank_access_plan_by_residual_burden_with_semantic_indexes,
+                },
+            },
+            value::Value,
+        };
+
+        for alternative_count in [0, 1, 8, 64] {
+            let names = (0..alternative_count)
+                .map(|index| format!("b_age_{index:02}"))
+                .collect::<Vec<_>>();
+            let age_fields = ["age"];
+            let mut definitions: Vec<(&str, &[&str])> = vec![("a_rank", &["rank"])];
+            definitions.extend(
+                names
+                    .iter()
+                    .map(|name| (name.as_str(), age_fields.as_slice())),
+            );
+            let schema = exact_metadata_schema(&definitions, &[]);
+            let visible = VisibleIndexes::accepted_schema_visible(&schema);
+            let indexes = visible.accepted_semantic_index_contracts();
+            let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
+            plan.access =
+                AccessPlan::index_prefix_from_contract(indexes[0].clone(), vec![Value::Int64(2)]);
+            let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+                unreachable!("scalar fixture");
+            };
+            scalar.predicate = Some(Predicate::And(vec![
+                Predicate::eq("age".into(), Value::Int64(1)),
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "age",
+                    CompareOp::Gte,
+                    Value::Int64(0),
+                    CoercionId::Strict,
+                )),
+                Predicate::eq("rank".into(), Value::Int64(2)),
+            ]));
+            let before = plan.clone();
+            for _ in 0..3 {
+                let preferred = crate::db::query::preparation::with_preparation_work(|work| {
+                    rerank_access_plan_by_residual_burden_with_semantic_indexes(
+                        indexes, &schema, &plan, work,
+                    )
+                    .map_err(crate::db::QueryError::execute)
+                })
+                .unwrap();
+                assert_eq!(
+                    preferred
+                        .as_ref()
+                        .and_then(AccessPlan::selected_index_contract)
+                        .map(|index| index.name().to_string()),
+                    (alternative_count > 0).then(|| "b_age_00".to_string()),
+                );
+                assert_eq!(plan, before);
+                if let Some(access) = preferred {
+                    let mut already_best = plan.clone();
+                    already_best.access = access;
+                    assert!(
+                        crate::db::query::preparation::with_preparation_work(|work| {
+                            rerank_access_plan_by_residual_burden_with_semantic_indexes(
+                                indexes,
+                                &schema,
+                                &already_best,
+                                work,
+                            )
+                            .map_err(crate::db::QueryError::execute)
+                        })
+                        .unwrap()
+                        .is_none()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn eligible_index_list_admission_is_upfront_and_cumulative() {
+        use crate::db::{
+            QueryError, RequestExecutionRoot,
+            access::SemanticIndexAccessContract,
+            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+            predicate::Predicate,
+            query::{plan::planner::eligible_sorted_index_contracts, preparation::PreparationWork},
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+            DiagnosticFactTag,
+        };
+
+        let schema = exact_metadata_schema(
+            &[
+                ("a_age", &["age"]),
+                ("b_age", &["age"]),
+                ("c_maybe", &["maybe"]),
+            ],
+            &["maybe"],
+        );
+        let visible = VisibleIndexes::accepted_schema_visible(&schema);
+        let indexes = visible.accepted_semantic_index_contracts();
+        for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+            for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+                let allowance = indexes.len() as u64
+                    * if resource == Resource::TemporaryBytes {
+                        size_of::<SemanticIndexAccessContract>() as u64
+                    } else {
+                        1
+                    };
+                for limit in [allowance - 1, allowance * 2] {
+                    let root = RequestExecutionRoot::new_for_tests(
+                        HardExecutionBudget::uniform_for_tests(
+                            16_000_000,
+                            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                        )
+                        .with_limit_for_tests(resource, limit),
+                    );
+                    PreparationWork::run(&root.scope(), lane, |work| {
+                        assert!(
+                            eligible_sorted_index_contracts(&[], &schema, &Predicate::True, work)
+                                .unwrap()
+                                .is_empty()
+                        );
+                        for attempt in 0..3 {
+                            let result = eligible_sorted_index_contracts(
+                                indexes,
+                                &schema,
+                                &Predicate::True,
+                                work,
+                            );
+                            if limit >= allowance && attempt < 2 {
+                                let eligible = result.unwrap();
+                                assert_eq!(
+                                    eligible
+                                        .iter()
+                                        .map(SemanticIndexAccessContract::name)
+                                        .collect::<Vec<_>>(),
+                                    ["a_age", "b_age"]
+                                );
+                                assert_eq!(eligible.capacity(), indexes.len());
+                            } else {
+                                let error = QueryError::execute(result.unwrap_err());
+                                assert!(error.diagnostic_facts().contains(&(
+                                    DiagnosticFactTag::BudgetResource,
+                                    resource.raw(),
+                                )));
+                                break;
+                            }
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+                    assert_eq!(root.observed(Resource::RowsVisited), 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn candidate_exhaustion_propagates_without_fallback_or_snapshot_publication() {
+        use crate::{
+            db::{
+                QueryError, RequestExecutionRoot,
+                access::AccessPlan,
+                executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+                predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
+                query::{
+                    plan::{
+                        AccessPlannedQuery, LogicalPlan,
+                        access_choice::{
+                            exact_cardinality_tiebreak_candidates,
+                            rerank_access_plan_by_residual_burden_with_semantic_indexes,
+                        },
+                    },
+                    preparation::PreparationWork,
+                },
+            },
+            value::Value,
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+            DiagnosticFactTag,
+        };
+
+        let schema = exact_metadata_schema(&[("a_age", &["age"]), ("z_rank", &["rank"])], &[]);
+        let visible = VisibleIndexes::accepted_schema_visible(&schema);
+        let indexes = visible.accepted_semantic_index_contracts();
+        let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
+        plan.access =
+            AccessPlan::index_prefix_from_contract(indexes[1].clone(), vec![Value::Int64(2)]);
+        let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+            unreachable!("scalar fixture");
+        };
+        scalar.predicate = Some(Predicate::And(vec![
+            Predicate::eq("age".into(), Value::Int64(1)),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Gte,
+                Value::Int64(0),
+                CoercionId::Strict,
+            )),
+            Predicate::eq("rank".into(), Value::Int64(2)),
+        ]));
+        let before = plan.clone();
+        for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+            for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+                let root = RequestExecutionRoot::new_for_tests(
+                    HardExecutionBudget::uniform_for_tests(
+                        16_000_000,
+                        HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                    )
+                    .with_limit_for_tests(resource, 0),
+                );
+                PreparationWork::run(&root.scope(), lane, |work| {
+                    let errors = [
+                        rerank_access_plan_by_residual_burden_with_semantic_indexes(
+                            indexes, &schema, &plan, work,
+                        )
+                        .unwrap_err(),
+                        exact_cardinality_tiebreak_candidates(indexes, &schema, &plan, work)
+                            .unwrap_err(),
+                        plan.finalize_access_choice_with_semantic_indexes_and_schema(
+                            indexes, &schema, work,
+                        )
+                        .unwrap_err(),
+                    ];
+                    for error in errors {
+                        assert!(
+                            QueryError::execute(error)
+                                .diagnostic_facts()
+                                .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
+                        );
+                    }
+                    assert_eq!(plan, before);
+                    Ok(())
+                })
+                .unwrap();
+                assert_eq!(root.observed(Resource::RowsVisited), 0);
+            }
+        }
     }
 
     #[test]

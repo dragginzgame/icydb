@@ -172,7 +172,7 @@ impl SharedPreparedExecutionPlan {
         let prepared_projection_contract = core.get_or_init_projection_shape(authority.clone())?;
         let retained_slot_layout =
             core.get_or_init_cursorless_retained_slot_layout(authority.clone())?;
-        let execution_preparation = core.get_or_init_scalar_execution_preparation();
+        let execution_preparation = core.get_or_init_scalar_execution_preparation()?;
         let scalar_runtime = PreparedScalarRuntimeHandoff {
             authority: authority.clone(),
             execution_preparation,

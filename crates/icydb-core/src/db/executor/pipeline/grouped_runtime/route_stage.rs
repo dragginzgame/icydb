@@ -7,8 +7,10 @@ use crate::{
     db::{
         cursor::ValidatedGroupedCursor,
         executor::{
-            GroupedContinuationContext, PreparedLoadPlan,
+            ExecutionPreparation, GroupedContinuationContext, PreparedLoadPlan,
+            budget::ExecutionConstructionBudget,
             pipeline::contracts::{GroupedPlannerPayload, GroupedRouteStage, IndexSpecBundle},
+            planning::preparation::slot_map_for_model_plan,
             route::{RouteExecutionMode, RoutePlanRequest, build_execution_route_plan},
             validate_executor_plan_for_authority,
         },
@@ -46,6 +48,11 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
         grouped_handoff.base(),
         RoutePlanRequest::Grouped {
             grouped_plan_strategy,
+            execution_preparation: &ExecutionPreparation::from_plan(
+                grouped_handoff.base(),
+                slot_map_for_model_plan(grouped_handoff.base()),
+                &ExecutionConstructionBudget,
+            )?,
         },
     );
 

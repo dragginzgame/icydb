@@ -6,7 +6,10 @@ use crate::db::{
     query::plan::{
         access_choice::model::{AccessChoiceRejectedReason, RangeFieldConstraint},
         field_key_contract_supports_operator,
-        key_item_match::{eq_lookup_value_for_key_item, starts_with_lookup_value_for_key_item},
+        key_item_match::{
+            eq_lookup_value_for_key_item, key_item_supports_lookup_value,
+            key_item_supports_starts_with_value,
+        },
         planner::index_literal_matches_schema,
     },
     schema::SchemaInfo,
@@ -58,15 +61,15 @@ pub(super) fn classify_range_constraints_for_key_item(
                 constraint.eq_value = Some(candidate);
             }
             CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
-                let Some(_candidate) = eq_lookup_value_for_key_item(
+                if !key_item_supports_lookup_value(
                     key_item,
                     cmp.field.as_str(),
                     cmp.value(),
                     cmp.coercion.id,
                     index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value()),
-                ) else {
+                ) {
                     continue;
-                };
+                }
 
                 match key_item {
                     SemanticIndexKeyItemRef::Field(_) => {
@@ -103,15 +106,13 @@ pub(super) fn classify_range_constraints_for_key_item(
                 }
                 let literal_compatible =
                     index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
-                if starts_with_lookup_value_for_key_item(
+                if !key_item_supports_starts_with_value(
                     key_item,
                     cmp.field.as_str(),
                     cmp.value(),
                     cmp.coercion.id,
                     literal_compatible,
-                )
-                .is_none()
-                {
+                ) {
                     return Err(AccessChoiceRejectedReason::StartsWithPrefixInvalid);
                 }
                 if constraint.eq_value.is_some() {

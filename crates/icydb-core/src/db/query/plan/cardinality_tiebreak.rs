@@ -13,6 +13,7 @@ use crate::{
     types::EntityTag,
     value::Value,
 };
+use std::borrow::Cow;
 
 /// Existing single-index access families eligible for exact-cardinality tie-breaking.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -86,17 +87,17 @@ impl CardinalityTiebreakRoutePin {
 
 /// One existing planner candidate that survived every structural and residual rank.
 #[derive(Clone, Debug)]
-pub(in crate::db) struct CardinalityTiebreakCandidate {
-    access: AccessPlan<Value>,
+pub(in crate::db) struct CardinalityTiebreakCandidate<'a> {
+    access: Cow<'a, AccessPlan<Value>>,
     index: SemanticIndexAccessContract,
     family: CardinalityTiebreakFamily,
     consumed_prefix_arity: usize,
 }
 
-impl CardinalityTiebreakCandidate {
+impl<'a> CardinalityTiebreakCandidate<'a> {
     #[must_use]
     pub(in crate::db::query) const fn new(
-        access: AccessPlan<Value>,
+        access: Cow<'a, AccessPlan<Value>>,
         index: SemanticIndexAccessContract,
         family: CardinalityTiebreakFamily,
         consumed_prefix_arity: usize,
@@ -110,13 +111,29 @@ impl CardinalityTiebreakCandidate {
     }
 
     #[must_use]
-    pub(in crate::db) const fn access(&self) -> &AccessPlan<Value> {
+    pub(in crate::db) fn access(&self) -> &AccessPlan<Value> {
         &self.access
     }
 
+    /// Return only a newly built winner. A borrowed winner is already the
+    /// caller's selected route and must not be copied merely to keep it.
     #[must_use]
-    pub(in crate::db) fn into_access(self) -> AccessPlan<Value> {
-        self.access
+    pub(in crate::db) fn into_replacement_access(self) -> Option<AccessPlan<Value>> {
+        match self.access {
+            Cow::Borrowed(_) => None,
+            Cow::Owned(access) => Some(access),
+        }
+    }
+
+    /// Detach fixtures that outlive their locally prepared source plan.
+    #[cfg(test)]
+    pub(in crate::db) fn into_owned(self) -> CardinalityTiebreakCandidate<'static> {
+        CardinalityTiebreakCandidate {
+            access: Cow::Owned(self.access.into_owned()),
+            index: self.index,
+            family: self.family,
+            consumed_prefix_arity: self.consumed_prefix_arity,
+        }
     }
 
     #[must_use]

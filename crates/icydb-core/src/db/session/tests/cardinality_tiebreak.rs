@@ -295,6 +295,58 @@ fn structural_and_residual_ranking_remain_strictly_ahead_of_cardinality() {
 }
 
 #[test]
+fn expression_lookup_selection_preserves_equality_membership_and_warm_results() {
+    let session = initialize();
+    seed_rows(&session);
+    let expected = projection_rows(
+        &session,
+        "SELECT id FROM PlannerRow WHERE common = 'everyone' ORDER BY id LIMIT 20",
+    );
+    assert!(!expected.is_empty());
+    for (predicate, route) in [
+        (
+            "LOWER(common) = 'EVERYONE'",
+            "IndexPrefix(zz_lower_common_idx)",
+        ),
+        (
+            "LOWER(common) IN ('ABSENT', 'EVERYONE', 'everyone')",
+            "IndexMultiLookup(zz_lower_common_idx)",
+        ),
+    ] {
+        let sql = format!("SELECT id FROM PlannerRow WHERE {predicate} ORDER BY id LIMIT 20");
+        for _ in 0..3 {
+            let plan = explain(&session, predicate);
+            assert!(plan.contains(route), "{plan}");
+            assert_eq!(projection_rows(&session, &sql), expected);
+        }
+    }
+}
+
+#[test]
+fn expression_ordered_ranges_preserve_bounds_and_warm_results() {
+    let session = initialize();
+    seed_rows(&session);
+    for op in [">", ">=", "<", "<="] {
+        for bound in ["EVERYONE", "ABSENT"] {
+            let predicate = format!("LOWER(common) {op} '{bound}'");
+            let sql = format!("SELECT id FROM PlannerRow WHERE {predicate} ORDER BY id LIMIT 20");
+            let expected = projection_rows(
+                &session,
+                &format!(
+                    "SELECT id FROM PlannerRow WHERE common {op} '{}' ORDER BY id LIMIT 20",
+                    bound.to_lowercase()
+                ),
+            );
+            for _ in 0..3 {
+                let plan = explain(&session, &predicate);
+                assert!(plan.contains("IndexRange(zz_lower_common_idx)"), "{plan}");
+                assert_eq!(projection_rows(&session, &sql), expected);
+            }
+        }
+    }
+}
+
+#[test]
 fn exact_cardinality_cursor_pin_resumes_without_fresh_evidence() {
     let session = initialize();
     seed_rows(&session);
@@ -484,7 +536,7 @@ fn unavailable_fallback_refreshes_only_on_lifecycle_change_and_keeps_cursor_rout
 pub(in crate::db::session) fn ranking_candidates_for_tests() -> (
     DbSession<impl CanisterKind>,
     crate::db::executor::EntityAuthority,
-    Vec<crate::db::query::plan::CardinalityTiebreakCandidate>,
+    Vec<crate::db::query::plan::CardinalityTiebreakCandidate<'static>>,
 ) {
     use crate::{db::predicate::Predicate, value::Value};
 
@@ -499,7 +551,7 @@ pub(in crate::db::session) fn probe_candidates_for_tests(
 ) -> (
     DbSession<impl CanisterKind>,
     crate::db::executor::EntityAuthority,
-    Vec<crate::db::query::plan::CardinalityTiebreakCandidate>,
+    Vec<crate::db::query::plan::CardinalityTiebreakCandidate<'static>>,
 ) {
     candidate_fixture_for_tests(crate::db::predicate::Predicate::in_(
         "common".into(),
@@ -514,7 +566,7 @@ fn candidate_fixture_for_tests(
 ) -> (
     DbSession<TestCanister>,
     crate::db::executor::EntityAuthority,
-    Vec<crate::db::query::plan::CardinalityTiebreakCandidate>,
+    Vec<crate::db::query::plan::CardinalityTiebreakCandidate<'static>>,
 ) {
     let session = initialize();
     let catalog = session
@@ -537,13 +589,22 @@ fn candidate_fixture_for_tests(
     let indexes = session
         .visible_indexes_for_store_accepted_schema(STORE_PATH, catalog.accepted_schema_info())
         .unwrap();
-    let candidates = crate::db::query::plan::exact_cardinality_tiebreak_candidates(
-        indexes.accepted_semantic_index_contracts(),
-        catalog.accepted_schema_info(),
-        prepared.logical_plan(),
-    )
+    let candidates = crate::db::query::preparation::with_preparation_work(|work| {
+        crate::db::query::plan::exact_cardinality_tiebreak_candidates(
+            indexes.accepted_semantic_index_contracts(),
+            catalog.accepted_schema_info(),
+            prepared.logical_plan(),
+            work,
+        )
+        .map_err(crate::db::QueryError::execute)
+    })
+    .unwrap()
     .unwrap();
 
+    let candidates = candidates
+        .into_iter()
+        .map(crate::db::query::plan::CardinalityTiebreakCandidate::into_owned)
+        .collect();
     (session, catalog.accepted_entity_authority(), candidates)
 }
 

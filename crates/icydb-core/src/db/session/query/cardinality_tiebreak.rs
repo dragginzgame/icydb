@@ -38,21 +38,21 @@ const MAX_CARDINALITY_TIEBREAK_LOWERED_BYTES: usize = 4 * 1024 * 1024;
 const MAX_CARDINALITY_TIEBREAK_PREFIXES_PER_CANDIDATE: usize = 16;
 const MAX_CARDINALITY_TIEBREAK_TRANSIENT_LOWERED_BYTES: usize = 1024 * 1024;
 
-struct PreparedCardinalityCandidate {
-    candidate: CardinalityTiebreakCandidate,
+struct PreparedCardinalityCandidate<'a> {
+    candidate: CardinalityTiebreakCandidate<'a>,
     probe_start: usize,
     probe_end: usize,
 }
 
 // Candidate probe ranges and their single ordered key buffer travel together.
-type PreparedCardinalityProbes = (
-    Vec<PreparedCardinalityCandidate>,
+type PreparedCardinalityProbes<'a> = (
+    Vec<PreparedCardinalityCandidate<'a>>,
     Vec<UserIndexPrefixCardinalityKey>,
 );
 
-enum CardinalityTiebreakAttempt {
+enum CardinalityTiebreakAttempt<'a> {
     Exact {
-        selected: CardinalityTiebreakCandidate,
+        selected: CardinalityTiebreakCandidate<'a>,
         evidence: ExactCardinalityTiebreakEvidence,
     },
     Unavailable(crate::db::registry::ExactPrefixCardinalityLifecycleStamp),
@@ -71,7 +71,8 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_schema_info()
             .ok_or_else(QueryError::invariant)?;
         let Some(candidates) =
-            exact_cardinality_tiebreak_candidates(semantic_indexes, schema_info, &plan)
+            exact_cardinality_tiebreak_candidates(semantic_indexes, schema_info, &plan, work)
+                .map_err(QueryError::execute)?
         else {
             return Ok(plan);
         };
@@ -82,7 +83,7 @@ impl<C: CanisterKind> DbSession<C> {
         let (selected_access, state) =
             match self.cardinality_tiebreak_attempt(authority, candidates, work)? {
                 CardinalityTiebreakAttempt::Exact { selected, evidence } => (
-                    Some(selected.into_access()),
+                    selected.into_replacement_access(),
                     CardinalityTiebreakState::ExactAtSelection(evidence),
                 ),
                 CardinalityTiebreakAttempt::Unavailable(lifecycle_stamp) => (
@@ -105,7 +106,12 @@ impl<C: CanisterKind> DbSession<C> {
             schema_info,
             work,
         )?;
-        plan.finalize_access_choice_with_semantic_indexes_and_schema(semantic_indexes, schema_info);
+        plan.finalize_access_choice_with_semantic_indexes_and_schema(
+            semantic_indexes,
+            schema_info,
+            work,
+        )
+        .map_err(QueryError::execute)?;
 
         Ok(plan)
     }
@@ -121,7 +127,8 @@ impl<C: CanisterKind> DbSession<C> {
             .accepted_schema_info()
             .ok_or_else(QueryError::invariant)?;
         let Some(candidates) =
-            exact_cardinality_tiebreak_candidates(semantic_indexes, schema_info, &plan)
+            exact_cardinality_tiebreak_candidates(semantic_indexes, schema_info, &plan, work)
+                .map_err(QueryError::execute)?
         else {
             return Ok(None);
         };
@@ -131,24 +138,30 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         };
 
+        let selected_access = selected.into_replacement_access();
         let mut plan = apply_exact_cardinality_tiebreak_selection(
             plan,
-            Some(selected.into_access()),
+            selected_access,
             CardinalityTiebreakState::PinnedContinuation(route_pin),
             schema_info,
             work,
         )?;
-        plan.finalize_access_choice_with_semantic_indexes_and_schema(semantic_indexes, schema_info);
+        plan.finalize_access_choice_with_semantic_indexes_and_schema(
+            semantic_indexes,
+            schema_info,
+            work,
+        )
+        .map_err(QueryError::execute)?;
 
         Ok(Some(plan))
     }
 
-    fn cardinality_tiebreak_attempt(
+    fn cardinality_tiebreak_attempt<'a>(
         &self,
         authority: &EntityAuthority,
-        candidates: Vec<CardinalityTiebreakCandidate>,
+        candidates: Vec<CardinalityTiebreakCandidate<'a>>,
         work: &PreparationWork<'_>,
-    ) -> Result<CardinalityTiebreakAttempt, QueryError> {
+    ) -> Result<CardinalityTiebreakAttempt<'a>, QueryError> {
         if !cardinality_candidate_count_is_admitted(candidates.len()) {
             return Ok(CardinalityTiebreakAttempt::PolicyFallback);
         }
@@ -230,12 +243,12 @@ fn admitted_cardinality_probe_count(
     Ok(Some(total))
 }
 
-fn prepare_cardinality_candidates(
+fn prepare_cardinality_candidates<'a>(
     entity_tag: EntityTag,
     schema_info: &crate::db::schema::SchemaInfo,
-    candidates: Vec<CardinalityTiebreakCandidate>,
+    candidates: Vec<CardinalityTiebreakCandidate<'a>>,
     work: &PreparationWork<'_>,
-) -> Result<Option<PreparedCardinalityProbes>, QueryError> {
+) -> Result<Option<PreparedCardinalityProbes<'a>>, QueryError> {
     let Some(admitted_probes) = admitted_cardinality_probe_count(&candidates, work)? else {
         return Ok(None);
     };
@@ -311,8 +324,8 @@ fn prepare_cardinality_candidates(
     Ok(Some((prepared, keys)))
 }
 
-// Inspect encoded sizes once. Encoding itself is a separate, still-unmetered
-// owner; these observations enforce the existing post-encoding byte policy.
+// Inspect encoded sizes for the advisory candidate policy. Raw-bound construction
+// charges at its owner; scalar component encoding remains separate work.
 fn cardinality_lowered_bytes(
     specs: &[crate::db::access::LoweredIndexPrefixSpec],
     work: &PreparationWork<'_>,
@@ -328,9 +341,9 @@ fn cardinality_lowered_bytes(
             };
             components = next;
         }
-        let Ok((lower, upper)) = spec.raw_bounds() else {
-            return Ok(None);
-        };
+        // Bounds have already passed shape validation. A failed cold build is
+        // an execution/admission failure, not unavailable cardinality evidence.
+        let (lower, upper) = spec.raw_bounds(work).map_err(QueryError::execute)?;
         let Some(next) = bounds
             .checked_add(RawIndexStoreKey::bound_backing_bytes(lower))
             .and_then(|total| total.checked_add(RawIndexStoreKey::bound_backing_bytes(upper)))
@@ -373,14 +386,14 @@ fn cardinality_probe_keys_equal(
     }
     Ok(true)
 }
-fn rank_prepared_cardinality_candidates(
+fn rank_prepared_cardinality_candidates<'a>(
     entity_tag: EntityTag,
-    prepared: Vec<PreparedCardinalityCandidate>,
+    prepared: Vec<PreparedCardinalityCandidate<'a>>,
     counts: &[u64],
     work: &PreparationWork<'_>,
 ) -> Result<
     Option<(
-        CardinalityTiebreakCandidate,
+        CardinalityTiebreakCandidate<'a>,
         ExactCardinalityTiebreakEvidence,
     )>,
     QueryError,

@@ -10,4 +10,4 @@ pub(crate) mod ordering;
 mod partial_ord;
 mod text;
 
-pub(crate) use text::{casefold_text, lower_text, upper_text};
+pub(crate) use text::{casefold_text, lower_text, lower_text_construction_allowance, upper_text};

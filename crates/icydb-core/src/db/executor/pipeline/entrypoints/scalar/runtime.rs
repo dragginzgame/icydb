@@ -127,7 +127,8 @@ pub(super) fn prepare_initial_scalar_route_runtime_from_plan_with_retained_slot_
 where
     C: CanisterKind,
 {
-    let prepared = plan.into_scalar_runtime_handoff_with_retained_slot_layout(retained_slot_layout);
+    let prepared =
+        plan.into_scalar_runtime_handoff_with_retained_slot_layout(retained_slot_layout)?;
 
     prepare_initial_scalar_route_runtime_from_handoff(db, prepared, options)
 }

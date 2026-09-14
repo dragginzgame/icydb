@@ -3,18 +3,22 @@
 //! Does not own: index ranking policy or access-path shape construction.
 //! Boundary: canonical field/expression key-item lookup compatibility and literal lowering.
 
+#[cfg(test)]
+mod admission_tests;
+
 use crate::{
     db::{
         access::{SemanticIndexExpression, SemanticIndexKeyItemRef},
-        index::IndexExpressionSourceClass,
-        predicate::CoercionId,
-        scalar_expr::{
-            ScalarExprValue, derive_non_null_scalar_expression_value, scalar_expr_value_into_value,
+        predicate::{
+            CoercionId, IndexCompileTargetKind, admit_index_compare_literal_for_kind,
+            lower_index_compare_literal_for_kind,
         },
-        schema::PersistedIndexExpressionOp,
+        query::construction::ConstructionBudget,
     },
+    error::InternalError,
     value::Value,
 };
+use std::borrow::Cow;
 
 /// Return whether one key-item can match a predicate field/coercion pair.
 #[must_use]
@@ -44,6 +48,37 @@ const fn accepted_expression_supports_lookup_coercion(
     }
 }
 
+/// Check lookup eligibility without copying or transforming the literal.
+#[must_use]
+pub(in crate::db::query::plan) fn key_item_supports_lookup_value<'a>(
+    key_item: impl Into<SemanticIndexKeyItemRef<'a>>,
+    field: &str,
+    value: &Value,
+    coercion: CoercionId,
+    literal_compatible: bool,
+) -> bool {
+    let key_item = key_item.into();
+    literal_compatible
+        && key_item_matches_field_and_coercion(key_item, field, coercion)
+        // LOWER is the only admitted expression lookup. It accepts every text
+        // value; deciding eligibility never needs the transformed output.
+        && (!key_item.is_expression() || matches!(value, Value::Text(_)))
+}
+
+/// Check prefix eligibility without constructing the canonical prefix.
+#[must_use]
+pub(in crate::db::query::plan) fn key_item_supports_starts_with_value<'a>(
+    key_item: impl Into<SemanticIndexKeyItemRef<'a>>,
+    field: &str,
+    value: &Value,
+    coercion: CoercionId,
+    literal_compatible: bool,
+) -> bool {
+    // Identity and LOWER both preserve emptiness, including Unicode text.
+    matches!(value, Value::Text(prefix) if !prefix.is_empty())
+        && key_item_supports_lookup_value(key_item, field, value, coercion, literal_compatible)
+}
+
 /// Try to lower one predicate literal into a canonical key-item lookup value.
 #[must_use]
 pub(in crate::db::query::plan) fn eq_lookup_value_for_key_item<'a>(
@@ -53,109 +88,52 @@ pub(in crate::db::query::plan) fn eq_lookup_value_for_key_item<'a>(
     coercion: CoercionId,
     literal_compatible: bool,
 ) -> Option<Value> {
-    lower_lookup_value_for_key_item(key_item.into(), field, value, coercion, literal_compatible)
+    let kind = lookup_kind_for_key_item(key_item, field, value, coercion, literal_compatible)?;
+    lower_index_compare_literal_for_kind(kind, value, coercion).map(Cow::into_owned)
 }
 
-// Lower one predicate literal into the canonical key-item value once so the
-// equality and prefix lookup paths share the same field/coercion/literal gate.
-fn lower_lookup_value_for_key_item(
-    key_item: SemanticIndexKeyItemRef<'_>,
+/// Construct one retained lookup operand using the caller's existing budget.
+/// Identity results are copied once; admitted expression results move directly.
+pub(in crate::db::query::plan) fn copy_lookup_value_for_key_item<'a>(
+    key_item: impl Into<SemanticIndexKeyItemRef<'a>>,
     field: &str,
     value: &Value,
     coercion: CoercionId,
     literal_compatible: bool,
-) -> Option<Value> {
-    match key_item {
-        SemanticIndexKeyItemRef::Field(key_field) => {
-            if key_field != field || coercion != CoercionId::Strict || !literal_compatible {
-                return None;
-            }
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Value>, InternalError> {
+    let Some(kind) = lookup_kind_for_key_item(key_item, field, value, coercion, literal_compatible)
+    else {
+        return Ok(None);
+    };
+    admit_index_compare_literal_for_kind(kind, value, coercion, budget)?;
+    match lower_index_compare_literal_for_kind(kind, value, coercion) {
+        Some(Cow::Borrowed(value)) => budget.copy_value(value).map(Some),
+        Some(Cow::Owned(value)) => Ok(Some(value)),
+        None => Ok(None),
+    }
+}
 
-            Some(value.clone())
-        }
+// Field/literal eligibility stays planner-owned; the resulting kind is enough
+// for shared conversion, without fabricating component indexes or field slots.
+fn lookup_kind_for_key_item<'a>(
+    key_item: impl Into<SemanticIndexKeyItemRef<'a>>,
+    field: &str,
+    value: &Value,
+    coercion: CoercionId,
+    literal_compatible: bool,
+) -> Option<IndexCompileTargetKind> {
+    let key_item = key_item.into();
+    if !key_item_supports_lookup_value(key_item, field, value, coercion, literal_compatible) {
+        return None;
+    }
+
+    Some(match key_item {
+        SemanticIndexKeyItemRef::Field(_) => IndexCompileTargetKind::Field,
         SemanticIndexKeyItemRef::AcceptedExpression(expression) => {
-            if expression.field() != field
-                || !accepted_expression_supports_lookup_coercion(expression, coercion)
-                || !literal_compatible
-            {
-                return None;
-            }
-
-            derive_accepted_index_expression_value(expression, value.clone())
-                .ok()
-                .flatten()
+            IndexCompileTargetKind::Expression(expression.op())
         }
-    }
-}
-
-fn derive_accepted_index_expression_value(
-    expression: &SemanticIndexExpression,
-    source: Value,
-) -> Result<Option<Value>, IndexExpressionSourceClass> {
-    match expression.op() {
-        PersistedIndexExpressionOp::Lower
-        | PersistedIndexExpressionOp::Upper
-        | PersistedIndexExpressionOp::Trim
-        | PersistedIndexExpressionOp::LowerTrim => {
-            derive_accepted_text_expression_value(expression.op(), source)
-        }
-        PersistedIndexExpressionOp::Date
-        | PersistedIndexExpressionOp::Year
-        | PersistedIndexExpressionOp::Month
-        | PersistedIndexExpressionOp::Day => {
-            derive_accepted_temporal_expression_value(expression.op(), source)
-        }
-    }
-}
-
-fn derive_accepted_text_expression_value(
-    op: PersistedIndexExpressionOp,
-    source: Value,
-) -> Result<Option<Value>, IndexExpressionSourceClass> {
-    let source = match source {
-        Value::Null => return Ok(None),
-        Value::Text(value) => ScalarExprValue::Text(value.into()),
-        _ => return Err(IndexExpressionSourceClass::Text),
-    };
-
-    derive_non_null_scalar_expression_value(accepted_expression_op(op), source)
-        .map(scalar_expr_value_into_value)
-        .map_err(|_| IndexExpressionSourceClass::Text)
-        .map(Some)
-}
-
-fn derive_accepted_temporal_expression_value(
-    op: PersistedIndexExpressionOp,
-    source: Value,
-) -> Result<Option<Value>, IndexExpressionSourceClass> {
-    let source = match source {
-        Value::Null => return Ok(None),
-        Value::Date(value) => ScalarExprValue::Date(value),
-        Value::Timestamp(value) => ScalarExprValue::Timestamp(value),
-        _ => return Err(IndexExpressionSourceClass::DateOrTimestamp),
-    };
-
-    derive_non_null_scalar_expression_value(accepted_expression_op(op), source)
-        .map(scalar_expr_value_into_value)
-        .map_err(|_| IndexExpressionSourceClass::DateOrTimestamp)
-        .map(Some)
-}
-
-const fn accepted_expression_op(
-    op: PersistedIndexExpressionOp,
-) -> crate::db::scalar_expr::ScalarIndexExpressionOp {
-    match op {
-        PersistedIndexExpressionOp::Lower => crate::db::scalar_expr::ScalarIndexExpressionOp::Lower,
-        PersistedIndexExpressionOp::Upper => crate::db::scalar_expr::ScalarIndexExpressionOp::Upper,
-        PersistedIndexExpressionOp::Trim => crate::db::scalar_expr::ScalarIndexExpressionOp::Trim,
-        PersistedIndexExpressionOp::LowerTrim => {
-            crate::db::scalar_expr::ScalarIndexExpressionOp::LowerTrim
-        }
-        PersistedIndexExpressionOp::Date => crate::db::scalar_expr::ScalarIndexExpressionOp::Date,
-        PersistedIndexExpressionOp::Year => crate::db::scalar_expr::ScalarIndexExpressionOp::Year,
-        PersistedIndexExpressionOp::Month => crate::db::scalar_expr::ScalarIndexExpressionOp::Month,
-        PersistedIndexExpressionOp::Day => crate::db::scalar_expr::ScalarIndexExpressionOp::Day,
-    }
+    })
 }
 
 /// Try to lower one starts-with predicate literal into a canonical key-item prefix value.
@@ -167,13 +145,8 @@ pub(in crate::db::query::plan) fn starts_with_lookup_value_for_key_item<'a>(
     coercion: CoercionId,
     literal_compatible: bool,
 ) -> Option<String> {
-    let lowered = lower_lookup_value_for_key_item(
-        key_item.into(),
-        field,
-        value,
-        coercion,
-        literal_compatible,
-    )?;
+    let lowered =
+        eq_lookup_value_for_key_item(key_item, field, value, coercion, literal_compatible)?;
     let Value::Text(prefix) = lowered else {
         return None;
     };
@@ -186,7 +159,11 @@ pub(in crate::db::query::plan) fn starts_with_lookup_value_for_key_item<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{eq_lookup_value_for_key_item, key_item_matches_field_and_coercion};
+    use super::{
+        eq_lookup_value_for_key_item, key_item_matches_field_and_coercion,
+        key_item_supports_lookup_value, key_item_supports_starts_with_value,
+        starts_with_lookup_value_for_key_item,
+    };
     use crate::{
         db::{
             access::{SemanticIndexExpression, SemanticIndexKeyItemRef},
@@ -195,6 +172,163 @@ mod tests {
         },
         value::Value,
     };
+
+    #[test]
+    fn lookup_capability_matches_materialization_for_fields_and_all_expression_kinds() {
+        use PersistedIndexExpressionOp::{Date, Day, Lower, LowerTrim, Month, Trim, Upper, Year};
+
+        let expressions = [Lower, Upper, Trim, LowerTrim, Date, Year, Month, Day]
+            .map(|op| SemanticIndexExpression::new(op, "name".into()));
+        let keys = std::iter::once(SemanticIndexKeyItemRef::Field("name")).chain(
+            expressions
+                .iter()
+                .map(SemanticIndexKeyItemRef::AcceptedExpression),
+        );
+        let values = [
+            Value::Null,
+            Value::Nat64(1),
+            Value::List(vec![Value::Text("A".into())]),
+            Value::Text(String::new()),
+            Value::Text("ASCII".into()),
+            Value::Text("İΣ".into()),
+            Value::Text(" \0 ".into()),
+            Value::Text("İ".repeat(2048)),
+        ];
+        for key in keys {
+            for field in ["name", "other"] {
+                for coercion in [
+                    CoercionId::Strict,
+                    CoercionId::TextCasefold,
+                    CoercionId::NumericWiden,
+                    CoercionId::CollectionElement,
+                ] {
+                    for compatible in [false, true] {
+                        for value in &values {
+                            let supported = compatible
+                                && field == "name"
+                                && match key {
+                                    SemanticIndexKeyItemRef::Field(_) => {
+                                        coercion == CoercionId::Strict
+                                    }
+                                    SemanticIndexKeyItemRef::AcceptedExpression(expression) => {
+                                        expression.op() == Lower
+                                            && coercion == CoercionId::TextCasefold
+                                            && matches!(value, Value::Text(_))
+                                    }
+                                };
+                            assert_eq!(
+                                key_item_supports_lookup_value(
+                                    key, field, value, coercion, compatible,
+                                ),
+                                supported
+                            );
+                            assert_eq!(
+                                eq_lookup_value_for_key_item(
+                                    key, field, value, coercion, compatible,
+                                )
+                                .is_some(),
+                                supported
+                            );
+
+                            let prefix_supported =
+                                supported && matches!(value, Value::Text(text) if !text.is_empty());
+                            assert_eq!(
+                                key_item_supports_starts_with_value(
+                                    key, field, value, coercion, compatible,
+                                ),
+                                prefix_supported
+                            );
+                            assert_eq!(
+                                starts_with_lookup_value_for_key_item(
+                                    key, field, value, coercion, compatible,
+                                )
+                                .is_some(),
+                                prefix_supported
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn planner_expression_lookups_preserve_unicode_values_and_admission_gates() {
+        let lower = SemanticIndexExpression::new(PersistedIndexExpressionOp::Lower, "name".into());
+        let key_item = SemanticIndexKeyItemRef::AcceptedExpression(&lower);
+        for (source, expected) in [
+            ("", ""),
+            ("ASCII", "ascii"),
+            ("İΣ", "i\u{307}ς"),
+            ("ΣΑ", "σα"),
+            (" Straße\0 ", " straße\0 "),
+        ] {
+            let value = Value::Text(source.into());
+            assert_eq!(
+                eq_lookup_value_for_key_item(
+                    key_item,
+                    "name",
+                    &value,
+                    CoercionId::TextCasefold,
+                    true
+                ),
+                Some(Value::Text(expected.into())),
+            );
+            assert_eq!(
+                starts_with_lookup_value_for_key_item(
+                    key_item,
+                    "name",
+                    &value,
+                    CoercionId::TextCasefold,
+                    true
+                ),
+                (!expected.is_empty()).then(|| expected.to_string()),
+            );
+            assert_eq!(value, Value::Text(source.into()));
+            for (field, coercion, compatible) in [
+                ("other", CoercionId::TextCasefold, true),
+                ("name", CoercionId::Strict, true),
+                ("name", CoercionId::TextCasefold, false),
+            ] {
+                assert!(
+                    eq_lookup_value_for_key_item(key_item, field, &value, coercion, compatible)
+                        .is_none()
+                );
+                assert!(
+                    starts_with_lookup_value_for_key_item(
+                        key_item, field, &value, coercion, compatible
+                    )
+                    .is_none()
+                );
+            }
+        }
+        for value in [
+            Value::Null,
+            Value::Nat64(1),
+            Value::List(vec![Value::Text("A".into())]),
+        ] {
+            assert!(
+                eq_lookup_value_for_key_item(
+                    key_item,
+                    "name",
+                    &value,
+                    CoercionId::TextCasefold,
+                    true
+                )
+                .is_none()
+            );
+            assert!(
+                starts_with_lookup_value_for_key_item(
+                    key_item,
+                    "name",
+                    &value,
+                    CoercionId::TextCasefold,
+                    true
+                )
+                .is_none()
+            );
+        }
+    }
 
     #[test]
     fn upper_expression_keys_do_not_claim_text_casefold_lookup_compatibility() {

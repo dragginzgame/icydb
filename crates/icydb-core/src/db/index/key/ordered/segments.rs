@@ -12,6 +12,7 @@ const LENGTH_BYTES: usize = 2;
 const ACCOUNT_OWNER_MAX_LEN: usize = Principal::MAX_LENGTH_IN_BYTES as usize;
 const ACCOUNT_SUBACCOUNT_LEN: usize = 32;
 const ACCOUNT_SUBACCOUNT_TAG: u8 = 0x80;
+pub(super) const ACCOUNT_PAYLOAD_BYTES: usize = 1 + ACCOUNT_OWNER_MAX_LEN + ACCOUNT_SUBACCOUNT_LEN;
 
 /// Account ordering uses the same tuple contract as `Account::cmp`.
 pub(super) fn push_account_payload(
@@ -38,7 +39,6 @@ pub(super) fn push_account_payload(
     out.extend_from_slice(&owner_padded);
 
     let subaccount = account.subaccount().unwrap_or(Subaccount::MIN).to_array();
-    let _ = ACCOUNT_SUBACCOUNT_LEN;
     out.extend_from_slice(&subaccount);
 
     Ok(())

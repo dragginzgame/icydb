@@ -4,6 +4,7 @@
 
 mod finalize;
 mod ingest;
+mod metadata;
 mod state;
 #[cfg(test)]
 mod tests;
@@ -33,6 +34,8 @@ use crate::{
     },
     error::InternalError,
 };
+
+pub(in crate::db::executor) use metadata::try_execute_grouped_count_metadata;
 
 pub(in crate::db::executor::aggregate::runtime::grouped_fold) use ingest::materialize_group_key_from_row_view;
 

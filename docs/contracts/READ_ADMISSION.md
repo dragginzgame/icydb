@@ -90,6 +90,91 @@ these costs before shared-plan lookup; a reusable concrete SQL command still
 skips completed SQL lowering. Key-payload copying, duplicate comparisons and
 downstream rebinding remain separate, incomplete accounting work.
 
+Query raw index bounds charge both destination buffers and a byte-filling work
+allowance before construction, including first materialization of deferred
+prefix bounds during execution. The caller's existing preparation or execution
+budget owns these charges; warm materialized bounds skip construction charges.
+Admission failure leaves a deferred memo empty and remains a typed budget error,
+including during advisory cardinality selection. Bound bytes and inclusivity
+are unchanged. Prefix/range scalar operands and exact-count metadata keys also
+admit scalar output before encoding. Text escaping and decimal digits reserve
+conservative capacity; exhausted requests can reject before otherwise valid
+encoding. This does not move stored-component size caps onto comparison literals.
+Optional index-predicate literals use the same scalar admission before encoding.
+The shared access planner also admits its eligible-index list before filtering:
+one visit per visible index and destination backing for every visible contract.
+Contracts share their immutable payload, so this charges the list, not a deep
+copy of schema metadata. This conservative reservation can reject sooner or
+leave spare capacity when filtering discards indexes. Rebinding, reranking,
+cardinality selection and verbose explain use the same current request.
+Construction exhaustion propagates; it is not an unsupported candidate or
+unavailable-cardinality fallback, and failed projection leaves the previous
+snapshot unchanged. This does not bound predicate implication checks, scoring,
+or candidate-plan payloads. Indexed candidate projection separately admits
+maximum backing for its candidate, alternative and rejection lists, then charges
+each retained name copy. Cardinality tie-set enumeration admits its destination
+list before retaining routes. These use visible-index counts without a second
+sizing walk; unused capacity and earlier conservative rejection are possible.
+Ranking reasons retain fixed-size evidence rather than a score list, and selected
+identity borrows shared contracts. Copies of previously frozen snapshots,
+candidate-route contents and proof/scoring work are not qualified by these
+list/name checks.
+Recursive candidate planning additionally charges each predicate dispatch and
+admits AND/OR child-list backing before candidate extraction or child recursion.
+OR reserves one slot per child; AND includes up to three appended family routes.
+The conservative allowance includes filtered children and unused append slots.
+Exhaustion propagates through ordinary planning and alternative evaluation;
+it is not semantic absence. These checks cover child-list backing and dispatch,
+not operand payloads, redundancy proofs, family scoring or normalization work.
+Primary-key equality/IN construction separately admits operand copies, the IN
+destination and the path box before each allocation. The existing literal gate
+runs first, including every IN slot; unsupported literals remain absence while
+construction exhaustion propagates. Comparison selection consumes the completed
+route without another copy. Key types, ordering and deduplication are unchanged.
+This does not qualify semantic validation, secondary-index operands or later
+normalization as fully budgeted.
+Single-comparison secondary equality/IN planning admits outer candidate visits
+and the winning value-list/path backing. Candidate ranking borrows index
+identities and converts only the winner's literals; IN no longer retains a
+compatibility list or converted values for losing indexes. Scalar copies and
+expression conversion for the selected equality/IN operands now use the shared
+copy helper and existing lowercase allowance. Unchanged values are copied once;
+derived results move into the destination. Lowercase capacity/work reservations
+are conservative and can reject earlier than exact-output charging. AND/range
+payloads and score/proof internals remain separate work. Failure remains a typed
+construction error, not missing candidate evidence.
+Single ordered comparisons likewise rank borrowed identities before copying or
+converting the winning operand. Existing admission covers outer candidate visits,
+the selected bound, range-slot backing and the retained path. All four operators
+keep their original inclusive/exclusive bounds and ranking. Starts-with and
+AND-family bound construction, scoring/proofs and normalization remain separate
+owners; these checks are not a complete range-planning boundedness verdict.
+Unsupported compilation remains successful absence, while construction failures
+propagate without publishing a completed execution-preparation resident or
+changing its retained weight. Warm same-policy results skip compilation; this
+does not exempt any copies they still perform. Scalar load explain uses
+capabilities without building an unused program; aggregate/grouped route
+preparation still compiles where route selection depends on the result.
+Accepted validation, expression conversion, semantic prefix-bound output,
+program containers and remaining copies are separately owned work, not fully
+bounded by scalar-output admission. Prefix successor construction walks borrowed
+UTF-8 without a character-vector scratch allocation. Optional predicate
+compilation separately admits its semantic prefix strings and scan/copy work
+before construction. For a nonempty strict prefix of `n` UTF-8 bytes, the shared
+owner charges `2n + 1` temporary bytes and `3n + 1` byte-work units: successor
+width grows by at most one byte. Lower-only construction needs `n` of each;
+empty unsupported prefixes need neither. These are conservative construction
+allowances, not measured IC instructions or allocator telemetry. Planner
+candidate-bound construction and prior expression conversion are not covered by
+this prefix boundary. Optional expression-index predicate compilation separately
+admits its supported lowercase conversion before running it. The text owner
+provides a conservative pinned-Rust-1.98.1 allowance for cumulative requested
+backing and byte-work units, without a sizing scan or a different Unicode codec.
+Identity operands and unsupported source/target pairs do not charge conversion.
+Planner candidate conversion remains outside this compiler check; no new replay
+limit is installed. Toolchain upgrades require requalifying the lowercase
+allocation/expansion allowance, not merely preserving output spelling.
+
 ## Read Surface Inventory
 
 | Surface | Lane | Contract |

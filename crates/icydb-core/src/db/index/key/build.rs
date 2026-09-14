@@ -41,7 +41,7 @@ type ExpressionRebuildComponentEncoder<'a> =
 fn value_for_accepted_expression_with_index_name(
     index_name: &str,
     expression: &SemanticIndexExpression,
-    source: Value,
+    source: &Value,
 ) -> Result<Option<Value>, InternalError> {
     let source_label = source.canonical_tag().label();
     derive_index_expression_value(expression.op(), source).map_err(|expected| {
@@ -313,7 +313,7 @@ fn accepted_expression_component_bytes_from_slots(
             let Some(value) = value_for_accepted_expression_with_index_name(
                 accepted_index.name(),
                 &semantic_expression,
-                source.into_owned(),
+                source.as_ref(),
             )?
             else {
                 return Ok(None);
@@ -373,11 +373,8 @@ fn expression_rebuild_expression_component_bytes_from_slots(
         expression.op(),
         accepted_field_path_term(expression.source().field_name(), expression.source().path()),
     );
-    let Some(value) = value_for_accepted_expression_with_index_name(
-        index_name,
-        &semantic_expression,
-        source.clone(),
-    )?
+    let Some(value) =
+        value_for_accepted_expression_with_index_name(index_name, &semantic_expression, source)?
     else {
         return Ok(None);
     };
@@ -691,11 +688,14 @@ mod accepted_enum_tests {
     fn payload_definition() -> TestEnumDefinition {
         TestEnumDefinition::new(
             "index::Payload",
-            vec![TestEnumVariant::payload(
-                "Value",
-                AcceptedFieldKind::Nat64,
-                FieldStorageDecode::ByKind,
-            )],
+            vec![
+                TestEnumVariant::unit("Empty"),
+                TestEnumVariant::payload(
+                    "Value",
+                    AcceptedFieldKind::Nat64,
+                    FieldStorageDecode::ByKind,
+                ),
+            ],
         )
     }
 
@@ -752,12 +752,16 @@ mod accepted_enum_tests {
         );
         let persistence = AcceptedFieldPersistenceContract::new_for_tests(&handle, field)
             .expect("accepted index field should match the catalog");
-        let value = Value::Enum(ValueEnum::test_payload(1, 1, Value::Nat64(7)));
-
-        assert!(
-            encode_admitted_unit_enum_index_component(persistence.admission_contract(), &value)
-                .is_err(),
-            "payload enums must remain outside canonical index-key capability",
-        );
+        // Capability belongs to the complete definition, not the selected variant.
+        for value in [
+            Value::Enum(ValueEnum::test_unit(1, 1)),
+            Value::Enum(ValueEnum::test_payload(1, 2, Value::Nat64(7))),
+        ] {
+            assert!(
+                encode_admitted_unit_enum_index_component(persistence.admission_contract(), &value)
+                    .is_err(),
+                "payload enums must remain outside canonical index-key capability",
+            );
+        }
     }
 }

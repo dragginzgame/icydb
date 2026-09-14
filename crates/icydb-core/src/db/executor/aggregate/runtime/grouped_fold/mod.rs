@@ -42,6 +42,8 @@ use crate::{
     error::InternalError,
 };
 
+pub(in crate::db::executor) use count::try_execute_grouped_count_metadata;
+
 // Compile the route-owned HAVING expression once through the same grouped
 // projection contract used by every grouped finalization lane.
 fn compile_grouped_having_expr(

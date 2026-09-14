@@ -27,7 +27,7 @@ pub(in crate::db) use envelope::{
 pub(in crate::db) use expression_contract::SemanticIndexExpression;
 pub(in crate::db) use expression_contract::index_expression_supports_text_casefold_lookup;
 pub(in crate::db) use key::{
-    EncodedValue, IndexExpressionSourceClass, encode_accepted_index_literal_component,
+    EncodedValue, admit_query_index_component, encode_accepted_index_literal_component,
 };
 pub(in crate::db) use key::{
     IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, decode_canonical_index_int64_component,
@@ -44,8 +44,8 @@ pub(in crate::db) use predicate::{
 };
 pub(in crate::db) use range::raw_keys_for_component_prefix_with_kind;
 pub(in crate::db) use range::{
-    IndexRangeBoundEncodeError, TextPrefixBoundMode,
-    build_index_component_range_with_encoded_prefix,
+    IndexRangeBoundEncodeError, TextPrefixBoundMode, admit_index_prefix_bounds,
+    admit_text_prefix_bounds, build_index_component_range_with_encoded_prefix,
     build_index_prefix_bounds_for_encoded_components, starts_with_component_bounds,
 };
 pub(in crate::db) use readers::{

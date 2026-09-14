@@ -19,7 +19,9 @@ use icydb_diagnostic_code::{
 };
 use std::{hint::black_box, time::Instant};
 
-fn prepared(candidates: &[CardinalityTiebreakCandidate]) -> Vec<PreparedCardinalityCandidate> {
+fn prepared<'a>(
+    candidates: &[CardinalityTiebreakCandidate<'a>],
+) -> Vec<PreparedCardinalityCandidate<'a>> {
     candidates
         .iter()
         .enumerate()
@@ -187,6 +189,29 @@ fn exact_evidence_charges_exact_limits_and_cumulative_retries() {
 #[test]
 fn exact_cardinality_attempt_propagates_budget_failure_instead_of_policy_fallback() {
     let (session, authority, candidates) = ranking_candidates_for_tests();
+    let raw_bytes: u64 = candidates
+        .iter()
+        .map(|candidate| {
+            let (index, values) = candidate
+                .access()
+                .as_path()
+                .unwrap()
+                .as_index_prefix_contract()
+                .unwrap();
+            let encoded: Vec<_> = values
+                .iter()
+                .map(|value| crate::db::index::EncodedValue::try_from_ref(value).unwrap())
+                .collect();
+            crate::db::index::IndexKey::raw_prefix_bounds_retained_capacity(
+                index.key_arity(),
+                &encoded,
+            ) as u64
+                + encoded
+                    .into_iter()
+                    .map(|value| value.into_bytes().capacity() as u64)
+                    .sum::<u64>()
+        })
+        .sum();
     for (resource, exact) in exact_costs(&candidates) {
         // This fixture has one component/probe per distinct physical index.
         let count = candidates.len() as u64;
@@ -201,7 +226,7 @@ fn exact_cardinality_attempt_propagates_budget_failure_instead_of_policy_fallbac
             }
             _ => unreachable!("fixture costs"),
         };
-        let exact = exact + preparation;
+        let exact = exact + preparation + raw_bytes;
         for limit in [exact - 1, exact] {
             let root = request(resource, limit);
             let result = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {

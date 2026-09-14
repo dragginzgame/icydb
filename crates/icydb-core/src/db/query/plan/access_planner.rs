@@ -104,6 +104,7 @@ pub(in crate::db::query) fn plan_query_access_with_accepted_schema(
         normalized_predicate,
         canonical_order.as_ref(),
         grouped,
+        work,
     )
     .map_err(QueryError::from)
 }

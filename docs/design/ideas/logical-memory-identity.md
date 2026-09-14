@@ -2,6 +2,11 @@
 
 Status: idea intake only; not design or implementation authority
 
+Selected direction: the user chose logical memory identity for 0.258, after
+0.257 closeout. Begin with the ownership audit below against the then-current
+ic-memory dependency; the older dependency inventory is not a current capability
+verdict. No 0.258 implementation or allocation syntax is approved by this note.
+
 Recorded: 2026-09-06
 
 ## Problem

@@ -16,6 +16,7 @@ use crate::{
 };
 
 const DECIMAL_DIGIT_BUFFER_LEN: usize = 39;
+pub(super) const DECIMAL_PAYLOAD_MAX_BYTES: usize = 1 + 4 + DECIMAL_DIGIT_BUFFER_LEN + 1;
 
 pub(super) const DECIMAL_POSITIVE_TERMINATOR: u8 = 0x00;
 pub(super) const DECIMAL_NEGATIVE_TERMINATOR: u8 = 0xFF;

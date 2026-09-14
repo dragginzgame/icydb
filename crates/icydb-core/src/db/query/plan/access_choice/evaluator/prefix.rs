@@ -6,7 +6,10 @@ use crate::{
             access_choice::model::{
                 AccessChoiceRejectedReason, CandidateEvaluation, CandidateScore,
             },
-            key_item_match::{eq_lookup_value_for_key_item, key_item_matches_field_and_coercion},
+            key_item_match::{
+                eq_lookup_value_for_key_item, key_item_matches_field_and_coercion,
+                key_item_supports_lookup_value,
+            },
             planner::{
                 MAX_INDEX_BRANCH_SET_VALUES, index_field_literal_matcher,
                 index_literal_matches_schema,
@@ -52,15 +55,13 @@ pub(super) fn evaluate_prefix_compare_candidate_from_contract(
     else {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
     };
-    if eq_lookup_value_for_key_item(
+    if !key_item_supports_lookup_value(
         leading_key_item,
         cmp.field.as_str(),
         cmp.value(),
         cmp.coercion.id,
         true,
-    )
-    .is_none()
-    {
+    ) {
         return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
     }
 
@@ -217,15 +218,13 @@ pub(super) fn evaluate_multi_lookup_candidate_from_contract(
     let matcher = index_field_literal_matcher(schema, cmp.field.as_str());
     for value in values {
         let literal_compatible = matcher.matches(value);
-        if eq_lookup_value_for_key_item(
+        if !key_item_supports_lookup_value(
             leading_key_item,
             cmp.field.as_str(),
             value,
             cmp.coercion.id,
             literal_compatible,
-        )
-        .is_none()
-        {
+        ) {
             return CandidateEvaluation::Rejected(
                 AccessChoiceRejectedReason::InLiteralIncompatible,
             );

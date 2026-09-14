@@ -6,10 +6,14 @@ use crate::{
     db::{
         index::{derive_index_expression_value, index_expression_supports_text_casefold_lookup},
         predicate::{CoercionId, CompareOp, ExecutableComparePredicate, ExecutablePredicate},
+        query::construction::ConstructionBudget,
         schema::{PersistedIndexExpressionOp, SchemaInfo},
     },
-    value::Value,
+    error::InternalError,
+    value::{Value, lower_text_construction_allowance},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+use std::borrow::Cow;
 
 ///
 /// ScalarPredicateCapability
@@ -189,39 +193,73 @@ pub(in crate::db) fn classify_index_compare_target(
     })
 }
 
-/// Lower one compare literal onto the canonical bytes expected by one compile target.
+/// Lower one compare literal using the accepted field/expression semantics.
+/// Identity lowering borrows; expression lowering owns only its derived result.
 #[must_use]
-pub(in crate::db) fn lower_index_compare_literal_for_target(
-    target: IndexCompileTarget,
+pub(in crate::db) fn lower_index_compare_literal_for_kind(
+    kind: IndexCompileTargetKind,
     value: &Value,
     coercion: CoercionId,
-) -> Option<Value> {
-    match target.kind {
-        IndexCompileTargetKind::Field => (coercion == CoercionId::Strict).then(|| value.clone()),
-        IndexCompileTargetKind::Expression(op) => {
-            if coercion != CoercionId::TextCasefold
-                || !index_expression_supports_text_casefold_lookup(op)
-            {
-                return None;
-            }
+) -> Option<Cow<'_, Value>> {
+    if !index_kind_supports_coercion(kind, coercion) {
+        return None;
+    }
 
-            derive_index_expression_value(op, value.clone())
-                .ok()
-                .flatten()
+    match kind {
+        IndexCompileTargetKind::Field => Some(Cow::Borrowed(value)),
+        IndexCompileTargetKind::Expression(op) => derive_index_expression_value(op, value)
+            .ok()
+            .flatten()
+            .map(Cow::Owned),
+    }
+}
+
+/// Admit the supported expression conversion before allocating its result.
+/// Identity literals and unsupported target/source pairs perform no conversion.
+pub(in crate::db) fn admit_index_compare_literal_for_kind(
+    kind: IndexCompileTargetKind,
+    value: &Value,
+    coercion: CoercionId,
+    budget: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
+    if !matches!(kind, IndexCompileTargetKind::Expression(_))
+        || !index_kind_supports_coercion(kind, coercion)
+    {
+        return Ok(());
+    }
+    if let Value::Text(text) = value {
+        // The current accepted lookup conversion is LOWER only. Its canonical
+        // text owner supplies the allowance; no second transformation is run.
+        let (backing, work) = lower_text_construction_allowance(text.len());
+        budget.charge(Resource::TemporaryBytes, backing)?;
+        budget.charge(Resource::PredicateExpressionSteps, work)?;
+    }
+    Ok(())
+}
+
+// Classification and lowering must agree on the accepted target/coercion pair.
+fn index_kind_supports_coercion(kind: IndexCompileTargetKind, coercion: CoercionId) -> bool {
+    match kind {
+        IndexCompileTargetKind::Field => coercion == CoercionId::Strict,
+        IndexCompileTargetKind::Expression(op) => {
+            coercion == CoercionId::TextCasefold
+                && index_expression_supports_text_casefold_lookup(op)
         }
     }
 }
 
-/// Lower one starts-with predicate prefix onto the canonical bytes expected by one compile target.
+/// Lower one starts-with prefix without copying an unchanged field literal.
 #[must_use]
 pub(in crate::db) fn lower_index_starts_with_prefix_for_target(
     target: IndexCompileTarget,
     value: &Value,
     coercion: CoercionId,
-) -> Option<String> {
-    let lowered = lower_index_compare_literal_for_target(target, value, coercion)?;
-    let Value::Text(prefix) = lowered else {
-        return None;
+) -> Option<Cow<'_, str>> {
+    let lowered = lower_index_compare_literal_for_kind(target.kind, value, coercion)?;
+    let prefix = match lowered {
+        Cow::Borrowed(Value::Text(prefix)) => Cow::Borrowed(prefix.as_str()),
+        Cow::Owned(Value::Text(prefix)) => Cow::Owned(prefix),
+        _ => return None,
     };
     if prefix.is_empty() {
         return None;
@@ -418,24 +456,31 @@ fn compare_is_indexable_for_target(
     cmp: &ExecutableComparePredicate,
     target: IndexCompileTarget,
 ) -> bool {
+    if !index_kind_supports_coercion(target.kind, cmp.coercion.id) {
+        return false;
+    }
     let Some(value) = cmp.right_literal() else {
         return false;
     };
 
+    // The admitted expression lookup is LOWER over text: it always returns
+    // indexable text and preserves emptiness. Inspect the source shape instead
+    // of allocating transformed values during every capability walk. Actual
+    // compilation still uses the canonical scalar transformation owner.
+    let literal_supported = |value: &Value| match target.kind {
+        IndexCompileTargetKind::Field => value_is_index_literal(value),
+        IndexCompileTargetKind::Expression(_) => matches!(value, Value::Text(_)),
+    };
+
     if cmp.op.is_equality_family() || cmp.op.is_ordering_family() {
-        lower_index_compare_literal_for_target(target, value, cmp.coercion.id)
-            .is_some_and(|value| value_is_index_literal(&value))
+        literal_supported(value)
     } else if cmp.op.is_membership_family() {
         let Value::List(items) = value else {
             return false;
         };
-        !items.is_empty()
-            && items.iter().all(|value| {
-                lower_index_compare_literal_for_target(target, value, cmp.coercion.id)
-                    .is_some_and(|value| value_is_index_literal(&value))
-            })
+        !items.is_empty() && items.iter().all(literal_supported)
     } else if matches!(cmp.op, CompareOp::StartsWith) {
-        lower_index_starts_with_prefix_for_target(target, value, cmp.coercion.id).is_some()
+        matches!(value, Value::Text(prefix) if !prefix.is_empty())
     } else {
         false
     }
@@ -549,12 +594,19 @@ fn list_value_is_non_empty_index_literal(value: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        IndexCompileTarget, IndexCompileTargetKind, lower_index_compare_literal_for_target,
+        IndexCompileTarget, IndexCompileTargetKind, classify_index_compare_target,
+        lower_index_compare_literal_for_kind, lower_index_starts_with_prefix_for_target,
+        value_is_index_literal,
     };
     use crate::{
-        db::{predicate::CoercionId, schema::PersistedIndexExpressionOp},
+        db::{
+            predicate::{CoercionId, CoercionSpec, CompareOp, ExecutableComparePredicate},
+            schema::PersistedIndexExpressionOp,
+        },
+        types::{IntBig, NatBig},
         value::Value,
     };
+    use std::borrow::Cow;
 
     fn expression_target(op: PersistedIndexExpressionOp) -> IndexCompileTarget {
         IndexCompileTarget {
@@ -565,25 +617,183 @@ mod tests {
     }
 
     #[test]
+    fn target_classification_agrees_with_canonical_literal_lowering() {
+        let field = IndexCompileTarget {
+            kind: IndexCompileTargetKind::Field,
+            ..expression_target(PersistedIndexExpressionOp::Lower)
+        };
+        let expressions = [
+            PersistedIndexExpressionOp::Lower,
+            PersistedIndexExpressionOp::Upper,
+            PersistedIndexExpressionOp::Trim,
+            PersistedIndexExpressionOp::LowerTrim,
+            PersistedIndexExpressionOp::Date,
+            PersistedIndexExpressionOp::Year,
+            PersistedIndexExpressionOp::Month,
+            PersistedIndexExpressionOp::Day,
+        ];
+        let values = [
+            Value::Text(String::new()),
+            Value::Text(" \u{2003}İΣß\0 ".repeat(128)),
+            Value::Null,
+            Value::Unit,
+            Value::Nat64(1),
+            Value::IntBig(IntBig::from(-256)),
+            Value::List(vec![]),
+            Value::List(vec![Value::Text(String::new()), Value::Text("ÄBC".into())]),
+            Value::List(vec![Value::Text("ÄBC".into()), Value::Null]),
+            Value::List(vec![Value::Text("ÄBC".into()), Value::Nat64(1)]),
+            Value::List(vec![Value::List(vec![Value::Text("ÄBC".into())])]),
+        ];
+        for target in std::iter::once(field).chain(expressions.map(expression_target)) {
+            for coercion in [
+                CoercionId::Strict,
+                CoercionId::TextCasefold,
+                CoercionId::NumericWiden,
+                CoercionId::CollectionElement,
+            ] {
+                let scalar_supported = |value| {
+                    lower_index_compare_literal_for_kind(target.kind, value, coercion)
+                        .is_some_and(|value| value_is_index_literal(&value))
+                };
+                for op in [
+                    CompareOp::Eq,
+                    CompareOp::Ne,
+                    CompareOp::Lt,
+                    CompareOp::Lte,
+                    CompareOp::Gt,
+                    CompareOp::Gte,
+                    CompareOp::In,
+                    CompareOp::NotIn,
+                    CompareOp::StartsWith,
+                    CompareOp::EndsWith,
+                    CompareOp::Contains,
+                ] {
+                    for value in &values {
+                        let expected = match op {
+                            CompareOp::Eq
+                            | CompareOp::Ne
+                            | CompareOp::Lt
+                            | CompareOp::Lte
+                            | CompareOp::Gt
+                            | CompareOp::Gte => scalar_supported(value),
+                            CompareOp::In | CompareOp::NotIn => match value {
+                                Value::List(items) => {
+                                    !items.is_empty() && items.iter().all(scalar_supported)
+                                }
+                                _ => false,
+                            },
+                            CompareOp::StartsWith => {
+                                lower_index_starts_with_prefix_for_target(target, value, coercion)
+                                    .is_some()
+                            }
+                            CompareOp::EndsWith | CompareOp::Contains => false,
+                        };
+                        let cmp = ExecutableComparePredicate::field_literal(
+                            Some(target.field_slot),
+                            op,
+                            value.clone(),
+                            CoercionSpec::new(coercion),
+                        );
+                        assert_eq!(
+                            classify_index_compare_target(&cmp, &[target]),
+                            expected.then_some(target),
+                            "target={target:?}, coercion={coercion:?}, op={op:?}",
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn text_casefold_literals_only_lower_through_matching_expression_keys() {
         let literal = Value::Text("ßeta".to_string());
 
         assert_eq!(
-            lower_index_compare_literal_for_target(
-                expression_target(PersistedIndexExpressionOp::Lower),
+            lower_index_compare_literal_for_kind(
+                expression_target(PersistedIndexExpressionOp::Lower).kind,
                 &literal,
                 CoercionId::TextCasefold,
-            ),
-            Some(Value::Text("ßeta".to_string())),
+            )
+            .as_deref(),
+            Some(&literal),
         );
         assert_eq!(
-            lower_index_compare_literal_for_target(
-                expression_target(PersistedIndexExpressionOp::Upper),
+            lower_index_compare_literal_for_kind(
+                expression_target(PersistedIndexExpressionOp::Upper).kind,
                 &literal,
                 CoercionId::TextCasefold,
             ),
             None,
         );
+    }
+
+    #[test]
+    fn identity_target_lowering_borrows_operands_and_prefixes() {
+        let target = IndexCompileTarget {
+            component_index: 0,
+            field_slot: 0,
+            kind: IndexCompileTargetKind::Field,
+        };
+        let values = [
+            Value::Text("x".repeat(4096)),
+            Value::IntBig(IntBig::from(-256)),
+            Value::NatBig(NatBig::from(256u64)),
+            Value::Null,
+            Value::List(vec![Value::Text("member".into())]),
+        ];
+        for value in &values {
+            let lowered =
+                lower_index_compare_literal_for_kind(target.kind, value, CoercionId::Strict)
+                    .unwrap();
+            let Cow::Borrowed(borrowed) = lowered else {
+                panic!("identity lowering must borrow");
+            };
+            assert!(std::ptr::eq(borrowed, value));
+            for coercion in [
+                CoercionId::NumericWiden,
+                CoercionId::TextCasefold,
+                CoercionId::CollectionElement,
+            ] {
+                assert!(
+                    lower_index_compare_literal_for_kind(target.kind, value, coercion).is_none()
+                );
+            }
+        }
+        let Value::Text(text) = &values[0] else {
+            unreachable!();
+        };
+        let prefix =
+            lower_index_starts_with_prefix_for_target(target, &values[0], CoercionId::Strict)
+                .unwrap();
+        let Cow::Borrowed(prefix) = prefix else {
+            panic!("identity prefix must borrow");
+        };
+        assert!(std::ptr::eq(prefix, text.as_str()));
+        for value in [Value::Text(String::new()), Value::Nat64(1), Value::Null] {
+            assert!(
+                lower_index_starts_with_prefix_for_target(target, &value, CoercionId::Strict)
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn expression_target_lowering_keeps_derived_values_owned() {
+        let target = expression_target(PersistedIndexExpressionOp::Lower);
+        let value = Value::Text("ÄBC".into());
+        let lowered =
+            lower_index_compare_literal_for_kind(target.kind, &value, CoercionId::TextCasefold)
+                .unwrap();
+        assert!(matches!(lowered, Cow::Owned(_)));
+        assert_eq!(lowered.as_ref(), &Value::Text("äbc".into()));
+        let prefix =
+            lower_index_starts_with_prefix_for_target(target, &value, CoercionId::TextCasefold)
+                .unwrap();
+        assert!(matches!(prefix, Cow::Owned(_)));
+        assert_eq!(prefix, "äbc");
+        assert_eq!(value, Value::Text("ÄBC".into()));
     }
 }
 
