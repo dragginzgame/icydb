@@ -295,19 +295,6 @@ impl Value {
         }
     }
 
-    /// Return whether this runtime value contains canonical enum identity.
-    #[must_use]
-    pub(crate) fn contains_enum(&self) -> bool {
-        match self {
-            Self::Enum(_) => true,
-            Self::List(values) => values.iter().any(Self::contains_enum),
-            Self::Map(entries) => entries
-                .iter()
-                .any(|(key, value)| key.contains_enum() || value.contains_enum()),
-            _ => false,
-        }
-    }
-
     /// Stable canonical variant tag used by hash/fingerprint encodings.
     #[must_use]
     pub(crate) const fn canonical_tag(&self) -> ValueTag {

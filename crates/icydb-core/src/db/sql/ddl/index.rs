@@ -790,6 +790,25 @@ mod tests {
     }
 
     #[test]
+    fn sql_unique_index_binding_rejects_unbound_eliminated_branches() {
+        let (accepted, schema) = nullable_email_schema();
+        let invalid = create_index_statement(
+            "CREATE UNIQUE INDEX account_email ON Account (email) WHERE email IS NOT NULL AND (email = 'active' OR (email = 'a' AND email = 'b' AND missing IS NOT NULL))",
+        );
+        let error = bind_create_index_statement(
+            &invalid,
+            &accepted,
+            &schema,
+            "entities::Account::account_email",
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            SqlDdlBindError::InvalidFilteredIndexPredicate
+        ));
+    }
+
+    #[test]
     fn sql_unique_index_if_not_exists_classifies_active_candidate_and_conflicts() {
         let ((active, active_schema), (pending, pending_schema)) = nullable_unique_index_states();
         let exact = create_index_statement(

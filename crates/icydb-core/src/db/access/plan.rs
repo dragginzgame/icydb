@@ -32,6 +32,7 @@ impl<K> AccessPlan<K> {
     }
 
     /// Construct a single-key access plan.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn by_key(key: K) -> Self {
         Self::path(AccessPath::ByKey(key))

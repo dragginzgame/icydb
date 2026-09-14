@@ -173,7 +173,9 @@ fn borrowed_grouped_aggregate_facts_preserve_list_and_explain_profiles() {
             },
             having_expr: None,
         });
-        let signature = plan.continuation_signature("tests::Entity").unwrap();
+        let signature =
+            with_preparation_work(|work| plan.continuation_signature("tests::Entity", work))
+                .unwrap();
         let strategy = grouped_plan_strategy(&plan).unwrap();
         assert_eq!(strategy.aggregate_family(), family);
         assert_eq!(strategy.code(), "hash_group");
@@ -181,7 +183,8 @@ fn borrowed_grouped_aggregate_facts_preserve_list_and_explain_profiles() {
         let explained = with_preparation_work(|work| plan.project_explain(work)).unwrap();
         assert!(explained.render_json_canonical().is_ok());
         assert_eq!(
-            plan.continuation_signature("tests::Entity").unwrap(),
+            with_preparation_work(|work| plan.continuation_signature("tests::Entity", work))
+                .unwrap(),
             signature
         );
         assert_eq!(

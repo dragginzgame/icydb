@@ -1,6 +1,7 @@
 //! Project current accepted field/expression index contracts under one request.
 
 use super::*;
+use crate::db::query::preparation::with_preparation_work as with_work;
 use crate::db::{
     RequestExecutionRoot,
     access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
@@ -55,7 +56,7 @@ fn decision_projection_matches_first_selected_identity_on_a_warm_plan() {
     let (cold, warm) = (prepare(), prepare());
     let original = warm.logical_plan();
     assert_eq!(original, cold.logical_plan());
-    let signature = original.continuation_signature(ENTITY_NAME).unwrap();
+    let signature = with_work(|work| original.continuation_signature(ENTITY_NAME, work)).unwrap();
     let mut planned = original.clone();
     let selected_name = planned
         .access
@@ -73,7 +74,7 @@ fn decision_projection_matches_first_selected_identity_on_a_warm_plan() {
     let mut later = first.clone();
     later.residual_predicate_terms = first.residual_predicate_terms + 7;
     planned.access_choice.candidates = vec![first.clone(), later];
-    let planned = crate::db::query::preparation::with_preparation_work(|work| {
+    let planned = with_work(|work| {
         crate::db::executor::SharedPreparedExecutionPlan::from_plan(
             warm.authority(),
             planned,
@@ -113,8 +114,8 @@ fn decision_projection_matches_first_selected_identity_on_a_warm_plan() {
         assert!(run().is_err());
         assert_eq!(exact.observed(Resource::RowsVisited), 0);
     }
-    let current_signature = original.continuation_signature(ENTITY_NAME).unwrap();
-    assert_eq!(current_signature, signature);
+    let current = with_work(|work| original.continuation_signature(ENTITY_NAME, work)).unwrap();
+    assert_eq!(current, signature);
     assert_eq!(prepare().logical_plan(), original);
     let sql = "SELECT id FROM PlannerRow WHERE common = 'everyone' AND rare = 'group-a' ORDER BY id LIMIT 3";
     assert_eq!(projection_rows(&session, sql).len(), 3);
@@ -133,13 +134,11 @@ fn access_projection_keeps_accepted_expression_index_source_fields() {
         .find(|index| index.name() == "zz_lower_common_idx")
         .unwrap();
     let access = AccessPlan::index_prefix_from_contract(
-        SemanticIndexAccessContract::from_accepted_expression_index(accepted),
+        SemanticIndexAccessContract::from_accepted_expression_index(accepted)
+            .expect("valid accepted index fixture"),
         vec![Value::Text("everyone".into())],
     );
-    let projected = crate::db::query::preparation::with_preparation_work(|work| {
-        explain_access_plan(&access, work)
-    })
-    .unwrap();
+    let projected = with_work(|work| explain_access_plan(&access, work)).unwrap();
     assert_eq!(
         projected,
         ExplainAccessPath::IndexPrefix {
@@ -163,7 +162,8 @@ fn access_projection_keeps_accepted_index_fields_and_successful_bytes() {
         .iter()
         .find(|index| index.name() == "b_wide_branch_idx")
         .unwrap();
-    let index = SemanticIndexAccessContract::from_accepted_field_path_index(accepted);
+    let index = SemanticIndexAccessContract::from_accepted_field_path_index(accepted)
+        .expect("valid accepted index fixture");
     let values = vec![Value::Text("all".into())];
     let cases = [
         AccessPlan::index_prefix_from_contract(index.clone(), values.clone()),

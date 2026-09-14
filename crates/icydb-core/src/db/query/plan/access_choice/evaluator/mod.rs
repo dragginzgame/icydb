@@ -7,17 +7,21 @@ mod prefix;
 mod range;
 mod ranking;
 
-use crate::db::{
-    access::SemanticIndexAccessContract,
-    predicate::Predicate,
-    query::plan::{
-        OrderSpec,
-        access_choice::model::{
-            AccessChoiceFamily, AccessChoiceRejectedReason, CandidateEvaluation,
+use crate::{
+    db::{
+        access::SemanticIndexAccessContract,
+        predicate::Predicate,
+        query::construction::ConstructionBudget,
+        query::plan::{
+            OrderSpec,
+            access_choice::model::{
+                AccessChoiceFamily, AccessChoiceRejectedReason, CandidateEvaluation,
+            },
+            planner::index_stream_is_complete_for_query,
         },
-        planner::index_stream_is_complete_for_query,
+        schema::SchemaInfo,
     },
-    schema::SchemaInfo,
+    error::InternalError,
 };
 
 pub(in crate::db::query::plan::access_choice) use ranking::{
@@ -36,23 +40,33 @@ pub(super) fn evaluate_index_candidate(
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> CandidateEvaluation {
+    budget: &dyn ConstructionBudget,
+) -> Result<CandidateEvaluation, InternalError> {
     if !index_stream_is_complete_for_query(schema, index, predicate.unwrap_or(&Predicate::True)) {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::IndexMembershipUnproven);
+        return Ok(CandidateEvaluation::Rejected(
+            AccessChoiceRejectedReason::IndexMembershipUnproven,
+        ));
     }
     let scoring_index = CandidateScoringIndex { contract: index };
 
     if matches!(family, AccessChoiceFamily::Range) && predicate.is_none() && order.is_some() {
-        return evaluate_order_only_range_candidate(scoring_index, schema, order, grouped);
+        return Ok(evaluate_order_only_range_candidate(
+            scoring_index,
+            schema,
+            order,
+            grouped,
+        ));
     }
 
     let Some(predicate) = predicate else {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::PredicateAbsent);
+        return Ok(CandidateEvaluation::Rejected(
+            AccessChoiceRejectedReason::PredicateAbsent,
+        ));
     };
 
-    match family {
+    Ok(match family {
         AccessChoiceFamily::Prefix => augment_candidate_with_order_compatibility(
-            prefix::evaluate_prefix_candidate(index, schema, predicate),
+            prefix::evaluate_prefix_candidate(index, schema, predicate, budget)?,
             schema,
             order,
             scoring_index,
@@ -66,14 +80,14 @@ pub(super) fn evaluate_index_candidate(
             grouped,
         ),
         AccessChoiceFamily::BranchSet => augment_candidate_with_order_compatibility(
-            prefix::evaluate_branch_set_candidate_from_contract(index, schema, predicate),
+            prefix::evaluate_branch_set_candidate_from_contract(index, schema, predicate, budget)?,
             schema,
             order,
             scoring_index,
             grouped,
         ),
         AccessChoiceFamily::Range => augment_candidate_with_order_compatibility(
-            range::evaluate_range_candidate_from_contract(index, schema, predicate),
+            range::evaluate_range_candidate_from_contract(index, schema, predicate, budget)?,
             schema,
             order,
             scoring_index,
@@ -82,7 +96,7 @@ pub(super) fn evaluate_index_candidate(
         AccessChoiceFamily::NonIndex => {
             CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NonIndexAccess)
         }
-    }
+    })
 }
 
 // Project one order-only range-family candidate for explain when planner fell

@@ -1,19 +1,25 @@
 //! Per-key range constraint classification for access-choice evaluation.
 
-use crate::db::{
-    access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef},
-    predicate::{CoercionId, CompareOp, ComparePredicate},
-    query::plan::{
-        access_choice::model::{AccessChoiceRejectedReason, RangeFieldConstraint},
-        field_key_contract_supports_operator,
-        key_item_match::{
-            eq_lookup_value_for_key_item, key_item_supports_lookup_value,
-            key_item_supports_starts_with_value,
+use crate::{
+    db::{
+        access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef},
+        predicate::{CoercionId, CompareOp, Predicate},
+        query::construction::ConstructionBudget,
+        query::plan::{
+            access_choice::model::{AccessChoiceRejectedReason, RangeFieldConstraint},
+            field_key_contract_supports_operator,
+            key_item_match::{
+                key_item_supports_lookup_value, key_item_supports_starts_with_value,
+                lower_lookup_value_for_key_item,
+            },
+            planner::index_literal_matches_schema,
         },
-        planner::index_literal_matches_schema,
+        schema::SchemaInfo,
     },
-    schema::SchemaInfo,
+    error::InternalError,
+    value::Value,
 };
+use std::borrow::Cow;
 
 // This classifier keeps the full range-family rejection and bound-strength
 // contract in one owner-local function so planner ranking and explain reasons
@@ -26,13 +32,22 @@ pub(super) fn classify_range_constraints_for_key_item(
     index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     key_item: SemanticIndexKeyItemRef<'_>,
-    compares: &[&ComparePredicate],
-) -> Result<RangeFieldConstraint, AccessChoiceRejectedReason> {
+    compares: &[Predicate],
+    budget: &dyn ConstructionBudget,
+) -> Result<Result<RangeFieldConstraint, AccessChoiceRejectedReason>, InternalError> {
+    // Construction failure is distinct from a successfully classified rejection.
+    // Only fixed-size facts leave this owner; raw equality values stay borrowed.
     let mut constraint = RangeFieldConstraint::default();
+    let mut eq_value: Option<Cow<'_, Value>> = None;
     let mut lower_bound_present = false;
     let mut upper_bound_present = false;
 
-    for cmp in compares {
+    for child in compares {
+        let Predicate::Compare(cmp) = child else {
+            return Ok(Err(
+                AccessChoiceRejectedReason::PredicateShapeNotRangeEligible,
+            ));
+        };
         if cmp.field.as_str() != key_item.field() {
             continue;
         }
@@ -41,24 +56,26 @@ pub(super) fn classify_range_constraints_for_key_item(
             CompareOp::Eq => {
                 let literal_compatible =
                     index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
-                let Some(candidate) = eq_lookup_value_for_key_item(
+                let Some(candidate) = lower_lookup_value_for_key_item(
                     key_item,
                     cmp.field.as_str(),
                     cmp.value(),
                     cmp.coercion.id,
                     literal_compatible,
-                ) else {
+                    budget,
+                )?
+                else {
                     continue;
                 };
                 if constraint.has_range {
-                    return Err(AccessChoiceRejectedReason::EqRangeConflict);
+                    return Ok(Err(AccessChoiceRejectedReason::EqRangeConflict));
                 }
-                if let Some(existing) = constraint.eq_value.as_ref()
+                if let Some(existing) = eq_value.as_ref()
                     && existing != &candidate
                 {
-                    return Err(AccessChoiceRejectedReason::ConflictingEqConstraints);
+                    return Ok(Err(AccessChoiceRejectedReason::ConflictingEqConstraints));
                 }
-                constraint.eq_value = Some(candidate);
+                eq_value = Some(candidate);
             }
             CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
                 if !key_item_supports_lookup_value(
@@ -81,7 +98,7 @@ pub(super) fn classify_range_constraints_for_key_item(
                             cmp.field.as_str(),
                             cmp.op,
                         ) {
-                            return Err(AccessChoiceRejectedReason::OperatorNotSupported);
+                            return Ok(Err(AccessChoiceRejectedReason::OperatorNotSupported));
                         }
                     }
                     SemanticIndexKeyItemRef::AcceptedExpression(_) => {
@@ -90,8 +107,8 @@ pub(super) fn classify_range_constraints_for_key_item(
                         }
                     }
                 }
-                if constraint.eq_value.is_some() {
-                    return Err(AccessChoiceRejectedReason::EqRangeConflict);
+                if eq_value.is_some() {
+                    return Ok(Err(AccessChoiceRejectedReason::EqRangeConflict));
                 }
                 constraint.has_range = true;
                 if matches!(cmp.op, CompareOp::Gt | CompareOp::Gte) {
@@ -102,7 +119,7 @@ pub(super) fn classify_range_constraints_for_key_item(
             }
             CompareOp::StartsWith => {
                 if key_item.is_expression() && cmp.coercion.id == CoercionId::Strict {
-                    return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
+                    return Ok(Err(AccessChoiceRejectedReason::OperatorNotRangeSupported));
                 }
                 let literal_compatible =
                     index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
@@ -113,10 +130,10 @@ pub(super) fn classify_range_constraints_for_key_item(
                     cmp.coercion.id,
                     literal_compatible,
                 ) {
-                    return Err(AccessChoiceRejectedReason::StartsWithPrefixInvalid);
+                    return Ok(Err(AccessChoiceRejectedReason::StartsWithPrefixInvalid));
                 }
-                if constraint.eq_value.is_some() {
-                    return Err(AccessChoiceRejectedReason::EqRangeConflict);
+                if eq_value.is_some() {
+                    return Ok(Err(AccessChoiceRejectedReason::EqRangeConflict));
                 }
                 constraint.has_range = true;
                 constraint.range_bound_count =
@@ -126,7 +143,7 @@ pub(super) fn classify_range_constraints_for_key_item(
                         1
                     };
             }
-            _ => return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported),
+            _ => return Ok(Err(AccessChoiceRejectedReason::OperatorNotRangeSupported)),
         }
     }
 
@@ -137,5 +154,6 @@ pub(super) fn classify_range_constraints_for_key_item(
         }
     }
 
-    Ok(constraint)
+    constraint.has_eq = eq_value.is_some();
+    Ok(Ok(constraint))
 }

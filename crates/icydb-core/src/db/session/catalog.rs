@@ -203,7 +203,8 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: planner-visible indexes are accepted schema contracts once
         // the recovered store is query-visible.
-        let visible_indexes = VisibleIndexes::accepted_schema_visible(schema_info);
+        let visible_indexes =
+            VisibleIndexes::accepted_schema_visible(schema_info).map_err(QueryError::execute)?;
         debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
         debug_assert!(visible_indexes.accepted_expression_contracts_are_consistent());
         debug_assert_eq!(

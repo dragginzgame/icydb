@@ -959,6 +959,54 @@ fn journaled_schema_store_streams_overlay_latest_snapshot_and_early_stop() {
 }
 
 #[test]
+fn prepared_schema_snapshots_preserve_bytes_identity_and_storage_view() {
+    let entity = EntityTag::new(61);
+    let snapshot = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Prepared");
+    let expected = RawSchemaSnapshot::from_persisted_snapshot(&snapshot).unwrap();
+    let key = RawSchemaKey::from_entity_version(entity, snapshot.version());
+    let mut heap = SchemaStore::init_heap();
+    let mut journaled = SchemaStore::init_journaled(test_memory(233));
+
+    let prepared = SchemaStore::prepare_persisted_snapshot(entity, &snapshot).unwrap();
+    let payload = prepared.snapshot.payload.as_ptr();
+    assert!(heap.get_raw_snapshot(&key).is_none());
+    heap.apply_prepared_persisted_snapshot(prepared);
+    let SchemaStoreBackend::Heap(map) = &heap.backend else {
+        unreachable!()
+    };
+    assert_eq!(map.get(&key).unwrap().payload.as_ptr(), payload);
+    assert_eq!(heap.get_raw_snapshot(&key), Some(expected.clone()));
+
+    assert!(
+        heap.prepare_fold_persisted_snapshot(entity, &snapshot)
+            .is_err()
+    );
+    let folded = journaled
+        .prepare_fold_persisted_snapshot(entity, &snapshot)
+        .unwrap();
+    assert!(journaled.get_canonical_raw_value(&key).unwrap().is_none());
+    journaled
+        .apply_prepared_fold_persisted_snapshot(folded)
+        .unwrap();
+    assert_eq!(
+        journaled.get_canonical_raw_value(&key).unwrap(),
+        Some(expected.clone())
+    );
+    let replayed = SchemaStore::prepare_persisted_snapshot(entity, &snapshot).unwrap();
+    journaled.apply_prepared_persisted_snapshot(replayed);
+    assert_eq!(journaled.get_raw_snapshot(&key), Some(expected));
+
+    let invalid = snapshot.with_schema_version(SchemaVersion::new(0));
+    assert!(SchemaStore::prepare_persisted_snapshot(entity, &invalid).is_err());
+    assert!(
+        journaled
+            .prepare_fold_persisted_snapshot(entity, &invalid)
+            .is_err()
+    );
+    assert!(journaled.get_raw_snapshot(&key).is_some());
+}
+
+#[test]
 fn journaled_schema_store_latest_snapshot_reads_each_overlay_source() {
     let entity = EntityTag::new(71);
 
@@ -997,6 +1045,164 @@ fn journaled_schema_store_latest_snapshot_reads_each_overlay_source() {
         SchemaVersion::new(3),
         "LiveDuplicate",
     );
+}
+
+#[test]
+fn prepared_catalog_fold_retains_payloads_and_identity_without_early_writes() {
+    let memory = test_memory(229);
+    let mut store = SchemaStore::init_journaled(memory.clone());
+    let initial = empty_accepted_schema_candidate_for_tests(
+        "test::PreparedCatalog",
+        AcceptedSchemaRevision::INITIAL,
+    );
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
+        .unwrap();
+    let entity = EntityTag::new(101);
+    let field = FieldId::new(1);
+    let candidate = identity_candidate_for_test(
+        "test::PreparedCatalog",
+        AcceptedSchemaRevision::new(2),
+        entity,
+        field,
+        AcceptedFieldKind::Nat64,
+    );
+    let bundle_pointer = candidate.encoded_bundle().as_ptr();
+    let expected_root = candidate.root();
+    let prepared = store
+        .prepare_fold_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            candidate,
+        )
+        .unwrap();
+    assert_eq!(prepared.candidate.encoded_bundle().as_ptr(), bundle_pointer);
+    assert_eq!(prepared.snapshots.len(), 1);
+    assert_eq!(prepared.identity_updates.len(), 1);
+    let snapshot = &prepared.snapshots[0];
+    let snapshot_key = snapshot.key;
+    let snapshot_bytes = snapshot.snapshot.to_bytes().into_owned();
+    let (identity_key, identity_bytes) = prepared.identity_updates[0].clone();
+    assert!(
+        store
+            .get_canonical_raw_value(&snapshot_key)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        store
+            .get_canonical_raw_value(&identity_key)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        store
+            .current_canonical_accepted_schema_bundle()
+            .unwrap()
+            .unwrap()
+            .revision(),
+        AcceptedSchemaRevision::INITIAL
+    );
+
+    store.apply_prepared_accepted_schema_fold(prepared).unwrap();
+    assert_eq!(
+        store
+            .get_canonical_raw_value(&snapshot_key)
+            .unwrap()
+            .unwrap()
+            .to_bytes()
+            .as_ref(),
+        snapshot_bytes.as_slice()
+    );
+    assert_eq!(
+        store
+            .get_canonical_raw_value(&identity_key)
+            .unwrap()
+            .unwrap()
+            .as_bytes(),
+        identity_bytes.as_slice()
+    );
+    let reopened = SchemaStore::init_journaled(memory);
+    assert_eq!(
+        reopened
+            .current_accepted_schema_root()
+            .unwrap()
+            .unwrap()
+            .root(),
+        expected_root
+    );
+    assert_eq!(reopened.canonical_len_for_tests(), 4);
+    assert_eq!(
+        reopened
+            .identity_state_inventory(IdentityStateStorageView::Canonical)
+            .unwrap()[&(entity, field)]
+            .lifecycle(),
+        IdentityStateLifecycle::Active
+    );
+}
+
+#[test]
+fn prepared_catalog_fold_rechecks_root_before_writing_payloads() {
+    let mut store = SchemaStore::init_journaled(test_memory(229));
+    let initial = empty_accepted_schema_candidate_for_tests(
+        "test::PreparedCatalog",
+        AcceptedSchemaRevision::INITIAL,
+    );
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
+        .unwrap();
+    let entity = EntityTag::new(101);
+    let field = FieldId::new(1);
+    let candidate = identity_candidate_for_test(
+        "test::PreparedCatalog",
+        AcceptedSchemaRevision::new(2),
+        entity,
+        field,
+        AcceptedFieldKind::Nat64,
+    );
+    let prepared = store
+        .prepare_fold_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            candidate,
+        )
+        .unwrap();
+    let snapshot_key = prepared.snapshots[0].key;
+    let identity_key = prepared.identity_updates[0].0;
+    let competing = empty_accepted_schema_candidate_for_tests(
+        "test::PreparedCatalog",
+        AcceptedSchemaRevision::new(2),
+    );
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &competing,
+        )
+        .unwrap();
+    assert!(store.apply_prepared_accepted_schema_fold(prepared).is_err());
+    assert!(
+        store
+            .get_canonical_raw_value(&snapshot_key)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        store
+            .get_canonical_raw_value(&identity_key)
+            .unwrap()
+            .is_none()
+    );
+    assert!(store.canonical_root_matches_candidate(&competing).unwrap());
+    assert_eq!(store.canonical_len_for_tests(), 2);
 }
 
 #[test]
@@ -1060,19 +1266,25 @@ fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
             &second,
         )
         .expect("tail replay should restore the live candidate");
-    reopened
-        .fold_journaled_accepted_schema_candidate(
+    let prepared = reopened
+        .prepare_fold_journaled_accepted_schema_candidate(
             test_database_incarnation(),
             AcceptedSchemaRevision::INITIAL,
-            &second,
+            second.clone(),
         )
+        .expect("candidate should prepare against canonical authority");
+    reopened
+        .apply_prepared_accepted_schema_fold(prepared)
         .expect("committed candidate should fold into the canonical BTree");
-    reopened
-        .fold_journaled_accepted_schema_candidate(
+    let prepared = reopened
+        .prepare_fold_journaled_accepted_schema_candidate(
             test_database_incarnation(),
             AcceptedSchemaRevision::INITIAL,
-            &second,
+            second,
         )
+        .expect("current candidate should prepare idempotently");
+    reopened
+        .apply_prepared_accepted_schema_fold(prepared)
         .expect("repeated candidate fold should be idempotent");
     reopened
         .reset_journaled_live_projection()
@@ -1446,12 +1658,15 @@ fn journaled_identity_retirement_replays_and_folds_with_schema_publication() {
             &removed,
         )
         .expect("journal replay should reconstruct retired live state");
-    reopened
-        .fold_journaled_accepted_schema_candidate(
+    let prepared = reopened
+        .prepare_fold_journaled_accepted_schema_candidate(
             test_database_incarnation(),
             AcceptedSchemaRevision::INITIAL,
-            &removed,
+            removed,
         )
+        .expect("identity retirement should prepare against canonical authority");
+    reopened
+        .apply_prepared_accepted_schema_fold(prepared)
         .expect("journal fold should retain retired canonical state");
     reopened
         .reset_journaled_live_projection()

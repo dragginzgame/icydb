@@ -2,14 +2,23 @@
 //! Builds predicate-driven access plans from canonical predicate trees and
 //! visible index metadata.
 
+#[cfg(test)]
+mod child_tests;
+#[cfg(all(test, feature = "sql"))]
+mod intersection_tests;
+#[cfg(all(test, feature = "sql"))]
+mod redundancy_tests;
+#[cfg(test)]
+mod selection_tests;
+
 use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexAccessContract},
-        predicate::Predicate,
+        predicate::{CompareOp, ComparePredicate, Predicate},
         query::construction::ConstructionBudget,
         query::plan::{
             OrderSpec, PlannedNonIndexAccessReason,
-            key_item_match::eq_lookup_value_for_key_item,
+            key_item_match::lower_lookup_value_for_key_item,
             planner::{
                 AndFamilyCandidateScore, AndFamilyPriorityClass, PlannedAccessSelection,
                 and_family_candidate_score_outranks, compare, index_field_literal_matcher,
@@ -72,42 +81,59 @@ pub(super) fn plan_predicate(
         }
         Predicate::And(children) => {
             // Admit the child destination before candidate extraction/recursion.
-            // At most three family routes are appended after child selection.
-            // Payload construction and implication proofs remain separate work.
-            let mut plans = budget.vec_with_capacity(children.len().saturating_add(3))?;
+            // Family selection consumes its winner directly; only child routes
+            // need slots here. Payload construction/proofs remain separate work.
+            let mut plans = budget.vec_with_capacity(children.len())?;
             // Phase 1: derive the planner-owned secondary-index candidates once
             // so child recursion can reuse the chosen index contract for
             // redundancy stripping without reopening candidate extraction.
-            let primary_key_range_access = range::primary_key_range_from_and(schema, children);
-            let index_range_access =
-                range::index_range_from_and(candidate_indexes, schema, children, order, grouped);
-            let prefix_access =
-                prefix::index_prefix_from_and(candidate_indexes, schema, children, order, grouped);
+            let primary_key_range_access =
+                range::primary_key_range_from_and(schema, children, budget)?;
+            let index_range_access = range::index_range_from_and(
+                candidate_indexes,
+                schema,
+                children,
+                order,
+                grouped,
+                budget,
+            )?
+            .map(|spec| {
+                budget
+                    .boxed(AccessPath::IndexRange { spec })
+                    .map(AccessPlan::Path)
+            })
+            .transpose()?;
+            let prefix_access = prefix::index_prefix_from_and(
+                candidate_indexes,
+                schema,
+                children,
+                order,
+                grouped,
+                budget,
+            )?;
             let branch_set_access = prefix::index_branch_set_from_and(
                 candidate_indexes,
                 schema,
                 children,
                 order,
                 grouped,
-            );
+                budget,
+            )?;
 
             // Phase 2: recurse into conjunctive children once while the
             // strongest secondary-index candidate is still available to strip
             // only the clauses that candidate already guarantees.
             let selected_index_access = branch_set_access
-                .clone()
-                .or_else(|| {
-                    index_range_access
-                        .as_ref()
-                        .map(|spec| AccessPlan::index_range(spec.clone()))
-                })
-                .or_else(|| prefix_access.clone());
+                .as_ref()
+                .or(index_range_access.as_ref())
+                .or(prefix_access.as_ref());
             for child in children {
                 if !child_is_redundant_under_selected_index_access(
                     schema,
-                    selected_index_access.as_ref(),
+                    selected_index_access,
                     child,
-                ) {
+                    budget,
+                )? {
                     plans.push(
                         plan_predicate(candidate_indexes, schema, child, order, grouped, budget)?
                             .into_access(),
@@ -118,35 +144,34 @@ pub(super) fn plan_predicate(
                 schema,
                 order,
                 grouped,
-                selected_index_access.as_ref(),
+                selected_index_access,
                 plans.as_slice(),
-            );
+                budget,
+            )?;
+            let required_order_primary_key_range =
+                primary_key_range_access.as_ref().is_some_and(|candidate| {
+                    candidate_outranks_selected_access_on_required_order(
+                        schema,
+                        order,
+                        grouped,
+                        candidate,
+                        selected_index_access,
+                    )
+                });
             let family_choice = choose_best_and_family_access(
-                schema,
-                order,
-                grouped,
-                plans.as_slice(),
-                intersection_access.as_ref(),
-                selected_index_access.as_ref(),
-                primary_key_range_access.as_ref(),
-                index_range_access.as_ref(),
-                branch_set_access.as_ref(),
-                prefix_access.as_ref(),
+                primary_key_child_access_candidate(plans.as_slice(), budget)?,
+                intersection_access,
+                primary_key_range_access,
+                index_range_access,
+                branch_set_access,
+                prefix_access,
+                required_order_primary_key_range,
             );
             if let Some(family_choice) = family_choice {
                 return Ok(family_choice);
             }
 
-            if let Some(prefix) = prefix_access {
-                plans.push(prefix);
-            }
-            if let Some(branch_set) = branch_set_access {
-                plans.push(branch_set);
-            }
-            if let Some(primary_key_range) = primary_key_range_access {
-                plans.push(primary_key_range);
-            }
-
+            // Any family candidate would already have supplied a winner.
             PlannedAccessSelection::new(
                 AccessPlan::intersection(plans),
                 Some(PlannedNonIndexAccessReason::PlannerCompositeNonIndex),
@@ -180,60 +205,28 @@ pub(super) fn plan_predicate(
 // Consolidate the existing `AND` family winner policy into one explicit
 // comparison path so planner-family route choice does not depend on ad hoc
 // early returns spread through the main recursion body.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "this helper intentionally freezes the current AND-family comparison inputs in one owner-local entrypoint"
-)]
 fn choose_best_and_family_access(
-    schema: &SchemaInfo,
-    order: Option<&OrderSpec>,
-    grouped: bool,
-    child_plans: &[AccessPlan<Value>],
-    intersection_access: Option<&AccessPlan<Value>>,
-    selected_index_access: Option<&AccessPlan<Value>>,
-    primary_key_range_access: Option<&AccessPlan<Value>>,
-    index_range_access: Option<&crate::db::access::SemanticIndexRangeSpec>,
-    branch_set_access: Option<&AccessPlan<Value>>,
-    prefix_access: Option<&AccessPlan<Value>>,
+    child_candidate: Option<(PlannedAccessSelection, AndFamilyPriorityClass)>,
+    intersection_access: Option<AccessPlan<Value>>,
+    primary_key_range_access: Option<AccessPlan<Value>>,
+    index_range_access: Option<AccessPlan<Value>>,
+    branch_set_access: Option<AccessPlan<Value>>,
+    prefix_access: Option<AccessPlan<Value>>,
+    required_order_primary_key_range: bool,
 ) -> Option<PlannedAccessSelection> {
     let mut chosen: Option<(AndFamilyCandidateScore, PlannedAccessSelection)> = None;
 
-    let empty_child_access = has_explicit_empty_child_access(child_plans).then(|| {
-        PlannedAccessSelection::new(
-            AccessPlan::by_keys(Vec::new()),
-            Some(PlannedNonIndexAccessReason::EmptyChildAccessPreferred),
-        )
-    });
-    update_best_and_family_candidate(
-        &mut chosen,
-        empty_child_access,
-        AndFamilyCandidateScore::new(AndFamilyPriorityClass::ExplicitEmpty, false, 0),
-    );
-
-    // Project primary-key child routes into explicit family candidates before
-    // selection so contradictory singleton children no longer piggyback on the
-    // generic key-set access label.
-    if let Some((primary_key_child_access, conflicting_children)) =
-        primary_key_child_access_candidate(child_plans)
-    {
+    if let Some((access, priority)) = child_candidate {
         update_best_and_family_candidate(
             &mut chosen,
-            Some(primary_key_child_access),
-            AndFamilyCandidateScore::new(
-                if conflicting_children {
-                    AndFamilyPriorityClass::ConflictingPrimaryKeyChildren
-                } else {
-                    AndFamilyPriorityClass::SingletonPrimaryKey
-                },
-                false,
-                0,
-            ),
+            Some(access),
+            AndFamilyCandidateScore::new(priority, false, 0),
         );
     }
 
     update_best_and_family_candidate(
         &mut chosen,
-        intersection_access.cloned().map(|access| {
+        intersection_access.map(|access| {
             PlannedAccessSelection::new(
                 access,
                 Some(PlannedNonIndexAccessReason::PlannerExactIndexIntersection),
@@ -244,63 +237,38 @@ fn choose_best_and_family_access(
 
     update_best_and_family_candidate(
         &mut chosen,
-        primary_key_range_access.cloned().map(|access| {
+        primary_key_range_access.map(|access| {
             PlannedAccessSelection::new(
                 access,
-                Some(
-                    if primary_key_range_access.is_some_and(|candidate| {
-                        candidate_outranks_selected_access_on_required_order(
-                            schema,
-                            order,
-                            grouped,
-                            candidate,
-                            selected_index_access,
-                        )
-                    }) {
-                        PlannedNonIndexAccessReason::RequiredOrderPrimaryKeyRangePreferred
-                    } else {
-                        PlannedNonIndexAccessReason::PlannerPrimaryKeyRange
-                    },
-                ),
+                Some(if required_order_primary_key_range {
+                    PlannedNonIndexAccessReason::RequiredOrderPrimaryKeyRangePreferred
+                } else {
+                    PlannedNonIndexAccessReason::PlannerPrimaryKeyRange
+                }),
             )
         }),
         AndFamilyCandidateScore::new(
             AndFamilyPriorityClass::Ordinary,
-            primary_key_range_access.is_some_and(|candidate| {
-                candidate_outranks_selected_access_on_required_order(
-                    schema,
-                    order,
-                    grouped,
-                    candidate,
-                    selected_index_access,
-                )
-            }),
+            required_order_primary_key_range,
             1,
         ),
     );
 
     update_best_and_family_candidate(
         &mut chosen,
-        index_range_access
-            .cloned()
-            .map(AccessPlan::index_range)
-            .map(|access| PlannedAccessSelection::new(access, None)),
+        index_range_access.map(|access| PlannedAccessSelection::new(access, None)),
         AndFamilyCandidateScore::new(AndFamilyPriorityClass::Ordinary, false, 3),
     );
 
     update_best_and_family_candidate(
         &mut chosen,
-        branch_set_access
-            .cloned()
-            .map(|access| PlannedAccessSelection::new(access, None)),
+        branch_set_access.map(|access| PlannedAccessSelection::new(access, None)),
         AndFamilyCandidateScore::new(AndFamilyPriorityClass::Ordinary, false, 4),
     );
 
     update_best_and_family_candidate(
         &mut chosen,
-        prefix_access
-            .cloned()
-            .map(|access| PlannedAccessSelection::new(access, None)),
+        prefix_access.map(|access| PlannedAccessSelection::new(access, None)),
         AndFamilyCandidateScore::new(AndFamilyPriorityClass::Ordinary, false, 2),
     );
 
@@ -319,39 +287,66 @@ fn exact_index_intersection_candidate(
     grouped: bool,
     selected_index_access: Option<&AccessPlan<Value>>,
     child_plans: &[AccessPlan<Value>],
-) -> Option<AccessPlan<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
     if grouped || !intersection_order_is_primary_key_compatible(schema, order) {
-        return None;
+        return Ok(None);
     }
 
-    let selected = selected_index_access?;
-    if !exact_prefix_has_primary_key_suffix(schema, selected) {
-        return None;
-    }
+    let Some(selected) = selected_index_access else {
+        return Ok(None);
+    };
+    // Bound candidate, suffix-slot and fixed-size identity visits as one batch.
+    // Field-name comparisons and order/schema validation remain separately owned.
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        (child_plans.len() as u64).saturating_add(1).saturating_mul(
+            (schema.primary_key_names().len() as u64)
+                .saturating_add(MAX_EXACT_INDEX_INTERSECTION_CHILDREN as u64 + 1),
+        ),
+    )?;
+    let Some(selected) = exact_prefix_with_primary_key_suffix(schema, selected) else {
+        return Ok(None);
+    };
 
-    let mut children = vec![selected.clone()];
+    // The existing three-child cap fits on the stack. Keep the selected prefix
+    // first and retain the first child for each ordinal/generation identity.
+    let mut candidates = [selected; MAX_EXACT_INDEX_INTERSECTION_CHILDREN];
+    let mut count = 1;
     for child in child_plans {
-        if !exact_prefix_has_primary_key_suffix(schema, child) {
+        let Some(candidate) = exact_prefix_with_primary_key_suffix(schema, child) else {
             continue;
-        }
-        let (child_index, _) = child.as_index_prefix_contract_path()?;
-        let duplicate_index = children.iter().any(|existing| {
-            existing
-                .as_index_prefix_contract_path()
-                .is_some_and(|(index, _)| {
-                    index.ordinal() == child_index.ordinal()
-                        && index.physical_generation() == child_index.physical_generation()
-                })
+        };
+        let duplicate_index = candidates[..count].iter().any(|(index, _)| {
+            index.ordinal() == candidate.0.ordinal()
+                && index.physical_generation() == candidate.0.physical_generation()
         });
         if !duplicate_index {
-            children.push(child.clone());
+            candidates[count] = candidate;
+            count += 1;
         }
-        if children.len() == MAX_EXACT_INDEX_INTERSECTION_CHILDREN {
+        if count == MAX_EXACT_INDEX_INTERSECTION_CHILDREN {
             break;
         }
     }
 
-    (children.len() >= 2).then(|| AccessPlan::intersection(children))
+    if count < 2 {
+        return Ok(None);
+    }
+    let mut children = budget.vec_with_capacity(count)?;
+    for (index, prefix) in &candidates[..count] {
+        let mut values = budget.vec_with_capacity(prefix.len())?;
+        for value in *prefix {
+            values.push(budget.copy_value(value)?);
+        }
+        children.push(AccessPlan::Path(budget.boxed(AccessPath::IndexPrefix {
+            index: (*index).clone(),
+            values,
+        })?));
+    }
+    // Two or three nonempty flat prefix paths are already canonical; the
+    // generic flattening constructor would allocate another identical list.
+    Ok(Some(AccessPlan::Intersection(children)))
 }
 
 fn intersection_order_is_primary_key_compatible(
@@ -366,20 +361,27 @@ fn intersection_order_is_primary_key_compatible(
         .is_some()
 }
 
-fn exact_prefix_has_primary_key_suffix(schema: &SchemaInfo, access: &AccessPlan<Value>) -> bool {
-    let Some((index, values)) = access.as_index_prefix_contract_path() else {
-        return false;
+fn exact_prefix_with_primary_key_suffix<'a>(
+    schema: &SchemaInfo,
+    access: &'a AccessPlan<Value>,
+) -> Option<(&'a SemanticIndexAccessContract, &'a [Value])> {
+    let AccessPath::IndexPrefix { index, values } = access.as_path()? else {
+        return None;
     };
     let primary_key_names = schema.primary_key_names();
     if values.is_empty()
         || values.len().saturating_add(primary_key_names.len()) != index.key_arity()
     {
-        return false;
+        return None;
     }
 
-    primary_key_names.iter().enumerate().all(|(offset, field)| {
-        index.key_field_at(values.len().saturating_add(offset)) == Some(field.as_str())
-    })
+    primary_key_names
+        .iter()
+        .enumerate()
+        .all(|(offset, field)| {
+            index.key_field_at(values.len().saturating_add(offset)) == Some(field.as_str())
+        })
+        .then_some((index, values))
 }
 
 // Keep family-candidate accumulation on one helper so the main `AND` planner
@@ -404,12 +406,6 @@ fn update_best_and_family_candidate(
     }
 }
 
-// One explicit empty child access route already proves the whole conjunction is
-// unsatisfiable, so broader secondary-family candidates must not outrank it.
-fn has_explicit_empty_child_access(children: &[AccessPlan<Value>]) -> bool {
-    children.iter().any(AccessPlan::is_explicit_empty)
-}
-
 // Conjunctive child planning can already discover exact primary-key access
 // routes from direct `id = ?` and finite `id IN (...)` clauses. Their
 // intersection is a stronger planner-visible candidate than any broader
@@ -417,49 +413,69 @@ fn has_explicit_empty_child_access(children: &[AccessPlan<Value>]) -> bool {
 // preference.
 fn primary_key_child_access_candidate(
     children: &[AccessPlan<Value>],
-) -> Option<(PlannedAccessSelection, bool)> {
-    let mut intersection: Option<Vec<Value>> = None;
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<(PlannedAccessSelection, AndFamilyPriorityClass)>, InternalError> {
+    // Explicit emptiness wins even when earlier children already conflict.
+    // Admit both structural passes before inspecting or constructing candidates.
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        (children.len() as u64).saturating_mul(2),
+    )?;
+    if children.iter().any(AccessPlan::is_explicit_empty) {
+        let access = AccessPlan::Path(budget.boxed(AccessPath::ByKeys(Vec::new()))?);
+        return Ok(Some((
+            PlannedAccessSelection::new(
+                access,
+                Some(PlannedNonIndexAccessReason::EmptyChildAccessPreferred),
+            ),
+            AndFamilyPriorityClass::ExplicitEmpty,
+        )));
+    }
+    let mut intersection: Option<Vec<&Value>> = None;
 
     for child in children {
-        let Some(mut child_keys) = exact_primary_key_values_from_child_access(child) else {
+        let Some(keys) = exact_primary_key_values_from_child_access(child) else {
             continue;
         };
+        budget.charge(Resource::PredicateExpressionSteps, keys.len() as u64)?;
+        let mut child_keys = budget.vec_with_capacity(keys.len())?;
+        child_keys.extend(keys.iter());
         canonicalize_value_set(&mut child_keys);
-        if child_keys.is_empty() {
-            return Some(primary_key_children_empty_selection());
-        }
 
         match &mut intersection {
             None => intersection = Some(child_keys),
             Some(current_keys) => {
-                *current_keys = intersect_canonical_value_sets(current_keys, child_keys.as_slice());
+                budget.charge(
+                    Resource::PredicateExpressionSteps,
+                    (current_keys.len() as u64).saturating_add(child_keys.len() as u64),
+                )?;
+                intersect_canonical_value_sets(current_keys, child_keys.as_slice());
                 if current_keys.is_empty() {
-                    return Some(primary_key_children_empty_selection());
+                    return primary_key_children_selection_for_keys(&[], true, budget).map(Some);
                 }
             }
         }
     }
 
-    intersection.map(|keys| primary_key_children_selection_for_keys(keys, false))
+    intersection
+        .map(|keys| primary_key_children_selection_for_keys(&keys, false, budget))
+        .transpose()
 }
 
-fn exact_primary_key_values_from_child_access(child: &AccessPlan<Value>) -> Option<Vec<Value>> {
+fn exact_primary_key_values_from_child_access(child: &AccessPlan<Value>) -> Option<&[Value]> {
     let path = child.as_path()?;
     if let Some(key) = path.as_by_key() {
-        return Some(vec![key.clone()]);
+        return Some(std::slice::from_ref(key));
     }
 
-    path.as_by_keys().map(<[Value]>::to_vec)
-}
-
-fn primary_key_children_empty_selection() -> (PlannedAccessSelection, bool) {
-    primary_key_children_selection_for_keys(Vec::new(), true)
+    path.as_by_keys()
 }
 
 fn primary_key_children_selection_for_keys(
-    keys: Vec<Value>,
+    keys: &[&Value],
     conflicting_children: bool,
-) -> (PlannedAccessSelection, bool) {
+    budget: &dyn ConstructionBudget,
+) -> Result<(PlannedAccessSelection, AndFamilyPriorityClass), InternalError> {
     let reason = if conflicting_children {
         PlannedNonIndexAccessReason::ConflictingPrimaryKeyChildrenAccessPreferred
     } else if keys.len() == 1 {
@@ -467,35 +483,43 @@ fn primary_key_children_selection_for_keys(
     } else {
         PlannedNonIndexAccessReason::PlannerKeySetAccess
     };
-    let access = match keys.as_slice() {
-        [key] => AccessPlan::by_key(key.clone()),
-        _ => AccessPlan::by_keys(keys),
+    let path = if let [key] = keys {
+        AccessPath::ByKey(budget.copy_value(key)?)
+    } else {
+        let mut values = budget.vec_with_capacity(keys.len())?;
+        for key in keys {
+            values.push(budget.copy_value(key)?);
+        }
+        AccessPath::ByKeys(values)
     };
 
-    (
-        PlannedAccessSelection::new(access, Some(reason)),
-        conflicting_children,
-    )
+    Ok((
+        PlannedAccessSelection::new(AccessPlan::Path(budget.boxed(path)?), Some(reason)),
+        if conflicting_children {
+            AndFamilyPriorityClass::ConflictingPrimaryKeyChildren
+        } else {
+            AndFamilyPriorityClass::SingletonPrimaryKey
+        },
+    ))
 }
 
-fn intersect_canonical_value_sets(left: &[Value], right: &[Value]) -> Vec<Value> {
-    let mut out = Vec::with_capacity(left.len().min(right.len()));
-    let mut left_idx = 0usize;
+// Retain representatives from the first canonical child without allocating
+// another intersection vector or copying values on each reduction pass.
+fn intersect_canonical_value_sets(left: &mut Vec<&Value>, right: &[&Value]) {
     let mut right_idx = 0usize;
-
-    while left_idx < left.len() && right_idx < right.len() {
-        match Value::canonical_cmp(&left[left_idx], &right[right_idx]) {
-            Ordering::Less => left_idx += 1,
-            Ordering::Greater => right_idx += 1,
-            Ordering::Equal => {
-                out.push(left[left_idx].clone());
-                left_idx += 1;
-                right_idx += 1;
+    left.retain(|value| {
+        while right_idx < right.len() {
+            match Value::canonical_cmp(value, right[right_idx]) {
+                Ordering::Less => return false,
+                Ordering::Greater => right_idx += 1,
+                Ordering::Equal => {
+                    right_idx += 1;
+                    return true;
+                }
             }
         }
-    }
-
-    out
+        false
+    });
 }
 
 // Map one planner-selected non-index access shape onto the bounded winner
@@ -605,61 +629,52 @@ fn child_is_redundant_under_selected_index_access(
     schema: &SchemaInfo,
     selected_access: Option<&AccessPlan<Value>>,
     child: &Predicate,
-) -> bool {
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
     let Some(AccessPlan::Path(path)) = selected_access else {
-        return false;
+        return Ok(false);
     };
     let Predicate::Compare(cmp) = child else {
-        return false;
+        return Ok(false);
     };
 
-    if selected_index_branch_set_guarantees_compare(schema, path.as_ref(), cmp)
-        || selected_index_prefix_guarantees_compare(schema, path.as_ref(), cmp)
+    if selected_index_branch_set_guarantees_compare(schema, path.as_ref(), cmp, budget)?
+        || selected_index_prefix_guarantees_compare(schema, path.as_ref(), cmp, budget)?
     {
-        return true;
+        return Ok(true);
     }
 
-    path.as_ref()
+    // The implication owner accepts the original borrowed child; manufacturing
+    // another Compare predicate would copy its field and operand for no benefit.
+    Ok(path.as_ref()
         .selected_index_contract()
-        .is_some_and(|index| index_contract_predicate_guarantees_compare(index, cmp))
+        .is_some_and(|index| {
+            index.predicate_semantics().is_some_and(|guard| {
+                crate::db::query::plan::planner::index_select::predicate_implies_predicate_for_planner(
+                    guard, child,
+                )
+            })
+        }))
 }
 
 fn selected_index_branch_set_guarantees_compare(
     schema: &SchemaInfo,
     selected_path: &AccessPath<Value>,
-    cmp: &crate::db::predicate::ComparePredicate,
-) -> bool {
+    cmp: &ComparePredicate,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
     let Some(spec) = selected_path.as_index_branch_set_spec() else {
-        return false;
+        return Ok(false);
     };
-    if index_prefix_guarantees_compare(schema, spec.index(), spec.fixed_values(), cmp) {
-        return true;
+    if index_prefix_guarantees_compare(schema, spec.index_ref(), spec.fixed_values(), cmp, budget)?
+    {
+        return Ok(true);
     }
 
     let Some(branch_key_item) = spec.branch_key_item() else {
-        return false;
+        return Ok(false);
     };
-    let Some(values) = lookup_compare_values_for_key_item(schema, branch_key_item, cmp) else {
-        return false;
-    };
-
-    match cmp.op {
-        crate::db::predicate::CompareOp::Eq | crate::db::predicate::CompareOp::In => spec
-            .branch_values()
-            .iter()
-            .all(|branch_value| values.contains(branch_value)),
-        crate::db::predicate::CompareOp::Ne | crate::db::predicate::CompareOp::NotIn => spec
-            .branch_values()
-            .iter()
-            .all(|branch_value| !values.contains(branch_value)),
-        crate::db::predicate::CompareOp::Lt
-        | crate::db::predicate::CompareOp::Lte
-        | crate::db::predicate::CompareOp::Gt
-        | crate::db::predicate::CompareOp::Gte
-        | crate::db::predicate::CompareOp::StartsWith
-        | crate::db::predicate::CompareOp::Contains
-        | crate::db::predicate::CompareOp::EndsWith => false,
-    }
+    key_item_guarantees_compare(schema, branch_key_item, spec.branch_values(), cmp, budget)
 }
 
 // Selected index prefix and selected index range both carry an equality prefix
@@ -668,121 +683,126 @@ fn selected_index_branch_set_guarantees_compare(
 fn selected_index_prefix_guarantees_compare(
     schema: &SchemaInfo,
     selected_path: &AccessPath<Value>,
-    cmp: &crate::db::predicate::ComparePredicate,
-) -> bool {
-    let selected_prefix = selected_path.as_index_prefix_contract().or_else(|| {
-        selected_path
-            .as_index_range()
-            .map(|spec| (spec.index(), spec.prefix_values()))
-    });
-    let Some((index, prefix_values)) = selected_prefix else {
-        return false;
-    };
-
-    index_prefix_guarantees_compare(schema, index, prefix_values, cmp)
+    cmp: &ComparePredicate,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    match selected_path {
+        AccessPath::IndexPrefix { index, values } => {
+            index_prefix_guarantees_compare(schema, index, values, cmp, budget)
+        }
+        AccessPath::IndexRange { spec } => index_prefix_guarantees_compare(
+            schema,
+            spec.index_ref(),
+            spec.prefix_values(),
+            cmp,
+            budget,
+        ),
+        _ => Ok(false),
+    }
 }
 
 // Prefix guarantees are checked against canonical key-item lowering so mixed
 // field/expression prefixes can suppress only clauses they already prove.
 fn index_prefix_guarantees_compare(
     schema: &SchemaInfo,
-    index: SemanticIndexAccessContract,
+    index: &SemanticIndexAccessContract,
     prefix_values: &[Value],
-    cmp: &crate::db::predicate::ComparePredicate,
-) -> bool {
-    prefix_values
-        .iter()
-        .enumerate()
-        .any(|(slot, expected_value)| {
-            let Some(key_item) = index.key_item_at(slot) else {
-                return false;
-            };
-            let Some(values) = lookup_compare_values_for_key_item(schema, key_item, cmp) else {
-                return false;
-            };
-
-            match cmp.op {
-                crate::db::predicate::CompareOp::Eq | crate::db::predicate::CompareOp::In => {
-                    values.contains(expected_value)
-                }
-                crate::db::predicate::CompareOp::Ne | crate::db::predicate::CompareOp::NotIn => {
-                    !values.contains(expected_value)
-                }
-                crate::db::predicate::CompareOp::Lt
-                | crate::db::predicate::CompareOp::Lte
-                | crate::db::predicate::CompareOp::Gt
-                | crate::db::predicate::CompareOp::Gte
-                | crate::db::predicate::CompareOp::StartsWith
-                | crate::db::predicate::CompareOp::Contains
-                | crate::db::predicate::CompareOp::EndsWith => false,
-            }
-        })
+    cmp: &ComparePredicate,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        prefix_values.len() as u64,
+    )?;
+    for (slot, expected_value) in prefix_values.iter().enumerate() {
+        if let Some(key_item) = index.key_item_at(slot)
+            && key_item_guarantees_compare(
+                schema,
+                key_item,
+                std::slice::from_ref(expected_value),
+                cmp,
+                budget,
+            )?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
-fn lookup_compare_values_for_key_item(
+// Only membership matters here: ordering and duplicate elimination cannot change
+// the answer. Borrow identity values and lower expression values once per proof;
+// scalar comparisons need neither a list allocation nor an operand copy.
+fn key_item_guarantees_compare(
     schema: &SchemaInfo,
     key_item: crate::db::access::SemanticIndexKeyItemRef<'_>,
-    cmp: &crate::db::predicate::ComparePredicate,
-) -> Option<Vec<Value>> {
+    expected: &[Value],
+    cmp: &ComparePredicate,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
     if key_item.field() != cmp.field.as_str() {
-        return None;
+        return Ok(false);
     }
 
     match cmp.op {
-        crate::db::predicate::CompareOp::Eq | crate::db::predicate::CompareOp::Ne => {
+        CompareOp::Eq | CompareOp::Ne => {
+            budget.charge(
+                Resource::PredicateExpressionSteps,
+                (expected.len() as u64).saturating_add(1),
+            )?;
             let literal_compatible =
                 index_literal_matches_schema(schema, cmp.field.as_str(), cmp.value());
-            eq_lookup_value_for_key_item(
+            let value = lower_lookup_value_for_key_item(
                 key_item,
                 cmp.field.as_str(),
                 cmp.value(),
                 cmp.coercion.id,
                 literal_compatible,
-            )
-            .map(|value| vec![value])
+                budget,
+            )?;
+            Ok(value.is_some_and(|value| {
+                expected
+                    .iter()
+                    .all(|expected| (value.as_ref() == expected) == (cmp.op == CompareOp::Eq))
+            }))
         }
-        crate::db::predicate::CompareOp::In | crate::db::predicate::CompareOp::NotIn => {
-            let crate::value::Value::List(values) = cmp.value() else {
-                return None;
+        CompareOp::In | CompareOp::NotIn => {
+            let Value::List(values) = cmp.value() else {
+                return Ok(false);
             };
+            // Admit literal visits and worst-case membership comparisons once.
+            // Payload comparison and schema lookup internals remain separate.
+            budget.charge(
+                Resource::PredicateExpressionSteps,
+                (values.len() as u64)
+                    .saturating_mul((expected.len() as u64).saturating_add(1))
+                    .saturating_add(expected.len() as u64),
+            )?;
+            let mut lookup_values = budget.vec_with_capacity(values.len())?;
             let matcher = index_field_literal_matcher(schema, cmp.field.as_str());
-            let mut lookup_values = values
-                .iter()
-                .filter_map(|value| {
-                    let literal_compatible = matcher.matches(value);
-                    eq_lookup_value_for_key_item(
-                        key_item,
-                        cmp.field.as_str(),
-                        value,
-                        cmp.coercion.id,
-                        literal_compatible,
-                    )
-                })
-                .collect::<Vec<_>>();
-            crate::value::canonicalize_value_set(&mut lookup_values);
-
-            Some(lookup_values)
+            for value in values {
+                if let Some(value) = lower_lookup_value_for_key_item(
+                    key_item,
+                    cmp.field.as_str(),
+                    value,
+                    cmp.coercion.id,
+                    matcher.matches(value),
+                    budget,
+                )? {
+                    lookup_values.push(value);
+                }
+            }
+            Ok(expected.iter().all(|expected| {
+                lookup_values.iter().any(|value| value.as_ref() == expected)
+                    == (cmp.op == CompareOp::In)
+            }))
         }
-        crate::db::predicate::CompareOp::Lt
-        | crate::db::predicate::CompareOp::Lte
-        | crate::db::predicate::CompareOp::Gt
-        | crate::db::predicate::CompareOp::Gte
-        | crate::db::predicate::CompareOp::StartsWith
-        | crate::db::predicate::CompareOp::Contains
-        | crate::db::predicate::CompareOp::EndsWith => None,
+        CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::Gt
+        | CompareOp::Gte
+        | CompareOp::StartsWith
+        | CompareOp::Contains
+        | CompareOp::EndsWith => Ok(false),
     }
-}
-
-fn index_contract_predicate_guarantees_compare(
-    index: SemanticIndexAccessContract,
-    cmp: &crate::db::predicate::ComparePredicate,
-) -> bool {
-    let Some(index_predicate) = index.predicate_semantics() else {
-        return false;
-    };
-
-    crate::db::query::plan::planner::index_select::predicate_implies_predicate_for_planner(
-        index_predicate,
-        &Predicate::Compare(cmp.clone()),
-    )
 }

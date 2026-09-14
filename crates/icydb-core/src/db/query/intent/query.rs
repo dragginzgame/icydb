@@ -214,9 +214,10 @@ impl StructuralQuery {
     pub(in crate::db) fn prepare_scalar_planning_state_with_schema_info(
         &self,
         schema_info: SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<PreparedScalarPlanningState<'_>, QueryError> {
         self.intent
-            .prepare_scalar_planning_state_with_schema_info(schema_info)
+            .prepare_scalar_planning_state_with_schema_info(schema_info, work)
     }
 
     pub(in crate::db) fn build_plan_with_visible_indexes_from_scalar_planning_state(
@@ -250,11 +251,13 @@ impl StructuralQuery {
         &self,
         visible_indexes: &VisibleIndexes,
         schema_info: &SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<Option<crate::db::query::plan::CountCardinalityPrefixAccess<'_>>, QueryError> {
         crate::db::query::plan::try_build_count_cardinality_prefix_access_from_query_model(
             &self.intent,
             visible_indexes,
             schema_info,
+            work,
         )
     }
 

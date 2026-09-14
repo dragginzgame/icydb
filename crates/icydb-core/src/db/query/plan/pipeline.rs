@@ -373,44 +373,54 @@ pub(in crate::db::query) fn try_build_count_cardinality_prefix_access_from_query
     query: &'query QueryModel,
     visible_indexes: &VisibleIndexes,
     schema_info: &SchemaInfo,
+    work: &PreparationWork<'_>,
 ) -> Result<Option<CountCardinalityPrefixAccess<'query>>, QueryError> {
     let Some(predicate) = query.direct_count_cardinality_prefix_predicate()? else {
         return Ok(None);
     };
 
-    Ok(direct_count_cardinality_prefix_access_from_predicate(
+    direct_count_cardinality_prefix_access_from_predicate(
         visible_indexes,
         schema_info,
         predicate,
-    ))
+        work,
+    )
 }
 
 fn direct_count_cardinality_prefix_access_from_predicate<'predicate>(
     visible_indexes: &VisibleIndexes,
     schema_info: &SchemaInfo,
     normalized_predicate: &'predicate Predicate,
-) -> Option<CountCardinalityPrefixAccess<'predicate>> {
-    visible_indexes.accepted_field_path_index_count()?;
+    work: &PreparationWork<'_>,
+) -> Result<Option<CountCardinalityPrefixAccess<'predicate>>, QueryError> {
+    if visible_indexes.accepted_field_path_index_count().is_none() {
+        return Ok(None);
+    }
     if let Some(cmp) = direct_count_exact_prefix_compare(normalized_predicate) {
-        let values = direct_count_exact_prefix_values(schema_info, cmp)?;
-        let index = direct_count_exact_prefix_index(
+        let Some(values) = direct_count_exact_prefix_values(schema_info, cmp) else {
+            return Ok(None);
+        };
+        let Some(index) = direct_count_exact_prefix_index(
             visible_indexes,
             schema_info,
             normalized_predicate,
             cmp.field.as_str(),
-        )?;
+        ) else {
+            return Ok(None);
+        };
 
-        return Some(CountCardinalityPrefixAccess::new(index, values));
+        return Ok(Some(CountCardinalityPrefixAccess::new(index, values)));
     }
 
     let Predicate::And(children) = normalized_predicate else {
-        return None;
+        return Ok(None);
     };
     direct_count_exact_composite_prefix_access(
         visible_indexes,
         schema_info,
         normalized_predicate,
         children,
+        work,
     )
 }
 
@@ -419,7 +429,8 @@ fn direct_count_exact_composite_prefix_access<'predicate>(
     schema_info: &SchemaInfo,
     normalized_predicate: &'predicate Predicate,
     children: &[Predicate],
-) -> Option<CountCardinalityPrefixAccess<'predicate>> {
+    work: &PreparationWork<'_>,
+) -> Result<Option<CountCardinalityPrefixAccess<'predicate>>, QueryError> {
     // Keep selection authority on accepted field-path contracts, then require
     // the concrete bounds to discharge the entire predicate before retaining
     // only metadata prefixes from this non-executable proof plan.
@@ -433,23 +444,32 @@ fn direct_count_exact_composite_prefix_access<'predicate>(
                 && index_stream_is_complete_for_query(schema_info, index, normalized_predicate)
         })
         .collect::<Vec<_>>();
-    let access = count_cardinality_index_branch_set_from_and(
+    let Some(access) = count_cardinality_index_branch_set_from_and(
         candidate_indexes.as_slice(),
         schema_info,
         children,
         MAX_EXACT_COUNT_PREFIX_CARDINALITY_KEYS,
-    )?;
-    let path = access.as_path()?;
+        work,
+    )
+    .map_err(QueryError::execute)?
+    else {
+        return Ok(None);
+    };
+    let Some(path) = access.as_path() else {
+        return Ok(None);
+    };
     if residual_query_predicate_after_access_path_bounds(Some(path), normalized_predicate.clone())
         .is_some()
     {
-        return None;
+        return Ok(None);
     }
 
     if path.as_index_prefix_contract().is_some() {
-        return None;
+        return Ok(None);
     }
-    let branch_set = path.as_index_branch_set_spec()?;
+    let Some(branch_set) = path.as_index_branch_set_spec() else {
+        return Ok(None);
+    };
     let prefixes = branch_set
         .branch_values()
         .iter()
@@ -460,13 +480,13 @@ fn direct_count_exact_composite_prefix_access<'predicate>(
         })
         .collect::<Vec<_>>();
     if prefixes.len() <= MAX_INDEX_BRANCH_SET_VALUES {
-        return None;
+        return Ok(None);
     }
 
-    Some(CountCardinalityPrefixAccess::from_exact_prefixes(
+    Ok(Some(CountCardinalityPrefixAccess::from_exact_prefixes(
         branch_set.index(),
         prefixes,
-    ))
+    )))
 }
 
 fn direct_count_exact_prefix_compare(predicate: &Predicate) -> Option<&ComparePredicate> {
@@ -633,10 +653,11 @@ pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info(
 }
 
 /// Prepare scalar planning inputs using the caller-provided schema authority.
-pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_with_schema_info(
-    query: &QueryModel,
+pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_with_schema_info<'query>(
+    query: &'query QueryModel,
     schema_info: SchemaInfo,
-) -> Result<PreparedScalarPlanningState<'_>, QueryError> {
+    work: &PreparationWork<'_>,
+) -> Result<PreparedScalarPlanningState<'query>, QueryError> {
     // Phase 1: validate query-intent policy shape before any cache or planner
     // work so compile attribution keeps policy failures honest.
     query.validate_policy_shape()?;
@@ -650,6 +671,7 @@ pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_with_schem
     let normalized_predicate = fold_constant_predicate(normalize_query_predicate(
         &schema_info,
         access_inputs.predicate(),
+        work,
     )?);
 
     Ok(PreparedScalarPlanningState::new(
@@ -873,7 +895,7 @@ fn simplify_limit_one_page_for_by_key_access(plan: &mut AccessPlannedQuery) {
 }
 
 #[cfg(all(test, feature = "sql"))]
-mod tests {
+pub(super) mod tests {
     mod candidate_outputs;
 
     use super::{VisibleIndexes, exact_first_component_metadata_index};
@@ -886,7 +908,10 @@ mod tests {
         empty_accepted_enum_catalog_for_tests,
     };
 
-    fn exact_metadata_schema(indexes: &[(&str, &[&str])], nullable: &[&str]) -> SchemaInfo {
+    pub(in crate::db::query::plan) fn exact_metadata_schema(
+        indexes: &[(&str, &[&str])],
+        nullable: &[&str],
+    ) -> SchemaInfo {
         let fields = ["id", "age", "rank", "maybe"]
             .into_iter()
             .enumerate()
@@ -989,7 +1014,8 @@ mod tests {
                     .map(|name| (name.as_str(), age_fields.as_slice())),
             );
             let schema = exact_metadata_schema(&definitions, &[]);
-            let visible = VisibleIndexes::accepted_schema_visible(&schema);
+            let visible = VisibleIndexes::accepted_schema_visible(&schema)
+                .expect("valid accepted index fixture");
             let indexes = visible.accepted_semantic_index_contracts();
             let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
             plan.access =
@@ -1067,7 +1093,8 @@ mod tests {
             ],
             &["maybe"],
         );
-        let visible = VisibleIndexes::accepted_schema_visible(&schema);
+        let visible =
+            VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
         let indexes = visible.accepted_semantic_index_contracts();
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
@@ -1153,7 +1180,8 @@ mod tests {
         };
 
         let schema = exact_metadata_schema(&[("a_age", &["age"]), ("z_rank", &["rank"])], &[]);
-        let visible = VisibleIndexes::accepted_schema_visible(&schema);
+        let visible =
+            VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
         let indexes = visible.accepted_semantic_index_contracts();
         let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         plan.access =
@@ -1220,7 +1248,8 @@ mod tests {
             ],
             &[],
         );
-        let visible = VisibleIndexes::accepted_schema_visible(&schema);
+        let visible =
+            VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
 
         assert_eq!(
             visible
@@ -1246,7 +1275,8 @@ mod tests {
     #[test]
     fn exact_metadata_index_selection_rejects_nullable_compound_suffixes() {
         let schema = exact_metadata_schema(&[("age_maybe", &["age", "maybe"])], &["maybe"]);
-        let visible = VisibleIndexes::accepted_schema_visible(&schema);
+        let visible =
+            VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
 
         assert!(exact_first_component_metadata_index(&visible, &schema, "age").is_none());
     }

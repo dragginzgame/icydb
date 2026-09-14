@@ -30,6 +30,8 @@ mod projection;
 mod semantics;
 pub(crate) mod validate;
 
+use crate::error::InternalError;
+
 use crate::db::{Predicate, access::SemanticIndexAccessContract, schema::SchemaInfo};
 
 pub(in crate::db) use access_choice::exact_cardinality_tiebreak_candidates;
@@ -236,15 +238,17 @@ pub(in crate::db) struct AcceptedPlannerExpressionIndex {
 }
 
 impl AcceptedPlannerExpressionIndex {
-    fn from_schema_index(accepted: &crate::db::schema::SchemaExpressionIndexInfo) -> Self {
-        Self {
+    fn from_schema_index(
+        accepted: &crate::db::schema::SchemaExpressionIndexInfo,
+    ) -> Result<Self, InternalError> {
+        Ok(Self {
             name: accepted.name().to_string(),
             store: accepted.store().to_string(),
             unique: accepted.unique(),
             semantic_access_contract: SemanticIndexAccessContract::from_accepted_expression_index(
                 accepted,
-            ),
-        }
+            )?,
+        })
     }
 
     /// Borrow the accepted stable index name.
@@ -302,8 +306,10 @@ pub(in crate::db) struct AcceptedPlannerFieldPathIndex {
 }
 
 impl AcceptedPlannerFieldPathIndex {
-    fn from_schema_index(accepted: &crate::db::schema::SchemaIndexInfo) -> Self {
-        Self {
+    fn from_schema_index(
+        accepted: &crate::db::schema::SchemaIndexInfo,
+    ) -> Result<Self, InternalError> {
+        Ok(Self {
             name: accepted.name().to_string(),
             store: accepted.store().to_string(),
             unique: accepted.unique(),
@@ -314,8 +320,8 @@ impl AcceptedPlannerFieldPathIndex {
                 .collect(),
             semantic_access_contract: SemanticIndexAccessContract::from_accepted_field_path_index(
                 accepted,
-            ),
-        }
+            )?,
+        })
     }
 
     /// Borrow the accepted stable index name.
@@ -445,18 +451,19 @@ impl VisibleIndexes {
         }
     }
 
-    #[must_use]
-    pub(in crate::db) fn accepted_schema_visible(schema_info: &SchemaInfo) -> Self {
+    pub(in crate::db) fn accepted_schema_visible(
+        schema_info: &SchemaInfo,
+    ) -> Result<Self, InternalError> {
         let accepted_field_path_indexes = schema_info
             .field_path_indexes()
             .iter()
             .map(AcceptedPlannerFieldPathIndex::from_schema_index)
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
         let accepted_expression_indexes = schema_info
             .expression_indexes()
             .iter()
             .map(AcceptedPlannerExpressionIndex::from_schema_index)
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
         let accepted_semantic_index_contracts = sorted_accepted_semantic_index_contracts(
             accepted_field_path_indexes.as_slice(),
             accepted_expression_indexes.as_slice(),
@@ -464,7 +471,7 @@ impl VisibleIndexes {
         let accepted_field_path_index_count = accepted_field_path_indexes.len();
         let accepted_expression_index_count = accepted_expression_indexes.len();
 
-        Self {
+        Ok(Self {
             accepted_field_path_indexes,
             accepted_expression_indexes,
             accepted_semantic_index_contracts,
@@ -472,7 +479,7 @@ impl VisibleIndexes {
                 field_path_indexes: accepted_field_path_index_count,
                 expression_indexes: accepted_expression_index_count,
             },
-        }
+        })
     }
 
     /// Build one accepted-schema planning view that exposes no secondary indexes.

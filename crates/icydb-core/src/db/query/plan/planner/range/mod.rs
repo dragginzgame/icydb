@@ -20,7 +20,7 @@ pub(in crate::db::query::plan::planner) use extract::{
 ///
 /// One-field bounded interval used for index-range candidate extraction.
 ///
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 struct RangeConstraint {
     lower: Bound<Value>,
     upper: Bound<Value>,
@@ -40,7 +40,7 @@ impl Default for RangeConstraint {
 ///
 /// Per-index-field constraint classification while extracting range candidates.
 ///
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 enum IndexFieldConstraint {
     None,
     Eq(Value),

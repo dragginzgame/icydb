@@ -425,13 +425,14 @@ impl AccessPlannedQuery {
         &self,
         entity_path: &str,
         accepted_identity: Option<AcceptedContinuationIdentity>,
+        budget: &dyn crate::db::query::construction::ConstructionBudget,
     ) -> Result<Option<PlannedContinuationContract>, InternalError> {
         if !self.scalar_plan().mode.is_load() {
             return Ok(None);
         }
 
         let page_window = PlannedPageWindow::from_query(self);
-        let shape_signature = self.execution_shape_signature(entity_path)?;
+        let shape_signature = self.execution_shape_signature(entity_path, budget)?;
         let boundary_arity = self.grouped_plan().map_or_else(
             || {
                 self.scalar_plan()

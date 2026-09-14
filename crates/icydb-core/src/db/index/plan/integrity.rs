@@ -15,7 +15,7 @@ use crate::{
             raw_keys_for_component_prefix_with_kind,
         },
         key_taxonomy::PrimaryKeyValue,
-        predicate::{PredicateProgram, normalize, parse_sql_predicate},
+        predicate::{PredicateProgram, normalized_accepted_index_predicate},
         schema::{
             AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, PersistedIndexKeySnapshot,
             SchemaExpressionIndexInfo, SchemaIndexId, SchemaIndexInfo,
@@ -318,14 +318,8 @@ fn compile_predicate(
     sql: Option<&str>,
     row_contract: &StructuralRowContract,
 ) -> Result<Option<PredicateProgram>, InternalError> {
-    sql.map(|sql| {
-        let predicate = parse_sql_predicate(sql).map_err(|_| InternalError::store_corruption())?;
-        Ok(PredicateProgram::compile_with_row_contract(
-            row_contract,
-            &normalize(predicate),
-        ))
-    })
-    .transpose()
+    Ok(normalized_accepted_index_predicate(sql)?
+        .map(|predicate| PredicateProgram::compile_with_row_contract(row_contract, &predicate)))
 }
 
 fn validate_projection_identity(

@@ -1,6 +1,7 @@
 //! Order preparation preserves scalar semantics and charges before construction.
 
 use super::*;
+use crate::db::query::preparation::with_preparation_work;
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
@@ -129,7 +130,7 @@ fn expression_order_seam_is_budgeted_and_preserves_compiled_output() {
         right: Box::new(Expr::Field(FieldId::new("id"))),
     };
     let expected = ResolvedOrderValueSource::expression(
-        crate::db::query::preparation::with_preparation_work(|work| {
+        with_preparation_work(|work| {
             compile_scalar_projection_expr_with_schema(schema, &expr, work)
         })
         .unwrap()

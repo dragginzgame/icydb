@@ -3,17 +3,22 @@
 //! Does not own: recursive predicate normalization or schema literal canonicalization.
 //! Boundary: reusable AND-constraint simplification pass consumed by normalization.
 
-use crate::db::predicate::{CompareOp, ComparePredicate, Predicate, compare_eq, compare_order};
+#[cfg(test)]
+mod tests;
+
+use crate::db::predicate::{
+    CompareOp, ComparePredicate, Predicate, compare_eq, compare_order, eval_ordered_compare_result,
+};
 use std::cmp::Ordering;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 enum ComparePairSimplification {
     NoChange,
     Contradiction,
     KeepFirst,
     KeepSecond,
-    ReplaceFirst(ComparePredicate),
-    ReplaceSecond(ComparePredicate),
+    ReplaceFirst(CompareOp),
+    ReplaceSecond(CompareOp),
 }
 
 /// Simplify conjunction-local compare predicates over the same field/coercion domain.
@@ -26,46 +31,54 @@ enum ComparePairSimplification {
 pub(in crate::db::predicate) fn simplify_and_compare_constraints(
     mut predicates: Vec<Predicate>,
 ) -> Option<Vec<Predicate>> {
-    loop {
-        let mut changed = false;
-        'scan: for i in 0..predicates.len() {
-            for j in i.saturating_add(1)..predicates.len() {
-                let (Predicate::Compare(left), Predicate::Compare(right)) =
-                    (&predicates[i], &predicates[j])
-                else {
-                    continue;
-                };
-                if left.field != right.field || left.coercion != right.coercion {
-                    continue;
+    // Earlier pairs are settled while their surviving operands are unchanged.
+    // Deletion cannot make those pairs reducible; only replacement invalidates
+    // that proof and requires a full restart to preserve first-pair precedence.
+    let mut i = 0;
+    'left: while i < predicates.len() {
+        let mut j = i.saturating_add(1);
+        while j < predicates.len() {
+            let simplification = match (&predicates[i], &predicates[j]) {
+                (Predicate::Compare(left), Predicate::Compare(right))
+                    if left.field == right.field && left.coercion == right.coercion =>
+                {
+                    simplify_compare_pair_for_and(left, right)
                 }
-
-                match simplify_compare_pair_for_and(left, right) {
-                    ComparePairSimplification::NoChange => continue,
-                    ComparePairSimplification::Contradiction => return None,
-                    ComparePairSimplification::KeepFirst => {
-                        predicates.remove(j);
-                    }
-                    ComparePairSimplification::KeepSecond => {
-                        predicates.remove(i);
-                    }
-                    ComparePairSimplification::ReplaceFirst(replacement) => {
-                        predicates[i] = Predicate::Compare(replacement);
-                        predicates.remove(j);
-                    }
-                    ComparePairSimplification::ReplaceSecond(replacement) => {
-                        predicates[j] = Predicate::Compare(replacement);
-                        predicates.remove(i);
-                    }
+                _ => ComparePairSimplification::NoChange,
+            };
+            match simplification {
+                ComparePairSimplification::NoChange => j += 1,
+                ComparePairSimplification::Contradiction => return None,
+                ComparePairSimplification::KeepFirst => {
+                    // The next right operand shifts into this same position.
+                    predicates.remove(j);
                 }
-
-                changed = true;
-                break 'scan;
+                ComparePairSimplification::KeepSecond => {
+                    // Visit the new left row, without revisiting settled rows.
+                    predicates.remove(i);
+                    continue 'left;
+                }
+                ComparePairSimplification::ReplaceFirst(replacement) => {
+                    // Classification proved this is a comparison. Only its
+                    // operator changes; keep the owned operand and metadata.
+                    if let Predicate::Compare(compare) = &mut predicates[i] {
+                        compare.op = replacement;
+                    }
+                    predicates.remove(j);
+                    i = 0;
+                    continue 'left;
+                }
+                ComparePairSimplification::ReplaceSecond(replacement) => {
+                    if let Predicate::Compare(compare) = &mut predicates[j] {
+                        compare.op = replacement;
+                    }
+                    predicates.remove(i);
+                    i = 0;
+                    continue 'left;
+                }
             }
         }
-
-        if !changed {
-            break;
-        }
+        i += 1;
     }
 
     Some(predicates)
@@ -104,24 +117,16 @@ fn simplify_eq_with_constraint_pair(
     constraint: &ComparePredicate,
     eq_is_first: bool,
 ) -> ComparePairSimplification {
+    // Unsupported operators cannot simplify here; avoid coercion and comparison
+    // work (including casefold allocation) whose result would be discarded.
+    if !constraint.op.is_ordering_family() {
+        return ComparePairSimplification::NoChange;
+    }
     let Some(ordering) = compare_order(&eq.value, &constraint.value, &eq.coercion) else {
         return ComparePairSimplification::NoChange;
     };
-    let satisfies = match constraint.op {
-        CompareOp::Gt => ordering.is_gt(),
-        CompareOp::Gte => ordering.is_gt() || ordering.is_eq(),
-        CompareOp::Lt => ordering.is_lt(),
-        CompareOp::Lte => ordering.is_lt() || ordering.is_eq(),
-        CompareOp::Eq
-        | CompareOp::Ne
-        | CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => return ComparePairSimplification::NoChange,
-    };
 
-    if !satisfies {
+    if !eval_ordered_compare_result(constraint.op, ordering) {
         return ComparePairSimplification::Contradiction;
     }
     if eq_is_first {
@@ -251,12 +256,7 @@ fn simplify_lower_upper_pair(
         Ordering::Greater => ComparePairSimplification::Contradiction,
         Ordering::Equal => {
             if lower_inclusive && upper_inclusive {
-                ComparePairSimplification::ReplaceFirst(ComparePredicate {
-                    field: lower.field.clone(),
-                    op: CompareOp::Eq,
-                    value: lower.value.clone(),
-                    coercion: lower.coercion.clone(),
-                })
+                ComparePairSimplification::ReplaceFirst(CompareOp::Eq)
             } else {
                 ComparePairSimplification::Contradiction
             }

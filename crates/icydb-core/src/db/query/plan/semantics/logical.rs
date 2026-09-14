@@ -348,9 +348,10 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn execution_shape_signature(
         &self,
         entity_path: &str,
+        budget: &dyn crate::db::query::construction::ConstructionBudget,
     ) -> Result<ExecutionShapeSignature, InternalError> {
         Ok(ExecutionShapeSignature::new(
-            self.continuation_signature(entity_path)?,
+            self.continuation_signature(entity_path, budget)?,
         ))
     }
 

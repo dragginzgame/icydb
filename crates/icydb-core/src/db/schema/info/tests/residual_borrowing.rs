@@ -115,7 +115,8 @@ fn borrowed_residual_projection_keeps_cumulative_admission_and_identity() {
     let mut plan = plan(Some(predicate()));
     finalize(&mut plan);
     let before = plan.clone();
-    let signature = plan.continuation_signature("tests::Token").unwrap();
+    let signature =
+        with_preparation_work(|work| plan.continuation_signature("tests::Token", work)).unwrap();
     let generous = request(Resource::TemporaryBytes, 16_000_000);
     let expected = project(&plan, &generous).unwrap();
     assert!(expected.is_some());
@@ -139,7 +140,8 @@ fn borrowed_residual_projection_keeps_cumulative_admission_and_identity() {
         assert_eq!(exact.observed(Resource::RowsVisited), 0);
         assert_eq!(plan, before);
         assert_eq!(
-            plan.continuation_signature("tests::Token").unwrap(),
+            with_preparation_work(|work| plan.continuation_signature("tests::Token", work))
+                .unwrap(),
             signature
         );
         assert!(matches!(
@@ -157,7 +159,9 @@ fn residual_preparation_copy_admission_precedes_backing_and_is_cumulative() {
             finalize(&mut plan);
         }
         let before = plan.clone();
-        let signature = plan.continuation_signature("tests::Token").unwrap();
+        let signature =
+            with_preparation_work(|work| plan.continuation_signature("tests::Token", work))
+                .unwrap();
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             let copy = |root: &RequestExecutionRoot| {
                 PreparationWork::run(&root.scope(), lane, |work| {
@@ -195,7 +199,8 @@ fn residual_preparation_copy_admission_precedes_backing_and_is_cumulative() {
         }
         assert_eq!(plan, before);
         assert_eq!(
-            plan.continuation_signature("tests::Token").unwrap(),
+            with_preparation_work(|work| plan.continuation_signature("tests::Token", work))
+                .unwrap(),
             signature
         );
     }
@@ -213,7 +218,9 @@ fn residual_finalization_exhaustion_does_not_install_partial_contract() {
         })
     };
     let original = plan(Some(predicate()));
-    let signature = original.continuation_signature("tests::Token").unwrap();
+    let signature =
+        with_preparation_work(|work| original.continuation_signature("tests::Token", work))
+            .unwrap();
     let generous = request(Resource::TemporaryBytes, 16_000_000);
     let mut successful = original.clone();
     freeze(&mut successful, &generous).unwrap();
@@ -225,7 +232,8 @@ fn residual_finalization_exhaustion_does_not_install_partial_contract() {
         assert!(freeze(&mut rejected, &short).is_err());
         assert_eq!(rejected, original);
         assert_eq!(
-            rejected.continuation_signature("tests::Token").unwrap(),
+            with_preparation_work(|work| rejected.continuation_signature("tests::Token", work))
+                .unwrap(),
             signature
         );
         let exact = request(resource, used * 2);

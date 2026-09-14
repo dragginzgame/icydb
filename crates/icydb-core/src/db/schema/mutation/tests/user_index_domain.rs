@@ -121,10 +121,14 @@ fn complete_domain_setup_keeps_source_exhaustion_distinct_from_predicate_rejecti
             .diagnostic_facts()
             .contains(&(DiagnosticFactTag::Actual, 7))
     );
-    assert!(matches!(
-        construct(MaintenanceConstructionBudget::new()),
-        Err(super::StagedUserIndexDomainError::PredicateParse)
-    ));
+    let error = construct(MaintenanceConstructionBudget::new())
+        .err()
+        .expect("malformed accepted predicate must reject setup")
+        .into_internal_error();
+    assert_eq!(
+        error.diagnostic().code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+    );
     assert_eq!(index_store_entries(&store), physical_before);
 }
 

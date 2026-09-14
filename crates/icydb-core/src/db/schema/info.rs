@@ -1062,6 +1062,7 @@ fn schema_index_field_path_info_from_accepted(
 #[cfg(test)]
 mod tests {
     mod grouped_attachment;
+    mod normalization_admission;
     mod primary_key_names;
     mod projection_construction;
     mod projection_identity;
@@ -1114,8 +1115,10 @@ mod tests {
             input,
             CoercionId::NumericWiden,
         ));
-        let normalized = normalize_enum_literals(&schema, &predicate)
-            .expect("query normalization admits the comparison operand");
+        let normalized = crate::db::query::preparation::with_preparation_work(|work| {
+            normalize_enum_literals(&schema, &predicate, work)
+        })
+        .expect("query normalization admits the comparison operand");
         validate_predicate(&schema, &normalized)
             .expect("a negative comparison boundary is valid for a Nat64 field");
         assert_eq!(normalized, predicate);
@@ -1836,8 +1839,10 @@ mod tests {
         let schema = enum_newtype_query_schema(false);
         let predicate = Predicate::eq("stage".to_string(), Value::Text("Active".to_string()));
 
-        let normalized = normalize_enum_literals(&schema, &predicate)
-            .expect("loose enum literal should normalize through its newtype contract");
+        let normalized = crate::db::query::preparation::with_preparation_work(|work| {
+            normalize_enum_literals(&schema, &predicate, work)
+        })
+        .expect("loose enum literal should normalize through its newtype contract");
 
         assert!(matches!(
             &normalized,
@@ -1853,8 +1858,10 @@ mod tests {
             Value::Text("Active".to_string()),
             CoercionId::CollectionElement,
         ));
-        let normalized_contains = normalize_enum_literals(&collection_schema, &contains)
-            .expect("collection newtype enum literal should normalize");
+        let normalized_contains = crate::db::query::preparation::with_preparation_work(|work| {
+            normalize_enum_literals(&collection_schema, &contains, work)
+        })
+        .expect("collection newtype enum literal should normalize");
         assert!(matches!(
             &normalized_contains,
             Predicate::Compare(compare) if matches!(compare.value(), Value::Enum(_))

@@ -23,7 +23,7 @@ use crate::{
             RawIndexStoreKey,
         },
         key_taxonomy::PrimaryKeyValue,
-        predicate::{PredicateProgram, normalize, parse_sql_predicate},
+        predicate::{PredicateProgram, normalized_accepted_index_predicate},
         schema::{
             MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES,
             SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildTarget,
@@ -480,9 +480,6 @@ pub(in crate::db) enum StagedUserIndexDomainError {
     /// An accepted index predicate failed while evaluating one row.
     PredicateEvaluation(InternalError),
 
-    /// An accepted index predicate could not be parsed.
-    PredicateParse,
-
     /// The predicate row contract belongs to a different entity.
     RowContractEntityMismatch,
 
@@ -513,7 +510,6 @@ impl StagedUserIndexDomainError {
             Self::IndexStoreNotReady
             | Self::KeyEncode
             | Self::MissingPredicateRowContract
-            | Self::PredicateParse
             | Self::UnsupportedAcceptedIndex => InternalError::store_unsupported(),
         }
     }
@@ -565,21 +561,18 @@ impl PreparedUserIndex {
                 return Err(StagedUserIndexDomainError::UnsupportedAcceptedIndex);
             }
         };
-        let predicate = index
-            .predicate_sql()
-            .map(|sql| {
+        let predicate = match index.predicate_sql() {
+            Some(sql) => {
                 let row_contract = predicate_row_contract
                     .ok_or(StagedUserIndexDomainError::MissingPredicateRowContract)?;
-                parse_sql_predicate(sql)
+                normalized_accepted_index_predicate(Some(sql))
+                    .map_err(StagedUserIndexDomainError::KeyDerivation)?
                     .map(|predicate| {
-                        PredicateProgram::compile_with_row_contract(
-                            row_contract,
-                            &normalize(predicate),
-                        )
+                        PredicateProgram::compile_with_row_contract(row_contract, &predicate)
                     })
-                    .map_err(|_| StagedUserIndexDomainError::PredicateParse)
-            })
-            .transpose()?;
+            }
+            None => None,
+        };
 
         Ok(Self { target, predicate })
     }

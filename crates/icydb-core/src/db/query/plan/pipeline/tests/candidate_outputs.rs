@@ -35,7 +35,8 @@ fn fixture() -> (SchemaInfo, VisibleIndexes, AccessPlannedQuery) {
         ],
         &[],
     );
-    let visible = VisibleIndexes::accepted_schema_visible(&schema);
+    let visible =
+        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
     let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
     plan.access = AccessPlan::index_prefix_from_contract(
         visible.accepted_semantic_index_contracts()[0].clone(),
@@ -81,7 +82,8 @@ fn ordered_range_selection_admits_one_operand_slots_and_path() {
         ],
         &[],
     );
-    let visible = VisibleIndexes::accepted_schema_visible(&schema);
+    let visible =
+        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let value = Value::Int64(3);
     let cases = [
@@ -174,7 +176,8 @@ fn secondary_lookup_selection_admits_only_one_output_list_and_path() {
         ],
         &[],
     );
-    let visible = VisibleIndexes::accepted_schema_visible(&schema);
+    let visible =
+        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
     let cases = [
         (Predicate::eq("age".into(), Value::Int64(3)), 1),
@@ -309,6 +312,44 @@ fn primary_key_candidate_exhaustion_propagates_without_fallback() {
 }
 
 #[test]
+fn and_range_construction_admission_precedes_child_recursion() {
+    use crate::db::query::plan::planner::{
+        PlannerError, plan_access_selection_with_order_and_semantic_indexes,
+    };
+
+    let schema = exact_metadata_schema(&[("age_idx", &["age"])], &[]);
+    let visible =
+        VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
+    let indexes = visible.accepted_semantic_index_contracts();
+    let predicate = Predicate::And(vec![
+        Predicate::gte("age".into(), Value::Int64(2)),
+        Predicate::lt("age".into(), Value::Int64(5)),
+    ]);
+    let bytes = (std::mem::size_of_val(indexes) + 2 * size_of::<AccessPlan<Value>>()) as u64;
+    for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+        let root = request(Resource::TemporaryBytes, bytes);
+        PreparationWork::run(&root.scope(), lane, |work| {
+            let result = plan_access_selection_with_order_and_semantic_indexes(
+                indexes,
+                &schema,
+                Some(&predicate),
+                None,
+                false,
+                work,
+            );
+            let PlannerError::Internal(error) = result.unwrap_err() else {
+                panic!("range construction admission must remain typed")
+            };
+            assert_resource(*error, Resource::TemporaryBytes);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(root.observed(Resource::NestedValueSteps), 0);
+        assert_eq!(root.observed(Resource::RowsVisited), 0);
+    }
+}
+
+#[test]
 fn recursive_candidate_lists_and_dispatch_obey_request_admission() {
     use crate::db::query::plan::planner::{
         PlannerError, plan_access_selection_with_order_and_semantic_indexes,
@@ -323,12 +364,12 @@ fn recursive_candidate_lists_and_dispatch_obey_request_admission() {
             width
         ];
         let shapes = [
-            (Predicate::And(children.clone()), width + 3, width + 1),
+            (Predicate::And(children.clone()), width, 7 * width + 1),
             (Predicate::Or(children.clone()), width, width + 1),
             (
                 Predicate::Or(vec![Predicate::And(children)]),
-                width + 4,
-                width + 2,
+                width + 1,
+                7 * width + 2,
             ),
         ];
         for (predicate, slots, steps) in shapes {
@@ -373,6 +414,113 @@ fn recursive_candidate_lists_and_dispatch_obey_request_admission() {
                             assert_eq!(root.observed(other), expected);
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn and_branch_lists_propagate_cumulative_admission_and_preserve_selection() {
+    use crate::db::query::plan::planner::{
+        PlannerError, plan_access_selection_with_order_and_semantic_indexes,
+    };
+
+    let schema = exact_metadata_schema(&[("by_age_rank", &["age", "rank"])], &[]);
+    let visible = VisibleIndexes::accepted_schema_visible(&schema).expect("valid indexes");
+    for remaining in [1, 2] {
+        let predicate = Predicate::And(vec![
+            Predicate::eq("age".into(), Value::Int64(7)),
+            Predicate::in_(
+                "rank".into(),
+                vec![
+                    Value::Int64(3),
+                    Value::Int64(2),
+                    Value::Int64(1),
+                    Value::Int64(1),
+                ],
+            ),
+            Predicate::ne("rank".into(), Value::Int64(3)),
+            Predicate::not_in(
+                "rank".into(),
+                if remaining == 1 {
+                    vec![Value::Int64(2)]
+                } else {
+                    Vec::new()
+                },
+            ),
+        ]);
+        let baseline = request(Resource::TemporaryBytes, 16_000_000);
+        let expected = PreparationWork::run(&baseline.scope(), Lane::Diagnostic, |work| {
+            Ok(plan_access_selection_with_order_and_semantic_indexes(
+                visible.accepted_semantic_index_contracts(),
+                &schema,
+                Some(&predicate),
+                None,
+                false,
+                work,
+            )
+            .unwrap()
+            .into_access_and_non_index_reason()
+            .0)
+        })
+        .unwrap();
+        if remaining == 1 {
+            assert_eq!(
+                expected.as_index_prefix_contract_path().unwrap().1,
+                &[Value::Int64(7), Value::Int64(1)]
+            );
+        } else {
+            assert_eq!(
+                expected
+                    .as_path()
+                    .unwrap()
+                    .as_index_branch_set_spec()
+                    .unwrap()
+                    .branch_values(),
+                &[Value::Int64(1), Value::Int64(2)]
+            );
+        }
+        for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+            for resource in [
+                Resource::TemporaryBytes,
+                Resource::PredicateExpressionSteps,
+                Resource::NestedValueSteps,
+            ] {
+                // Owner tests pin exact operand charges; this covers the whole
+                // collector/candidate route and cumulative error propagation.
+                let exact = baseline.observed(resource);
+                assert!(exact > 0);
+                for limit in [0, exact - 1, exact * 2] {
+                    let root = request(resource, limit);
+                    PreparationWork::run(&root.scope(), lane, |work| {
+                        for attempt in 1..=3 {
+                            let result = plan_access_selection_with_order_and_semantic_indexes(
+                                visible.accepted_semantic_index_contracts(),
+                                &schema,
+                                Some(&predicate),
+                                None,
+                                false,
+                                work,
+                            );
+                            if attempt * exact <= limit {
+                                assert_eq!(
+                                    result.unwrap().into_access_and_non_index_reason().0,
+                                    expected
+                                );
+                                assert_eq!(root.observed(resource), attempt * exact);
+                            } else {
+                                let PlannerError::Internal(error) = result.unwrap_err() else {
+                                    panic!("typed construction failure expected");
+                                };
+                                assert_resource(*error, resource);
+                                break;
+                            }
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+                    assert_eq!(root.observed(Resource::RowsVisited), 0);
                 }
             }
         }
@@ -488,7 +636,8 @@ fn cardinality_candidates_borrow_the_current_route_and_move_alternatives() {
             &["age"]
         };
         let schema = exact_metadata_schema(&[("a_index", fields), ("b_index", fields)], &[]);
-        let visible = VisibleIndexes::accepted_schema_visible(&schema);
+        let visible =
+            VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
         let indexes = visible.accepted_semantic_index_contracts();
         let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         let (access, predicate) = match family {

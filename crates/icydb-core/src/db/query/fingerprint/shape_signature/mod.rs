@@ -10,7 +10,7 @@ use crate::db::{
     query::fingerprint::{
         finalize_sha256_digest, hash_sections, new_continuation_signature_hasher,
     },
-    query::plan::AccessPlannedQuery,
+    query::{construction::ConstructionBudget, plan::AccessPlannedQuery},
 };
 
 use crate::error::InternalError;
@@ -23,10 +23,11 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn continuation_signature(
         &self,
         entity_path: &str,
+        budget: &dyn ConstructionBudget,
     ) -> Result<ContinuationSignature, InternalError> {
         let projection = self.projection_spec_for_identity();
 
-        continuation_signature_for_plan_with_projection(self, entity_path, &projection)
+        continuation_signature_for_plan_with_projection(self, entity_path, &projection, budget)
     }
 }
 
@@ -34,9 +35,16 @@ fn continuation_signature_for_plan_with_projection(
     plan: &AccessPlannedQuery,
     entity_path: &str,
     projection: &crate::db::query::plan::expr::ProjectionSpec,
+    budget: &dyn ConstructionBudget,
 ) -> Result<ContinuationSignature, InternalError> {
     let mut hasher = new_continuation_signature_hasher();
-    hash_sections::hash_continuation_with_projection(&mut hasher, plan, entity_path, projection)?;
+    hash_sections::hash_continuation_with_projection(
+        &mut hasher,
+        plan,
+        entity_path,
+        projection,
+        budget,
+    )?;
     Ok(ContinuationSignature::from_bytes(finalize_sha256_digest(
         hasher,
     )))
@@ -44,6 +52,7 @@ fn continuation_signature_for_plan_with_projection(
 
 #[cfg(test)]
 mod tests {
+    use crate::db::query::preparation::with_preparation_work;
     use crate::{
         db::{
             Predicate,
@@ -74,10 +83,112 @@ mod tests {
         let second = plan_with_bound_value("second");
 
         assert_ne!(
-            first.continuation_signature("tests::Entity").unwrap(),
-            second.continuation_signature("tests::Entity").unwrap(),
+            with_preparation_work(|work| first.continuation_signature("tests::Entity", work))
+                .unwrap(),
+            with_preparation_work(|work| second.continuation_signature("tests::Entity", work))
+                .unwrap(),
             "one template must not admit a cursor issued for different bound values",
         );
+    }
+
+    #[test]
+    fn predicate_continuation_admission_is_cumulative_and_retryable() {
+        use crate::db::{
+            QueryError, RequestExecutionRoot,
+            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+            query::preparation::PreparationWork,
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+            DiagnosticFactTag,
+        };
+        let request = |resource, limit| {
+            RequestExecutionRoot::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(
+                    32_000_000,
+                    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                )
+                .with_limit_for_tests(resource, limit),
+            )
+        };
+        let plan = plan_with_bound_value("account");
+        let snapshot = plan.clone();
+        for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+            let build = |root: &RequestExecutionRoot| {
+                PreparationWork::run(&root.scope(), lane, |work| {
+                    plan.planned_continuation_contract_with_accepted_identity(
+                        "tests::Entity",
+                        None,
+                        work,
+                    )
+                    .map_err(QueryError::execute)
+                })
+            };
+            let measured = request(Resource::TemporaryBytes, 32_000_000);
+            let expected = build(&measured).unwrap().unwrap().continuation_signature();
+            for resource in [
+                Resource::TemporaryBytes,
+                Resource::PredicateExpressionSteps,
+                Resource::NestedValueSteps,
+            ] {
+                let cost = measured.observed(resource);
+                assert!(cost > 0);
+                let repeated = request(resource, 2 * cost);
+                for _ in 0..2 {
+                    assert_eq!(
+                        build(&repeated).unwrap().unwrap().continuation_signature(),
+                        expected
+                    );
+                }
+                let error = build(&repeated).unwrap_err();
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
+                );
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::ExecutionLane, lane.raw(),))
+                );
+                assert_eq!(repeated.observed(Resource::RowsVisited), 0);
+                let fresh = request(resource, cost);
+                assert_eq!(
+                    build(&fresh).unwrap().unwrap().continuation_signature(),
+                    expected
+                );
+                assert_eq!(plan, snapshot);
+            }
+        }
+    }
+
+    #[test]
+    fn expression_owned_and_absent_filters_skip_predicate_copy_admission() {
+        use crate::db::query::{construction::ConstructionBudget, plan::expr::Expr};
+        struct RejectConstruction;
+        impl ConstructionBudget for RejectConstruction {
+            fn charge(
+                &self,
+                _: icydb_diagnostic_code::DiagnosticExecutionBudgetResource,
+                _: u64,
+            ) -> Result<(), crate::error::InternalError> {
+                panic!("this path must not construct predicate scratch");
+            }
+        }
+        let mut plan = plan_with_bound_value("account");
+        let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+            unreachable!()
+        };
+        scalar.filter_expr = Some(Expr::Literal(Value::Bool(true)));
+        plan.continuation_signature("tests::Entity", &RejectConstruction)
+            .unwrap();
+        let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+            unreachable!()
+        };
+        scalar.filter_expr = None;
+        scalar.predicate = None;
+        plan.continuation_signature("tests::Entity", &RejectConstruction)
+            .unwrap();
     }
 
     #[test]
@@ -88,12 +199,19 @@ mod tests {
             unreachable!()
         };
         scalar.filter_expr = Some(crate::db::query::plan::expr::Expr::Literal(Value::Nat64(7)));
-        let expected = plan.continuation_signature("tests::Entity").unwrap();
+        let expected =
+            with_preparation_work(|work| plan.continuation_signature("tests::Entity", work))
+                .unwrap();
         for _ in 0..2 {
             with_test_hash_override(Err(test_hash_budget_error), || {
-                let error = plan
-                    .planned_continuation_contract_with_accepted_identity("tests::Entity", None)
-                    .expect_err("failed hash must not return a continuation contract");
+                let error = with_preparation_work(|work| {
+                    plan.planned_continuation_contract_with_accepted_identity(
+                        "tests::Entity",
+                        None,
+                        work,
+                    )
+                })
+                .expect_err("failed hash must not return a continuation contract");
                 assert_eq!(error.diagnostic(), test_hash_budget_error().diagnostic());
                 assert_eq!(
                     error.diagnostic_facts(),
@@ -102,7 +220,8 @@ mod tests {
             });
         }
         assert_eq!(
-            plan.continuation_signature("tests::Entity").unwrap(),
+            with_preparation_work(|work| plan.continuation_signature("tests::Entity", work))
+                .unwrap(),
             expected
         );
     }

@@ -24,6 +24,7 @@ fn index(name: &str) -> SemanticIndexAccessContract {
         .find(|index| index.name() == name)
         .unwrap();
     SemanticIndexAccessContract::from_accepted_field_path_index(accepted)
+        .expect("valid accepted index fixture")
 }
 
 fn compare(field: &str, op: CompareOp, value: Value) -> Predicate {

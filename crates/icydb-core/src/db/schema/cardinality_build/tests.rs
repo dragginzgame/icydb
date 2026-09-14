@@ -582,12 +582,15 @@ fn canonical_accepted_root_derives_the_build_source_without_generated_models() {
         "test::CardinalityBuildAuthority",
         AcceptedSchemaRevision::INITIAL,
     );
-    schema
-        .fold_journaled_accepted_schema_candidate(
+    let prepared = schema
+        .prepare_fold_journaled_accepted_schema_candidate(
             DatabaseIncarnationId::for_tests(0x70),
             AcceptedSchemaRevision::NONE,
-            &candidate,
+            candidate,
         )
+        .expect("canonical accepted root should prepare");
+    schema
+        .apply_prepared_accepted_schema_fold(prepared)
         .expect("canonical accepted root should seed");
     let authority = CardinalityBuildAuthority::derive(
         &schema,

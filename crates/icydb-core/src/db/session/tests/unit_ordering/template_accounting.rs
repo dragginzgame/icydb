@@ -26,6 +26,68 @@ fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
 }
 
 #[test]
+fn cache_preparation_failure_does_not_publish_or_replace_cached_plans() {
+    let setup = initialize();
+    let catalog = setup
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    let queries = ["singleton", "missing"].map(|label| indexed_query(&setup, label));
+    for lane in [
+        DiagnosticExecutionLane::PublicRead,
+        DiagnosticExecutionLane::TrustedRead,
+        DiagnosticExecutionLane::Diagnostic,
+    ] {
+        // Schema normalization now admits values before parameter metadata and
+        // fingerprints. Failure at any preparation boundary leaves the cache intact.
+        for resource in [
+            Resource::TemporaryBytes,
+            Resource::PredicateExpressionSteps,
+            Resource::NestedValueSteps,
+        ] {
+            setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+            for warm in [false, true] {
+                let before = setup.shared_query_cache_usage_for_tests();
+                let root = request(resource, 0);
+                let session = new_request_session_with_root(&root);
+                for query in &queries {
+                    let error = session
+                        .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+                            catalog.accepted_entity_authority(),
+                            &catalog,
+                            query,
+                            lane,
+                        )
+                        .unwrap_err();
+                    assert!(
+                        error
+                            .diagnostic_facts()
+                            .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
+                    );
+                    assert_eq!(setup.shared_query_cache_usage_for_tests(), before);
+                }
+                assert_eq!(root.observed(Resource::PlanCompilations), 0);
+                assert_eq!(root.observed(Resource::RowsVisited), 0);
+
+                // A fresh request may construct the contract. Failed B must
+                // leave the previously retained A reusable, never replace it.
+                let admitted = request(resource, 16_000_000);
+                let session = new_request_session_with_root(&admitted);
+                let (_, reuse) = session
+                    .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+                        catalog.accepted_entity_authority(),
+                        &catalog,
+                        &queries[0],
+                        lane,
+                    )
+                    .unwrap();
+                assert_eq!(reuse.is_hit(), warm);
+                assert_eq!(setup.shared_query_cache_usage_for_tests().0, 1);
+            }
+        }
+    }
+}
+
+#[test]
 fn template_candidate_construction_rejects_before_publication_and_shares_warm_authority() {
     let setup = initialize();
     seed_singleton(&setup);
@@ -33,7 +95,7 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap();
     let schema = catalog.accepted_schema_info();
-    let visible = VisibleIndexes::accepted_schema_visible(schema);
+    let visible = VisibleIndexes::accepted_schema_visible(schema).expect("valid indexes");
     let count = visible.accepted_semantic_index_contracts().len();
     assert!(count > 0, "exercise nonempty accepted index authority");
     let bytes =

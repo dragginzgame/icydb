@@ -155,6 +155,48 @@ fn plan_name_update(
 }
 
 #[test]
+fn malformed_accepted_predicates_reject_query_mutation_and_inspection_plans() {
+    use crate::db::{index::AcceptedIndexInspectionPlan, query::plan::VisibleIndexes};
+    use icydb_diagnostic_code::DiagnosticCode;
+
+    let malformed = Some("name = 'unterminated".to_string());
+    let field_index = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).unwrap(),
+        1,
+        "by_name".into(),
+        STORE_PATH.into(),
+        false,
+        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        malformed.clone(),
+    );
+    for index in [
+        field_index,
+        domain_expression_index(1, "by_lower_name", false, malformed),
+    ] {
+        let snapshot = snapshot_with_indexes(&base_snapshot(), vec![index.clone()]);
+        let accepted = AcceptedSchemaSnapshot::try_new(snapshot).unwrap();
+        let (schema, contract) = after_image_schema(index);
+        let old = ObservedNameRow::new("Ada", false);
+        let new = ObservedNameRow::new("Ada", false);
+        for error in [
+            VisibleIndexes::accepted_schema_visible(&schema).unwrap_err(),
+            plan_name_update(&schema, &contract, &old, &new).unwrap_err(),
+            AcceptedIndexInspectionPlan::compile(
+                &accepted,
+                contract.accepted_value_catalog_handle().clone(),
+                &contract,
+            )
+            .unwrap_err(),
+        ] {
+            assert_eq!(error.diagnostic().code(), DiagnosticCode::StoreCorruption);
+            assert_eq!(error.diagnostic().detail(), None);
+        }
+        assert_eq!(old.visits.get(), 0);
+        assert_eq!(new.visits.get(), 0);
+    }
+}
+
+#[test]
 fn unchanged_field_and_expression_inputs_admit_after_image_without_index_reads() {
     for index in [
         domain_field_index(1, "by_name", true),

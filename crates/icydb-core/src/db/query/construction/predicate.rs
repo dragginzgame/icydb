@@ -2,19 +2,19 @@
 //! constructors that normalize field ordering or simplify boolean structure.
 
 use crate::db::{
-    QueryError,
     predicate::{CoercionSpec, CompareFieldsPredicate, ComparePredicate, Predicate},
-    query::preparation::PreparationWork,
+    query::construction::ConstructionBudget,
 };
+use crate::error::InternalError;
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
-impl PreparationWork<'_> {
+impl dyn ConstructionBudget + '_ {
     /// Copy canonical syntax without changing the model used for identity.
     /// The caller must admit depth before entering this recursive copy owner.
     pub(in crate::db) fn copy_predicate(
         &self,
         predicate: &Predicate,
-    ) -> Result<Predicate, QueryError> {
+    ) -> Result<Predicate, InternalError> {
         self.charge(Resource::PredicateExpressionSteps, 1)?;
         Ok(match predicate {
             Predicate::True => Predicate::True,
@@ -71,7 +71,7 @@ impl PreparationWork<'_> {
     pub(in crate::db) fn copy_coercion(
         &self,
         coercion: &CoercionSpec,
-    ) -> Result<CoercionSpec, QueryError> {
+    ) -> Result<CoercionSpec, InternalError> {
         Ok(CoercionSpec {
             id: coercion.id(),
             params: self.copy_slice(coercion.params(), |(name, value)| {

@@ -13,7 +13,7 @@ use crate::{
             builder::count,
             explain::{ExplainGrouping, ExplainPlan},
             plan::{AccessPlannedQuery, GroupAggregateSpec},
-            preparation::{PreparationWork, with_preparation_work},
+            preparation::{PreparationWork, with_preparation_work as with_work},
         },
     },
     error::InternalError,
@@ -43,7 +43,7 @@ fn explain(
 
 fn assert_projection_rejections(plan: &SharedPreparedExecutionPlan, resource: Resource, cost: u64) {
     let original = plan.logical_plan().clone();
-    let signature = original.continuation_signature(ENTITY_NAME).unwrap();
+    let signature = with_work(|work| original.continuation_signature(ENTITY_NAME, work)).unwrap();
     // A prepared plan retains neither a diagnostic allowance nor a partial
     // result after failing partway through projection.
     for limit in [0, cost / 2, cost - 1] {
@@ -56,9 +56,10 @@ fn assert_projection_rejections(plan: &SharedPreparedExecutionPlan, resource: Re
         );
         assert_eq!(plan.logical_plan(), &original);
         assert_eq!(
-            plan.logical_plan()
-                .continuation_signature(ENTITY_NAME)
-                .unwrap(),
+            with_work(|work| plan
+                .logical_plan()
+                .continuation_signature(ENTITY_NAME, work))
+            .unwrap(),
             signature
         );
         assert_eq!(short.observed(Resource::RowsVisited), 0);
@@ -82,7 +83,7 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
             },
         ]),
     );
-    let grouped = with_preparation_work(|work| {
+    let grouped = with_work(|work| {
         scalar.clone().group_fields_with_schema(
             &["rare".into()],
             catalog.accepted_schema_info(),
@@ -111,7 +112,8 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
         assert!(warm.logical_plan().has_any_residual_filter());
         assert_eq!(cold.logical_plan(), warm.logical_plan());
         let original = warm.logical_plan().clone();
-        let signature = original.continuation_signature(ENTITY_NAME).unwrap();
+        let signature =
+            with_work(|work| original.continuation_signature(ENTITY_NAME, work)).unwrap();
         let generous = request(Resource::TemporaryBytes, 16_000_000);
         let expected = explain(&cold, &generous).unwrap();
         assert_eq!(
@@ -148,9 +150,10 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
             assert_eq!(root.observed(Resource::PlanCompilations), 0);
             assert_eq!(warm.logical_plan(), &original);
             assert_eq!(
-                warm.logical_plan()
-                    .continuation_signature(ENTITY_NAME)
-                    .unwrap(),
+                with_work(|work| warm
+                    .logical_plan()
+                    .continuation_signature(ENTITY_NAME, work))
+                .unwrap(),
                 signature
             );
             // Detached rendering neither borrows nor restarts the exhausted request.

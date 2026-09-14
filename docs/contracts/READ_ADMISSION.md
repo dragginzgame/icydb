@@ -68,6 +68,56 @@ instruction exhaustion without changing the retained plan. Existing filterless
 fast hits skip this interval. Completion accounting covers successful and failed
 preparation; it does not establish an intra-operation allocation or stack bound.
 
+Schema-aware predicate materialization additionally charges structural/value
+visits and admits child containers, boxes, field names, coercion parameters and
+operand copies before their construction. Enum input lifting and accepted output
+use a conservative source-shaped backing allowance; canonical enum values keep
+the existing accepted validation and admitted copy path. Numeric conversion
+admits possible fixed-width bigint output. These charges apply on filtered warm
+calls, cursor-pinned preparation and SQL binding validation without creating a
+new request budget. Exhaustion remains a resource error, not a literal error.
+Every supplied child is normalized before boolean simplification may discard it.
+Schema metadata derivation, sorting/comparison scratch and boolean normalization
+remain separate; this does not establish complete normalization bounds.
+
+When accepted-index predicates are prepared, malformed persisted SQL returns
+typed `StoreCorruption`, not a successful false predicate or missing index.
+Planner-visible index construction and its session/cache consumers propagate
+this failure before returning a newly prepared plan. Mutation planning, integrity
+inspection and staged index preparation use the same parse/normalization owner.
+This does not make boolean normalization budgeted, add a cache revalidation pass
+or change the meaning of absent predicates and valid false membership.
+
+Nullable unique-index snapshot acceptance checks authored predicate field names
+before boolean simplification, matching SQL DDL's validation ordering. Unknown
+fields reject even in branches normalization would discard. Snapshot acceptance
+uses its existing predicate rejection; invalid persisted input remains store
+corruption. This is field-binding validation, not new schema/replay resource
+admission or a change to nullable guard inference.
+
+Journal `SchemaPut` preflight now retains its validated, encoded storage payload
+and fingerprint through application. Replay/fold application consumes that
+prepared result and does not repeat snapshot decoding or semantic construction.
+The whole batch still finishes preflight before its first effect; snapshot
+payloads remain retained until application. Current journal/schema limits are
+unchanged. Recovery verification and other control-record kinds remain separate;
+this is not a new recovery budget or complete replay-admission qualification.
+
+Accepted-catalog publication also retains the batch-validated candidate through
+application. Canonical fold preparation retains encoded snapshots, identity
+updates and retention keys for consumption in the same atomic callback. Root
+conflict checks and independent stored-bundle verification still run against
+storage; those checks are not replaced with trust in the prepared value. Replay
+still uses the existing live/durable publication owners. This removes specific
+discard-and-rebuild work, not all construction during publication or verification,
+and does not enable shared-normalizer resource rejection in those paths.
+
+Candidate constructors own immutable bundle/root integrity. Root publication
+checks current stored roots and expected/next revisions without re-hashing or
+decoding that already-admitted candidate. Persisted input still passes through
+the verifying constructor; bytes read back from storage are independently
+verified. No resource admission or storage-corruption check is removed.
+
 Shared-plan key construction, lookup comparisons and warm lifecycle validation
 also charge instructions before returning a cached plan or compiling/rebinding.
 This includes filterless early hits. Hits still skip compilation, and exhaustion
@@ -79,8 +129,34 @@ charge existing construction resources before allocation. Only complete keys
 enter the memo; failed construction can retry under a fresh request. Reusing an
 immutable key skips those copies, but a bound-plan hit still constructs its
 parameterized key. Value-hash errors propagate instead of becoming cache keys.
-Literal-hash scratch, parameter-contract construction and insertion accounting
-remain separate, incomplete work.
+Parameter-contract derivation charges predicate/list visits and admits child
+backing, field names and coercion parameters before allocation. Existing template
+slot/payload limits stop traversal before further metadata copying; they remain
+cache eligibility limits, not new query rejection limits. Ineligible construction
+still consumes the work already performed. Exhaustion propagates on cold and warm
+calls without publishing or replacing a plan. Literal payloads are not copied into
+contracts. Payload-size estimation and insertion accounting remain separately
+owned work; this is not full preparation qualification.
+
+Normalized predicate cache fingerprints admit their output buffer before using
+the shared encoder. The sizing walk charges predicate/nested-value visits and
+reserves conservative byte-work, case-folding and map-reference allowances.
+It performs no encoding, sorting or coercion itself. Admission can exceed actual
+allocation, including map scratch for already-ordered input. Exhaustion returns
+no digest and cannot publish/replace a cache entry. Successful fingerprint bytes
+are unchanged.
+
+Predicate-only continuation identity also admits its input copy through the
+shared construction owner, then reserves final raw encoding output and possible
+coercion/map/membership scratch. Raw membership allows its ordered view even
+when canonical input will not allocate one. Preparation and execution supply
+their existing cumulative authority, including DISTINCT's rewritten scalar
+handoff; no fresh budget is created. Exhaustion returns no continuation contract
+and does not replace the source query or publish a placeholder identity.
+Expression-owned and absent filters do not enter this predicate-copy path.
+Successful continuation bytes remain unchanged. Boolean normalization between
+copying and final encoding, nested payload comparisons and other identity
+sections remain separately owned work, not a complete hashing-bounds claim.
 
 Grouped key and aggregate destination vectors also charge backing before
 allocation. Group keys select the existing direct/path representation up front;
@@ -121,11 +197,104 @@ candidate-route contents and proof/scoring work are not qualified by these
 list/name checks.
 Recursive candidate planning additionally charges each predicate dispatch and
 admits AND/OR child-list backing before candidate extraction or child recursion.
-OR reserves one slot per child; AND includes up to three appended family routes.
-The conservative allowance includes filtered children and unused append slots.
+Both reserve one slot per child; the conservative allowance includes children
+later filtered out. AND-family inspection borrows its candidate and selection
+consumes the winner, without cloned family operands or fallback append slots.
+The AND index-range path box is admitted before child recursion; its underlying
+bound construction remains a separate owner. Ordering preference is computed
+once without changing family precedence or diagnostic reasons.
 Exhaustion propagates through ordinary planning and alternative evaluation;
 it is not semantic absence. These checks cover child-list backing and dispatch,
 not operand payloads, redundancy proofs, family scoring or normalization work.
+AND equality-prefix construction separately admits its literal-cache backing,
+outer visits and selected path box. Its shared builder reserves index-arity
+output backing after the first matched slot and admits key/literal visits,
+expression conversion and retained value copies. Raw duplicates stay borrowed
+until one value per slot is retained; the last equal representation is preserved.
+Ordinary AND planning and exact-count branch proofs pass the current request to
+this same fallible owner. Gaps and conflicts retain their existing semantics;
+exhaustion is not candidate absence. Branch collection separately admits its
+literal-cache growth and per-set backing before schema-compatibility caching.
+Branch construction admits candidate/literal visits, output-list backing,
+conversion/copies and the retained path. Exclusions are lowered once per
+candidate and applied to the retained list; unchanged values stay borrowed.
+Each exclusion set admits a conservative batch of branch visits before pruning,
+not payload-comparison work; early removals can leave unused admitted work.
+Singleton output moves into the fixed prefix, admitting growth if required.
+Ordinary planning and count-only proofs share this owner and preserve their
+existing distinct branch caps. Canonical sorting, payload comparisons, schema
+validation internals and other candidate payloads are not qualified here.
+AND range extraction separately admits comparison-cache growth, candidate visits,
+an upfront key/compare walk allowance, prefix/slot storage and operand construction.
+Raw duplicate equalities and starts-with inputs are borrowed where no retained
+copy is needed. Range merges consume admitted values without copying prior bounds;
+prefix output uses the existing strict or expression lower-only allowance.
+Primary-key ranges admit their child walk, then copy bounds and admit their path
+only after validating the complete interval. Secondary path-box admission remains
+at the existing AND handoff. Early gaps and rejection may leave unused walk or
+container capacity; field/type checks, payload comparisons and scoring internals
+are not bounded by these construction checks. Limits and range semantics do not
+change, but newly charged work can exhaust the current request.
+Primary-key child reduction admits both child inspection passes up front,
+reference-list backing and visits, and a conservative linear intersection-walk
+allowance. It canonicalizes borrowed views and retains surviving references in
+place; only the final owned keys, output list when needed, and path box are
+copied/allocated under the current budget. Explicit empty children retain their
+highest-priority reason without constructing an additional losing key candidate.
+The prepared child candidate then enters the existing pure family selector.
+Sorting and payload comparison remain outside these construction checks; no
+input or session borrow escapes into the returned access path.
+Exact secondary-index intersection construction admits candidate/suffix-slot/
+identity visits as one conservative batch after the outer shape/order gate.
+It selects at most three borrowed prefixes in fixed-size scratch before copying
+anything. Fewer than two distinct eligible prefixes produce no allocation; valid
+candidates admit one child list, each retained prefix's backing and copied values,
+and its path box. Two or three nonempty flat prefix paths need no second list
+flattening pass. The existing cap, selected-first order, physical index identity
+and runtime metadata fallback remain unchanged. Early rejection or reaching the
+cap may leave unused admitted visits. Field-name comparison and order/schema
+validation internals are not qualified by these structural checks.
+Selected-access child-redundancy proofs admit equality-prefix slot visits and
+conservative literal/membership visits before checking them. Scalar lookup proofs
+borrow identity values without constructing a list. IN/NOT IN proofs admit one
+lookup-view list and any expression conversion through existing shared helpers;
+unchanged values stay borrowed. Ordering and duplicate removal are unnecessary
+for membership and are not performed. The filtered-index implication owner
+receives the original child predicate, with no copied predicate shell. Proof
+decisions and unsupported-input behavior are unchanged; current-budget exhaustion
+propagates instead of silently treating a failed proof as absence. Payload
+comparison, schema lookup and filtered implication traversal remain separately
+owned work, not bounded by these construction checks. No new limit is introduced.
+Access-choice AND equality-prefix evaluation admits constraint-list backing and
+child visits before collection, then a conservative index-slot/constraint walk
+before matching. Raw operands stay borrowed; expression output uses existing
+lowercase admission. Only a prefix score survives, with no owned operand list.
+Branch-set evaluation consumes that same equality result before its separately
+owned branch-value checks. The evaluator propagates construction failures through
+chosen-score lookup, explain projection, residual reranking and cardinality ties.
+A semantic rejection can still use the established score hint; exhaustion cannot.
+Reserving for every child/key slot can admit unused capacity/work after filtering
+or early gaps. Comparison payloads, schema lookup, branch-value construction and
+other evaluator families are not qualified by this equality-construction gate.
+Access-choice branch-value scoring separately admits its child walk, lookup-view
+list backing and a conservative literal/equal-set walk before construction.
+Canonicalization borrows raw operands; expression outputs use shared conversion
+admission. No owned operand list escapes the scorer. Every matching IN clause is
+checked before applying the existing distinct-branch cap, preserving later error
+precedence even when an earlier set is oversized or singleton. Exhaustion remains
+an error through the evaluator's existing fallible callers. Sorting, payload
+comparison and schema lookup internals are outside these structural allowances;
+this does not qualify all branch evaluation as bounded or raise a limit.
+Access-choice AND range evaluation admits child visits before validating the
+original predicate slice; it does not allocate a comparison-reference list.
+Whole-input validation still precedes per-key classification, preserving later
+unsupported-clause rejection over earlier key conflicts. A conservative
+key-slot/comparison batch precedes scoring. Equality conflict scratch borrows raw
+operands and admits expression conversion; only equality/range flags and bound
+strength leave classification. Construction failures propagate separately from
+semantic rejection. Early gaps may leave unused admitted visits; payload
+comparison and schema internals remain outside these structural checks. Single
+comparison eligibility and ordinary score/cursor semantics are unchanged.
 Primary-key equality/IN construction separately admits operand copies, the IN
 destination and the path box before each allocation. The existing literal gate
 runs first, including every IN slot; unsupported literals remain absence while
@@ -146,8 +315,14 @@ construction error, not missing candidate evidence.
 Single ordered comparisons likewise rank borrowed identities before copying or
 converting the winning operand. Existing admission covers outer candidate visits,
 the selected bound, range-slot backing and the retained path. All four operators
-keep their original inclusive/exclusive bounds and ranking. Starts-with and
-AND-family bound construction, scoring/proofs and normalization remain separate
+keep their original inclusive/exclusive bounds and ranking. Single starts-with
+comparisons admit candidate visits and build one shared prefix/bound pair before
+ranking by its actual bound count. For one predicate, the accepted coercion gate
+admits either raw keys or LOWER keys, not mixed conversion semantics. Existing
+copy/lowercase, semantic-prefix, slot-list and path-box admission applies before
+construction. Empty or unsupported prefixes stay absent without operand copies;
+exhaustion propagates. AND-family bound construction, scoring/proofs and
+normalization remain separate
 owners; these checks are not a complete range-planning boundedness verdict.
 Unsupported compilation remains successful absence, while construction failures
 propagate without publishing a completed execution-preparation resident or

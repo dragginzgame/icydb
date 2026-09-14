@@ -3,17 +3,20 @@
 //! Does not own: runtime evaluation or schema field-slot resolution.
 //! Boundary: normalize before validation/planning/fingerprinting.
 
-use crate::{
-    db::predicate::{
-        CoercionId, CompareOp, MembershipCompareLeaf, Predicate,
-        collapse_membership_compare_leaves, encoding::write_predicate_sort_key,
-        simplify::simplify_and_compare_constraints,
-    },
-    value::Value,
-};
+mod admission;
+
 use crate::{
     db::{
-        predicate::{CoercionSpec, ComparePredicate, canonical_membership_value_list},
+        QueryError,
+        predicate::{
+            CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
+            canonical_membership_value_list,
+            encoding::write_predicate_sort_key,
+            membership::{membership_compare_domain, membership_compare_from_values},
+            normalize::admission::admit_enum_input_construction,
+            simplify::simplify_and_compare_constraints,
+        },
+        query::preparation::PreparationWork,
         schema::{
             AcceptedFieldKind, AcceptedValueAdmissionContract, SchemaInfo,
             SchemaLiteralValidationReason, ValidateError, classify_accepted_field_kind,
@@ -21,8 +24,9 @@ use crate::{
         },
     },
     types::{IntBig, NatBig, NumericValue},
-    value::{InputValue, canonicalize_value_set},
+    value::{InputValue, Value, canonicalize_value_set},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 /// Consume a predicate into canonical, deterministic form without copying leaves.
 ///
@@ -64,103 +68,69 @@ pub(in crate::db) fn normalize(predicate: Predicate) -> Predicate {
     }
 }
 
+/// Materialize schema-normalized operands under current request admission.
 ///
-/// Normalize enum literals in predicates against schema enum metadata.
-///
-/// Contract:
-/// - strict enum literals (`path = Some`) must match the schema enum path
-/// - loose enum literals (`path = None`) are resolved once at filter construction
-/// - predicate semantics stay strict at runtime (`Eq` is unchanged)
-///
+/// Accepted catalog identity and numeric/coercion rules remain authoritative.
+/// Visit every supplied child before boolean simplification can discard it.
+/// Input depth must be admitted before entering this recursive owner.
 pub(in crate::db) fn normalize_enum_literals(
     schema: &SchemaInfo,
     predicate: &Predicate,
-) -> Result<Predicate, ValidateError> {
-    // Enum literal normalization only rewrites enum payload shape, not operators.
+    work: &PreparationWork<'_>,
+) -> Result<Predicate, QueryError> {
+    work.charge(Resource::PredicateExpressionSteps, 1)?;
     match predicate {
-        Predicate::True => Ok(Predicate::True),
-        Predicate::False => Ok(Predicate::False),
-        Predicate::And(children) => {
-            let mut normalized = Vec::with_capacity(children.len());
-            for child in children {
-                normalized.push(normalize_enum_literals(schema, child)?);
-            }
-
-            Ok(Predicate::And(normalized))
+        Predicate::And(children) => work
+            .copy_slice(children, |child| {
+                normalize_enum_literals(schema, child, work)
+            })
+            .map(Predicate::And),
+        Predicate::Or(children) => work
+            .copy_slice(children, |child| {
+                normalize_enum_literals(schema, child, work)
+            })
+            .map(Predicate::Or),
+        Predicate::Not(inner) => {
+            work.charge(Resource::TemporaryBytes, size_of::<Predicate>() as u64)?;
+            Ok(Predicate::Not(Box::new(normalize_enum_literals(
+                schema, inner, work,
+            )?)))
         }
-        Predicate::Or(children) => {
-            let mut normalized = Vec::with_capacity(children.len());
-            for child in children {
-                normalized.push(normalize_enum_literals(schema, child)?);
-            }
-
-            Ok(Predicate::Or(normalized))
+        Predicate::Compare(cmp) => {
+            let value = if let Some(contract) = schema.accepted_field_contract(&cmp.field)
+                && let Some(kind) = schema.accepted_query_field_kind(&cmp.field)
+            {
+                if kind.contains_enum() {
+                    normalize_compare_value_for_accepted_contract(
+                        &cmp.field, cmp.op, &cmp.value, &contract, kind, work,
+                    )?
+                } else {
+                    normalize_compare_value_for_accepted_kind(
+                        &cmp.field,
+                        cmp.op,
+                        &cmp.value,
+                        kind,
+                        cmp.coercion(),
+                        work,
+                    )?
+                }
+            } else {
+                work.copy_value(&cmp.value)?
+            };
+            Ok(Predicate::Compare(ComparePredicate {
+                field: work.copy_text(&cmp.field)?,
+                op: cmp.op,
+                value,
+                coercion: work.copy_coercion(&cmp.coercion)?,
+            }))
         }
-        Predicate::Not(inner) => Ok(Predicate::Not(Box::new(normalize_enum_literals(
-            schema, inner,
-        )?))),
-        Predicate::Compare(cmp) => Ok(Predicate::Compare(normalize_compare_with_schema(
-            schema, cmp,
-        )?)),
         Predicate::CompareFields(cmp) => Ok(Predicate::CompareFields(
-            normalize_compare_fields_with_schema(schema, cmp),
+            normalize_compare_fields_with_schema(schema, cmp, work)?,
         )),
-        Predicate::IsNull { field } => Ok(Predicate::IsNull {
-            field: field.clone(),
-        }),
-        Predicate::IsNotNull { field } => Ok(Predicate::IsNotNull {
-            field: field.clone(),
-        }),
-        Predicate::IsMissing { field } => Ok(Predicate::IsMissing {
-            field: field.clone(),
-        }),
-        Predicate::IsEmpty { field } => Ok(Predicate::IsEmpty {
-            field: field.clone(),
-        }),
-        Predicate::IsNotEmpty { field } => Ok(Predicate::IsNotEmpty {
-            field: field.clone(),
-        }),
-        Predicate::TextContains { field, value } => Ok(Predicate::TextContains {
-            field: field.clone(),
-            value: value.clone(),
-        }),
-        Predicate::TextContainsCi { field, value } => Ok(Predicate::TextContainsCi {
-            field: field.clone(),
-            value: value.clone(),
-        }),
+        // Unchanged leaves share the admitted syntax-copy owner. It owns their
+        // visit charge; the structural dispatch charge above is separate.
+        _ => work.copy_predicate(predicate),
     }
-}
-
-fn normalize_compare_with_schema(
-    schema: &SchemaInfo,
-    cmp: &ComparePredicate,
-) -> Result<ComparePredicate, ValidateError> {
-    if let Some(contract) = schema.accepted_field_contract(&cmp.field) {
-        let Some(query_kind) = schema.accepted_query_field_kind(&cmp.field) else {
-            return Ok(cmp.clone());
-        };
-        let value = if query_kind.contains_enum() {
-            normalize_compare_value_for_accepted_contract(
-                &cmp.field, cmp.op, &cmp.value, &contract, query_kind,
-            )?
-        } else {
-            normalize_compare_value_for_accepted_kind(
-                &cmp.field,
-                cmp.op,
-                &cmp.value,
-                query_kind,
-                cmp.coercion(),
-            )?
-        };
-        return Ok(ComparePredicate {
-            field: cmp.field.clone(),
-            op: cmp.op,
-            value,
-            coercion: cmp.coercion.clone(),
-        });
-    }
-
-    Ok(cmp.clone())
 }
 
 fn normalize_compare_value_for_accepted_contract(
@@ -169,14 +139,16 @@ fn normalize_compare_value_for_accepted_contract(
     value: &Value,
     contract: &AcceptedValueAdmissionContract<'_>,
     query_kind: &AcceptedFieldKind,
-) -> Result<Value, ValidateError> {
+    work: &PreparationWork<'_>,
+) -> Result<Value, QueryError> {
     let mut budget = ValueAdmissionBudget::standard();
     match op {
         CompareOp::In | CompareOp::NotIn => {
             let Value::List(values) = value else {
-                return Ok(value.clone());
+                return work.copy_value(value);
             };
-            let mut normalized = Vec::with_capacity(values.len());
+            work.charge(Resource::NestedValueSteps, 1)?;
+            let mut normalized = work.vec_with_capacity(values.len())?;
             for value in values {
                 normalized.push(normalize_accepted_predicate_value(
                     field,
@@ -184,6 +156,7 @@ fn normalize_compare_value_for_accepted_contract(
                     contract,
                     query_kind,
                     &mut budget,
+                    work,
                 )?);
             }
             let normalized = canonical_membership_value_list(normalized);
@@ -191,11 +164,11 @@ fn normalize_compare_value_for_accepted_contract(
         }
         CompareOp::Contains => {
             let Some(element_contract) = contract.collection_element_contract() else {
-                return Ok(value.clone());
+                return work.copy_value(value);
             };
             let element_kind = match query_kind {
                 AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => inner.as_ref(),
-                _ => return Ok(value.clone()),
+                _ => return work.copy_value(value),
             };
             normalize_accepted_predicate_value(
                 field,
@@ -203,9 +176,17 @@ fn normalize_compare_value_for_accepted_contract(
                 &element_contract,
                 element_kind,
                 &mut budget,
+                work,
             )
         }
-        _ => normalize_accepted_predicate_value(field, value, contract, query_kind, &mut budget),
+        _ => normalize_accepted_predicate_value(
+            field,
+            value,
+            contract,
+            query_kind,
+            &mut budget,
+            work,
+        ),
     }
 }
 
@@ -215,12 +196,13 @@ fn normalize_accepted_predicate_value(
     contract: &AcceptedValueAdmissionContract<'_>,
     query_kind: &AcceptedFieldKind,
     budget: &mut ValueAdmissionBudget,
-) -> Result<Value, ValidateError> {
-    if value.contains_enum() {
+    work: &PreparationWork<'_>,
+) -> Result<Value, QueryError> {
+    if admit_enum_input_construction(value, work)? {
         contract
             .with_validated(value, budget, |_| ())
             .map_err(|error| predicate_admission_error(field, error))?;
-        return Ok(value.clone());
+        return work.copy_value(value);
     }
     let input = match (query_kind, value) {
         (AcceptedFieldKind::Enum { .. }, Value::Text(variant)) => {
@@ -235,7 +217,7 @@ fn normalize_accepted_predicate_value(
     };
     contract
         .normalize_input_to_runtime(input, budget)
-        .map_err(|error| predicate_admission_error(field, error))
+        .map_err(|error| QueryError::from(predicate_admission_error(field, error)))
 }
 
 fn predicate_admission_error(field: &str, error: ValueAdmissionError) -> ValidateError {
@@ -267,20 +249,26 @@ fn predicate_admission_error(field: &str, error: ValueAdmissionError) -> Validat
 fn normalize_compare_fields_with_schema(
     schema: &SchemaInfo,
     cmp: &crate::db::predicate::CompareFieldsPredicate,
-) -> crate::db::predicate::CompareFieldsPredicate {
+    work: &PreparationWork<'_>,
+) -> Result<crate::db::predicate::CompareFieldsPredicate, QueryError> {
     if let (Some(left), Some(right)) = (
         schema.accepted_query_field_kind(&cmp.left_field),
         schema.accepted_query_field_kind(&cmp.right_field),
     ) {
-        return crate::db::predicate::CompareFieldsPredicate::with_coercion(
-            cmp.left_field.clone(),
+        return Ok(crate::db::predicate::CompareFieldsPredicate::with_coercion(
+            work.copy_text(&cmp.left_field)?,
             cmp.op,
-            cmp.right_field.clone(),
+            work.copy_text(&cmp.right_field)?,
             normalize_accepted_compare_fields_coercion(cmp.op, left, right, cmp.coercion.id),
-        );
+        ));
     }
 
-    cmp.clone()
+    Ok(crate::db::predicate::CompareFieldsPredicate {
+        left_field: work.copy_text(&cmp.left_field)?,
+        op: cmp.op,
+        right_field: work.copy_text(&cmp.right_field)?,
+        coercion: work.copy_coercion(&cmp.coercion)?,
+    })
 }
 
 const fn normalize_accepted_compare_fields_coercion(
@@ -316,18 +304,21 @@ fn normalize_compare_value_for_accepted_kind(
     value: &Value,
     field_kind: &AcceptedFieldKind,
     coercion: &CoercionSpec,
-) -> Result<Value, ValidateError> {
+    work: &PreparationWork<'_>,
+) -> Result<Value, QueryError> {
     match op {
         CompareOp::In | CompareOp::NotIn => {
             let Value::List(values) = value else {
-                return Ok(value.clone());
+                return work.copy_value(value);
             };
+            work.charge(Resource::NestedValueSteps, 1)?;
             let normalized = normalize_accepted_list_value_for_kind(
                 field,
                 values.as_slice(),
                 field_kind,
                 coercion,
                 op,
+                work,
             )?;
             let normalized = canonical_membership_value_list(normalized);
             Ok(normalized)
@@ -335,11 +326,11 @@ fn normalize_compare_value_for_accepted_kind(
         CompareOp::Contains => {
             let element_kind = match field_kind {
                 AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => inner.as_ref(),
-                _ => return Ok(value.clone()),
+                _ => return work.copy_value(value),
             };
-            normalize_value_for_accepted_kind(field, value, element_kind, coercion, op)
+            normalize_value_for_accepted_kind(field, value, element_kind, coercion, op, work)
         }
-        _ => normalize_value_for_accepted_kind(field, value, field_kind, coercion, op),
+        _ => normalize_value_for_accepted_kind(field, value, field_kind, coercion, op, work),
     }
 }
 
@@ -349,21 +340,30 @@ fn normalize_value_for_accepted_kind(
     expected_kind: &AcceptedFieldKind,
     coercion: &CoercionSpec,
     op: CompareOp,
-) -> Result<Value, ValidateError> {
+    work: &PreparationWork<'_>,
+) -> Result<Value, QueryError> {
+    work.charge(Resource::NestedValueSteps, 1)?;
     match expected_kind {
         AcceptedFieldKind::Relation { key_kind, .. } => {
-            normalize_value_for_accepted_kind(field, value, key_kind, coercion, op)
+            normalize_value_for_accepted_kind(field, value, key_kind, coercion, op, work)
         }
         AcceptedFieldKind::List(inner) => {
             let Value::List(values) = value else {
-                return Ok(value.clone());
+                return work.copy_value(value);
             };
-            normalize_accepted_list_value_for_kind(field, values.as_slice(), inner, coercion, op)
-                .map(Value::List)
+            normalize_accepted_list_value_for_kind(
+                field,
+                values.as_slice(),
+                inner,
+                coercion,
+                op,
+                work,
+            )
+            .map(Value::List)
         }
         AcceptedFieldKind::Set(inner) => {
             let Value::List(values) = value else {
-                return Ok(value.clone());
+                return work.copy_value(value);
             };
             let mut normalized = normalize_accepted_list_value_for_kind(
                 field,
@@ -371,6 +371,7 @@ fn normalize_value_for_accepted_kind(
                 inner,
                 coercion,
                 op,
+                work,
             )?;
             canonicalize_value_set(&mut normalized);
             Ok(Value::List(normalized))
@@ -380,13 +381,20 @@ fn normalize_value_for_accepted_kind(
             value: map_value,
         } => {
             let Value::Map(entries) = value else {
-                return Ok(value.clone());
+                return work.copy_value(value);
             };
-            let mut normalized = Vec::with_capacity(entries.len());
+            let mut normalized = work.vec_with_capacity(entries.len())?;
             for (entry_key, entry_value) in entries {
                 normalized.push((
-                    normalize_value_for_accepted_kind(field, entry_key, key, coercion, op)?,
-                    normalize_value_for_accepted_kind(field, entry_value, map_value, coercion, op)?,
+                    normalize_value_for_accepted_kind(field, entry_key, key, coercion, op, work)?,
+                    normalize_value_for_accepted_kind(
+                        field,
+                        entry_value,
+                        map_value,
+                        coercion,
+                        op,
+                        work,
+                    )?,
                 ));
             }
             Ok(Value::Map(normalized))
@@ -402,12 +410,9 @@ fn normalize_value_for_accepted_kind(
         | AcceptedFieldKind::Nat32
         | AcceptedFieldKind::Nat64
         | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::NatBig { .. } => Ok(normalize_numeric_value_for_accepted_kind(
-            value,
-            expected_kind,
-            coercion,
-            op,
-        )),
+        | AcceptedFieldKind::NatBig { .. } => {
+            normalize_numeric_value_for_accepted_kind(value, expected_kind, coercion, op, work)
+        }
         AcceptedFieldKind::Account
         | AcceptedFieldKind::Blob { .. }
         | AcceptedFieldKind::Bool
@@ -424,7 +429,7 @@ fn normalize_value_for_accepted_kind(
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
         | AcceptedFieldKind::U256
-        | AcceptedFieldKind::Composite { .. } => Ok(value.clone()),
+        | AcceptedFieldKind::Composite { .. } => work.copy_value(value),
     }
 }
 
@@ -434,8 +439,9 @@ fn normalize_accepted_list_value_for_kind(
     expected_kind: &AcceptedFieldKind,
     coercion: &CoercionSpec,
     op: CompareOp,
-) -> Result<Vec<Value>, ValidateError> {
-    let mut normalized = Vec::with_capacity(values.len());
+    work: &PreparationWork<'_>,
+) -> Result<Vec<Value>, QueryError> {
+    let mut normalized = work.vec_with_capacity(values.len())?;
     for item in values {
         normalized.push(normalize_value_for_accepted_kind(
             field,
@@ -443,6 +449,7 @@ fn normalize_accepted_list_value_for_kind(
             expected_kind,
             coercion,
             op,
+            work,
         )?);
     }
     Ok(normalized)
@@ -457,7 +464,8 @@ fn normalize_numeric_value_for_accepted_kind(
     expected_kind: &AcceptedFieldKind,
     coercion: &CoercionSpec,
     op: CompareOp,
-) -> Value {
+    work: &PreparationWork<'_>,
+) -> Result<Value, QueryError> {
     let target = match expected_kind {
         AcceptedFieldKind::Int64 => Some(PredicateNumericTarget::Int64),
         AcceptedFieldKind::Int128 => Some(PredicateNumericTarget::Int128),
@@ -467,7 +475,7 @@ fn normalize_numeric_value_for_accepted_kind(
         AcceptedFieldKind::NatBig { .. } => Some(PredicateNumericTarget::NatBig),
         _ => None,
     };
-    normalize_numeric_value_for_target(value, target, coercion, op)
+    normalize_numeric_value_for_target(value, target, coercion, op, work)
 }
 
 #[derive(Clone, Copy)]
@@ -485,20 +493,29 @@ fn normalize_numeric_value_for_target(
     target: Option<PredicateNumericTarget>,
     coercion: &CoercionSpec,
     op: CompareOp,
-) -> Value {
+    work: &PreparationWork<'_>,
+) -> Result<Value, QueryError> {
     if matches!(coercion.id, CoercionId::NumericWiden)
         && matches!(
             op,
             CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte
         )
     {
-        return value.clone();
+        return work.copy_value(value);
     }
 
     if !value.supports_numeric_coercion() {
-        return value.clone();
+        return work.copy_value(value);
     }
 
+    // Decimal conversion is fixed-width. A successful bigint result is at most
+    // 128 bits; allow small-Vec limb backing before constructing it.
+    if matches!(
+        target,
+        Some(PredicateNumericTarget::IntBig | PredicateNumericTarget::NatBig)
+    ) {
+        work.charge(Resource::TemporaryBytes, 64)?;
+    }
     let normalized = match target {
         Some(PredicateNumericTarget::Int64) => value
             .to_numeric_decimal()
@@ -527,7 +544,10 @@ fn normalize_numeric_value_for_target(
         None => None,
     };
 
-    normalized.unwrap_or_else(|| value.clone())
+    match normalized {
+        Some(value) => Ok(value),
+        None => work.copy_value(value),
+    }
 }
 
 ///
@@ -617,15 +637,13 @@ fn normalize_or(children: Vec<Predicate>) -> Predicate {
         return Predicate::False;
     }
 
-    // Canonicalize disjunction children once before OR-specific rewrites so the
-    // collapse-to-IN check sees one deterministic shape.
-    canonicalize_predicate_children_for_eval(&mut out);
-
-    // Collapse canonical same-field equality disjunctions into one IN compare
-    // at the predicate authority boundary.
-    if let Some(collapsed) = collapse_same_field_or_eq_to_in(out.as_slice()) {
+    // Eligible equalities only need the membership owner's value ordering, not
+    // a preceding sort of complete predicate keys. Other OR shapes still sort.
+    if let Some(collapsed) = collapse_same_field_or_equalities(&mut out) {
         return collapsed;
     }
+
+    canonicalize_predicate_children_for_eval(&mut out);
 
     if out.len() == 1 {
         return out.remove(0);
@@ -639,14 +657,14 @@ fn normalize_or(children: Vec<Predicate>) -> Predicate {
 // - all children target the same field
 // - all children share one supported coercion family
 // - all equality literals are scalar-ish (not list/map payloads)
-fn collapse_same_field_or_eq_to_in(children: &[Predicate]) -> Option<Predicate> {
+fn collapse_same_field_or_equalities(children: &mut Vec<Predicate>) -> Option<Predicate> {
     if children.len() < 2 {
         return None;
     }
 
-    let mut leaves = Vec::with_capacity(children.len());
-
-    for child in children {
+    // Prove compatibility without allocating or consuming any child. Failed
+    // collapse must leave the authored order and operands intact for sorting.
+    let (_, coercion) = membership_compare_domain(children.iter().map(|child| {
         let Predicate::Compare(compare) = child else {
             return None;
         };
@@ -662,14 +680,33 @@ fn collapse_same_field_or_eq_to_in(children: &[Predicate]) -> Option<Predicate> 
         if !or_eq_compare_value_is_in_safe(&compare.value) {
             return None;
         }
-        leaves.push(MembershipCompareLeaf::new(
-            compare.field.as_str(),
-            compare.value.clone(),
-            compare.coercion.id,
-        ));
+        Some((compare.field.as_str(), compare.coercion.id))
+    }))?;
+
+    // The ordinary sort/dedup would retain the first identical leaf. Keep that
+    // equality (and its complete coercion metadata), not a singleton IN list.
+    if children.windows(2).all(|pair| pair[0] == pair[1]) {
+        return children.drain(..).next();
     }
 
-    collapse_membership_compare_leaves(leaves, CompareOp::In).map(Predicate::Compare)
+    let Predicate::Compare(first) = children.first_mut()? else {
+        return None;
+    };
+    let field = std::mem::take(&mut first.field);
+    // Preflight established every variant and the minimum count. Draining
+    // moves values; no comparison shells or duplicate payloads are retained.
+    let mut values = Vec::with_capacity(children.len());
+    for child in children.drain(..) {
+        if let Predicate::Compare(compare) = child {
+            values.push(compare.value);
+        }
+    }
+    Some(Predicate::Compare(membership_compare_from_values(
+        field,
+        CompareOp::In,
+        values,
+        coercion,
+    )))
 }
 
 // Keep OR->IN canonicalization fail-closed for collection/map literals because

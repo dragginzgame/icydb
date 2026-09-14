@@ -1,6 +1,7 @@
 //! Construction accounting borrowed from the caller's existing budget owner.
 //! This interface owns neither request lifetimes nor instruction intervals.
 
+mod predicate;
 #[cfg(test)]
 mod tests;
 mod value;
@@ -15,6 +16,19 @@ pub(in crate::db) trait ConstructionBudget {
 }
 
 impl dyn ConstructionBudget + '_ {
+    /// Admit the destination before copying its elements and their payloads.
+    pub(in crate::db) fn copy_slice<T, U>(
+        &self,
+        values: &[T],
+        mut copy: impl FnMut(&T) -> Result<U, InternalError>,
+    ) -> Result<Vec<U>, InternalError> {
+        let mut out = self.vec_with_capacity(values.len())?;
+        for value in values {
+            out.push(copy(value)?);
+        }
+        Ok(out)
+    }
+
     /// Copy an admitted label, including its visit, bytes and destination backing.
     pub(in crate::db) fn copy_text(&self, text: &str) -> Result<String, InternalError> {
         self.charge(Resource::PredicateExpressionSteps, 1 + text.len() as u64)?;

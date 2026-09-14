@@ -1,3 +1,6 @@
+mod admission;
+mod owned_membership;
+
 use crate::{
     db::predicate::{
         CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate, normalize,
@@ -473,13 +476,16 @@ fn accepted_numeric_membership_normalization_is_canonical() {
     ]);
     let coercion = CoercionSpec::new(CoercionId::Strict);
 
-    let normalized = normalize_compare_value_for_accepted_kind(
-        "rank",
-        CompareOp::In,
-        &value,
-        &AcceptedFieldKind::Nat64,
-        &coercion,
-    )
+    let normalized = crate::db::query::preparation::with_preparation_work(|work| {
+        normalize_compare_value_for_accepted_kind(
+            "rank",
+            CompareOp::In,
+            &value,
+            &AcceptedFieldKind::Nat64,
+            &coercion,
+            work,
+        )
+    })
     .expect("accepted membership normalization should succeed");
 
     assert_eq!(
@@ -490,17 +496,20 @@ fn accepted_numeric_membership_normalization_is_canonical() {
 
 #[test]
 fn accepted_recursive_set_normalization_is_canonical() {
-    let normalized = normalize_value_for_accepted_kind(
-        "tags",
-        &Value::List(vec![
-            Value::Text("beta".to_string()),
-            Value::Text("alpha".to_string()),
-            Value::Text("beta".to_string()),
-        ]),
-        &AcceptedFieldKind::Set(Box::new(AcceptedFieldKind::Text { max_len: None })),
-        &CoercionSpec::new(CoercionId::Strict),
-        CompareOp::Eq,
-    )
+    let normalized = crate::db::query::preparation::with_preparation_work(|work| {
+        normalize_value_for_accepted_kind(
+            "tags",
+            &Value::List(vec![
+                Value::Text("beta".to_string()),
+                Value::Text("alpha".to_string()),
+                Value::Text("beta".to_string()),
+            ]),
+            &AcceptedFieldKind::Set(Box::new(AcceptedFieldKind::Text { max_len: None })),
+            &CoercionSpec::new(CoercionId::Strict),
+            CompareOp::Eq,
+            work,
+        )
+    })
     .expect("accepted set normalization should succeed");
 
     assert_eq!(

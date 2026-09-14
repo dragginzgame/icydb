@@ -50,6 +50,7 @@ impl PreparedScalarRuntimeHandoff {
             residents.continuation_identity,
             residents.index_prefix_specs,
             residents.index_range_specs,
+            &crate::db::executor::budget::ExecutionConstructionBudget,
         )?;
 
         Ok(Self {

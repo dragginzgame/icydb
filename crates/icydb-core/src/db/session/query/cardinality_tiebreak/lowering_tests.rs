@@ -189,7 +189,8 @@ fn spec_backing_exhaustion_precedes_encoding_for_every_index_shape() {
             .iter()
             .find(|index| index.name() == "b_wide_branch_idx")
             .unwrap(),
-    );
+    )
+    .expect("valid accepted index fixture");
     let cases: [(AccessPlan<Value>, usize); 4] = [
         (
             AccessPlan::index_prefix_from_contract(
@@ -391,7 +392,8 @@ fn accepted_composite_ranges_preserve_prefix_and_endpoint_contracts() {
         .iter()
         .find(|index| index.name() == "b_wide_branch_idx")
         .unwrap();
-    let index = SemanticIndexAccessContract::from_accepted_field_path_index(accepted);
+    let index = SemanticIndexAccessContract::from_accepted_field_path_index(accepted)
+        .expect("valid accepted index fixture");
     let slots: Vec<_> = accepted
         .fields()
         .iter()

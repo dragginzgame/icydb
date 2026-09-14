@@ -60,16 +60,18 @@ pub(in crate::db::predicate) use semantics::{
 
 /// Parse and normalize one accepted persisted index predicate.
 ///
-/// Accepted snapshots are runtime authority. If their persisted SQL is
-/// malformed, runtime access and mutation planning fail closed to `False`;
-/// integrity inspection owns the typed corruption error boundary.
-#[must_use]
+/// Accepted snapshots are runtime authority. Malformed persisted SQL is
+/// corruption, never a valid predicate that silently excludes indexed rows.
 pub(in crate::db) fn normalized_accepted_index_predicate(
     predicate_sql: Option<&str>,
-) -> Option<Predicate> {
-    let predicate_sql = predicate_sql?;
-
-    Some(parse_sql_predicate(predicate_sql).map_or(Predicate::False, normalize))
+) -> Result<Option<Predicate>, crate::error::InternalError> {
+    predicate_sql
+        .map(|sql| {
+            parse_sql_predicate(sql)
+                .map(normalize)
+                .map_err(|_| crate::error::InternalError::store_corruption())
+        })
+        .transpose()
 }
 
 /// Return the literal prefix from the supported single-trailing-wildcard
@@ -95,10 +97,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepted_index_predicates_share_one_normalized_fail_closed_boundary() {
-        assert_eq!(normalized_accepted_index_predicate(None), None);
+    fn accepted_index_predicates_preserve_absence_and_normalized_semantics() {
+        assert_eq!(normalized_accepted_index_predicate(None).unwrap(), None);
         assert_eq!(
-            normalized_accepted_index_predicate(Some("active = true")),
+            normalized_accepted_index_predicate(Some("active = true")).unwrap(),
             Some(Predicate::Compare(ComparePredicate::with_coercion(
                 "active",
                 CompareOp::Eq,
@@ -107,8 +109,20 @@ mod tests {
             ))),
         );
         assert_eq!(
-            normalized_accepted_index_predicate(Some("active =")),
+            normalized_accepted_index_predicate(Some("active = true AND active = false")).unwrap(),
             Some(Predicate::False),
         );
+    }
+
+    #[test]
+    fn malformed_accepted_index_predicates_return_payload_free_corruption() {
+        for sql in ["", "active =", "name = 'unterminated"] {
+            let error = normalized_accepted_index_predicate(Some(sql)).unwrap_err();
+            assert_eq!(
+                error.diagnostic().code(),
+                icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
+            );
+            assert_eq!(error.diagnostic().detail(), None);
+        }
     }
 }

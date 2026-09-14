@@ -1339,6 +1339,28 @@ fn persisted_schema_snapshot_decode_keeps_nullable_unique_predicate_corruption_d
     assert_eq!(error.origin(), ErrorOrigin::Store);
 }
 
+#[test]
+fn nullable_unique_codec_rejects_unbound_fields_in_eliminated_branches() {
+    let snapshot = nullable_unique_codec_fixture(Some(
+        "email IS NOT NULL AND (email = 'active' OR (email = 'a' AND email = 'b' AND missing IS NOT NULL))",
+    ));
+    let encode_error = encode_persisted_schema_snapshot(&snapshot).unwrap_err();
+    assert_eq!(
+        encode_error.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+    );
+    let encoded = encode_unchecked_schema_fixture(&snapshot);
+    let decode_error = decode_persisted_schema_snapshot(&encoded).unwrap_err();
+    assert_eq!(decode_error.class(), ErrorClass::Corruption);
+    assert_eq!(decode_error.origin(), ErrorOrigin::Store);
+
+    let valid = nullable_unique_codec_fixture(Some(
+        "email IS NOT NULL AND (email = 'active' OR (email = 'a' AND email = 'b'))",
+    ));
+    let encoded = encode_persisted_schema_snapshot(&valid).unwrap();
+    assert_eq!(decode_persisted_schema_snapshot(&encoded).unwrap(), valid);
+}
+
 fn nullable_unique_codec_fixture(predicate_sql: Option<&str>) -> PersistedSchemaSnapshot {
     PersistedSchemaSnapshot::new_with_indexes(
         SchemaVersion::initial(),

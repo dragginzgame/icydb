@@ -291,7 +291,11 @@ fn admit_compare_or_expression(
     if let Expr::Binary { op, left, right } = &lowered
         && let Some(predicate) = compile_bool_compare_expr(*op, left, right)
     {
-        let predicate = normalize_enum_literals(schema, &predicate).map_err(query_operand_error)?;
+        let predicate =
+            normalize_enum_literals(schema, &predicate, work).map_err(|error| match error {
+                QueryError::Validate(error) => query_operand_error(*error),
+                error => error,
+            })?;
         if let Predicate::Compare(compare) = &predicate
             && matches!(compare.value(), Value::Null)
         {

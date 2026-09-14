@@ -574,13 +574,13 @@ pub(super) enum RangeCompareKind {
 ///
 /// RangeFieldConstraint
 ///
-/// RangeFieldConstraint accumulates the normalized equality-vs-range state for
-/// one index field during ordered range scoring.
+/// RangeFieldConstraint reports equality/range presence and bound strength for
+/// one index field. Operand comparison scratch remains local to classification.
 ///
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct RangeFieldConstraint {
-    pub(super) eq_value: Option<crate::value::Value>,
+    pub(super) has_eq: bool,
     pub(super) has_range: bool,
     pub(super) range_bound_count: u8,
 }

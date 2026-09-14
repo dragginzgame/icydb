@@ -1,14 +1,18 @@
 use crate::{
     db::{
         access::{
-            AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
+            AccessPath, AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
             SemanticIndexRangeSpec,
         },
-        index::{TextPrefixBoundMode, starts_with_component_bounds},
+        index::{TextPrefixBoundMode, admit_text_prefix_bounds, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, Predicate, canonical_cmp},
+        query::construction::ConstructionBudget,
         query::plan::{
             OrderSpec, field_key_contract_supports_operator,
-            key_item_match::{eq_lookup_value_for_key_item, starts_with_lookup_value_for_key_item},
+            key_item_match::{
+                copy_lookup_value_for_key_item, key_item_supports_starts_with_value,
+                lower_lookup_value_for_key_item,
+            },
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
                 access_candidate_score_outranks, index_literal_matches_schema,
@@ -21,8 +25,10 @@ use crate::{
         },
         schema::{SchemaInfo, literal_matches_type},
     },
+    error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::cmp::Ordering;
 
 // Build one deterministic primary-key half-open range candidate from the
@@ -36,19 +42,25 @@ use std::cmp::Ordering;
 pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
     schema: &SchemaInfo,
     children: &[Predicate],
-) -> Option<AccessPlan<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
     // KeyRange access is currently scalar-primary-key only. Composite
     // component ranges are deferred and must stay residual/full-scan unless a
     // secondary index can satisfy them.
-    let primary_key_name = schema.scalar_primary_key_name()?;
-    let field_type = schema.field(primary_key_name)?;
+    let Some(primary_key_name) = schema.scalar_primary_key_name() else {
+        return Ok(None);
+    };
+    let Some(field_type) = schema.field(primary_key_name) else {
+        return Ok(None);
+    };
     if !field_type.is_keyable() {
-        return None;
+        return Ok(None);
     }
 
-    let mut lower = None::<Value>;
-    let mut upper = None::<Value>;
+    let mut lower = None;
+    let mut upper = None;
 
+    budget.charge(Resource::PredicateExpressionSteps, children.len() as u64)?;
     for child in children {
         let Predicate::Compare(cmp) = child else {
             continue;
@@ -57,27 +69,34 @@ pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
             continue;
         }
         if cmp.coercion.id != CoercionId::Strict {
-            return None;
+            return Ok(None);
         }
         if !literal_matches_type(&cmp.value, field_type) {
-            return None;
+            return Ok(None);
         }
 
         match cmp.op {
-            CompareOp::Gte if lower.is_none() => lower = Some(cmp.value.clone()),
-            CompareOp::Lt if upper.is_none() => upper = Some(cmp.value.clone()),
-            _ => return None,
+            CompareOp::Gte if lower.is_none() => lower = Some(&cmp.value),
+            CompareOp::Lt if upper.is_none() => upper = Some(&cmp.value),
+            _ => return Ok(None),
         }
     }
 
     let (Some(start), Some(end)) = (lower, upper) else {
-        return None;
+        return Ok(None);
     };
-    if canonical_cmp(&start, &end) != Ordering::Less {
-        return None;
+    if canonical_cmp(start, end) != Ordering::Less {
+        return Ok(None);
     }
 
-    Some(AccessPlan::key_range(start, end))
+    // Only a complete, compatible primary range retains operand copies.
+    let start = budget.copy_value(start)?;
+    let end = budget.copy_value(end)?;
+    budget.charge(
+        Resource::TemporaryBytes,
+        size_of::<AccessPath<Value>>() as u64,
+    )?;
+    Ok(Some(AccessPlan::key_range(start, end)))
 }
 
 // Build one deterministic secondary-range candidate from a normalized AND-group.
@@ -93,11 +112,13 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
     children: &[Predicate],
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> Option<SemanticIndexRangeSpec> {
-    let mut compares = Vec::with_capacity(children.len());
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<SemanticIndexRangeSpec>, InternalError> {
+    let mut compares = Vec::new();
+    budget.charge(Resource::PredicateExpressionSteps, children.len() as u64)?;
     for child in children {
         let Predicate::Compare(cmp) = child else {
-            return None;
+            return Ok(None);
         };
         if !matches!(
             cmp.op,
@@ -108,7 +129,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
                 | CompareOp::Lte
                 | CompareOp::StartsWith
         ) {
-            return None;
+            return Ok(None);
         }
         if !matches!(
             (cmp.op, cmp.coercion.id),
@@ -122,8 +143,9 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
                 CoercionId::Strict | CoercionId::TextCasefold
             )
         ) {
-            return None;
+            return Ok(None);
         }
+        budget.reserve_vec(&mut compares, 1)?;
         compares.push(CachedCompare {
             cmp,
             literal_compatible: index_literal_matches_schema(schema, &cmp.field, &cmp.value),
@@ -137,9 +159,13 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         Vec<Value>,
         RangeConstraint,
     )> = None;
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        candidate_indexes.len() as u64,
+    )?;
     for index in candidate_indexes {
         let Some((range_slot, prefix, range)) =
-            index_range_candidate_for_index(index, schema, &compares)
+            index_range_candidate_for_index(index, schema, &compares, budget)?
         else {
             continue;
         };
@@ -167,16 +193,18 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
     }
 
     best.map(|(_, index, range_slot, prefix, range)| {
-        let field_slots = (0..=range_slot).collect();
+        let mut field_slots = budget.vec_with_capacity(range_slot + 1)?;
+        field_slots.extend(0..=range_slot);
 
-        SemanticIndexRangeSpec::from_access_contract(
+        Ok(SemanticIndexRangeSpec::from_access_contract(
             index.clone(),
             field_slots,
             prefix,
             range.lower,
             range.upper,
-        )
+        ))
     })
+    .transpose()
 }
 
 // Extract an index-range candidate for one concrete index by walking canonical
@@ -186,48 +214,45 @@ fn index_range_candidate_for_index(
     index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     compares: &[CachedCompare<'_>],
-) -> Option<(usize, Vec<Value>, RangeConstraint)> {
-    index_range_candidate_for_key_items(
-        index_contract,
-        schema,
-        index_contract.key_items(),
-        compares,
-    )
-}
-
-fn index_range_candidate_for_key_items(
-    index_contract: &SemanticIndexAccessContract,
-    schema: &SchemaInfo,
-    key_items: &[crate::db::access::SemanticIndexKeyItem],
-    compares: &[CachedCompare<'_>],
-) -> Option<(usize, Vec<Value>, RangeConstraint)> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<(usize, Vec<Value>, RangeConstraint)>, InternalError> {
+    let key_items = index_contract.key_items();
+    // Admit the index/compare walk once, including slots after an early gap.
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        (key_items.len() as u64).saturating_mul((compares.len() as u64).saturating_add(1)),
+    )?;
     let mut prefix = Vec::new();
     let mut range: Option<RangeConstraint> = None;
     let mut range_position = None;
 
     for (position, key_item) in key_items.iter().enumerate() {
         let key_item = key_item.as_ref();
-        let constraint =
-            key_item_constraint_for_index_slot(index_contract, schema, key_item, compares)?;
+        let Some(constraint) =
+            key_item_constraint_for_index_slot(index_contract, schema, key_item, compares, budget)?
+        else {
+            return Ok(None);
+        };
         if !consume_index_slot_constraint(
             &mut prefix,
             &mut range,
             &mut range_position,
             position,
             constraint,
-        ) {
-            return None;
+            budget,
+        )? {
+            return Ok(None);
         }
     }
 
     let (Some(range_position), Some(range)) = (range_position, range) else {
-        return None;
+        return Ok(None);
     };
     if prefix.len() >= index_contract.key_arity() {
-        return None;
+        return Ok(None);
     }
 
-    Some((range_position, prefix, range))
+    Ok(Some((range_position, prefix, range)))
 }
 
 // Consume one canonical slot constraint into the contiguous prefix/range
@@ -238,9 +263,11 @@ fn consume_index_slot_constraint(
     range_position: &mut Option<usize>,
     position: usize,
     constraint: IndexFieldConstraint,
-) -> bool {
-    match constraint {
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    Ok(match constraint {
         IndexFieldConstraint::Eq(value) if range.is_none() => {
+            budget.reserve_vec(prefix, 1)?;
             prefix.push(value);
             true
         }
@@ -252,7 +279,7 @@ fn consume_index_slot_constraint(
         IndexFieldConstraint::None if range.is_none() => false,
         IndexFieldConstraint::None => true,
         _ => false,
-    }
+    })
 }
 
 // Build the effective constraint class for one canonical index slot from the
@@ -262,9 +289,12 @@ fn key_item_constraint_for_index_slot(
     schema: &SchemaInfo,
     key_item: SemanticIndexKeyItemRef<'_>,
     compares: &[CachedCompare<'_>],
-) -> Option<IndexFieldConstraint> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<IndexFieldConstraint>, InternalError> {
     let mut constraint = IndexFieldConstraint::None;
-    let field_type = schema.field(key_item.field())?;
+    let Some(field_type) = schema.field(key_item.field()) else {
+        return Ok(None);
+    };
 
     for cached in compares {
         let cmp = cached.cmp;
@@ -275,83 +305,117 @@ fn key_item_constraint_for_index_slot(
             && cmp.coercion.id == CoercionId::Strict
             && !field_type.is_orderable()
         {
-            return None;
+            return Ok(None);
         }
 
         match cmp.op {
             CompareOp::Eq => match &constraint {
                 IndexFieldConstraint::None => {
-                    let Some(candidate) = eq_lookup_value_for_key_item(
+                    let Some(candidate) = copy_lookup_value_for_key_item(
                         key_item,
                         cmp.field.as_str(),
                         &cmp.value,
                         cmp.coercion.id,
                         cached.literal_compatible,
-                    ) else {
+                        budget,
+                    )?
+                    else {
                         continue;
                     };
                     constraint = IndexFieldConstraint::Eq(candidate);
                 }
                 IndexFieldConstraint::Eq(existing) => {
-                    let Some(candidate) = eq_lookup_value_for_key_item(
+                    let Some(candidate) = lower_lookup_value_for_key_item(
                         key_item,
                         cmp.field.as_str(),
                         &cmp.value,
                         cmp.coercion.id,
                         cached.literal_compatible,
-                    ) else {
+                        budget,
+                    )?
+                    else {
                         continue;
                     };
-                    if existing != &candidate {
-                        return None;
+                    if existing != candidate.as_ref() {
+                        return Ok(None);
                     }
                 }
-                IndexFieldConstraint::Range(_) => return None,
+                IndexFieldConstraint::Range(_) => return Ok(None),
             },
             CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
-                merge_ordered_compare_constraint_for_key_item(
+                let Some(merged) = merge_ordered_compare_constraint_for_key_item(
                     index_contract,
                     key_item,
                     cached,
-                    &mut constraint,
-                )?;
+                    constraint,
+                    budget,
+                )?
+                else {
+                    return Ok(None);
+                };
+                constraint = merged;
             }
             CompareOp::StartsWith => {
-                let Some(prefix) = starts_with_lookup_value_for_key_item(
-                    key_item,
-                    cmp.field.as_str(),
-                    &cmp.value,
-                    cmp.coercion.id,
-                    cached.literal_compatible,
-                ) else {
+                let Some(candidate) = starts_with_range_for_key_item(key_item, cached, budget)?
+                else {
                     continue;
                 };
-
-                let (lower, upper) = starts_with_component_bounds(
-                    &prefix,
-                    match key_item {
-                        SemanticIndexKeyItemRef::Field(_) => TextPrefixBoundMode::Strict,
-                        SemanticIndexKeyItemRef::AcceptedExpression(_) => {
-                            TextPrefixBoundMode::LowerOnly
-                        }
-                    },
-                )?;
-                let candidate = RangeConstraint { lower, upper };
-                let mut range = match &constraint {
-                    IndexFieldConstraint::None => candidate.clone(),
-                    IndexFieldConstraint::Eq(_) => return None,
-                    IndexFieldConstraint::Range(existing) => existing.clone(),
+                let mut range = match constraint {
+                    IndexFieldConstraint::None => RangeConstraint::default(),
+                    IndexFieldConstraint::Eq(_) => return Ok(None),
+                    IndexFieldConstraint::Range(existing) => existing,
                 };
-                if !merge_range_constraint_bounds(&mut range, &candidate) {
-                    return None;
+                if !merge_range_constraint_bounds(&mut range, candidate) {
+                    return Ok(None);
                 }
                 constraint = IndexFieldConstraint::Range(range);
             }
-            _ => return None,
+            _ => return Ok(None),
         }
     }
 
-    Some(constraint)
+    Ok(Some(constraint))
+}
+
+// Borrow raw text until constructing its interval; expression lowering and
+// prefix output each use their existing semantic construction allowance.
+fn starts_with_range_for_key_item(
+    key_item: SemanticIndexKeyItemRef<'_>,
+    cached: &CachedCompare<'_>,
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<RangeConstraint>, InternalError> {
+    let cmp = cached.cmp;
+    if !key_item_supports_starts_with_value(
+        key_item,
+        cmp.field.as_str(),
+        &cmp.value,
+        cmp.coercion.id,
+        cached.literal_compatible,
+    ) {
+        return Ok(None);
+    }
+    let Some(prefix) = lower_lookup_value_for_key_item(
+        key_item,
+        cmp.field.as_str(),
+        &cmp.value,
+        cmp.coercion.id,
+        cached.literal_compatible,
+        budget,
+    )?
+    else {
+        return Ok(None);
+    };
+    let Value::Text(prefix) = prefix.as_ref() else {
+        return Ok(None);
+    };
+    let mode = if key_item.is_expression() {
+        TextPrefixBoundMode::LowerOnly
+    } else {
+        TextPrefixBoundMode::Strict
+    };
+    admit_text_prefix_bounds(prefix, mode, budget)?;
+    Ok(starts_with_component_bounds(prefix, mode)
+        .map(|(lower, upper)| RangeConstraint { lower, upper }))
 }
 
 // Merge one ordered compare onto one canonical key-item slot.
@@ -361,41 +425,45 @@ fn merge_ordered_compare_constraint_for_key_item(
     index_contract: &SemanticIndexAccessContract,
     key_item: SemanticIndexKeyItemRef<'_>,
     cached: &CachedCompare<'_>,
-    constraint: &mut IndexFieldConstraint,
-) -> Option<()> {
+    constraint: IndexFieldConstraint,
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<IndexFieldConstraint>, InternalError> {
     let cmp = cached.cmp;
-    let candidate = eq_lookup_value_for_key_item(
+    let Some(candidate) = copy_lookup_value_for_key_item(
         key_item,
         cmp.field.as_str(),
         &cmp.value,
         cmp.coercion.id,
         cached.literal_compatible,
-    )?;
+        budget,
+    )?
+    else {
+        return Ok(None);
+    };
 
     match key_item {
         SemanticIndexKeyItemRef::Field(_) => {
             if cmp.coercion.id != CoercionId::Strict
                 || !field_key_contract_supports_operator(index_contract, key_item.field(), cmp.op)
             {
-                return Some(());
+                return Ok(Some(constraint));
             }
         }
         SemanticIndexKeyItemRef::AcceptedExpression(_) => {
             if cmp.coercion.id != CoercionId::TextCasefold {
-                return Some(());
+                return Ok(Some(constraint));
             }
         }
     }
 
     let mut range = match constraint {
         IndexFieldConstraint::None => RangeConstraint::default(),
-        IndexFieldConstraint::Eq(_) => return None,
-        IndexFieldConstraint::Range(existing) => existing.clone(),
+        IndexFieldConstraint::Eq(_) => return Ok(None),
+        IndexFieldConstraint::Range(existing) => existing,
     };
-    if !merge_range_constraint(&mut range, cmp.op, &candidate) {
-        return None;
+    if !merge_range_constraint(&mut range, cmp.op, candidate) {
+        return Ok(None);
     }
 
-    *constraint = IndexFieldConstraint::Range(range);
-    Some(())
+    Ok(Some(IndexFieldConstraint::Range(range)))
 }

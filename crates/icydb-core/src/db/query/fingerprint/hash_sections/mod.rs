@@ -15,6 +15,7 @@ use crate::{
         codec::{write_hash_str_u32, write_hash_tag_u8, write_hash_u32},
         predicate::{Predicate, hash_predicate as hash_model_predicate},
         query::{
+            construction::ConstructionBudget,
             fingerprint::projection_hash::hash_scalar_filter_expr_structural_fingerprint,
             plan::{OrderDirection, OrderSpec, QueryMode, expr::Expr},
         },
@@ -97,13 +98,17 @@ pub(in crate::db::query::fingerprint::hash_sections) const CONTINUATION_SECTION_
 ///
 /// Hash canonical predicate model structure into the plan hash stream.
 ///
-pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: Option<&Predicate>) {
+pub(super) fn hash_predicate(
+    hasher: &mut Sha256,
+    predicate: Option<&Predicate>,
+    budget: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
     let Some(predicate) = predicate else {
         write_tag(hasher, PREDICATE_ABSENT_TAG);
-        return;
+        return Ok(());
     };
 
-    hash_model_predicate(hasher, predicate);
+    hash_model_predicate(hasher, predicate, budget)
 }
 
 ///
@@ -117,6 +122,7 @@ pub(super) fn hash_scalar_semantic_filter(
     hasher: &mut Sha256,
     filter_expr: Option<&Expr>,
     predicate: Option<&Predicate>,
+    budget: &dyn ConstructionBudget,
 ) -> Result<(), InternalError> {
     if let Some(filter_expr) = filter_expr {
         write_tag(hasher, FILTER_EXPR_PRESENT_TAG);
@@ -125,8 +131,7 @@ pub(super) fn hash_scalar_semantic_filter(
         return Ok(());
     }
 
-    hash_predicate(hasher, predicate);
-    Ok(())
+    hash_predicate(hasher, predicate, budget)
 }
 
 // Render only the order term currently being hashed.

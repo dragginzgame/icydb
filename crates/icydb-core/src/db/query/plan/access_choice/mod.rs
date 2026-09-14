@@ -95,7 +95,8 @@ pub(in crate::db) fn exact_cardinality_tiebreak_candidates<'a>(
         predicate,
         order,
         false,
-    ) {
+        budget,
+    )? {
         self::model::CandidateEvaluation::Eligible(score) => score,
         self::model::CandidateEvaluation::Rejected(_) => return Ok(None),
     };
@@ -118,8 +119,15 @@ pub(in crate::db) fn exact_cardinality_tiebreak_candidates<'a>(
             }
             continue;
         }
-        let self::model::CandidateEvaluation::Eligible(score) =
-            evaluate_index_candidate(explain_family, index, schema_info, predicate, order, false)
+        let self::model::CandidateEvaluation::Eligible(score) = evaluate_index_candidate(
+            explain_family,
+            index,
+            schema_info,
+            predicate,
+            order,
+            false,
+            budget,
+        )?
         else {
             continue;
         };
@@ -198,11 +206,9 @@ fn project_access_choice_explain_snapshot_from_authority(
     if matches!(family, AccessChoiceFamily::NonIndex) {
         return Ok(plan.access_choice().clone());
     }
-    let Some(candidate_kind) = family.candidate_kind() else {
-        return Ok(AccessChoiceExplainSnapshot::selected_index_not_projected());
-    };
-
-    let Some(chosen_index_name) = chosen_index_name else {
+    let (Some(candidate_kind), Some(chosen_index_name)) =
+        (family.candidate_kind(), chosen_index_name)
+    else {
         return Ok(AccessChoiceExplainSnapshot::selected_index_not_projected());
     };
 
@@ -218,7 +224,8 @@ fn project_access_choice_explain_snapshot_from_authority(
         predicate,
         order,
         grouped,
-    );
+        budget,
+    )?;
     // Each visible index contributes at most one element to each retained list.
     // Reserve once before evaluating candidates; names are charged when copied.
     let mut alternatives = budget.vec_with_capacity(visible_indexes.len())?;
@@ -234,7 +241,15 @@ fn project_access_choice_explain_snapshot_from_authority(
     // already been frozen from planner evaluation.
     for index in visible_indexes {
         let index_name = budget.copy_text(index.name())?;
-        match evaluate_index_candidate(family, index, schema_info, predicate, order, grouped) {
+        match evaluate_index_candidate(
+            family,
+            index,
+            schema_info,
+            predicate,
+            order,
+            grouped,
+            budget,
+        )? {
             self::model::CandidateEvaluation::Eligible(score)
                 if index_name == chosen_index_name.name() =>
             {
@@ -450,17 +465,26 @@ fn chosen_score_for_visible_indexes(
     predicate: Option<&Predicate>,
     order: Option<&crate::db::query::plan::OrderSpec>,
     grouped: bool,
-) -> crate::db::query::plan::planner::AccessCandidateScore {
-    visible_indexes
+    budget: &dyn ConstructionBudget,
+) -> Result<crate::db::query::plan::planner::AccessCandidateScore, InternalError> {
+    // Semantic rejection may use the existing shape hint; exhausted evaluation
+    // must propagate instead of silently substituting that hint.
+    if let Some(index) = visible_indexes
         .iter()
         .find(|index| index.name() == chosen_index_name)
-        .and_then(|index| {
-            match evaluate_index_candidate(family, index, schema_info, predicate, order, grouped) {
-                self::model::CandidateEvaluation::Eligible(score) => Some(score),
-                self::model::CandidateEvaluation::Rejected(_) => None,
-            }
-        })
-        .unwrap_or(chosen_score_hint)
+        && let self::model::CandidateEvaluation::Eligible(score) = evaluate_index_candidate(
+            family,
+            index,
+            schema_info,
+            predicate,
+            order,
+            grouped,
+            budget,
+        )?
+    {
+        return Ok(score);
+    }
+    Ok(chosen_score_hint)
 }
 
 // Build one candidate access plan through the existing single-index planner
@@ -543,7 +567,8 @@ fn preferred_same_score_competing_access_by_residual_burden(
         predicate,
         order,
         grouped,
-    );
+        budget,
+    )?;
 
     let chosen_burden = residual_burden_for_plan(plan);
     let mut best: Option<ResidualComparableCandidate> = None;
@@ -551,8 +576,15 @@ fn preferred_same_score_competing_access_by_residual_burden(
         if index.name() == chosen_index_name.name() {
             continue;
         }
-        let self::model::CandidateEvaluation::Eligible(score) =
-            evaluate_index_candidate(family, index, schema_info, predicate, order, grouped)
+        let self::model::CandidateEvaluation::Eligible(score) = evaluate_index_candidate(
+            family,
+            index,
+            schema_info,
+            predicate,
+            order,
+            grouped,
+            budget,
+        )?
         else {
             continue;
         };

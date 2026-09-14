@@ -13,9 +13,9 @@ use crate::{
 /// MembershipCompareLeaf
 ///
 /// One admitted equality-family compare leaf used to collapse expanded
-/// membership forms back into a compact `IN` or `NOT IN` predicate. It exists
-/// so expression lowering and predicate normalization can share the same
-/// same-field/same-coercion assembly rule without sharing their AST traversal.
+/// membership forms back into a compact `IN` or `NOT IN` predicate during
+/// expression lowering. Borrowed domain checks and final value assembly are
+/// shared with predicate normalization without sharing AST traversal.
 ///
 
 pub(in crate::db) struct MembershipCompareLeaf<'a> {
@@ -37,51 +37,48 @@ impl<'a> MembershipCompareLeaf<'a> {
 }
 
 /// Collapse admitted same-field compare leaves into one membership predicate.
-pub(in crate::db) fn collapse_membership_compare_leaves<'a>(
-    leaves: impl IntoIterator<Item = MembershipCompareLeaf<'a>>,
+pub(in crate::db) fn collapse_membership_compare_leaves(
+    leaves: Vec<MembershipCompareLeaf<'_>>,
     target_op: CompareOp,
 ) -> Option<ComparePredicate> {
-    let mut field = None;
-    let mut coercion = None;
-    let mut values = Vec::new();
-
-    for leaf in leaves {
-        if let Some(current) = field {
-            if current != leaf.field {
-                return None;
-            }
-        } else {
-            field = Some(leaf.field);
-        }
-        if let Some(current) = coercion {
-            if current != leaf.coercion {
-                return None;
-            }
-        } else {
-            coercion = Some(leaf.coercion);
-        }
-
-        values.push(leaf.value);
+    if leaves.len() < 2 {
+        return None;
     }
+    let (field, coercion) =
+        membership_compare_domain(leaves.iter().map(|leaf| Some((leaf.field, leaf.coercion))))?;
+    let values = leaves.into_iter().map(|leaf| leaf.value).collect();
 
-    collapse_membership_values(field?, target_op, values, coercion?)
+    Some(membership_compare_from_values(
+        field, target_op, values, coercion,
+    ))
 }
 
-/// Collapse already-admitted same-field values into one membership predicate.
-pub(in crate::db) fn collapse_membership_values(
-    field: &str,
+/// Inspect borrowed leaf domains without constructing operands. An absent leaf
+/// means the caller's shape is ineligible; field/coercion agreement is owned here.
+pub(in crate::db::predicate) fn membership_compare_domain<'a>(
+    leaves: impl IntoIterator<Item = Option<(&'a str, CoercionId)>>,
+) -> Option<(&'a str, CoercionId)> {
+    let mut leaves = leaves.into_iter();
+    let domain = leaves.next()??;
+    for leaf in leaves {
+        if leaf? != domain {
+            return None;
+        }
+    }
+    Some(domain)
+}
+
+/// Assemble already-admitted same-field values using the canonical set owner.
+/// Callers establish the minimum leaf count before consuming their input.
+pub(in crate::db::predicate) fn membership_compare_from_values(
+    field: impl Into<String>,
     target_op: CompareOp,
     values: Vec<Value>,
     coercion: CoercionId,
-) -> Option<ComparePredicate> {
-    if values.len() < 2 {
-        return None;
-    }
+) -> ComparePredicate {
     let value = canonical_membership_value_list(values);
 
-    Some(ComparePredicate::with_coercion(
-        field, target_op, value, coercion,
-    ))
+    ComparePredicate::with_coercion(field, target_op, value, coercion)
 }
 
 /// Canonicalize an already-admitted membership literal set.

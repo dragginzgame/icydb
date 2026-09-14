@@ -380,10 +380,11 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn visible_indexes_for_accepted_schema(
         schema_info: &SchemaInfo,
         visibility: QueryPlanVisibility,
-    ) -> VisibleIndexes {
-        match visibility {
+    ) -> Result<VisibleIndexes, QueryError> {
+        Ok(match visibility {
             QueryPlanVisibility::StoreReady => {
-                let visible_indexes = VisibleIndexes::accepted_schema_visible(schema_info);
+                let visible_indexes = VisibleIndexes::accepted_schema_visible(schema_info)
+                    .map_err(QueryError::execute)?;
                 debug_assert!(visible_indexes.accepted_field_path_contracts_are_consistent());
                 debug_assert!(visible_indexes.accepted_expression_contracts_are_consistent());
                 debug_assert!(visible_indexes.accepted_semantic_contracts_are_consistent());
@@ -397,7 +398,7 @@ impl<C: CanisterKind> DbSession<C> {
             #[cfg(feature = "sql")]
             QueryPlanVisibility::PrimaryOnly => VisibleIndexes::accepted_schema_primary_only(),
             QueryPlanVisibility::StoreNotReady => VisibleIndexes::none(),
-        }
+        })
     }
 
     pub(in crate::db) fn query_plan_visibility_for_store_path(
@@ -466,9 +467,11 @@ impl<C: CanisterKind> DbSession<C> {
         PreparationWork::run(self.db.request_execution_scope(), lane, |work| {
             let schema_info = schema_info_for_plan_cache_authority(&authority, accepted_schema)?;
             let planning_state =
-                query.prepare_scalar_planning_state_with_schema_info(schema_info)?;
-            let visible_indexes =
-                Self::visible_indexes_for_accepted_schema(planning_state.schema_info(), visibility);
+                query.prepare_scalar_planning_state_with_schema_info(schema_info, work)?;
+            let visible_indexes = Self::visible_indexes_for_accepted_schema(
+                planning_state.schema_info(),
+                visibility,
+            )?;
             let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
                 &visible_indexes,
                 planning_state,
@@ -592,17 +595,24 @@ impl<C: CanisterKind> DbSession<C> {
         // Finish their instruction interval before cache lookup; it must not
         // overlap the separate miss/rebind construction interval below.
         let (planning_state, parameter_contract, normalized_predicate_fingerprint) =
-            PreparationWork::run(self.db.request_execution_scope(), lane, |_| {
+            PreparationWork::run(self.db.request_execution_scope(), lane, |work| {
                 let planning_state =
-                    query.prepare_scalar_planning_state_with_schema_info(schema_info)?;
+                    query.prepare_scalar_planning_state_with_schema_info(schema_info, work)?;
                 let parameter_contract = query
                     .filter_predicate_fully_covers_expression()
                     .then(|| planning_state.normalized_predicate())
                     .flatten()
-                    .and_then(PreparedQueryParameterContract::from_normalized_predicate);
+                    .map(|predicate| {
+                        PreparedQueryParameterContract::from_normalized_predicate(predicate, work)
+                    })
+                    .transpose()
+                    .map_err(QueryError::execute)?
+                    .flatten();
                 let fingerprint = planning_state
                     .normalized_predicate()
-                    .map(predicate_fingerprint_normalized);
+                    .map(|predicate| predicate_fingerprint_normalized(predicate, work))
+                    .transpose()
+                    .map_err(QueryError::execute)?;
 
                 Ok((planning_state, parameter_contract, fingerprint))
             })?;
@@ -623,7 +633,7 @@ impl<C: CanisterKind> DbSession<C> {
             );
         }
         let visible_indexes =
-            Self::visible_indexes_for_accepted_schema(planning_state.schema_info(), visibility);
+            Self::visible_indexes_for_accepted_schema(planning_state.schema_info(), visibility)?;
         self.resolve_shared_query_plan_for_authority(
             &authority,
             |work| {
@@ -747,7 +757,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let visible_indexes = Self::visible_indexes_for_accepted_schema(
                     planning_state.schema_info(),
                     visibility,
-                );
+                )?;
                 let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
                     &visible_indexes,
                     planning_state,

@@ -2,6 +2,7 @@
 //! Diagnostic DTOs are not identity sources.
 
 use crate::db::query::{
+    construction::ConstructionBudget,
     fingerprint::hash_sections::{
         CONTINUATION_SECTION_ACCESS_TAG, CONTINUATION_SECTION_DISTINCT_TAG,
         CONTINUATION_SECTION_ENTITY_PATH_TAG, CONTINUATION_SECTION_GROUPING_SHAPE_TAG,
@@ -23,6 +24,7 @@ pub(in crate::db::query) fn hash_continuation_with_projection(
     plan: &AccessPlannedQuery,
     entity_path: &str,
     projection: &ProjectionSpec,
+    budget: &dyn ConstructionBudget,
 ) -> Result<(), InternalError> {
     let scalar = plan.scalar_plan();
     write_tag(hasher, CONTINUATION_SECTION_ENTITY_PATH_TAG);
@@ -36,6 +38,7 @@ pub(in crate::db::query) fn hash_continuation_with_projection(
         hasher,
         scalar.filter_expr.as_ref(),
         scalar.predicate.as_ref(),
+        budget,
     )?;
     write_tag(hasher, CONTINUATION_SECTION_ORDER_TAG);
     hash_order_spec(hasher, scalar.order.as_ref());

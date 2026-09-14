@@ -48,6 +48,7 @@ impl<C: CanisterKind> DbSession<C> {
             let Some(access) = query.try_build_count_cardinality_prefix_access_with_schema_info(
                 visible_indexes,
                 schema_info,
+                work,
             )?
             else {
                 return Ok(None);

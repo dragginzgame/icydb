@@ -80,6 +80,7 @@ pub(in crate::db::query::plan) fn key_item_supports_starts_with_value<'a>(
 }
 
 /// Try to lower one predicate literal into a canonical key-item lookup value.
+#[cfg(test)]
 #[must_use]
 pub(in crate::db::query::plan) fn eq_lookup_value_for_key_item<'a>(
     key_item: impl Into<SemanticIndexKeyItemRef<'a>>,
@@ -102,16 +103,36 @@ pub(in crate::db::query::plan) fn copy_lookup_value_for_key_item<'a>(
     literal_compatible: bool,
     budget: &dyn ConstructionBudget,
 ) -> Result<Option<Value>, InternalError> {
+    match lower_lookup_value_for_key_item(
+        key_item,
+        field,
+        value,
+        coercion,
+        literal_compatible,
+        budget,
+    )? {
+        Some(Cow::Borrowed(value)) => budget.copy_value(value).map(Some),
+        Some(Cow::Owned(value)) => Ok(Some(value)),
+        None => Ok(None),
+    }
+}
+
+/// Admit expression conversion while borrowing unchanged literals for comparison.
+/// Consumers own admission of any retained copy of a borrowed result.
+pub(in crate::db::query::plan) fn lower_lookup_value_for_key_item<'key, 'value>(
+    key_item: impl Into<SemanticIndexKeyItemRef<'key>>,
+    field: &str,
+    value: &'value Value,
+    coercion: CoercionId,
+    literal_compatible: bool,
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Cow<'value, Value>>, InternalError> {
     let Some(kind) = lookup_kind_for_key_item(key_item, field, value, coercion, literal_compatible)
     else {
         return Ok(None);
     };
     admit_index_compare_literal_for_kind(kind, value, coercion, budget)?;
-    match lower_index_compare_literal_for_kind(kind, value, coercion) {
-        Some(Cow::Borrowed(value)) => budget.copy_value(value).map(Some),
-        Some(Cow::Owned(value)) => Ok(Some(value)),
-        None => Ok(None),
-    }
+    Ok(lower_index_compare_literal_for_kind(kind, value, coercion))
 }
 
 // Field/literal eligibility stays planner-owned; the resulting kind is enough
@@ -136,33 +157,11 @@ fn lookup_kind_for_key_item<'a>(
     })
 }
 
-/// Try to lower one starts-with predicate literal into a canonical key-item prefix value.
-#[must_use]
-pub(in crate::db::query::plan) fn starts_with_lookup_value_for_key_item<'a>(
-    key_item: impl Into<SemanticIndexKeyItemRef<'a>>,
-    field: &str,
-    value: &Value,
-    coercion: CoercionId,
-    literal_compatible: bool,
-) -> Option<String> {
-    let lowered =
-        eq_lookup_value_for_key_item(key_item, field, value, coercion, literal_compatible)?;
-    let Value::Text(prefix) = lowered else {
-        return None;
-    };
-    if prefix.is_empty() {
-        return None;
-    }
-
-    Some(prefix)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         eq_lookup_value_for_key_item, key_item_matches_field_and_coercion,
         key_item_supports_lookup_value, key_item_supports_starts_with_value,
-        starts_with_lookup_value_for_key_item,
     };
     use crate::{
         db::{
@@ -238,13 +237,6 @@ mod tests {
                                 ),
                                 prefix_supported
                             );
-                            assert_eq!(
-                                starts_with_lookup_value_for_key_item(
-                                    key, field, value, coercion, compatible,
-                                )
-                                .is_some(),
-                                prefix_supported
-                            );
                         }
                     }
                 }
@@ -274,16 +266,6 @@ mod tests {
                 ),
                 Some(Value::Text(expected.into())),
             );
-            assert_eq!(
-                starts_with_lookup_value_for_key_item(
-                    key_item,
-                    "name",
-                    &value,
-                    CoercionId::TextCasefold,
-                    true
-                ),
-                (!expected.is_empty()).then(|| expected.to_string()),
-            );
             assert_eq!(value, Value::Text(source.into()));
             for (field, coercion, compatible) in [
                 ("other", CoercionId::TextCasefold, true),
@@ -294,12 +276,6 @@ mod tests {
                     eq_lookup_value_for_key_item(key_item, field, &value, coercion, compatible)
                         .is_none()
                 );
-                assert!(
-                    starts_with_lookup_value_for_key_item(
-                        key_item, field, &value, coercion, compatible
-                    )
-                    .is_none()
-                );
             }
         }
         for value in [
@@ -309,16 +285,6 @@ mod tests {
         ] {
             assert!(
                 eq_lookup_value_for_key_item(
-                    key_item,
-                    "name",
-                    &value,
-                    CoercionId::TextCasefold,
-                    true
-                )
-                .is_none()
-            );
-            assert!(
-                starts_with_lookup_value_for_key_item(
                     key_item,
                     "name",
                     &value,

@@ -3,6 +3,9 @@
 //! Does not own: schema-store physical keys, journal commits, or runtime plan guards.
 //! Boundary: canonical catalog/snapshots <-> bounded bundle and checksummed root bytes.
 
+#[cfg(test)]
+mod tests;
+
 use super::{
     AcceptedEnumCatalog, AcceptedEnumVariantBody, decode_accepted_enum_catalog,
     encode_accepted_enum_catalog,
@@ -634,6 +637,8 @@ impl AcceptedSchemaRoot {
 }
 
 /// Fully encoded candidate whose bundle and root agree byte-for-byte.
+/// Constructors validate the owned contents; immutable accessors preserve that
+/// admission for publication. Bytes read back from storage require verification.
 #[derive(Clone, Debug)]
 pub(in crate::db) struct CandidateSchemaRevision {
     store_path: String,
@@ -826,10 +831,9 @@ pub(in crate::db::schema) fn prepare_accepted_schema_root_publication(
     let expected_candidate_revision = expected_revision
         .checked_next()
         .ok_or(AcceptedSchemaPublicationError::RevisionExhausted)?;
-    if candidate.revision() != expected_candidate_revision
-        || hash_bytes(candidate.encoded_bundle()) != candidate.root.bundle_hash
-        || decode_accepted_schema_revision_bundle(candidate.encoded_bundle()).is_err()
-    {
+    // Candidate contents were admitted at construction and cannot be mutated.
+    // Only their relationship to current publication authority needs checking.
+    if candidate.revision() != expected_candidate_revision {
         return Err(AcceptedSchemaPublicationError::InvalidCandidate);
     }
 

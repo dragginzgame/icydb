@@ -858,6 +858,24 @@ enum IdentityStateStorageView {
     Canonical,
 }
 
+/// Fully validated entity-snapshot bytes and identity, prepared before apply.
+/// Fields stay private so consumers cannot bypass the store's encoder.
+pub(in crate::db) struct PreparedSchemaSnapshot {
+    key: RawSchemaKey,
+    snapshot: RawSchemaSnapshot,
+}
+
+/// Candidate and canonical payloads retained from preflight until atomic fold.
+/// Not a reusable plan: preparation and application belong to one batch callback.
+pub(in crate::db) struct PreparedAcceptedSchemaFold {
+    candidate: CandidateSchemaRevision,
+    expected_revision: AcceptedSchemaRevision,
+    snapshots: Vec<PreparedSchemaSnapshot>,
+    identity_updates: Vec<(RawSchemaKey, Vec<u8>)>,
+    retained: BTreeSet<RawSchemaKey>,
+    root_slot: usize,
+}
+
 /// Exact schema/control keys whose live values belong to one journal batch.
 #[derive(Clone)]
 pub(in crate::db) struct PreparedSchemaPositionPublication {
@@ -1851,11 +1869,29 @@ impl SchemaStore {
         entity: EntityTag,
         snapshot: &PersistedSchemaSnapshot,
     ) -> Result<(), InternalError> {
-        let key = RawSchemaKey::from_entity_version(entity, snapshot.version());
-        let raw_snapshot = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
-        let _ = self.insert_raw_snapshot(key, raw_snapshot);
+        let prepared = Self::prepare_persisted_snapshot(entity, snapshot)?;
+        self.apply_prepared_persisted_snapshot(prepared);
 
         Ok(())
+    }
+
+    /// Finish snapshot validation, fingerprinting and encoding before mutation.
+    pub(in crate::db) fn prepare_persisted_snapshot(
+        entity: EntityTag,
+        snapshot: &PersistedSchemaSnapshot,
+    ) -> Result<PreparedSchemaSnapshot, InternalError> {
+        Ok(PreparedSchemaSnapshot {
+            key: RawSchemaKey::from_entity_version(entity, snapshot.version()),
+            snapshot: RawSchemaSnapshot::from_persisted_snapshot(snapshot)?,
+        })
+    }
+
+    /// Publish prepared bytes without repeating semantic construction.
+    pub(in crate::db) fn apply_prepared_persisted_snapshot(
+        &mut self,
+        prepared: PreparedSchemaSnapshot,
+    ) {
+        let _ = self.insert_raw_snapshot(prepared.key, prepared.snapshot);
     }
 
     /// Load one schema-owned constraint validation job.
@@ -2152,33 +2188,40 @@ impl SchemaStore {
         Ok(retirement)
     }
 
-    /// Apply one folded journal schema snapshot into the canonical stable base.
+    /// Seed a test's canonical snapshot through the maintained prepared handoff.
+    #[cfg(test)]
     pub(in crate::db) fn fold_persisted_snapshot(
         &mut self,
         entity: EntityTag,
         snapshot: &PersistedSchemaSnapshot,
     ) -> Result<(), InternalError> {
+        let prepared = self.prepare_fold_persisted_snapshot(entity, snapshot)?;
+        self.apply_prepared_fold_persisted_snapshot(prepared)
+    }
+
+    /// Apply only the encoded snapshot prepared for this journaled store.
+    pub(in crate::db) fn apply_prepared_fold_persisted_snapshot(
+        &mut self,
+        prepared: PreparedSchemaSnapshot,
+    ) -> Result<(), InternalError> {
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());
         };
-
-        let key = RawSchemaKey::from_entity_version(entity, snapshot.version());
-        let raw_snapshot = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
-        canonical.insert(key, raw_snapshot);
+        canonical.insert(prepared.key, prepared.snapshot);
 
         Ok(())
     }
 
-    /// Preflight one canonical schema-snapshot fold without changing storage.
-    pub(in crate::db) fn preflight_fold_persisted_snapshot(
+    /// Prepare one canonical fold, retaining encoded bytes without changing storage.
+    pub(in crate::db) fn prepare_fold_persisted_snapshot(
         &self,
+        entity: EntityTag,
         snapshot: &PersistedSchemaSnapshot,
-    ) -> Result<(), InternalError> {
+    ) -> Result<PreparedSchemaSnapshot, InternalError> {
         if !matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
             return Err(InternalError::store_invariant());
         }
-        let _encoded = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
-        Ok(())
+        Self::prepare_persisted_snapshot(entity, snapshot)
     }
 
     /// Return the current accepted store root selected from its two checksummed slots.
@@ -2908,31 +2951,44 @@ impl SchemaStore {
         Ok(false)
     }
 
-    /// Preflight one accepted candidate against canonical journaled authority.
-    pub(in crate::db) fn preflight_fold_journaled_accepted_schema_candidate(
+    /// Prepare one accepted candidate against canonical journaled authority.
+    pub(in crate::db) fn prepare_fold_journaled_accepted_schema_candidate(
         &self,
         incarnation: DatabaseIncarnationId,
         expected_revision: AcceptedSchemaRevision,
-        candidate: &CandidateSchemaRevision,
-    ) -> Result<(), InternalError> {
+        candidate: CandidateSchemaRevision,
+    ) -> Result<PreparedAcceptedSchemaFold, InternalError> {
         if !matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
             return Err(InternalError::store_invariant());
         }
         let identity_transition = self.prepare_identity_state_transition(
             incarnation,
-            candidate,
+            &candidate,
             IdentityStateStorageView::Canonical,
         )?;
-        let candidate_is_current = self.canonical_root_matches_candidate(candidate)?;
+        let candidate_is_current = self.canonical_root_matches_candidate(&candidate)?;
         if candidate_is_current && !identity_transition.is_empty() {
             return Err(InternalError::identity_state_corruption());
         }
-        for state in identity_transition.into_updates() {
-            let _encoded = encode_identity_state(&state)?;
-        }
-        for snapshot in candidate.bundle().entity_snapshots().values() {
-            let _encoded = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
-        }
+        let identity_updates = identity_transition
+            .into_updates()
+            .into_iter()
+            .map(|state| {
+                Ok((
+                    RawSchemaKey::from_identity_state(
+                        state.owner().entity_tag(),
+                        state.owner().field_id(),
+                    ),
+                    encode_identity_state(&state)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, InternalError>>()?;
+        let snapshots = candidate
+            .bundle()
+            .entity_snapshots()
+            .iter()
+            .map(|(entity, snapshot)| Self::prepare_persisted_snapshot(*entity, snapshot))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let first = self.canonical_root_slot_bytes(0)?;
         let second = self.canonical_root_slot_bytes(1)?;
@@ -2944,13 +3000,20 @@ impl SchemaStore {
             prepare_accepted_schema_root_publication(
                 [first.as_deref(), second.as_deref()],
                 expected_revision,
-                candidate,
+                &candidate,
             )
             .map_err(map_schema_publication_error)?
             .target_slot()
         };
-        let _retained = Self::candidate_entry_keys(candidate, root_slot)?;
-        Ok(())
+        let retained = Self::candidate_entry_keys(&candidate, root_slot)?;
+        Ok(PreparedAcceptedSchemaFold {
+            candidate,
+            expected_revision,
+            snapshots,
+            identity_updates,
+            retained,
+            root_slot,
+        })
     }
 
     /// Return the retained Identity owner count after admitting one candidate.
@@ -3047,20 +3110,21 @@ impl SchemaStore {
         Ok(())
     }
 
-    /// Fold one committed schema candidate into the canonical schema BTree.
-    pub(in crate::db) fn fold_journaled_accepted_schema_candidate(
+    /// Consume one candidate's preflight payloads in the same atomic fold callback.
+    pub(in crate::db) fn apply_prepared_accepted_schema_fold(
         &mut self,
-        incarnation: DatabaseIncarnationId,
-        expected_revision: AcceptedSchemaRevision,
-        candidate: &CandidateSchemaRevision,
+        prepared: PreparedAcceptedSchemaFold,
     ) -> Result<(), InternalError> {
-        let identity_transition = self.prepare_identity_state_transition(
-            incarnation,
+        let PreparedAcceptedSchemaFold {
             candidate,
-            IdentityStateStorageView::Canonical,
-        )?;
-        if self.canonical_root_matches_candidate(candidate)? {
-            if !identity_transition.is_empty() {
+            expected_revision,
+            snapshots,
+            identity_updates,
+            retained,
+            root_slot,
+        } = prepared;
+        if self.canonical_root_matches_candidate(&candidate)? {
+            if !identity_updates.is_empty() {
                 return Err(InternalError::identity_state_corruption());
             }
             let first = self.canonical_root_slot_bytes(0)?;
@@ -3068,21 +3132,27 @@ impl SchemaStore {
             let selection =
                 select_current_accepted_schema_root([first.as_deref(), second.as_deref()])?
                     .ok_or_else(InternalError::store_corruption)?;
-            self.retain_canonical_candidate_entries(candidate, selection.slot())?;
+            if selection.slot() != root_slot {
+                return Err(InternalError::store_invariant());
+            }
+            self.retain_canonical_candidate_entries(&retained)?;
             return Ok(());
         }
 
         let first = self.canonical_root_slot_bytes(0)?;
         let second = self.canonical_root_slot_bytes(1)?;
-        prepare_accepted_schema_root_publication(
+        let publication = prepare_accepted_schema_root_publication(
             [first.as_deref(), second.as_deref()],
             expected_revision,
-            candidate,
+            &candidate,
         )
         .map_err(map_schema_publication_error)?;
+        if publication.target_slot() != root_slot {
+            return Err(InternalError::store_invariant());
+        }
 
-        for (entity_tag, snapshot) in candidate.bundle().entity_snapshots() {
-            self.fold_persisted_snapshot(*entity_tag, snapshot)?;
+        for snapshot in snapshots {
+            self.apply_prepared_fold_persisted_snapshot(snapshot)?;
         }
         let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
         self.insert_canonical_raw_value(bundle_key, candidate.encoded_bundle().to_vec())?;
@@ -3093,30 +3163,32 @@ impl SchemaStore {
             candidate.root(),
             persisted_bundle.as_bytes(),
         )?;
-        self.apply_identity_state_transition(
-            identity_transition,
-            IdentityStateWriteTarget::Canonical,
-        )?;
+        for (key, bytes) in identity_updates {
+            self.insert_canonical_raw_value(key, bytes)?;
+        }
 
         let first = self.canonical_root_slot_bytes(0)?;
         let second = self.canonical_root_slot_bytes(1)?;
         let publication = prepare_accepted_schema_root_publication(
             [first.as_deref(), second.as_deref()],
             expected_revision,
-            candidate,
+            &candidate,
         )
         .map_err(map_schema_publication_error)?;
         let root_key = RawSchemaKey::from_accepted_root_slot(publication.target_slot())?;
         self.insert_canonical_raw_value(root_key, publication.encoded_root().to_vec())?;
 
-        if !self.canonical_root_matches_candidate(candidate)? {
+        if !self.canonical_root_matches_candidate(&candidate)? {
             return Err(InternalError::store_corruption());
         }
         let first = self.canonical_root_slot_bytes(0)?;
         let second = self.canonical_root_slot_bytes(1)?;
         let selection = select_current_accepted_schema_root([first.as_deref(), second.as_deref()])?
             .ok_or_else(InternalError::store_corruption)?;
-        self.retain_canonical_candidate_entries(candidate, selection.slot())?;
+        if selection.slot() != root_slot {
+            return Err(InternalError::store_invariant());
+        }
+        self.retain_canonical_candidate_entries(&retained)?;
         Ok(())
     }
 
@@ -3743,10 +3815,8 @@ impl SchemaStore {
 
     fn retain_canonical_candidate_entries(
         &mut self,
-        candidate: &CandidateSchemaRevision,
-        root_slot: usize,
+        keep: &BTreeSet<RawSchemaKey>,
     ) -> Result<(), InternalError> {
-        let keep = Self::candidate_entry_keys(candidate, root_slot)?;
         self.accepted_bundle_cache.get_mut().take();
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());

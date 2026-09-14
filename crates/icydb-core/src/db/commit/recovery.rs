@@ -49,7 +49,8 @@ use crate::{
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, IdentityAdvanceId,
-            PreparedCardinalityMaintenance, PreparedSchemaPositionRetirement, SchemaStore,
+            PreparedAcceptedSchemaFold, PreparedCardinalityMaintenance,
+            PreparedSchemaPositionRetirement, PreparedSchemaSnapshot, SchemaStore,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             apply_live_identity_range_checkpoint, apply_live_schema_checkpoint,
             apply_schema_application_record_op,
@@ -597,26 +598,28 @@ fn publish_marker_bound_journal_batches<C: CanisterKind>(
             .map_err(StartupRecoveryFailure::database_control)?;
         let journal_store = handle.journal_tail_store();
         let direct = journal_batch_is_direct_schema_publication(batch) || journal_store.is_none();
-        let rows = if direct {
+        let ops = if direct {
             prepare_replayed_journal_batch(db, store_path, handle, batch)
                 .map_err(StartupRecoveryFailure::database_control)?
         } else {
             Vec::new()
         };
-        prepared.push((store_path, handle, batch, journal_store, direct, rows));
+        prepared.push((store_path, handle, batch, journal_store, direct, ops));
     }
 
     // Finish every fallible tail append before the first direct canonical
     // mutation. Direct batches were completely preflighted above; an
     // impossible Apply contradiction therefore traps for message rollback.
-    for (store_path, _, batch, journal_store, direct, _) in &prepared {
+    for (store_path, _, batch, journal_store, direct, ops) in &prepared {
         if *direct {
             if let Some(journal_store) = journal_store {
-                let candidate = journal_batch_schema_candidate(store_path, batch)
-                    .map_err(StartupRecoveryFailure::database_control)?
-                    .ok_or_else(|| {
-                        StartupRecoveryFailure::database_control(InternalError::store_corruption())
-                    })?;
+                let Some(PreparedJournalOp::AcceptedSchemaReplay { candidate, .. }) =
+                    ops.first().and_then(Option::as_ref)
+                else {
+                    return Err(StartupRecoveryFailure::database_control(
+                        InternalError::store_invariant(),
+                    ));
+                };
                 let accepted_entity_tags = candidate
                     .bundle()
                     .entity_snapshots()
@@ -651,14 +654,13 @@ fn publish_marker_bound_journal_batches<C: CanisterKind>(
             })
             .map_err(|error| StartupRecoveryFailure::journal_store(store_path, error))?;
     }
-    for (store_path, handle, batch, _, direct, mut rows) in prepared {
+    for (store_path, handle, batch, _, direct, mut ops) in prepared {
         if direct {
             apply_prepared_journal_batch(
-                db,
                 store_path,
                 handle,
                 batch,
-                &mut rows,
+                &mut ops,
                 JournalRecordApplyMode::Replay,
             );
         }
@@ -743,8 +745,8 @@ fn prepare_recovered_row_transitions<C: CanisterKind>(
     db: &Db<C>,
     handle: StoreHandle,
     batch: &JournalBatch,
-) -> Result<Vec<Option<PreparedRowCommitOp>>, InternalError> {
-    let mut by_record = vec![None; batch.records().len()];
+) -> Result<Vec<Option<PreparedJournalOp>>, InternalError> {
+    let mut by_record = (0..batch.records().len()).map(|_| None).collect::<Vec<_>>();
     // JournalBatch admission keeps accepted-schema publication separate from
     // row mutations. Every row transition can therefore be prepared against
     // canonical authority before retirement or Apply.
@@ -793,7 +795,7 @@ fn prepare_recovered_row_transitions<C: CanisterKind>(
         {
             return Err(InternalError::store_corruption());
         }
-        by_record[record_ordinal] = Some(prepared);
+        by_record[record_ordinal] = Some(PreparedJournalOp::Row(prepared));
     }
     Ok(by_record)
 }
@@ -940,19 +942,24 @@ fn fold_selected_journal_head<C: CanisterKind>(
         .map_err(journal_failure)?;
     let next_watermark =
         prepare_folded_journal_batch_completion(&batch, watermark).map_err(journal_failure)?;
-    let mut prepared_rows =
+    let mut prepared_ops =
         prepare_recovered_row_transitions(db, handle, &batch).map_err(journal_failure)?;
-    for row in prepared_rows.iter().flatten() {
+    for row in prepared_ops
+        .iter()
+        .flatten()
+        .filter_map(PreparedJournalOp::row)
+    {
         row.preflight_fold_recovered().map_err(journal_failure)?;
     }
     let overlay_retirement = match projection {
         JournalFoldProjection::StartupUnpositioned => {
-            let _candidate = validate_journal_batch_records(
+            validate_journal_batch_records(
                 db,
                 store_path,
                 handle,
                 &batch,
                 JournalRecordApplyMode::Fold,
+                &mut prepared_ops,
             )
             .map_err(journal_failure)?;
             None
@@ -962,14 +969,15 @@ fn fold_selected_journal_head<C: CanisterKind>(
             // canonical-predecessor transition so accepted authority and
             // derived indexes are prepared only once for this batch.
             let retirement =
-                prepare_online_batch_retirement(handle, &batch, prepared_rows.as_slice())
+                prepare_online_batch_retirement(handle, &batch, prepared_ops.as_slice())
                     .map_err(journal_failure)?;
-            let _candidate = validate_journal_batch_records(
+            validate_journal_batch_records(
                 db,
                 store_path,
                 handle,
                 &batch,
                 JournalRecordApplyMode::Fold,
+                &mut prepared_ops,
             )
             .map_err(journal_failure)?;
             Some(retirement)
@@ -983,18 +991,17 @@ fn fold_selected_journal_head<C: CanisterKind>(
         watermark,
         next_watermark,
         &batch,
-        prepared_rows.as_slice(),
+        prepared_ops.as_slice(),
     )
     .map_err(journal_failure)?;
     handle
         .with_index(|store| store.preflight_prefix_cardinality_delta_watermark(watermark))
         .map_err(journal_failure)?;
     apply_preflighted_fold(
-        db,
         store_path,
         handle,
         &batch,
-        prepared_rows.as_mut_slice(),
+        prepared_ops.as_mut_slice(),
         cardinality_maintenance,
     );
     if let Some(retirement) = overlay_retirement {
@@ -1009,20 +1016,18 @@ fn fold_selected_journal_head<C: CanisterKind>(
     Ok(())
 }
 
-fn apply_preflighted_fold<C: CanisterKind>(
-    db: &Db<C>,
+fn apply_preflighted_fold(
     store_path: &'static str,
     handle: StoreHandle,
     batch: &JournalBatch,
-    prepared_rows: &mut [Option<PreparedRowCommitOp>],
+    prepared_ops: &mut [Option<PreparedJournalOp>],
     cardinality_maintenance: Option<PreparedCardinalityMaintenance>,
 ) {
     apply_prepared_journal_batch(
-        db,
         store_path,
         handle,
         batch,
-        prepared_rows,
+        prepared_ops,
         JournalRecordApplyMode::Fold,
     );
     if let Some(maintenance) = cardinality_maintenance {
@@ -1039,7 +1044,7 @@ fn prepare_folded_cardinality_maintenance(
     watermark: FoldWatermark,
     next_watermark: FoldWatermark,
     batch: &JournalBatch,
-    prepared_rows: &[Option<PreparedRowCommitOp>],
+    prepared_ops: &[Option<PreparedJournalOp>],
 ) -> Result<Option<PreparedCardinalityMaintenance>, InternalError> {
     if batch
         .records()
@@ -1073,7 +1078,7 @@ fn prepare_folded_cardinality_maintenance(
             next_watermark,
         )
     })?;
-    let changes = collect_folded_cardinality_changes(handle, prepared_rows, &authority)?;
+    let changes = collect_folded_cardinality_changes(handle, prepared_ops, &authority)?;
     handle
         .with_schema(|schema| {
             schema.prepare_cardinality_maintenance(
@@ -1106,12 +1111,16 @@ const fn cardinality_batch_invalidates_source(record: &JournalRecord) -> bool {
 
 fn collect_folded_cardinality_changes(
     handle: StoreHandle,
-    prepared_rows: &[Option<PreparedRowCommitOp>],
+    prepared_ops: &[Option<PreparedJournalOp>],
     authority: &CardinalityBuildAuthority,
 ) -> Result<Vec<(CardinalityCountDigest, i64)>, InternalError> {
     let mut final_rows = BTreeMap::new();
     let mut final_indexes = BTreeMap::new();
-    for prepared in prepared_rows.iter().flatten() {
+    for prepared in prepared_ops
+        .iter()
+        .flatten()
+        .filter_map(PreparedJournalOp::row)
+    {
         if !std::ptr::eq(prepared.data_store, handle.data_store()) {
             return Err(InternalError::store_corruption());
         }
@@ -1216,7 +1225,7 @@ fn add_cardinality_change(
 fn prepare_online_batch_retirement(
     handle: StoreHandle,
     batch: &JournalBatch,
-    prepared_rows: &[Option<PreparedRowCommitOp>],
+    prepared_ops: &[Option<PreparedJournalOp>],
 ) -> Result<PreparedOnlineBatchRetirement, InternalError> {
     let allocation = handle
         .journal_allocation()
@@ -1228,9 +1237,10 @@ fn prepare_online_batch_retirement(
         let _decision = classify_journal_overlay(record);
         match record {
             JournalRecord::RowPut { .. } | JournalRecord::RowDelete { .. } => {
-                let prepared = prepared_rows
+                let prepared = prepared_ops
                     .get(record_ordinal)
                     .and_then(Option::as_ref)
+                    .and_then(PreparedJournalOp::row)
                     .ok_or_else(InternalError::store_corruption)?;
                 collect_online_row_retirement_keys(
                     prepared,
@@ -1358,6 +1368,29 @@ enum JournalRecordApplyMode {
     Fold,
 }
 
+// One ordinal-aligned handoff for operations whose construction must finish
+// before the first batch effect. Other control records retain their validator.
+enum PreparedJournalOp {
+    Row(PreparedRowCommitOp),
+    Schema(PreparedSchemaSnapshot),
+    AcceptedSchemaReplay {
+        expected_revision: AcceptedSchemaRevision,
+        candidate: Box<CandidateSchemaRevision>,
+    },
+    AcceptedSchemaFold(Box<PreparedAcceptedSchemaFold>),
+}
+
+impl PreparedJournalOp {
+    const fn row(&self) -> Option<&PreparedRowCommitOp> {
+        match self {
+            Self::Row(row) => Some(row),
+            Self::Schema(_) | Self::AcceptedSchemaReplay { .. } | Self::AcceptedSchemaFold(_) => {
+                None
+            }
+        }
+    }
+}
+
 fn identity_advance_id(
     batch: &JournalBatch,
     record_ordinal: usize,
@@ -1376,34 +1409,34 @@ fn prepare_replayed_journal_batch<C: CanisterKind>(
     expected_store_path: &'static str,
     expected_handle: StoreHandle,
     batch: &JournalBatch,
-) -> Result<Vec<Option<PreparedRowCommitOp>>, InternalError> {
+) -> Result<Vec<Option<PreparedJournalOp>>, InternalError> {
     let (_, batch_handle) = journal_batch_store_handle(db, batch)?;
     if !std::ptr::eq(batch_handle.data_store(), expected_handle.data_store()) {
         return Err(InternalError::store_corruption());
     }
-    let rows = prepare_recovered_row_transitions(db, expected_handle, batch)?;
-    let _candidate = validate_journal_batch_records(
+    let mut ops = prepare_recovered_row_transitions(db, expected_handle, batch)?;
+    validate_journal_batch_records(
         db,
         expected_store_path,
         expected_handle,
         batch,
         JournalRecordApplyMode::Replay,
+        &mut ops,
     )?;
 
-    Ok(rows)
+    Ok(ops)
 }
 
-fn apply_prepared_journal_batch<C: CanisterKind>(
-    db: &Db<C>,
+fn apply_prepared_journal_batch(
     expected_store_path: &'static str,
     expected_handle: StoreHandle,
     batch: &JournalBatch,
-    prepared_rows: &mut [Option<PreparedRowCommitOp>],
+    prepared_ops: &mut [Option<PreparedJournalOp>],
     mode: JournalRecordApplyMode,
 ) {
     for (record_ordinal, record) in batch.records().iter().enumerate() {
-        let result = match prepared_rows.get_mut(record_ordinal).and_then(Option::take) {
-            Some(row) => match mode {
+        let result = match prepared_ops.get_mut(record_ordinal).and_then(Option::take) {
+            Some(PreparedJournalOp::Row(row)) => match mode {
                 JournalRecordApplyMode::Replay => {
                     // Both appliers publish prepared indexes before rows;
                     // direct replay uses the ordinary storage-aware applier.
@@ -1412,8 +1445,56 @@ fn apply_prepared_journal_batch<C: CanisterKind>(
                 }
                 JournalRecordApplyMode::Fold => row.fold_recovered(),
             },
+            Some(PreparedJournalOp::Schema(snapshot)) => {
+                expected_handle.with_schema_mut(|store| match mode {
+                    JournalRecordApplyMode::Replay => {
+                        store.apply_prepared_persisted_snapshot(snapshot);
+                        Ok(())
+                    }
+                    JournalRecordApplyMode::Fold => {
+                        store.apply_prepared_fold_persisted_snapshot(snapshot)
+                    }
+                })
+            }
+            Some(PreparedJournalOp::AcceptedSchemaReplay {
+                expected_revision,
+                candidate,
+            }) => {
+                if mode == JournalRecordApplyMode::Replay {
+                    database_incarnation_id().and_then(|incarnation| {
+                        expected_handle.with_schema_mut(|store| {
+                            if expected_revision == AcceptedSchemaRevision::NONE
+                                || expected_handle.storage_capabilities().recovery()
+                                    == StoreRecoveryCapability::None
+                            {
+                                store.publish_accepted_schema_candidate(
+                                    incarnation,
+                                    expected_revision,
+                                    &candidate,
+                                )
+                            } else {
+                                store.apply_journaled_accepted_schema_candidate(
+                                    incarnation,
+                                    expected_revision,
+                                    &candidate,
+                                )
+                            }
+                        })
+                    })
+                } else {
+                    Err(InternalError::store_invariant())
+                }
+            }
+            Some(PreparedJournalOp::AcceptedSchemaFold(publication)) => {
+                if mode == JournalRecordApplyMode::Fold {
+                    expected_handle.with_schema_mut(|store| {
+                        store.apply_prepared_accepted_schema_fold(*publication)
+                    })
+                } else {
+                    Err(InternalError::store_invariant())
+                }
+            }
             None => apply_journal_record(
-                db,
                 expected_store_path,
                 expected_handle,
                 batch,
@@ -1432,8 +1513,7 @@ fn apply_prepared_journal_batch<C: CanisterKind>(
     clippy::too_many_lines,
     reason = "recovery keeps every journal record's replay and fold behavior in one exhaustive authority"
 )]
-fn apply_journal_record<C: CanisterKind>(
-    db: &Db<C>,
+fn apply_journal_record(
     expected_store_path: &'static str,
     expected_handle: StoreHandle,
     batch: &JournalBatch,
@@ -1442,98 +1522,11 @@ fn apply_journal_record<C: CanisterKind>(
     mode: JournalRecordApplyMode,
 ) -> Result<(), InternalError> {
     match record {
-        // Ordinary rows belong to the prepared batch in both replay and fold.
-        // Reaching record-level Apply without one is an invariant contradiction.
-        JournalRecord::RowPut { .. } | JournalRecord::RowDelete { .. } => {
-            Err(InternalError::store_invariant())
-        }
-        JournalRecord::SchemaPut {
-            store_path,
-            schema_snapshot_bytes,
-        } => {
-            if store_path != expected_store_path {
-                return Err(InternalError::store_corruption());
-            }
-            let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
-            let runtime_entity = match mode {
-                JournalRecordApplyMode::Replay => {
-                    db.accepted_runtime_entity_for_path(snapshot.entity_path())?
-                }
-                JournalRecordApplyMode::Fold => {
-                    crate::db::runtime_entity_catalog::canonical_runtime_entity_for_path(
-                        db,
-                        snapshot.entity_path(),
-                    )?
-                }
-            };
-            if runtime_entity.store_path() != expected_store_path {
-                return Err(InternalError::store_corruption());
-            }
-            expected_handle.with_schema_mut(|schema_store| match mode {
-                JournalRecordApplyMode::Replay => {
-                    schema_store.insert_persisted_snapshot(runtime_entity.entity_tag(), &snapshot)
-                }
-                JournalRecordApplyMode::Fold => {
-                    schema_store.fold_persisted_snapshot(runtime_entity.entity_tag(), &snapshot)
-                }
-            })
-        }
-        JournalRecord::AcceptedSchemaPublish {
-            store_path,
-            expected_revision,
-            schema_bundle_bytes,
-            schema_root_bytes,
-        } => {
-            if store_path != expected_store_path {
-                return Err(InternalError::store_corruption());
-            }
-            let candidate = crate::db::schema::CandidateSchemaRevision::from_encoded(
-                schema_bundle_bytes.clone(),
-                schema_root_bytes.clone(),
-            )?;
-            if candidate.store_path() != expected_store_path {
-                return Err(InternalError::store_corruption());
-            }
-            let incarnation = database_incarnation_id()?;
-            expected_handle.with_schema_mut(|schema_store| {
-                match (
-                    *expected_revision,
-                    expected_handle.storage_capabilities().recovery(),
-                    mode,
-                ) {
-                    (AcceptedSchemaRevision::NONE, _, JournalRecordApplyMode::Replay)
-                    | (_, StoreRecoveryCapability::None, JournalRecordApplyMode::Replay) => {
-                        schema_store.publish_accepted_schema_candidate(
-                            incarnation,
-                            *expected_revision,
-                            &candidate,
-                        )
-                    }
-                    (
-                        _,
-                        StoreRecoveryCapability::StableBasePlusJournalReplay,
-                        JournalRecordApplyMode::Replay,
-                    ) => schema_store.apply_journaled_accepted_schema_candidate(
-                        incarnation,
-                        *expected_revision,
-                        &candidate,
-                    ),
-                    (AcceptedSchemaRevision::NONE, _, JournalRecordApplyMode::Fold)
-                    | (_, StoreRecoveryCapability::None, JournalRecordApplyMode::Fold) => {
-                        Err(InternalError::store_corruption())
-                    }
-                    (
-                        _,
-                        StoreRecoveryCapability::StableBasePlusJournalReplay,
-                        JournalRecordApplyMode::Fold,
-                    ) => schema_store.fold_journaled_accepted_schema_candidate(
-                        incarnation,
-                        *expected_revision,
-                        &candidate,
-                    ),
-                }
-            })
-        }
+        // Rows and schema publications must arrive through their prepared slots.
+        JournalRecord::RowPut { .. }
+        | JournalRecord::RowDelete { .. }
+        | JournalRecord::SchemaPut { .. }
+        | JournalRecord::AcceptedSchemaPublish { .. } => Err(InternalError::store_invariant()),
         JournalRecord::AcceptedSchemaIndexDelete { keys, .. } => {
             apply_recovered_accepted_schema_index_chunk(expected_handle, keys, false, mode)
         }
@@ -1687,7 +1680,8 @@ fn validate_journal_batch_records<C: CanisterKind>(
     expected_handle: StoreHandle,
     batch: &JournalBatch,
     mode: JournalRecordApplyMode,
-) -> Result<Option<CandidateSchemaRevision>, InternalError> {
+    prepared: &mut [Option<PreparedJournalOp>],
+) -> Result<(), InternalError> {
     if mode == JournalRecordApplyMode::Fold {
         expected_handle.with_data(DataStore::preflight_fold_recovered_journal)?;
         expected_handle.with_index(IndexStore::preflight_fold_recovered_journal)?;
@@ -1697,7 +1691,7 @@ fn validate_journal_batch_records<C: CanisterKind>(
         validate_journal_batch_envelope(db, expected_store_path, expected_handle, batch, mode)?;
 
     for (record_ordinal, record) in batch.records().iter().enumerate() {
-        validate_journal_batch_record(
+        let schema = validate_journal_batch_record(
             db,
             expected_store_path,
             expected_handle,
@@ -1707,9 +1701,55 @@ fn validate_journal_batch_records<C: CanisterKind>(
             record,
             mode,
         )?;
+        if let Some(schema) = schema {
+            let slot = prepared
+                .get_mut(record_ordinal)
+                .ok_or_else(InternalError::store_invariant)?;
+            if slot.is_some() {
+                return Err(InternalError::store_invariant());
+            }
+            *slot = Some(PreparedJournalOp::Schema(schema));
+        }
     }
 
-    Ok(candidate)
+    // Every sibling record has now validated against the borrowed candidate.
+    // Move that same authority into application rather than decoding it again.
+    if let Some(candidate) = candidate {
+        let Some(JournalRecord::AcceptedSchemaPublish {
+            expected_revision, ..
+        }) = batch.records().first()
+        else {
+            return Err(InternalError::store_invariant());
+        };
+        let slot = prepared
+            .first_mut()
+            .ok_or_else(InternalError::store_invariant)?;
+        if slot.is_some() {
+            return Err(InternalError::store_invariant());
+        }
+        *slot = Some(match mode {
+            JournalRecordApplyMode::Replay => PreparedJournalOp::AcceptedSchemaReplay {
+                expected_revision: *expected_revision,
+                candidate: Box::new(candidate),
+            },
+            JournalRecordApplyMode::Fold => {
+                if *expected_revision == AcceptedSchemaRevision::NONE {
+                    return Err(InternalError::store_corruption());
+                }
+                let incarnation = database_incarnation_id()?;
+                let publication = expected_handle.with_schema(|store| {
+                    store.prepare_fold_journaled_accepted_schema_candidate(
+                        incarnation,
+                        *expected_revision,
+                        candidate,
+                    )
+                })?;
+                PreparedJournalOp::AcceptedSchemaFold(Box::new(publication))
+            }
+        });
+    }
+
+    Ok(())
 }
 
 fn validate_journal_batch_envelope<C: CanisterKind>(
@@ -1750,7 +1790,7 @@ fn validate_journal_batch_record<C: CanisterKind>(
     record_ordinal: usize,
     record: &JournalRecord,
     mode: JournalRecordApplyMode,
-) -> Result<(), InternalError> {
+) -> Result<Option<PreparedSchemaSnapshot>, InternalError> {
     match record {
         // Both entrypoints validate all row transitions before this record pass.
         // Keep batch-level uniqueness and accepted authority at that shared owner.
@@ -1777,26 +1817,19 @@ fn validate_journal_batch_record<C: CanisterKind>(
             if runtime_entity.store_path() != expected_store_path {
                 return Err(InternalError::store_corruption());
             }
-            if mode == JournalRecordApplyMode::Fold {
-                expected_handle
-                    .with_schema(|store| store.preflight_fold_persisted_snapshot(&snapshot))?;
-            }
+            let prepared = match mode {
+                JournalRecordApplyMode::Replay => {
+                    SchemaStore::prepare_persisted_snapshot(runtime_entity.entity_tag(), &snapshot)?
+                }
+                JournalRecordApplyMode::Fold => expected_handle.with_schema(|store| {
+                    store.prepare_fold_persisted_snapshot(runtime_entity.entity_tag(), &snapshot)
+                })?,
+            };
+            return Ok(Some(prepared));
         }
-        JournalRecord::AcceptedSchemaPublish {
-            expected_revision, ..
-        } => {
-            let candidate = candidate.ok_or_else(InternalError::store_corruption)?;
-            if mode == JournalRecordApplyMode::Fold {
-                let incarnation = database_incarnation_id()?;
-                expected_handle.with_schema(|store| {
-                    store.preflight_fold_journaled_accepted_schema_candidate(
-                        incarnation,
-                        *expected_revision,
-                        candidate,
-                    )
-                })?;
-            }
-        }
+        // The envelope owns candidate validation; the batch retains it after
+        // validating sibling records against that same candidate.
+        JournalRecord::AcceptedSchemaPublish { .. } => {}
         JournalRecord::ConstraintValidationJobPut { job_bytes, .. } => {
             if mode == JournalRecordApplyMode::Fold {
                 let job = decode_constraint_validation_job(job_bytes)?;
@@ -1948,7 +1981,7 @@ fn validate_journal_batch_record<C: CanisterKind>(
             }
         }
     }
-    Ok(())
+    Ok(None)
 }
 
 #[expect(
@@ -2929,6 +2962,8 @@ fn verify_recovered_validation_job<C: CanisterKind>(
 
 #[cfg(test)]
 mod tests {
+    mod schema_snapshot;
+
     use super::*;
 
     #[test]

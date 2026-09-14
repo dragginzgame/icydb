@@ -46,7 +46,8 @@ fn component_admission_precedes_invalid_encoding_in_every_index_shape() {
         .iter()
         .find(|index| index.name() == "b_wide_branch_idx")
         .unwrap();
-    let index = SemanticIndexAccessContract::from_accepted_field_path_index(accepted);
+    let index = SemanticIndexAccessContract::from_accepted_field_path_index(accepted)
+        .expect("valid accepted index fixture");
     let slots = accepted
         .fields()
         .iter()
@@ -150,7 +151,8 @@ fn exact_count_prefix_construction_is_cumulative_and_row_free_in_every_lane() {
         .unwrap();
     let schema = catalog.accepted_schema_info();
     let authority = catalog.accepted_entity_authority();
-    let visible = VisibleIndexes::accepted_schema_visible(schema);
+    let visible =
+        VisibleIndexes::accepted_schema_visible(schema).expect("valid accepted index fixture");
     let branches: Vec<_> = (0..17)
         .map(|value| Value::Text(format!("branch-{value:02}")))
         .collect();
@@ -182,10 +184,12 @@ fn exact_count_prefix_construction_is_cumulative_and_row_free_in_every_lane() {
     for (predicate, values) in cases {
         let query =
             StructuralQuery::new(MissingRowPolicy::Ignore).filter_normalized_predicate(predicate);
-        let access = query
-            .try_build_count_cardinality_prefix_access_with_schema_info(&visible, schema)
-            .unwrap()
-            .unwrap();
+        let proof_root = request(Resource::TemporaryBytes, 16_000_000);
+        let access = PreparationWork::run(&proof_root.scope(), Lane::Diagnostic, |work| {
+            query.try_build_count_cardinality_prefix_access_with_schema_info(&visible, schema, work)
+        })
+        .unwrap()
+        .unwrap();
         let index = access.index();
         let index_id = IndexId::new_with_generation(
             authority.entity_tag(),
@@ -218,17 +222,23 @@ fn exact_count_prefix_construction_is_cumulative_and_row_free_in_every_lane() {
                     .capacity() as u64
             })
             .sum();
+        // Shared planner tests pin construction amounts at their owner. This
+        // integration pins propagation into the same request as key encoding,
+        // without duplicating the planner's internal cache/prefix layout here.
+        let proof_bytes = proof_root.observed(Resource::TemporaryBytes);
+        let proof_steps = proof_root.observed(Resource::PredicateExpressionSteps);
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             for (resource, exact) in [
                 (
                     Resource::TemporaryBytes,
                     (values.len() * size_of::<UserIndexPrefixCardinalityKey>()
                         + components * size_of::<EncodedValue>()) as u64
-                        + scalar_bytes,
+                        + scalar_bytes
+                        + proof_bytes,
                 ),
                 (
                     Resource::PredicateExpressionSteps,
-                    components as u64 + scalar_bytes,
+                    components as u64 + scalar_bytes + proof_steps,
                 ),
             ] {
                 for limit in [exact - 1, exact, 2 * exact] {

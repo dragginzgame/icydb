@@ -15,7 +15,7 @@ use crate::{
             plan_access_selection_with_order_and_semantic_indexes,
         },
         query::preparation::PreparationWork,
-        schema::{SchemaInfo, ValidateError},
+        schema::SchemaInfo,
     },
     value::Value,
 };
@@ -62,12 +62,13 @@ impl<'a> AccessPlanningInputs<'a> {
 pub(in crate::db::query) fn normalize_query_predicate(
     schema_info: &SchemaInfo,
     predicate: Option<&Predicate>,
-) -> Result<Option<Predicate>, ValidateError> {
+    work: &PreparationWork<'_>,
+) -> Result<Option<Predicate>, QueryError> {
     predicate
         .map(|predicate| {
-            let predicate = normalize_enum_literals(schema_info, predicate)?;
+            let predicate = normalize_enum_literals(schema_info, predicate, work)?;
 
-            Ok::<Predicate, ValidateError>(normalize(predicate))
+            Ok::<Predicate, QueryError>(normalize(predicate))
         })
         .transpose()
 }

@@ -73,11 +73,12 @@ pub(in crate::db) fn validate_nullable_unique_index_contract(
         .map(|sql| {
             let predicate = parse_sql_predicate(sql)
                 .map_err(|_| super::SchemaSnapshotAcceptanceError::Predicate)?;
-            let predicate = normalize(predicate);
+            // Validate authored references before simplification can erase an
+            // unbound field inside a contradictory or redundant branch.
             if !predicate_fields_bind(fields, &predicate) {
                 return Err(super::SchemaSnapshotAcceptanceError::Predicate);
             }
-            Ok(predicate)
+            Ok(normalize(predicate))
         })
         .transpose()?;
 

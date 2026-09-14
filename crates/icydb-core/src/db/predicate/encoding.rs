@@ -3,6 +3,8 @@
 //! Does not own: predicate normalization policy or hash consumer boundaries.
 //! Boundary: consumed by normalization sort-key generation and fingerprint hashing.
 
+mod admission;
+
 use crate::{
     db::{
         numeric::coerce_numeric_decimal,
@@ -14,6 +16,10 @@ use crate::{
     },
 };
 use std::borrow::Cow;
+
+pub(in crate::db::predicate) use admission::{
+    normalized_predicate_key_capacity, raw_predicate_key_capacity,
+};
 
 const SORT_PRED_TRUE: u8 = 0x00;
 const SORT_PRED_FALSE: u8 = 0x01;
@@ -304,7 +310,7 @@ fn canonicalize_compare_literal_list_for_coercion(
 }
 
 fn push_len_u64(out: &mut Vec<u8>, len: usize) {
-    // Sort keys are diagnostics-only; overflow saturates for determinism.
+    // Sort and fingerprint keys share deterministic length framing.
     let len = u64::try_from(len).unwrap_or(u64::MAX);
     out.extend_from_slice(&len.to_be_bytes());
 }

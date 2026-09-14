@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::db::query::explain::writer::MAX_LOGICAL_RENDER_BYTES;
+use crate::db::query::preparation::with_preparation_work;
 use icydb_diagnostic_code::DiagnosticFactTag;
 
 use crate::db::{
@@ -297,8 +298,7 @@ fn explain_preserves_scalar_and_grouped_continuation_identity() {
         let root = request(Resource::TemporaryBytes, 16_000_000);
         let plan = project(&query, &root).unwrap();
         assert_eq!(
-            query
-                .continuation_signature("tests::Entity")
+            with_preparation_work(|work| query.continuation_signature("tests::Entity", work))
                 .unwrap()
                 .to_string(),
             continuation
@@ -338,7 +338,9 @@ fn explain_projection_charges_repeated_borrowed_calls_without_changing_identity(
     scalar.filter_expr = None;
     for query in [scalar_query(), grouped_query(), predicate_only] {
         let before = query.clone();
-        let signature = query.continuation_signature("tests::Entity").unwrap();
+        let signature =
+            with_preparation_work(|work| query.continuation_signature("tests::Entity", work))
+                .unwrap();
         let generous = request(Resource::TemporaryBytes, 16_000_000);
         let expected = project(&query, &generous).unwrap();
         assert_eq!(
@@ -370,7 +372,10 @@ fn explain_projection_charges_repeated_borrowed_calls_without_changing_identity(
                     );
                     assert_eq!(query, before);
                     assert_eq!(
-                        query.continuation_signature("tests::Entity").unwrap(),
+                        with_preparation_work(
+                            |work| query.continuation_signature("tests::Entity", work)
+                        )
+                        .unwrap(),
                         signature
                     );
                     assert_eq!(short.observed(Resource::RowsVisited), 0);
@@ -390,7 +395,8 @@ fn explain_projection_charges_repeated_borrowed_calls_without_changing_identity(
             );
             assert_eq!(query, before);
             assert_eq!(
-                query.continuation_signature("tests::Entity").unwrap(),
+                with_preparation_work(|work| query.continuation_signature("tests::Entity", work))
+                    .unwrap(),
                 signature
             );
             assert_eq!(exact.observed(Resource::RowsVisited), 0);
@@ -431,7 +437,8 @@ fn explain_access_depth_bounds_detached_rendering_without_changing_query_identit
 
     query.access = AccessPlan::Union(vec![query.access]);
     let before = query.clone();
-    let identity = query.continuation_signature("tests::Entity").unwrap();
+    let identity =
+        with_preparation_work(|work| query.continuation_signature("tests::Entity", work)).unwrap();
     let error = project(&query, &root).unwrap_err();
     assert_eq!(
         error.diagnostic(),
@@ -439,7 +446,7 @@ fn explain_access_depth_bounds_detached_rendering_without_changing_query_identit
     );
     assert_eq!(query, before);
     assert_eq!(
-        query.continuation_signature("tests::Entity").unwrap(),
+        with_preparation_work(|work| query.continuation_signature("tests::Entity", work)).unwrap(),
         identity
     );
     assert_eq!(root.observed(Resource::RowsVisited), 0);
@@ -494,7 +501,7 @@ fn decision_projection_counts_composite_constraints_with_cumulative_visits() {
     let snapshot = AccessChoiceExplainSnapshot::from_planned_non_index_reason(
         crate::db::query::plan::PlannedNonIndexAccessReason::PlannerExactIndexIntersection,
     );
-    let decision = crate::db::query::preparation::with_preparation_work(|work| {
+    let decision = with_preparation_work(|work| {
         ExplainAccessDecision::from_snapshot(&access, &snapshot, work)
     })
     .unwrap();

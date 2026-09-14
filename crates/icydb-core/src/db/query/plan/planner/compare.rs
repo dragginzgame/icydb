@@ -5,6 +5,8 @@
 
 #[cfg(test)]
 mod admission_tests;
+#[cfg(test)]
+pub(super) mod prefix_tests;
 
 use crate::{
     db::{
@@ -12,14 +14,14 @@ use crate::{
             AccessPath, AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef,
             SemanticIndexRangeSpec,
         },
-        index::{TextPrefixBoundMode, starts_with_component_bounds},
+        index::{TextPrefixBoundMode, admit_text_prefix_bounds, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, ComparePredicate},
         query::construction::ConstructionBudget,
         query::plan::{
             OrderSpec, field_key_contract_supports_operator,
             key_item_match::{
                 copy_lookup_value_for_key_item, key_item_supports_lookup_value,
-                starts_with_lookup_value_for_key_item,
+                key_item_supports_starts_with_value,
             },
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
@@ -121,7 +123,7 @@ pub(super) fn plan_compare(
             //   because the derived expression ordering does not yet expose one
             //   tighter planner-owned upper-bound contract
             if let Some(path) =
-                plan_starts_with_compare(candidate_indexes, schema, cmp, order, grouped)
+                plan_starts_with_compare(candidate_indexes, schema, cmp, order, grouped, budget)?
             {
                 return Ok(path);
             }
@@ -211,47 +213,61 @@ fn plan_starts_with_compare(
     cmp: &ComparePredicate,
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> Option<AccessPlan<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
     // This helper owns the shared starts-with range lowering contract for both
     // raw field keys and the expression-key casefold path.
-    let field_type = schema.field(&cmp.field)?;
-    if !field_type.is_text() {
-        return None;
+    if !schema.field(&cmp.field).is_some_and(FieldType::is_text) {
+        return Ok(None);
     }
     let literal_compatible = index_literal_matches_schema(schema, &cmp.field, &cmp.value);
-    let mut best: Option<(
-        AccessCandidateScore,
-        &SemanticIndexAccessContract,
-        Bound<Value>,
-        Bound<Value>,
-    )> = None;
-    for index in candidate_indexes {
-        let Some(leading_key_item) = index.key_item_at(0) else {
-            continue;
-        };
-        let Some(prefix) = starts_with_lookup_value_for_key_item(
-            leading_key_item,
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        candidate_indexes.len() as u64,
+    )?;
+    let mut candidates = candidate_indexes.iter().filter_map(|index| {
+        let key = index.key_item_at(0)?;
+        key_item_supports_starts_with_value(
+            key,
             cmp.field.as_str(),
             &cmp.value,
             cmp.coercion.id,
             literal_compatible,
-        ) else {
-            continue;
-        };
+        )
+        .then_some((index, key))
+    });
+    let Some(first) = candidates.next() else {
+        return Ok(None);
+    };
 
-        // Expression-key components are length-prefixed in raw key framing.
-        // A semantic `next_prefix` upper bound can exclude longer matching values,
-        // so expression starts-with lowers to a safe lower-bounded envelope and
-        // relies on residual filter evaluation for exact prefix semantics.
-        let (lower, upper) = starts_with_component_bounds(
-            &prefix,
-            if leading_key_item.is_expression() {
-                TextPrefixBoundMode::LowerOnly
-            } else {
-                TextPrefixBoundMode::Strict
-            },
-        )?;
+    // One predicate's coercion admits either raw field keys or LOWER keys,
+    // never a mixture. Their bounds are identical across eligible indexes;
+    // construct once, then rank using the actual (possibly unbounded) interval.
+    let Some(Value::Text(prefix)) = copy_lookup_value_for_key_item(
+        first.1,
+        &cmp.field,
+        &cmp.value,
+        cmp.coercion.id,
+        literal_compatible,
+        budget,
+    )?
+    else {
+        return Ok(None);
+    };
+    // Expression framing needs a lower-only envelope plus residual filtering:
+    // a semantic successor could exclude longer matching expression values.
+    let mode = if first.1.is_expression() {
+        TextPrefixBoundMode::LowerOnly
+    } else {
+        TextPrefixBoundMode::Strict
+    };
+    admit_text_prefix_bounds(&prefix, mode, budget)?;
+    let Some((lower, upper)) = starts_with_component_bounds(&prefix, mode) else {
+        return Ok(None);
+    };
 
+    let mut best: Option<(AccessCandidateScore, &SemanticIndexAccessContract)> = None;
+    for (index, _) in std::iter::once(first).chain(candidates) {
         let score = access_candidate_score_from_index_contract(
             schema,
             order,
@@ -262,26 +278,32 @@ fn plan_starts_with_compare(
             grouped,
         );
         match best {
-            None => best = Some((score, index, lower, upper)),
-            Some((best_score, best_index, _, _))
+            None => best = Some((score, index)),
+            Some((best_score, best_index))
                 if access_candidate_score_outranks(score, best_score, false)
                     || (score == best_score && index.name() < best_index.name()) =>
             {
-                best = Some((score, index, lower, upper));
+                best = Some((score, index));
             }
             _ => {}
         }
     }
 
-    best.map(|(_, index, lower, upper)| {
-        AccessPlan::index_range(SemanticIndexRangeSpec::from_access_contract(
-            index.clone(),
-            vec![0usize],
-            Vec::new(),
-            lower,
-            upper,
-        ))
-    })
+    let Some((_, index)) = best else {
+        return Ok(None);
+    };
+    let mut slots = budget.vec_with_capacity(1)?;
+    slots.push(0usize);
+    let spec = SemanticIndexRangeSpec::from_access_contract(
+        index.clone(),
+        slots,
+        Vec::new(),
+        lower,
+        upper,
+    );
+    Ok(Some(AccessPlan::Path(
+        budget.boxed(AccessPath::IndexRange { spec })?,
+    )))
 }
 
 fn plan_ordered_compare(

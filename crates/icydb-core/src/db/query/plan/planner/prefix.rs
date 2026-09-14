@@ -3,6 +3,11 @@
 //! Does not own: runtime index traversal execution or continuation resume behavior.
 //! Boundary: maps prefix-capable predicates into planner-owned access plan candidates.
 
+#[cfg(test)]
+mod branch_tests;
+#[cfg(test)]
+mod equality_tests;
+
 use crate::{
     db::{
         access::{
@@ -14,8 +19,8 @@ use crate::{
         query::plan::{
             OrderDirection, OrderSpec,
             key_item_match::{
-                copy_lookup_value_for_key_item, eq_lookup_value_for_key_item,
-                key_item_matches_field_and_coercion, key_item_supports_lookup_value,
+                copy_lookup_value_for_key_item, key_item_matches_field_and_coercion,
+                key_item_supports_lookup_value, lower_lookup_value_for_key_item,
             },
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
@@ -29,6 +34,7 @@ use crate::{
     value::{Value, canonicalize_value_set},
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+use std::borrow::Cow;
 
 fn leading_index_prefix_lookup_value(
     index_contract: &SemanticIndexAccessContract,
@@ -184,10 +190,12 @@ pub(super) fn index_prefix_from_and(
     children: &[Predicate],
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> Option<AccessPlan<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
     // Cache literal/schema compatibility once per equality literal so index
     // candidate selection does not repeat schema checks on every index iteration.
     let mut field_values = Vec::new();
+    budget.charge(Resource::PredicateExpressionSteps, children.len() as u64)?;
 
     for child in children {
         let Predicate::Compare(cmp) = child else {
@@ -202,6 +210,7 @@ pub(super) fn index_prefix_from_and(
         ) {
             continue;
         }
+        budget.reserve_vec(&mut field_values, 1)?;
         field_values.push(CachedEqLiteral {
             field: cmp.field.as_str(),
             value: &cmp.value,
@@ -215,8 +224,12 @@ pub(super) fn index_prefix_from_and(
         &SemanticIndexAccessContract,
         Vec<Value>,
     )> = None;
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        candidate_indexes.len() as u64,
+    )?;
     for index in candidate_indexes {
-        let Some(prefix) = build_index_eq_prefix(index, &field_values) else {
+        let Some(prefix) = build_index_eq_prefix(index.key_items(), &field_values, budget)? else {
             continue;
         };
         if prefix.is_empty() {
@@ -244,7 +257,17 @@ pub(super) fn index_prefix_from_and(
         }
     }
 
-    best.map(|(_, index, values)| AccessPlan::index_prefix_from_contract(index.clone(), values))
+    best.map(|(_, index, values)| {
+        budget.charge(
+            Resource::TemporaryBytes,
+            size_of::<AccessPath<Value>>() as u64,
+        )?;
+        Ok(AccessPlan::index_prefix_from_contract(
+            index.clone(),
+            values,
+        ))
+    })
+    .transpose()
 }
 
 pub(super) fn index_branch_set_from_and(
@@ -253,7 +276,8 @@ pub(super) fn index_branch_set_from_and(
     children: &[Predicate],
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> Option<AccessPlan<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
     index_branch_set_from_and_with_cap(
         candidate_indexes,
         schema,
@@ -261,7 +285,7 @@ pub(super) fn index_branch_set_from_and(
         order,
         grouped,
         MAX_INDEX_BRANCH_SET_VALUES,
-        true,
+        budget,
     )
 }
 
@@ -270,7 +294,8 @@ pub(in crate::db::query) fn count_cardinality_index_branch_set_from_and(
     schema: &SchemaInfo,
     children: &[Predicate],
     max_branch_values: usize,
-) -> Option<AccessPlan<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
     // This semantic plan is proof input for exact metadata only. Its cap is
     // deliberately independent of executable branch-plan admission, and the
     // caller must not route it into row execution.
@@ -281,7 +306,7 @@ pub(in crate::db::query) fn count_cardinality_index_branch_set_from_and(
         None,
         false,
         max_branch_values,
-        false,
+        budget,
     )
 }
 
@@ -292,11 +317,10 @@ fn index_branch_set_from_and_with_cap(
     order: Option<&OrderSpec>,
     grouped: bool,
     max_branch_values: usize,
-    record_shared_branch_cap: bool,
-) -> Option<AccessPlan<Value>> {
-    let _ = record_shared_branch_cap;
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<AccessPlan<Value>>, InternalError> {
     if grouped || order.is_some_and(|order| !primary_key_asc_order(schema, order)) {
-        return None;
+        return Ok(None);
     }
 
     let mut eq_values = Vec::new();
@@ -308,9 +332,10 @@ fn index_branch_set_from_and_with_cap(
         &mut eq_values,
         &mut in_values,
         &mut excluded_values,
-    );
+        budget,
+    )?;
     if eq_values.is_empty() || in_values.is_empty() {
-        return None;
+        return Ok(None);
     }
 
     let mut best: Option<(
@@ -319,8 +344,13 @@ fn index_branch_set_from_and_with_cap(
         Vec<Value>,
         Vec<Value>,
     )> = None;
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        candidate_indexes.len() as u64,
+    )?;
     for index in candidate_indexes {
-        let Some(fixed_values) = build_index_eq_prefix(index, &eq_values) else {
+        let Some(fixed_values) = build_index_eq_prefix(index.key_items(), &eq_values, budget)?
+        else {
             continue;
         };
         if fixed_values.is_empty() {
@@ -331,11 +361,17 @@ fn index_branch_set_from_and_with_cap(
         let Some(branch_key_item) = index.key_item_at(branch_slot) else {
             continue;
         };
-        let Some(branch_values) = build_index_branch_values(branch_key_item, &in_values) else {
+        let Some(branch_values) = build_index_branch_values(branch_key_item, &in_values, budget)?
+        else {
             continue;
         };
         let mut branch_values = branch_values;
-        prune_branch_values_by_exclusions(branch_key_item, &mut branch_values, &excluded_values);
+        prune_branch_values_by_exclusions(
+            branch_key_item,
+            &mut branch_values,
+            &excluded_values,
+            budget,
+        )?;
         if branch_values.is_empty() || branch_values.len() > max_branch_values {
             continue;
         }
@@ -374,15 +410,20 @@ fn index_branch_set_from_and_with_cap(
         }
     }
 
-    best.map(|(_, index, fixed_values, branch_values)| {
-        if let [branch_value] = branch_values.as_slice() {
-            let mut values = fixed_values;
-            values.push(branch_value.clone());
-            AccessPlan::index_prefix_from_contract(index.clone(), values)
-        } else {
-            AccessPlan::index_branch_set_from_contract(index.clone(), fixed_values, branch_values)
-        }
-    })
+    let Some((_, index, mut fixed_values, branch_values)) = best else {
+        return Ok(None);
+    };
+    budget.charge(
+        Resource::TemporaryBytes,
+        size_of::<AccessPath<Value>>() as u64,
+    )?;
+    Ok(Some(if branch_values.len() == 1 {
+        budget.reserve_vec(&mut fixed_values, 1)?;
+        fixed_values.extend(branch_values);
+        AccessPlan::index_prefix_from_contract(index.clone(), fixed_values)
+    } else {
+        AccessPlan::index_branch_set_from_contract(index.clone(), fixed_values, branch_values)
+    }))
 }
 
 fn primary_key_asc_order(schema: &SchemaInfo, order: &OrderSpec) -> bool {
@@ -395,7 +436,9 @@ fn collect_branch_set_literals<'a>(
     eq_values: &mut Vec<CachedEqLiteral<'a>>,
     in_values: &mut Vec<CachedSetLiteral<'a>>,
     excluded_values: &mut Vec<CachedSetLiteral<'a>>,
-) {
+    budget: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
+    budget.charge(Resource::PredicateExpressionSteps, children.len() as u64)?;
     for child in children {
         let Predicate::Compare(cmp) = child else {
             continue;
@@ -408,6 +451,7 @@ fn collect_branch_set_literals<'a>(
         }
         match cmp.op {
             CompareOp::Eq => {
+                budget.reserve_vec(eq_values, 1)?;
                 eq_values.push(CachedEqLiteral {
                     field: cmp.field.as_str(),
                     value: &cmp.value,
@@ -415,51 +459,34 @@ fn collect_branch_set_literals<'a>(
                     compatible: index_literal_matches_schema(schema, &cmp.field, &cmp.value),
                 });
             }
-            CompareOp::In => {
-                let Value::List(values) = &cmp.value else {
-                    continue;
+            CompareOp::In | CompareOp::Ne | CompareOp::NotIn => {
+                let values = match (&cmp.op, &cmp.value) {
+                    (CompareOp::Ne, value) => std::slice::from_ref(value),
+                    (_, Value::List(values)) => values.as_slice(),
+                    _ => continue,
                 };
-                in_values.push(CachedSetLiteral {
-                    field: cmp.field.as_str(),
-                    values: values
-                        .iter()
-                        .map(|value| CachedInValue {
-                            value,
-                            compatible: index_literal_matches_schema(schema, &cmp.field, value),
-                        })
-                        .collect(),
-                    coercion: cmp.coercion.id,
-                });
-            }
-            CompareOp::Ne => {
-                excluded_values.push(CachedSetLiteral {
-                    field: cmp.field.as_str(),
-                    values: vec![CachedInValue {
-                        value: &cmp.value,
-                        compatible: index_literal_matches_schema(schema, &cmp.field, &cmp.value),
-                    }],
-                    coercion: cmp.coercion.id,
-                });
-            }
-            CompareOp::NotIn => {
-                let Value::List(values) = &cmp.value else {
-                    continue;
+                let destination = if cmp.op == CompareOp::In {
+                    &mut *in_values
+                } else {
+                    &mut *excluded_values
                 };
-                excluded_values.push(CachedSetLiteral {
+                budget.reserve_vec(destination, 1)?;
+                budget.charge(Resource::PredicateExpressionSteps, values.len() as u64)?;
+                let mut cached_values = budget.vec_with_capacity(values.len())?;
+                cached_values.extend(values.iter().map(|value| CachedInValue {
+                    value,
+                    compatible: index_literal_matches_schema(schema, &cmp.field, value),
+                }));
+                destination.push(CachedSetLiteral {
                     field: cmp.field.as_str(),
-                    values: values
-                        .iter()
-                        .map(|value| CachedInValue {
-                            value,
-                            compatible: index_literal_matches_schema(schema, &cmp.field, value),
-                        })
-                        .collect(),
+                    values: cached_values,
                     coercion: cmp.coercion.id,
                 });
             }
             _ => {}
         }
     }
+    Ok(())
 }
 
 ///
@@ -487,35 +514,37 @@ struct CachedInValue<'a> {
 }
 
 fn build_index_eq_prefix(
-    index_contract: &SemanticIndexAccessContract,
-    field_values: &[CachedEqLiteral<'_>],
-) -> Option<Vec<Value>> {
-    build_index_eq_prefix_for_items(index_contract.key_items(), field_values)
-}
-
-fn build_index_eq_prefix_for_items(
     key_items: &[crate::db::access::SemanticIndexKeyItem],
     field_values: &[CachedEqLiteral<'_>],
-) -> Option<Vec<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Vec<Value>>, InternalError> {
+    // Bound key/literal visits up front, including slots after a possible gap.
+    // Payload comparisons remain distinct from these structural visit units.
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        (key_items.len() as u64).saturating_mul((field_values.len() as u64).saturating_add(1)),
+    )?;
     let mut prefix = Vec::new();
     for key_item in key_items {
         let key_item = key_item.as_ref();
-        let mut matched: Option<Value> = None;
+        let mut matched: Option<Cow<'_, Value>> = None;
         for cached in field_values {
-            let Some(candidate) = eq_lookup_value_for_key_item(
+            let Some(candidate) = lower_lookup_value_for_key_item(
                 key_item,
                 cached.field,
                 cached.value,
                 cached.coercion,
                 cached.compatible,
-            ) else {
+                budget,
+            )?
+            else {
                 continue;
             };
 
             if let Some(existing) = &matched
                 && existing != &candidate
             {
-                return None;
+                return Ok(None);
             }
             matched = Some(candidate);
         }
@@ -523,75 +552,110 @@ fn build_index_eq_prefix_for_items(
         let Some(value) = matched else {
             break;
         };
-        prefix.push(value);
+        // Preserve the last equal literal's representation, as before, but
+        // borrow unchanged duplicates until one value is retained per slot.
+        if prefix.is_empty() {
+            prefix = budget.vec_with_capacity(key_items.len())?;
+        }
+        prefix.push(match value {
+            Cow::Borrowed(value) => budget.copy_value(value)?,
+            Cow::Owned(value) => value,
+        });
     }
 
-    Some(prefix)
+    Ok(Some(prefix))
 }
 
 fn build_index_branch_values(
     key_item: SemanticIndexKeyItemRef<'_>,
     in_values: &[CachedSetLiteral<'_>],
-) -> Option<Vec<Value>> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Vec<Value>>, InternalError> {
+    budget.charge(Resource::PredicateExpressionSteps, in_values.len() as u64)?;
     let mut matched: Option<Vec<Value>> = None;
     for cached in in_values {
         if key_item.field() != cached.field {
             continue;
         }
 
-        let mut branch_values = Vec::with_capacity(cached.values.len());
+        budget.charge(
+            Resource::PredicateExpressionSteps,
+            cached.values.len() as u64,
+        )?;
+        let mut branch_values = budget.vec_with_capacity(cached.values.len())?;
         for cached_value in &cached.values {
             if !cached_value.compatible {
-                return None;
+                return Ok(None);
             }
-            let lookup_value = eq_lookup_value_for_key_item(
+            let Some(lookup_value) = copy_lookup_value_for_key_item(
                 key_item,
                 cached.field,
                 cached_value.value,
                 cached.coercion,
                 true,
-            )?;
+                budget,
+            )?
+            else {
+                return Ok(None);
+            };
             branch_values.push(lookup_value);
         }
         canonicalize_value_set(&mut branch_values);
         if branch_values.is_empty() {
-            return None;
+            return Ok(None);
         }
 
         if let Some(existing) = &matched
             && existing != &branch_values
         {
-            return None;
+            return Ok(None);
         }
         matched = Some(branch_values);
     }
 
-    matched
+    Ok(matched)
 }
 
 fn prune_branch_values_by_exclusions(
     key_item: SemanticIndexKeyItemRef<'_>,
     branch_values: &mut Vec<Value>,
     excluded_values: &[CachedSetLiteral<'_>],
-) {
-    branch_values.retain(|branch_value| {
-        !excluded_values.iter().any(|excluded| {
-            if key_item.field() != excluded.field {
-                return false;
+    budget: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        excluded_values.len() as u64,
+    )?;
+    for excluded in excluded_values {
+        if key_item.field() != excluded.field || branch_values.is_empty() {
+            continue;
+        }
+        // Reserve the whole set's structural visits before pruning. Later
+        // passes may inspect fewer branches; payload comparison is separate.
+        budget.charge(
+            Resource::PredicateExpressionSteps,
+            (excluded.values.len() as u64)
+                .saturating_mul((branch_values.len() as u64).saturating_add(1)),
+        )?;
+        for excluded_value in &excluded.values {
+            if branch_values.is_empty() {
+                break;
             }
-            excluded.values.iter().any(|excluded_value| {
-                if !excluded_value.compatible {
-                    return false;
-                }
-                eq_lookup_value_for_key_item(
-                    key_item,
-                    excluded.field,
-                    excluded_value.value,
-                    excluded.coercion,
-                    true,
-                )
-                .is_some_and(|lookup_value| lookup_value == *branch_value)
-            })
-        })
-    });
+            // Normalize each exclusion once, borrowing unchanged values rather
+            // than constructing the same operand for every retained branch.
+            let Some(lookup_value) = lower_lookup_value_for_key_item(
+                key_item,
+                excluded.field,
+                excluded_value.value,
+                excluded.coercion,
+                excluded_value.compatible,
+                budget,
+            )?
+            else {
+                continue;
+            };
+            branch_values.retain(|branch_value| lookup_value.as_ref() != branch_value);
+        }
+    }
+    Ok(())
 }

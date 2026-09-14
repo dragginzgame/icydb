@@ -10,6 +10,7 @@ use crate::{
         predicate::normalized_accepted_index_predicate,
         schema::{SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo},
     },
+    error::InternalError,
     value::Value,
 };
 use std::ops::Bound;
@@ -128,11 +129,11 @@ impl PartialEq for SemanticIndexAccessContract {
 impl Eq for SemanticIndexAccessContract {}
 
 impl SemanticIndexAccessContract {
-    #[must_use]
     pub(in crate::db) fn from_accepted_field_path_index(
         accepted: &crate::db::schema::SchemaIndexInfo,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, InternalError> {
+        let predicate_semantics = normalized_accepted_index_predicate(accepted.predicate_sql())?;
+        Ok(Self {
             inner: std::sync::Arc::new(SemanticIndexAccessContractInner {
                 ordinal: accepted.ordinal(),
                 physical_generation: accepted.physical_generation(),
@@ -149,16 +150,16 @@ impl SemanticIndexAccessContract {
                     })
                     .collect(),
                 unique: accepted.unique(),
-                predicate_semantics: normalized_accepted_index_predicate(accepted.predicate_sql()),
+                predicate_semantics,
             }),
-        }
+        })
     }
 
-    #[must_use]
     pub(in crate::db) fn from_accepted_expression_index(
         accepted: &SchemaExpressionIndexInfo,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, InternalError> {
+        let predicate_semantics = normalized_accepted_index_predicate(accepted.predicate_sql())?;
+        Ok(Self {
             inner: std::sync::Arc::new(SemanticIndexAccessContractInner {
                 ordinal: accepted.ordinal(),
                 physical_generation: accepted.physical_generation(),
@@ -170,9 +171,9 @@ impl SemanticIndexAccessContract {
                     .map(accepted_expression_key_item)
                     .collect(),
                 unique: accepted.unique(),
-                predicate_semantics: normalized_accepted_index_predicate(accepted.predicate_sql()),
+                predicate_semantics,
             }),
-        }
+        })
     }
 
     #[must_use]

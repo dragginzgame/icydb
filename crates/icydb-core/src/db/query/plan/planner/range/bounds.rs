@@ -11,13 +11,13 @@ use std::{cmp::Ordering, ops::Bound};
 pub(in crate::db::query::plan::planner::range) fn merge_range_constraint(
     existing: &mut RangeConstraint,
     op: CompareOp,
-    value: &Value,
+    value: Value,
 ) -> bool {
     let merged = match op {
-        CompareOp::Gt => merge_lower_bound(&mut existing.lower, Bound::Excluded(value.clone())),
-        CompareOp::Gte => merge_lower_bound(&mut existing.lower, Bound::Included(value.clone())),
-        CompareOp::Lt => merge_upper_bound(&mut existing.upper, Bound::Excluded(value.clone())),
-        CompareOp::Lte => merge_upper_bound(&mut existing.upper, Bound::Included(value.clone())),
+        CompareOp::Gt => merge_lower_bound(&mut existing.lower, Bound::Excluded(value)),
+        CompareOp::Gte => merge_lower_bound(&mut existing.lower, Bound::Included(value)),
+        CompareOp::Lt => merge_upper_bound(&mut existing.upper, Bound::Excluded(value)),
+        CompareOp::Lte => merge_upper_bound(&mut existing.upper, Bound::Included(value)),
         _ => false,
     };
     if !merged {
@@ -31,12 +31,12 @@ pub(in crate::db::query::plan::planner::range) fn merge_range_constraint(
 // STARTS_WITH can share the same compatibility checks as explicit inequalities.
 pub(in crate::db::query::plan::planner::range) fn merge_range_constraint_bounds(
     existing: &mut RangeConstraint,
-    candidate: &RangeConstraint,
+    candidate: RangeConstraint,
 ) -> bool {
-    if !merge_lower_bound(&mut existing.lower, candidate.lower.clone()) {
+    if !merge_lower_bound(&mut existing.lower, candidate.lower) {
         return false;
     }
-    if !merge_upper_bound(&mut existing.upper, candidate.upper.clone()) {
+    if !merge_upper_bound(&mut existing.upper, candidate.upper) {
         return false;
     }
 

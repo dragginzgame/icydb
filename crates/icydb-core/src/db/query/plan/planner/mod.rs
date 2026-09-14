@@ -14,6 +14,7 @@ mod predicate;
 mod prefix;
 mod range;
 mod ranking;
+
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexAccessContract, normalize_access_plan_value},
@@ -27,6 +28,8 @@ use crate::{
 };
 
 pub(in crate::db::query::plan) use crate::db::access::MAX_INDEX_BRANCH_SET_VALUES;
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db::query::plan) use compare::prefix_tests::schema as prefix_test_schema;
 pub(in crate::db::query::plan) use index_select::index_stream_is_complete_for_query;
 pub(in crate::db::query) use index_select::{
     eligible_sorted_index_contracts, index_field_literal_matcher, index_literal_matches_schema,

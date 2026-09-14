@@ -1,6 +1,7 @@
 //! Candidate snapshots are copied only under diagnostic construction authority.
 
 use super::*;
+use crate::db::query::preparation::with_preparation_work;
 use crate::db::{
     QueryError, RequestExecutionRoot,
     executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
@@ -120,7 +121,8 @@ fn decision_projection_preserves_candidate_facts_labels_and_list_order() {
 fn decision_projection_repeated_calls_exhaust_without_mutating_identity() {
     let query = fixture();
     let before = query.clone();
-    let signature = query.continuation_signature("tests::Entity").unwrap();
+    let signature =
+        with_preparation_work(|work| query.continuation_signature("tests::Entity", work)).unwrap();
     let generous = root(Resource::TemporaryBytes, 16_000_000);
     let expected = project(&query, &generous).unwrap();
     for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
@@ -136,7 +138,8 @@ fn decision_projection_repeated_calls_exhaust_without_mutating_identity() {
             );
             assert_eq!(query, before);
             assert_eq!(
-                query.continuation_signature("tests::Entity").unwrap(),
+                with_preparation_work(|work| query.continuation_signature("tests::Entity", work))
+                    .unwrap(),
                 signature
             );
             assert_eq!(short.observed(Resource::RowsVisited), 0);
@@ -152,7 +155,8 @@ fn decision_projection_repeated_calls_exhaust_without_mutating_identity() {
         );
         assert_eq!(query, before);
         assert_eq!(
-            query.continuation_signature("tests::Entity").unwrap(),
+            with_preparation_work(|work| query.continuation_signature("tests::Entity", work))
+                .unwrap(),
             signature
         );
         assert_eq!(exact.observed(Resource::RowsVisited), 0);

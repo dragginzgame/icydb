@@ -339,7 +339,7 @@ impl<C: CanisterKind> DbSession<C> {
             .ok_or_else(QueryError::invariant)?;
             let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
             let visible_indexes =
-                Self::visible_indexes_for_accepted_schema(schema_info, visibility);
+                Self::visible_indexes_for_accepted_schema(schema_info, visibility)?;
             let entry = exact_first_component_metadata_index(&visible_indexes, schema_info, target)
                 .map(|index| {
                     let index_id = IndexId::new_with_generation(
@@ -359,7 +359,7 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let visible_indexes = Self::visible_indexes_for_accepted_schema(schema_info, visibility);
+        let visible_indexes = Self::visible_indexes_for_accepted_schema(schema_info, visibility)?;
         let entry = direct_count_cardinality_plan_entry_from_prefix_keys(
             catalog,
             self.exact_count_cardinality_prefix_keys_for_accepted_authority(

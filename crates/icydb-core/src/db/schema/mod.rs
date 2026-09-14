@@ -142,10 +142,14 @@ pub(in crate::db::schema) use check::{
     bind_source_check_expr, bind_source_rule_literal, source_literal_input,
     validate_accepted_check_literals,
 };
-#[cfg(test)]
-pub(in crate::db) use codec::encode_unchecked_persisted_schema_snapshot_for_tests;
 pub(in crate::db) use codec::{
     MAX_SCHEMA_SNAPSHOT_BYTES, decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
+};
+#[cfg(test)]
+pub(in crate::db) use codec::{
+    encode_unchecked_persisted_schema_snapshot_for_tests,
+    persisted_schema_snapshot_decode_count_for_tests,
+    reset_persisted_schema_snapshot_decode_count_for_tests,
 };
 pub(in crate::db) use composite_catalog::AcceptedCompositeCatalog;
 #[cfg(test)]
@@ -405,9 +409,10 @@ pub(in crate::db) use storage::{
 };
 pub use store::SchemaStore;
 pub(in crate::db) use store::{
-    AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, PreparedCardinalityMaintenance,
-    PreparedSchemaPositionPublication, PreparedSchemaPositionRetirement,
-    SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata,
+    AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, PreparedAcceptedSchemaFold,
+    PreparedCardinalityMaintenance, PreparedSchemaPositionPublication,
+    PreparedSchemaPositionRetirement, PreparedSchemaSnapshot, SchemaStoreAllocationMetadata,
+    SchemaStoreCatalogMetadata,
 };
 
 #[cfg(test)]

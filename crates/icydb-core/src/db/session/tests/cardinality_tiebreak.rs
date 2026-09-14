@@ -347,6 +347,45 @@ fn expression_ordered_ranges_preserve_bounds_and_warm_results() {
 }
 
 #[test]
+fn starts_with_ranges_preserve_longer_matches_and_warm_results() {
+    let session = initialize();
+    // Distinct lengths exercise the expression index's lower-only envelope;
+    // residual filtering must remove later nonmatching values inside it.
+    for (id, text) in [
+        (1, "ev"),
+        (2, "every"),
+        (3, "everyone"),
+        (4, "EVERMORE"),
+        (5, "zzz"),
+    ] {
+        insert_row(&session, id, text, "group-a");
+    }
+    for (predicate, route, ids) in [
+        (
+            "STARTS_WITH(common, 'ev')",
+            "IndexRange(a_common_idx)",
+            vec![1, 2, 3],
+        ),
+        (
+            "STARTS_WITH(LOWER(common), 'EV')",
+            "IndexRange(zz_lower_common_idx)",
+            vec![1, 2, 3, 4],
+        ),
+    ] {
+        let expected: Vec<_> = ids
+            .into_iter()
+            .map(|id| vec![OutputValue::nat64(id)])
+            .collect();
+        let sql = format!("SELECT id FROM PlannerRow WHERE {predicate} ORDER BY id LIMIT 20");
+        for _ in 0..3 {
+            let plan = explain(&session, predicate);
+            assert!(plan.contains(route), "{plan}");
+            assert_eq!(projection_rows(&session, &sql), expected);
+        }
+    }
+}
+
+#[test]
 fn exact_cardinality_cursor_pin_resumes_without_fresh_evidence() {
     let session = initialize();
     seed_rows(&session);

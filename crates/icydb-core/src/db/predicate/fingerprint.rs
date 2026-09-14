@@ -3,37 +3,62 @@
 //! Does not own: predicate normalization or runtime execution.
 //! Boundary: used by planner/continuation fingerprinting.
 
-use crate::db::{
-    codec::new_hash_sha256,
-    predicate::{
-        Predicate,
-        encoding::{write_normalized_predicate_sort_key, write_predicate_sort_key},
-        normalize,
+#[cfg(test)]
+mod admission_tests;
+
+use crate::{
+    db::{
+        codec::new_hash_sha256,
+        predicate::{
+            Predicate,
+            encoding::{
+                normalized_predicate_key_capacity, raw_predicate_key_capacity,
+                write_normalized_predicate_sort_key, write_predicate_sort_key,
+            },
+            normalize,
+        },
+        query::construction::ConstructionBudget,
     },
+    error::InternalError,
 };
 use sha2::{Digest, Sha256};
 
 /// Hash canonical predicate structure into the plan hash stream.
-pub(in crate::db) fn hash_predicate(hasher: &mut Sha256, predicate: &Predicate) {
-    let normalized = normalize(predicate.clone());
-    hash_predicate_structural(hasher, &normalized);
+pub(in crate::db) fn hash_predicate(
+    hasher: &mut Sha256,
+    predicate: &Predicate,
+    budget: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
+    // Copy and final encoding use the caller's authority. Boolean normalization
+    // still has separate construction/comparison work to qualify.
+    let normalized = normalize(budget.copy_predicate(predicate)?);
+    hash_predicate_structural(hasher, &normalized, budget)
 }
 
 /// Return one canonical SHA-256 predicate digest for cache and plan identity.
 #[cfg(test)]
 pub(in crate::db) fn predicate_fingerprint(predicate: &Predicate) -> [u8; 32] {
     let mut hasher = new_hash_sha256();
-    hash_predicate(&mut hasher, predicate);
+    crate::db::query::preparation::with_preparation_work(|work| {
+        hash_predicate(&mut hasher, predicate, work).expect("fixture hash fits");
+    });
 
     crate::db::codec::finalize_hash_sha256(hasher)
 }
 
 /// Return one canonical SHA-256 digest for a predicate that is already normalized.
-pub(in crate::db) fn predicate_fingerprint_normalized(predicate: &Predicate) -> [u8; 32] {
+pub(in crate::db) fn predicate_fingerprint_normalized(
+    predicate: &Predicate,
+    budget: &dyn ConstructionBudget,
+) -> Result<[u8; 32], InternalError> {
     let mut hasher = new_hash_sha256();
-    hash_normalized_predicate_structural(&mut hasher, predicate);
+    let capacity = normalized_predicate_key_capacity(predicate, budget)?;
+    let mut encoded = budget.vec_with_capacity(capacity)?;
+    write_normalized_predicate_sort_key(&mut encoded, predicate);
+    debug_assert!(encoded.len() <= capacity);
+    hasher.update(encoded);
 
-    crate::db::codec::finalize_hash_sha256(hasher)
+    Ok(crate::db::codec::finalize_hash_sha256(hasher))
 }
 
 // Hash structural predicate bytes without running normalization.
@@ -41,18 +66,17 @@ pub(in crate::db) fn predicate_fingerprint_normalized(predicate: &Predicate) -> 
 // Predicate sort-key encoding already owns the canonical structural traversal
 // for deterministic ordering. Reuse that same byte surface for hashing so the
 // predicate subsystem does not carry a second recursive encoding tree.
-fn hash_predicate_structural(hasher: &mut Sha256, predicate: &Predicate) {
-    let mut encoded = Vec::new();
+fn hash_predicate_structural(
+    hasher: &mut Sha256,
+    predicate: &Predicate,
+    budget: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
+    let capacity = raw_predicate_key_capacity(predicate, budget)?;
+    let mut encoded = budget.vec_with_capacity(capacity)?;
     write_predicate_sort_key(&mut encoded, predicate);
+    debug_assert!(encoded.len() <= capacity);
     hasher.update(encoded);
-}
-
-// Hash one planner-owned normalized predicate without repeating `IN` / `NOT IN`
-// list sort/dedup work that the schema-aware normalization boundary already did.
-fn hash_normalized_predicate_structural(hasher: &mut Sha256, predicate: &Predicate) {
-    let mut encoded = Vec::new();
-    write_normalized_predicate_sort_key(&mut encoded, predicate);
-    hasher.update(encoded);
+    Ok(())
 }
 
 ///
@@ -218,7 +242,9 @@ mod tests {
 
     fn digest_structural(predicate: &Predicate) -> [u8; 32] {
         let mut hasher = crate::db::codec::new_hash_sha256();
-        hash_predicate_structural(&mut hasher, predicate);
+        crate::db::query::preparation::with_preparation_work(|work| {
+            hash_predicate_structural(&mut hasher, predicate, work).unwrap();
+        });
         crate::db::codec::finalize_hash_sha256(hasher)
     }
 }

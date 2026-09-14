@@ -2,7 +2,6 @@
 //! Counters are never created here or retained in prepared/cached artifacts.
 
 mod expr;
-mod predicate;
 mod text;
 
 use crate::{
@@ -27,6 +26,26 @@ pub(in crate::db) struct PreparationWork<'a> {
 }
 
 impl PreparationWork<'_> {
+    /// Copy predicate syntax through the shared construction owner.
+    pub(in crate::db) fn copy_predicate(
+        &self,
+        predicate: &crate::db::predicate::Predicate,
+    ) -> Result<crate::db::predicate::Predicate, QueryError> {
+        (self as &dyn ConstructionBudget)
+            .copy_predicate(predicate)
+            .map_err(QueryError::execute)
+    }
+
+    /// Copy coercion metadata without changing its identity.
+    pub(in crate::db) fn copy_coercion(
+        &self,
+        coercion: &crate::db::predicate::CoercionSpec,
+    ) -> Result<crate::db::predicate::CoercionSpec, QueryError> {
+        (self as &dyn ConstructionBudget)
+            .copy_coercion(coercion)
+            .map_err(QueryError::execute)
+    }
+
     /// Copy an admitted name, charging traversal, bytes and destination backing.
     pub(in crate::db) fn copy_text(&self, text: &str) -> Result<String, QueryError> {
         (self as &dyn ConstructionBudget)

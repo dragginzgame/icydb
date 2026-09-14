@@ -534,6 +534,27 @@ fn nullable_unique_acceptance_rejects_unguardable_nested_omission() {
 }
 
 #[test]
+fn nullable_unique_acceptance_validates_fields_before_discarding_branches() {
+    for invalid in [
+        "missing IS NOT NULL",
+        "missing = 'active'",
+        "email = missing",
+        "NOT missing IS NULL",
+    ] {
+        let predicate = format!(
+            "email IS NOT NULL AND (email = 'active' OR (email = 'a' AND email = 'b' AND {invalid}))"
+        );
+        let snapshot =
+            nullable_unique_schema_fixture(true, &["email"], &["email"], Some(&predicate));
+        assert_eq!(
+            AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot),
+            Err(SchemaSnapshotAcceptanceError::Predicate),
+            "unknown fields must reject even inside a contradictory branch",
+        );
+    }
+}
+
+#[test]
 fn nullable_unique_acceptance_applies_to_expression_sources() {
     let base = nullable_unique_schema_fixture(true, &["email"], &["email"], None);
     let source = PersistedIndexFieldPathSnapshot::new(

@@ -455,7 +455,8 @@ impl QueryModel {
     pub(in crate::db::query::intent) fn prepare_scalar_planning_state_with_schema_info(
         &self,
         schema_info: SchemaInfo,
+        work: &PreparationWork<'_>,
     ) -> Result<PreparedScalarPlanningState<'_>, QueryError> {
-        prepare_query_model_scalar_planning_state_with_schema_info(self, schema_info)
+        prepare_query_model_scalar_planning_state_with_schema_info(self, schema_info, work)
     }
 }

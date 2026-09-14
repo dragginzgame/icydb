@@ -780,6 +780,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         continuation_identity,
         Arc::from(index_prefix_specs),
         Arc::from(index_range_specs),
+        budget,
     )
 }
 
@@ -792,6 +793,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     continuation_identity: Option<AcceptedContinuationIdentity>,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     index_range_specs: Arc<[LoweredIndexRangeSpec]>,
+    budget: &dyn ConstructionBudget,
 ) -> Result<PreparedExecutionPlanCore, InternalError> {
     build_prepared_execution_plan_core_with_shared_lowered_access(
         authority,
@@ -799,6 +801,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         continuation_identity,
         index_prefix_specs,
         index_range_specs,
+        budget,
     )
 }
 
@@ -837,6 +840,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     continuation_identity: Option<AcceptedContinuationIdentity>,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     index_range_specs: Arc<[LoweredIndexRangeSpec]>,
+    budget: &dyn ConstructionBudget,
 ) -> Result<PreparedExecutionPlanCore, InternalError> {
     // Recompute continuation after the logical-shape rewrite so grouped cursor
     // signatures and boundary arity reflect the grouped plan, not the scalar
@@ -844,6 +848,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     let continuation = plan.planned_continuation_contract_with_accepted_identity(
         authority.entity_path(),
         continuation_identity,
+        budget,
     )?;
     let execution_shape_fingerprint_prefix = read_shape_fingerprint_prefix(&authority, &plan);
 

@@ -1,21 +1,28 @@
 mod constraints;
+#[cfg(all(test, feature = "sql"))]
+mod tests;
 
-use crate::db::{
-    access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef},
-    predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
-    query::plan::{
-        access_choice::model::{
-            AccessChoiceRejectedReason, CandidateEvaluation, CandidateScore, RangeCompareKind,
+use crate::{
+    db::{
+        access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef},
+        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
+        query::construction::ConstructionBudget,
+        query::plan::{
+            access_choice::model::{
+                AccessChoiceRejectedReason, CandidateEvaluation, CandidateScore, RangeCompareKind,
+            },
+            field_key_contract_supports_operator,
+            key_item_match::{
+                key_item_matches_field_and_coercion, key_item_supports_lookup_value,
+                key_item_supports_starts_with_value,
+            },
+            planner::index_literal_matches_schema,
         },
-        field_key_contract_supports_operator,
-        key_item_match::{
-            key_item_matches_field_and_coercion, key_item_supports_lookup_value,
-            key_item_supports_starts_with_value,
-        },
-        planner::index_literal_matches_schema,
+        schema::SchemaInfo,
     },
-    schema::SchemaInfo,
+    error::InternalError,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 use constraints::classify_range_constraints_for_key_item;
 
@@ -23,14 +30,17 @@ pub(super) fn evaluate_range_candidate_from_contract(
     index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     predicate: &Predicate,
-) -> CandidateEvaluation {
-    match predicate {
+    budget: &dyn ConstructionBudget,
+) -> Result<CandidateEvaluation, InternalError> {
+    Ok(match predicate {
         Predicate::Compare(cmp) => evaluate_range_compare_candidate(index_contract, schema, cmp),
-        Predicate::And(children) => evaluate_range_and_candidate(index_contract, schema, children),
+        Predicate::And(children) => {
+            evaluate_range_and_candidate(index_contract, schema, children, budget)?
+        }
         _ => CandidateEvaluation::Rejected(
             AccessChoiceRejectedReason::PredicateShapeNotRangeEligible,
         ),
-    }
+    })
 }
 
 fn evaluate_range_compare_candidate(
@@ -64,22 +74,19 @@ fn evaluate_range_and_candidate(
     index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     children: &[Predicate],
-) -> CandidateEvaluation {
-    let compares = match collect_range_and_compares(children) {
-        Ok(compares) => compares,
-        Err(reason) => return CandidateEvaluation::Rejected(reason),
-    };
-
-    match range_candidate_score_from_compares(index_contract, schema, &compares) {
-        Ok(score) => CandidateEvaluation::Eligible(score),
-        Err(reason) => CandidateEvaluation::Rejected(reason),
+    budget: &dyn ConstructionBudget,
+) -> Result<CandidateEvaluation, InternalError> {
+    // Validate the whole conjunction before per-key classification so a later
+    // unsupported clause retains precedence. No comparison-reference list is needed.
+    budget.charge(Resource::PredicateExpressionSteps, children.len() as u64)?;
+    if let Err(reason) = validate_range_and_compares(children) {
+        return Ok(CandidateEvaluation::Rejected(reason));
     }
+
+    range_candidate_score_from_compares(index_contract, schema, children, budget)
 }
 
-fn collect_range_and_compares(
-    children: &[Predicate],
-) -> Result<Vec<&ComparePredicate>, AccessChoiceRejectedReason> {
-    let mut compares = Vec::with_capacity(children.len());
+fn validate_range_and_compares(children: &[Predicate]) -> Result<(), AccessChoiceRejectedReason> {
     for child in children {
         let Predicate::Compare(cmp) = child else {
             return Err(AccessChoiceRejectedReason::PredicateShapeNotRangeEligible);
@@ -96,34 +103,33 @@ fn collect_range_and_compares(
             return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported);
         }
         if !matches!(
-            (cmp.op, cmp.coercion.id),
-            (
-                CompareOp::Eq
-                    | CompareOp::StartsWith
-                    | CompareOp::Gt
-                    | CompareOp::Gte
-                    | CompareOp::Lt
-                    | CompareOp::Lte,
-                CoercionId::Strict | CoercionId::TextCasefold,
-            )
+            cmp.coercion.id,
+            CoercionId::Strict | CoercionId::TextCasefold
         ) {
             return Err(AccessChoiceRejectedReason::NonStrictCoercion);
         }
-        compares.push(cmp);
     }
 
-    if compares.is_empty() {
+    if children.is_empty() {
         return Err(AccessChoiceRejectedReason::PredicateShapeNotRangeEligible);
     }
 
-    Ok(compares)
+    Ok(())
 }
 
 fn range_candidate_score_from_compares(
     index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
-    compares: &[&ComparePredicate],
-) -> Result<CandidateScore, AccessChoiceRejectedReason> {
+    compares: &[Predicate],
+    budget: &dyn ConstructionBudget,
+) -> Result<CandidateEvaluation, InternalError> {
+    // One conservative batch covers index slots and per-key comparison visits;
+    // schema checks and payload comparisons remain separate work.
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        (index_contract.key_arity() as u64)
+            .saturating_mul((compares.len() as u64).saturating_add(1)),
+    )?;
     let mut prefix_len = 0usize;
     let mut range_seen = false;
     let mut has_range = false;
@@ -131,13 +137,23 @@ fn range_candidate_score_from_compares(
 
     for slot in 0..index_contract.key_arity() {
         let Some(key_item) = index_contract.key_item_at(slot) else {
-            return Err(AccessChoiceRejectedReason::MissingContiguousPrefixOrRange);
+            return Ok(CandidateEvaluation::Rejected(
+                AccessChoiceRejectedReason::MissingContiguousPrefixOrRange,
+            ));
         };
-        let constraint =
-            classify_range_constraints_for_key_item(index_contract, schema, key_item, compares)?;
+        let constraint = match classify_range_constraints_for_key_item(
+            index_contract,
+            schema,
+            key_item,
+            compares,
+            budget,
+        )? {
+            Ok(constraint) => constraint,
+            Err(reason) => return Ok(CandidateEvaluation::Rejected(reason)),
+        };
 
         if !range_seen {
-            if constraint.eq_value.is_some() {
+            if constraint.has_eq {
                 prefix_len = prefix_len.saturating_add(1);
                 continue;
             }
@@ -147,25 +163,31 @@ fn range_candidate_score_from_compares(
                 range_bound_count = constraint.range_bound_count;
                 continue;
             }
-            return Err(AccessChoiceRejectedReason::MissingContiguousPrefixOrRange);
+            return Ok(CandidateEvaluation::Rejected(
+                AccessChoiceRejectedReason::MissingContiguousPrefixOrRange,
+            ));
         }
 
-        if constraint.eq_value.is_some() || constraint.has_range {
-            return Err(AccessChoiceRejectedReason::NonContiguousRangeConstraints);
+        if constraint.has_eq || constraint.has_range {
+            return Ok(CandidateEvaluation::Rejected(
+                AccessChoiceRejectedReason::NonContiguousRangeConstraints,
+            ));
         }
     }
 
     if !has_range {
-        return Err(AccessChoiceRejectedReason::MissingRangeConstraint);
+        return Ok(CandidateEvaluation::Rejected(
+            AccessChoiceRejectedReason::MissingRangeConstraint,
+        ));
     }
 
-    Ok(CandidateScore {
+    Ok(CandidateEvaluation::Eligible(CandidateScore {
         prefix_len,
         exact: false,
         filtered: index_contract.is_filtered(),
         range_bound_count,
         order_compatible: false,
-    })
+    }))
 }
 
 fn single_range_compare_bound_count(
