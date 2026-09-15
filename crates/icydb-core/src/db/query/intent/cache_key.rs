@@ -3,12 +3,16 @@
 //! Does not own: planner validation, executor runtime behavior, or SQL surface routing.
 //! Boundary: turns semantic query intent into one explicit derived-hash cache key.
 
+#[cfg(test)]
+mod admission_tests;
+
 use crate::{
     db::{
         QueryError,
         predicate::MissingRowPolicy,
         query::{
             builder::aggregate::AggregateExpr,
+            construction::ConstructionBudget,
             intent::{model::QueryModel, state::GroupedIntent},
             plan::{
                 AggregateSemanticKeyRef, OrderDirection, OrderSpec, PreparedQueryParameterContract,
@@ -18,7 +22,7 @@ use crate::{
             preparation::PreparationWork,
         },
     },
-    value::{Value, hash_value},
+    value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::rc::Rc;
@@ -290,8 +294,9 @@ impl QueryModeCacheKey {
 }
 
 impl ValueCacheKey {
-    fn from_value(value: &Value) -> Result<Self, QueryError> {
-        hash_value(value)
+    fn from_value(value: &Value, work: &PreparationWork<'_>) -> Result<Self, QueryError> {
+        (work as &dyn ConstructionBudget)
+            .hash_value(value)
             .map(Self::Canonical)
             .map_err(QueryError::execute)
     }
@@ -355,7 +360,7 @@ impl ProjectionExprCacheKey {
                 root: work.copy_text(path.root().as_str())?,
                 segments: work.copy_slice(path.segments(), |segment| work.copy_text(segment))?,
             },
-            Expr::Literal(value) => Self::Literal(ValueCacheKey::from_value(value)?),
+            Expr::Literal(value) => Self::Literal(ValueCacheKey::from_value(value, work)?),
             Expr::FunctionCall { function, args } => Self::FunctionCall {
                 function: *function,
                 args: work.copy_slice(args, |expr| Self::from_expr(expr, work))?,

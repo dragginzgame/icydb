@@ -102,8 +102,8 @@ pub(in crate::db) use order_contract::{
     DeterministicSecondaryIndexOrderMatch, DeterministicSecondaryOrderContract,
     ExecutionOrderContract, ExecutionOrdering,
     access_satisfies_deterministic_secondary_order_contract,
-    deterministic_secondary_index_key_items_order_compatibility,
     deterministic_secondary_index_key_items_satisfied, grouped_index_key_items_satisfied,
+    primary_scan_direction,
 };
 pub(in crate::db) use order_term::index_key_item_order_terms;
 pub(in crate::db) use parameters::PreparedQueryParameterContract;
@@ -111,6 +111,8 @@ pub(in crate::db) use pipeline::PreparedScalarPlanningState;
 pub(in crate::db) use pipeline::apply_exact_cardinality_tiebreak_selection;
 #[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::exact_first_component_metadata_index;
+#[cfg(test)]
+pub(in crate::db) use pipeline::tests::exact_metadata_schema;
 pub(in crate::db::query) use pipeline::try_build_count_cardinality_prefix_access_from_query_model;
 pub(in crate::db) use pipeline::{CountCardinalityPrefixAccess, CountCardinalityPrefixValues};
 pub(in crate::db::query) use pipeline::{

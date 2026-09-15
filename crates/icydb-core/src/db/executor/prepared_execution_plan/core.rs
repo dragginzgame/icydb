@@ -495,17 +495,12 @@ impl PreparedExecutionPlanCore {
         Ok(layout)
     }
 
-    pub(in crate::db::executor::prepared_execution_plan) fn execution_ordering(
-        &self,
-    ) -> Result<ExecutionOrdering, InternalError> {
-        let contract = self.continuation_contract()?;
-        Ok(contract.order_contract().ordering().clone())
-    }
-
+    // Classification only inspects the retained variant; do not copy its order
+    // expressions. Missing continuation still follows the shared error boundary.
     pub(in crate::db::executor::prepared_execution_plan) fn execution_family(
         &self,
     ) -> Result<ExecutionFamily, InternalError> {
-        let ordering = self.execution_ordering()?;
+        let ordering = self.continuation_contract()?.order_contract().ordering();
 
         Ok(match ordering {
             ExecutionOrdering::PrimaryKey => ExecutionFamily::PrimaryKey,
@@ -594,7 +589,7 @@ fn retain_lazy<T: Retained + Clone>(
 
 #[cfg(test)]
 mod retention_tests {
-    use super::{PreparedExecutionPlanCore, retain_lazy};
+    use super::{ExecutionFamily, ExecutorPlanError, PreparedExecutionPlanCore, retain_lazy};
     use crate::db::{
         QueryError, RequestExecutionRoot,
         executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
@@ -618,6 +613,76 @@ mod retention_tests {
         rc::Rc,
         sync::{Arc, OnceLock},
     };
+
+    #[test]
+    fn execution_family_uses_retained_ordering_and_preserves_missing_contract_error() {
+        use crate::db::{
+            query::{
+                builder::count,
+                plan::{
+                    FieldSlot, GroupAggregateSpec, GroupFieldSet, GroupPlan, GroupSpec,
+                    GroupedExecutionConfig, LogicalPlan, OrderDirection, OrderSpec, OrderTerm,
+                },
+            },
+            schema::AcceptedFieldKind,
+        };
+
+        for (grouped, ordered, expected) in [
+            (false, false, ExecutionFamily::PrimaryKey),
+            (false, true, ExecutionFamily::Ordered),
+            (true, false, ExecutionFamily::Grouped),
+            (true, true, ExecutionFamily::Grouped),
+        ] {
+            let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
+            let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+                unreachable!()
+            };
+            scalar.order = ordered.then(|| OrderSpec {
+                fields: vec![OrderTerm::field("key", OrderDirection::Desc)],
+            });
+            if grouped {
+                plan.logical = LogicalPlan::Grouped(GroupPlan {
+                    scalar: scalar.clone(),
+                    group: GroupSpec {
+                        group_fields: GroupFieldSet::Direct(vec![
+                            FieldSlot::from_test_accepted_kind(0, "key", AcceptedFieldKind::Int32),
+                        ]),
+                        aggregates: vec![GroupAggregateSpec::from_aggregate_expr(count())],
+                        execution: GroupedExecutionConfig::planner_default_bounded(),
+                    },
+                    having_expr: None,
+                });
+            }
+            let continuation = with_preparation_work(|work| {
+                plan.planned_continuation_contract_with_accepted_identity(
+                    "tests::Entity",
+                    None,
+                    work,
+                )
+            })
+            .unwrap();
+            let plan = Rc::new(plan);
+            let core = PreparedExecutionPlanCore::new(
+                Rc::clone(&plan),
+                0,
+                None,
+                continuation,
+                Arc::default(),
+                Arc::default(),
+            );
+            for _ in 0..3 {
+                assert_eq!(core.execution_family().unwrap(), expected);
+            }
+
+            let missing =
+                PreparedExecutionPlanCore::new(plan, 0, None, None, Arc::default(), Arc::default());
+            let error = missing.execution_family().unwrap_err();
+            let expected =
+                ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error();
+            assert_eq!(error.diagnostic(), expected.diagnostic());
+            assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
+        }
+    }
 
     #[test]
     fn retained_lazy_attachments_reserve_once_and_leave_oversize_results_usable() {

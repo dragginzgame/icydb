@@ -997,6 +997,38 @@ mod tests {
     }
 
     #[test]
+    fn scope_literal_codec_rejects_deep_values_with_existing_intent_errors() {
+        // One expression node containing a ~5-KiB value must still obey the
+        // value codec's nesting bound, independently of the expression limit.
+        let mut payload = Vec::new();
+        for _ in 0..1000 {
+            payload.extend_from_slice(&[12, 0, 0, 0, 1]); // singleton value list
+        }
+        payload.push(23); // unit leaf
+        let mut scope_bytes = Vec::from(*SCOPE_MAGIC);
+        scope_bytes.extend_from_slice(&[SCOPE_FORMAT_VERSION, 2]); // literal
+        scope_bytes.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
+        scope_bytes.extend_from_slice(&payload);
+        assert!(scope_bytes.len() < MAX_CANONICAL_SCOPE_BYTES);
+        assert_eq!(
+            decode_scope(&scope_bytes),
+            Err(MutationJobError::CorruptProgressStore)
+        );
+
+        let mut value = Value::Bool(false);
+        for _ in 0..129 {
+            value = Value::List(vec![value]);
+        }
+        assert_eq!(
+            encode_scope(&Expr::Literal(value)),
+            Err(MutationJobError::IneligibleIntent)
+        );
+        let wide = Expr::Literal(Value::List(vec![Value::Bool(true); 1000]));
+        let bytes = encode_scope(&wide).unwrap();
+        assert_eq!(decode_scope(&bytes).unwrap(), wide);
+    }
+
+    #[test]
     fn current_intent_rejects_corruption_future_format_and_noncanonical_patch() {
         let current = intent(7, 100);
         let mut corrupt = current.encode().expect("current intent should encode");

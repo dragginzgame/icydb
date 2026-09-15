@@ -164,31 +164,40 @@ mod tests {
 
     #[test]
     fn expression_owned_and_absent_filters_skip_predicate_copy_admission() {
-        use crate::db::query::{construction::ConstructionBudget, plan::expr::Expr};
-        struct RejectConstruction;
-        impl ConstructionBudget for RejectConstruction {
-            fn charge(
-                &self,
-                _: icydb_diagnostic_code::DiagnosticExecutionBudgetResource,
-                _: u64,
-            ) -> Result<(), crate::error::InternalError> {
-                panic!("this path must not construct predicate scratch");
-            }
-        }
+        use crate::db::{
+            QueryError, RequestExecutionRoot,
+            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+            query::{plan::expr::Expr, preparation::PreparationWork},
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+        };
+        let root = RequestExecutionRoot::new_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                16_000_000,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(Resource::TemporaryBytes, 0),
+        );
+        let signature = |plan: &AccessPlannedQuery| {
+            PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
+                plan.continuation_signature("tests::Entity", work)
+                    .map_err(QueryError::execute)
+            })
+        };
         let mut plan = plan_with_bound_value("account");
         let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
             unreachable!()
         };
         scalar.filter_expr = Some(Expr::Literal(Value::Bool(true)));
-        plan.continuation_signature("tests::Entity", &RejectConstruction)
-            .unwrap();
+        signature(&plan).unwrap();
         let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
             unreachable!()
         };
         scalar.filter_expr = None;
         scalar.predicate = None;
-        plan.continuation_signature("tests::Entity", &RejectConstruction)
-            .unwrap();
+        signature(&plan).unwrap();
+        assert_eq!(root.observed(Resource::TemporaryBytes), 0);
     }
 
     #[test]

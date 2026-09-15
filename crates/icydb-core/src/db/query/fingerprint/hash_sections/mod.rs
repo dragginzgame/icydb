@@ -15,16 +15,20 @@ use crate::{
         codec::{write_hash_str_u32, write_hash_tag_u8, write_hash_u32},
         predicate::{Predicate, hash_predicate as hash_model_predicate},
         query::{
+            builder::scalar_projection::write_scalar_projection_expr_plan_label,
             construction::ConstructionBudget,
-            fingerprint::projection_hash::hash_scalar_filter_expr_structural_fingerprint,
+            fingerprint::projection_hash::{
+                admission::admit_expr_hash, hash_scalar_filter_expr_structural_fingerprint,
+            },
             plan::{OrderDirection, OrderSpec, QueryMode, expr::Expr},
         },
     },
     error::InternalError,
     value::{Value, hash_value},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use sha2::{Digest, Sha256};
-use std::ops::Bound;
+use std::{borrow::Cow, ops::Bound};
 
 pub(in crate::db::query) use profile::hash_continuation_with_projection;
 
@@ -125,6 +129,7 @@ pub(super) fn hash_scalar_semantic_filter(
     budget: &dyn ConstructionBudget,
 ) -> Result<(), InternalError> {
     if let Some(filter_expr) = filter_expr {
+        admit_expr_hash(filter_expr, budget)?;
         write_tag(hasher, FILTER_EXPR_PRESENT_TAG);
         hash_scalar_filter_expr_structural_fingerprint(hasher, filter_expr)?;
 
@@ -134,30 +139,43 @@ pub(super) fn hash_scalar_semantic_filter(
     hash_predicate(hasher, predicate, budget)
 }
 
-// Render only the order term currently being hashed.
-pub(super) fn hash_order_spec(hasher: &mut Sha256, order: Option<&OrderSpec>) {
-    match order {
-        Some(order) if !order.fields.is_empty() => hash_order_fields(
-            hasher,
-            order
-                .fields
-                .iter()
-                .map(|term| (term.rendered_label(), term.direction())),
-        ),
-        Some(_) | None => write_tag(hasher, ORDER_NONE_TAG),
+// Keep the length-prefixed label identity, borrowing direct fields and admitting
+// expression output/scratch through the same sink as ordinary preparation.
+pub(super) fn hash_order_spec(
+    hasher: &mut Sha256,
+    order: Option<&OrderSpec>,
+    budget: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
+    let Some(order) = order.filter(|order| !order.fields.is_empty()) else {
+        write_tag(hasher, ORDER_NONE_TAG);
+        return Ok(());
+    };
+    write_tag(hasher, ORDER_FIELDS_TAG);
+    write_u32(hasher, order.fields.len() as u32);
+    for term in &order.fields {
+        budget.charge(Resource::PredicateExpressionSteps, 1)?;
+        write_expr_label(hasher, term.expr(), budget)?;
+        write_tag(hasher, order_direction_tag(term.direction()));
     }
+    Ok(())
 }
 
-fn hash_order_fields<S: AsRef<str>>(
+/// Hash one canonical label, retaining only this expression's admitted output.
+/// Direct fields borrow their names; all other expressions use the shared sink.
+pub(in crate::db::query::fingerprint) fn write_expr_label(
     hasher: &mut Sha256,
-    fields: impl ExactSizeIterator<Item = (S, OrderDirection)>,
-) {
-    write_tag(hasher, ORDER_FIELDS_TAG);
-    write_u32(hasher, fields.len() as u32);
-    for (field, direction) in fields {
-        write_str(hasher, field.as_ref());
-        write_tag(hasher, order_direction_tag(direction));
-    }
+    expr: &Expr,
+    budget: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
+    let label = match expr {
+        Expr::Field(field) => Cow::Borrowed(field.as_str()),
+        _ => Cow::Owned(
+            budget.render_text(|out| write_scalar_projection_expr_plan_label(expr, out))?,
+        ),
+    };
+    budget.charge(Resource::PredicateExpressionSteps, label.len() as u64)?;
+    write_str(hasher, &label);
+    Ok(())
 }
 
 ///
@@ -190,16 +208,17 @@ pub(in crate::db::query::fingerprint) fn write_value(
 pub(super) fn write_value_bound(
     hasher: &mut Sha256,
     bound: &Bound<Value>,
+    budget: &dyn ConstructionBudget,
 ) -> Result<(), InternalError> {
     match bound {
         Bound::Unbounded => write_tag(hasher, VALUE_BOUND_UNBOUNDED_TAG),
         Bound::Included(value) => {
             write_tag(hasher, VALUE_BOUND_INCLUDED_TAG);
-            write_value(hasher, value)?;
+            hasher.update(budget.hash_value(value)?);
         }
         Bound::Excluded(value) => {
             write_tag(hasher, VALUE_BOUND_EXCLUDED_TAG);
-            write_value(hasher, value)?;
+            hasher.update(budget.hash_value(value)?);
         }
     }
     Ok(())

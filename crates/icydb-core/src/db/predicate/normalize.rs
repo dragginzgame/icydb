@@ -53,7 +53,7 @@ pub(in crate::db) fn normalize(predicate: Predicate) -> Predicate {
 
         Predicate::And(children) => normalize_and(children),
         Predicate::Or(children) => normalize_or(children),
-        Predicate::Not(inner) => normalize_not(*inner),
+        Predicate::Not(inner) => normalize_not(inner),
 
         Predicate::Compare(cmp) => Predicate::Compare(cmp),
         Predicate::CompareFields(cmp) => Predicate::CompareFields(cmp),
@@ -556,14 +556,16 @@ fn normalize_numeric_value_for_target(
 /// Eliminates double negation:
 ///     NOT (NOT x)  →  x
 ///
-fn normalize_not(inner: Predicate) -> Predicate {
-    let normalized = normalize(inner);
-    if let Predicate::Not(double) = normalized {
+fn normalize_not(mut inner: Box<Predicate>) -> Predicate {
+    // Keep the owned shell when NOT survives. Moving its child through the
+    // normalizer must not require allocating a replacement box.
+    *inner = normalize(*inner);
+    if let Predicate::Not(double) = *inner {
         // The inner subtree is already canonical; removing both NOT nodes
         // must not traverse, sort or rebuild it a second time.
         return *double;
     }
-    Predicate::Not(Box::new(normalized))
+    Predicate::Not(inner)
 }
 
 ///

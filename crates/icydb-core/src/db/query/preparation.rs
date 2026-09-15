@@ -126,17 +126,6 @@ impl PreparationWork<'_> {
             .map_err(QueryError::execute)
     }
 
-    /// Reserve text construction under the same cumulative allocation policy.
-    pub(in crate::db) fn reserve_string(
-        &self,
-        text: &mut String,
-        additional: usize,
-    ) -> Result<(), QueryError> {
-        (self as &dyn ConstructionBudget)
-            .reserve_string(text, additional)
-            .map_err(QueryError::execute)
-    }
-
     fn check_instruction_watermark(&self) -> Result<(), InternalError> {
         let current = crate::runtime::local_instruction_counter();
         let previous = self.last_instruction_counter.replace(current);
@@ -152,6 +141,22 @@ impl PreparationWork<'_> {
 }
 
 impl ConstructionBudget for PreparationWork<'_> {
+    fn admit_format_scratch(&self, bytes: u64, steps: u64) -> Result<(), InternalError> {
+        // Preserve the pre-conversion checkpoint even through the shared text
+        // sink. The enclosing preparation segment also checks on exit.
+        self.check_instruction_watermark()?;
+        ConstructionBudget::charge(
+            self,
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            bytes,
+        )?;
+        ConstructionBudget::charge(
+            self,
+            DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+            steps,
+        )
+    }
+
     fn charge(
         &self,
         resource: DiagnosticExecutionBudgetResource,

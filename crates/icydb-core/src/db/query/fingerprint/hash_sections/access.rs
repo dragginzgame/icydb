@@ -5,12 +5,13 @@ use crate::{
     db::{
         access::AccessPlan,
         query::{
+            construction::ConstructionBudget,
             fingerprint::hash_sections::{
                 ACCESS_TAG_BY_KEY, ACCESS_TAG_BY_KEYS, ACCESS_TAG_FULL_SCAN,
                 ACCESS_TAG_INDEX_BRANCH_SET, ACCESS_TAG_INDEX_MULTI_LOOKUP,
                 ACCESS_TAG_INDEX_PREFIX, ACCESS_TAG_INDEX_RANGE, ACCESS_TAG_INTERSECTION,
                 ACCESS_TAG_KEY_RANGE, ACCESS_TAG_UNION, write_str, write_tag, write_u32,
-                write_value, write_value_bound,
+                write_value_bound,
             },
             plan::{AccessPlanProjection, project_access_plan},
         },
@@ -18,7 +19,8 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-use sha2::Sha256;
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+use sha2::{Digest, Sha256};
 use std::ops::Bound;
 
 ///
@@ -28,14 +30,16 @@ use std::ops::Bound;
 ///
 struct AccessFingerprintVisitor<'a> {
     hasher: &'a mut Sha256,
+    budget: &'a dyn ConstructionBudget,
 }
 
 /// Hash planner-owned access contracts into the plan hash stream.
 pub(in crate::db::query::fingerprint::hash_sections) fn hash_access_plan(
     hasher: &mut Sha256,
     access: &AccessPlan<Value>,
+    budget: &dyn ConstructionBudget,
 ) -> Result<(), InternalError> {
-    let mut visitor = AccessFingerprintVisitor { hasher };
+    let mut visitor = AccessFingerprintVisitor { hasher, budget };
     project_access_plan(access, &mut visitor)?;
     Ok(())
 }
@@ -45,19 +49,27 @@ fn write_access_fields<'a>(
     tag: u8,
     name: &str,
     fields: impl ExactSizeIterator<Item = &'a str> + Clone,
-) {
+    budget: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
+    budget.charge(Resource::PredicateExpressionSteps, name.len() as u64)?;
     write_tag(hasher, tag);
     write_str(hasher, name);
     write_u32(hasher, fields.len() as u32);
     for field in fields {
+        budget.charge(Resource::PredicateExpressionSteps, 1 + field.len() as u64)?;
         write_str(hasher, field);
     }
+    Ok(())
 }
 
-fn write_values(hasher: &mut Sha256, values: &[Value]) -> Result<(), InternalError> {
+fn write_values(
+    hasher: &mut Sha256,
+    values: &[Value],
+    budget: &dyn ConstructionBudget,
+) -> Result<(), InternalError> {
     write_u32(hasher, values.len() as u32);
     for value in values {
-        write_value(hasher, value)?;
+        hasher.update(budget.hash_value(value)?);
     }
     Ok(())
 }
@@ -66,21 +78,24 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
     type Output = Result<(), InternalError>;
 
     fn by_key(&mut self, key: &Value) -> Self::Output {
+        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
         write_tag(self.hasher, ACCESS_TAG_BY_KEY);
-        write_value(self.hasher, key)?;
+        self.hasher.update(self.budget.hash_value(key)?);
         Ok(())
     }
 
     fn by_keys(&mut self, keys: &[Value]) -> Self::Output {
+        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
         write_tag(self.hasher, ACCESS_TAG_BY_KEYS);
-        write_values(self.hasher, keys)?;
+        write_values(self.hasher, keys, self.budget)?;
         Ok(())
     }
 
     fn key_range(&mut self, start: &Value, end: &Value) -> Self::Output {
+        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
         write_tag(self.hasher, ACCESS_TAG_KEY_RANGE);
-        write_value(self.hasher, start)?;
-        write_value(self.hasher, end)?;
+        self.hasher.update(self.budget.hash_value(start)?);
+        self.hasher.update(self.budget.hash_value(end)?);
         Ok(())
     }
 
@@ -91,9 +106,16 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
         prefix_len: usize,
         values: &[Value],
     ) -> Self::Output {
-        write_access_fields(self.hasher, ACCESS_TAG_INDEX_PREFIX, name, fields);
+        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
+        write_access_fields(
+            self.hasher,
+            ACCESS_TAG_INDEX_PREFIX,
+            name,
+            fields,
+            self.budget,
+        )?;
         write_u32(self.hasher, prefix_len as u32);
-        write_values(self.hasher, values)?;
+        write_values(self.hasher, values, self.budget)?;
         Ok(())
     }
 
@@ -103,8 +125,15 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
         fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         values: &[Value],
     ) -> Self::Output {
-        write_access_fields(self.hasher, ACCESS_TAG_INDEX_MULTI_LOOKUP, name, fields);
-        write_values(self.hasher, values)?;
+        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
+        write_access_fields(
+            self.hasher,
+            ACCESS_TAG_INDEX_MULTI_LOOKUP,
+            name,
+            fields,
+            self.budget,
+        )?;
+        write_values(self.hasher, values, self.budget)?;
         Ok(())
     }
 
@@ -115,9 +144,16 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
         fixed_values: &[Value],
         branch_values: &[Value],
     ) -> Self::Output {
-        write_access_fields(self.hasher, ACCESS_TAG_INDEX_BRANCH_SET, name, fields);
-        write_values(self.hasher, fixed_values)?;
-        write_values(self.hasher, branch_values)?;
+        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
+        write_access_fields(
+            self.hasher,
+            ACCESS_TAG_INDEX_BRANCH_SET,
+            name,
+            fields,
+            self.budget,
+        )?;
+        write_values(self.hasher, fixed_values, self.budget)?;
+        write_values(self.hasher, branch_values, self.budget)?;
         Ok(())
     }
 
@@ -130,15 +166,23 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
         lower: &Bound<Value>,
         upper: &Bound<Value>,
     ) -> Self::Output {
-        write_access_fields(self.hasher, ACCESS_TAG_INDEX_RANGE, name, fields);
+        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
+        write_access_fields(
+            self.hasher,
+            ACCESS_TAG_INDEX_RANGE,
+            name,
+            fields,
+            self.budget,
+        )?;
         write_u32(self.hasher, prefix_len as u32);
-        write_values(self.hasher, prefix)?;
-        write_value_bound(self.hasher, lower)?;
-        write_value_bound(self.hasher, upper)?;
+        write_values(self.hasher, prefix, self.budget)?;
+        write_value_bound(self.hasher, lower, self.budget)?;
+        write_value_bound(self.hasher, upper, self.budget)?;
         Ok(())
     }
 
     fn full_scan(&mut self) -> Self::Output {
+        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
         write_tag(self.hasher, ACCESS_TAG_FULL_SCAN);
         Ok(())
     }
@@ -148,6 +192,7 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
         children: &[T],
         project: impl Fn(&T, &mut Self) -> Self::Output,
     ) -> Self::Output {
+        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
         // Identity uses the maintained postorder stream, without a child Vec.
         for child in children {
             project(child, self)?;
@@ -162,6 +207,7 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
         children: &[T],
         project: impl Fn(&T, &mut Self) -> Self::Output,
     ) -> Self::Output {
+        self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
         for child in children {
             project(child, self)?;
         }

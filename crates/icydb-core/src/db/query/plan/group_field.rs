@@ -492,6 +492,19 @@ impl<'a> GroupFieldRef<'a> {
         }
     }
 
+    /// Admit borrowed leaf comparison under the caller's work observer.
+    /// The retained canonical label covers root/segment bytes and separators,
+    /// so its length bounds equal-prefix work without another path traversal.
+    /// Representation or length mismatches may consume less than this bound.
+    pub(in crate::db) fn try_matches_expr<E>(
+        &self,
+        expr: &Expr,
+        observe: &mut impl FnMut(u64) -> Result<(), E>,
+    ) -> Result<bool, E> {
+        observe(1_u64.saturating_add(self.field().len() as u64))?;
+        Ok(self.matches_expr(expr))
+    }
+
     /// Check current accepted key eligibility and identity without constructing
     /// a replacement key. This does not rebind retained type metadata or grant
     /// execution authority; the planner's existing rebinding still owns that.

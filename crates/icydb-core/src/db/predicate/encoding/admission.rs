@@ -4,17 +4,12 @@
 use crate::{
     db::{
         predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
-        query::construction::ConstructionBudget,
+        query::construction::{ConstructionBudget, ENCODING_NODE_BYTES, encoded_value_capacity},
     },
     error::InternalError,
-    value::{Value, lower_text_construction_allowance},
+    value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
-
-// Includes each node's incoming frame, tags/counts and fixed scalar payload.
-// Accounts need an extra allowance for owner + optional subaccount bytes.
-// These are capacity bounds, not another definition of the canonical encoding.
-const NODE_BYTES: u64 = 64;
 
 /// Visit admitted input without encoding/coercing it; bound output and admit
 /// coercion/map scratch before the shared encoder can allocate either.
@@ -51,7 +46,7 @@ fn predicate_capacity(
     canonical_lists: bool,
 ) -> Result<u64, InternalError> {
     budget.charge(Resource::PredicateExpressionSteps, 1)?;
-    let mut bytes = NODE_BYTES;
+    let mut bytes = ENCODING_NODE_BYTES;
     match predicate {
         Predicate::And(children) | Predicate::Or(children) => {
             for child in children {
@@ -78,9 +73,9 @@ fn predicate_capacity(
                     )?;
                 }
                 budget.charge(Resource::NestedValueSteps, 1)?;
-                let mut bytes = NODE_BYTES;
+                let mut bytes = ENCODING_NODE_BYTES;
                 for item in items {
-                    bytes = bytes.saturating_add(value_capacity(
+                    bytes = bytes.saturating_add(encoded_value_capacity(
                         item,
                         compare.coercion().id(),
                         budget,
@@ -88,7 +83,7 @@ fn predicate_capacity(
                 }
                 bytes
             } else {
-                value_capacity(compare.value(), compare.coercion().id(), budget)?
+                encoded_value_capacity(compare.value(), compare.coercion().id(), budget)?
             };
             bytes = bytes.saturating_add(operand);
         }
@@ -101,7 +96,7 @@ fn predicate_capacity(
         Predicate::TextContains { field, value } | Predicate::TextContainsCi { field, value } => {
             bytes = bytes
                 .saturating_add(field.len() as u64)
-                .saturating_add(value_capacity(value, CoercionId::Strict, budget)?);
+                .saturating_add(encoded_value_capacity(value, CoercionId::Strict, budget)?);
         }
         Predicate::IsNull { field }
         | Predicate::IsNotNull { field }
@@ -127,74 +122,4 @@ fn coercion_capacity(
             .saturating_add(key.len() as u64)
             .saturating_add(value.len() as u64)
     }))
-}
-
-fn value_capacity(
-    value: &Value,
-    coercion: CoercionId,
-    budget: &dyn ConstructionBudget,
-) -> Result<u64, InternalError> {
-    budget.charge(Resource::NestedValueSteps, 1)?;
-    let mut bytes = NODE_BYTES;
-    match value {
-        Value::Text(text) => {
-            let len = text.len() as u64;
-            if matches!(coercion, CoercionId::TextCasefold) {
-                let (backing, steps) = lower_text_construction_allowance(text.len());
-                budget.charge(Resource::TemporaryBytes, backing)?;
-                budget.charge(Resource::PredicateExpressionSteps, steps)?;
-                bytes = bytes.saturating_add(len.saturating_mul(2));
-            } else {
-                bytes = bytes.saturating_add(len);
-            }
-        }
-        Value::Blob(blob) => bytes = bytes.saturating_add(blob.len() as u64),
-        Value::IntBig(integer) => bytes = bytes.saturating_add(integer.leb128_len()),
-        Value::NatBig(integer) => bytes = bytes.saturating_add(integer.leb128_len()),
-        Value::Account(_) => bytes = bytes.saturating_add(NODE_BYTES),
-        Value::List(items) => {
-            for item in items {
-                bytes = bytes.saturating_add(value_capacity(item, CoercionId::Strict, budget)?);
-            }
-        }
-        Value::Map(entries) => {
-            // ordered_map_entries may retain references when input is unordered.
-            // Include Vec's small-allocation floor without doing a second sort.
-            if !entries.is_empty() {
-                budget.charge(
-                    Resource::TemporaryBytes,
-                    (entries.len().max(4) as u64)
-                        .saturating_mul(size_of::<&(Value, Value)>() as u64),
-                )?;
-            }
-            for (key, value) in entries {
-                bytes = bytes
-                    .saturating_add(value_capacity(key, CoercionId::Strict, budget)?)
-                    .saturating_add(value_capacity(value, CoercionId::Strict, budget)?);
-            }
-        }
-        Value::Enum(value) => {
-            if let Some(payload) = value.payload() {
-                bytes = bytes.saturating_add(value_capacity(payload, CoercionId::Strict, budget)?);
-            }
-        }
-        Value::Bool(_)
-        | Value::Date(_)
-        | Value::Decimal(_)
-        | Value::Duration(_)
-        | Value::Float32(_)
-        | Value::Float64(_)
-        | Value::Int64(_)
-        | Value::Int128(_)
-        | Value::Nat64(_)
-        | Value::Nat128(_)
-        | Value::Null
-        | Value::Principal(_)
-        | Value::Subaccount(_)
-        | Value::Timestamp(_)
-        | Value::U256(_)
-        | Value::Ulid(_)
-        | Value::Unit => {}
-    }
-    Ok(bytes)
 }

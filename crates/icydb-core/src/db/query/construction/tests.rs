@@ -60,7 +60,9 @@ fn text_reservation_and_append_share_the_same_growth_charge() {
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             let budget: &dyn ConstructionBudget = work;
             let mut text = String::new();
-            work.reserve_string(&mut text, 4)?;
+            budget
+                .reserve_string(&mut text, 4)
+                .map_err(QueryError::execute)?;
             budget
                 .push_text(&mut text, "éé")
                 .map_err(QueryError::execute)?;
@@ -81,5 +83,56 @@ fn text_reservation_and_append_share_the_same_growth_charge() {
         .unwrap();
         assert_eq!(root.observed(Resource::TemporaryBytes), 12);
         assert_eq!(root.observed(Resource::PredicateExpressionSteps), 5);
+    }
+}
+
+#[test]
+fn scalar_formatting_uses_existing_execution_authority_and_preserves_scratch_failure() {
+    use crate::db::{
+        executor::budget::{
+            ExecutionConstructionBudget, HardExecutionContext,
+            with_query_execution_budget_for_tests,
+        },
+        query::{
+            builder::scalar_projection::write_scalar_projection_expr_plan_label, plan::expr::Expr,
+        },
+    };
+    use crate::value::Value;
+    use icydb_diagnostic_code::DiagnosticExecutionBudgetScope as Scope;
+
+    let expr = Expr::Literal(Value::NatBig("18446744073709551616".parse().unwrap()));
+    let construction = &ExecutionConstructionBudget as &dyn ConstructionBudget;
+    assert!(
+        construction
+            .render_text(|out| write_scalar_projection_expr_plan_label(&expr, out))
+            .is_err()
+    );
+    for limit in [27, 16_000_000] {
+        let result = with_query_execution_budget_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                16_000_000,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(Resource::TemporaryBytes, limit),
+            HardExecutionContext::new(Scope::Execution, Lane::PublicRead, 0),
+            || {
+                construction
+                    .render_text(|out| {
+                        // Even a formatter swallowing its failure cannot turn rejected
+                        // conversion scratch into successful partial output.
+                        let _ = write_scalar_projection_expr_plan_label(&expr, out);
+                        Ok(())
+                    })
+                    .map_err(QueryError::execute)
+            },
+        );
+        if limit == 27 {
+            assert!(result.unwrap_err().diagnostic_facts().contains(&(
+                DiagnosticFactTag::BudgetResource,
+                Resource::TemporaryBytes.raw(),
+            )));
+        } else {
+            assert_eq!(result.unwrap(), "18_446_744_073_709_551_616");
+        }
     }
 }

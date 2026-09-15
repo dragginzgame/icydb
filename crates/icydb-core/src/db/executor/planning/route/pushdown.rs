@@ -3,6 +3,9 @@
 //! Does not own: logical ORDER BY validation semantics.
 //! Boundary: route-owned access-shape assessment over validated logical+access plans.
 
+#[cfg(test)]
+mod tests;
+
 use crate::db::{
     access::{AccessPathKind, AccessShapeFacts, IndexShapeDetails, SemanticIndexKeyItem},
     direction::Direction,
@@ -14,7 +17,7 @@ use crate::db::{
         AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch,
         DeterministicSecondaryOrderContract, LogicalPushdownEligibility, OrderDirection,
         PlannerRouteProfile, access_satisfies_deterministic_secondary_order_contract,
-        deterministic_secondary_index_key_items_order_compatibility,
+        deterministic_secondary_index_key_items_satisfied, index_key_item_order_terms,
     },
 };
 
@@ -51,13 +54,9 @@ fn match_secondary_order_pushdown_core(
     prefix_len: usize,
     variable_prefix_requires_full_order: bool,
 ) -> PushdownApplicability {
-    let compatibility = deterministic_secondary_index_key_items_order_compatibility(
-        order_contract,
-        key_items,
-        prefix_len,
-    );
-
-    match compatibility.match_kind() {
+    // Classification borrows accepted keys. Render labels only when the returned
+    // rejection owns them; successful routes need no diagnostic term list.
+    match order_contract.classify_index_key_items(key_items, prefix_len) {
         DeterministicSecondaryIndexOrderMatch::Full => {
             return PushdownApplicability::Eligible {
                 index: index_name.to_string(),
@@ -75,7 +74,7 @@ fn match_secondary_order_pushdown_core(
                 SecondaryOrderPushdownRejection::VariablePrefixSuffixOrderUnsupported {
                     index: index_name.to_string(),
                     prefix_len,
-                    expected_full: compatibility.index_terms().to_vec(),
+                    expected_full: index_key_item_order_terms(key_items),
                     actual: order_contract.non_primary_key_terms().to_vec(),
                 },
             );
@@ -83,12 +82,14 @@ fn match_secondary_order_pushdown_core(
         DeterministicSecondaryIndexOrderMatch::None => {}
     }
 
+    let expected_full = index_key_item_order_terms(key_items);
+    let expected_suffix = expected_full.iter().skip(prefix_len).cloned().collect();
     PushdownApplicability::Rejected(
         SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
             index: index_name.to_string(),
             prefix_len,
-            expected_suffix: compatibility.index_suffix_terms(prefix_len),
-            expected_full: compatibility.index_terms().to_vec(),
+            expected_suffix,
+            expected_full,
             actual: order_contract.non_primary_key_terms().to_vec(),
         },
     )
@@ -147,22 +148,24 @@ fn secondary_order_pushdown_applicability(
                 },
             );
         }
-        let applicability = match_secondary_order_pushdown_core(
+        // Range rejection exposes only index/prefix metadata. Do not construct
+        // a detailed mismatch payload merely to discard it at this boundary.
+        return if deterministic_secondary_index_key_items_satisfied(
             order_contract,
-            index_name,
             details.key_items(),
             prefix_len,
-            false,
-        );
-        return match applicability {
-            PushdownApplicability::Eligible { .. } => applicability,
-            PushdownApplicability::Rejected(_) => PushdownApplicability::Rejected(
+        ) {
+            PushdownApplicability::Eligible {
+                index: index_name.to_string(),
+                prefix_len,
+            }
+        } else {
+            PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
                     index: index_name.to_string(),
                     prefix_len,
                 },
-            ),
-            PushdownApplicability::NotApplicable => PushdownApplicability::NotApplicable,
+            )
         };
     }
 
@@ -191,12 +194,11 @@ pub(super) fn index_range_limit_pushdown_shape_supported_for_order_contract(
     let Some(order_contract) = order_contract else {
         return false;
     };
-    deterministic_secondary_index_key_items_order_compatibility(
+    deterministic_secondary_index_key_items_satisfied(
         order_contract,
         details.key_items(),
         prefix_len,
     )
-    .is_satisfied()
 }
 
 /// Return whether planner logical pushdown eligibility allows route-level

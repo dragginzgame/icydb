@@ -11,7 +11,7 @@ use crate::{
         predicate::Predicate,
         query::preparation::PreparationWork,
     },
-    value::Value,
+    value::{Value, ValueEnum},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
@@ -218,4 +218,27 @@ fn parameter_construction_exhaustion_is_cumulative_in_every_read_lane() {
         }
     }
     assert_eq!(predicate, before);
+}
+
+#[test]
+fn nested_parameter_payload_exhaustion_is_not_template_ineligibility() {
+    let predicate = Predicate::eq(
+        "x".into(),
+        Value::Enum(ValueEnum::test_payload(
+            1,
+            1,
+            Value::List(vec![Value::Null; 1024]),
+        )),
+    );
+    // The predicate and enum visits fit; traversal of its payload must reject
+    // before metadata copying, not turn exhaustion into a literal-cache fallback.
+    for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+        let root = request(Resource::PredicateExpressionSteps, 2);
+        let error = contract(&predicate, &root, lane).unwrap_err();
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::PredicateExpressionSteps.raw(),
+        )));
+        assert_eq!(root.observed(Resource::TemporaryBytes), 0);
+    }
 }

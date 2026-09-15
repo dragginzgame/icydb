@@ -182,16 +182,6 @@ impl AggregateIdentity {
         }
     }
 
-    /// Borrow the direct field input label when this aggregate is field-backed.
-    #[must_use]
-    pub(in crate::db) const fn target_field(&self) -> Option<&str> {
-        let Some(Expr::Field(field)) = self.input_expr() else {
-            return None;
-        };
-
-        Some(field.as_str())
-    }
-
     /// Return whether grouped DISTINCT needs per-value deduplication.
     #[must_use]
     pub(in crate::db) const fn uses_grouped_distinct_value_dedup(&self) -> bool {

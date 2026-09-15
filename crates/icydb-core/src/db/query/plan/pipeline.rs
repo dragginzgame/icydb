@@ -4,6 +4,7 @@
 //! Boundary: turns `QueryModel` data into finalized `AccessPlannedQuery` contracts.
 
 use crate::db::query::preparation::PreparationWork;
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 use crate::{
     db::{
@@ -667,7 +668,7 @@ pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_with_schem
     // materialization.
     let access_inputs = query.planning_access_inputs();
     let primary_key_input_resource =
-        primary_key_input_resource_from_predicate(&schema_info, access_inputs.predicate());
+        primary_key_input_resource_from_predicate(&schema_info, access_inputs.predicate(), work)?;
     let normalized_predicate = fold_constant_predicate(normalize_query_predicate(
         &schema_info,
         access_inputs.predicate(),
@@ -756,33 +757,48 @@ fn attach_primary_key_input_resource_if_exact_access(
 fn primary_key_input_resource_from_predicate(
     schema_info: &SchemaInfo,
     predicate: Option<&Predicate>,
-) -> Option<PrimaryKeyInputResourceSummary> {
-    let primary_key_name = scalar_primary_key_name(schema_info)?;
+    work: &PreparationWork<'_>,
+) -> Result<Option<PrimaryKeyInputResourceSummary>, QueryError> {
+    let (Some(primary_key_name), Some(predicate)) =
+        (scalar_primary_key_name(schema_info), predicate)
+    else {
+        return Ok(None);
+    };
     let mut resource = PrimaryKeyInputResourceAccumulator::default();
-    collect_primary_key_in_resource(predicate?, primary_key_name, &mut resource);
+    collect_primary_key_in_resource(predicate, primary_key_name, &mut resource, work)?;
 
-    resource.into_summary()
+    Ok(resource.into_summary())
 }
 
 fn collect_primary_key_in_resource(
     predicate: &Predicate,
     primary_key_name: &str,
     resource: &mut PrimaryKeyInputResourceAccumulator,
-) {
+    work: &PreparationWork<'_>,
+) -> Result<(), QueryError> {
+    work.charge(Resource::PredicateExpressionSteps, 1)?;
     match predicate {
-        Predicate::Compare(cmp) if cmp.field == primary_key_name && cmp.op == CompareOp::In => {
-            if let Value::List(values) = &cmp.value {
-                resource.add_values(values);
+        Predicate::Compare(cmp) => {
+            // Ineligible operators and different name lengths need no byte scan.
+            if cmp.op == CompareOp::In && cmp.field.len() == primary_key_name.len() {
+                work.charge(
+                    Resource::PredicateExpressionSteps,
+                    primary_key_name.len() as u64,
+                )?;
+                if cmp.field == primary_key_name
+                    && let Value::List(values) = &cmp.value
+                {
+                    resource.add_values(values, work)?;
+                }
             }
         }
         Predicate::And(children) => {
             for child in children {
-                collect_primary_key_in_resource(child, primary_key_name, resource);
+                collect_primary_key_in_resource(child, primary_key_name, resource, work)?;
             }
         }
         Predicate::Or(_)
         | Predicate::Not(_)
-        | Predicate::Compare(_)
         | Predicate::CompareFields(_)
         | Predicate::IsMissing { .. }
         | Predicate::IsEmpty { .. }
@@ -794,6 +810,7 @@ fn collect_primary_key_in_resource(
         | Predicate::True
         | Predicate::False => {}
     }
+    Ok(())
 }
 
 #[derive(Default)]
@@ -803,14 +820,21 @@ struct PrimaryKeyInputResourceAccumulator {
 }
 
 impl PrimaryKeyInputResourceAccumulator {
-    fn add_values(&mut self, values: &[Value]) {
-        let Some(summary) = primary_key_input_resource_from_value_list(values) else {
-            return;
+    fn add_values(
+        &mut self,
+        values: &[Value],
+        work: &PreparationWork<'_>,
+    ) -> Result<(), QueryError> {
+        let Some(summary) = primary_key_input_resource_from_value_list(values, work)
+            .map_err(QueryError::execute)?
+        else {
+            return Ok(());
         };
         self.raw_term_count = self.raw_term_count.saturating_add(summary.raw_term_count());
         self.estimated_payload_bytes = self
             .estimated_payload_bytes
             .saturating_add(summary.estimated_payload_bytes());
+        Ok(())
     }
 
     const fn into_summary(self) -> Option<PrimaryKeyInputResourceSummary> {
@@ -908,7 +932,64 @@ pub(super) mod tests {
         empty_accepted_enum_catalog_for_tests,
     };
 
-    pub(in crate::db::query::plan) fn exact_metadata_schema(
+    #[test]
+    fn primary_key_summary_preserves_scope_and_propagates_exhaustion() {
+        use crate::{
+            db::{
+                RequestExecutionRoot,
+                executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+                predicate::Predicate,
+                query::preparation::PreparationWork,
+            },
+            value::Value,
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+            DiagnosticFactTag,
+        };
+
+        let schema = exact_metadata_schema(&[], &[]);
+        let predicate = Predicate::And(vec![
+            Predicate::in_("id".into(), vec![Value::Int64(1), Value::Int64(2)]),
+            Predicate::Or(vec![Predicate::in_("id".into(), vec![Value::Int64(3)])]),
+            Predicate::in_("age".into(), vec![Value::Int64(4)]),
+        ]);
+        // AND + matching compare/name/two values + OR shell + other compare.
+        let exact = 8;
+        for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+            for limit in [exact - 1, exact] {
+                let root = RequestExecutionRoot::new_for_tests(
+                    HardExecutionBudget::uniform_for_tests(
+                        16_000_000,
+                        HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                    )
+                    .with_limit_for_tests(Resource::PredicateExpressionSteps, limit)
+                    .with_limit_for_tests(Resource::TemporaryBytes, 0),
+                );
+                let result = PreparationWork::run(&root.scope(), lane, |work| {
+                    super::primary_key_input_resource_from_predicate(
+                        &schema,
+                        Some(&predicate),
+                        work,
+                    )
+                });
+                if limit == exact {
+                    let summary = result.unwrap().unwrap();
+                    assert_eq!(summary.raw_term_count(), 2);
+                    assert_eq!(summary.estimated_payload_bytes(), 16);
+                } else {
+                    assert!(result.unwrap_err().diagnostic_facts().contains(&(
+                        DiagnosticFactTag::BudgetResource,
+                        Resource::PredicateExpressionSteps.raw(),
+                    )));
+                }
+                assert_eq!(root.observed(Resource::TemporaryBytes), 0);
+                assert_eq!(root.observed(Resource::RowsVisited), 0);
+            }
+        }
+    }
+
+    pub(in crate::db) fn exact_metadata_schema(
         indexes: &[(&str, &[&str])],
         nullable: &[&str],
     ) -> SchemaInfo {

@@ -140,6 +140,51 @@ fn normalize_nested_negation_preserves_constants_and_canonical_children() {
 }
 
 #[test]
+fn normalize_surviving_negation_retains_its_owned_box_and_identity() {
+    use crate::db::predicate::{
+        encoding::write_predicate_sort_key, fingerprint::predicate_fingerprint,
+    };
+
+    let leaf = Predicate::eq("name".into(), Value::Text("payload".repeat(128)));
+    for child in [
+        Predicate::True,
+        Predicate::False,
+        leaf.clone(),
+        Predicate::And(vec![Predicate::True, leaf.clone(), leaf.clone()]),
+        Predicate::Or(vec![Predicate::False, leaf.clone(), leaf]),
+    ] {
+        for depth in [1, 3, 31, 125] {
+            let canonical_child = normalize(child.clone());
+            let expected = Predicate::Not(Box::new(canonical_child));
+            let mut nested = child.clone();
+            for _ in 1..depth {
+                nested = Predicate::Not(Box::new(nested));
+            }
+            let owned = Box::new(nested);
+            let backing = std::ptr::from_ref(owned.as_ref());
+            let mut normalized = normalize(Predicate::Not(owned));
+            for _ in 0..2 {
+                let Predicate::Not(retained) = &normalized else {
+                    panic!("odd negation depth retains one NOT");
+                };
+                assert_eq!(std::ptr::from_ref(retained.as_ref()), backing);
+                assert_eq!(normalized, expected);
+                let mut actual_bytes = Vec::new();
+                let mut expected_bytes = Vec::new();
+                write_predicate_sort_key(&mut actual_bytes, &normalized);
+                write_predicate_sort_key(&mut expected_bytes, &expected);
+                assert_eq!(actual_bytes, expected_bytes);
+                assert_eq!(
+                    predicate_fingerprint(&normalized),
+                    predicate_fingerprint(&expected)
+                );
+                normalized = normalize(normalized);
+            }
+        }
+    }
+}
+
+#[test]
 fn normalize_and_dedups_identical_children_and_collapses_to_singleton() {
     let duplicated = Predicate::And(vec![
         Predicate::eq("rank".to_string(), Value::Nat64(7)),

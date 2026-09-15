@@ -1,18 +1,31 @@
 //! Construction accounting borrowed from the caller's existing budget owner.
 //! This interface owns neither request lifetimes nor instruction intervals.
 
+mod encoding;
+mod expr;
 mod predicate;
 #[cfg(test)]
 mod tests;
+mod text;
 mod value;
 
 use crate::error::InternalError;
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
+pub(in crate::db) use encoding::{ENCODING_NODE_BYTES, encoded_value_capacity};
+
 /// Required accounting authority for fallible query construction.
 pub(in crate::db) trait ConstructionBudget {
     /// Charge before work; preserve the owner's typed exhaustion error.
     fn charge(&self, resource: Resource, amount: u64) -> Result<(), InternalError>;
+
+    /// Admit hidden scalar-formatting scratch and work before conversion.
+    /// Owners retain their instruction policy; preparation also flushes its
+    /// pending instruction interval at this expensive-operation boundary.
+    fn admit_format_scratch(&self, bytes: u64, steps: u64) -> Result<(), InternalError> {
+        self.charge(Resource::TemporaryBytes, bytes)?;
+        self.charge(Resource::PredicateExpressionSteps, steps)
+    }
 }
 
 impl dyn ConstructionBudget + '_ {

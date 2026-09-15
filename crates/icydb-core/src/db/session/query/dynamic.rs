@@ -195,7 +195,9 @@ impl<C: CanisterKind> DbSession<C> {
                 query =
                     query.group_aggregates(work.copy_slice(request.aggregates(), |aggregate| {
                         Ok(GroupAggregateSpec::from_aggregate_expr(
-                            aggregate.copy_for_preparation(work)?,
+                            aggregate
+                                .copy_for_preparation(work)
+                                .map_err(QueryError::execute)?,
                         ))
                     })?);
             }

@@ -28,6 +28,16 @@ Account retains its fixed 62-byte payload directly after the value tag; Decimal
 retains its full i128 mantissa and one scale byte (0–28). The same value codec
 owns stored mutation-job literals, so affected job records require recreation.
 
+Value nesting is limited to 128 edges on both encode and decode. Each root
+value starts at depth zero; a list item, map key/value or enum payload adds
+one edge. Tuple entries and siblings do not accumulate depth. Empty containers
+at the limit remain valid, and this limit does not restrict the width of a
+shallow list beyond existing byte/size limits. Excessive nesting fails with
+the existing token encode/decode error before further value recursion. The
+same guard applies to stored mutation-job literals, independently of their
+expression-depth limit. Accepted value bytes and version-1 framing are unchanged;
+over-depth saved continuations must be discarded and affected jobs recreated.
+
 The scalar MAC covers the current payload before semantic fields are used. Its
 contract binds:
 

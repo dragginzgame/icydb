@@ -76,7 +76,8 @@ pub(in crate::db::query) fn lower_projection_intent_with_schema(
                     fields.push(aggregate_projection(AggregateExpr::from_shape(
                         aggregate
                             .shape()
-                            .copy_for_preparation(work)?
+                            .copy_for_preparation(work)
+                            .map_err(QueryError::execute)?
                             .with_raw_distinct(aggregate.semantic_distinct()),
                     )));
                 }

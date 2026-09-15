@@ -32,7 +32,7 @@ pub(in crate::db::query) fn hash_continuation_with_projection(
     write_tag(hasher, CONTINUATION_SECTION_MODE_TAG);
     hash_mode(hasher, scalar.mode);
     write_tag(hasher, CONTINUATION_SECTION_ACCESS_TAG);
-    hash_access_plan(hasher, &plan.access)?;
+    hash_access_plan(hasher, &plan.access, budget)?;
     write_tag(hasher, CONTINUATION_SECTION_PREDICATE_TAG);
     hash_scalar_semantic_filter(
         hasher,
@@ -41,12 +41,12 @@ pub(in crate::db::query) fn hash_continuation_with_projection(
         budget,
     )?;
     write_tag(hasher, CONTINUATION_SECTION_ORDER_TAG);
-    hash_order_spec(hasher, scalar.order.as_ref());
+    hash_order_spec(hasher, scalar.order.as_ref(), budget)?;
     write_tag(hasher, CONTINUATION_SECTION_DISTINCT_TAG);
     hash_distinct(hasher, scalar.distinct);
     write_tag(hasher, CONTINUATION_SECTION_GROUPING_SHAPE_TAG);
-    hash_grouping_shape(hasher, plan)?;
+    hash_grouping_shape(hasher, plan, budget)?;
     write_tag(hasher, CONTINUATION_SECTION_PROJECTION_SPEC_TAG);
-    hash_projection_spec(hasher, projection, plan)?;
+    hash_projection_spec(hasher, projection, plan, budget)?;
     Ok(())
 }

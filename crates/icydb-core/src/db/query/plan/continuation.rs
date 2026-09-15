@@ -3,9 +3,11 @@
 //! Does not own: cursor token decoding internals or executor-side re-derivation policy.
 //! Boundary: emits immutable continuation semantics consumed by runtime layers.
 
+#[cfg(test)]
+mod retention_tests;
+
 use crate::{
     db::{
-        access::AccessPlan,
         codec::{finalize_hash_sha256, new_hash_sha256_prefixed},
         commit::CommitSchemaFingerprint,
         cursor::{ContinuationSignature, CursorPlanError, ValidatedGroupedCursor},
@@ -59,6 +61,8 @@ impl AcceptedContinuationIdentity {
 /// Immutable planner-owned continuation semantic contract.
 /// Runtime layers consume this contract and must not re-derive continuation
 /// shape, window, or grouped/scalar compatibility semantics independently.
+/// Access identity is carried by the signature; executable access remains owned
+/// by the prepared plan rather than being duplicated in this contract.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -69,7 +73,6 @@ pub(in crate::db) struct PlannedContinuationContract {
     pub(in crate::db) window_size: usize,
     pub(in crate::db) order_contract: ExecutionOrderContract,
     page_limit: Option<usize>,
-    access: AccessPlan<Value>,
     grouped_cursor_policy_violation: Option<GroupedCursorPolicyViolation>,
 }
 
@@ -257,7 +260,6 @@ impl PlannedContinuationContract {
         window_size: usize,
         order_contract: ExecutionOrderContract,
         page_limit: Option<usize>,
-        access: AccessPlan<Value>,
         grouped_cursor_policy_violation: Option<GroupedCursorPolicyViolation>,
     ) -> Self {
         Self {
@@ -267,7 +269,6 @@ impl PlannedContinuationContract {
             window_size,
             order_contract,
             page_limit,
-            access,
             grouped_cursor_policy_violation,
         }
     }
@@ -443,9 +444,11 @@ impl AccessPlannedQuery {
             |grouped| grouped.group.group_fields.len(),
         );
         let is_grouped = self.grouped_plan().is_some();
-        let order_contract =
-            ExecutionOrderContract::from_plan(is_grouped, self.scalar_plan().order.as_ref());
-        let access = self.access.clone();
+        let order_contract = ExecutionOrderContract::from_plan(
+            is_grouped,
+            self.scalar_plan().order.as_ref(),
+            budget,
+        )?;
         let grouped_cursor_policy_violation = self
             .grouped_plan()
             .and_then(|grouped| grouped_cursor_policy_violation(grouped, true));
@@ -457,7 +460,6 @@ impl AccessPlannedQuery {
                 page_window.offset_usize(),
                 order_contract,
                 page_window.limit_usize(),
-                access,
                 grouped_cursor_policy_violation,
             )
             .with_accepted_identity(accepted_identity),
@@ -566,5 +568,5 @@ mod authority_signature_tests {
 // Exhaustive cache-retention coverage; new owned fields require accounting.
 crate::retained::retained_copy!(AcceptedContinuationIdentity);
 crate::retained::retained_fields!(PlannedContinuationContract {
-Self{shape_signature,accepted_identity,boundary_arity,window_size,order_contract,page_limit,access,grouped_cursor_policy_violation} => [shape_signature,accepted_identity,boundary_arity,window_size,order_contract,page_limit,access,grouped_cursor_policy_violation],
+Self{shape_signature,accepted_identity,boundary_arity,window_size,order_contract,page_limit,grouped_cursor_policy_violation} => [shape_signature,accepted_identity,boundary_arity,window_size,order_contract,page_limit,grouped_cursor_policy_violation],
 });

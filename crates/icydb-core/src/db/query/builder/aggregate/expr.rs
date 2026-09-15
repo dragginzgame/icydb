@@ -1,9 +1,9 @@
-use crate::db::{
-    QueryError,
-    query::{
+use crate::{
+    db::query::{
+        construction::ConstructionBudget,
         plan::{AggregateKind, AggregateShape, expr::Expr},
-        preparation::PreparationWork,
     },
+    error::InternalError,
 };
 
 ///
@@ -24,8 +24,8 @@ impl AggregateExpr {
     /// Copy this admitted declaration against the current preparation request.
     pub(in crate::db) fn copy_for_preparation(
         &self,
-        work: &PreparationWork<'_>,
-    ) -> Result<Self, QueryError> {
+        work: &dyn ConstructionBudget,
+    ) -> Result<Self, InternalError> {
         Ok(Self::from_shape(self.shape.copy_for_preparation(work)?))
     }
 

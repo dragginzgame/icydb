@@ -3,10 +3,19 @@
 //! Does not own: runtime order application mechanics or cursor wire token encoding.
 //! Boundary: exposes immutable order contracts consumed across planner/executor boundaries.
 
-use crate::db::{
-    access::{AccessPathKind, AccessShapeFacts, SemanticIndexKeyItem},
-    direction::Direction,
-    query::plan::{OrderDirection, OrderSpec, order_term::index_key_item_order_terms},
+#[cfg(test)]
+mod admission_tests;
+
+use crate::{
+    db::{
+        access::{AccessPathKind, AccessShapeFacts, SemanticIndexKeyItem},
+        direction::Direction,
+        query::{
+            construction::ConstructionBudget,
+            plan::{OrderDirection, OrderSpec},
+        },
+    },
+    error::InternalError,
 };
 use std::rc::Rc;
 
@@ -25,63 +34,6 @@ pub(in crate::db) enum DeterministicSecondaryIndexOrderMatch {
     Full,
     Suffix,
     None,
-}
-
-///
-/// DeterministicSecondaryIndexOrderCompatibility
-///
-/// Shared compatibility fact between one deterministic scalar ORDER BY
-/// contract and one index-key order after a known equality-bound prefix.
-/// Planner ranking and executor route pushdown both consume this value so the
-/// match decision cannot drift across layers.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct DeterministicSecondaryIndexOrderCompatibility {
-    index_terms: Vec<String>,
-    match_kind: DeterministicSecondaryIndexOrderMatch,
-}
-
-impl DeterministicSecondaryIndexOrderCompatibility {
-    /// Build one compatibility fact from the shared order contract classifier.
-    #[must_use]
-    fn new(
-        order_contract: &DeterministicSecondaryOrderContract,
-        key_items: &[SemanticIndexKeyItem],
-        prefix_len: usize,
-    ) -> Self {
-        let index_terms = index_key_item_order_terms(key_items);
-        let match_kind = order_contract.classify_index_match(&index_terms, prefix_len);
-
-        Self {
-            index_terms,
-            match_kind,
-        }
-    }
-
-    /// Return the full canonical index-order terms used for the match.
-    #[must_use]
-    pub(in crate::db) const fn index_terms(&self) -> &[String] {
-        self.index_terms.as_slice()
-    }
-
-    /// Return the suffix terms remaining after the equality-bound prefix.
-    #[must_use]
-    pub(in crate::db) fn index_suffix_terms(&self, prefix_len: usize) -> Vec<String> {
-        self.index_terms.iter().skip(prefix_len).cloned().collect()
-    }
-
-    /// Return the shared full-vs-suffix-vs-none match classification.
-    #[must_use]
-    pub(in crate::db) const fn match_kind(&self) -> DeterministicSecondaryIndexOrderMatch {
-        self.match_kind
-    }
-
-    /// Return whether this index traversal can satisfy the ORDER BY contract.
-    #[must_use]
-    pub(in crate::db) const fn is_satisfied(&self) -> bool {
-        !matches!(self.match_kind, DeterministicSecondaryIndexOrderMatch::None)
-    }
 }
 
 ///
@@ -276,17 +228,6 @@ impl DeterministicSecondaryOrderContract {
         }
         DeterministicSecondaryIndexOrderMatch::None
     }
-}
-
-/// Return the shared scalar secondary-index order compatibility fact from
-/// reduced key-item facts.
-#[must_use]
-pub(in crate::db) fn deterministic_secondary_index_key_items_order_compatibility(
-    order_contract: &DeterministicSecondaryOrderContract,
-    key_items: &[SemanticIndexKeyItem],
-    prefix_len: usize,
-) -> DeterministicSecondaryIndexOrderCompatibility {
-    DeterministicSecondaryIndexOrderCompatibility::new(order_contract, key_items, prefix_len)
 }
 
 /// Return whether accepted field-path index order terms satisfy one
@@ -519,21 +460,27 @@ impl ExecutionOrderContract {
         }
     }
 
-    /// Build one execution ordering contract from grouped/order plan shape.
-    #[must_use]
-    pub(in crate::db) fn from_plan(is_grouped: bool, order: Option<&OrderSpec>) -> Self {
+    /// Retain admitted ordering from grouped/order plan shape. Exhaustion must
+    /// prevent publication; successful copies preserve the authored order exactly.
+    pub(in crate::db) fn from_plan(
+        is_grouped: bool,
+        order: Option<&OrderSpec>,
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Self, InternalError> {
         let direction = primary_scan_direction(order);
+        let supports_cursor = is_grouped || order.is_some();
+        let order = order
+            .map(|order| budget.copy_order_spec(order))
+            .transpose()?;
         let ordering = if is_grouped {
-            ExecutionOrdering::Grouped(order.cloned())
+            ExecutionOrdering::Grouped(order)
         } else {
-            match order.cloned() {
+            match order {
                 Some(order) => ExecutionOrdering::Explicit(order),
                 None => ExecutionOrdering::PrimaryKey,
             }
         };
-        let supports_cursor = is_grouped || order.is_some();
-
-        Self::new(ordering, direction, supports_cursor)
+        Ok(Self::new(ordering, direction, supports_cursor))
     }
 
     #[must_use]
@@ -543,12 +490,6 @@ impl ExecutionOrderContract {
 
     #[must_use]
     pub(in crate::db) const fn direction(&self) -> Direction {
-        self.direction
-    }
-
-    /// Return canonical primary scan direction for this execution contract.
-    #[must_use]
-    pub(in crate::db) const fn primary_scan_direction(&self) -> Direction {
         self.direction
     }
 
@@ -567,7 +508,10 @@ impl ExecutionOrderContract {
     }
 }
 
-fn primary_scan_direction(order: Option<&OrderSpec>) -> Direction {
+/// Inspect the leading order direction without owning or traversing expressions.
+/// Absent and empty order specifications retain the ascending default.
+#[must_use]
+pub(in crate::db) fn primary_scan_direction(order: Option<&OrderSpec>) -> Direction {
     let Some(order) = order else {
         return Direction::Asc;
     };
@@ -660,7 +604,7 @@ mod tests {
                     field("tenant"),
                 ],
             ] {
-                let rendered = super::index_key_item_order_terms(&items);
+                let rendered = crate::db::query::plan::index_key_item_order_terms(&items);
                 for keys in [
                     vec!["id".to_string()],
                     vec!["tenant".to_string(), "id".to_string()],

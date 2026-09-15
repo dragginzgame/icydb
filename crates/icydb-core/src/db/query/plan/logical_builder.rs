@@ -147,7 +147,10 @@ pub(in crate::db::query) fn logical_query_from_logical_inputs(
                     group_fields: group.group_fields.copy_for_preparation(work)?,
                     aggregates: work.copy_slice(&group.aggregates, |aggregate| {
                         Ok(GroupAggregateSpec::from_shape(
-                            aggregate.shape().copy_for_preparation(work)?,
+                            aggregate
+                                .shape()
+                                .copy_for_preparation(work)
+                                .map_err(QueryError::execute)?,
                         ))
                     })?,
                     execution: group.execution,

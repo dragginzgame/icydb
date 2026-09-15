@@ -46,6 +46,11 @@ const VALUE_ULID: u8 = 22;
 const VALUE_UNIT: u8 = 23;
 const VALUE_U256: u8 = 24;
 
+// Bound recursive construction and cleanup independently of payload byte size.
+// A root is depth zero; list items, map keys/values and enum payloads each add
+// one edge. Top-level cursor tuples and siblings do not consume nesting depth.
+const MAX_VALUE_NESTING_DEPTH: usize = 128;
+
 /// Encode one runtime value through the current bounded binary value wire.
 ///
 /// This deliberately shares the cursor-owned value variant map with private
@@ -72,10 +77,18 @@ pub(in crate::db::cursor::token) fn write_value_slice(
     out: &mut Vec<u8>,
     values: &[Value],
 ) -> Result<(), TokenWireError> {
+    write_value_slice_at_depth(out, values, 0)
+}
+
+fn write_value_slice_at_depth(
+    out: &mut Vec<u8>,
+    values: &[Value],
+    depth: usize,
+) -> Result<(), TokenWireError> {
     write_u32(out, checked_len_u32(values.len())?);
 
     for value in values {
-        write_value(out, value)?;
+        write_value_at_depth(out, value, depth)?;
     }
 
     Ok(())
@@ -84,26 +97,45 @@ pub(in crate::db::cursor::token) fn write_value_slice(
 pub(in crate::db::cursor::token) fn read_value_vec(
     cursor: &mut ByteCursor<'_>,
 ) -> Result<Vec<Value>, TokenWireError> {
+    read_value_vec_at_depth(cursor, 0)
+}
+
+fn read_value_vec_at_depth(
+    cursor: &mut ByteCursor<'_>,
+    depth: usize,
+) -> Result<Vec<Value>, TokenWireError> {
     let len = usize::try_from(cursor.read_u32()?).map_err(|_| TokenWireError::decode())?;
-    if len > cursor.remaining() {
+    if len > cursor.remaining() || (len != 0 && depth > MAX_VALUE_NESTING_DEPTH) {
         return Err(TokenWireError::decode());
     }
     let mut values = Vec::with_capacity(len);
 
     for _ in 0..len {
-        values.push(read_value(cursor)?);
+        values.push(read_value_at_depth(cursor, depth)?);
     }
 
     Ok(values)
 }
 
-// One recursive dispatcher owns every token-supported `Value` leaf shape so
-// cursor-token encoding keeps a single authoritative variant map.
-#[expect(clippy::too_many_lines)]
+// Every external value entry starts a fresh depth. Recursive edges below must
+// retain the current depth rather than re-entering this root function.
 pub(in crate::db::cursor::token) fn write_value(
     out: &mut Vec<u8>,
     value: &Value,
 ) -> Result<(), TokenWireError> {
+    write_value_at_depth(out, value, 0)
+}
+
+// One recursive dispatcher owns every token-supported value variant.
+#[expect(clippy::too_many_lines)]
+fn write_value_at_depth(
+    out: &mut Vec<u8>,
+    value: &Value,
+    depth: usize,
+) -> Result<(), TokenWireError> {
+    if depth > MAX_VALUE_NESTING_DEPTH {
+        return Err(TokenWireError::encode());
+    }
     match value {
         Value::Account(value) => {
             out.push(VALUE_ACCOUNT);
@@ -135,7 +167,7 @@ pub(in crate::db::cursor::token) fn write_value(
         }
         Value::Enum(value) => {
             out.push(VALUE_ENUM);
-            write_value_enum(out, value)
+            write_value_enum(out, value, depth)
         }
         Value::Float32(value) => {
             out.push(VALUE_FLOAT32);
@@ -164,11 +196,11 @@ pub(in crate::db::cursor::token) fn write_value(
         }
         Value::List(items) => {
             out.push(VALUE_LIST);
-            write_value_slice(out, items.as_slice())
+            write_value_slice_at_depth(out, items.as_slice(), depth + 1)
         }
         Value::Map(entries) => {
             out.push(VALUE_MAP);
-            write_map_entries(out, entries.as_slice())
+            write_map_entries(out, entries.as_slice(), depth + 1)
         }
         Value::Null => {
             out.push(VALUE_NULL);
@@ -249,26 +281,34 @@ fn write_decimal(out: &mut Vec<u8>, value: Decimal) {
     out.push(decimal_parts.scale().to_be_bytes()[3]);
 }
 
-fn write_value_enum(out: &mut Vec<u8>, value: &ValueEnum) -> Result<(), TokenWireError> {
+fn write_value_enum(
+    out: &mut Vec<u8>,
+    value: &ValueEnum,
+    depth: usize,
+) -> Result<(), TokenWireError> {
     write_u32(out, value.type_id().get());
     write_u32(out, value.variant_id().get());
     match value.body() {
         CanonicalEnumBody::Unit => out.push(0),
         CanonicalEnumBody::Payload(payload) => {
             out.push(1);
-            write_value(out, payload)?;
+            write_value_at_depth(out, payload, depth + 1)?;
         }
     }
 
     Ok(())
 }
 
-fn write_map_entries(out: &mut Vec<u8>, entries: &[(Value, Value)]) -> Result<(), TokenWireError> {
+fn write_map_entries(
+    out: &mut Vec<u8>,
+    entries: &[(Value, Value)],
+    depth: usize,
+) -> Result<(), TokenWireError> {
     write_u32(out, checked_len_u32(entries.len())?);
 
     for (key, value) in entries {
-        write_value(out, key)?;
-        write_value(out, value)?;
+        write_value_at_depth(out, key, depth)?;
+        write_value_at_depth(out, value, depth)?;
     }
 
     Ok(())
@@ -277,6 +317,13 @@ fn write_map_entries(out: &mut Vec<u8>, entries: &[(Value, Value)]) -> Result<()
 pub(in crate::db::cursor::token) fn read_value(
     cursor: &mut ByteCursor<'_>,
 ) -> Result<Value, TokenWireError> {
+    read_value_at_depth(cursor, 0)
+}
+
+fn read_value_at_depth(cursor: &mut ByteCursor<'_>, depth: usize) -> Result<Value, TokenWireError> {
+    if depth > MAX_VALUE_NESTING_DEPTH {
+        return Err(TokenWireError::decode());
+    }
     match cursor.read_u8()? {
         VALUE_ACCOUNT => Ok(Value::Account(read_account(cursor)?)),
         VALUE_BLOB => Ok(Value::Blob(cursor.read_len_prefixed_bytes()?.to_vec())),
@@ -284,7 +331,7 @@ pub(in crate::db::cursor::token) fn read_value(
         VALUE_DATE => Ok(Value::Date(read_date(cursor)?)),
         VALUE_DECIMAL => Ok(Value::Decimal(read_decimal(cursor)?)),
         VALUE_DURATION => Ok(Value::Duration(Duration::from_millis(cursor.read_u64()?))),
-        VALUE_ENUM => Ok(Value::Enum(read_value_enum(cursor)?)),
+        VALUE_ENUM => Ok(Value::Enum(read_value_enum(cursor, depth)?)),
         VALUE_FLOAT32 => Ok(Value::Float32(
             Float32::try_from_bytes(cursor.read_exact(4)?).map_err(|_| TokenWireError::decode())?,
         )),
@@ -294,8 +341,8 @@ pub(in crate::db::cursor::token) fn read_value(
         VALUE_INT => Ok(Value::Int64(cursor.read_i64()?)),
         VALUE_INT128 => Ok(Value::Int128(cursor.read_i128()?)),
         VALUE_INT_BIG => Ok(Value::IntBig(read_big_int(cursor)?)),
-        VALUE_LIST => Ok(Value::List(read_value_vec(cursor)?)),
-        VALUE_MAP => read_map_value(cursor),
+        VALUE_LIST => Ok(Value::List(read_value_vec_at_depth(cursor, depth + 1)?)),
+        VALUE_MAP => read_map_value(cursor, depth + 1),
         VALUE_NULL => Ok(Value::Null),
         VALUE_PRINCIPAL => Ok(Value::Principal(read_principal(cursor)?)),
         VALUE_SUBACCOUNT => Ok(Value::Subaccount(Subaccount::from_array(
@@ -344,12 +391,12 @@ fn read_decimal(cursor: &mut ByteCursor<'_>) -> Result<Decimal, TokenWireError> 
         .ok_or_else(TokenWireError::decode)
 }
 
-fn read_value_enum(cursor: &mut ByteCursor<'_>) -> Result<ValueEnum, TokenWireError> {
+fn read_value_enum(cursor: &mut ByteCursor<'_>, depth: usize) -> Result<ValueEnum, TokenWireError> {
     let type_id = EnumTypeId::new(cursor.read_u32()?).ok_or_else(TokenWireError::decode)?;
     let variant_id = EnumVariantId::new(cursor.read_u32()?).ok_or_else(TokenWireError::decode)?;
     let body = match cursor.read_u8()? {
         0 => CanonicalEnumBody::Unit,
-        1 => CanonicalEnumBody::Payload(Box::new(read_value(cursor)?)),
+        1 => CanonicalEnumBody::Payload(Box::new(read_value_at_depth(cursor, depth + 1)?)),
         _ => {
             return Err(TokenWireError::decode());
         }
@@ -421,15 +468,18 @@ fn read_big_magnitude<'a>(cursor: &mut ByteCursor<'a>) -> Result<&'a [u8], Token
     Ok(magnitude)
 }
 
-fn read_map_value(cursor: &mut ByteCursor<'_>) -> Result<Value, TokenWireError> {
+fn read_map_value(cursor: &mut ByteCursor<'_>, depth: usize) -> Result<Value, TokenWireError> {
     let len = usize::try_from(cursor.read_u32()?).map_err(|_| TokenWireError::decode())?;
-    if len > cursor.remaining() / 2 {
+    if len > cursor.remaining() / 2 || (len != 0 && depth > MAX_VALUE_NESTING_DEPTH) {
         return Err(TokenWireError::decode());
     }
     let mut entries = Vec::with_capacity(len);
 
     for _ in 0..len {
-        entries.push((read_value(cursor)?, read_value(cursor)?));
+        entries.push((
+            read_value_at_depth(cursor, depth)?,
+            read_value_at_depth(cursor, depth)?,
+        ));
     }
 
     Value::from_map(entries).map_err(|_| TokenWireError::decode())
@@ -438,6 +488,153 @@ fn read_map_value(cursor: &mut ByteCursor<'_>) -> Result<Value, TokenWireError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Build the input and expected current wire independently of the codec.
+    // kind 3 alternates list, map-value and enum-payload edges.
+    fn nested_payload(depth: usize, kind: usize) -> (Value, Vec<u8>) {
+        let mut value = Value::Bool(false);
+        let mut bytes = vec![VALUE_BOOL, 0];
+        for level in 0..depth {
+            let edge = if kind == 3 { level % 3 } else { kind };
+            let mut parent = match edge {
+                0 => {
+                    value = Value::List(vec![value]);
+                    vec![VALUE_LIST, 0, 0, 0, 1]
+                }
+                1 => {
+                    value = Value::Map(vec![(Value::Bool(true), value)]);
+                    vec![VALUE_MAP, 0, 0, 0, 1, VALUE_BOOL, 1]
+                }
+                2 => {
+                    value = Value::Enum(ValueEnum::test_payload(1, 1, value));
+                    vec![VALUE_ENUM, 0, 0, 0, 1, 0, 0, 0, 1, 1]
+                }
+                _ => unreachable!("test edge"),
+            };
+            parent.extend_from_slice(&bytes);
+            bytes = parent;
+        }
+        (value, bytes)
+    }
+
+    #[test]
+    fn value_nesting_limit_is_symmetric_and_preserves_wire_bytes() {
+        for kind in 0..4 {
+            for depth in [
+                0,
+                MAX_VALUE_NESTING_DEPTH - 1,
+                MAX_VALUE_NESTING_DEPTH,
+                MAX_VALUE_NESTING_DEPTH + 1,
+            ] {
+                let (value, bytes) = nested_payload(depth, kind);
+                let mut encoded = Vec::new();
+                let result = write_value(&mut encoded, &value);
+                let mut cursor = ByteCursor::new(&bytes);
+                let decoded = read_value(&mut cursor);
+                if depth <= MAX_VALUE_NESTING_DEPTH {
+                    result.unwrap();
+                    assert_eq!(encoded, bytes);
+                    assert_eq!(decoded.unwrap(), value);
+                    cursor.finish().unwrap();
+                } else {
+                    assert_eq!(result, Err(TokenWireError::Encode));
+                    assert_eq!(decoded, Err(TokenWireError::Decode));
+                    assert!(cursor.remaining() > 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn map_keys_and_empty_containers_obey_the_same_value_depth() {
+        for depth in [MAX_VALUE_NESTING_DEPTH - 1, MAX_VALUE_NESTING_DEPTH] {
+            let (key, bytes) = nested_payload(depth, 2);
+            let value = Value::Map(vec![(key, Value::Bool(false))]);
+            let mut wire = vec![VALUE_MAP, 0, 0, 0, 1];
+            wire.extend_from_slice(&bytes);
+            wire.extend_from_slice(&[VALUE_BOOL, 0]);
+            let mut encoded = Vec::new();
+            let result = write_value(&mut encoded, &value);
+            let decoded = read_value(&mut ByteCursor::new(&wire));
+            if depth < MAX_VALUE_NESTING_DEPTH {
+                result.unwrap();
+                assert_eq!(encoded, wire);
+                assert_eq!(decoded.unwrap(), value);
+            } else {
+                assert_eq!(result, Err(TokenWireError::Encode));
+                assert_eq!(decoded, Err(TokenWireError::Decode));
+            }
+        }
+        for mut leaf in [
+            Value::List(vec![]),
+            Value::Map(vec![]),
+            Value::Enum(ValueEnum::test_unit(1, 1)),
+        ] {
+            for _ in 0..MAX_VALUE_NESTING_DEPTH {
+                leaf = Value::List(vec![leaf]);
+            }
+            let mut encoded = Vec::new();
+            write_value(&mut encoded, &leaf).unwrap();
+            assert_eq!(read_value(&mut ByteCursor::new(&encoded)).unwrap(), leaf);
+        }
+    }
+
+    #[test]
+    fn deep_wire_rejects_early_and_sibling_values_start_at_their_own_root() {
+        // No deeply nested Rust value is built or dropped for hostile input.
+        let mut hostile = Vec::new();
+        for _ in 0..1000 {
+            hostile.extend_from_slice(&[VALUE_LIST, 0, 0, 0, 1]);
+        }
+        hostile.push(VALUE_UNIT);
+        let mut cursor = ByteCursor::new(&hostile);
+        assert_eq!(read_value(&mut cursor), Err(TokenWireError::Decode));
+        assert!(cursor.remaining() > 4000);
+
+        let (first, _) = nested_payload(MAX_VALUE_NESTING_DEPTH, 0);
+        let (second, _) = nested_payload(MAX_VALUE_NESTING_DEPTH, 2);
+        let values = vec![first, second, Value::Bool(true)];
+        let mut encoded = Vec::new();
+        write_value_slice(&mut encoded, &values).unwrap();
+        let mut cursor = ByteCursor::new(&encoded);
+        assert_eq!(read_value_vec(&mut cursor).unwrap(), values);
+        cursor.finish().unwrap();
+
+        // A thousand siblings remain one nesting edge, not a depth counter.
+        let wide = Value::List(vec![Value::Bool(true); 1000]);
+        let mut encoded = Vec::new();
+        write_value(&mut encoded, &wide).unwrap();
+        assert_eq!(read_value(&mut ByteCursor::new(&encoded)).unwrap(), wide);
+    }
+
+    #[test]
+    fn grouped_token_propagates_value_depth_rejection_without_a_format_change() {
+        use crate::db::{
+            cursor::{
+                ContinuationSignature,
+                token::{decode_grouped_token, encode_grouped_token},
+            },
+            direction::Direction,
+        };
+        let signature = ContinuationSignature::from_bytes([7; 32]);
+        for depth in [MAX_VALUE_NESTING_DEPTH, MAX_VALUE_NESTING_DEPTH + 1] {
+            let (value, payload) = nested_payload(depth, 0);
+            let mut wire = encode_grouped_token(signature, &[], Direction::Asc, 0).unwrap();
+            wire.truncate(wire.len() - 4); // replace the empty tuple count
+            wire.extend_from_slice(&1_u32.to_be_bytes());
+            wire.extend_from_slice(&payload);
+            let encoded =
+                encode_grouped_token(signature, std::slice::from_ref(&value), Direction::Asc, 0);
+            let decoded = decode_grouped_token(&wire);
+            if depth == MAX_VALUE_NESTING_DEPTH {
+                assert_eq!(encoded.unwrap(), wire);
+                assert_eq!(decoded.unwrap().last_group_key, vec![value]);
+            } else {
+                assert_eq!(encoded, Err(TokenWireError::Encode));
+                assert!(matches!(decoded, Err(TokenWireError::Decode)));
+            }
+        }
+    }
 
     #[test]
     fn cursor_value_decode_rejects_days_outside_bounded_calendar() {

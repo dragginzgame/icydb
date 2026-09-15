@@ -129,8 +129,8 @@ impl ParameterPredicate {
                     return Ok(None);
                 };
                 *slot_count = slot_count.saturating_add(1);
-                *parameter_bytes =
-                    parameter_bytes.saturating_add(estimate_value_payload_bytes(compare.value()));
+                *parameter_bytes = parameter_bytes
+                    .saturating_add(estimate_value_payload_bytes(compare.value(), budget)?);
                 if *parameter_bytes > MAX_PREPARED_QUERY_PARAMETER_BYTES {
                     return Ok(None);
                 }

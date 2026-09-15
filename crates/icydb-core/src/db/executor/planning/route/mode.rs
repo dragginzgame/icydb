@@ -3,10 +3,13 @@
 //! Does not own: access-shape capability decisions or route execution-mode selection.
 //! Boundary: pure derivation primitives consumed by route planning.
 
+#[cfg(test)]
+mod tests;
+
 use crate::db::{
     direction::Direction,
     executor::planning::route::{AggregateRouteShape, RouteCapabilityFacts},
-    query::plan::{AccessPlannedQuery, ExecutionOrderContract},
+    query::plan::{AccessPlannedQuery, primary_scan_direction},
 };
 
 /// Return whether aggregate non-count execution may remain streaming.
@@ -65,11 +68,7 @@ pub(super) const fn load_streaming_allowed(
 
 /// Derive the route scan direction for load execution.
 pub(super) fn derive_load_route_direction(plan: &AccessPlannedQuery) -> Direction {
-    ExecutionOrderContract::from_plan(
-        plan.grouped_plan().is_some(),
-        plan.scalar_plan().order.as_ref(),
-    )
-    .primary_scan_direction()
+    primary_scan_direction(plan.scalar_plan().order.as_ref())
 }
 
 /// Derive the route scan direction for aggregate execution.

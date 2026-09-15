@@ -365,25 +365,11 @@ pub(in crate::db) fn try_classify_grouped_order_term_for_field<E>(
         _ => return Ok(GroupedOrderTermAdmissibility::UnsupportedExpression),
     };
 
-    Ok(
-        if try_group_field_matches_expr(expected_group_field, field, observe)? {
-            GroupedOrderTermAdmissibility::Preserves(class)
-        } else {
-            GroupedOrderTermAdmissibility::PrefixMismatch
-        },
-    )
-}
-
-// A stored label covers its root, path component bytes and separators. Its
-// length bounds the equal-prefix work of the shared borrowed leaf comparator;
-// mismatched representation/length may consume less. No label is constructed.
-fn try_group_field_matches_expr<E>(
-    field: GroupFieldRef<'_>,
-    expr: &Expr,
-    observe: &mut impl FnMut(u64) -> Result<(), E>,
-) -> Result<bool, E> {
-    observe(1_u64.saturating_add(field.field().len() as u64))?;
-    Ok(field.matches_expr(expr))
+    Ok(if expected_group_field.try_matches_expr(field, observe)? {
+        GroupedOrderTermAdmissibility::Preserves(class)
+    } else {
+        GroupedOrderTermAdmissibility::PrefixMismatch
+    })
 }
 
 // Additive constant offsets preserve both ascending and descending order for
@@ -437,7 +423,7 @@ pub(in crate::db) fn try_classify_grouped_top_k_order_term<E>(
         Ok(match node {
             Expr::Field(_) | Expr::FieldPath(_) => {
                 for field in group_fields.iter() {
-                    if try_group_field_matches_expr(field, node, observe)? {
+                    if field.try_matches_expr(node, observe)? {
                         return Ok(true);
                     }
                 }
