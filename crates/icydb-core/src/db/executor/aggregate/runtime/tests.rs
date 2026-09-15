@@ -10,6 +10,7 @@ use crate::{
                 AggregateKind, FieldSlot, GroupedAggregateExecutionSpec,
                 expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function, UnaryOp},
             },
+            preparation::with_preparation_work,
         },
     },
     types::Decimal,
@@ -35,11 +36,14 @@ fn grouped_having_runtime_accepts_post_aggregate_round_compare() {
         None,
         false,
     )];
-    let compiled = compile_grouped_projection_expr(
-        &expr,
-        &crate::db::query::plan::GroupFieldSet::empty(),
-        &specs,
-    )
+    let compiled = with_preparation_work(|work| {
+        compile_grouped_projection_expr(
+            &expr,
+            &crate::db::query::plan::GroupFieldSet::empty(),
+            &specs,
+            work,
+        )
+    })
     .expect("grouped HAVING ROUND compare should compile");
     let aggregate_values = [Value::Decimal(Decimal::new(10049, 3))];
     let grouped_row = GroupedRowView::new(&[], &aggregate_values);
@@ -67,11 +71,14 @@ fn grouped_having_runtime_accepts_post_aggregate_arithmetic_compare() {
         None,
         false,
     )];
-    let compiled = compile_grouped_projection_expr(
-        &expr,
-        &crate::db::query::plan::GroupFieldSet::empty(),
-        &specs,
-    )
+    let compiled = with_preparation_work(|work| {
+        compile_grouped_projection_expr(
+            &expr,
+            &crate::db::query::plan::GroupFieldSet::empty(),
+            &specs,
+            work,
+        )
+    })
     .expect("grouped HAVING arithmetic compare should compile");
     let aggregate_values = [Value::Nat64(5)];
     let grouped_row = GroupedRowView::new(&[], &aggregate_values);
@@ -106,8 +113,10 @@ fn grouped_having_runtime_accepts_and_over_group_keys_and_aggregates() {
         None,
         false,
     )];
-    let compiled = compile_grouped_projection_expr(&expr, &group_fields, &specs)
-        .expect("grouped HAVING AND expression should compile");
+    let compiled = with_preparation_work(|work| {
+        compile_grouped_projection_expr(&expr, &group_fields, &specs, work)
+    })
+    .expect("grouped HAVING AND expression should compile");
     let group_key_values = [Value::Text("Mage".to_string())];
     let aggregate_values = [Value::Nat64(11)];
     let grouped_row = GroupedRowView::new(&group_key_values, &aggregate_values);
@@ -140,11 +149,14 @@ fn grouped_having_runtime_accepts_post_aggregate_case_and_not() {
         None,
         false,
     )];
-    let compiled = compile_grouped_projection_expr(
-        &expr,
-        &crate::db::query::plan::GroupFieldSet::empty(),
-        &specs,
-    )
+    let compiled = with_preparation_work(|work| {
+        compile_grouped_projection_expr(
+            &expr,
+            &crate::db::query::plan::GroupFieldSet::empty(),
+            &specs,
+            work,
+        )
+    })
     .expect("grouped HAVING CASE should compile");
     let aggregate_values = [Value::Nat64(6)];
     let grouped_row = GroupedRowView::new(&[], &aggregate_values);

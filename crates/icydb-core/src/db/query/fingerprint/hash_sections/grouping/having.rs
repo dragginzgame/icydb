@@ -1,5 +1,3 @@
-mod comparison;
-
 #[cfg(test)]
 mod tests;
 
@@ -13,9 +11,8 @@ use crate::db::query::{
         GROUP_HAVING_VALUE_CASE_TAG, GROUP_HAVING_VALUE_EXPR_TAG,
         GROUP_HAVING_VALUE_FIELD_PATH_TAG, GROUP_HAVING_VALUE_FUNCTION_TAG,
         GROUP_HAVING_VALUE_GROUP_FIELD_TAG, GROUP_HAVING_VALUE_LITERAL_TAG,
-        GROUP_HAVING_VALUE_UNARY_TAG,
-        grouping::{hash_field_path, having::comparison::admit_semantic_key_comparison},
-        write_expr_label, write_str, write_tag, write_u32,
+        GROUP_HAVING_VALUE_UNARY_TAG, grouping::hash_field_path, write_expr_label, write_str,
+        write_tag, write_u32,
     },
     plan::{
         AggregateIdentity, AggregateSemanticKeyRef, GroupAggregateSpec, GroupFieldSet,
@@ -61,20 +58,10 @@ impl GroupHavingFingerprintSource<'_> {
 
         let semantic_key = AggregateSemanticKeyRef::from_aggregate_expr(aggregate_expr);
         for (index, aggregate) in self.aggregates.iter().enumerate() {
-            budget.charge(Resource::PredicateExpressionSteps, 1)?;
-            let candidate = aggregate.semantic_key();
-            // Scalar mismatches cannot inspect operand trees. Matching headers
-            // admit one side's complete extent before the existing equality;
-            // exhaustion is not a missing slot and must propagate unchanged.
-            if candidate.kind() != semantic_key.kind()
-                || candidate.distinct() != semantic_key.distinct()
-                || candidate.input_expr().is_some() != semantic_key.input_expr().is_some()
-                || candidate.filter_expr().is_some() != semantic_key.filter_expr().is_some()
+            if aggregate
+                .semantic_key()
+                .try_eq_for_preparation(semantic_key, budget)?
             {
-                continue;
-            }
-            admit_semantic_key_comparison(semantic_key, budget)?;
-            if candidate == semantic_key {
                 write_u32(hasher, index as u32);
                 return Ok(());
             }

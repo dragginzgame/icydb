@@ -7,7 +7,6 @@
 use crate::db::{
     access::AccessPlanError,
     cursor::CursorPlanError,
-    predicate::CompareOp,
     query::plan::{
         AggregateKind,
         expr::{BinaryOp, ExprType, Function, UnaryOp},
@@ -37,22 +36,6 @@ const fn diagnostic_aggregate_kind(kind: AggregateKind) -> DiagnosticAggregateKi
         AggregateKind::Max => DiagnosticAggregateKind::Max,
         AggregateKind::First => DiagnosticAggregateKind::First,
         AggregateKind::Last => DiagnosticAggregateKind::Last,
-    }
-}
-
-const fn diagnostic_compare_op(op: CompareOp) -> DiagnosticOperatorKind {
-    match op {
-        CompareOp::Eq => DiagnosticOperatorKind::Eq,
-        CompareOp::Ne => DiagnosticOperatorKind::Ne,
-        CompareOp::Lt => DiagnosticOperatorKind::Lt,
-        CompareOp::Lte => DiagnosticOperatorKind::Lte,
-        CompareOp::Gt => DiagnosticOperatorKind::Gt,
-        CompareOp::Gte => DiagnosticOperatorKind::Gte,
-        CompareOp::In => DiagnosticOperatorKind::In,
-        CompareOp::NotIn => DiagnosticOperatorKind::NotIn,
-        CompareOp::Contains => DiagnosticOperatorKind::Contains,
-        CompareOp::StartsWith => DiagnosticOperatorKind::StartsWith,
-        CompareOp::EndsWith => DiagnosticOperatorKind::EndsWith,
     }
 }
 
@@ -558,9 +541,6 @@ pub enum GroupPlanError {
     /// HAVING with DISTINCT is deferred until grouped DISTINCT support expands.
     DistinctHavingUnsupported,
 
-    /// HAVING currently supports compare operators only.
-    HavingUnsupportedCompareOp { index: usize, op: CompareOp },
-
     /// HAVING group-field symbols must reference declared grouped keys.
     HavingNonGroupFieldReference { index: usize, field: String },
 
@@ -601,13 +581,6 @@ pub enum GroupPlanError {
 impl GroupPlanError {
     fn diagnostic_facts(&self) -> DiagnosticFacts {
         match self {
-            Self::HavingUnsupportedCompareOp { index, op } => vec![
-                (DiagnosticFactTag::ClauseIndex, diagnostic_index(*index)),
-                (
-                    DiagnosticFactTag::OperatorKind,
-                    diagnostic_compare_op(*op).raw(),
-                ),
-            ],
             Self::HavingNonGroupFieldReference { index, .. } => {
                 vec![(DiagnosticFactTag::ClauseIndex, diagnostic_index(*index))]
             }
@@ -770,14 +743,6 @@ impl GroupPlanError {
             aggregate_index,
             aggregate_count,
         }
-    }
-
-    /// Construct one grouped HAVING unsupported-operator policy error.
-    pub(in crate::db::query) const fn having_unsupported_compare_op(
-        index: usize,
-        op: CompareOp,
-    ) -> Self {
-        Self::HavingUnsupportedCompareOp { index, op }
     }
 
     /// Construct one grouped DISTINCT aggregate-kind unsupported policy error.
@@ -1292,7 +1257,6 @@ impl GroupPlanError {
                 | Self::OrderExpressionNotAdmissible { .. }
                 | Self::OrderRequiresLimit
                 | Self::DistinctHavingUnsupported
-                | Self::HavingUnsupportedCompareOp { .. }
                 | Self::DistinctAggregateKindUnsupported { .. }
                 | Self::DistinctAggregateFieldTargetUnsupported { .. }
                 | Self::FieldTargetAggregatesUnsupported { .. }
@@ -1305,7 +1269,6 @@ mod tests {
     use super::{ExprPlanError, GroupPlanError, OrderPlanError, PlanError, diagnostic_index};
     use crate::db::{
         QueryError, ValidateError,
-        predicate::CompareOp,
         query::plan::{
             AggregateKind,
             expr::{BinaryOp, ExprType, Function, NumericSubtype},
@@ -1487,16 +1450,6 @@ mod tests {
                 (DiagnosticFactTag::ClauseIndex, 1),
                 (DiagnosticFactTag::AggregateIndex, 4),
                 (DiagnosticFactTag::ActualCount, 3),
-            ],
-        );
-        assert_eq!(
-            GroupPlanError::having_unsupported_compare_op(2, CompareOp::NotIn).diagnostic_facts(),
-            vec![
-                (DiagnosticFactTag::ClauseIndex, 2),
-                (
-                    DiagnosticFactTag::OperatorKind,
-                    DiagnosticOperatorKind::NotIn.raw(),
-                ),
             ],
         );
         assert_eq!(

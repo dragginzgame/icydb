@@ -1,5 +1,6 @@
-use crate::{
-    db::query::{
+use crate::db::{
+    QueryError,
+    query::{
         builder::aggregate::AggregateExpr,
         plan::{
             AggregateKind, PlanError,
@@ -9,14 +10,16 @@ use crate::{
             },
             validate::ExprPlanError,
         },
+        preparation::PreparationWork,
     },
-    db::schema::SchemaInfo,
+    schema::SchemaInfo,
 };
 
 pub(super) fn infer_aggregate_expr_type(
     aggregate: &AggregateExpr,
     schema: &SchemaInfo,
-) -> Result<ExprType, PlanError> {
+    work: &PreparationWork<'_>,
+) -> Result<ExprType, QueryError> {
     let kind = aggregate.kind();
     let input_expr = aggregate.input_expr();
 
@@ -24,10 +27,10 @@ pub(super) fn infer_aggregate_expr_type(
         AggregateKind::Count => Ok(ExprType::Numeric(NumericSubtype::Integer)),
         AggregateKind::Exists => Ok(ExprType::Bool),
         AggregateKind::Sum | AggregateKind::Avg => {
-            infer_sum_aggregate_type(kind, input_expr, schema)
+            infer_sum_aggregate_type(kind, input_expr, schema, work)
         }
         AggregateKind::Min | AggregateKind::Max | AggregateKind::First | AggregateKind::Last => {
-            infer_target_field_aggregate_type(input_expr, schema)
+            infer_target_field_aggregate_type(input_expr, schema, work)
         }
     }
 }
@@ -36,19 +39,18 @@ fn infer_sum_aggregate_type(
     kind: AggregateKind,
     input_expr: Option<&Expr>,
     schema: &SchemaInfo,
-) -> Result<ExprType, PlanError> {
+    work: &PreparationWork<'_>,
+) -> Result<ExprType, QueryError> {
     let Some(input_expr) = input_expr else {
-        return Err(PlanError::from(ExprPlanError::aggregate_target_required(
-            kind,
-        )));
+        return Err(PlanError::from(ExprPlanError::aggregate_target_required(kind)).into());
     };
 
-    let inferred = infer_expr_type(input_expr, schema)?;
+    let inferred = infer_expr_type(input_expr, schema, work)?;
 
     if !sum_like_input_type_supported(kind, &inferred) {
-        return Err(PlanError::from(
-            ExprPlanError::non_numeric_aggregate_target(kind, &inferred),
-        ));
+        return Err(
+            PlanError::from(ExprPlanError::non_numeric_aggregate_target(kind, &inferred)).into(),
+        );
     }
 
     // Input admission and result typing are separate: the shared reducer emits
@@ -68,13 +70,14 @@ const fn sum_like_input_type_supported(kind: AggregateKind, inferred: &ExprType)
 fn infer_target_field_aggregate_type(
     input_expr: Option<&Expr>,
     schema: &SchemaInfo,
-) -> Result<ExprType, PlanError> {
+    work: &PreparationWork<'_>,
+) -> Result<ExprType, QueryError> {
     let Some(input_expr) = input_expr else {
         // Bootstrap behavior: target-less extrema/value terminals stay unresolved.
         return Ok(ExprType::Unknown);
     };
 
-    infer_expr_type(input_expr, schema)
+    infer_expr_type(input_expr, schema, work)
 }
 
 #[cfg(test)]

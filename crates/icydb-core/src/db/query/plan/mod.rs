@@ -149,8 +149,7 @@ pub(in crate::db::query) use semantics::residual_filter_facts_for_access;
 pub(in crate::db) use semantics::{
     AccessPlanProjection, AggregateIdentity, AggregateSemanticKeyRef, GroupDistinctAdmissibility,
     GroupDistinctPolicyReason, GroupedCursorPolicyViolation, GroupedPlanFallbackReason,
-    GroupedPlanStrategy, grouped_distinct_admissibility, grouped_having_binary_compare_op,
-    grouped_having_compare_op_supported, project_access_plan,
+    GroupedPlanStrategy, grouped_distinct_admissibility, project_access_plan,
     resolve_global_distinct_field_aggregate, write_explain_access_strategy_label,
 };
 pub(in crate::db) use semantics::{

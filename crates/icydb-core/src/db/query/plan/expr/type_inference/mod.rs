@@ -11,7 +11,11 @@ mod function;
 mod source;
 mod unify;
 
+#[cfg(test)]
+mod admission_tests;
+
 use crate::db::{
+    QueryError,
     query::plan::{
         PlanError,
         expr::{
@@ -20,8 +24,10 @@ use crate::db::{
         },
         validate::ExprPlanError,
     },
+    query::preparation::PreparationWork,
     schema::SchemaInfo,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 pub(in crate::db::query::plan::expr) use function::function_is_compare_operand_coarse_family;
 
@@ -61,32 +67,6 @@ enum FunctionArgumentFamily {
     Text,
 }
 
-///
-/// TypedExpr
-///
-/// Stage artifact for expressions that have crossed the planner type-inference
-/// boundary. It carries only the inferred type because the expression tree is
-/// already owned by the caller and this stage must not rewrite its shape.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::query::plan::expr) struct TypedExpr {
-    expr_type: ExprType,
-}
-
-impl TypedExpr {
-    // Build one typed expression artifact from the inferred planner type.
-    const fn new(expr_type: ExprType) -> Self {
-        Self { expr_type }
-    }
-
-    /// Return the inferred planner type for callers that consume the
-    /// type-inference stage as a plain `ExprType`.
-    pub(in crate::db::query::plan::expr) const fn into_expr_type(self) -> ExprType {
-        self.expr_type
-    }
-}
-
 impl ExprType {
     // Eligibility answers "can this participate in numeric-only operators?".
     // Subtype answers "which numeric family?" and may remain unresolved.
@@ -102,47 +82,40 @@ impl ExprType {
     }
 }
 
-/// Infer one typed expression artifact deterministically from canonical
-/// expression shape without rewriting that shape.
-pub(in crate::db::query::plan::expr) fn infer_typed_expr(
-    expr: &Expr,
-    schema: &SchemaInfo,
-) -> Result<TypedExpr, PlanError> {
-    infer_expr_type_impl(expr, schema).map(TypedExpr::new)
-}
-
-/// Infer expression type deterministically from canonical expression shape.
+/// Infer expression type under current preparation authority without rewriting
+/// syntax. Admit each visited node before inspecting it; child order is semantic.
 pub(in crate::db) fn infer_expr_type(
     expr: &Expr,
     schema: &SchemaInfo,
-) -> Result<ExprType, PlanError> {
-    infer_typed_expr(expr, schema).map(TypedExpr::into_expr_type)
-}
-
-fn infer_expr_type_impl(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, PlanError> {
+    work: &PreparationWork<'_>,
+) -> Result<ExprType, QueryError> {
+    work.charge(Resource::PredicateExpressionSteps, 1)?;
     match expr {
-        Expr::Field(field) => source::infer_field_expr_type(field, schema),
-        Expr::FieldPath(path) => source::infer_field_path_expr_type(path, schema),
+        Expr::Field(field) => source::infer_field_expr_type(field, schema, work),
+        Expr::FieldPath(path) => source::infer_field_path_expr_type(path, schema, work),
         Expr::Literal(value) => Ok(source::infer_literal_type(value)),
         Expr::FunctionCall { function, args } => {
-            function::infer_function_expr_type(*function, args.as_slice(), schema)
+            function::infer_function_expr_type(*function, args.as_slice(), schema, work)
         }
         Expr::Case {
             when_then_arms,
             else_expr,
-        } => case::infer_case_expr_type(when_then_arms.as_slice(), else_expr.as_ref(), schema),
-        Expr::Aggregate(aggregate) => aggregate::infer_aggregate_expr_type(aggregate, schema),
+        } => {
+            case::infer_case_expr_type(when_then_arms.as_slice(), else_expr.as_ref(), schema, work)
+        }
+        Expr::Aggregate(aggregate) => aggregate::infer_aggregate_expr_type(aggregate, schema, work),
         #[cfg(test)]
-        Expr::Alias { expr, .. } => infer_expr_type(expr.as_ref(), schema),
+        Expr::Alias { expr, .. } => infer_expr_type(expr.as_ref(), schema, work),
         Expr::Unary { op, expr } => {
-            let inner = infer_expr_type(expr.as_ref(), schema)?;
+            let inner = infer_expr_type(expr.as_ref(), schema, work)?;
 
             match op {
                 UnaryOp::Not => {
                     if !matches!(inner, ExprType::Bool | ExprType::Null) {
                         return Err(PlanError::from(ExprPlanError::invalid_unary_operand(
                             *op, &inner,
-                        )));
+                        ))
+                        .into());
                     }
 
                     Ok(ExprType::Bool)
@@ -150,7 +123,7 @@ fn infer_expr_type_impl(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, Pl
             }
         }
         Expr::Binary { op, left, right } => {
-            binary::infer_binary_expr_type(*op, left.as_ref(), right.as_ref(), schema)
+            binary::infer_binary_expr_type(*op, left.as_ref(), right.as_ref(), schema, work)
         }
     }
 }
@@ -158,6 +131,7 @@ fn infer_expr_type_impl(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, Pl
 #[cfg(test)]
 mod tests {
     use super::{ExprType, infer_expr_type};
+    use crate::db::query::preparation::with_preparation_work;
     use crate::{
         db::{
             query::{
@@ -222,7 +196,8 @@ mod tests {
                         right: Box::new(Expr::Literal(right)),
                     };
                     assert_eq!(
-                        infer_expr_type(&expr, &schema).expect("NULL arithmetic"),
+                        with_preparation_work(|work| infer_expr_type(&expr, &schema, work))
+                            .expect("NULL arithmetic"),
                         ExprType::Null
                     );
                 }
@@ -236,7 +211,9 @@ mod tests {
                     left: Box::new(Expr::Literal(Value::Null)),
                     right: Box::new(other),
                 };
-                assert!(infer_expr_type(&expr, &schema).is_err());
+                assert!(
+                    with_preparation_work(|work| infer_expr_type(&expr, &schema, work)).is_err()
+                );
             }
         }
     }
@@ -258,7 +235,10 @@ mod tests {
             ],
             else_expr: Box::new(Expr::Literal(Value::Null)),
         };
-        assert!(infer_expr_type(&expression, &u256_schema()).is_err());
+        assert!(
+            with_preparation_work(|work| infer_expr_type(&expression, &u256_schema(), work))
+                .is_err()
+        );
     }
 
     #[test]
@@ -283,19 +263,22 @@ mod tests {
         let average = Expr::Aggregate(avg("balance"));
 
         assert_eq!(
-            infer_expr_type(&add, &schema).expect("U256 addition should plan"),
+            with_preparation_work(|work| infer_expr_type(&add, &schema, work))
+                .expect("U256 addition should plan"),
             ExprType::U256,
         );
         assert_eq!(
-            infer_expr_type(&modulo, &schema).expect("U256 MOD should plan"),
+            with_preparation_work(|work| infer_expr_type(&modulo, &schema, work))
+                .expect("U256 MOD should plan"),
             ExprType::U256,
         );
         assert_eq!(
-            infer_expr_type(&sum, &schema).expect("U256 SUM should plan"),
+            with_preparation_work(|work| infer_expr_type(&sum, &schema, work))
+                .expect("U256 SUM should plan"),
             ExprType::U256,
         );
-        assert!(infer_expr_type(&average, &schema).is_err());
-        assert!(infer_expr_type(&mixed, &schema).is_err());
+        assert!(with_preparation_work(|work| infer_expr_type(&average, &schema, work)).is_err());
+        assert!(with_preparation_work(|work| infer_expr_type(&mixed, &schema, work)).is_err());
 
         let expression_sum =
             crate::db::query::builder::aggregate::AggregateExpr::from_expression_input(
@@ -303,8 +286,12 @@ mod tests {
                 add,
             );
         assert_eq!(
-            infer_expr_type(&Expr::Aggregate(expression_sum), &schema)
-                .expect("U256 expression SUM should plan"),
+            with_preparation_work(|work| infer_expr_type(
+                &Expr::Aggregate(expression_sum),
+                &schema,
+                work
+            ))
+            .expect("U256 expression SUM should plan"),
             ExprType::U256,
         );
     }

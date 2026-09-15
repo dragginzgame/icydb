@@ -8,9 +8,11 @@ use crate::db::{
             FieldSlot, GroupField,
             expr::{CaseWhenArm, FieldPath, Function, UnaryOp},
         },
+        preparation::with_preparation_work,
     },
     schema::AcceptedFieldKind,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 fn binary(op: BinaryOp, left: Expr, right: Expr) -> Expr {
     Expr::Binary {
@@ -107,10 +109,13 @@ fn grouped_order_canonical_proof_keeps_field_and_offset_rejections_distinct() {
                 GroupedOrderTermAdmissibility::UnsupportedExpression,
             ),
         ] {
-            assert_eq!(
-                classify_grouped_order_term_for_field(&expr, expected),
-                admission
-            );
+            let actual = with_preparation_work(|work| {
+                try_classify_grouped_order_term_for_field(&expr, expected, &mut |steps| {
+                    work.charge(Resource::PredicateExpressionSteps, steps)
+                })
+            })
+            .unwrap();
+            assert_eq!(actual, admission);
         }
     }
 }
@@ -202,8 +207,17 @@ fn grouped_order_top_k_checks_siblings_after_the_heap_trigger() {
             GroupedTopKOrderTermAdmissibility::Admissible,
         ),
     ] {
-        assert_eq!(grouped_top_k_order_term_requires_heap(&expr), heap);
-        assert_eq!(classify_grouped_top_k_order_term(&expr, &fields), admission);
+        with_preparation_work(|work| {
+            let mut observe = |steps| work.charge(Resource::PredicateExpressionSteps, steps);
+            assert_eq!(
+                try_grouped_top_k_order_term_requires_heap(&expr, &mut observe).unwrap(),
+                heap
+            );
+            assert_eq!(
+                try_classify_grouped_top_k_order_term(&expr, &fields, &mut observe).unwrap(),
+                admission
+            );
+        });
     }
 }
 
@@ -216,14 +230,25 @@ fn grouped_order_nested_terms_keep_narrow_canonical_and_broad_top_k_proofs() {
         for _ in 1..crate::db::query::admission::input::MAX_QUERY_INPUT_DEPTH {
             expr = binary(BinaryOp::Add, expr, Expr::Literal(Value::Nat64(1)));
         }
-        assert_eq!(grouped_top_k_order_term_requires_heap(&expr), heap);
-        assert_eq!(
-            classify_grouped_order_term_for_field(&expr, fields.get(0).unwrap()),
-            GroupedOrderTermAdmissibility::UnsupportedExpression,
-        );
-        assert_eq!(
-            classify_grouped_top_k_order_term(&expr, &fields),
-            GroupedTopKOrderTermAdmissibility::Admissible,
-        );
+        with_preparation_work(|work| {
+            let mut observe = |steps| work.charge(Resource::PredicateExpressionSteps, steps);
+            assert_eq!(
+                try_grouped_top_k_order_term_requires_heap(&expr, &mut observe).unwrap(),
+                heap
+            );
+            assert_eq!(
+                try_classify_grouped_order_term_for_field(
+                    &expr,
+                    fields.get(0).unwrap(),
+                    &mut observe
+                )
+                .unwrap(),
+                GroupedOrderTermAdmissibility::UnsupportedExpression,
+            );
+            assert_eq!(
+                try_classify_grouped_top_k_order_term(&expr, &fields, &mut observe).unwrap(),
+                GroupedTopKOrderTermAdmissibility::Admissible,
+            );
+        });
     }
 }

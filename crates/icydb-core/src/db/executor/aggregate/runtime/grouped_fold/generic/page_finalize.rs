@@ -4,11 +4,9 @@
 //! Boundary: consumes finalized group bundles and emits runtime grouped result pages.
 
 use crate::{
-    db::executor::projection::ProjectionEvalError,
     db::{
         cursor::GroupedContinuationToken,
         direction::Direction,
-        executor::projection::GroupedRowView,
         executor::{
             GroupedPaginationWindow, RuntimeGroupedRow,
             aggregate::{
@@ -26,15 +24,19 @@ use crate::{
                     grouped_output::project_grouped_values_from_compiled_projection,
                 },
             },
-            budget::{charge_current_execution_budget, charge_sort_work, runtime_value_work},
+            budget::{
+                ExecutionConstructionBudget, charge_current_execution_budget, charge_sort_work,
+                runtime_value_work,
+            },
             group::GroupKey,
             pipeline::contracts::GroupedRouteStage,
             projection::{
-                CompiledGroupedProjectionPlan, compile_grouped_projection_expr,
-                compile_grouped_projection_plan_if_needed,
+                CompiledGroupedProjectionPlan, GroupedRowView, ProjectionEvalError,
+                compile_grouped_projection_expr, compile_grouped_projection_plan_if_needed,
             },
         },
         numeric::canonical_value_compare,
+        query::{construction::ConstructionBudget, plan::expr::GroupedCompilationError},
     },
     error::InternalError,
     value::Value,
@@ -464,19 +466,22 @@ fn compile_grouped_top_k_order(
         .order
         .as_ref()
         .ok_or_else(InternalError::query_invalid_logical_plan)?;
-    let mut terms = Vec::with_capacity(order.fields.len());
+    let budget: &dyn ConstructionBudget = &ExecutionConstructionBudget;
+    let mut terms = budget.vec_with_capacity(order.fields.len())?;
 
     for term in &order.fields {
-        let expr = term.expr().clone();
         let compiled = match compile_grouped_projection_expr(
-            &expr,
+            term.expr(),
             route.group_fields(),
             route.grouped_aggregate_execution_specs(),
+            budget,
         ) {
             Ok(compiled) => compiled,
-            Err(ProjectionEvalError::UnknownField { .. }) => continue,
+            Err(GroupedCompilationError::Projection(ProjectionEvalError::UnknownField {
+                ..
+            })) => continue,
             Err(err) => {
-                return Err(ProjectionEvalError::into_internal_error(err));
+                return Err(err.into_internal_error());
             }
         };
         terms.push(CompiledGroupedTopKOrderTerm {
@@ -851,6 +856,78 @@ mod tests {
     };
 
     #[test]
+    fn top_k_compilation_skips_unknown_fields_but_preserves_budget_failure() {
+        use crate::db::{
+            QueryError,
+            direction::Direction,
+            executor::{
+                budget::{
+                    HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+                    with_query_execution_budget_for_tests,
+                },
+                pipeline::contracts::GroupedRouteStage,
+            },
+            query::plan::{
+                GroupedExecutionRoute, LogicalPlan, OrderDirection, OrderSpec, OrderTerm,
+            },
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionBudgetScope as Scope,
+            DiagnosticExecutionLane as Lane, DiagnosticFactTag,
+        };
+        let mut route = GroupedRouteStage::new_for_test(Direction::Asc, Some(3));
+        route.planner_payload.grouped_execution_route = GroupedExecutionRoute::GenericTopK;
+        route.planner_payload.group_fields =
+            crate::db::query::plan::GroupFieldSet::Direct(vec![FieldSlot::from_test_slot(
+                0, "age",
+            )]);
+        let LogicalPlan::Scalar(plan) = &mut std::rc::Rc::get_mut(&mut route.planner_payload.plan)
+            .unwrap()
+            .logical
+        else {
+            panic!("test route is scalar-shaped")
+        };
+        plan.order = Some(OrderSpec {
+            fields: vec![
+                OrderTerm::field("unknown", OrderDirection::Asc),
+                OrderTerm::field("age", OrderDirection::Desc),
+            ],
+        });
+        for (resource, limit) in [
+            (Resource::PredicateExpressionSteps, 0),
+            (Resource::TemporaryBytes, 0),
+            (Resource::PredicateExpressionSteps, 16_000_000),
+        ] {
+            let result = with_query_execution_budget_for_tests(
+                HardExecutionBudget::uniform_for_tests(
+                    16_000_000,
+                    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                )
+                .with_limit_for_tests(resource, limit),
+                HardExecutionContext::new(Scope::Execution, Lane::PublicRead, 0),
+                || super::compile_grouped_top_k_order(&route).map_err(QueryError::execute),
+            );
+            if limit == 0 {
+                assert!(
+                    result
+                        .err()
+                        .unwrap()
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+                );
+            } else {
+                let compiled = result.unwrap().unwrap();
+                assert_eq!(compiled.terms.len(), 1);
+                assert_eq!(compiled.terms[0].direction, OrderDirection::Desc);
+                assert!(matches!(
+                    compiled.terms[0].expr,
+                    crate::db::query::plan::expr::CompiledExpr::GroupKey { offset: 0, .. }
+                ));
+            }
+        }
+    }
+
+    #[test]
     fn finalize_grouped_page_rows_from_candidates_projects_directly_from_candidates() {
         let projection = ProjectionSpec::from_fields_for_test(vec![
             ProjectionField::Scalar {
@@ -888,11 +965,14 @@ mod tests {
                 false,
             ),
         ];
-        let compiled_projection = compile_grouped_projection_plan(
-            &projection,
-            &group_fields,
-            aggregate_execution_specs.as_slice(),
-        )
+        let compiled_projection = crate::db::query::preparation::with_preparation_work(|work| {
+            compile_grouped_projection_plan(
+                &projection,
+                &group_fields,
+                aggregate_execution_specs.as_slice(),
+                work,
+            )
+        })
         .expect("grouped projection should compile");
         let grouped_projection = CompiledGroupedProjectionPlan::from_test_inputs(
             compiled_projection,

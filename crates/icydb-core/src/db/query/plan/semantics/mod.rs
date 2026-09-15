@@ -23,10 +23,8 @@ pub(in crate::db) use group_distinct::{
     GroupDistinctAdmissibility, GroupDistinctPolicyReason, grouped_distinct_admissibility,
     resolve_global_distinct_field_aggregate,
 };
-pub(in crate::db) use group_having::grouped_cursor_policy_violation;
 pub(in crate::db) use group_having::{
-    GroupedCursorPolicyViolation, grouped_having_binary_compare_op,
-    grouped_having_compare_op_supported,
+    GroupedCursorPolicyViolation, grouped_cursor_policy_violation,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use group_model::canonicalize_grouped_having_numeric_literal_for_expr;

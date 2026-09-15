@@ -6,8 +6,6 @@
 use crate::db::{
     query::plan::{
         AggregateKind, GroupAggregateSpec,
-        expr::Expr,
-        grouped_having_binary_compare_op, grouped_having_compare_op_supported,
         validate::{GroupPlanError, resolve_group_aggregate_target_field_type},
     },
     schema::SchemaInfo,
@@ -80,27 +78,6 @@ impl<'a> GlobalDistinctAggregatePolicyContext<'a> {
             target_field,
         }
     }
-}
-
-pub(super) fn first_grouped_having_expr_policy_violation(
-    index: usize,
-    expr: &Expr,
-) -> Option<GroupPlanError> {
-    let mut next_index = index;
-    expr.try_for_each_tree_expr_with_compare_index(&mut next_index, &mut |compare_index, node| {
-        let Expr::Binary { op, .. } = node else {
-            return Ok(());
-        };
-
-        let Some(compare_op) = grouped_having_binary_compare_op(*op) else {
-            return Ok(());
-        };
-
-        grouped_having_compare_op_supported(compare_op)
-            .then_some(())
-            .ok_or_else(|| GroupPlanError::having_unsupported_compare_op(compare_index, compare_op))
-    })
-    .err()
 }
 
 pub(super) fn first_grouped_aggregate_policy_violation(

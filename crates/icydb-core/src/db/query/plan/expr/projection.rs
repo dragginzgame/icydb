@@ -323,22 +323,6 @@ pub(in crate::db) enum GroupedTopKOrderTermAdmissibility {
     UnsupportedExpression,
 }
 
-// Classify one grouped ORDER BY term against one expected grouped key field
-// so grouped validation can distinguish prefix mismatch from unsupported-but-
-// evaluable grouped order expressions.
-#[must_use]
-pub(in crate::db) fn classify_grouped_order_term_for_field(
-    expr: &Expr,
-    expected_group_field: GroupFieldRef<'_>,
-) -> GroupedOrderTermAdmissibility {
-    match try_classify_grouped_order_term_for_field(expr, expected_group_field, &mut |_| {
-        Ok::<_, std::convert::Infallible>(())
-    }) {
-        Ok(result) => result,
-        Err(never) => match never {},
-    }
-}
-
 /// Classify the same canonical shape with observation before inspections.
 pub(in crate::db) fn try_classify_grouped_order_term_for_field<E>(
     expr: &Expr,
@@ -392,21 +376,6 @@ const fn is_numeric_order_offset_literal(expr: &Expr) -> bool {
     )
 }
 
-/// Return true when one grouped `ORDER BY` term is admissible for the
-/// aggregate/post-aggregate Top-K lane over the declared grouped key set.
-#[must_use]
-pub(in crate::db) fn classify_grouped_top_k_order_term(
-    expr: &Expr,
-    group_fields: &GroupFieldSet,
-) -> GroupedTopKOrderTermAdmissibility {
-    match try_classify_grouped_top_k_order_term(expr, group_fields, &mut |_| {
-        Ok::<_, std::convert::Infallible>(())
-    }) {
-        Ok(result) => result,
-        Err(never) => match never {},
-    }
-}
-
 /// Observe each Top-K expression visit and candidate field comparison before work.
 pub(in crate::db) fn try_classify_grouped_top_k_order_term<E>(
     expr: &Expr,
@@ -421,14 +390,7 @@ pub(in crate::db) fn try_classify_grouped_top_k_order_term<E>(
     let only_group_fields = expr.try_all_tree_expr(&mut |node| {
         observe(1)?;
         Ok(match node {
-            Expr::Field(_) | Expr::FieldPath(_) => {
-                for field in group_fields.iter() {
-                    if field.try_matches_expr(node, observe)? {
-                        return Ok(true);
-                    }
-                }
-                false
-            }
+            Expr::Field(_) | Expr::FieldPath(_) => group_fields.try_contains_expr(node, observe)?,
             Expr::Aggregate(_) => {
                 contains_aggregate = true;
                 true
@@ -451,18 +413,6 @@ pub(in crate::db) fn try_classify_grouped_top_k_order_term<E>(
     }
 
     Ok(GroupedTopKOrderTermAdmissibility::Admissible)
-}
-
-/// Return true when one grouped post-aggregate order expression must leave the
-/// canonical grouped-key ordered lane for bounded Top-K finalization.
-#[must_use]
-pub(in crate::db) fn grouped_top_k_order_term_requires_heap(expr: &Expr) -> bool {
-    match try_grouped_top_k_order_term_requires_heap(expr, &mut |_| {
-        Ok::<_, std::convert::Infallible>(())
-    }) {
-        Ok(result) => result,
-        Err(never) => match never {},
-    }
 }
 
 /// Observe the shared short-circuit heap search before inspecting each node.

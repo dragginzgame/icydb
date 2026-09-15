@@ -1,4 +1,6 @@
-use super::{validate_no_duplicate_non_pk_order_fields, validate_primary_key_tie_break};
+use super::{
+    validate_no_duplicate_non_pk_order_fields, validate_order, validate_primary_key_tie_break,
+};
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
@@ -43,6 +45,48 @@ fn assert_order_error(actual: QueryError, expected: OrderPlanError) {
     let expected = QueryError::from(PlanError::from(expected));
     assert_eq!(actual.diagnostic_code(), expected.diagnostic_code());
     assert_eq!(actual.diagnostic_facts(), expected.diagnostic_facts());
+}
+
+#[test]
+fn order_type_gate_keeps_direct_fast_path_and_resource_errors() {
+    use crate::db::query::plan::{exact_metadata_schema, expr::Function};
+    use icydb_diagnostic_code::QueryFieldRole;
+    let schema = exact_metadata_schema(&[], &[]);
+    let computed = OrderSpec {
+        fields: vec![OrderTerm::new(
+            Expr::FunctionCall {
+                function: Function::Abs,
+                args: vec![Expr::Field("age".into())],
+            },
+            OrderDirection::Asc,
+        )],
+    };
+    let request = root(Resource::TemporaryBytes, 0);
+    PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
+        validate_order(&schema, &order(&["age"]), work)
+    })
+    .unwrap();
+    for order in [computed, order(&["missing"])] {
+        let error = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
+            validate_order(&schema, &order, work)
+        })
+        .unwrap_err();
+        assert!(matches!(error, QueryError::Execute(_)));
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::TemporaryBytes.raw()
+        )));
+        assert_eq!(error.query_field_context(), None);
+    }
+    let request = root(Resource::TemporaryBytes, 16_000_000);
+    let error = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
+        validate_order(&schema, &order(&["missing"]), work)
+    })
+    .unwrap_err();
+    assert_eq!(
+        error.query_field_context(),
+        Some((QueryFieldRole::OrderBy, "missing"))
+    );
 }
 
 #[test]

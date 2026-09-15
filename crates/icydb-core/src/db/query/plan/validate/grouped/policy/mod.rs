@@ -17,7 +17,6 @@ use crate::db::{
 
 use crate::db::query::plan::validate::grouped::policy::rules::{
     first_global_distinct_aggregate_policy_violation, first_grouped_aggregate_policy_violation,
-    first_grouped_having_expr_policy_violation,
 };
 
 // Validate grouped policy gates independent from structural shape checks.
@@ -28,7 +27,6 @@ pub(in crate::db::query) fn validate_group_policy(
     having_expr: Option<&Expr>,
 ) -> Result<(), PlanError> {
     validate_grouped_distinct_policy(logical, having_expr.is_some())?;
-    validate_grouped_having_policy(having_expr)?;
     validate_group_spec_policy(schema, group, having_expr)?;
 
     Ok(())
@@ -51,18 +49,6 @@ fn validate_grouped_distinct_policy(
             Err(PlanError::from(reason.planner_group_plan_error(None)))
         }
     }
-}
-
-// Validate grouped HAVING policy gates and operator support.
-fn validate_grouped_having_policy(having_expr: Option<&Expr>) -> Result<(), PlanError> {
-    if let Some(having_expr) = having_expr {
-        return validate_group_policy_violation(first_grouped_having_expr_policy_violation(
-            0,
-            having_expr,
-        ));
-    }
-
-    Ok(())
 }
 
 // Validate grouped execution policy over a structurally valid grouped spec.

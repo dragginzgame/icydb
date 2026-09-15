@@ -81,7 +81,10 @@ fn borrowed_grouped_aggregate_facts_preserve_all_identity_families() {
                     );
                     assert_eq!(spec.semantic_key(), execution.semantic_key());
                     assert!(execution.matches_aggregate_identity(&spec));
-                    assert!(execution.matches_aggregate_expr(&expr));
+                    assert_eq!(
+                        execution.semantic_key(),
+                        AggregateSemanticKeyRef::from_aggregate_expr(&expr)
+                    );
                     assert_eq!(
                         matches!(
                             identity,

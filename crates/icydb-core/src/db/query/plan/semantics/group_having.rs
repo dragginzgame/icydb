@@ -1,12 +1,10 @@
 //! Module: db::query::plan::semantics::group_having
-//! Responsibility: validate and normalize HAVING semantics against grouped
-//! projection and aggregate visibility rules.
+//! Responsibility: grouped cursor policy and HAVING streaming eligibility.
 //! Does not own: grouped executor runtime or generic predicate normalization outside HAVING.
 //! Boundary: keeps HAVING-specific grouped semantics isolated within planning.
 
 use crate::db::{
     cursor::CursorPlanError,
-    predicate::CompareOp,
     query::plan::{
         GroupPlan,
         expr::{BinaryOp, Expr, truth_condition_binary_compare_op},
@@ -35,18 +33,6 @@ impl GroupedCursorPolicyViolation {
 
         CursorPlanError::continuation_cursor_invariant()
     }
-}
-
-/// Return whether grouped HAVING supports this compare operator.
-#[must_use]
-pub(in crate::db) const fn grouped_having_compare_op_supported(op: CompareOp) -> bool {
-    grouped_having_compare_kind(op).is_some()
-}
-
-/// Resolve one grouped HAVING binary compare operator onto the shared grouped compare family.
-#[must_use]
-pub(in crate::db) const fn grouped_having_binary_compare_op(op: BinaryOp) -> Option<CompareOp> {
-    truth_condition_binary_compare_op(op)
 }
 
 /// Return grouped cursor-policy violations for one grouped plan shape.
@@ -87,11 +73,9 @@ pub(in crate::db::query::plan::semantics) fn grouped_having_streaming_compatible
             Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) | Expr::Aggregate(_) => true,
             Expr::FunctionCall { .. } | Expr::Unary { .. } | Expr::Case { .. } => true,
             Expr::Binary { op, .. } => {
-                if let Some(compare_op) = grouped_having_binary_compare_op(*op) {
-                    grouped_having_compare_op_supported(compare_op)
-                } else {
-                    matches!(op, BinaryOp::And)
-                }
+                // Streaming supports comparisons joined by AND. Other binary
+                // expressions remain executable through non-streaming routes.
+                truth_condition_binary_compare_op(*op).is_some() || matches!(op, BinaryOp::And)
             }
             #[cfg(test)]
             Expr::Alias { .. } => true,
@@ -99,31 +83,83 @@ pub(in crate::db::query::plan::semantics) fn grouped_having_streaming_compatible
     })
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum GroupedHavingCompareKind {
-    Eq,
-    Ne,
-    Lt,
-    Lte,
-    Gt,
-    Gte,
-}
-
-const fn grouped_having_compare_kind(op: CompareOp) -> Option<GroupedHavingCompareKind> {
-    match op {
-        CompareOp::Eq => Some(GroupedHavingCompareKind::Eq),
-        CompareOp::Ne => Some(GroupedHavingCompareKind::Ne),
-        CompareOp::Lt => Some(GroupedHavingCompareKind::Lt),
-        CompareOp::Lte => Some(GroupedHavingCompareKind::Lte),
-        CompareOp::Gt => Some(GroupedHavingCompareKind::Gt),
-        CompareOp::Gte => Some(GroupedHavingCompareKind::Gte),
-        CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => None,
-    }
-}
-
 // Exhaustive cache-retention coverage; new owned fields require accounting.
 crate::retained::retained_copy!(GroupedCursorPolicyViolation);
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::grouped_having_streaming_compatible;
+    use crate::{
+        db::query::plan::expr::{BinaryOp, CaseWhenArm, Expr},
+        value::Value,
+    };
+
+    #[test]
+    fn streaming_having_preserves_binary_operator_policy_and_short_circuiting() {
+        for (op, expected) in [
+            (BinaryOp::Eq, true),
+            (BinaryOp::Ne, true),
+            (BinaryOp::Lt, true),
+            (BinaryOp::Lte, true),
+            (BinaryOp::Gt, true),
+            (BinaryOp::Gte, true),
+            (BinaryOp::And, true),
+            (BinaryOp::Or, false),
+            (BinaryOp::Add, false),
+            (BinaryOp::Sub, false),
+            (BinaryOp::Mul, false),
+            (BinaryOp::Div, false),
+        ] {
+            let expr = Expr::Binary {
+                op,
+                left: Box::new(Expr::Literal(Value::Bool(true))),
+                right: Box::new(Expr::Literal(Value::Bool(false))),
+            };
+            let mut visits = 0;
+            let result = grouped_having_streaming_compatible(Some(&expr), &mut |steps| {
+                visits += steps;
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+            assert_eq!(result, expected, "{op:?}");
+            assert_eq!(visits, if expected { 3 } else { 1 });
+        }
+    }
+
+    #[test]
+    fn streaming_having_checks_nested_branches_and_propagates_observer_failure() {
+        let expr = Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Literal(Value::Bool(true)),
+                Expr::Literal(Value::Bool(true)),
+            )],
+            else_expr: Box::new(Expr::Binary {
+                op: BinaryOp::Or,
+                left: Box::new(Expr::Literal(Value::Bool(true))),
+                right: Box::new(Expr::Literal(Value::Bool(false))),
+            }),
+        };
+        assert_eq!(
+            grouped_having_streaming_compatible(Some(&expr), &mut |_| Ok::<(), ()>(())),
+            Ok(false)
+        );
+        // Even a branch that row evaluation would skip still affects route eligibility.
+        let mut visits = 0;
+        assert_eq!(
+            grouped_having_streaming_compatible(Some(&expr), &mut |_| {
+                visits += 1;
+                if visits == 3 { Err(()) } else { Ok(()) }
+            }),
+            Err(())
+        );
+        assert_eq!(visits, 3);
+        assert_eq!(
+            grouped_having_streaming_compatible::<()>(None, &mut |_| Err(())),
+            Ok(true)
+        );
+    }
+}

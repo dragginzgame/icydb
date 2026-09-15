@@ -3,6 +3,9 @@
 //! Does not own: grouped runtime execution logic.
 //! Boundary: explicit grouped query-to-executor transfer surface.
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{
         query::{
@@ -275,12 +278,6 @@ impl GroupedAggregateExecutionSpec {
             && self.input_expr().is_none()
             && self.filter_expr().is_none()
             && !self.distinct()
-    }
-
-    /// Return whether one aggregate expression matches this grouped execution spec semantically.
-    #[must_use]
-    pub(in crate::db) fn matches_aggregate_expr(&self, aggregate_expr: &AggregateExpr) -> bool {
-        self.semantic_key() == AggregateSemanticKeyRef::from_aggregate_expr(aggregate_expr)
     }
 
     /// Build one grouped aggregate execution spec directly for tests that do
@@ -844,17 +841,9 @@ fn planned_projection_layout_and_aggregate_specs_core(
                 next_aggregate_index = next_aggregate_index
                     .saturating_add(aggregate_scan.introduced_aggregate_count());
             }
-            _ if group_fields.contains_all_expr_references(root_expr) => {
-                group_field_positions.push(index);
-                projection_is_identity &= grouped_projection_expression_preserves_identity(
-                    root_expr,
-                    group_fields,
-                    next_group_field_index,
-                    next_aggregate_index,
-                );
-                next_group_field_index = next_group_field_index.saturating_add(1);
-            }
             _ => {
+                // Computed scalar outputs occupy group positions but require
+                // evaluation; only the field-leaf arm can preserve identity.
                 group_field_positions.push(index);
                 projection_is_identity = false;
                 next_group_field_index = next_group_field_index.saturating_add(1);
@@ -889,31 +878,23 @@ fn planned_projection_layout_and_aggregate_specs_from_spec(
     // Test builds keep one extra strictness pass so grouped layout regressions
     // fail at the planner boundary instead of only in downstream assertions.
     #[cfg(test)]
-    {
+    crate::db::query::preparation::with_preparation_work(|work| {
         for field in projection_spec.fields() {
             let root_expr = expression_without_alias(field.expr());
-            if !group_fields.contains_all_expr_references(root_expr) {
+            if !group_fields.try_contains_all_expr_references(root_expr, &mut |steps| {
+                crate::db::query::construction::ConstructionBudget::charge(
+                    work,
+                    Resource::PredicateExpressionSteps,
+                    steps,
+                )
+            })? {
                 return Err(InternalError::planner_executor_invariant());
             }
         }
-    }
+        Ok(())
+    })?;
 
     planned_projection_layout_and_aggregate_specs_core(projection_spec, group_fields, aggregates)
-}
-
-// Keep grouped layout identity checks local to the planner-owned layout core
-// so computed grouped-key expressions do not pretend to preserve field-order
-// identity.
-fn grouped_projection_expression_preserves_identity(
-    root_expr: &Expr,
-    group_fields: &crate::db::query::plan::GroupFieldSet,
-    next_group_field_index: usize,
-    next_aggregate_index: usize,
-) -> bool {
-    next_aggregate_index == 0
-        && group_fields
-            .get(next_group_field_index)
-            .is_some_and(|group_field| group_field.matches_expr(root_expr))
 }
 
 fn collect_grouped_projection_aggregate_scan(

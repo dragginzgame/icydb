@@ -3,15 +3,26 @@
 //! Does not own: runtime grouped cursor continuation behavior or token decoding.
 //! Boundary: validates grouped order/paging alignment before plan admission.
 
-use crate::db::query::plan::{
-    GroupFieldSet, GroupSpec, OrderSpec, ScalarPlan,
-    expr::{
-        GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
-        classify_grouped_order_term_for_field, classify_grouped_top_k_order_term,
-        grouped_top_k_order_term_requires_heap,
+#[cfg(test)]
+mod tests;
+
+use crate::db::{
+    QueryError,
+    query::{
+        builder::scalar_projection::write_scalar_projection_expr_plan_label,
+        plan::{
+            GroupFieldSet, GroupSpec, OrderSpec, ScalarPlan,
+            expr::{
+                GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
+                try_classify_grouped_order_term_for_field, try_classify_grouped_top_k_order_term,
+                try_grouped_top_k_order_term_requires_heap,
+            },
+            validate::{GroupPlanError, PlanError},
+        },
+        preparation::PreparationWork,
     },
-    validate::{GroupPlanError, PlanError},
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 ///
 /// GroupedOrderCursorLane
@@ -31,7 +42,8 @@ enum GroupedOrderCursorLane {
 pub(in crate::db::query) fn validate_group_cursor_constraints(
     logical: &ScalarPlan,
     group: &GroupSpec,
-) -> Result<(), PlanError> {
+    work: &PreparationWork<'_>,
+) -> Result<(), QueryError> {
     // Grouped pagination/order constraints are cursor-domain policy. A finite
     // canonical group-key order may return its complete bounded group set
     // without a row LIMIT. Aggregate-driven ordering still needs a finite
@@ -40,16 +52,16 @@ pub(in crate::db::query) fn validate_group_cursor_constraints(
         return Ok(());
     };
 
-    let lane = validate_order_lane(order, &group.group_fields)?;
+    let lane = validate_order_lane(order, &group.group_fields, work)?;
     let has_limit = logical.page.as_ref().and_then(|page| page.limit).is_some();
     if matches!(lane, GroupedOrderCursorLane::TopK) && !has_limit {
-        return Err(PlanError::from(GroupPlanError::order_requires_limit()));
+        return Err(PlanError::from(GroupPlanError::order_requires_limit()).into());
     }
     if matches!(lane, GroupedOrderCursorLane::Canonical)
         && !has_limit
         && !group.execution.is_finite_bounded()
     {
-        return Err(PlanError::from(GroupPlanError::order_requires_limit()));
+        return Err(PlanError::from(GroupPlanError::order_requires_limit()).into());
     }
 
     Ok(())
@@ -64,17 +76,19 @@ pub(in crate::db::query) fn validate_group_cursor_constraints(
 fn validate_order_lane(
     order: &OrderSpec,
     group_fields: &GroupFieldSet,
-) -> Result<GroupedOrderCursorLane, PlanError> {
-    let top_k_required = order
-        .fields
-        .iter()
-        .any(|term| grouped_top_k_order_term_requires_heap(term.expr()));
-
-    if top_k_required {
-        return validate_top_k_order_lane(order, group_fields);
+    work: &PreparationWork<'_>,
+) -> Result<GroupedOrderCursorLane, QueryError> {
+    // Keep the short-circuit lane search before term validation: an aggregate
+    // later in ORDER BY changes the admissibility of earlier scalar terms.
+    for term in &order.fields {
+        if try_grouped_top_k_order_term_requires_heap(term.expr(), &mut |steps| {
+            work.charge(Resource::PredicateExpressionSteps, steps)
+        })? {
+            return validate_top_k_order_lane(order, group_fields, work);
+        }
     }
 
-    validate_canonical_order_lane(order, group_fields)
+    validate_canonical_order_lane(order, group_fields, work)
 }
 
 // Validate one aggregate-free grouped ORDER BY list against the canonical
@@ -82,30 +96,34 @@ fn validate_order_lane(
 fn validate_canonical_order_lane(
     order: &OrderSpec,
     group_fields: &GroupFieldSet,
-) -> Result<GroupedOrderCursorLane, PlanError> {
+    work: &PreparationWork<'_>,
+) -> Result<GroupedOrderCursorLane, QueryError> {
     if order.fields.len() < group_fields.len() {
-        return Err(PlanError::from(
-            GroupPlanError::order_prefix_not_aligned_with_group_keys(),
-        ));
+        return Err(
+            PlanError::from(GroupPlanError::order_prefix_not_aligned_with_group_keys()).into(),
+        );
     }
 
-    for (index, term) in order.fields.iter().take(group_fields.len()).enumerate() {
-        let Some(group_field) = group_fields.get(index) else {
-            return Err(PlanError::from(
-                GroupPlanError::order_prefix_not_aligned_with_group_keys(),
-            ));
-        };
-        match classify_grouped_order_term_for_field(term.expr(), group_field) {
+    for (term, group_field) in order.fields.iter().zip(group_fields.iter()) {
+        match try_classify_grouped_order_term_for_field(term.expr(), group_field, &mut |steps| {
+            work.charge(Resource::PredicateExpressionSteps, steps)
+        })? {
             GroupedOrderTermAdmissibility::Preserves(_) => {}
             GroupedOrderTermAdmissibility::PrefixMismatch => {
                 return Err(PlanError::from(
                     GroupPlanError::order_prefix_not_aligned_with_group_keys(),
-                ));
+                )
+                .into());
             }
             GroupedOrderTermAdmissibility::UnsupportedExpression => {
-                return Err(PlanError::from(
-                    GroupPlanError::order_expression_not_admissible(term.rendered_label()),
-                ));
+                return Err(
+                    PlanError::from(GroupPlanError::order_expression_not_admissible(
+                        work.render_text(|out| {
+                            write_scalar_projection_expr_plan_label(term.expr(), out)
+                        })?,
+                    ))
+                    .into(),
+                );
             }
         }
     }
@@ -120,19 +138,28 @@ fn validate_canonical_order_lane(
 fn validate_top_k_order_lane(
     order: &OrderSpec,
     group_fields: &GroupFieldSet,
-) -> Result<GroupedOrderCursorLane, PlanError> {
+    work: &PreparationWork<'_>,
+) -> Result<GroupedOrderCursorLane, QueryError> {
     for term in &order.fields {
-        match classify_grouped_top_k_order_term(term.expr(), group_fields) {
+        match try_classify_grouped_top_k_order_term(term.expr(), group_fields, &mut |steps| {
+            work.charge(Resource::PredicateExpressionSteps, steps)
+        })? {
             GroupedTopKOrderTermAdmissibility::Admissible => {}
             GroupedTopKOrderTermAdmissibility::NonGroupFieldReference => {
                 return Err(PlanError::from(
                     GroupPlanError::order_prefix_not_aligned_with_group_keys(),
-                ));
+                )
+                .into());
             }
             GroupedTopKOrderTermAdmissibility::UnsupportedExpression => {
-                return Err(PlanError::from(
-                    GroupPlanError::order_expression_not_admissible(term.rendered_label()),
-                ));
+                return Err(
+                    PlanError::from(GroupPlanError::order_expression_not_admissible(
+                        work.render_text(|out| {
+                            write_scalar_projection_expr_plan_label(term.expr(), out)
+                        })?,
+                    ))
+                    .into(),
+                );
             }
         }
     }

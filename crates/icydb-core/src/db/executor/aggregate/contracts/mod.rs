@@ -20,8 +20,7 @@ pub(in crate::db::executor) use plan::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use plan::{
-    Expr, FieldId, ProjectionField, admit_true_only_boolean_value,
-    compile_scalar_projection_expr_with_schema,
+    Expr, FieldId, admit_true_only_boolean_value, compile_scalar_projection_expr_with_schema,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use state::AggregateFoldMode;

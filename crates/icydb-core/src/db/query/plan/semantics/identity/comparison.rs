@@ -1,4 +1,5 @@
-//! Admission for borrowed HAVING slot equality; does not define equality rules.
+//! Admitted borrowed aggregate equality shared by planner validation and hashing.
+//! Canonical meaning and structural equality stay with the semantic-key owner.
 
 use crate::{
     db::query::{
@@ -10,13 +11,35 @@ use crate::{
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
+impl AggregateSemanticKeyRef<'_> {
+    /// Admit one borrowed semantic comparison before inspecting operand trees.
+    /// Header mismatches avoid operand work; equality and normalization retain
+    /// their existing authority. Callers supply depth-admitted planner trees.
+    pub(in crate::db) fn try_eq_for_preparation(
+        self,
+        other: Self,
+        budget: &dyn ConstructionBudget,
+    ) -> Result<bool, InternalError> {
+        budget.charge(Resource::PredicateExpressionSteps, 1)?;
+        if self.kind() != other.kind()
+            || self.distinct() != other.distinct()
+            || self.input_expr().is_some() != other.input_expr().is_some()
+            || self.filter_expr().is_some() != other.filter_expr().is_some()
+        {
+            return Ok(false);
+        }
+        admit_semantic_key_comparison(other, budget)?;
+        Ok(self == other)
+    }
+}
+
 // Derived structural equality can visit no more than one side's full tree:
 // different variants/container lengths stop early, and matching lengths visit
 // corresponding children. Admit that conservative extent before equality. The
 // walk itself is charged incrementally (two visits per node cover both walks),
 // uses only length metadata, and neither formats nor copies operands. Callers
 // supply input-admitted trees; this is not a replacement depth-admission scope.
-pub(super) fn admit_semantic_key_comparison(
+fn admit_semantic_key_comparison(
     key: AggregateSemanticKeyRef<'_>,
     budget: &dyn ConstructionBudget,
 ) -> Result<(), InternalError> {

@@ -45,7 +45,7 @@ pub(in crate::db::query) fn validate_query_semantics_with_schema(
     let logical = plan.scalar_plan();
 
     validate_scalar_plan_semantic_gates(schema, logical, plan, true, work)?;
-    validate_projection_expr_types(schema, projection)?;
+    validate_projection_expr_types(schema, projection, work)?;
 
     Ok(())
 }
@@ -69,10 +69,10 @@ pub(in crate::db::query) fn validate_group_query_semantics_with_schema(
     };
 
     validate_scalar_plan_semantic_gates(schema, logical, plan, false, work)?;
-    validate_group_structure(schema, group, projection, having_expr)?;
+    validate_group_structure(schema, group, projection, having_expr, work)?;
     validate_group_policy(schema, logical, group, having_expr)?;
-    validate_group_cursor_constraints(logical, group)?;
-    validate_projection_expr_types(schema, projection)?;
+    validate_group_cursor_constraints(logical, group, work)?;
+    validate_projection_expr_types(schema, projection, work)?;
 
     Ok(())
 }
@@ -92,7 +92,7 @@ fn validate_scalar_plan_semantic_gates(
     }
 
     if let Some(order) = &logical.order {
-        validate_order(schema, order)?;
+        validate_order(schema, order, work)?;
         validate_no_duplicate_non_pk_order_fields(schema.primary_key_names(), order, work)?;
         if require_primary_key_tie_break {
             validate_primary_key_tie_break(schema.primary_key_names(), order, work)?;

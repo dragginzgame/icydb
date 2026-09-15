@@ -5,7 +5,11 @@
 mod contracts;
 
 use crate::{
-    db::executor::projection::eval::ProjectionEvalError, error::InternalError, value::Value,
+    db::{
+        executor::budget::ExecutionConstructionBudget, query::plan::expr::GroupedCompilationError,
+    },
+    error::InternalError,
+    value::Value,
 };
 use std::borrow::Cow;
 
@@ -125,9 +129,13 @@ pub(in crate::db::executor) fn compile_grouped_projection_plan_if_needed<'a>(
         return Ok(None);
     }
 
-    let compiled_projection =
-        compile_grouped_projection_plan(projection, group_fields, aggregate_execution_specs)
-            .map_err(ProjectionEvalError::into_internal_error)?;
+    let compiled_projection = compile_grouped_projection_plan(
+        projection,
+        group_fields,
+        aggregate_execution_specs,
+        &ExecutionConstructionBudget,
+    )
+    .map_err(GroupedCompilationError::into_internal_error)?;
 
     Ok(Some(CompiledGroupedProjectionPlan {
         compiled_projection,

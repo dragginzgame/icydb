@@ -1,4 +1,5 @@
 use crate::db::{
+    QueryError,
     query::plan::{
         PlanError,
         expr::{
@@ -10,6 +11,7 @@ use crate::db::{
         },
         validate::ExprPlanError,
     },
+    query::preparation::PreparationWork,
     schema::SchemaInfo,
 };
 
@@ -18,9 +20,10 @@ pub(super) fn infer_binary_expr_type(
     left: &Expr,
     right: &Expr,
     schema: &SchemaInfo,
-) -> Result<ExprType, PlanError> {
-    let left_ty = infer_expr_type(left, schema)?;
-    let right_ty = infer_expr_type(right, schema)?;
+    work: &PreparationWork<'_>,
+) -> Result<ExprType, QueryError> {
+    let left_ty = infer_expr_type(left, schema, work)?;
+    let right_ty = infer_expr_type(right, schema, work)?;
 
     // Comparisons with a known null have a boolean (possibly UNKNOWN)
     // result. Still infer both children first so null cannot hide bad operands
@@ -47,13 +50,13 @@ pub(super) fn infer_binary_expr_type(
                 ) {
                     return Ok(ExprType::Null);
                 }
-                return Err(invalid_binary_operands(op, &left_ty, &right_ty));
+                return Err(invalid_binary_operands(op, &left_ty, &right_ty).into());
             }
             if matches!((&left_ty, &right_ty), (ExprType::U256, ExprType::U256)) {
                 return Ok(ExprType::U256);
             }
             if !left_ty.is_numeric_eligible() || !right_ty.is_numeric_eligible() {
-                return Err(invalid_binary_operands(op, &left_ty, &right_ty));
+                return Err(invalid_binary_operands(op, &left_ty, &right_ty).into());
             }
 
             Ok(ExprType::Numeric(infer_numeric_result_subtype(
@@ -64,21 +67,21 @@ pub(super) fn infer_binary_expr_type(
             if !matches!(left_ty, ExprType::Bool | ExprType::Null)
                 || !matches!(right_ty, ExprType::Bool | ExprType::Null)
             {
-                return Err(invalid_binary_operands(op, &left_ty, &right_ty));
+                return Err(invalid_binary_operands(op, &left_ty, &right_ty).into());
             }
 
             Ok(ExprType::Bool)
         }
         BinaryOp::Eq | BinaryOp::Ne => {
             if !binary_equality_comparable(&left_ty, &right_ty) {
-                return Err(invalid_binary_operands(op, &left_ty, &right_ty));
+                return Err(invalid_binary_operands(op, &left_ty, &right_ty).into());
             }
 
             Ok(ExprType::Bool)
         }
         BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte => {
             if !binary_order_comparable(&left_ty, &right_ty) {
-                return Err(invalid_binary_operands(op, &left_ty, &right_ty));
+                return Err(invalid_binary_operands(op, &left_ty, &right_ty).into());
             }
 
             Ok(ExprType::Bool)

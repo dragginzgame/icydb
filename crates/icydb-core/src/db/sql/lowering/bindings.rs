@@ -321,9 +321,8 @@ fn admit_compare_or_expression(
         return Ok(());
     }
     if infer_here {
-        infer_expr_type(&lowered, schema).map_err(|error| {
-            QueryError::from(error.attach_query_field(QueryFieldRole::Predicate))
-        })?;
+        infer_expr_type(&lowered, schema, work)
+            .map_err(|error| error.attach_query_field(QueryFieldRole::Predicate))?;
     }
     Ok(())
 }

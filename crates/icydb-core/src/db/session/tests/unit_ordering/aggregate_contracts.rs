@@ -127,8 +127,13 @@ fn aggregate_result_inference_matches_decimal_and_u256_outputs() {
                 .unwrap();
             for aggregate in [sum("operand"), avg("operand")] {
                 let is_average = aggregate.kind() == crate::db::query::plan::AggregateKind::Avg;
-                let inferred =
-                    infer_expr_type(&Expr::Aggregate(aggregate), catalog.accepted_schema_info());
+                let inferred = crate::db::query::preparation::with_preparation_work(|work| {
+                    infer_expr_type(
+                        &Expr::Aggregate(aggregate),
+                        catalog.accepted_schema_info(),
+                        work,
+                    )
+                });
                 if is_average && expected == ExprType::U256 {
                     assert!(inferred.is_err());
                     continue;

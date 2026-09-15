@@ -1,4 +1,5 @@
 use crate::db::{
+    QueryError,
     query::plan::{
         PlanError,
         expr::{
@@ -9,8 +10,10 @@ use crate::db::{
         },
         validate::ExprPlanError,
     },
+    query::preparation::PreparationWork,
     schema::SchemaInfo,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 impl FunctionTypeInferenceShape {
     fn argument_family(self, index: usize) -> Option<FunctionArgumentFamily> {
@@ -134,15 +137,17 @@ pub(super) fn infer_function_expr_type(
     function: Function,
     args: &[Expr],
     schema: &SchemaInfo,
-) -> Result<ExprType, PlanError> {
-    let arg_types = args
-        .iter()
-        .map(|arg| infer_expr_type(arg, schema))
-        .collect::<Result<Vec<_>, _>>()?;
+    work: &PreparationWork<'_>,
+) -> Result<ExprType, QueryError> {
+    // Preserve child inference before signature validation, including invalid
+    // arity. The shared buffer helper admits its backing before construction.
+    let arg_types = work.copy_slice(args, |arg| infer_expr_type(arg, schema, work))?;
+    work.charge(Resource::PredicateExpressionSteps, arg_types.len() as u64)?;
 
     function
         .type_inference_shape()
         .infer_function_result_type(function, arg_types.as_slice())
+        .map_err(QueryError::from)
 }
 
 fn validate_exact_function_arg_count(

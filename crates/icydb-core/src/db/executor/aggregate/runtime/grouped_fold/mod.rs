@@ -22,6 +22,7 @@ use crate::{
                     generic::execute_generic_grouped_fold_stage,
                 },
             },
+            budget::ExecutionConstructionBudget,
             group::grouped_budget_observability,
             group::grouped_execution_context_from_planner_config,
             pipeline::{
@@ -35,9 +36,10 @@ use crate::{
                     StructuralGroupedRowRuntime,
                 },
             },
-            projection::{ProjectionEvalError, compile_grouped_projection_expr},
+            projection::compile_grouped_projection_expr,
         },
         index::IndexCompilePolicy,
+        query::plan::expr::GroupedCompilationError,
     },
     error::InternalError,
 };
@@ -56,8 +58,9 @@ fn compile_grouped_having_expr(
                 expr,
                 route.group_fields(),
                 route.grouped_aggregate_execution_specs(),
+                &ExecutionConstructionBudget,
             )
-            .map_err(ProjectionEvalError::into_internal_error)
+            .map_err(GroupedCompilationError::into_internal_error)
         })
         .transpose()
 }

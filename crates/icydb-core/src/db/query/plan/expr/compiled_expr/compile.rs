@@ -12,7 +12,7 @@ use crate::{
             builder::AggregateExpr,
             construction::ConstructionBudget,
             plan::{
-                GroupedAggregateExecutionSpec,
+                AggregateSemanticKeyRef, GroupedAggregateExecutionSpec,
                 expr::{
                     BinaryOp, CompiledExpr, CompiledExprCaseArm, Expr, ProjectionEvalError,
                     ProjectionSpec,
@@ -32,7 +32,7 @@ pub(in crate::db) fn compile_scalar_projection_expr_with_schema(
     expr: &Expr,
     budget: &dyn ConstructionBudget,
 ) -> Result<Option<CompiledExpr>, InternalError> {
-    match CompiledExpr::compile_scalar(
+    match CompiledExpr::compile_expr(
         expr,
         &|leaf| {
             compile_scalar_leaf(schema, leaf, budget)
@@ -138,7 +138,7 @@ pub(in crate::db::query::plan::expr) fn compile_builder_preview_expr(
     field_name: &str,
     value_slot: usize,
 ) -> Result<CompiledExpr, QueryError> {
-    CompiledExpr::compile_scalar(
+    CompiledExpr::compile_expr(
         expr,
         &|leaf| match leaf {
             Expr::Field(field) if field.as_str() == field_name => Ok(CompiledExpr::Slot {
@@ -156,7 +156,7 @@ pub(in crate::db::query::plan::expr) fn compile_builder_preview_expr(
 }
 
 impl CompiledExpr {
-    fn compile_scalar<E>(
+    fn compile_expr<E>(
         expr: &Expr,
         leaf: &impl Fn(&Expr) -> Result<Self, E>,
         budget: &dyn ConstructionBudget,
@@ -171,7 +171,7 @@ impl CompiledExpr {
             Expr::FunctionCall { function, args } => {
                 let mut compiled = budget.vec_with_capacity(args.len()).map_err(budget_error)?;
                 for arg in args {
-                    compiled.push(Self::compile_scalar(arg, leaf, budget, budget_error)?);
+                    compiled.push(Self::compile_expr(arg, leaf, budget, budget_error)?);
                 }
                 Self::FunctionCall {
                     function: *function,
@@ -181,7 +181,7 @@ impl CompiledExpr {
             Expr::Unary { op, expr } => Self::Unary {
                 op: *op,
                 expr: budget
-                    .boxed(Self::compile_scalar(expr, leaf, budget, budget_error)?)
+                    .boxed(Self::compile_expr(expr, leaf, budget, budget_error)?)
                     .map_err(budget_error)?,
             },
             Expr::Case {
@@ -194,20 +194,20 @@ impl CompiledExpr {
                 // Admit every condition/result/ELSE before parent specialization.
                 for arm in when_then_arms {
                     arms.push(CompiledExprCaseArm::new(
-                        Self::compile_scalar(arm.condition(), leaf, budget, budget_error)?,
-                        Self::compile_scalar(arm.result(), leaf, budget, budget_error)?,
+                        Self::compile_expr(arm.condition(), leaf, budget, budget_error)?,
+                        Self::compile_expr(arm.result(), leaf, budget, budget_error)?,
                     ));
                 }
-                let else_expr = Self::compile_scalar(else_expr, leaf, budget, budget_error)?;
+                let else_expr = Self::compile_expr(else_expr, leaf, budget, budget_error)?;
                 Self::compile_case(arms, else_expr, budget).map_err(budget_error)?
             }
             Expr::Binary { op, left, right } => {
-                let left = Self::compile_scalar(left, leaf, budget, budget_error)?;
-                let right = Self::compile_scalar(right, leaf, budget, budget_error)?;
+                let left = Self::compile_expr(left, leaf, budget, budget_error)?;
+                let right = Self::compile_expr(right, leaf, budget, budget_error)?;
                 Self::compile_binary(*op, left, right, budget).map_err(budget_error)?
             }
             #[cfg(test)]
-            Expr::Alias { expr, .. } => Self::compile_scalar(expr, leaf, budget, budget_error)?,
+            Expr::Alias { expr, .. } => Self::compile_expr(expr, leaf, budget, budget_error)?,
         })
     }
 
@@ -410,153 +410,149 @@ impl CompiledExpr {
     }
 }
 
-/// Compile one grouped projection spec into direct grouped field/aggregate lookups.
+/// Grouped compilation keeps lookup failures separate from resource failures.
+
+#[derive(Debug)]
+pub(in crate::db) enum GroupedCompilationError {
+    Budget(InternalError),
+
+    Projection(ProjectionEvalError),
+}
+
+impl GroupedCompilationError {
+    /// Preserve resource facts while applying ordinary projection diagnostics.
+    pub(in crate::db) fn into_internal_error(self) -> InternalError {
+        match self {
+            Self::Budget(error) => error,
+            Self::Projection(error) => error.into_internal_error(),
+        }
+    }
+}
+
+impl From<InternalError> for GroupedCompilationError {
+    fn from(error: InternalError) -> Self {
+        Self::Budget(error)
+    }
+}
+
+/// Compile grouped output directly into its final, admitted programs.
 pub(in crate::db) fn compile_grouped_projection_plan(
     projection: &ProjectionSpec,
     group_fields: &crate::db::query::plan::GroupFieldSet,
     aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
-) -> Result<Vec<CompiledExpr>, ProjectionEvalError> {
-    let mut compiled_fields = Vec::with_capacity(projection.len());
+    budget: &dyn ConstructionBudget,
+) -> Result<Vec<CompiledExpr>, GroupedCompilationError> {
+    let mut compiled_fields = budget.vec_with_capacity(projection.len())?;
 
     for field in projection.fields() {
         compiled_fields.push(compile_grouped_projection_expr(
             field.expr(),
             group_fields,
             aggregate_execution_specs,
+            budget,
         )?);
     }
 
     Ok(compiled_fields)
 }
 
+/// Resolve grouped leaves through the shared expression compiler.
 pub(in crate::db) fn compile_grouped_projection_expr(
     expr: &Expr,
     group_fields: &crate::db::query::plan::GroupFieldSet,
     aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
-) -> Result<CompiledExpr, ProjectionEvalError> {
-    match expr {
+    budget: &dyn ConstructionBudget,
+) -> Result<CompiledExpr, GroupedCompilationError> {
+    CompiledExpr::compile_expr(
+        expr,
+        &|leaf| compile_grouped_leaf(leaf, group_fields, aggregate_execution_specs, budget),
+        budget,
+        GroupedCompilationError::Budget,
+    )
+}
+
+fn compile_grouped_leaf(
+    expr: &Expr,
+    group_fields: &crate::db::query::plan::GroupFieldSet,
+    aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
+    budget: &dyn ConstructionBudget,
+) -> Result<CompiledExpr, GroupedCompilationError> {
+    Ok(match expr {
         Expr::Field(field_id) => {
             let field_name = field_id.as_str();
-            let Some(offset) = resolve_group_field_offset(group_fields, expr) else {
-                return Err(ProjectionEvalError::unknown_group_field());
-            };
-
-            Ok(CompiledExpr::GroupKey {
-                offset,
-                field: field_name.to_string(),
-            })
-        }
-        Expr::FieldPath(path) => {
-            let Some(offset) = resolve_group_field_offset(group_fields, expr) else {
-                return Err(ProjectionEvalError::unknown_group_field());
-            };
-            Ok(CompiledExpr::GroupKey {
-                offset,
-                field: path.path_spec().dotted_label(),
-            })
-        }
-        Expr::Aggregate(aggregate_expr) => {
-            let Some(index) =
-                resolve_grouped_aggregate_index(aggregate_execution_specs, aggregate_expr)
-            else {
-                return Err(ProjectionEvalError::unknown_grouped_aggregate_expression(
-                    aggregate_expr.kind(),
+            let Some(offset) = resolve_group_field_offset(group_fields, expr, budget)? else {
+                return Err(GroupedCompilationError::Projection(
+                    ProjectionEvalError::unknown_group_field(),
                 ));
             };
 
-            Ok(CompiledExpr::Aggregate { index })
+            CompiledExpr::GroupKey {
+                offset,
+                field: budget.copy_text(field_name)?,
+            }
         }
-        Expr::Literal(value) => Ok(CompiledExpr::Literal(value.clone())),
-        Expr::FunctionCall { function, args } => Ok(CompiledExpr::FunctionCall {
-            function: *function,
-            args: args
-                .iter()
-                .map(|arg| {
-                    compile_grouped_projection_expr(arg, group_fields, aggregate_execution_specs)
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .into_boxed_slice(),
-        }),
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => Ok(CompiledExpr::Case {
-            when_then_arms: when_then_arms
-                .iter()
-                .map(|arm| {
-                    Ok::<CompiledExprCaseArm, ProjectionEvalError>(CompiledExprCaseArm::new(
-                        compile_grouped_projection_expr(
-                            arm.condition(),
-                            group_fields,
-                            aggregate_execution_specs,
-                        )?,
-                        compile_grouped_projection_expr(
-                            arm.result(),
-                            group_fields,
-                            aggregate_execution_specs,
-                        )?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, _>>()?
-                .into_boxed_slice(),
-            else_expr: Box::new(compile_grouped_projection_expr(
-                else_expr.as_ref(),
-                group_fields,
-                aggregate_execution_specs,
-            )?),
-        }),
-        Expr::Unary { op, expr } => Ok(CompiledExpr::Unary {
-            op: *op,
-            expr: Box::new(compile_grouped_projection_expr(
-                expr.as_ref(),
-                group_fields,
-                aggregate_execution_specs,
-            )?),
-        }),
-        Expr::Binary { op, left, right } => Ok(CompiledExpr::Binary {
-            op: *op,
-            left: Box::new(compile_grouped_projection_expr(
-                left.as_ref(),
-                group_fields,
-                aggregate_execution_specs,
-            )?),
-            right: Box::new(compile_grouped_projection_expr(
-                right.as_ref(),
-                group_fields,
-                aggregate_execution_specs,
-            )?),
-        }),
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => {
-            compile_grouped_projection_expr(expr.as_ref(), group_fields, aggregate_execution_specs)
+        Expr::FieldPath(path) => {
+            let Some(offset) = resolve_group_field_offset(group_fields, expr, budget)? else {
+                return Err(GroupedCompilationError::Projection(
+                    ProjectionEvalError::unknown_group_field(),
+                ));
+            };
+            let mut field = budget.copy_text(path.root().as_str())?;
+            for segment in path.segments() {
+                budget.push_text(&mut field, ".")?;
+                budget.push_text(&mut field, segment)?;
+            }
+            CompiledExpr::GroupKey { offset, field }
         }
-    }
+        Expr::Aggregate(aggregate_expr) => {
+            let Some(index) =
+                resolve_grouped_aggregate_index(aggregate_execution_specs, aggregate_expr, budget)?
+            else {
+                return Err(GroupedCompilationError::Projection(
+                    ProjectionEvalError::unknown_grouped_aggregate_expression(
+                        aggregate_expr.kind(),
+                    ),
+                ));
+            };
+
+            CompiledExpr::Aggregate { index }
+        }
+        _ => return Err(InternalError::query_invalid_logical_plan().into()),
+    })
 }
 
 fn resolve_group_field_offset(
     group_fields: &crate::db::query::plan::GroupFieldSet,
     expr: &Expr,
-) -> Option<usize> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<usize>, InternalError> {
     for (offset, group_field) in group_fields.iter().enumerate() {
-        if group_field.matches_expr(expr) {
-            return Some(offset);
+        if group_field.try_matches_expr(expr, &mut |steps| {
+            budget.charge(Resource::PredicateExpressionSteps, steps)
+        })? {
+            return Ok(Some(offset));
         }
     }
 
-    None
+    Ok(None)
 }
 
 fn resolve_grouped_aggregate_index(
     aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
     aggregate_expr: &AggregateExpr,
-) -> Option<usize> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<usize>, InternalError> {
+    let semantic_key = AggregateSemanticKeyRef::from_aggregate_expr(aggregate_expr);
     for (index, candidate) in aggregate_execution_specs.iter().enumerate() {
-        if candidate.matches_aggregate_expr(aggregate_expr) {
-            return Some(index);
+        if candidate
+            .semantic_key()
+            .try_eq_for_preparation(semantic_key, budget)?
+        {
+            return Ok(Some(index));
         }
     }
 
-    None
+    Ok(None)
 }
 
 const fn is_comparison_op(op: BinaryOp) -> bool {

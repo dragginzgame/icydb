@@ -32,7 +32,7 @@ use std::{borrow::Cow, convert::Infallible};
 
 pub(in crate::db::query::plan::expr) use compile::compile_builder_preview_expr;
 pub(in crate::db) use compile::{
-    compile_grouped_projection_expr, compile_grouped_projection_plan,
+    GroupedCompilationError, compile_grouped_projection_expr, compile_grouped_projection_plan,
     compile_scalar_projection_expr_with_schema, compile_scalar_projection_plan_with_schema,
 };
 pub(in crate::db) use evaluate::evaluate_grouped_having_expr;

@@ -3,6 +3,8 @@
 //! Does not own: aggregate execution, grouping keys, or runtime reducer state.
 //! Boundary: normalizes aggregate function, input, and observable DISTINCT meaning.
 
+mod comparison;
+
 use crate::db::query::{
     builder::AggregateExpr,
     plan::{

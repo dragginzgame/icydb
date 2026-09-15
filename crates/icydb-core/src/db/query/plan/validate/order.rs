@@ -27,9 +27,10 @@ use std::borrow::Cow;
 pub(in crate::db::query::plan::validate) fn validate_order(
     schema: &SchemaInfo,
     order: &OrderSpec,
-) -> Result<(), PlanError> {
+    work: &PreparationWork<'_>,
+) -> Result<(), QueryError> {
     for (term_index, term) in order.fields.iter().enumerate() {
-        validate_order_term(schema, term_index, term)?;
+        validate_order_term(schema, term_index, term, work)?;
     }
 
     Ok(())
@@ -41,37 +42,41 @@ fn validate_order_term(
     schema: &SchemaInfo,
     term_index: usize,
     term: &OrderTerm,
-) -> Result<(), PlanError> {
+    work: &PreparationWork<'_>,
+) -> Result<(), QueryError> {
     if let Some(field) = term.direct_field() {
         let Some(field_type) = schema.field(field) else {
-            return Err(
-                PlanError::from(OrderPlanError::unknown_field(term_index, field))
-                    .attach_query_field(QueryFieldRole::OrderBy),
-            );
+            return Err(PlanError::from(OrderPlanError::unknown_field(
+                term_index,
+                work.copy_text(field)?,
+            ))
+            .attach_query_field(QueryFieldRole::OrderBy)
+            .into());
         };
 
         return field_type
             .is_orderable()
             .then_some(())
-            .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(term_index)));
+            .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(term_index)).into());
     }
 
     if matches!(
         term.expr(),
         crate::db::query::plan::expr::Expr::FieldPath(_)
     ) {
-        return validate_field_path_order_term(schema, term_index, term);
+        return validate_field_path_order_term(schema, term_index, term, work);
     }
 
-    validate_expression_order_term(schema, term_index, term)
+    validate_expression_order_term(schema, term_index, term, work)
 }
 
 fn validate_field_path_order_term(
     schema: &SchemaInfo,
     term_index: usize,
     term: &OrderTerm,
-) -> Result<(), PlanError> {
-    let inferred = infer_expr_type(term.expr(), schema)
+    work: &PreparationWork<'_>,
+) -> Result<(), QueryError> {
+    let inferred = infer_expr_type(term.expr(), schema, work)
         .map_err(|error| error.attach_query_field(QueryFieldRole::OrderBy))?;
 
     if matches!(
@@ -81,26 +86,23 @@ fn validate_field_path_order_term(
         return Ok(());
     }
 
-    Err(PlanError::from(OrderPlanError::unorderable_field(
-        term_index,
-    )))
+    Err(PlanError::from(OrderPlanError::unorderable_field(term_index)).into())
 }
 
 fn validate_expression_order_term(
     schema: &SchemaInfo,
     term_index: usize,
     term: &OrderTerm,
-) -> Result<(), PlanError> {
-    let inferred = infer_expr_type(term.expr(), schema)
+    work: &PreparationWork<'_>,
+) -> Result<(), QueryError> {
+    let inferred = infer_expr_type(term.expr(), schema, work)
         .map_err(|error| error.attach_query_field(QueryFieldRole::OrderBy))?;
 
     if !matches!(
         inferred,
         ExprType::Bool | ExprType::Text | ExprType::Numeric(_) | ExprType::U256
     ) {
-        return Err(PlanError::from(OrderPlanError::unorderable_field(
-            term_index,
-        )));
+        return Err(PlanError::from(OrderPlanError::unorderable_field(term_index)).into());
     }
 
     Ok(())

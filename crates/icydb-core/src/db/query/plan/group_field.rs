@@ -383,25 +383,40 @@ impl GroupFieldSet {
         Ok(())
     }
 
-    /// Return whether one expression leaf is a declared group key.
-    #[must_use]
-    pub(in crate::db) fn contains_expr(&self, expr: &Expr) -> bool {
-        self.iter().any(|field| field.matches_expr(expr))
+    /// Match a declared key, admitting candidate comparisons before inspection.
+    pub(in crate::db) fn try_contains_expr<E>(
+        &self,
+        expr: &Expr,
+        observe: &mut impl FnMut(u64) -> Result<(), E>,
+    ) -> Result<bool, E> {
+        for field in self.iter() {
+            if field.try_matches_expr(expr, observe)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
-    /// Return whether every field/path leaf in one expression is a declared key.
-    #[must_use]
-    pub(in crate::db) fn contains_all_expr_references(&self, expr: &Expr) -> bool {
-        expr.all_tree_expr(&mut |node| match node {
-            Expr::Field(_) | Expr::FieldPath(_) => self.contains_expr(node),
-            Expr::Aggregate(_)
-            | Expr::Literal(_)
-            | Expr::FunctionCall { .. }
-            | Expr::Unary { .. }
-            | Expr::Binary { .. }
-            | Expr::Case { .. } => true,
-            #[cfg(test)]
-            Expr::Alias { .. } => true,
+    /// Admit visits and field comparisons, stopping at the first missing key.
+    /// Aggregate inputs and filters remain outside post-group membership checks.
+    pub(in crate::db) fn try_contains_all_expr_references<E>(
+        &self,
+        expr: &Expr,
+        observe: &mut impl FnMut(u64) -> Result<(), E>,
+    ) -> Result<bool, E> {
+        expr.try_all_tree_expr(&mut |node| {
+            observe(1)?;
+            Ok(match node {
+                Expr::Field(_) | Expr::FieldPath(_) => self.try_contains_expr(node, observe)?,
+                Expr::Aggregate(_)
+                | Expr::Literal(_)
+                | Expr::FunctionCall { .. }
+                | Expr::Unary { .. }
+                | Expr::Binary { .. }
+                | Expr::Case { .. } => true,
+                #[cfg(test)]
+                Expr::Alias { .. } => true,
+            })
         })
     }
 

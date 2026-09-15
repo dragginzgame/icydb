@@ -34,6 +34,17 @@ pub enum QueryError {
 }
 
 impl QueryError {
+    /// Attach planner field context without reclassifying resource failures.
+    pub(in crate::db) fn attach_query_field(self, role: diagnostic_code::QueryFieldRole) -> Self {
+        match self {
+            Self::Plan(mut error) => {
+                *error = (*error).attach_query_field(role);
+                Self::Plan(error)
+            }
+            error => error,
+        }
+    }
+
     /// Construct one validation-domain query error.
     pub(in crate::db) fn validate(err: ValidateError) -> Self {
         Self::Validate(Box::new(err))

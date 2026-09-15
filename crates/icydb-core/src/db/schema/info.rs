@@ -46,6 +46,12 @@ fn schema_field_entry<'a>(
         .map(|index| &fields[index])
 }
 
+// Keep dotted-label admission identical for type and membership lookup.
+fn split_nested_query_field(name: &str) -> Option<(&str, &str)> {
+    let (root, nested) = name.split_once('.')?;
+    (!root.is_empty() && !nested.is_empty()).then_some((root, nested))
+}
+
 // Resolve top-level index membership from accepted persisted index contracts
 // once per schema view. Runtime accepted schema views must not reopen generated
 // generated index declarations after schema acceptance.
@@ -103,6 +109,44 @@ struct SchemaFieldInfo {
     accepted_value_contract: Option<AcceptedValueContract>,
     indexed: bool,
     nested_leaves: Vec<PersistedNestedLeafSnapshot>,
+}
+
+/// Borrowed nested metadata for an existing root, including roots with no leaves.
+pub(in crate::db) struct SchemaNestedFields<'a> {
+    leaves: &'a [PersistedNestedLeafSnapshot],
+    value_catalog: &'a AcceptedValueCatalogHandle,
+}
+
+impl<'a> SchemaNestedFields<'a> {
+    /// Return whether this root has no accepted nested path metadata.
+    #[must_use]
+    pub(in crate::db) const fn is_empty(&self) -> bool {
+        self.leaves.is_empty()
+    }
+
+    // Match borrowed segments without copying paths or projecting leaf types.
+    fn leaf<'path>(
+        &self,
+        segments: impl Iterator<Item = &'path str> + Clone,
+    ) -> Option<&'a PersistedNestedLeafSnapshot> {
+        self.leaves
+            .iter()
+            .find(|leaf| leaf.path().iter().map(String::as_str).eq(segments.clone()))
+    }
+
+    /// Project one accepted leaf through the current newtype query contract.
+    #[must_use]
+    pub(in crate::db) fn field_type<'path>(
+        &self,
+        segments: impl Iterator<Item = &'path str> + Clone,
+    ) -> Option<FieldType> {
+        let leaf = self.leaf(segments)?;
+        let query_kind = query_field_kind_from_persisted_kind(
+            leaf.kind(),
+            self.value_catalog.composite_catalog(),
+        );
+        Some(field_type_from_persisted_kind(&query_kind))
+    }
 }
 
 ///
@@ -465,20 +509,22 @@ impl SchemaInfo {
             return Some(Cow::Borrowed(field_type));
         }
 
-        let (root, nested) = name.split_once('.')?;
-        if root.is_empty() || nested.is_empty() {
-            return None;
+        let (root, nested) = split_nested_query_field(name)?;
+        self.nested_fields(root)?
+            .field_type(nested.split('.'))
+            .map(Cow::Owned)
+    }
+
+    /// Check direct or nested field membership without materializing a query type.
+    #[must_use]
+    pub(in crate::db) fn has_query_field(&self, name: &str) -> bool {
+        if self.field(name).is_some() {
+            return true;
         }
-        let (_, field) = schema_field_entry(self.fields.as_slice(), root)?;
-        let leaf = field
-            .nested_leaves
-            .iter()
-            .find(|leaf| leaf.path().iter().map(String::as_str).eq(nested.split('.')))?;
-        let query_kind = query_field_kind_from_persisted_kind(
-            leaf.kind(),
-            self.value_catalog.composite_catalog(),
-        );
-        Some(Cow::Owned(field_type_from_persisted_kind(&query_kind)))
+        split_nested_query_field(name).is_some_and(|(root, nested)| {
+            self.nested_fields(root)
+                .is_some_and(|fields| fields.leaf(nested.split('.')).is_some())
+        })
     }
 
     /// Return whether null at this field or any accepted path ancestor omits
@@ -660,39 +706,23 @@ impl SchemaInfo {
         name: &str,
         segments: &[String],
     ) -> Option<SqlCapabilities> {
-        let (_, field) = schema_field_entry(self.fields.as_slice(), name)?;
-
-        field
-            .nested_leaves
-            .iter()
-            .find(|leaf| leaf.path() == segments)
-            .map(|leaf| {
-                let query_kind = query_field_kind_from_persisted_kind(
-                    leaf.kind(),
-                    self.value_catalog.composite_catalog(),
-                );
-                accepted_sql_capabilities(&query_kind, &self.value_catalog)
-            })
+        let fields = self.nested_fields(name)?;
+        let leaf = fields.leaf(segments.iter().map(String::as_str))?;
+        let query_kind = query_field_kind_from_persisted_kind(
+            leaf.kind(),
+            self.value_catalog.composite_catalog(),
+        );
+        Some(accepted_sql_capabilities(&query_kind, &self.value_catalog))
     }
 
-    /// Return the type for one nested field path rooted at a top-level field.
-    ///
-    /// Nested paths resolve from persisted accepted leaf metadata.
+    /// Borrow nested metadata in one root lookup; an empty view still has a root.
     #[must_use]
-    pub(crate) fn nested_field_type(&self, name: &str, segments: &[String]) -> Option<FieldType> {
+    pub(in crate::db) fn nested_fields(&self, name: &str) -> Option<SchemaNestedFields<'_>> {
         let (_, field) = schema_field_entry(self.fields.as_slice(), name)?;
-
-        field
-            .nested_leaves
-            .iter()
-            .find(|leaf| leaf.path() == segments)
-            .map(|leaf| {
-                let query_kind = query_field_kind_from_persisted_kind(
-                    leaf.kind(),
-                    self.value_catalog.composite_catalog(),
-                );
-                field_type_from_persisted_kind(&query_kind)
-            })
+        Some(SchemaNestedFields {
+            leaves: &field.nested_leaves,
+            value_catalog: &self.value_catalog,
+        })
     }
 
     /// Borrow the accepted query kind for one nested scalar leaf.
@@ -702,20 +732,9 @@ impl SchemaInfo {
         name: &str,
         segments: impl Iterator<Item = &'a str> + Clone,
     ) -> Option<&AcceptedFieldKind> {
-        let (_, field) = schema_field_entry(self.fields.as_slice(), name)?;
-
-        field
-            .nested_leaves
-            .iter()
-            .find(|leaf| leaf.path().iter().map(String::as_str).eq(segments.clone()))
+        self.nested_fields(name)?
+            .leaf(segments)
             .map(PersistedNestedLeafSnapshot::kind)
-    }
-
-    /// Return whether one top-level field exposes any nested path metadata.
-    #[must_use]
-    pub(crate) fn field_has_nested_paths(&self, name: &str) -> bool {
-        schema_field_entry(self.fields.as_slice(), name)
-            .is_some_and(|(_, field)| !field.nested_leaves.is_empty())
     }
 
     /// Canonicalize one strict SQL literal against this schema's field authority.
@@ -1102,6 +1121,51 @@ mod tests {
             crate::db::query::plan::GroupField::resolve_with_schema(schema, label, work)
         })
         .unwrap()
+    }
+
+    #[test]
+    fn inference_nested_rejection_labels_use_current_preparation_budget() {
+        use crate::db::{
+            QueryError, RequestExecutionRoot,
+            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+            query::{
+                plan::expr::{Expr, FieldPath, infer_expr_type},
+                preparation::PreparationWork,
+            },
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+            DiagnosticFactTag, QueryFieldRole,
+        };
+
+        let schema = newtype_query_schema();
+        let expr = Expr::FieldPath(FieldPath::new("profile", vec!["missing".into()]));
+        for limit in [0, 16_000_000] {
+            let root = RequestExecutionRoot::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(
+                    16_000_000,
+                    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                )
+                .with_limit_for_tests(Resource::TemporaryBytes, limit),
+            );
+            let error = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+                infer_expr_type(&expr, &schema, work)
+            })
+            .unwrap_err()
+            .attach_query_field(QueryFieldRole::Projection);
+            if limit == 0 {
+                assert!(matches!(error, QueryError::Execute(_)));
+                assert!(error.diagnostic_facts().contains(&(
+                    DiagnosticFactTag::BudgetResource,
+                    Resource::TemporaryBytes.raw()
+                )));
+            } else {
+                assert_eq!(
+                    error.query_field_context(),
+                    Some((QueryFieldRole::Projection, "profile.missing"))
+                );
+            }
+        }
     }
 
     #[test]
@@ -1705,7 +1769,10 @@ mod tests {
             ))))
         );
         assert_eq!(
-            schema.nested_field_type("profile", &["name".to_string()]),
+            schema
+                .nested_fields("profile")
+                .unwrap()
+                .field_type(std::iter::once("name")),
             Some(FieldType::Scalar(ScalarKind::Text))
         );
         assert!(matches!(
@@ -1719,6 +1786,59 @@ mod tests {
             ),
             Err(ValidateError::NonQueryableFieldType { field }) if field == "profile"
         ));
+    }
+
+    #[test]
+    fn nested_query_membership_preserves_leaf_and_projection_contracts() {
+        use crate::db::query::{
+            plan::expr::{Expr, ExprType, FieldPath, infer_expr_type},
+            preparation::with_preparation_work,
+        };
+
+        let schema = newtype_query_schema();
+        assert!(schema.nested_fields("missing").is_none());
+        assert!(schema.nested_fields("id").unwrap().is_empty());
+        assert!(!schema.nested_fields("profile").unwrap().is_empty());
+
+        for (name, exists) in [
+            ("id", true),
+            ("name", true),
+            ("aliases", true),
+            ("profile", true),
+            ("profile.name", true),
+            ("missing", false),
+            ("missing.name", false),
+            ("id.name", false),
+            ("profile.missing", false),
+            ("profile.nam", false),
+            ("profile.name.extra", false),
+            ("profile..name", false),
+            ("profile.", false),
+            (".name", false),
+            ("", false),
+        ] {
+            assert_eq!(schema.has_query_field(name), exists, "{name}");
+            assert_eq!(
+                schema.accepted_query_field_type(name).is_some(),
+                exists,
+                "{name}"
+            );
+        }
+
+        // Membership borrows the stored newtype kind; only type consumers project it.
+        assert!(matches!(
+            schema.accepted_nested_query_field_kind("profile", std::iter::once("name")),
+            Some(AcceptedFieldKind::Composite { .. })
+        ));
+        assert_eq!(
+            schema.accepted_query_field_type("profile.name").as_deref(),
+            Some(&FieldType::Scalar(ScalarKind::Text))
+        );
+        let expression = Expr::FieldPath(FieldPath::new("profile", vec!["name".into()]));
+        assert_eq!(
+            with_preparation_work(|work| infer_expr_type(&expression, &schema, work)).unwrap(),
+            ExprType::Text
+        );
     }
 
     #[test]

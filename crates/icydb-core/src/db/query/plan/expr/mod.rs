@@ -56,8 +56,8 @@
 //! Stage artifacts:
 //! - `CanonicalExpr` marks expressions that have crossed the canonicalization
 //!   boundary.
-//! - `TypedExpr` marks expressions that have crossed the type-inference
-//!   boundary without allowing that stage to rewrite the expression tree.
+//! - type inference borrows syntax under current preparation authority and
+//!   returns its type directly without rewriting the expression tree.
 //! - predicate compilation checks and borrows normalized syntax, constructing
 //!   runtime predicates without a temporary copied stage artifact.
 //!
@@ -103,8 +103,8 @@ pub(in crate::db) use canonicalize::{
     scalar_where_truth_condition_is_admitted, simplify_bool_expr_constants,
 };
 pub(in crate::db) use compiled_expr::{
-    CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, ProjectionEvalError,
-    compile_grouped_projection_expr, compile_grouped_projection_plan,
+    CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, GroupedCompilationError,
+    ProjectionEvalError, compile_grouped_projection_expr, compile_grouped_projection_plan,
     compile_scalar_projection_expr_with_schema, compile_scalar_projection_plan_with_schema,
     evaluate_grouped_having_expr,
 };
@@ -124,10 +124,8 @@ pub(in crate::db) use predicate::derive_normalized_bool_expr_predicate_subset;
 pub(in crate::db) use preview::eval_literal_only_expr_value;
 pub(in crate::db) use projection::{
     GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility, ProjectionField,
-    ProjectionSelection, ProjectionSpec, classify_grouped_order_term_for_field,
-    classify_grouped_top_k_order_term, grouped_top_k_order_term_requires_heap,
-    try_classify_grouped_order_term_for_field, try_classify_grouped_top_k_order_term,
-    try_grouped_top_k_order_term_requires_heap,
+    ProjectionSelection, ProjectionSpec, try_classify_grouped_order_term_for_field,
+    try_classify_grouped_top_k_order_term, try_grouped_top_k_order_term_requires_heap,
 };
 pub(in crate::db) use projection_eval::{
     ProjectionFunctionEvalError, eval_builder_expr_for_value_preview,

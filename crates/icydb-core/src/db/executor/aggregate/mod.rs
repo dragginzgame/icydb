@@ -29,8 +29,7 @@ pub(in crate::db::executor) use contracts::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use contracts::{
-    Expr, ProjectionField, admit_true_only_boolean_value,
-    compile_scalar_projection_expr_with_schema,
+    Expr, admit_true_only_boolean_value, compile_scalar_projection_expr_with_schema,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use exact_terminal::execute_exact_indexed_numeric_aggregate_for_canister;

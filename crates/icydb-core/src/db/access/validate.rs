@@ -241,7 +241,7 @@ fn validate_index_reference_with_schema(
         index.key_item_at(slot).is_some_and(|key_item| {
             let field = key_item.field();
 
-            schema.accepted_query_field_type(field).is_some()
+            schema.has_query_field(field)
                 && field
                     .split('.')
                     .next()

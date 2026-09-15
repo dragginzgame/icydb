@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.257.md](docs/changelog/0.257.md)
 
+- `0.257.17` simplifies query preparation and schema lookup, bounds shared type inference and updates IC runtime dependencies (breaking error-enum cleanup; exhausted requests may reject; no data migration).
 - `0.257.16` simplifies query preparation, repairs SQL-free tests and bounds more query-identity work and value nesting (potentially breaking for exhausted requests or over-depth cursors/job literals; recreate affected jobs).
 - `0.257.15` simplifies index-predicate preparation and extends integrity admission (potentially breaking for exhausted setup and affected canonical identities; regenerate saved planning/cursor expectations, no stored-data migration).
 - `0.257.14` strengthens query and schema preparation while removing unnecessary work (potentially breaking for exhausted requests or invalid index predicates; no migration for valid schemas).

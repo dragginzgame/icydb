@@ -72,6 +72,17 @@ fn grouped_identity_projection_fast_path_preserves_rows() {
 
 #[test]
 fn grouped_non_identity_projection_reorders_aggregate_outputs() {
+    use crate::db::{
+        QueryError,
+        executor::budget::{
+            HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+            with_query_execution_budget_for_tests,
+        },
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionBudgetScope as Scope,
+        DiagnosticExecutionLane as Lane, DiagnosticFactTag,
+    };
     let projection = ProjectionSpec::from_fields_for_test(vec![
         ProjectionField::Scalar {
             expr: Expr::Field(FieldId::new("age")),
@@ -112,27 +123,52 @@ fn grouped_non_identity_projection_reorders_aggregate_outputs() {
         ),
     ];
 
-    let projected_rows = project_grouped_rows_from_projection(
-        &projection,
-        false,
-        &projection_layout,
-        &group_fields,
-        aggregate_execution_specs.as_slice(),
-        rows,
-    )
-    .expect("grouped reordered projection should evaluate through compiled grouped plan");
-
-    assert_eq!(
-        projected_rows,
-        vec![
-            RuntimeGroupedRow::new(
-                vec![Value::Nat64(21)],
-                vec![Value::Nat64(90), Value::Nat64(2)]
-            ),
-            RuntimeGroupedRow::new(
-                vec![Value::Nat64(35)],
-                vec![Value::Nat64(70), Value::Nat64(1)]
-            ),
-        ],
+    let project = || {
+        project_grouped_rows_from_projection(
+            &projection,
+            false,
+            &projection_layout,
+            &group_fields,
+            &aggregate_execution_specs,
+            rows.clone(),
+        )
+    };
+    assert!(
+        project().is_err(),
+        "non-identity compilation requires execution authority"
     );
+    for limit in [0, 16_000_000] {
+        let projected_rows = with_query_execution_budget_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                16_000_000,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(Resource::TemporaryBytes, limit),
+            HardExecutionContext::new(Scope::Execution, Lane::PublicRead, 0),
+            || project().map_err(QueryError::execute),
+        );
+        if limit == 0 {
+            assert!(projected_rows.unwrap_err().diagnostic_facts().contains(&(
+                DiagnosticFactTag::BudgetResource,
+                Resource::TemporaryBytes.raw()
+            )));
+            continue;
+        }
+        let projected_rows = projected_rows
+            .expect("grouped reordered projection should evaluate through compiled grouped plan");
+
+        assert_eq!(
+            projected_rows,
+            vec![
+                RuntimeGroupedRow::new(
+                    vec![Value::Nat64(21)],
+                    vec![Value::Nat64(90), Value::Nat64(2)]
+                ),
+                RuntimeGroupedRow::new(
+                    vec![Value::Nat64(35)],
+                    vec![Value::Nat64(70), Value::Nat64(1)]
+                ),
+            ],
+        );
+    }
 }

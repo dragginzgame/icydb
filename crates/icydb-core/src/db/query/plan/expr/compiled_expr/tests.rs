@@ -10,6 +10,183 @@ use std::{borrow::Cow, cell::RefCell, cmp::Ordering};
 use super::ProjectionAccessKind;
 
 #[test]
+fn grouped_compilation_preserves_first_matching_slots_and_path_labels() {
+    use crate::db::query::{
+        builder::count,
+        plan::{
+            FieldSlot, GroupField, GroupFieldSet, GroupedAggregateExecutionSpec,
+            expr::{Expr, FieldId, FieldPath, compile_grouped_projection_expr},
+        },
+        preparation::with_preparation_work,
+    };
+    let fields = GroupFieldSet::Direct(vec![
+        FieldSlot::from_test_slot(8, "account"),
+        FieldSlot::from_test_slot(9, "account"),
+    ]);
+    let aggregate = GroupedAggregateExecutionSpec::from_aggregate_expr(&count());
+    let specs = [aggregate.clone(), aggregate];
+    with_preparation_work(|work| {
+        let field = compile_grouped_projection_expr(
+            &Expr::Field(FieldId::new("account")),
+            &fields,
+            &specs,
+            work,
+        )
+        .unwrap();
+        assert!(
+            matches!(field, CompiledExpr::GroupKey {offset: 0, ref field} if field == "account")
+        );
+        let aggregate =
+            compile_grouped_projection_expr(&Expr::Aggregate(count()), &fields, &specs, work)
+                .unwrap();
+        assert!(matches!(aggregate, CompiledExpr::Aggregate { index: 0 }));
+        let fields = GroupFieldSet::PathAware(vec![GroupField::scalar_path_for_test(
+            "account.owner",
+            "account",
+            vec!["owner".into()],
+            8,
+            crate::db::schema::AcceptedFieldKind::Text { max_len: None },
+        )]);
+        let path = Expr::FieldPath(FieldPath::new("account", vec!["owner".into()]));
+        let compiled = compile_grouped_projection_expr(&path, &fields, &[], work).unwrap();
+        assert!(
+            matches!(compiled, CompiledExpr::GroupKey {offset: 0, ref field} if field == "account.owner")
+        );
+    });
+}
+
+#[test]
+fn grouped_case_compiles_all_branches_before_folding_and_evaluates_only_selected_results() {
+    use crate::db::query::{
+        plan::{
+            GroupFieldSet,
+            expr::{
+                CaseWhenArm, Expr, FieldId, GroupedCompilationError,
+                compile_grouped_projection_expr,
+            },
+        },
+        preparation::with_preparation_work,
+    };
+    let row = TestGroupedView {
+        group_keys: vec![],
+        aggregates: vec![],
+    };
+    with_preparation_work(|work| {
+        for (condition, expected) in [
+            (Value::Bool(true), 1),
+            (Value::Bool(false), 2),
+            (Value::Null, 2),
+        ] {
+            let mut expr = Expr::Case {
+                when_then_arms: vec![CaseWhenArm::new(
+                    Expr::Literal(condition),
+                    Expr::Literal(Value::Nat64(1)),
+                )],
+                else_expr: Box::new(Expr::Literal(Value::Nat64(2))),
+            };
+            let compiled =
+                compile_grouped_projection_expr(&expr, &GroupFieldSet::empty(), &[], work).unwrap();
+            assert_eq!(
+                compiled.evaluate(&row).unwrap().as_ref(),
+                &Value::Nat64(expected)
+            );
+            if let Expr::Case { else_expr, .. } = &mut expr {
+                **else_expr = Expr::Field(FieldId::new("missing"));
+            }
+            assert!(matches!(
+                compile_grouped_projection_expr(&expr, &GroupFieldSet::empty(), &[], work),
+                Err(GroupedCompilationError::Projection(
+                    ProjectionEvalError::UnknownField { .. }
+                ))
+            ));
+        }
+        let expr = Expr::Case {
+            when_then_arms: vec![
+                CaseWhenArm::new(
+                    Expr::Literal(Value::Bool(true)),
+                    Expr::Literal(Value::Nat64(7)),
+                ),
+                CaseWhenArm::new(
+                    Expr::Literal(Value::Nat64(0)),
+                    Expr::Literal(Value::Nat64(8)),
+                ),
+            ],
+            else_expr: Box::new(Expr::Literal(Value::Nat64(9))),
+        };
+        let compiled =
+            compile_grouped_projection_expr(&expr, &GroupFieldSet::empty(), &[], work).unwrap();
+        assert_eq!(compiled.evaluate(&row).unwrap().as_ref(), &Value::Nat64(7));
+    });
+}
+
+#[test]
+fn grouped_compilation_preserves_exact_cumulative_resource_failures() {
+    use crate::db::{
+        QueryError, RequestExecutionRoot,
+        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        query::{
+            plan::{
+                GroupFieldSet,
+                expr::{CaseWhenArm, Expr, compile_grouped_projection_expr},
+            },
+            preparation::PreparationWork,
+        },
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+        DiagnosticFactTag,
+    };
+    // Even the discarded ELSE string must be admitted before constant CASE folding.
+    let expr = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(
+            Expr::Literal(Value::Bool(true)),
+            Expr::Literal(Value::Nat64(1)),
+        )],
+        else_expr: Box::new(Expr::Literal(Value::Text("retained input".repeat(32)))),
+    };
+    for resource in [Resource::PredicateExpressionSteps, Resource::TemporaryBytes] {
+        let request = |limit| {
+            RequestExecutionRoot::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(
+                    16_000_000,
+                    HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                )
+                .with_limit_for_tests(resource, limit),
+            )
+        };
+        let compile = |work: &crate::db::query::preparation::PreparationWork<'_>| {
+            compile_grouped_projection_expr(&expr, &GroupFieldSet::empty(), &[], work)
+                .map_err(|error| QueryError::execute(error.into_internal_error()))
+        };
+        let root = request(16_000_000);
+        PreparationWork::run(&root.scope(), Lane::PublicRead, compile).unwrap();
+        let exact = root.observed(resource);
+        assert!(exact > 0);
+        for limit in [exact - 1, exact] {
+            let root = request(limit);
+            let result = PreparationWork::run(&root.scope(), Lane::PublicRead, compile);
+            if limit == exact {
+                result.unwrap();
+                let error =
+                    PreparationWork::run(&root.scope(), Lane::PublicRead, compile).unwrap_err();
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+                );
+            } else {
+                assert!(
+                    result
+                        .unwrap_err()
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn compiled_expression_errors_preserve_user_diagnostics_and_internal_failures() {
     use crate::error::{ErrorClass, ErrorOrigin};
     use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail};
