@@ -7,10 +7,7 @@ use crate::{
         access::{AccessPath, AccessPlan, SemanticIndexAccessContract},
         executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
-            plan::{
-                OrderDirection, OrderSpec, OrderTerm, VisibleIndexes,
-                pipeline::tests::exact_metadata_schema,
-            },
+            plan::{OrderDirection, OrderSpec, OrderTerm, VisibleIndexes, exact_metadata_schema},
             preparation::PreparationWork,
         },
     },

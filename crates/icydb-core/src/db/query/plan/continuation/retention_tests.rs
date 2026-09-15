@@ -7,7 +7,7 @@ use crate::{
         executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::MissingRowPolicy,
         query::{
-            plan::{AccessPlannedQuery, VisibleIndexes, pipeline::tests::exact_metadata_schema},
+            plan::{AccessPlannedQuery, VisibleIndexes, exact_metadata_schema},
             preparation::{PreparationWork, with_preparation_work},
         },
     },

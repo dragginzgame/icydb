@@ -28,6 +28,8 @@ mod primary_key_access_proof;
 mod primary_key_input_resource;
 mod projection;
 mod semantics;
+#[cfg(test)]
+mod test_schema;
 pub(crate) mod validate;
 
 use crate::error::InternalError;
@@ -111,8 +113,6 @@ pub(in crate::db) use pipeline::PreparedScalarPlanningState;
 pub(in crate::db) use pipeline::apply_exact_cardinality_tiebreak_selection;
 #[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::exact_first_component_metadata_index;
-#[cfg(test)]
-pub(in crate::db) use pipeline::tests::exact_metadata_schema;
 pub(in crate::db::query) use pipeline::try_build_count_cardinality_prefix_access_from_query_model;
 pub(in crate::db) use pipeline::{CountCardinalityPrefixAccess, CountCardinalityPrefixValues};
 pub(in crate::db::query) use pipeline::{
@@ -157,6 +157,8 @@ pub(in crate::db) use semantics::{
     LogicalPushdownEligibility, derive_logical_pushdown_eligibility,
     grouped_cursor_policy_violation, grouped_plan_strategy, grouped_plan_strategy_for_explain,
 };
+#[cfg(test)]
+pub(in crate::db) use test_schema::exact_metadata_schema;
 pub(crate) use validate::PlanError;
 pub(crate) use validate::PolicyPlanError;
 #[cfg(feature = "sql")]

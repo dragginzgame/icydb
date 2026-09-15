@@ -1,6 +1,5 @@
 //! Candidate output lists and names are admitted before retained construction.
 
-use super::exact_metadata_schema;
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
@@ -14,6 +13,7 @@ use crate::{
                     AccessChoiceCandidateExplainSummary, AccessChoiceRejectedIndex,
                     exact_cardinality_tiebreak_candidates,
                 },
+                exact_metadata_schema,
             },
             preparation::PreparationWork,
         },

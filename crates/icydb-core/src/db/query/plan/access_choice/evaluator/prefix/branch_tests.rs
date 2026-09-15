@@ -10,7 +10,7 @@ use crate::{
             plan::{
                 VisibleIndexes,
                 access_choice::model::{AccessChoiceRejectedReason as Reason, CandidateEvaluation},
-                pipeline::tests::exact_metadata_schema,
+                exact_metadata_schema,
                 planner::{MAX_INDEX_BRANCH_SET_VALUES, prefix_test_schema},
             },
             preparation::PreparationWork,

@@ -16,7 +16,7 @@ use crate::{
                         CandidateEvaluation,
                     },
                 },
-                pipeline::tests::exact_metadata_schema,
+                exact_metadata_schema,
                 planner::{AccessCandidateScore, prefix_test_schema},
             },
             preparation::PreparationWork,

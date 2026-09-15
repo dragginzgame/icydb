@@ -9,7 +9,7 @@ use crate::{
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
             plan::{
-                VisibleIndexes, pipeline::tests::exact_metadata_schema,
+                VisibleIndexes, exact_metadata_schema,
                 planner::compare::prefix_tests::schema as text_schema,
             },
             preparation::PreparationWork,
