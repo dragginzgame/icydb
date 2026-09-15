@@ -171,9 +171,32 @@ rejects rather than moving time backward or clamping one row.
 Schema mutation remains catalog-native. SQL DDL is a frontend, not the source
 of mutation semantics.
 
+Each new `CandidateSchemaRevision` uses one volatile maintenance construction
+allowance with the existing mutation ceilings. Validation/encoding, verification
+and identity/root creation share counters and check IC instruction consumption,
+including failed stages, before a candidate can be returned. Wire verification
+and hashing charge their separate byte visits; the retained store path is copied
+under construction admission. Exhaustion remains an operational diagnostic,
+including through migration planning, rather than an invalid-schema result.
+This is not a complete bound on intermediate codec or normalization allocation.
+It starts after the caller has built the input bundle and is per candidate, not
+a cumulative limit for an entire multi-store proposal. Persisted journal
+reconstruction retains its separate recovery validation without this new budget.
+
 Initial generated publication, reconciliation, SQL DDL, candidate creation and
 promotion, nullability and path changes, rename, and current snapshot reopen
-all consume the same accepted-schema validator for nullable unique indexes.
+all consume the same accepted-schema index semantic validator. Every filtered
+index must bind all authored predicate field names, including branches later
+simplified away; uniqueness and key nullability do not bypass that check.
+Nullable unique indexes additionally require the existing omission guards.
+Pending unique-index write-barrier compilation admits its dependency bitmap,
+returned slot list and barrier-vector backing through required caller-owned
+construction authority. Migration pages retain the same counters across entities;
+standalone inspection and migration-domain setup own one maintenance allowance
+for their complete metadata operation. Failed compilation returns no partial
+constraint program. Semantic corruption keeps its prior diagnostic, while budget
+errors propagate unchanged. This does not complete parser, normalization, sort
+scratch or other constraint-construction admission, and adds no replay accounting.
 Field nullability changes update the matching top-level field-path and
 expression-source metadata before final-candidate validation. Rejected
 candidates publish no schema, constraint, physical-generation, or marker

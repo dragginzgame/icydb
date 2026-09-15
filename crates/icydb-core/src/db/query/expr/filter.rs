@@ -1364,10 +1364,14 @@ mod tests {
                     }
                     let compact_predicate = derive_normalized_bool_expr_predicate_subset(
                         &normalize_bool_expr(compact, work).expect("canonical preparation"),
-                    );
+                        work,
+                    )
+                    .expect("fixture predicate construction fits");
                     let explicit_predicate = derive_normalized_bool_expr_predicate_subset(
                         &normalize_bool_expr(explicit, work).expect("canonical preparation"),
-                    );
+                        work,
+                    )
+                    .expect("fixture predicate construction fits");
                     assert_eq!(compact_predicate.is_some(), explicit_predicate.is_some());
                     if let (Some(compact), Some(explicit)) = (compact_predicate, explicit_predicate)
                     {
@@ -1419,7 +1423,10 @@ mod tests {
                     },
                 )
                 .expect("timing workload fits request budget");
-                let predicate = derive_normalized_bool_expr_predicate_subset(&expr);
+                let predicate = crate::db::query::preparation::with_preparation_work(|work| {
+                    derive_normalized_bool_expr_predicate_subset(&expr, work)
+                })
+                .expect("fixture predicate construction fits");
                 drop(black_box((expr, predicate)));
             };
             prepare();

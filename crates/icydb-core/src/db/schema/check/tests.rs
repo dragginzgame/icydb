@@ -6,6 +6,7 @@ use crate::{
     db::{
         commit::CommitSchemaFingerprint,
         data::AcceptedFieldWriteProvenance,
+        executor::budget::MaintenanceConstructionBudget,
         schema::{
             AcceptedCompositeCatalog, AcceptedConstraintCatalog, AcceptedConstraintKind,
             AcceptedNamedTypeIdentity, AcceptedRuleOperation, AcceptedRuleTarget,
@@ -654,8 +655,13 @@ fn targeted_rule_fixture() -> TargetedRuleFixture {
         composite_catalog,
         AcceptedSchemaRevision::INITIAL,
     );
-    let program = CompiledAcceptedRowConstraints::compile(&accepted, &value_catalog, FINGERPRINT)
-        .expect("targeted program should compile");
+    let program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &value_catalog,
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("targeted program should compile");
     let values = vec![
         Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
         Some(Value::Map(vec![
@@ -802,9 +808,13 @@ fn pending_targeted_activation_uses_the_same_compiled_artifact_as_write_admissio
         pending.id(),
     )
     .expect("targeted activation should compile");
-    let write_program =
-        CompiledAcceptedRowConstraints::compile(&accepted, &fixture.value_catalog, FINGERPRINT)
-            .expect("pending targeted write gate should compile");
+    let write_program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &fixture.value_catalog,
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("pending targeted write gate should compile");
     let mut values = fixture.values.clone();
     values[10] = Some(Value::Nat64(11));
 
@@ -1139,9 +1149,13 @@ fn targeted_rules_share_stable_constraint_id_order() {
             .with_constraint_catalog(late_catalog),
     )
     .expect("late-check schema should close");
-    let late_program =
-        CompiledAcceptedRowConstraints::compile(&late_schema, &fixture.value_catalog, FINGERPRINT)
-            .expect("late-check program should compile");
+    let late_program = CompiledAcceptedRowConstraints::compile(
+        &late_schema,
+        &fixture.value_catalog,
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("late-check program should compile");
     let mut targeted_first = fixture.values.clone();
     targeted_first[1] = Some(TargetedRuleFixture::node(12, Vec::new()));
     let error = late_program
@@ -1375,8 +1389,13 @@ fn compiled_checks_apply_sql_three_valued_semantics_and_stable_violation_identit
             right: CheckValueExprV1Input::Literal(InputValue::text("blocked".to_string())),
         },
     ]));
-    let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
-        .expect("accepted checks should compile");
+    let program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &catalog,
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("accepted checks should compile");
 
     program
         .evaluate(
@@ -1429,8 +1448,13 @@ fn compiled_checks_include_pending_check_activation_gates() {
     let accepted =
         AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraint_catalog))
             .expect("activation snapshot should close");
-    let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
-        .expect("pending gate should compile");
+    let program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &catalog,
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("pending gate should compile");
 
     assert_eq!(
         program.evaluate(
@@ -1473,8 +1497,13 @@ fn integrity_check_program_excludes_pending_activation_semantics() {
     let accepted =
         AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraint_catalog))
             .expect("activation snapshot should close");
-    let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
-        .expect("shared write/integrity program should compile");
+    let program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &catalog,
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("shared write/integrity program should compile");
 
     assert_eq!(program.integrity_constraint_count(), 0);
 }
@@ -1523,8 +1552,13 @@ fn integrity_check_program_evaluates_each_validated_check_by_stable_ordinal() {
     let accepted =
         AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraint_catalog))
             .expect("validated checks should close");
-    let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
-        .expect("shared write/integrity program should compile");
+    let program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &catalog,
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("shared write/integrity program should compile");
     let row = values(-1, Value::Text("blocked".to_string()), Vec::new());
 
     assert_eq!(program.integrity_constraint_count(), 2);
@@ -1562,8 +1596,13 @@ fn compiled_row_constraints_include_pending_not_null_activation_gates() {
     let accepted =
         AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraint_catalog))
             .expect("not-null activation snapshot should close");
-    let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
-        .expect("pending not-null gate should compile");
+    let program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &catalog,
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("pending not-null gate should compile");
 
     assert_eq!(program.required_slots(), &[0, 1, 2, 3, 4]);
     assert_eq!(
@@ -1589,8 +1628,13 @@ fn compiled_row_constraints_include_accepted_not_null_identity_before_encoding()
     let snapshot = snapshot();
     let accepted = AcceptedSchemaSnapshot::try_new(snapshot.clone())
         .expect("accepted not-null constraints should close");
-    let program = CompiledAcceptedRowConstraints::compile(&accepted, &value_catalog(), FINGERPRINT)
-        .expect("accepted not-null constraints should compile");
+    let program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &value_catalog(),
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("accepted not-null constraints should compile");
     let score_constraint = snapshot
         .constraints()
         .iter()
@@ -1651,8 +1695,13 @@ fn compiled_unique_activation_blocks_inserts_and_dependency_changes_only() {
     let activation_id = snapshot.constraint_activations()[0].id();
     let accepted =
         AcceptedSchemaSnapshot::try_new(snapshot).expect("unique activation snapshot should close");
-    let program = CompiledAcceptedRowConstraints::compile(&accepted, &value_catalog(), FINGERPRINT)
-        .expect("unique write barrier should compile");
+    let program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &value_catalog(),
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("unique write barrier should compile");
     let mut provenance = vec![Some(AcceptedFieldWriteProvenance::Preserved); 5];
 
     assert!(
@@ -1687,6 +1736,167 @@ fn compiled_unique_activation_blocks_inserts_and_dependency_changes_only() {
     );
 }
 
+fn unique_activation_predicate_fixture(sql: &str) -> PersistedSchemaSnapshot {
+    let index_id = SchemaIndexId::new(1).unwrap();
+    let candidate = PersistedIndexSnapshot::new(
+        index_id,
+        1,
+        "unique_score".into(),
+        "tests::CheckedEntity::unique_score".into(),
+        true,
+        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+            FieldId::new(2),
+            SchemaFieldSlot::new(1),
+            vec!["score".into()],
+            AcceptedFieldKind::Int64,
+            false,
+        )]),
+        Some(sql.into()),
+    )
+    .clone_with_schema_identity(index_id, 1, 9);
+    let snapshot = snapshot();
+    let catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_added_unique_activation(&candidate, AcceptedSchemaFingerprint::new([0xA5; 32]), 9)
+        .unwrap();
+    snapshot
+        .with_constraint_catalog(catalog)
+        .with_constraint_candidates(vec![candidate], Vec::new())
+}
+
+#[test]
+fn unique_activation_dependencies_use_current_cumulative_construction_authority() {
+    use crate::db::{
+        QueryError, RequestExecutionRoot,
+        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        query::preparation::PreparationWork,
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+    };
+
+    let accepted = AcceptedSchemaSnapshot::try_new(unique_activation_predicate_fixture(
+        "score > 0 AND nickname IS NOT NULL",
+    ))
+    .unwrap();
+    let catalog = value_catalog();
+    let limits = HardExecutionBudget::uniform_for_tests(
+        16_000_000,
+        HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+    );
+    let baseline = RequestExecutionRoot::new_for_tests(limits);
+    let expected = PreparationWork::run(&baseline.scope(), Lane::Diagnostic, |work| {
+        CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT, work)
+            .map_err(QueryError::execute)
+    })
+    .unwrap();
+
+    // These are admission counters, not native performance measurements. Both
+    // the dependency containers and traversal work must charge this root.
+    for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+        let exact = baseline.observed(resource);
+        assert!(exact > 0);
+        for limit in [exact - 1, exact] {
+            let root =
+                RequestExecutionRoot::new_for_tests(limits.with_limit_for_tests(resource, limit));
+            let result = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+                CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT, work)
+                    .map_err(QueryError::execute)
+            });
+            if limit == exact {
+                assert_eq!(result.unwrap(), expected);
+            } else {
+                let error = result.unwrap_err();
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+                );
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::Limit, limit))
+                );
+            }
+        }
+
+        let root =
+            RequestExecutionRoot::new_for_tests(limits.with_limit_for_tests(resource, exact));
+        let result = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+            CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT, work)
+                .map_err(QueryError::execute)?;
+            CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT, work)
+                .map_err(QueryError::execute)
+        });
+        assert!(
+            result
+                .unwrap_err()
+                .diagnostic_facts()
+                .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+        );
+    }
+}
+
+#[test]
+fn unique_activation_predicate_dependencies_preserve_normalized_write_barriers() {
+    let cases: &[(&str, &[usize])] = &[
+        ("score > 0 AND nickname IS NOT NULL", &[1, 2]),
+        ("score = id", &[0, 1]),
+        ("NOT (nickname IS NULL OR payload IS NULL)", &[1, 2, 4]),
+        ("score > 10 AND score < 0 AND nickname IS NOT NULL", &[1]),
+        ("nickname = 'payload'", &[1, 2]),
+        ("tags IS NOT NULL", &[1, 3]),
+        ("nickname LIKE 'abc%'", &[1, 2]),
+    ];
+    for (sql, expected_slots) in cases {
+        let accepted =
+            AcceptedSchemaSnapshot::try_new(unique_activation_predicate_fixture(sql)).unwrap();
+        let program = CompiledAcceptedRowConstraints::compile(
+            &accepted,
+            &value_catalog(),
+            FINGERPRINT,
+            &MaintenanceConstructionBudget::new(),
+        )
+        .unwrap_or_else(|error| panic!("{sql}: {error:?}"));
+        for slot in 0..5 {
+            let mut provenance = vec![Some(AcceptedFieldWriteProvenance::Preserved); 5];
+            provenance[slot] = Some(AcceptedFieldWriteProvenance::Authored);
+            let blocked = program
+                .unique_activation_write_blocker(MutationMode::Update, &provenance)
+                .unwrap()
+                .is_some();
+            assert_eq!(
+                blocked,
+                expected_slots.contains(&slot),
+                "{sql}: slot {slot}"
+            );
+        }
+    }
+}
+
+#[test]
+fn unique_activation_rejects_unresolved_predicate_dependency() {
+    let snapshot = unique_activation_predicate_fixture("unbound IS NOT NULL");
+    assert_eq!(
+        AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot.clone()),
+        Err(crate::db::schema::SchemaSnapshotAcceptanceError::Predicate),
+    );
+    // Deliberately bypass acceptance to exercise the compiler's defensive check.
+    let accepted = AcceptedSchemaSnapshot::new(snapshot);
+    assert_eq!(
+        CompiledAcceptedRowConstraints::compile(
+            &accepted,
+            &value_catalog(),
+            FINGERPRINT,
+            &MaintenanceConstructionBudget::new()
+        )
+        .unwrap_err()
+        .diagnostic(),
+        crate::error::InternalError::accepted_row_constraint_program_corrupt().diagnostic(),
+    );
+}
+
 #[test]
 fn length_and_cardinality_use_one_prebound_slot_set() {
     let (accepted, catalog, _) = accepted_with_check(CheckExprV1Input::And(vec![
@@ -1701,8 +1911,13 @@ fn length_and_cardinality_use_one_prebound_slot_set() {
             right: CheckValueExprV1Input::Literal(InputValue::nat64(2)),
         },
     ]));
-    let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
-        .expect("accepted checks should compile");
+    let program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &catalog,
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("accepted checks should compile");
 
     assert_eq!(program.required_slots(), &[0, 1, 2, 3, 4]);
     program
@@ -1724,8 +1939,13 @@ fn compiled_checks_reject_stale_fingerprint_and_missing_required_slot() {
         op: AcceptedCheckCompareOpV1::Gte,
         right: CheckValueExprV1Input::Literal(InputValue::int64(0)),
     });
-    let program = CompiledAcceptedRowConstraints::compile(&accepted, &catalog, FINGERPRINT)
-        .expect("accepted checks should compile");
+    let program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &catalog,
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("accepted checks should compile");
 
     assert_eq!(
         program.evaluate(
@@ -1962,8 +2182,13 @@ fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
         composite_catalog,
         AcceptedSchemaRevision::INITIAL,
     );
-    let program = CompiledAcceptedRowConstraints::compile(&accepted, &value_catalog, FINGERPRINT)
-        .expect("newtype check should compile once through accepted authority");
+    let program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &value_catalog,
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .expect("newtype check should compile once through accepted authority");
 
     program
         .evaluate(

@@ -8,11 +8,11 @@ use crate::{
         DbSession, QuickIntegrityResult,
         commit::database_incarnation_id,
         integrity::{
-            IntegrityAuthorityDiagnostic, IntegrityCheckRequest, IntegrityCheckResult,
-            IntegrityDeepError, IntegrityEntityIdentity, IntegrityJobError, IntegrityJobId,
-            IntegrityJobOwner, IntegrityJobReceipt, IntegritySubmissionKey,
-            abort_deep_integrity_job, capture_integrity_proof_vector, continue_deep_integrity_job,
-            execute_quick_integrity, run_next_integrity_retention_page, start_deep_integrity_job,
+            IntegrityCheckRequest, IntegrityCheckResult, IntegrityDeepError,
+            IntegrityEntityIdentity, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
+            IntegrityJobReceipt, IntegritySubmissionKey, abort_deep_integrity_job,
+            capture_integrity_proof_vector, continue_deep_integrity_job, execute_quick_integrity,
+            run_next_integrity_retention_page, start_deep_integrity_job,
             uninspectable_quick_integrity,
         },
         runtime_entity_catalog::AcceptedRuntimeEntity,
@@ -94,11 +94,16 @@ impl<C: CanisterKind> DbSession<C> {
                 if entity != &accepted {
                     return Err(IntegrityJobError::EntityIdentityMismatch.into());
                 }
-                Ok(uninspectable_quick_integrity(
-                    identity,
-                    database_incarnation_id()?,
-                    &error,
-                ))
+                match IntegrityDeepError::from_plan_load(error) {
+                    IntegrityDeepError::Uninspectable(diagnostic) => {
+                        Ok(uninspectable_quick_integrity(
+                            identity,
+                            database_incarnation_id()?,
+                            diagnostic,
+                        ))
+                    }
+                    error => Err(error),
+                }
             }
             Err(AcceptedInspectionPlanLoadError::Unselected(error)) => {
                 Err(IntegrityDeepError::from(error))
@@ -203,21 +208,16 @@ impl<C: CanisterKind> DbSession<C> {
         entity: &IntegrityEntityIdentity,
         error: AcceptedInspectionPlanLoadError,
     ) -> IntegrityDeepError {
-        match error {
+        let error = match error {
             AcceptedInspectionPlanLoadError::Selected { identity, error } => {
                 if entity != &IntegrityEntityIdentity::from_accepted_identity(&identity) {
                     return IntegrityJobError::EntityIdentityMismatch.into();
                 }
-                IntegrityDeepError::Uninspectable(IntegrityAuthorityDiagnostic::from_internal(
-                    &error,
-                ))
+                error
             }
-            AcceptedInspectionPlanLoadError::Unselected(error) => {
-                IntegrityDeepError::Uninspectable(IntegrityAuthorityDiagnostic::from_internal(
-                    &error,
-                ))
-            }
-        }
+            AcceptedInspectionPlanLoadError::Unselected(error) => error,
+        };
+        IntegrityDeepError::from_plan_load(error)
     }
 
     /// Continue or replay one authorized Deep job.

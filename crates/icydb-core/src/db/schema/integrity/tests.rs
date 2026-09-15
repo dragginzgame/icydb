@@ -25,6 +25,71 @@ fn field_contract() -> (SchemaRowLayout, Vec<PersistedFieldSnapshot>) {
     )
 }
 
+#[test]
+fn acceptance_errors_preserve_boundary_specific_classification() {
+    use crate::{
+        db::schema::{
+            NullableUniqueIndexContractError, SchemaSnapshotAcceptanceError,
+            constraint::AcceptedConstraintCatalogError,
+        },
+        error::InternalError,
+    };
+
+    let index_id = SchemaIndexId::new(1).unwrap();
+    let cases = [
+        (
+            SchemaSnapshotAcceptanceError::Structural,
+            InternalError::store_corruption(),
+            InternalError::store_invariant(),
+        ),
+        (
+            SchemaSnapshotAcceptanceError::Predicate,
+            InternalError::store_corruption(),
+            InternalError::store_unsupported(),
+        ),
+        (
+            SchemaSnapshotAcceptanceError::NullableUnique(
+                NullableUniqueIndexContractError::MissingGuards {
+                    index_id,
+                    index_name: "idx".into(),
+                    sources: vec![vec!["value".into()]],
+                },
+            ),
+            InternalError::serialize_incompatible_persisted_format(),
+            InternalError::store_unsupported(),
+        ),
+        (
+            SchemaSnapshotAcceptanceError::NullableUnique(
+                NullableUniqueIndexContractError::UnsupportedNullableAncestor {
+                    index_id,
+                    index_name: "idx".into(),
+                    source: vec!["nested".into(), "value".into()],
+                },
+            ),
+            InternalError::serialize_incompatible_persisted_format(),
+            InternalError::store_unsupported(),
+        ),
+    ];
+    for (error, decoded, proposed) in cases {
+        assert_eq!(
+            error.clone().into_decode_error().diagnostic(),
+            decoded.diagnostic(),
+        );
+        assert_eq!(
+            error.clone().into_proposal_error().diagnostic(),
+            proposed.diagnostic(),
+        );
+        assert_eq!(
+            error.clone().into_invariant_error().diagnostic(),
+            InternalError::store_invariant().diagnostic(),
+        );
+        assert_eq!(
+            error.into_constraint_error(),
+            AcceptedConstraintCatalogError::OwnerMismatch,
+        );
+    }
+}
+
 fn index(id: u32, ordinal: u16, name: &str, field_id: u32) -> PersistedIndexSnapshot {
     PersistedIndexSnapshot::new(
         SchemaIndexId::new(id).unwrap(),

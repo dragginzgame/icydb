@@ -5,7 +5,11 @@
 //! the same-field and same-coercion membership assembly rule.
 
 use crate::{
-    db::predicate::{CoercionId, CompareOp, ComparePredicate},
+    db::{
+        predicate::{CoercionId, CompareOp, ComparePredicate},
+        query::construction::ConstructionBudget,
+    },
+    error::InternalError,
     value::{Value, canonicalize_value_set},
 };
 
@@ -40,17 +44,23 @@ impl<'a> MembershipCompareLeaf<'a> {
 pub(in crate::db) fn collapse_membership_compare_leaves(
     leaves: Vec<MembershipCompareLeaf<'_>>,
     target_op: CompareOp,
-) -> Option<ComparePredicate> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<ComparePredicate>, InternalError> {
     if leaves.len() < 2 {
-        return None;
+        return Ok(None);
     }
-    let (field, coercion) =
-        membership_compare_domain(leaves.iter().map(|leaf| Some((leaf.field, leaf.coercion))))?;
-    let values = leaves.into_iter().map(|leaf| leaf.value).collect();
+    let Some((field, coercion)) =
+        membership_compare_domain(leaves.iter().map(|leaf| Some((leaf.field, leaf.coercion))))
+    else {
+        return Ok(None);
+    };
+    let field = budget.copy_text(field)?;
+    let mut values = budget.vec_with_capacity(leaves.len())?;
+    values.extend(leaves.into_iter().map(|leaf| leaf.value));
 
-    Some(membership_compare_from_values(
+    Ok(Some(membership_compare_from_values(
         field, target_op, values, coercion,
-    ))
+    )))
 }
 
 /// Inspect borrowed leaf domains without constructing operands. An absent leaf

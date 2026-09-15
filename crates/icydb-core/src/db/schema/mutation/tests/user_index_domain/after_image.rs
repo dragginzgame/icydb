@@ -173,9 +173,16 @@ fn malformed_accepted_predicates_reject_query_mutation_and_inspection_plans() {
         field_index,
         domain_expression_index(1, "by_lower_name", false, malformed),
     ] {
-        let snapshot = snapshot_with_indexes(&base_snapshot(), vec![index.clone()]);
-        let accepted = AcceptedSchemaSnapshot::try_new(snapshot).unwrap();
-        let (schema, contract) = after_image_schema(index);
+        let snapshot = snapshot_with_indexes(&base_snapshot(), vec![index]);
+        // Acceptance rejects this metadata. Inject it explicitly to retain the
+        // query/mutation/inspection corruption defenses without weakening setup.
+        let accepted = AcceptedSchemaSnapshot::new(snapshot);
+        let contract = accepted_row_contract(&base_snapshot());
+        let schema = SchemaInfo::from_accepted_snapshot_and_catalog(
+            &accepted,
+            contract.accepted_value_catalog_handle().clone(),
+            true,
+        );
         let old = ObservedNameRow::new("Ada", false);
         let new = ObservedNameRow::new("Ada", false);
         for error in [

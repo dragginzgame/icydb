@@ -86,7 +86,9 @@ fn complete_domain_setup_keeps_source_exhaustion_distinct_from_predicate_rejecti
             Some("name =".into()),
         )],
     );
-    let row_contract = accepted_row_contract(&after);
+    // Row fields are unchanged; inject the malformed index separately from the
+    // valid row contract to exercise setup's defensive parse/error ordering.
+    let row_contract = accepted_row_contract(&before);
     let store = IndexStore::init_heap();
     let physical_before = index_store_entries(&store);
     let construct = |construction| {

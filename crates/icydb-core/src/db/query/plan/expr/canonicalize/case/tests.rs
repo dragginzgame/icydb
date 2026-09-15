@@ -281,7 +281,11 @@ fn compact_case_remains_expression_backed_when_predicate_projection_is_unavailab
             left: Box::new(field("tenant")),
             right: Box::new(Expr::Literal(Value::Text("chosen".into()))),
         };
-        assert!(derive_normalized_bool_expr_predicate_subset(&selector).is_some());
+        assert!(
+            derive_normalized_bool_expr_predicate_subset(&selector, work)
+                .expect("fixture predicate construction fits")
+                .is_some()
+        );
         let query = Expr::Binary {
             op: BinaryOp::And,
             left: Box::new(selector),
@@ -292,7 +296,11 @@ fn compact_case_remains_expression_backed_when_predicate_projection_is_unavailab
             .into_expr();
         // The maintained compiler projects whole representable expressions; it is
         // not an independent-conjunct extractor. Keep the full expression authority.
-        assert!(derive_normalized_bool_expr_predicate_subset(&canonical).is_none());
+        assert!(
+            derive_normalized_bool_expr_predicate_subset(&canonical, work)
+                .expect("fixture predicate construction fits")
+                .is_none()
+        );
     });
 }
 

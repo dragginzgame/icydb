@@ -1188,8 +1188,13 @@ mod tests {
             AcceptedSchemaRevision::INITIAL,
         );
         let fingerprint = [7; 16];
-        let constraints =
-            CompiledAcceptedRowConstraints::compile(&accepted, &catalog, fingerprint).unwrap();
+        let constraints = CompiledAcceptedRowConstraints::compile(
+            &accepted,
+            &catalog,
+            fingerprint,
+            &crate::db::executor::budget::MaintenanceConstructionBudget::new(),
+        )
+        .unwrap();
         let layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted).unwrap();
         let contract = StructuralRowContract::from_accepted_decode_contract(
             accepted.entity_path(),
@@ -1320,9 +1325,13 @@ mod tests {
             AcceptedSchemaRevision::INITIAL,
         );
         let fingerprint = [7; 16];
-        let constraints =
-            CompiledAcceptedRowConstraints::compile(&accepted, &value_catalog, fingerprint)
-                .expect("accepted not-null program should compile");
+        let constraints = CompiledAcceptedRowConstraints::compile(
+            &accepted,
+            &value_catalog,
+            fingerprint,
+            &crate::db::executor::budget::MaintenanceConstructionBudget::new(),
+        )
+        .expect("accepted not-null program should compile");
         let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
             .expect("accepted row layout should build");
         let patch = AcceptedMutationIntentPatch::new().set_authored(

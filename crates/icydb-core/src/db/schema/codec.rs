@@ -58,9 +58,8 @@ pub(in crate::db) fn persisted_schema_snapshot_decode_count_for_tests() -> u64 {
 pub(in crate::db) fn encode_persisted_schema_snapshot(
     snapshot: &PersistedSchemaSnapshot,
 ) -> Result<Vec<u8>, InternalError> {
-    if validate_schema_snapshot_acceptance(snapshot).is_err() {
-        return Err(InternalError::store_invariant());
-    }
+    validate_schema_snapshot_acceptance(snapshot)
+        .map_err(SchemaSnapshotAcceptanceError::into_invariant_error)?;
     encode_snapshot(snapshot)
 }
 
@@ -218,17 +217,8 @@ pub(in crate::db) fn decode_persisted_schema_snapshot(
     .with_relations(relations)
     .with_constraint_candidates(candidate_indexes, candidate_relations)
     .with_relation_id_allocator(relation_id_allocator);
-    match validate_schema_snapshot_acceptance(&snapshot) {
-        Ok(()) => {}
-        Err(SchemaSnapshotAcceptanceError::NullableUnique(_)) => {
-            return Err(InternalError::serialize_incompatible_persisted_format());
-        }
-        Err(
-            SchemaSnapshotAcceptanceError::Structural | SchemaSnapshotAcceptanceError::Predicate,
-        ) => {
-            return Err(InternalError::store_corruption());
-        }
-    }
+    validate_schema_snapshot_acceptance(&snapshot)
+        .map_err(SchemaSnapshotAcceptanceError::into_decode_error)?;
     Ok(snapshot)
 }
 

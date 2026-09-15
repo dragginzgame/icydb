@@ -12,6 +12,7 @@ use crate::{
             write_hash_u64,
         },
         data::StructuralRowContract,
+        executor::budget::MaintenanceConstructionBudget,
         index::AcceptedIndexInspectionPlan,
         relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
         schema::{
@@ -152,42 +153,51 @@ impl AcceptedInspectionPlan {
         )
             -> Result<Vec<RelationConstraintProjection>, InternalError>,
     ) -> Result<Self, InternalError> {
-        if value_catalog.revision() != identity.accepted_schema_revision() {
-            return Err(InternalError::store_invariant());
-        }
+        // One standalone metadata compilation, never one allowance per index.
+        MaintenanceConstructionBudget::new().run(
+            |work| {
+                if value_catalog.revision() != identity.accepted_schema_revision() {
+                    return Err(InternalError::store_invariant());
+                }
 
-        let accepted_schema_fingerprint = identity.accepted_schema_fingerprint();
-        let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&snapshot)?;
-        let row_contract = StructuralRowContract::from_accepted_decode_contract(
-            identity.entity_path_handle(),
-            row_layout.row_decode_contract(value_catalog.clone()),
-        );
-        let write_constraints = CompiledAcceptedRowConstraints::compile(
-            &snapshot,
-            &value_catalog,
-            accepted_schema_fingerprint,
+                let accepted_schema_fingerprint = identity.accepted_schema_fingerprint();
+                let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&snapshot)?;
+                let row_contract = StructuralRowContract::from_accepted_decode_contract(
+                    identity.entity_path_handle(),
+                    row_layout.row_decode_contract(value_catalog.clone()),
+                );
+                let write_constraints = CompiledAcceptedRowConstraints::compile(
+                    &snapshot,
+                    &value_catalog,
+                    accepted_schema_fingerprint,
+                    work,
+                )?;
+                let index_inspection = AcceptedIndexInspectionPlan::compile(
+                    &snapshot,
+                    value_catalog.clone(),
+                    &row_contract,
+                )?;
+                let relation_inspection = build_relations(&snapshot, &row_contract)?;
+                let identity_inspection = accepted_identity_inspection(&snapshot)?;
+                let fingerprint = accepted_inspection_plan_fingerprint(
+                    &identity,
+                    value_catalog.authority().fingerprint(),
+                );
+
+                Ok(Self {
+                    identity,
+                    snapshot,
+                    value_catalog,
+                    row_contract,
+                    write_constraints,
+                    index_inspection,
+                    relation_inspection,
+                    identity_inspection,
+                    fingerprint,
+                })
+            },
+            std::convert::identity,
         )
-        .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
-        let index_inspection =
-            AcceptedIndexInspectionPlan::compile(&snapshot, value_catalog.clone(), &row_contract)?;
-        let relation_inspection = build_relations(&snapshot, &row_contract)?;
-        let identity_inspection = accepted_identity_inspection(&snapshot)?;
-        let fingerprint = accepted_inspection_plan_fingerprint(
-            &identity,
-            value_catalog.authority().fingerprint(),
-        );
-
-        Ok(Self {
-            identity,
-            snapshot,
-            value_catalog,
-            row_contract,
-            write_constraints,
-            index_inspection,
-            relation_inspection,
-            identity_inspection,
-            fingerprint,
-        })
     }
 
     /// Return the selected accepted catalog identity.

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.257.md](docs/changelog/0.257.md)
 
+- `0.257.14` strengthens query and schema preparation while removing unnecessary work (potentially breaking for exhausted requests or invalid index predicates; no migration for valid schemas).
 - `0.257.13` strengthens query preparation and schema recovery while avoiding unnecessary normalization and catalog work (potentially breaking for exhausted requests or corrupt metadata; no migration for valid databases).
 - `0.257.12` strengthens shared planner and index-preparation admission and avoids token-row scans for eligible grouped index counts (potentially breaking for exhausted requests; no migration).
 - `0.257.11` adds memory profiles, clearer diagnostics and integration guidance, simpler plan-cache accounting, and automatic pre-commit formatting (breaking: retain deployed bucket sizes explicitly or recreate, update diagnostic tooling; exhausted sizing requests now reject).

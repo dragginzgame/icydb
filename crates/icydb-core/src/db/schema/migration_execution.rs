@@ -189,7 +189,7 @@ pub(in crate::db::schema) fn rewrite_migration_page<C: CanisterKind>(
                     break;
                 }
                 let candidate = candidate_for_program(planned, program)?;
-                let prepared = prepare_candidate_entity(db, program, candidate)?;
+                let prepared = prepare_candidate_entity(db, program, candidate, work)?;
                 let store = db.store_handle(program.store_path())?;
                 require_journaled(store)?;
                 let page = rewrite_entity_page(
@@ -677,7 +677,7 @@ pub(in crate::db::schema) fn final_validate_migration_page<C: CanisterKind>(
                     break;
                 }
                 let candidate = candidate_for_program(planned, program)?;
-                let prepared = prepare_candidate_entity(db, program, candidate)?;
+                let prepared = prepare_candidate_entity(db, program, candidate, work)?;
                 let store = db.store_handle(program.store_path())?;
                 let page = final_validate_entity_page(
                     store,
@@ -839,6 +839,7 @@ fn prepare_candidate_entity<C: CanisterKind>(
     db: &Db<C>,
     program: &CompiledMigrationEntityProgram,
     candidate: &crate::db::schema::CandidateSchemaRevision,
+    work: &dyn crate::db::query::construction::ConstructionBudget,
 ) -> Result<PreparedCandidateEntity, InternalError> {
     let candidate_selection = AcceptedCatalogSnapshotSelection::from_candidate(
         candidate,
@@ -931,8 +932,8 @@ fn prepare_candidate_entity<C: CanisterKind>(
         &candidate_schema,
         candidate_selection.value_catalog_handle(),
         candidate_fingerprint,
-    )
-    .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
+        work,
+    )?;
     Ok(PreparedCandidateEntity {
         candidate_contract,
         candidate_fingerprint,
@@ -946,23 +947,29 @@ pub(in crate::db::schema) fn migration_derived_domain_count<C: CanisterKind>(
     db: &Db<C>,
     planned: &PlannedSchemaMigration,
 ) -> Result<u32, InternalError> {
-    let mut count = 0_u32;
-    for program in planned.programs() {
-        let candidate = candidate_for_program(planned, program)?;
-        let prepared = prepare_candidate_entity(db, program, candidate)?;
-        count = count
-            .checked_add(
-                u32::try_from(
-                    prepared
-                        .indexes
-                        .len()
-                        .saturating_add(prepared.relations.len()),
-                )
-                .map_err(|_| InternalError::store_invariant())?,
-            )
-            .ok_or_else(InternalError::store_invariant)?;
-    }
-    Ok(count)
+    // All entity projections belong to this zero-write preparation operation.
+    crate::db::executor::budget::MaintenanceConstructionBudget::new().run(
+        |work| {
+            let mut count = 0_u32;
+            for program in planned.programs() {
+                let candidate = candidate_for_program(planned, program)?;
+                let prepared = prepare_candidate_entity(db, program, candidate, work)?;
+                count = count
+                    .checked_add(
+                        u32::try_from(
+                            prepared
+                                .indexes
+                                .len()
+                                .saturating_add(prepared.relations.len()),
+                        )
+                        .map_err(|_| InternalError::store_invariant())?,
+                    )
+                    .ok_or_else(InternalError::store_invariant)?;
+            }
+            Ok(count)
+        },
+        std::convert::identity,
+    )
 }
 
 struct MigrationDerivedDomain {
@@ -1076,36 +1083,42 @@ fn migration_derived_domains<C: CanisterKind>(
     db: &Db<C>,
     planned: &PlannedSchemaMigration,
 ) -> Result<Vec<MigrationDerivedDomain>, InternalError> {
-    let mut domains = Vec::new();
-    for program in planned.programs() {
-        let candidate = candidate_for_program(planned, program)?;
-        let prepared = prepare_candidate_entity(db, program, candidate)?;
-        let source_store = db.store_handle(program.store_path())?;
-        domains.extend(
-            prepared
-                .indexes
-                .iter()
-                .map(|projection| MigrationDerivedDomain {
-                    store_path: program.store_path(),
-                    store: source_store,
-                    index_id: projection.index_id(),
-                }),
-        );
-        for relation in &prepared.relations {
-            domains.push(MigrationDerivedDomain {
-                store_path: relation.target_store_path(),
-                store: relation.target_store(),
-                index_id: relation.index_id(),
+    // Admission finishes before the caller starts mutating derived domains.
+    crate::db::executor::budget::MaintenanceConstructionBudget::new().run(
+        |work| {
+            let mut domains = Vec::new();
+            for program in planned.programs() {
+                let candidate = candidate_for_program(planned, program)?;
+                let prepared = prepare_candidate_entity(db, program, candidate, work)?;
+                let source_store = db.store_handle(program.store_path())?;
+                domains.extend(
+                    prepared
+                        .indexes
+                        .iter()
+                        .map(|projection| MigrationDerivedDomain {
+                            store_path: program.store_path(),
+                            store: source_store,
+                            index_id: projection.index_id(),
+                        }),
+                );
+                for relation in &prepared.relations {
+                    domains.push(MigrationDerivedDomain {
+                        store_path: relation.target_store_path(),
+                        store: relation.target_store(),
+                        index_id: relation.index_id(),
+                    });
+                }
+            }
+            icydb_schema::compact_sort_unstable_by(&mut domains, |left, right| {
+                (left.store_path, left.index_id).cmp(&(right.store_path, right.index_id))
             });
-        }
-    }
-    icydb_schema::compact_sort_unstable_by(&mut domains, |left, right| {
-        (left.store_path, left.index_id).cmp(&(right.store_path, right.index_id))
-    });
-    domains.dedup_by(|left, right| {
-        left.store_path == right.store_path && left.index_id == right.index_id
-    });
-    Ok(domains)
+            domains.dedup_by(|left, right| {
+                left.store_path == right.store_path && left.index_id == right.index_id
+            });
+            Ok(domains)
+        },
+        std::convert::identity,
+    )
 }
 
 fn require_journaled(store: StoreHandle) -> Result<(), InternalError> {

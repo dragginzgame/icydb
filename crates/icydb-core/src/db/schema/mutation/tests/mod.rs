@@ -131,7 +131,7 @@ fn expression_name_index() -> PersistedIndexSnapshot {
                 "expr:v1:LOWER(name)".to_string(),
             )),
         )]),
-        Some("LOWER(name) IS NOT NULL".to_string()),
+        Some("name IS NOT NULL".to_string()),
     )
 }
 

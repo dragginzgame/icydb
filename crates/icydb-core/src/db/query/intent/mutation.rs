@@ -24,7 +24,7 @@ impl QueryIntent {
         expr: Expr,
         work: &PreparationWork<'_>,
     ) -> Result<(), QueryError> {
-        self.append_normalized_filter(NormalizedFilter::from_normalized_expr(expr), work)
+        self.append_normalized_filter(NormalizedFilter::from_normalized_expr(expr, work)?, work)
     }
 
     /// Append one already-normalized filter predicate to scalar intent,

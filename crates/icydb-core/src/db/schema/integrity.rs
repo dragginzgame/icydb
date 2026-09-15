@@ -10,15 +10,19 @@ mod relation;
 #[cfg(test)]
 mod tests;
 
-use crate::db::schema::{
-    AcceptedFieldKind, FieldId, FieldInsertGeneration, PersistedFieldSnapshot, RowLayoutVersion,
-    SchemaHistoricalFill, SchemaRowLayout, SchemaVersion,
+use crate::{
+    db::schema::{
+        AcceptedFieldKind, FieldId, FieldInsertGeneration, PersistedFieldSnapshot,
+        RowLayoutVersion, SchemaHistoricalFill, SchemaRowLayout, SchemaVersion,
+        constraint::AcceptedConstraintCatalogError,
+    },
+    error::InternalError,
 };
 
 pub(in crate::db::schema) use constraint::schema_snapshot_constraint_integrity_detail;
 pub(in crate::db::schema) use index::schema_snapshot_index_integrity_detail;
 pub(in crate::db) use nullable_unique::NullableUniqueIndexContractError;
-pub(in crate::db) use nullable_unique::validate_nullable_unique_index_contract;
+pub(in crate::db) use nullable_unique::validate_index_semantic_contract;
 pub(in crate::db) use relation::accepted_relation_path_terminal;
 pub(in crate::db::schema) use relation::accepted_relation_sources_match_catalogs;
 pub(in crate::db::schema) use relation::schema_snapshot_relation_integrity_detail;
@@ -29,6 +33,46 @@ pub(in crate::db) enum SchemaSnapshotAcceptanceError {
     Structural,
     Predicate,
     NullableUnique(NullableUniqueIndexContractError),
+}
+
+impl SchemaSnapshotAcceptanceError {
+    // These mappings deliberately enumerate validity failures. New operational
+    // failures must be handled explicitly, never classified by a catch-all as
+    // corrupt persisted state, invalid proposals or invalid constraint owners.
+
+    /// Classify invalid internally constructed metadata at its trust boundary.
+    pub(in crate::db) fn into_invariant_error(self) -> InternalError {
+        match self {
+            Self::Structural | Self::Predicate | Self::NullableUnique(_) => {
+                InternalError::store_invariant()
+            }
+        }
+    }
+
+    /// Preserve the persisted codec's corruption/unsupported-contract distinction.
+    pub(in crate::db) fn into_decode_error(self) -> InternalError {
+        match self {
+            Self::Structural | Self::Predicate => InternalError::store_corruption(),
+            Self::NullableUnique(_) => InternalError::serialize_incompatible_persisted_format(),
+        }
+    }
+
+    /// Classify a generated proposal without treating unsupported semantics as corruption.
+    pub(in crate::db) fn into_proposal_error(self) -> InternalError {
+        match self {
+            Self::Structural => InternalError::store_invariant(),
+            Self::Predicate | Self::NullableUnique(_) => InternalError::store_unsupported(),
+        }
+    }
+
+    /// Preserve the constraint transition's existing invalid-owner rejection.
+    pub(in crate::db::schema) fn into_constraint_error(self) -> AcceptedConstraintCatalogError {
+        match self {
+            Self::Structural | Self::Predicate | Self::NullableUnique(_) => {
+                AcceptedConstraintCatalogError::OwnerMismatch
+            }
+        }
+    }
 }
 
 /// Validate one complete persisted snapshot before it becomes authority.
@@ -84,7 +128,7 @@ pub(in crate::db) fn validate_schema_snapshot_acceptance(
         .iter()
         .chain(snapshot.candidate_indexes())
     {
-        validate_nullable_unique_index_contract(snapshot.row_layout(), snapshot.fields(), index)?;
+        validate_index_semantic_contract(snapshot.row_layout(), snapshot.fields(), index)?;
     }
     Ok(())
 }

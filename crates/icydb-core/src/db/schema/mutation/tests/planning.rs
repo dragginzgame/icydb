@@ -646,11 +646,11 @@ fn field_rename_rewrites_and_rebinds_nullable_unique_predicates_without_fallback
         PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
         Some("name IS NOT".to_string()),
     );
-    let malformed = crate::db::schema::AcceptedSchemaSnapshot::try_new(snapshot_with_indexes(
+    // Bypass acceptance deliberately to exercise rewrite failure on corrupted authority.
+    let malformed = crate::db::schema::AcceptedSchemaSnapshot::new(snapshot_with_indexes(
         &base_snapshot(),
         vec![malformed],
-    ))
-    .expect("unaffected predecessor predicates remain outside the new semantic rule");
+    ));
     assert_eq!(
         derive_sql_ddl_field_rename_accepted_after(&malformed, "name", "display_name"),
         Err(SchemaDdlMutationAdmissionError::AcceptedAfterRejected),

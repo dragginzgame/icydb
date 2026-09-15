@@ -289,7 +289,7 @@ fn admit_compare_or_expression(
     let lowered = lower_sql_expr(expr, SqlExprPhase::Where, work)
         .map_err(QueryError::from_sql_lowering_error)?;
     if let Expr::Binary { op, left, right } = &lowered
-        && let Some(predicate) = compile_bool_compare_expr(*op, left, right)
+        && let Some(predicate) = compile_bool_compare_expr(*op, left, right, work)?
     {
         let predicate =
             normalize_enum_literals(schema, &predicate, work).map_err(|error| match error {

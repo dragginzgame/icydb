@@ -5,7 +5,89 @@ use super::{
     CandidateSchemaRevision, empty_accepted_schema_candidate_for_tests,
     encode_accepted_schema_root, hash_bytes, prepare_accepted_schema_root_publication,
 };
-use crate::error::ErrorClass;
+use crate::{db::executor::budget::MaintenanceConstructionBudget, error::ErrorClass};
+use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
+
+#[test]
+fn candidate_preparation_shares_admission_across_verification_and_identity() {
+    let candidate = empty_accepted_schema_candidate_for_tests(
+        "test::Candidate",
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let path_visits = 1 + candidate.store_path().len() as u64;
+    let bundle_visits = candidate.encoded_bundle().len() as u64;
+    let all_visits = path_visits + 2 * bundle_visits + candidate.encoded_root().len() as u64;
+
+    // Admit the path and first wire pass, but not the next pass. A separate
+    // allowance for hashing/root creation would incorrectly admit this input.
+    for limit in [path_visits + bundle_visits, all_visits - 1] {
+        let work = MaintenanceConstructionBudget::with_limit_for_tests(
+            Resource::PredicateExpressionSteps,
+            limit,
+        );
+        let error =
+            CandidateSchemaRevision::prepare(candidate.bundle().clone(), &work).unwrap_err();
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::PredicateExpressionSteps.raw(),
+        )));
+        assert!(
+            error
+                .diagnostic_facts()
+                .contains(&(DiagnosticFactTag::Limit, limit))
+        );
+        // The failed operation stays failed; a second segment cannot obtain a
+        // publishable candidate by restarting its local counter.
+        let repeated =
+            CandidateSchemaRevision::prepare(candidate.bundle().clone(), &work).unwrap_err();
+        assert_eq!(repeated.diagnostic(), error.diagnostic());
+    }
+
+    let work = MaintenanceConstructionBudget::with_limit_for_tests(
+        Resource::PredicateExpressionSteps,
+        all_visits,
+    );
+    let admitted = CandidateSchemaRevision::prepare(candidate.bundle().clone(), &work).unwrap();
+    assert_eq!(admitted.bundle(), candidate.bundle());
+    assert_eq!(admitted.encoded_bundle(), candidate.encoded_bundle());
+    assert_eq!(admitted.root(), candidate.root());
+    assert_eq!(admitted.encoded_root(), candidate.encoded_root());
+    // Admission does not alter the independent persisted reconstruction path.
+    let restored = CandidateSchemaRevision::from_encoded(
+        admitted.encoded_bundle().to_vec(),
+        admitted.encoded_root().to_vec(),
+    )
+    .unwrap();
+    assert_eq!(restored.root(), candidate.root());
+}
+
+#[test]
+fn candidate_preparation_preserves_resource_and_semantic_rejections() {
+    let candidate = empty_accepted_schema_candidate_for_tests(
+        "test::Candidate",
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let error = CandidateSchemaRevision::prepare(
+        candidate.bundle().clone(),
+        &MaintenanceConstructionBudget::with_limit_for_tests(Resource::TemporaryBytes, 0),
+    )
+    .unwrap_err();
+    assert!(error.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::TemporaryBytes.raw(),
+    )));
+    let mut invalid = candidate.bundle().clone();
+    invalid.store_path.clear();
+    let error = CandidateSchemaRevision::prepare(invalid, &MaintenanceConstructionBudget::new())
+        .unwrap_err();
+    assert_eq!(error.class(), ErrorClass::InvariantViolation);
+    assert!(
+        !error
+            .diagnostic_facts()
+            .iter()
+            .any(|(tag, _)| *tag == DiagnosticFactTag::BudgetResource)
+    );
+}
 
 #[test]
 fn candidate_constructors_reject_invalid_contents_before_publication() {

@@ -4098,9 +4098,13 @@ mod tests {
                 .semantic_fingerprint()
                 .expect("bundle fingerprint should derive"),
         );
-        let program =
-            CompiledAcceptedRowConstraints::compile(&accepted_schema, &value_catalog, [0xA3; 16])
-                .expect("N4 should compile the accepted targeted rule");
+        let program = CompiledAcceptedRowConstraints::compile(
+            &accepted_schema,
+            &value_catalog,
+            [0xA3; 16],
+            &crate::db::executor::budget::MaintenanceConstructionBudget::new(),
+        )
+        .expect("N4 should compile the accepted targeted rule");
         program
             .evaluate(
                 [0xA3; 16],
@@ -4377,9 +4381,13 @@ mod tests {
             candidate.revision(),
             candidate.root().fingerprint(),
         );
-        let program =
-            CompiledAcceptedRowConstraints::compile(&accepted_schema, &value_catalog, [0xA4; 16])
-                .expect("old accepted rule and candidate write gate should compile together");
+        let program = CompiledAcceptedRowConstraints::compile(
+            &accepted_schema,
+            &value_catalog,
+            [0xA4; 16],
+            &crate::db::executor::budget::MaintenanceConstructionBudget::new(),
+        )
+        .expect("old accepted rule and candidate write gate should compile together");
         let target_field = match staged
             .constraint_catalog()
             .activation(constraint_id)

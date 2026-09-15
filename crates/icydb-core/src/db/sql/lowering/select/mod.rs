@@ -101,7 +101,7 @@ impl LoweredSqlFilter {
         work: &PreparationWork<'_>,
     ) -> Result<Self, SqlLoweringError> {
         let filter_expr = lower_sql_where_bool_expr(expr, work)?;
-        let predicate_subset = derive_sql_where_expr_predicate_subset(&filter_expr)
+        let predicate_subset = derive_sql_where_expr_predicate_subset(&filter_expr, work)?
             .ok_or_else(SqlLoweringError::unsupported_where_expression)?;
 
         Ok(Self::from_visible_expr_and_predicate_subset(
@@ -173,7 +173,8 @@ impl LoweredSqlFilter {
                 query.filter_expr_with_normalized_predicate(filter_expr, predicate, work)
             }
             (Some(filter_expr), None) => {
-                if let Some(predicate) = derive_sql_where_expr_predicate_subset(&filter_expr) {
+                if let Some(predicate) = derive_sql_where_expr_predicate_subset(&filter_expr, work)?
+                {
                     let predicate = canonicalize_sql_predicate_for_schema(schema, predicate);
                     query.filter_expr_with_normalized_predicate(filter_expr, predicate, work)
                 } else {

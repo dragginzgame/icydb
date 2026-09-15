@@ -29,6 +29,48 @@ fn parse_where_expr(sql: &str) -> crate::db::sql::parser::SqlExpr {
 }
 
 #[test]
+fn required_sql_predicate_propagates_extraction_exhaustion() {
+    use crate::db::{
+        QueryError, RequestExecutionRoot,
+        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        query::preparation::PreparationWork,
+        sql::lowering::select::LoweredSqlFilter,
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
+    };
+
+    let request = |bytes| {
+        RequestExecutionRoot::new_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                16_000_000,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(Resource::TemporaryBytes, bytes),
+        )
+    };
+    let expr = parse_where_expr("SELECT * FROM users WHERE name = 'payload'");
+    let generous = request(16_000_000);
+    PreparationWork::run(
+        &generous.scope(),
+        DiagnosticExecutionLane::PublicRead,
+        |work| lower_sql_where_bool_expr(&expr, work).map_err(QueryError::from_sql_lowering_error),
+    )
+    .unwrap();
+    // Admit the SQL expression, then exhaust exactly at predicate construction.
+    let root = request(generous.observed(Resource::TemporaryBytes));
+    let error = PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
+        LoweredSqlFilter::from_where_expr_requiring_predicate_subset(&expr, work)
+            .map_err(QueryError::from_sql_lowering_error)
+    })
+    .unwrap_err();
+    assert!(error.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::TemporaryBytes.raw()
+    )));
+}
+
+#[test]
 fn lower_sql_where_bool_expr_preserves_upper_prefix_semantics() {
     crate::db::query::preparation::with_preparation_work(|work| {
         let expr = parse_where_expr(
@@ -102,7 +144,9 @@ fn derive_where_predicate_subset_returns_none_for_admitted_expression_only_shape
             .expect("admitted expression-only WHERE shape should lower successfully");
 
         assert!(
-            derive_normalized_bool_expr_predicate_subset(&lowered).is_none(),
+            derive_normalized_bool_expr_predicate_subset(&lowered, work)
+                .expect("fixture predicate construction fits")
+                .is_none(),
             "predicate extraction should stay subset-only for admitted expression-owned WHERE shapes",
         );
     });
@@ -156,7 +200,8 @@ fn derive_where_predicate_subset_recovers_plain_compare_after_bool_lowering() {
         let expr = parse_where_expr("SELECT * FROM users WHERE age >= 21");
         let lowered =
             lower_sql_where_bool_expr(&expr, work).expect("plain compare WHERE shape should lower");
-        let predicate = derive_sql_where_expr_predicate_subset(&lowered)
+        let predicate = derive_sql_where_expr_predicate_subset(&lowered, work)
+            .expect("fixture predicate construction fits")
             .expect("plain compare WHERE shape should recover one predicate subset");
 
         assert!(
@@ -182,8 +227,11 @@ fn derive_where_predicate_subset_keeps_canonical_nested_path_identity() {
         ))),
         right: Box::new(Expr::Literal(Value::Int64(0))),
     };
-    let predicate = derive_normalized_bool_expr_predicate_subset(&expr)
-        .expect("nested scalar-path compare should retain a planner predicate");
+    let predicate = crate::db::query::preparation::with_preparation_work(|work| {
+        derive_normalized_bool_expr_predicate_subset(&expr, work)
+    })
+    .expect("fixture predicate construction fits")
+    .expect("nested scalar-path compare should retain a planner predicate");
 
     assert!(matches!(
         predicate,
@@ -205,7 +253,8 @@ fn derive_where_predicate_subset_recovers_compare_and_membership_after_bool_lowe
         let lowered = lower_sql_where_bool_expr(&expr, work)
             .expect("simple compare plus membership WHERE shape should lower");
 
-        let predicate = derive_sql_where_expr_predicate_subset(&lowered)
+        let predicate = derive_sql_where_expr_predicate_subset(&lowered, work)
+            .expect("fixture predicate construction fits")
             .expect("simple compare plus membership WHERE should recover one predicate subset");
         let Predicate::And(children) = predicate else {
             panic!("lowered conjunction should recover one AND predicate");
@@ -256,9 +305,11 @@ fn derive_where_predicate_subset_recovers_wide_membership_after_scalar_bool_lowe
         );
         let lowered = lower_sql_scalar_where_bool_expr(&expr, work)
             .expect("scalar compare plus wide membership WHERE shape should lower");
-        let predicate = derive_sql_where_expr_predicate_subset(&lowered).expect(
-            "scalar compare plus wide membership WHERE should recover one predicate subset",
-        );
+        let predicate = derive_sql_where_expr_predicate_subset(&lowered, work)
+            .expect("fixture predicate construction fits")
+            .expect(
+                "scalar compare plus wide membership WHERE should recover one predicate subset",
+            );
         let Predicate::And(children) = predicate else {
             panic!("scalar lowered conjunction should recover one AND predicate: {predicate:?}");
         };
@@ -313,7 +364,8 @@ fn derive_where_predicate_subset_recovers_folded_constant_compare_shapes() {
         );
         let lowered = lower_sql_where_bool_expr(&expr, work)
             .expect("foldable compare WHERE shape should lower successfully");
-        let subset = derive_normalized_bool_expr_predicate_subset(&lowered)
+        let subset = derive_normalized_bool_expr_predicate_subset(&lowered, work)
+            .expect("fixture predicate construction fits")
             .expect("foldable compare WHERE shape should recover one predicate subset");
 
         assert!(

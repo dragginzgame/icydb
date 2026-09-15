@@ -29,12 +29,15 @@ use crate::{
         migration_transform::{CompiledMigrationEntityProgram, compile_migration_programs},
         relation_edge_from_source,
     },
+    error::{ErrorOrigin, InternalError},
     types::EntityTag,
 };
 
 /// Typed planning failures before public endpoint error projection.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub(in crate::db::schema) enum SchemaMigrationPlanningError {
+    /// Preserve operational preparation failures instead of reporting invalid schema.
+    Preparation(InternalError),
     Unadopted,
     MissingMigration,
     VersionGap,
@@ -50,6 +53,18 @@ pub(in crate::db::schema) enum SchemaMigrationPlanningError {
     RekeyedCatalogInvalid,
     CandidateMismatch,
     CorruptLineage,
+}
+
+impl SchemaMigrationPlanningError {
+    // Candidate construction is fallible operational work. Keep the existing
+    // semantic classification only for schema-owned rejections.
+    fn candidate_failure(error: InternalError, semantic: Self) -> Self {
+        if error.origin() == ErrorOrigin::Executor {
+            Self::Preparation(error)
+        } else {
+            semantic
+        }
+    }
 }
 
 /// One lineage value to publish with a future accepted candidate head.
@@ -178,7 +193,12 @@ impl<'a> WorkingStore<'a> {
         .map_err(|_| SchemaMigrationPlanningError::CandidateMismatch)?;
         CandidateSchemaRevision::new(bundle)
             .map(Some)
-            .map_err(|_| SchemaMigrationPlanningError::CandidateMismatch)
+            .map_err(|error| {
+                SchemaMigrationPlanningError::candidate_failure(
+                    error,
+                    SchemaMigrationPlanningError::CandidateMismatch,
+                )
+            })
     }
 }
 
@@ -197,7 +217,12 @@ pub(in crate::db::schema) fn plan_entity_source_adoption(
         return Err(SchemaMigrationPlanningError::VersionGap);
     }
     if !lower_existing_schema_proposal(proposal, stores)
-        .map_err(|_| SchemaMigrationPlanningError::UnexplainedSchemaDifference)?
+        .map_err(|error| {
+            SchemaMigrationPlanningError::candidate_failure(
+                error,
+                SchemaMigrationPlanningError::UnexplainedSchemaDifference,
+            )
+        })?
         .is_empty()
     {
         return Err(SchemaMigrationPlanningError::UnexplainedSchemaDifference);
@@ -1667,8 +1692,12 @@ fn reconcile_rekeyed_view(
             bundle,
         })
         .collect::<Vec<_>>();
-    lower_existing_schema_proposal(proposal, &exact_stores)
-        .map_err(|_| SchemaMigrationPlanningError::UnexplainedSchemaDifference)
+    lower_existing_schema_proposal(proposal, &exact_stores).map_err(|error| {
+        SchemaMigrationPlanningError::candidate_failure(
+            error,
+            SchemaMigrationPlanningError::UnexplainedSchemaDifference,
+        )
+    })
 }
 
 #[cfg(test)]
@@ -1689,6 +1718,39 @@ mod tests {
     use crate::db::schema::{
         lower_initial_schema_proposal, migration_lineage::AcceptedEntitySourceLineage,
     };
+
+    #[test]
+    fn candidate_failures_preserve_operational_diagnostics() {
+        use super::SchemaMigrationPlanningError;
+        use crate::{
+            db::{
+                executor::budget::MaintenanceConstructionBudget,
+                query::construction::ConstructionBudget,
+            },
+            error::InternalError,
+        };
+        use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+
+        let budget =
+            MaintenanceConstructionBudget::with_limit_for_tests(Resource::TemporaryBytes, 0);
+        let error = budget.charge(Resource::TemporaryBytes, 1).unwrap_err();
+        let diagnostic = error.diagnostic();
+        let mapped = SchemaMigrationPlanningError::candidate_failure(
+            error,
+            SchemaMigrationPlanningError::CandidateMismatch,
+        );
+        let SchemaMigrationPlanningError::Preparation(error) = mapped else {
+            panic!("operational exhaustion must not become schema mismatch");
+        };
+        assert_eq!(error.diagnostic(), diagnostic);
+        assert!(matches!(
+            SchemaMigrationPlanningError::candidate_failure(
+                InternalError::store_invariant(),
+                SchemaMigrationPlanningError::CandidateMismatch,
+            ),
+            SchemaMigrationPlanningError::CandidateMismatch,
+        ));
+    }
 
     fn field(value: &str) -> FieldSourceKey {
         FieldSourceKey::try_new(value).expect("field should admit")
@@ -2385,7 +2447,7 @@ mod tests {
                 .expect("digest should derive"),
         );
 
-        assert_eq!(
+        assert!(matches!(
             plan_entity_source_adoption(
                 &proposal(2, "User", "email", head(), None),
                 std::slice::from_ref(&existing),
@@ -2393,8 +2455,8 @@ mod tests {
             )
             .err(),
             Some(SchemaMigrationPlanningError::VersionGap),
-        );
-        assert_eq!(
+        ));
+        assert!(matches!(
             plan_entity_source_adoption(
                 &proposal(1, "User", "primary_email", head(), None),
                 std::slice::from_ref(&existing),
@@ -2402,7 +2464,7 @@ mod tests {
             )
             .err(),
             Some(SchemaMigrationPlanningError::UnexplainedSchemaDifference),
-        );
+        ));
 
         let entity = candidate
             .bundle()
@@ -2421,7 +2483,7 @@ mod tests {
                 .expect("lineage should admit"),
             )
             .expect("lineage should insert");
-        assert_eq!(
+        assert!(matches!(
             plan_entity_source_adoption(
                 &proposal(1, "User", "email", head(), None),
                 std::slice::from_ref(&existing),
@@ -2429,7 +2491,7 @@ mod tests {
             )
             .err(),
             Some(SchemaMigrationPlanningError::StaleAcceptedHead),
-        );
+        ));
 
         let mut already_adopted = AcceptedEntitySourceLineageCatalog::default();
         already_adopted
@@ -2448,7 +2510,7 @@ mod tests {
                 .expect("lineage should admit"),
             )
             .expect("lineage should insert");
-        assert_eq!(
+        assert!(matches!(
             plan_entity_source_adoption(
                 &proposal(1, "User", "email", head(), None),
                 std::slice::from_ref(&existing),
@@ -2456,7 +2518,7 @@ mod tests {
             )
             .err(),
             Some(SchemaMigrationPlanningError::IdentityConflict),
-        );
+        ));
     }
 
     #[test]
@@ -2832,7 +2894,7 @@ mod tests {
             head(),
             Some(SchemaMigrationPlan::try_new(vec![transition]).expect("plan should admit")),
         );
-        assert_eq!(
+        assert!(matches!(
             plan_schema_migration(
                 &migration,
                 &[ExistingProposalStore {
@@ -2844,7 +2906,7 @@ mod tests {
             )
             .err(),
             Some(SchemaMigrationPlanningError::Unadopted),
-        );
+        ));
     }
 
     #[test]
@@ -2902,7 +2964,7 @@ mod tests {
                 .expect("lineage should admit"),
             )
             .expect("lineage should insert");
-        assert_eq!(
+        assert!(matches!(
             plan_schema_migration(
                 &proposal(2, "User", "primary_email", head(), Some(rename(1))),
                 &[existing()],
@@ -2910,7 +2972,7 @@ mod tests {
             )
             .err(),
             Some(SchemaMigrationPlanningError::StaleAcceptedHead),
-        );
+        ));
 
         for (accepted_version, target_version, from_version, expected) in [
             (1, 3, 2, SchemaMigrationPlanningError::VersionGap),
@@ -2930,21 +2992,28 @@ mod tests {
                     .expect("lineage should admit"),
                 )
                 .expect("lineage should insert");
-            assert_eq!(
-                plan_schema_migration(
-                    &proposal(
-                        target_version,
-                        "User",
-                        "primary_email",
-                        head(),
-                        Some(rename(from_version)),
-                    ),
-                    &[existing()],
-                    &lineage,
+            let error = plan_schema_migration(
+                &proposal(
+                    target_version,
+                    "User",
+                    "primary_email",
+                    head(),
+                    Some(rename(from_version)),
+                ),
+                &[existing()],
+                &lineage,
+            )
+            .err();
+            assert!(matches!(
+                (error, expected),
+                (
+                    Some(SchemaMigrationPlanningError::VersionGap),
+                    SchemaMigrationPlanningError::VersionGap
+                ) | (
+                    Some(SchemaMigrationPlanningError::Downgrade),
+                    SchemaMigrationPlanningError::Downgrade
                 )
-                .err(),
-                Some(expected),
-            );
+            ));
         }
 
         let empty_plan = SchemaMigrationPlan::try_new(vec![
@@ -2974,7 +3043,7 @@ mod tests {
                 .expect("lineage should admit"),
             )
             .expect("lineage should insert");
-        assert_eq!(
+        assert!(matches!(
             plan_schema_migration(
                 &proposal(2, "User", "email", head(), Some(empty_plan)),
                 &[existing()],
@@ -2982,7 +3051,7 @@ mod tests {
             )
             .err(),
             Some(SchemaMigrationPlanningError::EmptyEntityVersionBump),
-        );
+        ));
     }
 
     #[test]
@@ -3027,7 +3096,7 @@ mod tests {
                 .expect("lineage should admit"),
             )
             .expect("lineage should insert");
-        assert_eq!(
+        assert!(matches!(
             plan_schema_migration(
                 &migration,
                 &[ExistingProposalStore {
@@ -3039,7 +3108,7 @@ mod tests {
             )
             .err(),
             Some(SchemaMigrationPlanningError::UnsupportedTransform),
-        );
+        ));
     }
 
     #[test]

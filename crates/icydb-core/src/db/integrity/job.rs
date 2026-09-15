@@ -805,6 +805,18 @@ pub enum IntegrityDeepError {
     Uninspectable(IntegrityAuthorityDiagnostic),
 }
 
+impl IntegrityDeepError {
+    /// Keep failed plan construction distinct from invalid accepted authority.
+    pub(in crate::db) fn from_plan_load(error: InternalError) -> Self {
+        match IntegrityTerminalOutcome::from_internal(&error) {
+            IntegrityTerminalOutcome::Uninspectable(diagnostic) => Self::Uninspectable(diagnostic),
+            // The shared classifier owns resource recognition. Preserve its
+            // original operational error, including all budget facts.
+            _ => Self::Internal(error),
+        }
+    }
+}
+
 impl From<IntegrityJobError> for IntegrityDeepError {
     fn from(error: IntegrityJobError) -> Self {
         Self::Job(error)
@@ -825,11 +837,18 @@ mod tests {
 
     #[test]
     fn inspection_resource_failures_keep_their_typed_terminal_and_wire_code() {
+        use crate::db::{
+            executor::budget::MaintenanceConstructionBudget,
+            query::construction::ConstructionBudget,
+        };
+        let work = MaintenanceConstructionBudget::with_limit_for_tests(Resource::TemporaryBytes, 0);
         for error in [
+            work.charge(Resource::TemporaryBytes, 1).unwrap_err(),
             InternalError::relation_budget_exceeded(Resource::NestedValueSteps, 10, 11),
             InternalError::relation_budget_exceeded(Resource::TemporaryBytes, 10, 11),
             InternalError::page_unit_too_large(Resource::TemporaryBytes, 10, 11),
         ] {
+            let expected = error.diagnostic();
             let outcome = IntegrityTerminalOutcome::from_internal(&error);
             let IntegrityTerminalOutcome::ResourceLimited(diagnostic) = &outcome else {
                 panic!("resource exhaustion must not become an authority failure");
@@ -842,6 +861,11 @@ mod tests {
             let decoded: IntegrityTerminalOutcome =
                 candid::decode_one(&bytes).expect("terminal should decode");
             assert_eq!(decoded, outcome);
+            let IntegrityDeepError::Internal(error) = IntegrityDeepError::from_plan_load(error)
+            else {
+                panic!("plan-load exhaustion must retain its operational error");
+            };
+            assert_eq!(error.diagnostic(), expected);
         }
     }
 
@@ -863,6 +887,13 @@ mod tests {
                     IntegrityAuthorityDiagnostic::from_internal(&error),
                 ),
             );
+            let expected = IntegrityAuthorityDiagnostic::from_internal(&error);
+            let IntegrityDeepError::Uninspectable(diagnostic) =
+                IntegrityDeepError::from_plan_load(error)
+            else {
+                panic!("invalid authority keeps its established plan-load classification");
+            };
+            assert_eq!(diagnostic, expected);
         }
     }
 

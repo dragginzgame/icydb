@@ -20,11 +20,11 @@
 //!
 //! type_inference -> predicate_compile:
 //! - input: canonical boolean expressions. Predicate subset derivation is
-//!   intentionally schema-independent, so it consumes `CanonicalExpr` rather
-//!   than `TypedExpr`; schema-aware legality remains owned by validation and
+//!   intentionally schema-independent: it checks canonical boolean form while
+//!   borrowing `Expr`; schema-aware legality remains owned by validation and
 //!   type inference.
-//! - output: runtime `Predicate` shells or no predicate subset when the
-//!   normalized expression cannot be represented by the predicate runtime.
+//! - output: runtime `Predicate` shells, no subset for unsupported expressions,
+//!   or typed construction exhaustion under the current request.
 //! - forbidden: predicate compilation must not infer schema types, inspect
 //!   field models, re-run function argument typing, canonicalize expressions,
 //!   or rewrite expression shape.
@@ -58,8 +58,8 @@
 //!   boundary.
 //! - `TypedExpr` marks expressions that have crossed the type-inference
 //!   boundary without allowing that stage to rewrite the expression tree.
-//! - predicate compilation consumes `CanonicalExpr` and returns the canonical
-//!   runtime `Predicate` directly.
+//! - predicate compilation checks and borrows normalized syntax, constructing
+//!   runtime predicates without a temporary copied stage artifact.
 //!
 //! Existing planner surfaces still expose `Expr` and `Predicate` where broader
 //! subsystem APIs require them; stage types exist only where they enforce a
@@ -91,12 +91,12 @@ pub(in crate::db) use ast::collect_scalar_expr_field_roots;
 pub(in crate::db) use ast::{
     BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, PathSpec, UnaryOp,
 };
-pub(in crate::db) use canonicalize::{
-    CanonicalExpr, is_normalized_bool_expr, normalize_bool_expr, truth_condition_binary_compare_op,
-};
 #[cfg(feature = "sql")]
 pub(in crate::db) use canonicalize::{
     canonicalize_grouped_having_bool_expr, canonicalize_scalar_where_bool_expr,
+};
+pub(in crate::db) use canonicalize::{
+    is_normalized_bool_expr, normalize_bool_expr, truth_condition_binary_compare_op,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use canonicalize::{

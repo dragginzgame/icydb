@@ -20,6 +20,8 @@ use crate::{
         codec::{finalize_hash_sha256, new_hash_sha256},
         data::validate_default_payload_for_accepted_field_contract,
         database_format::crc32c,
+        executor::budget::MaintenanceConstructionBudget,
+        query::construction::ConstructionBudget,
         schema::{
             AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedSchemaSnapshot,
             AcceptedSourceBindingCatalog, AcceptedTypedAdapterNames, MAX_ACCEPTED_RECURSIVE_DEPTH,
@@ -35,6 +37,7 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use sha2::Digest;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -242,7 +245,7 @@ impl AcceptedSchemaRevisionBundle {
         }
         for snapshot in self.entity_snapshots.values() {
             validate_schema_snapshot_acceptance(snapshot)
-                .map_err(generated_snapshot_acceptance_error)?;
+                .map_err(SchemaSnapshotAcceptanceError::into_proposal_error)?;
             if encode_persisted_schema_snapshot(snapshot)?.len()
                 > MAX_SCHEMA_SNAPSHOT_BYTES as usize
             {
@@ -365,14 +368,6 @@ impl AcceptedSchemaRevisionBundle {
             hash_len_prefixed(&mut hasher, &encode_persisted_schema_snapshot(snapshot)?)?;
         }
         Ok(AcceptedSchemaFingerprint::new(finalize_hash_sha256(hasher)))
-    }
-}
-
-fn generated_snapshot_acceptance_error(error: SchemaSnapshotAcceptanceError) -> InternalError {
-    match error {
-        SchemaSnapshotAcceptanceError::NullableUnique(_)
-        | SchemaSnapshotAcceptanceError::Predicate => InternalError::store_unsupported(),
-        SchemaSnapshotAcceptanceError::Structural => InternalError::store_invariant(),
     }
 }
 
@@ -649,28 +644,71 @@ pub(in crate::db) struct CandidateSchemaRevision {
 }
 
 impl CandidateSchemaRevision {
+    /// Prepare a new zero-write candidate under one operation-wide allowance.
+    /// Journal reconstruction has its own recovery contract in `from_encoded`.
     pub(in crate::db::schema) fn new(
         bundle: AcceptedSchemaRevisionBundle,
     ) -> Result<Self, InternalError> {
-        let store_path = bundle.store_path().to_string();
-        let encoded_bundle = encode_accepted_schema_revision_bundle(&bundle)?;
-        let decoded_bundle = decode_accepted_schema_revision_bundle(&encoded_bundle)?;
-        if decoded_bundle != bundle {
-            return Err(InternalError::store_invariant());
-        }
+        Self::prepare(bundle, &MaintenanceConstructionBudget::new())
+    }
 
-        let bundle_hash = hash_bytes(&encoded_bundle);
-        let root = AcceptedSchemaRoot {
-            revision: bundle.revision(),
-            fingerprint: bundle.semantic_fingerprint()?,
-            bundle_key: AcceptedSchemaBundleKey::new(bundle.revision())
-                .ok_or_else(InternalError::store_invariant)?,
-            bundle_hash,
-        };
-        let encoded_root = encode_accepted_schema_root(root)?;
-        if decode_accepted_schema_root(&encoded_root)? != root {
-            return Err(InternalError::store_invariant());
-        }
+    // Keep one authority across all stages, including failed validation. These
+    // intervals account actual IC instructions, not native elapsed time. Byte
+    // visits below cover wire verification/hash input, not decoder allocations
+    // or the still-unqualified shared normalizer's intermediate construction.
+    fn prepare(
+        bundle: AcceptedSchemaRevisionBundle,
+        construction: &MaintenanceConstructionBudget,
+    ) -> Result<Self, InternalError> {
+        let (store_path, encoded_bundle) = construction.run(
+            |work| {
+                let store_path =
+                    (work as &dyn ConstructionBudget).copy_text(bundle.store_path())?;
+                let encoded_bundle = encode_accepted_schema_revision_bundle(&bundle)?;
+                Ok((store_path, encoded_bundle))
+            },
+            std::convert::identity,
+        )?;
+        let bundle_hash = construction.run(
+            |work| {
+                work.charge(
+                    Resource::PredicateExpressionSteps,
+                    encoded_bundle.len() as u64,
+                )?;
+                let decoded_bundle = decode_accepted_schema_revision_bundle(&encoded_bundle)?;
+                if decoded_bundle != bundle {
+                    return Err(InternalError::store_invariant());
+                }
+                // Verification and hashing are separate passes over the bytes.
+                work.charge(
+                    Resource::PredicateExpressionSteps,
+                    encoded_bundle.len() as u64,
+                )?;
+                Ok(hash_bytes(&encoded_bundle))
+            },
+            std::convert::identity,
+        )?;
+        let (root, encoded_root) = construction.run(
+            |work| {
+                let root = AcceptedSchemaRoot {
+                    revision: bundle.revision(),
+                    fingerprint: bundle.semantic_fingerprint()?,
+                    bundle_key: AcceptedSchemaBundleKey::new(bundle.revision())
+                        .ok_or_else(InternalError::store_invariant)?,
+                    bundle_hash,
+                };
+                let encoded_root = encode_accepted_schema_root(root)?;
+                work.charge(
+                    Resource::PredicateExpressionSteps,
+                    encoded_root.len() as u64,
+                )?;
+                if decode_accepted_schema_root(&encoded_root)? != root {
+                    return Err(InternalError::store_invariant());
+                }
+                Ok((root, encoded_root))
+            },
+            std::convert::identity,
+        )?;
 
         Ok(Self {
             store_path,

@@ -57,18 +57,6 @@ impl CanonicalExpr {
         Self { expr }
     }
 
-    // Rebuild one canonical artifact from a plain `Expr` only when the
-    // expression already satisfies the canonical boolean IR invariant.
-    pub(in crate::db::query::plan::expr) fn from_normalized_bool_expr(expr: &Expr) -> Option<Self> {
-        is_normalized_bool_expr(expr).then(|| Self::new(expr.clone()))
-    }
-
-    /// Borrow the canonical expression for downstream stages that consume the
-    /// stage artifact directly.
-    pub(in crate::db) const fn as_expr(&self) -> &Expr {
-        &self.expr
-    }
-
     /// Return the canonical expression as a plain planner expression for
     /// boundaries that still exchange the shared expression tree directly.
     pub(in crate::db) fn into_expr(self) -> Expr {

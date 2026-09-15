@@ -13,7 +13,7 @@ use crate::db::{
         SchemaDdlSecondaryIndexKeyCandidateError, SchemaDdlSecondaryIndexKeyIntent, SchemaInfo,
         SchemaSnapshotAcceptanceError, build_sql_ddl_secondary_index_candidate,
         resolve_sql_ddl_secondary_index_addition_candidate,
-        resolve_sql_ddl_secondary_index_drop_candidate, validate_nullable_unique_index_contract,
+        resolve_sql_ddl_secondary_index_drop_candidate, validate_index_semantic_contract,
     },
     sql::{
         identifier::identifiers_tail_match,
@@ -221,7 +221,7 @@ pub(super) fn bind_create_index_statement(
             });
         }
     };
-    validate_nullable_unique_index_contract(
+    validate_index_semantic_contract(
         accepted_before.persisted_snapshot().row_layout(),
         accepted_before.persisted_snapshot().fields(),
         &candidate_index,
@@ -790,22 +790,26 @@ mod tests {
     }
 
     #[test]
-    fn sql_unique_index_binding_rejects_unbound_eliminated_branches() {
+    fn sql_index_binding_rejects_unbound_eliminated_branches() {
         let (accepted, schema) = nullable_email_schema();
-        let invalid = create_index_statement(
+        for sql in [
             "CREATE UNIQUE INDEX account_email ON Account (email) WHERE email IS NOT NULL AND (email = 'active' OR (email = 'a' AND email = 'b' AND missing IS NOT NULL))",
-        );
-        let error = bind_create_index_statement(
-            &invalid,
-            &accepted,
-            &schema,
-            "entities::Account::account_email",
-        )
-        .unwrap_err();
-        assert!(matches!(
-            error,
-            SqlDdlBindError::InvalidFilteredIndexPredicate
-        ));
+            "CREATE INDEX account_email ON Account (email) WHERE email = 'a' AND email = 'b' AND missing IS NOT NULL",
+            "CREATE UNIQUE INDEX account_email ON Account (id) WHERE missing = email",
+        ] {
+            let invalid = create_index_statement(sql);
+            let error = bind_create_index_statement(
+                &invalid,
+                &accepted,
+                &schema,
+                "entities::Account::account_email",
+            )
+            .unwrap_err();
+            assert!(
+                matches!(error, SqlDdlBindError::InvalidFilteredIndexPredicate),
+                "{sql}: {error:?}"
+            );
+        }
     }
 
     #[test]

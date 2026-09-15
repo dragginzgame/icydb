@@ -80,6 +80,15 @@ Every supplied child is normalized before boolean simplification may discard it.
 Schema metadata derivation, sorting/comparison scratch and boolean normalization
 remain separate; this does not establish complete normalization bounds.
 
+Expression-to-predicate extraction uses the same request for copied fields and
+literals, dotted labels, membership backing and predicate shells. This applies
+to typed filters, SQL filter extraction and SQL binding comparison validation.
+Unsupported shapes remain an absent predicate; construction exhaustion returns
+the existing typed resource error and cannot publish a missing filter or replace
+an existing intent. Source expressions are borrowed after canonical-form checks.
+Capability traversal, boolean normalization and value sorting remain separate
+owners; these construction checks do not complete their bounds.
+
 When accepted-index predicates are prepared, malformed persisted SQL returns
 typed `StoreCorruption`, not a successful false predicate or missing index.
 Planner-visible index construction and its session/cache consumers propagate
@@ -88,12 +97,21 @@ inspection and staged index preparation use the same parse/normalization owner.
 This does not make boolean normalization budgeted, add a cache revalidation pass
 or change the meaning of absent predicates and valid false membership.
 
-Nullable unique-index snapshot acceptance checks authored predicate field names
-before boolean simplification, matching SQL DDL's validation ordering. Unknown
-fields reject even in branches normalization would discard. Snapshot acceptance
+Every index's snapshot acceptance checks authored predicate field names before
+boolean simplification, matching SQL DDL's validation ordering. This includes
+non-unique indexes and unique indexes with non-nullable keys. Unknown fields
+reject even in branches normalization would discard. Snapshot acceptance
 uses its existing predicate rejection; invalid persisted input remains store
 corruption. This is field-binding validation, not new schema/replay resource
 admission or a change to nullable guard inference.
+
+Accepted inspection-plan setup admits unique-activation dependencies under one
+standalone construction allowance. Cold construction failure cannot publish a
+partial runtime plan; cached successful plans retain their existing validity
+contract. Quick and Deep integrity setup use the existing shared resource-error
+classifier: exhaustion remains an operational error with its budget facts, not
+an `Uninspectable` authority result. Genuine authority failures retain their
+existing diagnostics. This is not a complete bound on schema compilation.
 
 Journal `SchemaPut` preflight now retains its validated, encoded storage payload
 and fingerprint through application. Replay/fold application consumes that

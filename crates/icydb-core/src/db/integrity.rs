@@ -963,16 +963,14 @@ impl QuickIntegrityAccumulator {
 pub(in crate::db) fn uninspectable_quick_integrity(
     identity: crate::db::schema::AcceptedCatalogIdentity,
     incarnation: DatabaseIncarnationId,
-    error: &InternalError,
+    diagnostic: IntegrityAuthorityDiagnostic,
 ) -> QuickIntegrityResult {
     QuickIntegrityResult {
         entity: IntegrityEntityIdentity::from_accepted_identity(&identity),
         database_incarnation_id: incarnation,
         accepted_schema_version: identity.accepted_schema_version().get(),
         accepted_schema_fingerprint: identity.accepted_schema_fingerprint(),
-        status: QuickIntegrityStatus::Uninspectable(IntegrityAuthorityDiagnostic::from_internal(
-            error,
-        )),
+        status: QuickIntegrityStatus::Uninspectable(diagnostic),
         total_findings: 0,
         omitted_findings: 0,
         findings: Vec::new(),
@@ -988,10 +986,15 @@ pub(in crate::db) fn execute_quick_integrity<C: CanisterKind>(
     let findings = match validate_quick_integrity_control(db, plan, incarnation) {
         Ok(findings) => findings,
         Err(error) => {
+            let IntegrityTerminalOutcome::Uninspectable(diagnostic) =
+                IntegrityTerminalOutcome::from_internal(&error)
+            else {
+                return Err(error);
+            };
             return Ok(uninspectable_quick_integrity(
                 plan.identity(),
                 incarnation,
-                &error,
+                diagnostic,
             ));
         }
     };
@@ -1203,7 +1206,7 @@ mod tests {
         let result = uninspectable_quick_integrity(
             plan.identity(),
             DatabaseIncarnationId::for_tests(11),
-            &error,
+            IntegrityAuthorityDiagnostic::from_internal(&error),
         );
 
         assert!(matches!(

@@ -9,20 +9,19 @@ use crate::{
     db::write_context::MutationMode,
     db::{
         commit::CommitSchemaFingerprint,
-        data::{
-            AcceptedFieldWriteProvenance, StructuralRowContract,
-            decode_validated_check_literal_payload,
-        },
-        predicate::{PredicateProgram, normalize, parse_sql_predicate},
+        data::{AcceptedFieldWriteProvenance, decode_validated_check_literal_payload},
+        predicate::{normalize, parse_sql_predicate},
+        query::construction::ConstructionBudget,
         schema::{
             AcceptedCompositeCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
-            AcceptedFieldDecodeContract, AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
-            AcceptedValueCatalogHandle, ConstraintActivationKind, ConstraintId,
+            AcceptedFieldDecodeContract, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+            ConstraintActivationKind, ConstraintId,
         },
     },
     error::{AcceptedConstraintFactContext, InternalError, MutationDiagnosticContext},
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::{borrow::Cow, cmp::Ordering};
 
 type CheckConstraintSource<'a> = (ConstraintId, &'a AcceptedCheckExprV1, bool);
@@ -189,11 +188,13 @@ impl CompiledAcceptedRowConstraints {
         schema: &AcceptedSchemaSnapshot,
         value_catalog: &AcceptedValueCatalogHandle,
         fingerprint: CommitSchemaFingerprint,
-    ) -> Result<Self, AcceptedRowConstraintEvaluationError> {
+        work: &dyn ConstructionBudget,
+    ) -> Result<Self, InternalError> {
         let snapshot = schema.persisted_snapshot();
         let check_sources = check_constraint_sources(snapshot);
         let not_null_sources = not_null_constraint_sources(snapshot);
-        let targeted_rules = compile_targeted_rules(schema, value_catalog)?;
+        let targeted_rules = compile_targeted_rules(schema, value_catalog)
+            .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
         let mut compiled = Self::compile_sources(
             schema,
             value_catalog,
@@ -201,39 +202,45 @@ impl CompiledAcceptedRowConstraints {
             check_sources,
             not_null_sources,
             targeted_rules,
+        )
+        .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
+        // All activations share caller authority. Build locally and return no
+        // partial program if any dependency admission or semantic check fails.
+        work.charge(
+            Resource::PredicateExpressionSteps,
+            snapshot.constraint_activations().len() as u64,
         )?;
-        compiled.unique_write_barriers = snapshot
-            .constraint_activations()
-            .iter()
-            .filter_map(|activation| match activation.kind() {
-                ConstraintActivationKind::Unique { index_id } => Some((activation.id(), *index_id)),
+        for activation in snapshot.constraint_activations() {
+            let index_id = match activation.kind() {
+                ConstraintActivationKind::Unique { index_id } => *index_id,
                 ConstraintActivationKind::Check { .. }
                 | ConstraintActivationKind::NotNull { .. }
                 | ConstraintActivationKind::TargetedRule { .. }
-                | ConstraintActivationKind::Relation { .. } => None,
-            })
-            .map(|(id, index_id)| {
-                let mut matching = snapshot
-                    .candidate_indexes()
-                    .iter()
-                    .filter(|index| index.schema_id() == index_id);
-                let index = matching.next().ok_or(
-                    AcceptedRowConstraintEvaluationError::InvalidExpression(
-                        AcceptedCheckExprV1Error::UnknownField,
-                    ),
-                )?;
-                if matching.next().is_some() {
-                    return Err(AcceptedRowConstraintEvaluationError::InvalidExpression(
-                        AcceptedCheckExprV1Error::UnknownField,
-                    ));
-                }
-                let dependency_slots = unique_index_dependency_slots(schema, value_catalog, index)?;
-                Ok(CompiledUniqueWriteBarrier {
-                    id,
+                | ConstraintActivationKind::Relation { .. } => continue,
+            };
+            work.charge(
+                Resource::PredicateExpressionSteps,
+                snapshot.candidate_indexes().len() as u64,
+            )?;
+            let mut matching = snapshot
+                .candidate_indexes()
+                .iter()
+                .filter(|index| index.schema_id() == index_id);
+            let index = matching
+                .next()
+                .ok_or_else(InternalError::accepted_row_constraint_program_corrupt)?;
+            if matching.next().is_some() {
+                return Err(InternalError::accepted_row_constraint_program_corrupt());
+            }
+            let dependency_slots = unique_index_dependency_slots(schema, index, work)?;
+            work.reserve_vec(&mut compiled.unique_write_barriers, 1)?;
+            compiled
+                .unique_write_barriers
+                .push(CompiledUniqueWriteBarrier {
+                    id: activation.id(),
                     dependency_slots,
-                })
-            })
-            .collect::<Result<Vec<_>, AcceptedRowConstraintEvaluationError>>()?;
+                });
+        }
         icydb_schema::compact_sort_unstable_by(
             &mut compiled.unique_write_barriers,
             |left, right| left.id.cmp(&right.id),
@@ -1092,52 +1099,67 @@ pub(super) fn compare_values(
 
 fn unique_index_dependency_slots(
     schema: &AcceptedSchemaSnapshot,
-    value_catalog: &AcceptedValueCatalogHandle,
     index: &crate::db::schema::PersistedIndexSnapshot,
-) -> Result<Vec<usize>, AcceptedRowConstraintEvaluationError> {
+    work: &dyn ConstructionBudget,
+) -> Result<Vec<usize>, InternalError> {
     let snapshot = schema.persisted_snapshot();
-    let mut required = vec![false; snapshot.row_layout().allocated_slot_count()];
+    let slot_count = snapshot.row_layout().allocated_slot_count();
+    work.charge(Resource::PredicateExpressionSteps, slot_count as u64)?;
+    let mut required = work.vec_with_capacity(slot_count)?;
+    required.resize(slot_count, false);
+    work.charge(
+        Resource::PredicateExpressionSteps,
+        snapshot.fields().len() as u64,
+    )?;
     for field in snapshot.fields() {
         if index.key().references_field(field.id()) {
-            let slot = snapshot.row_layout().slot_for_field(field.id()).ok_or(
-                AcceptedRowConstraintEvaluationError::InvalidExpression(
-                    AcceptedCheckExprV1Error::UnknownField,
-                ),
-            )?;
-            let required_slot = required.get_mut(usize::from(slot.get())).ok_or(
-                AcceptedRowConstraintEvaluationError::InvalidExpression(
-                    AcceptedCheckExprV1Error::UnknownField,
-                ),
-            )?;
+            let slot = snapshot
+                .row_layout()
+                .slot_for_field(field.id())
+                .ok_or_else(InternalError::accepted_row_constraint_program_corrupt)?;
+            let required_slot = required
+                .get_mut(usize::from(slot.get()))
+                .ok_or_else(InternalError::accepted_row_constraint_program_corrupt)?;
             *required_slot = true;
         }
     }
     if let Some(predicate_sql) = index.predicate_sql() {
-        let runtime =
-            AcceptedRowLayoutRuntimeContract::from_accepted_schema(schema).map_err(|_| {
-                AcceptedRowConstraintEvaluationError::InvalidExpression(
-                    AcceptedCheckExprV1Error::UnknownField,
-                )
-            })?;
-        let decode_contract = runtime.row_decode_contract(value_catalog.clone());
-        let row_contract = StructuralRowContract::from_accepted_decode_contract(
-            "accepted unique index",
-            decode_contract,
-        );
-        let predicate = parse_sql_predicate(predicate_sql).map_err(|_| {
-            AcceptedRowConstraintEvaluationError::InvalidExpression(
-                AcceptedCheckExprV1Error::OperandKindMismatch,
-            )
+        // Source traversal is not a parser/normalizer scratch bound.
+        work.charge(
+            Resource::PredicateExpressionSteps,
+            predicate_sql.len() as u64,
+        )?;
+        let predicate = parse_sql_predicate(predicate_sql)
+            .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
+        // Dependency discovery needs names, not decoded values or an executable
+        // tree. Retain normalization so discarded branches do not gain barriers.
+        normalize(predicate).try_for_each_field(&mut |name| {
+            work.charge(Resource::PredicateExpressionSteps, 1)?;
+            let slot = snapshot
+                .fields()
+                .iter()
+                .find(|field| field.name() == name)
+                .and_then(|field| snapshot.row_layout().slot_for_field(field.id()))
+                .and_then(|slot| required.get_mut(usize::from(slot.get())))
+                .ok_or_else(InternalError::accepted_row_constraint_program_corrupt)?;
+            *slot = true;
+            Ok::<(), InternalError>(())
         })?;
-        let program =
-            PredicateProgram::compile_with_row_contract(&row_contract, &normalize(predicate));
-        program.mark_referenced_slots(required.as_mut_slice());
     }
-    Ok(required
-        .into_iter()
-        .enumerate()
-        .filter_map(|(slot, required)| required.then_some(slot))
-        .collect())
+    // Count and emit in slot order, admitting both bitmap passes and only the
+    // backing needed for actual dependencies. Normalization preserves which
+    // authored fields survive simplification; no new dependency policy lives here.
+    work.charge(
+        Resource::PredicateExpressionSteps,
+        2 * required.len() as u64,
+    )?;
+    let mut slots = work.vec_with_capacity(required.iter().filter(|needed| **needed).count())?;
+    for (slot, required) in required.into_iter().enumerate() {
+        if required {
+            slots.push(slot);
+        }
+    }
+    Ok(slots)
 }
 
 pub(in crate::db::schema) fn validate_accepted_check_literals(

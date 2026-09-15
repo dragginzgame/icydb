@@ -31,15 +31,16 @@ pub(in crate::db::sql::lowering) fn lower_sql_where_expr(
 ) -> Result<Predicate, SqlLoweringError> {
     let lowered_expr = lower_sql_where_bool_expr(expr, work)?;
 
-    derive_sql_where_expr_predicate_subset(&lowered_expr)
+    derive_sql_where_expr_predicate_subset(&lowered_expr, work)?
         .ok_or_else(SqlLoweringError::unsupported_where_expression)
 }
 
 // Derive the predicate subset for one already-lowered SQL WHERE expression.
 pub(in crate::db::sql::lowering) fn derive_sql_where_expr_predicate_subset(
     lowered_expr: &Expr,
-) -> Option<Predicate> {
-    derive_normalized_bool_expr_predicate_subset(lowered_expr)
+    work: &PreparationWork<'_>,
+) -> Result<Option<Predicate>, crate::db::QueryError> {
+    derive_normalized_bool_expr_predicate_subset(lowered_expr, work)
 }
 
 // Lower one parser-owned SQL boolean expression onto the shared planner-owned

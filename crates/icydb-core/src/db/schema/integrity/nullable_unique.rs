@@ -1,4 +1,4 @@
-//! Nullable unique-index acceptance over structurally valid schema metadata.
+//! Index predicate binding and nullable-unique acceptance over structural metadata.
 
 use crate::db::{
     predicate::{Predicate, normalize, parse_sql_predicate},
@@ -36,16 +36,30 @@ enum SourceOmissionClass {
     InvalidSourcePath,
 }
 
-/// Validate one index through the sole nullable-unique semantic authority.
+/// Bind every index predicate and enforce the nullable-unique omission contract.
 ///
 /// Base snapshot/index integrity must run first for raw accepted state. SQL
 /// candidate binding may call this directly because its key builder has
 /// already resolved the same accepted row-layout and field metadata.
-pub(in crate::db) fn validate_nullable_unique_index_contract(
+pub(in crate::db) fn validate_index_semantic_contract(
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
     index: &PersistedIndexSnapshot,
 ) -> Result<(), super::SchemaSnapshotAcceptanceError> {
+    // Name validity belongs to every accepted index, not only unique indexes
+    // whose keys may omit nulls. Check authored branches before simplification.
+    let bound_predicate = index
+        .predicate_sql()
+        .map(|sql| {
+            let predicate = parse_sql_predicate(sql)
+                .map_err(|_| super::SchemaSnapshotAcceptanceError::Predicate)?;
+            if !predicate_fields_bind(fields, &predicate) {
+                return Err(super::SchemaSnapshotAcceptanceError::Predicate);
+            }
+            Ok(predicate)
+        })
+        .transpose()?;
+
     if !index.unique() {
         return Ok(());
     }
@@ -68,19 +82,9 @@ pub(in crate::db) fn validate_nullable_unique_index_contract(
         return Err(super::SchemaSnapshotAcceptanceError::Structural);
     }
 
-    let bound_predicate = index
-        .predicate_sql()
-        .map(|sql| {
-            let predicate = parse_sql_predicate(sql)
-                .map_err(|_| super::SchemaSnapshotAcceptanceError::Predicate)?;
-            // Validate authored references before simplification can erase an
-            // unbound field inside a contradictory or redundant branch.
-            if !predicate_fields_bind(fields, &predicate) {
-                return Err(super::SchemaSnapshotAcceptanceError::Predicate);
-            }
-            Ok(normalize(predicate))
-        })
-        .transpose()?;
+    // Only the omission proof needs canonical form. Other indexes have already
+    // finished their name check without sorting or rebuilding the predicate.
+    let bound_predicate = bound_predicate.map(normalize);
 
     for (source, class) in sources.iter().zip(&classes) {
         if matches!(class, SourceOmissionClass::UnsupportedNullableAncestor) {
@@ -230,25 +234,9 @@ fn source_omission_class(
 }
 
 fn predicate_fields_bind(fields: &[PersistedFieldSnapshot], predicate: &Predicate) -> bool {
-    match predicate {
-        Predicate::True | Predicate::False => true,
-        Predicate::And(children) | Predicate::Or(children) => children
-            .iter()
-            .all(|child| predicate_fields_bind(fields, child)),
-        Predicate::Not(inner) => predicate_fields_bind(fields, inner),
-        Predicate::Compare(compare) => field_id_by_name(fields, compare.field()).is_some(),
-        Predicate::CompareFields(compare) => {
-            field_id_by_name(fields, compare.left_field()).is_some()
-                && field_id_by_name(fields, compare.right_field()).is_some()
-        }
-        Predicate::IsNull { field }
-        | Predicate::IsNotNull { field }
-        | Predicate::IsMissing { field }
-        | Predicate::IsEmpty { field }
-        | Predicate::IsNotEmpty { field }
-        | Predicate::TextContains { field, .. }
-        | Predicate::TextContainsCi { field, .. } => field_id_by_name(fields, field).is_some(),
-    }
+    predicate
+        .try_for_each_field(&mut |field| field_id_by_name(fields, field).map(|_| ()).ok_or(()))
+        .is_ok()
 }
 
 fn exact_top_level_non_null_guards(

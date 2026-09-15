@@ -47,7 +47,8 @@ impl AcceptedSchemaSnapshot {
     /// store and raw schema codec. Owner-local tests may use `new` to build
     /// deliberately inconsistent fixtures that exercise accessor authority.
     pub(in crate::db) fn try_new(snapshot: PersistedSchemaSnapshot) -> Result<Self, InternalError> {
-        Self::try_new_with_acceptance(snapshot).map_err(|_| InternalError::store_invariant())
+        Self::try_new_with_acceptance(snapshot)
+            .map_err(SchemaSnapshotAcceptanceError::into_invariant_error)
     }
 
     /// Wrap one snapshot while preserving its canonical acceptance category.
@@ -188,13 +189,11 @@ impl IntoPrimaryKeyFieldIds for Vec<FieldId> {
 }
 
 impl PersistedSchemaSnapshot {
-    /// Prove the complete accepted schema and structural-owner closure.
-    ///
-    /// This is the single structural validation boundary shared by accepted
-    /// wrapping and current-format codec ingress/egress.
-    #[must_use]
-    pub(in crate::db) fn has_valid_integrity(&self) -> bool {
-        validate_schema_snapshot_acceptance(self).is_ok()
+    // Constraint transitions use the same acceptance authority as codecs and
+    // accepted wrapping, with an explicit mapping into their owner taxonomy.
+    fn validate_constraint_candidate(&self) -> Result<(), AcceptedConstraintCatalogError> {
+        validate_schema_snapshot_acceptance(self)
+            .map_err(SchemaSnapshotAcceptanceError::into_constraint_error)
     }
 
     /// Build one persisted schema snapshot from already-validated pieces.
@@ -323,9 +322,7 @@ impl PersistedSchemaSnapshot {
             .clone()
             .with_added_unique_activation(&candidate, base_schema_fingerprint, activation_epoch)?;
         self.candidate_indexes.push(candidate);
-        if !self.has_valid_integrity() {
-            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
-        }
+        self.validate_constraint_candidate()?;
         Ok(self)
     }
 
@@ -453,9 +450,7 @@ impl PersistedSchemaSnapshot {
         icydb_schema::compact_sort_unstable_by(&mut after.indexes, |left, right| {
             left.ordinal().cmp(&right.ordinal())
         });
-        if !after.has_valid_integrity() {
-            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
-        }
+        after.validate_constraint_candidate()?;
         Ok(after)
     }
 
@@ -489,9 +484,7 @@ impl PersistedSchemaSnapshot {
         after
             .candidate_indexes
             .retain(|index| index.schema_id() != *index_id);
-        if !after.has_valid_integrity() {
-            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
-        }
+        after.validate_constraint_candidate()?;
         Ok(after)
     }
 
@@ -534,9 +527,7 @@ impl PersistedSchemaSnapshot {
         icydb_schema::compact_sort_unstable_by(&mut after.relations, |left, right| {
             left.id().cmp(&right.id())
         });
-        if !after.has_valid_integrity() {
-            return Err(AcceptedConstraintCatalogError::OwnerMismatch);
-        }
+        after.validate_constraint_candidate()?;
         Ok(after)
     }
 

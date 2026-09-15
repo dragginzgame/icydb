@@ -284,8 +284,11 @@ fn owned_and_expression_membership_share_canonical_sets() {
                 .into_iter()
                 .map(|value| MembershipCompareLeaf::new("tag", value, coercion))
                 .collect();
-            let expression = collapse_membership_compare_leaves(leaves, CompareOp::In)
-                .expect("eligible expression membership");
+            let expression = crate::db::query::preparation::with_preparation_work(|work| {
+                collapse_membership_compare_leaves(leaves, CompareOp::In, work)
+            })
+            .expect("fixture predicate construction fits")
+            .expect("eligible expression membership");
             assert_eq!(owned, Predicate::Compare(expression));
         }
     }

@@ -75,22 +75,24 @@ pub(in crate::db::query::intent) struct NormalizedFilter {
 
 impl NormalizedFilter {
     /// Build one normalized filter from a planner-owned boolean expression.
-    #[must_use]
-    pub(in crate::db::query::intent) fn from_normalized_expr(expr: Expr) -> Self {
+    pub(in crate::db::query::intent) fn from_normalized_expr(
+        expr: Expr,
+        work: &PreparationWork<'_>,
+    ) -> Result<Self, QueryError> {
         debug_assert!(
             is_normalized_bool_expr(&expr),
             "intent-owned filter expressions must be normalized before storage",
         );
 
-        let predicate_subset = derive_normalized_bool_expr_predicate_subset(&expr);
+        let predicate_subset = derive_normalized_bool_expr_predicate_subset(&expr, work)?;
         let predicate_coverage =
             FilterPredicateCoverage::from_extracted_subset(predicate_subset.as_ref());
 
-        Self {
+        Ok(Self {
             semantic_authority: FilterSemanticAuthority::ExpressionBacked(expr),
             predicate_subset,
             predicate_coverage,
-        }
+        })
     }
 
     /// Build one normalized filter from an expression plus an already-derived

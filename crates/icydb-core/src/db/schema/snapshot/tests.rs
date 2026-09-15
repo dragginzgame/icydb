@@ -715,6 +715,60 @@ fn nullable_unique_acceptance_preserves_structural_precedence_for_invalid_source
 }
 
 #[test]
+fn every_index_predicate_binds_authored_fields_before_acceptance_and_codec() {
+    use crate::db::schema::{
+        decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
+        encode_unchecked_persisted_schema_snapshot_for_tests,
+    };
+    use crate::error::ErrorClass;
+
+    for unique in [false, true] {
+        for nullable in [false, true] {
+            let nullable_fields: &[&str] = if nullable { &["email"] } else { &[] };
+            for sql in [
+                "missing = 'x'",
+                "email = missing",
+                "email = 'a' AND email = 'b' AND missing IS NULL",
+                "email.path IS NOT NULL",
+                "email IS NOT",
+            ] {
+                let snapshot =
+                    nullable_unique_schema_fixture(unique, nullable_fields, &["email"], Some(sql));
+                assert_eq!(
+                    AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot.clone()),
+                    Err(SchemaSnapshotAcceptanceError::Predicate),
+                    "unique={unique}, nullable={nullable}, {sql}",
+                );
+                assert_eq!(
+                    encode_persisted_schema_snapshot(&snapshot)
+                        .unwrap_err()
+                        .class(),
+                    ErrorClass::InvariantViolation,
+                );
+                let bytes =
+                    encode_unchecked_persisted_schema_snapshot_for_tests(&snapshot).unwrap();
+                assert_eq!(
+                    decode_persisted_schema_snapshot(&bytes)
+                        .unwrap_err()
+                        .class(),
+                    ErrorClass::Corruption,
+                );
+            }
+            for sql in [
+                "email IS NOT NULL AND email = 'missing'",
+                "email IS NOT NULL AND email = tenant",
+            ] {
+                let snapshot =
+                    nullable_unique_schema_fixture(unique, nullable_fields, &["email"], Some(sql));
+                AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot.clone()).unwrap();
+                let bytes = encode_persisted_schema_snapshot(&snapshot).unwrap();
+                assert_eq!(decode_persisted_schema_snapshot(&bytes).unwrap(), snapshot);
+            }
+        }
+    }
+}
+
+#[test]
 fn unique_promotion_revalidates_the_current_candidate_without_residue() {
     let template =
         nullable_unique_schema_fixture(true, &["email"], &["email"], Some("email IS NOT NULL"));

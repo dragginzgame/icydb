@@ -8,6 +8,40 @@ use crate::{
 };
 
 #[test]
+fn rejected_filter_extraction_preserves_existing_intent() {
+    use crate::db::{
+        RequestExecutionRoot,
+        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
+    };
+
+    let mut intent = QueryIntent::new();
+    let original = Predicate::eq("tenant".into(), Value::Text("retained".into()));
+    intent.append_predicate(original.clone());
+    let root = RequestExecutionRoot::new_for_tests(
+        HardExecutionBudget::uniform_for_tests(
+            16_000_000,
+            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+        )
+        .with_limit_for_tests(Resource::TemporaryBytes, 0),
+    );
+    let error = PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
+        intent.append_filter_expr(Expr::Field(FieldId::new("enabled")), work)
+    })
+    .unwrap_err();
+    assert!(error.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::TemporaryBytes.raw()
+    )));
+    let retained = intent.scalar().filter.as_ref().expect("existing filter");
+    assert_eq!(retained.predicate_subset(), Some(&original));
+    assert_eq!(retained.predicate_coverage(), FilterPredicateCoverage::Full);
+    assert!(retained.logical_filter_expr().is_none());
+}
+
+#[test]
 fn query_intent_new_starts_in_load_scalar_mode() {
     let intent = QueryIntent::new();
 

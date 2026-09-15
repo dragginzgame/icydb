@@ -4,7 +4,10 @@
 //! Boundary: accepted snapshot plus stable relation identity -> accepted-after snapshot.
 
 use crate::{
-    db::schema::{PersistedSchemaSnapshot, RelationId},
+    db::schema::{
+        PersistedSchemaSnapshot, RelationId, SchemaSnapshotAcceptanceError,
+        validate_schema_snapshot_acceptance,
+    },
     error::InternalError,
 };
 
@@ -40,8 +43,7 @@ pub(in crate::db::schema) fn derive_relation_removal_candidate(
         .clone()
         .with_constraint_catalog(constraint_catalog)
         .with_relations(relations);
-    if !candidate.has_valid_integrity() {
-        return Err(InternalError::store_invariant());
-    }
+    validate_schema_snapshot_acceptance(&candidate)
+        .map_err(SchemaSnapshotAcceptanceError::into_invariant_error)?;
     Ok(candidate)
 }

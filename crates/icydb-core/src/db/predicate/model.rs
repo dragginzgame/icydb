@@ -29,6 +29,38 @@ pub enum Predicate {
 }
 
 impl Predicate {
+    /// Visit borrowed field names without copying operands or building a program.
+    ///
+    /// Callers own field resolution and must admit input depth before traversal.
+    /// Both operands of field comparisons are visited; the first error stops work.
+    pub(in crate::db) fn try_for_each_field<E>(
+        &self,
+        visit: &mut impl FnMut(&str) -> Result<(), E>,
+    ) -> Result<(), E> {
+        match self {
+            Self::True | Self::False => Ok(()),
+            Self::And(children) | Self::Or(children) => {
+                for child in children {
+                    child.try_for_each_field(visit)?;
+                }
+                Ok(())
+            }
+            Self::Not(child) => child.try_for_each_field(visit),
+            Self::Compare(compare) => visit(compare.field()),
+            Self::CompareFields(compare) => {
+                visit(compare.left_field())?;
+                visit(compare.right_field())
+            }
+            Self::IsNull { field }
+            | Self::IsNotNull { field }
+            | Self::IsMissing { field }
+            | Self::IsEmpty { field }
+            | Self::IsNotEmpty { field }
+            | Self::TextContains { field, .. }
+            | Self::TextContainsCi { field, .. } => visit(field),
+        }
+    }
+
     /// Build an `And` predicate from child predicates.
     #[must_use]
     pub const fn and(preds: Vec<Self>) -> Self {
@@ -467,6 +499,26 @@ impl CompareFieldsPredicate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn borrowed_field_visit_stops_at_the_original_error() {
+        let predicate = Predicate::And(vec![
+            Predicate::eq("first".into(), Value::Text("not_a_field".into())),
+            Predicate::Not(Box::new(Predicate::IsNull {
+                field: "stop".into(),
+            })),
+            Predicate::IsEmpty {
+                field: "unvisited".into(),
+            },
+        ]);
+        let mut visited = Vec::new();
+        let result = predicate.try_for_each_field(&mut |field| {
+            visited.push(field.to_string());
+            if field == "stop" { Err(7_u8) } else { Ok(()) }
+        });
+        assert_eq!(result, Err(7));
+        assert_eq!(visited, ["first", "stop"]);
+    }
 
     #[test]
     fn compare_predicate_builders_preserve_operator_shape() {

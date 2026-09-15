@@ -234,8 +234,8 @@ fn validate_entity_page<C: CanisterKind>(
         &candidate_schema,
         candidate_selection.value_catalog_handle(),
         fingerprint,
-    )
-    .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
+        work,
+    )?;
     let unique = candidate_schema
         .persisted_snapshot()
         .indexes()

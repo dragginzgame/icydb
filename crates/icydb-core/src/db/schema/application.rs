@@ -1880,6 +1880,7 @@ fn lineage_after_planned(
 #[cfg(feature = "migration")]
 fn schema_migration_planning_error(error: SchemaMigrationPlanningError) -> InternalError {
     let reason = match error {
+        SchemaMigrationPlanningError::Preparation(error) => return error,
         SchemaMigrationPlanningError::Unadopted => SchemaMigrationCode::Unadopted,
         SchemaMigrationPlanningError::MissingMigration => SchemaMigrationCode::MissingMigration,
         SchemaMigrationPlanningError::VersionGap => SchemaMigrationCode::VersionGap,
@@ -4886,6 +4887,26 @@ mod tests {
             );
             assert_eq!(diagnostic.code(), reason.diagnostic_code());
         }
+    }
+
+    #[cfg(feature = "migration")]
+    #[test]
+    fn migration_preparation_failure_retains_original_budget_diagnostic() {
+        use crate::db::{
+            executor::budget::MaintenanceConstructionBudget,
+            query::construction::ConstructionBudget,
+            schema::migration_planner::SchemaMigrationPlanningError,
+        };
+        use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+
+        let budget =
+            MaintenanceConstructionBudget::with_limit_for_tests(Resource::TemporaryBytes, 0);
+        let error = budget.charge(Resource::TemporaryBytes, 1).unwrap_err();
+        let expected = error.diagnostic();
+        let result = super::schema_migration_planning_error(
+            SchemaMigrationPlanningError::Preparation(error),
+        );
+        assert_eq!(result.diagnostic(), expected);
     }
 
     #[cfg(feature = "migration")]
