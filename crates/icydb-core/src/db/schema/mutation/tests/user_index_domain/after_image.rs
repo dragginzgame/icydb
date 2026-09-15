@@ -192,6 +192,7 @@ fn malformed_accepted_predicates_reject_query_mutation_and_inspection_plans() {
                 &accepted,
                 contract.accepted_value_catalog_handle().clone(),
                 &contract,
+                &crate::db::executor::budget::MaintenanceConstructionBudget::new(),
             )
             .unwrap_err(),
         ] {
@@ -201,6 +202,140 @@ fn malformed_accepted_predicates_reject_query_mutation_and_inspection_plans() {
         assert_eq!(old.visits.get(), 0);
         assert_eq!(new.visits.get(), 0);
     }
+}
+
+#[test]
+fn index_inspection_construction_uses_cumulative_caller_admission() {
+    use crate::db::{
+        QueryError, RequestExecutionRoot,
+        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        index::AcceptedIndexInspectionPlan,
+        query::preparation::PreparationWork,
+    };
+    use icydb_diagnostic_code::DiagnosticExecutionLane as Lane;
+
+    let snapshot = snapshot_with_indexes(
+        &base_snapshot(),
+        vec![
+            domain_field_index(1, "by_name", false),
+            domain_expression_index(2, "by_lower_name", false, Some("name = 'Ada'".into())),
+        ],
+    );
+    let row_contract = accepted_row_contract(&snapshot);
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot).unwrap();
+    let compile = |work: &PreparationWork<'_>| {
+        AcceptedIndexInspectionPlan::compile(
+            &accepted,
+            row_contract.accepted_value_catalog_handle().clone(),
+            &row_contract,
+            work,
+        )
+        .map_err(QueryError::execute)
+    };
+    let witnesses = |plan: &AcceptedIndexInspectionPlan| {
+        ["Ada", "Grace"].map(|name| {
+            let row = ObservedNameRow::new(name, false);
+            (0..plan.len())
+                .map(|ordinal| {
+                    plan.project(
+                        ordinal,
+                        EntityTag::new(7),
+                        &PrimaryKeyValue::Scalar(PrimaryKeyComponent::Ulid(
+                            crate::types::Ulid::MIN,
+                        )),
+                        &row,
+                    )
+                    .unwrap()
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    let limits = HardExecutionBudget::uniform_for_tests(
+        16_000_000,
+        HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+    );
+    let baseline = RequestExecutionRoot::new_for_tests(limits);
+    let expected = PreparationWork::run(&baseline.scope(), Lane::Diagnostic, compile).unwrap();
+    assert_eq!(expected.len(), 2);
+    let expected_witnesses = witnesses(&expected);
+    assert!(expected_witnesses[0].iter().all(Option::is_some));
+    assert!(expected_witnesses[1][0].is_some());
+    assert!(expected_witnesses[1][1].is_none());
+
+    // Admission counters establish exact/cumulative rejection, not performance.
+    for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+        let exact = baseline.observed(resource);
+        assert!(exact > 0);
+        for limit in [exact - 1, exact] {
+            let root =
+                RequestExecutionRoot::new_for_tests(limits.with_limit_for_tests(resource, limit));
+            let result = PreparationWork::run(&root.scope(), Lane::Diagnostic, compile);
+            if limit == exact {
+                assert_eq!(witnesses(&result.unwrap()), expected_witnesses);
+            } else {
+                let error = result.unwrap_err();
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+                );
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::Limit, limit))
+                );
+            }
+        }
+        let root =
+            RequestExecutionRoot::new_for_tests(limits.with_limit_for_tests(resource, exact));
+        let error = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+            compile(work)?;
+            compile(work)
+        })
+        .unwrap_err();
+        assert!(
+            error
+                .diagnostic_facts()
+                .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+        );
+    }
+}
+
+#[test]
+fn index_inspection_source_admission_precedes_parsing() {
+    use crate::db::{
+        executor::budget::MaintenanceConstructionBudget, index::AcceptedIndexInspectionPlan,
+    };
+
+    let snapshot = snapshot_with_indexes(
+        &base_snapshot(),
+        vec![domain_expression_index(
+            1,
+            "by_lower_name",
+            false,
+            Some("name = 'unterminated".into()),
+        )],
+    );
+    let contract = accepted_row_contract(&base_snapshot());
+    // Explicitly inject invalid authority to distinguish source admission from
+    // the maintained payload-free corruption defense covered separately.
+    let accepted = AcceptedSchemaSnapshot::new(snapshot);
+    let work =
+        MaintenanceConstructionBudget::with_limit_for_tests(Resource::PredicateExpressionSteps, 1);
+    let compile = || {
+        AcceptedIndexInspectionPlan::compile(
+            &accepted,
+            contract.accepted_value_catalog_handle().clone(),
+            &contract,
+            &work,
+        )
+    };
+    let error = compile().unwrap_err();
+    assert!(error.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::PredicateExpressionSteps.raw(),
+    )));
+    assert_eq!(compile().unwrap_err().diagnostic(), error.diagnostic());
 }
 
 #[test]

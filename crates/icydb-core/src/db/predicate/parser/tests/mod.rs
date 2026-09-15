@@ -452,21 +452,110 @@ fn parse_sql_predicate_rejects_excessive_not_depth() {
 }
 
 #[test]
-fn parse_sql_predicate_rejects_excessive_boolean_chain_depth() {
-    let mut sql = String::from("active = true");
-    for _ in 0..140 {
-        sql.push_str(" OR active = true");
-    }
-
-    let err = parse_sql_predicate(sql.as_str()).expect_err("deep boolean chains should reject");
-
-    assert_eq!(
-        err,
-        SqlParseError::InvalidSyntax {
-            kind: SqlSyntaxErrorKind::ExpressionDepthLimit {
-                max_depth: MAX_SQL_EXPR_DEPTH
-            },
+fn parse_sql_predicate_builds_flat_authored_boolean_chains() {
+    for conjunction in [false, true] {
+        for width in [2, 3, 16, MAX_SQL_EXPR_DEPTH] {
+            let terms = (0..width)
+                .map(|i| format!("field_{i} = 'value_{i}'"))
+                .collect::<Vec<_>>();
+            let leaves = terms
+                .iter()
+                .map(|term| parse_sql_predicate(term).unwrap())
+                .collect();
+            let expected = if conjunction {
+                Predicate::And(leaves)
+            } else {
+                Predicate::Or(leaves)
+            };
+            let parsed =
+                parse_sql_predicate(&terms.join(if conjunction { " AND " } else { " OR " }))
+                    .unwrap();
+            assert_eq!(parsed, expected);
         }
+    }
+}
+
+#[test]
+fn parse_sql_predicate_preserves_precedence_and_explicit_groups() {
+    let leaf = |field: &str| parse_sql_predicate(&format!("{field} = true")).unwrap();
+    assert_eq!(
+        parse_sql_predicate(
+            "a = true OR b = true AND c = true AND d = true OR NOT (e = true OR f = true)"
+        )
+        .unwrap(),
+        Predicate::Or(vec![
+            leaf("a"),
+            Predicate::And(vec![leaf("b"), leaf("c"), leaf("d")]),
+            Predicate::Not(Box::new(Predicate::Or(vec![leaf("e"), leaf("f")]))),
+        ]),
+    );
+    for (sql, expected) in [
+        (
+            "(a = true OR b = true) OR c = true",
+            Predicate::Or(vec![Predicate::Or(vec![leaf("a"), leaf("b")]), leaf("c")]),
+        ),
+        (
+            "a = true AND (b = true AND c = true)",
+            Predicate::And(vec![leaf("a"), Predicate::And(vec![leaf("b"), leaf("c")])]),
+        ),
+    ] {
+        assert_eq!(parse_sql_predicate(sql).unwrap(), expected);
+    }
+}
+
+#[test]
+fn parse_sql_predicate_keeps_source_admission_independent_of_flat_output() {
+    let depth_error = SqlParseError::InvalidSyntax {
+        kind: SqlSyntaxErrorKind::ExpressionDepthLimit {
+            max_depth: MAX_SQL_EXPR_DEPTH,
+        },
+    };
+    for operator in [" AND ", " OR "] {
+        let at_limit = vec!["active = true"; MAX_SQL_EXPR_DEPTH].join(operator);
+        assert!(parse_sql_predicate(&at_limit).is_ok());
+        for sql in [
+            format!("{at_limit}{operator}active = true"),
+            format!("NOT ({at_limit})"),
+            format!("active = true{operator}({at_limit})"),
+        ] {
+            assert_eq!(parse_sql_predicate(&sql).unwrap_err(), depth_error);
+        }
+    }
+    for depth in [MAX_SQL_EXPR_DEPTH - 1, MAX_SQL_EXPR_DEPTH] {
+        let sql = format!("{}active = true{}", "(".repeat(depth), ")".repeat(depth));
+        if depth < MAX_SQL_EXPR_DEPTH {
+            assert!(parse_sql_predicate(&sql).is_ok());
+        } else {
+            assert_eq!(parse_sql_predicate(&sql).unwrap_err(), depth_error);
+        }
+    }
+    for sql in [
+        "active = true AND",
+        "active = true OR",
+        "active = true AND OR active = false",
+    ] {
+        assert!(parse_sql_predicate(sql).is_err());
+    }
+}
+
+#[test]
+fn parse_sql_predicate_flat_or_has_the_membership_canonical_identity() {
+    use crate::db::{
+        executor::budget::MaintenanceConstructionBudget,
+        predicate::{normalize, predicate_fingerprint_normalized},
+    };
+
+    let disjunction = normalize(
+        parse_sql_predicate("name = 'Ada' OR name = 'Grace' OR name = 'Lin' OR name = 'Ada'")
+            .unwrap(),
+    );
+    let membership = normalize(parse_sql_predicate("name IN ('Ada', 'Grace', 'Lin')").unwrap());
+    assert_eq!(disjunction, membership);
+    assert_eq!(normalize(disjunction.clone()), disjunction);
+    let work = MaintenanceConstructionBudget::new();
+    assert_eq!(
+        predicate_fingerprint_normalized(&disjunction, &work).unwrap(),
+        predicate_fingerprint_normalized(&membership, &work).unwrap(),
     );
 }
 

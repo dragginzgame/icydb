@@ -176,6 +176,7 @@ impl AcceptedInspectionPlan {
                     &snapshot,
                     value_catalog.clone(),
                     &row_contract,
+                    work,
                 )?;
                 let relation_inspection = build_relations(&snapshot, &row_contract)?;
                 let identity_inspection = accepted_identity_inspection(&snapshot)?;

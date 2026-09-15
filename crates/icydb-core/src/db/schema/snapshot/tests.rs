@@ -729,6 +729,7 @@ fn every_index_predicate_binds_authored_fields_before_acceptance_and_codec() {
                 "missing = 'x'",
                 "email = missing",
                 "email = 'a' AND email = 'b' AND missing IS NULL",
+                "email = 'a' OR email = 'b' OR missing = 'c'",
                 "email.path IS NOT NULL",
                 "email IS NOT",
             ] {
@@ -757,6 +758,8 @@ fn every_index_predicate_binds_authored_fields_before_acceptance_and_codec() {
             for sql in [
                 "email IS NOT NULL AND email = 'missing'",
                 "email IS NOT NULL AND email = tenant",
+                "email IS NOT NULL AND (email = 'a' OR email = 'b' OR email = 'c')",
+                "email IS NOT NULL AND tenant IS NOT NULL AND email = 'a'",
             ] {
                 let snapshot =
                     nullable_unique_schema_fixture(unique, nullable_fields, &["email"], Some(sql));

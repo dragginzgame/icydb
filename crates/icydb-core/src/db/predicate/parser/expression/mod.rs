@@ -8,6 +8,10 @@ use crate::{
     },
 };
 
+// Pair the lowered predicate with its source-complexity depth. Each boolean
+// operator contributes max(prefix, right) + 1, even though a flat chain now
+// needs only one output container. Keep this admission measure separate from
+// output shape so cheaper lowering does not silently admit larger inputs.
 pub(in crate::db::predicate::parser::expression) type ParsedPredicate = (Predicate, usize);
 
 /// Parse one full predicate tree from the shared reduced-SQL token cursor.
@@ -36,10 +40,10 @@ pub(in crate::db::predicate::parser::expression) const fn descend_predicate_pars
     Ok(parse_depth.saturating_add(1))
 }
 
-pub(in crate::db::predicate::parser::expression) const fn validate_predicate_tree_depth(
-    tree_depth: usize,
+pub(in crate::db::predicate::parser::expression) const fn validate_predicate_source_depth(
+    source_depth: usize,
 ) -> Result<(), SqlParseError> {
-    if tree_depth > MAX_SQL_EXPR_DEPTH {
+    if source_depth > MAX_SQL_EXPR_DEPTH {
         return Err(sql_expr_depth_limit_error());
     }
 

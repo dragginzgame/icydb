@@ -97,6 +97,17 @@ inspection and staged index preparation use the same parse/normalization owner.
 This does not make boolean normalization budgeted, add a cache revalidation pass
 or change the meaning of absent predicates and valid false membership.
 
+Reduced index-predicate parsing emits one AND/OR list for a flat authored chain.
+Explicit parentheses and operator precedence remain structural. Admission still
+counts each boolean operator as `max(prefix, right) + 1` under the existing 128
+source-complexity ceiling, independently of the shallower output; nesting and
+token/byte ceilings also remain unchanged. Thus 128 simple chain terms fit, but
+129 do not. This is not a wider-input or full derived-work bound.
+The approved 0.257.15 hard cut permits changed canonical shapes/digests and index
+choices for affected reduced-predicate chains (notably eligible OR-to-IN).
+Ordinary identity contracts outside this explicit representation change remain
+unchanged. The schema codec still stores the same SQL source text.
+
 Every index's snapshot acceptance checks authored predicate field names before
 boolean simplification, matching SQL DDL's validation ordering. This includes
 non-unique indexes and unique indexes with non-nullable keys. Unknown fields
@@ -105,8 +116,12 @@ uses its existing predicate rejection; invalid persisted input remains store
 corruption. This is field-binding validation, not new schema/replay resource
 admission or a change to nullable guard inference.
 
-Accepted inspection-plan setup admits unique-activation dependencies under one
-standalone construction allowance. Cold construction failure cannot publish a
+Accepted inspection-plan setup admits unique-activation dependencies and the
+active index list under one standalone construction allowance. Index-list
+backing, per-index visits and predicate-source bytes are admitted before their
+respective construction/traversal; nested index metadata, parser, normalizer and
+executable-program scratch remain separately unqualified. No allowance is reset
+per index. Cold construction failure cannot publish a
 partial runtime plan; cached successful plans retain their existing validity
 contract. Quick and Deep integrity setup use the existing shared resource-error
 classifier: exhaustion remains an operational error with its budget facts, not

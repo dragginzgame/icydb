@@ -870,6 +870,61 @@ fn domain_field_index(ordinal: u16, name: &str, unique: bool) -> PersistedIndexS
     )
 }
 
+#[test]
+fn complete_domain_stage_flat_or_matches_explicit_membership() {
+    let before = base_snapshot();
+    let rows = ["Ada", "Grace", "Lin", "Other"].map(|name| RebuildSlotReader {
+        values: vec![None, Some(Value::Text(name.into()))],
+    });
+    for expression in [false, true] {
+        let mut expected_keys = None;
+        for sql in [
+            "name IN ('Ada', 'Grace', 'Lin')",
+            "name = 'Ada' OR name = 'Grace' OR name = 'Lin'",
+        ] {
+            let index = if expression {
+                domain_expression_index(1, "by_name", false, Some(sql.into()))
+            } else {
+                PersistedIndexSnapshot::new(
+                    SchemaIndexId::new(1).unwrap(),
+                    1,
+                    "by_name".into(),
+                    STORE_PATH.into(),
+                    false,
+                    PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+                    Some(sql.into()),
+                )
+            };
+            let after = snapshot_with_indexes(&before, vec![index]);
+            let contract = accepted_row_contract(&after);
+            let store = IndexStore::init_heap();
+            let staged = stage_domain(
+                accepted_identity(&before),
+                &before,
+                &after,
+                Some(&contract),
+                rows.iter()
+                    .enumerate()
+                    .map(|(i, row)| domain_row(i as u64 + 1, row)),
+                &store,
+            )
+            .unwrap_or_else(|_| panic!("membership fixture should stage"));
+            let keys = staged
+                .final_entries()
+                .iter()
+                .map(|entry| entry.key().clone())
+                .collect::<Vec<_>>();
+            assert_eq!(keys.len(), 3);
+            if let Some(expected) = &expected_keys {
+                assert_eq!(&keys, expected);
+            } else {
+                expected_keys = Some(keys);
+            }
+            assert!(store.is_empty());
+        }
+    }
+}
+
 fn domain_expression_index(
     ordinal: u16,
     name: &str,

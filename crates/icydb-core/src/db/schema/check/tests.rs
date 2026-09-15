@@ -1846,6 +1846,14 @@ fn unique_activation_predicate_dependencies_preserve_normalized_write_barriers()
         ("NOT (nickname IS NULL OR payload IS NULL)", &[1, 2, 4]),
         ("score > 10 AND score < 0 AND nickname IS NOT NULL", &[1]),
         ("nickname = 'payload'", &[1, 2]),
+        (
+            "nickname = 'a' OR nickname = 'b' OR nickname = 'c'",
+            &[1, 2],
+        ),
+        (
+            "score > 0 AND nickname IS NOT NULL AND payload IS NOT NULL",
+            &[1, 2, 4],
+        ),
         ("tags IS NOT NULL", &[1, 3]),
         ("nickname LIKE 'abc%'", &[1, 2]),
     ];

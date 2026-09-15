@@ -17,6 +17,38 @@ fn equal(field: &str, value: u64) -> Predicate {
 }
 
 #[test]
+fn flat_reduced_or_guard_keeps_membership_proofs_conservative() {
+    use crate::db::predicate::{normalize, parse_sql_predicate};
+
+    let guard =
+        normalize(parse_sql_predicate("name = 'Ada' OR name = 'Grace' OR name = 'Lin'").unwrap());
+    let membership = normalize(parse_sql_predicate("name IN ('Ada', 'Grace', 'Lin')").unwrap());
+    assert_eq!(guard, membership);
+    // Required IN guards are intentionally unsupported by this proof owner.
+    // The parser hard cut must not silently broaden index eligibility.
+    for sql in [
+        "name = 'Ada'",
+        "name = 'Grace'",
+        "name = 'Lin'",
+        "name = 'Other'",
+        "name IN ('Ada', 'Lin')",
+        "name IN ('Ada', 'Other')",
+    ] {
+        let query = normalize(parse_sql_predicate(sql).unwrap());
+        assert_eq!(
+            predicate_implies_predicate_for_planner(&query, &guard),
+            predicate_implies_predicate_for_planner(&query, &membership),
+            "{sql}",
+        );
+        assert!(!predicate_implies_predicate_for_planner(&query, &guard));
+    }
+    let non_null = Predicate::IsNotNull {
+        field: "name".into(),
+    };
+    assert!(predicate_implies_predicate_for_planner(&guard, &non_null));
+}
+
+#[test]
 fn implication_classification_preserves_unknown_and_contradictory_boundaries() {
     let known = equal("id", 7);
     let unknown = Predicate::IsNull { field: "id".into() };
