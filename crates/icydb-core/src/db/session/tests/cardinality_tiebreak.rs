@@ -323,6 +323,62 @@ fn expression_lookup_selection_preserves_equality_membership_and_warm_results() 
 }
 
 #[test]
+fn scalar_preparation_reconstructs_missing_expression_indexes() {
+    use crate::db::session::query::schema_info_for_plan_cache_authority;
+    use crate::db::{executor::EntityAuthority, schema::SchemaInfo};
+    use std::rc::Rc;
+
+    let session = initialize();
+    let catalog = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    let complete = catalog.accepted_schema_info();
+    assert!(!complete.expression_indexes().is_empty());
+    let incomplete = Rc::new(SchemaInfo::from_accepted_snapshot_and_catalog(
+        catalog.snapshot(),
+        catalog.value_catalog_handle().clone(),
+        false,
+    ));
+    assert!(incomplete.expression_indexes().is_empty());
+    let authority = EntityAuthority::from_accepted_runtime_contracts(
+        ENTITY_SOURCE,
+        ENTITY_TAG,
+        STORE_PATH,
+        catalog.inspection_plan().row_contract().clone(),
+        incomplete.clone(),
+        catalog
+            .accepted_entity_authority()
+            .accepted_schema_fingerprint(),
+        catalog.runtime_root_identity(),
+    );
+    let prepared = schema_info_for_plan_cache_authority(&authority, catalog.snapshot()).unwrap();
+    assert!(!Rc::ptr_eq(&incomplete, &prepared));
+    assert_eq!(
+        prepared.expression_indexes().len(),
+        complete.expression_indexes().len()
+    );
+    for (actual, expected) in prepared
+        .expression_indexes()
+        .iter()
+        .zip(complete.expression_indexes())
+    {
+        assert_eq!(actual.name(), expected.name());
+        assert_eq!(actual.ordinal(), expected.ordinal());
+        assert_eq!(actual.physical_generation(), expected.physical_generation());
+        assert_eq!(actual.key_items().len(), expected.key_items().len());
+    }
+    assert_eq!(prepared.field("common"), complete.field("common"));
+    // Reconstructed query metadata must not mutate the captured root authority.
+    assert!(incomplete.expression_indexes().is_empty());
+    let shared = schema_info_for_plan_cache_authority(
+        &catalog.accepted_entity_authority(),
+        catalog.snapshot(),
+    )
+    .unwrap();
+    assert!(std::ptr::eq(shared.as_ref(), complete));
+}
+
+#[test]
 fn expression_ordered_ranges_preserve_bounds_and_warm_results() {
     let session = initialize();
     seed_rows(&session);

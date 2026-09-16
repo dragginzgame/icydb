@@ -14,6 +14,7 @@ use icydb_schema::{
 };
 
 use crate::{
+    MAX_INDEX_FIELDS,
     db::{
         data::encode_input_value_for_candidate_field_contract,
         schema::{
@@ -3007,6 +3008,11 @@ fn lower_index_key(
     snapshot: &PersistedSchemaSnapshot,
     bindings: &AcceptedSourceBindingCatalog,
 ) -> Result<PersistedIndexKeySnapshot, InternalError> {
+    // Reject unsupported proposal width before resolving or copying components.
+    // Initial proposals and migrations share this storage-domain boundary.
+    if !(1..=MAX_INDEX_FIELDS).contains(&key.len()) {
+        return Err(InternalError::store_unsupported());
+    }
     let items = key
         .iter()
         .map(|component| {
@@ -3433,6 +3439,103 @@ mod tests {
 
     fn version_one() -> DeclaredEntityVersion {
         DeclaredEntityVersion::try_new(1).expect("fixture version should admit")
+    }
+
+    #[test]
+    fn initial_proposal_index_width_matches_the_physical_key_domain() {
+        use crate::{MAX_INDEX_FIELDS, error::InternalError};
+
+        for count in [1, MAX_INDEX_FIELDS, MAX_INDEX_FIELDS + 1] {
+            for mixed in [false, true] {
+                let id = FieldSourceKey::try_new("id").unwrap();
+                let value = FieldSourceKey::try_new("value").unwrap();
+                let entity = EntityFragment::try_new(
+                    name("Width"),
+                    version_one(),
+                    vec![
+                        FieldFragment::new(
+                            name("id"),
+                            FieldType::Scalar(ScalarType::Nat64),
+                            false,
+                            FieldInsertPolicy::Required,
+                            None,
+                        ),
+                        FieldFragment::new(
+                            name("value"),
+                            FieldType::Scalar(ScalarType::Text { max_len: None }),
+                            false,
+                            FieldInsertPolicy::Required,
+                            None,
+                        ),
+                    ],
+                    vec![id],
+                    vec![
+                        IndexFragment::try_new(
+                            name("by_value"),
+                            (0..count)
+                                .map(|offset| {
+                                    if mixed && offset % 2 == 0 {
+                                        IndexKeyFragment::Lower(value.clone())
+                                    } else {
+                                        IndexKeyFragment::Field(value.clone())
+                                    }
+                                })
+                                .collect(),
+                            false,
+                            None,
+                        )
+                        .unwrap(),
+                    ],
+                    Vec::new(),
+                    Vec::new(),
+                )
+                .unwrap();
+                let source = entity.source_key().clone();
+                let store = TargetStoreIdentity::from_bytes([0x22; 32]);
+                let proposal = SchemaProposal::try_compose(
+                    vec![SchemaCapability::SECONDARY_INDEXES],
+                    TargetDatabaseIdentity::from_bytes([0x11; 32]),
+                    SchemaSubmissionKey::try_new("width").unwrap(),
+                    ExpectedAcceptedHead::Empty,
+                    vec![SchemaFragment::try_new(vec![entity], Vec::new()).unwrap()],
+                    vec![EntityStoreAssignment::new(source.clone(), store)],
+                    Vec::new(),
+                    None,
+                )
+                .unwrap();
+                let result = lower_initial_schema_proposal(
+                    &proposal,
+                    &[ProposalStoreTarget {
+                        path: "test::Store",
+                        identity: store,
+                    }],
+                );
+                if count <= MAX_INDEX_FIELDS {
+                    let candidates = result.unwrap();
+                    let bundle = candidates[0].bundle();
+                    let tag = bundle.source_bindings_for_tests().entity(&source).unwrap();
+                    let snapshot = &bundle.entity_snapshots()[&tag];
+                    AcceptedSchemaSnapshot::try_new(snapshot.clone()).unwrap();
+                    assert_eq!(snapshot.indexes().len(), 1);
+                    let key = snapshot.indexes()[0].key();
+                    let arity = match key {
+                        crate::db::schema::PersistedIndexKeySnapshot::FieldPath(paths) => {
+                            paths.len()
+                        }
+                        crate::db::schema::PersistedIndexKeySnapshot::Items(items) => items.len(),
+                    };
+                    assert_eq!(arity, count);
+                } else {
+                    let Err(error) = result else {
+                        panic!("unsupported index width must reject")
+                    };
+                    assert_eq!(
+                        error.diagnostic(),
+                        InternalError::store_unsupported().diagnostic()
+                    );
+                }
+            }
+        }
     }
 
     #[test]

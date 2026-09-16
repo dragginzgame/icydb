@@ -1,0 +1,163 @@
+//! Isolated IC measurement receipt; not part of the maintained runtime.
+#![allow(unsafe_code)]
+use super::*;
+use crate::retained::{Retained, RetainedBytes};
+use std::{
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+    hint::black_box,
+};
+
+const CAP: usize = 4 * 1024 * 1024;
+
+#[link(wasm_import_module = "ic0")]
+unsafe extern "C" {
+    fn performance_counter(kind: i32) -> i64;
+    fn msg_arg_data_copy(dst: i32, offset: i32, size: i32);
+    fn msg_reply_data_append(src: i32, size: i32);
+    fn msg_reply();
+}
+
+fn counter() -> u64 {
+    unsafe { performance_counter(0) as u64 }
+}
+
+fn measured<T>(f: impl FnOnce() -> T) -> (u64, T) {
+    let start = counter();
+    let result = black_box(f());
+    (counter() - start, result)
+}
+
+fn retained<T: Retained>(value: &T, limit: usize) -> Option<usize> {
+    let mut bytes = RetainedBytes::new(limit);
+    bytes.add(size_of::<T>())?;
+    bytes.visit(black_box(value))?;
+    Some(bytes.total())
+}
+
+fn key(n: usize, depth: usize, text_bytes: usize, different: bool) -> StructuralQueryCacheKey {
+    let expressions = (0..n)
+        .map(|_| {
+            let mut expr = ProjectionExprCacheKey::Field("x".repeat(text_bytes));
+            for _ in 0..depth {
+                expr = ProjectionExprCacheKey::Unary {
+                    op: UnaryOpCacheKey::Not,
+                    expr: Box::new(expr),
+                };
+            }
+            (expr, None)
+        })
+        .collect();
+    StructuralQueryCacheKey(Rc::new(StructuralQueryCacheKeyData {
+        mode: QueryModeCacheKey::Load {
+            limit: Some(100),
+            offset: 0,
+        },
+        predicate: Some([7; 32]),
+        parameter_contract: None,
+        filter_expr: None,
+        order: None,
+        distinct: false,
+        projection: ProjectionCacheKey::Exprs(expressions),
+        grouping: None,
+        consistency: if different {
+            ConsistencyCacheKey::Ignore
+        } else {
+            ConsistencyCacheKey::Error
+        },
+    }))
+}
+
+fn keys(n: usize, depth: usize, text_bytes: usize) -> Vec<u64> {
+    // Independent allocations force real deep equality; a shared handle alone
+    // would measure Rc's identity shortcut instead.
+    let left = key(n, depth, text_bytes, false);
+    let right = key(n, depth, text_bytes, false);
+    let late_miss = key(n, depth, text_bytes, true);
+    let shared = left.clone();
+    let mut map = HashMap::new();
+    map.insert(left.clone(), 7u64);
+    let (hash_cost, hash) = measured(|| {
+        let mut hasher = DefaultHasher::new();
+        black_box(&left).hash(&mut hasher);
+        hasher.finish()
+    });
+    let (equal_cost, equal) = measured(|| black_box(&left) == black_box(&right));
+    let (miss_cost, miss) = measured(|| black_box(&left) == black_box(&late_miss));
+    let (shared_cost, shared_equal) = measured(|| black_box(&left) == black_box(&shared));
+    let (lookup_cost, found) = measured(|| map.get(black_box(&right)).copied());
+    let (retain_cost, weight) = measured(|| retained(&left, CAP));
+    assert!(equal && !miss && shared_equal && found == Some(7));
+    vec![
+        hash_cost,
+        equal_cost,
+        miss_cost,
+        shared_cost,
+        lookup_cost,
+        retain_cost,
+        weight.unwrap_or(0) as u64,
+        u64::from(weight.is_some()),
+        hash,
+    ]
+}
+
+fn retention<T: Retained>(value: T) -> Vec<u64> {
+    let (cost, weight) = measured(|| retained(&value, CAP));
+    let (repeat_cost, repeat_weight) = measured(|| retained(&value, CAP));
+    assert_eq!(weight, repeat_weight);
+    let (edge_cost, edge) = measured(|| retained(&value, weight.unwrap_or(CAP).saturating_sub(1)));
+    assert!(edge.is_none());
+    vec![
+        cost,
+        repeat_cost,
+        edge_cost,
+        weight.unwrap_or(0) as u64,
+        u64::from(weight.is_some()),
+        size_of::<T>() as u64,
+        size_of::<Value>() as u64,
+    ]
+}
+
+fn run(kind: u32, n: usize, depth: usize, text_bytes: usize) -> Vec<u64> {
+    match kind {
+        0 => keys(n, depth, text_bytes),
+        1 => retention(Value::List((0..n).map(|_| Value::Null).collect())),
+        2 => retention(Value::List(
+            (0..n)
+                .map(|_| Value::Text("x".repeat(text_bytes)))
+                .collect(),
+        )),
+        3 => {
+            let mut value = Value::Text("x".repeat(text_bytes));
+            for _ in 0..depth {
+                value = Value::List(vec![value]);
+            }
+            retention(value)
+        }
+        4 => {
+            let value = Rc::new(Value::List(
+                (0..depth)
+                    .map(|_| Value::Text("x".repeat(text_bytes)))
+                    .collect(),
+            ));
+            retention(vec![value; n])
+        }
+        5 => retention(Value::Blob(vec![0; n])),
+        _ => panic!("unknown probe fixture"),
+    }
+}
+
+#[unsafe(export_name = "canister_query run")]
+extern "C" fn query() {
+    let mut args = [0u8; 16];
+    unsafe {
+        msg_arg_data_copy(args.as_mut_ptr() as i32, 0, 16);
+    }
+    let arg = |offset| u32::from_le_bytes(args[offset..offset + 4].try_into().unwrap());
+    let results = run(arg(0), arg(4) as usize, arg(8) as usize, arg(12) as usize);
+    let reply: Vec<u8> = results.into_iter().flat_map(u64::to_le_bytes).collect();
+    unsafe {
+        msg_reply_data_append(reply.as_ptr() as i32, reply.len() as i32);
+        msg_reply();
+    }
+}

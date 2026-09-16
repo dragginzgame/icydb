@@ -1,0 +1,30 @@
+fn run(kind: u32, n: usize, depth: u32, width: usize) -> Vec<u64> {
+    use crate::db::{
+        data::StructuralRowContract, executor::EntityAuthority,
+        integrity::DatabaseIncarnationId,
+        schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaRuntimeRootIdentity},
+        session::qualification_handoff,
+    };
+    let (snapshot, handle, bundle) = fixture(kind, n, depth, width);
+    let candidate = CandidateSchemaRevision::new(bundle).unwrap();
+    let row = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&snapshot).unwrap()
+        .row_decode_contract(handle.clone());
+    let schema = Rc::new(SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, handle, true));
+    let authority = EntityAuthority::from_accepted_runtime_contracts(
+        "probe::Entity", EntityTag::new(1), "probe::Store",
+        StructuralRowContract::from_accepted_decode_contract("probe::Entity", row),
+        schema.clone(), [1; 16],
+        AcceptedSchemaRuntimeRootIdentity::from_store_roots(
+            DatabaseIncarnationId::try_from_bytes([1; 16]).unwrap(), &[],
+        ).unwrap(),
+    );
+    // Measure the real cache-to-preparation handoff, including dropping the
+    // temporary owner, while the original accepted authority remains alive.
+    let (single, ()) = measured(|| qualification_handoff(black_box(&authority), black_box(&snapshot)));
+    let (four, ()) = measured(|| {
+        for _ in 0..4 { qualification_handoff(black_box(&authority), black_box(&snapshot)); }
+    });
+    assert!(std::ptr::eq(authority.accepted_schema_info().unwrap(), schema.as_ref()));
+    assert_eq!(schema.fields.len(), n + 1);
+    vec![single, four, candidate.encoded_bundle().len() as u64, schema.fields.len() as u64]
+}

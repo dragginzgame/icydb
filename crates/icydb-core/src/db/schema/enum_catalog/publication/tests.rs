@@ -1,5 +1,7 @@
 //! Candidate admission owns immutable integrity; publication checks current roots.
 
+mod projection;
+
 use super::{
     AcceptedSchemaBundleKey, AcceptedSchemaPublicationError, AcceptedSchemaRevision,
     CandidateSchemaRevision, empty_accepted_schema_candidate_for_tests,

@@ -30,7 +30,8 @@ use crate::{
             SchemaSnapshotAcceptanceError, classify_accepted_field_kind,
             decode_accepted_source_bindings, decode_persisted_schema_snapshot,
             encode_accepted_source_bindings, encode_persisted_schema_snapshot,
-            validate_accepted_targeted_rules, validate_schema_snapshot_acceptance,
+            validate_accepted_targeted_rules, validate_query_projections,
+            validate_schema_snapshot_acceptance,
             wire::{SchemaWireReader, SchemaWireWriter},
         },
     },
@@ -274,6 +275,20 @@ impl AcceptedSchemaRevisionBundle {
         }
         for snapshot in self.entity_snapshots.values() {
             let accepted_snapshot = AcceptedSchemaSnapshot::try_new(snapshot.clone())?;
+            // Compact references can expand independently in many fields.
+            // Admit their combined traversal before constructing query metadata;
+            // nested fields share the same allowance even though projected lazily.
+            validate_query_projections(
+                snapshot.fields().iter().flat_map(|field| {
+                    std::iter::once(field.kind()).chain(
+                        field
+                            .nested_leaves()
+                            .iter()
+                            .map(crate::db::schema::PersistedNestedLeafSnapshot::kind),
+                    )
+                }),
+                &self.composite_catalog,
+            )?;
             for field in snapshot.fields() {
                 if !self
                     .composite_catalog

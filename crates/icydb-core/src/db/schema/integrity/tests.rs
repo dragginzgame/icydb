@@ -25,6 +25,129 @@ fn field_contract() -> (SchemaRowLayout, Vec<PersistedFieldSnapshot>) {
     )
 }
 
+fn text_index_field_contract() -> (
+    SchemaRowLayout,
+    Vec<PersistedFieldSnapshot>,
+    PersistedIndexFieldPathSnapshot,
+) {
+    let (_, mut fields) = field_contract();
+    let text = AcceptedFieldKind::Text { max_len: None };
+    fields.push(PersistedFieldSnapshot::new_initial(
+        FieldId::new(2),
+        "value".into(),
+        SchemaFieldSlot::new(1),
+        text.clone(),
+        Vec::new(),
+        false,
+        SchemaInsertDefault::None,
+        FieldStorageDecode::ByKind,
+        text.leaf_codec_for_storage(FieldStorageDecode::ByKind),
+    ));
+    let layout = SchemaRowLayout::initial(
+        fields
+            .iter()
+            .map(|field| (field.id(), field.slot()))
+            .collect(),
+    );
+    let source = PersistedIndexFieldPathSnapshot::new(
+        FieldId::new(2),
+        SchemaFieldSlot::new(1),
+        vec!["value".into()],
+        text,
+        false,
+    );
+    (layout, fields, source)
+}
+
+#[test]
+fn index_width_is_enforced_for_accepted_and_candidate_key_forms() {
+    use crate::{
+        MAX_INDEX_FIELDS,
+        db::schema::{
+            AcceptedSchemaSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+            PersistedIndexKeyItemSnapshot, PersistedSchemaSnapshot, SchemaSnapshotAcceptanceError,
+            SchemaVersion, decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
+        },
+    };
+    let (layout, fields, source) = text_index_field_contract();
+    let text = source.kind();
+    for count in [0, 1, MAX_INDEX_FIELDS, MAX_INDEX_FIELDS + 1] {
+        for form in 0..3 {
+            let key = if form == 0 {
+                PersistedIndexKeySnapshot::FieldPath(vec![source.clone(); count])
+            } else {
+                PersistedIndexKeySnapshot::Items(
+                    (0..count)
+                        .map(|offset| {
+                            if form == 2 && offset % 2 == 0 {
+                                PersistedIndexKeyItemSnapshot::Expression(Box::new(
+                                    PersistedIndexExpressionSnapshot::new(
+                                        PersistedIndexExpressionOp::Lower,
+                                        source.clone(),
+                                        text.clone(),
+                                        text.clone(),
+                                        "expr:v1:LOWER(value)".into(),
+                                    ),
+                                ))
+                            } else {
+                                PersistedIndexKeyItemSnapshot::FieldPath(source.clone())
+                            }
+                        })
+                        .collect(),
+                )
+            };
+            let index = PersistedIndexSnapshot::new(
+                SchemaIndexId::new(1).unwrap(),
+                1,
+                "by_value".into(),
+                "test::Store".into(),
+                false,
+                key,
+                None,
+            );
+            let indexes = [index.clone()];
+            let valid = (1..=MAX_INDEX_FIELDS).contains(&count);
+            for split in 0..=1 {
+                assert_eq!(
+                    schema_snapshot_index_integrity_detail(
+                        "test",
+                        &layout,
+                        &fields,
+                        &indexes[..split],
+                        &indexes[split..],
+                    )
+                    .is_none(),
+                    valid
+                );
+            }
+            let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+                SchemaVersion::initial(),
+                "test::Entity".into(),
+                "Entity".into(),
+                FieldId::new(1),
+                layout.clone(),
+                fields.clone(),
+                vec![index],
+            );
+            let accepted = AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot.clone());
+            if valid {
+                assert!(accepted.is_ok());
+                let encoded = encode_persisted_schema_snapshot(&snapshot).unwrap();
+                assert_eq!(
+                    decode_persisted_schema_snapshot(&encoded).unwrap(),
+                    snapshot
+                );
+            } else {
+                assert!(matches!(
+                    accepted,
+                    Err(SchemaSnapshotAcceptanceError::Structural)
+                ));
+                assert!(encode_persisted_schema_snapshot(&snapshot).is_err());
+            }
+        }
+    }
+}
+
 #[test]
 fn acceptance_errors_preserve_boundary_specific_classification() {
     use crate::{

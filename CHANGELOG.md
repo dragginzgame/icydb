@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.257.md](docs/changelog/0.257.md)
 
+- `0.257.20` bounds per-entity schema expansion and index width while removing repeated schema copies and redundant preparation (potentially breaking for oversized metadata; simplify affected schemas and recreate their databases).
 - `0.257.19` reduces redundant query-preparation work and allocations, strengthens shared preparation admission, and qualifies sorting trade-offs (potentially breaking for exhausted requests; no data migration).
 - `0.257.18` reduces temporary query and schema construction and strengthens partial-index recovery coverage (no API or data migration).
 - `0.257.17` simplifies query preparation and schema lookup, bounds shared type inference and updates IC runtime dependencies (breaking error-enum cleanup; exhausted requests may reject; no data migration).

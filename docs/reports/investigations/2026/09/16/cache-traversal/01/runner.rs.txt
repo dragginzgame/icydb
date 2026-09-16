@@ -1,0 +1,95 @@
+use pocket_ic::PocketIc;
+
+fn main() {
+    let directory = std::env::args().nth(1).expect("artifact directory");
+    let pic = PocketIc::new();
+    let canister = pic.create_canister();
+    pic.add_cycles(canister, 10_000_000_000_000);
+    pic.install_canister(
+        canister,
+        std::fs::read(format!("{directory}/probe.wasm")).unwrap(),
+        vec![],
+        None,
+    );
+    let call = |fixture: [u32; 4]| -> Vec<u64> {
+        let args = fixture.into_iter().flat_map(u32::to_le_bytes).collect();
+        pic.query_call(canister, canister, "run", args)
+            .expect("probe query")
+            .chunks_exact(8)
+            .map(|bytes| u64::from_le_bytes(bytes.try_into().unwrap()))
+            .collect()
+    };
+    let layout = call([1, 0, 0, 0]);
+    let value_size = layout[6] as u32;
+    let maximum = (4 * 1024 * 1024 - value_size) / value_size;
+    let mut fixtures = vec![];
+    for (n, depth, bytes) in [
+        (1, 0, 8),
+        (16, 0, 8),
+        (64, 0, 8),
+        (1024, 0, 8),
+        (4096, 0, 8),
+        (1, 32, 8),
+        (1, 58, 8),
+        (1, 59, 8),
+        (1, 60, 8),
+        (1, 61, 8),
+        (1, 62, 8),
+        (1, 63, 8),
+        (1, 64, 8),
+        (1, 126, 8),
+        (32, 120, 8),
+        (1024, 2, 8),
+        (1024, 0, 1024),
+        (1, 0, 1024 * 1024),
+        (2048, 0, 1024),
+        (1, 0, 2 * 1024 * 1024),
+        (4096, 0, 1024),
+    ] {
+        fixtures.push([0, n, depth, bytes]);
+    }
+    for n in [0, 1, 1024, 4096, maximum - 1, maximum, maximum + 1] {
+        fixtures.push([1, n, 0, 0]);
+        fixtures.push([2, n, 0, 0]);
+    }
+    for bytes in [16, 1024] {
+        let maximum_text = (4 * 1024 * 1024 - value_size) / (value_size + bytes);
+        for n in [1024, maximum_text, maximum_text + 1] {
+            fixtures.push([2, n, 0, bytes]);
+        }
+    }
+    for depth in [0, 1, 32, 39, 40, 41, 42, 43, 62, 63, 64, 65, 127, 128] {
+        fixtures.push([3, 0, depth, 8]);
+    }
+    for (n, width, bytes) in [(1024, 1, 0), (1024, 32, 8), (2048, 32, 8), (64, 1024, 8)] {
+        fixtures.push([4, n, width, bytes]);
+    }
+    for bytes in [0, 1024, 4 * 1024 * 1024 - value_size, 4 * 1024 * 1024] {
+        fixtures.push([5, bytes, 0, 0]);
+    }
+    println!("kind,n,depth,text_bytes,repeat,m0,m1,m2,m3,m4,m5,m6,m7,m8");
+    for fixture in fixtures {
+        let mut baseline = None;
+        for repeat in 0..3 {
+            let values = call(fixture);
+            if let Some(previous) = &baseline {
+                assert_eq!(&values, previous, "repeat parity: {fixture:?}");
+            }
+            baseline = Some(values.clone());
+            let mut padded = values;
+            padded.resize(9, 0);
+            println!(
+                "{},{},{},{},{repeat},{}",
+                fixture[0],
+                fixture[1],
+                fixture[2],
+                fixture[3],
+                padded
+                    .into_iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
+    }
+}

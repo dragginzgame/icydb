@@ -6,6 +6,7 @@ use super::{
     mapping::{decode_sequence, direct_unit_enum_codec, encode_sequence},
 };
 use crate::{
+    MAX_INDEX_FIELDS,
     db::schema::{
         FieldId, MAX_ACCEPTED_RECURSIVE_DEPTH, PersistedIndexExpressionOp,
         PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
@@ -212,13 +213,13 @@ fn encode_index_key(
     match key {
         PersistedIndexKeySnapshot::FieldPath(paths) => {
             writer.push_u8(1);
-            encode_sequence!(writer, paths, icydb_schema::MAX_FRAGMENT_FIELDS, |path| {
+            encode_sequence!(writer, paths, MAX_INDEX_FIELDS, |path| {
                 encode_field_path(writer, path)?;
             });
         }
         PersistedIndexKeySnapshot::Items(items) => {
             writer.push_u8(2);
-            encode_sequence!(writer, items, icydb_schema::MAX_FRAGMENT_FIELDS, |item| {
+            encode_sequence!(writer, items, MAX_INDEX_FIELDS, |item| {
                 encode_index_item(writer, item)?;
             });
         }
@@ -232,12 +233,12 @@ fn decode_index_key(
     match reader.read_u8()? {
         1 => Ok(PersistedIndexKeySnapshot::FieldPath(decode_sequence!(
             reader,
-            icydb_schema::MAX_FRAGMENT_FIELDS,
+            MAX_INDEX_FIELDS,
             decode_field_path(reader)?
         ))),
         2 => Ok(PersistedIndexKeySnapshot::Items(decode_sequence!(
             reader,
-            icydb_schema::MAX_FRAGMENT_FIELDS,
+            MAX_INDEX_FIELDS,
             decode_index_item(reader)?
         ))),
         _ => Err(InternalError::store_corruption()),
@@ -356,5 +357,29 @@ direct_unit_enum_codec! {
         6 => PersistedIndexExpressionOp::Year,
         7 => PersistedIndexExpressionOp::Month,
         8 => PersistedIndexExpressionOp::Day,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn index_key_decode_rejects_width_before_reading_component_payloads() {
+        for tag in [1, 2] {
+            let mut writer = SnapshotWriter::new();
+            writer.push_u8(tag);
+            writer.push_len(MAX_INDEX_FIELDS + 1).unwrap();
+            // Enough bytes for the generic count gate; no component may be read.
+            writer.push_bytes(&[0xa1, 0xb2, 0xc3, 0xd4, 0xe5]);
+            let bytes = writer.finish().unwrap();
+            let mut reader = SnapshotReader::new(&bytes);
+            let error = decode_index_key(&mut reader).unwrap_err();
+            assert_eq!(
+                error.diagnostic(),
+                InternalError::store_corruption().diagnostic()
+            );
+            assert_eq!(reader.read_u8().unwrap(), 0xa1);
+        }
     }
 }

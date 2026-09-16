@@ -20,7 +20,7 @@ use crate::db::{
     predicate::Predicate,
     query::plan::{OrderSpec, expr::Expr},
 };
-use std::sync::OnceLock;
+use std::{rc::Rc, sync::OnceLock};
 
 ///
 /// StructuralQuery
@@ -213,7 +213,7 @@ impl StructuralQuery {
 
     pub(in crate::db) fn prepare_scalar_planning_state_with_schema_info(
         &self,
-        schema_info: SchemaInfo,
+        schema_info: Rc<SchemaInfo>,
         work: &PreparationWork<'_>,
     ) -> Result<PreparedScalarPlanningState<'_>, QueryError> {
         self.intent
@@ -263,7 +263,7 @@ impl StructuralQuery {
 
     pub(in crate::db) fn try_build_trivial_scalar_load_plan_with_schema_info(
         &self,
-        schema_info: SchemaInfo,
+        schema_info: Rc<SchemaInfo>,
         work: &PreparationWork<'_>,
     ) -> Result<Option<AccessPlannedQuery>, QueryError> {
         self.intent

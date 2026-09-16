@@ -28,8 +28,10 @@ use std::borrow::Cow;
 use std::fmt;
 use std::str::FromStr;
 
+pub(in crate::db::schema) use query_projection::validate_query_projections;
 pub(in crate::db) use query_projection::{
-    query_field_kind_from_persisted_kind, query_field_type_from_persisted_kind,
+    query_field_is_queryable, query_field_kind_from_persisted_kind,
+    query_field_type_from_persisted_kind,
 };
 
 const fn scalar_coercion_family(kind: ScalarKind) -> CoercionFamily {

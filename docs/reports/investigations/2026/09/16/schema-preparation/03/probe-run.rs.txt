@@ -1,0 +1,40 @@
+// baseline: replace the earlier probe's run function with this version.
+fn run(kind: u32, n: usize, depth: u32, width: usize) -> Vec<u64> {
+    let (snapshot, handle) = fixture(kind, n, depth, width);
+    let (instructions, result) = measured(|| {
+        let catalog = black_box(handle.composite_catalog());
+        let fields = black_box(snapshot.persisted_snapshot()).fields();
+        for field in fields {
+            crate::db::schema::validate_query_projection(field.kind(), catalog)?;
+            for leaf in field.nested_leaves() {
+                crate::db::schema::validate_query_projection(leaf.kind(), catalog)?;
+            }
+        }
+        Ok::<(), crate::error::InternalError>(())
+    });
+    if let Err(error) = &result {
+        assert_eq!(error.class(), crate::error::ErrorClass::Unsupported);
+    }
+    vec![instructions, u64::from(result.is_ok())]
+}
+
+// candidate: replace the earlier probe's run function with this version.
+fn run(kind: u32, n: usize, depth: u32, width: usize) -> Vec<u64> {
+    let (snapshot, handle) = fixture(kind, n, depth, width);
+    let (instructions, result) = measured(|| {
+        let catalog = black_box(handle.composite_catalog());
+        let fields = black_box(snapshot.persisted_snapshot()).fields();
+        crate::db::schema::validate_query_projections(
+            fields.iter().flat_map(|field| {
+                std::iter::once(field.kind()).chain(
+                    field.nested_leaves().iter().map(PersistedNestedLeafSnapshot::kind),
+                )
+            }),
+            catalog,
+        )
+    });
+    if let Err(error) = &result {
+        assert_eq!(error.class(), crate::error::ErrorClass::Unsupported);
+    }
+    vec![instructions, u64::from(result.is_ok())]
+}

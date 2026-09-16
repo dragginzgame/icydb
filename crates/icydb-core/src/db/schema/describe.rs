@@ -17,7 +17,7 @@ use crate::{
             PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
             PersistedRelationSourceSnapshot, PersistedSchemaSnapshot, SchemaHistoricalFill,
             composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
-            identity_kind_maximum, output_value_from_runtime, query_field_type_from_persisted_kind,
+            identity_kind_maximum, output_value_from_runtime, query_field_is_queryable,
             render_accepted_check_expr_sql,
             runtime::AcceptedRowLayoutRuntimeField,
         },
@@ -1719,8 +1719,7 @@ fn describe_entity_fields_with_runtime_contract(
         let metadata = DescribeFieldMetadata::new(
             summarize_persisted_field_kind(field.kind(), value_catalog)?,
             field.nullable(),
-            query_field_type_from_persisted_kind(field.kind(), value_catalog.composite_catalog())
-                .is_queryable(),
+            query_field_is_queryable(field.kind(), value_catalog.composite_catalog()),
             field_origin_label(field.generated()),
         );
         let temporal = accepted_field_temporal_facts(runtime_field, value_catalog)?;
@@ -1819,8 +1818,7 @@ fn describe_persisted_nested_leaves(
         let metadata = DescribeFieldMetadata::new(
             summarize_persisted_field_kind(leaf.kind(), value_catalog)?,
             leaf.nullable(),
-            query_field_type_from_persisted_kind(leaf.kind(), value_catalog.composite_catalog())
-                .is_queryable(),
+            query_field_is_queryable(leaf.kind(), value_catalog.composite_catalog()),
             origin.clone(),
         );
 
@@ -2292,11 +2290,12 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        EntityIdentityDescription, EntityRelationCardinality, EntityRelationDescription,
-        MAX_SCHEMA_VALUE_RENDER_CHARS, SqlColumnDefault, SqlColumnExtra, SqlColumnKey,
-        SqlColumnSummary, SqlDescribeOutput, SqlShowRelationsOutput, classify_compact_column_key,
-        compact_column_capacity_from_counts, compact_column_extras, describe_accepted_constraint,
-        describe_compact_columns_with_persisted_schema, nested_path_nullable,
+        EntityFieldDescription, EntityIdentityDescription, EntityRelationCardinality,
+        EntityRelationDescription, MAX_SCHEMA_VALUE_RENDER_CHARS, SqlColumnDefault, SqlColumnExtra,
+        SqlColumnKey, SqlColumnSummary, SqlDescribeOutput, SqlShowRelationsOutput,
+        classify_compact_column_key, compact_column_capacity_from_counts, compact_column_extras,
+        describe_accepted_constraint, describe_compact_columns_with_persisted_schema,
+        describe_entity_fields_with_persisted_schema, nested_path_nullable,
     };
     use crate::db::schema::{
         AcceptedCompositeCatalog, AcceptedConstraintCatalog, AcceptedFieldKind,
@@ -2579,6 +2578,24 @@ mod tests {
             encoded_output.len() > IC_QUERY_REPLY_BYTES,
             "a valid accepted schema must exercise the generated endpoint reply guard",
         );
+    }
+
+    #[test]
+    fn field_descriptions_preserve_root_and_nested_queryability() {
+        let accepted = reachable_compact_reply_schema();
+        let value_catalog = reachable_compact_reply_value_catalog();
+        let fields = describe_entity_fields_with_persisted_schema(&accepted, &value_catalog)
+            .expect("accepted root and leaf metadata should describe");
+
+        assert!(fields[0].queryable());
+        let (groups, remainder) =
+            fields[1..].as_chunks::<{ 1 + REACHABLE_COMPACT_REPLY_COMPOSITE_FIELDS }>();
+        assert!(remainder.is_empty());
+        assert_eq!(groups.len(), REACHABLE_COMPACT_REPLY_TOP_LEVEL_COMPOSITES);
+        for group in groups {
+            assert!(!group[0].queryable(), "record roots remain non-queryable");
+            assert!(group[1..].iter().all(EntityFieldDescription::queryable));
+        }
     }
 
     #[test]

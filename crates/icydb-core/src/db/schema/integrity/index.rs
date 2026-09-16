@@ -1,10 +1,13 @@
 //! Persisted schema index integrity checks.
 
-use crate::db::schema::{
-    AcceptedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
-    PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-    SchemaRowLayout,
+use crate::{
+    MAX_INDEX_FIELDS,
+    db::schema::{
+        AcceptedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+        PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
+        PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+        SchemaRowLayout,
+    },
 };
 
 // Build the first deterministic accepted-index integrity diagnostic. Index
@@ -48,7 +51,9 @@ pub(in crate::db::schema) fn schema_snapshot_index_integrity_detail(
             }
         }
 
-        if index_key_len(index.key()) == 0 {
+        // Accepted metadata must be executable by the physical key codec.
+        // Apply the same width to active and planner-invisible candidate keys.
+        if !(1..=MAX_INDEX_FIELDS).contains(&index_key_len(index.key())) {
             return Some(());
         }
 

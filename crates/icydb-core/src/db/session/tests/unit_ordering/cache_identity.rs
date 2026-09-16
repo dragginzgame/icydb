@@ -16,6 +16,50 @@ use crate::db::{
 use icydb_diagnostic_code::DiagnosticExecutionLane;
 
 #[test]
+fn scalar_preparation_shares_schema_without_following_root_replacement() {
+    use crate::db::session::query::schema_info_for_plan_cache_authority;
+
+    let session = initialize();
+    let first = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    let authority = first.accepted_entity_authority();
+    let schema = schema_info_for_plan_cache_authority(&authority, first.snapshot()).unwrap();
+    assert!(std::ptr::eq(schema.as_ref(), first.accepted_schema_info()));
+    let query = query();
+    let prepared = with_preparation_work(|work| {
+        query.prepare_scalar_planning_state_with_schema_info(schema.clone(), work)
+    })
+    .unwrap();
+    assert!(std::ptr::eq(prepared.schema_info(), schema.as_ref()));
+
+    publish_schema_with_label(
+        &session,
+        AcceptedSchemaRevision::INITIAL,
+        AcceptedSchemaRevision::new(2),
+        "renamed_label",
+    );
+    let current = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    let current_schema = schema_info_for_plan_cache_authority(
+        &current.accepted_entity_authority(),
+        current.snapshot(),
+    )
+    .unwrap();
+    assert!(!Rc::ptr_eq(&schema, &current_schema));
+    assert!(std::ptr::eq(
+        current_schema.as_ref(),
+        current.accepted_schema_info()
+    ));
+    drop((authority, first));
+    assert!(prepared.schema_info().field("label").is_some());
+    assert!(prepared.schema_info().field("renamed_label").is_none());
+    assert!(current_schema.field("label").is_none());
+    assert!(current_schema.field("renamed_label").is_some());
+}
+
+#[test]
 fn shared_query_cache_admits_only_with_sufficient_retained_capacity() {
     let session = initialize();
     let catalog = session

@@ -1,0 +1,67 @@
+//! Isolated extraction of the expression owner's bottom-up merge/permutation.
+//! No expression labels or production admission policy are added here.
+use std::cmp::Ordering;
+
+pub fn try_merge_sort_by<T, E>(
+    values: &mut [T],
+    mut compare: impl FnMut(&T, &T) -> Result<Ordering, E>,
+) -> Result<(), E> {
+    let len = values.len();
+    if len < 2 {
+        return Ok(());
+    }
+    let mut order: Vec<usize> = (0..len).collect();
+    let mut scratch = vec![0usize; len];
+    let mut width = 1usize;
+    while width < len {
+        for start in (0..len).step_by(width.saturating_mul(2)) {
+            let middle = start.saturating_add(width).min(len);
+            let end = middle.saturating_add(width).min(len);
+            let (mut left, mut right) = (start, middle);
+            for destination in &mut scratch[start..end] {
+                let take_left = right == end
+                    || (left < middle
+                        && compare(&values[order[left]], &values[order[right]])?.is_le());
+                if take_left {
+                    *destination = order[left];
+                    left += 1;
+                } else {
+                    *destination = order[right];
+                    right += 1;
+                }
+            }
+        }
+        std::mem::swap(&mut order, &mut scratch);
+        width = width.saturating_mul(2);
+    }
+    for (destination, &source) in order.iter().enumerate() {
+        scratch[source] = destination;
+    }
+    for index in 0..len {
+        while scratch[index] != index {
+            let destination = scratch[index];
+            values.swap(index, destination);
+            scratch.swap(index, destination);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::try_merge_sort_by;
+
+    #[test]
+    fn stable_ties_and_uneven_lengths_preserve_owned_values() {
+        for len in 0..=257 {
+            let original: Vec<_> = (0..len)
+                .map(|index| (index * 37 % 11, index.to_string()))
+                .collect();
+            let mut expected = original.clone();
+            expected.sort_by_key(|value| value.0);
+            let mut actual = original;
+            try_merge_sort_by(&mut actual, |a, b| Ok::<_, ()>(a.0.cmp(&b.0))).unwrap();
+            assert_eq!(actual, expected);
+        }
+    }
+}

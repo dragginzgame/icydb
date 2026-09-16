@@ -1,0 +1,163 @@
+//! Isolated IC qualification module, installed beneath schema::info.
+#![allow(unsafe_code)]
+use super::*;
+use crate::{
+    db::schema::{
+        AcceptedConstraintCatalog, AcceptedSourceBindingCatalog, PersistedFieldOrigin,
+        AcceptedSchemaRevisionBundle, CandidateSchemaRevision,
+        RowLayoutVersion, ScalarCodec, SchemaFieldWritePolicy, SchemaHistoricalFill,
+        SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+        composite_catalog::{
+            AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeField,
+            AcceptedCompositeShape, CompositeFieldId, CompositeTypeId,
+        },
+        enum_catalog::{
+            AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedStoreCatalogScope,
+        },
+    },
+    retained::RetainedBytes,
+    types::EntityTag,
+};
+use std::{collections::BTreeMap, hint::black_box};
+
+#[link(wasm_import_module = "ic0")]
+unsafe extern "C" {
+    fn performance_counter(kind: i32) -> i64;
+    fn msg_arg_data_copy(dst: i32, offset: i32, size: i32);
+    fn msg_reply_data_append(src: i32, size: i32);
+    fn msg_reply();
+}
+fn counter() -> u64 { unsafe { performance_counter(0) as u64 } }
+fn measured<T>(f: impl FnOnce() -> T) -> (u64, T) {
+    let start = counter();
+    let value = black_box(f());
+    (counter() - start, value)
+}
+fn reference(id: u32) -> AcceptedFieldKind {
+    AcceptedFieldKind::Composite { type_id: CompositeTypeId::new(id).unwrap() }
+}
+fn field(id: u32, name: String, kind: AcceptedFieldKind, leaves: Vec<PersistedNestedLeafSnapshot>) -> PersistedFieldSnapshot {
+    let composite = matches!(kind, AcceptedFieldKind::Composite { .. });
+    let storage = if composite { FieldStorageDecode::CatalogValue } else { FieldStorageDecode::ByKind };
+    let codec = if composite { LeafCodec::Structural } else { LeafCodec::Scalar(ScalarCodec::Nat64) };
+    PersistedFieldSnapshot::new_with_write_policy_and_origin(
+        FieldId::new(id), name, SchemaFieldSlot::new((id - 1) as u16), kind, leaves,
+        false, RowLayoutVersion::INITIAL, SchemaInsertDefault::None,
+        SchemaHistoricalFill::Reject, SchemaFieldWritePolicy::from_model_policies(None, None),
+        PersistedFieldOrigin::Generated, storage, codec,
+    )
+}
+
+fn fixture(kind: u32, n: usize, depth: u32, width: usize) -> (AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, AcceptedSchemaRevisionBundle) {
+    assert!(n < icydb_schema::MAX_FRAGMENT_FIELDS);
+    let enums = AcceptedEnumCatalog::from_initial_definitions(BTreeMap::new()).unwrap();
+    let mut definitions = BTreeMap::new();
+    if kind != 0 {
+        for id in 1..=depth + 1 {
+            let payload = if id == 1 { AcceptedFieldKind::Nat64 } else {
+                AcceptedFieldKind::Map { key: Box::new(reference(id - 1)), value: Box::new(reference(id - 1)) }
+            };
+            definitions.insert(CompositeTypeId::new(id).unwrap(), (
+                format!("probe::T{id}"),
+                AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(payload, false)),
+            ));
+        }
+    }
+    let mut leaves = Vec::new();
+    if kind == 2 {
+        let mut members = Vec::new();
+        for i in 0..width {
+            let label = format!("m{i:04}");
+            members.push(AcceptedCompositeField::new(
+                CompositeFieldId::new(i as u32 + 1).unwrap(), label.clone(),
+                AcceptedCompositeElement::new(reference(depth + 1), false),
+            ));
+            leaves.push(PersistedNestedLeafSnapshot::new(vec![label], reference(depth + 1), false));
+        }
+        definitions.insert(CompositeTypeId::new(depth + 2).unwrap(), (
+            "probe::Record".into(), AcceptedCompositeShape::Record(members),
+        ));
+    }
+    let composites = AcceptedCompositeCatalog::from_initial_definitions(definitions, &enums).unwrap();
+    let mut fields = vec![field(1, "id".into(), AcceptedFieldKind::Nat64, Vec::new())];
+    for i in 0..n {
+        let payload = match kind {
+            0 => AcceptedFieldKind::Nat64,
+            1 => reference(depth + 1),
+            2 => reference(depth + 2),
+            _ => panic!("fixture kind"),
+        };
+        let suffix = if kind == 0 { "x".repeat(width) } else { String::new() };
+        fields.push(field(i as u32 + 2, format!("f{i:04}{suffix}"), payload, leaves.clone()));
+    }
+    let constraints = AcceptedConstraintCatalog::initial(&fields, &[], &[]).unwrap();
+    let snapshot = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+        SchemaVersion::initial(), "probe::Entity".into(), "Entity".into(), FieldId::new(1),
+        SchemaRowLayout::single_version(RowLayoutVersion::INITIAL, fields.iter().map(|field| (field.id(), field.slot())).collect()),
+        fields, Vec::new(),
+    ).with_constraint_catalog(constraints);
+    let bindings = AcceptedSourceBindingCatalog::initial(
+        BTreeMap::from([(icydb_schema::EntitySourceKey::try_new("probe::Entity").unwrap(), EntityTag::new(1))]),
+        BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), BTreeMap::new(),
+    );
+    let handle = AcceptedValueCatalogHandle::new(
+        enums.clone(), composites.clone(), AcceptedStoreCatalogScope::new(),
+        AcceptedSchemaRevision::INITIAL, AcceptedSchemaFingerprint::new([1; 32]),
+    );
+    let accepted = AcceptedSchemaSnapshot::try_new(snapshot.clone()).unwrap();
+    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+        AcceptedSchemaRevision::INITIAL, "probe::Store", enums, composites, bindings,
+        BTreeMap::from([(EntityTag::new(1), snapshot)]),
+    ).unwrap();
+    (accepted, handle, bundle)
+}
+
+fn retained(schema: &SchemaInfo, limit: usize) -> Option<usize> {
+    let mut bytes = RetainedBytes::new(limit);
+    bytes.add(size_of::<SchemaInfo>())?;
+    bytes.visit(schema)?;
+    Some(bytes.total())
+}
+
+fn run(kind: u32, n: usize, depth: u32, width: usize) -> Vec<u64> {
+    // Fixtures are constructed and admitted outside every interval. Candidate
+    // preparation is separately measured on the resulting valid bundle.
+    let (snapshot, handle, bundle) = fixture(kind, n, depth, width);
+    let (admission, candidate) = measured(|| CandidateSchemaRevision::new(bundle).unwrap());
+    let bundle_bytes = candidate.encoded_bundle().len();
+    let encoded_bundle = candidate.encoded_bundle().to_vec();
+    let encoded_root = candidate.encoded_root().to_vec();
+    let (reload, restored) = measured(|| CandidateSchemaRevision::from_encoded(encoded_bundle, encoded_root).unwrap());
+    assert_eq!(restored.bundle(), candidate.bundle());
+    let (cold, schema) = measured(|| SchemaInfo::from_accepted_snapshot_and_catalog(black_box(&snapshot), handle, true));
+    let (clone_cost, cloned) = measured(|| black_box(&schema).clone());
+    assert_eq!(schema.fields.len(), cloned.fields.len());
+    for ((name, field), (other_name, other)) in schema.fields.iter().zip(&cloned.fields) {
+        assert_eq!(field.ty, other.ty);
+        assert!(Arc::ptr_eq(name, other_name));
+        assert!(Arc::ptr_eq(&field.query_kind, &other.query_kind));
+    }
+    let (drop_cost, ()) = measured(|| drop(black_box(cloned)));
+    let (repeated, ()) = measured(|| {
+        for _ in 0..4 { drop(black_box(black_box(&schema).clone())); }
+    });
+    let shared = Rc::new(schema);
+    let (shared_cost, ()) = measured(|| {
+        for _ in 0..4 { drop(black_box(Rc::clone(black_box(&shared)))); }
+    });
+    let (retention, weight) = measured(|| retained(&shared, 4 * 1024 * 1024));
+    let (_, full_weight) = measured(|| retained(&shared, usize::MAX));
+    vec![admission, reload, cold, clone_cost, drop_cost, repeated, shared_cost,
+        retention, weight.unwrap_or(0) as u64, full_weight.unwrap() as u64,
+        bundle_bytes as u64, shared.fields.len() as u64]
+}
+
+#[unsafe(export_name = "canister_query run")]
+extern "C" fn query() {
+    let mut args = [0u8; 16];
+    unsafe { msg_arg_data_copy(args.as_mut_ptr() as i32, 0, 16); }
+    let arg = |offset| u32::from_le_bytes(args[offset..offset + 4].try_into().unwrap());
+    let results = run(arg(0), arg(4) as usize, arg(8), arg(12) as usize);
+    let reply: Vec<u8> = results.into_iter().flat_map(u64::to_le_bytes).collect();
+    unsafe { msg_reply_data_append(reply.as_ptr() as i32, reply.len() as i32); msg_reply(); }
+}

@@ -31,7 +31,7 @@ use crate::{
     traits::CanisterKind,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource, DiagnosticExecutionLane};
-use std::{cell::RefCell, collections::HashMap};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 pub(in crate::db) use identity::QueryPlanVisibility;
 use identity::{QueryPlanAcceptedSchema, QueryPlanCacheKey, SchemaCacheIdentity};
@@ -123,26 +123,29 @@ thread_local! {
         RefCell::new(HashMap::default());
 }
 
-fn schema_info_for_plan_cache_authority(
+// Preparation owns a handle to the captured root, never a deep metadata copy.
+// An authority without complete expression-index metadata still reconstructs
+// that view from the same accepted snapshot and catalog.
+pub(in crate::db::session) fn schema_info_for_plan_cache_authority(
     authority: &EntityAuthority,
     accepted_schema: &AcceptedSchemaSnapshot,
-) -> Result<SchemaInfo, QueryError> {
-    if let Some(schema_info) = authority.accepted_schema_info()
+) -> Result<Rc<SchemaInfo>, QueryError> {
+    if let Some(schema_info) = authority.accepted_schema_info_handle()
         && (!accepted_schema_has_expression_indexes(accepted_schema)
             || !schema_info.expression_indexes().is_empty())
     {
-        return Ok(schema_info.clone());
+        return Ok(schema_info);
     }
 
     let enum_catalog = authority
         .accepted_value_catalog_handle()
         .map_err(QueryError::execute)?
         .clone();
-    Ok(SchemaInfo::from_accepted_snapshot_and_catalog(
+    Ok(Rc::new(SchemaInfo::from_accepted_snapshot_and_catalog(
         accepted_schema,
         enum_catalog,
         true,
-    ))
+    )))
 }
 
 fn accepted_schema_has_expression_indexes(accepted_schema: &AcceptedSchemaSnapshot) -> bool {
@@ -819,7 +822,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         authority: EntityAuthority,
         schema_identity: SchemaCacheIdentity,
-        schema_info: SchemaInfo,
+        schema_info: Rc<SchemaInfo>,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
         planning_context: HardExecutionContext,

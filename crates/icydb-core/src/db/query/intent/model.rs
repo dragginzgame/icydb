@@ -25,6 +25,7 @@ use crate::db::{
     },
     schema::SchemaInfo,
 };
+use std::rc::Rc;
 
 ///
 /// QueryModel
@@ -446,7 +447,7 @@ impl QueryModel {
 
     pub(in crate::db::query::intent) fn try_build_trivial_scalar_load_plan_with_schema_info(
         &self,
-        schema_info: SchemaInfo,
+        schema_info: Rc<SchemaInfo>,
         work: &PreparationWork<'_>,
     ) -> Result<Option<AccessPlannedQuery>, QueryError> {
         try_build_trivial_scalar_load_plan_with_schema_info(self, schema_info, work)
@@ -454,7 +455,7 @@ impl QueryModel {
 
     pub(in crate::db::query::intent) fn prepare_scalar_planning_state_with_schema_info(
         &self,
-        schema_info: SchemaInfo,
+        schema_info: Rc<SchemaInfo>,
         work: &PreparationWork<'_>,
     ) -> Result<PreparedScalarPlanningState<'_>, QueryError> {
         prepare_query_model_scalar_planning_state_with_schema_info(self, schema_info, work)

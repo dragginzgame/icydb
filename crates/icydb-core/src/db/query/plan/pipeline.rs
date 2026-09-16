@@ -5,6 +5,7 @@
 
 use crate::db::query::preparation::PreparationWork;
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+use std::rc::Rc;
 
 use crate::{
     db::{
@@ -51,10 +52,12 @@ pub(in crate::db) const MAX_EXACT_COUNT_PREFIX_CARDINALITY_KEYS: usize = 17;
 /// that both cache-key construction and planner misses need to reuse.
 /// This exists so the miss path can normalize one predicate and materialize one
 /// access inputs exactly once before handing the same state to planning.
+/// Schema metadata stays shared with its immutable accepted root; retaining this
+/// state does not make that root current authority for a later execution.
 ///
 
 pub(in crate::db) struct PreparedScalarPlanningState<'a> {
-    schema_info: SchemaInfo,
+    schema_info: Rc<SchemaInfo>,
     access_inputs: AccessPlanningInputs<'a>,
     normalized_predicate: Option<Predicate>,
     primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
@@ -64,7 +67,7 @@ impl<'a> PreparedScalarPlanningState<'a> {
     // Build one reusable scalar planning-state bundle after policy validation
     // and predicate normalization have already succeeded.
     const fn new(
-        schema_info: SchemaInfo,
+        schema_info: Rc<SchemaInfo>,
         access_inputs: AccessPlanningInputs<'a>,
         normalized_predicate: Option<Predicate>,
         primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
@@ -83,7 +86,7 @@ impl<'a> PreparedScalarPlanningState<'a> {
     }
 
     #[must_use]
-    pub(in crate::db) const fn schema_info(&self) -> &SchemaInfo {
+    pub(in crate::db) fn schema_info(&self) -> &SchemaInfo {
         &self.schema_info
     }
 }
@@ -228,7 +231,7 @@ pub(in crate::db::query) fn build_query_model_plan_from_parameterized_template(
 fn assemble_query_model_plan(
     query: &QueryModel,
     rerank_indexes: &[SemanticIndexAccessContract],
-    schema_info: SchemaInfo,
+    schema_info: Rc<SchemaInfo>,
     normalized_predicate: Option<Predicate>,
     primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
     access_plan_value: AccessPlan<Value>,
@@ -634,7 +637,7 @@ fn direct_count_index_supports_exact_prefix(
 /// Build the no-predicate scalar-load fast path using explicit schema authority.
 pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info(
     query: &QueryModel,
-    schema_info: SchemaInfo,
+    schema_info: Rc<SchemaInfo>,
     work: &PreparationWork<'_>,
 ) -> Result<Option<AccessPlannedQuery>, QueryError> {
     // Phase 1: keep this path deliberately narrow so it only bypasses work the
@@ -679,7 +682,7 @@ pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info(
 /// Prepare scalar planning inputs using the caller-provided schema authority.
 pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_with_schema_info<'query>(
     query: &'query QueryModel,
-    schema_info: SchemaInfo,
+    schema_info: Rc<SchemaInfo>,
     work: &PreparationWork<'_>,
 ) -> Result<PreparedScalarPlanningState<'query>, QueryError> {
     // Phase 1: validate query-intent policy shape before any cache or planner

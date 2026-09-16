@@ -104,6 +104,12 @@ impl EntityAuthority {
             .map(std::convert::AsRef::as_ref)
     }
 
+    /// Share this authority's immutable schema view with detached preparation.
+    #[must_use]
+    pub(in crate::db) fn accepted_schema_info_handle(&self) -> Option<Rc<SchemaInfo>> {
+        self.accepted_schema_info.as_ref().map(Rc::clone)
+    }
+
     /// Return the entity snapshot fingerprint captured by the runtime root.
     #[must_use]
     pub(in crate::db) const fn accepted_schema_fingerprint(&self) -> CommitSchemaFingerprint {

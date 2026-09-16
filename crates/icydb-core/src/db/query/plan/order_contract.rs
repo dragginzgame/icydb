@@ -281,7 +281,11 @@ impl DeterministicSecondaryOrderContract {
         {
             return DeterministicSecondaryIndexOrderMatch::Suffix;
         }
-        if terms.len() == index_len && order_terms_match_at(terms, index_len, 0, &matches) {
+        // At zero prefix the suffix check already tested this exact sequence.
+        if prefix_len != 0
+            && terms.len() == index_len
+            && order_terms_match_at(terms, index_len, 0, &matches)
+        {
             return DeterministicSecondaryIndexOrderMatch::Full;
         }
         DeterministicSecondaryIndexOrderMatch::None
@@ -629,6 +633,41 @@ mod tests {
     use crate::retained::RetainedBytes;
     use crate::value::Value;
     use std::rc::Rc;
+
+    #[test]
+    fn scalar_order_matching_does_not_retry_zero_prefix_comparisons() {
+        use super::DeterministicSecondaryIndexOrderMatch as Match;
+        use std::cell::Cell;
+
+        for has_primary_key_tail in [false, true] {
+            let mut keys = vec!["a", "b"];
+            if has_primary_key_tail {
+                keys.push("id");
+            }
+            for (terms, prefix, expected, expected_comparisons) in [
+                (["missing", "b"], 0, Match::None, 2),
+                (["a", "missing"], 0, Match::None, 3),
+                (["a", "b"], 0, Match::Suffix, 3),
+                (["a", "b"], 1, Match::Full, 3),
+                (["a", "missing"], 1, Match::None, 3),
+                (["a", "b"], usize::MAX, Match::Full, 3),
+            ] {
+                let contract = DeterministicSecondaryOrderContract {
+                    non_primary_key_terms: terms.into_iter().map(str::to_string).collect(),
+                    primary_key_terms: Rc::from(["id".to_string()]),
+                    direction: OrderDirection::Asc,
+                };
+                let comparisons = Cell::new(0);
+                let actual = contract.classify_index_match_by(keys.len(), prefix, |index, term| {
+                    comparisons.set(comparisons.get() + 1);
+                    keys[index] == term
+                });
+                assert_eq!(actual, expected);
+                // Includes the single primary-key-tail comparison in either case.
+                assert_eq!(comparisons.get(), expected_comparisons);
+            }
+        }
+    }
 
     #[test]
     fn candidate_order_reuse_preserves_scalar_and_grouped_matching() {
