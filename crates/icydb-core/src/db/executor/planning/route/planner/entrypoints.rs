@@ -45,7 +45,7 @@ pub(in crate::db::executor) enum RoutePlanRequest<'a> {
 pub(in crate::db::executor) fn build_execution_route_plan(
     plan: &AccessPlannedQuery,
     request: RoutePlanRequest<'_>,
-) -> ExecutionRoutePlan {
+) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     match request {
         RoutePlanRequest::Load {
             continuation,
@@ -73,7 +73,7 @@ fn build_load_execution_route_plan(
     probe_fetch_hint: Option<usize>,
     authority: Option<EntityAuthority>,
     load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
-) -> ExecutionRoutePlan {
+) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     let load_terminal_fast_path = load_terminal_fast_path.or_else(|| {
         authority
             .and_then(|authority| derive_load_terminal_fast_path_contract_for_plan(authority, plan))
@@ -90,9 +90,13 @@ fn build_load_execution_route_plan(
         probe_fetch_hint,
         planner_route_profile,
         &intent_stage,
-    );
+    )?;
 
-    build_execution_route_plan_from_stages(intent_stage, feasibility_stage, load_terminal_fast_path)
+    Ok(build_execution_route_plan_from_stages(
+        intent_stage,
+        feasibility_stage,
+        load_terminal_fast_path,
+    ))
 }
 
 /// Build canonical aggregate routing from planner-frozen query metadata.
@@ -101,7 +105,7 @@ pub(in crate::db::executor) fn build_aggregate_execution_route_plan_for_explain(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
     execution_preparation: &ExecutionPreparation,
-) -> ExecutionRoutePlan {
+) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     let planner_route_profile = plan.planner_route_profile();
     let intent_stage = derive_aggregate_route_intent_stage(aggregate, execution_preparation);
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
@@ -110,16 +114,20 @@ pub(in crate::db::executor) fn build_aggregate_execution_route_plan_for_explain(
         None,
         planner_route_profile,
         &intent_stage,
-    );
+    )?;
 
-    build_execution_route_plan_from_stages(intent_stage, feasibility_stage, None)
+    Ok(build_execution_route_plan_from_stages(
+        intent_stage,
+        feasibility_stage,
+        None,
+    ))
 }
 
 fn build_grouped_execution_route_plan(
     plan: &AccessPlannedQuery,
     grouped_plan_strategy: GroupedPlanStrategy,
     execution_preparation: &ExecutionPreparation,
-) -> ExecutionRoutePlan {
+) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     let planner_route_profile = plan.planner_route_profile();
     let intent_stage =
         derive_grouped_route_intent_stage(grouped_plan_strategy, execution_preparation);
@@ -129,7 +137,11 @@ fn build_grouped_execution_route_plan(
         None,
         planner_route_profile,
         &intent_stage,
-    );
+    )?;
 
-    build_execution_route_plan_from_stages(intent_stage, feasibility_stage, None)
+    Ok(build_execution_route_plan_from_stages(
+        intent_stage,
+        feasibility_stage,
+        None,
+    ))
 }

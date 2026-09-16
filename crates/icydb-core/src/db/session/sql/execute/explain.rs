@@ -78,10 +78,12 @@ fn render_sql_execution_explain_json_array(diagnostics: &[String]) -> String {
     out
 }
 
-fn diagnostic_explain_admission_for_plan(plan: &AccessPlannedQuery) -> QueryAdmissionSummary {
-    QueryAdmissionPolicy::diagnostic_explain().evaluate(QueryAdmissionSummary::from_plan(
-        QueryAdmissionLane::DiagnosticExplain,
-        plan,
+fn diagnostic_explain_admission_for_plan(
+    plan: &AccessPlannedQuery,
+) -> Result<QueryAdmissionSummary, QueryError> {
+    Ok(QueryAdmissionPolicy::diagnostic_explain().evaluate(
+        QueryAdmissionSummary::from_plan(QueryAdmissionLane::DiagnosticExplain, plan)
+            .map_err(QueryError::execute)?,
     ))
 }
 
@@ -328,7 +330,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                 let diagnostics =
                     FinalizedQueryDiagnostics::new(descriptor, Vec::new(), Vec::new(), None)
-                        .with_admission(diagnostic_explain_admission_for_plan(plan));
+                        .with_admission(diagnostic_explain_admission_for_plan(plan)?);
                 Ok(match mode {
                     SqlExplainMode::Execution => render_sql_execution_explain(&diagnostics),
                     SqlExplainMode::ExecutionJson => {
@@ -513,7 +515,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(render_sql_execution_explain(
             &FinalizedQueryDiagnostics::new(execution, Vec::new(), Vec::new(), None)
-                .with_admission(diagnostic_explain_admission_for_plan(plan)),
+                .with_admission(diagnostic_explain_admission_for_plan(plan)?),
         ))
     }
 
@@ -538,7 +540,7 @@ impl<C: CanisterKind> DbSession<C> {
             Vec::new(),
             None,
         )
-        .with_admission(diagnostic_explain_admission_for_plan(plan));
+        .with_admission(diagnostic_explain_admission_for_plan(plan)?);
 
         render_sql_execution_explain_json(&diagnostics)
     }

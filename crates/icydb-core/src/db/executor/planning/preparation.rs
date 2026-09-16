@@ -270,22 +270,22 @@ impl std::fmt::Debug for ExecutionPreparation {
 
 /// Resolve covering strict-predicate compatibility without building predicate
 /// capability state when the residual-filter contract already decides it.
-#[must_use]
 pub(in crate::db::executor) fn covering_strict_predicate_compatible_for_plan(
     plan: &AccessPlannedQuery,
-) -> bool {
-    if !plan.has_residual_filter_predicate() {
-        return covering_strict_predicate_compatible(plan, None);
+) -> Result<bool, InternalError> {
+    let residual = plan.residual_filter_contract()?;
+    if residual.residual_filter_predicate().is_none() {
+        return Ok(covering_strict_predicate_compatible(residual, None));
     }
 
     let execution_preparation =
         ExecutionPreparation::from_covering_route_plan(plan, slot_map_for_model_plan(plan));
-    covering_strict_predicate_compatible(
-        plan,
+    Ok(covering_strict_predicate_compatible(
+        residual,
         execution_preparation
             .predicate_capability_profile()
             .map(PredicateCapabilityProfile::index),
-    )
+    ))
 }
 
 // Derive one optional predicate capability snapshot from the compiled

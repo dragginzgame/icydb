@@ -264,8 +264,10 @@ where
         suppress_route_scan_hints,
         prebuilt_route_plan,
     } = options;
-    let prebuilt_route_plan = prebuilt_route_plan
-        .unwrap_or_else(|| prepare_initial_scalar_route_plan_from_handoff(&prepared));
+    let prebuilt_route_plan = prebuilt_route_plan.map_or_else(
+        || prepare_initial_scalar_route_plan_from_handoff(&prepared),
+        Ok,
+    )?;
 
     prepare_scalar_route_runtime_from_inputs(
         db,
@@ -287,7 +289,7 @@ where
 // the route-plan extraction contract.
 fn prepare_initial_scalar_route_plan_from_handoff(
     prepared: &PreparedScalarRuntimeHandoff,
-) -> ExecutionRoutePlan {
+) -> Result<ExecutionRoutePlan, InternalError> {
     prepared
         .plan_core
         .get_or_init_initial_scalar_route_plan(prepared.authority.clone())
@@ -448,7 +450,7 @@ where
                     authority: Some(Box::new(authority.clone())),
                     load_terminal_fast_path: None,
                 },
-            );
+            )?;
             (route_plan, continuation, false)
         }
     };

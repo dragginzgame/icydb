@@ -538,10 +538,10 @@ impl<C: CanisterKind> DbSession<C> {
         };
         if matches!(lane, DynamicReadLane::Public) {
             let policy = QueryAdmissionPolicy::default_bounded_read();
-            let summary = policy.evaluate(QueryAdmissionSummary::from_plan(
-                policy.lane(),
-                prepared_plan.logical_plan(),
-            ));
+            let summary = policy.evaluate(
+                QueryAdmissionSummary::from_plan(policy.lane(), prepared_plan.logical_plan())
+                    .map_err(QueryError::execute)?,
+            );
             if let Some(rejection) = summary.rejection() {
                 return Err(QueryError::from(rejection.code()).into());
             }

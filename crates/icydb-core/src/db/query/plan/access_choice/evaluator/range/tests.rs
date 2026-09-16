@@ -142,7 +142,12 @@ fn range_scores_keep_gaps_conflicts_and_full_input_rejection_precedence() {
         })
         .unwrap();
         assert_eq!(predicate, before);
-        assert_eq!(root.observed(Resource::NestedValueSteps), 0);
+        let compared_nodes = if expected == Err(Reason::ConflictingEqConstraints) {
+            2
+        } else {
+            0
+        };
+        assert_eq!(root.observed(Resource::NestedValueSteps), compared_nodes);
     }
 }
 
@@ -171,12 +176,17 @@ fn range_equality_matching_borrows_raw_values_and_admits_conversion_cumulatively
         ));
         let predicate = Predicate::And(vec![cmp.clone(), cmp]);
         let bytes = if expression { 2 * lower_bytes } else { 0 };
-        let steps = 5 + if expression { 2 * lower_steps } else { 0 };
+        let compared_bytes = if expression {
+            text.to_lowercase().len()
+        } else {
+            text.len()
+        };
+        let steps = 5 + if expression { 2 * lower_steps } else { 0 } + compared_bytes as u64;
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             for (resource, exact) in [
                 (Resource::TemporaryBytes, bytes),
                 (Resource::PredicateExpressionSteps, steps),
-                (Resource::NestedValueSteps, 0),
+                (Resource::NestedValueSteps, 2),
             ] {
                 for limit in [0, exact.saturating_sub(1), exact * 2] {
                     let root = request(resource, limit);
@@ -274,7 +284,17 @@ fn range_expression_equality_uses_canonical_values_and_retains_prefix_bound_stre
             ),
         ];
         for (children, expected) in cases {
-            let root = request(Resource::NestedValueSteps, 0);
+            // Only the duplicate equality case compares operands; range facts
+            // are classified without ordering the bounds in this diagnostic owner.
+            let compared_nodes = if matches!(
+                expected,
+                Err(Reason::MissingRangeConstraint | Reason::ConflictingEqConstraints)
+            ) {
+                2
+            } else {
+                0
+            };
+            let root = request(Resource::NestedValueSteps, compared_nodes);
             PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
                 assert_eq!(
                     score(
@@ -291,6 +311,7 @@ fn range_expression_equality_uses_canonical_values_and_retains_prefix_bound_stre
                 Ok(())
             })
             .unwrap();
+            assert_eq!(root.observed(Resource::NestedValueSteps), compared_nodes);
         }
     }
 }

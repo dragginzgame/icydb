@@ -111,7 +111,13 @@ fn ordered_range_selection_admits_one_operand_slots_and_path() {
     let bytes = (std::mem::size_of_val(indexes)
         + size_of::<usize>()
         + size_of::<AccessPath<Value>>()) as u64;
-    let steps = 1 + 2 * indexes.len() as u64;
+    // Candidate visits plus completeness checks of every accepted key component.
+    let steps = 1
+        + 2 * indexes.len() as u64
+        + indexes
+            .iter()
+            .map(|index| index.key_arity() as u64)
+            .sum::<u64>();
     for (predicate, lower, upper) in cases {
         let before = predicate.clone();
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
@@ -194,7 +200,13 @@ fn secondary_lookup_selection_admits_only_one_output_list_and_path() {
         let bytes = (std::mem::size_of_val(indexes)
             + count * size_of::<Value>()
             + size_of::<AccessPath<Value>>()) as u64;
-        let steps = 1 + 2 * indexes.len() as u64;
+        let steps = 1
+            + if count == 1 { 0 } else { count as u64 }
+            + 2 * indexes.len() as u64
+            + indexes
+                .iter()
+                .map(|index| index.key_arity() as u64)
+                .sum::<u64>();
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             for (resource, exact) in [
                 (Resource::TemporaryBytes, bytes),
@@ -538,11 +550,20 @@ fn candidate_snapshot_lists_and_names_obey_exact_and_cumulative_admission() {
     let name_bytes = "a_âge".len() + 3 * "b_age".len() + "z_rank".len();
     let total_bytes = (list_bytes
         + name_bytes
+        + 2 * "age".len()
         + size_of::<SemanticIndexAccessContract>()
         + size_of::<Value>()
         + size_of::<AccessPath<Value>>()) as u64;
-    // The alternative also visits its predicate through the shared planner.
-    let total_steps = (name_bytes + 5 + 1 + 1 + 1) as u64;
+    // Proof-owner tests pin traversal admission. This integration check includes
+    // that work without duplicating the proof's internal visit formula.
+    let baseline = request(Resource::PredicateExpressionSteps, 16_000_000);
+    PreparationWork::run(&baseline.scope(), Lane::Diagnostic, |work| {
+        plan.clone()
+            .finalize_access_choice_with_semantic_indexes_and_schema(indexes, &schema, work)
+            .map_err(QueryError::execute)
+    })
+    .unwrap();
+    let total_steps = baseline.observed(Resource::PredicateExpressionSteps);
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
         for (resource, total) in [
             (Resource::TemporaryBytes, total_bytes),
@@ -600,17 +621,24 @@ fn cardinality_candidate_list_is_admitted_before_route_copies() {
     let (schema, visible, plan) = fixture();
     let indexes = visible.accepted_semantic_index_contracts();
     let list_bytes = (indexes.len() * size_of::<CardinalityTiebreakCandidate>()) as u64;
+    let residual_bytes = "age".len() as u64;
     let total = list_bytes
+        + 2 * residual_bytes
         + (size_of::<SemanticIndexAccessContract>()
             + size_of::<Value>()
             + size_of::<AccessPath<Value>>()) as u64;
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        for limit in [list_bytes - 1, total] {
+        // The chosen residual precedes list admission; the alternative's
+        // route and residual cannot be copied until that list is admitted.
+        for limit in [residual_bytes + list_bytes - 1, total] {
             let root = request(Resource::TemporaryBytes, limit);
             PreparationWork::run(&root.scope(), lane, |work| {
                 let result = exact_cardinality_tiebreak_candidates(indexes, &schema, &plan, work);
-                if limit < list_bytes {
+                if limit < residual_bytes + list_bytes {
                     assert_resource(result.unwrap_err(), Resource::TemporaryBytes);
+                    // One residual copy plus its two-visit comparison extent;
+                    // the alternative's route/value work has not started.
+                    assert_eq!(root.observed(Resource::NestedValueSteps), 3);
                 } else {
                     assert_eq!(result.unwrap().unwrap().len(), 2);
                     assert_eq!(root.observed(Resource::TemporaryBytes), total);

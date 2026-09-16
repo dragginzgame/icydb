@@ -46,7 +46,8 @@ pub(in crate::db) use range::raw_keys_for_component_prefix_with_kind;
 pub(in crate::db) use range::{
     IndexRangeBoundEncodeError, TextPrefixBoundMode, admit_index_prefix_bounds,
     admit_text_prefix_bounds, build_index_component_range_with_encoded_prefix,
-    build_index_prefix_bounds_for_encoded_components, starts_with_component_bounds,
+    build_index_prefix_bounds_for_encoded_components, next_text_prefix,
+    starts_with_component_bounds,
 };
 pub(in crate::db) use readers::{
     IndexReadContract, StructuralIndexEntryReader, StructuralPrimaryRowReader,

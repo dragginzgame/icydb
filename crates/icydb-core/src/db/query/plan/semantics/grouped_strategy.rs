@@ -12,7 +12,7 @@ use crate::db::{
     access::AccessPlan,
     query::plan::{
         AccessPlannedQuery, GroupAggregateSpec, GroupFieldSet, GroupPlan,
-        GroupedPlanAggregateFamily, OrderSpec,
+        GroupedPlanAggregateFamily, OrderSpec, ResidualFilterShape,
         expr::{
             GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
             try_classify_grouped_order_term_for_field, try_classify_grouped_top_k_order_term,
@@ -21,6 +21,7 @@ use crate::db::{
     },
     query::preparation::PreparationWork,
 };
+use crate::error::InternalError;
 
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
@@ -178,19 +179,14 @@ impl GroupedPlanStrategy {
     }
 }
 
-/// Project one planner-owned grouped strategy from one access-planned query.
-#[must_use]
+/// Project grouped strategy with explicit, demand-driven residual preparation.
 pub(in crate::db) fn grouped_plan_strategy(
     plan: &AccessPlannedQuery,
-) -> Option<GroupedPlanStrategy> {
-    plan.grouped_plan().map(|grouped| {
-        match derive_grouped_plan_strategy(plan, grouped, &mut |_| {
-            Ok::<_, std::convert::Infallible>(())
-        }) {
-            Ok(strategy) => strategy,
-            Err(never) => match never {},
-        }
-    })
+    residual: impl FnOnce() -> Result<ResidualFilterShape, InternalError>,
+) -> Result<Option<GroupedPlanStrategy>, InternalError> {
+    plan.grouped_plan()
+        .map(|grouped| derive_grouped_plan_strategy(plan, grouped, residual, &mut |_| Ok(())))
+        .transpose()
 }
 
 /// Project grouped diagnostic strategy under the current request allowance.
@@ -200,9 +196,15 @@ pub(in crate::db) fn grouped_plan_strategy_for_explain(
     grouped: &GroupPlan,
     work: &PreparationWork<'_>,
 ) -> Result<GroupedPlanStrategy, QueryError> {
-    derive_grouped_plan_strategy(plan, grouped, &mut |steps| {
-        work.charge(Resource::PredicateExpressionSteps, steps)
-    })
+    derive_grouped_plan_strategy(
+        plan,
+        grouped,
+        || {
+            plan.prepare_residual_filter_shape(work)
+                .map_err(QueryError::execute)
+        },
+        &mut |steps| work.charge(Resource::PredicateExpressionSteps, steps),
+    )
 }
 
 // One borrowed evaluator owns selection for ordinary identity and diagnostics.
@@ -210,6 +212,7 @@ pub(in crate::db) fn grouped_plan_strategy_for_explain(
 fn derive_grouped_plan_strategy<E>(
     plan: &AccessPlannedQuery,
     grouped: &GroupPlan,
+    residual: impl FnOnce() -> Result<ResidualFilterShape, E>,
     observe: &mut impl FnMut(u64) -> Result<(), E>,
 ) -> Result<GroupedPlanStrategy, E> {
     observe(1)?;
@@ -252,7 +255,7 @@ fn derive_grouped_plan_strategy<E>(
     // planner proves the selected index stream complete for the query. Its
     // residual predicate filters rows without disturbing group-key order;
     // preserve the older direct-only fallback rule outside that proof.
-    if plan.has_any_residual_filter() && grouped.group.group_fields.as_path_aware().is_none() {
+    if !residual()?.is_absent() && grouped.group.group_fields.as_path_aware().is_none() {
         return Ok(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::ResidualFilterBlocksGroupedOrder,
             aggregate_family,

@@ -39,7 +39,7 @@ where
         runtime.plan,
         hybrid.strict_predicate_compatible,
         runtime.index_predicate_execution.is_some(),
-    ) {
+    )? {
         return Ok(None);
     }
 

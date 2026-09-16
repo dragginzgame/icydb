@@ -13,6 +13,7 @@ use crate::{
                 copy_lookup_value_for_key_item, key_item_supports_starts_with_value,
                 lower_lookup_value_for_key_item,
             },
+            order_contract::CandidateOrderContract,
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
                 access_candidate_score_outranks, index_literal_matches_schema,
@@ -85,6 +86,7 @@ pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
     let (Some(start), Some(end)) = (lower, upper) else {
         return Ok(None);
     };
+    budget.admit_value_comparison(start)?;
     if canonical_cmp(start, end) != Ordering::Less {
         return Ok(None);
     }
@@ -163,6 +165,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         Resource::PredicateExpressionSteps,
         candidate_indexes.len() as u64,
     )?;
+    let order_contract = CandidateOrderContract::prepare(schema, order, grouped, budget)?;
     for index in candidate_indexes {
         let Some((range_slot, prefix, range)) =
             index_range_candidate_for_index(index, schema, &compares, budget)?
@@ -172,13 +175,11 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
 
         let prefix_len = prefix.len();
         let score = access_candidate_score_from_index_contract(
-            schema,
-            order,
+            order_contract.as_ref(),
             index,
             prefix_len,
             false,
             range_bound_count(&range.lower, &range.upper),
-            grouped,
         );
         match best {
             None => best = Some((score, index, range_slot, prefix, range)),
@@ -336,7 +337,7 @@ fn key_item_constraint_for_index_slot(
                     else {
                         continue;
                     };
-                    if existing != candidate.as_ref() {
+                    if !budget.values_equal(existing, candidate.as_ref())? {
                         return Ok(None);
                     }
                 }
@@ -365,7 +366,7 @@ fn key_item_constraint_for_index_slot(
                     IndexFieldConstraint::Eq(_) => return Ok(None),
                     IndexFieldConstraint::Range(existing) => existing,
                 };
-                if !merge_range_constraint_bounds(&mut range, candidate) {
+                if !merge_range_constraint_bounds(&mut range, candidate, budget)? {
                     return Ok(None);
                 }
                 constraint = IndexFieldConstraint::Range(range);
@@ -461,7 +462,7 @@ fn merge_ordered_compare_constraint_for_key_item(
         IndexFieldConstraint::Eq(_) => return Ok(None),
         IndexFieldConstraint::Range(existing) => existing,
     };
-    if !merge_range_constraint(&mut range, cmp.op, candidate) {
+    if !merge_range_constraint(&mut range, cmp.op, candidate, budget)? {
         return Ok(None);
     }
 

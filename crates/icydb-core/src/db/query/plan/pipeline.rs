@@ -293,7 +293,8 @@ fn finalize_query_model_plan(
     // Phase 4: freeze the planner-owned route profile before validation so
     // policy gates that depend on finalized access/order contracts, such as
     // expression ORDER BY support, see the accepted route semantics.
-    plan.finalize_planner_route_profile_for_model_with_schema(schema_info);
+    plan.finalize_planner_route_profile_for_model_with_schema(schema_info, work)
+        .map_err(QueryError::execute)?;
 
     // Phase 5: validate the assembled plan against schema, access-shape, and
     // planner-policy contracts before projecting explain metadata.
@@ -406,7 +407,9 @@ fn direct_count_cardinality_prefix_access_from_predicate<'predicate>(
             schema_info,
             normalized_predicate,
             cmp.field.as_str(),
-        ) else {
+            work,
+        )?
+        else {
             return Ok(None);
         };
 
@@ -435,16 +438,17 @@ fn direct_count_exact_composite_prefix_access<'predicate>(
     // Keep selection authority on accepted field-path contracts, then require
     // the concrete bounds to discharge the entire predicate before retaining
     // only metadata prefixes from this non-executable proof plan.
-    let candidate_indexes = visible_indexes
-        .accepted_field_path_indexes()
-        .iter()
-        .map(super::AcceptedPlannerFieldPathIndex::semantic_access_contract)
-        .filter(|index| {
-            !index.is_filtered()
-                && !index.has_expression_key_items()
-                && index_stream_is_complete_for_query(schema_info, index, normalized_predicate)
-        })
-        .collect::<Vec<_>>();
+    let mut candidate_indexes = Vec::new();
+    for accepted in visible_indexes.accepted_field_path_indexes() {
+        let index = accepted.semantic_access_contract();
+        if !index.is_filtered()
+            && !index.has_expression_key_items()
+            && index_stream_is_complete_for_query(schema_info, &index, normalized_predicate, work)
+                .map_err(QueryError::execute)?
+        {
+            candidate_indexes.push(index);
+        }
+    }
     let Some(access) = count_cardinality_index_branch_set_from_and(
         candidate_indexes.as_slice(),
         schema_info,
@@ -459,8 +463,13 @@ fn direct_count_exact_composite_prefix_access<'predicate>(
     let Some(path) = access.as_path() else {
         return Ok(None);
     };
-    if residual_query_predicate_after_access_path_bounds(Some(path), normalized_predicate.clone())
-        .is_some()
+    if residual_query_predicate_after_access_path_bounds(
+        Some(path),
+        work.copy_predicate(normalized_predicate)?,
+        work,
+    )
+    .map_err(QueryError::execute)?
+    .is_some()
     {
         return Ok(None);
     }
@@ -553,11 +562,13 @@ fn direct_count_exact_prefix_index(
     schema_info: &SchemaInfo,
     predicate: &Predicate,
     field: &str,
-) -> Option<SemanticIndexAccessContract> {
+    work: &PreparationWork<'_>,
+) -> Result<Option<SemanticIndexAccessContract>, QueryError> {
     best_exact_field_path_index(visible_indexes, |index| {
-        direct_count_index_supports_exact_prefix(index, field)
-            && index_stream_is_complete_for_query(schema_info, index, predicate)
+        Ok(direct_count_index_supports_exact_prefix(index, field)
+            && index_stream_is_complete_for_query(schema_info, index, predicate, work)?)
     })
+    .map_err(QueryError::execute)
 }
 
 /// Select one complete accepted index for exact leading-component metadata.
@@ -573,31 +584,42 @@ pub(in crate::db) fn exact_first_component_metadata_index(
         return None;
     }
 
-    best_exact_field_path_index(visible_indexes, |index| {
-        !index.is_filtered()
-            && index.key_field_at(0) == Some(field)
-            && (0..index.key_arity()).all(|slot| {
-                index.key_field_at(slot).is_some_and(|key_field| {
-                    schema_info.accepted_field_is_nullable(key_field) == Some(false)
-                })
-            })
-    })
+    match best_exact_field_path_index(visible_indexes, |index| {
+        Ok::<_, std::convert::Infallible>(
+            !index.is_filtered()
+                && index.key_field_at(0) == Some(field)
+                && (0..index.key_arity()).all(|slot| {
+                    index.key_field_at(slot).is_some_and(|key_field| {
+                        schema_info.accepted_field_is_nullable(key_field) == Some(false)
+                    })
+                }),
+        )
+    }) {
+        Ok(index) => index,
+        Err(never) => match never {},
+    }
 }
 
-fn best_exact_field_path_index(
+fn best_exact_field_path_index<E>(
     visible_indexes: &VisibleIndexes,
-    supports: impl Fn(&SemanticIndexAccessContract) -> bool,
-) -> Option<SemanticIndexAccessContract> {
-    visible_indexes
-        .accepted_field_path_indexes()
-        .iter()
-        .map(super::AcceptedPlannerFieldPathIndex::semantic_access_contract)
-        .filter(supports)
-        .min_by(|left, right| {
-            left.key_arity()
-                .cmp(&right.key_arity())
-                .then_with(|| left.name().cmp(right.name()))
-        })
+    supports: impl Fn(&SemanticIndexAccessContract) -> Result<bool, E>,
+) -> Result<Option<SemanticIndexAccessContract>, E> {
+    let mut best: Option<SemanticIndexAccessContract> = None;
+    for accepted in visible_indexes.accepted_field_path_indexes() {
+        let index = accepted.semantic_access_contract();
+        if supports(&index)?
+            && best.as_ref().is_none_or(|current| {
+                index
+                    .key_arity()
+                    .cmp(&current.key_arity())
+                    .then_with(|| index.name().cmp(current.name()))
+                    .is_lt()
+            })
+        {
+            best = Some(index);
+        }
+    }
+    Ok(best)
 }
 
 fn direct_count_index_supports_exact_prefix(
@@ -646,7 +668,8 @@ pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info(
 
     // Phase 3: preserve the finalized planner/executor contracts produced by
     // the general pipeline for this same simple shape.
-    plan.finalize_planner_route_profile_for_model_with_schema(&schema_info);
+    plan.finalize_planner_route_profile_for_model_with_schema(&schema_info, work)
+        .map_err(QueryError::execute)?;
     let projection = plan.prepare_projection(&schema_info, work)?;
     plan.finalize_static_execution_planning_contract_with_schema(&schema_info, projection, work)?;
 
@@ -1090,14 +1113,22 @@ mod tests {
         let visible =
             VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
         let indexes = visible.accepted_semantic_index_contracts();
+        let baseline = RequestExecutionRoot::new_for_tests(HardExecutionBudget::uniform_for_tests(
+            16_000_000,
+            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+        ));
+        PreparationWork::run(&baseline.scope(), Lane::PublicRead, |work| {
+            eligible_sorted_index_contracts(indexes, &schema, &Predicate::True, work)
+                .map_err(QueryError::execute)
+        })
+        .unwrap();
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
-                let allowance = indexes.len() as u64
-                    * if resource == Resource::TemporaryBytes {
-                        size_of::<SemanticIndexAccessContract>() as u64
-                    } else {
-                        1
-                    };
+                let allowance = if resource == Resource::TemporaryBytes {
+                    std::mem::size_of_val(indexes) as u64
+                } else {
+                    baseline.observed(resource)
+                };
                 for limit in [allowance - 1, allowance * 2] {
                     let root = RequestExecutionRoot::new_for_tests(
                         HardExecutionBudget::uniform_for_tests(

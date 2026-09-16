@@ -50,7 +50,7 @@ where
         plan,
         covering.strict_predicate_compatible,
         index_predicate_execution.is_some(),
-    ) {
+    )? {
         // Residual predicates stay on covering only when they compile to an
         // index-only program. The covering component resolver applies that
         // program before any reorder or page window, including materialized
@@ -334,7 +334,7 @@ where
 {
     if !plan.access.has_selected_index_access_path()
         || plan.scalar_plan().distinct
-        || plan.has_any_residual_filter()
+        || plan.has_any_residual_filter()?
     {
         return Ok(None);
     }

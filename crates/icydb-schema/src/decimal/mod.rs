@@ -12,7 +12,6 @@ mod tests;
 
 use crate::NumericValue;
 use std::fmt::{Display, Formatter};
-use std::str::FromStr;
 
 // We cap scale at 28 to keep i128 intermediate math practical while still
 // covering common fixed-point workloads (including e8/e18 compatibility).
@@ -227,7 +226,7 @@ impl Decimal {
             return None;
         }
 
-        Self::from_str(&n.to_string()).ok()
+        Self::from_float_text(format_args!("{n}"))
     }
 
     /// Explicit lossy conversion from `f64`.
@@ -240,7 +239,7 @@ impl Decimal {
             return None;
         }
 
-        Self::from_str(&n.to_string()).ok()
+        Self::from_float_text(format_args!("{n}"))
     }
 
     ///

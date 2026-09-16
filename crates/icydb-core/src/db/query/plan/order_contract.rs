@@ -11,13 +11,62 @@ use crate::{
         access::{AccessPathKind, AccessShapeFacts, SemanticIndexKeyItem},
         direction::Direction,
         query::{
+            builder::scalar_projection::write_scalar_projection_expr_plan_label,
             construction::ConstructionBudget,
             plan::{OrderDirection, OrderSpec},
         },
+        schema::SchemaInfo,
     },
     error::InternalError,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::rc::Rc;
+
+/// Temporary ordering facts shared by one candidate-selection pass.
+/// This carries the existing grouping choice, not a second matching policy.
+pub(in crate::db::query::plan) enum CandidateOrderContract {
+    Scalar(DeterministicSecondaryOrderContract),
+    Grouped(GroupedIndexOrderContract),
+}
+
+impl CandidateOrderContract {
+    // Reuse the established constructors; matching must not invent new labels.
+    pub(in crate::db::query::plan) fn prepare(
+        schema: &SchemaInfo,
+        order: Option<&OrderSpec>,
+        grouped: bool,
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Option<Self>, InternalError> {
+        let Some(order) = order else { return Ok(None) };
+        if grouped {
+            Ok(order
+                .grouped_index_order_contract(budget)?
+                .map(Self::Grouped))
+        } else {
+            Ok(order
+                .deterministic_secondary_order_contract_fields(
+                    schema.shared_primary_key_names(),
+                    budget,
+                )?
+                .map(Self::Scalar))
+        }
+    }
+
+    pub(in crate::db::query::plan) fn satisfies(
+        &self,
+        key_items: &[SemanticIndexKeyItem],
+        prefix_len: usize,
+    ) -> bool {
+        match self {
+            Self::Scalar(contract) => {
+                deterministic_secondary_index_key_items_satisfied(contract, key_items, prefix_len)
+            }
+            Self::Grouped(contract) => {
+                grouped_index_key_items_satisfied(contract, key_items, prefix_len)
+            }
+        }
+    }
+}
 
 ///
 /// DeterministicSecondaryIndexOrderMatch
@@ -87,32 +136,41 @@ pub(in crate::db) struct DeterministicSecondaryOrderContract {
 impl DeterministicSecondaryOrderContract {
     /// Build one normalized deterministic order contract, retaining the accepted
     /// primary-key name allocation rather than copying its ordered suffix.
-    #[must_use]
     pub(in crate::db) fn from_order_spec_fields(
         order: &OrderSpec,
         primary_key_names: Rc<[String]>,
-    ) -> Option<Self> {
-        let direction = order.fields.last()?.direction();
-        has_exact_ordered_primary_key_tie_break_fields(order.fields.as_slice(), &primary_key_names)
-            .then_some(())?;
-        if order
-            .fields
-            .iter()
-            .any(|term| term.direction() != direction)
-        {
-            return None;
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Option<Self>, InternalError> {
+        let Some(last) = order.fields.last() else {
+            return Ok(None);
+        };
+        let direction = last.direction();
+        if !has_exact_ordered_primary_key_tie_break_fields(
+            order.fields.as_slice(),
+            &primary_key_names,
+            budget,
+        )? {
+            return Ok(None);
+        }
+        for term in &order.fields {
+            budget.charge(Resource::PredicateExpressionSteps, 1)?;
+            if term.direction() != direction {
+                return Ok(None);
+            }
         }
 
-        Some(Self {
-            non_primary_key_terms: order
-                .fields
-                .iter()
-                .take(order.fields.len().saturating_sub(primary_key_names.len()))
-                .map(crate::db::query::plan::OrderTerm::rendered_label)
-                .collect(),
+        Ok(Some(Self {
+            non_primary_key_terms: budget.copy_slice(
+                &order.fields[..order.fields.len() - primary_key_names.len()],
+                |term| {
+                    budget.render_text(|out| {
+                        write_scalar_projection_expr_plan_label(term.expr(), out)
+                    })
+                },
+            )?,
             primary_key_terms: primary_key_names,
             direction,
-        })
+        }))
     }
 
     /// Return the shared direction across the full deterministic order shape.
@@ -305,28 +363,27 @@ pub(in crate::db) fn access_satisfies_deterministic_secondary_order_contract(
 impl GroupedIndexOrderContract {
     /// Build one grouped ORDER BY contract from one uniform-direction grouped
     /// order spec.
-    #[must_use]
-    pub(in crate::db) fn from_order_spec(order: &OrderSpec) -> Option<Self> {
-        let direction = order
-            .fields
-            .first()
-            .map(crate::db::query::plan::OrderTerm::direction)?;
-        if order
-            .fields
-            .iter()
-            .any(|term| term.direction() != direction)
-        {
-            return None;
+    pub(in crate::db) fn from_order_spec(
+        order: &OrderSpec,
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Option<Self>, InternalError> {
+        let Some(first) = order.fields.first() else {
+            return Ok(None);
+        };
+        let direction = first.direction();
+        for term in &order.fields {
+            budget.charge(Resource::PredicateExpressionSteps, 1)?;
+            if term.direction() != direction {
+                return Ok(None);
+            }
         }
 
-        Some(Self {
-            terms: order
-                .fields
-                .iter()
-                .map(crate::db::query::plan::OrderTerm::rendered_label)
-                .collect(),
+        Ok(Some(Self {
+            terms: budget.copy_slice(&order.fields, |term| {
+                budget.render_text(|out| write_scalar_projection_expr_plan_label(term.expr(), out))
+            })?,
             direction,
-        })
+        }))
     }
 
     /// Classify accepted key items without rendering a temporary label list.
@@ -407,19 +464,21 @@ impl OrderSpec {
 
     /// Return the normalized deterministic `..., primary_key_fields` order
     /// contract, if one exists for this ORDER BY shape.
-    #[must_use]
     pub(in crate::db) fn deterministic_secondary_order_contract_fields(
         &self,
         primary_key_names: Rc<[String]>,
-    ) -> Option<DeterministicSecondaryOrderContract> {
-        DeterministicSecondaryOrderContract::from_order_spec_fields(self, primary_key_names)
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Option<DeterministicSecondaryOrderContract>, InternalError> {
+        DeterministicSecondaryOrderContract::from_order_spec_fields(self, primary_key_names, budget)
     }
 
     /// Return the grouped order contract when grouped ORDER BY stays on one
     /// uniform direction.
-    #[must_use]
-    pub(in crate::db) fn grouped_index_order_contract(&self) -> Option<GroupedIndexOrderContract> {
-        GroupedIndexOrderContract::from_order_spec(self)
+    pub(in crate::db) fn grouped_index_order_contract(
+        &self,
+        budget: &dyn ConstructionBudget,
+    ) -> Result<Option<GroupedIndexOrderContract>, InternalError> {
+        GroupedIndexOrderContract::from_order_spec(self, budget)
     }
 }
 
@@ -528,31 +587,40 @@ pub(in crate::db) fn primary_scan_direction(order: Option<&OrderSpec>) -> Direct
 fn has_exact_ordered_primary_key_tie_break_fields(
     fields: &[crate::db::query::plan::OrderTerm],
     primary_key_names: &[String],
-) -> bool {
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
     if primary_key_names.is_empty() || fields.len() < primary_key_names.len() {
-        return false;
+        return Ok(false);
     }
 
     let split = fields.len() - primary_key_names.len();
     let (prefix, suffix) = fields.split_at(split);
-    if !suffix
-        .iter()
-        .zip(primary_key_names.iter())
-        .all(|(term, primary_key_name)| term.direct_field() == Some(primary_key_name.as_str()))
-    {
-        return false;
+    for (term, name) in suffix.iter().zip(primary_key_names) {
+        budget.charge(Resource::PredicateExpressionSteps, 1 + name.len() as u64)?;
+        if term.direct_field() != Some(name.as_str()) {
+            return Ok(false);
+        }
     }
 
-    !prefix.iter().any(|term| {
-        term.direct_field()
-            .is_some_and(|field| primary_key_names.iter().any(|name| name == field))
-    })
+    for term in prefix {
+        budget.charge(Resource::PredicateExpressionSteps, 1)?;
+        if let Some(field) = term.direct_field() {
+            for name in primary_key_names {
+                budget.charge(Resource::PredicateExpressionSteps, 1 + name.len() as u64)?;
+                if name == field {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        DeterministicSecondaryOrderContract, GroupedIndexOrderContract, GroupedIndexOrderMatch,
+        CandidateOrderContract, DeterministicSecondaryOrderContract, GroupedIndexOrderContract,
+        GroupedIndexOrderMatch,
     };
     use crate::db::access::AccessPathKind::{
         IndexBranchSet, IndexMultiLookup, IndexPrefix, IndexRange,
@@ -561,6 +629,88 @@ mod tests {
     use crate::retained::RetainedBytes;
     use crate::value::Value;
     use std::rc::Rc;
+
+    #[test]
+    fn candidate_order_reuse_preserves_scalar_and_grouped_matching() {
+        use crate::db::{access::SemanticIndexKeyItem, query::plan::exact_metadata_schema};
+
+        let schema = exact_metadata_schema(&[], &[]);
+        for grouped in [false, true] {
+            assert!(
+                crate::db::query::preparation::with_preparation_work(|work| {
+                    CandidateOrderContract::prepare(&schema, None, grouped, work).unwrap()
+                })
+                .is_none()
+            );
+            for direction in [OrderDirection::Asc, OrderDirection::Desc] {
+                for fields in [vec![], vec!["age"], vec!["age", "id"], vec!["id"]] {
+                    let order = OrderSpec {
+                        fields: fields
+                            .iter()
+                            .map(|field| OrderTerm::field(*field, direction))
+                            .collect(),
+                    };
+                    let prepared = crate::db::query::preparation::with_preparation_work(|work| {
+                        CandidateOrderContract::prepare(&schema, Some(&order), grouped, work)
+                            .unwrap()
+                    });
+                    let scalar = crate::db::query::preparation::with_preparation_work(|work| {
+                        order
+                            .deterministic_secondary_order_contract_fields(
+                                schema.shared_primary_key_names(),
+                                work,
+                            )
+                            .unwrap()
+                    });
+                    let group = crate::db::query::preparation::with_preparation_work(|work| {
+                        order.grouped_index_order_contract(work).unwrap()
+                    });
+                    assert_eq!(
+                        prepared.is_some(),
+                        if grouped {
+                            group.is_some()
+                        } else {
+                            scalar.is_some()
+                        }
+                    );
+                    for fields in [
+                        vec![],
+                        vec!["age", "id"],
+                        vec!["tenant", "age", "id"],
+                        vec!["other"],
+                    ] {
+                        let items: Vec<_> = fields
+                            .iter()
+                            .map(|field| SemanticIndexKeyItem::Field((*field).into()))
+                            .collect();
+                        for prefix in 0..=items.len() + 1 {
+                            let expected = if grouped {
+                                group.as_ref().is_some_and(|contract| {
+                                    super::grouped_index_key_items_satisfied(
+                                        contract, &items, prefix,
+                                    )
+                                })
+                            } else {
+                                scalar.as_ref().is_some_and(|contract| {
+                                    super::deterministic_secondary_index_key_items_satisfied(
+                                        contract, &items, prefix,
+                                    )
+                                })
+                            };
+                            for _ in 0..2 {
+                                assert_eq!(
+                                    prepared
+                                        .as_ref()
+                                        .is_some_and(|contract| contract.satisfies(&items, prefix)),
+                                    expected
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn key_item_classification_preserves_scalar_and_grouped_label_semantics() {
@@ -691,8 +841,11 @@ mod tests {
                     order.primary_key_only_direction_fields(&names),
                     exact.then_some(direction)
                 );
-                let contract =
-                    order.deterministic_secondary_order_contract_fields(Rc::clone(&names));
+                let contract = crate::db::query::preparation::with_preparation_work(|work| {
+                    order
+                        .deterministic_secondary_order_contract_fields(Rc::clone(&names), work)
+                        .unwrap()
+                });
                 assert_eq!(contract.is_some(), suffix);
                 if let Some(contract) = contract {
                     assert_eq!(contract.primary_key_terms, names);
@@ -726,9 +879,10 @@ mod tests {
             for names in [Rc::clone(&names), Rc::from([])] {
                 assert_eq!(order.primary_key_only_direction_fields(&names), None);
                 assert!(
-                    order
-                        .deterministic_secondary_order_contract_fields(names)
-                        .is_none()
+                    crate::db::query::preparation::with_preparation_work(|work| order
+                        .deterministic_secondary_order_contract_fields(names, work)
+                        .unwrap())
+                    .is_none()
                 );
             }
         }
@@ -751,9 +905,12 @@ mod tests {
                 .map(|name| OrderTerm::field(name, OrderDirection::Asc))
                 .collect(),
         };
-        let contract = order
-            .deterministic_secondary_order_contract_fields(Rc::clone(&names))
-            .unwrap();
+        let contract = crate::db::query::preparation::with_preparation_work(|work| {
+            order
+                .deterministic_secondary_order_contract_fields(Rc::clone(&names), work)
+                .unwrap()
+        })
+        .unwrap();
         let cloned = contract.clone();
         assert!(Rc::ptr_eq(&contract.primary_key_terms, &names));
         assert!(Rc::ptr_eq(&cloned.primary_key_terms, &names));

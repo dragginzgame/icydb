@@ -55,9 +55,11 @@ impl AggregateExplainPreparation {
             plan,
             aggregate,
             &execution_preparation,
-        );
+        )
+        .map_err(QueryError::execute)?;
         let covering_projection =
-            aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);
+            aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation)
+                .map_err(QueryError::execute)?;
 
         Ok(Self {
             route_plan,

@@ -132,6 +132,9 @@ fn prefix_selection_shares_bounds_and_propagates_cumulative_exhaustion() {
     let visible =
         VisibleIndexes::accepted_schema_visible(&schema).expect("valid accepted index fixture");
     let indexes = visible.accepted_semantic_index_contracts();
+    // Every candidate checks its non-optional key slots for stream completeness,
+    // including candidates later rejected by the lookup coercion gate.
+    let completeness_steps: u64 = indexes.iter().map(|index| index.key_arity() as u64).sum();
     for prefix in [
         "abc",
         "İΣ",
@@ -179,7 +182,8 @@ fn prefix_selection_shares_bounds_and_propagates_cumulative_exhaustion() {
                 + size_of::<AccessPath<Value>>()) as u64
                 + copy_bytes
                 + bound_bytes;
-            let steps = 1 + 2 * indexes.len() as u64 + copy_steps + bound_steps;
+            let steps =
+                1 + 2 * indexes.len() as u64 + completeness_steps + copy_steps + bound_steps;
             for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
                 for (resource, exact) in [
                     (Resource::TemporaryBytes, bytes),
@@ -309,10 +313,11 @@ fn and_prefix_ranges_merge_unicode_bounds_with_cumulative_admission() {
             )
         })
         .unwrap();
-        let (name, lower, upper, copies) = if coercion == CoercionId::Strict {
-            ("a_raw", "İ", "ı", 4)
+        let (name, lower, upper, copies, comparisons_per_index) = if coercion == CoercionId::Strict
+        {
+            ("a_raw", "İ", "ı", 4, 4)
         } else {
-            ("a_lower", "i\u{307}", "\u{10ffff}", 0)
+            ("a_lower", "i\u{307}", "\u{10ffff}", 0, 3)
         };
         assert_eq!(expected.index_ref().name(), name);
         assert_eq!(
@@ -323,7 +328,12 @@ fn and_prefix_ranges_merge_unicode_bounds_with_cumulative_admission() {
             expected.upper(),
             &Bound::Excluded(Value::Text(upper.into()))
         );
-        assert_eq!(baseline.observed(Resource::NestedValueSteps), copies);
+        // Two eligible indexes each merge the same bounds; each comparison
+        // charges the admission walk and the scalar operand visit.
+        assert_eq!(
+            baseline.observed(Resource::NestedValueSteps),
+            copies + 2 * comparisons_per_index * 2
+        );
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             for resource in [
                 Resource::TemporaryBytes,
@@ -379,7 +389,7 @@ fn and_primary_range_copies_only_a_complete_valid_interval() {
                 size_of::<AccessPath<Value>>() as u64,
             ),
             (Resource::PredicateExpressionSteps, 2),
-            (Resource::NestedValueSteps, 2),
+            (Resource::NestedValueSteps, 4),
         ] {
             for limit in [0, exact - 1, exact * 2] {
                 let root = request(resource, limit);
@@ -411,21 +421,30 @@ fn and_primary_range_copies_only_a_complete_valid_interval() {
             }
         }
     }
-    for invalid in [
-        vec![children[0].clone()],
-        vec![
-            children[0].clone(),
-            children[0].clone(),
-            children[1].clone(),
-        ],
-        vec![
-            children[0].clone(),
-            Predicate::lt("id".into(), Value::Nat64(2)),
-        ],
-        vec![
-            children[0].clone(),
-            Predicate::lt("id".into(), Value::Text("wrong type".into())),
-        ],
+    for (invalid, compared_nodes) in [
+        (vec![children[0].clone()], 0),
+        (
+            vec![
+                children[0].clone(),
+                children[0].clone(),
+                children[1].clone(),
+            ],
+            0,
+        ),
+        (
+            vec![
+                children[0].clone(),
+                Predicate::lt("id".into(), Value::Nat64(2)),
+            ],
+            2,
+        ),
+        (
+            vec![
+                children[0].clone(),
+                Predicate::lt("id".into(), Value::Text("wrong type".into())),
+            ],
+            0,
+        ),
     ] {
         let root = request(Resource::TemporaryBytes, 0);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
@@ -437,6 +456,6 @@ fn and_primary_range_copies_only_a_complete_valid_interval() {
             Ok(())
         })
         .unwrap();
-        assert_eq!(root.observed(Resource::NestedValueSteps), 0);
+        assert_eq!(root.observed(Resource::NestedValueSteps), compared_nodes);
     }
 }

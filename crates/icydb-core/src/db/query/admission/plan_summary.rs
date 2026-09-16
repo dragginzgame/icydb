@@ -23,7 +23,7 @@ use super::{
 pub(super) fn summary_from_plan(
     lane: QueryAdmissionLane,
     plan: &AccessPlannedQuery,
-) -> QueryAdmissionSummary {
+) -> Result<QueryAdmissionSummary, crate::error::InternalError> {
     let access = summarize_access_plan(plan);
     let grouped = plan.grouped_plan().map(summarize_grouped_plan);
     let (limit, offset) = scalar_limit_and_offset(plan.scalar_plan());
@@ -36,7 +36,7 @@ pub(super) fn summary_from_plan(
     let primary_key_input_resource = plan.access_choice().primary_key_input_resource();
     let scan_bound_kind = access.scan_bound_kind();
 
-    QueryAdmissionSummary {
+    Ok(QueryAdmissionSummary {
         lane,
         decision: QueryAdmissionDecision::Admitted,
         plan_shape: plan_shape(plan),
@@ -52,12 +52,12 @@ pub(super) fn summary_from_plan(
             .map(PrimaryKeyInputResourceSummary::raw_term_count),
         primary_key_input_payload_bytes: primary_key_input_resource
             .map(PrimaryKeyInputResourceSummary::estimated_payload_bytes),
-        residual_filter: admission_residual_filter(plan.residual_filter_shape()),
+        residual_filter: admission_residual_filter(plan.residual_filter_shape()?),
         ordering: admission_ordering(plan),
         grouped,
         materialization: QueryMaterializationSummary::none(),
         rejection: None,
-    }
+    })
 }
 
 pub(super) const fn access_satisfies_index_requirement(

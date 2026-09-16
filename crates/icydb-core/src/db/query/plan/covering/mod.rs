@@ -12,7 +12,7 @@ use crate::db::{
     predicate::IndexPredicateCapability,
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch,
-        DeterministicSecondaryOrderContract, FieldSlot, OrderDirection,
+        DeterministicSecondaryOrderContract, FieldSlot, OrderDirection, ResidualFilterContract,
         expr::{Expr, FieldId, Function, ProjectionSelection, ProjectionSpec},
         index_key_item_order_terms,
     },
@@ -214,40 +214,40 @@ pub(in crate::db) struct CoveringHybridReadExecutionPlan {
 /// strict covering-read and covering-existing-rows admission rules.
 #[must_use]
 pub(in crate::db) fn covering_strict_predicate_compatible(
-    plan: &AccessPlannedQuery,
+    residual: &ResidualFilterContract,
     predicate_index_capability: Option<IndexPredicateCapability>,
 ) -> bool {
-    !plan.has_residual_filter_expr()
-        && (!plan.has_residual_filter_predicate()
+    residual.residual_filter_expr().is_none()
+        && (residual.residual_filter_predicate().is_none()
             || predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable))
 }
 
 /// Return one stable explain reason code for the current scalar load
 /// covering-read admission outcome.
-#[must_use]
 #[cfg(feature = "sql")]
 pub(in crate::db) fn covering_read_reason_code_for_load_plan(
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
     covering_read_selected: bool,
-) -> &'static str {
+) -> Result<&'static str, crate::error::InternalError> {
+    let residual = plan.residual_filter_contract()?;
     if covering_read_selected {
-        return "cover_read_route";
+        return Ok("cover_read_route");
     }
     if plan.scalar_plan().order.is_some() {
-        return "order_mat";
+        return Ok("order_mat");
     }
     if !index_backed_covering_shape_supported(&plan.access) {
-        return "access_not_cov";
+        return Ok("access_not_cov");
     }
-    if plan.has_any_residual_filter() && !strict_predicate_compatible {
-        return "pred_not_strict";
+    if residual.has_residual_filter() && !strict_predicate_compatible {
+        return Ok("pred_not_strict");
     }
     if plan.scalar_plan().distinct {
-        return "distinct_mat";
+        return Ok("distinct_mat");
     }
 
-    "proj_not_cov"
+    Ok("proj_not_cov")
 }
 
 /// Return whether one scalar aggregate terminal can remain index-only using
@@ -324,7 +324,11 @@ pub(in crate::db) fn covering_hybrid_projection_execution_plan_with_schema_info(
         plan,
         strict_predicate_compatible,
     )?;
-    if checked_hybrid_finite_index_window_prefers_scalar_path(plan, &covering) {
+    if checked_hybrid_finite_index_window_prefers_scalar_path(
+        plan,
+        &covering,
+        plan.residual_filter_contract().ok()?,
+    ) {
         return None;
     }
 
@@ -340,9 +344,10 @@ pub(in crate::db) fn covering_hybrid_projection_execution_plan_with_schema_info(
 fn checked_hybrid_finite_index_window_prefers_scalar_path(
     plan: &AccessPlannedQuery,
     covering: &CoveringReadPlan,
+    residual: &ResidualFilterContract,
 ) -> bool {
     !plan.scalar_plan().distinct
-        && !plan.has_any_residual_filter()
+        && !residual.has_residual_filter()
         && plan
             .scalar_plan()
             .page
@@ -391,6 +396,7 @@ fn ordered_distinct_group_seek_plan(
     plan: &AccessPlannedQuery,
     covering: &CoveringReadPlan,
 ) -> Option<OrderedDistinctGroupSeekContract> {
+    let residual = plan.residual_filter_contract().ok()?;
     if !plan.scalar_plan().distinct {
         return None;
     }
@@ -406,7 +412,7 @@ fn ordered_distinct_group_seek_plan(
         return None;
     };
     let order = plan.planner_route_profile().secondary_order_contract()?;
-    let eligible = !plan.has_any_residual_filter()
+    let eligible = !residual.has_residual_filter()
         && range.prefix_values().is_empty()
         && projected_fields.next().is_none()
         && schema.accepted_field_is_nullable(projected_field) == Some(false)
@@ -516,11 +522,12 @@ fn primary_store_covering_plan(
     plan: &AccessPlannedQuery,
     primary_key_names: &[String],
 ) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
+    let residual = plan.residual_filter_contract().ok()?;
     // Phase 1: keep primary-store covering admission narrow and explicit.
     if plan.grouped_plan().is_some()
         || !plan.scalar_plan().mode.is_load()
         || plan.scalar_plan().distinct
-        || plan.has_any_residual_filter()
+        || residual.has_residual_filter()
     {
         return None;
     }
@@ -696,13 +703,14 @@ fn prepare_covering_index_projection_plan<'a>(
     primary_key_names: &[String],
     residual_filter_predicate_supported: bool,
 ) -> Option<(IndexCoveringAccessFacts<'a>, CoveringProjectionOrder)> {
+    let residual = plan.residual_filter_contract().ok()?;
     if plan.grouped_plan().is_some() || !plan.scalar_plan().mode.is_load() {
         return None;
     }
-    if plan.has_residual_filter_expr() {
+    if residual.residual_filter_expr().is_some() {
         return None;
     }
-    if plan.has_residual_filter_predicate() && !residual_filter_predicate_supported {
+    if residual.residual_filter_predicate().is_some() && !residual_filter_predicate_supported {
         return None;
     }
 

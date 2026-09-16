@@ -5,7 +5,6 @@
 
 use crate::db::{QueryError, query::preparation::PreparationWork};
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
-use std::borrow::Cow;
 
 use crate::db::predicate::MissingRowPolicy;
 use crate::{
@@ -148,101 +147,71 @@ impl AccessPlannedQuery {
             .as_ref()
             .map(|predicate| work.copy_predicate(predicate))
             .transpose()?;
-        Ok(derive_execution_preparation_predicate(
-            &self.access,
-            predicate,
-        ))
+        derive_execution_preparation_predicate(&self.access, predicate, work)
+            .map_err(QueryError::execute)
     }
 
-    /// Return the executor-facing residual predicate after removing any
-    /// filtered-index guard clauses and fixed access-bound equalities already
-    /// guaranteed by the chosen path.
-    /// Finalized plans lend their frozen predicate; only pre-finalization
-    /// derivation owns a temporary. Presence and projection must not copy it.
-    #[must_use]
-    pub(in crate::db) fn effective_execution_predicate(&self) -> Option<Cow<'_, Predicate>> {
-        if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
-            return static_contract
-                .residual_filter_contract
-                .residual_filter_predicate()
-                .map(Cow::Borrowed);
+    /// Require frozen residual facts. Inspection never performs planning work.
+    pub(in crate::db) fn residual_filter_contract(
+        &self,
+    ) -> Result<&ResidualFilterContract, InternalError> {
+        Ok(&self
+            .require_static_execution_planning_contract()?
+            .residual_filter_contract)
+    }
+
+    /// Borrow the frozen executor-facing residual predicate.
+    pub(in crate::db) fn effective_execution_predicate(
+        &self,
+    ) -> Result<Option<&Predicate>, InternalError> {
+        Ok(self.residual_filter_contract()?.residual_filter_predicate())
+    }
+
+    /// Return whether the frozen contract retains predicate filtering.
+    pub(in crate::db) fn has_residual_filter_predicate(&self) -> Result<bool, InternalError> {
+        Ok(self.effective_execution_predicate()?.is_some())
+    }
+
+    /// Borrow the frozen semantic expression used for residual filtering.
+    pub(in crate::db) fn residual_filter_expr(&self) -> Result<Option<&Expr>, InternalError> {
+        Ok(self.residual_filter_contract()?.residual_filter_expr())
+    }
+
+    /// Return the frozen diagnostics-facing residual shape.
+    pub(in crate::db) fn residual_filter_shape(
+        &self,
+    ) -> Result<ResidualFilterShape, InternalError> {
+        Ok(self.residual_filter_contract()?.shape())
+    }
+
+    /// Prepare pre-finalization shape explicitly; inspection uses frozen facts.
+    pub(in crate::db) fn prepare_residual_filter_shape(
+        &self,
+        budget: &dyn crate::db::query::construction::ConstructionBudget,
+    ) -> Result<ResidualFilterShape, InternalError> {
+        if self.has_static_execution_planning_contract() {
+            return self.residual_filter_shape();
         }
-
-        derive_residual_filter_predicate(self.scalar_plan(), &self.access).map(Cow::Owned)
+        let predicate = self
+            .scalar_plan()
+            .predicate
+            .as_ref()
+            .map(|predicate| budget.copy_predicate(predicate))
+            .transpose()?;
+        Ok(
+            residual_filter_facts_for_access(self.scalar_plan(), &self.access, predicate, budget)?
+                .0,
+        )
     }
 
-    /// Return whether one explicit residual predicate survives access
-    /// planning and still participates in residual execution.
-    #[must_use]
-    pub(in crate::db) fn has_residual_filter_predicate(&self) -> bool {
-        self.effective_execution_predicate().is_some()
-    }
-
-    /// Borrow the planner-owned residual scalar filter expression when one
-    /// surviving semantic remainder still requires runtime evaluation.
-    #[must_use]
-    pub(in crate::db) fn residual_filter_expr(&self) -> Option<&Expr> {
-        if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
-            return static_contract
-                .residual_filter_contract
-                .residual_filter_expr();
-        }
-
-        if !derive_has_residual_filter(self) {
-            return None;
-        }
-
-        self.scalar_plan().filter_expr.as_ref()
-    }
-
-    /// Return whether one explicit residual scalar filter expression survives
-    /// access planning and still requires runtime evaluation.
-    #[must_use]
-    pub(in crate::db) fn has_residual_filter_expr(&self) -> bool {
-        self.residual_filter_expr().is_some()
-    }
-
-    /// Return the planner-owned residual-filter shape used by diagnostics.
-    #[must_use]
-    pub(in crate::db) fn residual_filter_shape(&self) -> ResidualFilterShape {
-        if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
-            return static_contract.residual_filter_contract.shape();
-        }
-
-        residual_filter_facts_for_access(self.scalar_plan(), &self.access).0
-    }
-
-    /// Return the planner-owned predicate pushdown label consumed by verbose
-    /// execution diagnostics.
-    #[must_use]
+    /// Borrow planner-frozen predicate-pushdown diagnostics.
     #[cfg(feature = "sql")]
-    pub(in crate::db) fn predicate_pushdown_label(&self) -> String {
-        self.predicate_pushdown_diagnostics().label()
-    }
-
-    /// Return planner-owned predicate-pushdown diagnostics.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn predicate_pushdown_diagnostics(&self) -> PredicatePushdownDiagnostics {
-        if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
-            return static_contract.predicate_pushdown_diagnostics;
-        }
-
-        derive_predicate_pushdown_diagnostics(self, self.residual_filter_shape())
-    }
-
-    /// Return the planner-owned predicate-pushdown outcome label.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn predicate_pushdown_outcome_label(&self) -> &'static str {
-        self.predicate_pushdown_diagnostics().outcome_label()
-    }
-
-    /// Return the planner-owned predicate-pushdown reason label.
-    #[must_use]
-    #[cfg(feature = "sql")]
-    pub(in crate::db) fn predicate_pushdown_reason_label(&self) -> &'static str {
-        self.predicate_pushdown_diagnostics().reason_label()
+    pub(in crate::db) fn predicate_pushdown_diagnostics(
+        &self,
+    ) -> Result<PredicatePushdownDiagnostics, InternalError> {
+        Ok(self
+            .require_static_execution_planning_contract()?
+            .predicate_pushdown_diagnostics)
     }
 
     /// Borrow the planner-compiled execution-preparation predicate program.
@@ -298,8 +267,14 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn finalize_planner_route_profile_for_model_with_schema(
         &mut self,
         schema_info: &SchemaInfo,
-    ) {
-        self.set_planner_route_profile(project_planner_route_profile_for_schema(schema_info, self));
+        work: &PreparationWork<'_>,
+    ) -> Result<(), InternalError> {
+        self.set_planner_route_profile(project_planner_route_profile_for_schema(
+            schema_info,
+            self,
+            work,
+        )?);
+        Ok(())
     }
 
     /// Freeze planner-owned executor metadata, consuming the validated projection.
@@ -353,20 +328,6 @@ impl AccessPlannedQuery {
         Ok(ExecutionShapeSignature::new(
             self.continuation_signature(entity_path, budget)?,
         ))
-    }
-
-    /// Return whether the chosen access contract fully satisfies the current
-    /// scalar query predicate without any additional runtime residual filtering.
-    #[must_use]
-    pub(in crate::db) fn predicate_fully_satisfied_by_access_contract(&self) -> bool {
-        if let Some(static_contract) = self.static_execution_planning_contract.as_ref() {
-            return self.scalar_plan().predicate.is_some()
-                && !static_contract
-                    .residual_filter_contract
-                    .has_residual_filter();
-        }
-
-        derive_predicate_fully_satisfied_by_access_contract(self)
     }
 
     /// Borrow the planner-frozen compiled scalar projection program.
@@ -518,20 +479,29 @@ fn derive_continuation_policy_validated(plan: &AccessPlannedQuery) -> Continuati
 }
 
 /// Project one planner-owned route profile from accepted schema authority.
-#[must_use]
 pub(in crate::db) fn project_planner_route_profile_for_schema(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
-) -> PlannerRouteProfile {
-    let secondary_order_contract = plan.scalar_plan().order.as_ref().and_then(|order| {
-        order.deterministic_secondary_order_contract_fields(schema_info.shared_primary_key_names())
-    });
+    work: &PreparationWork<'_>,
+) -> Result<PlannerRouteProfile, InternalError> {
+    let secondary_order_contract = plan
+        .scalar_plan()
+        .order
+        .as_ref()
+        .map(|order| {
+            order.deterministic_secondary_order_contract_fields(
+                schema_info.shared_primary_key_names(),
+                work,
+            )
+        })
+        .transpose()?
+        .flatten();
 
-    PlannerRouteProfile::new(
+    Ok(PlannerRouteProfile::new(
         derive_continuation_policy_validated(plan),
         derive_logical_pushdown_eligibility(plan, secondary_order_contract.as_ref()),
         secondary_order_contract,
-    )
+    ))
 }
 
 fn project_static_execution_planning_contract_with_schema(
@@ -547,12 +517,15 @@ fn project_static_execution_planning_contract_with_schema(
         .as_ref()
         .map(|predicate| work.copy_predicate(predicate))
         .transpose()?;
-    let residual_filter_predicate = derive_residual_filter_predicate_from_preparation(
-        plan.scalar_plan(),
-        &plan.access,
-        residual_input,
-    );
-    let residual_filter_expr = derive_residual_filter_expr(plan);
+    let (residual_filter_predicate, access_satisfied) =
+        derive_residual_filter_predicate_from_preparation(
+            plan.scalar_plan(),
+            &plan.access,
+            residual_input,
+            work,
+        )
+        .map_err(QueryError::execute)?;
+    let residual_filter_expr = derive_residual_filter_expr(plan, access_satisfied);
     let effective_runtime_filter_program = compile_effective_runtime_filter_program(
         schema_info,
         residual_filter_expr.as_ref(),
@@ -662,14 +635,16 @@ fn compile_effective_runtime_filter_program(
 fn derive_execution_preparation_predicate(
     access: &AccessPlan<Value>,
     query_predicate: Option<Predicate>,
-) -> Option<Predicate> {
-    let query_predicate = query_predicate?;
-
+    budget: &dyn crate::db::query::construction::ConstructionBudget,
+) -> Result<Option<Predicate>, InternalError> {
+    let Some(query_predicate) = query_predicate else {
+        return Ok(None);
+    };
     match access.selected_index_contract() {
         Some(index) => {
-            residual_query_predicate_after_filtered_access_contract(index, query_predicate)
+            residual_query_predicate_after_filtered_access_contract(index, query_predicate, budget)
         }
-        None => Some(query_predicate),
+        None => Ok(Some(query_predicate)),
     }
 }
 
@@ -679,39 +654,43 @@ fn derive_execution_preparation_predicate(
 fn derive_residual_filter_predicate(
     scalar: &ScalarPlan,
     access: &AccessPlan<Value>,
-) -> Option<Predicate> {
-    let filtered_residual =
-        derive_execution_preparation_predicate(access, scalar.predicate.clone());
-
-    derive_residual_filter_predicate_from_preparation(scalar, access, filtered_residual)
+    query_predicate: Option<Predicate>,
+    budget: &dyn crate::db::query::construction::ConstructionBudget,
+) -> Result<Option<Predicate>, InternalError> {
+    let filtered = derive_execution_preparation_predicate(access, query_predicate, budget)?;
+    Ok(derive_residual_filter_predicate_from_preparation(scalar, access, filtered, budget)?.0)
 }
 
 fn derive_residual_filter_predicate_from_preparation(
     scalar: &ScalarPlan,
     access: &AccessPlan<Value>,
     execution_preparation_predicate: Option<Predicate>,
-) -> Option<Predicate> {
-    let execution_preparation_predicate = execution_preparation_predicate?;
+    budget: &dyn crate::db::query::construction::ConstructionBudget,
+) -> Result<(Option<Predicate>, bool), InternalError> {
+    let Some(execution_preparation_predicate) = execution_preparation_predicate else {
+        return Ok((None, false));
+    };
 
     let residual = residual_query_predicate_after_access_path_bounds(
         access.as_path(),
         execution_preparation_predicate,
-    );
+        budget,
+    )?;
     if residual.is_some() && planner_predicate_requires_expression_runtime(scalar) {
-        return None;
+        return Ok((None, false));
     }
 
-    residual
+    let access_satisfied = residual.is_none();
+    Ok((residual, access_satisfied))
 }
 
 // Derive the explicit residual semantic expression once for finalized plans.
 // The residual expression remains the planner-owned semantic filter when any
 // runtime filtering still survives access satisfaction.
-fn derive_residual_filter_expr(plan: &AccessPlannedQuery) -> Option<Expr> {
+fn derive_residual_filter_expr(plan: &AccessPlannedQuery, access_satisfied: bool) -> Option<Expr> {
     let filter_expr = plan.scalar_plan().filter_expr.as_ref()?;
     if derive_semantic_filter_fully_satisfied_by_access_contract(plan.scalar_plan())
-        && (!planner_predicate_requires_expression_runtime(plan.scalar_plan())
-            || planner_predicate_is_fully_satisfied_by_access_contract(plan))
+        && (!planner_predicate_requires_expression_runtime(plan.scalar_plan()) || access_satisfied)
     {
         return None;
     }
@@ -731,33 +710,8 @@ fn planner_predicate_requires_expression_runtime(scalar: &ScalarPlan) -> bool {
             .is_some_and(Expr::contains_field_path)
 }
 
-fn planner_predicate_is_fully_satisfied_by_access_contract(plan: &AccessPlannedQuery) -> bool {
-    let Some(predicate) =
-        derive_execution_preparation_predicate(&plan.access, plan.scalar_plan().predicate.clone())
-    else {
-        return false;
-    };
-
-    residual_query_predicate_after_access_path_bounds(plan.access.as_path(), predicate).is_none()
-}
-
-// Return whether any residual filtering survives after access planning. This
-// helper exists only for pre-finalization assembly; finalized plans must read
-// the explicit residual artifacts frozen in `StaticExecutionPlanningContract`.
-fn derive_has_residual_filter(plan: &AccessPlannedQuery) -> bool {
-    match (
-        plan.scalar_plan().filter_expr.as_ref(),
-        plan.scalar_plan().predicate.as_ref(),
-    ) {
-        (None, None) => false,
-        (Some(_), None) => true,
-        (Some(_) | None, Some(_)) => !plan.predicate_fully_satisfied_by_access_contract(),
-    }
-}
-
-// Freeze predicate-pushdown diagnostics from one logical plan shape. This keeps
-// lazy plan accessors and finalized static planning on the same argument
-// contract while leaving route selection and residual filtering unchanged.
+// Freeze predicate-pushdown diagnostics with the static execution contract.
+// Inspection borrows this result instead of repeating preparation.
 fn derive_predicate_pushdown_diagnostics(
     plan: &AccessPlannedQuery,
     residual_filter_shape: ResidualFilterShape,
@@ -771,14 +725,6 @@ fn derive_predicate_pushdown_diagnostics(
     )
 }
 
-// Return true when the planner-owned predicate contract is fully satisfied by
-// access planning and no semantic residual filter expression survives.
-fn derive_predicate_fully_satisfied_by_access_contract(plan: &AccessPlannedQuery) -> bool {
-    plan.scalar_plan().predicate.is_some()
-        && derive_residual_filter_predicate(plan.scalar_plan(), &plan.access).is_none()
-        && derive_residual_filter_expr(plan).is_none()
-}
-
 // Return true when the semantic filter expression is entirely represented by
 // the planner-owned predicate contract and the chosen access path satisfies
 // that predicate without any runtime remainder.
@@ -788,23 +734,25 @@ const fn derive_semantic_filter_fully_satisfied_by_access_contract(scalar: &Scal
         && scalar.predicate_covers_filter_expr
 }
 
-/// Derive pre-finalization residual facts from borrowed candidate inputs.
+/// Derive pre-finalization residual facts, consuming the caller's predicate copy.
+/// Budget-bearing callers admit ownership before entering this shared derivation.
 /// Finalized plans must continue reading their frozen residual contract instead.
-#[must_use]
 pub(in crate::db::query) fn residual_filter_facts_for_access(
     scalar: &ScalarPlan,
     access: &AccessPlan<Value>,
-) -> (ResidualFilterShape, Option<Predicate>) {
-    let predicate = derive_residual_filter_predicate(scalar, access);
+    query_predicate: Option<Predicate>,
+    budget: &dyn crate::db::query::construction::ConstructionBudget,
+) -> Result<(ResidualFilterShape, Option<Predicate>), InternalError> {
+    let predicate = derive_residual_filter_predicate(scalar, access, query_predicate, budget)?;
     // Preserve the pre-finalization shape policy: a fully predicate-represented
     // filter does not add a second expression category to candidate ranking.
     let expression_required = scalar.filter_expr.is_some()
         && !derive_semantic_filter_fully_satisfied_by_access_contract(scalar);
 
-    (
+    Ok((
         ResidualFilterShape::from_presence(expression_required, predicate.is_some()),
         predicate,
-    )
+    ))
 }
 
 // Compile one optional planner-frozen predicate program while keeping the
@@ -888,7 +836,10 @@ fn resolved_order_for_plan(
     plan: &AccessPlannedQuery,
     work: &PreparationWork<'_>,
 ) -> Result<Option<ResolvedOrder>, QueryError> {
-    if grouped_plan_strategy(plan).is_some_and(GroupedPlanStrategy::is_top_k_group) {
+    if grouped_plan_strategy(plan, || plan.prepare_residual_filter_shape(work))
+        .map_err(QueryError::execute)?
+        .is_some_and(GroupedPlanStrategy::is_top_k_group)
+    {
         return Ok(None);
     }
 

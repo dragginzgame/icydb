@@ -123,7 +123,7 @@ fn branch_scores_preserve_set_equality_caps_and_rejection_order() {
         ),
     ] {
         let before = children.clone();
-        let root = request(Resource::NestedValueSteps, 0);
+        let root = request(Resource::NestedValueSteps, 16_000_000);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             let evaluation = evaluate_branch_values(index, 1, &schema, &children, work).unwrap();
             if let CandidateEvaluation::Eligible(score) = &evaluation {
@@ -179,12 +179,14 @@ fn branch_views_and_expression_conversion_obey_cumulative_admission() {
             .collect();
         let bytes =
             (5 * size_of::<Cow<'_, Value>>()) as u64 + if expression { lower_bytes } else { 0 };
-        let steps = 12 + if expression { lower_steps } else { 0 };
+        // The two canonical sets compare A/İΣ (or their lowercased forms).
+        let comparison_bytes = if expression { 6 } else { 5 };
+        let steps = 12 + if expression { lower_steps } else { 0 } + comparison_bytes;
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             for (resource, exact) in [
                 (Resource::TemporaryBytes, bytes),
                 (Resource::PredicateExpressionSteps, steps),
-                (Resource::NestedValueSteps, 0),
+                (Resource::NestedValueSteps, 4),
             ] {
                 for limit in [0, exact.saturating_sub(1), exact * 2] {
                     let root = request(resource, limit);
@@ -256,7 +258,7 @@ fn branch_scores_compare_normalized_sets_and_count_distinct_values() {
                 ))
             })
             .collect();
-        let root = request(Resource::NestedValueSteps, 0);
+        let root = request(Resource::NestedValueSteps, 16_000_000);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assert_eq!(
                 prefix_len(evaluate_branch_values(index, 0, &schema, &children, work).unwrap()),

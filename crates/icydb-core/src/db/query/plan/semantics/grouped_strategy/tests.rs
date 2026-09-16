@@ -139,18 +139,60 @@ fn assert_budget_error(error: &QueryError) {
 }
 
 #[test]
+fn grouped_strategy_requests_residual_facts_only_when_needed() {
+    let scalar = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
+    let mut calls = 0;
+    assert!(
+        grouped_plan_strategy(&scalar, || {
+            calls += 1;
+            Err(crate::error::InternalError::planner_executor_invariant())
+        })
+        .unwrap()
+        .is_none()
+    );
+    assert_eq!(calls, 0);
+
+    for (case, query) in cases().iter().enumerate() {
+        let mut calls = 0;
+        let result = derive_grouped_plan_strategy(
+            query,
+            query.grouped_plan().unwrap(),
+            || {
+                calls += 1;
+                Err(7usize)
+            },
+            &mut |_| Ok(()),
+        );
+        if matches!(case, 1 | 2) {
+            // Top-K and DISTINCT decide their lane before residual inspection.
+            assert!(result.is_ok());
+            assert_eq!(calls, 0);
+        } else {
+            assert_eq!(result, Err(7));
+            assert_eq!(calls, 1);
+        }
+    }
+}
+
+#[test]
 fn grouped_strategy_diagnostic_work_is_cumulative_and_identity_independent() {
     for query in cases() {
         let before = query.clone();
+        let residual =
+            with_preparation_work(|work| query.prepare_residual_filter_shape(work)).unwrap();
         let identity =
             with_preparation_work(|work| query.continuation_signature("test::Entity", work))
                 .unwrap();
-        let expected = grouped_plan_strategy(&query).unwrap();
+        let expected = grouped_plan_strategy(&query, || Ok(residual))
+            .unwrap()
+            .unwrap();
         let generous = request(16_000_000);
         assert_eq!(project(&query, &generous).unwrap(), expected);
         let used = generous.observed(Resource::PredicateExpressionSteps);
         assert!(used > 0);
-        assert_eq!(generous.observed(Resource::TemporaryBytes), 0);
+        if query.scalar_plan().predicate.is_none() {
+            assert_eq!(generous.observed(Resource::TemporaryBytes), 0);
+        }
         assert_eq!(generous.observed(Resource::RowsVisited), 0);
 
         let short = request(used - 1);
@@ -161,7 +203,10 @@ fn grouped_strategy_diagnostic_work_is_cumulative_and_identity_independent() {
         }
         assert_eq!(exact.observed(Resource::PredicateExpressionSteps), 2 * used);
         assert_budget_error(&project(&query, &exact).unwrap_err());
-        assert_eq!(grouped_plan_strategy(&query), Some(expected));
+        assert_eq!(
+            grouped_plan_strategy(&query, || Ok(residual)).unwrap(),
+            Some(expected)
+        );
         assert_eq!(
             with_preparation_work(|work| query.continuation_signature("test::Entity", work))
                 .unwrap(),
@@ -175,21 +220,28 @@ fn grouped_strategy_diagnostic_work_is_cumulative_and_identity_independent() {
 fn grouped_strategy_observer_failure_stops_at_every_boundary() {
     for query in cases() {
         let grouped = query.grouped_plan().unwrap();
+        let residual =
+            with_preparation_work(|work| query.prepare_residual_filter_shape(work)).unwrap();
         let mut trace = vec![];
-        let expected = derive_grouped_plan_strategy(&query, grouped, &mut |steps| {
-            trace.push(steps);
-            Ok::<_, usize>(())
-        })
-        .unwrap();
-        assert_eq!(Some(expected), grouped_plan_strategy(&query));
+        let expected =
+            derive_grouped_plan_strategy(&query, grouped, || Ok(residual), &mut |steps| {
+                trace.push(steps);
+                Ok::<_, usize>(())
+            })
+            .unwrap();
+        assert_eq!(
+            Some(expected),
+            grouped_plan_strategy(&query, || Ok(residual)).unwrap()
+        );
         for stop in 0..trace.len() {
             let mut visits = 0;
-            let result = derive_grouped_plan_strategy(&query, grouped, &mut |steps| {
-                assert_eq!(steps, trace[visits]);
-                let current = visits;
-                visits += 1;
-                if current == stop { Err(stop) } else { Ok(()) }
-            });
+            let result =
+                derive_grouped_plan_strategy(&query, grouped, || Ok(residual), &mut |steps| {
+                    assert_eq!(steps, trace[visits]);
+                    let current = visits;
+                    visits += 1;
+                    if current == stop { Err(stop) } else { Ok(()) }
+                });
             assert_eq!(result, Err(stop));
             assert_eq!(visits, stop + 1);
         }

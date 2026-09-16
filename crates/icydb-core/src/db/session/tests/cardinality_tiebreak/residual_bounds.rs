@@ -1,6 +1,7 @@
 //! Residual pruning uses borrowed bounds without widening access guarantees.
 
 use super::{ENTITY_NAME, initialize};
+use crate::db::query::preparation::with_preparation_work;
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
@@ -40,8 +41,15 @@ fn assert_residual(access: &AccessPlan<Value>, query: &Predicate, expected: Opti
     let before = access.clone();
     for _ in 0..3 {
         assert_eq!(
-            residual_query_predicate_after_access_path_bounds(access.as_path(), query.clone())
-                .as_ref(),
+            with_preparation_work(|budget| {
+                residual_query_predicate_after_access_path_bounds(
+                    access.as_path(),
+                    query.clone(),
+                    budget,
+                )
+            })
+            .unwrap()
+            .as_ref(),
             expected,
         );
     }

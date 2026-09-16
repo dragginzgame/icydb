@@ -44,6 +44,62 @@ fn literal(values: &[Value], coercion: CoercionId) -> CachedSetLiteral<'_> {
 }
 
 #[test]
+fn branch_selection_reuses_order_score_without_changing_eligibility_or_ties() {
+    use crate::db::{
+        predicate::Predicate,
+        query::{
+            plan::{OrderDirection, OrderSpec, OrderTerm, VisibleIndexes, exact_metadata_schema},
+            preparation::with_preparation_work,
+        },
+    };
+
+    let schema = exact_metadata_schema(
+        &[("a", &["age", "rank", "id"]), ("z", &["age", "rank", "id"])],
+        &[],
+    );
+    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let children = [
+        Predicate::eq("age".into(), Value::Int64(7)),
+        Predicate::in_("rank".into(), vec![Value::Int64(2), Value::Int64(1)]),
+    ];
+    let asc = OrderSpec {
+        fields: vec![OrderTerm::field("id", OrderDirection::Asc)],
+    };
+    let desc = OrderSpec {
+        fields: vec![OrderTerm::field("id", OrderDirection::Desc)],
+    };
+    let other = OrderSpec {
+        fields: vec![OrderTerm::field("age", OrderDirection::Asc)],
+    };
+    for (order, grouped, expected) in [
+        (None, false, true),
+        (Some(&asc), false, true),
+        (Some(&desc), false, false),
+        (Some(&other), false, false),
+        (None, true, false),
+    ] {
+        let plan = with_preparation_work(|work| {
+            super::index_branch_set_from_and(
+                visible.accepted_semantic_index_contracts(),
+                &schema,
+                &children,
+                order,
+                grouped,
+                work,
+            )
+        })
+        .unwrap();
+        assert_eq!(plan.is_some(), expected);
+        if let Some(plan) = plan {
+            let spec = plan.as_path().unwrap().as_index_branch_set_spec().unwrap();
+            assert_eq!(spec.index_ref().name(), "a");
+            assert_eq!(spec.fixed_values(), &[Value::Int64(7)]);
+            assert_eq!(spec.branch_values(), &[Value::Int64(1), Value::Int64(2)]);
+        }
+    }
+}
+
+#[test]
 fn branch_values_admit_backing_and_conversion_before_canonicalization() {
     let values = [Value::Text("İ".into()), Value::Text("İ".into())];
     for (key, coercion, bytes, steps, visits, expected) in [
@@ -137,6 +193,9 @@ fn exclusion_normalizes_once_and_borrows_raw_values_for_all_branches() {
         ),
     ] {
         let literals = [literal(&excluded, coercion)];
+        let Value::Text(removed_text) = &removed else {
+            unreachable!()
+        };
         for width in [1_u64, 4, 16] {
             let mut input: Vec<_> = (1..width)
                 .map(|i| Value::Text(format!("kept-{i}")))
@@ -146,7 +205,11 @@ fn exclusion_normalizes_once_and_borrows_raw_values_for_all_branches() {
             for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
                 for (resource, exact) in [
                     (Resource::TemporaryBytes, bytes),
-                    (Resource::PredicateExpressionSteps, 2 + width + steps),
+                    (
+                        Resource::PredicateExpressionSteps,
+                        2 + width + steps + width * removed_text.len() as u64,
+                    ),
+                    (Resource::NestedValueSteps, 2 * width),
                 ] {
                     for limit in [exact.saturating_sub(1), exact * 2] {
                         let root = request(resource, limit);
@@ -178,7 +241,6 @@ fn exclusion_normalizes_once_and_borrows_raw_values_for_all_branches() {
                             Ok(())
                         })
                         .unwrap();
-                        assert_eq!(root.observed(Resource::NestedValueSteps), 0);
                         assert_eq!(root.observed(Resource::RowsVisited), 0);
                     }
                 }
@@ -219,8 +281,42 @@ fn exclusion_sets_admit_visits_before_pruning() {
         })
         .unwrap();
         assert_eq!(root.observed(Resource::TemporaryBytes), 0);
-        assert_eq!(root.observed(Resource::NestedValueSteps), 0);
+        assert_eq!(
+            root.observed(Resource::NestedValueSteps),
+            if limit == 10 { 6 } else { 0 }
+        );
     }
+}
+
+#[test]
+fn exclusion_failure_stops_payload_comparisons_after_partial_compaction() {
+    let key = SemanticIndexKeyItem::Field("name".into());
+    let values = [Value::Text("drop".into())];
+    let literals = [literal(&values, CoercionId::Strict)];
+    let root = request(Resource::NestedValueSteps, 2);
+    PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+        let mut branches = vec![
+            values[0].clone(),
+            Value::Text("keep".into()),
+            values[0].clone(),
+        ];
+        let error = prune_branch_values_by_exclusions(key.as_ref(), &mut branches, &literals, work)
+            .unwrap_err();
+        assert!(QueryError::execute(error).diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::NestedValueSteps.raw()
+        )));
+        // The first removal is complete; the rejected and remaining entries
+        // survive compaction. Callers discard the failed candidate.
+        assert_eq!(
+            branches,
+            vec![Value::Text("keep".into()), values[0].clone()]
+        );
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(root.observed(Resource::NestedValueSteps), 4);
+    assert_eq!(root.observed(Resource::TemporaryBytes), 0);
 }
 
 #[test]

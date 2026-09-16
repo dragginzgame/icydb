@@ -101,6 +101,107 @@ fn decimal_parse_rejects_invalid_significand_and_digits_with_reason_codes() {
 }
 
 #[test]
+fn decimal_parse_preserves_signed_limits_scale_and_zero_forms() {
+    for (input, mantissa, scale) in [
+        ("170141183460469231731687303715884105727", i128::MAX, 0),
+        ("-170141183460469231731687303715884105728", i128::MIN, 0),
+        ("-17014118346046923173168730371588410572.8", i128::MIN, 1),
+        (" \u{2003}+00012.3400\u{2003} ", 123_400, 4),
+        ("-.5", -5, 1),
+        ("+1.", 1, 0),
+        ("-0.000", 0, 3),
+        ("0.00000000000000000000000000010", 1, 28),
+        ("-0.00000000000000000000000000000", 0, 28),
+    ] {
+        let parsed = input.parse::<Decimal>().unwrap();
+        assert_eq!((parsed.mantissa(), parsed.scale()), (mantissa, scale));
+    }
+    let padded = format!("-{}1.20", "0".repeat(4096));
+    assert_eq!(
+        padded.parse::<Decimal>().unwrap().parts(),
+        Decimal::new(-120, 2).parts()
+    );
+}
+
+#[test]
+fn decimal_parse_preserves_error_precedence() {
+    for (input, reason) in [
+        (
+            "170141183460469231731687303715884105728",
+            ParseDecimalErrorReason::MantissaOverflow,
+        ),
+        (
+            "-170141183460469231731687303715884105729",
+            ParseDecimalErrorReason::MantissaOverflow,
+        ),
+        (
+            "9999999999999999999999999999999999999999x",
+            ParseDecimalErrorReason::InvalidDigits,
+        ),
+        (
+            "9999999999999999999999999999999999999999.0.0",
+            ParseDecimalErrorReason::InvalidSignificand,
+        ),
+        (
+            "9999999999999999999999999999999999999999e?",
+            ParseDecimalErrorReason::ExponentNotationUnsupported,
+        ),
+        (
+            "9999999999999999999999999999999999999999.00000000000000000000000000001",
+            ParseDecimalErrorReason::MantissaOverflow,
+        ),
+        (
+            "0.00000000000000000000000000001",
+            ParseDecimalErrorReason::ScaleExceedsSupportedRange,
+        ),
+        ("--1", ParseDecimalErrorReason::InvalidDigits),
+        ("+", ParseDecimalErrorReason::InvalidSignificand),
+    ] {
+        assert_decimal_parse_reason(input, reason);
+    }
+}
+
+#[test]
+fn decimal_float_conversion_preserves_display_contract_across_exponents() {
+    // Include signed zero, nonfinite values, subnormals, mantissa extremes and
+    // scale boundaries. Raw parts also protect scale, not just numeric equality.
+    for exponent in 0u64..=0x7ff {
+        for fraction in [0, 1, (1u64 << 51) - 1, (1u64 << 52) - 1] {
+            for sign in [0, 1u64 << 63] {
+                let value = f64::from_bits(sign | (exponent << 52) | fraction);
+                assert_eq!(
+                    Decimal::from_f64_lossy(value).map(|d| d.parts()),
+                    value.to_string().parse::<Decimal>().ok().map(|d| d.parts()),
+                    "f64 bits {:x}",
+                    value.to_bits(),
+                );
+            }
+        }
+    }
+    for exponent in 0u32..=0xff {
+        for fraction in [0, 1, (1u32 << 22) - 1, (1u32 << 23) - 1] {
+            for sign in [0, 1u32 << 31] {
+                let value = f32::from_bits(sign | (exponent << 23) | fraction);
+                assert_eq!(
+                    Decimal::from_f32_lossy(value).map(|d| d.parts()),
+                    value.to_string().parse::<Decimal>().ok().map(|d| d.parts()),
+                    "f32 bits {:x}",
+                    value.to_bits(),
+                );
+            }
+        }
+    }
+    for value in [1e-28f64, 1e-29, 0.1, 1.0, 2.0f64.powi(127)] {
+        for value in [value.next_down(), value, value.next_up()] {
+            assert_eq!(
+                Decimal::from_f64_lossy(value).map(|d| d.parts()),
+                value.to_string().parse::<Decimal>().ok().map(|d| d.parts()),
+            );
+        }
+    }
+}
+
+#[test]
 fn decimal_try_new_rejects_scale_over_max() {
     assert!(Decimal::try_new(1, MAX_SUPPORTED_SCALE).is_some());
     assert!(Decimal::try_new(1, MAX_SUPPORTED_SCALE + 1).is_none());
@@ -196,6 +297,35 @@ fn decimal_division_sign_scale_matrix() {
 }
 
 proptest! {
+    #[test]
+    fn decimal_parse_preserves_mantissa_and_scale(
+        mantissa in any::<i128>(),
+        scale in 0u32..=MAX_SUPPORTED_SCALE,
+        padding in 0usize..64,
+    ) {
+        let sign = if mantissa < 0 { "-" } else { "+" };
+        let mut digits = format!("{}{}", "0".repeat(padding + scale as usize), mantissa.unsigned_abs());
+        if scale > 0 {
+            digits.insert(digits.len() - scale as usize, '.');
+        }
+        let parsed = format!("{sign}{digits}").parse::<Decimal>().unwrap();
+        prop_assert_eq!(parsed.parts(), Decimal::from_i128_with_scale(mantissa, scale).parts());
+    }
+
+    #[test]
+    fn decimal_float_conversion_matches_text_for_arbitrary_bits(bits64 in any::<u64>(), bits32 in any::<u32>()) {
+        let value = f64::from_bits(bits64);
+        prop_assert_eq!(
+            Decimal::from_f64_lossy(value).map(|d| d.parts()),
+            value.to_string().parse::<Decimal>().ok().map(|d| d.parts()),
+        );
+        let value = f32::from_bits(bits32);
+        prop_assert_eq!(
+            Decimal::from_f32_lossy(value).map(|d| d.parts()),
+            value.to_string().parse::<Decimal>().ok().map(|d| d.parts()),
+        );
+    }
+
     #[test]
     fn decimal_add_saturation_boundary_property(
         lhs_m in any::<i128>(),

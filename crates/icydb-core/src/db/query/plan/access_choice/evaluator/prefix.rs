@@ -2,6 +2,8 @@
 mod branch_tests;
 #[cfg(all(test, feature = "sql"))]
 mod equality_tests;
+#[cfg(test)]
+mod multi_lookup_tests;
 
 use crate::{
     db::{
@@ -120,7 +122,7 @@ fn evaluate_prefix_and_candidate(
                 continue;
             };
             if let Some(existing) = &matched
-                && existing != &candidate
+                && !budget.values_equal(existing, &candidate)?
             {
                 return Ok(CandidateEvaluation::Rejected(
                     AccessChoiceRejectedReason::ConflictingEqConstraints,
@@ -190,32 +192,42 @@ pub(super) fn evaluate_multi_lookup_candidate_from_contract(
     index_contract: &SemanticIndexAccessContract,
     schema: &SchemaInfo,
     predicate: &Predicate,
-) -> CandidateEvaluation {
+    budget: &dyn ConstructionBudget,
+) -> Result<CandidateEvaluation, InternalError> {
     let Predicate::Compare(cmp) = predicate else {
-        return CandidateEvaluation::Rejected(
+        return Ok(CandidateEvaluation::Rejected(
             AccessChoiceRejectedReason::PredicateShapeNotMultiLookup,
-        );
+        ));
     };
     if let Err(reason) = ensure_lookup_coercion_supported(cmp.coercion.id) {
-        return CandidateEvaluation::Rejected(reason);
+        return Ok(CandidateEvaluation::Rejected(reason));
     }
     if cmp.op != CompareOp::In {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::OperatorNotMultiLookupIn);
+        return Ok(CandidateEvaluation::Rejected(
+            AccessChoiceRejectedReason::OperatorNotMultiLookupIn,
+        ));
     }
     let Ok(leading_key_item) =
         resolve_leading_lookup_key_item(index_contract, cmp.field.as_str(), cmp.coercion.id)
     else {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::LeadingFieldMismatch);
+        return Ok(CandidateEvaluation::Rejected(
+            AccessChoiceRejectedReason::LeadingFieldMismatch,
+        ));
     };
 
     let Value::List(values) = cmp.value() else {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::InLiteralNotList);
+        return Ok(CandidateEvaluation::Rejected(
+            AccessChoiceRejectedReason::InLiteralNotList,
+        ));
     };
     if values.is_empty() {
-        return CandidateEvaluation::Rejected(AccessChoiceRejectedReason::InLiteralEmpty);
+        return Ok(CandidateEvaluation::Rejected(
+            AccessChoiceRejectedReason::InLiteralEmpty,
+        ));
     }
     let matcher = index_field_literal_matcher(schema, cmp.field.as_str());
     for value in values {
+        budget.charge(Resource::PredicateExpressionSteps, 1)?;
         let literal_compatible = matcher.matches(value);
         if !key_item_supports_lookup_value(
             leading_key_item,
@@ -224,13 +236,13 @@ pub(super) fn evaluate_multi_lookup_candidate_from_contract(
             cmp.coercion.id,
             literal_compatible,
         ) {
-            return CandidateEvaluation::Rejected(
+            return Ok(CandidateEvaluation::Rejected(
                 AccessChoiceRejectedReason::InLiteralIncompatible,
-            );
+            ));
         }
     }
 
-    eligible_single_lookup_candidate(index_contract.clone())
+    Ok(eligible_single_lookup_candidate(index_contract.clone()))
 }
 
 pub(super) fn evaluate_branch_set_candidate_from_contract(
@@ -337,8 +349,8 @@ fn evaluate_branch_values(
             ));
         }
 
-        // Bound literal visits plus a worst-case equal-set walk. Sorting and
-        // payload-comparison internals remain separately owned work.
+        // Bound literal visits plus a worst-case equal-set slot walk. The
+        // shared equality owner admits payloads; sorting remains separate.
         budget.charge(
             Resource::PredicateExpressionSteps,
             (values.len() as u64).saturating_mul(2),
@@ -364,7 +376,7 @@ fn evaluate_branch_values(
         }
         crate::value::canonicalize_value_set(&mut branch_values);
         if let Some(existing) = &matched
-            && existing != &branch_values
+            && !budget.value_slices_equal(existing, &branch_values)?
         {
             return Ok(CandidateEvaluation::Rejected(
                 AccessChoiceRejectedReason::ConflictingEqConstraints,

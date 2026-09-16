@@ -66,8 +66,8 @@ impl SemanticIndexExpression {
         remaining.is_empty()
     }
 
-    // Rendering and comparison use exactly the same accepted label grammar.
-    const fn canonical_order_parts(&self) -> [&str; 3] {
+    /// Borrow the shared label grammar for rendering and lexical comparison.
+    pub(in crate::db) const fn canonical_order_parts(&self) -> [&str; 3] {
         let (prefix, suffix) = match self.op {
             PersistedIndexExpressionOp::Lower => ("LOWER(", ")"),
             PersistedIndexExpressionOp::Upper => ("UPPER(", ")"),

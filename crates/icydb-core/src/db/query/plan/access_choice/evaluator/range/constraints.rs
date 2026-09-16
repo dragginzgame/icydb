@@ -71,7 +71,7 @@ pub(super) fn classify_range_constraints_for_key_item(
                     return Ok(Err(AccessChoiceRejectedReason::EqRangeConflict));
                 }
                 if let Some(existing) = eq_value.as_ref()
-                    && existing != &candidate
+                    && !budget.values_equal(existing.as_ref(), candidate.as_ref())?
                 {
                     return Ok(Err(AccessChoiceRejectedReason::ConflictingEqConstraints));
                 }

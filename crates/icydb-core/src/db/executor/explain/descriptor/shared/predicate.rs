@@ -136,9 +136,10 @@ pub(in crate::db::executor::explain::descriptor) fn explain_filter_expr_for_plan
 
 pub(in crate::db::executor::explain::descriptor) fn explain_residual_filter_expr_for_plan(
     plan: &AccessPlannedQuery,
-) -> Option<String> {
-    plan.residual_filter_expr()
-        .map(render_scalar_filter_expr_plan_label)
+) -> Result<Option<String>, crate::error::InternalError> {
+    Ok(plan
+        .residual_filter_expr()?
+        .map(render_scalar_filter_expr_plan_label))
 }
 
 pub(in crate::db::executor::explain::descriptor) fn execution_preparation_predicate_index_capability(
@@ -340,7 +341,7 @@ pub(in crate::db::executor::explain::descriptor) fn explain_predicate_for_plan(
     work: &PreparationWork<'_>,
 ) -> Result<Option<ExplainPredicate>, QueryError> {
     plan.effective_execution_predicate()
-        .as_deref()
+        .map_err(QueryError::execute)?
         .map(|predicate| ExplainPredicate::from_predicate(predicate, work))
         .transpose()
 }
@@ -351,17 +352,14 @@ pub(in crate::db::executor::explain::descriptor) fn aggregate_covering_projectio
     plan: &AccessPlannedQuery,
     aggregation: AggregateKind,
     execution_preparation: &ExecutionPreparation,
-) -> bool {
+) -> Result<bool, crate::error::InternalError> {
     let strict_predicate_compatible = crate::db::query::plan::covering_strict_predicate_compatible(
-        plan,
+        plan.residual_filter_contract()?,
         execution_preparation_predicate_index_capability(execution_preparation),
     );
 
-    if aggregation.supports_covering_existing_rows_terminal() {
-        index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible)
-    } else {
-        false
-    }
+    Ok(aggregation.supports_covering_existing_rows_terminal()
+        && index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible))
 }
 
 #[cfg(test)]
@@ -388,13 +386,19 @@ mod tests {
         let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
             unreachable!()
         };
-        scalar.predicate = Some(Predicate::eq("abc".into(), Value::Text("payload".into())));
+        scalar.predicate = Some(Predicate::eq("age".into(), Value::Int64(7)));
+        let schema = crate::db::query::plan::exact_metadata_schema(&[], &[]);
+        crate::db::query::preparation::with_preparation_work(|work| {
+            let projection = plan.prepare_projection(&schema, work)?;
+            plan.finalize_static_execution_planning_contract_with_schema(&schema, projection, work)
+        })
+        .unwrap();
         let root = RequestExecutionRoot::new_for_tests(
             HardExecutionBudget::uniform_for_tests(
                 16_000_000,
                 HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
             )
-            .with_limit_for_tests(Resource::TemporaryBytes, 10),
+            .with_limit_for_tests(Resource::TemporaryBytes, 3),
         );
         let run = || {
             PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
@@ -402,7 +406,7 @@ mod tests {
             })
         };
         assert!(run().unwrap().is_some());
-        assert_eq!(root.observed(Resource::TemporaryBytes), 10);
+        assert_eq!(root.observed(Resource::TemporaryBytes), 3);
         assert_eq!(root.observed(Resource::NestedValueSteps), 1);
         assert!(run().is_err());
         assert_eq!(root.observed(Resource::RowsVisited), 0);

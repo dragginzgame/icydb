@@ -220,7 +220,7 @@ impl PreparedScalarPlanCore {
     pub(in crate::db::executor) fn get_or_init_initial_scalar_route_plan(
         &self,
         authority: EntityAuthority,
-    ) -> ExecutionRoutePlan {
+    ) -> Result<ExecutionRoutePlan, InternalError> {
         self.core.get_or_init_initial_scalar_route_plan(authority)
     }
 
@@ -346,7 +346,7 @@ impl PreparedExecutionPlanCore {
             &self.residents.projection_covering_read_execution_plan,
             || {
                 let strict_predicate_compatible =
-                    covering_strict_predicate_compatible_for_plan(&self.residents.plan);
+                    covering_strict_predicate_compatible_for_plan(&self.residents.plan).ok()?;
 
                 authority
                     .covering_read_execution_plan(&self.residents.plan, strict_predicate_compatible)
@@ -361,7 +361,7 @@ impl PreparedExecutionPlanCore {
     ) -> Option<Rc<CoveringHybridReadExecutionPlan>> {
         self.initialize_lazy(&self.residents.hybrid_covering_read_plan, || {
             let strict_predicate_compatible =
-                covering_strict_predicate_compatible_for_plan(&self.residents.plan);
+                covering_strict_predicate_compatible_for_plan(&self.residents.plan).ok()?;
 
             authority
                 .covering_hybrid_projection_plan(&self.residents.plan, strict_predicate_compatible)
@@ -453,9 +453,9 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_initial_scalar_route_plan(
         &self,
         authority: EntityAuthority,
-    ) -> ExecutionRoutePlan {
+    ) -> Result<ExecutionRoutePlan, InternalError> {
         if let Some(route_plan) = self.residents.initial_scalar_route_plan.get() {
-            return route_plan.clone();
+            return Ok(route_plan.clone());
         }
 
         let continuation = ScalarContinuationContext::initial();
@@ -467,10 +467,10 @@ impl PreparedExecutionPlanCore {
                 authority: Some(Box::new(authority)),
                 load_terminal_fast_path: None,
             },
-        );
+        )?;
         self.remember_lazy(&self.residents.initial_scalar_route_plan, &route_plan);
 
-        route_plan
+        Ok(route_plan)
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_cursorless_retained_slot_layout(
@@ -915,7 +915,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         continuation_identity,
         budget,
     )?;
-    let execution_shape_fingerprint_prefix = read_shape_fingerprint_prefix(&authority, &plan);
+    let execution_shape_fingerprint_prefix = read_shape_fingerprint_prefix(&authority, &plan)?;
 
     Ok(PreparedExecutionPlanCore::new(
         plan,

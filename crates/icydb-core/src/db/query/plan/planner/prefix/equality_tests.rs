@@ -64,12 +64,18 @@ fn equality_prefix_duplicates_borrow_identity_and_admit_normalized_values() {
                 })
                 .collect();
             let bytes = (keys.len() * size_of::<Value>()) as u64 + converted;
-            let steps = (keys.len() * (literals.len() + 1)) as u64 + steps;
+            let Value::Text(expected_text) = &expected else {
+                unreachable!()
+            };
+            let comparisons = repetitions - 1;
+            let steps = (keys.len() * (literals.len() + 1)) as u64
+                + steps
+                + comparisons * expected_text.len() as u64;
             for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
                 for (resource, exact) in [
                     (Resource::TemporaryBytes, bytes),
                     (Resource::PredicateExpressionSteps, steps),
-                    (Resource::NestedValueSteps, copied),
+                    (Resource::NestedValueSteps, copied + 2 * comparisons),
                 ] {
                     for limit in [0, exact.saturating_sub(1), exact * 2] {
                         let root = request(resource, limit);

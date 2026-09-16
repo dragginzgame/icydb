@@ -124,15 +124,21 @@ impl StructuralQuery {
         ));
         logical_diagnostics.push(format!(
             "diag.p.predicate_pushdown={}",
-            plan.predicate_pushdown_label()
+            plan.predicate_pushdown_diagnostics()
+                .map_err(QueryError::execute)?
+                .label()
         ));
         logical_diagnostics.push(format!(
             "diag.p.predicate_pushdown_outcome={}",
-            plan.predicate_pushdown_outcome_label()
+            plan.predicate_pushdown_diagnostics()
+                .map_err(QueryError::execute)?
+                .outcome_label()
         ));
         logical_diagnostics.push(format!(
             "diag.p.predicate_pushdown_reason={}",
-            plan.predicate_pushdown_reason_label()
+            plan.predicate_pushdown_diagnostics()
+                .map_err(QueryError::execute)?
+                .reason_label()
         ));
         logical_diagnostics.push(format!("diag.p.distinct={}", scalar.distinct));
         logical_diagnostics.push(format!(
@@ -142,7 +148,8 @@ impl StructuralQuery {
         logical_diagnostics.push(format!("diag.p.consistency={:?}", scalar.consistency));
 
         let admission = QueryAdmissionPolicy::diagnostic_explain().evaluate(
-            QueryAdmissionSummary::from_plan(QueryAdmissionLane::DiagnosticExplain, plan),
+            QueryAdmissionSummary::from_plan(QueryAdmissionLane::DiagnosticExplain, plan)
+                .map_err(QueryError::execute)?,
         );
 
         Ok(FinalizedQueryDiagnostics::new(

@@ -670,17 +670,6 @@ impl PartialEq for GroupAggregateSpec {
 impl Eq for GroupAggregateSpec {}
 
 impl GroupedPlanAggregateFamily {
-    /// Derive the grouped aggregate-family profile from one planner aggregate list.
-    #[must_use]
-    pub(in crate::db) fn from_grouped_aggregates(aggregates: &[GroupAggregateSpec]) -> Self {
-        match Self::try_from_grouped_aggregates(aggregates, &mut |_| {
-            Ok::<_, std::convert::Infallible>(())
-        }) {
-            Ok(result) => result,
-            Err(never) => match never {},
-        }
-    }
-
     /// Inspect aggregate facts with observation before each borrowed visit.
     pub(in crate::db) fn try_from_grouped_aggregates<E>(
         aggregates: &[GroupAggregateSpec],

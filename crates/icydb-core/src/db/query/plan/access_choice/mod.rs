@@ -32,6 +32,7 @@ use crate::{
                 },
                 model::{AccessChoiceCandidateKind, AccessChoiceFamily},
             },
+            order_contract::CandidateOrderContract,
             plan_access_selection_with_order_and_semantic_indexes,
             residual_filter_facts_for_access,
         },
@@ -40,6 +41,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::borrow::Cow;
 
 ///
@@ -88,19 +90,20 @@ pub(in crate::db) fn exact_cardinality_tiebreak_candidates<'a>(
     };
     let predicate = plan.scalar_plan().predicate.as_ref();
     let order = plan.scalar_plan().order.as_ref();
+    let order_contract = CandidateOrderContract::prepare(schema_info, order, false, budget)?;
     let chosen_score = match evaluate_index_candidate(
         explain_family,
         &chosen_index,
         schema_info,
         predicate,
-        order,
-        false,
+        order.is_some(),
+        order_contract.as_ref(),
         budget,
     )? {
         self::model::CandidateEvaluation::Eligible(score) => score,
         self::model::CandidateEvaluation::Rejected(_) => return Ok(None),
     };
-    let chosen_burden = residual_burden_for_plan(plan);
+    let chosen_burden = residual_burden_for_plan(plan, budget)?;
     // At most one retained route per visible index. Route payload construction
     // remains separately owned; admit list backing before retaining candidates.
     let mut candidates = budget.vec_with_capacity(semantic_indexes.len())?;
@@ -124,8 +127,8 @@ pub(in crate::db) fn exact_cardinality_tiebreak_candidates<'a>(
             index,
             schema_info,
             predicate,
-            order,
-            false,
+            order.is_some(),
+            order_contract.as_ref(),
             budget,
         )?
         else {
@@ -147,7 +150,7 @@ pub(in crate::db) fn exact_cardinality_tiebreak_candidates<'a>(
         if candidate_family != family || candidate_prefix_arity != consumed_prefix_arity {
             continue;
         }
-        if residual_burden_for_candidate(plan, &candidate_access) != chosen_burden {
+        if residual_burden_for_candidate(plan, &candidate_access, budget)? != chosen_burden {
             continue;
         }
         candidates.push(CardinalityTiebreakCandidate::new(
@@ -192,9 +195,13 @@ const fn access_choice_family_for_cardinality(
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "candidate projection preserves one evaluation pass and rejection precedence"
+)]
 fn project_access_choice_explain_snapshot_from_authority(
     visible_indexes: &[SemanticIndexAccessContract],
-    schema_info: &SchemaInfo,
+    schema: &SchemaInfo,
     plan: &AccessPlannedQuery,
     budget: &dyn ConstructionBudget,
 ) -> Result<AccessChoiceExplainSnapshot, InternalError> {
@@ -214,16 +221,17 @@ fn project_access_choice_explain_snapshot_from_authority(
 
     let predicate = plan.scalar_plan().predicate.as_ref();
     let order = plan.scalar_plan().order.as_ref();
-    let grouped = plan.grouped_plan().is_some();
+    let ordering =
+        CandidateOrderContract::prepare(schema, order, plan.grouped_plan().is_some(), budget)?;
     let chosen_score = chosen_score_for_visible_indexes(
         family,
         chosen_score_hint,
         chosen_index_name.name(),
         visible_indexes,
-        schema_info,
+        schema,
         predicate,
         order,
-        grouped,
+        ordering.as_ref(),
         budget,
     )?;
     // Each visible index contributes at most one element to each retained list.
@@ -232,7 +240,7 @@ fn project_access_choice_explain_snapshot_from_authority(
     let mut candidates = budget.vec_with_capacity(visible_indexes.len())?;
     let mut rejected = budget.vec_with_capacity(visible_indexes.len())?;
     let mut ranking = CandidateRankingEvidence::new();
-    let chosen_burden = residual_burden_for_plan(plan);
+    let chosen_burden = residual_burden_for_plan(plan, budget)?;
     let mut found_lower_residual_burden = false;
     let mut found_higher_residual_burden = false;
 
@@ -244,10 +252,10 @@ fn project_access_choice_explain_snapshot_from_authority(
         match evaluate_index_candidate(
             family,
             index,
-            schema_info,
+            schema,
             predicate,
-            order,
-            grouped,
+            order.is_some(),
+            ordering.as_ref(),
             budget,
         )? {
             self::model::CandidateEvaluation::Eligible(score)
@@ -257,7 +265,7 @@ fn project_access_choice_explain_snapshot_from_authority(
                     candidate_kind,
                     index_name,
                     score,
-                    residual_burden_for_plan(plan),
+                    chosen_burden,
                 ));
             }
             self::model::CandidateEvaluation::Eligible(score) => {
@@ -265,22 +273,22 @@ fn project_access_choice_explain_snapshot_from_authority(
                 ranking.observe(family, chosen_score, score);
                 let mut rejected_on_residual_burden = false;
                 if let Some(candidate_access) =
-                    eligible_candidate_access_for_index(schema_info, plan, index, budget)?
+                    eligible_candidate_access_for_index(schema, plan, index, budget)?
                 {
-                    let residual_burden = residual_burden_for_candidate(plan, &candidate_access);
+                    let burden = residual_burden_for_candidate(plan, &candidate_access, budget)?;
                     candidates.push(project_candidate_explain_summary(
                         candidate_kind,
                         budget.copy_text(&index_name)?,
                         score,
-                        residual_burden,
+                        burden,
                     ));
                     if score == chosen_score
                         && candidate_access
                             .selected_index_contract()
                             .is_some_and(|contract| contract.name() == index_name.as_str())
                     {
-                        found_lower_residual_burden |= residual_burden < chosen_burden;
-                        rejected_on_residual_burden = residual_burden > chosen_burden;
+                        found_lower_residual_burden |= burden < chosen_burden;
+                        rejected_on_residual_burden = burden > chosen_burden;
                         found_higher_residual_burden |= rejected_on_residual_burden;
                     }
                 }
@@ -392,7 +400,8 @@ fn rerank_access_plan_by_residual_burden_from_authority(
     plan: &AccessPlannedQuery,
     budget: &dyn ConstructionBudget,
 ) -> Result<Option<AccessPlan<Value>>, InternalError> {
-    if residual_burden_for_plan(plan).is_empty() {
+    let chosen_burden = residual_burden_for_plan(plan, budget)?;
+    if chosen_burden.is_empty() {
         return Ok(None);
     }
 
@@ -400,6 +409,7 @@ fn rerank_access_plan_by_residual_burden_from_authority(
         visible_indexes,
         schema_info,
         plan,
+        chosen_burden,
         budget,
     )?;
 
@@ -464,7 +474,7 @@ fn chosen_score_for_visible_indexes(
     schema_info: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&crate::db::query::plan::OrderSpec>,
-    grouped: bool,
+    order_contract: Option<&CandidateOrderContract>,
     budget: &dyn ConstructionBudget,
 ) -> Result<crate::db::query::plan::planner::AccessCandidateScore, InternalError> {
     // Semantic rejection may use the existing shape hint; exhausted evaluation
@@ -477,8 +487,8 @@ fn chosen_score_for_visible_indexes(
             index,
             schema_info,
             predicate,
-            order,
-            grouped,
+            order.is_some(),
+            order_contract,
             budget,
         )?
     {
@@ -544,6 +554,7 @@ fn preferred_same_score_competing_access_by_residual_burden(
     visible_indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
+    chosen_burden: ResidualBurdenProfile,
     budget: &dyn ConstructionBudget,
 ) -> Result<Option<ResidualComparableCandidate>, InternalError> {
     let (family, chosen_index_name, chosen_score_hint) =
@@ -558,6 +569,7 @@ fn preferred_same_score_competing_access_by_residual_burden(
     let predicate = plan.scalar_plan().predicate.as_ref();
     let order = plan.scalar_plan().order.as_ref();
     let grouped = plan.grouped_plan().is_some();
+    let order_contract = CandidateOrderContract::prepare(schema_info, order, grouped, budget)?;
     let chosen_score = chosen_score_for_visible_indexes(
         family,
         chosen_score_hint,
@@ -566,11 +578,10 @@ fn preferred_same_score_competing_access_by_residual_burden(
         schema_info,
         predicate,
         order,
-        grouped,
+        order_contract.as_ref(),
         budget,
     )?;
 
-    let chosen_burden = residual_burden_for_plan(plan);
     let mut best: Option<ResidualComparableCandidate> = None;
     for index in visible_indexes {
         if index.name() == chosen_index_name.name() {
@@ -581,8 +592,8 @@ fn preferred_same_score_competing_access_by_residual_burden(
             index,
             schema_info,
             predicate,
-            order,
-            grouped,
+            order.is_some(),
+            order_contract.as_ref(),
             budget,
         )?
         else {
@@ -604,7 +615,7 @@ fn preferred_same_score_competing_access_by_residual_burden(
             continue;
         }
 
-        let residual_burden = residual_burden_for_candidate(plan, &candidate_access);
+        let residual_burden = residual_burden_for_candidate(plan, &candidate_access, budget)?;
         // Equal burden retains the first candidate in accepted-name order.
         if residual_burden < chosen_burden
             && best
@@ -623,11 +634,20 @@ fn preferred_same_score_competing_access_by_residual_burden(
 
 // Project one bounded residual burden category from the coupled logical+access
 // plan without inventing numeric costs or selectivity math.
-fn residual_burden_for_plan(plan: &AccessPlannedQuery) -> ResidualBurdenProfile {
-    residual_burden_from_filter_facts(
-        plan.residual_filter_shape(),
-        plan.effective_execution_predicate().as_deref(),
-    )
+fn residual_burden_for_plan(
+    plan: &AccessPlannedQuery,
+    budget: &dyn ConstructionBudget,
+) -> Result<ResidualBurdenProfile, InternalError> {
+    if let Some(contract) = &plan.static_execution_planning_contract {
+        return residual_burden_from_filter_facts(
+            contract.residual_filter_contract.shape(),
+            contract
+                .residual_filter_contract
+                .residual_filter_predicate(),
+            budget,
+        );
+    }
+    residual_burden_for_candidate(plan, &plan.access, budget)
 }
 
 // Candidate routes have no finalized contract. Share the semantic derivation
@@ -635,32 +655,53 @@ fn residual_burden_for_plan(plan: &AccessPlannedQuery) -> ResidualBurdenProfile 
 fn residual_burden_for_candidate(
     plan: &AccessPlannedQuery,
     access: &AccessPlan<Value>,
-) -> ResidualBurdenProfile {
-    let (shape, predicate) = residual_filter_facts_for_access(plan.scalar_plan(), access);
+    budget: &dyn ConstructionBudget,
+) -> Result<ResidualBurdenProfile, InternalError> {
+    // Residual stripping consumes and compacts one admitted copy. Keep its
+    // semantic owner shared with finalization rather than recounting clauses
+    // through a separate scoring-only proof implementation.
+    let predicate = plan
+        .scalar_plan()
+        .predicate
+        .as_ref()
+        .map(|predicate| budget.copy_predicate(predicate))
+        .transpose()?;
+    let (shape, predicate) =
+        residual_filter_facts_for_access(plan.scalar_plan(), access, predicate, budget)?;
 
-    residual_burden_from_filter_facts(shape, predicate.as_ref())
+    residual_burden_from_filter_facts(shape, predicate.as_ref(), budget)
 }
 
 fn residual_burden_from_filter_facts(
     shape: ResidualFilterShape,
     predicate: Option<&Predicate>,
-) -> ResidualBurdenProfile {
-    let predicate_term_count = predicate.map_or(0, count_predicate_terms);
+    budget: &dyn ConstructionBudget,
+) -> Result<ResidualBurdenProfile, InternalError> {
+    let predicate_term_count = predicate
+        .map(|predicate| count_predicate_terms(predicate, budget))
+        .transpose()?
+        .unwrap_or(0);
     let kind_rank = ResidualBurdenProfile::kind_rank_for_residual_shape(shape);
 
-    ResidualBurdenProfile {
+    Ok(ResidualBurdenProfile {
         kind_rank,
         predicate_term_count,
-    }
+    })
 }
 
 // Count residual predicate terms using the planner-owned boolean tree shape so
 // same-score candidate comparison can prefer the route that leaves a smaller
 // predicate remainder.
-fn count_predicate_terms(predicate: &Predicate) -> usize {
-    match predicate {
+fn count_predicate_terms(
+    predicate: &Predicate,
+    budget: &dyn ConstructionBudget,
+) -> Result<usize, InternalError> {
+    budget.charge(Resource::PredicateExpressionSteps, 1)?;
+    Ok(match predicate {
         Predicate::And(children) | Predicate::Or(children) => {
-            children.iter().map(count_predicate_terms).sum()
+            children.iter().try_fold(0, |count, child| {
+                count_predicate_terms(child, budget).map(|terms| count + terms)
+            })?
         }
         Predicate::True | Predicate::False => 0,
         Predicate::Not(_)
@@ -673,5 +714,5 @@ fn count_predicate_terms(predicate: &Predicate) -> usize {
         | Predicate::IsNotEmpty { .. }
         | Predicate::TextContains { .. }
         | Predicate::TextContainsCi { .. } => 1,
-    }
+    })
 }

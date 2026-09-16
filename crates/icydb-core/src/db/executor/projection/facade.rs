@@ -258,7 +258,7 @@ where
         let index_range_specs = prepared_plan.index_range_specs();
         let covering_execution_preparation = prepared_plan
             .logical_plan()
-            .has_residual_filter_predicate()
+            .has_residual_filter_predicate()?
             .then(|| {
                 ExecutionPreparation::from_plan(
                     prepared_plan.logical_plan(),

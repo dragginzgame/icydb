@@ -53,10 +53,10 @@ impl<C: CanisterKind> DbSession<C> {
             execution_lane,
         )?;
         if let Some(policy) = admission {
-            let summary = policy.evaluate(QueryAdmissionSummary::from_plan(
-                policy.lane(),
-                prepared_plan.logical_plan(),
-            ));
+            let summary = policy.evaluate(
+                QueryAdmissionSummary::from_plan(policy.lane(), prepared_plan.logical_plan())
+                    .map_err(QueryError::execute)?,
+            );
             if let Some(rejection) = summary.rejection() {
                 return Err(QueryError::from(rejection.code()));
             }

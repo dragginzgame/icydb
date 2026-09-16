@@ -88,7 +88,7 @@ fn equality_prefix_scores_preserve_gaps_conflicts_and_rejection_precedence() {
     ] {
         let predicate = Predicate::And(children);
         let before = predicate.clone();
-        let root = request(Resource::NestedValueSteps, 0);
+        let root = request(Resource::NestedValueSteps, 16_000_000);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             let evaluation = evaluate_prefix_candidate(index, &schema, &predicate, work).unwrap();
             if let CandidateEvaluation::Eligible(score) = &evaluation {
@@ -139,13 +139,18 @@ fn equality_prefix_conversion_and_constraint_backing_share_cumulative_admission(
         let predicate = Predicate::And(vec![cmp.clone(), cmp]);
         let bytes = (2 * size_of::<(&str, &Value, CoercionId, bool)>()) as u64
             + if expression { 2 * lower_bytes } else { 0 };
-        let steps = 5 + if expression { 2 * lower_steps } else { 0 };
+        let comparison_bytes = if expression {
+            source.to_lowercase().len()
+        } else {
+            source.len()
+        } as u64;
+        let steps = 5 + if expression { 2 * lower_steps } else { 0 } + comparison_bytes;
         for branch in [false, true] {
             for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
                 for (resource, exact) in [
                     (Resource::TemporaryBytes, bytes),
                     (Resource::PredicateExpressionSteps, steps),
-                    (Resource::NestedValueSteps, 0),
+                    (Resource::NestedValueSteps, 2),
                 ] {
                     for limit in [0, exact.saturating_sub(1), exact * 2] {
                         let root = request(resource, limit);
@@ -218,7 +223,7 @@ fn equality_score_hint_never_hides_exhausted_evaluation() {
                 &schema,
                 Some(&predicate),
                 None,
-                false,
+                None,
                 work,
             );
             assert!(
@@ -244,7 +249,7 @@ fn equality_score_hint_never_hides_exhausted_evaluation() {
                 &schema,
                 Some(&Predicate::And(vec![Predicate::True])),
                 None,
-                false,
+                None,
                 work
             )
             .unwrap(),
@@ -282,7 +287,7 @@ fn equality_prefix_expression_duplicates_compare_lowered_values() {
                 })
                 .into(),
         );
-        let root = request(Resource::NestedValueSteps, 0);
+        let root = request(Resource::NestedValueSteps, 2);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assert_eq!(
                 prefix_len(evaluate_prefix_candidate(index, &schema, &predicate, work).unwrap()),
@@ -292,6 +297,43 @@ fn equality_prefix_expression_duplicates_compare_lowered_values() {
                     Err(Reason::ConflictingEqConstraints)
                 },
             );
+            Ok(())
+        })
+        .unwrap();
+    }
+}
+
+#[test]
+fn equality_payload_exhaustion_cannot_become_a_conflict_or_score_hint() {
+    let schema = exact_metadata_schema(&[("a", &["age", "id"])], &[]);
+    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let hint = AccessCandidateScore {
+        prefix_len: 1,
+        exact: false,
+        filtered: false,
+        range_bound_count: 0,
+        order_compatible: false,
+    };
+    for second in [1, 2] {
+        let predicate = Predicate::And(vec![equal("age", 1), equal("age", second)]);
+        let root = request(Resource::NestedValueSteps, 0);
+        PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+            let error = chosen_score_for_visible_indexes(
+                AccessChoiceFamily::Prefix,
+                hint,
+                "a",
+                visible.accepted_semantic_index_contracts(),
+                &schema,
+                Some(&predicate),
+                None,
+                None,
+                work,
+            )
+            .unwrap_err();
+            assert!(QueryError::execute(error).diagnostic_facts().contains(&(
+                DiagnosticFactTag::BudgetResource,
+                Resource::NestedValueSteps.raw(),
+            )));
             Ok(())
         })
         .unwrap();

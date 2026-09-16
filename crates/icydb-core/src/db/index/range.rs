@@ -279,7 +279,7 @@ pub(in crate::db) fn build_index_component_range_with_encoded_prefix(
 
 /// Return the smallest strict lexical successor prefix, or `None` when the
 /// input is already at the terminal Unicode scalar boundary.
-fn next_text_prefix(prefix: &str) -> Option<String> {
+pub(in crate::db) fn next_text_prefix(prefix: &str) -> Option<String> {
     // Skip terminal scalars in place. The byte offset is a UTF-8 boundary;
     // only the final successor needs backing, not a full character-vector copy.
     for (offset, character) in prefix.char_indices().rev() {

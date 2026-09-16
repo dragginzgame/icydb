@@ -258,7 +258,7 @@ pub(in crate::db::executor) fn prepared_read_execution_context(
 pub(in crate::db::executor) fn read_shape_fingerprint_prefix(
     authority: &EntityAuthority,
     logical: &crate::db::query::plan::AccessPlannedQuery,
-) -> u64 {
+) -> Result<u64, crate::error::InternalError> {
     let fingerprint = authority.accepted_schema_fingerprint();
     let mut prefix = u64::from_be_bytes([
         fingerprint[0],
@@ -271,7 +271,7 @@ pub(in crate::db::executor) fn read_shape_fingerprint_prefix(
         fingerprint[7],
     ]) ^ authority.entity_tag().value().rotate_left(17);
     let scalar = logical.scalar_plan();
-    prefix ^= u64::from(logical.has_residual_filter_predicate()).rotate_left(7);
+    prefix ^= u64::from(logical.has_residual_filter_predicate()?).rotate_left(7);
     prefix ^= u64::from(scalar.distinct).rotate_left(11);
     prefix ^=
         usize_as_u64(scalar.order.as_ref().map_or(0, |order| order.fields.len())).rotate_left(23);
@@ -287,7 +287,7 @@ pub(in crate::db::executor) fn read_shape_fingerprint_prefix(
     ))
     .rotate_left(41);
 
-    prefix
+    Ok(prefix)
 }
 
 /// Build bounded attribution for a direct read terminal without a full plan.

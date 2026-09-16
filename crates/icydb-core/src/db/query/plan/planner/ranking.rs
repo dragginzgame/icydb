@@ -4,12 +4,7 @@
 //! Boundary: shared ranking contract consumed by planner selection and planner-choice explain.
 
 use crate::db::{
-    access::SemanticIndexAccessContract,
-    query::plan::{
-        OrderSpec, deterministic_secondary_index_key_items_satisfied,
-        grouped_index_key_items_satisfied,
-    },
-    schema::SchemaInfo,
+    access::SemanticIndexAccessContract, query::plan::order_contract::CandidateOrderContract,
 };
 use std::ops::Bound;
 
@@ -184,52 +179,28 @@ pub(in crate::db::query::plan) const fn range_bound_count<T>(
 /// deterministic secondary ordering contract after consumed prefix items.
 #[must_use]
 pub(in crate::db::query::plan) fn selected_index_contract_satisfies_secondary_order(
-    schema: &SchemaInfo,
-    order: Option<&OrderSpec>,
+    order: Option<&CandidateOrderContract>,
     index: &SemanticIndexAccessContract,
     prefix_len: usize,
-    grouped: bool,
 ) -> bool {
-    if grouped {
-        let Some(order_contract) = order.and_then(OrderSpec::grouped_index_order_contract) else {
-            return false;
-        };
-
-        return grouped_index_key_items_satisfied(&order_contract, index.key_items(), prefix_len);
-    }
-
-    let Some(order_contract) = order.and_then(|order| {
-        order.deterministic_secondary_order_contract_fields(schema.shared_primary_key_names())
-    }) else {
-        return false;
-    };
-
-    deterministic_secondary_index_key_items_satisfied(
-        &order_contract,
-        index.key_items(),
-        prefix_len,
-    )
+    order.is_some_and(|contract| contract.satisfies(index.key_items(), prefix_len))
 }
 
 /// Build one planner candidate score from the accepted reduced semantic index
 /// contract after candidate eligibility has been established.
 #[must_use]
 pub(in crate::db::query::plan) fn access_candidate_score_from_index_contract(
-    schema: &SchemaInfo,
-    order: Option<&OrderSpec>,
+    order: Option<&CandidateOrderContract>,
     index: &SemanticIndexAccessContract,
     prefix_len: usize,
     exact: bool,
     range_bound_count: u8,
-    grouped: bool,
 ) -> AccessCandidateScore {
     AccessCandidateScore::new(
         prefix_len,
         exact,
         index.is_filtered(),
         range_bound_count,
-        selected_index_contract_satisfies_secondary_order(
-            schema, order, index, prefix_len, grouped,
-        ),
+        selected_index_contract_satisfies_secondary_order(order, index, prefix_len),
     )
 }

@@ -323,7 +323,7 @@ pub(in crate::db) fn exact_count_cardinality_prefixes_for_plan<'specs>(
     // which candidate first proves existence.
     if !plan.has_no_distinct()
         || (!allow_ordered_plan && plan.scalar_plan().order.is_some())
-        || plan.has_any_residual_filter()
+        || plan.has_any_residual_filter().ok()?
     {
         return None;
     }

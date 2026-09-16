@@ -3,11 +3,13 @@
 
 #[cfg(test)]
 mod implication_tests;
+#[cfg(test)]
+mod proof_budget_tests;
 
 use crate::{
     db::{
         access::{AccessPath, SemanticIndexAccessContract},
-        index::{TextPrefixBoundMode, starts_with_component_bounds},
+        index::next_text_prefix,
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::construction::ConstructionBudget,
@@ -32,13 +34,13 @@ pub(in crate::db::query) fn eligible_sorted_index_contracts(
 ) -> Result<Vec<SemanticIndexAccessContract>, InternalError> {
     // Every visible index can survive filtering. Admit one destination and
     // the outer visits before implication checks; contract clones share backing.
-    // Predicate proof work is separate from this list-construction allowance.
+    // Inner proof visits use the same authority, separately from list construction.
     budget.charge(Resource::PredicateExpressionSteps, indexes.len() as u64)?;
     let mut eligible = budget.vec_with_capacity(indexes.len())?;
     debug_assert!(index_contracts_are_sorted(indexes));
     for index in indexes {
-        if index_contract_predicate_implied_by_query(index, query_predicate)
-            && index_stream_is_complete_for_query(schema, index, query_predicate)
+        if index_contract_predicate_implied_by_query(index, query_predicate, budget)?
+            && index_stream_is_complete_for_query(schema, index, query_predicate, budget)?
         {
             eligible.push(index.clone());
         }
@@ -53,19 +55,27 @@ pub(in crate::db::query::plan) fn index_stream_is_complete_for_query(
     schema: &SchemaInfo,
     index: &SemanticIndexAccessContract,
     query_predicate: &Predicate,
-) -> bool {
-    (0..index.key_arity()).all(|slot| {
-        index.key_item_at(slot).is_some_and(|key_item| {
-            let field = key_item.field();
-            !schema
-                .accepted_query_field_is_omittable(field)
-                .unwrap_or(true)
-                || predicate_implies_clause_for_planner(
-                    query_predicate,
-                    ImplicationClause::NonNull(field),
-                )
-        })
-    })
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    for slot in 0..index.key_arity() {
+        budget.charge(Resource::PredicateExpressionSteps, 1)?;
+        let Some(key_item) = index.key_item_at(slot) else {
+            return Ok(false);
+        };
+        let field = key_item.field();
+        if schema
+            .accepted_query_field_is_omittable(field)
+            .unwrap_or(true)
+            && !predicate_implies_clause_for_planner(
+                query_predicate,
+                ImplicationClause::NonNull(field),
+                budget,
+            )?
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn index_contracts_are_sorted(indexes: &[SemanticIndexAccessContract]) -> bool {
@@ -111,86 +121,109 @@ pub(in crate::db::query) fn index_field_literal_matcher<'a>(
 fn index_contract_predicate_implied_by_query(
     index: &SemanticIndexAccessContract,
     query_predicate: &Predicate,
-) -> bool {
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
     let Some(index_predicate) = index.predicate_semantics() else {
-        return true;
+        return Ok(true);
     };
 
-    predicate_implies_predicate_for_planner(query_predicate, index_predicate)
+    predicate_implies_predicate_for_planner(query_predicate, index_predicate, budget)
 }
 
 pub(in crate::db) fn residual_query_predicate_after_filtered_access_contract(
     index: SemanticIndexAccessContract,
     query_predicate: Predicate,
-) -> Option<Predicate> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Predicate>, InternalError> {
     let Some(index_predicate) = index.predicate_semantics() else {
-        return Some(query_predicate);
+        return Ok(Some(query_predicate));
     };
 
-    if !predicate_implies_predicate_for_planner(&query_predicate, index_predicate) {
-        return Some(query_predicate);
+    if !predicate_implies_predicate_for_planner(&query_predicate, index_predicate, budget)? {
+        return Ok(Some(query_predicate));
     }
 
-    strip_query_clauses_satisfied_by_filtered_guard(query_predicate, index_predicate)
+    strip_query_clauses_satisfied_by_filtered_guard(query_predicate, index_predicate, budget)
 }
 
 pub(in crate::db) fn residual_query_predicate_after_access_path_bounds(
     access_path: Option<&AccessPath<Value>>,
     query_predicate: Predicate,
-) -> Option<Predicate> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Predicate>, InternalError> {
     let Some(access_path) = access_path else {
-        return Some(query_predicate);
+        return Ok(Some(query_predicate));
     };
 
     // Borrow only clauses guaranteed by this concrete path. Proof construction
     // must not copy field labels, operands or comparison-vector backing.
     let Some(implied_bounds) = AccessBoundClauses::from_path(access_path) else {
-        return Some(query_predicate);
+        return Ok(Some(query_predicate));
     };
     if implied_bounds.is_empty() {
-        return Some(query_predicate);
+        return Ok(Some(query_predicate));
     }
 
     // Remove only clauses guaranteed by these bounds, preserving stricter
     // siblings that still require runtime filtering.
-    strip_query_clauses_satisfied_by_access_bounds(query_predicate, &implied_bounds)
+    strip_query_clauses_satisfied_by_access_bounds(query_predicate, &implied_bounds, budget)
 }
 
 pub(in crate::db::query::plan) fn predicate_implies_predicate_for_planner(
     implying: &Predicate,
     required: &Predicate,
-) -> bool {
-    if let Predicate::Or(children) = implying {
-        return children
-            .iter()
-            .all(|child| predicate_implies_predicate_for_planner(child, required));
-    }
-    // Required validity precedes query contradiction. A top-level FALSE is a
-    // supported requirement; FALSE nested inside AND remains unsupported.
-    let required_classification = if matches!(required, Predicate::False) {
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    budget.charge(Resource::PredicateExpressionSteps, 1)?;
+    // Required validity precedes query contradiction; nested FALSE remains unsupported.
+    let classification = if matches!(required, Predicate::False) {
         ImplicationClassification::Unsatisfiable
     } else {
-        classify_implication_clauses(required, CompareClauseMode::Required)
+        classify_implication_clauses(required, CompareClauseMode::Required, budget)?
     };
-    if matches!(required_classification, ImplicationClassification::Unknown) {
-        return false;
-    }
+    predicate_implies_classified_requirement(implying, required, &classification, budget)
+}
 
-    match classify_implication_clauses(implying, CompareClauseMode::Query) {
-        ImplicationClassification::Unsatisfiable => true,
-        ImplicationClassification::Unknown => false,
-        ImplicationClassification::Known => match required_classification {
-            ImplicationClassification::Unsatisfiable | ImplicationClassification::Unknown => false,
-            ImplicationClassification::Known => {
-                visit_implication_clauses(required, CompareClauseMode::Required, &mut |required| {
-                    if query_clauses_imply_clause(implying, required) {
+// Every OR branch proves the same borrowed requirement. Classify that invariant
+// once, but keep empty OR vacuously true even for unsupported requirements.
+fn predicate_implies_classified_requirement(
+    implying: &Predicate,
+    required: &Predicate,
+    classification: &ImplicationClassification,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    budget.charge(Resource::PredicateExpressionSteps, 1)?;
+    if let Predicate::Or(children) = implying {
+        for child in children {
+            if !predicate_implies_classified_requirement(child, required, classification, budget)? {
+                return Ok(false);
+            }
+        }
+        return Ok(true);
+    }
+    if matches!(classification, ImplicationClassification::Unknown) {
+        return Ok(false);
+    }
+    match classify_implication_clauses(implying, CompareClauseMode::Query, budget)? {
+        ImplicationClassification::Unsatisfiable => Ok(true),
+        ImplicationClassification::Unknown => Ok(false),
+        ImplicationClassification::Known => match classification {
+            ImplicationClassification::Unsatisfiable | ImplicationClassification::Unknown => {
+                Ok(false)
+            }
+            ImplicationClassification::Known => Ok(visit_implication_clauses(
+                required,
+                CompareClauseMode::Required,
+                budget,
+                &mut |required| {
+                    Ok(if query_clauses_imply_clause(implying, required, budget)? {
                         ControlFlow::Continue(())
                     } else {
                         ControlFlow::Break(())
-                    }
-                })
-                .is_continue()
-            }
+                    })
+                },
+            )?
+            .is_continue()),
         },
     }
 }
@@ -198,19 +231,26 @@ pub(in crate::db::query::plan) fn predicate_implies_predicate_for_planner(
 fn strip_query_clauses_satisfied_by_filtered_guard(
     query_predicate: Predicate,
     index_predicate: &Predicate,
-) -> Option<Predicate> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Predicate>, InternalError> {
     strip_query_clauses(
         query_predicate,
         |cmp| {
-            compare_clause_supported(cmp.into())
+            Ok(compare_clause_supported(cmp.into())
                 && predicate_implies_clause_for_planner(
                     index_predicate,
                     ImplicationClause::Compare(cmp),
-                )
+                    budget,
+                )?)
         },
         |field| {
-            predicate_implies_clause_for_planner(index_predicate, ImplicationClause::NonNull(field))
+            predicate_implies_clause_for_planner(
+                index_predicate,
+                ImplicationClause::NonNull(field),
+                budget,
+            )
         },
+        budget,
     )
 }
 
@@ -358,165 +398,195 @@ fn access_bound_branch_in<'a>(
 fn strip_query_clauses_satisfied_by_access_bounds(
     query_predicate: Predicate,
     implied_bounds: &AccessBoundClauses,
-) -> Option<Predicate> {
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Predicate>, InternalError> {
     strip_query_clauses(
         query_predicate,
-        |cmp| access_bound_clauses_imply_required(implied_bounds, cmp),
-        |_| false,
+        |cmp| access_bound_clauses_imply_required(implied_bounds, cmp, budget),
+        |_| Ok(false),
+        budget,
     )
 }
 
 fn access_bound_clauses_imply_required(
     implied_bounds: &AccessBoundClauses,
     cmp: &ComparePredicate,
-) -> bool {
-    access_bound_text_prefix_range_implies_required(implied_bounds, cmp)
-        || branch_in_clause_implies_required(implied_bounds.branch_in.as_ref(), cmp)
-        || implied_bounds
-            .equalities()
-            .any(|bound| equality_bound_implies_required(bound, cmp))
-        || implied_bounds
-            .ranges
-            .iter()
-            .flatten()
-            .any(|bound| range_bound_implies_required(*bound, cmp.into()))
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    if access_bound_text_prefix_range_implies_required(&implied_bounds.ranges, cmp, budget)?
+        || branch_in_clause_implies_required(implied_bounds.branch_in.as_ref(), cmp, budget)?
+    {
+        return Ok(true);
+    }
+    for bound in implied_bounds.equalities() {
+        if equality_bound_implies_required(bound, cmp, budget)? {
+            return Ok(true);
+        }
+    }
+    for bound in implied_bounds.ranges.iter().flatten() {
+        if range_bound_implies_required(*bound, cmp.into(), budget)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn access_bound_text_prefix_range_implies_required(
-    implied_bounds: &AccessBoundClauses,
+    ranges: &[Option<ComparisonRef<'_>>],
     cmp: &ComparePredicate,
-) -> bool {
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
     if cmp.op() != CompareOp::StartsWith || cmp.coercion().id != CoercionId::Strict {
-        return false;
+        return Ok(false);
     }
     let Value::Text(prefix) = cmp.value() else {
-        return false;
+        return Ok(false);
     };
-    let Some((lower, upper)) = starts_with_component_bounds(prefix, TextPrefixBoundMode::Strict)
-    else {
-        return false;
-    };
-
-    access_bound_ranges_include_lower_bound(cmp.field(), &implied_bounds.ranges, &lower)
-        && access_bound_ranges_include_upper_bound(cmp.field(), &implied_bounds.ranges, &upper)
-}
-
-fn access_bound_ranges_include_lower_bound(
-    field: &str,
-    ranges: &[Option<ComparisonRef<'_>>],
-    required: &Bound<Value>,
-) -> bool {
-    let Some(required_clause) = access_bound_lower_range_clause(field, required) else {
-        return true;
-    };
-
-    ranges
-        .iter()
-        .flatten()
-        .any(|bound| range_bound_implies_required(*bound, required_clause))
-}
-
-fn access_bound_ranges_include_upper_bound(
-    field: &str,
-    ranges: &[Option<ComparisonRef<'_>>],
-    required: &Bound<Value>,
-) -> bool {
-    let Some(required_clause) = access_bound_upper_range_clause(field, required) else {
-        return true;
-    };
-
-    ranges
-        .iter()
-        .flatten()
-        .any(|bound| range_bound_implies_required(*bound, required_clause))
-}
-
-fn equality_bound_implies_required(bound: ComparisonRef<'_>, cmp: &ComparePredicate) -> bool {
-    if bound.field != cmp.field() || bound.op != CompareOp::Eq {
-        return false;
+    if prefix.is_empty() {
+        return Ok(false);
     }
-
-    match cmp.op() {
-        CompareOp::Eq | CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
-            compare_clause_supported(cmp.into()) && query_clause_implies_required(bound, cmp.into())
+    let lower = ComparisonRef::strict(cmp.field(), CompareOp::Gte, cmp.value());
+    let mut lower_proven = false;
+    for bound in ranges.iter().flatten() {
+        if range_bound_implies_required(*bound, lower, budget)? {
+            lower_proven = true;
+            break;
         }
-        CompareOp::Ne => !values_equal(bound.value, cmp.value()),
-        CompareOp::In => list_contains_value(cmp.value(), bound.value),
-        CompareOp::NotIn => !list_contains_value(cmp.value(), bound.value),
-        CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => false,
     }
+    if !lower_proven {
+        return Ok(false);
+    }
+    // The existing Unicode owner scans at most the input bytes and constructs
+    // at most length + 1 bytes (a scalar successor grows by at most one byte).
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        1 + 2 * prefix.len() as u64,
+    )?;
+    budget.charge(Resource::TemporaryBytes, 1 + prefix.len() as u64)?;
+    let Some(successor) = next_text_prefix(prefix) else {
+        return Ok(true);
+    };
+    let upper = Value::Text(successor);
+    let required = ComparisonRef::strict(cmp.field(), CompareOp::Lt, &upper);
+    for bound in ranges.iter().flatten() {
+        if range_bound_implies_required(*bound, required, budget)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
-fn range_bound_implies_required(bound: ComparisonRef<'_>, cmp: ComparisonRef<'_>) -> bool {
-    if bound.field != cmp.field {
-        return false;
+fn equality_bound_implies_required(
+    bound: ComparisonRef<'_>,
+    cmp: &ComparePredicate,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    if !proof_fields_equal(bound.field, cmp.field(), budget)? || bound.op != CompareOp::Eq {
+        return Ok(false);
     }
+    Ok(match cmp.op() {
+        CompareOp::Eq | CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
+            compare_clause_supported(cmp.into())
+                && query_clause_implies_required(bound, cmp.into(), budget)?
+        }
+        CompareOp::Ne => !values_equal(bound.value, cmp.value(), budget)?,
+        CompareOp::In => list_contains_value(cmp.value(), bound.value, budget)?,
+        CompareOp::NotIn => !list_contains_value(cmp.value(), bound.value, budget)?,
+        CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => false,
+    })
+}
 
-    compare_clause_supported(cmp) && query_clause_implies_required(bound, cmp)
+fn range_bound_implies_required(
+    bound: ComparisonRef<'_>,
+    cmp: ComparisonRef<'_>,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    Ok(proof_fields_equal(bound.field, cmp.field, budget)?
+        && compare_clause_supported(cmp)
+        && query_clause_implies_required(bound, cmp, budget)?)
 }
 
 fn branch_in_clause_implies_required(
     branch_in: Option<&AccessBoundBranchIn<'_>>,
     cmp: &ComparePredicate,
-) -> bool {
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
     let Some(branch_in) = branch_in else {
-        return false;
+        return Ok(false);
     };
-    if cmp.field() != branch_in.field {
-        return false;
+    if !proof_fields_equal(cmp.field(), branch_in.field, budget)? {
+        return Ok(false);
     }
-
-    match cmp.op() {
-        CompareOp::Eq => branch_in
-            .values
-            .iter()
-            .all(|branch_value| values_equal(branch_value, cmp.value())),
-        CompareOp::Ne => branch_in
-            .values
-            .iter()
-            .all(|branch_value| !values_equal(branch_value, cmp.value())),
-        CompareOp::In => list_contains_all_values(cmp.value(), branch_in.values),
-        CompareOp::NotIn => branch_in
-            .values
-            .iter()
-            .all(|branch_value| !list_contains_value(cmp.value(), branch_value)),
-        CompareOp::Gt
-        | CompareOp::Gte
-        | CompareOp::Lt
-        | CompareOp::Lte
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => false,
+    if cmp.op() == CompareOp::In {
+        return list_contains_all_values(cmp.value(), branch_in.values, budget);
     }
+    if !matches!(cmp.op(), CompareOp::Eq | CompareOp::Ne | CompareOp::NotIn) {
+        return Ok(false);
+    }
+    for value in branch_in.values {
+        budget.charge(Resource::PredicateExpressionSteps, 1)?;
+        let satisfied = match cmp.op() {
+            CompareOp::Eq => values_equal(value, cmp.value(), budget)?,
+            CompareOp::Ne => !values_equal(value, cmp.value(), budget)?,
+            CompareOp::NotIn => !list_contains_value(cmp.value(), value, budget)?,
+            _ => return Err(InternalError::planner_executor_invariant()),
+        };
+        if !satisfied {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
-fn list_contains_value(list: &Value, value: &Value) -> bool {
+fn list_contains_value(
+    list: &Value,
+    value: &Value,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
     let Value::List(values) = list else {
-        return false;
+        return Ok(false);
     };
-
-    values
-        .iter()
-        .any(|candidate| values_equal(candidate, value))
-}
-
-fn list_contains_all_values(list: &Value, required_values: &[Value]) -> bool {
-    let Value::List(values) = list else {
-        return false;
-    };
-    if values == required_values {
-        return true;
+    for candidate in values {
+        if values_equal(candidate, value, budget)? {
+            return Ok(true);
+        }
     }
-
-    required_values.iter().all(|value| {
-        values
-            .iter()
-            .any(|candidate| values_equal(candidate, value))
-    })
+    Ok(false)
 }
 
-fn values_equal(left: &Value, right: &Value) -> bool {
-    compare_values(left, right).is_some_and(Ordering::is_eq)
+fn list_contains_all_values(
+    list: &Value,
+    required_values: &[Value],
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    let Value::List(values) = list else {
+        return Ok(false);
+    };
+    // Preserve structural equality's shortcut (including non-orderable values).
+    if values.len() == required_values.len() {
+        budget.charge(Resource::PredicateExpressionSteps, 1 + values.len() as u64)?;
+        for value in values {
+            budget.admit_value_comparison(value)?;
+        }
+        if values == required_values {
+            return Ok(true);
+        }
+    }
+    for value in required_values {
+        budget.charge(Resource::PredicateExpressionSteps, 1)?;
+        if !list_contains_value(list, value, budget)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn values_equal(
+    left: &Value,
+    right: &Value,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    Ok(compare_values(left, right, budget)?.is_some_and(Ordering::is_eq))
 }
 
 // Both residual-stripping paths share the same recursive AND-collapse contract;
@@ -526,60 +596,78 @@ fn strip_query_clauses<F, N>(
     mut query_predicate: Predicate,
     compare_is_redundant: F,
     non_null_is_redundant: N,
-) -> Option<Predicate>
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Predicate>, InternalError>
 where
-    F: Fn(&ComparePredicate) -> bool + Copy,
-    N: Fn(&str) -> bool + Copy,
+    F: Fn(&ComparePredicate) -> Result<bool, InternalError> + Copy,
+    N: Fn(&str) -> Result<bool, InternalError> + Copy,
 {
-    retain_query_clause(
+    Ok(retain_query_clause(
         &mut query_predicate,
         compare_is_redundant,
         non_null_is_redundant,
-    )
-    .then_some(query_predicate)
+        budget,
+    )?
+    .then_some(query_predicate))
 }
 
-// Ownership enters once. Removing clauses only compacts existing AND backing;
-// retained operands and collapsed children move without copying or allocation.
+// Keep the in-place compaction owner. On failure retain_mut only finishes its
+// backing-store bookkeeping; no later child proof runs and the owned result drops.
 fn retain_query_clause<F, N>(
     query_predicate: &mut Predicate,
     compare_is_redundant: F,
     non_null_is_redundant: N,
-) -> bool
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError>
 where
-    F: Fn(&ComparePredicate) -> bool + Copy,
-    N: Fn(&str) -> bool + Copy,
+    F: Fn(&ComparePredicate) -> Result<bool, InternalError> + Copy,
+    N: Fn(&str) -> Result<bool, InternalError> + Copy,
 {
+    budget.charge(Resource::PredicateExpressionSteps, 1)?;
     match query_predicate {
         Predicate::And(children) => {
+            let mut result = Ok(());
             children.retain_mut(|child| {
-                retain_query_clause(child, compare_is_redundant, non_null_is_redundant)
+                if result.is_err() {
+                    return true;
+                }
+                match retain_query_clause(
+                    child,
+                    compare_is_redundant,
+                    non_null_is_redundant,
+                    budget,
+                ) {
+                    Ok(retain) => retain,
+                    Err(error) => {
+                        result = Err(error);
+                        true
+                    }
+                }
             });
+            result?;
             if children.is_empty() {
-                return false;
+                return Ok(false);
             }
             if children.len() == 1
                 && let Some(only) = children.pop()
             {
                 *query_predicate = only;
             }
-            true
+            Ok(true)
         }
-        Predicate::Compare(cmp) if compare_is_redundant(cmp) => false,
-        Predicate::IsNotNull { field } if non_null_is_redundant(field) => false,
-        Predicate::True => false,
+        Predicate::Compare(cmp) => Ok(!compare_is_redundant(cmp)?),
+        Predicate::IsNotNull { field } => Ok(!non_null_is_redundant(field)?),
+        Predicate::True => Ok(false),
         Predicate::False
         | Predicate::Or(_)
         | Predicate::Not(_)
         | Predicate::CompareFields(_)
-        | Predicate::Compare(_)
         | Predicate::IsNull { .. }
-        | Predicate::IsNotNull { .. }
         | Predicate::IsMissing { .. }
         | Predicate::IsEmpty { .. }
         | Predicate::IsNotEmpty { .. }
         | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. } => true,
+        | Predicate::TextContainsCi { .. } => Ok(true),
     }
 }
 
@@ -591,16 +679,22 @@ enum ImplicationClause<'a> {
 }
 
 impl ImplicationClause<'_> {
-    fn implies(self, required: Self) -> bool {
+    fn implies(
+        self,
+        required: Self,
+        budget: &dyn ConstructionBudget,
+    ) -> Result<bool, InternalError> {
         match (self, required) {
             (Self::Compare(query), Self::Compare(required)) => {
-                query_clause_implies_required(query.into(), required.into())
+                query_clause_implies_required(query.into(), required.into(), budget)
             }
             (Self::Compare(query), Self::NonNull(field)) => {
-                comparison_proves_field_non_null(query, field)
+                comparison_proves_field_non_null(query, field, budget)
             }
-            (Self::NonNull(query), Self::NonNull(required)) => query == required,
-            (Self::NonNull(_), Self::Compare(_)) => false,
+            (Self::NonNull(query), Self::NonNull(required)) => {
+                proof_fields_equal(query, required, budget)
+            }
+            (Self::NonNull(_), Self::Compare(_)) => Ok(false),
         }
     }
 }
@@ -622,11 +716,12 @@ enum ImplicationClassification {
 fn classify_implication_clauses(
     predicate: &Predicate,
     mode: CompareClauseMode,
-) -> ImplicationClassification {
-    match visit_implication_clauses(predicate, mode, &mut |_| {
-        ControlFlow::<Infallible>::Continue(())
-    }) {
-        ControlFlow::Continue(classification) => classification,
+    budget: &dyn ConstructionBudget,
+) -> Result<ImplicationClassification, InternalError> {
+    match visit_implication_clauses(predicate, mode, budget, &mut |_| {
+        Ok(ControlFlow::<Infallible>::Continue(()))
+    })? {
+        ControlFlow::Continue(classification) => Ok(classification),
         ControlFlow::Break(never) => match never {},
     }
 }
@@ -634,15 +729,21 @@ fn classify_implication_clauses(
 // The caller has classified both predicates before entering proof searches:
 // a later FALSE query clause must win over an earlier non-matching clause, and
 // an unsupported required clause must fail even against an unsatisfiable query.
-fn query_clauses_imply_clause(query: &Predicate, required: ImplicationClause<'_>) -> bool {
-    visit_implication_clauses(query, CompareClauseMode::Query, &mut |query| {
-        if query.implies(required) {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
-        }
-    })
-    .is_break()
+fn query_clauses_imply_clause(
+    query: &Predicate,
+    required: ImplicationClause<'_>,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    Ok(
+        visit_implication_clauses(query, CompareClauseMode::Query, budget, &mut |query| {
+            Ok(if query.implies(required, budget)? {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            })
+        })?
+        .is_break(),
+    )
 }
 
 // Single supported requirements reuse the same classifier/search as whole
@@ -650,16 +751,21 @@ fn query_clauses_imply_clause(query: &Predicate, required: ImplicationClause<'_>
 fn predicate_implies_clause_for_planner(
     implying: &Predicate,
     required: ImplicationClause<'_>,
-) -> bool {
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    budget.charge(Resource::PredicateExpressionSteps, 1)?;
     if let Predicate::Or(children) = implying {
-        return children
-            .iter()
-            .all(|child| predicate_implies_clause_for_planner(child, required));
+        for child in children {
+            if !predicate_implies_clause_for_planner(child, required, budget)? {
+                return Ok(false);
+            }
+        }
+        return Ok(true);
     }
-    match classify_implication_clauses(implying, CompareClauseMode::Query) {
-        ImplicationClassification::Unsatisfiable => true,
-        ImplicationClassification::Unknown => false,
-        ImplicationClassification::Known => query_clauses_imply_clause(implying, required),
+    match classify_implication_clauses(implying, CompareClauseMode::Query, budget)? {
+        ImplicationClassification::Unsatisfiable => Ok(true),
+        ImplicationClassification::Unknown => Ok(false),
+        ImplicationClassification::Known => query_clauses_imply_clause(implying, required, budget),
     }
 }
 
@@ -668,19 +774,24 @@ fn predicate_implies_clause_for_planner(
 fn visit_implication_clauses<'a, B>(
     predicate: &'a Predicate,
     mode: CompareClauseMode,
-    visitor: &mut impl FnMut(ImplicationClause<'a>) -> ControlFlow<B>,
-) -> ControlFlow<B, ImplicationClassification> {
+    budget: &dyn ConstructionBudget,
+    visitor: &mut impl FnMut(ImplicationClause<'a>) -> Result<ControlFlow<B>, InternalError>,
+) -> Result<ControlFlow<B, ImplicationClassification>, InternalError> {
+    budget.charge(Resource::PredicateExpressionSteps, 1)?;
     let classification = match predicate {
         Predicate::And(children) => {
             for child in children {
-                match visit_implication_clauses(child, mode, visitor)? {
-                    ImplicationClassification::Known => {}
-                    ImplicationClassification::Unsatisfiable => {
-                        return ControlFlow::Continue(ImplicationClassification::Unsatisfiable);
+                match visit_implication_clauses(child, mode, budget, visitor)? {
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    ControlFlow::Continue(ImplicationClassification::Known) => {}
+                    ControlFlow::Continue(ImplicationClassification::Unsatisfiable) => {
+                        return Ok(ControlFlow::Continue(
+                            ImplicationClassification::Unsatisfiable,
+                        ));
                     }
-                    ImplicationClassification::Unknown => {
+                    ControlFlow::Continue(ImplicationClassification::Unknown) => {
                         if matches!(mode, CompareClauseMode::Required) {
-                            return ControlFlow::Continue(ImplicationClassification::Unknown);
+                            return Ok(ControlFlow::Continue(ImplicationClassification::Unknown));
                         }
                     }
                 }
@@ -690,15 +801,19 @@ fn visit_implication_clauses<'a, B>(
         Predicate::Compare(cmp) => {
             if !(compare_clause_supported(cmp.into())
                 || matches!(mode, CompareClauseMode::Query)
-                    && comparison_proves_field_non_null(cmp, cmp.field()))
+                    && comparison_proves_field_non_null(cmp, cmp.field(), budget)?)
             {
-                return ControlFlow::Continue(ImplicationClassification::Unknown);
+                return Ok(ControlFlow::Continue(ImplicationClassification::Unknown));
             }
-            visitor(ImplicationClause::Compare(cmp))?;
+            if let ControlFlow::Break(value) = visitor(ImplicationClause::Compare(cmp))? {
+                return Ok(ControlFlow::Break(value));
+            }
             ImplicationClassification::Known
         }
         Predicate::IsNotNull { field } => {
-            visitor(ImplicationClause::NonNull(field))?;
+            if let ControlFlow::Break(value) = visitor(ImplicationClause::NonNull(field))? {
+                return Ok(ControlFlow::Break(value));
+            }
             ImplicationClassification::Known
         }
         Predicate::True => ImplicationClassification::Known,
@@ -716,30 +831,44 @@ fn visit_implication_clauses<'a, B>(
         | Predicate::TextContains { .. }
         | Predicate::TextContainsCi { .. } => ImplicationClassification::Unknown,
     };
-    ControlFlow::Continue(classification)
+    Ok(ControlFlow::Continue(classification))
 }
 
 // Admit only comparisons whose successful evaluation excludes a null source.
 // Keep this separate from scalar implication: IN and text-prefix predicates
 // prove membership without proving a particular scalar equality or range.
-fn comparison_proves_field_non_null(compare: &ComparePredicate, field: &str) -> bool {
-    if compare.field() != field
+fn comparison_proves_field_non_null(
+    compare: &ComparePredicate,
+    field: &str,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    if !proof_fields_equal(compare.field(), field, budget)?
         || !matches!(
             compare.coercion().id,
             CoercionId::Strict | CoercionId::NumericWiden | CoercionId::TextCasefold
         )
     {
-        return false;
+        return Ok(false);
     }
-    match compare.op() {
+    Ok(match compare.op() {
         CompareOp::Eq | CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
             !matches!(compare.value(), Value::Null)
         }
-        CompareOp::In => matches!(compare.value(), Value::List(values)
-            if values.iter().all(|value| !matches!(value, Value::Null))),
+        CompareOp::In => {
+            let Value::List(values) = compare.value() else {
+                return Ok(false);
+            };
+            for value in values {
+                budget.charge(Resource::PredicateExpressionSteps, 1)?;
+                if matches!(value, Value::Null) {
+                    return Ok(false);
+                }
+            }
+            true
+        }
         CompareOp::StartsWith => matches!(compare.value(), Value::Text(_)),
         _ => false,
-    }
+    })
 }
 
 const fn compare_clause_supported(cmp: ComparisonRef<'_>) -> bool {
@@ -749,49 +878,53 @@ const fn compare_clause_supported(cmp: ComparisonRef<'_>) -> bool {
     ) && matches!(cmp.coercion, CoercionId::Strict | CoercionId::NumericWiden)
 }
 
-fn query_clause_implies_required(query: ComparisonRef<'_>, required: ComparisonRef<'_>) -> bool {
-    if query.field != required.field {
-        return false;
+fn query_clause_implies_required(
+    query: ComparisonRef<'_>,
+    required: ComparisonRef<'_>,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    if !proof_fields_equal(query.field, required.field, budget)? {
+        return Ok(false);
     }
     if !compare_clause_supported(query) || !compare_clause_supported(required) {
-        return false;
+        return Ok(false);
     }
 
     let query_value = query.value;
     let required_value = required.value;
 
-    match required.op {
+    Ok(match required.op {
         CompareOp::Eq => {
             query.op == CompareOp::Eq
-                && compare_values(query_value, required_value).is_some_and(Ordering::is_eq)
+                && compare_values(query_value, required_value, budget)?.is_some_and(Ordering::is_eq)
         }
         CompareOp::Gt => match query.op {
             CompareOp::Eq | CompareOp::Gte => {
-                compare_values(query_value, required_value).is_some_and(Ordering::is_gt)
+                compare_values(query_value, required_value, budget)?.is_some_and(Ordering::is_gt)
             }
-            CompareOp::Gt => compare_values(query_value, required_value)
+            CompareOp::Gt => compare_values(query_value, required_value, budget)?
                 .is_some_and(|ordering| ordering.is_gt() || ordering.is_eq()),
             _ => false,
         },
         CompareOp::Gte => match query.op {
-            CompareOp::Eq => compare_values(query_value, required_value)
+            CompareOp::Eq => compare_values(query_value, required_value, budget)?
                 .is_some_and(|ordering| ordering.is_gt() || ordering.is_eq()),
-            CompareOp::Gt | CompareOp::Gte => compare_values(query_value, required_value)
+            CompareOp::Gt | CompareOp::Gte => compare_values(query_value, required_value, budget)?
                 .is_some_and(|ordering| ordering.is_gt() || ordering.is_eq()),
             _ => false,
         },
         CompareOp::Lt => match query.op {
             CompareOp::Eq | CompareOp::Lte => {
-                compare_values(query_value, required_value).is_some_and(Ordering::is_lt)
+                compare_values(query_value, required_value, budget)?.is_some_and(Ordering::is_lt)
             }
-            CompareOp::Lt => compare_values(query_value, required_value)
+            CompareOp::Lt => compare_values(query_value, required_value, budget)?
                 .is_some_and(|ordering| ordering.is_lt() || ordering.is_eq()),
             _ => false,
         },
         CompareOp::Lte => match query.op {
-            CompareOp::Eq => compare_values(query_value, required_value)
+            CompareOp::Eq => compare_values(query_value, required_value, budget)?
                 .is_some_and(|ordering| ordering.is_lt() || ordering.is_eq()),
-            CompareOp::Lt | CompareOp::Lte => compare_values(query_value, required_value)
+            CompareOp::Lt | CompareOp::Lte => compare_values(query_value, required_value, budget)?
                 .is_some_and(|ordering| ordering.is_lt() || ordering.is_eq()),
             _ => false,
         },
@@ -801,11 +934,34 @@ fn query_clause_implies_required(query: ComparisonRef<'_>, required: ComparisonR
         | CompareOp::Contains
         | CompareOp::StartsWith
         | CompareOp::EndsWith => false,
-    }
+    })
 }
 
-fn compare_values(left: &Value, right: &Value) -> Option<Ordering> {
-    compare_numeric_or_strict_order(left, right)
+fn compare_values(
+    left: &Value,
+    right: &Value,
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<Ordering>, InternalError> {
+    // Keep numeric/strict meaning in its existing owner. Variable-sized strict
+    // comparisons only descend when root tags agree; one side bounds their
+    // lexicographic traversal. Numeric-conversion scratch remains separately owned.
+    budget.charge(Resource::PredicateExpressionSteps, 1)?;
+    if std::mem::discriminant(left) == std::mem::discriminant(right) {
+        budget.admit_value_comparison(left)?;
+    }
+    Ok(compare_numeric_or_strict_order(left, right))
+}
+
+fn proof_fields_equal(
+    left: &str,
+    right: &str,
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
+    budget.charge(
+        Resource::PredicateExpressionSteps,
+        1 + left.len().min(right.len()) as u64,
+    )?;
+    Ok(left == right)
 }
 
 #[cfg(test)]
@@ -814,6 +970,7 @@ mod tests {
         ComparisonRef, access_bound_lower_range_clause, access_bound_upper_range_clause,
         predicate_implies_predicate_for_planner, strip_query_clauses_satisfied_by_filtered_guard,
     };
+    use crate::db::query::preparation::with_preparation_work;
     use crate::{
         db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, Predicate},
         value::Value,
@@ -887,9 +1044,12 @@ mod tests {
     #[test]
     fn nullable_guard_implication_accepts_exact_and_non_null_scalar_comparisons() {
         let required = non_null("email");
-        assert!(predicate_implies_predicate_for_planner(
-            &required, &required
-        ));
+        assert!(
+            with_preparation_work(|budget| {
+                predicate_implies_predicate_for_planner(&required, &required, budget)
+            })
+            .unwrap()
+        );
 
         for op in [
             CompareOp::Eq,
@@ -898,10 +1058,16 @@ mod tests {
             CompareOp::Lt,
             CompareOp::Lte,
         ] {
-            assert!(predicate_implies_predicate_for_planner(
-                &compare("email", op, Value::Text("a@example.com".to_string())),
-                &required,
-            ));
+            assert!(
+                with_preparation_work(|budget| {
+                    predicate_implies_predicate_for_planner(
+                        &compare("email", op, Value::Text("a@example.com".to_string())),
+                        &required,
+                        budget,
+                    )
+                })
+                .unwrap()
+            );
         }
     }
 
@@ -922,30 +1088,46 @@ mod tests {
             prefix.clone(),
             Predicate::or(vec![membership, prefix]),
         ] {
-            assert!(predicate_implies_predicate_for_planner(&query, &required));
+            assert!(
+                with_preparation_work(|budget| {
+                    predicate_implies_predicate_for_planner(&query, &required, budget)
+                })
+                .unwrap()
+            );
         }
-        assert!(predicate_implies_predicate_for_planner(
-            &compare("unit", CompareOp::Eq, Value::Unit),
-            &non_null("unit"),
-        ));
+        assert!(
+            with_preparation_work(|budget| {
+                predicate_implies_predicate_for_planner(
+                    &compare("unit", CompareOp::Eq, Value::Unit),
+                    &non_null("unit"),
+                    budget,
+                )
+            })
+            .unwrap()
+        );
         let nullable_membership = compare(
             "email",
             CompareOp::In,
             Value::List(vec![Value::Text("a".to_string()), Value::Null]),
         );
-        assert!(!predicate_implies_predicate_for_planner(
-            &nullable_membership,
-            &required
-        ));
+        assert!(
+            !with_preparation_work(|budget| {
+                predicate_implies_predicate_for_planner(&nullable_membership, &required, budget)
+            })
+            .unwrap()
+        );
         let casefold = Predicate::Compare(crate::db::predicate::ComparePredicate::with_coercion(
             "email",
             CompareOp::Eq,
             Value::Text("A".to_string()),
             CoercionId::TextCasefold,
         ));
-        assert!(predicate_implies_predicate_for_planner(
-            &casefold, &required
-        ));
+        assert!(
+            with_preparation_work(|budget| {
+                predicate_implies_predicate_for_planner(&casefold, &required, budget)
+            })
+            .unwrap()
+        );
     }
 
     #[test]
@@ -967,17 +1149,23 @@ mod tests {
                 field: "display_name".to_string(),
             },
         ]);
-        assert!(predicate_implies_predicate_for_planner(
-            &complete, &required
-        ));
+        assert!(
+            with_preparation_work(|budget| {
+                predicate_implies_predicate_for_planner(&complete, &required, budget)
+            })
+            .unwrap()
+        );
 
         let missing = Predicate::and(vec![
             non_null("email"),
             compare("active", CompareOp::Eq, Value::Bool(true)),
         ]);
-        assert!(!predicate_implies_predicate_for_planner(
-            &missing, &required
-        ));
+        assert!(
+            !with_preparation_work(|budget| {
+                predicate_implies_predicate_for_planner(&missing, &required, budget)
+            })
+            .unwrap()
+        );
     }
 
     #[test]
@@ -1002,29 +1190,46 @@ mod tests {
                 Value::Text("a@example.com".to_string()),
             ),
         ] {
-            assert!(!predicate_implies_predicate_for_planner(&query, &required));
+            assert!(
+                !with_preparation_work(|budget| {
+                    predicate_implies_predicate_for_planner(&query, &required, budget)
+                })
+                .unwrap()
+            );
         }
     }
 
     #[test]
     fn nullable_guard_implication_treats_unsatisfiable_query_as_vacuous_proof() {
-        assert!(predicate_implies_predicate_for_planner(
-            &Predicate::False,
-            &non_null("email"),
-        ));
+        assert!(
+            with_preparation_work(|budget| {
+                predicate_implies_predicate_for_planner(
+                    &Predicate::False,
+                    &non_null("email"),
+                    budget,
+                )
+            })
+            .unwrap()
+        );
     }
 
     #[test]
     fn filtered_guard_stripping_removes_only_guaranteed_non_null_clause() {
         let guard = non_null("email");
         assert_eq!(
-            strip_query_clauses_satisfied_by_filtered_guard(guard.clone(), &guard),
+            with_preparation_work(|budget| {
+                strip_query_clauses_satisfied_by_filtered_guard(guard.clone(), &guard, budget)
+            })
+            .unwrap(),
             None,
         );
 
         let query = Predicate::and(vec![guard.clone(), non_null("tenant")]);
         assert_eq!(
-            strip_query_clauses_satisfied_by_filtered_guard(query, &guard),
+            with_preparation_work(|budget| {
+                strip_query_clauses_satisfied_by_filtered_guard(query, &guard, budget)
+            })
+            .unwrap(),
             Some(non_null("tenant")),
         );
     }

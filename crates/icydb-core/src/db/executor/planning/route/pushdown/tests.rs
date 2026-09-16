@@ -24,10 +24,14 @@ fn contract(terms: &[&str], direction: OrderDirection) -> DeterministicSecondary
             .map(|name| OrderTerm::field(*name, direction))
             .collect(),
     };
-    DeterministicSecondaryOrderContract::from_order_spec_fields(
-        &order,
-        Rc::from(vec!["tenant".into(), "id".into()]),
-    )
+    crate::db::query::preparation::with_preparation_work(|work| {
+        DeterministicSecondaryOrderContract::from_order_spec_fields(
+            &order,
+            Rc::from(vec!["tenant".into(), "id".into()]),
+            work,
+        )
+        .unwrap()
+    })
     .unwrap()
 }
 
@@ -148,10 +152,14 @@ fn range_routes_and_limit_checks_preserve_eligibility_and_rejection_shape() {
                     .map(|name| OrderTerm::field(*name, OrderDirection::Asc))
                     .collect(),
             };
-            let order = DeterministicSecondaryOrderContract::from_order_spec_fields(
-                &order,
-                Rc::from(vec!["id".into()]),
-            )
+            let order = crate::db::query::preparation::with_preparation_work(|work| {
+                DeterministicSecondaryOrderContract::from_order_spec_fields(
+                    &order,
+                    Rc::from(vec!["id".into()]),
+                    work,
+                )
+                .unwrap()
+            })
             .unwrap();
             let expected = if eligible {
                 PushdownApplicability::Eligible {

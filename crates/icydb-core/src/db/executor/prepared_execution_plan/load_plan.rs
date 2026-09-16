@@ -68,7 +68,7 @@ impl PreparedLoadPlan {
             self.logical_plan(),
             aggregate,
             &execution_preparation,
-        )))
+        )?))
     }
 
     pub(in crate::db::executor) fn continuation_signature_for_runtime(

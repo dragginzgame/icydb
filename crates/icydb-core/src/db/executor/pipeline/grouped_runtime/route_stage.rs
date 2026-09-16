@@ -54,7 +54,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
                 &ExecutionConstructionBudget,
             )?,
         },
-    );
+    )?;
 
     // The route plan remains the single owner of grouped execution mode.
     grouped_route_plan

@@ -1,6 +1,7 @@
 //! Construction accounting borrowed from the caller's existing budget owner.
 //! This interface owns neither request lifetimes nor instruction intervals.
 
+mod comparison;
 mod encoding;
 mod expr;
 mod predicate;

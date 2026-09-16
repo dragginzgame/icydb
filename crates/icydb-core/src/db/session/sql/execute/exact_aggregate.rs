@@ -153,7 +153,7 @@ fn direct_count_cardinality_range_from_planned_query(
     prepared_plan: &SharedPreparedExecutionPlan,
 ) -> Option<SqlGlobalAggregateCachedPlan> {
     let plan = prepared_plan.logical_plan();
-    if plan.has_any_residual_filter() {
+    if plan.has_any_residual_filter().ok()? {
         return None;
     }
     let semantic = plan.access.as_index_range_path()?;

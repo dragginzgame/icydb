@@ -37,6 +37,7 @@ use crate::db::{
     },
     query::plan::{AccessPlannedQuery, GroupedPlanStrategy, PlannerRouteProfile},
 };
+use crate::error::InternalError;
 
 /// Derive the complete feasibility stage for one validated model plan.
 pub(super) fn derive_execution_feasibility_stage_for_model(
@@ -45,7 +46,7 @@ pub(super) fn derive_execution_feasibility_stage_for_model(
     probe_fetch_hint: Option<usize>,
     planner_route_profile: &PlannerRouteProfile,
     intent_stage: &RouteIntentStage<'_>,
-) -> RouteFeasibilityStage {
+) -> Result<RouteFeasibilityStage, InternalError> {
     let continuation_policy = *planner_route_profile.continuation_policy();
     let route_continuation = continuation.route_continuation_plan(plan, continuation_policy);
     let derivation = derive_route_derivation_context_for_model(
@@ -54,7 +55,7 @@ pub(super) fn derive_execution_feasibility_stage_for_model(
         planner_route_profile,
         route_continuation,
         probe_fetch_hint,
-    );
+    )?;
     let kind = intent_stage.kind();
     let index_range_limit_pushdown_enabled =
         index_range_limit_pushdown_allowed_for_grouped(intent_stage.grouped);
@@ -120,11 +121,11 @@ pub(super) fn derive_execution_feasibility_stage_for_model(
         "route invariant: grouped continuation executions must satisfy planner-projected continuation policy safety",
     );
 
-    RouteFeasibilityStage {
+    Ok(RouteFeasibilityStage {
         continuation: route_continuation,
         derivation,
         index_range_limit_spec,
-    }
+    })
 }
 
 /// Derive the immutable route derivation context shared by execution-stage builders.
@@ -134,7 +135,7 @@ pub(super) fn derive_route_derivation_context_for_model(
     planner_route_profile: &PlannerRouteProfile,
     continuation: RouteContinuationPlan,
     probe_fetch_hint: Option<usize>,
-) -> RouteDerivationContext {
+) -> Result<RouteDerivationContext, InternalError> {
     // Derive the invariant route shape and capability facts first so the
     // later scan-hint and grouped-mode phases can stay focused on one concern.
     let aggregate_shape = intent_stage.aggregate_shape;
@@ -158,7 +159,7 @@ pub(super) fn derive_route_derivation_context_for_model(
         aggregate_shape,
         grouped_plan_strategy,
         &access_shape_facts,
-    );
+    )?;
     let kind: Option<AggregateKind> = aggregate_shape.map(AggregateRouteShape::kind);
     let load_scan_hints_enabled = load_scan_hints_allowed_for_intent(kind, grouped);
     let access_window = *continuation.keep_access_window();
@@ -188,7 +189,7 @@ pub(super) fn derive_route_derivation_context_for_model(
     #[cfg(not(feature = "sql"))]
     let _ = aggregate_seek_spec;
 
-    RouteDerivationContext {
+    Ok(RouteDerivationContext {
         direction,
         capability_facts,
         support,
@@ -200,7 +201,7 @@ pub(super) fn derive_route_derivation_context_for_model(
         #[cfg(feature = "sql")]
         aggregate_seek_spec,
         grouped_execution_mode,
-    }
+    })
 }
 
 /// Derive static route capability and COUNT shape state.
@@ -214,11 +215,14 @@ fn derive_route_capability_state_for_model(
     aggregate_shape: Option<AggregateRouteShape<'_>>,
     grouped_plan_strategy: Option<GroupedPlanStrategy>,
     access_shape_facts: &crate::db::access::AccessShapeFacts,
-) -> (
-    RouteCapabilityFacts,
-    RouteDerivationSupport,
-    RouteCountPushdownState,
-) {
+) -> Result<
+    (
+        RouteCapabilityFacts,
+        RouteDerivationSupport,
+        RouteCountPushdownState,
+    ),
+    InternalError,
+> {
     let existing_rows_shape_supported =
         count_pushdown_existing_rows_shape_supported(access_shape_facts);
     let support = RouteDerivationSupport {
@@ -241,7 +245,7 @@ fn derive_route_capability_state_for_model(
         access_shape_facts,
         grouped_plan_strategy,
         support.desc_physical_reverse_supported,
-    );
+    )?;
     let count_pushdown = RouteCountPushdownState {
         existing_rows_shape_supported,
         eligible: aggregate_shape
@@ -253,7 +257,7 @@ fn derive_route_capability_state_for_model(
             }),
     };
 
-    (capability_facts, support, count_pushdown)
+    Ok((capability_facts, support, count_pushdown))
 }
 
 // Route scan hints and seek specs are derived together because they share the

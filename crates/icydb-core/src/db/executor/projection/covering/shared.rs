@@ -68,13 +68,14 @@ pub(super) fn covering_residual_filter_supported(
     plan: &AccessPlannedQuery,
     strict_predicate_compatible: bool,
     index_predicate_execution_available: bool,
-) -> bool {
-    if plan.has_residual_filter_expr() {
-        return false;
+) -> Result<bool, crate::error::InternalError> {
+    let residual = plan.residual_filter_contract()?;
+    if residual.residual_filter_expr().is_some() {
+        return Ok(false);
     }
 
-    !plan.has_residual_filter_predicate()
-        || (strict_predicate_compatible && index_predicate_execution_available)
+    Ok(residual.residual_filter_predicate().is_none()
+        || (strict_predicate_compatible && index_predicate_execution_available))
 }
 
 pub(super) fn access_preserves_primary_key_order_for_covering_window(

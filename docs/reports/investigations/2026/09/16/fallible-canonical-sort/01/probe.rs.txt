@@ -1,0 +1,314 @@
+#![allow(dead_code)]
+mod baseline;
+mod prototype;
+use std::cmp::Ordering;
+
+#[derive(Debug, Eq, PartialEq)]
+enum Failure {
+    Payload,
+    Comparisons,
+    Scratch,
+}
+
+#[derive(Default)]
+struct Budget {
+    comparisons: u64,
+    payload: u64,
+    scratch: u64,
+}
+
+trait Probe: Ord {
+    fn extent(&self) -> u64;
+    fn checksum(&self) -> u64;
+}
+impl Probe for u64 {
+    fn extent(&self) -> u64 {
+        2
+    }
+    fn checksum(&self) -> u64 {
+        *self
+    }
+}
+impl Probe for String {
+    fn extent(&self) -> u64 {
+        2 + self.len() as u64
+    }
+    fn checksum(&self) -> u64 {
+        self.bytes()
+            .fold(0, |a, b| a.wrapping_mul(31).wrapping_add(u64::from(b)))
+    }
+}
+impl Probe for Vec<String> {
+    fn extent(&self) -> u64 {
+        2 + self.iter().map(Probe::extent).sum::<u64>()
+    }
+    fn checksum(&self) -> u64 {
+        self.iter()
+            .fold(0, |a, b| a.wrapping_mul(31).wrapping_add(b.checksum()))
+    }
+}
+fn compare<T: Probe>(a: &T, b: &T, budget: &mut Budget) -> Result<Ordering, Failure> {
+    #[cfg(admitted)]
+    {
+        budget.comparisons = budget
+            .comparisons
+            .checked_sub(1)
+            .ok_or(Failure::Comparisons)?;
+        budget.payload = budget
+            .payload
+            .checked_sub(a.extent())
+            .ok_or(Failure::Payload)?;
+    }
+    #[cfg(not(admitted))]
+    let _ = budget;
+    Ok(a.cmp(b))
+}
+fn canonicalize<T: Probe>(values: &mut Vec<T>, budget: &mut Budget) -> Result<(), Failure> {
+    let mut sorted = true;
+    for pair in values.windows(2) {
+        if compare(&pair[0], &pair[1], budget)? != Ordering::Less {
+            sorted = false;
+            break;
+        }
+    }
+    if sorted {
+        return Ok(());
+    }
+    #[cfg(candidate)]
+    {
+        #[cfg(admitted)]
+        {
+            let bytes = (2 * values.len() * size_of::<usize>()) as u64;
+            budget.scratch = budget.scratch.checked_sub(bytes).ok_or(Failure::Scratch)?;
+        }
+        prototype::try_compact_sort_unstable_by(values, |a, b| compare(a, b, budget))?;
+        let mut retained = 1;
+        for source in 1..values.len() {
+            // Probe types' Ord equality is also their structural equality.
+            if compare(&values[retained - 1], &values[source], budget)? != Ordering::Equal {
+                values.swap(retained, source);
+                retained += 1;
+            }
+        }
+        values.truncate(retained);
+    }
+    #[cfg(not(candidate))]
+    {
+        #[cfg(compact)]
+        baseline::compact_sort_unstable_by(values, Ord::cmp);
+        #[cfg(not(compact))]
+        values.sort_unstable_by(Ord::cmp);
+        values.dedup();
+    }
+    Ok(())
+}
+
+fn ids(n: usize, shape: u32) -> Vec<u64> {
+    (0..n)
+        .map(|i| match shape {
+            0 => i as u64,
+            1 => (n - i) as u64,
+            2 => ((i * 37 + 11) % n.max(1)) as u64,
+            3 => (i % 4) as u64,
+            _ => 1,
+        })
+        .collect()
+}
+fn text(value: u64, bytes: usize) -> String {
+    format!("{}{:08}", "x".repeat(bytes), value)
+}
+fn run(n: usize, shape: u32, kind: u32) -> [u64; 6] {
+    let ids = ids(n, shape);
+    match kind {
+        0 => measure(ids),
+        1 => measure(ids.into_iter().map(|id| text(id, 16)).collect()),
+        2 => measure(ids.into_iter().map(|id| text(id, 1024)).collect()),
+        _ => measure(
+            ids.into_iter()
+                .map(|id| vec!["p".repeat(256), text(id, 256)])
+                .collect(),
+        ),
+    }
+}
+fn measure<T: Probe>(mut values: Vec<T>) -> [u64; 6] {
+    let mut budget = Budget {
+        comparisons: u64::MAX,
+        payload: u64::MAX,
+        scratch: u64::MAX,
+    };
+    let start = counter();
+    canonicalize(&mut values, &mut budget).unwrap();
+    let instructions = counter() - start;
+    let checksum = values
+        .iter()
+        .fold(0u64, |a, b| a.wrapping_mul(31).wrapping_add(b.checksum()));
+    [
+        instructions,
+        values.len() as u64,
+        checksum,
+        u64::MAX - budget.comparisons,
+        u64::MAX - budget.payload,
+        u64::MAX - budget.scratch,
+    ]
+}
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "ic0")]
+unsafe extern "C" {
+    fn performance_counter(kind: i32) -> i64;
+    fn msg_arg_data_copy(dst: i32, offset: i32, size: i32);
+    fn msg_reply_data_append(src: i32, size: i32);
+    fn msg_reply();
+}
+#[cfg(target_arch = "wasm32")]
+fn counter() -> u64 {
+    unsafe { performance_counter(0) as u64 }
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn counter() -> u64 {
+    0
+}
+
+#[cfg(target_arch = "wasm32")]
+#[unsafe(export_name = "canister_query run")]
+extern "C" fn query() {
+    let mut args = [0u8; 12];
+    unsafe {
+        msg_arg_data_copy(args.as_mut_ptr() as i32, 0, 12);
+    }
+    let read = |start| u32::from_le_bytes(args[start..start + 4].try_into().unwrap());
+    let result = run(read(0) as usize, read(4), read(8));
+    let mut reply = [0u8; 48];
+    for (bytes, item) in reply.chunks_exact_mut(8).zip(result) {
+        bytes.copy_from_slice(&item.to_le_bytes());
+    }
+    unsafe {
+        msg_reply_data_append(reply.as_ptr() as i32, 48);
+        msg_reply();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn parity() {
+        for n in [0, 1, 2, 3, 16, 64, 256, 1024] {
+            for shape in 0..5 {
+                let mut actual = ids(n, shape);
+                let mut expected = actual.clone();
+                expected.sort_unstable();
+                expected.dedup();
+                let mut budget = Budget {
+                    comparisons: u64::MAX,
+                    payload: u64::MAX,
+                    scratch: u64::MAX,
+                };
+                canonicalize(&mut actual, &mut budget).unwrap();
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+    #[test]
+    fn every_sort_failure_preserves_owned_input_and_stops_immediately() {
+        let input: Vec<_> = ids(32, 2).into_iter().map(|id| text(id, 32)).collect();
+        let mut full = input.clone();
+        let mut calls = 0;
+        prototype::try_compact_sort_unstable_by(&mut full, |a, b| {
+            calls += 1;
+            Ok::<_, usize>(a.cmp(b))
+        })
+        .unwrap();
+        for stop in 0..calls {
+            let mut actual = input.clone();
+            let mut count = 0;
+            let mut attempts = 0;
+            let result = prototype::try_compact_sort_unstable_by(&mut actual, |a, b| {
+                attempts += 1;
+                if count == stop {
+                    return Err(stop);
+                }
+                count += 1;
+                Ok(a.cmp(b))
+            });
+            assert_eq!(result, Err(stop));
+            assert_eq!(count, stop);
+            assert_eq!(attempts, stop + 1);
+            assert_eq!(actual, input);
+        }
+    }
+    #[cfg(all(candidate, admitted))]
+    #[test]
+    fn canonical_fast_path_scratch_and_rejection() {
+        let mut sorted = vec![1u64, 2, 3];
+        let mut budget = Budget {
+            comparisons: 2,
+            payload: 4,
+            scratch: 0,
+        };
+        assert_eq!(canonicalize(&mut sorted, &mut budget), Ok(()));
+        let mut input = vec![3u64, 1, 2];
+        for stop in 0..32 {
+            let mut actual = input.clone();
+            let mut budget = Budget {
+                comparisons: stop,
+                payload: u64::MAX,
+                scratch: 0,
+            };
+            assert!(canonicalize(&mut actual, &mut budget).is_err());
+            assert_eq!(actual, input);
+        }
+        let mut budget = Budget {
+            comparisons: u64::MAX,
+            payload: 0,
+            scratch: u64::MAX,
+        };
+        assert_eq!(canonicalize(&mut input, &mut budget), Err(Failure::Payload));
+    }
+    #[cfg(all(candidate, admitted))]
+    #[test]
+    fn every_canonical_comparison_and_payload_failure_propagates() {
+        let input = vec![3u64, 1, 2, 1, 3, 2, 4, 1];
+        let mut budget = Budget {
+            comparisons: u64::MAX,
+            payload: u64::MAX,
+            scratch: u64::MAX,
+        };
+        canonicalize(&mut input.clone(), &mut budget).unwrap();
+        for (payload, cost) in [
+            (false, u64::MAX - budget.comparisons),
+            (true, u64::MAX - budget.payload),
+        ] {
+            for limit in 0..=cost {
+                let mut actual = input.clone();
+                let mut budget = Budget {
+                    comparisons: u64::MAX,
+                    payload: u64::MAX,
+                    scratch: u64::MAX,
+                };
+                if payload {
+                    budget.payload = limit;
+                } else {
+                    budget.comparisons = limit;
+                }
+                let result = canonicalize(&mut actual, &mut budget);
+                if limit == cost {
+                    assert_eq!(result, Ok(()));
+                    assert_eq!(actual, vec![1, 2, 3, 4]);
+                } else {
+                    assert_eq!(
+                        result,
+                        Err(if payload {
+                            Failure::Payload
+                        } else {
+                            Failure::Comparisons
+                        })
+                    );
+                    let mut expected = input.clone();
+                    expected.sort_unstable();
+                    actual.sort_unstable();
+                    assert_eq!(actual, expected);
+                }
+            }
+        }
+    }
+}

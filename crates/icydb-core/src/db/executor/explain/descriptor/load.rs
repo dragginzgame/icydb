@@ -69,24 +69,27 @@ impl LoadExplainPreparation {
     // Build the shared explain-time preparation bundle once from the logical
     // load plan so descriptor and verbose projections reuse the same
     // capability and strict-compatibility view.
-    fn from_plan(plan: &AccessPlannedQuery) -> Self {
+    fn from_plan(plan: &AccessPlannedQuery) -> Result<Self, InternalError> {
+        let pushdown = plan.predicate_pushdown_diagnostics()?;
         let execution_preparation =
             ExecutionPreparation::from_covering_route_plan(plan, slot_map_for_model_plan(plan));
         let predicate_index_capability = execution_preparation_predicate_index_capability(
             &execution_preparation,
         )
         .or_else(|| {
-            plan.predicate_pushdown_diagnostics()
+            pushdown
                 .access_path_fully_applied()
                 .then_some(IndexPredicateCapability::FullyIndexable)
         });
-        let strict_predicate_compatible =
-            covering_strict_predicate_compatible(plan, predicate_index_capability);
+        let strict_predicate_compatible = covering_strict_predicate_compatible(
+            plan.residual_filter_contract()?,
+            predicate_index_capability,
+        );
 
-        Self {
+        Ok(Self {
             predicate_index_capability,
             strict_predicate_compatible,
-        }
+        })
     }
 
     const fn strict_prefilter_compiled(&self) -> bool {
@@ -162,7 +165,7 @@ fn freeze_grouped_load_execution_route_facts(
                     work,
                 )?,
             },
-        ),
+        )?,
         explain_preparation,
         hybrid_covering_read_plan: None,
     })
@@ -173,8 +176,8 @@ fn freeze_scalar_load_execution_route_facts(
     explain_preparation: LoadExplainPreparation,
     load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
     hybrid_covering_read_plan: Option<CoveringHybridReadExecutionPlan>,
-) -> LoadExecutionRouteFacts {
-    LoadExecutionRouteFacts {
+) -> Result<LoadExecutionRouteFacts, InternalError> {
+    Ok(LoadExecutionRouteFacts {
         route_plan: build_execution_route_plan(
             plan,
             RoutePlanRequest::Load {
@@ -183,10 +186,10 @@ fn freeze_scalar_load_execution_route_facts(
                 authority: None,
                 load_terminal_fast_path,
             },
-        ),
+        )?,
         explain_preparation,
         hybrid_covering_read_plan,
-    }
+    })
 }
 
 ///
@@ -232,7 +235,7 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
     let strict_prefilter_compiled = explain_preparation.strict_prefilter_compiled();
     let predicate_stage_observability = PredicateStageObservability::from_parts(
         strict_prefilter_compiled,
-        plan.residual_filter_shape(),
+        plan.residual_filter_shape().map_err(QueryError::execute)?,
     );
     let execution_mode = explain_execution_mode(route_plan);
     let load_terminal_fast_path = route_plan.load_terminal_fast_path();
@@ -264,11 +267,14 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
     root.covering_scan = Some(covering_scan);
     root.node_properties.insert(
         property_keys::COVERING_SCAN_REASON,
-        Value::from(covering_read_reason_code_for_load_plan(
-            plan,
-            strict_predicate_compatible,
-            covering_projection_selected,
-        )),
+        Value::from(
+            covering_read_reason_code_for_load_plan(
+                plan,
+                strict_predicate_compatible,
+                covering_projection_selected,
+            )
+            .map_err(QueryError::execute)?,
+        ),
     );
     annotate_grouped_route_node_properties(&mut root, route_plan);
     if let Some(capability) = explain_preparation.predicate_index_capability {
@@ -300,9 +306,9 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
     let explain_predicate = explain_predicate_for_plan(plan, work)?;
     for predicate_stage in predicate_stage_descriptors(
         explain_filter_expr_for_plan(plan),
-        explain_residual_filter_expr_for_plan(plan),
+        explain_residual_filter_expr_for_plan(plan).map_err(QueryError::execute)?,
         explain_predicate,
-        plan.residual_filter_shape(),
+        plan.residual_filter_shape().map_err(QueryError::execute)?,
         root.access_strategy.as_ref(),
         predicate_stage_observability,
         execution_mode,
@@ -398,7 +404,7 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
     // Phase 1: build canonical route/planner inputs for load mode.
     let verbose_preparation = LoadVerbosePreparation::from_plan(plan)?;
     let strict_prefilter_compiled = explain_preparation.strict_prefilter_compiled();
-    let residual_filter_shape = plan.residual_filter_shape();
+    let residual_filter_shape = plan.residual_filter_shape()?;
     let predicate_stage_observability =
         PredicateStageObservability::from_parts(strict_prefilter_compiled, residual_filter_shape);
 
@@ -474,7 +480,7 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
             plan,
             strict_prefilter_compiled,
             covering_projection_selected,
-        ),
+        )?,
     ));
     lines.push(descriptor_route_property_line(
         "diag.r.covering_kind",
@@ -606,7 +612,7 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
     plan: &AccessPlannedQuery,
     work: &PreparationWork<'_>,
 ) -> Result<LoadExecutionRouteFacts, InternalError> {
-    let explain_preparation = LoadExplainPreparation::from_plan(plan);
+    let explain_preparation = LoadExplainPreparation::from_plan(plan)?;
 
     if plan.grouped_plan().is_some() {
         return freeze_grouped_load_execution_route_facts(plan, explain_preparation, work);
@@ -630,12 +636,12 @@ pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
             None
         };
 
-    Ok(freeze_scalar_load_execution_route_facts(
+    freeze_scalar_load_execution_route_facts(
         plan,
         explain_preparation,
         load_terminal_fast_path,
         hybrid_covering_read_plan,
-    ))
+    )
 }
 
 // Project grouped execution truth directly onto the access root.

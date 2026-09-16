@@ -20,8 +20,7 @@ use crate::db::{
             },
         },
         plan::{
-            AccessPlannedQuery, GroupAggregateSpec, GroupFieldSet, GroupedPlanAggregateFamily,
-            GroupedPlanFallbackReason, GroupedPlanStrategy,
+            AccessPlannedQuery, GroupAggregateSpec, GroupFieldSet, GroupedPlanStrategy,
             expr::{PathSpec, ProjectionSpec},
             grouped_plan_strategy,
         },
@@ -42,16 +41,8 @@ pub(super) fn hash_grouping_shape(
         write_tag(hasher, GROUPING_NONE_TAG);
         return Ok(());
     };
-    let strategy = grouped_plan_strategy(plan).unwrap_or_else(|| {
-        debug_assert!(
-            grouped_plan_strategy(plan).is_some(),
-            "grouped fingerprint projection requires planner-owned grouped strategy"
-        );
-        GroupedPlanStrategy::hash_group_with_aggregate_family(
-            GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
-            GroupedPlanAggregateFamily::from_grouped_aggregates(&grouped.group.aggregates),
-        )
-    });
+    let strategy = grouped_plan_strategy(plan, || plan.prepare_residual_filter_shape(budget))?
+        .ok_or_else(InternalError::planner_executor_invariant)?;
     write_tag(hasher, GROUPING_PRESENT_TAG);
     hash_grouped_strategy_projection(hasher, strategy);
     hash_group_field_slots(hasher, &grouped.group.group_fields, budget)?;

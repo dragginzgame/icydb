@@ -493,7 +493,13 @@ mod tests {
                 },
                 having_expr: None,
             });
-            let expected = grouped_plan_strategy(&query).unwrap();
+            let residual = crate::db::query::preparation::with_preparation_work(|work| {
+                query.prepare_residual_filter_shape(work)
+            })
+            .unwrap();
+            let expected = grouped_plan_strategy(&query, || Ok(residual))
+                .unwrap()
+                .unwrap();
             assert!(expected.is_ordered_group());
             // Five fixed visits, plus one label comparison per examined key.
             let used = 5 + 6 * if equality_prefix { 2 } else { 1 };

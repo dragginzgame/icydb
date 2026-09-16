@@ -57,19 +57,30 @@ fn static_index_metadata_preserves_layout_at_exact_construction_limits() {
         kind: IndexCompileTargetKind::Field,
     };
     assert_eq!(plan.index_compile_targets().unwrap(), &[expected_target]);
-    let (projection_bytes, projection_steps) =
-        projection_metadata::cost(plan, catalog.accepted_schema_info());
+    let (projection_bytes, _) = projection_metadata::cost(plan, catalog.accepted_schema_info());
     let bytes = projection_bytes
         // Static finalization owns both preparation and residual predicate copies.
         + 2 * ("rare".len() + "group-a".len()) as u64
         + (size_of::<ResolvedOrderField>()
             + 5 * size_of::<usize>()
             + size_of::<IndexCompileTarget>()) as u64;
-    let steps = projection_steps
-        + 4
-        + "rare".len() as u64
-        + "id".len() as u64
-        + 2 * (2 + "rare".len() + "group-a".len()) as u64;
+    // Include shared residual proof work; its owner qualifies inner boundaries.
+    let baseline = request(Resource::PredicateExpressionSteps, 16_000_000);
+    PreparationWork::run(
+        &baseline.scope(),
+        DiagnosticExecutionLane::PublicRead,
+        |work| {
+            let mut candidate = plan.clone();
+            let projection = candidate.prepare_projection(catalog.accepted_schema_info(), work)?;
+            candidate.finalize_static_execution_planning_contract_with_schema(
+                catalog.accepted_schema_info(),
+                projection,
+                work,
+            )
+        },
+    )
+    .unwrap();
+    let steps = baseline.observed(Resource::PredicateExpressionSteps);
 
     for lane in [
         DiagnosticExecutionLane::PublicRead,

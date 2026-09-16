@@ -11,6 +11,9 @@
 //!
 //! Any change in this module must preserve fingerprint/continuation stability.
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::access::{
         AccessPath, AccessPlan, IndexBranchSetSpec, SemanticIndexAccessContract,
@@ -60,14 +63,6 @@ fn canonical_cmp_access_plan_value(
     right: &AccessPlan<Value>,
 ) -> Ordering {
     left.canonical_cmp(right)
-}
-
-// Return the single value from one canonicalized value-set shape.
-const fn single_canonical_value(values: &[Value]) -> Option<&Value> {
-    match values {
-        [value] => Some(value),
-        _ => None,
-    }
 }
 
 impl AccessPlan<Value> {
@@ -194,19 +189,21 @@ impl AccessPath<Value> {
         match self {
             Self::ByKeys(mut keys) => {
                 canonicalize_value_set(&mut keys);
-                if let Some(key) = single_canonical_value(keys.as_slice()) {
-                    return Self::ByKey(key.clone());
+                if keys.len() == 1
+                    && let Some(key) = keys.pop()
+                {
+                    return Self::ByKey(key);
                 }
 
                 Self::ByKeys(keys)
             }
             Self::IndexMultiLookup { index, mut values } => {
                 canonicalize_value_set(&mut values);
-                if let Some(value) = single_canonical_value(values.as_slice()) {
-                    return Self::IndexPrefix {
-                        index,
-                        values: vec![value.clone()],
-                    };
+                if values.len() == 1 {
+                    // A deduplicated IN list must not retain its old capacity in
+                    // the singleton path. Compact backing is reused unchanged.
+                    values.shrink_to_fit();
+                    return Self::IndexPrefix { index, values };
                 }
 
                 Self::IndexMultiLookup { index, values }
@@ -214,9 +211,9 @@ impl AccessPath<Value> {
             Self::IndexBranchSet { spec } => {
                 let (index, fixed_values, mut branch_values) = spec.into_parts();
                 canonicalize_value_set(&mut branch_values);
-                if let Some(branch_value) = single_canonical_value(branch_values.as_slice()) {
+                if branch_values.len() == 1 {
                     let mut values = fixed_values;
-                    values.push(branch_value.clone());
+                    values.extend(branch_values);
                     return Self::IndexPrefix { index, values };
                 }
 
@@ -472,17 +469,13 @@ fn canonical_cmp_index_key_items(
     left: &[SemanticIndexKeyItem],
     right: &[SemanticIndexKeyItem],
 ) -> Ordering {
-    let left = canonical_index_key_items(left);
-    let right = canonical_index_key_items(right);
-
-    left.cmp(&right)
-}
-
-fn canonical_index_key_items(key_items: &[SemanticIndexKeyItem]) -> Vec<String> {
-    key_items
-        .iter()
-        .map(|item| item.as_ref().canonical_text())
-        .collect()
+    for (left, right) in left.iter().zip(right) {
+        let cmp = left.as_ref().cmp_canonical_text(right.as_ref());
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+    }
+    left.len().cmp(&right.len())
 }
 
 /// Lexicographic comparison of value lists.

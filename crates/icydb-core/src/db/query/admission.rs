@@ -439,8 +439,10 @@ pub(in crate::db) struct QueryAdmissionSummary {
 
 impl QueryAdmissionSummary {
     /// Build one admitted summary from the already-selected access plan.
-    #[must_use]
-    pub(in crate::db) fn from_plan(lane: QueryAdmissionLane, plan: &AccessPlannedQuery) -> Self {
+    pub(in crate::db) fn from_plan(
+        lane: QueryAdmissionLane,
+        plan: &AccessPlannedQuery,
+    ) -> Result<Self, crate::error::InternalError> {
         plan_summary::summary_from_plan(lane, plan)
     }
 

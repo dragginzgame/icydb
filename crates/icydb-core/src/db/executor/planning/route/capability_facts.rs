@@ -110,6 +110,7 @@ impl LoadRouteCapabilityFacts {
     // Derive the shared load-capability fact snapshot from one validated plan.
     fn from_plan(
         plan: &AccessPlannedQuery,
+        residual_filter_present: bool,
         access_shape_facts: &AccessShapeFacts,
         grouped_plan_strategy: Option<GroupedPlanStrategy>,
         direction: Direction,
@@ -119,7 +120,6 @@ impl LoadRouteCapabilityFacts {
 
         // Phase 1: collect the shared budget and order facts that downstream
         // route helpers currently need from the same logical plan.
-        let residual_filter_present = plan.has_any_residual_filter();
         let access_order_satisfied_by_path =
             access_order_satisfied_by_route_mode_with_access_shape_facts(plan, access_shape_facts);
         let has_order = logical
@@ -202,14 +202,15 @@ fn derive_load_route_capability_facts_for_model(
     grouped_plan_strategy: Option<GroupedPlanStrategy>,
     direction: Direction,
     desc_physical_reverse_supported: bool,
-) -> LoadRouteCapabilityFacts {
-    LoadRouteCapabilityFacts::from_plan(
+) -> Result<LoadRouteCapabilityFacts, crate::error::InternalError> {
+    Ok(LoadRouteCapabilityFacts::from_plan(
         plan,
+        plan.has_any_residual_filter()?,
         access_shape_facts,
         grouped_plan_strategy,
         direction,
         desc_physical_reverse_supported,
-    )
+    ))
 }
 
 // Some secondary-prefix ORDER BY shapes are semantically pushdown-compatible
@@ -345,14 +346,14 @@ pub(super) fn derive_execution_capability_facts_for_model(
     access_shape_facts: &AccessShapeFacts,
     grouped_plan_strategy: Option<GroupedPlanStrategy>,
     desc_physical_reverse_supported: bool,
-) -> RouteCapabilityFacts {
+) -> Result<RouteCapabilityFacts, crate::error::InternalError> {
     let load_route_capability_facts = derive_load_route_capability_facts_for_model(
         plan,
         access_shape_facts,
         grouped_plan_strategy,
         direction,
         desc_physical_reverse_supported,
-    );
+    )?;
     let aggregate_execution_policy = derive_aggregate_execution_policy(
         plan,
         direction,
@@ -365,7 +366,7 @@ pub(super) fn derive_execution_capability_facts_for_model(
     let field_min_eligibility = aggregate_execution_policy.field_min_fast_path();
     let field_max_eligibility = aggregate_execution_policy.field_max_fast_path();
 
-    RouteCapabilityFacts {
+    Ok(RouteCapabilityFacts {
         load_order_route_decision: load_route_capability_facts.load_order_route_decision(),
         ordered_index_leaf_stream_eligible: load_route_capability_facts
             .ordered_index_leaf_stream_eligible(),
@@ -379,7 +380,7 @@ pub(super) fn derive_execution_capability_facts_for_model(
         field_max_fast_path_eligible: field_max_eligibility.eligible,
         field_min_fast_path_ineligibility_reason: field_min_eligibility.ineligibility_reason,
         field_max_fast_path_ineligibility_reason: field_max_eligibility.ineligibility_reason,
-    }
+    })
 }
 
 pub(super) fn desc_physical_reverse_traversal_supported(

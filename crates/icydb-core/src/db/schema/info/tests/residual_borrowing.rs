@@ -18,7 +18,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-use std::borrow::Cow;
 
 fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
     RequestExecutionRoot::new_for_tests(
@@ -61,7 +60,7 @@ fn project(
 ) -> Result<Option<ExplainPredicate>, QueryError> {
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         plan.effective_execution_predicate()
-            .as_deref()
+            .map_err(QueryError::execute)?
             .map(|predicate| ExplainPredicate::from_predicate(predicate, work))
             .transpose()
     })
@@ -70,8 +69,8 @@ fn project(
 #[test]
 fn finalized_residual_inspection_borrows_the_frozen_predicate() {
     for predicate in [None, Some(predicate())] {
+        let expected = predicate.clone();
         let mut plan = plan(predicate);
-        let expected = plan.effective_execution_predicate().map(Cow::into_owned);
         finalize(&mut plan);
         let frozen = plan
             .static_execution_planning_contract
@@ -82,12 +81,14 @@ fn finalized_residual_inspection_borrows_the_frozen_predicate() {
         assert_eq!(frozen, expected.as_ref());
 
         for _ in 0..4 {
-            let view = plan.effective_execution_predicate();
-            assert_eq!(view.as_deref(), frozen);
-            assert_eq!(plan.has_residual_filter_predicate(), frozen.is_some());
+            let view = plan.effective_execution_predicate().unwrap();
+            assert_eq!(view, frozen);
+            assert_eq!(
+                plan.has_residual_filter_predicate().unwrap(),
+                frozen.is_some()
+            );
             if let Some(view) = view {
-                assert!(matches!(view, Cow::Borrowed(_)));
-                assert!(std::ptr::eq(view.as_ref(), frozen.unwrap()));
+                assert!(std::ptr::eq(view, frozen.unwrap()));
             }
         }
         if frozen.is_none() {
@@ -100,14 +101,63 @@ fn finalized_residual_inspection_borrows_the_frozen_predicate() {
 }
 
 #[test]
-fn unfinished_and_finalized_residual_inspection_preserve_semantics() {
+fn residual_inspection_requires_frozen_metadata_even_for_empty_filters() {
+    for input in [None, Some(predicate())] {
+        let mut plan = plan(input);
+        for error in [
+            plan.effective_execution_predicate().unwrap_err(),
+            plan.residual_filter_expr().unwrap_err(),
+            plan.residual_filter_shape().unwrap_err(),
+            plan.has_residual_filter_predicate().unwrap_err(),
+            plan.has_any_residual_filter().unwrap_err(),
+        ] {
+            assert_eq!(error.class(), crate::error::ErrorClass::InvariantViolation);
+        }
+        assert!(project(&plan, &request(Resource::TemporaryBytes, 0)).is_err());
+        let expected =
+            with_preparation_work(|work| plan.prepare_residual_filter_shape(work)).unwrap();
+        finalize(&mut plan);
+        assert_eq!(plan.residual_filter_shape().unwrap(), expected);
+        assert_eq!(
+            plan.has_any_residual_filter().unwrap(),
+            !expected.is_absent()
+        );
+    }
+}
+
+#[test]
+fn explicit_residual_shape_preparation_admits_copies_and_reuses_frozen_facts() {
     let mut plan = plan(Some(predicate()));
-    let derived = plan.effective_execution_predicate().unwrap().into_owned();
+    let original = plan.clone();
+    let prepare = |plan: &AccessPlannedQuery, root: &RequestExecutionRoot| {
+        PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
+            plan.prepare_residual_filter_shape(work)
+                .map_err(QueryError::execute)
+        })
+    };
+    let generous = request(Resource::TemporaryBytes, 16_000_000);
+    let expected = prepare(&plan, &generous).unwrap();
+    for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+        let used = generous.observed(resource);
+        assert!(used > 0);
+        let exact = request(resource, used * 2);
+        assert_eq!(prepare(&plan, &exact).unwrap(), expected);
+        assert_eq!(prepare(&plan, &exact).unwrap(), expected);
+        let error = prepare(&plan, &exact).unwrap_err();
+        assert!(
+            error
+                .diagnostic_facts()
+                .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
+        );
+        assert_eq!(plan, original);
+    }
     finalize(&mut plan);
-    assert_eq!(
-        plan.effective_execution_predicate().as_deref(),
-        Some(&derived)
-    );
+    for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+        let empty = request(resource, 0);
+        assert_eq!(prepare(&plan, &empty).unwrap(), expected);
+        assert_eq!(empty.observed(resource), 0);
+        assert_eq!(empty.observed(Resource::RowsVisited), 0);
+    }
 }
 
 #[test]
@@ -144,10 +194,7 @@ fn borrowed_residual_projection_keeps_cumulative_admission_and_identity() {
                 .unwrap(),
             signature
         );
-        assert!(matches!(
-            plan.effective_execution_predicate(),
-            Some(Cow::Borrowed(_))
-        ));
+        assert!(plan.effective_execution_predicate().unwrap().is_some());
     }
 }
 

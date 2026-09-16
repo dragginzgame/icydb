@@ -915,9 +915,8 @@ impl AccessPlannedQuery {
     }
 
     /// Return whether any residual predicate or residual expression survives access planning.
-    #[must_use]
-    pub(in crate::db) fn has_any_residual_filter(&self) -> bool {
-        !self.residual_filter_shape().is_absent()
+    pub(in crate::db) fn has_any_residual_filter(&self) -> Result<bool, InternalError> {
+        Ok(!self.residual_filter_shape()?.is_absent())
     }
 
     /// Return whether the scalar plan carries no DISTINCT execution gate.

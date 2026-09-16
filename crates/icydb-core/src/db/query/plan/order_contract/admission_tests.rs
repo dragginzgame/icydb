@@ -32,6 +32,151 @@ fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
     )
 }
 
+#[test]
+fn initial_order_contracts_share_bounded_labels_and_cumulative_authority() {
+    use crate::db::query::plan::exact_metadata_schema;
+
+    let schema = exact_metadata_schema(&[], &[]);
+    let names = schema.shared_primary_key_names();
+    let order = OrderSpec {
+        fields: vec![
+            OrderTerm::field("账户".repeat(64), OrderDirection::Desc),
+            OrderTerm::new(
+                Expr::Literal(Value::List(vec![Value::Text("quoted\"".repeat(64))])),
+                OrderDirection::Desc,
+            ),
+            OrderTerm::field("id", OrderDirection::Desc),
+        ],
+    };
+    let before = order.clone();
+    for grouped in [false, true] {
+        let labels: Vec<_> = order.fields[..if grouped { 3 } else { 2 }]
+            .iter()
+            .map(OrderTerm::rendered_label)
+            .collect();
+        for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+            for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+                let baseline = request(resource, 16_000_000);
+                PreparationWork::run(&baseline.scope(), lane, |budget| {
+                    let contract =
+                        CandidateOrderContract::prepare(&schema, Some(&order), grouped, budget)
+                            .unwrap()
+                            .unwrap();
+                    match contract {
+                        CandidateOrderContract::Scalar(contract) => {
+                            assert_eq!(contract.non_primary_key_terms, labels);
+                            assert!(Rc::ptr_eq(&contract.primary_key_terms, &names));
+                            assert_eq!(contract.direction(), OrderDirection::Desc);
+                        }
+                        CandidateOrderContract::Grouped(contract) => {
+                            assert_eq!(contract.terms, labels);
+                        }
+                    }
+                    Ok(())
+                })
+                .unwrap();
+                let exact = baseline.observed(resource);
+                assert!(exact > 0);
+                for limit in [0, exact - 1, exact * 2] {
+                    let root = request(resource, limit);
+                    PreparationWork::run(&root.scope(), lane, |budget| {
+                        for attempt in 1..=3 {
+                            let result = CandidateOrderContract::prepare(
+                                &schema,
+                                Some(&order),
+                                grouped,
+                                budget,
+                            );
+                            if attempt * exact <= limit {
+                                assert!(result.unwrap().is_some());
+                                assert_eq!(root.observed(resource), attempt * exact);
+                            } else {
+                                let Err(error) = result else {
+                                    panic!("exhaustion must not become an incompatible order")
+                                };
+                                assert!(QueryError::execute(error).diagnostic_facts().contains(&(
+                                    DiagnosticFactTag::BudgetResource,
+                                    resource.raw()
+                                )));
+                                break;
+                            }
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+                    assert_eq!(root.observed(Resource::RowsVisited), 0);
+                    assert_eq!(order, before);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn initial_order_rejection_does_not_materialize_labels() {
+    use crate::db::query::plan::exact_metadata_schema;
+
+    let schema = exact_metadata_schema(&[], &[]);
+    for grouped in [false, true] {
+        let root = request(Resource::TemporaryBytes, 0);
+        PreparationWork::run(&root.scope(), Lane::Diagnostic, |budget| {
+            assert!(
+                CandidateOrderContract::prepare(&schema, None, grouped, budget)
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(root.observed(Resource::PredicateExpressionSteps), 0);
+            for order in [
+                OrderSpec { fields: vec![] },
+                OrderSpec {
+                    fields: vec![
+                        OrderTerm::field("age", OrderDirection::Asc),
+                        OrderTerm::field("id", OrderDirection::Desc),
+                    ],
+                },
+            ] {
+                assert!(
+                    CandidateOrderContract::prepare(&schema, Some(&order), grouped, budget)
+                        .unwrap()
+                        .is_none()
+                );
+            }
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(root.observed(Resource::TemporaryBytes), 0);
+    }
+}
+
+#[test]
+fn route_profile_publication_rejects_unadmitted_order_construction() {
+    use crate::db::query::plan::exact_metadata_schema;
+
+    let schema = exact_metadata_schema(&[], &[]);
+    let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Error);
+    let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+        unreachable!()
+    };
+    scalar.order = Some(OrderSpec {
+        fields: vec![
+            OrderTerm::field("age", OrderDirection::Asc),
+            OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    });
+    let before = plan.planner_route_profile().clone();
+    let root = request(Resource::TemporaryBytes, 0);
+    let result = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+        plan.finalize_planner_route_profile_for_model_with_schema(&schema, work)
+            .map_err(QueryError::execute)
+    });
+    assert!(result.unwrap_err().diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::TemporaryBytes.raw()
+    )));
+    assert_eq!(plan.planner_route_profile(), &before);
+    assert_eq!(root.observed(Resource::RowsVisited), 0);
+}
+
 fn build(
     order: Option<&OrderSpec>,
     grouped: bool,

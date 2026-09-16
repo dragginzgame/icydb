@@ -7,6 +7,8 @@
 mod branch_tests;
 #[cfg(test)]
 mod equality_tests;
+#[cfg(test)]
+mod multi_lookup_tests;
 
 use crate::{
     db::{
@@ -22,10 +24,11 @@ use crate::{
                 copy_lookup_value_for_key_item, key_item_matches_field_and_coercion,
                 key_item_supports_lookup_value, lower_lookup_value_for_key_item,
             },
+            order_contract::CandidateOrderContract,
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
                 access_candidate_score_outranks, index_field_literal_matcher,
-                index_literal_matches_schema, selected_index_contract_satisfies_secondary_order,
+                index_literal_matches_schema,
             },
         },
         schema::SchemaInfo,
@@ -67,7 +70,9 @@ pub(super) fn index_prefix_for_eq(
     }
     let Some(index) =
         best_leading_lookup_index(candidate_indexes, schema, order, grouped, budget, |key| {
-            key_item_supports_lookup_value(key, field, value, coercion, true)
+            Ok(key_item_supports_lookup_value(
+                key, field, value, coercion, true,
+            ))
         })?
     else {
         return Ok(None);
@@ -103,18 +108,28 @@ pub(super) fn index_multi_lookup_for_in(
     }
 
     let matcher = index_field_literal_matcher(schema, field);
-    if !values.iter().all(|value| matcher.matches(value)) {
-        return Ok(None);
+    for value in values {
+        budget.charge(Resource::PredicateExpressionSteps, 1)?;
+        if !matcher.matches(value) {
+            return Ok(None);
+        }
     }
     let Some(index) =
         best_leading_lookup_index(candidate_indexes, schema, order, grouped, budget, |key| {
             // Strict fields need no second literal walk after shared schema admission.
             // Expression eligibility still uses the canonical per-value shape gate.
-            key_item_matches_field_and_coercion(key, field, coercion)
-                && (!key.is_expression()
-                    || values.iter().all(|value| {
-                        key_item_supports_lookup_value(key, field, value, coercion, true)
-                    }))
+            if !key_item_matches_field_and_coercion(key, field, coercion) {
+                return Ok(false);
+            }
+            if key.is_expression() {
+                for value in values {
+                    budget.charge(Resource::PredicateExpressionSteps, 1)?;
+                    if !key_item_supports_lookup_value(key, field, value, coercion, true) {
+                        return Ok(false);
+                    }
+                }
+            }
+            Ok(true)
         })?
     else {
         return Ok(None);
@@ -145,29 +160,28 @@ fn best_leading_lookup_index<'a>(
     order: Option<&OrderSpec>,
     grouped: bool,
     budget: &dyn ConstructionBudget,
-    supports: impl Fn(SemanticIndexKeyItemRef<'_>) -> bool,
+    supports: impl Fn(SemanticIndexKeyItemRef<'_>) -> Result<bool, InternalError>,
 ) -> Result<Option<&'a SemanticIndexAccessContract>, InternalError> {
     budget.charge(
         Resource::PredicateExpressionSteps,
         candidate_indexes.len() as u64,
     )?;
     let mut best: Option<(AccessCandidateScore, &SemanticIndexAccessContract)> = None;
+    let order_contract = CandidateOrderContract::prepare(schema, order, grouped, budget)?;
     for index in candidate_indexes {
         let Some(key) = index.key_item_at(0) else {
             continue;
         };
-        if !supports(key) {
+        if !supports(key)? {
             continue;
         }
 
         let score = access_candidate_score_from_index_contract(
-            schema,
-            order,
+            order_contract.as_ref(),
             index,
             1,
             index.key_arity() == 1,
             0,
-            grouped,
         );
         match &best {
             None => best = Some((score, index)),
@@ -228,6 +242,7 @@ pub(super) fn index_prefix_from_and(
         Resource::PredicateExpressionSteps,
         candidate_indexes.len() as u64,
     )?;
+    let order_contract = CandidateOrderContract::prepare(schema, order, grouped, budget)?;
     for index in candidate_indexes {
         let Some(prefix) = build_index_eq_prefix(index.key_items(), &field_values, budget)? else {
             continue;
@@ -237,13 +252,11 @@ pub(super) fn index_prefix_from_and(
         }
 
         let score = access_candidate_score_from_index_contract(
-            schema,
-            order,
+            order_contract.as_ref(),
             index,
             prefix.len(),
             prefix.len() == index.key_arity(),
             0,
-            grouped,
         );
         match &best {
             None => best = Some((score, index, prefix)),
@@ -348,6 +361,7 @@ fn index_branch_set_from_and_with_cap(
         Resource::PredicateExpressionSteps,
         candidate_indexes.len() as u64,
     )?;
+    let order_contract = CandidateOrderContract::prepare(schema, order, grouped, budget)?;
     for index in candidate_indexes {
         let Some(fixed_values) = build_index_eq_prefix(index.key_items(), &eq_values, budget)?
         else {
@@ -377,27 +391,17 @@ fn index_branch_set_from_and_with_cap(
         }
 
         let branch_prefix_len = branch_slot.saturating_add(1);
-        if order.is_some()
-            && !selected_index_contract_satisfies_secondary_order(
-                schema,
-                order,
-                index,
-                branch_prefix_len,
-                false,
-            )
-        {
-            continue;
-        }
-
         let score = access_candidate_score_from_index_contract(
-            schema,
-            order,
+            order_contract.as_ref(),
             index,
             branch_prefix_len,
             false,
             0,
-            false,
         );
+        // Eligibility and ranking consume the same ordering decision.
+        if order.is_some() && !score.order_compatible {
+            continue;
+        }
         match &best {
             None => best = Some((score, index, fixed_values, branch_values)),
             Some((best_score, best_index, _, _))
@@ -542,7 +546,7 @@ fn build_index_eq_prefix(
             };
 
             if let Some(existing) = &matched
-                && existing != &candidate
+                && !budget.values_equal(existing, &candidate)?
             {
                 return Ok(None);
             }
@@ -606,7 +610,7 @@ fn build_index_branch_values(
         }
 
         if let Some(existing) = &matched
-            && existing != &branch_values
+            && !budget.value_slices_equal(existing, &branch_values)?
         {
             return Ok(None);
         }
@@ -654,7 +658,24 @@ fn prune_branch_values_by_exclusions(
             else {
                 continue;
             };
-            branch_values.retain(|branch_value| lookup_value.as_ref() != branch_value);
+            // Finish only compaction bookkeeping after exhaustion; no further
+            // comparisons may run or a partially pruned candidate be published.
+            let mut failure = None;
+            branch_values.retain(|branch_value| {
+                if failure.is_some() {
+                    return true;
+                }
+                match budget.values_equal(lookup_value.as_ref(), branch_value) {
+                    Ok(equal) => !equal,
+                    Err(error) => {
+                        failure = Some(error);
+                        true
+                    }
+                }
+            });
+            if let Some(error) = failure {
+                return Err(error);
+            }
         }
     }
     Ok(())

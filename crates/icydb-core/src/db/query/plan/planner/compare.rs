@@ -23,6 +23,7 @@ use crate::{
                 copy_lookup_value_for_key_item, key_item_supports_lookup_value,
                 key_item_supports_starts_with_value,
             },
+            order_contract::CandidateOrderContract,
             planner::{
                 AccessCandidateScore, access_candidate_score_from_index_contract,
                 access_candidate_score_outranks, index_literal_matches_schema,
@@ -267,15 +268,14 @@ fn plan_starts_with_compare(
     };
 
     let mut best: Option<(AccessCandidateScore, &SemanticIndexAccessContract)> = None;
+    let order_contract = CandidateOrderContract::prepare(schema, order, grouped, budget)?;
     for (index, _) in std::iter::once(first).chain(candidates) {
         let score = access_candidate_score_from_index_contract(
-            schema,
-            order,
+            order_contract.as_ref(),
             index,
             0,
             false,
             range_bound_count(&lower, &upper),
-            grouped,
         );
         match best {
             None => best = Some((score, index)),
@@ -338,6 +338,7 @@ fn plan_ordered_compare(
         &SemanticIndexAccessContract,
         SemanticIndexKeyItemRef<'_>,
     )> = None;
+    let order_contract = CandidateOrderContract::prepare(schema, order, grouped, budget)?;
     for index in candidate_indexes {
         let Some(leading_key_item) = index.key_item_at(0) else {
             continue;
@@ -357,7 +358,7 @@ fn plan_ordered_compare(
             continue;
         }
         let score =
-            access_candidate_score_from_index_contract(schema, order, index, 0, false, 1, grouped);
+            access_candidate_score_from_index_contract(order_contract.as_ref(), index, 0, false, 1);
         match best {
             None => best = Some((score, index, leading_key_item)),
             Some((best_score, best_index, _))

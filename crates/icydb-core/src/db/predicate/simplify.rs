@@ -36,6 +36,12 @@ pub(in crate::db::predicate) fn simplify_and_compare_constraints(
     // that proof and requires a full restart to preserve first-pair precedence.
     let mut i = 0;
     'left: while i < predicates.len() {
+        // Only Compare/Compare pairs can reduce. Keep other children in place,
+        // but do not scan their suffix; removals/restarts recheck the new left.
+        if !matches!(&predicates[i], Predicate::Compare(_)) {
+            i += 1;
+            continue;
+        }
         let mut j = i.saturating_add(1);
         while j < predicates.len() {
             let simplification = match (&predicates[i], &predicates[j]) {

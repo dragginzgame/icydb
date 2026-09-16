@@ -17,6 +17,59 @@ fn compare(field: &str, op: CompareOp, value: i64) -> Predicate {
 }
 
 #[test]
+fn non_comparison_conjunctions_preserve_authored_order_and_duplicates() {
+    for width in [0, 1, 2, 1_000] {
+        let input = (0..width)
+            .map(|i| Predicate::IsNull {
+                field: format!("field_{}", i % 3),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(simplify_and_compare_constraints(input.clone()), Some(input));
+    }
+}
+
+#[test]
+fn interleaved_non_comparisons_preserve_removal_and_replacement_order() {
+    let before = Predicate::IsNull {
+        field: "before".into(),
+    };
+    let middle = Predicate::Not(Box::new(Predicate::IsNull {
+        field: "middle".into(),
+    }));
+    let after = Predicate::Or(vec![before.clone(), middle.clone()]);
+    // Exercise removal and equal-bound replacement, retaining either side of
+    // the interleaved guard. Replacement must still reconsider earlier pairs.
+    for (first, second, retained, keeps_first) in [
+        (CompareOp::Gt, CompareOp::Gte, CompareOp::Gt, true),
+        (CompareOp::Gte, CompareOp::Gt, CompareOp::Gt, false),
+        (CompareOp::Gte, CompareOp::Lte, CompareOp::Eq, true),
+        (CompareOp::Lte, CompareOp::Gte, CompareOp::Eq, false),
+    ] {
+        let input = vec![
+            before.clone(),
+            compare("rank", first, 7),
+            middle.clone(),
+            compare("rank", second, 7),
+            after.clone(),
+        ];
+        let survivor = compare("rank", retained, 7);
+        let expected = if keeps_first {
+            vec![before.clone(), survivor, middle.clone(), after.clone()]
+        } else {
+            vec![before.clone(), middle.clone(), survivor, after.clone()]
+        };
+        assert_eq!(
+            simplify_and_compare_constraints(input.clone()),
+            Some(expected)
+        );
+
+        let mut conflicting = vec![compare("rank", CompareOp::Lt, 7)];
+        conflicting.extend(input);
+        assert_eq!(simplify_and_compare_constraints(conflicting), None);
+    }
+}
+
+#[test]
 fn removals_visit_shifted_right_operands_and_shifted_left_rows() {
     let guard = Predicate::IsNotNull {
         field: "guard".into(),

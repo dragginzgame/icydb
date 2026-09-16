@@ -30,7 +30,7 @@ pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract_for_plan(
         return None;
     }
 
-    let strict_predicate_compatible = covering_strict_predicate_compatible_for_plan(plan);
+    let strict_predicate_compatible = covering_strict_predicate_compatible_for_plan(plan).ok()?;
 
     derive_load_terminal_fast_path_contract(authority, plan, strict_predicate_compatible)
 }

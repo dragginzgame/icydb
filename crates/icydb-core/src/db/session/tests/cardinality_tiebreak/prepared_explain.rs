@@ -109,7 +109,7 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
         assert!(!cold_reuse.is_hit());
         assert!(warm_reuse.is_hit());
         assert!(warm.logical_plan().has_static_execution_planning_contract());
-        assert!(warm.logical_plan().has_any_residual_filter());
+        assert!(warm.logical_plan().has_any_residual_filter().unwrap());
         assert_eq!(cold.logical_plan(), warm.logical_plan());
         let original = warm.logical_plan().clone();
         let signature =

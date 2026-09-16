@@ -104,8 +104,7 @@ pub(in crate::db) use order_contract::{
     DeterministicSecondaryIndexOrderMatch, DeterministicSecondaryOrderContract,
     ExecutionOrderContract, ExecutionOrdering,
     access_satisfies_deterministic_secondary_order_contract,
-    deterministic_secondary_index_key_items_satisfied, grouped_index_key_items_satisfied,
-    primary_scan_direction,
+    deterministic_secondary_index_key_items_satisfied, primary_scan_direction,
 };
 pub(in crate::db) use order_term::index_key_item_order_terms;
 pub(in crate::db) use parameters::PreparedQueryParameterContract;

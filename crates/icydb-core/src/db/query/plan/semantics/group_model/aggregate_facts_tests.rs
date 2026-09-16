@@ -111,9 +111,11 @@ fn borrowed_grouped_aggregate_facts_preserve_all_identity_families() {
                         kind.grouped_plan_family(spec.target_field().is_some())
                     };
                     assert_eq!(
-                        GroupedPlanAggregateFamily::from_grouped_aggregates(std::slice::from_ref(
-                            &spec
-                        )),
+                        GroupedPlanAggregateFamily::try_from_grouped_aggregates(
+                            std::slice::from_ref(&spec),
+                            &mut |_| Ok::<_, std::convert::Infallible>(()),
+                        )
+                        .unwrap(),
                         expected_family
                     );
                 }
@@ -163,7 +165,13 @@ fn borrowed_grouped_aggregate_facts_preserve_list_and_explain_profiles() {
         ),
     ] {
         assert_eq!(
-            GroupedPlanAggregateFamily::from_grouped_aggregates(&aggregates),
+            GroupedPlanAggregateFamily::try_from_grouped_aggregates(&aggregates, &mut |_| Ok::<
+                _,
+                std::convert::Infallible,
+            >(
+                ()
+            ),)
+            .unwrap(),
             family
         );
         let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
@@ -179,7 +187,11 @@ fn borrowed_grouped_aggregate_facts_preserve_list_and_explain_profiles() {
         let signature =
             with_preparation_work(|work| plan.continuation_signature("tests::Entity", work))
                 .unwrap();
-        let strategy = grouped_plan_strategy(&plan).unwrap();
+        let residual =
+            with_preparation_work(|work| plan.prepare_residual_filter_shape(work)).unwrap();
+        let strategy = grouped_plan_strategy(&plan, || Ok(residual))
+            .unwrap()
+            .unwrap();
         assert_eq!(strategy.aggregate_family(), family);
         assert_eq!(strategy.code(), "hash_group");
         assert_eq!(strategy.fallback_reason().unwrap().code(), fallback);

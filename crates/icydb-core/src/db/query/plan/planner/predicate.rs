@@ -19,6 +19,7 @@ use crate::{
         query::plan::{
             OrderSpec, PlannedNonIndexAccessReason,
             key_item_match::lower_lookup_value_for_key_item,
+            order_contract::CandidateOrderContract,
             planner::{
                 AndFamilyCandidateScore, AndFamilyPriorityClass, PlannedAccessSelection,
                 and_family_candidate_score_outranks, compare, index_field_literal_matcher,
@@ -148,16 +149,17 @@ pub(super) fn plan_predicate(
                 plans.as_slice(),
                 budget,
             )?;
-            let required_order_primary_key_range =
-                primary_key_range_access.as_ref().is_some_and(|candidate| {
-                    candidate_outranks_selected_access_on_required_order(
-                        schema,
-                        order,
-                        grouped,
-                        candidate,
-                        selected_index_access,
-                    )
-                });
+            let required_order_primary_key_range = match primary_key_range_access.as_ref() {
+                Some(candidate) => candidate_outranks_selected_access_on_required_order(
+                    schema,
+                    order,
+                    grouped,
+                    candidate,
+                    selected_index_access,
+                    budget,
+                )?,
+                None => false,
+            };
             let family_choice = choose_best_and_family_access(
                 primary_key_child_access_candidate(plans.as_slice(), budget)?,
                 intersection_access,
@@ -561,17 +563,24 @@ fn candidate_outranks_selected_access_on_required_order(
     grouped: bool,
     candidate_access: &AccessPlan<Value>,
     selected_access: Option<&AccessPlan<Value>>,
-) -> bool {
+    budget: &dyn ConstructionBudget,
+) -> Result<bool, InternalError> {
     let Some(selected_access) = selected_access else {
-        return false;
+        return Ok(false);
     };
 
     let Some(order) = order else {
-        return false;
+        return Ok(false);
     };
 
-    access_preserves_required_order(schema, order, grouped, candidate_access)
-        && !access_preserves_required_order(schema, order, grouped, selected_access)
+    if grouped {
+        return Ok(false);
+    }
+    let contract = CandidateOrderContract::prepare(schema, Some(order), false, budget)?;
+    Ok(
+        access_preserves_required_order(schema, order, contract.as_ref(), candidate_access)
+            && !access_preserves_required_order(schema, order, contract.as_ref(), selected_access),
+    )
 }
 
 // Reuse the same planner-owned ordering contract across family competition so
@@ -579,12 +588,9 @@ fn candidate_outranks_selected_access_on_required_order(
 fn access_preserves_required_order(
     schema: &SchemaInfo,
     order: &OrderSpec,
-    grouped: bool,
+    contract: Option<&CandidateOrderContract>,
     access: &AccessPlan<Value>,
 ) -> bool {
-    if grouped {
-        return false;
-    }
     if access.as_primary_key_range_path().is_some() {
         return order
             .primary_key_only_direction_fields(schema.primary_key_names())
@@ -592,29 +598,23 @@ fn access_preserves_required_order(
     }
     if let Some((index, prefix_values)) = access.as_index_prefix_contract_path() {
         return selected_index_contract_satisfies_secondary_order(
-            schema,
-            Some(order),
+            contract,
             &index,
             prefix_values.len(),
-            false,
         );
     }
     if let Some(spec) = access.as_index_branch_set_spec_path() {
         return selected_index_contract_satisfies_secondary_order(
-            schema,
-            Some(order),
+            contract,
             &spec.index(),
             spec.branch_prefix_len(),
-            false,
         );
     }
     if let Some(spec) = access.as_index_range_path() {
         return selected_index_contract_satisfies_secondary_order(
-            schema,
-            Some(order),
+            contract,
             &spec.index(),
             spec.prefix_values().len(),
-            false,
         );
     }
 
@@ -646,15 +646,15 @@ fn child_is_redundant_under_selected_index_access(
 
     // The implication owner accepts the original borrowed child; manufacturing
     // another Compare predicate would copy its field and operand for no benefit.
-    Ok(path.as_ref()
-        .selected_index_contract()
-        .is_some_and(|index| {
-            index.predicate_semantics().is_some_and(|guard| {
-                crate::db::query::plan::planner::index_select::predicate_implies_predicate_for_planner(
-                    guard, child,
-                )
-            })
-        }))
+    let Some(index) = path.as_ref().selected_index_contract() else {
+        return Ok(false);
+    };
+    let Some(guard) = index.predicate_semantics() else {
+        return Ok(false);
+    };
+    crate::db::query::plan::planner::index_select::predicate_implies_predicate_for_planner(
+        guard, child, budget,
+    )
 }
 
 fn selected_index_branch_set_guarantees_compare(

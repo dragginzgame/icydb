@@ -1,0 +1,36 @@
+use pocket_ic::PocketIc;
+fn main() {
+    let dir = std::env::args().nth(1).expect("artifact directory");
+    let pic = PocketIc::new();
+    println!(
+        "variant,n,shape,kind,repeat,instructions,length,checksum,comparisons,payload_units,scratch_bytes"
+    );
+    for variant in ["standard", "compact", "fallible", "admitted"] {
+        let canister = pic.create_canister();
+        pic.add_cycles(canister, 10_000_000_000_000);
+        let wasm = std::fs::read(format!("{dir}/{variant}.wasm")).unwrap();
+        pic.install_canister(canister, wasm, vec![], None);
+        for n in [0u32, 1, 16, 64, 256] {
+            for shape in 0u32..5 {
+                for kind in 0u32..4 {
+                    for repeat in 0..2 {
+                        let args: Vec<u8> = [n, shape, kind]
+                            .into_iter()
+                            .flat_map(u32::to_le_bytes)
+                            .collect();
+                        let reply = pic.query_call(canister, canister, "run", args).unwrap();
+                        let numbers: Vec<u64> = reply
+                            .chunks_exact(8)
+                            .map(|x| u64::from_le_bytes(x.try_into().unwrap()))
+                            .collect();
+                        assert_eq!(numbers.len(), 6);
+                        println!(
+                            "{variant},{n},{shape},{kind},{repeat},{},{},{},{},{},{}",
+                            numbers[0], numbers[1], numbers[2], numbers[3], numbers[4], numbers[5]
+                        );
+                    }
+                }
+            }
+        }
+    }
+}

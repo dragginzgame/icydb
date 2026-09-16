@@ -13,7 +13,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-use std::ops::Bound;
+use std::{cmp::Ordering, ops::Bound};
 
 ///
 /// AccessPathKind
@@ -90,6 +90,31 @@ impl<'a> SemanticIndexKeyItemRef<'a> {
         match self {
             Self::Field(field) => field == text,
             Self::AcceptedExpression(expression) => expression.matches_canonical_order_text(text),
+        }
+    }
+
+    /// Compare rendered labels without materializing them. Parts must be joined
+    /// logically: comparing part boundaries or expression variants changes order.
+    #[must_use]
+    pub(in crate::db::access) fn cmp_canonical_text(self, other: Self) -> Ordering {
+        if let (Self::Field(left), Self::Field(right)) = (self, other) {
+            return left.cmp(right);
+        }
+        self.canonical_text_parts()
+            .into_iter()
+            .flat_map(str::bytes)
+            .cmp(
+                other
+                    .canonical_text_parts()
+                    .into_iter()
+                    .flat_map(str::bytes),
+            )
+    }
+
+    const fn canonical_text_parts(self) -> [&'a str; 3] {
+        match self {
+            Self::Field(field) => [field, "", ""],
+            Self::AcceptedExpression(expression) => expression.canonical_order_parts(),
         }
     }
 

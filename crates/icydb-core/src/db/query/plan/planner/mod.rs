@@ -28,7 +28,7 @@ use crate::{
 };
 
 pub(in crate::db::query::plan) use crate::db::access::MAX_INDEX_BRANCH_SET_VALUES;
-#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
 pub(in crate::db::query::plan) use compare::prefix_tests::schema as prefix_test_schema;
 pub(in crate::db::query::plan) use index_select::index_stream_is_complete_for_query;
 pub(in crate::db::query) use index_select::{
@@ -149,7 +149,8 @@ fn plan_access_selection_with_order(
             &true_predicate,
             order,
             grouped,
-        ));
+            budget,
+        )?);
     };
 
     let eligible_indexes =
@@ -187,7 +188,8 @@ fn plan_access_selection_with_order(
         predicate,
         order,
         grouped,
-    )
+        budget,
+    )?
     .map_or_else(
         || {
             PlannedAccessSelection::new(
@@ -207,14 +209,16 @@ fn order_fallback_selection(
     query_predicate: &Predicate,
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> PlannedAccessSelection {
-    order_select::index_range_from_order_with_semantic_indexes(
+    budget: &dyn ConstructionBudget,
+) -> Result<PlannedAccessSelection, InternalError> {
+    Ok(order_select::index_range_from_order_with_semantic_indexes(
         eligible_indexes,
         schema,
         query_predicate,
         order,
         grouped,
-    )
+        budget,
+    )?
     .map_or_else(
         || {
             PlannedAccessSelection::new(
@@ -223,5 +227,5 @@ fn order_fallback_selection(
             )
         },
         |access| PlannedAccessSelection::new(access, None),
-    )
+    ))
 }
