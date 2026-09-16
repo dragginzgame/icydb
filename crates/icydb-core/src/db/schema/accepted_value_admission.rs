@@ -71,13 +71,15 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
                     .composite_catalog()
                     .resolve_newtype_value_kind(self.value_contract().kind())?;
                 let element_kind = match collection_kind {
-                    AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => *inner,
+                    AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
+                        inner.as_ref()
+                    }
                     _ => return None,
                 };
                 AcceptedValueContract::from_candidate_catalogs(
                     self.catalogs.enum_catalog(),
                     self.catalogs.composite_catalog(),
-                    &element_kind,
+                    element_kind,
                     FieldStorageDecode::ByKind,
                 )
                 .ok()

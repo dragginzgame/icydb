@@ -14,6 +14,108 @@ use crate::{
 };
 
 #[test]
+fn normalize_flat_junctions_retain_owned_backing_and_canonical_identity() {
+    use crate::db::predicate::fingerprint::predicate_fingerprint;
+
+    let leaf = |field: &str| Predicate::IsNull {
+        field: field.into(),
+    };
+    for conjunction in [true, false] {
+        let junction = if conjunction {
+            Predicate::And
+        } else {
+            Predicate::Or
+        };
+        let neutral = if conjunction {
+            Predicate::True
+        } else {
+            Predicate::False
+        };
+        let mut children = Vec::with_capacity(16);
+        children.extend([
+            neutral,
+            leaf("b"),
+            Predicate::Not(Box::new(Predicate::Not(Box::new(leaf("a"))))),
+            leaf("b"),
+        ]);
+        let backing = children.as_ptr();
+        let capacity = children.capacity();
+        let expected = junction(vec![leaf("a"), leaf("b")]);
+        let mut actual = junction(children);
+        for _ in 0..2 {
+            actual = normalize(actual);
+            assert_eq!(actual, expected);
+            assert_eq!(
+                predicate_fingerprint(&actual),
+                predicate_fingerprint(&expected)
+            );
+            let (Predicate::And(retained) | Predicate::Or(retained)) = &actual else {
+                panic!("two distinct state predicates retain their junction");
+            };
+            assert_eq!(retained.as_ptr(), backing);
+            assert_eq!(retained.capacity(), capacity);
+        }
+    }
+}
+
+#[test]
+fn normalize_junctions_flatten_children_exposed_by_double_negation() {
+    let leaf = |field: &str| Predicate::IsNull {
+        field: field.into(),
+    };
+    for junction in [Predicate::And, Predicate::Or] {
+        let input = junction(vec![
+            leaf("c"),
+            Predicate::Not(Box::new(Predicate::Not(Box::new(junction(vec![
+                leaf("b"),
+                leaf("a"),
+            ]))))),
+            leaf("b"),
+        ]);
+        assert_eq!(
+            normalize(input),
+            junction(vec![leaf("a"), leaf("b"), leaf("c")])
+        );
+    }
+}
+
+#[test]
+fn normalize_nested_junctions_size_the_flattened_backing_once() {
+    let leaf = |index| Predicate::IsNull {
+        field: format!("field{index:03}"),
+    };
+    for conjunction in [true, false] {
+        let junction = if conjunction {
+            Predicate::And
+        } else {
+            Predicate::Or
+        };
+        let neutral = if conjunction {
+            Predicate::True
+        } else {
+            Predicate::False
+        };
+        for width in [2, 3, 8, 33] {
+            let input = junction(vec![
+                leaf(0),
+                junction((1..=width).rev().map(leaf).collect()),
+                // This nested singleton must collapse before destination sizing.
+                junction(vec![neutral.clone(), leaf(width + 1)]),
+                neutral.clone(),
+            ]);
+            let expected = junction((0..width + 2).map(leaf).collect());
+            let normalized = normalize(input);
+            assert_eq!(normalized, expected);
+            let (Predicate::And(children) | Predicate::Or(children)) = &normalized else {
+                panic!("distinct state predicates retain their junction");
+            };
+            assert_eq!(children.capacity(), width + 2);
+            assert_eq!(normalize(normalized.clone()), normalized);
+        }
+    }
+}
+
+#[test]
 fn normalize_orders_varying_length_keys_for_both_connectives() {
     let long = "x".repeat(1024);
     let children = [

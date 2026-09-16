@@ -4,6 +4,9 @@
 //! Boundary: exact source/generated composite shapes -> store-local composite catalog candidate.
 
 mod codec;
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::schema::CompositeCodec,
     db::schema::{
@@ -223,20 +226,21 @@ impl AcceptedCompositeCatalog {
     }
 
     /// Resolve an exact chain of nominal newtype wrappers to the canonical
-    /// value kind observed by row-local accepted checks.
+    /// value kind observed by row-local accepted checks, borrowing from the input
+    /// or this catalog. Callers copy only when retaining an owned contract.
     ///
     /// Records, tuples, missing definitions, and recursive wrapper-only
     /// cycles have no scalar/collection operand contract and return `None`.
     #[must_use]
-    pub(in crate::db::schema) fn resolve_newtype_value_kind(
-        &self,
-        kind: &AcceptedFieldKind,
-    ) -> Option<AcceptedFieldKind> {
+    pub(in crate::db::schema) fn resolve_newtype_value_kind<'a>(
+        &'a self,
+        kind: &'a AcceptedFieldKind,
+    ) -> Option<&'a AcceptedFieldKind> {
         let mut current = kind;
         let mut visited = BTreeSet::new();
         loop {
             let AcceptedFieldKind::Composite { type_id } = current else {
-                return Some(current.clone());
+                return Some(current);
             };
             if !visited.insert(*type_id) {
                 return None;

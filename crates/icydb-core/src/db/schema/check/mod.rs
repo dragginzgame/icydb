@@ -487,6 +487,7 @@ fn validate_value_expr(
                     .map(|catalog| {
                         catalog
                             .resolve_newtype_value_kind(field.kind())
+                            .cloned()
                             .ok_or(AcceptedCheckExprV1Error::UnsupportedFieldKind)
                     })
                     .transpose(),
@@ -561,6 +562,7 @@ fn resolved_length_source_kind(
             .map(|catalog| {
                 catalog
                     .resolve_newtype_value_kind(kind)
+                    .cloned()
                     .ok_or(AcceptedCheckExprV1Error::LengthOperationKindMismatch)
             })
             .transpose(),

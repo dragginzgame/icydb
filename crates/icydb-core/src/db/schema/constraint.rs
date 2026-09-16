@@ -284,21 +284,21 @@ pub(in crate::db::schema) fn validate_accepted_targeted_rules(
         };
         let kind_is_supported = match operation {
             AcceptedRuleOperation::LengthRangeInclusive { .. } => {
-                accepted_rule_length_kind_is_supported(&resolved_kind)
+                accepted_rule_length_kind_is_supported(resolved_kind)
             }
             AcceptedRuleOperation::MultipleOf { .. } => {
-                accepted_rule_exact_numeric_kind_is_supported(&resolved_kind)
+                accepted_rule_exact_numeric_kind_is_supported(resolved_kind)
             }
             AcceptedRuleOperation::NumericMaximumInclusive { .. }
             | AcceptedRuleOperation::NumericMinimumInclusive { .. }
             | AcceptedRuleOperation::NumericRangeInclusive { .. } => {
-                accepted_rule_numeric_kind_is_supported(&resolved_kind)
+                accepted_rule_numeric_kind_is_supported(resolved_kind)
             }
         };
         kind_is_supported
             && crate::db::schema::check::validate_accepted_rule_operation_literals(
                 operation,
-                &resolved_kind,
+                resolved_kind,
                 enum_catalog,
                 composite_catalog,
             )

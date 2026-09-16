@@ -14,7 +14,7 @@ use crate::db::schema::{
     PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
     PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
     enum_catalog::AcceptedValueContract, field_type_from_persisted_kind,
-    query_field_kind_from_persisted_kind,
+    query_field_kind_from_persisted_kind, query_field_type_from_persisted_kind,
 };
 #[cfg(feature = "sql")]
 use crate::db::schema::{SqlCapabilities, sql_capabilities_with_enum_catalog};
@@ -141,11 +141,10 @@ impl<'a> SchemaNestedFields<'a> {
         segments: impl Iterator<Item = &'path str> + Clone,
     ) -> Option<FieldType> {
         let leaf = self.leaf(segments)?;
-        let query_kind = query_field_kind_from_persisted_kind(
+        Some(query_field_type_from_persisted_kind(
             leaf.kind(),
             self.value_catalog.composite_catalog(),
-        );
-        Some(field_type_from_persisted_kind(&query_kind))
+        ))
     }
 }
 

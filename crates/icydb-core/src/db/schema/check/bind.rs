@@ -114,7 +114,7 @@ pub(in crate::db::schema) fn bind_source_check_expr(
                     .ok_or(AcceptedCheckExprV1Error::UnsupportedFieldKind)?;
                 stack.push(SourceCheckNode::Value(SourceCheckValue::Field {
                     name: field.name().to_string(),
-                    kind,
+                    kind: kind.clone(),
                 }));
             }
             SourceCheckInstruction::Literal(literal) => stack.push(SourceCheckNode::Value(
@@ -725,7 +725,7 @@ fn bind_non_literal_value(
     let (expression, binding) = match operation {
         0 => {
             let binding = if matches!(field.kind(), AcceptedFieldKind::Composite { .. }) {
-                value_binding_for_resolved_kind(resolved_kind)
+                value_binding_for_resolved_kind(resolved_kind.clone())
             } else {
                 ValueBinding {
                     kind: field.kind().clone(),

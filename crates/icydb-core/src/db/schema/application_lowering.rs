@@ -2280,13 +2280,19 @@ pub(in crate::db::schema) fn bind_targeted_rule(
     let resolved_kind = composite_catalog
         .resolve_newtype_value_kind(&target_kind)
         .ok_or_else(InternalError::store_unsupported)?;
-    let bind_literal = |literal: &ScalarLiteral, kind: AcceptedFieldKind| {
-        bind_source_rule_literal(literal, kind, bindings, enum_catalog, composite_catalog)
-            .map_err(|_| InternalError::store_unsupported())
+    let bind_literal = |literal: &ScalarLiteral, kind: &AcceptedFieldKind| {
+        bind_source_rule_literal(
+            literal,
+            kind.clone(),
+            bindings,
+            enum_catalog,
+            composite_catalog,
+        )
+        .map_err(|_| InternalError::store_unsupported())
     };
     let operation = match proposed.operation() {
         SourceRuleOperation::LengthRangeInclusive { min, max }
-            if accepted_rule_length_kind_is_supported(&resolved_kind) =>
+            if accepted_rule_length_kind_is_supported(resolved_kind) =>
         {
             AcceptedRuleOperation::LengthRangeInclusive {
                 min: *min,
@@ -2294,34 +2300,34 @@ pub(in crate::db::schema) fn bind_targeted_rule(
             }
         }
         SourceRuleOperation::NumericMinimumInclusive { value }
-            if accepted_rule_numeric_kind_is_supported(&resolved_kind)
-                && source_rule_literal_is_exact_for_accepted_kind(value, &resolved_kind) =>
+            if accepted_rule_numeric_kind_is_supported(resolved_kind)
+                && source_rule_literal_is_exact_for_accepted_kind(value, resolved_kind) =>
         {
             AcceptedRuleOperation::NumericMinimumInclusive {
                 value: bind_literal(value, resolved_kind)?,
             }
         }
         SourceRuleOperation::NumericMaximumInclusive { value }
-            if accepted_rule_numeric_kind_is_supported(&resolved_kind)
-                && source_rule_literal_is_exact_for_accepted_kind(value, &resolved_kind) =>
+            if accepted_rule_numeric_kind_is_supported(resolved_kind)
+                && source_rule_literal_is_exact_for_accepted_kind(value, resolved_kind) =>
         {
             AcceptedRuleOperation::NumericMaximumInclusive {
                 value: bind_literal(value, resolved_kind)?,
             }
         }
         SourceRuleOperation::NumericRangeInclusive { min, max }
-            if accepted_rule_numeric_kind_is_supported(&resolved_kind)
-                && source_rule_literal_is_exact_for_accepted_kind(min, &resolved_kind)
-                && source_rule_literal_is_exact_for_accepted_kind(max, &resolved_kind) =>
+            if accepted_rule_numeric_kind_is_supported(resolved_kind)
+                && source_rule_literal_is_exact_for_accepted_kind(min, resolved_kind)
+                && source_rule_literal_is_exact_for_accepted_kind(max, resolved_kind) =>
         {
             AcceptedRuleOperation::NumericRangeInclusive {
-                min: bind_literal(min, resolved_kind.clone())?,
+                min: bind_literal(min, resolved_kind)?,
                 max: bind_literal(max, resolved_kind)?,
             }
         }
         SourceRuleOperation::MultipleOf { divisor }
-            if accepted_rule_exact_numeric_kind_is_supported(&resolved_kind)
-                && source_rule_literal_is_exact_for_accepted_kind(divisor, &resolved_kind) =>
+            if accepted_rule_exact_numeric_kind_is_supported(resolved_kind)
+                && source_rule_literal_is_exact_for_accepted_kind(divisor, resolved_kind) =>
         {
             AcceptedRuleOperation::MultipleOf {
                 divisor: bind_literal(divisor, resolved_kind)?,

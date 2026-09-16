@@ -580,16 +580,9 @@ fn normalize_not(mut inner: Box<Predicate>) -> Predicate {
 /// Children are sorted deterministically.
 ///
 fn normalize_and(children: Vec<Predicate>) -> Predicate {
-    let mut out = Vec::new();
-
-    for normalized in children.into_iter().map(normalize) {
-        match normalized {
-            Predicate::True => {}
-            Predicate::False => return Predicate::False,
-            Predicate::And(grandchildren) => out.extend(grandchildren),
-            other => out.push(other),
-        }
-    }
+    let Some(out) = normalize_boolean_children(children, true) else {
+        return Predicate::False;
+    };
 
     if out.is_empty() {
         return Predicate::True;
@@ -624,16 +617,9 @@ fn normalize_and(children: Vec<Predicate>) -> Predicate {
 /// Children are sorted deterministically.
 ///
 fn normalize_or(children: Vec<Predicate>) -> Predicate {
-    let mut out = Vec::new();
-
-    for normalized in children.into_iter().map(normalize) {
-        match normalized {
-            Predicate::False => {}
-            Predicate::True => return Predicate::True,
-            Predicate::Or(grandchildren) => out.extend(grandchildren),
-            other => out.push(other),
-        }
-    }
+    let Some(mut out) = normalize_boolean_children(children, false) else {
+        return Predicate::True;
+    };
 
     if out.is_empty() {
         return Predicate::False;
@@ -652,6 +638,65 @@ fn normalize_or(children: Vec<Predicate>) -> Predicate {
     }
 
     Predicate::Or(out)
+}
+
+// Reuse the owned child backing when normalization does not expose a matching
+// nested junction. None means an absorbing child; later children must not be
+// normalized. The flag selects the two existing boolean operators, not a policy.
+fn normalize_boolean_children(
+    mut children: Vec<Predicate>,
+    conjunction: bool,
+) -> Option<Vec<Predicate>> {
+    let mut absorbed = false;
+    let mut flattened_len = 0usize;
+    children.retain_mut(|child| {
+        if absorbed {
+            return false;
+        }
+        *child = normalize(std::mem::replace(child, Predicate::True));
+        match child {
+            Predicate::True => {
+                absorbed = !conjunction;
+                false
+            }
+            Predicate::False => {
+                absorbed = conjunction;
+                false
+            }
+            Predicate::And(nested) if conjunction => {
+                flattened_len = flattened_len.saturating_add(nested.len());
+                true
+            }
+            Predicate::Or(nested) if !conjunction => {
+                flattened_len = flattened_len.saturating_add(nested.len());
+                true
+            }
+            _ => {
+                flattened_len = flattened_len.saturating_add(1);
+                true
+            }
+        }
+    });
+    if absorbed {
+        return None;
+    }
+    // A normalized junction has at least two children: empty/singleton forms
+    // have already collapsed. Equal lengths therefore mean no flattening.
+    if flattened_len == children.len() {
+        return Some(children);
+    }
+
+    // Size the destination during normalization, not in a separate prepass.
+    // Appending then moves each child once without geometric backing growth.
+    let mut out = Vec::with_capacity(flattened_len);
+    for child in children {
+        match child {
+            Predicate::And(nested) if conjunction => out.extend(nested),
+            Predicate::Or(nested) if !conjunction => out.extend(nested),
+            other => out.push(other),
+        }
+    }
+    Some(out)
 }
 
 // Collapse `field = a OR field = b ...` into `field IN [a, b, ...]` when:

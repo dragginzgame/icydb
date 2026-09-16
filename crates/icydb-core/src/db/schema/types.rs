@@ -5,6 +5,7 @@
 
 #[cfg(test)]
 mod filter_tests;
+mod query_projection;
 
 #[cfg(any(test, feature = "sql"))]
 use crate::value::InputValue;
@@ -13,10 +14,7 @@ use crate::{
         QueryError,
         codec::hex::decode_hex_bounded,
         query::preparation::PreparationWork,
-        schema::{
-            AcceptedFieldKind, AcceptedFieldKindCategory, MAX_ACCEPTED_RECURSIVE_DEPTH,
-            classify_accepted_field_kind, composite_catalog::AcceptedCompositeCatalog,
-        },
+        schema::{AcceptedFieldKind, AcceptedFieldKindCategory, classify_accepted_field_kind},
     },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
@@ -29,6 +27,10 @@ use icydb_schema::{ScalarCoercionFamily, ScalarKind};
 use std::borrow::Cow;
 use std::fmt;
 use std::str::FromStr;
+
+pub(in crate::db) use query_projection::{
+    query_field_kind_from_persisted_kind, query_field_type_from_persisted_kind,
+};
 
 const fn scalar_coercion_family(kind: ScalarKind) -> CoercionFamily {
     match kind.coercion_family() {
@@ -738,74 +740,6 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &AcceptedFieldKind) ->
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
         | AcceptedFieldKind::U256 => scalar_field_type_from_persisted_kind(kind),
-    }
-}
-
-/// Project one accepted persisted kind into its runtime query-value shape.
-///
-/// Accepted newtypes are nominal write/admission contracts, but their admitted
-/// row values use the recursively unwrapped scalar or collection shape. Query
-/// planning must inspect that value shape while records, tuples, missing
-/// definitions, and recursive wrapper cycles remain opaque and fail closed.
-#[must_use]
-pub(in crate::db) fn query_field_kind_from_persisted_kind(
-    kind: &AcceptedFieldKind,
-    composite_catalog: &AcceptedCompositeCatalog,
-) -> AcceptedFieldKind {
-    query_field_kind_at_depth(kind, composite_catalog, 0).unwrap_or_else(|| kind.clone())
-}
-
-fn query_field_kind_at_depth(
-    kind: &AcceptedFieldKind,
-    composite_catalog: &AcceptedCompositeCatalog,
-    depth: usize,
-) -> Option<AcceptedFieldKind> {
-    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
-        return None;
-    }
-    let next_depth = depth.saturating_add(1);
-
-    match kind {
-        AcceptedFieldKind::Composite { .. } => {
-            let resolved = composite_catalog.resolve_newtype_value_kind(kind)?;
-            query_field_kind_at_depth(&resolved, composite_catalog, next_depth)
-        }
-        AcceptedFieldKind::Relation {
-            target_path,
-            target_entity_name,
-            target_entity_tag,
-            target_store_path,
-            key_kind,
-        } => Some(AcceptedFieldKind::Relation {
-            target_path: target_path.clone(),
-            target_entity_name: target_entity_name.clone(),
-            target_entity_tag: *target_entity_tag,
-            target_store_path: target_store_path.clone(),
-            key_kind: Box::new(query_field_kind_at_depth(
-                key_kind,
-                composite_catalog,
-                next_depth,
-            )?),
-        }),
-        AcceptedFieldKind::List(inner) => Some(AcceptedFieldKind::List(Box::new(
-            query_field_kind_at_depth(inner, composite_catalog, next_depth)?,
-        ))),
-        AcceptedFieldKind::Set(inner) => Some(AcceptedFieldKind::Set(Box::new(
-            query_field_kind_at_depth(inner, composite_catalog, next_depth)?,
-        ))),
-        AcceptedFieldKind::Map { key, value } => Some(AcceptedFieldKind::Map {
-            key: Box::new(query_field_kind_at_depth(
-                key,
-                composite_catalog,
-                next_depth,
-            )?),
-            value: Box::new(query_field_kind_at_depth(
-                value,
-                composite_catalog,
-                next_depth,
-            )?),
-        }),
-        _ => Some(kind.clone()),
     }
 }
 

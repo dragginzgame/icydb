@@ -1361,6 +1361,41 @@ fn nullable_unique_codec_rejects_unbound_fields_in_eliminated_branches() {
     assert_eq!(decode_persisted_schema_snapshot(&encoded).unwrap(), valid);
 }
 
+#[test]
+fn nullable_unique_normalization_preserves_admission_at_the_shared_depth_boundary() {
+    use crate::db::{
+        predicate::{Predicate, normalized_accepted_index_predicate},
+        sql_shared::MAX_SQL_EXPR_DEPTH,
+    };
+
+    let sql = vec!["email IS NOT NULL"; MAX_SQL_EXPR_DEPTH].join(" AND ");
+    let snapshot = nullable_unique_codec_fixture(Some(&sql));
+    let encoded = encode_persisted_schema_snapshot(&snapshot).unwrap();
+    let decoded = decode_persisted_schema_snapshot(&encoded).unwrap();
+    assert_eq!(decoded, snapshot);
+    assert_eq!(encode_persisted_schema_snapshot(&decoded).unwrap(), encoded);
+    assert_eq!(
+        normalized_accepted_index_predicate(decoded.indexes()[0].predicate_sql()).unwrap(),
+        Some(Predicate::IsNotNull {
+            field: "email".to_string()
+        }),
+    );
+
+    // Simplification would erase the excess children, but both trust boundaries
+    // must apply the shared source limit before any normalization takes place.
+    let excessive = nullable_unique_codec_fixture(Some(&format!("{sql} AND email IS NOT NULL")));
+    assert_eq!(
+        encode_persisted_schema_snapshot(&excessive)
+            .unwrap_err()
+            .class(),
+        ErrorClass::InvariantViolation,
+    );
+    let raw = encode_unchecked_schema_fixture(&excessive);
+    let error = decode_persisted_schema_snapshot(&raw).unwrap_err();
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
 fn nullable_unique_codec_fixture(predicate_sql: Option<&str>) -> PersistedSchemaSnapshot {
     PersistedSchemaSnapshot::new_with_indexes(
         SchemaVersion::initial(),

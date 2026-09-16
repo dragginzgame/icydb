@@ -960,7 +960,7 @@ fn compile_operation(
             })
         }
         AcceptedRuleOperation::NumericMinimumInclusive { value } => {
-            if value.kind() != &resolved_kind {
+            if value.kind() != resolved_kind {
                 return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget);
             }
             Ok(CompiledAcceptedRuleOperation::NumericMinimum {
@@ -969,7 +969,7 @@ fn compile_operation(
             })
         }
         AcceptedRuleOperation::NumericMaximumInclusive { value } => {
-            if value.kind() != &resolved_kind {
+            if value.kind() != resolved_kind {
                 return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget);
             }
             Ok(CompiledAcceptedRuleOperation::NumericMaximum {
@@ -978,7 +978,7 @@ fn compile_operation(
             })
         }
         AcceptedRuleOperation::NumericRangeInclusive { min, max } => {
-            if min.kind() != &resolved_kind || max.kind() != &resolved_kind {
+            if min.kind() != resolved_kind || max.kind() != resolved_kind {
                 return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget);
             }
             let min = decode_literal(min, value_catalog)
@@ -994,7 +994,7 @@ fn compile_operation(
             Ok(CompiledAcceptedRuleOperation::NumericRange { min, max })
         }
         AcceptedRuleOperation::MultipleOf { divisor } => {
-            if divisor.kind() != &resolved_kind {
+            if divisor.kind() != resolved_kind {
                 return Err(AcceptedTargetedRuleEvaluationError::InvalidTarget);
             }
             let divisor = decode_literal(divisor, value_catalog)

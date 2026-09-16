@@ -1,6 +1,7 @@
 //! Recovery qualification for shared prepared-row index transitions.
 
 mod candidate_authority_tests;
+mod normalization_tests;
 mod preparation_context_tests;
 mod reader_state_tests;
 
