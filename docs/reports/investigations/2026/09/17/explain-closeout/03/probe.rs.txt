@@ -1,0 +1,31 @@
+//! Temporary instruction-stage probe; removed after recording its receipt.
+
+use icydb_testing_integration::install_prebuilt_fixture_canister;
+
+#[test]
+fn binding_stages_preserve_explain_reports() {
+    let directory = std::env::var("ICYDB_BINDING_PROBE_DIR").unwrap();
+    let load = |name| std::fs::read(format!("{directory}/{name}.wasm")).unwrap();
+    let baseline = install_prebuilt_fixture_canister("one_entity_typed_query", load("before"));
+    let probe = install_prebuilt_fixture_canister("one_entity_typed_query", load("probe"));
+    type Samples = Result<Vec<(u64, u64, String, u64)>, u16>;
+    for kind in 0..3_u8 {
+        let before: Samples = baseline
+            .query_candid("measure_typed_explain", (kind,))
+            .unwrap();
+        let after: Samples = probe
+            .query_candid("measure_typed_explain", (kind,))
+            .unwrap();
+        let before = before.unwrap();
+        let after = after.unwrap();
+        assert_eq!(before.len(), 3);
+        assert_eq!(after.len(), 3);
+        for (call, (before, after)) in before.iter().zip(&after).enumerate() {
+            assert_eq!(before.2, after.2);
+            println!(
+                "kind={kind} call={call} baseline_plan={} probe_plan={} baseline_binding={} probe_binding={}",
+                before.0, after.0, before.3, after.3
+            );
+        }
+    }
+}

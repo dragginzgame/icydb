@@ -3,12 +3,126 @@
 mod projection;
 
 use super::{
-    AcceptedSchemaBundleKey, AcceptedSchemaPublicationError, AcceptedSchemaRevision,
-    CandidateSchemaRevision, empty_accepted_schema_candidate_for_tests,
-    encode_accepted_schema_root, hash_bytes, prepare_accepted_schema_root_publication,
+    ACCEPTED_SCHEMA_ROOT_CHECKSUM_OFFSET, AcceptedSchemaBundleKey, AcceptedSchemaPublicationError,
+    AcceptedSchemaRevision, CandidateSchemaRevision, decode_accepted_schema_root,
+    empty_accepted_schema_candidate_for_tests, encode_accepted_schema_root, hash_bytes,
+    prepare_accepted_schema_root_publication, select_current_accepted_schema_root,
 };
-use crate::{db::executor::budget::MaintenanceConstructionBudget, error::ErrorClass};
+use crate::{
+    db::{database_format::crc32c, executor::budget::MaintenanceConstructionBudget},
+    error::{ErrorClass, InternalError},
+};
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
+
+#[test]
+fn root_selection_preserves_corrupt_slot_and_field_rejection() {
+    let candidate = empty_accepted_schema_candidate_for_tests(
+        "test::RootSelection",
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let valid = candidate.encoded_root();
+    assert_eq!(
+        decode_accepted_schema_root(valid).unwrap(),
+        candidate.root()
+    );
+    assert!(
+        select_current_accepted_schema_root([None, None])
+            .unwrap()
+            .is_none()
+    );
+    let mut malformed = vec![Vec::new(), valid[..valid.len() - 1].to_vec()];
+    // Corrupt each byte, including magic, version, fields and checksum.
+    for offset in 0..valid.len() {
+        let mut bytes = valid.to_vec();
+        bytes[offset] ^= 1;
+        malformed.push(bytes);
+    }
+    // A valid checksum must not bypass revision/bundle-key consistency.
+    for offset in [10, 50] {
+        let mut bytes = valid.to_vec();
+        bytes[offset..offset + size_of::<u64>()].fill(0);
+        let checksum = crc32c(&bytes[..ACCEPTED_SCHEMA_ROOT_CHECKSUM_OFFSET]);
+        bytes[ACCEPTED_SCHEMA_ROOT_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_be_bytes());
+        malformed.push(bytes);
+    }
+    for bytes in malformed {
+        assert!(decode_accepted_schema_root(&bytes).is_err());
+        for slots in [
+            [Some(valid), Some(bytes.as_slice())],
+            [Some(bytes.as_slice()), Some(valid)],
+        ] {
+            assert_eq!(
+                select_current_accepted_schema_root(slots)
+                    .unwrap()
+                    .unwrap()
+                    .root(),
+                candidate.root(),
+            );
+        }
+        for slots in [
+            [Some(bytes.as_slice()), None],
+            [Some(bytes.as_slice()), Some(bytes.as_slice())],
+        ] {
+            assert_eq!(
+                select_current_accepted_schema_root(slots)
+                    .unwrap_err()
+                    .diagnostic_code(),
+                InternalError::store_corruption().diagnostic_code(),
+            );
+        }
+    }
+}
+
+#[test]
+fn root_selection_checks_checksum_before_reporting_unsupported_format() {
+    let candidate = empty_accepted_schema_candidate_for_tests(
+        "test::RootFormat",
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let valid = candidate.encoded_root();
+    let mut unsupported = valid.to_vec();
+    unsupported[8..10].copy_from_slice(&0_u16.to_be_bytes());
+    let incompatible = InternalError::serialize_incompatible_persisted_format().diagnostic_code();
+    // Strict decoding rejects the version first; slot selection treats an
+    // unverified version as torn bytes and can still use the other valid slot.
+    assert_eq!(
+        decode_accepted_schema_root(&unsupported)
+            .unwrap_err()
+            .diagnostic_code(),
+        incompatible
+    );
+    for slots in [
+        [Some(valid), Some(unsupported.as_slice())],
+        [Some(unsupported.as_slice()), Some(valid)],
+    ] {
+        assert_eq!(
+            select_current_accepted_schema_root(slots)
+                .unwrap()
+                .unwrap()
+                .root(),
+            candidate.root()
+        );
+    }
+    let checksum = crc32c(&unsupported[..ACCEPTED_SCHEMA_ROOT_CHECKSUM_OFFSET]);
+    unsupported[ACCEPTED_SCHEMA_ROOT_CHECKSUM_OFFSET..].copy_from_slice(&checksum.to_be_bytes());
+    assert_eq!(
+        decode_accepted_schema_root(&unsupported)
+            .unwrap_err()
+            .diagnostic_code(),
+        incompatible
+    );
+    for slots in [
+        [Some(valid), Some(unsupported.as_slice())],
+        [Some(unsupported.as_slice()), Some(valid)],
+    ] {
+        assert_eq!(
+            select_current_accepted_schema_root(slots)
+                .unwrap_err()
+                .diagnostic_code(),
+            incompatible
+        );
+    }
+}
 
 #[test]
 fn candidate_preparation_shares_admission_across_verification_and_identity() {

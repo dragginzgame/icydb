@@ -1,0 +1,71 @@
+//! Temporary whole-call qualification; actor code is unchanged.
+
+use super::{Samples, TypedSamples};
+use icydb_testing_integration::install_prebuilt_fixture_canister;
+
+#[test]
+fn whole_call_diagnostics() {
+    let directory = std::env::var("ICYDB_EXPLAIN_WASM_DIR").unwrap();
+    let mut expected_reports = Vec::new();
+    for artifact in ["typed", "sql-explain", "mixed"] {
+        let wasm = std::fs::read(format!("{directory}/{artifact}.wasm")).unwrap();
+        for kind in 0..3_u8 {
+            let fixture = install_prebuilt_fixture_canister("one_entity_typed_query", wasm.clone());
+            for _ in 0..64 {
+                fixture.pocket_ic().tick();
+            }
+            let mut expected = None;
+            for epoch in 0..4_u8 {
+                for node in 0..13_u8 {
+                    let caller = candid::Principal::from_slice(&[epoch + 1, node + 1]);
+                    let reports: Vec<String> = if artifact == "sql-explain" {
+                        let samples: Samples = fixture
+                            .query_candid_as(caller, "measure_sql_explain", (kind,))
+                            .unwrap();
+                        samples
+                            .unwrap()
+                            .into_iter()
+                            .map(|sample| sample.2)
+                            .collect()
+                    } else {
+                        let samples: TypedSamples = fixture
+                            .query_candid_as(caller, "measure_typed_explain", (kind,))
+                            .unwrap();
+                        samples
+                            .unwrap()
+                            .into_iter()
+                            .map(|sample| sample.2)
+                            .collect()
+                    };
+                    assert_eq!(reports.len(), 3);
+                    assert!(reports.windows(2).all(|pair| pair[0] == pair[1]));
+                    if let Some(expected) = &expected {
+                        assert_eq!(&reports, expected);
+                    }
+                    expected = Some(reports);
+                }
+                for _ in 0..60 {
+                    fixture.pocket_ic().tick();
+                }
+            }
+            let status = fixture
+                .pocket_ic()
+                .canister_status(fixture.canister_id(), None)
+                .unwrap();
+            assert_eq!(
+                status.query_stats.num_calls_total,
+                candid::Nat::from(39_u64)
+            );
+            println!(
+                "whole_call,{artifact},{kind},calls={},instructions={}",
+                status.query_stats.num_calls_total, status.query_stats.num_instructions_total
+            );
+            let reports = expected.unwrap();
+            if artifact == "typed" {
+                expected_reports.push(reports);
+            } else {
+                assert_eq!(reports, expected_reports[usize::from(kind)]);
+            }
+        }
+    }
+}

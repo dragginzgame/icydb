@@ -1,0 +1,18 @@
+kind=0 call=0 before_plan=2283159 after_plan=2190754 before_binding=1827417 after_binding=1753493 before_render=230404 after_render=230404
+kind=0 call=1 before_plan=541771 after_plan=504809 before_binding=238410 after_binding=219929 before_render=230514 after_render=230514
+kind=0 call=2 before_plan=541771 after_plan=504809 before_binding=238410 after_binding=219929 before_render=230514 after_render=230514
+kind=1 call=0 before_plan=2273155 after_plan=2180750 before_binding=1827417 after_binding=1753493 before_render=270117 after_render=270117
+kind=1 call=1 before_plan=499186 after_plan=462224 before_binding=237670 after_binding=219189 before_render=270223 after_render=270223
+kind=1 call=2 before_plan=500861 after_plan=463899 before_binding=238277 after_binding=219796 before_render=270195 after_render=270195
+kind=2 call=0 before_plan=2248342 after_plan=2155937 before_binding=1827417 after_binding=1753493 before_render=321314 after_render=321314
+kind=2 call=1 before_plan=511315 after_plan=474353 before_binding=238063 after_binding=219582 before_render=321437 after_render=321437
+kind=2 call=2 before_plan=510610 after_plan=473648 before_binding=238082 after_binding=219601 before_render=321247 after_render=321247
+kind=0 call=0 typed_plan=2190754 typed_render=230404 sql_total=2177804 mixed_plan=2207901 mixed_render=230548 report_bytes=668 typed_binding=1753493
+kind=0 call=1 typed_plan=504809 typed_render=230514 sql_total=429543 mixed_plan=507708 mixed_render=230658 report_bytes=668 typed_binding=219929
+kind=0 call=2 typed_plan=504809 typed_render=230514 sql_total=429543 mixed_plan=507708 mixed_render=230658 report_bytes=668 typed_binding=219929
+kind=1 call=0 typed_plan=2180750 typed_render=270117 sql_total=2188724 mixed_plan=2198383 mixed_render=270261 report_bytes=765 typed_binding=1753493
+kind=1 call=1 typed_plan=462224 typed_render=270223 sql_total=425481 mixed_plan=464908 mixed_render=270367 report_bytes=765 typed_binding=219189
+kind=1 call=2 typed_plan=463899 typed_render=270195 sql_total=425571 mixed_plan=466583 mixed_render=270339 report_bytes=765 typed_binding=219796
+kind=2 call=0 typed_plan=2155937 typed_render=321314 sql_total=2253047 mixed_plan=2173445 mixed_render=321456 report_bytes=952 typed_binding=1753493
+kind=2 call=1 typed_plan=474353 typed_render=321437 sql_total=493089 mixed_plan=476866 mixed_render=321579 report_bytes=952 typed_binding=219582
+kind=2 call=2 typed_plan=473648 typed_render=321247 sql_total=494751 mixed_plan=476161 mixed_render=321389 report_bytes=952 typed_binding=219601

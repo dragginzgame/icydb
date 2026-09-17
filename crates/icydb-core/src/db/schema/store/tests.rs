@@ -319,6 +319,20 @@ fn schema_store_requires_exact_job_closure_for_validating_activation() {
         .expect("accepted bundle should exist");
     assert_eq!(*borrowed, *initial.bundle());
     drop(borrowed);
+    let authority = store
+        .accepted_bundle_cache
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .value_catalog
+        .authority()
+        .clone();
+    assert!(
+        store
+            .borrow_accepted_schema_bundle_for_authority(&authority)
+            .unwrap()
+            .is_some()
+    );
     let misses = accepted_schema_bundle_cache_miss_count_for_tests();
     store
         .apply_constraint_validation_job(&job)
@@ -329,6 +343,13 @@ fn schema_store_requires_exact_job_closure_for_validating_activation() {
     let owned_error = store
         .current_accepted_schema_bundle()
         .expect_err("owned authority must enforce the same job closure");
+    let selected_error = store
+        .borrow_accepted_schema_bundle_for_authority(&authority)
+        .expect_err("selected authority must still check mutable job records");
+    assert_eq!(
+        selected_error.diagnostic_code(),
+        owned_error.diagnostic_code()
+    );
     assert_eq!(borrowed_error.class(), ErrorClass::Corruption);
     assert_eq!(
         borrowed_error.diagnostic_code(),
@@ -1301,6 +1322,10 @@ fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one publication fixture proves live identity checks through both bundle borrowers"
+)]
 fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corruption() {
     let entity_tag = EntityTag::new(101);
     let field_id = FieldId::new(1);
@@ -1369,6 +1394,14 @@ fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corrupt
         assert_eq!(error.origin(), ErrorOrigin::Identity);
     }
 
+    let authority = store
+        .accepted_bundle_cache
+        .borrow()
+        .as_ref()
+        .unwrap()
+        .value_catalog
+        .authority()
+        .clone();
     let SchemaStoreBackend::Heap(map) = &mut store.backend else {
         panic!("identity missing-state fixture requires a heap store");
     };
@@ -1386,6 +1419,12 @@ fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corrupt
     let error = store
         .current_accepted_schema_bundle()
         .expect_err("accepted identity without explicit state must be corruption");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Identity);
+
+    let error = store
+        .borrow_accepted_schema_bundle_for_authority(&authority)
+        .expect_err("selected authority must still reject missing identity state");
     assert_eq!(error.class(), ErrorClass::Corruption);
     assert_eq!(error.origin(), ErrorOrigin::Identity);
 
@@ -1926,6 +1965,99 @@ fn accepted_catalog_selection_shares_verified_snapshot() {
     assert_eq!(
         live.snapshot().persisted_snapshot().version(),
         SchemaVersion::new(2)
+    );
+}
+
+#[test]
+fn selected_bundle_borrow_rejects_foreign_and_replaced_authority() {
+    let (entity, candidate, mut store) = catalog_selection_fixture();
+    let selection = store
+        .current_accepted_catalog_selection(
+            entity,
+            "entities::CachedEntity",
+            "test::CachedCatalogSelectionStore",
+        )
+        .unwrap()
+        .unwrap();
+    let authority = selection.value_catalog_handle().authority();
+    let borrowed = store
+        .borrow_accepted_schema_bundle_for_authority(authority)
+        .unwrap()
+        .unwrap();
+    assert_eq!(&*borrowed, candidate.bundle());
+    drop(borrowed);
+
+    // Journal maintenance may drop the decoded bundle without changing its root.
+    store.accepted_bundle_cache.get_mut().take();
+    assert_eq!(
+        &*store
+            .borrow_accepted_schema_bundle_for_authority(authority)
+            .unwrap()
+            .unwrap(),
+        candidate.bundle(),
+    );
+
+    // Equal persisted revisions/fingerprints are not equal store provenance.
+    let mut foreign = SchemaStore::init_heap();
+    foreign
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
+        .unwrap();
+    let foreign_selection = foreign
+        .current_accepted_catalog_selection(
+            entity,
+            "entities::CachedEntity",
+            "test::CachedCatalogSelectionStore",
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        authority.revision(),
+        foreign_selection
+            .value_catalog_handle()
+            .authority()
+            .revision()
+    );
+    assert_eq!(
+        authority.fingerprint(),
+        foreign_selection
+            .value_catalog_handle()
+            .authority()
+            .fingerprint()
+    );
+    assert!(
+        foreign
+            .borrow_accepted_schema_bundle_for_authority(authority)
+            .unwrap()
+            .is_none()
+    );
+
+    let replacement = empty_accepted_schema_candidate_for_tests(
+        "test::CachedCatalogSelectionStore",
+        AcceptedSchemaRevision::new(2),
+    );
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &replacement,
+        )
+        .unwrap();
+    assert!(
+        store
+            .borrow_accepted_schema_bundle_for_authority(authority)
+            .unwrap()
+            .is_none()
+    );
+    store.current_accepted_schema_bundle().unwrap().unwrap();
+    assert!(
+        store
+            .borrow_accepted_schema_bundle_for_authority(authority)
+            .unwrap()
+            .is_none()
     );
 }
 

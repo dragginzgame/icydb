@@ -1,0 +1,27 @@
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_probe catalog=1662918 store=5978 bundle=87362 fields=22815 names=11601 incarnation=86365 construct=9501
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_check_probe recovery=3357 incarnation=86667 catalog=72242 matching=103938
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_probe catalog=73910 store=5978 bundle=87230 fields=22795 names=11705 incarnation=86338 construct=9511
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_check_probe recovery=3357 incarnation=86683 catalog=71925 matching=103225
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_probe catalog=73910 store=5978 bundle=87230 fields=22795 names=11705 incarnation=86338 construct=9511
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_check_probe recovery=3357 incarnation=86683 catalog=71925 matching=103225
+kind=0 call=0 baseline_plan=2402995 probe_plan=2424782 baseline_binding=1887485 probe_binding=1900558
+kind=0 call=1 baseline_plan=660963 probe_plan=682586 baseline_binding=298412 probe_binding=311421
+kind=0 call=2 baseline_plan=660963 probe_plan=682586 baseline_binding=298412 probe_binding=311421
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_probe catalog=1662918 store=5978 bundle=87362 fields=22815 names=11601 incarnation=86365 construct=9501
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_check_probe recovery=3357 incarnation=86667 catalog=72242 matching=103938
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_probe catalog=73752 store=5978 bundle=86914 fields=22577 names=11537 incarnation=86450 construct=9361
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_check_probe recovery=3357 incarnation=86626 catalog=72052 matching=103321
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_probe catalog=73752 store=5978 bundle=86914 fields=22614 names=11966 incarnation=86533 construct=9419
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_check_probe recovery=3357 incarnation=86908 catalog=72411 matching=104780
+kind=1 call=0 baseline_plan=2392991 probe_plan=2414778 baseline_binding=1887485 probe_binding=1900558
+kind=1 call=1 baseline_plan=618160 probe_plan=639783 baseline_binding=297514 probe_binding=310432
+kind=1 call=2 baseline_plan=620685 probe_plan=642308 baseline_binding=298121 probe_binding=311039
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_probe catalog=1662918 store=5978 bundle=87362 fields=22815 names=11601 incarnation=86365 construct=9501
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_check_probe recovery=3357 incarnation=86667 catalog=72242 matching=103938
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_probe catalog=73735 store=5978 bundle=86861 fields=22830 names=11701 incarnation=86329 construct=9501
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_check_probe recovery=3357 incarnation=86604 catalog=72215 matching=103263
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_probe catalog=73689 store=5978 bundle=86769 fields=22837 names=11807 incarnation=86409 construct=9419
+2021-05-06 19:17:10.000000039 UTC: [Canister xp3jw-ot777-77777-aaaaa-cai] binding_check_probe recovery=3357 incarnation=86617 catalog=71701 matching=103225
+kind=2 call=0 baseline_plan=2368178 probe_plan=2389965 baseline_binding=1887485 probe_binding=1900558
+kind=2 call=1 baseline_plan=630331 probe_plan=651954 baseline_binding=297880 probe_binding=310889
+kind=2 call=2 baseline_plan=629571 probe_plan=651194 baseline_binding=297853 probe_binding=310771

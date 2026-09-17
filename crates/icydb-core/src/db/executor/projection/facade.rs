@@ -522,11 +522,7 @@ where
             None => (None, false),
         };
         let rows = project(row_layout, prepared_projection, page)?;
-        (
-            rows,
-            last_emitted_logical,
-            has_more || scan_page_work_exhausted,
-        )
+        (rows, last_emitted_logical, has_more)
     };
 
     if output_work.is_none() {
@@ -549,7 +545,10 @@ where
     let output_page_work_exhausted = output_work
         .as_ref()
         .is_some_and(ProductionScalarOutputWork::envelope_stopped);
-    let last_consumed_physical = if output_page_work_exhausted {
+    // A materialized scan may run ahead of the output window. Its frontier is
+    // safe to publish only after all retained rows have been emitted; otherwise
+    // resume from the last emitted row so withheld rows cannot be skipped.
+    let last_consumed_physical = if has_more || output_page_work_exhausted {
         None
     } else {
         scanned_physical_anchor

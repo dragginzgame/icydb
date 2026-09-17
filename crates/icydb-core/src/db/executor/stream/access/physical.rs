@@ -2028,6 +2028,19 @@ fn resolve_physical_key_stream(
         key_order_state,
     );
 
+    // Apply authenticated primary-key progress before bounded page traversal.
+    // Otherwise materialized leaves repeatedly spend the page on earlier keys,
+    // and an empty page can lose logical progress without advancing physically.
+    if let Some(boundary) = request.continuation.primary_key_boundary() {
+        let boundary = primary_key_boundary_data_key(runtime.entity_tag, boundary)?;
+        let comparator = KeyOrderComparator::from_direction(request.continuation.direction());
+        charge_current_execution_budget(
+            DiagnosticExecutionBudgetResource::CursorSteps,
+            u64::try_from(candidates.len()).unwrap_or(u64::MAX),
+        )?;
+        candidates.retain(|key| comparator.compare_data_keys(key, &boundary).is_gt());
+    }
+
     Ok(ordered_key_stream_from_materialized_keys(candidates))
 }
 
@@ -2198,6 +2211,50 @@ mod physical_seek_tests {
         );
         assert_eq!(work.physical_seeks(), 0);
         assert_eq!(work.skipped_occurrences(), 7);
+    }
+
+    #[test]
+    fn materialized_primary_keys_resume_strictly_in_both_directions() {
+        let runtime = KeyAccessRuntime::new(STORE, ENTITY);
+        let keys = [3, 1, 2, 3].map(Value::Nat64);
+        for direction in [Direction::Asc, Direction::Desc] {
+            for boundary_value in [0, 2, 4] {
+                let boundary = CursorBoundary {
+                    slots: vec![CursorBoundarySlot::Present(Value::Nat64(boundary_value))],
+                };
+                let mut stream = resolve_physical_key_stream(
+                    &ExecutionPathPayload::ByKeys(&keys),
+                    PhysicalStreamBindings {
+                        index_prefix_specs: &[],
+                        index_range_spec: None,
+                        continuation: AccessScanContinuationInput::with_primary_key_boundary(
+                            None,
+                            direction,
+                            Some(&boundary),
+                        ),
+                        execution_policy: AccessStreamExecutionPolicy::canonical_key_order(None),
+                        index_predicate_execution: None,
+                        index_prefix_child_expansion: None,
+                    },
+                    &runtime,
+                )
+                .unwrap();
+                let mut expected = (1..=3)
+                    .filter(|key| match direction {
+                        Direction::Asc => *key > boundary_value,
+                        Direction::Desc => *key < boundary_value,
+                    })
+                    .map(data_key)
+                    .collect::<Vec<_>>();
+                if direction == Direction::Desc {
+                    expected.reverse();
+                }
+                for key in expected {
+                    assert_eq!(stream.next_key().unwrap(), Some(key));
+                }
+                assert_eq!(stream.next_key().unwrap(), None);
+            }
+        }
     }
 
     #[test]

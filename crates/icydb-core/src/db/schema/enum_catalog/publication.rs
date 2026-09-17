@@ -1035,7 +1035,13 @@ fn decode_accepted_schema_root(bytes: &[u8]) -> Result<AcceptedSchemaRoot, Inter
         return Err(InternalError::store_corruption());
     }
 
-    let revision_offset = version_offset + size_of::<u16>();
+    decode_accepted_schema_root_fields(bytes)
+}
+
+// Both callers verify the envelope first, in their required rejection order.
+// Share field decoding without repeating the checksum of an admitted slot.
+fn decode_accepted_schema_root_fields(bytes: &[u8]) -> Result<AcceptedSchemaRoot, InternalError> {
+    let revision_offset = ACCEPTED_SCHEMA_ROOT_MAGIC.len() + size_of::<u16>();
     let revision = AcceptedSchemaRevision::new(read_u64_at(bytes, revision_offset)?);
     let fingerprint_offset = revision_offset + size_of::<u64>();
     let fingerprint = AcceptedSchemaFingerprint::new(read_array_at(bytes, fingerprint_offset)?);
@@ -1077,7 +1083,7 @@ fn classify_root_slot(bytes: Option<&[u8]>) -> Result<RootSlotState, InternalErr
     if version != ACCEPTED_SCHEMA_ROOT_CODEC_VERSION {
         return Err(InternalError::serialize_incompatible_persisted_format());
     }
-    match decode_accepted_schema_root(bytes) {
+    match decode_accepted_schema_root_fields(bytes) {
         Ok(root) => Ok(RootSlotState::Valid(root)),
         Err(_) => Ok(RootSlotState::Invalid),
     }

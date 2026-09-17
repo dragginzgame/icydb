@@ -1,0 +1,20 @@
+kind=0 call=0 before_plan=2402995 after_plan=2283159 before_binding=1887485 after_binding=1827417 before_render=230404 after_render=230404
+kind=0 call=1 before_plan=660963 after_plan=541771 before_binding=298412 after_binding=238410 before_render=230514 after_render=230514
+kind=0 call=2 before_plan=660963 after_plan=541771 before_binding=298412 after_binding=238410 before_render=230514 after_render=230514
+kind=1 call=0 before_plan=2392991 after_plan=2273155 before_binding=1887485 after_binding=1827417 before_render=270117 after_render=270117
+kind=1 call=1 before_plan=618160 after_plan=499186 before_binding=297514 after_binding=237670 before_render=270223 after_render=270223
+kind=1 call=2 before_plan=620685 after_plan=500861 before_binding=298121 after_binding=238277 before_render=270195 after_render=270195
+kind=2 call=0 before_plan=2368178 after_plan=2248342 before_binding=1887485 after_binding=1827417 before_render=321314 after_render=321314
+kind=2 call=1 before_plan=630331 after_plan=511315 before_binding=297880 after_binding=238063 before_render=321437 after_render=321437
+kind=2 call=2 before_plan=629571 after_plan=510610 before_binding=297853 after_binding=238082 before_render=321247 after_render=321247
+
+# Final matched SQL-relative gate (four warm equality/sort misses)
+kind=0 call=0 typed_plan=2283159 typed_render=230404 sql_total=2251728 mixed_plan=2300306 mixed_render=230548 report_bytes=668 typed_binding=1827417
+kind=0 call=1 typed_plan=541771 typed_render=230514 sql_total=448024 mixed_plan=544670 mixed_render=230658 report_bytes=668 typed_binding=238410
+kind=0 call=2 typed_plan=541771 typed_render=230514 sql_total=448024 mixed_plan=544670 mixed_render=230658 report_bytes=668 typed_binding=238410
+kind=1 call=0 typed_plan=2273155 typed_render=270117 sql_total=2262648 mixed_plan=2290788 mixed_render=270261 report_bytes=765 typed_binding=1827417
+kind=1 call=1 typed_plan=499186 typed_render=270223 sql_total=443962 mixed_plan=501870 mixed_render=270367 report_bytes=765 typed_binding=237670
+kind=1 call=2 typed_plan=500861 typed_render=270195 sql_total=444052 mixed_plan=503545 mixed_render=270339 report_bytes=765 typed_binding=238277
+kind=2 call=0 typed_plan=2248342 typed_render=321314 sql_total=2326971 mixed_plan=2265850 mixed_render=321456 report_bytes=952 typed_binding=1827417
+kind=2 call=1 typed_plan=511315 typed_render=321437 sql_total=511570 mixed_plan=513828 mixed_render=321579 report_bytes=952 typed_binding=238063
+kind=2 call=2 typed_plan=510610 typed_render=321247 sql_total=513232 mixed_plan=513123 mixed_render=321389 report_bytes=952 typed_binding=238082

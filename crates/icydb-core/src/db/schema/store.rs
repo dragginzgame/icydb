@@ -2238,6 +2238,27 @@ impl SchemaStore {
         Ok(Some(bundle))
     }
 
+    /// Borrow the verified bundle selected by a current catalog operation.
+    /// Root publication invalidates this store-owned cache before replacement;
+    /// exact authority equality also binds store scope, revision and fingerprint.
+    /// Mutable identity and validation-job records still require live checks.
+    pub(in crate::db) fn borrow_accepted_schema_bundle_for_authority(
+        &self,
+        expected: &AcceptedSchemaAuthority,
+    ) -> Result<Option<Ref<'_, AcceptedSchemaRevisionBundle>>, InternalError> {
+        let Some(selection) = self.current_accepted_selection_for_authority(expected)? else {
+            return Ok(None);
+        };
+        let Some((_, bundle)) =
+            self.accepted_schema_authority_ref_for_selection(Some(selection))?
+        else {
+            return Ok(None);
+        };
+        self.validate_constraint_validation_job_closure(&bundle)?;
+
+        Ok(Some(bundle))
+    }
+
     /// Project current accepted entity identity onto one registry-owned store path.
     pub(in crate::db) fn current_accepted_runtime_entities(
         &self,
@@ -2729,32 +2750,36 @@ impl SchemaStore {
         &self,
         expected: &AcceptedSchemaAuthority,
     ) -> Result<bool, InternalError> {
+        self.current_accepted_selection_for_authority(expected)
+            .map(|selection| selection.is_some())
+    }
+
+    // One store-scoped authority check for execution and borrowed metadata.
+    // A dropped cache is not lost authority: reload its durable selection.
+    fn current_accepted_selection_for_authority(
+        &self,
+        expected: &AcceptedSchemaAuthority,
+    ) -> Result<Option<AcceptedSchemaRootSelection>, InternalError> {
         let Some(store_scope) = self.accepted_catalog_scope.get() else {
-            return Ok(false);
+            return Ok(None);
         };
 
         // Root-writing primitives invalidate this cache before publication,
         // so a retained selection is the current in-memory authority.
-        if let Some(cached) = self
+        let cached = self
             .accepted_bundle_cache
             .try_borrow()
             .map_err(|_| InternalError::store_invariant())?
             .as_ref()
-        {
-            let root = cached.selection.root();
-            return Ok(expected.matches_store_root(
-                store_scope,
-                root.revision(),
-                root.fingerprint(),
-            ));
-        }
-
-        let Some(selection) = self.current_accepted_schema_root()? else {
-            return Ok(false);
+            .map(|cached| cached.selection);
+        let selection = match cached {
+            Some(selection) => Some(selection),
+            None => self.current_accepted_schema_root()?,
         };
-        let root = selection.root();
-
-        Ok(expected.matches_store_root(store_scope, root.revision(), root.fingerprint()))
+        Ok(selection.filter(|selection| {
+            let root = selection.root();
+            expected.matches_store_root(store_scope, root.revision(), root.fingerprint())
+        }))
     }
 
     /// Publish a candidate directly into its canonical schema allocation.

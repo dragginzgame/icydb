@@ -745,7 +745,9 @@ impl<C: CanisterKind> DbSession<C> {
         // release the borrow before the returned binding can execute or mutate.
         store.with_schema(|schema| {
             let bundle = schema
-                .borrow_current_accepted_schema_bundle()?
+                .borrow_accepted_schema_bundle_for_authority(
+                    catalog.value_catalog_handle().authority(),
+                )?
                 .ok_or_else(InternalError::store_invariant)?;
             let entity_tag = identity.entity_tag();
             if bundle.source_bindings().entity(&entity_source) != Some(entity_tag)
@@ -876,7 +878,9 @@ impl<C: CanisterKind> DbSession<C> {
         // release the borrow before the caller can prepare or commit writes.
         store.with_schema(|schema| {
             let bundle = schema
-                .borrow_current_accepted_schema_bundle()?
+                .borrow_accepted_schema_bundle_for_authority(
+                    catalog.value_catalog_handle().authority(),
+                )?
                 .ok_or_else(InternalError::store_invariant)?;
             if bundle.revision() != catalog.revision()
                 || bundle.source_bindings().entity(&entity_source) != Some(identity.entity_tag())

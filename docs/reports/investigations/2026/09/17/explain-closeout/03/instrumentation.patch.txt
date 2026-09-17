@@ -1,0 +1,109 @@
+diff --git a/crates/icydb-core/src/db/session/write.rs b/crates/icydb-core/src/db/session/write.rs
+index 3ee2a0f17..160fb2efd 100644
+--- a/crates/icydb-core/src/db/session/write.rs
++++ b/crates/icydb-core/src/db/session/write.rs
+@@ -730,16 +730,19 @@ impl<C: CanisterKind> DbSession<C> {
+         &self,
+         descriptor: &TypedEntityDescriptor,
+     ) -> Result<DynamicTypedEntityBinding, DynamicTypedBindingError> {
++        let probe_start = crate::runtime::local_instruction_counter();
+         let entity_source = EntitySourceKey::try_new(descriptor.entity_source_key)
+             .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?;
+         let catalog = self
+             .find_accepted_schema_catalog_context_for_entity_source_key(entity_source.as_str())?
+             .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
++        let probe_catalog = crate::runtime::local_instruction_counter();
+         let identity = catalog.identity();
+         if identity.entity_path() != entity_source.as_str() {
+             return Err(InternalError::store_invariant().into());
+         }
+         let store = self.db.recovered_store(identity.store_path())?;
++        let probe_store = crate::runtime::local_instruction_counter();
+         // Binding issuance only projects owned adapter data. Borrow the verified
+         // authority in place instead of cloning every entity's schema bundle;
+         // release the borrow before the returned binding can execute or mutate.
+@@ -747,6 +750,7 @@ impl<C: CanisterKind> DbSession<C> {
+             let bundle = schema
+                 .borrow_current_accepted_schema_bundle()?
+                 .ok_or_else(InternalError::store_invariant)?;
++            let probe_bundle = crate::runtime::local_instruction_counter();
+             let entity_tag = identity.entity_tag();
+             if bundle.source_bindings().entity(&entity_source) != Some(entity_tag)
+                 || bundle.revision() != catalog.revision()
+@@ -809,10 +813,14 @@ impl<C: CanisterKind> DbSession<C> {
+                     field.name().to_string(),
+                 ));
+             }
++            let probe_fields = crate::runtime::local_instruction_counter();
+             let adapter_names = bundle.typed_adapter_names()?;
++            let probe_names = crate::runtime::local_instruction_counter();
++            let incarnation = database_incarnation_id()?.to_bytes();
++            let probe_incarnation = crate::runtime::local_instruction_counter();
+ 
+-            DynamicTypedEntityBinding::new(
+-                database_incarnation_id()?.to_bytes(),
++            let result = DynamicTypedEntityBinding::new(
++                incarnation,
+                 entity_source.as_str().to_string(),
+                 snapshot.entity_name().to_string(),
+                 entity_tag.value(),
+@@ -824,7 +832,19 @@ impl<C: CanisterKind> DbSession<C> {
+                 adapter_names.enum_variants,
+                 adapter_names.composite_fields,
+             )
+-            .map_err(Into::into)
++            .map_err(Into::into);
++            let probe_end = crate::runtime::local_instruction_counter();
++            ic_cdk::println!(
++                "binding_probe catalog={} store={} bundle={} fields={} names={} incarnation={} construct={}",
++                probe_catalog - probe_start,
++                probe_store - probe_catalog,
++                probe_bundle - probe_store,
++                probe_fields - probe_bundle,
++                probe_names - probe_fields,
++                probe_incarnation - probe_names,
++                probe_end - probe_incarnation,
++            );
++            result
+         })
+     }
+ 
+@@ -832,22 +852,36 @@ impl<C: CanisterKind> DbSession<C> {
+         &self,
+         binding: &DynamicTypedEntityBinding,
+     ) -> Result<Option<AcceptedSchemaCatalogContext>, InternalError> {
++        let probe_start = crate::runtime::local_instruction_counter();
+         // Select this session's commit domain before inspecting its identity.
+         // The checked value is local to this synchronous validation, not the
+         // binding lifetime; catalog lookup and matching retain their live checks.
+         self.db.ensure_recovered_state()?;
++        let probe_recovery = crate::runtime::local_instruction_counter();
+         let incarnation = database_incarnation_id()?.to_bytes();
+         if incarnation != binding.database_incarnation {
+             return Ok(None);
+         }
++        let probe_recovered = crate::runtime::local_instruction_counter();
+         let Some(catalog) = self.find_accepted_schema_catalog_context_for_entity_source_key(
+             binding.entity_source.as_str(),
+         )?
+         else {
+             return Ok(None);
+         };
+-        self.typed_entity_binding_matches_catalog(binding, &catalog, incarnation)
+-            .map(|current| current.then_some(catalog))
++        let probe_catalog = crate::runtime::local_instruction_counter();
++        let result = self
++            .typed_entity_binding_matches_catalog(binding, &catalog, incarnation)
++            .map(|current| current.then_some(catalog));
++        let probe_end = crate::runtime::local_instruction_counter();
++        ic_cdk::println!(
++            "binding_check_probe recovery={} incarnation={} catalog={} matching={}",
++            probe_recovery - probe_start,
++            probe_recovered - probe_recovery,
++            probe_catalog - probe_recovered,
++            probe_end - probe_catalog,
++        );
++        result
+     }
+ 
+     fn typed_entity_binding_matches_catalog(
