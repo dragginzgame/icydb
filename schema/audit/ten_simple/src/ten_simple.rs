@@ -6,22 +6,12 @@ use icydb_testing_wasm_helpers::{
 define_fixture_canister!(
     TenSimpleCanister = "TenSimpleCanister",
     namespace = "ten_simple",
-    memory_min = 155,
-    memory_max = 161,
-    commit_memory_id = 159,
-    startup_memory_id = 161,
-    integrity_progress_memory_id = 160,
 );
 
 define_fixture_store!(
     TenSimpleStore,
     canister = "TenSimpleCanister",
-    storage(journaled(
-        data_memory_id = 155,
-        index_memory_id = 156,
-        schema_memory_id = 157,
-        journal_memory_id = 158,
-    )),
+    storage(journaled(key = "main")),
 );
 
 #[enum_(

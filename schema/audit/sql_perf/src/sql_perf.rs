@@ -4,47 +4,24 @@ use icydb_testing_wasm_helpers::{define_fixture_canister, define_fixture_store};
 define_fixture_canister!(
     PerfAuditCanister = "PerfAuditCanister",
     namespace = "sql_perf",
-    memory_min = 180,
-    memory_max = 194,
-    commit_memory_id = 188,
-    startup_memory_id = 190,
-    integrity_progress_memory_id = 189,
 );
 
 define_fixture_store!(
     PerfAuditStore,
     canister = "PerfAuditCanister",
-    storage(journaled(
-        data_memory_id = 180,
-        index_memory_id = 181,
-        schema_memory_id = 182,
-        journal_memory_id = 183,
-    )),
+    storage(journaled(key = "main")),
 );
 
 define_fixture_store!(
     PerfAuditFanoutStore,
     canister = "PerfAuditCanister",
-    storage(journaled(
-        data_memory_id = 191,
-        index_memory_id = 192,
-        schema_memory_id = 193,
-        journal_memory_id = 194,
-    )),
+    storage(journaled(key = "fanout")),
 );
 
 #[store(canister = "PerfAuditCanister", storage(heap()))]
 pub struct PerfAuditHeapStore {}
 
-#[store(
-    canister = "PerfAuditCanister",
-    storage(journaled(
-        data_memory_id = 184,
-        index_memory_id = 185,
-        schema_memory_id = 186,
-        journal_memory_id = 187,
-    ))
-)]
+#[store(canister = "PerfAuditCanister", storage(journaled(key = "journaled")))]
 pub struct PerfAuditJournaledStore {}
 
 ///

@@ -1,0 +1,57 @@
+first_after_setup,baseline,primary_key,2887696
+query_replay,baseline,primary_key,0,2494386
+query_replay,baseline,primary_key,1,2494386
+query_replay,baseline,primary_key,2,2494386
+first_after_setup,baseline,indexed_equality,3859268
+query_replay,baseline,indexed_equality,0,3424094
+query_replay,baseline,indexed_equality,1,3424094
+query_replay,baseline,indexed_equality,2,3424094
+first_after_setup,baseline,indexed_range,4026291
+query_replay,baseline,indexed_range,0,3446455
+query_replay,baseline,indexed_range,1,3446455
+query_replay,baseline,indexed_range,2,3446455
+first_after_setup,baseline,primary_key_in,3114973
+query_replay,baseline,primary_key_in,0,3053119
+query_replay,baseline,primary_key_in,1,3053119
+query_replay,baseline,primary_key_in,2,3053119
+first_after_setup,baseline,count,2854131
+query_replay,baseline,count,0,2820231
+query_replay,baseline,count,1,2820231
+query_replay,baseline,count,2,2820231
+first_after_setup,baseline,grouped_count,3569680
+query_replay,baseline,grouped_count,0,3350209
+query_replay,baseline,grouped_count,1,3350209
+query_replay,baseline,grouped_count,2,3350209
+first_after_setup,candidate,primary_key,2814179
+query_replay,candidate,primary_key,0,2420640
+query_replay,candidate,primary_key,1,2420640
+query_replay,candidate,primary_key,2,2420640
+first_after_setup,candidate,indexed_equality,3748759
+query_replay,candidate,indexed_equality,0,3392301
+query_replay,candidate,indexed_equality,1,3392301
+query_replay,candidate,indexed_equality,2,3392301
+first_after_setup,candidate,indexed_range,3952744
+query_replay,candidate,indexed_range,0,3454385
+query_replay,candidate,indexed_range,1,3454385
+query_replay,candidate,indexed_range,2,3454385
+first_after_setup,candidate,primary_key_in,3041449
+query_replay,candidate,primary_key_in,0,2978570
+query_replay,candidate,primary_key_in,1,2978570
+query_replay,candidate,primary_key_in,2,2978570
+first_after_setup,candidate,count,2743622
+query_replay,candidate,count,0,2709501
+query_replay,candidate,count,1,2709501
+query_replay,candidate,count,2,2709501
+first_after_setup,candidate,grouped_count,3496510
+query_replay,candidate,grouped_count,0,3197001
+query_replay,candidate,grouped_count,1,3197001
+query_replay,candidate,grouped_count,2,3197001
+kind=0 call=0 typed_plan=2190754 typed_render=230404 sql_total=2177804 mixed_plan=2208143 mixed_render=230548 report_bytes=668 typed_binding=1753493
+kind=0 call=1 typed_plan=504809 typed_render=230514 sql_total=429543 mixed_plan=507950 mixed_render=230658 report_bytes=668 typed_binding=219929
+kind=0 call=2 typed_plan=504809 typed_render=230514 sql_total=429543 mixed_plan=507950 mixed_render=230658 report_bytes=668 typed_binding=219929
+kind=1 call=0 typed_plan=2180750 typed_render=270117 sql_total=2188724 mixed_plan=2198625 mixed_render=270261 report_bytes=765 typed_binding=1753493
+kind=1 call=1 typed_plan=462224 typed_render=270223 sql_total=425481 mixed_plan=465150 mixed_render=270367 report_bytes=765 typed_binding=219189
+kind=1 call=2 typed_plan=463899 typed_render=270195 sql_total=425571 mixed_plan=466825 mixed_render=270339 report_bytes=765 typed_binding=219796
+kind=2 call=0 typed_plan=2155937 typed_render=321314 sql_total=2253047 mixed_plan=2173687 mixed_render=321456 report_bytes=952 typed_binding=1753493
+kind=2 call=1 typed_plan=474353 typed_render=321437 sql_total=493089 mixed_plan=477108 mixed_render=321579 report_bytes=952 typed_binding=219582
+kind=2 call=2 typed_plan=473648 typed_render=321247 sql_total=494751 mixed_plan=476403 mixed_render=321389 report_bytes=952 typed_binding=219601

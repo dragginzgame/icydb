@@ -3,10 +3,6 @@ use icydb_model::prelude::*;
 
 #[canister(
     memory_namespace = "typed_identity_wrong_entity",
-    memory_min = 230,
-    memory_max = 232,
-    commit_memory_id = 232,
-    startup_memory_id = 231
 )]
 pub struct TypedIdentityCanister {}
 

@@ -95,10 +95,7 @@ The canister owns one coordinated migration plan. This example renames
             )
         )
     ),
-    memory_namespace = "app",
-    memory_min = 100,
-    memory_max = 104,
-    commit_memory_id = 104
+    memory_namespace = "app"
 )]
 pub struct AppCanister {}
 

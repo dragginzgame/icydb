@@ -1,7 +1,4 @@
-use crate::node::{
-    validate_app_memory_id, validate_memory_id_in_range, validate_memory_id_not_reserved,
-    validate_stable_key,
-};
+use crate::node::{validate_stable_key, validate_stable_key_segment};
 use crate::prelude::*;
 
 ///
@@ -145,7 +142,7 @@ pub enum LiveValidationCapability {
 /// Storage capability descriptor derived from a store storage mode.
 ///
 /// Capabilities describe storage policy. They are not allocation identity.
-/// Stable allocation identity remains `memory_id + stable_key`; heap allocation
+/// Stable allocation identity is the permanent key; heap allocation
 /// identity remains absent.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct StoreStorageCapabilities {
@@ -281,56 +278,24 @@ impl StoreHeapConfig {
     }
 }
 
-/// Stable-memory IDs for the four durable roles owned by one journaled
+/// Permanent store key for the four durable roles owned by one journaled
 /// cached-stable store.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct StoreJournaledMemoryConfig {
-    data: u8,
-    index: u8,
-    schema: u8,
-    journal: u8,
+    key: &'static str,
 }
 
 impl StoreJournaledMemoryConfig {
-    /// Build a journaled memory configuration from canonical data, index,
-    /// schema, and journal-tail memory IDs.
+    /// Name this store permanently within its canister namespace.
     #[must_use]
-    pub const fn new(
-        data_memory_id: u8,
-        index_memory_id: u8,
-        schema_memory_id: u8,
-        journal_memory_id: u8,
-    ) -> Self {
-        Self {
-            data: data_memory_id,
-            index: index_memory_id,
-            schema: schema_memory_id,
-            journal: journal_memory_id,
-        }
+    pub const fn new(key: &'static str) -> Self {
+        Self { key }
     }
 
-    /// Canonical data-store stable memory ID.
+    /// Durable logical identity, independent of Rust names and physical placement.
     #[must_use]
-    pub const fn data_memory_id(self) -> u8 {
-        self.data
-    }
-
-    /// Canonical index-store stable memory ID.
-    #[must_use]
-    pub const fn index_memory_id(self) -> u8 {
-        self.index
-    }
-
-    /// Canonical schema-store stable memory ID.
-    #[must_use]
-    pub const fn schema_memory_id(self) -> u8 {
-        self.schema
-    }
-
-    /// Durable journal-tail stable memory ID.
-    #[must_use]
-    pub const fn journal_memory_id(self) -> u8 {
-        self.journal
+    pub const fn key(self) -> &'static str {
+        self.key
     }
 }
 
@@ -387,7 +352,7 @@ impl Store {
         matches!(self.storage, StoreStorage::Journaled(_))
     }
 
-    /// Borrow journaled cached-stable memory IDs when this store uses
+    /// Borrow the journaled store's logical allocation configuration when it uses
     /// journaled storage.
     #[must_use]
     pub const fn journaled_memory_config(&self) -> Option<&StoreJournaledMemoryConfig> {
@@ -400,55 +365,16 @@ impl Store {
         self.storage.storage_capabilities()
     }
 
-    /// Return the stable data-memory ID for journaled storage.
+    /// Return the permanent key for journaled storage.
     ///
     /// # Panics
     ///
     /// Panics when this store uses heap storage.
     #[must_use]
-    pub const fn stable_data_memory_id(&self) -> u8 {
+    pub const fn stable_store_key(&self) -> &'static str {
         match self.storage {
-            StoreStorage::Journaled(config) => config.data_memory_id(),
-            StoreStorage::Heap(_) => panic!("heap stores do not have a stable data memory id"),
-        }
-    }
-
-    /// Return the stable index-memory ID for journaled storage.
-    ///
-    /// # Panics
-    ///
-    /// Panics when this store uses heap storage.
-    #[must_use]
-    pub const fn stable_index_memory_id(&self) -> u8 {
-        match self.storage {
-            StoreStorage::Journaled(config) => config.index_memory_id(),
-            StoreStorage::Heap(_) => panic!("heap stores do not have a stable index memory id"),
-        }
-    }
-
-    /// Return the stable schema-memory ID for journaled storage.
-    ///
-    /// # Panics
-    ///
-    /// Panics when this store uses heap storage.
-    #[must_use]
-    pub const fn stable_schema_memory_id(&self) -> u8 {
-        match self.storage {
-            StoreStorage::Journaled(config) => config.schema_memory_id(),
-            StoreStorage::Heap(_) => panic!("heap stores do not have a stable schema memory id"),
-        }
-    }
-
-    /// Return the journal memory ID for journaled storage.
-    ///
-    /// # Panics
-    ///
-    /// Panics when this store uses heap storage.
-    #[must_use]
-    pub const fn journal_memory_id(&self) -> u8 {
-        match self.storage {
-            StoreStorage::Journaled(config) => config.journal_memory_id(),
-            StoreStorage::Heap(_) => panic!("heap stores do not have a journal memory id"),
+            StoreStorage::Journaled(config) => config.key(),
+            StoreStorage::Heap(_) => panic!("heap stores do not have a stable store key"),
         }
     }
 
@@ -500,10 +426,11 @@ impl Store {
     /// Build the journal-tail allocation descriptor for journaled stores.
     #[must_use]
     pub fn journal_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
-        StableMemoryAllocation::without_schema_metadata(
-            self.journal_memory_id(),
-            stable_store_memory_key(memory_namespace, self.journal_memory_id(), "journal"),
-        )
+        StableMemoryAllocation::without_schema_metadata(stable_store_memory_key(
+            memory_namespace,
+            self.stable_store_key(),
+            "journal",
+        ))
     }
 
     /// Build the schema-memory allocation descriptor with accepted catalog
@@ -527,16 +454,11 @@ impl Store {
         memory_namespace: &str,
         role: StoreMemoryRole,
     ) -> StableMemoryAllocation {
-        let memory_id = match role {
-            StoreMemoryRole::Data => self.stable_data_memory_id(),
-            StoreMemoryRole::Index => self.stable_index_memory_id(),
-            StoreMemoryRole::Schema => self.stable_schema_memory_id(),
-        };
-
-        StableMemoryAllocation::without_schema_metadata(
-            memory_id,
-            stable_store_memory_key(memory_namespace, memory_id, role.as_str()),
-        )
+        StableMemoryAllocation::without_schema_metadata(stable_store_memory_key(
+            memory_namespace,
+            self.stable_store_key(),
+            role.as_str(),
+        ))
     }
 
     fn stable_allocation_with_schema_metadata(
@@ -545,15 +467,8 @@ impl Store {
         role: StoreMemoryRole,
         schema_metadata: StableMemoryAllocationMetadata,
     ) -> StableMemoryAllocation {
-        let memory_id = match role {
-            StoreMemoryRole::Data => self.stable_data_memory_id(),
-            StoreMemoryRole::Index => self.stable_index_memory_id(),
-            StoreMemoryRole::Schema => self.stable_schema_memory_id(),
-        };
-
         StableMemoryAllocation::with_schema_metadata(
-            memory_id,
-            stable_store_memory_key(memory_namespace, memory_id, role.as_str()),
+            stable_store_memory_key(memory_namespace, self.stable_store_key(), role.as_str()),
             schema_metadata,
         )
     }
@@ -580,7 +495,7 @@ impl StoreMemoryRole {
 /// Diagnostic schema metadata associated with a stable-memory allocation.
 ///
 /// This metadata does not participate in durable allocation identity. The
-/// durable identity remains `memory_id + stable_key`.
+/// durable identity remains the permanent stable key.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StableMemoryAllocationMetadata {
     version: Option<u32>,
@@ -646,12 +561,12 @@ impl StableMemoryAllocationMetadata {
 
 /// Stable-memory allocation descriptor.
 ///
-/// `memory_id + stable_key` is the durable allocation identity.
+/// The stable key is the durable allocation identity; physical placement is
+/// resolved by the runtime, not the schema model.
 /// `schema_version + schema_fingerprint_method_version + schema_fingerprint`
 /// is diagnostic metadata only.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StableMemoryAllocation {
-    memory_id: u8,
     stable_key: String,
     schema_metadata: StableMemoryAllocationMetadata,
 }
@@ -659,12 +574,8 @@ pub struct StableMemoryAllocation {
 impl StableMemoryAllocation {
     /// Build an allocation descriptor without schema metadata.
     #[must_use]
-    pub const fn without_schema_metadata(memory_id: u8, stable_key: String) -> Self {
-        Self::with_schema_metadata(
-            memory_id,
-            stable_key,
-            StableMemoryAllocationMetadata::absent(),
-        )
+    pub const fn without_schema_metadata(stable_key: String) -> Self {
+        Self::with_schema_metadata(stable_key, StableMemoryAllocationMetadata::absent())
     }
 
     /// Build an allocation descriptor with diagnostic schema metadata.
@@ -673,21 +584,13 @@ impl StableMemoryAllocation {
     /// model fallback metadata is not an allocation metadata authority.
     #[must_use]
     pub const fn with_schema_metadata(
-        memory_id: u8,
         stable_key: String,
         schema_metadata: StableMemoryAllocationMetadata,
     ) -> Self {
         Self {
-            memory_id,
             stable_key,
             schema_metadata,
         }
-    }
-
-    /// Stable-memory manager ID.
-    #[must_use]
-    pub const fn memory_id(&self) -> u8 {
-        self.memory_id
     }
 
     /// Durable stable-memory key.
@@ -726,7 +629,7 @@ impl StableMemoryAllocation {
     /// diagnostics, not memory replacement.
     #[must_use]
     pub fn same_identity_as(&self, other: &Self) -> bool {
-        self.memory_id == other.memory_id && self.stable_key == other.stable_key
+        self.stable_key == other.stable_key
     }
 }
 
@@ -736,9 +639,9 @@ pub fn stable_memory_key(memory_namespace: &str, allocation: &str, role: &str) -
 }
 
 #[must_use]
-fn stable_store_memory_key(memory_namespace: &str, memory_id: u8, role: &str) -> String {
-    // Physical allocation identity must survive source-level store renames.
-    format!("icydb.{memory_namespace}.memory_{memory_id}.{role}.v1")
+fn stable_store_memory_key(memory_namespace: &str, store_key: &str, role: &str) -> String {
+    // Explicit logical identity survives source-level renames and declaration order.
+    format!("icydb.{memory_namespace}.store.{store_key}.{role}.v1")
 }
 
 impl MacroNode for Store {
@@ -775,94 +678,15 @@ fn validate_journaled_memory_config(
     config: StoreJournaledMemoryConfig,
     canister: &Canister,
 ) {
-    validate_stable_memory_role(
-        errs,
-        "data_memory_id",
-        "data stable key",
-        config.data_memory_id(),
-        store
-            .stable_data_allocation(canister.memory_namespace())
-            .stable_key(),
-        canister,
-    );
-    validate_stable_memory_role(
-        errs,
-        "index_memory_id",
-        "index stable key",
-        config.index_memory_id(),
-        store
-            .stable_index_allocation(canister.memory_namespace())
-            .stable_key(),
-        canister,
-    );
-    validate_stable_memory_role(
-        errs,
-        "schema_memory_id",
-        "schema stable key",
-        config.schema_memory_id(),
-        store
-            .stable_schema_allocation(canister.memory_namespace())
-            .stable_key(),
-        canister,
-    );
-    validate_stable_memory_role(
-        errs,
-        "journal_memory_id",
-        "journal stable key",
-        config.journal_memory_id(),
-        store
-            .journal_allocation(canister.memory_namespace())
-            .stable_key(),
-        canister,
-    );
-
-    validate_distinct_journaled_memory_ids(errs, config);
-}
-
-fn validate_distinct_journaled_memory_ids(
-    errs: &mut ErrorTree,
-    config: StoreJournaledMemoryConfig,
-) {
-    let roles = [
-        ("data_memory_id", config.data_memory_id()),
-        ("index_memory_id", config.index_memory_id()),
-        ("schema_memory_id", config.schema_memory_id()),
-        ("journal_memory_id", config.journal_memory_id()),
-    ];
-
-    for (idx, (left_label, left_id)) in roles.iter().enumerate() {
-        for (right_label, right_id) in roles.iter().skip(idx + 1) {
-            if left_id == right_id {
-                err!(
-                    errs,
-                    "{} and {} must differ (both are {})",
-                    left_label,
-                    right_label,
-                    left_id,
-                );
-            }
-        }
+    validate_stable_key_segment(errs, "store key", config.key());
+    for allocation in [
+        store.stable_data_allocation(canister.memory_namespace()),
+        store.stable_index_allocation(canister.memory_namespace()),
+        store.stable_schema_allocation(canister.memory_namespace()),
+        store.journal_allocation(canister.memory_namespace()),
+    ] {
+        validate_stable_key(errs, "store allocation key", allocation.stable_key());
     }
-}
-
-fn validate_stable_memory_role(
-    errs: &mut ErrorTree,
-    memory_label: &str,
-    stable_key_label: &str,
-    memory_id: u8,
-    stable_key: &str,
-    canister: &Canister,
-) {
-    validate_memory_id_in_range(
-        errs,
-        memory_label,
-        memory_id,
-        canister.memory_min(),
-        canister.memory_max(),
-    );
-    validate_app_memory_id(errs, memory_label, memory_id);
-    validate_memory_id_not_reserved(errs, memory_label, memory_id);
-    validate_stable_key(errs, stable_key_label, stable_key);
 }
 
 impl VisitableNode for Store {
@@ -888,11 +712,6 @@ mod tests {
         schema_write().insert_node(SchemaNode::Canister(Canister::new(
             Def::new(path_module, ident),
             "test_db",
-            100,
-            254,
-            254,
-            252,
-            253,
             None,
         )));
     }
@@ -902,7 +721,7 @@ mod tests {
         let store = Store::new_journaled(
             Def::new("demo::rpg", "CharacterStore"),
             "demo::rpg::Canister",
-            StoreJournaledMemoryConfig::new(110, 111, 112, 113),
+            StoreJournaledMemoryConfig::new("store_110"),
         );
 
         for allocation in [
@@ -926,7 +745,7 @@ mod tests {
         let store = Store::new_journaled(
             Def::new("demo::rpg", "CharacterStore"),
             "demo::rpg::Canister",
-            StoreJournaledMemoryConfig::new(110, 111, 112, 113),
+            StoreJournaledMemoryConfig::new("store_110"),
         );
         let data = store.stable_data_allocation_with_schema_metadata(
             "demo_rpg",
@@ -1035,7 +854,7 @@ mod tests {
         let store = Store::new_journaled(
             Def::new("store_journaled_config", "Store"),
             "store_journaled_config::Canister",
-            StoreJournaledMemoryConfig::new(110, 111, 112, 113),
+            StoreJournaledMemoryConfig::new("store_110"),
         );
 
         assert!(store.is_journaled_storage());
@@ -1043,16 +862,37 @@ mod tests {
         let journaled = store
             .journaled_memory_config()
             .expect("journaled model stores four-role config explicitly");
-
-        assert_eq!(journaled.data_memory_id(), 110);
-        assert_eq!(journaled.index_memory_id(), 111);
-        assert_eq!(journaled.schema_memory_id(), 112);
-        assert_eq!(journaled.journal_memory_id(), 113);
-        assert_eq!(store.stable_data_memory_id(), 110);
-        assert_eq!(store.stable_index_memory_id(), 111);
-        assert_eq!(store.stable_schema_memory_id(), 112);
-        assert_eq!(store.journal_memory_id(), 113);
+        assert_eq!(journaled.key(), "store_110");
+        assert_eq!(store.stable_store_key(), "store_110");
         assert!(store.validate().is_ok());
+    }
+
+    #[test]
+    fn store_keys_validate_segments_and_complete_role_key_lengths() {
+        let canister = Canister::new(Def::new("bounded_key", "Canister"), "app", None);
+        // The journal role is longest: prefix + store key + suffix = 27 + key bytes.
+        let admitted = "a".repeat(101);
+        let oversized = "a".repeat(102);
+        for (key, accepted) in [
+            ("transfers", true),
+            ("", false),
+            ("Transfers", false),
+            ("1store", false),
+            ("store.name", false),
+            (admitted.as_str(), true),
+            (oversized.as_str(), false),
+        ] {
+            let config =
+                StoreJournaledMemoryConfig::new(Box::leak(key.to_string().into_boxed_str()));
+            let store = Store::new_journaled(
+                Def::new("bounded_key", "Store"),
+                "bounded_key::Canister",
+                config,
+            );
+            let mut errors = ErrorTree::new();
+            validate_journaled_memory_config(&mut errors, &store, config, &canister);
+            assert_eq!(errors.result().is_ok(), accepted);
+        }
     }
 
     #[test]
@@ -1060,7 +900,7 @@ mod tests {
         let store = Store::new_journaled(
             Def::new("store_journaled_capabilities", "Store"),
             "store_journaled_capabilities::Canister",
-            StoreJournaledMemoryConfig::new(110, 111, 112, 113),
+            StoreJournaledMemoryConfig::new("store_110"),
         );
         let capabilities = store.storage_capabilities();
 
@@ -1104,25 +944,52 @@ mod tests {
         let store = Store::new_journaled(
             Def::new("demo::rpg", "CharacterStore"),
             "demo::rpg::Canister",
-            StoreJournaledMemoryConfig::new(110, 111, 112, 113),
+            StoreJournaledMemoryConfig::new("store_110"),
         );
 
         assert_eq!(
             store.stable_data_allocation("demo_rpg").stable_key(),
-            "icydb.demo_rpg.memory_110.data.v1",
+            "icydb.demo_rpg.store.store_110.data.v1",
         );
         assert_eq!(
             store.stable_index_allocation("demo_rpg").stable_key(),
-            "icydb.demo_rpg.memory_111.index.v1",
+            "icydb.demo_rpg.store.store_110.index.v1",
         );
         assert_eq!(
             store.stable_schema_allocation("demo_rpg").stable_key(),
-            "icydb.demo_rpg.memory_112.schema.v1",
+            "icydb.demo_rpg.store.store_110.schema.v1",
         );
         assert_eq!(
             store.journal_allocation("demo_rpg").stable_key(),
-            "icydb.demo_rpg.memory_113.journal.v1",
+            "icydb.demo_rpg.store.store_110.journal.v1",
         );
+
+        // Rust names locate generated code; only the explicit key names memory.
+        let renamed = Store::new_journaled(
+            Def::new("renamed::module", "RenamedStore"),
+            "renamed::module::RenamedCanister",
+            StoreJournaledMemoryConfig::new("store_110"),
+        );
+        for (before, after) in [
+            (
+                store.stable_data_allocation("demo_rpg"),
+                renamed.stable_data_allocation("demo_rpg"),
+            ),
+            (
+                store.stable_index_allocation("demo_rpg"),
+                renamed.stable_index_allocation("demo_rpg"),
+            ),
+            (
+                store.stable_schema_allocation("demo_rpg"),
+                renamed.stable_schema_allocation("demo_rpg"),
+            ),
+            (
+                store.journal_allocation("demo_rpg"),
+                renamed.journal_allocation("demo_rpg"),
+            ),
+        ] {
+            assert_eq!(before.stable_key(), after.stable_key());
+        }
     }
 
     #[test]
@@ -1130,12 +997,12 @@ mod tests {
         let store_a = Store::new_journaled(
             Def::new("demo::rpg", "CharacterStore"),
             "demo::rpg::Canister",
-            StoreJournaledMemoryConfig::new(110, 111, 112, 113),
+            StoreJournaledMemoryConfig::new("store_110"),
         );
         let store_b = Store::new_journaled(
             Def::new("demo::rpg", "InventoryStore"),
             "demo::rpg::Canister",
-            StoreJournaledMemoryConfig::new(120, 121, 122, 123),
+            StoreJournaledMemoryConfig::new("store_120"),
         );
 
         assert_eq!(
@@ -1176,26 +1043,6 @@ mod tests {
             future_durable_heap_mode.storage_mode(),
             StoreStorageMode::Heap,
             "the diagnostic storage mode must not drive commit policy",
-        );
-    }
-
-    #[test]
-    fn store_journaled_storage_config_rejects_duplicate_role_memory_ids() {
-        insert_canister("store_duplicate_journaled_role_memory_ids", "Canister");
-        let store = Store::new_journaled(
-            Def::new("store_duplicate_journaled_role_memory_ids", "Store"),
-            "store_duplicate_journaled_role_memory_ids::Canister",
-            StoreJournaledMemoryConfig::new(110, 111, 112, 112),
-        );
-
-        let err = store
-            .validate()
-            .expect_err("duplicate journaled role memory IDs must fail validation");
-        let rendered = err.to_string();
-
-        assert!(
-            rendered.contains("schema_memory_id and journal_memory_id must differ"),
-            "expected duplicate journaled role memory-id error, got: {rendered}"
         );
     }
 }

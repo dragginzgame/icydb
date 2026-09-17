@@ -9,7 +9,7 @@ use crate::{
     db::{
         Db, RequestExecutionRoot,
         commit::memory::{
-            commit_memory_handle, configure_commit_memory_id, current_commit_memory_allocation,
+            commit_memory_handle, current_commit_memory_allocation, select_commit_memory_allocation,
         },
         data::DataStore,
         database_format::initialize_current_database_control_for_tests,
@@ -47,11 +47,17 @@ impl Path for TestCanister {
     const PATH: &'static str = "recovery::schema_snapshot::Canister";
 }
 impl CanisterKind for TestCanister {
-    const COMMIT_MEMORY_ID: u8 = 155;
+    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(155)
+    }
     const COMMIT_STABLE_KEY: &'static str = "icydb.schema_replay.commit.v1";
-    const STARTUP_MEMORY_ID: u8 = 3;
+    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(3)
+    }
     const STARTUP_STABLE_KEY: &'static str = "icydb.schema_replay.startup.v1";
-    const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 2;
+    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(2)
+    }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.schema_replay.integrity.v1";
 }
 
@@ -190,11 +196,10 @@ fn invalid_later_schema_record_rejects_before_any_snapshot_is_applied() {
 #[test]
 fn catalog_replay_and_fold_retain_preparation_and_verify_stored_authority() {
     let (db, snapshot) = fixture();
-    configure_commit_memory_id(
-        TestCanister::COMMIT_MEMORY_ID,
+    select_commit_memory_allocation(
+        TestCanister::commit_memory_id().expect("test allocation"),
         TestCanister::COMMIT_STABLE_KEY,
-    )
-    .unwrap();
+    );
     let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
     initialize_current_database_control_for_tests(&memory);
     let candidate = accepted_schema_candidate_for_tests(
@@ -272,11 +277,10 @@ fn catalog_replay_and_fold_retain_preparation_and_verify_stored_authority() {
 #[test]
 fn stale_catalog_fold_rejects_before_publishing_any_prepared_effect() {
     let (db, original) = fixture();
-    configure_commit_memory_id(
-        TestCanister::COMMIT_MEMORY_ID,
+    select_commit_memory_allocation(
+        TestCanister::commit_memory_id().expect("test allocation"),
         TestCanister::COMMIT_STABLE_KEY,
-    )
-    .unwrap();
+    );
     let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
     initialize_current_database_control_for_tests(&memory);
     let candidate = accepted_schema_candidate_for_tests(

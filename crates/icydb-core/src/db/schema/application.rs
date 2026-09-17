@@ -3485,11 +3485,17 @@ mod tests {
     }
 
     impl CanisterKind for AbortCanister {
-        const COMMIT_MEMORY_ID: u8 = 184;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(184)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.application_abort.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 186;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(186)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.application_abort.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 185;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(185)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.application_abort.integrity.v1";
     }
@@ -3501,11 +3507,17 @@ mod tests {
     }
 
     impl CanisterKind for EvolutionCanister {
-        const COMMIT_MEMORY_ID: u8 = 196;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(196)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.rule_evolution.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 198;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(198)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.rule_evolution.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 197;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(197)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.rule_evolution.integrity.v1";
     }
@@ -3520,12 +3532,18 @@ mod tests {
 
     #[cfg(feature = "migration")]
     impl CanisterKind for MigrationCanister {
-        const COMMIT_MEMORY_ID: u8 = 204;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(204)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration_validation.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 206;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(206)
+        }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.migration_validation.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 205;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(205)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.migration_validation.integrity.v1";
     }
@@ -3540,12 +3558,18 @@ mod tests {
 
     #[cfg(feature = "migration")]
     impl CanisterKind for MigrationExecutionCanister {
-        const COMMIT_MEMORY_ID: u8 = 214;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(214)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration_execution.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 216;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(216)
+        }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.migration_execution.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 215;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(215)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.migration_execution.integrity.v1";
     }
@@ -3560,11 +3584,17 @@ mod tests {
 
     #[cfg(feature = "migration")]
     impl CanisterKind for MigrationFindingCanister {
-        const COMMIT_MEMORY_ID: u8 = 210;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(210)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.migration_finding.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 212;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(212)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.migration_finding.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 211;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(211)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.migration_finding.integrity.v1";
     }

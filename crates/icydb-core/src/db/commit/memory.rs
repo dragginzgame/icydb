@@ -8,14 +8,9 @@ use ic_memory::RuntimeMemory;
 use ic_memory::ic_stable_structures::DefaultMemoryImpl;
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory;
+use std::cell::Cell;
 #[cfg(test)]
 use std::cell::RefCell;
-use std::{
-    cell::Cell,
-    sync::{Mutex, OnceLock},
-};
-
-static COMMIT_STORE_ALLOCATIONS: OnceLock<Mutex<Vec<CommitMemoryAllocation>>> = OnceLock::new();
 
 thread_local! {
     static CURRENT_COMMIT_STORE_ALLOCATION: Cell<Option<CommitMemoryAllocation>> =
@@ -28,7 +23,8 @@ thread_local! {
 
 /// Runtime allocation identity for the commit-marker control slot.
 ///
-/// This is process-global commit storage wiring, not marker payload metadata.
+/// This selects a database within the thread's committed memory runtime; it is
+/// not an allocation registry or marker payload metadata.
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct CommitMemoryAllocation {
@@ -50,20 +46,17 @@ pub(in crate::db) fn current_commit_memory_allocation_if_configured()
     CURRENT_COMMIT_STORE_ALLOCATION.with(Cell::get)
 }
 
-/// Configure and register the commit marker memory id.
-pub(in crate::db) fn configure_commit_memory_id(
-    memory_id: u8,
-    stable_key: &'static str,
-) -> Result<u8, InternalError> {
+/// Select an already-resolved commit allocation for this database operation.
+/// Production callers resolve the ID from committed authority first; actual
+/// opens also verify the key/ID pair through that same authority. Selection
+/// neither allocates memory nor maintains a second collision registry.
+pub(in crate::db) fn select_commit_memory_allocation(memory_id: u8, stable_key: &'static str) {
     let allocation = CommitMemoryAllocation {
         memory_id,
         stable_key,
     };
 
-    register_commit_memory_allocation(allocation)?;
     CURRENT_COMMIT_STORE_ALLOCATION.with(|cell| cell.set(Some(allocation)));
-
-    Ok(memory_id)
 }
 
 /// Open the configured commit-marker memory slot through the shared memory API.
@@ -95,50 +88,6 @@ pub(in crate::db) fn commit_memory_handle(
         .map_err(InternalError::commit_memory_id_registration_failed)
 }
 
-fn commit_memory_allocations() -> &'static Mutex<Vec<CommitMemoryAllocation>> {
-    COMMIT_STORE_ALLOCATIONS.get_or_init(|| Mutex::new(Vec::new()))
-}
-
-fn register_commit_memory_allocation(
-    allocation: CommitMemoryAllocation,
-) -> Result<(), InternalError> {
-    {
-        let mut allocations = commit_memory_allocations()
-            .lock()
-            .map_err(|_| InternalError::store_invariant())?;
-        if validate_commit_memory_allocation_compat(&allocations, allocation)?.is_none() {
-            allocations.push(allocation);
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_commit_memory_allocation_compat(
-    cached: &[CommitMemoryAllocation],
-    allocation: CommitMemoryAllocation,
-) -> Result<Option<CommitMemoryAllocation>, InternalError> {
-    for cached in cached {
-        if *cached == allocation {
-            return Ok(Some(*cached));
-        }
-        if cached.memory_id == allocation.memory_id {
-            return Err(InternalError::commit_memory_stable_key_mismatch(
-                cached.stable_key,
-                allocation.stable_key,
-            ));
-        }
-        if cached.stable_key == allocation.stable_key {
-            return Err(InternalError::commit_memory_id_mismatch(
-                cached.memory_id,
-                allocation.memory_id,
-            ));
-        }
-    }
-
-    Ok(None)
-}
-
 ///
 /// TESTS
 ///
@@ -146,68 +95,21 @@ fn validate_commit_memory_allocation_compat(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::{ErrorClass, ErrorOrigin};
 
     #[test]
-    fn cached_commit_memory_allocation_reuses_matching_slot() {
-        let cached = CommitMemoryAllocation {
+    fn current_commit_selection_can_switch_databases_and_return() {
+        let first = CommitMemoryAllocation {
             memory_id: 12,
             stable_key: "icydb.test.commit.control.v1",
         };
-        let allocation = CommitMemoryAllocation {
-            memory_id: 12,
-            stable_key: "icydb.test.commit.control.v1",
-        };
-
-        assert_eq!(
-            validate_commit_memory_allocation_compat(&[cached], allocation)
-                .expect("matching cache should pass"),
-            Some(cached),
-        );
-    }
-
-    #[test]
-    fn cached_commit_memory_allocation_rejects_mismatched_slot() {
-        let cached = CommitMemoryAllocation {
-            memory_id: 12,
-            stable_key: "icydb.test.commit.control.v1",
-        };
-        let allocation = CommitMemoryAllocation {
-            memory_id: 30,
-            stable_key: "icydb.test.commit.control.v1",
-        };
-
-        let err = validate_commit_memory_allocation_compat(&[cached], allocation)
-            .expect_err("mismatched cache should fail");
-        assert_eq!(err.class, ErrorClass::Internal);
-        assert_eq!(err.origin, ErrorOrigin::Store);
-        assert_eq!(
-            err.diagnostic_facts(),
-            vec![
-                (
-                    icydb_diagnostic_code::DiagnosticFactTag::ExpectedMemoryId,
-                    12,
-                ),
-                (icydb_diagnostic_code::DiagnosticFactTag::ActualMemoryId, 30,),
-            ],
-        );
-    }
-
-    #[test]
-    fn cached_commit_memory_allocation_accepts_independent_slot() {
-        let cached = CommitMemoryAllocation {
-            memory_id: 12,
-            stable_key: "icydb.test.commit.control.v1",
-        };
-        let allocation = CommitMemoryAllocation {
+        let second = CommitMemoryAllocation {
             memory_id: 30,
             stable_key: "icydb.test.commit.peer-control.v1",
         };
 
-        assert_eq!(
-            validate_commit_memory_allocation_compat(&[cached], allocation)
-                .expect("independent cache should pass"),
-            None,
-        );
+        for allocation in [first, first, second, first] {
+            select_commit_memory_allocation(allocation.memory_id, allocation.stable_key);
+            assert_eq!(current_commit_memory_allocation().unwrap(), allocation);
+        }
     }
 }

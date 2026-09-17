@@ -5,10 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.258.x] - 2026-09-17 - Logical Memory Identity
+
+Detailed notes: [docs/changelog/0.258.md](docs/changelog/0.258.md)
+
+- `0.258.0` replaces physical-ID schema declarations and duplicate memory bookkeeping with permanent keys and host grants using `ic-memory 0.14.2`, with qualified recovery safeguards (breaking; recreate existing databases).
+
 ## [0.257.x] - 2026-09-08 - Query Planning
 
 Detailed notes: [docs/changelog/0.257.md](docs/changelog/0.257.md)
 
+- `0.257.23` closes query-planning qualification with accepted diagnostic costs and coverage limits, without runtime changes.
 - `0.257.22` fixes repeated or skipped rows during paginated reads and reduces redundant query and schema validation.
 - `0.257.21` reduces accepted-schema preparation and memory use by sharing immutable metadata and removing repeated encoding, decoding and fingerprint copies (no API or data migration).
 - `0.257.20` bounds per-entity schema expansion and index width while removing repeated schema copies and redundant preparation (potentially breaking for oversized metadata; simplify affected schemas and recreate their databases).

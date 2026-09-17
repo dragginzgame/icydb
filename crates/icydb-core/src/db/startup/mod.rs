@@ -180,9 +180,9 @@ mod tests {
         db::{
             DataStore, IndexStore, StoreAllocationIdentities, StoreRuntimeStorageCapabilities,
             commit::{
-                CommitMarker, begin_commit, commit_memory_handle, configure_commit_memory_id,
-                current_commit_memory_allocation, database_incarnation_id, finish_commit,
-                mark_startup_recovery_complete_for_tests, persist_raw_commit_marker_for_tests,
+                CommitMarker, begin_commit, commit_memory_handle, current_commit_memory_allocation,
+                database_incarnation_id, finish_commit, mark_startup_recovery_complete_for_tests,
+                persist_raw_commit_marker_for_tests, select_commit_memory_allocation,
             },
             database_format::{
                 ensure_database_format_admitted, initialize_current_database_control_for_tests,
@@ -215,11 +215,17 @@ mod tests {
     }
 
     impl CanisterKind for FreshCanister {
-        const COMMIT_MEMORY_ID: u8 = 232;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(232)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_fresh.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 233;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(233)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_fresh.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 234;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(234)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.startup_fresh.integrity.v1";
     }
 
@@ -235,11 +241,17 @@ mod tests {
     }
 
     impl CanisterKind for CurrentCanister {
-        const COMMIT_MEMORY_ID: u8 = 228;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(228)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_current.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 229;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(229)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_current.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 230;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(230)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.startup_current.integrity.v1";
     }
@@ -251,11 +263,17 @@ mod tests {
     }
 
     impl CanisterKind for CorruptCanister {
-        const COMMIT_MEMORY_ID: u8 = 224;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(224)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_corrupt.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 225;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(225)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_corrupt.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 226;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(226)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.startup_corrupt.integrity.v1";
     }
@@ -271,11 +289,17 @@ mod tests {
     }
 
     impl CanisterKind for DriverCanister {
-        const COMMIT_MEMORY_ID: u8 = 248;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(248)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_driver.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 249;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(249)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_driver.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 250;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(250)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.startup_driver.integrity.v1";
     }
@@ -293,11 +317,17 @@ mod tests {
     impl CanisterKind for CardinalityDriverCanister {
         // Keep this test-only control triplet distinct from the migration
         // fixtures that coexist in the all-feature libtest process.
-        const COMMIT_MEMORY_ID: u8 = 217;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(217)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup.cardinality.driver.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 218;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(218)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup.cardinality.driver.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 219;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(219)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.startup.cardinality.driver.integrity.v1";
     }
@@ -338,13 +368,19 @@ mod tests {
     }
 
     impl CanisterKind for HeapRecoveryFailureCanister {
-        const COMMIT_MEMORY_ID: u8 = 251;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(251)
+        }
         const COMMIT_STABLE_KEY: &'static str =
             "icydb.test.startup.heap.recovery.failure.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 245;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(245)
+        }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.startup.heap.recovery.failure.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 246;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(246)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.startup.heap.recovery.failure.integrity.v1";
     }
@@ -360,13 +396,19 @@ mod tests {
     }
 
     impl CanisterKind for HeapCheckpointFailureCanister {
-        const COMMIT_MEMORY_ID: u8 = 254;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(254)
+        }
         const COMMIT_STABLE_KEY: &'static str =
             "icydb.test.startup.heap.checkpoint.failure.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 221;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(221)
+        }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.startup.heap.checkpoint.failure.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 222;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(222)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.startup.heap.checkpoint.failure.integrity.v1";
     }
@@ -401,13 +443,19 @@ mod tests {
     }
 
     impl CanisterKind for JournalRecoveryFailureCanister {
-        const COMMIT_MEMORY_ID: u8 = 185;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(185)
+        }
         const COMMIT_STABLE_KEY: &'static str =
             "icydb.test.startup.journal.recovery.failure.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 186;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(186)
+        }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.startup.journal.recovery.failure.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 187;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(187)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.startup.journal.recovery.failure.integrity.v1";
     }
@@ -488,11 +536,10 @@ mod tests {
 
     #[test]
     fn non_current_fixed_boot_magic_surfaces_directly_without_a_failure_receipt() {
-        configure_commit_memory_id(
-            CorruptCanister::COMMIT_MEMORY_ID,
+        select_commit_memory_allocation(
+            CorruptCanister::commit_memory_id().expect("test allocation"),
             CorruptCanister::COMMIT_STABLE_KEY,
-        )
-        .expect("commit allocation should configure");
+        );
         let memory = commit_memory_handle(
             current_commit_memory_allocation().expect("commit allocation should resolve"),
         )
@@ -522,11 +569,10 @@ mod tests {
     fn heap_only_malformed_marker_becomes_a_durable_database_control_failure() {
         const SUBMISSION: &str = "generated/89abcdef01234567";
 
-        configure_commit_memory_id(
-            HeapRecoveryFailureCanister::COMMIT_MEMORY_ID,
+        select_commit_memory_allocation(
+            HeapRecoveryFailureCanister::commit_memory_id().expect("test allocation"),
             HeapRecoveryFailureCanister::COMMIT_STABLE_KEY,
-        )
-        .expect("commit allocation should configure");
+        );
         let memory = commit_memory_handle(
             current_commit_memory_allocation().expect("commit allocation should resolve"),
         )
@@ -584,11 +630,10 @@ mod tests {
     fn heap_only_schema_control_corruption_becomes_a_durable_database_control_failure() {
         const SUBMISSION: &str = "generated/76543210fedcba98";
 
-        configure_commit_memory_id(
-            HeapCheckpointFailureCanister::COMMIT_MEMORY_ID,
+        select_commit_memory_allocation(
+            HeapCheckpointFailureCanister::commit_memory_id().expect("test allocation"),
             HeapCheckpointFailureCanister::COMMIT_STABLE_KEY,
-        )
-        .expect("commit allocation should configure");
+        );
         let memory = commit_memory_handle(
             current_commit_memory_allocation().expect("commit allocation should resolve"),
         )
@@ -628,11 +673,10 @@ mod tests {
     fn persisted_journal_record_corruption_becomes_a_durable_journal_failure() {
         const SUBMISSION: &str = "generated/2280bad0bad0bad0";
 
-        configure_commit_memory_id(
-            JournalRecoveryFailureCanister::COMMIT_MEMORY_ID,
+        select_commit_memory_allocation(
+            JournalRecoveryFailureCanister::commit_memory_id().expect("test allocation"),
             JournalRecoveryFailureCanister::COMMIT_STABLE_KEY,
-        )
-        .expect("commit allocation should configure");
+        );
         let memory = commit_memory_handle(
             current_commit_memory_allocation().expect("commit allocation should resolve"),
         )
@@ -731,11 +775,10 @@ mod tests {
     fn completed_recovery_stays_recovering_until_exact_generated_schema_receipt_then_is_ready() {
         const SUBMISSION: &str = "generated/0123456789abcdef";
 
-        configure_commit_memory_id(
-            CurrentCanister::COMMIT_MEMORY_ID,
+        select_commit_memory_allocation(
+            CurrentCanister::commit_memory_id().expect("test allocation"),
             CurrentCanister::COMMIT_STABLE_KEY,
-        )
-        .expect("commit allocation should configure");
+        );
         let memory = commit_memory_handle(
             current_commit_memory_allocation().expect("commit allocation should resolve"),
         )
@@ -855,11 +898,10 @@ mod tests {
     fn driver_completes_one_recovery_page_then_memoizes_only_terminal_schema_failure() {
         const SUBMISSION: &str = "generated/0011223344556677";
 
-        configure_commit_memory_id(
-            DriverCanister::COMMIT_MEMORY_ID,
+        select_commit_memory_allocation(
+            DriverCanister::commit_memory_id().expect("test allocation"),
             DriverCanister::COMMIT_STABLE_KEY,
-        )
-        .expect("commit allocation should configure");
+        );
         let memory = commit_memory_handle(
             current_commit_memory_allocation().expect("commit allocation should resolve"),
         )
@@ -929,11 +971,10 @@ mod tests {
     fn ready_startup_driver_publishes_empty_cardinality_then_quiesces() {
         const SUBMISSION: &str = "generated/cardinality-driver";
 
-        configure_commit_memory_id(
-            CardinalityDriverCanister::COMMIT_MEMORY_ID,
+        select_commit_memory_allocation(
+            CardinalityDriverCanister::commit_memory_id().expect("test allocation"),
             CardinalityDriverCanister::COMMIT_STABLE_KEY,
-        )
-        .expect("commit allocation should configure");
+        );
         let memory = commit_memory_handle(
             current_commit_memory_allocation().expect("commit allocation should resolve"),
         )

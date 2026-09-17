@@ -12,7 +12,22 @@ use runtime_api::{
     types::{Id, Ulid},
 };
 
+icydb::ic_memory_range!(
+    authority = "icydb.facade_only",
+    start = 10,
+    end = 99,
+    mode = Allowed
+);
+
 icydb::start!();
+
+// Test-actor probe: measure database opening without executing a row query.
+#[ic_cdk::update]
+fn open_database() -> Result<u64, String> {
+    let before = ic_cdk::api::performance_counter(0);
+    icydb::db::with_request_execution(|| db().map(|_| ())).map_err(|error| error.to_string())?;
+    Ok(ic_cdk::api::performance_counter(0) - before)
+}
 
 #[ic_cdk::update]
 fn insert_profile(rank: u64) -> Result<(), String> {

@@ -7,11 +7,7 @@ use icydb_model::canister;
         transforms(rewrite(from = "age", to = "age", arbitrary))
     )),
     memory_namespace = "test",
-    memory_min = 100,
-    memory_max = 110,
-    commit_memory_id = 109,
-    startup_memory_id = 108
-)]
+    )]
 pub struct ApplicationCanister;
 
 fn main() {}

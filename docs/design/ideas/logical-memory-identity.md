@@ -1,11 +1,11 @@
 # Logical Memory Identity For Canisters And Stores
 
-Status: idea intake only; not design or implementation authority
+Status: promoted to the [0.258 design and ownership audit](../0.258-logical-memory/0.258-design.md)
 
-Selected direction: the user chose logical memory identity for 0.258, after
-0.257 closeout. Begin with the ownership audit below against the then-current
-ic-memory dependency; the older dependency inventory is not a current capability
-verdict. No 0.258 implementation or allocation syntax is approved by this note.
+The user authorized starting 0.258 after accepting 0.257 closeout on 2026-09-17.
+The active design and [status tracker](../0.258-logical-memory/0.258-status.md)
+now own scope, findings and delivery. This note preserves the original candidate;
+its illustrative syntax and broader lifecycle ideas are not implementation authority.
 
 Recorded: 2026-09-06
 
@@ -65,7 +65,7 @@ explicit string identity at each ownership level, with no inference mode.
 
 ## Current Dependency Boundary
 
-The repository uses `ic-memory` 0.13.1. Its declarations require a stable key
+The promotion audit checked pinned `ic-memory` 0.13.3. Its declarations require a stable key
 and a physical slot. Its durable ledger validates that an existing key has not
 moved and that a slot has not been reused for a different key; it does not
 currently choose free slots for key-only declarations.
@@ -260,7 +260,7 @@ additions, and respect absent/retired store history without reassigning slots.
 - Measure startup instructions, allocation metadata growth, and raw Wasm bytes,
   alongside files/lines changed and the resulting implementation complexity.
 
-No minor version or implementation tracker is assigned. Promotion requires a
-bounded design and meaningful landing slices, with dependency allocation work,
-IcyDB declaration/wiring changes, and any separately justified migration work
-given explicit ownership and scope.
+Promotion is recorded in the 0.258 design and tracker linked above. Its audit
+distinguishes generic allocation absence from current IcyDB store retirement;
+reintroduction is not an adopted database capability. Dependency readiness is
+the next gate; migration work remains separately authorized and out of scope.

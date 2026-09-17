@@ -1237,13 +1237,19 @@ mod tests {
     }
 
     impl CanisterKind for CompletionCanister {
-        const COMMIT_MEMORY_ID: u8 = 240;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(240)
+        }
         const COMMIT_STABLE_KEY: &'static str =
             "icydb.test.schema_publication.completion.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 244;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(244)
+        }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.schema_publication.completion.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 243;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(243)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.schema_publication.completion.integrity.v1";
     }
@@ -1255,12 +1261,18 @@ mod tests {
     }
 
     impl CanisterKind for RecoveryCanister {
-        const COMMIT_MEMORY_ID: u8 = 241;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(241)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.schema_publication.recovery.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 244;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(244)
+        }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.test.schema_publication.recovery.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 242;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(242)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.schema_publication.recovery.integrity.v1";
     }

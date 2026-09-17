@@ -266,7 +266,7 @@ mod tests {
     fn actor_builder() -> ActorBuilder {
         ActorBuilder::new(
             Arc::new(Schema::new()),
-            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 4, 3, None),
+            Canister::new(Def::new("test", "Canister"), "test", None),
             icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
                 .expect("empty test fragment should admit"),
             None,
@@ -296,7 +296,7 @@ mod tests {
         .expect("plan should admit");
         ActorBuilder::new(
             Arc::new(Schema::new()),
-            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 4, 3, None),
+            Canister::new(Def::new("test", "Canister"), "test", None),
             icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
                 .expect("empty test fragment should admit"),
             Some(migration),

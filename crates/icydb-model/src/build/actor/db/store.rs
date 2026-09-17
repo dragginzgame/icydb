@@ -4,7 +4,7 @@
 //! Boundary: translates validated store metadata into actor-local storage wiring tokens.
 
 use crate::build::actor::ActorBuilder;
-use crate::node::{Store, StoreHeapConfig, StoreJournaledMemoryConfig, StoreStorage};
+use crate::node::{Store, StoreHeapConfig, StoreStorage};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 
@@ -28,13 +28,8 @@ struct StoreRegistryTokens {
 /// Validated canister-owned memory declarations emitted around store wiring.
 struct CanisterMemoryWiring<'a> {
     bucket_size_pages: u16,
-    memory_min: u8,
-    memory_max: u8,
-    commit_memory_id: u8,
     commit_stable_key: &'a str,
-    startup_memory_id: u8,
     startup_stable_key: &'a str,
-    integrity_progress_memory_id: u8,
     integrity_progress_stable_key: &'a str,
 }
 
@@ -47,13 +42,8 @@ pub(super) fn generate_store_wiring(
     let memory_namespace = canister.memory_namespace();
     let memory_authority = format!("icydb.{memory_namespace}");
     let store_registry = store_registry_tokens(builder, memory_namespace, &memory_authority);
-    let memory_min = canister.memory_min();
-    let memory_max = canister.memory_max();
-    let commit_memory_id = canister.commit_memory_id();
     let commit_stable_key = canister.commit_stable_key();
-    let startup_memory_id = canister.startup_memory_id();
     let startup_stable_key = canister.startup_stable_key();
-    let integrity_progress_memory_id = canister.integrity_progress_memory_id();
     let integrity_progress_stable_key = canister.integrity_progress_stable_key();
     let schema_bootstrap = schema_bootstrap_tokens(builder);
 
@@ -63,13 +53,8 @@ pub(super) fn generate_store_wiring(
         schema_bootstrap,
         CanisterMemoryWiring {
             bucket_size_pages: canister.memory_profile().bucket_size_pages(),
-            memory_min,
-            memory_max,
-            commit_memory_id,
             commit_stable_key: &commit_stable_key,
-            startup_memory_id,
             startup_stable_key: &startup_stable_key,
-            integrity_progress_memory_id,
             integrity_progress_stable_key: &integrity_progress_stable_key,
         },
     )
@@ -432,13 +417,12 @@ fn store_registry_entry_tokens(
         StoreStorage::Heap(config) => {
             heap_store_registry_entry_tokens(store_ordinal, store_path, *config)
         }
-        StoreStorage::Journaled(config) => journaled_store_registry_entry_tokens(
+        StoreStorage::Journaled(_) => journaled_store_registry_entry_tokens(
             store_ordinal,
             store_path,
             store,
             memory_namespace,
             memory_authority,
-            *config,
         ),
     }
 }
@@ -451,7 +435,6 @@ fn stable_store_cell_tokens(
     cell_ident: &Ident,
     store_ty: TokenStream,
     stable_key: &str,
-    memory_id: u8,
     memory_authority: &str,
 ) -> TokenStream {
     quote! {
@@ -463,8 +446,6 @@ fn stable_store_cell_tokens(
                     ::icydb::__macro::ic_memory_key!(
                         authority = #memory_authority,
                         key = #stable_key,
-                        ty = #store_ty,
-                        id = #memory_id,
                     )
                     .expect(concat!(
                         "ic-memory committed allocation unavailable: ",
@@ -480,7 +461,6 @@ fn journaled_store_cell_tokens(
     cell_ident: &Ident,
     store_ty: TokenStream,
     stable_key: &str,
-    memory_id: u8,
     memory_authority: &str,
 ) -> TokenStream {
     quote! {
@@ -492,8 +472,6 @@ fn journaled_store_cell_tokens(
                     ::icydb::__macro::ic_memory_key!(
                         authority = #memory_authority,
                         key = #stable_key,
-                        ty = #store_ty,
-                        id = #memory_id,
                     )
                     .expect(concat!(
                         "ic-memory committed allocation unavailable: ",
@@ -571,7 +549,6 @@ fn journaled_store_registry_entry_tokens(
     store: &Store,
     memory_namespace: &str,
     memory_authority: &str,
-    journaled: StoreJournaledMemoryConfig,
 ) -> (
     TokenStream,
     TokenStream,
@@ -586,10 +563,6 @@ fn journaled_store_registry_entry_tokens(
     let index_allocation = store.stable_index_allocation(memory_namespace);
     let schema_allocation = store.stable_schema_allocation(memory_namespace);
     let journal_allocation = store.journal_allocation(memory_namespace);
-    let data_memory_id = journaled.data_memory_id();
-    let index_memory_id = journaled.index_memory_id();
-    let schema_memory_id = journaled.schema_memory_id();
-    let journal_memory_id = journaled.journal_memory_id();
     let data_stable_key = data_allocation.stable_key();
     let index_stable_key = index_allocation.stable_key();
     let schema_stable_key = schema_allocation.stable_key();
@@ -600,28 +573,24 @@ fn journaled_store_registry_entry_tokens(
         &journal_cell_ident,
         quote!(::icydb::__macro::JournalTailStore),
         journal_stable_key,
-        journal_memory_id,
         memory_authority,
     );
     let data_def = journaled_store_cell_tokens(
         &data_cell_ident,
         quote!(::icydb::__macro::DataStore),
         data_stable_key,
-        data_memory_id,
         memory_authority,
     );
     let index_def = journaled_store_cell_tokens(
         &index_cell_ident,
         quote!(::icydb::__macro::IndexStore),
         index_stable_key,
-        index_memory_id,
         memory_authority,
     );
     let schema_def = journaled_store_cell_tokens(
         &schema_cell_ident,
         quote!(::icydb::__macro::SchemaStore),
         schema_stable_key,
-        schema_memory_id,
         memory_authority,
     );
     let store_init = quote! {
@@ -632,22 +601,18 @@ fn journaled_store_registry_entry_tokens(
             &#schema_cell_ident,
             &#journal_cell_ident,
             ::icydb::__macro::StoreAllocationIdentities::new_journaled(
-                ::icydb::__macro::StoreAllocationIdentity::new(
-                    #data_memory_id,
+                ::icydb::__macro::StoreAllocationIdentity::from_committed_key(
                     #data_stable_key,
-                ),
-                ::icydb::__macro::StoreAllocationIdentity::new(
-                    #index_memory_id,
+                ).expect("validated store allocation must be committed"),
+                ::icydb::__macro::StoreAllocationIdentity::from_committed_key(
                     #index_stable_key,
-                ),
-                ::icydb::__macro::StoreAllocationIdentity::new(
-                    #schema_memory_id,
+                ).expect("validated store allocation must be committed"),
+                ::icydb::__macro::StoreAllocationIdentity::from_committed_key(
                     #schema_stable_key,
-                ),
-                ::icydb::__macro::StoreAllocationIdentity::new(
-                    #journal_memory_id,
+                ).expect("validated store allocation must be committed"),
+                ::icydb::__macro::StoreAllocationIdentity::from_committed_key(
                     #journal_stable_key,
-                ),
+                ).expect("validated store allocation must be committed"),
             ),
             ::icydb::__macro::StoreRuntimeStorageCapabilities::journaled(),
         )
@@ -678,13 +643,8 @@ fn store_wiring_tokens(
     } = store_registry;
     let CanisterMemoryWiring {
         bucket_size_pages,
-        memory_min,
-        memory_max,
-        commit_memory_id,
         commit_stable_key,
-        startup_memory_id,
         startup_stable_key,
-        integrity_progress_memory_id,
         integrity_progress_stable_key,
     } = memory;
     let store_registry_init = if store_inits.is_empty() {
@@ -712,40 +672,25 @@ fn store_wiring_tokens(
         }
 
         impl ::icydb::__macro::CanisterKind for __IcydbGeneratedCanister {
-            const COMMIT_MEMORY_ID: u8 = #commit_memory_id;
             const COMMIT_STABLE_KEY: &'static str = #commit_stable_key;
-            const STARTUP_MEMORY_ID: u8 = #startup_memory_id;
             const STARTUP_STABLE_KEY: &'static str = #startup_stable_key;
-            const INTEGRITY_PROGRESS_MEMORY_ID: u8 = #integrity_progress_memory_id;
             const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
                 #integrity_progress_stable_key;
         }
 
-        ::icydb::__macro::ic_memory_range!(
-            authority = #memory_authority,
-            start = #memory_min,
-            end = #memory_max,
-        );
-
         ::icydb::__macro::ic_memory_declaration!(
             authority = #memory_authority,
             key = #commit_stable_key,
-            label = "CommitMarker",
-            id = #commit_memory_id,
         );
 
         ::icydb::__macro::ic_memory_declaration!(
             authority = #memory_authority,
             key = #integrity_progress_stable_key,
-            label = "IntegrityProgress",
-            id = #integrity_progress_memory_id,
         );
 
         ::icydb::__macro::ic_memory_declaration!(
             authority = #memory_authority,
             key = #startup_stable_key,
-            label = "StartupControl",
-            id = #startup_memory_id,
         );
 
         #journal_defs
@@ -870,6 +815,7 @@ fn startup_observation_tokens() -> TokenStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node::StoreJournaledMemoryConfig;
     use crate::node::{Canister, CanisterMemoryProfile, Def, Schema};
     use std::sync::Arc;
 
@@ -893,14 +839,14 @@ mod tests {
         Store::new_journaled(
             Def::new("demo::schema", "JournaledStore"),
             "demo::schema::DemoCanister",
-            StoreJournaledMemoryConfig::new(20, 21, 22, 23),
+            StoreJournaledMemoryConfig::new("store_20"),
         )
     }
 
     fn actor_builder() -> ActorBuilder {
         ActorBuilder::new(
             Arc::new(Schema::new()),
-            Canister::new(Def::new("test", "Canister"), "test", 0, 1, 2, 4, 3, None),
+            Canister::new(Def::new("test", "Canister"), "test", None),
             icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
                 .expect("empty test fragment should admit"),
             None,
@@ -1074,7 +1020,9 @@ mod tests {
         assert!(rendered.contains("__ICYDB_STORE_0_SCHEMA"));
         assert_eq!(rendered.matches("ic_memory_key").count(), 0);
         assert_eq!(
-            rendered.matches("StoreAllocationIdentity :: new").count(),
+            rendered
+                .matches("StoreAllocationIdentity :: from_committed_key")
+                .count(),
             0
         );
         assert!(!rendered.contains("ensure_memory_bootstrap"));
@@ -1109,7 +1057,9 @@ mod tests {
         );
         assert_eq!(rendered.matches("authority = \"icydb.demo\"").count(), 4);
         assert_eq!(
-            rendered.matches("StoreAllocationIdentity :: new").count(),
+            rendered
+                .matches("StoreAllocationIdentity :: from_committed_key")
+                .count(),
             4
         );
         assert!(rendered.contains("JournalTailStore :: init"));
@@ -1117,16 +1067,9 @@ mod tests {
         assert!(rendered.contains("register_journaled_store"));
         assert!(rendered.contains("StoreAllocationIdentities :: new_journaled"));
         assert!(rendered.contains("StoreRuntimeStorageCapabilities :: journaled"));
-        for expected in ["id = 20u8", "id = 21u8", "id = 22u8", "id = 23u8"] {
-            assert!(
-                rendered.contains(expected),
-                "journaled store wiring should render {expected}: {rendered}"
-            );
+        for role in ["data", "index", "schema", "journal"] {
+            assert!(rendered.contains(&format!("icydb.demo.store.store_20.{role}.v1")));
         }
-        assert!(rendered.contains("icydb.demo.memory_20.data.v1"));
-        assert!(rendered.contains("icydb.demo.memory_21.index.v1"));
-        assert!(rendered.contains("icydb.demo.memory_22.schema.v1"));
-        assert!(rendered.contains("icydb.demo.memory_23.journal.v1"));
         assert!(!rendered.contains("init_heap"));
     }
 
@@ -1158,26 +1101,17 @@ mod tests {
             quote!(),
             CanisterMemoryWiring {
                 bucket_size_pages: 16,
-                memory_min: 10,
-                memory_max: 19,
-                commit_memory_id: 18,
-                commit_stable_key: "icydb.demo.commit.v1",
-                startup_memory_id: 16,
+                commit_stable_key: "icydb.demo.commit.control.v1",
                 startup_stable_key: "icydb.demo.startup.control.v1",
-                integrity_progress_memory_id: 17,
                 integrity_progress_stable_key: "icydb.demo.integrity.progress.v1",
             },
         ));
 
         assert!(!rendered.contains("allow(unused_mut)"));
         assert!(!rendered.contains("expect(clippy::let_and_return"));
-        assert_eq!(rendered.matches("authority=\"icydb.demo\"").count(), 4);
+        assert_eq!(rendered.matches("authority=\"icydb.demo\"").count(), 3);
         assert!(rendered.contains("key=\"icydb.demo.startup.control.v1\""));
-        assert!(rendered.contains("label=\"StartupControl\""));
-        assert!(rendered.contains("id=16u8"));
         assert!(rendered.contains("key=\"icydb.demo.integrity.progress.v1\""));
-        assert!(rendered.contains("label=\"IntegrityProgress\""));
-        assert!(rendered.contains("id=17u8"));
         assert!(rendered.contains("Result<(),::icydb::db::DatabaseBootstrapError>"));
         assert!(
             rendered

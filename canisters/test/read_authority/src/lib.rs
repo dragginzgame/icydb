@@ -13,6 +13,14 @@ const ADMIN_SEED: u8 = 41;
 #[cfg(feature = "guarded-reads")]
 const READER_SEED: u8 = 42;
 
+// The host grants the pool; schema declarations name only permanent keys.
+icydb::ic_memory_range!(
+    authority = "icydb.one_simple",
+    start = 100,
+    end = 254,
+    mode = Allowed
+);
+
 icydb::start!();
 
 icydb::endpoints! {

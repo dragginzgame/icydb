@@ -347,6 +347,46 @@ Rust library does not create cross-canister relations, storage, atomicity, or a
 shared database. Put workflow coordination in application code only when the
 application has an explicit protocol for it.
 
+### Permanent memory identities
+
+Give each database a permanent `memory_namespace` and each journaled store an
+explicit key. Namespaces and store keys start with a lowercase ASCII letter,
+followed by lowercase letters, digits or underscores. Complete generated role
+keys must fit the 128-byte stable-key limit.
+
+```rust,ignore
+#[canister(memory_namespace = "app")]
+pub struct AppCanister;
+
+#[store(canister = "AppCanister", storage(journaled(key = "transfers")))]
+pub struct TransferStore;
+
+// In the canister root, not the schema crate:
+icydb::ic_memory_range!(authority = "icydb.app", start = 100, end = 254, mode = Allowed);
+```
+
+The host grants the pool explicitly with `mode = Allowed`; the upstream macro's
+default reservation is not a logical placement grant. `ic-memory` persists the
+key-to-ID mapping. The schema
+does not assign physical IDs. Use disjoint host grants when composing databases
+or frameworks. A host that bootstraps first must call
+`icydb::db::prepare_memory_bootstrap` from its `RuntimeBootstrapPolicy`
+preparation hook. Standalone IcyDB bootstrap calls that same hook automatically.
+
+Canister controls use `icydb.app.{commit.control,startup.control,integrity.progress}.v1`.
+The store uses `icydb.app.store.transfers.{data,index,schema,journal}.v1`.
+Rust renames and declaration order do not change these keys. Heap stores have
+no stable key. Changing a store key removes one identity and adds another: it
+does not rename the store or transfer its rows. Existing retirement checks still
+require an empty journal and reject registry changes with a pending marker;
+an empty journal does not mean the old store has no data. Retired identities
+cannot be reintroduced. Removing an existing database namespace rejects before
+allocation commitment, even when a new namespace has a valid grant.
+
+The 0.258 logical-memory hard cut requires recreation/reinstall of databases
+created with the earlier physical-ID declarations; no automatic migration is
+provided.
+
 ### Canister memory profiles
 
 The canister declaration selects the bucket size used when IcyDB initializes
@@ -355,9 +395,7 @@ the shared memory manager. Omission selects `general`:
 ```rust,ignore
 #[canister(
     memory_namespace = "app",
-    memory_profile = "general",
-    memory_min = 100, memory_max = 110,
-    commit_memory_id = 109, startup_memory_id = 108
+    memory_profile = "general"
 )]
 pub struct AppCanister;
 ```

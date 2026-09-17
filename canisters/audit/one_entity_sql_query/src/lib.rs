@@ -15,6 +15,14 @@ use icydb::{
 #[cfg(feature = "sql")]
 use std::cell::OnceCell;
 
+// The host grants the pool; schema declarations name only permanent keys.
+icydb::ic_memory_range!(
+    authority = "icydb.one_simple",
+    start = 100,
+    end = 254,
+    mode = Allowed
+);
+
 #[cfg(not(feature = "sql"))]
 icydb::start!();
 

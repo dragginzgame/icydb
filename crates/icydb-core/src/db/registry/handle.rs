@@ -357,6 +357,16 @@ pub struct StoreAllocationIdentity {
 }
 
 impl StoreAllocationIdentity {
+    /// Resolve one logical allocation after host bootstrap has committed it.
+    pub fn from_committed_key(
+        stable_key: &'static str,
+    ) -> Result<Self, ic_memory::RuntimeOpenError> {
+        Ok(Self::new(
+            crate::memory::committed_memory_id(stable_key)?,
+            stable_key,
+        ))
+    }
+
     /// Build one stable allocation identity descriptor.
     #[must_use]
     pub const fn new(memory_id: u8, stable_key: &'static str) -> Self {

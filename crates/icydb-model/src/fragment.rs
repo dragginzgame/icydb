@@ -1771,11 +1771,6 @@ mod tests {
         schema.insert_node(SchemaNode::Canister(Canister::new(
             Def::new("test", "Canister"),
             "test",
-            0,
-            10,
-            9,
-            7,
-            8,
             None,
         )));
         schema.insert_node(SchemaNode::Store(Store::new_heap(
@@ -2131,11 +2126,6 @@ mod tests {
         schema.insert_node(SchemaNode::Canister(Canister::new(
             Def::new("test", "Canister"),
             "test",
-            0,
-            10,
-            9,
-            7,
-            8,
             None,
         )));
         schema.insert_node(SchemaNode::Store(Store::new_heap(

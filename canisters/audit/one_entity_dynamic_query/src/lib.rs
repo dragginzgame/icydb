@@ -10,6 +10,14 @@ use icydb::{
     types::Ulid,
 };
 
+// The host grants the pool; schema declarations name only permanent keys.
+icydb::ic_memory_range!(
+    authority = "icydb.one_simple",
+    start = 100,
+    end = 254,
+    mode = Allowed
+);
+
 icydb::start!();
 
 const MAX_REPEATED_QUERIES: u16 = 1_000;

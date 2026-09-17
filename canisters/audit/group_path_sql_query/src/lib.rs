@@ -11,6 +11,14 @@ use icydb::{
     value::InputValue,
 };
 
+// The host grants the pool; schema declarations name only permanent keys.
+icydb::ic_memory_range!(
+    authority = "icydb.group_path_audit",
+    start = 100,
+    end = 254,
+    mode = Allowed
+);
+
 icydb::start!();
 
 #[cfg(feature = "sql")]

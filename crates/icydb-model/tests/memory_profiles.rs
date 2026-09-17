@@ -5,9 +5,7 @@ use icydb_model::{build::get_schema, canister, node::Canister};
 macro_rules! profile_fixture {
     ($name:ident, $namespace:literal $(, $profile:literal)?) => {
         #[canister(
-            memory_namespace = $namespace,
-            memory_min = 100, memory_max = 110,
-            commit_memory_id = 109, startup_memory_id = 108
+            memory_namespace = $namespace
             $(, memory_profile = $profile)?
         )]
         pub struct $name;

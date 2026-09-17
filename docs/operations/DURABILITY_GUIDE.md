@@ -27,22 +27,28 @@ state, and explicit performance comparisons. They do not recover rows or
 indexes across upgrade/reinitialization and must not be used for durable user
 state.
 
-## Memory ID Checklist
+## Memory Identity Checklist
 
 For each canister:
 
-- reserve one `commit_memory_id`;
-- reserve four memory IDs per `journaled` store:
-  - `data_memory_id`;
-  - `index_memory_id`;
-  - `schema_memory_id`;
-  - `journal_memory_id`;
-- do not reuse these IDs for non-IcyDB stable-memory structures;
-- do not change memory IDs after data has been written unless the change is
-  part of an explicit migration plan.
+- keep `memory_namespace` permanent;
+- give each journaled store a unique permanent `storage(journaled(key = "..."))`;
+- grant an explicit host-owned pool with `icydb::ic_memory_range!`;
+- include `icydb::db::prepare_memory_bootstrap` in a composed host's bootstrap
+  policy; standalone IcyDB bootstrap invokes it automatically;
+- keep the committed `ic-memory` mapping authoritative; do not remap physical
+  IDs or reuse its slots for unrelated structures.
 
-Memory IDs are durable allocation identity. Reusing or remapping them can make
-valid data unreadable or point IcyDB at unrelated bytes.
+Each namespace owns three logical controls and each journaled store four logical
+roles. The allocator persists their physical placement. Changing a store key is
+removal/addition, not migration: old data is retained but not transferred. Store
+retirement still checks journal debt and pending commit markers. Historical
+journal access is admitted before memory commitment; database reconciliation
+then decides whether retirement is safe. A database rejection at that later
+stage does not roll back an already committed allocation ledger.
+
+See [schema authoring](../guides/schema-authoring.md#permanent-memory-identities)
+for key grammar, host composition and the 0.258 reinstall requirement.
 
 ## Write Atomicity
 

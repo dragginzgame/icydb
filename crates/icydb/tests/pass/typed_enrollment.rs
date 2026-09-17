@@ -5,13 +5,7 @@ use icydb::{
 };
 use icydb_model::prelude::*;
 
-#[canister(
-    memory_namespace = "typed_enrollment_example",
-    memory_min = 230,
-    memory_max = 232,
-    commit_memory_id = 232,
-    startup_memory_id = 231
-)]
+#[canister(memory_namespace = "typed_enrollment_example")]
 pub struct EnrollmentCanister {}
 
 #[store(canister = "EnrollmentCanister", storage(heap()))]

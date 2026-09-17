@@ -190,18 +190,6 @@ fn persisted_row_layout_facts_preserve_only_the_accepted_window() {
 
 #[test]
 fn storage_index_and_relation_facts_keep_only_safe_numeric_context() {
-    let memory = InternalError::commit_memory_id_mismatch(12, 30);
-    assert_eq!(
-        memory.diagnostic_facts(),
-        vec![
-            (
-                icydb_diagnostic_code::DiagnosticFactTag::ExpectedMemoryId,
-                12,
-            ),
-            (icydb_diagnostic_code::DiagnosticFactTag::ActualMemoryId, 30,),
-        ],
-    );
-
     let component = InternalError::commit_component_length_invalid(513, 512);
     assert_eq!(
         component.diagnostic_facts(),

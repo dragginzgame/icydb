@@ -39,6 +39,10 @@ name = "default_memory_manager"
 path = "tests/default_memory_manager.rs"
 
 [[test]]
+name = "memory_admission"
+path = "tests/memory_admission.rs"
+
+[[test]]
 name = "compile_pass_endpoint_declarations"
 path = "tests/pass/endpoint_declarations.rs"
 

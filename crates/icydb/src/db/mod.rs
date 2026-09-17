@@ -5,6 +5,7 @@
 //! Boundary: keeps public facade shape stable for downstream code.
 
 mod bootstrap;
+mod memory_admission;
 pub mod query;
 #[cfg(feature = "sql")]
 pub mod response;
@@ -42,6 +43,7 @@ pub use icydb_core::db::{
     SchemaMigrationFindingKind, SchemaMigrationPhase, SchemaMigrationReceipt,
     SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
 };
+pub use memory_admission::{MemoryBootstrapAdmissionError, prepare_memory_bootstrap};
 #[cfg(feature = "sql")]
 pub use session::SqlIntegrityError;
 pub use session::{

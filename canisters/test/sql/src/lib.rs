@@ -25,6 +25,14 @@ use icydb_testing_test_sql_fixtures::sql::{
     SqlTestEnrollmentUserPrincipalInsert,
 };
 
+// The host grants the pool; schema declarations name only permanent keys.
+icydb::ic_memory_range!(
+    authority = "icydb.test_sql",
+    start = 100,
+    end = 254,
+    mode = Allowed
+);
+
 icydb::start!();
 
 icydb::endpoints! {

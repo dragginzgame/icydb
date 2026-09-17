@@ -42,11 +42,17 @@ impl Path for RelationTestCanister {
 }
 
 impl CanisterKind for RelationTestCanister {
-    const COMMIT_MEMORY_ID: u8 = 1;
+    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(1)
+    }
     const COMMIT_STABLE_KEY: &'static str = "icydb.relation_tests.commit.v1";
-    const STARTUP_MEMORY_ID: u8 = 3;
+    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(3)
+    }
     const STARTUP_STABLE_KEY: &'static str = "icydb.relation_tests.startup.control.v1";
-    const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 2;
+    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(2)
+    }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
         "icydb.relation_tests.integrity.progress.v1";
 }

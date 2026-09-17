@@ -9,6 +9,14 @@ use icydb_testing_audit_one_simple_fixtures::one_simple::{
 };
 use icydb_testing_wasm_helpers::execute_simple_reachable_entity_operation;
 
+// The host grants the pool; schema declarations name only permanent keys.
+icydb::ic_memory_range!(
+    authority = "icydb.one_simple",
+    start = 100,
+    end = 254,
+    mode = Allowed
+);
+
 icydb::start!();
 
 #[icydb_model::record(fields(field(name = "label", value(item(prim = "Text", max_len = 64)))))]

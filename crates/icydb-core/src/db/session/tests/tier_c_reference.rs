@@ -60,11 +60,17 @@ impl Path for TestCanister {
 }
 
 impl CanisterKind for TestCanister {
-    const COMMIT_MEMORY_ID: u8 = 210;
+    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(210)
+    }
     const COMMIT_STABLE_KEY: &'static str = "icydb.test.tier_c.commit.v1";
-    const STARTUP_MEMORY_ID: u8 = 212;
+    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(212)
+    }
     const STARTUP_STABLE_KEY: &'static str = "icydb.test.tier_c.startup.control.v1";
-    const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 211;
+    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(211)
+    }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.tier_c.integrity.progress.v1";
 }
 

@@ -1,0 +1,13 @@
+artifact,query,reported_calls,total_instructions,local_instructions
+baseline,primary_key,39,329151108,2494386
+baseline,indexed_equality,39,362309493,3424094
+baseline,indexed_range,39,357183645,3446455
+baseline,primary_key_in,39,338677053,3053119
+baseline,count,39,338745576,2820231
+baseline,grouped_count,39,356526261,3350209
+candidate,primary_key,39,326749683,2420640
+candidate,indexed_equality,39,358378878,3392301
+candidate,indexed_range,39,354765099,3454385
+candidate,primary_key_in,39,336100674,2978570
+candidate,count,39,334769994,2709501
+candidate,grouped_count,39,354187314,3197001

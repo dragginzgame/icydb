@@ -24,14 +24,15 @@ use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory;
 
-pub(in crate::db) const APP_MEMORY_ID_MIN: u8 = 100;
-pub(in crate::db) const APP_MEMORY_ID_MAX: u8 = 254;
+// Host grants select placement within the dependency's non-governance domain.
+const ALLOCATABLE_MEMORY_ID_MIN: u8 = ic_memory::MEMORY_MANAGER_GOVERNANCE_MAX_ID + 1;
+const ALLOCATABLE_MEMORY_ID_MAX: u8 = ic_memory::MEMORY_MANAGER_MAX_ID;
 pub(in crate::db) const CANISTER_CONTROL_ALLOCATION_COUNT: usize = 3;
 pub(in crate::db) const JOURNALED_STORE_ALLOCATION_WIDTH: usize = 4;
 const _: () = assert!(
     CANISTER_CONTROL_ALLOCATION_COUNT
         + MAX_PERSISTED_STORE_ALLOCATIONS * JOURNALED_STORE_ALLOCATION_WIDTH
-        <= APP_MEMORY_ID_MAX as usize - APP_MEMORY_ID_MIN as usize + 1
+        <= ALLOCATABLE_MEMORY_ID_MAX as usize - ALLOCATABLE_MEMORY_ID_MIN as usize + 1
 );
 
 struct GeneratedStoreProposal {
@@ -238,9 +239,10 @@ fn validate_allocation_set<C: CanisterKind>(
     proposals: &[GeneratedStoreProposal],
 ) -> Result<(), InternalError> {
     let mut memory_ids = vec![
-        C::COMMIT_MEMORY_ID,
-        C::STARTUP_MEMORY_ID,
-        C::INTEGRITY_PROGRESS_MEMORY_ID,
+        C::commit_memory_id().map_err(InternalError::commit_memory_id_registration_failed)?,
+        C::startup_memory_id().map_err(InternalError::commit_memory_id_registration_failed)?,
+        C::integrity_progress_memory_id()
+            .map_err(InternalError::commit_memory_id_registration_failed)?,
     ];
     let mut stable_keys = vec![
         C::COMMIT_STABLE_KEY,
@@ -249,7 +251,7 @@ fn validate_allocation_set<C: CanisterKind>(
     ];
     for proposal in proposals {
         for role in proposal.persisted.roles() {
-            if !(APP_MEMORY_ID_MIN..=APP_MEMORY_ID_MAX).contains(&role.memory_id())
+            if !(ALLOCATABLE_MEMORY_ID_MIN..=ALLOCATABLE_MEMORY_ID_MAX).contains(&role.memory_id())
                 || memory_ids.contains(&role.memory_id())
                 || stable_keys.contains(&role.stable_key())
             {
@@ -266,9 +268,10 @@ fn validate_persisted_allocation_set<C: CanisterKind>(
     registry: &[PersistedStoreAllocation],
 ) -> Result<(), InternalError> {
     let mut memory_ids = vec![
-        C::COMMIT_MEMORY_ID,
-        C::STARTUP_MEMORY_ID,
-        C::INTEGRITY_PROGRESS_MEMORY_ID,
+        C::commit_memory_id().map_err(InternalError::commit_memory_id_registration_failed)?,
+        C::startup_memory_id().map_err(InternalError::commit_memory_id_registration_failed)?,
+        C::integrity_progress_memory_id()
+            .map_err(InternalError::commit_memory_id_registration_failed)?,
     ];
     let mut stable_keys = vec![
         C::COMMIT_STABLE_KEY,
@@ -277,7 +280,7 @@ fn validate_persisted_allocation_set<C: CanisterKind>(
     ];
     for entry in registry {
         for role in entry.roles() {
-            if !(APP_MEMORY_ID_MIN..=APP_MEMORY_ID_MAX).contains(&role.memory_id())
+            if !(ALLOCATABLE_MEMORY_ID_MIN..=ALLOCATABLE_MEMORY_ID_MAX).contains(&role.memory_id())
                 || memory_ids.contains(&role.memory_id())
                 || stable_keys.contains(&role.stable_key())
             {
@@ -433,11 +436,17 @@ mod tests {
     }
 
     impl CanisterKind for ConvergenceCanister {
-        const COMMIT_MEMORY_ID: u8 = 100;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(100)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.convergence.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 101;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(101)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.convergence.startup.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 102;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(102)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.test.convergence.integrity.v1";
     }
 
@@ -605,7 +614,7 @@ mod tests {
     fn maximum_registry() -> Vec<PersistedStoreAllocation> {
         (0..MAX_PERSISTED_STORE_ALLOCATIONS)
             .map(|ordinal| {
-                let first = APP_MEMORY_ID_MIN
+                let first = ALLOCATABLE_MEMORY_ID_MIN
                     + u8::try_from(CANISTER_CONTROL_ALLOCATION_COUNT + ordinal * 4).unwrap();
                 let key = |role: &str| -> &'static str {
                     Box::leak(
@@ -677,7 +686,7 @@ mod tests {
         assert!(canonicalize_store_registry(&mut registry).is_err());
         let control_collision = vec![
             PersistedStoreAllocation::active(allocations(
-                ConvergenceCanister::COMMIT_MEMORY_ID,
+                ConvergenceCanister::commit_memory_id().expect("test allocation"),
                 "icydb.test.convergence.collision.data.v1",
                 "icydb.test.convergence.collision.index.v1",
                 "icydb.test.convergence.collision.schema.v1",

@@ -63,11 +63,17 @@ impl Path for TestCanister {
 }
 
 impl CanisterKind for TestCanister {
-    const COMMIT_MEMORY_ID: u8 = 162;
+    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(162)
+    }
     const COMMIT_STABLE_KEY: &'static str = "icydb.test.cardinality-tiebreak.commit.v1";
-    const STARTUP_MEMORY_ID: u8 = 163;
+    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(163)
+    }
     const STARTUP_STABLE_KEY: &'static str = "icydb.test.cardinality-tiebreak.startup.v1";
-    const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 164;
+    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(164)
+    }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
         "icydb.test.cardinality-tiebreak.integrity.v1";
 }
@@ -79,11 +85,17 @@ impl Path for JournaledTestCanister {
 }
 
 impl CanisterKind for JournaledTestCanister {
-    const COMMIT_MEMORY_ID: u8 = 159;
+    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(159)
+    }
     const COMMIT_STABLE_KEY: &'static str = "icydb.cardinality_tie.commit.v1";
-    const STARTUP_MEMORY_ID: u8 = 161;
+    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(161)
+    }
     const STARTUP_STABLE_KEY: &'static str = "icydb.cardinality_tie.startup.v1";
-    const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 160;
+    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        Ok(160)
+    }
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "icydb.cardinality_tie.integrity.v1";
 }
 

@@ -54,7 +54,6 @@ pub(in crate::db) struct IntegrityRetentionPage {
 /// it on restart safely resumes scanning from the first progress-record key.
 #[derive(Clone, Copy)]
 struct IntegrityRetentionCursor {
-    memory_id: u8,
     stable_key: &'static str,
     checkpoint: Option<IntegrityJobId>,
 }
@@ -297,10 +296,7 @@ fn integrity_retention_checkpoint<C: CanisterKind>() -> Option<IntegrityJobId> {
         cursors
             .borrow()
             .iter()
-            .find(|cursor| {
-                cursor.memory_id == C::INTEGRITY_PROGRESS_MEMORY_ID
-                    && cursor.stable_key == C::INTEGRITY_PROGRESS_STABLE_KEY
-            })
+            .find(|cursor| cursor.stable_key == C::INTEGRITY_PROGRESS_STABLE_KEY)
             .and_then(|cursor| cursor.checkpoint)
     })
 }
@@ -308,15 +304,14 @@ fn integrity_retention_checkpoint<C: CanisterKind>() -> Option<IntegrityJobId> {
 fn set_integrity_retention_checkpoint<C: CanisterKind>(checkpoint: Option<IntegrityJobId>) {
     INTEGRITY_RETENTION_CURSORS.with(|cursors| {
         let mut cursors = cursors.borrow_mut();
-        if let Some(cursor) = cursors.iter_mut().find(|cursor| {
-            cursor.memory_id == C::INTEGRITY_PROGRESS_MEMORY_ID
-                && cursor.stable_key == C::INTEGRITY_PROGRESS_STABLE_KEY
-        }) {
+        if let Some(cursor) = cursors
+            .iter_mut()
+            .find(|cursor| cursor.stable_key == C::INTEGRITY_PROGRESS_STABLE_KEY)
+        {
             cursor.checkpoint = checkpoint;
             return;
         }
         cursors.push(IntegrityRetentionCursor {
-            memory_id: C::INTEGRITY_PROGRESS_MEMORY_ID,
             stable_key: C::INTEGRITY_PROGRESS_STABLE_KEY,
             checkpoint,
         });

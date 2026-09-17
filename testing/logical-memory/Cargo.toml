@@ -1,0 +1,27 @@
+[package]
+name = "icydb-testing-logical-memory"
+build = "src/build.rs"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = ["test-admin-api"]
+test-admin-api = []
+omit-retiring-store = []
+
+[dependencies]
+candid = { workspace = true }
+ic-cdk = { workspace = true }
+ic-memory = { workspace = true }
+icydb = { workspace = true }
+
+[build-dependencies]
+icydb = { workspace = true }
+
+[lints]
+workspace = true

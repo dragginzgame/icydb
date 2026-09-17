@@ -32,7 +32,7 @@ use ic_memory::ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound,
 };
 #[cfg(not(test))]
-use ic_memory::open_default_memory_manager_memory;
+use ic_memory::open_default_memory_manager_memory_by_key;
 use serde::Deserialize;
 use sha2::Digest;
 use std::borrow::Cow;
@@ -1122,6 +1122,7 @@ pub(in crate::db) fn verify_mutation_progress_record_op<C: CanisterKind>(
 #[cfg(test)]
 fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>, IntegrityJobError>
 {
+    let resolved_id = C::integrity_progress_memory_id().map_err(|_| IntegrityJobError::Internal)?;
     thread_local! {
         static MEMORIES: RefCell<
             Vec<(u8, &'static str, RuntimeMemory<DefaultMemoryImpl>)>
@@ -1130,14 +1131,15 @@ fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>
 
     MEMORIES.with(|memories| {
         let mut memories = memories.borrow_mut();
-        if let Some((_, _, memory)) = memories.iter().find(|(id, key, _)| {
-            *id == C::INTEGRITY_PROGRESS_MEMORY_ID && *key == C::INTEGRITY_PROGRESS_STABLE_KEY
-        }) {
+        if let Some((_, _, memory)) = memories
+            .iter()
+            .find(|(id, key, _)| *id == resolved_id && *key == C::INTEGRITY_PROGRESS_STABLE_KEY)
+        {
             return Ok(memory.clone());
         }
-        let memory = crate::testing::test_memory(C::INTEGRITY_PROGRESS_MEMORY_ID);
+        let memory = crate::testing::test_memory(resolved_id);
         memories.push((
-            C::INTEGRITY_PROGRESS_MEMORY_ID,
+            resolved_id,
             C::INTEGRITY_PROGRESS_STABLE_KEY,
             memory.clone(),
         ));
@@ -1148,11 +1150,8 @@ fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>
 #[cfg(not(test))]
 fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>, IntegrityJobError>
 {
-    open_default_memory_manager_memory(
-        C::INTEGRITY_PROGRESS_STABLE_KEY,
-        C::INTEGRITY_PROGRESS_MEMORY_ID,
-    )
-    .map_err(|_| IntegrityJobError::Internal)
+    open_default_memory_manager_memory_by_key(C::INTEGRITY_PROGRESS_STABLE_KEY)
+        .map_err(|_| IntegrityJobError::Internal)
 }
 
 #[cfg(test)]

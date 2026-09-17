@@ -344,7 +344,7 @@ pub(crate) fn finish_commit(
 mod tests {
     use super::*;
     use crate::db::{
-        commit::{commit_memory_handle, configure_commit_memory_id},
+        commit::{commit_memory_handle, select_commit_memory_allocation},
         database_format::initialize_current_database_control_for_tests,
     };
 
@@ -361,8 +361,7 @@ mod tests {
         const MEMORY_ID: u8 = 242;
         const STABLE_KEY: &str = "icydb.test.commit_guard_missing_wakeup.v1";
 
-        configure_commit_memory_id(MEMORY_ID, STABLE_KEY)
-            .expect("commit allocation should configure");
+        select_commit_memory_allocation(MEMORY_ID, STABLE_KEY);
         let allocation = super::super::memory::current_commit_memory_allocation()
             .expect("commit allocation should resolve");
         let memory = commit_memory_handle(allocation).expect("commit memory should open");

@@ -1340,9 +1340,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.13.3"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8be2394ae715fd8c343ae9a16ba2d2e343d64693a1f2c370f6cbf4ff6c3750ed"
+checksum = "d1e3d2a9e8002968a621bbb0d70320c043383d45a60b8bbbbc8c91a011fe696c"
 dependencies = [
  "ciborium",
  "ctor",
@@ -1755,6 +1755,16 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "icydb-testing-logical-memory"
+version = "0.257.22"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "ic-memory",
+ "icydb",
 ]
 
 [[package]]

@@ -210,21 +210,14 @@ macro_rules! execute_simple_reachable_entity_operation {
 /// Generate the repeated canister declaration used by wasm fixture schema
 /// crates.
 ///
-/// `memory_min`, `memory_max`, and `commit_memory_id` are canister-level
-/// stable-memory manager configuration. The maximum ID is reserved for
-/// integrity progress; per-store memory IDs live in
-/// `define_fixture_store!(Store, canister = "...", storage(...))`.
+/// The namespace and store keys are permanent identities. Host crates grant
+/// allocation ranges separately from these schema declarations.
 ///
 #[macro_export]
 macro_rules! define_fixture_canister {
     (
         $canister:ident = $canister_name:literal,
-        namespace = $namespace:literal,
-        memory_min = $memory_min:literal,
-        memory_max = $memory_max:literal,
-        commit_memory_id = $commit_memory_id:literal,
-        startup_memory_id = $startup_memory_id:literal,
-        integrity_progress_memory_id = $integrity_progress_memory_id:literal
+        namespace = $namespace:literal
         $(, migrations($($migrations:tt)*))?
         $(,)?
     ) => {
@@ -234,12 +227,7 @@ macro_rules! define_fixture_canister {
         #[doc = "Canister model used by wasm SQL fixtures."]
         #[doc = ""]
         #[canister(
-            memory_namespace = $namespace,
-            memory_min = $memory_min,
-            memory_max = $memory_max,
-            commit_memory_id = $commit_memory_id,
-            startup_memory_id = $startup_memory_id,
-            integrity_progress_memory_id = $integrity_progress_memory_id
+            memory_namespace = $namespace
             $(, migrations($($migrations)*))?
         )]
         pub struct $canister {}
@@ -257,10 +245,7 @@ macro_rules! define_fixture_store {
         $store:ident,
         canister = $canister_name:literal,
         storage(journaled(
-            data_memory_id = $data_memory_id:literal,
-            index_memory_id = $index_memory_id:literal,
-            schema_memory_id = $schema_memory_id:literal,
-            journal_memory_id = $journal_memory_id:literal,
+            key = $key:literal $(,)?
         )) $(,)?
     ) => {
         #[doc = ""]
@@ -268,7 +253,7 @@ macro_rules! define_fixture_store {
         #[doc = ""]
         #[doc = "Main store model used by wasm SQL fixtures."]
         #[doc = ""]
-        #[store(canister = $canister_name, storage(journaled(data_memory_id = $data_memory_id, index_memory_id = $index_memory_id, schema_memory_id = $schema_memory_id, journal_memory_id = $journal_memory_id)))]
+        #[store(canister = $canister_name, storage(journaled(key = $key)))]
         pub struct $store {}
     };
 }

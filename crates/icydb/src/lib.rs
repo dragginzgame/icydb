@@ -160,6 +160,10 @@ pub use guards::{
     ReadAuthorizationContext, ReadAuthorizationDecision, ReadAuthorizationGuard,
     ReadAuthorizationSurface,
 };
+/// Declare an explicit host allocation grant before memory bootstrap.
+/// Use `mode = Allowed` for logical placement; the dependency macro otherwise
+/// defaults to a reserved range, which does not grant logical allocation.
+pub use ic_memory::ic_memory_range;
 pub use icydb_diagnostic_code::ErrorCode;
 
 // Macro/runtime wiring surface used by generated code.
@@ -171,7 +175,7 @@ pub mod __macro {
         execute_generated_storage_report,
     };
     pub use crate::guards::{authorize_schema_read, authorize_sql_read};
-    pub use ic_memory::{ic_memory_declaration, ic_memory_key, ic_memory_range};
+    pub use ic_memory::{ic_memory_declaration, ic_memory_key};
     #[cfg(feature = "sql")]
     pub use icydb_core::db::sql_statement_dispatch;
     pub use icydb_core::db::{

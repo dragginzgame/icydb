@@ -13,6 +13,14 @@ use icydb_testing_demo_rpg_fixtures::{
     schema::{Character, CharacterMentor, Grid},
 };
 
+// The host grants the pool; schema declarations name only permanent keys.
+icydb::ic_memory_range!(
+    authority = "icydb.demo_rpg",
+    start = 100,
+    end = 254,
+    mode = Allowed
+);
+
 icydb::start!();
 
 icydb::endpoints! {

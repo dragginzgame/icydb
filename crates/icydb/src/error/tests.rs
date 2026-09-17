@@ -678,7 +678,7 @@ fn relation_contract_identity_survives_facade_and_candid() {
 
 #[test]
 fn database_bootstrap_preserves_typed_cause_until_public_projection() {
-    let cause: RuntimeBootstrapError<std::convert::Infallible> =
+    let cause: RuntimeBootstrapError<crate::db::MemoryBootstrapAdmissionError> =
         RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess);
     let bootstrap = crate::db::DatabaseBootstrapError::from(cause);
     assert!(matches!(

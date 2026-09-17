@@ -60,8 +60,8 @@ pub(in crate::db) use marker::{
 #[cfg(test)]
 pub(in crate::db) use memory::current_commit_memory_allocation_if_configured;
 pub(in crate::db) use memory::{
-    CommitMemoryAllocation, commit_memory_handle, configure_commit_memory_id,
-    current_commit_memory_allocation,
+    CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation,
+    select_commit_memory_allocation,
 };
 pub(in crate::db) use prepare::{
     CommitPrepareContext, CommitPrepareContextCache, CommitPrepareMode,

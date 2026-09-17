@@ -1,12 +1,6 @@
 use model_api::prelude::*;
 
-#[canister(
-    memory_namespace = "model_typed_adapter",
-    memory_min = 100,
-    memory_max = 110,
-    commit_memory_id = 110,
-    startup_memory_id = 109
-)]
+#[canister(memory_namespace = "model_typed_adapter")]
 pub struct TypedAdapterCanister {}
 
 #[store(canister = "TypedAdapterCanister", storage(heap()))]

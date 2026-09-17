@@ -264,7 +264,8 @@ fn capture_database_control_binding<C: CanisterKind>()
         } => empty_control_proof.map(|proof| DatabaseControlBinding::new(incarnation, proof)),
     };
     Ok(StartupFailureBinding::DatabaseControl {
-        commit_memory_id: C::COMMIT_MEMORY_ID,
+        commit_memory_id: C::commit_memory_id()
+            .map_err(InternalError::commit_memory_id_registration_failed)?,
         commit_stable_key: C::COMMIT_STABLE_KEY.to_string(),
         control,
     })

@@ -5,6 +5,13 @@ runtime_api::endpoints! {
     icydb_schema(authorization = controller);
 }
 
+runtime_api::ic_memory_range!(
+    authority = "icydb.default_empty",
+    start = 100,
+    end = 254,
+    mode = Allowed
+);
+
 runtime_api::start!();
 
 #[cfg(feature = "candid-export")]

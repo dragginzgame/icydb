@@ -2,25 +2,12 @@ use icydb_model::prelude::*;
 use icydb_testing_wasm_helpers::{define_fixture_canister, define_fixture_store};
 
 #[cfg(not(feature = "migration-v2"))]
-define_fixture_canister!(
-    SqlTestCanister = "SqlTestCanister",
-    namespace = "test_sql",
-    memory_min = 155,
-    memory_max = 161,
-    commit_memory_id = 159,
-    startup_memory_id = 161,
-    integrity_progress_memory_id = 160,
-);
+define_fixture_canister!(SqlTestCanister = "SqlTestCanister", namespace = "test_sql",);
 
 #[cfg(feature = "migration-v2")]
 define_fixture_canister!(
     SqlTestCanister = "SqlTestCanister",
     namespace = "test_sql",
-    memory_min = 155,
-    memory_max = 161,
-    commit_memory_id = 159,
-    startup_memory_id = 161,
-    integrity_progress_memory_id = 160,
     migrations(entity_migration(
         entity = "SqlTestUser",
         from = 1,
@@ -36,12 +23,7 @@ define_fixture_canister!(
 define_fixture_store!(
     SqlTestStore,
     canister = "SqlTestCanister",
-    storage(journaled(
-        data_memory_id = 155,
-        index_memory_id = 156,
-        schema_memory_id = 157,
-        journal_memory_id = 158,
-    )),
+    storage(journaled(key = "main")),
 );
 
 ///

@@ -2096,11 +2096,17 @@ mod typed_adapter_tests {
     }
 
     impl CanisterKind for TestCanister {
-        const COMMIT_MEMORY_ID: u8 = 41;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(41)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.typed_adapter_tests.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 49;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(49)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.typed_adapter_tests.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 42;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(42)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.typed_adapter_tests.integrity.progress.v1";
     }
@@ -3233,12 +3239,18 @@ mod mixed_relation_batch_tests {
     }
 
     impl CanisterKind for TestCanister {
-        const COMMIT_MEMORY_ID: u8 = 47;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(47)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.mixed_relation_batch_tests.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 50;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(50)
+        }
         const STARTUP_STABLE_KEY: &'static str =
             "icydb.mixed_relation_batch_tests.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 48;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(48)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.mixed_relation_batch_tests.integrity.progress.v1";
     }
@@ -4552,11 +4564,17 @@ mod identity_pre_key_tests {
     }
 
     impl CanisterKind for TestCanister {
-        const COMMIT_MEMORY_ID: u8 = 45;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(45)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.identity_pre_key_tests.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 49;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(49)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.identity_pre_key_tests.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 46;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(46)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.identity_pre_key_tests.integrity.progress.v1";
     }
@@ -4632,11 +4650,17 @@ mod identity_pre_key_tests {
     }
 
     impl CanisterKind for JournaledTestCanister {
-        const COMMIT_MEMORY_ID: u8 = 190;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(190)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.identity_range_tests.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 192;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(192)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.identity_range_tests.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 191;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(191)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.identity_range_tests.integrity.progress.v1";
     }
@@ -8813,11 +8837,17 @@ mod targeted_rule_mutation_tests {
     }
 
     impl CanisterKind for TestCanister {
-        const COMMIT_MEMORY_ID: u8 = 43;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(43)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.targeted_mutation_tests.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 49;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(49)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.targeted_mutation_tests.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 44;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(44)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.targeted_mutation_tests.integrity.progress.v1";
     }

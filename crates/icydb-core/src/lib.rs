@@ -33,6 +33,7 @@ pub(crate) mod scalar_registry;
 // public exports are one module level down
 pub mod db;
 pub mod error;
+mod memory;
 pub mod metrics;
 mod retained;
 pub(crate) mod runtime;

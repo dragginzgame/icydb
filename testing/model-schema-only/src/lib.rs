@@ -7,13 +7,7 @@ use model_api::{
     prelude::*,
 };
 
-#[canister(
-    memory_namespace = "model_schema_only",
-    memory_min = 100,
-    memory_max = 110,
-    commit_memory_id = 110,
-    startup_memory_id = 109
-)]
+#[canister(memory_namespace = "model_schema_only")]
 pub struct SchemaOnlyCanister {}
 
 #[store(canister = "SchemaOnlyCanister", storage(heap()))]

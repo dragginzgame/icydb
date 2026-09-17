@@ -51,7 +51,7 @@ fn store(path: &'static str) -> Store {
     Store::new_journaled(
         Def::new("schema_entity_relation_edge", "Store"),
         path,
-        StoreJournaledMemoryConfig::new(110, 111, 112, 113),
+        StoreJournaledMemoryConfig::new("store_110"),
     )
 }
 
@@ -59,7 +59,7 @@ fn durable_store_in_module(module: &'static str, ident: &'static str) -> Store {
     Store::new_journaled(
         Def::new(module, ident),
         "schema_entity_relation_edge_store",
-        StoreJournaledMemoryConfig::new(120, 121, 122, 123),
+        StoreJournaledMemoryConfig::new("store_120"),
     )
 }
 
@@ -350,7 +350,7 @@ fn entity_validation_reports_relation_edge_errors_under_relation_name() {
     schema_write().insert_node(SchemaNode::Store(Store::new_journaled(
         Def::new("schema_entity_relation_edge_error", "Store"),
         store_path,
-        StoreJournaledMemoryConfig::new(113, 114, 115, 116),
+        StoreJournaledMemoryConfig::new("store_113"),
     )));
     let target_fields = Box::leak(
         vec![

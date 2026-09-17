@@ -58,10 +58,6 @@ pub use r#type::*;
 pub use validator::*;
 pub use value::*;
 
-pub const APP_MEMORY_ID_MIN: u8 = 100;
-pub const APP_MEMORY_ID_MAX: u8 = 254;
-const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;
-
 ///
 /// NodeError
 ///
@@ -145,54 +141,6 @@ pub(crate) fn validate_source_name<K>(
     }
 }
 
-// Validate one memory id against the declared canister range.
-pub(crate) fn validate_memory_id_in_range(
-    errs: &mut ErrorTree,
-    label: &str,
-    memory_id: u8,
-    min: u8,
-    max: u8,
-) {
-    if !memory_id_is_in_range(memory_id, min, max) {
-        err!(errs, "{label} {memory_id} outside of range {min}-{max}");
-    }
-}
-
-// Reject memory id values reserved by stable-structures internals.
-pub(crate) fn validate_memory_id_not_reserved(errs: &mut ErrorTree, label: &str, memory_id: u8) {
-    if memory_id_is_reserved(memory_id) {
-        err!(
-            errs,
-            "{label} {memory_id} is reserved for stable-structures internals",
-        );
-    }
-}
-
-// Validate one application-owned memory id against IcyDB's generated-store range.
-pub(crate) fn validate_app_memory_id(errs: &mut ErrorTree, label: &str, memory_id: u8) {
-    if !app_memory_id_is_valid(memory_id) {
-        err!(
-            errs,
-            "{label} {memory_id} outside of application memory range {APP_MEMORY_ID_MIN}-{APP_MEMORY_ID_MAX}",
-        );
-    }
-}
-
-#[must_use]
-pub const fn memory_id_is_in_range(memory_id: u8, min: u8, max: u8) -> bool {
-    memory_id >= min && memory_id <= max
-}
-
-#[must_use]
-pub const fn memory_id_is_reserved(memory_id: u8) -> bool {
-    memory_id == RESERVED_INTERNAL_MEMORY_ID
-}
-
-#[must_use]
-pub const fn app_memory_id_is_valid(memory_id: u8) -> bool {
-    memory_id >= APP_MEMORY_ID_MIN && memory_id <= APP_MEMORY_ID_MAX
-}
-
 pub(crate) fn validate_stable_key_segment(errs: &mut ErrorTree, label: &str, value: &str) {
     if !stable_key_segment_is_canonical(value) {
         err!(
@@ -240,41 +188,6 @@ pub(crate) fn stable_key_is_canonical(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn app_memory_id_policy_accepts_only_application_range() {
-        for memory_id in APP_MEMORY_ID_MIN..=APP_MEMORY_ID_MAX {
-            let mut errors = ErrorTree::new();
-            validate_app_memory_id(&mut errors, "memory_id", memory_id);
-            validate_memory_id_not_reserved(&mut errors, "memory_id", memory_id);
-            assert!(
-                errors.is_empty(),
-                "schema should accept app memory id {memory_id}: {errors}",
-            );
-        }
-
-        for memory_id in [0, APP_MEMORY_ID_MIN - 1] {
-            let mut errors = ErrorTree::new();
-            validate_app_memory_id(&mut errors, "memory_id", memory_id);
-            assert!(
-                !errors.is_empty(),
-                "schema should reject below-range app memory id {memory_id}",
-            );
-        }
-
-        let mut errors = ErrorTree::new();
-        validate_app_memory_id(&mut errors, "memory_id", u8::MAX);
-        validate_memory_id_not_reserved(&mut errors, "memory_id", u8::MAX);
-        let rendered = errors.to_string();
-        assert!(
-            rendered.contains("outside of application memory range 100-254"),
-            "reserved id should also fail the app range check: {rendered}",
-        );
-        assert!(
-            rendered.contains("reserved for stable-structures internals"),
-            "reserved id should fail closed explicitly: {rendered}",
-        );
-    }
 
     #[test]
     fn stable_key_segment_policy_requires_a_lowercase_letter_prefix() {

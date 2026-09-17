@@ -1,7 +1,7 @@
 error[E0308]: mismatched types
-  --> tests/fail-typed-write/wrong_entity_identity.rs:41:30
+  --> tests/fail-typed-write/wrong_entity_identity.rs:37:30
    |
-41 |         id: WriteCell::Value(robot_id),
+37 |         id: WriteCell::Value(robot_id),
    |             ---------------- ^^^^^^^^ expected `Id<User>`, found `Id<Robot>`
    |             |
    |             arguments to this enum variant are incorrect
@@ -9,9 +9,9 @@ error[E0308]: mismatched types
    = note: expected struct `Id<User>`
               found struct `Id<Robot>`
 help: the type constructed contains `Id<Robot>` due to the type of the argument passed
-  --> tests/fail-typed-write/wrong_entity_identity.rs:41:13
+  --> tests/fail-typed-write/wrong_entity_identity.rs:37:13
    |
-41 |         id: WriteCell::Value(robot_id),
+37 |         id: WriteCell::Value(robot_id),
    |             ^^^^^^^^^^^^^^^^^--------^
    |                              |
    |                              this argument influences the type of `Value`

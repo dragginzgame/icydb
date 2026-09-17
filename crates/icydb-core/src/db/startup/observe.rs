@@ -7,8 +7,8 @@ use crate::{
     db::{
         StoreRegistry,
         commit::{
-            CommitControlObservation, configure_commit_memory_id, observe_commit_control,
-            observe_commit_control_without_proof, startup_recovery_witness,
+            CommitControlObservation, observe_commit_control, observe_commit_control_without_proof,
+            select_commit_memory_allocation, startup_recovery_witness,
         },
         database_format::{DatabaseFormatObservation, observe_database_format},
         schema::{generated_schema_is_reconciled, generated_schema_reconciled},
@@ -26,7 +26,9 @@ pub(super) fn observe<C: CanisterKind>(
     stores: &'static std::thread::LocalKey<StoreRegistry>,
     submission_key: &str,
 ) -> Result<DatabaseStartupState, StartupFailure> {
-    configure_commit_memory_id(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY)
+    C::commit_memory_id()
+        .map_err(InternalError::commit_memory_id_registration_failed)
+        .map(|id| select_commit_memory_allocation(id, C::COMMIT_STABLE_KEY))
         .map_err(database_control_failure)?;
     let receipt = super::receipt::load::<C>().map_err(database_control_failure)?;
     let format = observe_database_format(stores)
@@ -183,7 +185,7 @@ fn allocation_receipt_matches<C: CanisterKind>(receipt: &StartupFailureReceipt) 
             commit_memory_id,
             commit_stable_key,
             control: None,
-        } if *commit_memory_id == C::COMMIT_MEMORY_ID
+        } if C::commit_memory_id().is_ok_and(|id| id == *commit_memory_id)
             && commit_stable_key == C::COMMIT_STABLE_KEY
     )
 }

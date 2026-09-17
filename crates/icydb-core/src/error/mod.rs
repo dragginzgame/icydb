@@ -999,33 +999,6 @@ impl InternalError {
         Self::store_invariant()
     }
 
-    /// Construct the canonical commit-memory id mismatch internal error.
-    pub(crate) fn commit_memory_id_mismatch(cached_id: u8, configured_id: u8) -> Self {
-        Self::with_diagnostic_facts(
-            ErrorClass::Internal,
-            ErrorOrigin::Store,
-            None,
-            vec![
-                (
-                    diagnostic_code::DiagnosticFactTag::ExpectedMemoryId,
-                    u64::from(cached_id),
-                ),
-                (
-                    diagnostic_code::DiagnosticFactTag::ActualMemoryId,
-                    u64::from(configured_id),
-                ),
-            ],
-        )
-    }
-
-    /// Construct the canonical commit-memory stable-key mismatch internal error.
-    pub(crate) fn commit_memory_stable_key_mismatch(
-        _cached_key: &str,
-        _configured_key: &str,
-    ) -> Self {
-        Self::store_internal()
-    }
-
     /// Construct the canonical database-incarnation generation failure.
     pub(crate) fn database_incarnation_generation_failed() -> Self {
         Self::store_internal()
@@ -1823,7 +1796,6 @@ impl InternalError {
     }
 
     /// Construct the canonical commit-memory id registration failure.
-    #[cfg(not(test))]
     pub(crate) fn commit_memory_id_registration_failed(_err: impl Sized) -> Self {
         Self::store_internal()
     }

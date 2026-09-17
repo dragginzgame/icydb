@@ -26,7 +26,7 @@ use crate::{
 use icydb_schema::SchemaSubmissionKey;
 
 #[cfg(not(test))]
-use ic_memory::open_default_memory_manager_memory;
+use ic_memory::open_default_memory_manager_memory_by_key;
 
 pub(in crate::db) const MAX_STARTUP_FAILURE_RECEIPT_BYTES: usize = 2_048;
 const RECEIPT_MAGIC: &[u8; 8] = b"ICYSUP01";
@@ -577,15 +577,16 @@ thread_local! {
 #[cfg(test)]
 pub(in crate::db) fn startup_memory<C: CanisterKind>()
 -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
+    let id = C::startup_memory_id().map_err(InternalError::commit_memory_id_registration_failed)?;
     TEST_STARTUP_MEMORIES.with(|memories| {
         let mut memories = memories.borrow_mut();
         if let Some((_, _, memory)) = memories.iter().find(|(memory_id, stable_key, _)| {
-            *memory_id == C::STARTUP_MEMORY_ID && *stable_key == C::STARTUP_STABLE_KEY
+            *memory_id == id && *stable_key == C::STARTUP_STABLE_KEY
         }) {
             return Ok(memory.clone());
         }
-        let memory = crate::testing::test_memory(C::STARTUP_MEMORY_ID);
-        memories.push((C::STARTUP_MEMORY_ID, C::STARTUP_STABLE_KEY, memory.clone()));
+        let memory = crate::testing::test_memory(id);
+        memories.push((id, C::STARTUP_STABLE_KEY, memory.clone()));
         Ok(memory)
     })
 }
@@ -603,11 +604,17 @@ mod tests {
     }
 
     impl CanisterKind for ReceiptCanister {
-        const COMMIT_MEMORY_ID: u8 = 236;
+        fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(236)
+        }
         const COMMIT_STABLE_KEY: &'static str = "icydb.test.startup_receipt.commit.v1";
-        const STARTUP_MEMORY_ID: u8 = 237;
+        fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(237)
+        }
         const STARTUP_STABLE_KEY: &'static str = "icydb.test.startup_receipt.startup.control.v1";
-        const INTEGRITY_PROGRESS_MEMORY_ID: u8 = 238;
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(238)
+        }
         const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
             "icydb.test.startup_receipt.integrity.progress.v1";
     }
@@ -749,7 +756,7 @@ mod tests {
         let receipt = StartupFailureReceipt::new(
             failure(StartupFailureKind::DatabaseControl),
             StartupFailureBinding::DatabaseControl {
-                commit_memory_id: ReceiptCanister::COMMIT_MEMORY_ID,
+                commit_memory_id: ReceiptCanister::commit_memory_id().expect("test allocation"),
                 commit_stable_key: ReceiptCanister::COMMIT_STABLE_KEY.to_string(),
                 control: None,
             },
@@ -764,7 +771,7 @@ mod tests {
         let replacement = StartupFailureReceipt::new(
             failure(StartupFailureKind::DatabaseControl),
             StartupFailureBinding::DatabaseControl {
-                commit_memory_id: ReceiptCanister::COMMIT_MEMORY_ID,
+                commit_memory_id: ReceiptCanister::commit_memory_id().expect("test allocation"),
                 commit_stable_key: ReceiptCanister::COMMIT_STABLE_KEY.to_string(),
                 control: Some(DatabaseControlBinding::new(incarnation(), [0xa5; 32])),
             },
@@ -786,6 +793,6 @@ mod tests {
 #[cfg(not(test))]
 pub(in crate::db) fn startup_memory<C: CanisterKind>()
 -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    open_default_memory_manager_memory(C::STARTUP_STABLE_KEY, C::STARTUP_MEMORY_ID)
+    open_default_memory_manager_memory_by_key(C::STARTUP_STABLE_KEY)
         .map_err(InternalError::database_format_memory_registration_failed)
 }

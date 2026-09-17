@@ -27,8 +27,8 @@ use crate::{
             CommitSchemaFingerprint, PreparedRowCommitOp, database_incarnation_id,
             marker::{COMMIT_ID_BYTES, DatabaseControlOp},
             memory::{
-                CommitMemoryAllocation, configure_commit_memory_id,
-                current_commit_memory_allocation,
+                CommitMemoryAllocation, current_commit_memory_allocation,
+                select_commit_memory_allocation,
             },
             store::{
                 commit_marker_may_be_present, commit_marker_present_fast,
@@ -126,8 +126,10 @@ struct RecoveryContinuation {
 /// This is a state-only defense below generated `db!()` admission. It never
 /// decodes a journal batch, advances a recovery page, or mutates stable state.
 pub(crate) fn ensure_recovery_admitted<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
-    configure_commit_memory_id(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY)
-        .map_err(|error| error.with_origin(ErrorOrigin::Recovery))?;
+    select_commit_memory_allocation(
+        C::commit_memory_id().map_err(InternalError::commit_memory_id_registration_failed)?,
+        C::COMMIT_STABLE_KEY,
+    );
     let recovery_key =
         recovery_domain_key(db).map_err(|error| error.with_origin(ErrorOrigin::Recovery))?;
     let recovered = recovery_domain_recovered(recovery_key)
@@ -203,9 +205,12 @@ pub(crate) fn continue_recovery<C: CanisterKind>(
 pub(in crate::db) fn continue_recovery_with_failure_authority<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<RecoveryProgress, StartupRecoveryFailure> {
-    configure_commit_memory_id(C::COMMIT_MEMORY_ID, C::COMMIT_STABLE_KEY).map_err(|error| {
-        StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
-    })?;
+    C::commit_memory_id()
+        .map_err(InternalError::commit_memory_id_registration_failed)
+        .map(|id| select_commit_memory_allocation(id, C::COMMIT_STABLE_KEY))
+        .map_err(|error| {
+            StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
+        })?;
     ensure_database_format_admitted(db).map_err(StartupRecoveryFailure::database_control)?;
     let recovery_key = recovery_domain_key(db).map_err(|error| {
         StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))

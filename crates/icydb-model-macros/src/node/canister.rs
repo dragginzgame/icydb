@@ -4,7 +4,6 @@
 //! Boundary: macro metadata to node models.
 
 use crate::prelude::*;
-use crate::validate::memory::{memory_id_out_of_range_error, memory_id_reserved_error};
 
 /// Macro vocabulary only; the model owns profile defaults and page counts.
 #[derive(Debug, FromMeta)]
@@ -36,14 +35,6 @@ pub struct Canister {
     #[darling(default)]
     memory_profile: Option<MemoryProfile>,
 
-    // inclusive range of ic memories
-    pub(crate) memory_min: u8,
-    pub(crate) memory_max: u8,
-    commit_memory_id: u8,
-    startup_memory_id: u8,
-    #[darling(default)]
-    integrity_progress_memory_id: Option<u8>,
-
     #[darling(default)]
     migrations: Option<MigrationPlan>,
 }
@@ -62,68 +53,6 @@ impl ValidateNode for Canister {
             )
             .with_span(&self.def.ident()));
         }
-        if self.memory_min > self.memory_max {
-            return Err(DarlingError::custom(
-                "memory_min must be equal to or less than memory_max",
-            )
-            .with_span(&self.def.ident()));
-        }
-
-        if let Some(message) = memory_id_out_of_range_error(
-            "commit_memory_id",
-            self.commit_memory_id,
-            self.memory_min,
-            self.memory_max,
-        ) {
-            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
-        }
-        if let Some(message) =
-            crate::validate::memory::app_memory_id_error("commit_memory_id", self.commit_memory_id)
-        {
-            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
-        }
-        if let Some(message) = memory_id_reserved_error("commit_memory_id", self.commit_memory_id) {
-            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
-        }
-        if let Some(message) = memory_id_out_of_range_error(
-            "startup_memory_id",
-            self.startup_memory_id,
-            self.memory_min,
-            self.memory_max,
-        ) {
-            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
-        }
-        if let Some(message) = crate::validate::memory::app_memory_id_error(
-            "startup_memory_id",
-            self.startup_memory_id,
-        ) {
-            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
-        }
-        if let Some(message) = memory_id_reserved_error("startup_memory_id", self.startup_memory_id)
-        {
-            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
-        }
-        let integrity_progress_memory_id = self.integrity_progress_memory_id();
-        if let Some(message) = memory_id_out_of_range_error(
-            "integrity_progress_memory_id",
-            integrity_progress_memory_id,
-            self.memory_min,
-            self.memory_max,
-        ) {
-            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
-        }
-        if let Some(message) = crate::validate::memory::app_memory_id_error(
-            "integrity_progress_memory_id",
-            integrity_progress_memory_id,
-        ) {
-            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
-        }
-        if let Some(message) =
-            memory_id_reserved_error("integrity_progress_memory_id", integrity_progress_memory_id)
-        {
-            return Err(DarlingError::custom(message).with_span(&self.def.ident()));
-        }
-
         Ok(())
     }
 }
@@ -142,11 +71,6 @@ impl HasSchemaPart for Canister {
             .memory_profile
             .as_ref()
             .map(|profile| quote!(.with_memory_profile(#profile)));
-        let memory_min = self.memory_min;
-        let memory_max = self.memory_max;
-        let commit_memory_id = self.commit_memory_id;
-        let startup_memory_id = self.startup_memory_id;
-        let integrity_progress_memory_id = self.integrity_progress_memory_id();
         let migration_plan = self
             .migrations
             .as_ref()
@@ -157,11 +81,6 @@ impl HasSchemaPart for Canister {
             ::icydb_model::node::Canister::new(
                 #def,
                 #memory_namespace,
-                #memory_min,
-                #memory_max,
-                #commit_memory_id,
-                #startup_memory_id,
-                #integrity_progress_memory_id,
                 #migration_plan,
             ) #memory_profile
         }
@@ -180,11 +99,6 @@ impl HasTraits for Canister {
 }
 
 impl Canister {
-    fn integrity_progress_memory_id(&self) -> u8 {
-        self.integrity_progress_memory_id
-            .unwrap_or_else(|| self.commit_memory_id.saturating_sub(2))
-    }
-
     #[cfg(test)]
     fn commit_stable_key(&self) -> String {
         stable_memory_key(&self.memory_namespace, "commit", "control")
@@ -229,8 +143,6 @@ mod tests {
     fn parse_canister(extra: TokenStream) -> Result<Canister, DarlingError> {
         let items = darling::ast::NestedMeta::parse_meta_list(quote! {
             memory_namespace = "test",
-            memory_min = 100, memory_max = 254,
-            commit_memory_id = 254, startup_memory_id = 252,
             #extra
         })
         .expect("test macro arguments should parse");
@@ -266,11 +178,6 @@ mod tests {
             def: Def::new(item),
             memory_namespace: "demo_rpg".to_string(),
             memory_profile: None,
-            memory_min: 100,
-            memory_max: 254,
-            commit_memory_id: 254,
-            startup_memory_id: 252,
-            integrity_progress_memory_id: Some(253),
             migrations: None,
         };
         assert_eq!(

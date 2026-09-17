@@ -4,16 +4,7 @@ use super::*;
 
 #[test]
 fn memory_profiles_have_one_default_and_fixed_bucket_sizes() {
-    let canister = Canister::new(
-        Def::new("profile", "Canister"),
-        "profile",
-        100,
-        254,
-        254,
-        252,
-        253,
-        None,
-    );
+    let canister = Canister::new(Def::new("profile", "Canister"), "profile", None);
     assert_eq!(canister.memory_profile(), CanisterMemoryProfile::General);
     for (profile, pages) in [
         (CanisterMemoryProfile::Compact, 4),
@@ -27,16 +18,7 @@ fn memory_profiles_have_one_default_and_fixed_bucket_sizes() {
 }
 
 fn insert_canister(path_module: &'static str, ident: &'static str) -> Canister {
-    let canister = Canister::new(
-        Def::new(path_module, ident),
-        "test_db",
-        100,
-        254,
-        254,
-        252,
-        253,
-        None,
-    );
+    let canister = Canister::new(Def::new(path_module, ident), "test_db", None);
     schema_write().insert_node(SchemaNode::Canister(canister.clone()));
 
     canister
@@ -56,7 +38,7 @@ fn insert_store(
 }
 
 #[test]
-fn validate_rejects_memory_id_collision_between_stores() {
+fn validate_rejects_duplicate_store_keys() {
     let canister = insert_canister("schema_store_collision", "Canister");
     let canister_path = "schema_store_collision::Canister";
 
@@ -64,28 +46,20 @@ fn validate_rejects_memory_id_collision_between_stores() {
         "schema_store_collision",
         "StoreA",
         canister_path,
-        StoreJournaledMemoryConfig::new(110, 111, 112, 115),
+        StoreJournaledMemoryConfig::new("store_110"),
     );
     insert_store(
         "schema_store_collision",
         "StoreB",
         canister_path,
-        StoreJournaledMemoryConfig::new(113, 110, 114, 116),
+        StoreJournaledMemoryConfig::new("store_110"),
     ); // collision
 
-    let err = canister
-        .validate()
-        .expect_err("memory-id collision must fail");
-
-    let rendered = err.to_string();
-    assert!(
-        rendered.contains("duplicate memory_id `110`"),
-        "expected duplicate memory-id error, got: {rendered}"
-    );
+    assert!(canister.validate().is_err());
 }
 
 #[test]
-fn validate_accepts_unique_memory_ids() {
+fn validate_accepts_unique_store_keys() {
     let canister = insert_canister("schema_store_unique", "Canister");
     let canister_path = "schema_store_unique::Canister";
 
@@ -93,83 +67,16 @@ fn validate_accepts_unique_memory_ids() {
         "schema_store_unique",
         "StoreA",
         canister_path,
-        StoreJournaledMemoryConfig::new(130, 131, 132, 136),
+        StoreJournaledMemoryConfig::new("store_130"),
     );
     insert_store(
         "schema_store_unique",
         "StoreB",
         canister_path,
-        StoreJournaledMemoryConfig::new(133, 134, 135, 137),
+        StoreJournaledMemoryConfig::new("store_133"),
     );
 
-    canister.validate().expect("unique memory IDs should pass");
-}
-
-#[test]
-fn validate_rejects_reserved_commit_memory_id() {
-    let canister = Canister::new(
-        Def::new("schema_reserved_commit", "Canister"),
-        "test_db",
-        100,
-        254,
-        255,
-        252,
-        253,
-        None,
-    );
-    schema_write().insert_node(SchemaNode::Canister(canister.clone()));
-
-    let err = canister
-        .validate()
-        .expect_err("reserved commit memory id must fail");
-
-    let rendered = err.to_string();
-    assert!(
-        rendered.contains("reserved for stable-structures internals"),
-        "expected reserved-id error, got: {rendered}"
-    );
-}
-
-#[test]
-fn validate_rejects_integrity_progress_memory_collision() {
-    let canister = Canister::new(
-        Def::new("schema_integrity_progress_collision", "Canister"),
-        "test_db",
-        100,
-        254,
-        253,
-        252,
-        253,
-        None,
-    );
-    schema_write().insert_node(SchemaNode::Canister(canister.clone()));
-
-    let err = canister
-        .validate()
-        .expect_err("progress and commit memory IDs must not alias");
-    assert!(
-        err.to_string().contains("duplicate memory_id `253`"),
-        "expected progress allocation collision, got: {err}"
-    );
-}
-
-#[test]
-fn validate_rejects_startup_memory_collision() {
-    let canister = Canister::new(
-        Def::new("schema_startup_collision", "Canister"),
-        "test_db",
-        100,
-        254,
-        253,
-        253,
-        252,
-        None,
-    );
-    schema_write().insert_node(SchemaNode::Canister(canister.clone()));
-
-    canister
-        .validate()
-        .expect_err("startup and commit memory IDs must not alias");
+    canister.validate().expect("unique store keys should pass");
 }
 
 #[test]
@@ -177,15 +84,8 @@ fn integrity_progress_allocation_has_one_canonical_identity() {
     let canister = Canister::new(
         Def::new("schema_integrity_progress_identity", "Canister"),
         "test_db",
-        100,
-        254,
-        254,
-        252,
-        253,
         None,
     );
-
-    assert_eq!(canister.integrity_progress_memory_id(), 253);
     assert_eq!(
         canister.integrity_progress_stable_key(),
         "icydb.test_db.integrity.progress.v1",
@@ -197,15 +97,8 @@ fn startup_allocation_has_one_canonical_identity() {
     let canister = Canister::new(
         Def::new("schema_startup_identity", "Canister"),
         "test_db",
-        100,
-        254,
-        254,
-        252,
-        253,
         None,
     );
-
-    assert_eq!(canister.startup_memory_id(), 252);
     assert_eq!(
         canister.startup_stable_key(),
         "icydb.test_db.startup.control.v1",
@@ -217,12 +110,12 @@ fn store_allocation_identity_is_independent_of_schema_order() {
     let first = Store::new_journaled(
         Def::new("schema_allocation_order", "Users"),
         "schema_allocation_order::Canister",
-        StoreJournaledMemoryConfig::new(110, 111, 112, 113),
+        StoreJournaledMemoryConfig::new("store_110"),
     );
     let reordered = Store::new_journaled(
         Def::new("schema_allocation_order", "Users"),
         "schema_allocation_order::Canister",
-        StoreJournaledMemoryConfig::new(110, 111, 112, 113),
+        StoreJournaledMemoryConfig::new("store_110"),
     );
 
     assert!(
@@ -247,18 +140,16 @@ fn adding_store_does_not_change_existing_store_allocation() {
     let existing = Store::new_journaled(
         Def::new("schema_allocation_add", "Users"),
         "schema_allocation_add::Canister",
-        StoreJournaledMemoryConfig::new(110, 111, 112, 113),
+        StoreJournaledMemoryConfig::new("store_110"),
     );
     let _new_store = Store::new_journaled(
         Def::new("schema_allocation_add", "AuditEvents"),
         "schema_allocation_add::Canister",
-        StoreJournaledMemoryConfig::new(120, 121, 122, 123),
+        StoreJournaledMemoryConfig::new("store_120"),
     );
-
-    assert_eq!(existing.stable_data_allocation("test_db").memory_id(), 110);
     assert_eq!(
         existing.stable_data_allocation("test_db").stable_key(),
-        "icydb.test_db.memory_110.data.v1"
+        "icydb.test_db.store.store_110.data.v1"
     );
 }
 
@@ -267,12 +158,12 @@ fn rust_store_rename_preserves_allocation_identity() {
     let original = Store::new_journaled(
         Def::new("schema_store_rename", "Users"),
         "schema_store_rename::Canister",
-        StoreJournaledMemoryConfig::new(110, 111, 112, 113),
+        StoreJournaledMemoryConfig::new("store_110"),
     );
     let renamed = Store::new_journaled(
         Def::new("schema_store_rename", "Accounts"),
         "schema_store_rename::Canister",
-        StoreJournaledMemoryConfig::new(110, 111, 112, 113),
+        StoreJournaledMemoryConfig::new("store_110"),
     );
 
     assert!(
@@ -290,41 +181,15 @@ fn rust_store_rename_preserves_allocation_identity() {
 #[test]
 fn stable_memory_identity_ignores_schema_metadata() {
     let left = StableMemoryAllocation::with_schema_metadata(
-        110,
         "icydb.test_db.memory_110.data.v1".to_string(),
         StableMemoryAllocationMetadata::from_accepted_schema_contract(1, 1, "aaa".to_string()),
     );
     let right = StableMemoryAllocation::with_schema_metadata(
-        110,
         "icydb.test_db.memory_110.data.v1".to_string(),
         StableMemoryAllocationMetadata::from_accepted_schema_contract(2, 1, "bbb".to_string()),
     );
 
     assert!(left.same_identity_as(&right));
-}
-
-#[test]
-fn validate_rejects_app_memory_id_below_canic_reserved_range() {
-    let canister = Canister::new(
-        Def::new("schema_reserved_app_range", "Canister"),
-        "test_db",
-        99,
-        110,
-        99,
-        101,
-        100,
-        None,
-    );
-
-    let err = canister
-        .validate()
-        .expect_err("app memory id below 100 must fail");
-
-    let rendered = err.to_string();
-    assert!(
-        rendered.contains("outside of application memory range 100-254"),
-        "expected app memory range error, got: {rendered}"
-    );
 }
 
 #[test]

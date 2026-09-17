@@ -29,20 +29,26 @@ pub trait Path {
 ///
 
 pub trait CanisterKind: Path + 'static {
-    /// Stable memory slot used for commit marker storage.
-    const COMMIT_MEMORY_ID: u8;
+    /// Resolve the commit slot from committed allocation authority.
+    fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        crate::memory::committed_memory_id(Self::COMMIT_STABLE_KEY)
+    }
 
     /// Durable stable-memory allocation key for commit marker storage.
     const COMMIT_STABLE_KEY: &'static str;
 
-    /// Stable memory slot used only for startup coordination state.
-    const STARTUP_MEMORY_ID: u8;
+    /// Resolve the startup slot from committed allocation authority.
+    fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        crate::memory::committed_memory_id(Self::STARTUP_STABLE_KEY)
+    }
 
     /// Durable stable-memory allocation key for startup coordination state.
     const STARTUP_STABLE_KEY: &'static str;
 
-    /// Stable memory slot used only for integrity-inspection progress.
-    const INTEGRITY_PROGRESS_MEMORY_ID: u8;
+    /// Resolve the integrity slot from committed allocation authority.
+    fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+        crate::memory::committed_memory_id(Self::INTEGRITY_PROGRESS_STABLE_KEY)
+    }
 
     /// Durable stable-memory allocation key for integrity-inspection progress.
     const INTEGRITY_PROGRESS_STABLE_KEY: &'static str;

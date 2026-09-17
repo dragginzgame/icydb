@@ -3,25 +3,10 @@
 use icydb::model::prelude::*;
 use runtime_api as icydb;
 
-#[canister(
-    memory_namespace = "facade_only",
-    memory_min = 220,
-    memory_max = 226,
-    commit_memory_id = 224,
-    startup_memory_id = 225,
-    integrity_progress_memory_id = 226
-)]
+#[canister(memory_namespace = "facade_only")]
 pub struct FacadeCanister {}
 
-#[store(
-    canister = "FacadeCanister",
-    storage(journaled(
-        data_memory_id = 220,
-        index_memory_id = 221,
-        schema_memory_id = 222,
-        journal_memory_id = 223
-    ))
-)]
+#[store(canister = "FacadeCanister", storage(journaled(key = "main")))]
 pub struct FacadeStore {}
 
 #[record(

@@ -14,6 +14,14 @@ use icydb::{
 };
 use icydb_testing_audit_one_simple_fixtures::one_simple::OneSimpleEntity01;
 
+// The host grants the pool; schema declarations name only permanent keys.
+icydb::ic_memory_range!(
+    authority = "icydb.one_simple",
+    start = 100,
+    end = 254,
+    mode = Allowed
+);
+
 icydb::start!(participant);
 
 const APPLICATION_STARTUP_RETRY: Duration = Duration::from_secs(1);

@@ -47,7 +47,6 @@ mod tests {
 
     use super::*;
 
-    #[expect(clippy::too_many_arguments)]
     fn insert_canister_store(
         schema: &mut Schema,
         module_path: &'static str,
@@ -55,29 +54,16 @@ mod tests {
         canister_path: &'static str,
         store_ident: &'static str,
         store_path: &'static str,
-        data_memory_id: u8,
-        index_memory_id: u8,
-        schema_memory_id: u8,
     ) {
         schema.insert_node(SchemaNode::Canister(Canister::new(
             Def::new(module_path, canister_ident),
             "test_db",
-            100,
-            254,
-            254,
-            252,
-            253,
             None,
         )));
         schema.insert_node(SchemaNode::Store(Store::new_journaled(
             Def::new(module_path, store_ident),
             canister_path,
-            StoreJournaledMemoryConfig::new(
-                data_memory_id,
-                index_memory_id,
-                schema_memory_id,
-                schema_memory_id.saturating_add(1),
-            ),
+            StoreJournaledMemoryConfig::new("main"),
         )));
 
         let inserted_store_path = format!("{module_path}::{store_ident}");
@@ -117,9 +103,6 @@ mod tests {
             "schema_case_conflict::Canister",
             "Store",
             "schema_case_conflict::Store",
-            110,
-            111,
-            112,
         );
         insert_entity(
             &mut schema,
@@ -167,9 +150,6 @@ mod tests {
             "schema_case_allowed_a::CanisterA",
             "StoreA",
             "schema_case_allowed_a::StoreA",
-            120,
-            121,
-            122,
         );
         insert_canister_store(
             &mut schema,
@@ -178,9 +158,6 @@ mod tests {
             "schema_case_allowed_b::CanisterB",
             "StoreB",
             "schema_case_allowed_b::StoreB",
-            130,
-            131,
-            132,
         );
         insert_entity(
             &mut schema,

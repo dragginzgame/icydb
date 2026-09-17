@@ -11,7 +11,7 @@ fn select_foreign_incarnation() -> [u8; 16] {
         memory_id: 44,
         stable_key: "icydb.typed_adapter_tests.foreign.commit.v1",
     };
-    commit::configure_commit_memory_id(allocation.memory_id, allocation.stable_key).unwrap();
+    commit::select_commit_memory_allocation(allocation.memory_id, allocation.stable_key);
     let memory = commit::commit_memory_handle(allocation).unwrap();
     database_format::initialize_current_database_control_for_tests(&memory);
     let incarnation = DatabaseIncarnationId::for_tests(0x72);

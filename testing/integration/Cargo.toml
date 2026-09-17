@@ -37,6 +37,10 @@ name = "model_facade"
 path = "tests/model_facade.rs"
 
 [[test]]
+name = "logical_memory"
+path = "tests/logical_memory.rs"
+
+[[test]]
 name = "sql_guard"
 path = "tests/sql_guard.rs"
 
