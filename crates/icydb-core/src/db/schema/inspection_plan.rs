@@ -25,6 +25,7 @@ use crate::{
     traits::CanisterKind,
 };
 use sha2::Digest;
+use std::rc::Rc;
 
 const ACCEPTED_INSPECTION_PLAN_FINGERPRINT_DOMAIN: &[u8] = b"icydb.accepted-inspection-plan.v1";
 
@@ -54,7 +55,7 @@ impl AcceptedInspectionPlanFingerprint {
 #[derive(Clone, Debug)]
 pub(in crate::db) struct AcceptedInspectionPlan {
     identity: AcceptedCatalogIdentity,
-    snapshot: AcceptedSchemaSnapshot,
+    snapshot: Rc<AcceptedSchemaSnapshot>,
     value_catalog: AcceptedValueCatalogHandle,
     row_contract: StructuralRowContract,
     write_constraints: CompiledAcceptedRowConstraints,
@@ -94,7 +95,7 @@ impl AcceptedInspectionPlan {
     pub(in crate::db) fn compile<C: CanisterKind>(
         db: &Db<C>,
         identity: AcceptedCatalogIdentity,
-        snapshot: AcceptedSchemaSnapshot,
+        snapshot: Rc<AcceptedSchemaSnapshot>,
         value_catalog: AcceptedValueCatalogHandle,
     ) -> Result<Self, InternalError> {
         let relation_identity = identity.clone();
@@ -132,7 +133,7 @@ impl AcceptedInspectionPlan {
     /// create a plan that omits accepted relation authority.
     pub(in crate::db) fn compile_relation_free_for_tests(
         identity: AcceptedCatalogIdentity,
-        snapshot: AcceptedSchemaSnapshot,
+        snapshot: Rc<AcceptedSchemaSnapshot>,
         value_catalog: AcceptedValueCatalogHandle,
     ) -> Result<Self, InternalError> {
         Self::compile_with_relation_builder(identity, snapshot, value_catalog, |snapshot, _row| {
@@ -145,7 +146,7 @@ impl AcceptedInspectionPlan {
 
     fn compile_with_relation_builder(
         identity: AcceptedCatalogIdentity,
-        snapshot: AcceptedSchemaSnapshot,
+        snapshot: Rc<AcceptedSchemaSnapshot>,
         value_catalog: AcceptedValueCatalogHandle,
         build_relations: impl FnOnce(
             &AcceptedSchemaSnapshot,
@@ -215,7 +216,7 @@ impl AcceptedInspectionPlan {
 
     /// Borrow the selected accepted entity snapshot.
     #[must_use]
-    pub(in crate::db) const fn snapshot(&self) -> &AcceptedSchemaSnapshot {
+    pub(in crate::db) fn snapshot(&self) -> &AcceptedSchemaSnapshot {
         &self.snapshot
     }
 
@@ -370,7 +371,7 @@ mod tests {
 
         let plan = AcceptedInspectionPlan::compile_relation_free_for_tests(
             identity.clone(),
-            snapshot(),
+            Rc::new(snapshot()),
             value_catalog(revision),
         )
         .expect("verified accepted inputs should compile one inspection plan");
@@ -413,7 +414,7 @@ mod tests {
     fn accepted_inspection_plan_rejects_mismatched_catalog_revision() {
         let error = AcceptedInspectionPlan::compile_relation_free_for_tests(
             identity(AcceptedSchemaRevision::INITIAL, [0x11; 16]),
-            snapshot(),
+            Rc::new(snapshot()),
             value_catalog(AcceptedSchemaRevision::new(2)),
         )
         .expect_err("a plan must not combine different accepted revisions");

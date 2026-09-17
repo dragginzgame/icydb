@@ -1,0 +1,11 @@
+sample,artifact,repeat,wasm,stable,query_calls,query_instructions
+heap,baseline,0,wasm=4_784_128,stable=39_911_424,query_calls=0,query_instructions=0
+heap,baseline,1,wasm=4_784_128,stable=39_911_424,query_calls=0,query_instructions=0
+heap,baseline,2,wasm=4_784_128,stable=39_911_424,query_calls=0,query_instructions=8_398_468
+heap,baseline,3,wasm=4_784_128,stable=39_911_424,query_calls=0,query_instructions=16_924_284
+heap,baseline,4,wasm=4_784_128,stable=39_911_424,query_calls=0,query_instructions=25_625_392
+heap,candidate,0,wasm=4_587_520,stable=39_911_424,query_calls=0,query_instructions=0
+heap,candidate,1,wasm=4_587_520,stable=39_911_424,query_calls=0,query_instructions=0
+heap,candidate,2,wasm=4_587_520,stable=39_911_424,query_calls=0,query_instructions=8_398_819
+heap,candidate,3,wasm=4_587_520,stable=39_911_424,query_calls=0,query_instructions=16_838_588
+heap,candidate,4,wasm=4_587_520,stable=39_911_424,query_calls=0,query_instructions=25_457_302

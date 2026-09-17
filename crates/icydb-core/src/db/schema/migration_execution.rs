@@ -848,7 +848,7 @@ fn prepare_candidate_entity<C: CanisterKind>(
         program.store_path(),
     )?
     .ok_or_else(InternalError::store_invariant)?;
-    let candidate_schema = candidate_selection.decode_verified()?;
+    let candidate_schema = candidate_selection.snapshot();
     let candidate_contract =
         crate::db::data::AcceptedStructuralRowAuthority::from_catalog_selection(
             program.candidate_path(),
@@ -865,7 +865,7 @@ fn prepare_candidate_entity<C: CanisterKind>(
             )
         })?
         .ok_or_else(InternalError::store_corruption)?
-        .decode_verified()?;
+        .snapshot();
     let indexes = candidate_schema
         .persisted_snapshot()
         .indexes()

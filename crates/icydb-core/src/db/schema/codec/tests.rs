@@ -17,6 +17,7 @@ use crate::{
         accepted_schema_cache_fingerprint_for_persisted_snapshot,
         composite_catalog::{CompositeFieldId, CompositeTypeId},
         decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
+        fingerprint::accepted_schema_cache_fingerprint_from_raw,
     },
     error::{ErrorClass, ErrorOrigin},
     types::EntityTag,
@@ -25,6 +26,52 @@ use crate::{
 fn encode_unchecked_schema_fixture(snapshot: &PersistedSchemaSnapshot) -> Vec<u8> {
     super::encode_unchecked_persisted_schema_snapshot_for_tests(snapshot)
         .expect("unchecked schema fixture should encode")
+}
+
+// Compare the identity projection with ordinary current-format encoding, using
+// complete fixtures so nested metadata cannot disappear from the hash input.
+fn assert_runtime_fingerprint_projection(snapshot: &PersistedSchemaSnapshot) {
+    let normalized = snapshot
+        .clone()
+        .with_schema_version(SchemaVersion::initial());
+    let expected_bytes = encode_persisted_schema_snapshot(&normalized).unwrap();
+    let expected =
+        accepted_schema_cache_fingerprint_from_raw(snapshot.entity_path(), &expected_bytes);
+    for version in [1, 7, u32::MAX] {
+        let input = snapshot
+            .clone()
+            .with_schema_version(SchemaVersion::new(version));
+        assert_eq!(
+            super::encode_persisted_schema_snapshot_with_version(&input, SchemaVersion::initial())
+                .unwrap(),
+            expected_bytes,
+        );
+        assert_eq!(
+            accepted_schema_cache_fingerprint_for_persisted_snapshot(&input).unwrap(),
+            expected,
+        );
+        assert_eq!(input.version(), SchemaVersion::new(version));
+        assert_eq!(
+            decode_persisted_schema_snapshot(&encode_persisted_schema_snapshot(&input).unwrap())
+                .unwrap(),
+            input,
+        );
+    }
+}
+
+#[test]
+fn runtime_fingerprint_rejects_invalid_snapshot_before_normalization() {
+    let invalid_version = temporal_schema_snapshot().with_schema_version(SchemaVersion::new(0));
+    let invalid_unique = nullable_unique_codec_fixture(None);
+    for snapshot in [invalid_version, invalid_unique] {
+        let persisted_error = encode_persisted_schema_snapshot(&snapshot).unwrap_err();
+        let fingerprint_error =
+            accepted_schema_cache_fingerprint_for_persisted_snapshot(&snapshot).unwrap_err();
+        assert_eq!(fingerprint_error.class(), ErrorClass::InvariantViolation);
+        assert_eq!(fingerprint_error.origin(), ErrorOrigin::Store);
+        assert_eq!(fingerprint_error.class(), persisted_error.class());
+        assert_eq!(fingerprint_error.origin(), persisted_error.origin());
+    }
 }
 
 #[test]
@@ -442,6 +489,7 @@ fn persisted_schema_snapshot_round_trips_temporal_layout_facts() {
         .to_vec();
     let encoded = encode_persisted_schema_snapshot(&snapshot)
         .expect("temporal schema snapshot should encode");
+    assert_runtime_fingerprint_projection(&snapshot);
 
     let decoded =
         decode_persisted_schema_snapshot(&encoded).expect("temporal schema snapshot should decode");
@@ -541,6 +589,7 @@ fn persisted_schema_snapshot_round_trips_current_check_expression() {
     let snapshot = snapshot_with_true_check();
     let encoded = encode_persisted_schema_snapshot(&snapshot)
         .expect("current check expression should encode");
+    assert_runtime_fingerprint_projection(&snapshot);
     let decoded =
         decode_persisted_schema_snapshot(&encoded).expect("current check expression should decode");
 
@@ -716,6 +765,7 @@ fn persisted_schema_snapshot_round_trips_planner_invisible_unique_candidate() {
 
     let encoded = encode_persisted_schema_snapshot(&snapshot)
         .expect("unique candidate activation should encode");
+    assert_runtime_fingerprint_projection(&snapshot);
     let decoded = decode_persisted_schema_snapshot(&encoded)
         .expect("unique candidate activation should decode");
 
@@ -970,6 +1020,7 @@ fn persisted_schema_snapshot_round_trips_identity_generation() {
     );
     let encoded =
         encode_persisted_schema_snapshot(&snapshot).expect("identity schema should encode");
+    assert_runtime_fingerprint_projection(&snapshot);
     let decoded =
         decode_persisted_schema_snapshot(&encoded).expect("identity schema should decode");
 
@@ -1510,6 +1561,7 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
     let snapshot = snapshot.with_constraint_catalog(constraint_catalog);
     let encoded = encode_persisted_schema_snapshot(&snapshot)
         .expect("schema snapshot should encode accepted relation contracts");
+    assert_runtime_fingerprint_projection(&snapshot);
 
     let decoded = decode_persisted_schema_snapshot(&encoded)
         .expect("schema snapshot should decode accepted relation contracts");
@@ -1708,6 +1760,7 @@ fn persisted_schema_snapshot_round_trips_expression_indexes() {
     );
     let encoded = encode_persisted_schema_snapshot(&snapshot)
         .expect("schema snapshot should encode accepted expression index contracts");
+    assert_runtime_fingerprint_projection(&snapshot);
 
     let decoded = decode_persisted_schema_snapshot(&encoded)
         .expect("schema snapshot should decode accepted expression index contracts");

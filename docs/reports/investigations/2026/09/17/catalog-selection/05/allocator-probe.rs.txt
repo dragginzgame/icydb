@@ -1,0 +1,71 @@
+//! Temporary audit-only allocator telemetry; never production runtime code.
+#![allow(unsafe_code)]
+use std::{
+    alloc::{GlobalAlloc, Layout, System},
+    sync::atomic::{AtomicU64, Ordering::Relaxed},
+};
+
+struct AllocationProbe;
+#[global_allocator]
+static ALLOCATOR: AllocationProbe = AllocationProbe;
+static LIVE: AtomicU64 = AtomicU64::new(0);
+static PEAK: AtomicU64 = AtomicU64::new(0);
+static TOTAL: AtomicU64 = AtomicU64::new(0);
+static BLOCKS: AtomicU64 = AtomicU64::new(0);
+static PEAK_BLOCKS: AtomicU64 = AtomicU64::new(0);
+
+fn add(bytes: usize) {
+    let live = LIVE.fetch_add(bytes as u64, Relaxed) + bytes as u64;
+    PEAK.fetch_max(live, Relaxed);
+    TOTAL.fetch_add(bytes as u64, Relaxed);
+}
+
+// Safety: every allocation/deallocation is forwarded unchanged to System.
+// Counters never allocate and never read or modify the returned memory.
+unsafe impl GlobalAlloc for AllocationProbe {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let ptr = unsafe { System.alloc(layout) };
+        if !ptr.is_null() {
+            add(layout.size());
+            let blocks = BLOCKS.fetch_add(1, Relaxed) + 1;
+            PEAK_BLOCKS.fetch_max(blocks, Relaxed);
+        }
+        ptr
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        let ptr = unsafe { System.alloc_zeroed(layout) };
+        if !ptr.is_null() {
+            add(layout.size());
+            let blocks = BLOCKS.fetch_add(1, Relaxed) + 1;
+            PEAK_BLOCKS.fetch_max(blocks, Relaxed);
+        }
+        ptr
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        unsafe { System.dealloc(ptr, layout) };
+        LIVE.fetch_sub(layout.size() as u64, Relaxed);
+        BLOCKS.fetch_sub(1, Relaxed);
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        let next = unsafe { System.realloc(ptr, layout, size) };
+        if !next.is_null() {
+            LIVE.fetch_sub(layout.size() as u64, Relaxed);
+            add(size);
+        }
+        next
+    }
+}
+
+#[ic_cdk::query]
+fn allocation_probe() -> Vec<u64> {
+    let live = LIVE.load(Relaxed);
+    let peak = PEAK.load(Relaxed);
+    let total = TOTAL.load(Relaxed);
+    let blocks = BLOCKS.load(Relaxed);
+    let peak_blocks = PEAK_BLOCKS.load(Relaxed);
+    vec![live, peak, total, blocks, peak_blocks,
+        core::arch::wasm32::memory_size::<0>() as u64 * 65_536]
+}

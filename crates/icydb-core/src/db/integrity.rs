@@ -1082,8 +1082,12 @@ mod tests {
             revision,
         );
 
-        AcceptedInspectionPlan::compile_relation_free_for_tests(identity, snapshot, value_catalog)
-            .expect("accepted Quick plan should compile")
+        AcceptedInspectionPlan::compile_relation_free_for_tests(
+            identity,
+            snapshot.into(),
+            value_catalog,
+        )
+        .expect("accepted Quick plan should compile")
     }
 
     fn finding(plan: &AcceptedInspectionPlan) -> IntegrityFinding {

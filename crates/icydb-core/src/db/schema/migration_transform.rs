@@ -404,7 +404,7 @@ fn compile_entity_program(
         store.path,
     )?
     .ok_or_else(InternalError::store_invariant)?;
-    let accepted_candidate = selection.decode_verified()?;
+    let accepted_candidate = selection.snapshot();
     let candidate_contract =
         crate::db::data::AcceptedStructuralRowAuthority::from_catalog_selection(
             candidate_snapshot.entity_path(),

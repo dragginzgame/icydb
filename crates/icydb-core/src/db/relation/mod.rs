@@ -252,7 +252,7 @@ where
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
-    let accepted = selection.decode_verified()?;
+    let accepted = selection.snapshot();
     let primary_key_kinds = accepted
         .primary_key_field_kinds()
         .into_iter()
@@ -491,7 +491,7 @@ impl AcceptedRelationTargetAuthority {
                 )
             })?
             .ok_or_else(InternalError::store_corruption)?;
-        let accepted = selection.decode_verified()?;
+        let accepted = selection.snapshot();
         if accepted.entity_name() != self.entity_name.as_str() {
             return Err(InternalError::relation_target_identity_mismatch(
                 source_path,

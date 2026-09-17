@@ -1,5 +1,42 @@
 use super::*;
-use crate::db::schema::{AcceptedSchemaFingerprint, NullableUniqueIndexContractError, ScalarCodec};
+use crate::db::schema::{
+    AcceptedSchemaFingerprint, NullableUniqueIndexContractError, ScalarCodec,
+    codec::{decode_persisted_schema_snapshot, encode_persisted_schema_snapshot},
+};
+
+#[test]
+fn shared_payload_preserves_detached_candidate_and_current_encoding() {
+    let original = nullable_unique_schema_fixture(false, &[], &["email"], None);
+    let before = encode_persisted_schema_snapshot(&original).expect("fixture encodes");
+    let accepted = AcceptedSchemaSnapshot::try_new(original.clone()).expect("fixture accepts");
+    assert!(Rc::ptr_eq(&original.payload, &accepted.snapshot.payload));
+    assert_eq!(
+        decode_persisted_schema_snapshot(&before).expect("current bytes decode"),
+        original,
+    );
+    let candidate = original.clone().with_schema_version(SchemaVersion::new(7));
+    assert_eq!(candidate.version(), SchemaVersion::new(7));
+    assert_eq!(original.version(), SchemaVersion::initial());
+    assert!(!Rc::ptr_eq(&original.payload, &candidate.payload));
+    assert_eq!(
+        encode_persisted_schema_snapshot(accepted.persisted_snapshot()).unwrap(),
+        before,
+    );
+    assert_eq!(
+        encode_persisted_schema_snapshot(&candidate).unwrap(),
+        encode_persisted_schema_snapshot(&original.clone_with_version(SchemaVersion::new(7)))
+            .unwrap(),
+    );
+    let edited = original
+        .clone()
+        .with_relation_id_allocator(RelationIdAllocator::new(9))
+        .with_constraint_catalog(AcceptedConstraintCatalog::default());
+    assert_eq!(edited.relation_id_allocator().high_water(), 9);
+    assert_eq!(original.relation_id_allocator().high_water(), 0);
+    assert!(!original.constraints().is_empty());
+    assert!(edited.constraints().is_empty());
+    assert_eq!(encode_persisted_schema_snapshot(&original).unwrap(), before);
+}
 
 // Build a small accepted schema snapshot with deliberately non-generated
 // slot values so accessor tests prove they read persisted schema facts.
@@ -771,8 +808,8 @@ fn every_index_predicate_binds_authored_fields_before_acceptance_and_codec() {
     }
 }
 
-#[test]
-fn unique_promotion_revalidates_the_current_candidate_without_residue() {
+// Share one live activation fixture across successful and rejected transitions.
+fn pending_unique_schema_fixture() -> PersistedSchemaSnapshot {
     let template =
         nullable_unique_schema_fixture(true, &["email"], &["email"], Some("email IS NOT NULL"));
     let base = PersistedSchemaSnapshot::new_with_indexes(
@@ -792,14 +829,48 @@ fn unique_promotion_revalidates_the_current_candidate_without_residue() {
         1,
         7,
     );
-    let pending = base
-        .with_constraint_catalog(base_catalog)
-        .with_added_unique_activation(
-            candidate.clone(),
-            AcceptedSchemaFingerprint::new([7; 32]),
-            7,
-        )
-        .expect("guarded nullable unique candidate should admit");
+    base.with_constraint_catalog(base_catalog)
+        .with_added_unique_activation(candidate, AcceptedSchemaFingerprint::new([7; 32]), 7)
+        .expect("guarded nullable unique candidate should admit")
+}
+
+#[test]
+fn shared_unique_transitions_preserve_accepted_authority() {
+    let pending = pending_unique_schema_fixture();
+    let before = encode_persisted_schema_snapshot(&pending).expect("pending schema encodes");
+    let accepted =
+        AcceptedSchemaSnapshot::try_new(pending.clone()).expect("pending schema accepts");
+    let constraint_id = pending.constraint_activations()[0].id();
+    let promoted = pending
+        .with_promoted_unique_activation(constraint_id, SchemaVersion::new(2))
+        .expect("valid candidate promotes");
+    let aborted = pending
+        .with_aborted_unique_activation(constraint_id, SchemaVersion::new(2))
+        .expect("live candidate aborts");
+
+    assert_eq!(promoted.indexes().len(), 1);
+    assert!(promoted.candidate_indexes().is_empty());
+    assert!(promoted.constraint_activations().is_empty());
+    assert!(aborted.indexes().is_empty());
+    assert!(aborted.candidate_indexes().is_empty());
+    assert!(aborted.constraint_activations().is_empty());
+    assert_eq!(pending.candidate_indexes().len(), 1);
+    assert_eq!(pending.constraint_activations().len(), 1);
+    assert_eq!(encode_persisted_schema_snapshot(&pending).unwrap(), before);
+    assert_eq!(
+        encode_persisted_schema_snapshot(accepted.persisted_snapshot()).unwrap(),
+        before,
+    );
+    for changed in [promoted, aborted] {
+        assert_eq!(changed.version(), SchemaVersion::new(2));
+        AcceptedSchemaSnapshot::try_new(changed).expect("transition remains acceptable");
+    }
+}
+
+#[test]
+fn unique_promotion_revalidates_the_current_candidate_without_residue() {
+    let pending = pending_unique_schema_fixture();
+    let candidate = &pending.candidate_indexes()[0];
     let constraint_id = pending.constraint_catalog().activations()[0].id();
     let unguarded = PersistedIndexSnapshot::new_sql_ddl(
         candidate.schema_id(),

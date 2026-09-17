@@ -58,9 +58,20 @@ pub(in crate::db) fn persisted_schema_snapshot_decode_count_for_tests() -> u64 {
 pub(in crate::db) fn encode_persisted_schema_snapshot(
     snapshot: &PersistedSchemaSnapshot,
 ) -> Result<Vec<u8>, InternalError> {
+    encode_persisted_schema_snapshot_with_version(snapshot, snapshot.version())
+}
+
+/// Encode a declared-version projection without copying the snapshot.
+/// Validate the original authority first: normalization must not admit an
+/// invalid snapshot. Persistence passes its version; runtime identity passes
+/// the canonical hash sentinel through the same bounded codec.
+pub(in crate::db::schema) fn encode_persisted_schema_snapshot_with_version(
+    snapshot: &PersistedSchemaSnapshot,
+    version: SchemaVersion,
+) -> Result<Vec<u8>, InternalError> {
     validate_schema_snapshot_acceptance(snapshot)
         .map_err(SchemaSnapshotAcceptanceError::into_invariant_error)?;
-    encode_snapshot(snapshot)
+    encode_snapshot(snapshot, version)
 }
 
 /// Encode an intentionally malformed domain fixture for decode-boundary tests.
@@ -68,14 +79,17 @@ pub(in crate::db) fn encode_persisted_schema_snapshot(
 pub(in crate::db) fn encode_unchecked_persisted_schema_snapshot_for_tests(
     snapshot: &PersistedSchemaSnapshot,
 ) -> Result<Vec<u8>, InternalError> {
-    encode_snapshot(snapshot)
+    encode_snapshot(snapshot, snapshot.version())
 }
 
-fn encode_snapshot(snapshot: &PersistedSchemaSnapshot) -> Result<Vec<u8>, InternalError> {
+fn encode_snapshot(
+    snapshot: &PersistedSchemaSnapshot,
+    version: SchemaVersion,
+) -> Result<Vec<u8>, InternalError> {
     let mut writer = SnapshotWriter::new();
     writer.push_bytes(&SCHEMA_SNAPSHOT_MAGIC);
     writer.push_u8(SCHEMA_SNAPSHOT_FORMAT_VERSION);
-    writer.push_u32(snapshot.version().get());
+    writer.push_u32(version.get());
     writer.push_bounded_string(snapshot.entity_path(), MAX_SCHEMA_STORE_PATH_BYTES)?;
     writer.push_bounded_string(snapshot.entity_name(), MAX_NAME_BYTES)?;
     encode_sequence!(

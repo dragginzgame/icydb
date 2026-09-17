@@ -1,0 +1,481 @@
+diff --git a/crates/icydb-core/src/db/schema/snapshot.rs b/crates/icydb-core/src/db/schema/snapshot.rs
+index 7d10d5ed5..a785fd5f0 100644
+--- a/crates/icydb-core/src/db/schema/snapshot.rs
++++ b/crates/icydb-core/src/db/schema/snapshot.rs
+@@ -27,2 +27,3 @@ use crate::{
+ use std::collections::BTreeSet;
++use std::rc::Rc;
+ 
+@@ -80,3 +81,3 @@ impl AcceptedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn entity_path(&self) -> &str {
++    pub(in crate::db) fn entity_path(&self) -> &str {
+         self.snapshot.entity_path()
+@@ -86,3 +87,3 @@ impl AcceptedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn entity_name(&self) -> &str {
++    pub(in crate::db) fn entity_name(&self) -> &str {
+         self.snapshot.entity_name()
+@@ -152,2 +153,8 @@ impl AcceptedSchemaSnapshot {
+ pub(in crate::db) struct PersistedSchemaSnapshot {
++    payload: Rc<SchemaSnapshotPayload>,
++}
++
++/// Shared immutable schema data; candidate edits detach through copy-on-write.
++#[derive(Clone, Debug, Eq, PartialEq)]
++struct SchemaSnapshotPayload {
+     version: SchemaVersion,
+@@ -270,14 +277,16 @@ impl PersistedSchemaSnapshot {
+         Self {
+-            version,
+-            entity_path,
+-            entity_name,
+-            primary_key_field_ids: primary_key_field_ids.into_primary_key_field_ids(),
+-            row_layout,
+-            constraint_catalog: AcceptedConstraintCatalog::default(),
+-            relation_id_allocator: RelationIdAllocator::default(),
+-            fields,
+-            indexes,
+-            relations: Vec::new(),
+-            candidate_indexes: Vec::new(),
+-            candidate_relations: Vec::new(),
++            payload: Rc::new(SchemaSnapshotPayload {
++                version,
++                entity_path,
++                entity_name,
++                primary_key_field_ids: primary_key_field_ids.into_primary_key_field_ids(),
++                row_layout,
++                constraint_catalog: AcceptedConstraintCatalog::default(),
++                relation_id_allocator: RelationIdAllocator::default(),
++                fields,
++                indexes,
++                relations: Vec::new(),
++                candidate_indexes: Vec::new(),
++                candidate_relations: Vec::new(),
++            }),
+         }
+@@ -291,3 +300,4 @@ impl PersistedSchemaSnapshot {
+     ) -> Self {
+-        self.constraint_catalog = catalog;
++        let payload = Rc::make_mut(&mut self.payload);
++        payload.constraint_catalog = catalog;
+         self
+@@ -297,3 +307,3 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn with_relation_id_allocator(
++    pub(in crate::db) fn with_relation_id_allocator(
+         mut self,
+@@ -301,3 +311,4 @@ impl PersistedSchemaSnapshot {
+     ) -> Self {
+-        self.relation_id_allocator = allocator;
++        let payload = Rc::make_mut(&mut self.payload);
++        payload.relation_id_allocator = allocator;
+         self
+@@ -307,4 +318,5 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn with_schema_version(mut self, version: SchemaVersion) -> Self {
+-        self.version = version;
++    pub(in crate::db) fn with_schema_version(mut self, version: SchemaVersion) -> Self {
++        let payload = Rc::make_mut(&mut self.payload);
++        payload.version = version;
+         self
+@@ -319,3 +331,4 @@ impl PersistedSchemaSnapshot {
+     ) -> Result<Self, AcceptedConstraintCatalogError> {
+-        self.constraint_catalog = self
++        let payload = Rc::make_mut(&mut self.payload);
++        payload.constraint_catalog = payload
+             .constraint_catalog
+@@ -323,3 +336,3 @@ impl PersistedSchemaSnapshot {
+             .with_added_unique_activation(&candidate, base_schema_fingerprint, activation_epoch)?;
+-        self.candidate_indexes.push(candidate);
++        payload.candidate_indexes.push(candidate);
+         self.validate_constraint_candidate()?;
+@@ -335,2 +348,3 @@ impl PersistedSchemaSnapshot {
+         let activation = self
++            .payload
+             .constraint_catalog
+@@ -342,2 +356,3 @@ impl PersistedSchemaSnapshot {
+         let target = self
++            .payload
+             .fields
+@@ -349,7 +364,8 @@ impl PersistedSchemaSnapshot {
+                 .introduced_in_layout()
+-                .max(self.row_layout.history_floor())
++                .max(self.payload.row_layout.history_floor())
+         } else {
+-            self.row_layout.history_floor()
++            self.payload.row_layout.history_floor()
+         };
+         let fields = self
++            .payload
+             .fields
+@@ -384,2 +400,3 @@ impl PersistedSchemaSnapshot {
+             ConstraintActivationState::EnforcingNewWrites => self
++                .payload
+                 .constraint_catalog
+@@ -388,2 +405,3 @@ impl PersistedSchemaSnapshot {
+             ConstraintActivationState::Validating => self
++                .payload
+                 .constraint_catalog
+@@ -394,18 +412,20 @@ impl PersistedSchemaSnapshot {
+         Ok(Self {
+-            version,
+-            entity_path: self.entity_path.clone(),
+-            entity_name: self.entity_name.clone(),
+-            primary_key_field_ids: self.primary_key_field_ids.clone(),
+-            row_layout: SchemaRowLayout::new(
+-                self.row_layout.current_version(),
+-                history_floor,
+-                self.row_layout.field_to_slot().to_vec(),
+-            ),
+-            constraint_catalog,
+-            relation_id_allocator: self.relation_id_allocator,
+-            fields,
+-            indexes: self.indexes.clone(),
+-            relations: self.relations.clone(),
+-            candidate_indexes: self.candidate_indexes.clone(),
+-            candidate_relations: self.candidate_relations.clone(),
++            payload: Rc::new(SchemaSnapshotPayload {
++                version,
++                entity_path: self.payload.entity_path.clone(),
++                entity_name: self.payload.entity_name.clone(),
++                primary_key_field_ids: self.payload.primary_key_field_ids.clone(),
++                row_layout: SchemaRowLayout::new(
++                    self.payload.row_layout.current_version(),
++                    history_floor,
++                    self.payload.row_layout.field_to_slot().to_vec(),
++                ),
++                constraint_catalog,
++                relation_id_allocator: self.payload.relation_id_allocator,
++                fields,
++                indexes: self.payload.indexes.clone(),
++                relations: self.payload.relations.clone(),
++                candidate_indexes: self.payload.candidate_indexes.clone(),
++                candidate_relations: self.payload.candidate_relations.clone(),
++            }),
+         })
+@@ -420,2 +440,3 @@ impl PersistedSchemaSnapshot {
+         let activation = self
++            .payload
+             .constraint_catalog
+@@ -427,2 +448,3 @@ impl PersistedSchemaSnapshot {
+         let candidate = self
++            .payload
+             .candidate_indexes
+@@ -434,2 +456,3 @@ impl PersistedSchemaSnapshot {
+             ConstraintActivationState::EnforcingNewWrites => self
++                .payload
+                 .constraint_catalog
+@@ -438,2 +461,3 @@ impl PersistedSchemaSnapshot {
+             ConstraintActivationState::Validating => self
++                .payload
+                 .constraint_catalog
+@@ -443,9 +467,10 @@ impl PersistedSchemaSnapshot {
+         let mut after = self.clone();
+-        after.version = version;
+-        after.constraint_catalog = constraint_catalog;
+-        after
++        let payload = Rc::make_mut(&mut after.payload);
++        payload.version = version;
++        payload.constraint_catalog = constraint_catalog;
++        payload
+             .candidate_indexes
+             .retain(|index| index.schema_id() != *index_id);
+-        after.indexes.push(candidate);
+-        icydb_schema::compact_sort_unstable_by(&mut after.indexes, |left, right| {
++        payload.indexes.push(candidate);
++        icydb_schema::compact_sort_unstable_by(&mut payload.indexes, |left, right| {
+             left.ordinal().cmp(&right.ordinal())
+@@ -464,2 +489,3 @@ impl PersistedSchemaSnapshot {
+         let activation = self
++            .payload
+             .constraint_catalog
+@@ -471,2 +497,3 @@ impl PersistedSchemaSnapshot {
+         if !self
++            .payload
+             .candidate_indexes
+@@ -479,7 +506,7 @@ impl PersistedSchemaSnapshot {
+         let mut after = self.clone();
+-        after.version = version;
+-        after.constraint_catalog = after
+-            .constraint_catalog
++        let payload = Rc::make_mut(&mut after.payload);
++        payload.version = version;
++        payload.constraint_catalog = std::mem::take(&mut payload.constraint_catalog)
+             .with_aborted_activation(constraint_id)?;
+-        after
++        payload
+             .candidate_indexes
+@@ -497,2 +524,3 @@ impl PersistedSchemaSnapshot {
+         let activation = self
++            .payload
+             .constraint_catalog
+@@ -504,2 +532,3 @@ impl PersistedSchemaSnapshot {
+         let candidate = self
++            .payload
+             .candidate_relations
+@@ -511,2 +540,3 @@ impl PersistedSchemaSnapshot {
+             ConstraintActivationState::EnforcingNewWrites => self
++                .payload
+                 .constraint_catalog
+@@ -515,2 +545,3 @@ impl PersistedSchemaSnapshot {
+             ConstraintActivationState::Validating => self
++                .payload
+                 .constraint_catalog
+@@ -520,9 +551,10 @@ impl PersistedSchemaSnapshot {
+         let mut after = self.clone();
+-        after.version = version;
+-        after.constraint_catalog = constraint_catalog;
+-        after
++        let payload = Rc::make_mut(&mut after.payload);
++        payload.version = version;
++        payload.constraint_catalog = constraint_catalog;
++        payload
+             .candidate_relations
+             .retain(|relation| relation.id() != *relation_id);
+-        after.relations.push(candidate);
+-        icydb_schema::compact_sort_unstable_by(&mut after.relations, |left, right| {
++        payload.relations.push(candidate);
++        icydb_schema::compact_sort_unstable_by(&mut payload.relations, |left, right| {
+             left.id().cmp(&right.id())
+@@ -543,3 +575,4 @@ impl PersistedSchemaSnapshot {
+         self.raise_relation_id_high_water(relations.iter().map(PersistedRelationEdgeSnapshot::id));
+-        self.relations = relations;
++        let payload = Rc::make_mut(&mut self.payload);
++        payload.relations = relations;
+         self
+@@ -555,4 +588,5 @@ impl PersistedSchemaSnapshot {
+         self.raise_relation_id_high_water(relations.iter().map(PersistedRelationEdgeSnapshot::id));
+-        self.candidate_indexes = indexes;
+-        self.candidate_relations = relations;
++        let payload = Rc::make_mut(&mut self.payload);
++        payload.candidate_indexes = indexes;
++        payload.candidate_relations = relations;
+         self
+@@ -561,2 +595,3 @@ impl PersistedSchemaSnapshot {
+     fn raise_relation_id_high_water(&mut self, ids: impl Iterator<Item = RelationId>) {
++        let payload = Rc::make_mut(&mut self.payload);
+         let high_water = ids
+@@ -565,4 +600,4 @@ impl PersistedSchemaSnapshot {
+             .unwrap_or(0)
+-            .max(self.relation_id_allocator.high_water());
+-        self.relation_id_allocator = RelationIdAllocator::new(high_water);
++            .max(payload.relation_id_allocator.high_water());
++        payload.relation_id_allocator = RelationIdAllocator::new(high_water);
+     }
+@@ -571,4 +606,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn version(&self) -> SchemaVersion {
+-        self.version
++    pub(in crate::db) fn version(&self) -> SchemaVersion {
++        self.payload.version
+     }
+@@ -577,4 +612,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn entity_path(&self) -> &str {
+-        self.entity_path.as_str()
++    pub(in crate::db) fn entity_path(&self) -> &str {
++        self.payload.entity_path.as_str()
+     }
+@@ -583,4 +618,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn entity_name(&self) -> &str {
+-        self.entity_name.as_str()
++    pub(in crate::db) fn entity_name(&self) -> &str {
++        self.payload.entity_name.as_str()
+     }
+@@ -603,3 +638,4 @@ impl PersistedSchemaSnapshot {
+             .map(|root| {
+-                self.fields
++                self.payload
++                    .fields
+                     .iter()
+@@ -624,3 +660,4 @@ impl PersistedSchemaSnapshot {
+     ) -> bool {
+-        self.fields
++        self.payload
++            .fields
+             .iter()
+@@ -629,2 +666,3 @@ impl PersistedSchemaSnapshot {
+             || self
++                .payload
+                 .indexes
+@@ -633,2 +671,3 @@ impl PersistedSchemaSnapshot {
+             || self
++                .payload
+                 .relations
+@@ -647,3 +686,3 @@ impl PersistedSchemaSnapshot {
+     pub(in crate::db) fn update_management_requires_global_write_validation(&self) -> bool {
+-        self.fields.iter().any(|field| {
++        self.payload.fields.iter().any(|field| {
+             field.write_policy().write_management() == Some(FieldWriteManagement::UpdatedAt)
+@@ -655,4 +694,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn primary_key_field_ids(&self) -> &[FieldId] {
+-        self.primary_key_field_ids.as_slice()
++    pub(in crate::db) fn primary_key_field_ids(&self) -> &[FieldId] {
++        self.payload.primary_key_field_ids.as_slice()
+     }
+@@ -661,4 +700,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn row_layout(&self) -> &SchemaRowLayout {
+-        &self.row_layout
++    pub(in crate::db) fn row_layout(&self) -> &SchemaRowLayout {
++        &self.payload.row_layout
+     }
+@@ -667,4 +706,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn constraint_id_allocator(&self) -> ConstraintIdAllocator {
+-        self.constraint_catalog.allocator()
++    pub(in crate::db) fn constraint_id_allocator(&self) -> ConstraintIdAllocator {
++        self.payload.constraint_catalog.allocator()
+     }
+@@ -673,4 +712,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn relation_id_allocator(&self) -> RelationIdAllocator {
+-        self.relation_id_allocator
++    pub(in crate::db) fn relation_id_allocator(&self) -> RelationIdAllocator {
++        self.payload.relation_id_allocator
+     }
+@@ -679,4 +718,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn constraints(&self) -> &[AcceptedConstraintSnapshot] {
+-        self.constraint_catalog.constraints()
++    pub(in crate::db) fn constraints(&self) -> &[AcceptedConstraintSnapshot] {
++        self.payload.constraint_catalog.constraints()
+     }
+@@ -772,4 +811,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn constraint_activations(&self) -> &[ConstraintActivationSnapshot] {
+-        self.constraint_catalog.activations()
++    pub(in crate::db) fn constraint_activations(&self) -> &[ConstraintActivationSnapshot] {
++        self.payload.constraint_catalog.activations()
+     }
+@@ -778,4 +817,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn constraint_catalog(&self) -> &AcceptedConstraintCatalog {
+-        &self.constraint_catalog
++    pub(in crate::db) fn constraint_catalog(&self) -> &AcceptedConstraintCatalog {
++        &self.payload.constraint_catalog
+     }
+@@ -784,4 +823,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn fields(&self) -> &[PersistedFieldSnapshot] {
+-        self.fields.as_slice()
++    pub(in crate::db) fn fields(&self) -> &[PersistedFieldSnapshot] {
++        self.payload.fields.as_slice()
+     }
+@@ -790,4 +829,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn indexes(&self) -> &[PersistedIndexSnapshot] {
+-        self.indexes.as_slice()
++    pub(in crate::db) fn indexes(&self) -> &[PersistedIndexSnapshot] {
++        self.payload.indexes.as_slice()
+     }
+@@ -796,4 +835,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn relations(&self) -> &[PersistedRelationEdgeSnapshot] {
+-        self.relations.as_slice()
++    pub(in crate::db) fn relations(&self) -> &[PersistedRelationEdgeSnapshot] {
++        self.payload.relations.as_slice()
+     }
+@@ -802,4 +841,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn candidate_indexes(&self) -> &[PersistedIndexSnapshot] {
+-        self.candidate_indexes.as_slice()
++    pub(in crate::db) fn candidate_indexes(&self) -> &[PersistedIndexSnapshot] {
++        self.payload.candidate_indexes.as_slice()
+     }
+@@ -808,4 +847,4 @@ impl PersistedSchemaSnapshot {
+     #[must_use]
+-    pub(in crate::db) const fn candidate_relations(&self) -> &[PersistedRelationEdgeSnapshot] {
+-        self.candidate_relations.as_slice()
++    pub(in crate::db) fn candidate_relations(&self) -> &[PersistedRelationEdgeSnapshot] {
++        self.payload.candidate_relations.as_slice()
+     }
+@@ -819,15 +858,15 @@ impl PersistedSchemaSnapshot {
+             version,
+-            self.entity_path.clone(),
+-            self.entity_name.clone(),
+-            self.primary_key_field_ids.clone(),
+-            self.row_layout.clone(),
+-            self.fields.clone(),
+-            self.indexes.clone(),
++            self.payload.entity_path.clone(),
++            self.payload.entity_name.clone(),
++            self.payload.primary_key_field_ids.clone(),
++            self.payload.row_layout.clone(),
++            self.payload.fields.clone(),
++            self.payload.indexes.clone(),
+         )
+-        .with_constraint_catalog(self.constraint_catalog.clone())
+-        .with_relation_id_allocator(self.relation_id_allocator)
+-        .with_relations(self.relations.clone())
++        .with_constraint_catalog(self.payload.constraint_catalog.clone())
++        .with_relation_id_allocator(self.payload.relation_id_allocator)
++        .with_relations(self.payload.relations.clone())
+         .with_constraint_candidates(
+-            self.candidate_indexes.clone(),
+-            self.candidate_relations.clone(),
++            self.payload.candidate_indexes.clone(),
++            self.payload.candidate_relations.clone(),
+         )
+diff --git a/crates/icydb-core/src/db/schema/snapshot/tests.rs b/crates/icydb-core/src/db/schema/snapshot/tests.rs
+index d4820d356..4258deda7 100644
+--- a/crates/icydb-core/src/db/schema/snapshot/tests.rs
++++ b/crates/icydb-core/src/db/schema/snapshot/tests.rs
+@@ -3,2 +3,40 @@ use crate::db::schema::{AcceptedSchemaFingerprint, NullableUniqueIndexContractEr
+ 
++#[test]
++fn shared_payload_preserves_detached_candidate_and_current_encoding() {
++    use crate::db::schema::codec::{
++        decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
++    };
++
++    let original = nullable_unique_schema_fixture(false, &[], &["email"], None);
++    let before = encode_persisted_schema_snapshot(&original).expect("fixture encodes");
++    let accepted = AcceptedSchemaSnapshot::try_new(original.clone()).expect("fixture accepts");
++    assert!(Rc::ptr_eq(&original.payload, &accepted.snapshot.payload));
++    assert_eq!(
++        decode_persisted_schema_snapshot(&before).expect("current bytes decode"),
++        original,
++    );
++    let candidate = original.clone().with_schema_version(SchemaVersion::new(7));
++    assert_eq!(candidate.version(), SchemaVersion::new(7));
++    assert_eq!(original.version(), SchemaVersion::initial());
++    assert!(!Rc::ptr_eq(&original.payload, &candidate.payload));
++    assert_eq!(
++        encode_persisted_schema_snapshot(accepted.persisted_snapshot()).unwrap(),
++        before,
++    );
++    assert_eq!(
++        encode_persisted_schema_snapshot(&candidate).unwrap(),
++        encode_persisted_schema_snapshot(&original.clone_with_version(SchemaVersion::new(7)))
++            .unwrap(),
++    );
++    let edited = original
++        .clone()
++        .with_relation_id_allocator(RelationIdAllocator::new(9))
++        .with_constraint_catalog(AcceptedConstraintCatalog::default());
++    assert_eq!(edited.relation_id_allocator().high_water(), 9);
++    assert_eq!(original.relation_id_allocator().high_water(), 0);
++    assert!(!original.constraints().is_empty());
++    assert!(edited.constraints().is_empty());
++    assert_eq!(encode_persisted_schema_snapshot(&original).unwrap(), before);
++}
++
+ // Build a small accepted schema snapshot with deliberately non-generated
+diff --git a/crates/icydb-core/src/db/session/query/cache/identity.rs b/crates/icydb-core/src/db/session/query/cache/identity.rs
+index 723727b32..08a6029bc 100644
+--- a/crates/icydb-core/src/db/session/query/cache/identity.rs
++++ b/crates/icydb-core/src/db/session/query/cache/identity.rs
+@@ -81,3 +81,3 @@ impl SchemaCacheIdentity {
+ 
+-    pub(super) const fn from_accepted_schema_with_fingerprint(
++    pub(super) fn from_accepted_schema_with_fingerprint(
+         accepted_schema: &AcceptedSchemaSnapshot,
+@@ -118,3 +118,3 @@ pub(super) struct QueryPlanAcceptedSchema<'schema> {
+ impl<'schema> QueryPlanAcceptedSchema<'schema> {
+-    pub(super) const fn from_accepted_schema_with_fingerprint(
++    pub(super) fn from_accepted_schema_with_fingerprint(
+         accepted_schema: &'schema AcceptedSchemaSnapshot,

@@ -386,12 +386,6 @@ impl RawSchemaSnapshot {
         self.payload.as_slice()
     }
 
-    /// Consume the snapshot into its encoded payload bytes.
-    #[must_use]
-    fn into_bytes(self) -> Vec<u8> {
-        self.payload
-    }
-
     /// Return the accepted schema identity fingerprint stored beside the raw
     /// payload, without decoding the persisted snapshot.
     fn accepted_schema_fingerprint(&self) -> Result<CommitSchemaFingerprint, InternalError> {
@@ -493,21 +487,34 @@ impl AcceptedCatalogIdentity {
 pub(in crate::db) struct AcceptedCatalogSnapshotSelection {
     identity: AcceptedCatalogIdentity,
     value_catalog: AcceptedValueCatalogHandle,
-    raw_snapshot: Rc<[u8]>,
+    snapshot: Rc<AcceptedSchemaSnapshot>,
 }
 
 impl AcceptedCatalogSnapshotSelection {
-    #[must_use]
-    const fn new(
-        identity: AcceptedCatalogIdentity,
+    // Derive identity and shared authority together from the verified bundle.
+    // Consumers never need to serialize or revalidate this immutable selection.
+    fn from_verified_snapshot(
+        entity: EntityTag,
+        store_path: &'static str,
+        snapshot: &PersistedSchemaSnapshot,
         value_catalog: AcceptedValueCatalogHandle,
-        raw_snapshot: Rc<[u8]>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, InternalError> {
+        let snapshot = Rc::new(AcceptedSchemaSnapshot::try_new(snapshot.clone())?);
+        let fingerprint = accepted_schema_cache_fingerprint(&snapshot)?;
+        let identity = AcceptedCatalogIdentity::new(
+            entity,
+            snapshot.entity_path(),
+            store_path,
+            value_catalog.revision(),
+            snapshot.persisted_snapshot().version(),
+            fingerprint,
+        );
+
+        Ok(Self {
             identity,
             value_catalog,
-            raw_snapshot,
-        }
+            snapshot,
+        })
     }
 
     #[must_use]
@@ -539,19 +546,10 @@ impl AcceptedCatalogSnapshotSelection {
             return Err(InternalError::store_corruption());
         }
 
-        let raw_snapshot = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
-        let fingerprint = raw_snapshot.accepted_schema_fingerprint()?;
-        let identity = AcceptedCatalogIdentity::new(
+        Self::from_verified_snapshot(
             entity_tag,
-            entity_path,
             store_path,
-            candidate.revision(),
-            snapshot.version(),
-            fingerprint,
-        );
-
-        Ok(Some(Self::new(
-            identity,
+            snapshot,
             AcceptedValueCatalogHandle::new(
                 candidate.bundle().enum_catalog().clone(),
                 candidate.bundle().composite_catalog().clone(),
@@ -559,28 +557,14 @@ impl AcceptedCatalogSnapshotSelection {
                 candidate.revision(),
                 candidate.root().fingerprint(),
             ),
-            Rc::from(raw_snapshot.into_bytes()),
-        )))
+        )
+        .map(Some)
     }
 
-    pub(in crate::db) fn decode_verified(&self) -> Result<AcceptedSchemaSnapshot, InternalError> {
-        let snapshot = decode_persisted_schema_snapshot(self.raw_snapshot.as_ref())?;
-        let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
-        let identity = self.identity();
-
-        if accepted.persisted_snapshot().version() != identity.accepted_schema_version() {
-            return Err(InternalError::store_invariant());
-        }
-        if accepted.entity_path() != identity.entity_path() {
-            return Err(InternalError::store_invariant());
-        }
-
-        let decoded_fingerprint = accepted_schema_cache_fingerprint(&accepted)?;
-        if decoded_fingerprint != identity.accepted_schema_fingerprint() {
-            return Err(InternalError::store_invariant());
-        }
-
-        Ok(accepted)
+    /// Share the immutable snapshot verified when this selection was built.
+    #[must_use]
+    pub(in crate::db) fn snapshot(&self) -> Rc<AcceptedSchemaSnapshot> {
+        self.snapshot.clone()
     }
 }
 
@@ -3263,22 +3247,12 @@ impl SchemaStore {
             return Ok(Some(selection));
         }
 
-        let raw_snapshot = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
-        let fingerprint = raw_snapshot.accepted_schema_fingerprint()?;
-        let identity = AcceptedCatalogIdentity::new(
+        let selected = AcceptedCatalogSnapshotSelection::from_verified_snapshot(
             entity,
-            entity_path,
             store_path,
-            bundle.revision(),
-            snapshot.version(),
-            fingerprint,
-        );
-
-        let selected = AcceptedCatalogSnapshotSelection::new(
-            identity,
+            snapshot,
             cached.value_catalog.clone(),
-            Rc::from(raw_snapshot.into_bytes()),
-        );
+        )?;
         cached
             .entity_selections
             .try_borrow_mut()
@@ -3322,19 +3296,10 @@ impl SchemaStore {
             return Err(InternalError::store_corruption());
         }
 
-        let raw_snapshot = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
-        let fingerprint = raw_snapshot.accepted_schema_fingerprint()?;
-        let identity = AcceptedCatalogIdentity::new(
+        AcceptedCatalogSnapshotSelection::from_verified_snapshot(
             entity,
-            entity_path,
             store_path,
-            bundle.revision(),
-            snapshot.version(),
-            fingerprint,
-        );
-
-        Ok(Some(AcceptedCatalogSnapshotSelection::new(
-            identity,
+            snapshot,
             AcceptedValueCatalogHandle::new(
                 bundle.enum_catalog().clone(),
                 bundle.composite_catalog().clone(),
@@ -3344,8 +3309,8 @@ impl SchemaStore {
                 bundle.revision(),
                 selection.root().fingerprint(),
             ),
-            Rc::from(raw_snapshot.into_bytes()),
-        )))
+        )
+        .map(Some)
     }
 
     /// Derive accepted catalog metadata from latest persisted schema snapshots.

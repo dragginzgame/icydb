@@ -1,0 +1,30 @@
+use pocket_ic::PocketIc;
+
+fn main() {
+    let directory = std::env::args().nth(1).expect("artifact directory");
+    let pic = PocketIc::new();
+    let canister = pic.create_canister();
+    pic.add_cycles(canister, 100_000_000_000_000);
+    pic.install_canister(canister, std::fs::read(format!("{directory}/probe.wasm")).unwrap(), vec![], None);
+    let fixtures = [
+        [0, 1, 0, 8], [0, 16, 0, 8], [0, 64, 0, 8], [0, 254, 0, 8],
+        [0, 64, 0, 120], [0, 254, 0, 120],
+        [1, 1, 8, 0], [1, 1, 10, 0], [2, 1, 8, 1],
+    ];
+    println!("kind,fields,depth,width,repeat,cold_selection,warm_selection,four_warm_selections,total_fields,bundle_bytes");
+    for fixture in fixtures {
+        let mut baseline = None;
+        for repeat in 0..3 {
+            let args = fixture.into_iter().flat_map(u32::to_le_bytes).collect();
+            let bytes = pic.query_call(canister, canister, "run", args)
+                .unwrap_or_else(|error| panic!("{fixture:?}: {error:?}"));
+            let values: Vec<u64> = bytes.chunks_exact(8)
+                .map(|bytes| u64::from_le_bytes(bytes.try_into().unwrap())).collect();
+            assert_eq!(values.len(), 5);
+            if let Some(previous) = &baseline { assert_eq!(&values, previous, "{fixture:?}"); }
+            baseline = Some(values.clone());
+            println!("{},{},{},{},{repeat},{}", fixture[0], fixture[1], fixture[2], fixture[3],
+                values.iter().map(u64::to_string).collect::<Vec<_>>().join(","));
+        }
+    }
+}

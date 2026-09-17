@@ -25,6 +25,7 @@ use crate::{
 };
 #[cfg(feature = "sql")]
 use std::collections::BTreeSet;
+use std::rc::Rc;
 
 ///
 /// AcceptedSchemaSnapshot
@@ -78,13 +79,13 @@ impl AcceptedSchemaSnapshot {
 
     /// Borrow the accepted entity path.
     #[must_use]
-    pub(in crate::db) const fn entity_path(&self) -> &str {
+    pub(in crate::db) fn entity_path(&self) -> &str {
         self.snapshot.entity_path()
     }
 
     /// Borrow the accepted entity name.
     #[must_use]
-    pub(in crate::db) const fn entity_name(&self) -> &str {
+    pub(in crate::db) fn entity_name(&self) -> &str {
         self.snapshot.entity_name()
     }
 
@@ -142,14 +143,21 @@ impl AcceptedSchemaSnapshot {
 ///
 /// PersistedSchemaSnapshot
 ///
-/// Owned schema snapshot for one live entity schema.
-/// This is the accepted schema store payload. It is separate from generated
-/// an accepted entity contract so startup reconciliation can compare stored authority with
-/// the compiled proposal.
+/// Immutable schema payload shared by decoded bundles and accepted consumers.
+/// Candidate edits detach before mutation, preserving every existing authority.
+/// This accepted store payload stays separate from generated entity contracts
+/// so startup reconciliation can compare stored authority with the proposal.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PersistedSchemaSnapshot {
+    payload: Rc<SchemaSnapshotPayload>,
+}
+
+/// Shared immutable schema data; candidate edits detach through copy-on-write.
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct SchemaSnapshotPayload {
     version: SchemaVersion,
     entity_path: String,
     entity_name: String,
@@ -268,18 +276,20 @@ impl PersistedSchemaSnapshot {
         indexes: Vec<PersistedIndexSnapshot>,
     ) -> Self {
         Self {
-            version,
-            entity_path,
-            entity_name,
-            primary_key_field_ids: primary_key_field_ids.into_primary_key_field_ids(),
-            row_layout,
-            constraint_catalog: AcceptedConstraintCatalog::default(),
-            relation_id_allocator: RelationIdAllocator::default(),
-            fields,
-            indexes,
-            relations: Vec::new(),
-            candidate_indexes: Vec::new(),
-            candidate_relations: Vec::new(),
+            payload: Rc::new(SchemaSnapshotPayload {
+                version,
+                entity_path,
+                entity_name,
+                primary_key_field_ids: primary_key_field_ids.into_primary_key_field_ids(),
+                row_layout,
+                constraint_catalog: AcceptedConstraintCatalog::default(),
+                relation_id_allocator: RelationIdAllocator::default(),
+                fields,
+                indexes,
+                relations: Vec::new(),
+                candidate_indexes: Vec::new(),
+                candidate_relations: Vec::new(),
+            }),
         }
     }
 
@@ -289,24 +299,27 @@ impl PersistedSchemaSnapshot {
         mut self,
         catalog: AcceptedConstraintCatalog,
     ) -> Self {
-        self.constraint_catalog = catalog;
+        let payload = Rc::make_mut(&mut self.payload);
+        payload.constraint_catalog = catalog;
         self
     }
 
     /// Attach persisted non-reusing relation-ID allocator state.
     #[must_use]
-    pub(in crate::db) const fn with_relation_id_allocator(
+    pub(in crate::db) fn with_relation_id_allocator(
         mut self,
         allocator: RelationIdAllocator,
     ) -> Self {
-        self.relation_id_allocator = allocator;
+        let payload = Rc::make_mut(&mut self.payload);
+        payload.relation_id_allocator = allocator;
         self
     }
 
     /// Set the declared schema version on one already-derived candidate.
     #[must_use]
-    pub(in crate::db) const fn with_schema_version(mut self, version: SchemaVersion) -> Self {
-        self.version = version;
+    pub(in crate::db) fn with_schema_version(mut self, version: SchemaVersion) -> Self {
+        let payload = Rc::make_mut(&mut self.payload);
+        payload.version = version;
         self
     }
 
@@ -317,11 +330,12 @@ impl PersistedSchemaSnapshot {
         base_schema_fingerprint: crate::db::schema::AcceptedSchemaFingerprint,
         activation_epoch: u64,
     ) -> Result<Self, AcceptedConstraintCatalogError> {
-        self.constraint_catalog = self
+        let payload = Rc::make_mut(&mut self.payload);
+        payload.constraint_catalog = payload
             .constraint_catalog
             .clone()
             .with_added_unique_activation(&candidate, base_schema_fingerprint, activation_epoch)?;
-        self.candidate_indexes.push(candidate);
+        payload.candidate_indexes.push(candidate);
         self.validate_constraint_candidate()?;
         Ok(self)
     }
@@ -333,6 +347,7 @@ impl PersistedSchemaSnapshot {
         version: SchemaVersion,
     ) -> Result<Self, AcceptedConstraintCatalogError> {
         let activation = self
+            .payload
             .constraint_catalog
             .activation(constraint_id)
             .ok_or(AcceptedConstraintCatalogError::ActivationNotFound)?;
@@ -340,6 +355,7 @@ impl PersistedSchemaSnapshot {
             return Err(AcceptedConstraintCatalogError::OwnerMismatch);
         };
         let target = self
+            .payload
             .fields
             .iter()
             .find(|field| field.id() == *field_id)
@@ -347,11 +363,12 @@ impl PersistedSchemaSnapshot {
         let history_floor = if matches!(target.historical_fill(), SchemaHistoricalFill::Null) {
             target
                 .introduced_in_layout()
-                .max(self.row_layout.history_floor())
+                .max(self.payload.row_layout.history_floor())
         } else {
-            self.row_layout.history_floor()
+            self.payload.row_layout.history_floor()
         };
         let fields = self
+            .payload
             .fields
             .iter()
             .map(|field| {
@@ -382,32 +399,36 @@ impl PersistedSchemaSnapshot {
             .collect();
         let constraint_catalog = match activation.state() {
             ConstraintActivationState::EnforcingNewWrites => self
+                .payload
                 .constraint_catalog
                 .clone()
                 .with_directly_validated_activation(constraint_id),
             ConstraintActivationState::Validating => self
+                .payload
                 .constraint_catalog
                 .clone()
                 .with_promoted_activation(constraint_id),
         }?;
 
         Ok(Self {
-            version,
-            entity_path: self.entity_path.clone(),
-            entity_name: self.entity_name.clone(),
-            primary_key_field_ids: self.primary_key_field_ids.clone(),
-            row_layout: SchemaRowLayout::new(
-                self.row_layout.current_version(),
-                history_floor,
-                self.row_layout.field_to_slot().to_vec(),
-            ),
-            constraint_catalog,
-            relation_id_allocator: self.relation_id_allocator,
-            fields,
-            indexes: self.indexes.clone(),
-            relations: self.relations.clone(),
-            candidate_indexes: self.candidate_indexes.clone(),
-            candidate_relations: self.candidate_relations.clone(),
+            payload: Rc::new(SchemaSnapshotPayload {
+                version,
+                entity_path: self.payload.entity_path.clone(),
+                entity_name: self.payload.entity_name.clone(),
+                primary_key_field_ids: self.payload.primary_key_field_ids.clone(),
+                row_layout: SchemaRowLayout::new(
+                    self.payload.row_layout.current_version(),
+                    history_floor,
+                    self.payload.row_layout.field_to_slot().to_vec(),
+                ),
+                constraint_catalog,
+                relation_id_allocator: self.payload.relation_id_allocator,
+                fields,
+                indexes: self.payload.indexes.clone(),
+                relations: self.payload.relations.clone(),
+                candidate_indexes: self.payload.candidate_indexes.clone(),
+                candidate_relations: self.payload.candidate_relations.clone(),
+            }),
         })
     }
 
@@ -418,6 +439,7 @@ impl PersistedSchemaSnapshot {
         version: SchemaVersion,
     ) -> Result<Self, AcceptedConstraintCatalogError> {
         let activation = self
+            .payload
             .constraint_catalog
             .activation(constraint_id)
             .ok_or(AcceptedConstraintCatalogError::ActivationNotFound)?;
@@ -425,6 +447,7 @@ impl PersistedSchemaSnapshot {
             return Err(AcceptedConstraintCatalogError::OwnerMismatch);
         };
         let candidate = self
+            .payload
             .candidate_indexes
             .iter()
             .find(|index| index.schema_id() == *index_id)
@@ -432,22 +455,25 @@ impl PersistedSchemaSnapshot {
             .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)?;
         let constraint_catalog = match activation.state() {
             ConstraintActivationState::EnforcingNewWrites => self
+                .payload
                 .constraint_catalog
                 .clone()
                 .with_directly_validated_activation(constraint_id),
             ConstraintActivationState::Validating => self
+                .payload
                 .constraint_catalog
                 .clone()
                 .with_promoted_activation(constraint_id),
         }?;
         let mut after = self.clone();
-        after.version = version;
-        after.constraint_catalog = constraint_catalog;
-        after
+        let payload = Rc::make_mut(&mut after.payload);
+        payload.version = version;
+        payload.constraint_catalog = constraint_catalog;
+        payload
             .candidate_indexes
             .retain(|index| index.schema_id() != *index_id);
-        after.indexes.push(candidate);
-        icydb_schema::compact_sort_unstable_by(&mut after.indexes, |left, right| {
+        payload.indexes.push(candidate);
+        icydb_schema::compact_sort_unstable_by(&mut payload.indexes, |left, right| {
             left.ordinal().cmp(&right.ordinal())
         });
         after.validate_constraint_candidate()?;
@@ -462,6 +488,7 @@ impl PersistedSchemaSnapshot {
         version: SchemaVersion,
     ) -> Result<Self, AcceptedConstraintCatalogError> {
         let activation = self
+            .payload
             .constraint_catalog
             .activation(constraint_id)
             .ok_or(AcceptedConstraintCatalogError::ActivationNotFound)?;
@@ -469,6 +496,7 @@ impl PersistedSchemaSnapshot {
             return Err(AcceptedConstraintCatalogError::OwnerMismatch);
         };
         if !self
+            .payload
             .candidate_indexes
             .iter()
             .any(|index| index.schema_id() == *index_id)
@@ -477,11 +505,11 @@ impl PersistedSchemaSnapshot {
         }
 
         let mut after = self.clone();
-        after.version = version;
-        after.constraint_catalog = after
-            .constraint_catalog
+        let payload = Rc::make_mut(&mut after.payload);
+        payload.version = version;
+        payload.constraint_catalog = std::mem::take(&mut payload.constraint_catalog)
             .with_aborted_activation(constraint_id)?;
-        after
+        payload
             .candidate_indexes
             .retain(|index| index.schema_id() != *index_id);
         after.validate_constraint_candidate()?;
@@ -495,6 +523,7 @@ impl PersistedSchemaSnapshot {
         version: SchemaVersion,
     ) -> Result<Self, AcceptedConstraintCatalogError> {
         let activation = self
+            .payload
             .constraint_catalog
             .activation(constraint_id)
             .ok_or(AcceptedConstraintCatalogError::ActivationNotFound)?;
@@ -502,6 +531,7 @@ impl PersistedSchemaSnapshot {
             return Err(AcceptedConstraintCatalogError::OwnerMismatch);
         };
         let candidate = self
+            .payload
             .candidate_relations
             .iter()
             .find(|relation| relation.id() == *relation_id)
@@ -509,22 +539,25 @@ impl PersistedSchemaSnapshot {
             .ok_or(AcceptedConstraintCatalogError::OwnerMismatch)?;
         let constraint_catalog = match activation.state() {
             ConstraintActivationState::EnforcingNewWrites => self
+                .payload
                 .constraint_catalog
                 .clone()
                 .with_directly_validated_activation(constraint_id),
             ConstraintActivationState::Validating => self
+                .payload
                 .constraint_catalog
                 .clone()
                 .with_promoted_activation(constraint_id),
         }?;
         let mut after = self.clone();
-        after.version = version;
-        after.constraint_catalog = constraint_catalog;
-        after
+        let payload = Rc::make_mut(&mut after.payload);
+        payload.version = version;
+        payload.constraint_catalog = constraint_catalog;
+        payload
             .candidate_relations
             .retain(|relation| relation.id() != *relation_id);
-        after.relations.push(candidate);
-        icydb_schema::compact_sort_unstable_by(&mut after.relations, |left, right| {
+        payload.relations.push(candidate);
+        icydb_schema::compact_sort_unstable_by(&mut payload.relations, |left, right| {
             left.id().cmp(&right.id())
         });
         after.validate_constraint_candidate()?;
@@ -541,7 +574,8 @@ impl PersistedSchemaSnapshot {
             left.id().cmp(&right.id())
         });
         self.raise_relation_id_high_water(relations.iter().map(PersistedRelationEdgeSnapshot::id));
-        self.relations = relations;
+        let payload = Rc::make_mut(&mut self.payload);
+        payload.relations = relations;
         self
     }
 
@@ -553,36 +587,38 @@ impl PersistedSchemaSnapshot {
         relations: Vec<PersistedRelationEdgeSnapshot>,
     ) -> Self {
         self.raise_relation_id_high_water(relations.iter().map(PersistedRelationEdgeSnapshot::id));
-        self.candidate_indexes = indexes;
-        self.candidate_relations = relations;
+        let payload = Rc::make_mut(&mut self.payload);
+        payload.candidate_indexes = indexes;
+        payload.candidate_relations = relations;
         self
     }
 
     fn raise_relation_id_high_water(&mut self, ids: impl Iterator<Item = RelationId>) {
+        let payload = Rc::make_mut(&mut self.payload);
         let high_water = ids
             .map(RelationId::get)
             .max()
             .unwrap_or(0)
-            .max(self.relation_id_allocator.high_water());
-        self.relation_id_allocator = RelationIdAllocator::new(high_water);
+            .max(payload.relation_id_allocator.high_water());
+        payload.relation_id_allocator = RelationIdAllocator::new(high_water);
     }
 
     /// Return the schema version for this snapshot.
     #[must_use]
-    pub(in crate::db) const fn version(&self) -> SchemaVersion {
-        self.version
+    pub(in crate::db) fn version(&self) -> SchemaVersion {
+        self.payload.version
     }
 
     /// Borrow the stored entity path.
     #[must_use]
-    pub(in crate::db) const fn entity_path(&self) -> &str {
-        self.entity_path.as_str()
+    pub(in crate::db) fn entity_path(&self) -> &str {
+        self.payload.entity_path.as_str()
     }
 
     /// Borrow the stored entity name.
     #[must_use]
-    pub(in crate::db) const fn entity_name(&self) -> &str {
-        self.entity_name.as_str()
+    pub(in crate::db) fn entity_name(&self) -> &str {
+        self.payload.entity_name.as_str()
     }
 
     /// Resolve the complete accepted dependency closure for field roots.
@@ -601,7 +637,8 @@ impl PersistedSchemaSnapshot {
         roots
             .into_iter()
             .map(|root| {
-                self.fields
+                self.payload
+                    .fields
                     .iter()
                     .find(|field| field.name() == root)
                     .map(PersistedFieldSnapshot::id)
@@ -622,15 +659,18 @@ impl PersistedSchemaSnapshot {
         field_id: FieldId,
         field_name: &str,
     ) -> bool {
-        self.fields
+        self.payload
+            .fields
             .iter()
             .find(|field| field.id() == field_id)
             .is_none_or(|field| field.kind().contains_relation())
             || self
+                .payload
                 .indexes
                 .iter()
                 .any(|index| index.unique() && index.references_field(field_id, field_name))
             || self
+                .payload
                 .relations
                 .iter()
                 .any(|relation| relation.source().uses_root_field(field_id))
@@ -645,7 +685,7 @@ impl PersistedSchemaSnapshot {
     #[must_use]
     #[cfg(feature = "sql")]
     pub(in crate::db) fn update_management_requires_global_write_validation(&self) -> bool {
-        self.fields.iter().any(|field| {
+        self.payload.fields.iter().any(|field| {
             field.write_policy().write_management() == Some(FieldWriteManagement::UpdatedAt)
                 && self.field_requires_global_write_validation(field.id(), field.name())
         })
@@ -653,32 +693,32 @@ impl PersistedSchemaSnapshot {
 
     /// Borrow ordered stored primary-key field identities.
     #[must_use]
-    pub(in crate::db) const fn primary_key_field_ids(&self) -> &[FieldId] {
-        self.primary_key_field_ids.as_slice()
+    pub(in crate::db) fn primary_key_field_ids(&self) -> &[FieldId] {
+        self.payload.primary_key_field_ids.as_slice()
     }
 
     /// Borrow the live row-layout mapping for this snapshot.
     #[must_use]
-    pub(in crate::db) const fn row_layout(&self) -> &SchemaRowLayout {
-        &self.row_layout
+    pub(in crate::db) fn row_layout(&self) -> &SchemaRowLayout {
+        &self.payload.row_layout
     }
 
     /// Return persisted non-reusing constraint-ID allocator state.
     #[must_use]
-    pub(in crate::db) const fn constraint_id_allocator(&self) -> ConstraintIdAllocator {
-        self.constraint_catalog.allocator()
+    pub(in crate::db) fn constraint_id_allocator(&self) -> ConstraintIdAllocator {
+        self.payload.constraint_catalog.allocator()
     }
 
     /// Return persisted non-reusing relation-ID allocator state.
     #[must_use]
-    pub(in crate::db) const fn relation_id_allocator(&self) -> RelationIdAllocator {
-        self.relation_id_allocator
+    pub(in crate::db) fn relation_id_allocator(&self) -> RelationIdAllocator {
+        self.payload.relation_id_allocator
     }
 
     /// Borrow accepted structural constraints ordered by stable identity.
     #[must_use]
-    pub(in crate::db) const fn constraints(&self) -> &[AcceptedConstraintSnapshot] {
-        self.constraint_catalog.constraints()
+    pub(in crate::db) fn constraints(&self) -> &[AcceptedConstraintSnapshot] {
+        self.payload.constraint_catalog.constraints()
     }
 
     /// Project the sole accepted unique-constraint identity for one index.
@@ -770,44 +810,44 @@ impl PersistedSchemaSnapshot {
 
     /// Borrow live constraint activations ordered by reserved identity.
     #[must_use]
-    pub(in crate::db) const fn constraint_activations(&self) -> &[ConstraintActivationSnapshot] {
-        self.constraint_catalog.activations()
+    pub(in crate::db) fn constraint_activations(&self) -> &[ConstraintActivationSnapshot] {
+        self.payload.constraint_catalog.activations()
     }
 
     /// Borrow the invariant-bearing accepted structural constraint catalog.
     #[must_use]
-    pub(in crate::db) const fn constraint_catalog(&self) -> &AcceptedConstraintCatalog {
-        &self.constraint_catalog
+    pub(in crate::db) fn constraint_catalog(&self) -> &AcceptedConstraintCatalog {
+        &self.payload.constraint_catalog
     }
 
     /// Borrow persisted field entries in row-layout order.
     #[must_use]
-    pub(in crate::db) const fn fields(&self) -> &[PersistedFieldSnapshot] {
-        self.fields.as_slice()
+    pub(in crate::db) fn fields(&self) -> &[PersistedFieldSnapshot] {
+        self.payload.fields.as_slice()
     }
 
     /// Borrow accepted field-path index contracts for this schema snapshot.
     #[must_use]
-    pub(in crate::db) const fn indexes(&self) -> &[PersistedIndexSnapshot] {
-        self.indexes.as_slice()
+    pub(in crate::db) fn indexes(&self) -> &[PersistedIndexSnapshot] {
+        self.payload.indexes.as_slice()
     }
 
     /// Borrow accepted relation-edge contracts in ascending identity order.
     #[must_use]
-    pub(in crate::db) const fn relations(&self) -> &[PersistedRelationEdgeSnapshot] {
-        self.relations.as_slice()
+    pub(in crate::db) fn relations(&self) -> &[PersistedRelationEdgeSnapshot] {
+        self.payload.relations.as_slice()
     }
 
     /// Borrow planner-invisible index owners reserved by live activations.
     #[must_use]
-    pub(in crate::db) const fn candidate_indexes(&self) -> &[PersistedIndexSnapshot] {
-        self.candidate_indexes.as_slice()
+    pub(in crate::db) fn candidate_indexes(&self) -> &[PersistedIndexSnapshot] {
+        self.payload.candidate_indexes.as_slice()
     }
 
     /// Borrow delete-invisible relation owners reserved by live activations.
     #[must_use]
-    pub(in crate::db) const fn candidate_relations(&self) -> &[PersistedRelationEdgeSnapshot] {
-        self.candidate_relations.as_slice()
+    pub(in crate::db) fn candidate_relations(&self) -> &[PersistedRelationEdgeSnapshot] {
+        self.payload.candidate_relations.as_slice()
     }
 
     /// Clone this accepted schema shape with a new declared schema version.
@@ -817,19 +857,19 @@ impl PersistedSchemaSnapshot {
     pub(in crate::db) fn clone_with_version(&self, version: SchemaVersion) -> Self {
         Self::new_with_primary_key_fields_and_indexes(
             version,
-            self.entity_path.clone(),
-            self.entity_name.clone(),
-            self.primary_key_field_ids.clone(),
-            self.row_layout.clone(),
-            self.fields.clone(),
-            self.indexes.clone(),
+            self.payload.entity_path.clone(),
+            self.payload.entity_name.clone(),
+            self.payload.primary_key_field_ids.clone(),
+            self.payload.row_layout.clone(),
+            self.payload.fields.clone(),
+            self.payload.indexes.clone(),
         )
-        .with_constraint_catalog(self.constraint_catalog.clone())
-        .with_relation_id_allocator(self.relation_id_allocator)
-        .with_relations(self.relations.clone())
+        .with_constraint_catalog(self.payload.constraint_catalog.clone())
+        .with_relation_id_allocator(self.payload.relation_id_allocator)
+        .with_relations(self.payload.relations.clone())
         .with_constraint_candidates(
-            self.candidate_indexes.clone(),
-            self.candidate_relations.clone(),
+            self.payload.candidate_indexes.clone(),
+            self.payload.candidate_relations.clone(),
         )
     }
 }

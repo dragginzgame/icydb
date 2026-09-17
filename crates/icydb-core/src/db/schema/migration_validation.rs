@@ -209,7 +209,7 @@ fn validate_entity_page<C: CanisterKind>(
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
-    let before_schema = before_selection.decode_verified()?;
+    let before_schema = before_selection.snapshot();
     let before_contract = crate::db::data::AcceptedStructuralRowAuthority::from_catalog_selection(
         program.before_path(),
         &before_selection,
@@ -222,7 +222,7 @@ fn validate_entity_page<C: CanisterKind>(
         program.store_path(),
     )?
     .ok_or_else(InternalError::store_invariant)?;
-    let candidate_schema = candidate_selection.decode_verified()?;
+    let candidate_schema = candidate_selection.snapshot();
     let candidate_authority =
         crate::db::data::AcceptedStructuralRowAuthority::from_catalog_selection(
             program.candidate_path(),

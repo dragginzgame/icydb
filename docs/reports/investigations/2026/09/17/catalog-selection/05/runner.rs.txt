@@ -1,0 +1,63 @@
+//! Temporary live-allocation attribution for frozen source pairs.
+use super::{SqlQueryPhasePerfResult, settle_measurement_rounds};
+use icydb::Error;
+use icydb_testing_integration::{
+    deliver_fixture_startup_watchdog, install_prebuilt_fixture_canister_without_startup_delivery,
+};
+
+fn snapshot(fixture: &ic_testkit::pic::StandaloneCanisterFixture, artifact: &str, stage: &str) {
+    let values: Vec<u64> = fixture.query_candid("allocation_probe", ()).unwrap();
+    let repeated: Vec<u64> = fixture.query_candid("allocation_probe", ()).unwrap();
+    assert_eq!(values, repeated, "read-only observations must repeat");
+    assert_eq!(values.len(), 6);
+    assert!(values[0] <= values[1]);
+    assert!(values[0] <= values[5]);
+    assert!(values[3] <= values[4]);
+    println!(
+        "{artifact},{stage},{}",
+        values
+            .iter()
+            .map(u64::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+}
+
+#[test]
+fn catalog_live_allocation_attribution() {
+    let directory = std::env::var("ICYDB_ALLOCATION_MEASUREMENT_DIR").unwrap();
+    let sql = "SELECT id, name FROM PerfAuditUser WHERE id = 1";
+    let mut expected = None;
+    println!(
+        "artifact,stage,live_requested_bytes,peak_requested_bytes,total_requested_bytes,live_blocks,peak_blocks,wasm_bytes"
+    );
+    for artifact in ["baseline", "candidate"] {
+        let wasm = std::fs::read(format!("{directory}/{artifact}.wasm")).unwrap();
+        let fixture = install_prebuilt_fixture_canister_without_startup_delivery("sql_perf", wasm);
+        snapshot(&fixture, artifact, "installed");
+        deliver_fixture_startup_watchdog(&fixture);
+        settle_measurement_rounds(&fixture);
+        snapshot(&fixture, artifact, "startup");
+        let result: Result<(), Error> = fixture.update_candid("icydb_fixtures_reset", ()).unwrap();
+        result.unwrap();
+        settle_measurement_rounds(&fixture);
+        snapshot(&fixture, artifact, "reset");
+        let result: Result<(), Error> = fixture.update_candid("icydb_fixtures_load", ()).unwrap();
+        result.unwrap();
+        settle_measurement_rounds(&fixture);
+        snapshot(&fixture, artifact, "loaded");
+        for repeat in 0..5 {
+            let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
+                .update_candid("warm_user_query_with_perf", (sql.to_string(),))
+                .unwrap();
+            let sample = sample.unwrap();
+            if let Some(result) = &expected {
+                assert_eq!(&sample.result, result);
+            } else {
+                expected = Some(sample.result);
+            }
+            settle_measurement_rounds(&fixture);
+            snapshot(&fixture, artifact, &format!("warm_{repeat}"));
+        }
+    }
+}

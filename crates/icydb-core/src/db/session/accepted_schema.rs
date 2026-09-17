@@ -60,12 +60,7 @@ impl AcceptedSchemaEntityRuntime {
                 AcceptedInspectionPlanLoadError::Unselected(InternalError::store_corruption())
             })?;
         let identity = selection.identity();
-        let snapshot = selection.decode_verified().map_err(|error| {
-            AcceptedInspectionPlanLoadError::Selected {
-                identity: identity.clone(),
-                error,
-            }
-        })?;
+        let snapshot = selection.snapshot();
         let inspection_plan = AcceptedInspectionPlan::compile(
             db,
             identity.clone(),

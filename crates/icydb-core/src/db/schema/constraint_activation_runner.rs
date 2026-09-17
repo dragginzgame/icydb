@@ -50,7 +50,7 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use std::ops::Bound;
+use std::{ops::Bound, rc::Rc};
 
 const MAX_VALIDATION_ROWS_PER_PAGE: usize = 256;
 const MAX_VALIDATION_DECODED_BYTES_PER_PAGE: usize = 4 * 1024 * 1024;
@@ -130,7 +130,7 @@ pub(in crate::db) fn advance_accepted_row_local_constraint_activation(
     if snapshot.entity_path() != entity_path {
         return Err(InternalError::store_corruption());
     }
-    let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
+    let accepted = Rc::new(AcceptedSchemaSnapshot::try_new(snapshot)?);
     let candidate = CandidateSchemaRevision::new(current)?;
     let value_catalog = AcceptedValueCatalogHandle::new(
         candidate.bundle().enum_catalog().clone(),
@@ -216,7 +216,7 @@ pub(in crate::db) fn advance_unique_constraint_activation<C: CanisterKind>(
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
-    let accepted = selection.decode_verified()?;
+    let accepted = selection.snapshot();
     let activation = accepted
         .persisted_snapshot()
         .constraint_catalog()
@@ -350,7 +350,7 @@ fn validate_unpublished_row_local_candidate_bounded_for_kind(
     if snapshot.entity_path() != entity_path {
         return Err(InternalError::store_corruption());
     }
-    let accepted = AcceptedSchemaSnapshot::try_new(snapshot)?;
+    let accepted = Rc::new(AcceptedSchemaSnapshot::try_new(snapshot)?);
     let value_catalog = AcceptedValueCatalogHandle::new(
         candidate.bundle().enum_catalog().clone(),
         candidate.bundle().composite_catalog().clone(),
@@ -456,7 +456,7 @@ fn advance_row_local_constraint_activation<C: CanisterKind>(
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
-    let accepted = selection.decode_verified()?;
+    let accepted = selection.snapshot();
     let activation = accepted
         .persisted_snapshot()
         .constraint_catalog()

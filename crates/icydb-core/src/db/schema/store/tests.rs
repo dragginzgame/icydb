@@ -1786,8 +1786,7 @@ fn accepted_schema_bundle_cache_is_keyed_by_selected_root() {
     assert_eq!(accepted_schema_bundle_cache_miss_count_for_tests(), 2);
 }
 
-#[test]
-fn accepted_catalog_selection_reuses_verified_entity_bytes() {
+fn catalog_selection_fixture() -> (EntityTag, CandidateSchemaRevision, SchemaStore) {
     let entity = EntityTag::new(7);
     let empty = empty_accepted_schema_candidate_for_tests(
         "test::CachedCatalogSelectionStore",
@@ -1820,7 +1819,7 @@ fn accepted_catalog_selection_reuses_verified_entity_bytes() {
     )
     .expect("accepted bundle should build");
     let candidate = CandidateSchemaRevision::new(bundle).expect("accepted candidate should encode");
-    let mut store = SchemaStore::init_heap();
+    let mut store = SchemaStore::init_journaled(test_memory(227));
     store
         .publish_accepted_schema_candidate(
             test_database_incarnation(),
@@ -1829,31 +1828,104 @@ fn accepted_catalog_selection_reuses_verified_entity_bytes() {
         )
         .expect("accepted candidate should publish");
 
+    (entity, candidate, store)
+}
+
+#[test]
+fn accepted_catalog_selection_shares_verified_snapshot() {
+    let (entity, candidate, mut store) = catalog_selection_fixture();
+    let store_path = "test::CachedCatalogSelectionStore";
     let first = store
-        .current_accepted_catalog_selection(
-            entity,
-            "entities::CachedEntity",
-            "test::CachedCatalogSelectionStore",
-        )
+        .current_accepted_catalog_selection(entity, "entities::CachedEntity", store_path)
         .expect("first selection should resolve")
         .expect("accepted entity should exist");
     let second = store
-        .current_accepted_catalog_selection(
-            entity,
-            "entities::CachedEntity",
-            "test::CachedCatalogSelectionStore",
-        )
+        .current_accepted_catalog_selection(entity, "entities::CachedEntity", store_path)
         .expect("second selection should resolve")
         .expect("accepted entity should exist");
 
     assert_eq!(first.identity(), second.identity());
-    assert!(std::rc::Rc::ptr_eq(
-        &first.raw_snapshot,
-        &second.raw_snapshot,
-    ));
+    assert!(std::rc::Rc::ptr_eq(&first.snapshot(), &second.snapshot(),));
     assert_eq!(
         first.value_catalog_handle().authority(),
         second.value_catalog_handle().authority(),
+    );
+
+    let snapshot = first.snapshot();
+    let persisted = snapshot.persisted_snapshot();
+    let raw = RawSchemaSnapshot::from_persisted_snapshot(persisted).unwrap();
+    assert_eq!(
+        first.identity().accepted_schema_fingerprint(),
+        raw.accepted_schema_fingerprint().unwrap(),
+    );
+    let row = crate::db::data::AcceptedStructuralRowAuthority::from_catalog_selection(
+        snapshot.entity_path(),
+        &first,
+    )
+    .unwrap();
+    assert!(std::rc::Rc::ptr_eq(&snapshot, &row.into_parts().0));
+    let plan = crate::db::schema::AcceptedInspectionPlan::compile_relation_free_for_tests(
+        first.identity(),
+        first.snapshot(),
+        first.value_catalog_handle().clone(),
+    )
+    .unwrap();
+    assert!(std::ptr::eq(snapshot.as_ref(), plan.snapshot()));
+
+    // A schema-version-only change preserves the normalized entity fingerprint,
+    // but must still select a new immutable root and leave the old owner intact.
+    let updated = persisted.clone().with_schema_version(SchemaVersion::new(2));
+    let next = CandidateSchemaRevision::new(
+        AcceptedSchemaRevisionBundle::new(
+            AcceptedSchemaRevision::new(2),
+            candidate.store_path(),
+            candidate.bundle().enum_catalog().clone(),
+            candidate.bundle().composite_catalog().clone(),
+            std::collections::BTreeMap::from([(entity, updated)]),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    store
+        .apply_journaled_accepted_schema_candidate(
+            test_database_incarnation(),
+            AcceptedSchemaRevision::INITIAL,
+            &next,
+        )
+        .unwrap();
+    let live = store
+        .current_accepted_catalog_selection(entity, snapshot.entity_path(), store_path)
+        .unwrap()
+        .unwrap();
+    let canonical = store
+        .current_canonical_accepted_catalog_selection(entity, snapshot.entity_path(), store_path)
+        .unwrap()
+        .unwrap();
+    let proposed = super::AcceptedCatalogSnapshotSelection::from_candidate(
+        &next,
+        entity,
+        snapshot.entity_path(),
+        store_path,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(proposed.identity(), live.identity());
+    assert_eq!(proposed.snapshot(), live.snapshot());
+    assert_eq!(canonical.identity(), first.identity());
+    assert_eq!(canonical.snapshot(), snapshot);
+    assert_eq!(
+        live.identity().accepted_schema_fingerprint(),
+        first.identity().accepted_schema_fingerprint(),
+    );
+    assert!(!std::rc::Rc::ptr_eq(&snapshot, &live.snapshot()));
+    drop((store, first, second));
+    assert_eq!(
+        snapshot.persisted_snapshot().version(),
+        SchemaVersion::initial()
+    );
+    assert_eq!(
+        live.snapshot().persisted_snapshot().version(),
+        SchemaVersion::new(2)
     );
 }
 

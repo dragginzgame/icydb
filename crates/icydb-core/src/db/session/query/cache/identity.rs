@@ -79,7 +79,7 @@ impl SchemaCacheIdentity {
         }
     }
 
-    pub(super) const fn from_accepted_schema_with_fingerprint(
+    pub(super) fn from_accepted_schema_with_fingerprint(
         accepted_schema: &AcceptedSchemaSnapshot,
         fingerprint: CommitSchemaFingerprint,
         runtime_root: AcceptedSchemaRuntimeRootIdentity,
@@ -116,7 +116,7 @@ pub(super) struct QueryPlanAcceptedSchema<'schema> {
 }
 
 impl<'schema> QueryPlanAcceptedSchema<'schema> {
-    pub(super) const fn from_accepted_schema_with_fingerprint(
+    pub(super) fn from_accepted_schema_with_fingerprint(
         accepted_schema: &'schema AcceptedSchemaSnapshot,
         fingerprint: CommitSchemaFingerprint,
         runtime_root: AcceptedSchemaRuntimeRootIdentity,

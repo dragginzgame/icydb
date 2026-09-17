@@ -37,7 +37,7 @@ enum FieldMaterialization<'a> {
 /// Accepted snapshot and structural row contract selected from one catalog root.
 #[derive(Clone, Debug)]
 pub(in crate::db) struct AcceptedStructuralRowAuthority {
-    accepted_schema: AcceptedSchemaSnapshot,
+    accepted_schema: Rc<AcceptedSchemaSnapshot>,
     row_contract: StructuralRowContract,
 }
 
@@ -47,7 +47,7 @@ impl AcceptedStructuralRowAuthority {
         entity_path: &str,
         selection: &AcceptedCatalogSnapshotSelection,
     ) -> Result<Self, InternalError> {
-        let accepted_schema = selection.decode_verified()?;
+        let accepted_schema = selection.snapshot();
         let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted_schema)?;
         let row_contract = Self::catalog_backed_row_contract(entity_path, &descriptor, selection);
 
@@ -61,7 +61,7 @@ impl AcceptedStructuralRowAuthority {
     /// value catalogs that will be published with it.
     pub(in crate::db) fn from_candidate_snapshot(
         entity_path: &str,
-        accepted_schema: AcceptedSchemaSnapshot,
+        accepted_schema: Rc<AcceptedSchemaSnapshot>,
         value_catalog: crate::db::schema::AcceptedValueCatalogHandle,
     ) -> Result<Self, InternalError> {
         let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted_schema)?;
@@ -102,13 +102,13 @@ impl AcceptedStructuralRowAuthority {
     /// Borrow the accepted snapshot selected with this row contract.
     #[cfg(feature = "sql")]
     #[must_use]
-    pub(in crate::db) const fn accepted_schema(&self) -> &AcceptedSchemaSnapshot {
+    pub(in crate::db) fn accepted_schema(&self) -> &AcceptedSchemaSnapshot {
         &self.accepted_schema
     }
 
     /// Consume this authority into its still-paired accepted artifacts.
     #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (AcceptedSchemaSnapshot, StructuralRowContract) {
+    pub(in crate::db) fn into_parts(self) -> (Rc<AcceptedSchemaSnapshot>, StructuralRowContract) {
         (self.accepted_schema, self.row_contract)
     }
 

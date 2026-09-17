@@ -1,0 +1,214 @@
+//! Temporary phase attribution over the unchanged matched query artifacts.
+use super::{SqlQueryPhasePerfResult, query_perf, settle_measurement_rounds};
+use icydb::Error;
+use icydb_testing_integration::{install_prebuilt_fixture_canister, reset_icydb_fixtures};
+
+#[test]
+fn catalog_query_phase_attribution() {
+    let directory = std::env::var("ICYDB_QUERY_MEASUREMENT_DIR").unwrap();
+    let cases = [
+        (
+            "primary_key",
+            "SELECT id, name FROM PerfAuditUser WHERE id = 1",
+        ),
+        (
+            "indexed_equality",
+            "SELECT id, name FROM PerfAuditUser WHERE name = 'Alice'",
+        ),
+        (
+            "indexed_range",
+            "SELECT id, age FROM PerfAuditUser WHERE age >= 24 AND age < 40 ORDER BY age, id LIMIT 3",
+        ),
+        (
+            "primary_key_in",
+            "SELECT id FROM PerfAuditUser WHERE id IN (1, 3, 5) ORDER BY id",
+        ),
+        ("count", "SELECT COUNT(*) FROM PerfAuditUser"),
+        (
+            "grouped_count",
+            "SELECT active, COUNT(*) FROM PerfAuditUser GROUP BY active",
+        ),
+    ];
+    let mut expected_results = Vec::new();
+    println!(
+        "artifact,query,repeat,entry,request_ready,session_ready,query_complete,request_complete,local_instructions,whole_update_cycles"
+    );
+    for artifact in ["baseline", "candidate"] {
+        let wasm = std::fs::read(format!("{directory}/{artifact}.wasm")).unwrap();
+        for (index, (name, sql)) in cases.iter().enumerate() {
+            let fixture = install_prebuilt_fixture_canister("sql_perf", wasm.clone());
+            reset_icydb_fixtures(&fixture);
+            settle_measurement_rounds(&fixture);
+            let first = query_perf(&fixture, "query_user_with_perf", sql);
+            for _ in 0..2 {
+                let sample = query_perf(&fixture, "query_user_with_perf", sql);
+                assert_eq!(sample, first);
+            }
+            let warm: Result<SqlQueryPhasePerfResult, Error> = fixture
+                .update_candid("warm_user_query_with_perf", (sql.to_string(),))
+                .unwrap();
+            assert_eq!(warm.unwrap().result, first.result);
+            settle_measurement_rounds(&fixture);
+            for repeat in 0..3 {
+                let sample = query_perf(&fixture, "query_user_with_perf", sql);
+                assert_eq!(sample.result, first.result);
+                println!(
+                    "query_replay,{artifact},{name},{repeat},{}",
+                    sample.instructions
+                );
+            }
+            for repeat in 0..3 {
+                settle_measurement_rounds(&fixture);
+                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+                let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
+                    .update_candid("warm_user_query_with_perf", (sql.to_string(),))
+                    .unwrap();
+                let cycles = before
+                    .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+                    .unwrap();
+                let sample = sample.unwrap();
+                assert_eq!(sample.result, first.result);
+                assert_eq!(
+                    sample.instructions,
+                    sample.query_complete - sample.request_ready
+                );
+                assert!(
+                    [
+                        sample.entry,
+                        sample.request_ready,
+                        sample.session_ready,
+                        sample.query_complete,
+                        sample.request_complete
+                    ]
+                    .windows(2)
+                    .all(|pair| pair[0] <= pair[1])
+                );
+                println!(
+                    "{artifact},{name},{repeat},{},{},{},{},{},{},{cycles}",
+                    sample.entry,
+                    sample.request_ready,
+                    sample.session_ready,
+                    sample.query_complete,
+                    sample.request_complete,
+                    sample.instructions
+                );
+            }
+            if artifact == "baseline" {
+                expected_results.push(first.result);
+            } else {
+                assert_eq!(first.result, expected_results[index]);
+            }
+        }
+    }
+}
+
+#[test]
+fn catalog_query_heap_attribution() {
+    let directory = std::env::var("ICYDB_QUERY_MEASUREMENT_DIR").unwrap();
+    let sql = "SELECT id, name FROM PerfAuditUser WHERE id = 1";
+    for artifact in ["baseline", "candidate"] {
+        let wasm = std::fs::read(format!("{directory}/{artifact}.wasm")).unwrap();
+        let fixture = install_prebuilt_fixture_canister("sql_perf", wasm);
+        reset_icydb_fixtures(&fixture);
+        for step in 0..5 {
+            settle_measurement_rounds(&fixture);
+            let status = fixture
+                .pocket_ic()
+                .canister_status(fixture.canister_id(), None)
+                .unwrap();
+            println!(
+                "heap,{artifact},{step},wasm={},stable={},query_calls={},query_instructions={}",
+                status.memory_metrics.wasm_memory_size,
+                status.memory_metrics.stable_memory_size,
+                status.query_stats.num_calls_total,
+                status.query_stats.num_instructions_total
+            );
+            let query = query_perf(&fixture, "query_user_with_perf", sql);
+            let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
+                .update_candid("warm_user_query_with_perf", (sql.to_string(),))
+                .unwrap();
+            assert_eq!(query.result, sample.unwrap().result);
+        }
+    }
+}
+
+#[test]
+fn catalog_whole_query_attribution() {
+    let directory = std::env::var("ICYDB_QUERY_MEASUREMENT_DIR").unwrap();
+    let cases = [
+        (
+            "primary_key",
+            "SELECT id, name FROM PerfAuditUser WHERE id = 1",
+        ),
+        (
+            "indexed_equality",
+            "SELECT id, name FROM PerfAuditUser WHERE name = 'Alice'",
+        ),
+        (
+            "indexed_range",
+            "SELECT id, age FROM PerfAuditUser WHERE age >= 24 AND age < 40 ORDER BY age, id LIMIT 3",
+        ),
+        (
+            "primary_key_in",
+            "SELECT id FROM PerfAuditUser WHERE id IN (1, 3, 5) ORDER BY id",
+        ),
+        ("count", "SELECT COUNT(*) FROM PerfAuditUser"),
+        (
+            "grouped_count",
+            "SELECT active, COUNT(*) FROM PerfAuditUser GROUP BY active",
+        ),
+    ];
+    let mut expected_results = Vec::new();
+    for artifact in ["baseline", "candidate"] {
+        let wasm = std::fs::read(format!("{directory}/{artifact}.wasm")).unwrap();
+        for (index, (name, sql)) in cases.iter().enumerate() {
+            let fixture = install_prebuilt_fixture_canister("sql_perf", wasm.clone());
+            reset_icydb_fixtures(&fixture);
+            settle_measurement_rounds(&fixture);
+            let warm: Result<SqlQueryPhasePerfResult, Error> = fixture
+                .update_candid("warm_user_query_with_perf", (sql.to_string(),))
+                .unwrap();
+            let expected = warm.unwrap().result;
+            settle_measurement_rounds(&fixture);
+            // Reuse the maintained group-path query-statistics protocol: report
+            // three completed epochs of thirteen distinct query callers.
+            let mut local = None;
+            for epoch in 0..4_u8 {
+                for node in 0..13_u8 {
+                    let caller = candid::Principal::from_slice(&[epoch + 1, node + 1]);
+                    let sample: Result<super::SqlQueryPerfResult, Error> = fixture
+                        .query_candid_as(caller, "query_user_with_perf", (sql.to_string(),))
+                        .unwrap();
+                    let sample = sample.unwrap();
+                    assert_eq!(sample.result, expected);
+                    if let Some(instructions) = local {
+                        assert_eq!(sample.instructions, instructions);
+                    }
+                    local = Some(sample.instructions);
+                }
+                for _ in 0..60 {
+                    fixture.pocket_ic().tick();
+                }
+            }
+            let status = fixture
+                .pocket_ic()
+                .canister_status(fixture.canister_id(), None)
+                .unwrap();
+            assert_eq!(
+                status.query_stats.num_calls_total,
+                candid::Nat::from(39_u64)
+            );
+            println!(
+                "whole_query,{artifact},{name},calls={},instructions={},local={}",
+                status.query_stats.num_calls_total,
+                status.query_stats.num_instructions_total,
+                local.unwrap()
+            );
+            if artifact == "baseline" {
+                expected_results.push(expected);
+            } else {
+                assert_eq!(expected, expected_results[index]);
+            }
+        }
+    }
+}

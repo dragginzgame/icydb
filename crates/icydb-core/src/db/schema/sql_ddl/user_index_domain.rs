@@ -49,7 +49,7 @@ pub(super) fn stage_sql_ddl_user_index_domain_replacement(
         .ok_or_else(InternalError::store_corruption)?;
     let accepted_after_row_contract = AcceptedStructuralRowAuthority::from_candidate_snapshot(
         accepted_before_identity.entity_path(),
-        accepted_after_snapshot,
+        accepted_after_snapshot.into(),
         selection.value_catalog_handle().clone(),
     )?
     .into_row_contract();

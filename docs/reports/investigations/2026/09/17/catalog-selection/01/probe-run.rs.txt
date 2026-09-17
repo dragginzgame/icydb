@@ -1,0 +1,32 @@
+fn run(kind: u32, n: usize, depth: u32, width: usize) -> Vec<u64> {
+    // Real current-root selection. Bundle admission, publication and initial
+    // verified bundle loading are outside both measured intervals.
+    let (_, _, bundle) = fixture(kind, n, depth, width);
+    let candidate = CandidateSchemaRevision::new(bundle).unwrap();
+    let mut store = SchemaStore::init_heap();
+    store.publish_accepted_schema_candidate(
+        DatabaseIncarnationId::try_from_bytes([1; 16]).unwrap(),
+        AcceptedSchemaRevision::NONE, &candidate,
+    ).unwrap();
+    store.current_accepted_schema_authority_ref().unwrap().unwrap();
+    let select = || {
+        let selected = store.current_accepted_catalog_selection(
+            EntityTag::new(1), "probe::Entity", "probe::Store",
+        ).unwrap().unwrap();
+        let snapshot = selected.decode_verified().unwrap();
+        (selected, snapshot)
+    };
+    let (cold, (first, snapshot)) = measured(select);
+    let (warm, (second, next)) = measured(select);
+    assert_eq!(first.identity(), second.identity());
+    assert_eq!(snapshot, next);
+    assert_eq!(
+        first.identity().accepted_schema_fingerprint(),
+        crate::db::schema::accepted_schema_cache_fingerprint(&snapshot).unwrap(),
+    );
+    let (repeated, ()) = measured(|| {
+        for _ in 0..4 { drop(black_box(select())); }
+    });
+    vec![cold, warm, repeated, snapshot.persisted_snapshot().fields().len() as u64,
+        candidate.encoded_bundle().len() as u64]
+}

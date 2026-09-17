@@ -699,10 +699,7 @@ const fn final_candidate(job: &IntegrityJob) -> CandidatePage {
     }
 }
 
-const fn checkpoint_after_rows(
-    plan: &AcceptedInspectionPlan,
-    job: &IntegrityJob,
-) -> IntegrityCheckpoint {
+fn checkpoint_after_rows(plan: &AcceptedInspectionPlan, job: &IntegrityJob) -> IntegrityCheckpoint {
     if plan.index_inspection().len() > 0 {
         return IntegrityCheckpoint::Index {
             ordinal: 0,
@@ -729,7 +726,7 @@ fn checkpoint_after_index(
     Ok(checkpoint_before_reverse_or_journal(plan, job))
 }
 
-const fn checkpoint_before_reverse_or_journal(
+fn checkpoint_before_reverse_or_journal(
     plan: &AcceptedInspectionPlan,
     job: &IntegrityJob,
 ) -> IntegrityCheckpoint {

@@ -1,0 +1,88 @@
+//! Temporary matched-artifact query instruction measurement; no actor changes.
+
+use candid::CandidType;
+use icydb::{Error, db::sql::SqlQueryResult};
+use icydb_testing_integration::{install_prebuilt_fixture_canister, reset_icydb_fixtures};
+use serde::Deserialize;
+
+#[derive(CandidType, Debug, Deserialize)]
+struct Sample {
+    result: SqlQueryResult,
+    instructions: u64,
+}
+
+#[test]
+fn simple_query_handoff_measurement() {
+    let directory = std::env::var("ICYDB_QUERY_MEASUREMENT_DIR").unwrap();
+    let cases = [
+        (
+            "primary_key",
+            "SELECT id, name FROM PerfAuditUser WHERE id = 1",
+        ),
+        (
+            "indexed_equality",
+            "SELECT id, name FROM PerfAuditUser WHERE name = 'Alice'",
+        ),
+        (
+            "indexed_range",
+            "SELECT id, age FROM PerfAuditUser WHERE age >= 24 AND age < 40 ORDER BY age, id LIMIT 3",
+        ),
+        (
+            "primary_key_in",
+            "SELECT id FROM PerfAuditUser WHERE id IN (1, 3, 5) ORDER BY id",
+        ),
+        ("count", "SELECT COUNT(*) FROM PerfAuditUser"),
+        (
+            "grouped_count",
+            "SELECT active, COUNT(*) FROM PerfAuditUser GROUP BY active",
+        ),
+    ];
+    let mut expected_results = Vec::new();
+    println!("artifact,query,state,repeat,instructions");
+    for artifact in ["baseline", "candidate"] {
+        let wasm = std::fs::read(format!("{directory}/{artifact}.wasm")).unwrap();
+        println!("artifact_size,{artifact},{}", wasm.len());
+        for (case_index, (name, sql)) in cases.iter().enumerate() {
+            let fixture = install_prebuilt_fixture_canister("sql_perf", wasm.clone());
+            reset_icydb_fixtures(&fixture);
+            for _ in 0..64 {
+                fixture.pocket_ic().tick();
+            }
+            let mut expected = None;
+            for state in ["first_after_load", "warmed"] {
+                if state == "warmed" {
+                    let sample: Result<Sample, Error> = fixture
+                        .update_candid("warm_user_query_with_perf", (sql.to_string(),))
+                        .unwrap();
+                    assert_eq!(Some(sample.unwrap().result), expected);
+                    for _ in 0..64 {
+                        fixture.pocket_ic().tick();
+                    }
+                }
+                let mut first_instructions = None;
+                for repeat in 0..3 {
+                    let sample: Result<Sample, Error> = fixture
+                        .query_candid("query_user_with_perf", (sql.to_string(),))
+                        .unwrap();
+                    let sample = sample.unwrap();
+                    if let Some(result) = &expected {
+                        assert_eq!(&sample.result, result);
+                    } else {
+                        expected = Some(sample.result.clone());
+                    }
+                    if let Some(instructions) = first_instructions {
+                        assert_eq!(sample.instructions, instructions);
+                    }
+                    first_instructions = Some(sample.instructions);
+                    println!("{artifact},{name},{state},{repeat},{}", sample.instructions);
+                }
+            }
+            let result = expected.unwrap();
+            if artifact == "baseline" {
+                expected_results.push(result);
+            } else {
+                assert_eq!(result, expected_results[case_index]);
+            }
+        }
+    }
+}

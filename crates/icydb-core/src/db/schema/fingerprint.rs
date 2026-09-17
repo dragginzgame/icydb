@@ -9,7 +9,7 @@ use crate::{
         commit::CommitSchemaFingerprint,
         schema::{
             AcceptedSchemaSnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot, SchemaVersion,
-            encode_persisted_schema_snapshot,
+            codec::encode_persisted_schema_snapshot_with_version, encode_persisted_schema_snapshot,
         },
     },
     error::InternalError,
@@ -47,23 +47,25 @@ pub(in crate::db) fn accepted_commit_schema_fingerprint(
 /// Storage uses this while inserting the raw schema payload so later query
 /// cache identity can read a method-qualified fingerprint header without
 /// decoding the full snapshot.
+/// The original snapshot must be valid, including a nonzero declared version;
+/// only its encoded hash representation uses the canonical version sentinel.
 pub(in crate::db) fn accepted_schema_cache_fingerprint_for_persisted_snapshot(
     schema: &PersistedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {
-    let normalized_schema = schema_with_cache_fingerprint_version(schema);
-    let encoded_snapshot = encode_persisted_schema_snapshot(&normalized_schema)?;
+    let encoded_snapshot =
+        encode_persisted_schema_snapshot_with_version(schema, SchemaVersion::initial())?;
 
     Ok(accepted_schema_cache_fingerprint_from_raw(
-        normalized_schema.entity_path(),
+        schema.entity_path(),
         &encoded_snapshot,
     ))
 }
 
 /// Compute the accepted-shape fingerprint used by schema-version admission.
 ///
-/// Unlike the runtime cache fingerprint, this intentionally normalizes the
-/// declared schema version out of the accepted snapshot before hashing. The
-/// version is compared as an adjacent identity fact by admission policy.
+/// Like runtime identity, this normalizes the declared schema version. Admission
+/// additionally normalizes generated index names; version comparison remains
+/// an adjacent identity fact owned by admission policy.
 pub(in crate::db::schema) fn accepted_schema_admission_fingerprint(
     schema: &PersistedSchemaSnapshot,
 ) -> Result<CommitSchemaFingerprint, InternalError> {
@@ -121,12 +123,6 @@ fn accepted_schema_admission_fingerprint_from_raw(
     hasher.update(encoded_snapshot);
 
     truncate_sha256_commit_schema_fingerprint(hasher)
-}
-
-fn schema_with_cache_fingerprint_version(
-    schema: &PersistedSchemaSnapshot,
-) -> PersistedSchemaSnapshot {
-    schema_with_fingerprint_version_and_indexes(schema, schema.indexes().to_vec())
 }
 
 fn schema_with_admission_fingerprint_version(
