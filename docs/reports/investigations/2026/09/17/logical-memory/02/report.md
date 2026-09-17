@@ -1,5 +1,11 @@
 # 0.258 L4 — Logical-memory qualification
 
+Release-gate update: the subsequent full workspace run exposed missing grants
+in nested-relation audit actors (now fixed and focused tests pass) and a lifecycle
+participant instruction-ceiling failure (still unresolved). See the
+[current status](../../../../../../../design/0.258-logical-memory/0.258-status.md#release-gate-repair).
+The historical measurements below do not establish a passing full release gate.
+
 Date: 2026-09-17. Verdict: the logical-memory implementation is ready for the
 user-owned release gate, within the coverage limits below. No further production
 change is required by this qualification. Existing physical-ID databases must be

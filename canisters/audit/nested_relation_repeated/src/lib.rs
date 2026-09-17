@@ -3,7 +3,8 @@
 icydb::ic_memory_range!(
     authority = "icydb.relation_cost_repeated",
     start = 100,
-    end = 254
+    end = 254,
+    mode = Allowed
 );
 
 icydb_testing_audit_nested_relation_fixtures::define_relation_cost_measurement_actor!(repeated);
