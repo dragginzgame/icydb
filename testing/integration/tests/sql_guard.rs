@@ -175,8 +175,8 @@ fn guarded_and_controller_sql_artifacts_keep_one_identical_public_surface() {
         mode: CanisterMethodMode::Query,
     }]);
     for wasm in [&controller_wasm, &guarded_wasm] {
-        let manifest =
-            inspect_canister_artifacts(wasm).expect("Candid and raw Wasm exports should agree");
+        let manifest = inspect_canister_artifacts(wasm.as_ref())
+            .expect("Candid and raw Wasm exports should agree");
         assert_eq!(manifest.icydb_methods(), expected);
     }
 
@@ -189,8 +189,8 @@ fn guarded_and_controller_sql_artifacts_keep_one_identical_public_surface() {
         output.stdout
     };
     assert_eq!(
-        extract_candid(&controller_wasm),
-        extract_candid(&guarded_wasm),
+        extract_candid(controller_wasm.as_ref()),
+        extract_candid(guarded_wasm.as_ref()),
         "guarded SQL must not change the complete Candid service",
     );
 

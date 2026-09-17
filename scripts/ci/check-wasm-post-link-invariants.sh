@@ -48,16 +48,16 @@ require_text \
     'the post-link artifact cache must invoke the canonical optimizer on cache misses.'
 require_text \
     testing/integration/src/lib.rs \
-    '&configured.compiler_emitted,' \
-    'fixture post-link builds must consume the compiler-emitted artifact.'
+    '&artifacts.compiler_emitted,' \
+    'fixture post-link builds must consume the retained compiler-emitted artifact.'
 require_text \
     testing/integration/src/lib.rs \
     '&configured.final_deployable,' \
     'fixture post-link builds must write the canonical deployable artifact.'
 require_text \
     testing/integration/src/lib.rs \
-    'final_deployable: configured.final_deployable,' \
-    'fixture builds must publish the canonical post-link artifact.'
+    'artifacts.retain_post_link(outcome.record().clone())?' \
+    'fixture builds must retain the canonical post-link artifact through consumption.'
 require_text \
     scripts/app/build.sh \
     '--bin build_fixture_canister' \

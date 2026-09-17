@@ -307,8 +307,8 @@ fn controller_and_guarded_combined_artifacts_preserve_one_bounded_surface() {
         },
     ]);
     for wasm in [&controller_wasm, &guarded_wasm] {
-        let manifest =
-            inspect_canister_artifacts(wasm).expect("Candid and raw Wasm exports should agree");
+        let manifest = inspect_canister_artifacts(wasm.as_ref())
+            .expect("Candid and raw Wasm exports should agree");
         assert_eq!(manifest.icydb_methods(), expected);
     }
 
@@ -320,8 +320,8 @@ fn controller_and_guarded_combined_artifacts_preserve_one_bounded_surface() {
         assert!(output.status.success(), "Candid extraction should succeed");
         output.stdout
     };
-    let controller_candid = extract_candid(&controller_wasm);
-    let guarded_candid = extract_candid(&guarded_wasm);
+    let controller_candid = extract_candid(controller_wasm.as_ref());
+    let guarded_candid = extract_candid(guarded_wasm.as_ref());
     assert_eq!(
         controller_candid, guarded_candid,
         "guarded reads must not change the complete Candid service",

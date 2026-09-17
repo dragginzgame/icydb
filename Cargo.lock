@@ -1340,9 +1340,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.14.2"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1e3d2a9e8002968a621bbb0d70320c043383d45a60b8bbbbc8c91a011fe696c"
+checksum = "b9368f37df84f896d04da5b980e0e038302c4da24892f89e00124c6d7cb953c7"
 dependencies = [
  "ciborium",
  "ctor",
@@ -1362,9 +1362,9 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.9.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8008961010be77cd8ac9bb8d89ca8f30854a8dfb9c68e62dd0345e89b0b8d27"
+checksum = "fa7ed2c09266e458d6f800692f4bd076944bbb4c1a96b57357cd7c1ee047b201"
 dependencies = [
  "candid",
  "fs2",

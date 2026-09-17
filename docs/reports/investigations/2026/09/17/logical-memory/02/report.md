@@ -2,7 +2,8 @@
 
 Release-gate update: the subsequent full workspace run exposed missing grants
 in nested-relation audit actors (now fixed and focused tests pass) and a lifecycle
-participant instruction-ceiling failure (still unresolved). See the
+participant instruction-ceiling failure (resolved by published 0.14.3 adoption
+and focused qualification). See the
 [current status](../../../../../../../design/0.258-logical-memory/0.258-status.md#release-gate-repair).
 The historical measurements below do not establish a passing full release gate.
 

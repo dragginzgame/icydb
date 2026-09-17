@@ -1,7 +1,8 @@
-use std::{collections::BTreeSet, path::PathBuf, sync::Mutex};
+use std::{collections::BTreeSet, sync::Mutex};
 
 use icydb_testing_integration::{
-    CanisterBuildProfile, build_maintained_canister_contract_profiles_assuming_sources_immutable,
+    BuiltCanisterArtifacts, CanisterBuildProfile,
+    build_maintained_canister_contract_profiles_assuming_sources_immutable,
     canister_artifact::{
         CanisterMethod, ExpectedCanisterMethod, MAINTAINED_CANISTER_POLICIES,
         inspect_canister_artifacts,
@@ -27,7 +28,10 @@ fn production_and_local_source_declarations_match_the_frozen_endpoint_policy() {
     });
 }
 
-fn verify_profile(build_profile: CanisterBuildProfile, artifacts: Vec<(&'static str, PathBuf)>) {
+fn verify_profile(
+    build_profile: CanisterBuildProfile,
+    artifacts: Vec<(&'static str, BuiltCanisterArtifacts)>,
+) {
     for (canister, wasm) in artifacts {
         let policy = MAINTAINED_CANISTER_POLICIES
             .iter()
@@ -37,7 +41,7 @@ fn verify_profile(build_profile: CanisterBuildProfile, artifacts: Vec<(&'static 
             CanisterBuildProfile::LocalTest => policy.local_test_icydb_methods,
             CanisterBuildProfile::Production => policy.production_icydb_methods,
         };
-        let manifest = inspect_canister_artifacts(&wasm).unwrap_or_else(|error| {
+        let manifest = inspect_canister_artifacts(wasm.as_ref()).unwrap_or_else(|error| {
             panic!("{canister} artifacts should agree for {build_profile:?}: {error}")
         });
 

@@ -30,7 +30,9 @@ use std::{
 
 use candid::CandidType;
 use ic_testkit::{
-    artifacts::{LabeledWasmBuildSpec, WasmBuildInputSnapshot, wasm_path},
+    artifacts::{
+        ArtifactCacheRecord, LabeledWasmBuildSpec, WasmBuildInputSnapshot, WasmBuildRecord,
+    },
     pic::{InstallSpec, PocketIcBuilderExt, PocketIcStartupConfig, StandaloneCanisterFixture},
     pocket_ic::{PocketIc, PocketIcBuilder},
 };
@@ -164,15 +166,52 @@ impl FixtureCanister {
     }
 }
 
-struct BuiltCanisterArtifacts {
+/// Exact compiler and final Wasm artifacts retained through reading or staging.
+///
+/// Keep this owner alive while using its borrowed path. Copying the path alone
+/// does not retain the cache entry. `AsRef<Path>` selects the final artifact.
+pub struct BuiltCanisterArtifacts {
     compiler_emitted: PathBuf,
     final_deployable: PathBuf,
+    _cargo: WasmBuildRecord,
+    post_link: Option<ArtifactCacheRecord>,
+}
+
+impl BuiltCanisterArtifacts {
+    fn from_cargo(record: WasmBuildRecord) -> Result<Self, String> {
+        let [path] = record.artifacts() else {
+            return Err("canister build must retain exactly one compiler artifact".to_owned());
+        };
+        Ok(Self {
+            compiler_emitted: path.clone(),
+            final_deployable: path.clone(),
+            _cargo: record,
+            post_link: None,
+        })
+    }
+
+    fn retain_post_link(&mut self, record: ArtifactCacheRecord) -> Result<(), String> {
+        let [artifact] = record.artifacts() else {
+            return Err("canister post-link must retain exactly one final artifact".to_owned());
+        };
+        if artifact.name() != "final-deployable" {
+            return Err("canister post-link returned an unexpected artifact name".to_owned());
+        }
+        self.final_deployable = artifact.path().to_path_buf();
+        self.post_link = Some(record);
+        Ok(())
+    }
+}
+
+impl AsRef<Path> for BuiltCanisterArtifacts {
+    fn as_ref(&self) -> &Path {
+        &self.final_deployable
+    }
 }
 
 struct ConfiguredCanisterBuild {
     arguments: Vec<OsString>,
     rustflags: Option<String>,
-    compiler_emitted: PathBuf,
     final_deployable: PathBuf,
 }
 
@@ -348,8 +387,10 @@ impl CanisterBuildProfile {
 }
 
 /// Final artifacts for both maintained canister profiles in contract order.
-pub type MaintainedCanisterContractProfileArtifacts =
-    Vec<(CanisterBuildProfile, Vec<(&'static str, PathBuf)>)>;
+pub type MaintainedCanisterContractProfileArtifacts = Vec<(
+    CanisterBuildProfile,
+    Vec<(&'static str, BuiltCanisterArtifacts)>,
+)>;
 
 /// Explicit build options for fixture canisters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -567,7 +608,13 @@ fn build_canister_package_artifacts(
     .map_err(|error| format!("{context_label}: {error}"))?;
     trace_wasm_build(context_label, &outcome);
 
-    finish_canister_build(&root, configured, options, context_label)
+    finish_canister_build(
+        &root,
+        configured,
+        options,
+        context_label,
+        outcome.record().clone(),
+    )
 }
 
 fn finish_canister_build(
@@ -575,19 +622,11 @@ fn finish_canister_build(
     configured: ConfiguredCanisterBuild,
     options: CanisterBuildOptions,
     context_label: &str,
+    cargo: WasmBuildRecord,
 ) -> Result<BuiltCanisterArtifacts, String> {
-    if !configured.compiler_emitted.is_file() {
-        return Err(format!(
-            "{context_label}: build succeeded but wasm was not found at {}",
-            configured.compiler_emitted.display()
-        ));
-    }
-
+    let mut artifacts = BuiltCanisterArtifacts::from_cargo(cargo)?;
     if matches!(options.profile, CanisterWasmProfile::WasmAttribution) {
-        return Ok(BuiltCanisterArtifacts {
-            compiler_emitted: configured.compiler_emitted.clone(),
-            final_deployable: configured.compiler_emitted,
-        });
+        return Ok(artifacts);
     }
 
     let cache_root = target_dir(root).join("canister-artifact-cache");
@@ -595,16 +634,14 @@ fn finish_canister_build(
         workspace_root: root,
         cache_root: &cache_root,
         coordination_scope: context_label,
-        compiler_emitted: &configured.compiler_emitted,
+        compiler_emitted: &artifacts.compiler_emitted,
         final_deployable: &configured.final_deployable,
     })
     .map_err(|error| format!("{context_label}: {error}"))?;
     trace_post_link(context_label, &outcome);
 
-    Ok(BuiltCanisterArtifacts {
-        compiler_emitted: configured.compiler_emitted,
-        final_deployable: configured.final_deployable,
-    })
+    artifacts.retain_post_link(outcome.record().clone())?;
+    Ok(artifacts)
 }
 
 fn configure_canister_build(
@@ -619,15 +656,10 @@ fn configure_canister_build(
         .ok_or_else(|| format!("no maintained feature policy for package '{package_name}'"))?;
     let resolved = resolve_canister_build_configuration(policy, options);
     let profile = resolved.profile().as_str();
-    let compiler_emitted = wasm_path(canister_target_dir, package_name, profile);
-    let final_deployable = if matches!(options.profile, CanisterWasmProfile::WasmAttribution) {
-        compiler_emitted.clone()
-    } else {
-        canister_target_dir
-            .join("icydb-final")
-            .join(profile)
-            .join(format!("{package_name}.wasm"))
-    };
+    let final_deployable = canister_target_dir
+        .join("icydb-final")
+        .join(profile)
+        .join(format!("{package_name}.wasm"));
 
     let mut arguments = cargo_profile_arguments(resolved.profile(), resolved.no_default_features());
     if !resolved.features().is_empty() {
@@ -646,7 +678,6 @@ fn configure_canister_build(
     Ok(ConfiguredCanisterBuild {
         arguments,
         rustflags,
-        compiler_emitted,
         final_deployable,
     })
 }
@@ -703,21 +734,12 @@ fn cargo_profile_arguments(
     arguments
 }
 
-fn build_canister_package(
-    package_name: &str,
-    options: CanisterBuildOptions,
-    context_label: &str,
-) -> Result<PathBuf, String> {
-    build_canister_package_artifacts(package_name, options, context_label)
-        .map(|artifacts| artifacts.final_deployable)
-}
-
 ///
 /// build_canister
 ///
 /// Build one supported canister WASM with default debug options and return the
-/// built wasm path.
-pub fn build_canister(canister_name: &str) -> Result<PathBuf, String> {
+/// retained artifacts.
+pub fn build_canister(canister_name: &str) -> Result<BuiltCanisterArtifacts, String> {
     build_canister_with_options(canister_name, CanisterBuildOptions::default())
 }
 
@@ -948,18 +970,18 @@ fn build_local_fixture_wasm_bytes_with_options(
     fixture: &FixtureCanister,
     options: CanisterBuildOptions,
 ) -> Vec<u8> {
-    let wasm_path = build_canister_package(
+    let artifacts = build_canister_package_artifacts(
         fixture.package(),
         options,
         &canister_build_label(fixture, options),
     )
     .unwrap_or_else(|err| panic!("{} canister should build: {err}", fixture.name()));
 
-    fs::read(&wasm_path).unwrap_or_else(|err| {
+    fs::read(&artifacts).unwrap_or_else(|err| {
         panic!(
             "failed to read built {} canister wasm at {}: {err}",
             fixture.name(),
-            wasm_path.display()
+            artifacts.as_ref().display()
         )
     })
 }
@@ -1009,7 +1031,7 @@ pub fn upgrade_fixture_canister(fixture: &StandaloneCanisterFixture, canister_na
         .unwrap_or_else(|err| panic!("{canister_name} canister upgrade should succeed: {err}"));
 }
 
-/// Build every maintained canister independently and return its final Wasm path.
+/// Build every maintained canister independently and return retained artifacts.
 ///
 /// This is intended for whole-fleet artifact contracts. The collect-all batch
 /// retains every Cargo failure while sharing input resolution and the caller-owned
@@ -1022,7 +1044,7 @@ pub fn upgrade_fixture_canister(fixture: &StandaloneCanisterFixture, canister_na
 /// failure. Configuration failures retain their maintained contextual error.
 pub fn build_maintained_canisters_with_options(
     options: CanisterBuildOptions,
-) -> Result<Vec<(&'static str, PathBuf)>, String> {
+) -> Result<Vec<(&'static str, BuiltCanisterArtifacts)>, String> {
     let root = workspace_root();
     let plan = plan_maintained_canister_builds(&root, options)?;
     let cargo_report = build_cached_cargo_wasm_batch(&plan.specs);
@@ -1174,8 +1196,8 @@ fn plan_maintained_canister_builds(
 fn finish_maintained_canister_build_plan(
     root: &Path,
     plan: MaintainedCanisterBuildPlan,
-    cargo_report: canister_build_cache::CanisterCacheBatchReport,
-) -> Result<Vec<(&'static str, PathBuf)>, String> {
+    cargo_report: canister_build_cache::CanisterCacheBatchReport<WasmBuildRecord>,
+) -> Result<Vec<(&'static str, BuiltCanisterArtifacts)>, String> {
     finish_maintained_canister_builds(
         root,
         plan.configured,
@@ -1192,50 +1214,50 @@ fn finish_maintained_canister_builds(
         ConfiguredCanisterBuild,
     )>,
     contexts: &[String],
-    cargo_report: canister_build_cache::CanisterCacheBatchReport,
+    cargo_report: canister_build_cache::CanisterCacheBatchReport<WasmBuildRecord>,
     options: CanisterBuildOptions,
-) -> Result<Vec<(&'static str, PathBuf)>, String> {
+) -> Result<Vec<(&'static str, BuiltCanisterArtifacts)>, String> {
     let mut failures = cargo_report.failures;
-    let mut post_link_indexes = Vec::with_capacity(cargo_report.successful_indexes.len());
-    for index in cargo_report.successful_indexes {
+    let mut retained = Vec::with_capacity(cargo_report.successes.len());
+    for (index, record) in cargo_report.successes {
         let Some((policy, configured)) = configured.get(index) else {
             failures.push(format!(
                 "Cargo returned unknown successful entry index {index}"
             ));
             continue;
         };
-        if configured.compiler_emitted.is_file() {
-            post_link_indexes.push(index);
-        } else {
-            failures.push(format!(
-                "Cargo [{index}] {}: build succeeded but wasm was not found at {}",
-                policy.canister,
-                configured.compiler_emitted.display()
-            ));
+        let Some(context) = contexts.get(index) else {
+            failures.push("post-link batch context mapping was incomplete".to_owned());
+            continue;
+        };
+        match BuiltCanisterArtifacts::from_cargo(record) {
+            Ok(artifacts) => retained.push((policy.canister, configured, context, artifacts)),
+            Err(error) => failures.push(format!("Cargo [{index}] {}: {error}", policy.canister)),
         }
     }
 
-    if !post_link_indexes.is_empty()
-        && !matches!(options.profile, CanisterWasmProfile::WasmAttribution)
-    {
+    if !retained.is_empty() && !matches!(options.profile, CanisterWasmProfile::WasmAttribution) {
         let cache_root = target_dir(root).join("canister-artifact-cache");
-        let entries = post_link_indexes
+        let entries = retained
             .iter()
-            .filter_map(|index| {
-                let (_, configured) = configured.get(*index)?;
-                let context = contexts.get(*index)?;
-                Some(PostLinkBatchEntry {
-                    context,
-                    compiler_emitted: &configured.compiler_emitted,
-                    final_deployable: &configured.final_deployable,
-                })
+            .map(|(_, configured, context, artifacts)| PostLinkBatchEntry {
+                context,
+                compiler_emitted: &artifacts.compiler_emitted,
+                final_deployable: &configured.final_deployable,
             })
             .collect::<Vec<_>>();
-        if entries.len() == post_link_indexes.len() {
-            let post_link_report = cache_post_link_wasm_batch(root, &cache_root, &entries)?;
-            failures.extend(post_link_report.failures);
-        } else {
-            failures.push("post-link batch context mapping was incomplete".to_owned());
+        let post_link_report = cache_post_link_wasm_batch(root, &cache_root, &entries)?;
+        failures.extend(post_link_report.failures);
+        for (index, record) in post_link_report.successes {
+            let Some((_, _, _, artifacts)) = retained.get_mut(index) else {
+                failures.push(format!(
+                    "post-link returned unknown successful entry index {index}"
+                ));
+                continue;
+            };
+            if let Err(error) = artifacts.retain_post_link(record) {
+                failures.push(error);
+            }
         }
     }
 
@@ -1246,27 +1268,20 @@ fn finish_maintained_canister_builds(
         ));
     }
 
-    Ok(configured
+    Ok(retained
         .into_iter()
-        .map(|(policy, configured)| {
-            let artifact = if matches!(options.profile, CanisterWasmProfile::WasmAttribution) {
-                configured.compiler_emitted
-            } else {
-                configured.final_deployable
-            };
-            (policy.canister, artifact)
-        })
+        .map(|(canister, _, _, artifacts)| (canister, artifacts))
         .collect())
 }
 
 /// Build one supported SQL canister WASM with explicit options and return the
-/// built wasm path.
+/// retained artifacts. Keep the result alive while reading its final Wasm path.
 pub fn build_canister_with_options(
     canister_name: &str,
     options: CanisterBuildOptions,
-) -> Result<PathBuf, String> {
+) -> Result<BuiltCanisterArtifacts, String> {
     let package_name = package_for_canister_name(canister_name)?;
-    build_canister_package(
+    build_canister_package_artifacts(
         package_name,
         options,
         &format!(

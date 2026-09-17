@@ -140,22 +140,24 @@ fn preparation_measurement_wasm() -> Vec<u8> {
         CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
         CanisterWasmProfile, build_canister_with_options,
     };
-    let path = std::env::var_os("ICYDB_PREPARATION_WASM").map_or_else(
-        || {
-            build_canister_with_options(
-                "sql_perf",
-                CanisterBuildOptions {
-                    profile: CanisterWasmProfile::WasmRelease,
-                    sql_mode: CanisterSqlMode::Enabled,
-                    candid_export: CanisterCandidExportMode::Enabled,
-                    build_profile: CanisterBuildProfile::LocalTest,
-                },
-            )
-            .expect("canonical audit actor should build")
-        },
-        std::path::PathBuf::from,
-    );
-    let module = std::fs::read(&path).expect("audit artifact should be readable");
+    let provided = std::env::var_os("ICYDB_PREPARATION_WASM").map(std::path::PathBuf::from);
+    let built = provided.is_none().then(|| {
+        build_canister_with_options(
+            "sql_perf",
+            CanisterBuildOptions {
+                profile: CanisterWasmProfile::WasmRelease,
+                sql_mode: CanisterSqlMode::Enabled,
+                candid_export: CanisterCandidExportMode::Enabled,
+                build_profile: CanisterBuildProfile::LocalTest,
+            },
+        )
+        .expect("canonical audit actor should build")
+    });
+    let path = provided
+        .as_deref()
+        .or_else(|| built.as_ref().map(AsRef::as_ref))
+        .expect("audit artifact should be supplied or built");
+    let module = std::fs::read(path).expect("audit artifact should be readable");
     println!(
         "preparation_wasm path={} raw_bytes={}",
         path.display(),
