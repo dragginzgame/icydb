@@ -339,6 +339,12 @@ fn startup_driver_tokens() -> TokenStream {
             session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
         ) -> ::std::result::Result<bool, ::icydb::Error> {
             if let Err(error) = apply_generated_schema(session) {
+                if error.code() == ::icydb::ErrorCode::SCHEMA_MIGRATION_IN_PROGRESS {
+                    // Explicit controller commands own migration progress.
+                    // Leave readiness gated, but stop this watchdog without
+                    // persisting a failure or repeatedly replanning while idle.
+                    return Ok(true);
+                }
                 return ::icydb::db::__record_generated_schema_startup_failure::<
                     __IcydbGeneratedCanister,
                 >(

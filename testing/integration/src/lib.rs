@@ -644,35 +644,69 @@ fn build_configured_canister_artifacts(
 /// # Errors
 /// Returns a build, post-link or retained-artifact read failure.
 pub fn build_logical_memory_fixture_wasms() -> Result<(Vec<u8>, Vec<u8>), String> {
-    let root = workspace_root();
-    let options = CanisterBuildOptions::default();
-    let target = target_dir(&root).join(options.build_profile.target_dir_name());
-    let build = |features: &str, label: &str| {
-        let mut arguments = cargo_profile_arguments(options.profile, true);
-        arguments.extend([OsString::from("--features"), features.into()]);
-        let artifacts = build_configured_canister_artifacts(
-            &root,
-            &target,
-            "canister_test_logical_memory",
-            options,
-            label,
-            ConfiguredCanisterBuild {
-                arguments,
-                rustflags: combined_rustflags(&[]),
-                final_deployable: target
-                    .join("icydb-final/debug")
-                    .join(format!("{label}.wasm")),
-            },
-        )?;
-        fs::read(&artifacts).map_err(|error| format!("read retained {label}: {error}"))
-    };
     Ok((
-        build("test-admin-api", "logical-memory-full")?,
-        build(
+        build_fixture_variant_wasm(
+            "canister_test_logical_memory",
+            "test-admin-api",
+            "logical-memory-full",
+        )?,
+        build_fixture_variant_wasm(
+            "canister_test_logical_memory",
             "test-admin-api,omit-retiring-store",
             "logical-memory-omitted",
         )?,
     ))
+}
+
+/// Build the maintained source and successor schema-migration actors.
+///
+/// Both source shapes use the current library and storage format. Artifact
+/// retention lasts through each read, before the next variant is built.
+///
+/// # Errors
+/// Returns a build, post-link or retained-artifact read failure.
+pub fn build_schema_migration_fixture_wasms() -> Result<(Vec<u8>, Vec<u8>), String> {
+    Ok((
+        build_fixture_variant_wasm(
+            "canister_test_sql",
+            "test-admin-api,local-sql-query,schema-migration-api",
+            "schema-migration-source",
+        )?,
+        build_fixture_variant_wasm(
+            "canister_test_sql",
+            "test-admin-api,local-sql-query,schema-migration-v2",
+            "schema-migration-successor",
+        )?,
+    ))
+}
+
+// Read while the retained Cargo/post-link owner is alive. Variant-specific
+// features must not borrow a mutable artifact path from another build.
+fn build_fixture_variant_wasm(
+    package: &str,
+    features: &str,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    let root = workspace_root();
+    let options = CanisterBuildOptions::default();
+    let target = target_dir(&root).join(options.build_profile.target_dir_name());
+    let mut arguments = cargo_profile_arguments(options.profile, true);
+    arguments.extend([OsString::from("--features"), features.into()]);
+    let artifacts = build_configured_canister_artifacts(
+        &root,
+        &target,
+        package,
+        options,
+        label,
+        ConfiguredCanisterBuild {
+            arguments,
+            rustflags: combined_rustflags(&[]),
+            final_deployable: target
+                .join("icydb-final/debug")
+                .join(format!("{label}.wasm")),
+        },
+    )?;
+    fs::read(&artifacts).map_err(|error| format!("read retained {label}: {error}"))
 }
 
 fn finish_canister_build(

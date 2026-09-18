@@ -27,8 +27,8 @@ use icydb_schema::{
 use crate::db::{SchemaMigrationCommand, SchemaMigrationStatusPage, SchemaMigrationStatusRequest};
 
 impl<C: CanisterKind> DbSession<C> {
-    /// Validate generated deployment identity and defer ordinary schema
-    /// application only while one exact migration is durably `Prepared`.
+    /// Validate generated deployment identity and require explicit migration
+    /// publication before applying the generated successor schema.
     #[doc(hidden)]
     pub fn ensure_generated_schema_fragment(
         &self,
@@ -62,14 +62,8 @@ impl<C: CanisterKind> DbSession<C> {
             migration_plan,
         )?;
         #[cfg(feature = "migration")]
-        {
-            if self
-                .inner
-                .defer_generated_schema_application_for_prepared_migration(&proposal)?
-            {
-                return Ok(());
-            }
-        }
+        self.inner
+            .ensure_generated_schema_application_admitted(&proposal)?;
         self.inner.apply_generated_schema(&proposal)?;
         Ok(())
     }

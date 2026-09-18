@@ -39,7 +39,7 @@ version 1:
 #[entity(
     store = "AppStore",
     version = 1,
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(name = "id", value(item(prim = "Ulid"))),
         field(name = "name", value(item(prim = "Text", unbounded))),
@@ -53,25 +53,30 @@ pub struct User {}
 Versions are not database-wide release numbers. Increment only an entity that
 participates in the next plan, and increment it by exactly one.
 
-## Adopt An Existing Database Once
+## Adoption Is Not A Format Upgrade
 
-A database created before IcyDB 0.218 has no accepted source-lineage record.
-Deploy a migration-capable Wasm that still declares the exact version-1
-schema, then inspect and adopt it:
+Current IcyDB databases record initial source lineage at creation. They do not
+need a separate adoption step. For a current-format database whose typed status
+reports unadopted lineage, the existing adoption operation accepts only the
+exact initial source proposal:
 
 ```bash
 icydb schema migration status app
 icydb schema migration adopt app --yes
 ```
 
-Adoption succeeds only when the deployed version-1 proposal is an exact no-op
-against accepted authority. It records the existing accepted IDs and source
-digests; it does not rewrite rows or infer a later schema. A database first
-created by current IcyDB already records version-1 lineage and does not need
-this operation.
+Adoption is an exact no-op against accepted schema authority. It records accepted
+IDs and source digests; it does not rewrite rows, decode retired formats or infer
+a successor schema. Observe accepted lineage before proposing an adjacent source
+revision. Incompatible pre-1.0 storage/ledger formats require recreation or
+reinstall, not adoption or migration rehearsal.
 
-Do not combine adoption with the version-2 deployment. Observe successful
-adoption first, then build and deploy the successor artifact.
+Entity source revisions are distinct from internal encoding discriminators:
+the adjacent source revision in the example below changes while internal formats
+remain at their maintained version 1. The
+[0.259 rehearsal design](../design/0.259-migration-rehearsal/0.259-design.md)
+defines isolated qualification within that current-format boundary. The
+maintained fixture below is not a production-data migration tool.
 
 ## Declare One Adjacent Migration
 
@@ -102,7 +107,7 @@ pub struct AppCanister {}
 #[entity(
     store = "AppStore",
     version = 2,
-    pk(field = "id"),
+    pk(fields = ["id"]),
     fields(
         field(name = "id", value(item(prim = "Ulid"))),
         field(name = "name", value(item(prim = "Text", unbounded))),
@@ -136,9 +141,12 @@ bounded step is also available:
 icydb schema migration advance app
 ```
 
-The database remains available while the plan is merely `Prepared`. From
-validation through final publication, ordinary reads, writes, DDL, relation
-work, and schema mutation return the typed migration-in-progress error. Final
+The core migration gate permits ordinary row operations during `Prepared` when
+the migration capability is present, but this is not application readiness:
+the unpublished generated successor reports startup `Recovering`. Generated ordinary
+endpoints require startup `Ready`; never resume application work from the
+migration phase alone. From validation through final publication, the migration
+gate also blocks ordinary reads, writes, DDL and relation work. Final
 publication atomically switches accepted schema, source lineage, receipt, and
 terminal migration authority. The predecessor source name is then absent;
 callers must use `score`, not `rank`.
@@ -168,6 +176,11 @@ validation remains unavailable until the controller either performs the
 permitted pre-rewrite abort or deploys the exact plan needed to inspect and
 resolve it.
 
+Abort retains the accepted source schema; it does not change the successor
+artifact's generated API. To resume the original application's reads after
+aborting, redeploy the exact source artifact using the same current storage
+format, then allow startup recovery to finish.
+
 After an `Applied` result has been verified, a later same-version deployment
 may omit the migration endpoints and capability. The terminal accepted schema
 and lineage remain durable authority; the old plan is not a runtime fallback.
@@ -175,7 +188,8 @@ and lineage remain durable authority; the old plan is not a runtime fallback.
 ## Operational Checklist
 
 1. Back up and identify the exact deployed Wasm and accepted head.
-2. Adopt a pre-0.218 version-1 database in a separate deployment.
+2. Verify accepted source lineage; use adoption only for a current-format
+   unadopted database with an exact initial proposal.
 3. Build one adjacent successor and review its complete migration plan.
 4. Deploy the successor, inspect `status`, then run bounded advancement.
 5. Keep the exact successor Wasm available until `Applied` is observed.
@@ -185,3 +199,86 @@ and lineage remain durable authority; the old plan is not a runtime fallback.
 Migration is deliberately offline and controller-operated. It is not an
 online rolling-schema protocol, a cross-canister transaction, or an import and
 restore facility.
+
+## Rehearse The Maintained Example
+
+The focused integration target builds both `SqlTestUser` source revisions from
+the current checkout through the retained Cargo/post-link pipeline. It needs the
+ordinary Wasm build tools and PocketIC setup, but no externally prepared Wasm
+paths or ignored-test flag:
+
+```bash
+cargo test -p icydb-testing-integration --test schema_migration_closeout -- --nocapture
+```
+
+Three tests cover uninterrupted success, upgrades during both `Prepared` and
+gated validation, and a rejected Int32-to-Nat16 cast.
+They verify preserved row IDs, typed output, indexed lookup, accepted-head and
+receipt bindings, retained progress, and source data after the permitted abort.
+The source/successor actors use the same current storage format, not different
+IcyDB releases. The host bounds advancement to 32 calls; exhausting this fixture
+limit fails qualification rather than claiming successful migration.
+
+The target prints raw Wasm sizes, artifact hashes and whole-call cycle charges
+around explicit migration commands. These charges include ingress and any work
+scheduled during the call, not just the migration function. They exclude install,
+upgrade, seeding, separate reads and startup delivery outside the command.
+Instruction counts are not instrumented, and no numeric performance ceiling is
+inferred from this small dataset. It creates disposable local
+PocketIC canisters and uses existing SQL fixture endpoints only for seeding and
+inspection; migration commands remain typed. It does not inspect application
+data, deploy a production canister or prove another dataset will migrate.
+
+A valid pending migration
+keeps ordinary requests gated while explicit controller commands own progress;
+it does not become a terminal unsupported-schema startup failure. The watchdog
+does not keep retrying that pending plan, including after a `Prepared` restart.
+The [status tracker](../design/0.259-migration-rehearsal/0.259-status.md) owns current
+qualification; historical reports retain their exact inputs and observations.
+
+## Adapt The Rehearsal To Your Application
+
+Start from the maintained [integration test](../../testing/integration/tests/schema_migration_closeout.rs),
+not a new migration runner. The fixture does not qualify your schema, framework
+lifecycle or production rows.
+
+1. **Freeze both actors.** Build current and adjacent successor source schemas
+   against one lockfile, toolchain and current IcyDB/storage format. Preserve the
+   namespace and durable store keys. Record the revision, dirty patch, features
+   and exact artifact hashes. Retain build owners until bytes are read; do not
+   reopen a mutable Cargo output after another build. Incompatible pre-1.0 data
+   needs explicit recreation/regeneration, not this test as an upgrade bridge.
+2. **Seed through your domain API.** Install a disposable local actor, wait for
+   typed readiness and use application-owned writes with ordinary authorization
+   and accepted-value admission. SQL is only the fixture's choice; applications
+   need not enable it. Keep test controls out of production exports. Use synthetic
+   representative values and conversion boundaries, not imported production data
+   or hand-written stable memory.
+3. **Specify results before upgrading.** Retain row IDs within each run, accepted
+   head, logical values and expected indexed/domain reads. Compare logical values
+   across independently installed control/interrupted runs, not random IDs or
+   allocation details. Add relation/constraint expectations when they are part
+   of your application's transition.
+4. **Run the same three scenarios.** Complete an uninterrupted control, repeat
+   its logical seed with an upgrade at an observed durable gated phase, then seed
+   a value the successor must reject. Bind commands to database/head/plan values
+   returned by status. Resume with the exact successor artifact, not a rebuilt
+   or edited plan. Check the receipt and final rows, not just `Applied`.
+5. **Handle rejection honestly.** Require the expected typed finding and no
+   premature publication. Abort only where the phase permits; redeploy the exact
+   source actor to inspect retained source data after abort. Once rewriting
+   starts, resume the exact plan rather than deploying the source as a rollback.
+   The example has one finding page; larger cases must follow the maintained
+   bounded page/acknowledgement contract. Finite host advancement-limit exhaustion
+   means incomplete qualification, not success or permission to raise runtime
+   limits.
+6. **Keep attributable evidence.** Record selected tests and passed/failed/ignored
+   counts, seed coverage, artifact hashes, raw Wasm sizes and available IC
+   cycle/instruction measurements. State exclusions and whether charges cover
+   whole calls or instrumented bodies. Do not use native timing or extrapolate
+   this three-row fixture's cost into production estimates or ceilings.
+
+Verify your framework's synchronous lifecycle and memory-admission integration
+separately; see [startup readiness](startup-readiness.md) and
+[schema authoring](schema-authoring.md). A local pass proves those exact actors
+and seeds, not permission to deploy, full application CI, or backup/restore.

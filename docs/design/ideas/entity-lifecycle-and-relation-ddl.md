@@ -17,7 +17,7 @@ second catalog epoch, draft registry, fingerprint family, or publication runner.
 Accepted relation identities, activation, reverse indexes, and nested relation
 paths also have maintained owners. Reconcile the
 [accepted-constraint design](../archive/0.211-accepted-catalog-constraints/0.211-design.md)
-and [nested-relation design](../0.253-nested-relations/0.253-design.md) with the
+and [nested-relation design](../archive/0.253-nested-relations/0.253-design.md) with the
 current code before proposing relation DDL. SQL remains a frontend to
 catalog-native mutation semantics.
 
@@ -49,7 +49,7 @@ requested transition rather than inferring capability from the command name.
   recovery. No SQL-only relation representation or second execution route.
 - Entity removal does not authorize memory-slot reuse. Store retirement and
   physical allocation history belong to the separate
-  [logical-memory ownership investigation](logical-memory-identity.md).
+  [implemented logical-memory contract](../0.258-logical-memory/0.258-design.md).
 - Source renames must not leave old-name aliases or compatibility lookup paths.
   Persisted/runtime representation changes follow the pre-1.0 version-1 hard cut.
 

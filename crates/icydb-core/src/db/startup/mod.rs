@@ -532,6 +532,21 @@ mod tests {
         assert!(
             classify_terminal_failure(StartupFailureKind::DatabaseControl, &transient).is_none()
         );
+        let migration_pending = InternalError::schema_migration(
+            icydb_diagnostic_code::SchemaMigrationCode::MigrationInProgress,
+        );
+        assert!(
+            classify_terminal_failure(StartupFailureKind::SchemaReconciliation, &migration_pending)
+                .is_none()
+        );
+        assert!(
+            classify_terminal_failure(
+                StartupFailureKind::SchemaReconciliation,
+                &InternalError::store_unsupported(),
+            )
+            .is_some(),
+            "genuinely unsupported schema application remains terminal",
+        );
     }
 
     #[test]

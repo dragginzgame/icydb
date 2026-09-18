@@ -773,19 +773,28 @@ fn preflight_ordinary_source_application<C: CanisterKind>(
         return Ok(());
     }
     #[cfg(feature = "migration")]
-    if current_proposal_lineage_is_applied(db, proposal, target.accepted_head())? {
-        return Ok(());
+    {
+        if current_proposal_lineage_is_applied(db, proposal, target.accepted_head())? {
+            return Ok(());
+        }
+        preflight_unpublished_schema_migration(target, proposal, db)?;
+        // A valid adjacent plan awaits explicit migration commands; it is not
+        // a terminal schema rejection. Reuse the active-migration gate so the
+        // startup driver does not persist an Unsupported failure for this head.
+        Err(InternalError::schema_migration(
+            SchemaMigrationCode::MigrationInProgress,
+        ))
     }
-    #[cfg(feature = "migration")]
-    preflight_unpublished_schema_migration(target, proposal, db)?;
     #[cfg(not(feature = "migration"))]
-    let _ = db;
-    Err(InternalError::store_unsupported())
+    {
+        let _ = db;
+        Err(InternalError::store_unsupported())
+    }
 }
 
 /// Execute one explicit source-migration operation against the exact deployed
-/// generated proposal. Metadata-only adoption and advance complete in one
-/// marker; physical work remains rejected until the durable runner exists.
+/// generated proposal. Metadata adoption and bounded physical work share the
+/// existing durable migration runner and accepted-head checks.
 #[cfg(feature = "migration")]
 pub(in crate::db) fn migrate_schema<C: CanisterKind>(
     db: &Db<C>,
@@ -900,42 +909,31 @@ pub(in crate::db) fn schema_migration_status<C: CanisterKind>(
     schema_migration_status_for_target(db, proposal, &target)
 }
 
-/// Admit generated ordinary endpoint startup while an exact prepared
-/// migration deliberately leaves predecessor authority live. Every later
-/// phase remains owned by the database-wide gate.
+/// Keep generated schema application pending while an exact migration owns
+/// publication. Prepared row admission is separate from generated readiness.
 #[cfg(feature = "migration")]
-pub(in crate::db) fn defer_generated_schema_application_for_prepared_migration<C: CanisterKind>(
+pub(in crate::db) fn ensure_generated_schema_application_admitted<C: CanisterKind>(
     db: &Db<C>,
     proposal: &SchemaProposal,
-) -> Result<bool, InternalError> {
+) -> Result<(), InternalError> {
     ensure_recovery_admitted(db)?;
     let Some(record) = load_schema_migration_record()? else {
-        return Ok(false);
+        return Ok(());
     };
     if matches!(
         record.phase(),
         PersistedSchemaMigrationPhase::Applied | PersistedSchemaMigrationPhase::Aborted
     ) {
-        return Ok(false);
+        return Ok(());
     }
     validate_active_migration_deployment(proposal, &record)?;
     let target = schema_application_target(db)?;
     validate_active_migration_target(&record, &target)?;
-    match record.phase() {
-        PersistedSchemaMigrationPhase::Prepared => Ok(true),
-        PersistedSchemaMigrationPhase::Validating
-        | PersistedSchemaMigrationPhase::ReadyToRewrite
-        | PersistedSchemaMigrationPhase::RewritingRows
-        | PersistedSchemaMigrationPhase::RebuildingIndexes
-        | PersistedSchemaMigrationPhase::FinalValidation
-        | PersistedSchemaMigrationPhase::Publishing
-        | PersistedSchemaMigrationPhase::Rejected => Err(InternalError::schema_migration(
-            SchemaMigrationCode::MigrationInProgress,
-        )),
-        PersistedSchemaMigrationPhase::Applied | PersistedSchemaMigrationPhase::Aborted => {
-            Ok(false)
-        }
-    }
+    // Every validated nonterminal phase waits for explicit controller commands.
+    // Returning success for Prepared would make startup retry without progress.
+    Err(InternalError::schema_migration(
+        SchemaMigrationCode::MigrationInProgress,
+    ))
 }
 
 #[cfg(feature = "migration")]
@@ -4948,7 +4946,7 @@ mod tests {
     fn physical_migration_validation_is_bounded_staged_and_does_not_rewrite_rows() {
         use std::convert::Infallible;
 
-        use super::{defer_generated_schema_application_for_prepared_migration, migrate_schema};
+        use super::{ensure_generated_schema_application_admitted, migrate_schema};
         use crate::db::{
             data::StoreVisit,
             index::{IndexEntryValue, IndexId, IndexKey, IndexKeyKind},
@@ -5026,6 +5024,17 @@ mod tests {
             .migration()
             .expect("migration plan should exist")
             .digest();
+        let pending = apply_schema(&db, &proposal)
+            .expect_err("valid adjacent migration requires explicit advancement");
+        assert_eq!(
+            pending.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::SCHEMA_MIGRATION_IN_PROGRESS,
+        );
+        assert_eq!(
+            schema_application_target(&db).unwrap().accepted_head(),
+            target.accepted_head(),
+            "ordinary startup must not publish the pending successor",
+        );
         let command = || SchemaMigrationCommand::Advance {
             expected_database: target.database_identity(),
             expected_head: target.accepted_head().clone(),
@@ -5042,6 +5051,18 @@ mod tests {
                 })
                 .phase(),
             SchemaMigrationPhase::Prepared,
+        );
+        let pending = ensure_generated_schema_application_admitted(&db, &proposal)
+            .expect_err("prepared migration still owns generated schema publication");
+        assert_eq!(
+            pending.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::SCHEMA_MIGRATION_IN_PROGRESS,
+        );
+        let mismatched = ensure_generated_schema_application_admitted(&db, &initial)
+            .expect_err("pending must not hide a mismatched deployed proposal");
+        assert_eq!(
+            mismatched.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::SCHEMA_MIGRATION_PLAN_CHANGED,
         );
         assert_eq!(
             migrate_schema(&db, &proposal, command())
@@ -5116,10 +5137,8 @@ mod tests {
             before_rows,
             "abort must retain predecessor rows"
         );
-        assert!(
-            !defer_generated_schema_application_for_prepared_migration(&db, &proposal)
-                .expect("terminal aborted record must not block generated startup"),
-        );
+        ensure_generated_schema_application_admitted(&db, &proposal)
+            .expect("terminal aborted record must not block generated startup");
     }
 
     #[cfg(feature = "migration")]
@@ -5130,7 +5149,7 @@ mod tests {
     )]
     fn physical_migration_rewrite_recovers_and_publishes_one_complete_candidate() {
         use super::{
-            defer_generated_schema_application_for_prepared_migration, migrate_schema,
+            ensure_generated_schema_application_admitted, migrate_schema,
             schema_migration_status_for_target,
         };
         use crate::db::{
@@ -5263,10 +5282,8 @@ mod tests {
             terminal_target.database_identity(),
             store_identity,
         );
-        assert!(
-            !defer_generated_schema_application_for_prepared_migration(&db, &terminal_proposal,)
-                .expect("terminal record must not block generated startup"),
-        );
+        ensure_generated_schema_application_admitted(&db, &terminal_proposal)
+            .expect("terminal record must not block generated startup");
 
         let store = db
             .store_handle(MIGRATION_EXECUTION_STORE_PATH)

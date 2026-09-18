@@ -5,6 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.259.x] - 2026-09-18 - Migration Rehearsal
+
+Detailed notes: [docs/changelog/0.259.md](docs/changelog/0.259.md)
+
+- `0.259.0` adds automated migration rehearsal and fixes pending-migration startup failures and needless retries; potentially breaking for callers expecting the previous error.
+
 ## [0.258.x] - 2026-09-17 - Logical Memory Identity
 
 Detailed notes: [docs/changelog/0.258.md](docs/changelog/0.258.md)

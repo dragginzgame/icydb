@@ -17,12 +17,12 @@ Measure whether a real collection-predicate workload discards enough of that
 owned data to justify delaying materialization. Existing scalar borrowed access
 and nested-path projection already avoid materializing untouched values.
 
-The ongoing [0.255 owned-value handoff work](../0.255-owned-value-handoff/0.255-status.md)
-removes copies at admission, constraint evaluation, full-row output, and direct
-projection, and converges canonical materialization on the decoder. Its tracker
-also owns the authorized nested-relation root borrowing work. These outcomes
-must form the baseline for a future investigation; do not reuse pre-0.255 copy
-costs as evidence for a streaming layer or assume the line is released.
+The completed [0.255 owned-value handoff work](../archive/0.255-owned-value-handoff/0.255-status.md)
+removed copies at admission, constraint evaluation, full-row output, and direct
+projection, and converged canonical materialization on the decoder, including
+nested-relation root borrowing. Freeze a current released baseline incorporating
+that work and subsequent 0.256/0.257 preparation changes; do not reuse pre-0.255
+copy costs as evidence for a new streaming layer.
 
 The remaining question is whether a consumer can avoid constructing the final
 owned collection after those ownership fixes. Wire length is not necessarily
@@ -32,8 +32,8 @@ success must still preserve required whole-value corruption checks.
 ## Promotion Gate
 
 - Identify a consumer that can finish without owning the complete collection.
-- Freeze a baseline incorporating the relevant completed 0.255 outcomes and
-  identify any outstanding overlap using its current tracker.
+- Freeze a current baseline incorporating the completed ownership and query
+  preparation outcomes; verify the actual consumer still materializes the data.
 - Compare the maintained path with the smallest change at its existing owner.
 - Preserve accepted-kind validation, recursive-depth and collection bounds,
   typed corruption failures, and deterministic map semantics. Skipping output

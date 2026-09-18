@@ -97,8 +97,7 @@ pub(in crate::db) use application::{
 };
 #[cfg(feature = "migration")]
 pub(in crate::db) use application::{
-    defer_generated_schema_application_for_prepared_migration, migrate_schema,
-    schema_migration_status,
+    ensure_generated_schema_application_admitted, migrate_schema, schema_migration_status,
 };
 pub(in crate::db) use application_lowering::lower_field_type;
 #[cfg(any(test, feature = "migration"))]

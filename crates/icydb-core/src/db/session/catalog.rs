@@ -30,16 +30,14 @@ use icydb_schema::{SchemaProposal, SchemaSubmissionKey, TargetDatabaseIdentity};
 use crate::db::{SchemaMigrationCommand, SchemaMigrationStatusPage, SchemaMigrationStatusRequest};
 
 impl<C: CanisterKind> DbSession<C> {
-    /// Return whether exact prepared migration authority deliberately defers
-    /// generated schema application while predecessor runtime state stays live.
+    /// Require generated schema application to wait for an exact active migration
+    /// to finish. This does not change ordinary row-operation admission.
     #[cfg(feature = "migration")]
-    pub fn defer_generated_schema_application_for_prepared_migration(
+    pub fn ensure_generated_schema_application_admitted(
         &self,
         proposal: &SchemaProposal,
-    ) -> Result<bool, InternalError> {
-        crate::db::schema::defer_generated_schema_application_for_prepared_migration(
-            &self.db, proposal,
-        )
+    ) -> Result<(), InternalError> {
+        crate::db::schema::ensure_generated_schema_application_admitted(&self.db, proposal)
     }
 
     /// Execute one explicit metadata source-migration operation.
