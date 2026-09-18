@@ -1,5 +1,7 @@
 //! Generated logical-memory upgrades through the production allocator and driver.
-//! Build the two test actors explicitly; no core test-only memory lookup is linked.
+//! Builds both actors through retained artifacts; no core test-only memory lookup is linked.
+
+use std::sync::OnceLock;
 
 use ic_testkit::{
     pic::{InstallSpec, StandaloneCanisterFixture},
@@ -9,24 +11,21 @@ use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{DatabaseStartupState, StartupFailure},
 };
+use icydb_testing_integration::build_logical_memory_fixture_wasms;
 
-const FULL_WASM: &str = "ICYDB_LOGICAL_MEMORY_FULL_WASM";
-const OMITTED_WASM: &str = "ICYDB_LOGICAL_MEMORY_OMITTED_WASM";
-
-fn artifact(variable: &str) -> Vec<u8> {
-    std::fs::read(std::env::var(variable).expect("build and provide both logical-memory actors"))
-        .unwrap()
+fn artifacts() -> &'static (Vec<u8>, Vec<u8>) {
+    static WASMS: OnceLock<(Vec<u8>, Vec<u8>)> = OnceLock::new();
+    WASMS.get_or_init(|| build_logical_memory_fixture_wasms().expect("logical-memory actors build"))
 }
 
 fn install() -> StandaloneCanisterFixture {
+    // Build before starting an instance so a cold compilation cannot consume
+    // its server inactivity window.
+    let wasm = artifacts().0.clone();
     let fixture = StandaloneCanisterFixture::install(
         PocketIc::new(),
-        InstallSpec::new(
-            artifact(FULL_WASM),
-            candid::encode_args(()).unwrap(),
-            10_000_000_000_000,
-        )
-        .label("logical_memory"),
+        InstallSpec::new(wasm, candid::encode_args(()).unwrap(), 10_000_000_000_000)
+            .label("logical_memory"),
     );
     settle(&fixture);
     fixture
@@ -48,12 +47,12 @@ fn settle(fixture: &StandaloneCanisterFixture) {
     panic!("small fixture must reach quiescence within its bounded driver calls");
 }
 
-fn upgrade(fixture: &StandaloneCanisterFixture, variable: &str) {
+fn upgrade(fixture: &StandaloneCanisterFixture, wasm: &[u8]) {
     fixture
         .pocket_ic()
         .upgrade_canister(
             fixture.canister_id(),
-            artifact(variable),
+            wasm.to_vec(),
             candid::encode_args(()).unwrap(),
             None,
         )
@@ -79,13 +78,12 @@ fn assert_rejected_without_control_publication(fixture: &StandaloneCanisterFixtu
 }
 
 #[test]
-#[ignore = "requires both ICYDB_LOGICAL_MEMORY_{FULL,OMITTED}_WASM artifacts"]
 fn empty_omitted_store_retires_without_relocating_survivors() {
     let fixture = install();
     let _: Vec<u8> = fixture.update_candid("insert_keep", ()).unwrap();
     settle(&fixture);
     let before: Vec<(String, u8)> = fixture.query_candid("allocations", ()).unwrap();
-    upgrade(&fixture, OMITTED_WASM);
+    upgrade(&fixture, &artifacts().1);
     let after: Vec<(String, u8)> = fixture.query_candid("allocations", ()).unwrap();
     assert_eq!(before.len(), 11);
     assert_eq!(after.len(), 8);
@@ -105,28 +103,26 @@ fn empty_omitted_store_retires_without_relocating_survivors() {
     // Retired database identities cannot return, even though the allocator
     // still retains their original slots. This is the current lifecycle rule.
     let retired = control(&fixture);
-    upgrade(&fixture, FULL_WASM);
+    upgrade(&fixture, &artifacts().0);
     assert_rejected_without_control_publication(&fixture, &retired);
 }
 
 #[test]
-#[ignore = "requires both ICYDB_LOGICAL_MEMORY_{FULL,OMITTED}_WASM artifacts"]
 fn omitted_store_with_journal_debt_rejects_and_original_actor_recovers() {
     let fixture = install();
     fixture
         .update_candid::<(), _>("insert_retiring", ())
         .unwrap();
     let before = control(&fixture);
-    upgrade(&fixture, OMITTED_WASM);
+    upgrade(&fixture, &artifacts().1);
     assert_rejected_without_control_publication(&fixture, &before);
-    upgrade(&fixture, FULL_WASM);
+    upgrade(&fixture, &artifacts().0);
     settle(&fixture);
     let present: Result<bool, String> = fixture.query_candid("retiring_row_exists", ()).unwrap();
     assert!(present.unwrap());
 }
 
 #[test]
-#[ignore = "requires both ICYDB_LOGICAL_MEMORY_{FULL,OMITTED}_WASM artifacts"]
 fn valid_pending_marker_blocks_registry_change_after_journal_folding() {
     let fixture = install();
     let pending: Vec<u8> = fixture.update_candid("insert_keep", ()).unwrap();
@@ -138,16 +134,16 @@ fn valid_pending_marker_blocks_registry_change_after_journal_folding() {
     // Positive control: the captured production marker is valid and recovers
     // with unchanged stores. A malformed-marker rejection would not prove the
     // registry barrier and is not accepted by this test.
-    upgrade(&fixture, FULL_WASM);
+    upgrade(&fixture, &artifacts().0);
     settle(&fixture);
     assert_kept_row(&fixture);
 
     fixture
         .update_candid::<(), _>("restore_control_frame", (pending.clone(),))
         .unwrap();
-    upgrade(&fixture, OMITTED_WASM);
+    upgrade(&fixture, &artifacts().1);
     assert_rejected_without_control_publication(&fixture, &pending);
-    upgrade(&fixture, FULL_WASM);
+    upgrade(&fixture, &artifacts().0);
     settle(&fixture);
     assert_kept_row(&fixture);
 }

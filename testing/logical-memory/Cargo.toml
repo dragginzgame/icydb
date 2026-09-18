@@ -1,5 +1,5 @@
 [package]
-name = "icydb-testing-logical-memory"
+name = "canister_test_logical_memory"
 build = "src/build.rs"
 edition = { workspace = true }
 rust-version = { workspace = true }

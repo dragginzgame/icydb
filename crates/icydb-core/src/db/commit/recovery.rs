@@ -127,7 +127,9 @@ struct RecoveryContinuation {
 /// decodes a journal batch, advances a recovery page, or mutates stable state.
 pub(crate) fn ensure_recovery_admitted<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     select_commit_memory_allocation(
-        C::commit_memory_id().map_err(InternalError::commit_memory_id_registration_failed)?,
+        C::commit_memory_id()
+            .map_err(InternalError::commit_memory_id_registration_failed)
+            .map_err(|error| error.with_origin(ErrorOrigin::Recovery))?,
         C::COMMIT_STABLE_KEY,
     );
     let recovery_key =
@@ -2970,6 +2972,38 @@ mod tests {
     mod schema_snapshot;
 
     use super::*;
+
+    #[test]
+    fn missing_commit_allocation_reports_recovery_origin_before_selecting_memory() {
+        struct UnbootstrappedCanister;
+        impl crate::traits::Path for UnbootstrappedCanister {
+            const PATH: &'static str = "recovery::UnbootstrappedCanister";
+        }
+        impl CanisterKind for UnbootstrappedCanister {
+            fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+                Err(ic_memory::RuntimeOpenError::NotBootstrapped)
+            }
+            const COMMIT_STABLE_KEY: &'static str = "icydb.missing.commit.control.v1";
+            const STARTUP_STABLE_KEY: &'static str = "icydb.missing.startup.control.v1";
+            const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
+                "icydb.missing.integrity.progress.v1";
+        }
+        thread_local! {
+            static STORES: crate::db::StoreRegistry = crate::db::StoreRegistry::new();
+        }
+        let db = Db::<UnbootstrappedCanister>::new(
+            &STORES,
+            crate::db::RequestExecutionRoot::__new_runtime_root().scope(),
+        );
+        let before = crate::db::commit::memory::current_commit_memory_allocation_if_configured();
+        let error = ensure_recovery_admitted(&db).expect_err("missing allocation must reject");
+        assert_eq!(error.class, crate::error::ErrorClass::Internal);
+        assert_eq!(error.origin, ErrorOrigin::Recovery);
+        assert_eq!(
+            crate::db::commit::memory::current_commit_memory_allocation_if_configured(),
+            before
+        );
+    }
 
     #[test]
     fn recovery_stage_is_bound_to_the_current_marker_identity() {

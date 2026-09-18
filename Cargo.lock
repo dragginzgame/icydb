@@ -427,6 +427,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "canister_test_logical_memory"
+version = "0.258.0"
+dependencies = [
+ "candid",
+ "ic-cdk",
+ "ic-memory",
+ "icydb",
+]
+
+[[package]]
 name = "canister_test_read_authority"
 version = "0.258.0"
 dependencies = [
@@ -1755,16 +1765,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
-]
-
-[[package]]
-name = "icydb-testing-logical-memory"
-version = "0.258.0"
-dependencies = [
- "candid",
- "ic-cdk",
- "ic-memory",
- "icydb",
 ]
 
 [[package]]

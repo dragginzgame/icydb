@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.258.md](docs/changelog/0.258.md)
 
+- `0.258.1` automates logical-memory upgrade regression coverage and corrects recovery error attribution (potentially breaking for error-origin matching; no data migration).
 - `0.258.0` replaces physical-ID schema declarations with permanent keys and host grants using `ic-memory 0.14.3`, lowers lifecycle instruction costs and retains exact test-build artifacts during concurrent work (breaking; recreate databases and update build-helper callers).
 
 ## [0.257.x] - 2026-09-08 - Query Planning

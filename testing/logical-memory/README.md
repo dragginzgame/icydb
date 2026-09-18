@@ -18,26 +18,24 @@ the marker payload is never synthesized by a second codec.
 
 ## Running the focused upgrade tests
 
+The integration target builds both feature variants through the shared retained
+Cargo and post-link pipeline. It reads each exact artifact while its build owner
+is alive, then shares the owned Wasm bytes across the three tests. No manual
+artifact paths or separately prepared Wasms are required.
+
 From the repository root, with the usual Cargo environment configured:
 
 ```sh
 export CARGO_HOME="$PWD/.cache/cargo/icydb"
 export CARGO_TARGET_DIR="$PWD/target/icydb"
-mkdir -p target/logical-memory-l3
-cargo build --locked --offline -p icydb-testing-logical-memory --target wasm32-unknown-unknown
-ic-wasm "$CARGO_TARGET_DIR/wasm32-unknown-unknown/debug/icydb_testing_logical_memory.wasm" -o target/logical-memory-l3/full.wasm shrink
-cargo build --locked --offline -p icydb-testing-logical-memory --target wasm32-unknown-unknown --features omit-retiring-store
-ic-wasm "$CARGO_TARGET_DIR/wasm32-unknown-unknown/debug/icydb_testing_logical_memory.wasm" -o target/logical-memory-l3/omitted.wasm shrink
-export ICYDB_LOGICAL_MEMORY_FULL_WASM="$PWD/target/logical-memory-l3/full.wasm"
-export ICYDB_LOGICAL_MEMORY_OMITTED_WASM="$PWD/target/logical-memory-l3/omitted.wasm"
+export TMPDIR="$PWD/.cache"
 export POCKET_IC_BIN="$PWD/.cache/pocket-ic-server-16.0.0/pocket-ic"
-cargo test --locked --offline -p icydb-testing-integration --test logical_memory -- --ignored --test-threads=1
+cargo test --locked -p icydb-testing-integration --test logical_memory
 ```
 
 Use an installed PocketIC 16 server if it is not at that cache location. These
-tests need a local server port. They are explicitly ignored by ordinary test
-runs because they require both separately built Wasm artifacts; a skipped run is
-not upgrade qualification.
+tests need a local server port and run in ordinary workspace/release validation;
+none is ignored. The focused target above runs just this upgrade family.
 
 Coverage: empty-journal retirement preserves surviving rows and slots; only the
 omitted journal remains declared for inspection; retired database identities

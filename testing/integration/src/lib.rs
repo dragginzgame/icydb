@@ -595,11 +595,29 @@ fn build_canister_package_artifacts(
     let root = workspace_root();
     let canister_target_dir = target_dir(&root).join(options.build_profile.target_dir_name());
     let configured = configure_canister_build(&root, &canister_target_dir, package_name, options)?;
+    build_configured_canister_artifacts(
+        &root,
+        &canister_target_dir,
+        package_name,
+        options,
+        context_label,
+        configured,
+    )
+}
+
+fn build_configured_canister_artifacts(
+    root: &Path,
+    canister_target_dir: &Path,
+    package_name: &str,
+    options: CanisterBuildOptions,
+    context_label: &str,
+    configured: ConfiguredCanisterBuild,
+) -> Result<BuiltCanisterArtifacts, String> {
     let packages = [package_name];
     let outcome = build_cached_cargo_wasm(&CargoWasmCacheRequest {
         context: context_label,
-        workspace_root: &root,
-        target_dir: &canister_target_dir,
+        workspace_root: root,
+        target_dir: canister_target_dir,
         packages: &packages,
         profile_target_dir: options.profile.as_str(),
         arguments: &configured.arguments,
@@ -609,12 +627,52 @@ fn build_canister_package_artifacts(
     trace_wasm_build(context_label, &outcome);
 
     finish_canister_build(
-        &root,
+        root,
         configured,
         options,
         context_label,
         outcome.record().clone(),
     )
+}
+
+/// Build the full and omitted-store logical-memory test actors, in that order.
+///
+/// Both use the ordinary retained Cargo/post-link pipeline. Read each result
+/// while its owner is alive, before another variant can replace shared outputs.
+/// These actors expose test-only controls and must not host application data.
+///
+/// # Errors
+/// Returns a build, post-link or retained-artifact read failure.
+pub fn build_logical_memory_fixture_wasms() -> Result<(Vec<u8>, Vec<u8>), String> {
+    let root = workspace_root();
+    let options = CanisterBuildOptions::default();
+    let target = target_dir(&root).join(options.build_profile.target_dir_name());
+    let build = |features: &str, label: &str| {
+        let mut arguments = cargo_profile_arguments(options.profile, true);
+        arguments.extend([OsString::from("--features"), features.into()]);
+        let artifacts = build_configured_canister_artifacts(
+            &root,
+            &target,
+            "canister_test_logical_memory",
+            options,
+            label,
+            ConfiguredCanisterBuild {
+                arguments,
+                rustflags: combined_rustflags(&[]),
+                final_deployable: target
+                    .join("icydb-final/debug")
+                    .join(format!("{label}.wasm")),
+            },
+        )?;
+        fs::read(&artifacts).map_err(|error| format!("read retained {label}: {error}"))
+    };
+    Ok((
+        build("test-admin-api", "logical-memory-full")?,
+        build(
+            "test-admin-api,omit-retiring-store",
+            "logical-memory-omitted",
+        )?,
+    ))
 }
 
 fn finish_canister_build(
