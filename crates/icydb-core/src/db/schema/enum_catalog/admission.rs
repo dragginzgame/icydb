@@ -53,6 +53,8 @@ pub(in crate::db) enum ValueAdmissionError {
 struct AdmissionCatalogs<'a> {
     enums: &'a AcceptedEnumCatalog,
     composites: &'a AcceptedCompositeCatalog,
+    // Group keys normalize decimal scales without changing their numeric value.
+    group_key: bool,
 }
 
 impl<'a> AdmissionCatalogs<'a> {
@@ -60,6 +62,7 @@ impl<'a> AdmissionCatalogs<'a> {
         Self {
             enums: handle.enum_catalog(),
             composites: handle.composite_catalog(),
+            group_key: false,
         }
     }
 }
@@ -215,6 +218,7 @@ pub(in crate::db) fn normalize_candidate_value(
         AdmissionCatalogs {
             enums: enum_catalog,
             composites: composite_catalog,
+            group_key: false,
         },
         contract.kind(),
         input.into_public(),
@@ -315,6 +319,7 @@ fn validate_persisted_field_value_in_catalog(
         AdmissionCatalogs {
             enums: catalog,
             composites: composite_catalog,
+            group_key: false,
         },
         &contract,
         value,
@@ -354,6 +359,33 @@ pub(in crate::db::schema) fn validate_nullable_canonical_value<'a>(
         contract,
         value,
     })
+}
+
+/// Validate a canonical group key without minting a stored-value proof.
+pub(in crate::db::schema) fn validate_group_key_value(
+    catalog: &AcceptedValueCatalogHandle,
+    contract: &AcceptedValueContract,
+    nullable: bool,
+    value: &CanonicalValue,
+    budget: &mut ValueAdmissionBudget,
+) -> Result<(), ValueAdmissionError> {
+    if matches!(value, CanonicalValue::Null) {
+        return validate_nullable_canonical_value(catalog, contract, nullable, value, budget)
+            .map(|_| ());
+    }
+    if catalog.authority().revision() == AcceptedSchemaRevision::NONE {
+        return Err(ValueAdmissionError::MissingSchemaRevision);
+    }
+    validate_contract(
+        AdmissionCatalogs {
+            group_key: true,
+            ..AdmissionCatalogs::from_handle(catalog)
+        },
+        contract,
+        value,
+        0,
+        budget,
+    )
 }
 
 fn normalize_contract(
@@ -739,13 +771,18 @@ fn validate_kind(
         | (AcceptedFieldKind::Timestamp, CanonicalValue::Timestamp(_))
         | (AcceptedFieldKind::Nat64, CanonicalValue::Nat64(_)) => budget.consume(9),
         (AcceptedFieldKind::Decimal { scale }, CanonicalValue::Decimal(value)) => {
-            if value.scale() != *scale {
+            if value.scale() != *scale
+                && (!catalogs.group_key || normalize_decimal(*value, *scale)? != *value)
+            {
                 return Err(ValueAdmissionError::ScalarConstraint);
             }
             budget.consume(21)
         }
         (AcceptedFieldKind::Enum { type_id }, CanonicalValue::Enum(value)) => {
-            validate_enum(catalogs, *type_id, value, depth, budget)
+            // Group canonicalization leaves opaque enum bodies unchanged.
+            let mut stored_catalogs = catalogs;
+            stored_catalogs.group_key = false;
+            validate_enum(stored_catalogs, *type_id, value, depth, budget)
         }
         (AcceptedFieldKind::Float32, CanonicalValue::Float32(_)) => budget.consume(5),
         (AcceptedFieldKind::Int8, CanonicalValue::Int64(value)) if i8::try_from(*value).is_ok() => {

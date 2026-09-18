@@ -164,6 +164,8 @@ pub enum DiagnosticDecodeReason {
     RecoveryMarkerMagic,
     RecoveryMarkerChecksum,
     RecoveryMarkerState,
+    CursorGroupedContinuationRequiresLimit,
+    CursorGlobalDistinctContinuationUnsupported,
 }
 
 /// Compact operation carried by [`DiagnosticFactTag::MutationOperation`].
@@ -441,6 +443,8 @@ impl DiagnosticDecodeReason {
             Self::RecoveryMarkerMagic => 8,
             Self::RecoveryMarkerChecksum => 9,
             Self::RecoveryMarkerState => 10,
+            Self::CursorGroupedContinuationRequiresLimit => 11,
+            Self::CursorGlobalDistinctContinuationUnsupported => 12,
         }
     }
 
@@ -458,6 +462,8 @@ impl DiagnosticDecodeReason {
             8 => Some(Self::RecoveryMarkerMagic),
             9 => Some(Self::RecoveryMarkerChecksum),
             10 => Some(Self::RecoveryMarkerState),
+            11 => Some(Self::CursorGroupedContinuationRequiresLimit),
+            12 => Some(Self::CursorGlobalDistinctContinuationUnsupported),
             _ => None,
         }
     }
@@ -923,7 +929,7 @@ fn cursor_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bo
         return true;
     }
     if tags_match(fact_count, fact_at, &[DiagnosticFactTag::DecodeReason]) {
-        return matches!(fact_at(0).1, 1 | 3 | 5 | 6 | 7);
+        return matches!(fact_at(0).1, 1 | 3 | 5 | 6 | 7 | 11 | 12);
     }
     if tags_match(
         fact_count,
@@ -1375,6 +1381,8 @@ mod tests {
             DiagnosticDecodeReason::RecoveryMarkerMagic,
             DiagnosticDecodeReason::RecoveryMarkerChecksum,
             DiagnosticDecodeReason::RecoveryMarkerState,
+            DiagnosticDecodeReason::CursorGroupedContinuationRequiresLimit,
+            DiagnosticDecodeReason::CursorGlobalDistinctContinuationUnsupported,
         ];
 
         for (index, reason) in reasons.iter().copied().enumerate() {
@@ -1385,7 +1393,7 @@ mod tests {
         }
 
         assert_eq!(DiagnosticDecodeReason::known(0), None);
-        assert_eq!(DiagnosticDecodeReason::known(11), None);
+        assert_eq!(DiagnosticDecodeReason::known(13), None);
     }
 
     #[test]

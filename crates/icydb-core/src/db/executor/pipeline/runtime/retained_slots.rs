@@ -4,7 +4,6 @@
 //! Boundary: compiles runtime slot requirements into terminal-owned retained layouts.
 
 use crate::{
-    db::schema::{LeafCodec, ScalarCodec},
     db::{
         executor::{
             EntityAuthority,
@@ -139,7 +138,7 @@ fn mark_projection_retained_slots(
             continue;
         };
 
-        if slot_uses_scalar_byte_length_codec(row_layout, slot) {
+        if row_layout.slot_uses_scalar_byte_length_codec(slot) {
             required_slots.mark_slot_octet_length(slot);
         } else {
             required_slots.mark_slot(slot);
@@ -149,18 +148,6 @@ fn mark_projection_retained_slots(
     Ok(())
 }
 
-fn slot_uses_scalar_byte_length_codec(row_layout: &RowLayout, slot: usize) -> bool {
-    row_layout
-        .contract()
-        .field_leaf_codec(slot)
-        .is_ok_and(|leaf_codec| {
-            matches!(
-                leaf_codec,
-                LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
-            )
-        })
-}
-
 ///
 /// RetainedSlotRequirements
 ///
@@ -168,12 +155,11 @@ fn slot_uses_scalar_byte_length_codec(row_layout: &RowLayout, slot: usize) -> bo
 /// set for one scalar execution shape.
 /// It exists so projection, predicate, ordering, and index-anchor slot needs
 /// can all contribute through one owner-local boundary instead of mutating the
-/// raw bitset directly in several separate loops.
+/// raw slot state directly in several separate loops.
 ///
 
 struct RetainedSlotRequirements {
-    flags: Vec<bool>,
-    octet_length_flags: Vec<bool>,
+    modes: Vec<Option<RetainedSlotValueMode>>,
 }
 
 impl RetainedSlotRequirements {
@@ -181,8 +167,7 @@ impl RetainedSlotRequirements {
     // count for the current execution shape.
     fn new(field_count: usize) -> Self {
         Self {
-            flags: vec![false; field_count],
-            octet_length_flags: vec![false; field_count],
+            modes: vec![None; field_count],
         }
     }
 
@@ -197,25 +182,16 @@ impl RetainedSlotRequirements {
     // over length-only materialization when another phase needs the real
     // scalar value for projection, ordering, cursor emission, or validation.
     fn mark_slot(&mut self, slot: usize) {
-        if let Some(required) = self.flags.get_mut(slot) {
-            *required = true;
-        }
-        if let Some(octet_length) = self.octet_length_flags.get_mut(slot) {
-            *octet_length = false;
+        if let Some(mode) = self.modes.get_mut(slot) {
+            *mode = Some(RetainedSlotValueMode::Normal);
         }
     }
 
     // Mark one slot as requiring only scalar byte length unless another phase
     // has already requested normal value materialization.
     fn mark_slot_octet_length(&mut self, slot: usize) {
-        let Some(required) = self.flags.get(slot) else {
-            return;
-        };
-        if *required {
-            return;
-        }
-        if let Some(octet_length) = self.octet_length_flags.get_mut(slot) {
-            *octet_length = true;
+        if let Some(mode) = self.modes.get_mut(slot) {
+            mode.get_or_insert(RetainedSlotValueMode::ScalarOctetLength);
         }
     }
 
@@ -234,16 +210,79 @@ impl RetainedSlotRequirements {
         let mut slots = Vec::new();
         let mut value_modes = Vec::new();
 
-        for slot in 0..self.flags.len() {
-            if self.flags[slot] {
-                slots.push(slot);
-                value_modes.push(RetainedSlotValueMode::Normal);
-            } else if self.octet_length_flags[slot] {
-                slots.push(slot);
-                value_modes.push(RetainedSlotValueMode::ScalarOctetLength);
+        for (slot, mode) in self.modes.into_iter().enumerate() {
+            let Some(mode) = mode else { continue };
+            // Empty modes mean all-normal. Backfill only when the first length
+            // override appears, then retain alignment with every selected slot.
+            if mode != RetainedSlotValueMode::Normal && value_modes.is_empty() {
+                value_modes.resize(slots.len(), RetainedSlotValueMode::Normal);
             }
+            if mode != RetainedSlotValueMode::Normal || !value_modes.is_empty() {
+                value_modes.push(mode);
+            }
+            slots.push(slot);
         }
 
         (slots, value_modes)
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::{RetainedSlotRequirements, RetainedSlotValueMode};
+
+    #[test]
+    fn full_value_requirements_win_in_either_marking_order() {
+        for length_first in [false, true] {
+            let mut requirements = RetainedSlotRequirements::new(4);
+            if length_first {
+                requirements.mark_slot_octet_length(2);
+            }
+            requirements.mark_slots([2, 0]);
+            requirements.mark_slot_octet_length(2);
+            requirements.mark_slot(99);
+            requirements.mark_slot_octet_length(99);
+            let (slots, modes) = requirements.into_slots_and_value_modes();
+            assert_eq!(slots, [0, 2]);
+            assert!(modes.is_empty());
+            assert_eq!(modes.capacity(), 0);
+        }
+    }
+
+    #[test]
+    fn length_override_modes_align_with_sparse_sorted_slots() {
+        use RetainedSlotValueMode::{Normal, ScalarOctetLength};
+
+        for length_slot in [0, 2, 4] {
+            let mut requirements = RetainedSlotRequirements::new(6);
+            for slot in [4, 0, 2] {
+                if slot == length_slot {
+                    requirements.mark_slot_octet_length(slot);
+                    requirements.mark_slot_octet_length(slot);
+                } else {
+                    requirements.mark_slot(slot);
+                }
+            }
+            let (slots, modes) = requirements.into_slots_and_value_modes();
+            assert_eq!(slots, [0, 2, 4]);
+            assert_eq!(modes.len(), slots.len());
+            for (slot, mode) in slots.into_iter().zip(modes) {
+                assert_eq!(
+                    mode,
+                    if slot == length_slot {
+                        ScalarOctetLength
+                    } else {
+                        Normal
+                    }
+                );
+            }
+        }
+        let (slots, modes) = RetainedSlotRequirements::new(0).into_slots_and_value_modes();
+        assert!(slots.is_empty());
+        assert_eq!(modes.capacity(), 0);
     }
 }

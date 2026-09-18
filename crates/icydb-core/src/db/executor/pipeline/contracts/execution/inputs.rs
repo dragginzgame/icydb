@@ -9,14 +9,9 @@ use crate::{
         cursor::CursorBoundary,
         data::{DataRow, DecodedDataStoreKey},
         executor::{
-            AccessStreamBindings, EntityAuthority, ExecutionPreparation, OrderedKeyStreamBox,
-            ScalarContinuationContext,
+            AccessStreamBindings, EntityAuthority, ExecutionPreparation,
             order::{cursor_boundary_from_data_row, cursor_boundary_from_orderable_row},
-            pipeline::{
-                contracts::ScalarMaterializationCapabilities,
-                runtime::{ExecutionRuntimeAdapter, compile_retained_slot_layout_for_mode},
-            },
-            route::LoadOrderRouteMode,
+            pipeline::runtime::{ExecutionRuntimeAdapter, compile_retained_slot_layout_for_mode},
             terminal::{RetainedSlotLayout, RetainedSlotRow, RowLayout},
             traversal::row_read_consistency_for_plan,
         },
@@ -238,25 +233,6 @@ impl ProjectionMaterializationMode {
 }
 
 ///
-/// RowCollectorMaterializationRequest
-///
-/// Structural short-path materialization envelope for the cursorless
-/// row-collector lane.
-/// It carries the route-owned scalar terminal fast-path and consistency
-/// contracts so the terminal runtime does not reconstruct planner decisions.
-///
-
-pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
-    pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
-    pub(in crate::db::executor) scan_budget_hint: Option<usize>,
-    pub(in crate::db::executor) load_order_route_mode: LoadOrderRouteMode,
-    pub(in crate::db::executor) continuation: ScalarContinuationContext,
-    pub(in crate::db::executor) capabilities: ScalarMaterializationCapabilities<'a>,
-    pub(in crate::db::executor) consistency: MissingRowPolicy,
-    pub(in crate::db::executor) key_stream: &'a mut OrderedKeyStreamBox,
-}
-
-///
 /// PreparedExecutionInputContext
 ///
 /// PreparedExecutionInputContext is the short-lived constructor context for one
@@ -291,7 +267,6 @@ pub(in crate::db::executor) struct ExecutionInputs<'a> {
     executable_access: ExecutableAccessPlan<'a, Value>,
     stream_bindings: AccessStreamBindings<'a>,
     execution_preparation: &'a ExecutionPreparation,
-    residual_filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
     prepared_projection: PreparedExecutionProjection,
     retain_slot_rows: bool,
     emit_cursor: bool,
@@ -323,7 +298,6 @@ impl<'a> ExecutionInputs<'a> {
             executable_access,
             stream_bindings,
             execution_preparation,
-            residual_filter_program: execution_preparation.effective_runtime_filter_program(),
             prepared_projection,
             retain_slot_rows: projection_materialization.retain_slot_rows(),
             emit_cursor,
@@ -376,7 +350,8 @@ impl<'a> ExecutionInputs<'a> {
     pub(in crate::db::executor) const fn residual_filter_program(
         &self,
     ) -> Option<&EffectiveRuntimeFilterProgram> {
-        self.residual_filter_program
+        self.execution_preparation
+            .effective_runtime_filter_program()
     }
 
     /// Return whether this execution attempt should retain decoded slot rows

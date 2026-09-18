@@ -9,12 +9,12 @@ use crate::{
             CanonicalSlotReader, DecodedDataStoreKey, RawRow, decode_structural_value_storage_bytes,
         },
         executor::{
-            ExecutionPreparation,
+            ExecutionPreparation, PreparedGroupedRuntimeResidents,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, extract_orderable_field_value_with_slot_reader,
             },
             budget::{charge_current_execution_budget, charge_materialized_data_row},
-            pipeline::contracts::{GroupedCursorPage, ResolvedExecutionKeyStream},
+            pipeline::contracts::ResolvedExecutionKeyStream,
             projection::{
                 eval_effective_runtime_filter_program_with_value_cow_reader, resolve_path_segments,
                 resolve_value_field_path,
@@ -33,7 +33,7 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc};
 
 ///
 /// RowView
@@ -605,7 +605,7 @@ fn charge_grouped_decoded_row(row: &RawRow, nested_steps: usize) -> Result<(), I
 
 pub(in crate::db::executor) struct GroupedStreamStage {
     row_runtime: StructuralGroupedRowRuntime,
-    execution_preparation: ExecutionPreparation,
+    prepared_residents: Rc<PreparedGroupedRuntimeResidents>,
     resolved: ResolvedExecutionKeyStream,
 }
 
@@ -614,19 +614,19 @@ impl GroupedStreamStage {
     // and resolved grouped key stream payload.
     pub(in crate::db::executor) const fn new(
         row_runtime: StructuralGroupedRowRuntime,
-        execution_preparation: ExecutionPreparation,
+        prepared_residents: Rc<PreparedGroupedRuntimeResidents>,
         resolved: ResolvedExecutionKeyStream,
     ) -> Self {
         Self {
             row_runtime,
-            execution_preparation,
+            prepared_residents,
             resolved,
         }
     }
 
     // Borrow grouped fold inputs together so callers can combine immutable and
     // mutable borrows safely.
-    pub(in crate::db::executor) const fn fold_inputs_mut(
+    pub(in crate::db::executor) fn fold_inputs_mut(
         &mut self,
     ) -> (
         &StructuralGroupedRowRuntime,
@@ -635,59 +635,12 @@ impl GroupedStreamStage {
     ) {
         (
             &self.row_runtime,
-            &self.execution_preparation,
+            self.prepared_residents.execution_preparation(),
             &mut self.resolved,
         )
     }
 }
 
-///
-/// GroupedFoldStage
-///
-/// Fold-phase output payload for grouped execution.
-/// Owns grouped page materialization and pagination sanity-check inputs.
-///
-
-pub(in crate::db::executor) struct GroupedFoldStage {
-    page: GroupedCursorPage,
-    filtered_rows: usize,
-    check_filtered_rows_upper_bound: bool,
-}
-
-impl GroupedFoldStage {
-    // Build one grouped fold-stage payload from grouped page output.
-    pub(in crate::db::executor) const fn new(
-        page: GroupedCursorPage,
-        filtered_rows: usize,
-        check_filtered_rows_upper_bound: bool,
-    ) -> Self {
-        Self {
-            page,
-            filtered_rows,
-            check_filtered_rows_upper_bound,
-        }
-    }
-
-    // Return whether grouped finalization should assert filtered-row upper bound.
-    pub(in crate::db::executor) const fn should_check_filtered_rows_upper_bound(&self) -> bool {
-        self.check_filtered_rows_upper_bound
-    }
-
-    // Borrow grouped filtered-row count for pagination sanity checks.
-    pub(in crate::db::executor) const fn filtered_rows(&self) -> usize {
-        self.filtered_rows
-    }
-
-    // Return the grouped output row count before consuming the page.
-    pub(in crate::db::executor) const fn page_row_count(&self) -> usize {
-        self.page.rows.len()
-    }
-
-    // Consume folded stage and return final grouped page payload.
-    pub(in crate::db::executor) fn into_page(self) -> GroupedCursorPage {
-        self.page
-    }
-}
 ///
 /// TESTS
 ///

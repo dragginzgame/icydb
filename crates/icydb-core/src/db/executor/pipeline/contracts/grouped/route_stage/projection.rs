@@ -14,7 +14,7 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, GroupedDistinctExecutionStrategy, GroupedExecutionConfig,
-            GroupedExecutionRoute, PlannedProjectionLayout, expr::Expr,
+            GroupedExecutionRoute, PlannedProjectionLayout,
         },
     },
     error::InternalError,
@@ -69,11 +69,6 @@ impl GroupedRouteStage {
         self.planner_payload
             .grouped_aggregate_execution_specs
             .as_slice()
-    }
-
-    /// Borrow grouped HAVING expression when present.
-    pub(in crate::db::executor) const fn grouped_having_expr(&self) -> Option<&Expr> {
-        self.planner_payload.grouped_having_expr.as_ref()
     }
 
     /// Borrow grouped DISTINCT execution strategy contract.
@@ -177,12 +172,29 @@ impl GroupedRouteStage {
             executor::{GroupedContinuationContext, GroupedPaginationWindow},
             predicate::MissingRowPolicy,
             query::plan::{
-                AccessPlannedQuery, GroupedDistinctExecutionStrategy, GroupedExecutionConfig,
-                GroupedExecutionRoute, PlannedProjectionLayout,
+                AccessPlannedQuery, GroupFieldSet, GroupPlan, GroupSpec,
+                GroupedDistinctExecutionStrategy, GroupedExecutionConfig, GroupedExecutionRoute,
+                LogicalPlan, PlannedProjectionLayout,
             },
         };
 
-        let plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
+        let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
+        let LogicalPlan::Scalar(scalar) = plan.logical else {
+            unreachable!("full-scan fixture is scalar")
+        };
+        let grouped_execution = GroupedExecutionConfig {
+            max_groups: 128,
+            max_group_bytes: 8 * 1024,
+        };
+        plan.logical = LogicalPlan::Grouped(GroupPlan {
+            scalar,
+            group: GroupSpec {
+                group_fields: GroupFieldSet::empty(),
+                aggregates: Vec::new(),
+                execution: grouped_execution,
+            },
+            having_expr: None,
+        });
         let grouped_pagination_window =
             GroupedPaginationWindow::new(None, 0, selection_bound, 0, None);
         let continuation = GroupedContinuationContext::new(
@@ -197,10 +209,7 @@ impl GroupedRouteStage {
         Self {
             planner_payload: crate::db::executor::pipeline::contracts::GroupedPlannerPayload {
                 plan: std::rc::Rc::new(plan),
-                grouped_execution: GroupedExecutionConfig {
-                    max_groups: 128,
-                    max_group_bytes: 8 * 1024,
-                },
+                grouped_execution,
                 grouped_execution_route: GroupedExecutionRoute::CountRowsDedicated,
                 group_fields: crate::db::query::plan::GroupFieldSet::empty(),
                 grouped_aggregate_execution_specs: Vec::new(),
@@ -209,7 +218,6 @@ impl GroupedRouteStage {
                     aggregate_positions: Vec::new(),
                 },
                 projection_is_identity: true,
-                grouped_having_expr: None,
                 grouped_distinct_execution_strategy: GroupedDistinctExecutionStrategy::None,
             },
             grouped_route_plan,

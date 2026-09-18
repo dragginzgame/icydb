@@ -81,7 +81,6 @@ pub(super) struct RouteCountPushdownState {
 
 pub(super) struct RouteIntentStage<'a> {
     pub(super) aggregate_shape: Option<AggregateRouteShape<'a>>,
-    pub(super) grouped: bool,
     pub(super) route_shape_kind: RouteShapeKind,
     pub(super) grouped_plan_strategy: Option<GroupedPlanStrategy>,
     pub(super) fast_path_order: &'static [FastPathOrder],
@@ -89,6 +88,11 @@ pub(super) struct RouteIntentStage<'a> {
 }
 
 impl RouteIntentStage<'_> {
+    /// Derive grouped intent from the planner strategy carried by this stage.
+    pub(super) const fn is_grouped(&self) -> bool {
+        self.grouped_plan_strategy.is_some()
+    }
+
     /// Return aggregate kind carried by this intent stage, if any.
     pub(super) fn kind(&self) -> Option<AggregateKind> {
         self.aggregate_shape.map(AggregateRouteShape::kind)
@@ -133,7 +137,7 @@ fn debug_assert_grouped_route_plan_alignment(
     derivation: &RouteDerivationContext,
 ) {
     debug_assert!(
-        intent_stage.grouped == derivation.grouped_execution_mode.is_some(),
+        intent_stage.is_grouped() == derivation.grouped_execution_mode.is_some(),
         "grouped route assembly must align grouped intent with grouped execution-mode projection",
     );
     if let Some(grouped_plan_strategy) = intent_stage.grouped_plan_strategy {

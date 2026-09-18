@@ -43,7 +43,6 @@ use crate::error::InternalError;
 pub(super) fn derive_execution_feasibility_stage_for_model(
     plan: &AccessPlannedQuery,
     continuation: ScalarContinuationContext,
-    probe_fetch_hint: Option<usize>,
     planner_route_profile: &PlannerRouteProfile,
     intent_stage: &RouteIntentStage<'_>,
 ) -> Result<RouteFeasibilityStage, InternalError> {
@@ -54,11 +53,10 @@ pub(super) fn derive_execution_feasibility_stage_for_model(
         intent_stage,
         planner_route_profile,
         route_continuation,
-        probe_fetch_hint,
     )?;
     let kind = intent_stage.kind();
     let index_range_limit_pushdown_enabled =
-        index_range_limit_pushdown_allowed_for_grouped(intent_stage.grouped);
+        index_range_limit_pushdown_allowed_for_grouped(intent_stage.is_grouped());
 
     let index_range_limit_spec = index_range_limit_pushdown_enabled
         .then(|| {
@@ -72,7 +70,7 @@ pub(super) fn derive_execution_feasibility_stage_for_model(
             )
         })
         .flatten();
-    let _ = (kind.is_none() && !intent_stage.grouped)
+    let _ = (kind.is_none() && !intent_stage.is_grouped())
         .then_some(())
         .and_then(|()| index_range_limit_spec.zip(derivation.scan_hints.load_scan_budget_hint))
         .inspect(|(index_range_limit_spec, load_scan_budget_hint)| {
@@ -95,7 +93,7 @@ pub(super) fn derive_execution_feasibility_stage_for_model(
                     || derivation.count_pushdown.existing_rows_shape_supported),
         "route invariant: COUNT pushdown eligibility must match COUNT-safe capability set",
     );
-    let _ = (kind.is_none() && !intent_stage.grouped)
+    let _ = (kind.is_none() && !intent_stage.is_grouped())
         .then_some(())
         .inspect(|()| {
             debug_assert_eq!(
@@ -105,7 +103,7 @@ pub(super) fn derive_execution_feasibility_stage_for_model(
             );
         });
     debug_assert!(
-        !intent_stage.grouped
+        !intent_stage.is_grouped()
             || derivation.scan_hints.load_scan_budget_hint.is_none()
                 && derivation.scan_hints.physical_fetch_hint.is_none()
                 && derivation.top_n_seek_spec.is_none()
@@ -117,7 +115,7 @@ pub(super) fn derive_execution_feasibility_stage_for_model(
         "route invariant: continuation executions must require strict advancement",
     );
     debug_assert!(
-        !intent_stage.grouped || route_continuation.grouped_safe_when_applied(),
+        !intent_stage.is_grouped() || route_continuation.grouped_safe_when_applied(),
         "route invariant: grouped continuation executions must satisfy planner-projected continuation policy safety",
     );
 
@@ -134,12 +132,11 @@ pub(super) fn derive_route_derivation_context_for_model(
     intent_stage: &RouteIntentStage<'_>,
     planner_route_profile: &PlannerRouteProfile,
     continuation: RouteContinuationPlan,
-    probe_fetch_hint: Option<usize>,
 ) -> Result<RouteDerivationContext, InternalError> {
     // Derive the invariant route shape and capability facts first so the
     // later scan-hint and grouped-mode phases can stay focused on one concern.
     let aggregate_shape = intent_stage.aggregate_shape;
-    let grouped = intent_stage.grouped;
+    let grouped = intent_stage.is_grouped();
     let grouped_plan_strategy = intent_stage.grouped_plan_strategy;
     let logical_pushdown_eligibility = planner_route_profile.logical_pushdown_eligibility();
     let access_shape_facts = plan.access_shape_facts();
@@ -168,7 +165,6 @@ pub(super) fn derive_route_derivation_context_for_model(
             plan,
             planner_route_profile,
             continuation,
-            probe_fetch_hint,
             aggregate_shape,
             kind,
             access_window,
@@ -308,13 +304,9 @@ fn derive_route_scan_hints_for_model(
             )
         })
         .flatten();
-    let load_physical_fetch_hint = inputs
-        .load_scan_hints_enabled
-        .then_some(inputs.probe_fetch_hint)
-        .flatten();
-    let physical_fetch_hint = inputs
-        .kind
-        .map_or(load_physical_fetch_hint, |_| aggregate_physical_fetch_hint);
+    // Aggregate probes are derived here; scalar physical hints are applied by
+    // runtime normalization after the continuation and projection are known.
+    let physical_fetch_hint = inputs.kind.and(aggregate_physical_fetch_hint);
     let index_prefix_child_expansion = inputs
         .load_scan_hints_enabled
         .then(|| {
@@ -348,7 +340,6 @@ struct RouteScanHintInputs<'a> {
     plan: &'a AccessPlannedQuery,
     planner_route_profile: &'a PlannerRouteProfile,
     continuation: RouteContinuationPlan,
-    probe_fetch_hint: Option<usize>,
     aggregate_shape: Option<AggregateRouteShape<'a>>,
     kind: Option<AggregateKind>,
     access_window: AccessWindow,

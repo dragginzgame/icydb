@@ -7,10 +7,8 @@ use crate::{
     db::{
         cursor::ValidatedGroupedCursor,
         executor::{
-            ExecutionPreparation, GroupedContinuationContext, PreparedLoadPlan,
-            budget::ExecutionConstructionBudget,
+            GroupedContinuationContext, PreparedLoadPlan,
             pipeline::contracts::{GroupedPlannerPayload, GroupedRouteStage, IndexSpecBundle},
-            planning::preparation::slot_map_for_model_plan,
             route::{RouteExecutionMode, RoutePlanRequest, build_execution_route_plan},
             validate_executor_plan_for_authority,
         },
@@ -43,16 +41,10 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     let grouped_execution_route = grouped_handoff.grouped_execution_route();
     let group_fields = grouped_handoff.group_fields().clone();
     let projection_is_identity = grouped_handoff.projection_is_identity();
-    let grouped_having_expr = grouped_handoff.having_expr().cloned();
     let grouped_route_plan = build_execution_route_plan(
         grouped_handoff.base(),
         RoutePlanRequest::Grouped {
             grouped_plan_strategy,
-            execution_preparation: &ExecutionPreparation::from_plan(
-                grouped_handoff.base(),
-                slot_map_for_model_plan(grouped_handoff.base()),
-                &ExecutionConstructionBudget,
-            )?,
         },
     )?;
 
@@ -91,7 +83,6 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
             grouped_aggregate_execution_specs,
             projection_layout,
             projection_is_identity,
-            grouped_having_expr,
             grouped_distinct_execution_strategy,
         },
         grouped_route_plan,

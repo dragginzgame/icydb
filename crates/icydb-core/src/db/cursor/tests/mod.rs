@@ -5,7 +5,7 @@ use crate::{
     db::{
         cursor::{
             ContinuationSignature, CursorDecodeError, CursorPlanError, GroupedContinuationToken,
-            decode_optional_cursor_token, prepare_grouped_cursor,
+            decode_optional_cursor_token, prepare_grouped_cursor_token,
             validate_grouped_cursor_order_plan,
         },
         direction::Direction,
@@ -31,16 +31,13 @@ fn grouped_token_fixture(direction: Direction) -> GroupedContinuationToken {
 #[test]
 fn prepare_grouped_cursor_rejects_direction_mismatch() {
     let token = grouped_token_fixture(Direction::Desc);
-    let encoded = token
-        .encode()
-        .expect("grouped continuation token should encode");
-    let err = prepare_grouped_cursor(
+    let err = prepare_grouped_cursor_token(
         "grouped::test_entity",
         None::<&OrderSpec>,
         Direction::Asc,
         token.signature(),
         token.initial_offset(),
-        Some(encoded.as_slice()),
+        Some(token),
     )
     .expect_err("grouped cursor direction must match grouped execution direction");
 
@@ -60,17 +57,13 @@ fn prepare_grouped_cursor_rejects_direction_mismatch() {
 #[test]
 fn prepare_grouped_cursor_accepts_matching_descending_direction() {
     let token = grouped_token_fixture(Direction::Desc);
-    let encoded = token
-        .encode()
-        .expect("grouped continuation token should encode");
-
-    let prepared = prepare_grouped_cursor(
+    let prepared = prepare_grouped_cursor_token(
         "grouped::test_entity",
         None::<&OrderSpec>,
         Direction::Desc,
         token.signature(),
         token.initial_offset(),
-        Some(encoded.as_slice()),
+        Some(token.clone()),
     )
     .expect("grouped cursor direction should match descending grouped execution");
 
@@ -80,17 +73,14 @@ fn prepare_grouped_cursor_accepts_matching_descending_direction() {
 #[test]
 fn prepare_grouped_cursor_rejects_signature_mismatch() {
     let token = grouped_token_fixture(Direction::Asc);
-    let encoded = token
-        .encode()
-        .expect("grouped continuation token should encode");
     let expected_signature = ContinuationSignature::from_bytes([0x24; 32]);
-    let err = prepare_grouped_cursor(
+    let err = prepare_grouped_cursor_token(
         "grouped::test_entity",
         None::<&OrderSpec>,
         Direction::Asc,
         expected_signature,
         token.initial_offset(),
-        Some(encoded.as_slice()),
+        Some(token),
     )
     .expect_err("grouped cursor signature mismatch must fail");
 
@@ -116,16 +106,13 @@ fn prepare_grouped_cursor_rejects_signature_mismatch() {
 #[test]
 fn prepare_grouped_cursor_rejects_offset_mismatch() {
     let token = grouped_token_fixture(Direction::Asc);
-    let encoded = token
-        .encode()
-        .expect("grouped continuation token should encode");
-    let err = prepare_grouped_cursor(
+    let err = prepare_grouped_cursor_token(
         "grouped::test_entity",
         None::<&OrderSpec>,
         Direction::Asc,
         token.signature(),
         token.initial_offset() + 1,
-        Some(encoded.as_slice()),
+        Some(token),
     )
     .expect_err("grouped cursor initial offset mismatch must fail");
 

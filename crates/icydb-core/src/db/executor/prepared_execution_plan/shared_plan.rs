@@ -7,6 +7,7 @@ use crate::db::executor::{
 use crate::{
     db::{
         commit::CommitSchemaFingerprint,
+        cursor::{CursorPlanError, TokenWireError, ValidatedGroupedCursor},
         executor::{
             EntityAuthority, ExecutionFamily,
             prepared_execution_plan::{
@@ -15,8 +16,10 @@ use crate::{
             },
         },
         query::construction::ConstructionBudget,
+        schema::{enum_catalog::ValueAdmissionBudget, literal_matches_type},
     },
     error::InternalError,
+    value::Value,
 };
 use std::rc::Rc;
 
@@ -57,7 +60,7 @@ impl SharedPreparedExecutionPlan {
         let core = build_prepared_execution_plan_core_with_schema_fingerprint(
             &authority,
             plan,
-            Some(schema_fingerprint),
+            schema_fingerprint,
             budget,
         )?;
         Ok(Self { authority, core })
@@ -101,9 +104,52 @@ impl SharedPreparedExecutionPlan {
             return Err(crate::db::executor::ExecutorPlanError::grouped_cursor_preparation_requires_grouped_plan());
         };
 
-        contract
+        let cursor = contract
             .prepare_grouped_cursor_token(self.authority.entity_path(), cursor)
-            .map_err(crate::db::executor::ExecutorPlanError::from)
+            .map_err(crate::db::executor::ExecutorPlanError::from)?;
+        self.validate_grouped_cursor_boundary(&cursor)?;
+
+        Ok(cursor)
+    }
+
+    // Validate the authenticated tuple against existing accepted value owners;
+    // never coerce a cursor boundary into a different resume position.
+    fn validate_grouped_cursor_boundary(
+        &self,
+        cursor: &ValidatedGroupedCursor,
+    ) -> Result<(), crate::db::executor::ExecutorPlanError> {
+        let Some(values) = cursor.last_group_key() else {
+            return Ok(());
+        };
+        let grouped = self.core.plan().grouped_plan().ok_or_else(
+            crate::db::executor::ExecutorPlanError::grouped_cursor_preparation_requires_grouped_plan,
+        )?;
+        let invalid = || CursorPlanError::from_token_wire_error(TokenWireError::Decode);
+        if values.len() != grouped.group.group_fields.len() {
+            return Err(invalid().into());
+        }
+        let schema = self.authority.accepted_schema_info();
+        let mut budget = ValueAdmissionBudget::standard();
+        for (field, value) in grouped.group.group_fields.iter().zip(values) {
+            if field.as_direct().is_some() {
+                let contract = schema
+                    .accepted_field_contract(field.field())
+                    .ok_or_else(CursorPlanError::continuation_cursor_invariant)?;
+                contract
+                    .validate_group_key(value, &mut budget)
+                    .map_err(|_| invalid())?;
+            } else {
+                // Scalar record paths may be missing under nullable parents.
+                // Their accepted query type is already newtype-resolved.
+                let ty = schema
+                    .accepted_query_field_type(field.field())
+                    .ok_or_else(CursorPlanError::continuation_cursor_invariant)?;
+                if !matches!(value, Value::Null) && !literal_matches_type(value, &ty) {
+                    return Err(invalid().into());
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Consume this generic-free shared plan into grouped/scalar load runtime.
@@ -167,13 +213,15 @@ impl SharedPreparedExecutionPlan {
         self,
     ) -> Result<SharedPreparedProjectionRuntimeHandoff, InternalError> {
         let Self { authority, core } = self;
-        let prepared_projection_contract = core.get_or_init_projection_shape(&authority)?;
+        let prepared_projection_contract = core
+            .get_or_init_projection_shape(&authority)?
+            .ok_or_else(InternalError::query_executor_invariant)?;
         let retained_slot_layout = core.get_or_init_cursorless_retained_slot_layout(&authority)?;
         let execution_preparation = core.get_or_init_scalar_execution_preparation()?;
         let scalar_runtime = PreparedScalarRuntimeHandoff {
             authority: authority.clone(),
             execution_preparation,
-            prepared_projection_contract: prepared_projection_contract.clone(),
+            prepared_projection_contract: Some(Rc::clone(&prepared_projection_contract)),
             retained_slot_layout,
             plan_core: PreparedScalarPlanCore { core },
         };

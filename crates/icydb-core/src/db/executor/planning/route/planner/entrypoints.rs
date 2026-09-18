@@ -5,6 +5,8 @@
 //! Boundary: consumes staged planner contracts and assembles execution route plans.
 
 #[cfg(feature = "sql")]
+use crate::db::executor::ExecutionPreparation;
+#[cfg(feature = "sql")]
 use crate::db::executor::planning::route::AggregateRouteShape;
 #[cfg(feature = "sql")]
 use crate::db::executor::planning::route::planner::derive_aggregate_route_intent_stage;
@@ -14,8 +16,7 @@ use crate::db::executor::planning::route::planner::{
 };
 use crate::db::{
     executor::{
-        EntityAuthority, ExecutionPreparation, ExecutionRoutePlan,
-        planning::continuation::ScalarContinuationContext,
+        EntityAuthority, ExecutionRoutePlan, planning::continuation::ScalarContinuationContext,
         route::derive_load_terminal_fast_path_contract_for_plan,
     },
     query::plan::{AccessPlannedQuery, CoveringReadExecutionPlan, GroupedPlanStrategy},
@@ -24,20 +25,18 @@ use crate::db::{
 ///
 /// RoutePlanRequest
 ///
-/// Canonical runtime route-build request. Grouped callers supply completed
-/// preparation, so pure route selection neither compiles nor hides failures.
+/// Canonical runtime route-build request. Grouped callers supply the planner
+/// strategy; grouped route selection does not consume predicate compilation.
 /// Scalar aggregates retain their feature-gated route-shape entrypoint.
 ///
 pub(in crate::db::executor) enum RoutePlanRequest<'a> {
     Load {
         continuation: ScalarContinuationContext,
-        probe_fetch_hint: Option<usize>,
-        authority: Option<Box<EntityAuthority>>,
+        authority: Option<&'a EntityAuthority>,
         load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
     },
     Grouped {
         grouped_plan_strategy: GroupedPlanStrategy,
-        execution_preparation: &'a ExecutionPreparation,
     },
 }
 
@@ -49,29 +48,22 @@ pub(in crate::db::executor) fn build_execution_route_plan(
     match request {
         RoutePlanRequest::Load {
             continuation,
-            probe_fetch_hint,
             authority,
             load_terminal_fast_path,
-        } => build_load_execution_route_plan(
-            plan,
-            continuation,
-            probe_fetch_hint,
-            authority.map(|authority| *authority),
-            load_terminal_fast_path,
-        ),
+        } => {
+            build_load_execution_route_plan(plan, continuation, authority, load_terminal_fast_path)
+        }
         RoutePlanRequest::Grouped {
             grouped_plan_strategy,
-            execution_preparation,
-        } => build_grouped_execution_route_plan(plan, grouped_plan_strategy, execution_preparation),
+        } => build_grouped_execution_route_plan(plan, grouped_plan_strategy),
     }
 }
 
-/// Build canonical execution routing for load execution from structural model authority.
+/// Build canonical execution routing while borrowing accepted entity authority.
 fn build_load_execution_route_plan(
     plan: &AccessPlannedQuery,
     continuation: ScalarContinuationContext,
-    probe_fetch_hint: Option<usize>,
-    authority: Option<EntityAuthority>,
+    authority: Option<&EntityAuthority>,
     load_terminal_fast_path: Option<CoveringReadExecutionPlan>,
 ) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     let load_terminal_fast_path = load_terminal_fast_path.or_else(|| {
@@ -87,7 +79,6 @@ fn build_load_execution_route_plan(
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
         plan,
         continuation,
-        probe_fetch_hint,
         planner_route_profile,
         &intent_stage,
     )?;
@@ -111,7 +102,6 @@ pub(in crate::db::executor) fn build_aggregate_execution_route_plan_for_explain(
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
         plan,
         ScalarContinuationContext::initial(),
-        None,
         planner_route_profile,
         &intent_stage,
     )?;
@@ -126,15 +116,12 @@ pub(in crate::db::executor) fn build_aggregate_execution_route_plan_for_explain(
 fn build_grouped_execution_route_plan(
     plan: &AccessPlannedQuery,
     grouped_plan_strategy: GroupedPlanStrategy,
-    execution_preparation: &ExecutionPreparation,
 ) -> Result<ExecutionRoutePlan, crate::error::InternalError> {
     let planner_route_profile = plan.planner_route_profile();
-    let intent_stage =
-        derive_grouped_route_intent_stage(grouped_plan_strategy, execution_preparation);
+    let intent_stage = derive_grouped_route_intent_stage(grouped_plan_strategy);
     let feasibility_stage = derive_execution_feasibility_stage_for_model(
         plan,
         ScalarContinuationContext::initial(),
-        None,
         planner_route_profile,
         &intent_stage,
     )?;

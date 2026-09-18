@@ -252,12 +252,6 @@ impl GroupedAggregateExecutionSpec {
         self.identity.uses_grouped_distinct_value_dedup()
     }
 
-    /// Return whether this grouped aggregate spec matches one planner-owned grouped aggregate.
-    #[must_use]
-    pub(in crate::db) fn matches_aggregate_identity(&self, aggregate: &GroupAggregateSpec) -> bool {
-        self.semantic_key() == aggregate.semantic_key()
-    }
-
     /// Borrow the compiled grouped aggregate input expression used by runtime, if any.
     #[must_use]
     pub(in crate::db) const fn compiled_input_expr(&self) -> Option<&CompiledExpr> {
@@ -456,7 +450,6 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     grouped_plan_strategy: GroupedPlanStrategy,
     grouped_execution_route: GroupedExecutionRoute,
     grouped_distinct_policy_contract: GroupedDistinctPolicyContract,
-    having_expr: Option<&'a crate::db::query::plan::expr::Expr>,
     execution: GroupedExecutionConfig,
 }
 
@@ -515,14 +508,6 @@ impl<'a> GroupedExecutorHandoff<'a> {
     ) -> Option<GroupDistinctPolicyReason> {
         self.grouped_distinct_policy_contract
             .violation_for_executor()
-    }
-
-    /// Borrow grouped HAVING expression when present.
-    #[must_use]
-    pub(in crate::db) const fn having_expr(
-        &self,
-    ) -> Option<&'a crate::db::query::plan::expr::Expr> {
-        self.having_expr
     }
 
     /// Borrow grouped execution hard-limit policy selected by planning.
@@ -587,7 +572,6 @@ pub(in crate::db) fn grouped_executor_handoff(
         grouped_plan_strategy,
         grouped_execution_route,
         grouped_distinct_policy_contract,
-        having_expr: grouped.having_expr.as_ref(),
         execution: grouped.group.execution,
     })
 }
@@ -824,14 +808,11 @@ fn planned_projection_layout_and_aggregate_specs_core(
             }
             Expr::Aggregate(aggregate_expr) => {
                 aggregate_positions.push(index);
-                let aggregate_spec =
-                    GroupedAggregateExecutionSpec::from_aggregate_expr(aggregate_expr);
+                let aggregate_key = AggregateSemanticKeyRef::from_aggregate_expr(aggregate_expr);
                 projection_is_identity &= next_group_field_index == group_fields.len()
                     && aggregates
                         .get(next_aggregate_index)
-                        .is_some_and(|aggregate| {
-                            aggregate_spec.matches_aggregate_identity(aggregate)
-                        });
+                        .is_some_and(|aggregate| aggregate_key == aggregate.semantic_key());
                 next_aggregate_index = next_aggregate_index
                     .saturating_add(aggregate_scan.introduced_aggregate_count());
             }
@@ -913,11 +894,9 @@ pub(in crate::db::query::plan) fn extend_unique_grouped_aggregate_specs_from_exp
 
     expr.try_for_each_tree_aggregate(&mut |aggregate_expr| {
         contains_aggregate = true;
-        introduced_aggregate_count =
-            introduced_aggregate_count.saturating_add(push_unique_grouped_aggregate_spec(
-                aggregate_specs,
-                GroupedAggregateExecutionSpec::from_aggregate_expr(aggregate_expr),
-            ));
+        introduced_aggregate_count = introduced_aggregate_count.saturating_add(
+            push_unique_grouped_aggregate_spec(aggregate_specs, aggregate_expr),
+        );
 
         Ok::<(), InternalError>(())
     })?;
@@ -933,15 +912,20 @@ pub(in crate::db::query::plan) fn extend_unique_grouped_aggregate_specs_from_exp
 
 // Keep grouped aggregate specs on one stable first-seen unique
 // order so repeated aggregate leaves reuse the same grouped execution slot.
+// This collection precedes schema resolution/compilation; compare borrowed
+// semantic keys before retaining a new input/filter expression copy.
 fn push_unique_grouped_aggregate_spec(
     aggregate_specs: &mut Vec<GroupedAggregateExecutionSpec>,
-    aggregate_spec: GroupedAggregateExecutionSpec,
+    aggregate_expr: &AggregateExpr,
 ) -> usize {
+    let aggregate_key = AggregateSemanticKeyRef::from_aggregate_expr(aggregate_expr);
     if aggregate_specs
         .iter()
-        .all(|current| current != &aggregate_spec)
+        .all(|current| current.semantic_key() != aggregate_key)
     {
-        aggregate_specs.push(aggregate_spec);
+        aggregate_specs.push(GroupedAggregateExecutionSpec::from_aggregate_expr(
+            aggregate_expr,
+        ));
         return 1;
     }
 

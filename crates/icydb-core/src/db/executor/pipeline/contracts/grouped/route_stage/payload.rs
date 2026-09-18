@@ -8,7 +8,7 @@ use crate::db::{
     executor::{ExecutionRoutePlan, GroupedContinuationContext},
     query::plan::{
         AccessPlannedQuery, GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
-        GroupedExecutionConfig, GroupedExecutionRoute, PlannedProjectionLayout, expr::Expr,
+        GroupedExecutionConfig, GroupedExecutionRoute, PlannedProjectionLayout,
     },
 };
 use std::{rc::Rc, sync::Arc};
@@ -44,7 +44,6 @@ pub(in crate::db::executor) struct GroupedPlannerPayload {
         Vec<GroupedAggregateExecutionSpec>,
     pub(in crate::db::executor) projection_layout: PlannedProjectionLayout,
     pub(in crate::db::executor) projection_is_identity: bool,
-    pub(in crate::db::executor) grouped_having_expr: Option<Expr>,
     pub(in crate::db::executor) grouped_distinct_execution_strategy:
         GroupedDistinctExecutionStrategy,
 }

@@ -13,7 +13,7 @@ mod utils;
 use crate::{
     db::{
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, ExecutionPreparation,
+            AccessScanContinuationInput, AccessStreamBindings, PreparedGroupedRuntimeResidents,
             aggregate::{
                 CompiledExpr,
                 runtime::grouped_fold::{
@@ -27,13 +27,12 @@ use crate::{
             group::grouped_execution_context_from_planner_config,
             pipeline::{
                 contracts::{
-                    ExecutionInputs, ExecutionRuntimeAdapter, GroupedRouteStage,
+                    ExecutionInputs, ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage,
                     PreparedExecutionInputContext, PreparedExecutionProjection,
                     ProjectionMaterializationMode,
                 },
                 runtime::{
-                    ExecutionAttemptKernel, GroupedFoldStage, GroupedStreamStage,
-                    StructuralGroupedRowRuntime,
+                    ExecutionAttemptKernel, GroupedStreamStage, StructuralGroupedRowRuntime,
                 },
             },
             projection::compile_grouped_projection_expr,
@@ -43,16 +42,22 @@ use crate::{
     },
     error::InternalError,
 };
+use std::rc::Rc;
 
 pub(in crate::db::executor) use count::try_execute_grouped_count_metadata;
 
-// Compile the route-owned HAVING expression once through the same grouped
+// Borrow HAVING from the retained plan and compile it through the same grouped
 // projection contract used by every grouped finalization lane.
 fn compile_grouped_having_expr(
     route: &GroupedRouteStage,
 ) -> Result<Option<CompiledExpr>, InternalError> {
-    route
-        .grouped_having_expr()
+    let grouped = route
+        .plan()
+        .grouped_plan()
+        .ok_or_else(InternalError::query_executor_invariant)?;
+    grouped
+        .having_expr
+        .as_ref()
         .map(|expr| {
             compile_grouped_projection_expr(
                 expr,
@@ -70,7 +75,7 @@ fn compile_grouped_having_expr(
 pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
     route: &GroupedRouteStage,
     runtime: &ExecutionRuntimeAdapter,
-    execution_preparation: ExecutionPreparation,
+    prepared_residents: Rc<PreparedGroupedRuntimeResidents>,
     row_runtime: StructuralGroupedRowRuntime,
 ) -> Result<GroupedStreamStage, InternalError> {
     let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputContext {
@@ -83,7 +88,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
             continuation: AccessScanContinuationInput::new(None, route.direction()),
             index_prefix_child_expansion: None,
         },
-        execution_preparation: &execution_preparation,
+        execution_preparation: prepared_residents.execution_preparation(),
         projection_materialization: ProjectionMaterializationMode::None,
         prepared_projection: PreparedExecutionProjection::empty(),
         emit_cursor: true,
@@ -97,7 +102,7 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
 
     Ok(GroupedStreamStage::new(
         row_runtime,
-        execution_preparation,
+        prepared_residents,
         resolved,
     ))
 }
@@ -107,10 +112,10 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
 pub(in crate::db::executor) fn execute_group_fold_stage(
     route: &GroupedRouteStage,
     mut stream: GroupedStreamStage,
-) -> Result<GroupedFoldStage, InternalError> {
+) -> Result<GroupedCursorPage, InternalError> {
     // Phase 1: initialize grouped fold context, projection contracts, and reducers.
     let mut grouped_execution_context =
-        grouped_execution_context_from_planner_config(Some(route.grouped_execution()));
+        grouped_execution_context_from_planner_config(route.grouped_execution());
     let grouped_budget = grouped_budget_observability(&grouped_execution_context);
     debug_assert!(
         grouped_budget.max_groups() >= grouped_budget.groups()
@@ -123,7 +128,7 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
             && grouped_budget.aggregate_states() >= grouped_budget.groups(),
         "grouped budget observability invariants must hold at grouped route entry",
     );
-    let grouped_projection_spec = route.plan().frozen_projection_spec()?.clone();
+    let grouped_projection_spec = route.plan().frozen_projection_spec()?;
 
     // Phase 2: dispatch grouped fold execution through one route-owned mode
     // selector so DISTINCT, dedicated COUNT(*), and generic grouped reduce
@@ -134,21 +139,21 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
             route,
             &mut stream,
             &mut grouped_execution_context,
-            &grouped_projection_spec,
+            grouped_projection_spec,
         )
     } else if grouped_execution_route.uses_count_rows_dedicated_fold() {
         execute_single_grouped_count_fold_stage(
             route,
             &mut stream,
             &mut grouped_execution_context,
-            &grouped_projection_spec,
+            grouped_projection_spec,
         )
     } else {
         execute_generic_grouped_fold_stage(
             route,
             &mut stream,
             &mut grouped_execution_context,
-            &grouped_projection_spec,
+            grouped_projection_spec,
         )
     }
 }

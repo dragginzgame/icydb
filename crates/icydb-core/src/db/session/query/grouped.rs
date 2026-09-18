@@ -6,6 +6,7 @@
 use crate::{
     db::{
         DbSession, GroupedQueryOutput, QueryError,
+        commit::cursor_authentication_key,
         cursor::{ValidatedGroupedCursor, decode_optional_grouped_cursor_token},
         executor::{
             ExecutionFamily, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
@@ -87,8 +88,13 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map_err(QueryError::execute)?;
         ensure_grouped_execution_family(plan.execution_family().map_err(QueryError::execute)?)?;
-        let cursor = decode_optional_grouped_cursor_token(cursor_token)
-            .map_err(QueryError::from_cursor_plan_error)?;
+        let cursor = if cursor_token.is_some() {
+            let key = cursor_authentication_key().map_err(QueryError::execute)?;
+            decode_optional_grouped_cursor_token(cursor_token, &key)
+                .map_err(QueryError::from_cursor_plan_error)?
+        } else {
+            None
+        };
         let cursor = plan
             .prepare_grouped_cursor_token(cursor)
             .map_err(query_error_from_executor_plan_error)?;

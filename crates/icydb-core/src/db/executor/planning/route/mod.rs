@@ -19,6 +19,7 @@ mod terminal;
 ///
 use capability_facts::derive_execution_capability_facts_for_model;
 use capability_facts::direction_allows_physical_fetch_hint;
+#[cfg(feature = "sql")]
 use fast_path::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation;
 use fast_path::pk_order_stream_fast_path_shape_supported;
 use hints::{

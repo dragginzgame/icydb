@@ -64,8 +64,7 @@ pub(in crate::db::executor) fn try_execute_grouped_count_metadata(
     ) else {
         return Ok(None);
     };
-    let mut context =
-        grouped_execution_context_from_planner_config(Some(route.grouped_execution()));
+    let mut context = grouped_execution_context_from_planner_config(route.grouped_execution());
     let mut groups = budget.vec_with_capacity(values.len())?;
     // Lowering preserves the selected path's value/spec order. Membership
     // normalization has already removed duplicate values before this boundary.

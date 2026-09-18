@@ -33,7 +33,8 @@ pub(in crate::db::executor) struct ScalarMaterializationCapabilities<'a> {
 ///
 /// KernelPageMaterializationRequest
 ///
-/// Structural inputs for one shared scalar page-materialization pass.
+/// Shared structural inputs for scalar row-collector and page materialization.
+/// Callers retain cursor policy; consumers retain materialization eligibility.
 /// This keeps the kernel loop monomorphic while boundary adapters supply only
 /// store access and outer typed response reconstruction.
 ///

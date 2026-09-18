@@ -8,14 +8,16 @@ use crate::{
     db::{
         QueryError,
         executor::{
-            EntityAuthority, ExecutionPreparation,
-            planning::{preparation::slot_map_for_model_plan, route::GroupedExecutionMode},
+            EntityAuthority,
+            planning::{
+                preparation::predicate_capability_profile_for_plan, route::GroupedExecutionMode,
+            },
             route::{
                 ExecutionRoutePlan, RoutePlanRequest, TopNSeekSpec, build_execution_route_plan,
                 explain_access_order_satisfied_for_model,
             },
         },
-        predicate::IndexPredicateCapability,
+        predicate::{IndexPredicateCapability, PredicateCapabilityProfile},
         query::{
             explain::{
                 ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
@@ -41,8 +43,7 @@ use crate::db::executor::explain::descriptor::shared::{
     PredicateStageObservability, annotate_access_choice_node_properties,
     annotate_access_root_node_properties, annotate_fast_path_reason_node_properties,
     annotate_projection_pushdown_node_properties, cursor_resume_execution_node_descriptor,
-    descriptor_route_property_line, distinct_execution_node_descriptor,
-    execution_preparation_predicate_index_capability, explain_execution_mode,
+    descriptor_route_property_line, distinct_execution_node_descriptor, explain_execution_mode,
     explain_filter_expr_for_plan, explain_predicate_for_plan,
     explain_residual_filter_expr_for_plan, index_range_limit_pushdown_descriptor,
     materialized_order_index_hint, order_by_execution_node_descriptor,
@@ -71,16 +72,13 @@ impl LoadExplainPreparation {
     // capability and strict-compatibility view.
     fn from_plan(plan: &AccessPlannedQuery) -> Result<Self, InternalError> {
         let pushdown = plan.predicate_pushdown_diagnostics()?;
-        let execution_preparation =
-            ExecutionPreparation::from_covering_route_plan(plan, slot_map_for_model_plan(plan));
-        let predicate_index_capability = execution_preparation_predicate_index_capability(
-            &execution_preparation,
-        )
-        .or_else(|| {
-            pushdown
-                .access_path_fully_applied()
-                .then_some(IndexPredicateCapability::FullyIndexable)
-        });
+        let predicate_index_capability = predicate_capability_profile_for_plan(plan)
+            .map(PredicateCapabilityProfile::index)
+            .or_else(|| {
+                pushdown
+                    .access_path_fully_applied()
+                    .then_some(IndexPredicateCapability::FullyIndexable)
+            });
         let strict_predicate_compatible = covering_strict_predicate_compatible(
             plan.residual_filter_contract()?,
             predicate_index_capability,
@@ -105,18 +103,18 @@ impl LoadExplainPreparation {
 /// access-choice labels, projected field names, and fast-path flags inline.
 ///
 
-struct LoadVerbosePreparation {
-    access_choice: AccessChoiceExplainSnapshot,
+struct LoadVerbosePreparation<'a> {
+    access_choice: &'a AccessChoiceExplainSnapshot,
     chosen_access_label: String,
     projected_fields: Vec<String>,
 }
 
-impl LoadVerbosePreparation {
+impl<'a> LoadVerbosePreparation<'a> {
     // Build the verbose-only projection bundle from the logical plan and the
     // already derived route plan so diagnostics remain a direct projection
     // of planner and route state.
-    fn from_plan(plan: &AccessPlannedQuery) -> Result<Self, InternalError> {
-        let access_choice = plan.access_choice().clone();
+    fn from_plan(plan: &'a AccessPlannedQuery) -> Result<Self, InternalError> {
+        let access_choice = plan.access_choice();
         let chosen_access_label = access_plan_label(&plan.access);
         let projected_fields = plan
             .frozen_projection_spec()?
@@ -150,7 +148,6 @@ pub(in crate::db) struct LoadExecutionRouteFacts {
 fn freeze_grouped_load_execution_route_facts(
     plan: &AccessPlannedQuery,
     explain_preparation: LoadExplainPreparation,
-    work: &PreparationWork<'_>,
 ) -> Result<LoadExecutionRouteFacts, InternalError> {
     let grouped_handoff = grouped_executor_handoff(plan)?;
 
@@ -159,11 +156,6 @@ fn freeze_grouped_load_execution_route_facts(
             grouped_handoff.base(),
             RoutePlanRequest::Grouped {
                 grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
-                execution_preparation: &ExecutionPreparation::from_plan(
-                    plan,
-                    slot_map_for_model_plan(plan),
-                    work,
-                )?,
             },
         )?,
         explain_preparation,
@@ -182,7 +174,6 @@ fn freeze_scalar_load_execution_route_facts(
             plan,
             RoutePlanRequest::Load {
                 continuation: crate::db::executor::ScalarContinuationContext::initial(),
-                probe_fetch_hint: None,
                 authority: None,
                 load_terminal_fast_path,
             },
@@ -532,7 +523,7 @@ pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_
 // while preserving the existing `diag.*` lines as the stable machine-readable
 // contract used by tests and tooling.
 fn render_access_choice_verbose_section(
-    verbose_preparation: &LoadVerbosePreparation,
+    verbose_preparation: &LoadVerbosePreparation<'_>,
 ) -> Vec<String> {
     let mut lines = vec!["Access choice:".to_string(), "  Candidates:".to_string()];
 
@@ -610,12 +601,11 @@ fn candidate_residual_burden_label(candidate: &AccessChoiceCandidateExplainSumma
 pub(in crate::db) fn freeze_load_execution_route_facts_for_authority(
     authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
-    work: &PreparationWork<'_>,
 ) -> Result<LoadExecutionRouteFacts, InternalError> {
     let explain_preparation = LoadExplainPreparation::from_plan(plan)?;
 
     if plan.grouped_plan().is_some() {
-        return freeze_grouped_load_execution_route_facts(plan, explain_preparation, work);
+        return freeze_grouped_load_execution_route_facts(plan, explain_preparation);
     }
 
     let load_terminal_fast_path = if plan.scalar_plan().mode.is_load() {

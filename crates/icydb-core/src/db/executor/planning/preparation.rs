@@ -100,28 +100,6 @@ impl ExecutionPreparation {
         .compile_policy(IndexCompilePolicy::StrictAllOrNone, budget)
     }
 
-    /// Build the lighter planner preparation needed by scalar covering-route
-    /// admission during load route derivation.
-    ///
-    /// This path keeps the execution-preparation predicate view plus the
-    /// indexability capability snapshot used by covering-read eligibility, but
-    /// it intentionally skips strict/conservative index predicate program
-    /// compilation because scalar load route planning does not consume them.
-    #[must_use]
-    pub(in crate::db::executor) fn from_covering_route_plan(
-        plan: &AccessPlannedQuery,
-        slot_map: Option<Vec<usize>>,
-    ) -> Self {
-        Self::build(
-            plan,
-            slot_map,
-            PreparationBuildConfig {
-                predicate_source: PreparationPredicateSource::ExecutionPreparation,
-                include_predicate_capability_profile: true,
-            },
-        )
-    }
-
     /// Build the lighter runtime execution preparation needed by shared scalar
     /// load execution.
     ///
@@ -268,6 +246,19 @@ impl std::fmt::Debug for ExecutionPreparation {
     }
 }
 
+/// Classify planner-frozen preparation inputs without copying predicate or
+/// index metadata into an execution bundle that the caller does not need.
+#[must_use]
+pub(in crate::db::executor) fn predicate_capability_profile_for_plan(
+    plan: &AccessPlannedQuery,
+) -> Option<PredicateCapabilityProfile> {
+    predicate_capability_profile_for_preparation(
+        plan.execution_preparation_compiled_predicate(),
+        plan.index_compile_targets(),
+        plan.slot_map(),
+    )
+}
+
 /// Resolve covering strict-predicate compatibility without building predicate
 /// capability state when the residual-filter contract already decides it.
 pub(in crate::db::executor) fn covering_strict_predicate_compatible_for_plan(
@@ -278,13 +269,9 @@ pub(in crate::db::executor) fn covering_strict_predicate_compatible_for_plan(
         return Ok(covering_strict_predicate_compatible(residual, None));
     }
 
-    let execution_preparation =
-        ExecutionPreparation::from_covering_route_plan(plan, slot_map_for_model_plan(plan));
     Ok(covering_strict_predicate_compatible(
         residual,
-        execution_preparation
-            .predicate_capability_profile()
-            .map(PredicateCapabilityProfile::index),
+        predicate_capability_profile_for_plan(plan).map(PredicateCapabilityProfile::index),
     ))
 }
 
@@ -308,6 +295,21 @@ fn predicate_capability_profile_for_preparation(
         )),
         (Some(_) | None, None, None) | (None, Some(_), _) | (None, None, Some(_)) => None,
     }
+}
+
+/// Compile the strict covering program from borrowed planner inputs. Keep
+/// literal admission and unsupported-result handling with the shared compiler.
+pub(in crate::db::executor) fn compile_strict_index_program_for_plan(
+    plan: &AccessPlannedQuery,
+    budget: &dyn ConstructionBudget,
+) -> Result<Option<IndexPredicateProgram>, InternalError> {
+    compile_index_program_for_preparation(
+        plan.execution_preparation_compiled_predicate(),
+        plan.index_compile_targets(),
+        plan.slot_map(),
+        IndexCompilePolicy::StrictAllOrNone,
+        budget,
+    )
 }
 
 // Compile one index predicate program for the requested pushdown policy using

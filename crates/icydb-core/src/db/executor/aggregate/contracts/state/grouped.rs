@@ -33,6 +33,8 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use std::rc::Rc;
+
 ///
 /// AggregateInputValue
 ///
@@ -119,9 +121,9 @@ pub(in crate::db::executor) struct GroupedTerminalAggregateState {
     pub(in crate::db::executor::aggregate::contracts::state) target_field:
         Option<AggregateFieldSlot>,
     pub(in crate::db::executor::aggregate::contracts::state) grouped_input_expr:
-        Option<CompiledExpr>,
+        Option<Rc<CompiledExpr>>,
     pub(in crate::db::executor::aggregate::contracts::state) grouped_filter_expr:
-        Option<CompiledExpr>,
+        Option<Rc<CompiledExpr>>,
     pub(in crate::db::executor::aggregate::contracts::state) requires_primary_key_value: bool,
     pub(in crate::db::executor::aggregate::contracts::state) reducer: GroupedAggregateReducerState,
 }
@@ -184,7 +186,7 @@ impl GroupedTerminalAggregateState {
         &self,
         row_view: Option<&RowView>,
     ) -> Result<Value, InternalError> {
-        let Some(grouped_input_expr) = self.grouped_input_expr.as_ref() else {
+        let Some(grouped_input_expr) = self.grouped_input_expr.as_deref() else {
             return Err(Self::field_target_execution_required(
                 "grouped aggregate input expression",
             ));
@@ -241,7 +243,7 @@ impl GroupedTerminalAggregateState {
     // Evaluate one grouped aggregate filter expression through the same compiled
     // grouped expression boundary used by aggregate inputs.
     fn admits_filter_row(&self, row_view: Option<&RowView>) -> Result<bool, InternalError> {
-        let Some(grouped_filter_expr) = self.grouped_filter_expr.as_ref() else {
+        let Some(grouped_filter_expr) = self.grouped_filter_expr.as_deref() else {
             return Ok(true);
         };
 

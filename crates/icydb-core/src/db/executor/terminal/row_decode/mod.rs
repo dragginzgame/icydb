@@ -12,6 +12,7 @@ use crate::{
         },
         executor::terminal::{RetainedSlotLayout, RetainedSlotRow, RetainedSlotValueMode},
         key_taxonomy::PrimaryKeyValue,
+        schema::{LeafCodec, ScalarCodec},
     },
     error::InternalError,
     value::Value,
@@ -50,6 +51,18 @@ impl RowLayout {
     #[must_use]
     pub(in crate::db) const fn contract(&self) -> &StructuralRowContract {
         &self.contract
+    }
+
+    /// Return whether this accepted slot supports scalar byte-length decoding.
+    pub(in crate::db::executor) fn slot_uses_scalar_byte_length_codec(&self, slot: usize) -> bool {
+        self.contract
+            .field_leaf_codec(slot)
+            .is_ok_and(|leaf_codec| {
+                matches!(
+                    leaf_codec,
+                    LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
+                )
+            })
     }
 
     /// Open one raw row through the frozen structural decode contract without

@@ -22,6 +22,7 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
+use std::rc::Rc;
 
 ///
 /// PreparedScalarRouteRuntime
@@ -41,7 +42,7 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
     pub(super) authority: EntityAuthority,
     pub(super) plan_core: PreparedScalarPlanCore,
     pub(super) route_plan: ExecutionRoutePlan,
-    pub(super) prep: ExecutionPreparation,
+    pub(super) prep: Rc<ExecutionPreparation>,
     pub(super) projection: PreparedExecutionProjection,
     pub(super) continuation: ScalarContinuationContext,
     pub(super) unpaged_rows_mode: bool,
@@ -292,7 +293,7 @@ fn prepare_initial_scalar_route_plan_from_handoff(
 ) -> Result<ExecutionRoutePlan, InternalError> {
     prepared
         .plan_core
-        .get_or_init_initial_scalar_route_plan(prepared.authority.clone())
+        .get_or_init_initial_scalar_route_plan(&prepared.authority)
 }
 
 ///
@@ -375,7 +376,7 @@ impl ScalarPreparedRuntimeOptions {
 fn build_prepared_scalar_route_runtime(
     store: StoreHandle,
     authority: EntityAuthority,
-    prep: ExecutionPreparation,
+    prep: Rc<ExecutionPreparation>,
     prepared_retained_slot_layout: Option<RetainedSlotLayout>,
     plan_core: PreparedScalarPlanCore,
     route_plan: ExecutionRoutePlan,
@@ -415,7 +416,7 @@ fn build_prepared_scalar_route_runtime(
 fn prepare_scalar_route_runtime_from_inputs<C>(
     db: &Db<C>,
     authority: EntityAuthority,
-    prep: ExecutionPreparation,
+    prep: Rc<ExecutionPreparation>,
     prepared_retained_slot_layout: Option<RetainedSlotLayout>,
     plan_core: PreparedScalarPlanCore,
     options: ScalarPreparedRuntimeOptions,
@@ -446,8 +447,7 @@ where
                 logical_plan,
                 RoutePlanRequest::Load {
                     continuation: continuation.clone(),
-                    probe_fetch_hint: None,
-                    authority: Some(Box::new(authority.clone())),
+                    authority: Some(&authority),
                     load_terminal_fast_path: None,
                 },
             )?;

@@ -21,6 +21,13 @@ Applications must regenerate saved continuations after a representation hard cut
 Grouped continuation and scalar live/exhaustive pages retain their sole current
 bounded version-1 wires. No compatibility decoder or translation path exists.
 
+Both token variants share the authenticated envelope: magic, version, variant,
+payload length, payload, and a 32-byte HMAC-SHA256. The existing durable cursor
+key seals framing and payload; verification precedes value decoding. Grouped
+tokens bind their accepted-schema/query signature, direction, initial offset,
+and every group-key value. This grouped hard cut requires restarting saved
+grouped pagination; scalar token bytes and stored database formats are unchanged.
+
 Big-integer values carry a u32 byte count and minimal little-endian magnitude;
 signed integers prefix sign 0/1/2 for zero/positive/negative. Zero has no
 magnitude bytes. Redundant high zero bytes and inconsistent signs reject.
@@ -35,7 +42,7 @@ at the limit remain valid, and this limit does not restrict the width of a
 shallow list beyond existing byte/size limits. Excessive nesting fails with
 the existing token encode/decode error before further value recursion. The
 same guard applies to stored mutation-job literals, independently of their
-expression-depth limit. Accepted value bytes and version-1 framing are unchanged;
+expression-depth limit. Depth admission itself does not change value encoding;
 over-depth saved continuations must be discarded and affected jobs recreated.
 
 The scalar MAC covers the current payload before semantic fields are used. Its
@@ -85,6 +92,34 @@ must supply that proof beside the continuation. IcyDB compares it before and
 after page execution; a protected row, accepted-root, database-incarnation,
 or access-state change returns a typed revision failure. Completion is only a
 null continuation under one unchanged proof.
+
+## Grouped Request Policy
+
+After authentication, grouped resume validates the current signature, direction,
+offset, tuple arity and accepted key types before row execution. Direct fields
+reuse accepted-value validation with the group-key representation: decimals,
+including those nested in collections, may use a normalized scale only when
+exactly representable at the accepted field scale. Stored-value validation and
+opaque enum bodies retain their strict scale requirement. Scalar record paths
+use the accepted query-type check and retain missing/null path semantics.
+Resume never rewrites a boundary. Malformed boundaries use the existing
+invalid-cursor code and `CursorTokenDecode` reason; missing required plan/schema
+metadata remains an internal invariant rather than a caller rejection.
+
+Each outgoing grouped cursor is encoded/authenticated once within the execution
+budget. Its binary length is charged as temporary bytes and its exact unpadded
+Base64 length as result bytes. The response consumes the same encoded bytes;
+it does not read the authentication key or encode the binary token again.
+Absent continuations incur no cursor-byte or cursor-step charge.
+
+Grouped continuation requires a row `LIMIT` and is not supported for global
+DISTINCT aggregation without group keys. Supplying a decoded cursor in either
+case rejects before row execution with `QUERY_INVALID_CONTINUATION_CURSOR` at
+`Cursor` origin, not an internal invariant error. The `DecodeReason` fact is
+`CursorGroupedContinuationRequiresLimit` (11) or
+`CursorGlobalDistinctContinuationUnsupported` (12), respectively. Eligible
+bounded grouped queries without a cursor remain supported; these policy
+rejections do not change cursor encoding or relax internal invariant checks.
 
 ## Non-Goals
 

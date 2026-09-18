@@ -18,6 +18,7 @@ use crate::db::{
         group::GroupKeySet,
     },
 };
+use std::rc::Rc;
 
 ///
 /// AggregateStateFactory
@@ -37,8 +38,8 @@ impl AggregateStateFactory {
         direction: Direction,
         distinct_mode: GroupedDistinctExecutionMode,
         target_field: Option<AggregateFieldSlot>,
-        grouped_input_expr: Option<CompiledExpr>,
-        grouped_filter_expr: Option<CompiledExpr>,
+        grouped_input_expr: Option<Rc<CompiledExpr>>,
+        grouped_filter_expr: Option<Rc<CompiledExpr>>,
         max_distinct_values_per_group: u64,
     ) -> GroupedTerminalAggregateState {
         GroupedTerminalAggregateState {

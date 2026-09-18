@@ -36,9 +36,8 @@ const TOKEN_VARIANT_GROUPED: u8 = 2;
 const TOKEN_VARIANT_SCALAR: u8 = 1;
 const TOKEN_WIRE_MAGIC: &[u8; 4] = b"ICYQ";
 const TOKEN_WIRE_VERSION: u8 = 1;
-const SCALAR_TOKEN_WIRE_VERSION: u8 = 1;
-const SCALAR_TOKEN_MAC_BYTES: usize = 32;
-const SCALAR_TOKEN_HEADER_BYTES: usize = 10;
+const TOKEN_MAC_BYTES: usize = 32;
+const TOKEN_HEADER_BYTES: usize = 10;
 
 const PAGE_MODE_LIVE: u8 = 0;
 const PAGE_MODE_EXHAUSTIVE: u8 = 1;
@@ -75,19 +74,19 @@ pub(in crate::db::cursor::token) fn encode_grouped_token(
     last_group_key: &[Value],
     direction: Direction,
     initial_offset: u32,
+    mac_key: &[u8; 32],
 ) -> Result<Vec<u8>, TokenWireError> {
     let mut out = Vec::new();
 
-    // Phase 1: write the grouped token envelope header and fixed fields.
-    write_token_header(&mut out, TOKEN_VARIANT_GROUPED);
+    // Build the payload before sealing it with the shared authenticated envelope.
     out.extend_from_slice(&signature.into_bytes());
     write_direction(&mut out, direction);
     write_u32(&mut out, initial_offset);
 
-    // Phase 2: encode the grouped continuation key tuple.
+    // Encode the grouped continuation key tuple under the same value bounds.
     write_value_slice(&mut out, last_group_key)?;
 
-    finish_token_encode(out)
+    encode_authenticated_payload(&out, TOKEN_VARIANT_GROUPED, mac_key)
 }
 
 pub(in crate::db::cursor::token) fn encode_scalar_token(
@@ -100,21 +99,32 @@ pub(in crate::db::cursor::token) fn encode_scalar_token(
 
     let mut payload = Vec::new();
     write_scalar_payload(&mut payload, token)?;
+    encode_authenticated_payload(&payload, TOKEN_VARIANT_SCALAR, mac_key)
+}
+
+// Both variants authenticate framing and payload before any semantic decoding.
+fn encode_authenticated_payload(
+    payload: &[u8],
+    variant: u8,
+    mac_key: &[u8; 32],
+) -> Result<Vec<u8>, TokenWireError> {
     let payload_len = checked_len_u32(payload.len())?;
-    let mut out = Vec::with_capacity(
-        SCALAR_TOKEN_HEADER_BYTES
-            .saturating_add(payload.len())
-            .saturating_add(SCALAR_TOKEN_MAC_BYTES),
-    );
+    let total_len = TOKEN_HEADER_BYTES
+        .saturating_add(payload.len())
+        .saturating_add(TOKEN_MAC_BYTES);
+    if total_len > MAX_CURSOR_TOKEN_BYTES {
+        return Err(TokenWireError::encode());
+    }
+    let mut out = Vec::with_capacity(total_len);
     out.extend_from_slice(TOKEN_WIRE_MAGIC);
-    out.push(SCALAR_TOKEN_WIRE_VERSION);
-    out.push(TOKEN_VARIANT_SCALAR);
+    out.push(TOKEN_WIRE_VERSION);
+    out.push(variant);
     write_u32(&mut out, payload_len);
-    out.extend_from_slice(payload.as_slice());
+    out.extend_from_slice(payload);
     let mac = hmac_sha256(mac_key, out.as_slice());
     out.extend_from_slice(&mac);
 
-    finish_token_encode(out)
+    Ok(out)
 }
 
 ///
@@ -123,11 +133,12 @@ pub(in crate::db::cursor::token) fn encode_scalar_token(
 
 pub(in crate::db::cursor::token) fn decode_grouped_token(
     bytes: &[u8],
+    mac_key: &[u8; 32],
 ) -> Result<DecodedGroupedTokenPayload, TokenWireError> {
-    let mut cursor = start_token_decode(bytes)?;
+    let payload = decode_authenticated_payload(bytes, TOKEN_VARIANT_GROUPED, mac_key)?;
+    let mut cursor = ByteCursor::new(payload);
 
-    // Phase 1: validate the grouped token envelope and fixed-width header.
-    expect_token_variant(&mut cursor, TOKEN_VARIANT_GROUPED)?;
+    // Authentication has succeeded; now interpret the fixed fields and key tuple.
     let signature = ContinuationSignature::from_bytes(cursor.read_array()?);
     let direction = read_direction(&mut cursor)?;
     let initial_offset = cursor.read_u32()?;
@@ -149,25 +160,32 @@ pub(in crate::db::cursor::token) fn decode_scalar_token(
     bytes: &[u8],
     mac_key: &[u8; 32],
 ) -> Result<ScalarPageToken, TokenWireError> {
-    if bytes.len() > MAX_CURSOR_TOKEN_BYTES
-        || bytes.len() < SCALAR_TOKEN_HEADER_BYTES + SCALAR_TOKEN_MAC_BYTES
-    {
+    let payload = decode_authenticated_payload(bytes, TOKEN_VARIANT_SCALAR, mac_key)?;
+    read_scalar_payload(ByteCursor::new(payload))
+}
+
+fn decode_authenticated_payload<'a>(
+    bytes: &'a [u8],
+    variant: u8,
+    mac_key: &[u8; 32],
+) -> Result<&'a [u8], TokenWireError> {
+    if bytes.len() > MAX_CURSOR_TOKEN_BYTES || bytes.len() < TOKEN_HEADER_BYTES + TOKEN_MAC_BYTES {
         return Err(TokenWireError::decode());
     }
 
     let mut framing = ByteCursor::new(bytes);
     if framing.read_array::<4>()? != *TOKEN_WIRE_MAGIC
-        || framing.read_u8()? != SCALAR_TOKEN_WIRE_VERSION
-        || framing.read_u8()? != TOKEN_VARIANT_SCALAR
+        || framing.read_u8()? != TOKEN_WIRE_VERSION
+        || framing.read_u8()? != variant
     {
         return Err(TokenWireError::decode());
     }
     let payload_len = usize::try_from(framing.read_u32()?).map_err(|_| TokenWireError::decode())?;
-    let authenticated_len = SCALAR_TOKEN_HEADER_BYTES
+    let authenticated_len = TOKEN_HEADER_BYTES
         .checked_add(payload_len)
         .ok_or_else(TokenWireError::decode)?;
     let total_len = authenticated_len
-        .checked_add(SCALAR_TOKEN_MAC_BYTES)
+        .checked_add(TOKEN_MAC_BYTES)
         .ok_or_else(TokenWireError::decode)?;
     if total_len != bytes.len() {
         return Err(TokenWireError::decode());
@@ -184,9 +202,9 @@ pub(in crate::db::cursor::token) fn decode_scalar_token(
     }
 
     let payload = bytes
-        .get(SCALAR_TOKEN_HEADER_BYTES..authenticated_len)
+        .get(TOKEN_HEADER_BYTES..authenticated_len)
         .ok_or_else(TokenWireError::decode)?;
-    read_scalar_payload(ByteCursor::new(payload))
+    Ok(payload)
 }
 
 fn write_scalar_payload(out: &mut Vec<u8>, token: &ScalarPageToken) -> Result<(), TokenWireError> {
@@ -470,54 +488,6 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 }
 
 ///
-/// TOKEN HEADER
-///
-
-const fn start_token_decode(bytes: &[u8]) -> Result<ByteCursor<'_>, TokenWireError> {
-    if bytes.len() > MAX_CURSOR_TOKEN_BYTES {
-        return Err(TokenWireError::decode());
-    }
-
-    Ok(ByteCursor::new(bytes))
-}
-
-fn finish_token_encode(bytes: Vec<u8>) -> Result<Vec<u8>, TokenWireError> {
-    if bytes.len() > MAX_CURSOR_TOKEN_BYTES {
-        return Err(TokenWireError::encode());
-    }
-
-    Ok(bytes)
-}
-
-fn write_token_header(out: &mut Vec<u8>, variant: u8) {
-    out.extend_from_slice(TOKEN_WIRE_MAGIC);
-    out.push(TOKEN_WIRE_VERSION);
-    out.push(variant);
-}
-
-fn expect_token_variant(
-    cursor: &mut ByteCursor<'_>,
-    expected_variant: u8,
-) -> Result<(), TokenWireError> {
-    let magic: [u8; TOKEN_WIRE_MAGIC.len()] = cursor.read_array()?;
-    if &magic != TOKEN_WIRE_MAGIC {
-        return Err(TokenWireError::decode());
-    }
-
-    let version = cursor.read_u8()?;
-    if version != TOKEN_WIRE_VERSION {
-        return Err(TokenWireError::decode());
-    }
-
-    let actual_variant = cursor.read_u8()?;
-    if actual_variant != expected_variant {
-        return Err(TokenWireError::decode());
-    }
-
-    Ok(())
-}
-
-///
 /// DIRECTION AND ANCHOR HELPERS
 ///
 
@@ -541,7 +511,26 @@ mod tests {
     use super::*;
     use crate::db::query::plan::CardinalityTiebreakFamily;
 
-    const ROUTE_LAYOUT_OFFSET: usize = SCALAR_TOKEN_HEADER_BYTES
+    #[test]
+    fn authenticated_grouped_payload_still_enforces_value_depth() {
+        let key = [0x55; 32];
+        let mut payload = vec![0x42; 32];
+        payload.push(0); // ascending
+        write_u32(&mut payload, 0); // offset
+        write_u32(&mut payload, 1); // one group key
+        for _ in 0..129 {
+            payload.push(12); // list
+            write_u32(&mut payload, 1);
+        }
+        payload.push(14); // null leaf exceeds the maximum depth
+        let wire = encode_authenticated_payload(&payload, TOKEN_VARIANT_GROUPED, &key).unwrap();
+        assert!(matches!(
+            decode_grouped_token(&wire, &key),
+            Err(TokenWireError::Decode)
+        ));
+    }
+
+    const ROUTE_LAYOUT_OFFSET: usize = TOKEN_HEADER_BYTES
         + 1
         + 32
         + 16
@@ -578,9 +567,9 @@ mod tests {
     }
 
     fn resign(mut authenticated: Vec<u8>, key: &[u8; 32]) -> Vec<u8> {
-        let payload_len = u32::try_from(authenticated.len() - SCALAR_TOKEN_HEADER_BYTES)
+        let payload_len = u32::try_from(authenticated.len() - TOKEN_HEADER_BYTES)
             .expect("test payload length should fit");
-        authenticated[6..SCALAR_TOKEN_HEADER_BYTES].copy_from_slice(&payload_len.to_be_bytes());
+        authenticated[6..TOKEN_HEADER_BYTES].copy_from_slice(&payload_len.to_be_bytes());
         let mac = hmac_sha256(key, authenticated.as_slice());
         authenticated.extend_from_slice(&mac);
         authenticated
@@ -590,7 +579,7 @@ mod tests {
         let encoded = pinned_token()
             .encode(key)
             .expect("current pinned token should encode");
-        encoded[..encoded.len() - SCALAR_TOKEN_MAC_BYTES].to_vec()
+        encoded[..encoded.len() - TOKEN_MAC_BYTES].to_vec()
     }
 
     #[test]

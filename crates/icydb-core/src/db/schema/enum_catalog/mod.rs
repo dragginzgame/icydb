@@ -32,7 +32,8 @@ pub(in crate::db) use admission::{
     ValueAdmissionBudget, ValueAdmissionError,
 };
 pub(in crate::db::schema) use admission::{
-    admit_canonical_value, validate_nullable_canonical_value, with_normalized_accepted_value,
+    admit_canonical_value, validate_group_key_value, validate_nullable_canonical_value,
+    with_normalized_accepted_value,
 };
 pub(in crate::db::schema) use codec::{decode_accepted_enum_catalog, encode_accepted_enum_catalog};
 #[cfg(feature = "sql")]

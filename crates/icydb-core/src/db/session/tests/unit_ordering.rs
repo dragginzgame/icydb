@@ -71,7 +71,13 @@ fn grouped_having_retained_bindings_and_warm_literals_preserve_results() {
     seed_singleton(&session);
     // Parameters remain confined to the maintained WHERE placement. Rebinding
     // still prepares the same fixed HAVING literal without mutating its syntax.
-    for comparison in ["label = 'singleton'", "'singleton' = label"] {
+    for (comparison, having_passes) in [
+        ("label = 'singleton'", true),
+        ("'singleton' = label", true),
+        ("label = 'different'", false),
+        ("COUNT(*) >= 1", true),
+        ("COUNT(*) < 1", false),
+    ] {
         let sql = format!(
             "SELECT label, COUNT(*) FROM Singleton WHERE label = ? GROUP BY label HAVING {comparison}"
         );
@@ -87,7 +93,7 @@ fn grouped_having_retained_bindings_and_warm_literals_preserve_results() {
             let SqlStatementResult::Grouped { rows: bound, .. } = bound else {
                 panic!("grouped result");
             };
-            assert_eq!(bound.len(), count);
+            assert_eq!(bound.len(), if having_passes { count } else { 0 });
             for _ in 0..2 {
                 let SqlStatementResult::Grouped { rows, .. } = session
                     .execute_trusted_sql_query(&concrete)

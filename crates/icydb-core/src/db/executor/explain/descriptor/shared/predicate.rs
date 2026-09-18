@@ -142,7 +142,7 @@ pub(in crate::db::executor::explain::descriptor) fn explain_residual_filter_expr
         .map(render_scalar_filter_expr_plan_label))
 }
 
-pub(in crate::db::executor::explain::descriptor) fn execution_preparation_predicate_index_capability(
+fn execution_preparation_predicate_index_capability(
     execution_preparation: &ExecutionPreparation,
 ) -> Option<IndexPredicateCapability> {
     execution_preparation

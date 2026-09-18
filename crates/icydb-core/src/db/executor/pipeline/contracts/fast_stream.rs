@@ -18,19 +18,6 @@ use crate::{
 };
 
 ///
-/// FastStreamRouteKind
-///
-/// Canonical fast-stream route discriminator used by shared load adapters.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum FastStreamRouteKind {
-    PrimaryKey,
-    SecondaryIndex,
-    IndexRangeLimitPushdown,
-}
-
-///
 /// FastStreamRouteRequest
 ///
 /// Route-specific stream binding payload consumed by shared fast-stream dispatch.

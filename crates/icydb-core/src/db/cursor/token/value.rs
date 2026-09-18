@@ -608,7 +608,7 @@ mod tests {
     }
 
     #[test]
-    fn grouped_token_propagates_value_depth_rejection_without_a_format_change() {
+    fn grouped_token_propagates_value_depth_rejection() {
         use crate::db::{
             cursor::{
                 ContinuationSignature,
@@ -618,20 +618,19 @@ mod tests {
         };
         let signature = ContinuationSignature::from_bytes([7; 32]);
         for depth in [MAX_VALUE_NESTING_DEPTH, MAX_VALUE_NESTING_DEPTH + 1] {
-            let (value, payload) = nested_payload(depth, 0);
-            let mut wire = encode_grouped_token(signature, &[], Direction::Asc, 0).unwrap();
-            wire.truncate(wire.len() - 4); // replace the empty tuple count
-            wire.extend_from_slice(&1_u32.to_be_bytes());
-            wire.extend_from_slice(&payload);
-            let encoded =
-                encode_grouped_token(signature, std::slice::from_ref(&value), Direction::Asc, 0);
-            let decoded = decode_grouped_token(&wire);
+            let (value, _) = nested_payload(depth, 0);
+            let encoded = encode_grouped_token(
+                signature,
+                std::slice::from_ref(&value),
+                Direction::Asc,
+                0,
+                &[0x55; 32],
+            );
             if depth == MAX_VALUE_NESTING_DEPTH {
-                assert_eq!(encoded.unwrap(), wire);
+                let decoded = decode_grouped_token(&encoded.unwrap(), &[0x55; 32]);
                 assert_eq!(decoded.unwrap().last_group_key, vec![value]);
             } else {
                 assert_eq!(encoded, Err(TokenWireError::Encode));
-                assert!(matches!(decoded, Err(TokenWireError::Decode)));
             }
         }
     }

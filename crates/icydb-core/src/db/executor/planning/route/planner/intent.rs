@@ -3,17 +3,18 @@
 //! Does not own: feasibility or execution-mode derivation.
 //! Boundary: pure intent derivation for staged route planning.
 
+#[cfg(feature = "sql")]
+use crate::db::executor::{
+    ExecutionPreparation,
+    route::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation,
+};
 use crate::{
     db::executor::route::{
         AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, FastPathOrder,
         GROUPED_AGGREGATE_FAST_PATH_ORDER, LOAD_FAST_PATH_ORDER, RouteShapeKind,
-        aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation,
         planner::RouteIntentStage,
     },
-    db::{
-        executor::ExecutionPreparation,
-        query::plan::{AggregateKind, GroupedPlanStrategy},
-    },
+    db::query::plan::{AggregateKind, GroupedPlanStrategy},
 };
 
 // Keep route-shape intent mapping in one helper so grouped/count/non-count
@@ -42,7 +43,6 @@ fn route_intent_stage<'a>(
 ) -> RouteIntentStage<'a> {
     let stage = RouteIntentStage {
         aggregate_shape,
-        grouped: grouped_plan_strategy.is_some(),
         route_shape_kind,
         grouped_plan_strategy,
         fast_path_order,
@@ -51,28 +51,24 @@ fn route_intent_stage<'a>(
     let kind = stage.kind();
     debug_assert!(
         (kind.is_none()
-            && !stage.grouped
+            && !stage.is_grouped()
             && stage.fast_path_order == LOAD_FAST_PATH_ORDER.as_slice())
             || (kind.is_some()
-                && !stage.grouped
+                && !stage.is_grouped()
                 && stage.fast_path_order == AGGREGATE_FAST_PATH_ORDER.as_slice())
             || (kind.is_none()
-                && stage.grouped
+                && stage.is_grouped()
                 && stage.fast_path_order == GROUPED_AGGREGATE_FAST_PATH_ORDER.as_slice()),
         "route invariant: route intent must map to the canonical fast-path order contract",
     );
     debug_assert!(
-        !stage.grouped || stage.aggregate_shape.is_none() && stage.fast_path_order.is_empty(),
+        !stage.is_grouped() || stage.aggregate_shape.is_none() && stage.fast_path_order.is_empty(),
         "route invariant: grouped intent must not carry scalar aggregate specs or fast-path routes",
     );
-    let expected_route_shape_kind = route_shape_kind_for_intent(stage.grouped, stage.kind());
+    let expected_route_shape_kind = route_shape_kind_for_intent(stage.is_grouped(), stage.kind());
     debug_assert!(
         stage.route_shape_kind == expected_route_shape_kind,
         "route invariant: route intent shape kind must remain aligned with grouped + aggregate intent",
-    );
-    debug_assert!(
-        stage.grouped == stage.grouped_plan_strategy.is_some(),
-        "route invariant: grouped intents must carry planner grouped strategies, scalar intents must not",
     );
 
     stage
@@ -111,19 +107,16 @@ pub(super) fn derive_aggregate_route_intent_stage<'a>(
 
 /// Derive the canonical staged grouped-aggregate intent.
 ///
-/// This combines planner strategy with the same preparation-owned
-/// materialization forcing policy contract.
+/// Grouped execution is materialized at this boundary regardless of strict
+/// predicate support. Runtime filtering keeps its own preparation.
 pub(super) fn derive_grouped_route_intent_stage(
     grouped_plan_strategy: GroupedPlanStrategy,
-    execution_preparation: &ExecutionPreparation,
 ) -> RouteIntentStage<'static> {
     route_intent_stage(
         None,
         Some(grouped_plan_strategy),
         route_shape_kind_for_intent(true, None),
         &GROUPED_AGGREGATE_FAST_PATH_ORDER,
-        aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
-            execution_preparation,
-        ),
+        false,
     )
 }

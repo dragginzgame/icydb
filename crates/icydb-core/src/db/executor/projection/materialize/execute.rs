@@ -73,8 +73,7 @@ fn project_slot_row_dense(
     prepared_projection: &PreparedProjectionContract,
     row: &RetainedSlotRow,
 ) -> Result<Vec<Value>, InternalError> {
-    let projection = prepared_projection.projection();
-    let mut shaped = Vec::with_capacity(projection.len());
+    let mut shaped = Vec::with_capacity(prepared_projection.compiled_exprs().len());
     project_slot_row_dense_into(prepared_projection, row, &mut shaped)?;
 
     Ok(shaped)

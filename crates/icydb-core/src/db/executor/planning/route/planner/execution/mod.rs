@@ -36,7 +36,7 @@ fn aggregate_force_materialized_due_to_predicate_uncertainty(
     intent_stage: &RouteIntentStage<'_>,
 ) -> bool {
     let kind = intent_stage.kind();
-    (kind.is_some() || intent_stage.grouped)
+    (kind.is_some() || intent_stage.is_grouped())
         && intent_stage.aggregate_force_materialized_due_to_predicate_uncertainty
 }
 

@@ -22,10 +22,9 @@ pub(in crate::db) use execution::StructuralCursorPage;
 pub(in crate::db::executor) use execution::{
     CursorEmissionMode, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
     MaterializedExecutionAttempt, PreparedExecutionInputContext, PreparedExecutionProjection,
-    ProjectionMaterializationMode, ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
-    ScalarPageMaterialization,
+    ProjectionMaterializationMode, ResolvedExecutionKeyStream, ScalarPageMaterialization,
 };
-pub(in crate::db::executor) use fast_stream::{FastStreamRouteKind, FastStreamRouteRequest};
+pub(in crate::db::executor) use fast_stream::FastStreamRouteRequest;
 pub(in crate::db::executor) use grouped::{
     GroupedPlannerPayload, GroupedRouteStage, IndexSpecBundle,
 };
@@ -56,19 +55,22 @@ pub(in crate::db::executor) struct GroupedCursorPage {
 
 #[derive(Debug)]
 pub(in crate::db) struct StructuralGroupedProjectionResult {
-    page: GroupedCursorPage,
+    rows: Vec<RuntimeGroupedRow>,
+    next_cursor: Option<Vec<u8>>,
     value_catalog: AcceptedValueCatalogHandle,
 }
 
 impl StructuralGroupedProjectionResult {
-    /// Wrap one grouped cursor page behind the structural grouped boundary.
+    /// Retain grouped rows and the executor's admitted encoded cursor bytes.
     #[must_use]
-    pub(in crate::db::executor) const fn from_page(
-        page: GroupedCursorPage,
+    pub(in crate::db::executor) const fn new(
+        rows: Vec<RuntimeGroupedRow>,
+        next_cursor: Option<Vec<u8>>,
         value_catalog: AcceptedValueCatalogHandle,
     ) -> Self {
         Self {
-            page,
+            rows,
+            next_cursor,
             value_catalog,
         }
     }
@@ -76,25 +78,26 @@ impl StructuralGroupedProjectionResult {
     /// Return the grouped row count computed at the executor boundary.
     #[must_use]
     pub(in crate::db) fn row_count(&self) -> u32 {
-        saturating_u32_len(self.page.rows.len())
+        saturating_u32_len(self.rows.len())
     }
 
     /// Consume the structural grouped result into runtime rows plus the grouped
-    /// continuation cursor carrier for session response finalization.
+    /// encoded continuation bytes for session response finalization.
     #[must_use]
     pub(in crate::db) fn into_rows_and_cursor(
         self,
     ) -> (
         Vec<RuntimeGroupedRow>,
-        Option<GroupedContinuationToken>,
+        Option<Vec<u8>>,
         AcceptedValueCatalogHandle,
     ) {
         let Self {
-            page,
+            rows,
+            next_cursor,
             value_catalog,
         } = self;
 
-        (page.rows, page.next_cursor, value_catalog)
+        (rows, next_cursor, value_catalog)
     }
 }
 

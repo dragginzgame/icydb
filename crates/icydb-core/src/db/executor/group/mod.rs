@@ -104,32 +104,14 @@ impl GroupedBudgetObservability {
     }
 }
 
-/// default_grouped_execution_config
-///
-/// Build one default grouped execution hard-limit policy.
-/// Defaults remain conservative and bounded until planner-owned policy tuning.
-#[must_use]
-const fn default_grouped_execution_config() -> ExecutionConfig {
-    let planner_default = GroupedExecutionConfig::planner_default_bounded();
-    ExecutionConfig::with_hard_limits(
-        planner_default.max_groups(),
-        planner_default.max_group_bytes(),
-    )
-}
-
 /// grouped_execution_config_from_planner_config
 ///
-/// Resolve one executor grouped hard-limit policy from optional planner config.
-/// Executor owns final policy resolution so defaults remain centralized even
-/// when planner does not provide explicit grouped limits.
+/// Translate the planner's required grouped limits into executor policy.
+/// Default selection remains with the planner, before this boundary.
 #[must_use]
 pub(in crate::db::executor) const fn grouped_execution_config_from_planner_config(
-    planner_config: Option<GroupedExecutionConfig>,
+    planner_config: GroupedExecutionConfig,
 ) -> ExecutionConfig {
-    let Some(planner_config) = planner_config else {
-        return default_grouped_execution_config();
-    };
-
     ExecutionConfig::with_hard_limits(
         planner_config.max_groups(),
         planner_config.max_group_bytes(),
@@ -138,11 +120,11 @@ pub(in crate::db::executor) const fn grouped_execution_config_from_planner_confi
 
 /// grouped_execution_context_from_planner_config
 ///
-/// Build one grouped execution context from optional planner-side limits.
+/// Build one grouped execution context from required planner-side limits.
 ///
 #[must_use]
 pub(in crate::db::executor) const fn grouped_execution_context_from_planner_config(
-    planner_config: Option<GroupedExecutionConfig>,
+    planner_config: GroupedExecutionConfig,
 ) -> ExecutionContext {
     ExecutionContext::new(grouped_execution_config_from_planner_config(planner_config))
 }

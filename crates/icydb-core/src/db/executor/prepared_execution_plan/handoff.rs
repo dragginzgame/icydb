@@ -18,7 +18,7 @@ use std::{rc::Rc, sync::Arc};
 
 pub(in crate::db::executor) struct PreparedScalarRuntimeHandoff {
     pub(in crate::db::executor) authority: EntityAuthority,
-    pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
+    pub(in crate::db::executor) execution_preparation: Rc<ExecutionPreparation>,
     pub(in crate::db::executor) prepared_projection_contract:
         Option<Rc<PreparedProjectionContract>>,
     pub(in crate::db::executor) retained_slot_layout: Option<RetainedSlotLayout>,
@@ -89,7 +89,6 @@ pub(in crate::db::executor) struct PreparedAccessPlanHandoff {
 
 pub(in crate::db::executor) struct SharedPreparedProjectionRuntimeHandoff {
     pub(in crate::db::executor) authority: EntityAuthority,
-    pub(in crate::db::executor) prepared_projection_contract:
-        Option<Rc<PreparedProjectionContract>>,
+    pub(in crate::db::executor) prepared_projection_contract: Rc<PreparedProjectionContract>,
     pub(in crate::db::executor) scalar_runtime: PreparedScalarRuntimeHandoff,
 }

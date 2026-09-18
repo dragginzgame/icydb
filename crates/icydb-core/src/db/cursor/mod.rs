@@ -37,9 +37,9 @@ pub(in crate::db) use runtime::{ContinuationKeyRef, ContinuationRuntime};
 pub(in crate::db) use signature::ContinuationSignature;
 pub(crate) use string::CursorDecodeError;
 use string::decode_cursor;
-pub(in crate::db) use string::encode_cursor;
 #[cfg(test)]
 pub(in crate::db) use string::encode_grouped_cursor_token;
+pub(in crate::db) use string::{encode_cursor, encoded_cursor_len};
 pub(in crate::db) use token::{
     GroupedContinuationToken, ScalarOrderTermContract, ScalarPageMode, ScalarPageToken,
     ScalarPageTokenAuthority, ScalarPageTokenProgress, ScalarPageTokenWindow, TokenWireError,
@@ -58,38 +58,18 @@ pub(in crate::db) fn decode_optional_cursor_token(
 }
 
 /// Decode one optional grouped cursor token through the existing external
-/// hex-token boundary while preserving grouped-token ownership for downstream
+/// Base64 boundary while preserving grouped-token ownership for downstream
 /// validation.
 pub(in crate::db) fn decode_optional_grouped_cursor_token(
     cursor_token: Option<&str>,
+    mac_key: &[u8; 32],
 ) -> Result<Option<GroupedContinuationToken>, CursorPlanError> {
     decode_optional_cursor_token(cursor_token)?
         .map(|bytes| {
-            GroupedContinuationToken::decode(bytes.as_slice())
+            GroupedContinuationToken::decode(bytes.as_slice(), mac_key)
                 .map_err(CursorPlanError::from_token_wire_error)
         })
         .transpose()
-}
-
-/// Validate and decode a grouped continuation cursor into grouped cursor state.
-#[cfg(test)]
-pub(in crate::db) fn prepare_grouped_cursor(
-    entity_path: &str,
-    order: Option<&OrderSpec>,
-    direction: Direction,
-    continuation_signature: ContinuationSignature,
-    initial_offset: u32,
-    cursor: Option<&[u8]>,
-) -> Result<ValidatedGroupedCursor, CursorPlanError> {
-    validate_grouped_cursor_order_plan(order)?;
-
-    spine::validate_grouped_cursor(
-        cursor,
-        entity_path,
-        continuation_signature,
-        direction,
-        initial_offset,
-    )
 }
 
 /// Validate one already-decoded grouped continuation token into grouped

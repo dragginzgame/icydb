@@ -10,6 +10,7 @@ use crate::db::{
         expr::{BinaryOp, Expr, truth_condition_binary_compare_op},
     },
 };
+use icydb_diagnostic_code::DiagnosticDecodeReason;
 
 ///
 /// GroupedCursorPolicyViolation
@@ -29,9 +30,17 @@ impl GroupedCursorPolicyViolation {
     /// surface used by continuation validation.
     #[must_use]
     pub(in crate::db) const fn into_cursor_plan_error(self) -> CursorPlanError {
-        let _ = self;
-
-        CursorPlanError::continuation_cursor_invariant()
+        // A decoded cursor can still violate request policy without indicating
+        // an internal planner/executor contract failure.
+        let reason = match self {
+            Self::ContinuationRequiresLimit => {
+                DiagnosticDecodeReason::CursorGroupedContinuationRequiresLimit
+            }
+            Self::GlobalDistinctContinuationUnsupported => {
+                DiagnosticDecodeReason::CursorGlobalDistinctContinuationUnsupported
+            }
+        };
+        CursorPlanError::invalid_continuation_cursor_payload(reason)
     }
 }
 
@@ -92,11 +101,44 @@ crate::retained::retained_copy!(GroupedCursorPolicyViolation);
 
 #[cfg(test)]
 mod tests {
-    use super::grouped_having_streaming_compatible;
+    use super::{GroupedCursorPolicyViolation, grouped_having_streaming_compatible};
     use crate::{
         db::query::plan::expr::{BinaryOp, CaseWhenArm, Expr},
         value::Value,
     };
+
+    #[test]
+    fn grouped_cursor_policies_preserve_request_rejection_taxonomy() {
+        use crate::{
+            db::QueryError,
+            error::{ErrorClass, ErrorOrigin},
+        };
+        use icydb_diagnostic_code::{DiagnosticDecodeReason, DiagnosticFactTag, ErrorCode};
+
+        for (policy, reason) in [
+            (
+                GroupedCursorPolicyViolation::ContinuationRequiresLimit,
+                DiagnosticDecodeReason::CursorGroupedContinuationRequiresLimit,
+            ),
+            (
+                GroupedCursorPolicyViolation::GlobalDistinctContinuationUnsupported,
+                DiagnosticDecodeReason::CursorGlobalDistinctContinuationUnsupported,
+            ),
+        ] {
+            let internal = policy.into_cursor_plan_error().into_internal_error();
+            assert_eq!(internal.class(), ErrorClass::Unsupported);
+            assert_eq!(internal.origin(), ErrorOrigin::Cursor);
+            let query = QueryError::from_cursor_plan_error(policy.into_cursor_plan_error());
+            assert_eq!(
+                query.diagnostic().error_code(),
+                ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR
+            );
+            assert_eq!(
+                query.diagnostic_facts(),
+                vec![(DiagnosticFactTag::DecodeReason, reason.raw())]
+            );
+        }
+    }
 
     #[test]
     fn streaming_having_preserves_binary_operator_policy_and_short_circuiting() {

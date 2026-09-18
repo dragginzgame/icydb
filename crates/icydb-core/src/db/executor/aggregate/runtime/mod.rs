@@ -21,7 +21,6 @@ use crate::{
 pub(in crate::db::executor) use grouped_fold::{
     build_grouped_stream_with_runtime, execute_group_fold_stage, try_execute_grouped_count_metadata,
 };
-pub(in crate::db::executor) use grouped_output::finalize_grouped_output;
 pub(in crate::db) use grouped_row::RuntimeGroupedRow;
 
 // Evaluate one compiled grouped HAVING expression on one finalized grouped output row.

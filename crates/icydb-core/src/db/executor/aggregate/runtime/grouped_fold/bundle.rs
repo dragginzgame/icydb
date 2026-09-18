@@ -44,7 +44,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-use std::cmp::Ordering;
+use std::{cmp::Ordering, rc::Rc};
 
 ///
 /// GroupedAggregateBundleSpec
@@ -58,8 +58,8 @@ pub(super) struct GroupedAggregateBundleSpec {
     direction: Direction,
     distinct_mode: GroupedDistinctExecutionMode,
     target_field: Option<AggregateFieldSlot>,
-    grouped_input_expr: Option<CompiledExpr>,
-    grouped_filter_expr: Option<CompiledExpr>,
+    grouped_input_expr: Option<Rc<CompiledExpr>>,
+    grouped_filter_expr: Option<Rc<CompiledExpr>>,
     max_distinct_values_per_group: u64,
 }
 
@@ -96,13 +96,14 @@ impl GroupedAggregateBundleSpec {
             direction,
             distinct_mode,
             target_field,
-            grouped_input_expr: compiled_input_expr,
-            grouped_filter_expr: compiled_filter_expr,
+            grouped_input_expr: compiled_input_expr.map(Rc::new),
+            grouped_filter_expr: compiled_filter_expr.map(Rc::new),
             max_distinct_values_per_group,
         })
     }
 
-    // Materialize one grouped terminal reducer state for this aggregate slot.
+    // Share the immutable expressions; reducers and distinct sets are created
+    // independently for each group and may outlive this blueprint.
     fn build_state(&self) -> GroupedTerminalAggregateState {
         AggregateStateFactory::create_grouped_terminal(
             self.kind,
@@ -810,7 +811,7 @@ mod tests {
             direction::Direction,
             executor::{
                 aggregate::{
-                    AggregateKind, ExecutionConfig, ExecutionContext, GroupError,
+                    AggregateKind, CompiledExpr, ExecutionConfig, ExecutionContext, GroupError,
                     contracts::GroupedDistinctExecutionMode,
                 },
                 budget::runtime_value_work,
@@ -821,6 +822,57 @@ mod tests {
         types::EntityTag,
         value::Value,
     };
+    use std::rc::Rc;
+
+    #[test]
+    fn shared_expressions_keep_group_reducers_and_distinct_sets_independent() {
+        let spec = GroupedAggregateBundleSpec::new(
+            AggregateKind::Count,
+            Direction::Asc,
+            GroupedDistinctExecutionMode::new(true, true),
+            None,
+            Some(CompiledExpr::Slot {
+                slot: 0,
+                field: "value".into(),
+            }),
+            Some(CompiledExpr::Slot {
+                slot: 1,
+                field: "admit".into(),
+            }),
+            u64::MAX,
+        )
+        .unwrap();
+        let mut groups = [spec.build_state(), spec.build_state()];
+        assert_eq!(
+            Rc::strong_count(spec.grouped_input_expr.as_ref().unwrap()),
+            3
+        );
+        assert_eq!(
+            Rc::strong_count(spec.grouped_filter_expr.as_ref().unwrap()),
+            3
+        );
+        // Finalization may outlive the blueprint; sharing must not borrow it.
+        drop(spec);
+
+        let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
+        for (group, value, admit) in [
+            (0, Value::Nat64(10), true),
+            (1, Value::Nat64(10), true),
+            (0, Value::Nat64(10), true),
+            (0, Value::Nat64(20), false),
+            (0, Value::Nat64(20), true),
+            (1, Value::Null, true),
+            (1, Value::Nat64(30), false),
+        ] {
+            let row = RowView::new(vec![Some(value), Some(Value::Bool(admit))]);
+            groups[group]
+                .apply_with_row_view(&data_key(1), Some(&row), &mut context)
+                .unwrap();
+        }
+        let [first, second] = groups;
+        assert_eq!(first.finalize().unwrap(), Value::Nat64(2));
+        assert_eq!(second.finalize().unwrap(), Value::Nat64(1));
+    }
 
     fn data_key(value: u64) -> DecodedDataStoreKey {
         let raw =

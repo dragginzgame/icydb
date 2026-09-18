@@ -117,7 +117,6 @@ fn preparation_constructors_retain_completion_only_for_the_requested_policy() {
     let scalar =
         with_preparation_work(|work| ExecutionPreparation::from_runtime_plan(&plan, None, work))
             .unwrap();
-    let route = ExecutionPreparation::from_covering_route_plan(&plan, None);
     assert!(matches!(
         aggregate.index_program,
         Some(PreparedIndexProgram {
@@ -132,8 +131,7 @@ fn preparation_constructors_retain_completion_only_for_the_requested_policy() {
             program: None
         })
     ));
-    assert!(route.index_program.is_none());
-    for preparation in [aggregate, scalar, route] {
+    for preparation in [aggregate, scalar] {
         for policy in POLICIES {
             assert!(preparation.prepared_index_program(policy).is_none());
             assert!(
@@ -142,6 +140,123 @@ fn preparation_constructors_retain_completion_only_for_the_requested_policy() {
                     .is_none()
             );
         }
+    }
+}
+
+#[test]
+fn plan_preparation_preserves_target_precedence_and_optional_inputs() {
+    use crate::db::{
+        predicate::{IndexCompileTargetKind, IndexPredicateCapability, Predicate},
+        query::plan::exact_metadata_schema,
+    };
+    use crate::value::Value;
+
+    let schema = exact_metadata_schema(&[], &[]);
+    let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Error);
+    assert!(predicate_capability_profile_for_plan(&plan).is_none());
+    with_preparation_work(|work| {
+        let projection = plan.prepare_projection(&schema, work)?;
+        plan.finalize_static_execution_planning_contract_with_schema(&schema, projection, work)
+    })
+    .unwrap();
+    let target = IndexCompileTarget {
+        component_index: 0,
+        field_slot: 1,
+        kind: IndexCompileTargetKind::Field,
+    };
+    let predicate = PredicateProgram::compile_with_schema_info(
+        &schema,
+        &Predicate::eq("age".into(), Value::Int64(1)),
+    );
+    for (targets, slots, expected) in [
+        // Explicit targets remain authoritative even if a slot map disagrees.
+        (
+            Some(vec![target]),
+            Some(vec![2]),
+            Some(IndexPredicateCapability::FullyIndexable),
+        ),
+        (
+            None,
+            Some(vec![1]),
+            Some(IndexPredicateCapability::FullyIndexable),
+        ),
+        (
+            None,
+            Some(vec![2]),
+            Some(IndexPredicateCapability::RequiresFullScan),
+        ),
+        (None, None, None),
+    ] {
+        let contract = plan.static_execution_planning_contract.as_mut().unwrap();
+        contract.execution_preparation_compiled_predicate = Some(predicate.clone());
+        contract.index_compile_targets = targets;
+        contract.slot_map = slots;
+        let profile = predicate_capability_profile_for_plan(&plan);
+        assert_eq!(profile.map(PredicateCapabilityProfile::index), expected);
+        let prepared = with_preparation_work(|work| {
+            ExecutionPreparation::from_plan(&plan, slot_map_for_model_plan(&plan), work)
+        })
+        .unwrap();
+        assert_eq!(profile, prepared.predicate_capability_profile());
+        assert_strict_plan_compilation(
+            &plan,
+            prepared.prepared_index_program(IndexCompilePolicy::StrictAllOrNone),
+        );
+    }
+
+    let contract = plan.static_execution_planning_contract.as_mut().unwrap();
+    contract.execution_preparation_compiled_predicate = None;
+    contract.index_compile_targets = Some(vec![target]);
+    contract.slot_map = Some(vec![1]);
+    assert!(predicate_capability_profile_for_plan(&plan).is_none());
+    assert_strict_plan_compilation(&plan, None);
+}
+
+fn assert_strict_plan_compilation(
+    plan: &AccessPlannedQuery,
+    expected: Option<&IndexPredicateProgram>,
+) {
+    use crate::db::{
+        QueryError, RequestExecutionRoot,
+        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        query::preparation::PreparationWork,
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
+        DiagnosticFactTag,
+    };
+
+    let program =
+        with_preparation_work(|work| compile_strict_index_program_for_plan(plan, work)).unwrap();
+    assert_eq!(program.as_ref(), expected);
+    if expected.is_none() {
+        return;
+    }
+
+    // Direct and bundled strict compilation must both reject before allocating
+    // encoded literals when the caller's construction allowance is exhausted.
+    for direct in [true, false] {
+        let root = RequestExecutionRoot::new_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                16_000_000,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(Resource::TemporaryBytes, 0),
+        );
+        let error = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
+            if direct {
+                compile_strict_index_program_for_plan(plan, work).map(|_| ())
+            } else {
+                ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan), work)
+                    .map(|_| ())
+            }
+            .map_err(QueryError::execute)
+        })
+        .unwrap_err();
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::TemporaryBytes.raw(),
+        )));
     }
 }
 

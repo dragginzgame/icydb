@@ -172,7 +172,7 @@ impl StructuralQuery {
         work: &PreparationWork<'_>,
         mutate_descriptor: impl FnOnce(&mut ExplainExecutionNodeDescriptor),
     ) -> Result<FinalizedQueryDiagnostics, QueryError> {
-        let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan, work)
+        let route_facts = freeze_load_execution_route_facts_for_authority(authority, plan)
             .map_err(QueryError::execute)?;
         let mut diagnostics = Self::finalized_execution_diagnostics_from_route_facts(
             plan,

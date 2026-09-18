@@ -193,14 +193,434 @@ fn verbose_explain_preserves_internal_plan_cache_reuse_fact() {
     seed_rows(&session);
     let predicate = "common = 'everyone' AND rare = 'group-a'";
 
-    let _ = explain(&session, predicate);
+    let cold = explain(&session, predicate);
     let reused = explain(&session, predicate);
+
+    // Cache-hit metadata may differ; the rendered planner snapshot must not.
+    let planner_lines = |text: &str| {
+        text.lines()
+            .filter(|line| !line.starts_with("diag.s."))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(planner_lines(&cold), planner_lines(&reused));
 
     assert!(
         reused.contains("diag.s.semantic_reuse_artifact=shared_prepared_query_plan"),
         "{reused}"
     );
     assert!(reused.contains("diag.s.semantic_reuse=hit"), "{reused}");
+}
+
+#[test]
+fn grouped_pages_preserve_filtered_counts_with_and_without_retention() {
+    use crate::db::count;
+
+    let session = initialize();
+    seed_rows(&session);
+    let query = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("id").gte(InputValue::nat64(2)))
+        .group_by("rare")
+        .aggregate(count())
+        .order_by(asc("rare"))
+        .grouped_limits(4, 16 * 1024)
+        .limit(1);
+    for capacity in [0, 4 * 1024 * 1024] {
+        session.clear_shared_query_cache_for_tests(capacity);
+        for _ in 0..2 {
+            let first = session
+                .execute_trusted_dynamic_grouped_query(&query)
+                .unwrap();
+            assert_eq!(first.row_count, 1);
+            assert_eq!(
+                first.rows[0].group_key(),
+                &[OutputValue::text("group-a".into())]
+            );
+            assert_eq!(first.rows[0].aggregate_values(), &[OutputValue::nat64(4)]);
+            let resumed = query
+                .clone()
+                .cursor(first.next_cursor.expect("second group remains"));
+            let second = session
+                .execute_trusted_dynamic_grouped_query(&resumed)
+                .unwrap();
+            assert_eq!(second.row_count, 1);
+            assert_eq!(
+                second.rows[0].group_key(),
+                &[OutputValue::text("group-b".into())]
+            );
+            assert_eq!(second.rows[0].aggregate_values(), &[OutputValue::nat64(6)]);
+            assert!(second.next_cursor.is_none());
+        }
+    }
+}
+
+#[test]
+fn grouped_decimal_cursor_resumes_canonical_scalar_and_collection_keys() {
+    use crate::{db::count, types::Decimal, value::PublicValue};
+
+    for collection in [false, true] {
+        std::thread::spawn(move || {
+            let session = initialize();
+            let decimal = AcceptedFieldKind::Decimal { scale: 2 };
+            let kind = if collection {
+                AcceptedFieldKind::List(Box::new(decimal))
+            } else {
+                decimal
+            };
+            let fields = vec![
+                field(1, "id", 0, AcceptedFieldKind::Nat64),
+                field(2, "amount", 1, kind),
+            ];
+            let snapshot = PersistedSchemaSnapshot::new(
+                SchemaVersion::initial(),
+                ENTITY_SOURCE.into(),
+                ENTITY_NAME.into(),
+                FieldId::new(1),
+                SchemaRowLayout::initial(
+                    fields
+                        .iter()
+                        .map(|field| (field.id(), field.slot()))
+                        .collect(),
+                ),
+                fields,
+            );
+            let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
+                STORE_PATH,
+                AcceptedSchemaRevision::new(2),
+                BTreeMap::from([(ENTITY_TAG, snapshot)]),
+                BTreeMap::from([
+                    ((ENTITY_TAG, field_source("id")), FieldId::new(1)),
+                    ((ENTITY_TAG, field_source("amount")), FieldId::new(2)),
+                ]),
+            );
+            crate::db::commit::publish_accepted_schema_candidate(
+                STORE_PATH,
+                session.db.store_handle(STORE_PATH).unwrap(),
+                AcceptedSchemaRevision::INITIAL,
+                &candidate,
+            )
+            .unwrap();
+            for (id, amount) in [(1, 100), (2, 250), (3, 300)] {
+                let value = InputValue::decimal(Decimal::new(amount, 2));
+                let value = if collection {
+                    InputValue::list(vec![value])
+                } else {
+                    value
+                };
+                session
+                    .execute_trusted_dynamic_insert_batch(
+                        ENTITY_NAME,
+                        vec![DynamicStructuralPatch::new(vec![
+                            ("id".into(), DynamicWriteCell::Value(InputValue::nat64(id))),
+                            ("amount".into(), DynamicWriteCell::Value(value)),
+                        ])],
+                    )
+                    .unwrap();
+            }
+            let query = DynamicQuery::new(ENTITY_NAME)
+                .group_by("amount")
+                .aggregate(count())
+                .grouped_limits(4, 16 * 1024)
+                .limit(1);
+            for capacity in [0, 4 * 1024 * 1024] {
+                session.clear_shared_query_cache_for_tests(capacity);
+                let mut cursor = None;
+                for (index, expected) in
+                    [Decimal::new(1, 0), Decimal::new(25, 1), Decimal::new(3, 0)]
+                        .into_iter()
+                        .enumerate()
+                {
+                    let request = cursor.as_ref().map_or_else(
+                        || query.clone(),
+                        |cursor: &String| query.clone().cursor(cursor),
+                    );
+                    let page = session
+                        .execute_trusted_dynamic_grouped_query(&request)
+                        .expect("unchanged issued decimal cursor must resume");
+                    let value = OutputValue::decimal(expected);
+                    let value = if collection {
+                        OutputValue::list(vec![PublicValue::Decimal(expected)])
+                    } else {
+                        value
+                    };
+                    assert_eq!(page.rows.len(), 1);
+                    assert_eq!(page.rows[0].group_key(), &[value]);
+                    assert_eq!(page.rows[0].aggregate_values(), &[OutputValue::nat64(1)]);
+                    cursor = page.next_cursor;
+                    assert_eq!(cursor.is_some(), index < 2);
+                }
+            }
+        })
+        .join()
+        .unwrap();
+    }
+}
+
+#[test]
+fn grouped_cursor_integrity_and_boundary_shape_hold_on_cold_and_warm_plans() {
+    use crate::{
+        db::{
+            commit::cursor_authentication_key,
+            count,
+            cursor::{GroupedContinuationToken, decode_optional_cursor_token, encode_cursor},
+            desc,
+        },
+        value::Value,
+    };
+    use icydb_diagnostic_code::{DiagnosticDecodeReason, DiagnosticFactTag, ErrorCode};
+
+    let session = initialize();
+    seed_rows(&session);
+    for (order, expected) in [(asc("rare"), "group-b"), (desc("rare"), "group-a")] {
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .group_by("rare")
+            .aggregate(count())
+            .order_by(order)
+            .grouped_limits(4, 16 * 1024)
+            .limit(1);
+        let first = session
+            .execute_trusted_dynamic_grouped_query(&query)
+            .unwrap();
+        let cursor = first.next_cursor.unwrap();
+        let bytes = decode_optional_cursor_token(Some(&cursor))
+            .unwrap()
+            .unwrap();
+        let key = cursor_authentication_key().unwrap();
+        let token = GroupedContinuationToken::decode(&bytes, &key).unwrap();
+        let (signature, _, direction, offset) = token.into_components();
+        let mut tampered = bytes;
+        let last_payload_byte = tampered.len() - 33;
+        tampered[last_payload_byte] ^= 1;
+        let mut invalid = vec![encode_cursor(&tampered)];
+        // A valid MAC is necessary but does not replace accepted boundary checks.
+        for values in [
+            vec![],
+            vec![Value::Nat64(9)],
+            vec![Value::Null],
+            vec![Value::Text("group-a".into()), Value::Text("extra".into())],
+        ] {
+            let malformed =
+                GroupedContinuationToken::new_with_direction(signature, values, direction, offset)
+                    .encode(&key)
+                    .unwrap();
+            invalid.push(encode_cursor(&malformed));
+        }
+        for invalid_cursor in invalid {
+            session.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+            for _ in 0..2 {
+                let error = session
+                    .execute_trusted_dynamic_grouped_query(&query.clone().cursor(&invalid_cursor))
+                    .expect_err("malformed cursor must not change the resume boundary");
+                assert_eq!(
+                    error.diagnostic().error_code(),
+                    ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR
+                );
+                assert_eq!(
+                    error.diagnostic_facts(),
+                    vec![(
+                        DiagnosticFactTag::DecodeReason,
+                        DiagnosticDecodeReason::CursorTokenDecode.raw(),
+                    )]
+                );
+            }
+        }
+        let resumed = session
+            .execute_trusted_dynamic_grouped_query(&query.cursor(&cursor))
+            .expect("unchanged cursor must still resume");
+        assert_eq!(
+            resumed.rows[0].group_key(),
+            &[OutputValue::text(expected.into())]
+        );
+        assert!(resumed.next_cursor.is_none());
+    }
+}
+
+#[test]
+fn grouped_cursor_policy_rejections_are_request_errors_on_cold_and_warm_plans() {
+    use crate::db::{count, count_by};
+    use icydb_diagnostic_code::{
+        DiagnosticDecodeReason, DiagnosticFactTag, ErrorCode, ErrorOrigin,
+    };
+
+    let session = initialize();
+    seed_rows(&session);
+    let grouped = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("id").gte(InputValue::nat64(2)))
+        .group_by("rare")
+        .aggregate(count())
+        .order_by(asc("rare"))
+        .grouped_limits(4, 16 * 1024);
+    let first = session
+        .execute_trusted_dynamic_grouped_query(&grouped.clone().limit(1))
+        .expect("first grouped page");
+    let cursor = first.next_cursor.expect("second group remains");
+    let resumed = session
+        .execute_trusted_dynamic_grouped_query(&grouped.clone().limit(1).cursor(&cursor))
+        .expect("control cursor must resume successfully");
+    assert_eq!(
+        resumed.rows[0].group_key(),
+        &[OutputValue::text("group-b".into())]
+    );
+
+    let global_distinct = DynamicQuery::new(ENTITY_NAME)
+        .aggregate(count_by("rare").distinct())
+        .grouped_limits(4, 16 * 1024)
+        .limit(1);
+    for (query, reason, expected_rows) in [
+        (
+            grouped,
+            DiagnosticDecodeReason::CursorGroupedContinuationRequiresLimit,
+            2,
+        ),
+        (
+            global_distinct,
+            DiagnosticDecodeReason::CursorGlobalDistinctContinuationUnsupported,
+            1,
+        ),
+    ] {
+        session.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+        for _ in 0..2 {
+            let error = session
+                .execute_trusted_dynamic_grouped_query(&query.clone().cursor(&cursor))
+                .expect_err("unsupported cursor use is a request rejection");
+            assert_eq!(
+                error.diagnostic().error_code(),
+                ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR
+            );
+            assert_eq!(error.diagnostic().origin(), ErrorOrigin::Cursor);
+            assert_eq!(
+                error.diagnostic_facts(),
+                vec![(DiagnosticFactTag::DecodeReason, reason.raw())]
+            );
+        }
+        let control = session
+            .execute_trusted_dynamic_grouped_query(&query)
+            .expect("the same query without a cursor is supported");
+        assert_eq!(control.row_count, expected_rows);
+        assert!(control.next_cursor.is_none());
+    }
+}
+
+#[test]
+fn byte_length_projection_preserves_mixed_outputs_and_order_inputs() {
+    let session = initialize();
+    for (id, text) in [(0, "é"), (1, "abc"), (2, ""), (3, "éé")] {
+        insert_row(&session, id, "everyone", text);
+    }
+    for capacity in [0, 4 * 1024 * 1024] {
+        session.clear_shared_query_cache_for_tests(capacity);
+        for _ in 0..2 {
+            assert_eq!(
+                projection_rows(
+                    &session,
+                    "SELECT OCTET_LENGTH(rare) FROM PlannerRow ORDER BY id"
+                ),
+                [2, 3, 0, 4].map(|length| vec![OutputValue::nat64(length)]),
+            );
+            let expected =
+                [(0, "é", 2), (1, "abc", 3), (2, "", 0), (3, "éé", 4)].map(|(id, text, length)| {
+                    vec![
+                        OutputValue::nat64(id),
+                        OutputValue::nat64(length),
+                        OutputValue::nat64(length),
+                        OutputValue::text(text.into()),
+                    ]
+                });
+            assert_eq!(
+                projection_rows(
+                    &session,
+                    "SELECT id, OCTET_LENGTH(rare), OCTET_LENGTH(rare), rare FROM PlannerRow ORDER BY id"
+                ),
+                expected,
+            );
+            assert_eq!(
+                projection_rows(
+                    &session,
+                    "SELECT id, OCTET_LENGTH(rare) FROM PlannerRow ORDER BY rare, id"
+                ),
+                [(2, 0), (1, 3), (0, 2), (3, 4)]
+                    .map(|(id, length)| vec![OutputValue::nat64(id), OutputValue::nat64(length)]),
+            );
+            // The same text ordering must remain usable for continuation anchors.
+            let query = DynamicQuery::new(ENTITY_NAME)
+                .select(["id", "rare"])
+                .order_by(asc("rare"))
+                .order_by(asc("id"));
+            let mut continuation = None;
+            let mut actual = Vec::new();
+            for _ in 0..8 {
+                let page = session
+                    .execute_trusted_live_page(&query, continuation.as_deref())
+                    .unwrap();
+                actual.extend(page.rows);
+                continuation = page.continuation;
+                if continuation.is_none() {
+                    break;
+                }
+            }
+            assert_eq!(
+                actual,
+                [(2, ""), (1, "abc"), (0, "é"), (3, "éé")]
+                    .map(|(id, text)| vec![OutputValue::nat64(id), OutputValue::text(text.into())])
+            );
+            assert!(continuation.is_none());
+        }
+    }
+}
+
+#[test]
+fn global_distinct_preserves_implicit_group_when_no_rows_match() {
+    use crate::db::count_by;
+
+    let session = initialize();
+    seed_rows(&session);
+    for capacity in [0, 4 * 1024 * 1024] {
+        session.clear_shared_query_cache_for_tests(capacity);
+        for _ in 0..2 {
+            for (minimum_id, expected) in [(99, 0), (0, 2)] {
+                let query = DynamicQuery::new(ENTITY_NAME)
+                    .filter(FieldRef::new("id").gte(InputValue::nat64(minimum_id)))
+                    .aggregate(count_by("rare").distinct())
+                    .grouped_limits(1, 16 * 1024);
+                let page = session
+                    .execute_trusted_dynamic_grouped_query(&query)
+                    .unwrap();
+                assert_eq!(page.row_count, 1);
+                assert_eq!(page.rows.len(), 1);
+                assert!(page.rows[0].group_key().is_empty());
+                assert_eq!(
+                    page.rows[0].aggregate_values(),
+                    &[OutputValue::nat64(expected)]
+                );
+                assert!(page.next_cursor.is_none());
+            }
+        }
+    }
+}
+
+#[test]
+fn grouped_input_and_filter_expressions_preserve_independent_results_on_warm_calls() {
+    let session = initialize();
+    seed_rows(&session);
+    let sql = "SELECT rare, COUNT(id + 1) FILTER (WHERE id < 9), COUNT(*) \
+               FROM PlannerRow GROUP BY rare ORDER BY rare LIMIT 2";
+    for _ in 0..2 {
+        let SqlStatementResult::Grouped {
+            rows, row_count, ..
+        } = session.execute_trusted_sql_query(sql).unwrap()
+        else {
+            panic!("grouped expression query must return grouped rows");
+        };
+        assert_eq!(row_count, 2);
+        assert_eq!(rows.len(), 2);
+        for (row, group, filtered) in [(&rows[0], "group-a", 6), (&rows[1], "group-b", 3)] {
+            assert_eq!(row.group_key(), &[OutputValue::text(group.into())]);
+            assert_eq!(
+                row.aggregate_values(),
+                &[OutputValue::nat64(filtered), OutputValue::nat64(6)]
+            );
+        }
+    }
 }
 
 #[test]

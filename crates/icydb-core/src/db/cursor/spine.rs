@@ -28,31 +28,6 @@ fn validate_cursor_signature(
     Ok(())
 }
 
-/// Validate and materialize grouped cursor state through the canonical cursor spine.
-#[cfg(test)]
-pub(in crate::db::cursor) fn validate_grouped_cursor(
-    cursor: Option<&[u8]>,
-    entity_path: &str,
-    continuation_signature: ContinuationSignature,
-    expected_direction: Direction,
-    expected_initial_offset: u32,
-) -> Result<ValidatedGroupedCursor, CursorPlanError> {
-    let Some(cursor) = cursor else {
-        return Ok(ValidatedGroupedCursor::none());
-    };
-    let token =
-        GroupedContinuationToken::decode(cursor).map_err(CursorPlanError::from_token_wire_error)?;
-
-    validate_cursor_signature(entity_path, &continuation_signature, &token.signature())?;
-    validate_grouped_cursor_direction(expected_direction, token.direction())?;
-    validate_cursor_window_offset(expected_initial_offset, token.initial_offset())?;
-
-    Ok(ValidatedGroupedCursor::new_validated(
-        token.last_group_key().to_vec(),
-        token.initial_offset(),
-    ))
-}
-
 /// Validate and materialize already-decoded grouped cursor state through the
 /// canonical grouped cursor spine.
 pub(in crate::db::cursor) fn validate_grouped_cursor_token(

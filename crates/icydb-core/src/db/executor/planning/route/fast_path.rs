@@ -3,14 +3,14 @@
 //! Does not own: route capability derivation or stream materialization behavior.
 //! Boundary: precedence runner and fast-path eligibility helpers for route planning.
 
+#[cfg(feature = "sql")]
+use crate::db::{executor::ExecutionPreparation, index::IndexCompilePolicy};
 use crate::{
     db::{
         access::ExecutableAccessPlan,
         executor::{
-            ExecutionPreparation, planning::route::FastPathOrder,
-            route::primary_key_stream_window_shape_supported,
+            planning::route::FastPathOrder, route::primary_key_stream_window_shape_supported,
         },
-        index::IndexCompilePolicy,
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
@@ -74,6 +74,7 @@ pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
 }
 
 /// Return whether aggregate routing must force materialized mode due to predicate uncertainty.
+#[cfg(feature = "sql")]
 #[must_use]
 pub(super) fn aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
     execution_preparation: &ExecutionPreparation,

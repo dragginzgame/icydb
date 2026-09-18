@@ -196,14 +196,15 @@ impl QueryError {
         ))
     }
 
-    /// Construct one serialize-origin internal execution error.
-    pub(in crate::db) fn serialize_internal() -> Self {
-        Self::execute(InternalError::serialize_internal())
-    }
-
     /// Construct one query error from one cursor plan-surface failure.
     pub(in crate::db) fn from_cursor_plan_error(err: CursorPlanError) -> Self {
-        Self::from(PlanError::from(err))
+        // Internal cursor failures are not caller planning errors. Keep
+        // external rejections in PlanError so their numeric facts survive.
+        if matches!(err, CursorPlanError::ContinuationCursorInvariantViolation) {
+            Self::execute(err.into_internal_error())
+        } else {
+            Self::from(PlanError::from(err))
+        }
     }
 
     /// Construct one query-origin unsupported SQL-feature execution error.

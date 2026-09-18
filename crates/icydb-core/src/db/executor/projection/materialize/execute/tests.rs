@@ -113,13 +113,43 @@ fn projection_row(contract: &StructuralRowContract, payload: &Value) -> DataRow 
 }
 
 #[test]
+fn scalar_byte_length_eligibility_uses_the_accepted_leaf_codec() {
+    for (kind, codec, storage, eligible) in [
+        (
+            AcceptedFieldKind::Blob { max_len: None },
+            LeafCodec::Scalar(ScalarCodec::Blob),
+            FieldStorageDecode::ByKind,
+            true,
+        ),
+        (
+            AcceptedFieldKind::Text { max_len: None },
+            LeafCodec::Scalar(ScalarCodec::Text),
+            FieldStorageDecode::ByKind,
+            true,
+        ),
+        (
+            nested_kind(16),
+            LeafCodec::Structural,
+            FieldStorageDecode::CatalogValue,
+            false,
+        ),
+    ] {
+        let layout =
+            RowLayout::from_structural_row_contract(projection_contract(kind, codec, storage));
+        assert_eq!(layout.slot_uses_scalar_byte_length_codec(1), eligible);
+        assert!(!layout.slot_uses_scalar_byte_length_codec(0));
+        assert!(!layout.slot_uses_scalar_byte_length_codec(99));
+    }
+}
+
+#[test]
 fn direct_projection_preserves_order_repeated_ownership_empty_and_null() {
     let layout = RowLayout::from_structural_row_contract(projection_contract(
         nested_kind(1024),
         LeafCodec::Structural,
         FieldStorageDecode::CatalogValue,
     ));
-    let slots = PreparedDirectProjectionSlots::from_slots(vec![1, 0, 1]);
+    let slots = PreparedDirectProjectionSlots::from_slots(&[1, 0, 1]);
     for payload in [
         nested_payload(2, 1024),
         Value::List(Vec::new()),
@@ -154,7 +184,7 @@ fn direct_projection_preserves_scalar_storage_paths() {
             let row = projection_row(layout.contract(), &payload);
             for order in [vec![1], vec![1, 1]] {
                 let expected = vec![payload.clone(); order.len()];
-                let slots = PreparedDirectProjectionSlots::from_slots(order);
+                let slots = PreparedDirectProjectionSlots::from_slots(&order);
                 assert_eq!(
                     project_data_row_from_direct_slots(&layout, &row, &slots).unwrap(),
                     expected
@@ -177,13 +207,13 @@ fn direct_projection_validates_selected_slots_and_primary_key_only() {
         LeafCodec::Structural,
         FieldStorageDecode::CatalogValue,
     ));
-    let id_only = PreparedDirectProjectionSlots::from_slots(vec![0]);
+    let id_only = PreparedDirectProjectionSlots::from_slots(&[0]);
     assert_eq!(
         project_data_row_from_direct_slots(&layout, &row, &id_only).unwrap(),
         vec![Value::Nat64(7)]
     );
     for order in [vec![1], vec![0, 1, 1]] {
-        let slots = PreparedDirectProjectionSlots::from_slots(order);
+        let slots = PreparedDirectProjectionSlots::from_slots(&order);
         assert_eq!(
             project_data_row_from_direct_slots(&layout, &row, &slots)
                 .unwrap_err()
@@ -216,7 +246,7 @@ fn by_kind_materialization_preserves_empty_null_nested_and_repeated_values() {
             .unwrap()
             .uses_canonical_value_wire()
     );
-    let slots = PreparedDirectProjectionSlots::from_slots(vec![1, 0, 1]);
+    let slots = PreparedDirectProjectionSlots::from_slots(&[1, 0, 1]);
     for payload in [Value::Null, Value::List(vec![]), nested_payload(2, 1024)] {
         let row = projection_row(layout.contract(), &payload);
         assert_eq!(
@@ -250,7 +280,7 @@ fn by_kind_lazy_and_eager_materialization_agree_on_corruption() {
         LeafCodec::Structural,
         FieldStorageDecode::ByKind,
     ));
-    let id_only = PreparedDirectProjectionSlots::from_slots(vec![0]);
+    let id_only = PreparedDirectProjectionSlots::from_slots(&[0]);
     assert_eq!(
         project_data_row_from_direct_slots(&layout, &row, &id_only).unwrap(),
         vec![Value::Nat64(7)]
@@ -270,7 +300,7 @@ fn by_kind_lazy_and_eager_materialization_agree_on_corruption() {
         assert_eq!(error.class(), ErrorClass::Corruption);
         assert_eq!(error.diagnostic_code(), eager.diagnostic_code());
     }
-    let slots = PreparedDirectProjectionSlots::from_slots(vec![1, 1]);
+    let slots = PreparedDirectProjectionSlots::from_slots(&[1, 1]);
     let error = project_data_row_from_direct_slots(&layout, &row, &slots).unwrap_err();
     assert_eq!(error.diagnostic_code(), eager.diagnostic_code());
 }

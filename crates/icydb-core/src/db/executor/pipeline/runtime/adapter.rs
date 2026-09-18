@@ -16,9 +16,9 @@ use crate::{
             EntityAuthority, ExecutableAccess, ExecutionKernel, LoweredIndexRangeSpec,
             OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::contracts::{
-                CursorEmissionMode, FastPathKeyResult, FastStreamRouteKind, FastStreamRouteRequest,
-                KernelPageMaterializationRequest, RowCollectorMaterializationRequest,
-                ScalarMaterializationCapabilities, ScalarPageMaterialization,
+                CursorEmissionMode, FastPathKeyResult, FastStreamRouteRequest,
+                KernelPageMaterializationRequest, ScalarMaterializationCapabilities,
+                ScalarPageMaterialization,
             },
             route::LoadOrderRouteMode,
             scan::execute_fast_stream_route,
@@ -42,8 +42,8 @@ use crate::{
 ///
 /// ExecutionMaterializationContract captures the execution-input fields shared
 /// by the row-collector and kernel-page materialization requests.
-/// Runtime materialization consumes this once so the two terminal request
-/// shapes do not re-spell predicate/projection/retained-slot wiring.
+/// Runtime materialization builds their shared request here so the terminal
+/// paths do not re-spell predicate/projection/retained-slot wiring.
 ///
 
 #[derive(Clone, Copy)]
@@ -108,20 +108,20 @@ impl<'a> ExecutionMaterializationContract<'a> {
         )
     }
 
-    // Build the cursorless row-collector materialization request from one
-    // already-aligned scalar materialization contract.
-    const fn row_collector_request(
+    // Build the shared terminal request with the caller's cursor policy.
+    const fn materialization_request(
         &self,
+        cursor_emission: CursorEmissionMode,
         continuation: ScalarContinuationContext,
         consistency: MissingRowPolicy,
         key_stream: &'a mut OrderedKeyStreamBox,
-    ) -> RowCollectorMaterializationRequest<'a> {
-        RowCollectorMaterializationRequest {
+    ) -> KernelPageMaterializationRequest<'a> {
+        KernelPageMaterializationRequest {
             plan: self.plan,
             scan_budget_hint: self.scan_budget_hint,
             load_order_route_mode: self.load_order_route_mode,
             continuation,
-            capabilities: self.capabilities(CursorEmissionMode::Suppress),
+            capabilities: self.capabilities(cursor_emission),
             consistency,
             key_stream,
         }
@@ -197,9 +197,13 @@ impl ExecutionRuntimeAdapter {
         key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<ScalarPageMaterialization, InternalError> {
         if !emit_cursor
-            && let Some(materialized) = self.try_materialize_load_via_row_collector(
-                contract.row_collector_request(continuation.clone(), consistency, key_stream),
-            )?
+            && let Some(materialized) =
+                self.try_materialize_load_via_row_collector(contract.materialization_request(
+                    CursorEmissionMode::Suppress,
+                    continuation.clone(),
+                    consistency,
+                    key_stream,
+                ))?
         {
             return Ok(materialized);
         }
@@ -240,7 +244,6 @@ impl ExecutionRuntimeAdapter {
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         execute_fast_stream_route(
             &self.runtime,
-            FastStreamRouteKind::PrimaryKey,
             FastStreamRouteRequest::PrimaryKey {
                 plan,
                 executable_access: &executable_access,
@@ -261,7 +264,6 @@ impl ExecutionRuntimeAdapter {
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         execute_fast_stream_route(
             &self.runtime,
-            FastStreamRouteKind::SecondaryIndex,
             FastStreamRouteRequest::SecondaryIndex {
                 plan,
                 executable_access: &executable_access,
@@ -284,7 +286,6 @@ impl ExecutionRuntimeAdapter {
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         execute_fast_stream_route(
             &self.runtime,
-            FastStreamRouteKind::IndexRangeLimitPushdown,
             FastStreamRouteRequest::IndexRangeLimitPushdown {
                 plan,
                 executable_access: &executable_access,
@@ -317,7 +318,7 @@ impl ExecutionRuntimeAdapter {
     /// Attempt the cursorless row-collector short path and erase the typed page result.
     fn try_materialize_load_via_row_collector<'req>(
         &'req self,
-        request: RowCollectorMaterializationRequest<'req>,
+        request: KernelPageMaterializationRequest<'req>,
     ) -> Result<Option<ScalarPageMaterialization>, InternalError> {
         self.with_scalar_row_runtime_handle(|row_runtime| {
             ExecutionKernel::try_materialize_load_via_row_collector(request, row_runtime)
@@ -341,15 +342,12 @@ impl ExecutionRuntimeAdapter {
 
         self.with_scalar_row_runtime_handle(|row_runtime| {
             materialize_key_stream_into_execution_payload(
-                KernelPageMaterializationRequest {
-                    plan: contract.plan,
-                    key_stream,
-                    scan_budget_hint: contract.scan_budget_hint,
-                    load_order_route_mode: contract.load_order_route_mode,
-                    capabilities: contract.capabilities(cursor_emission),
-                    consistency,
+                contract.materialization_request(
+                    cursor_emission,
                     continuation,
-                },
+                    consistency,
+                    key_stream,
+                ),
                 row_runtime,
             )
         })
@@ -365,15 +363,12 @@ impl ExecutionRuntimeAdapter {
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         self.with_scalar_row_runtime_handle(|row_runtime| {
             materialize_key_stream_into_kernel_rows(
-                KernelPageMaterializationRequest {
-                    plan: contract.plan,
-                    key_stream,
-                    scan_budget_hint: contract.scan_budget_hint,
-                    load_order_route_mode: contract.load_order_route_mode,
-                    capabilities: contract.capabilities(CursorEmissionMode::Suppress),
-                    consistency,
+                contract.materialization_request(
+                    CursorEmissionMode::Suppress,
                     continuation,
-                },
+                    consistency,
+                    key_stream,
+                ),
                 row_runtime,
             )
         })

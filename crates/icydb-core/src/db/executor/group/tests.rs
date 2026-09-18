@@ -9,10 +9,10 @@ use super::{
 };
 
 #[test]
-fn grouped_execution_config_from_planner_config_prefers_planner_limits() {
-    let config = grouped_execution_config_from_planner_config(Some(
+fn grouped_execution_config_from_planner_config_preserves_planner_limits() {
+    let config = grouped_execution_config_from_planner_config(
         GroupedExecutionConfig::with_hard_limits(11, 2048),
-    ));
+    );
 
     assert_eq!(config.max_groups(), 11);
     assert_eq!(config.max_group_bytes(), 2048);
@@ -21,7 +21,7 @@ fn grouped_execution_config_from_planner_config_prefers_planner_limits() {
 #[test]
 fn planner_default_grouped_execution_authority_is_finite() {
     let planner_default = GroupedExecutionConfig::planner_default_bounded();
-    let executor_default = grouped_execution_config_from_planner_config(None);
+    let executor_default = grouped_execution_config_from_planner_config(planner_default);
 
     assert!(planner_default.is_finite_bounded());
     assert_eq!(planner_default.max_groups(), 10_000);
@@ -37,8 +37,10 @@ fn planner_default_grouped_execution_authority_is_finite() {
 }
 
 #[test]
-fn grouped_execution_context_from_planner_config_defaults_when_absent() {
-    let context = grouped_execution_context_from_planner_config(None);
+fn grouped_execution_context_starts_empty_with_planner_defaults() {
+    let context = grouped_execution_context_from_planner_config(
+        GroupedExecutionConfig::planner_default_bounded(),
+    );
 
     assert_eq!(context.config().max_groups(), 10_000);
     assert_eq!(context.config().max_group_bytes(), 16 * 1024 * 1024);
@@ -49,9 +51,9 @@ fn grouped_execution_context_from_planner_config_defaults_when_absent() {
 
 #[test]
 fn grouped_budget_observability_projects_budget_and_limits() {
-    let context = grouped_execution_context_from_planner_config(Some(
+    let context = grouped_execution_context_from_planner_config(
         GroupedExecutionConfig::with_hard_limits(11, 2048),
-    ));
+    );
     let budget = grouped_budget_observability(&context);
 
     assert_eq!(budget.groups(), 0);
@@ -63,10 +65,12 @@ fn grouped_budget_observability_projects_budget_and_limits() {
 
 #[test]
 fn grouped_budget_observability_contract_vectors_are_frozen() {
-    let default_context = grouped_execution_context_from_planner_config(None);
-    let constrained_context = grouped_execution_context_from_planner_config(Some(
+    let default_context = grouped_execution_context_from_planner_config(
+        GroupedExecutionConfig::planner_default_bounded(),
+    );
+    let constrained_context = grouped_execution_context_from_planner_config(
         GroupedExecutionConfig::with_hard_limits(11, 2048),
-    ));
+    );
     let actual_vectors = vec![
         grouped_budget_observability(&default_context),
         grouped_budget_observability(&constrained_context),

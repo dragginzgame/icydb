@@ -18,7 +18,7 @@ pub(super) fn build_execution_stage_for_aggregate_grouped(
     intent_stage: &RouteIntentStage<'_>,
 ) -> RouteExecutionStage {
     debug_assert!(
-        intent_stage.grouped,
+        intent_stage.is_grouped(),
         "route invariant: grouped execution shape builder requires grouped intent stage",
     );
     // Grouped aggregate routes are always materialized at this boundary.

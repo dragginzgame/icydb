@@ -881,13 +881,13 @@ mod tests {
             crate::db::query::plan::GroupFieldSet::Direct(vec![FieldSlot::from_test_slot(
                 0, "age",
             )]);
-        let LogicalPlan::Scalar(plan) = &mut std::rc::Rc::get_mut(&mut route.planner_payload.plan)
+        let LogicalPlan::Grouped(plan) = &mut std::rc::Rc::get_mut(&mut route.planner_payload.plan)
             .unwrap()
             .logical
         else {
-            panic!("test route is scalar-shaped")
+            panic!("test route is grouped")
         };
-        plan.order = Some(OrderSpec {
+        plan.scalar.order = Some(OrderSpec {
             fields: vec![
                 OrderTerm::field("unknown", OrderDirection::Asc),
                 OrderTerm::field("age", OrderDirection::Desc),

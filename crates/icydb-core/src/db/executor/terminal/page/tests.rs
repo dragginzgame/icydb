@@ -57,6 +57,32 @@ fn retained_slot_row_sparse_constructor_preserves_dense_overwrite_semantics() {
 }
 
 #[test]
+fn retained_slot_layout_preserves_only_nondefault_decode_modes() {
+    use RetainedSlotValueMode::{Normal, ScalarOctetLength};
+
+    for modes in [vec![], vec![Normal, Normal]] {
+        let layout = RetainedSlotLayout::compile_with_value_modes(4, vec![3, 1], modes);
+        assert!(!layout.has_value_mode_overrides());
+        assert_eq!(layout.override_value_modes(), None);
+        assert_eq!(layout.required_slots(), &[3, 1]);
+        assert_eq!(layout.value_index_for_slot(3), Some(0));
+        assert_eq!(layout.value_index_for_slot(1), Some(1));
+        assert_eq!(layout.value_index_for_slot(0), None);
+    }
+
+    let modes = vec![Normal, ScalarOctetLength];
+    let layout = RetainedSlotLayout::compile_with_value_modes(4, vec![3, 1], modes.clone());
+    assert!(layout.has_value_mode_overrides());
+    assert_eq!(layout.override_value_modes(), Some(modes.as_slice()));
+    assert_eq!(layout.value_index_for_slot(3), Some(0));
+    assert_eq!(layout.value_index_for_slot(1), Some(1));
+
+    let empty = RetainedSlotLayout::compile(0, vec![]);
+    assert!(!empty.has_value_mode_overrides());
+    assert_eq!(empty.override_value_modes(), None);
+}
+
+#[test]
 fn retained_slot_row_indexed_layout_uses_shared_slot_lookup() {
     let layout = RetainedSlotLayout::compile(8, vec![1, 3, 5]);
     let mut row = RetainedSlotRow::from_indexed_values(

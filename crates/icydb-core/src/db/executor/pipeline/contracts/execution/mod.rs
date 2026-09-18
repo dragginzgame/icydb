@@ -12,7 +12,7 @@ pub(in crate::db::executor) use crate::db::executor::pipeline::runtime::Executio
 pub(in crate::db) use inputs::StructuralCursorPage;
 pub(in crate::db::executor) use inputs::{
     CursorEmissionMode, ExecutionInputs, PreparedExecutionInputContext,
-    PreparedExecutionProjection, ProjectionMaterializationMode, RowCollectorMaterializationRequest,
+    PreparedExecutionProjection, ProjectionMaterializationMode,
 };
 pub(in crate::db::executor) use outcomes::KernelRowsExecutionAttempt;
 pub(in crate::db::executor) use outcomes::{

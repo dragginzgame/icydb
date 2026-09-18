@@ -11,6 +11,7 @@ use crate::{
     },
     error::InternalError,
 };
+use std::rc::Rc;
 
 #[cfg(feature = "sql")]
 use crate::db::{
@@ -112,19 +113,13 @@ impl PreparedLoadPlan {
         })
     }
 
-    /// Clone cached grouped preparation and layout as one provenance-bound
-    /// resident bundle.
-    pub(in crate::db::executor) fn cloned_grouped_runtime_residents(
+    /// Require grouped preparation and layout as one provenance-bound bundle.
+    /// The prepared core owns construction whether or not retention succeeds.
+    pub(in crate::db::executor) fn grouped_runtime_residents(
         &self,
-    ) -> Result<Option<PreparedGroupedRuntimeResidents>, InternalError> {
-        let Some(residents) = self
-            .core
-            .get_or_init_grouped_runtime_residents(&self.authority)?
-        else {
-            return Ok(None);
-        };
-
-        Ok(Some(residents.as_ref().clone()))
+    ) -> Result<Rc<PreparedGroupedRuntimeResidents>, InternalError> {
+        self.core
+            .get_or_init_grouped_runtime_residents(&self.authority)
     }
 
     pub(in crate::db::executor) fn into_access_plan_handoff(self) -> PreparedAccessPlanHandoff {

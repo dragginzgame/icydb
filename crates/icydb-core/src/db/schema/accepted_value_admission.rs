@@ -11,7 +11,8 @@ use crate::{
         enum_catalog::{
             AcceptedValueContract, AcceptedValueRef, AdmittedOwnedValue, CanonicalValue,
             ValueAdmissionBudget, ValueAdmissionError, admit_canonical_value,
-            validate_nullable_canonical_value, with_normalized_accepted_value,
+            validate_group_key_value, validate_nullable_canonical_value,
+            with_normalized_accepted_value,
         },
     },
     value::InputValue,
@@ -141,6 +142,22 @@ impl<'a> AcceptedValueAdmissionContract<'a> {
             input,
             budget,
             use_value,
+        )
+    }
+
+    /// Validate a canonical group key, permitting only exact decimal rescaling.
+    /// This does not alter the key or produce a proof suitable for persistence.
+    pub(in crate::db) fn validate_group_key(
+        &self,
+        value: &CanonicalValue,
+        budget: &mut ValueAdmissionBudget,
+    ) -> Result<(), ValueAdmissionError> {
+        validate_group_key_value(
+            self.catalogs,
+            self.value_contract(),
+            self.nullable,
+            value,
+            budget,
         )
     }
 

@@ -14,10 +14,11 @@ use crate::{
                 dispatch::group_fields_support_borrowed_group_probe,
                 generic::{OrderedGroupedPageSelection, page_finalize::finalize_grouped_page},
             },
+            runtime::grouped_output::finalize_grouped_output,
         },
         pipeline::{
             contracts::{GroupedCursorPage, GroupedRouteStage},
-            runtime::{GroupedFoldStage, GroupedStreamStage},
+            runtime::GroupedStreamStage,
         },
     },
     error::InternalError,
@@ -70,7 +71,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         stream: &mut GroupedStreamStage,
         grouped_execution_context: &mut ExecutionContext,
         mut grouped_bundle: GroupedAggregateBundle,
-    ) -> Result<GroupedFoldStage, InternalError> {
+    ) -> Result<GroupedCursorPage, InternalError> {
         let filtered_rows =
             self.fold_rows_into_bundle(stream, grouped_execution_context, &mut grouped_bundle)?;
         let (page_rows, next_cursor) = finalize_grouped_page(
@@ -80,13 +81,12 @@ impl<'a> GenericGroupedFoldRunner<'a> {
             self.route.grouped_pagination_window(),
         )?;
 
-        Ok(GroupedFoldStage::new(
+        Ok(finalize_grouped_output(
             GroupedCursorPage {
                 rows: page_rows,
                 next_cursor,
             },
             filtered_rows,
-            true,
         ))
     }
 
@@ -97,7 +97,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         stream: &mut GroupedStreamStage,
         grouped_execution_context: &mut ExecutionContext,
         mut grouped_fold: OrderedGroupedAggregateFold,
-    ) -> Result<GroupedFoldStage, InternalError> {
+    ) -> Result<GroupedCursorPage, InternalError> {
         let mut selection = OrderedGroupedPageSelection::new(
             self.route,
             self.grouped_projection_spec,
@@ -157,13 +157,12 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         }
         let (page_rows, next_cursor) = selection.finish(self.route)?;
 
-        Ok(GroupedFoldStage::new(
+        Ok(finalize_grouped_output(
             GroupedCursorPage {
                 rows: page_rows,
                 next_cursor,
             },
             filtered_rows,
-            true,
         ))
     }
 
@@ -356,7 +355,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn execute_generic
     stream: &mut GroupedStreamStage,
     grouped_execution_context: &mut ExecutionContext,
     grouped_projection_spec: &ProjectionSpec,
-) -> Result<GroupedFoldStage, InternalError> {
+) -> Result<GroupedCursorPage, InternalError> {
     let grouped_specs = build_grouped_specs(route, grouped_execution_context)?;
     if matches!(
         route.grouped_execution_mode()?,

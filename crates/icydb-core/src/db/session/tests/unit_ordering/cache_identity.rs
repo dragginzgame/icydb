@@ -95,6 +95,56 @@ fn shared_query_cache_admits_only_with_sufficient_retained_capacity() {
 }
 
 #[test]
+fn grouped_preparation_preserves_results_with_and_without_cache_retention() {
+    let session = initialize();
+    seed_singleton(&session);
+
+    for (capacity, label, expected_rows) in [
+        (0, "singleton", 1),
+        (0, "different", 0),
+        (4 * 1024 * 1024, "singleton", 1),
+        (4 * 1024 * 1024, "different", 0),
+    ] {
+        session.clear_shared_query_cache_for_tests(capacity);
+        let mut retained = None;
+        for _ in 0..3 {
+            // Fresh syntax and request scope exercise the shared cache rather
+            // than carrying a query-local memo or execution budget forward.
+            let query = DynamicQuery::new(ENTITY_NAME)
+                .filter(FieldRef::new("label").eq(label))
+                .group_by("label")
+                .aggregate(sum("amount"))
+                .grouped_limits(1, 4096)
+                .limit(1);
+            let result = new_request_session()
+                .execute_trusted_dynamic_grouped_query(&query)
+                .expect("grouped preparation does not require cache retention");
+            assert_eq!(result.row_count, expected_rows);
+            assert_eq!(result.rows.len(), expected_rows as usize);
+            if let Some(row) = result.rows.first() {
+                assert_eq!(row.group_key(), &[OutputValue::text("singleton".into())]);
+                assert_eq!(
+                    row.aggregate_values(),
+                    &[OutputValue::u256(U256::from(2_u64))]
+                );
+            }
+
+            let usage = session.shared_query_cache_usage_for_tests();
+            if capacity == 0 {
+                assert_eq!(usage, (0, 0));
+            } else {
+                assert_eq!(usage.0, 1);
+                assert!(usage.1 > 0);
+            }
+            if let Some(previous) = retained {
+                assert_eq!(usage, previous, "warm residents are charged only once");
+            }
+            retained = Some(usage);
+        }
+    }
+}
+
+#[test]
 fn memoized_query_keys_survive_weighted_cache_eviction() {
     let session = initialize();
     let catalog = session

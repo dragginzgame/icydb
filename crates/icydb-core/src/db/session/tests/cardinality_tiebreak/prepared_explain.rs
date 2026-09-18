@@ -5,13 +5,14 @@ use crate::{
     db::{
         QueryError, RequestExecutionRoot,
         executor::{
-            SharedPreparedExecutionPlan,
+            SharedPreparedExecutionPlan, assemble_load_execution_node_descriptor_from_route_facts,
             budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+            freeze_load_execution_route_facts_for_authority,
         },
         predicate::Predicate,
         query::{
             builder::count,
-            explain::{ExplainGrouping, ExplainPlan},
+            explain::{ExplainExecutionMode, ExplainGrouping, ExplainPlan},
             plan::{AccessPlannedQuery, GroupAggregateSpec},
             preparation::{PreparationWork, with_preparation_work as with_work},
         },
@@ -67,6 +68,50 @@ fn assert_projection_rejections(plan: &SharedPreparedExecutionPlan, resource: Re
     }
 }
 
+// Route facts do not replace bounded descriptor construction. Cold and warm
+// plans must retain the same diagnostics and rejection, with grouped routes
+// materialized at this boundary.
+fn assert_execution_diagnostics(
+    cold: &SharedPreparedExecutionPlan,
+    warm: &SharedPreparedExecutionPlan,
+    grouped: bool,
+) {
+    let mut expected = None;
+    for prepared in [cold, warm] {
+        let plan = prepared.logical_plan();
+        let facts = freeze_load_execution_route_facts_for_authority(prepared.authority_ref(), plan)
+            .unwrap();
+        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let descriptor = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+            assemble_load_execution_node_descriptor_from_route_facts(plan, &facts, work)
+        })
+        .unwrap();
+        if grouped {
+            assert_eq!(
+                descriptor.execution_mode,
+                ExplainExecutionMode::Materialized
+            );
+        }
+        assert_eq!(root.observed(Resource::RowsVisited), 0);
+        assert_eq!(root.observed(Resource::PlanCompilations), 0);
+        if let Some(expected) = &expected {
+            assert_eq!(&descriptor, expected);
+        }
+        expected = Some(descriptor);
+
+        let exhausted = request(Resource::TemporaryBytes, 0);
+        let error = PreparationWork::run(&exhausted.scope(), Lane::Diagnostic, |work| {
+            assemble_load_execution_node_descriptor_from_route_facts(plan, &facts, work)
+        })
+        .unwrap_err();
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::TemporaryBytes.raw(),
+        )));
+        assert_eq!(exhausted.observed(Resource::RowsVisited), 0);
+    }
+}
+
 #[test]
 fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission() {
     let session = initialize();
@@ -83,12 +128,11 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
             },
         ]),
     );
+    let schema = catalog.accepted_schema_info();
     let grouped = with_work(|work| {
-        scalar.clone().group_fields_with_schema(
-            &["rare".into()],
-            catalog.accepted_schema_info(),
-            work,
-        )
+        scalar
+            .clone()
+            .group_fields_with_schema(&["rare".into()], schema, work)
     })
     .unwrap()
     .group_aggregates(vec![GroupAggregateSpec::from_aggregate_expr(count())])
@@ -111,6 +155,7 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
         assert!(warm.logical_plan().has_static_execution_planning_contract());
         assert!(warm.logical_plan().has_any_residual_filter().unwrap());
         assert_eq!(cold.logical_plan(), warm.logical_plan());
+        assert_execution_diagnostics(&cold, &warm, is_grouped);
         let original = warm.logical_plan().clone();
         let signature =
             with_work(|work| original.continuation_signature(ENTITY_NAME, work)).unwrap();

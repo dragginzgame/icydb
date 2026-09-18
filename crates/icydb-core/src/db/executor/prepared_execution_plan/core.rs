@@ -68,7 +68,7 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
     pub(in crate::db::executor::prepared_execution_plan) plan: Rc<AccessPlannedQuery>,
     pub(in crate::db::executor::prepared_execution_plan) execution_shape_fingerprint_prefix: u64,
     pub(in crate::db::executor::prepared_execution_plan) continuation_identity:
-        Option<AcceptedContinuationIdentity>,
+        AcceptedContinuationIdentity,
     pub(in crate::db::executor::prepared_execution_plan) prepared_projection_contract:
         OnceLock<Option<Rc<PreparedProjectionContract>>>,
     pub(in crate::db::executor::prepared_execution_plan) projection_covering_read_execution_plan:
@@ -76,11 +76,11 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
     pub(in crate::db::executor::prepared_execution_plan) hybrid_covering_read_plan:
         OnceLock<Option<Rc<CoveringHybridReadExecutionPlan>>>,
     pub(in crate::db::executor::prepared_execution_plan) prepared_grouped_runtime_residents:
-        OnceLock<Option<Rc<PreparedGroupedRuntimeResidents>>>,
+        OnceLock<Rc<PreparedGroupedRuntimeResidents>>,
     pub(in crate::db::executor::prepared_execution_plan) aggregate_execution_preparation:
-        OnceLock<ExecutionPreparation>,
+        OnceLock<Rc<ExecutionPreparation>>,
     pub(in crate::db::executor::prepared_execution_plan) scalar_execution_preparation:
-        OnceLock<ExecutionPreparation>,
+        OnceLock<Rc<ExecutionPreparation>>,
     pub(in crate::db::executor::prepared_execution_plan) initial_scalar_route_plan:
         OnceLock<ExecutionRoutePlan>,
     pub(in crate::db::executor::prepared_execution_plan) cursorless_retained_slot_layout:
@@ -155,11 +155,10 @@ pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPla
 /// PreparedGroupedRuntimeResidents
 ///
 /// Lazily cached grouped runtime preparation pair for one prepared plan.
-/// Grouped load wrappers clone this resident as a unit so execution preparation
+/// Grouped load wrappers share this resident as a unit so execution preparation
 /// and retained-slot layout cannot drift across separate cache lookups.
 ///
 
-#[derive(Clone)]
 pub(in crate::db::executor) struct PreparedGroupedRuntimeResidents {
     execution_preparation: ExecutionPreparation,
     grouped_slot_layout: RetainedSlotLayout,
@@ -174,7 +173,7 @@ impl std::fmt::Debug for PreparedGroupedRuntimeResidents {
 impl PreparedGroupedRuntimeResidents {
     /// Build one grouped preparation/layout bundle from the same logical-plan
     /// provenance.
-    pub(in crate::db::executor) const fn new(
+    const fn new(
         execution_preparation: ExecutionPreparation,
         grouped_slot_layout: RetainedSlotLayout,
     ) -> Self {
@@ -184,9 +183,14 @@ impl PreparedGroupedRuntimeResidents {
         }
     }
 
-    /// Consume the grouped resident bundle at the grouped runtime boundary.
-    pub(in crate::db::executor) fn into_parts(self) -> (ExecutionPreparation, RetainedSlotLayout) {
-        (self.execution_preparation, self.grouped_slot_layout)
+    /// Borrow immutable predicate preparation from the paired resident.
+    pub(in crate::db::executor) const fn execution_preparation(&self) -> &ExecutionPreparation {
+        &self.execution_preparation
+    }
+
+    /// Borrow the row layout compiled for this preparation's runtime filter.
+    pub(in crate::db::executor) const fn grouped_slot_layout(&self) -> &RetainedSlotLayout {
+        &self.grouped_slot_layout
     }
 }
 
@@ -219,7 +223,7 @@ impl PreparedScalarPlanCore {
 
     pub(in crate::db::executor) fn get_or_init_initial_scalar_route_plan(
         &self,
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
     ) -> Result<ExecutionRoutePlan, InternalError> {
         self.core.get_or_init_initial_scalar_route_plan(authority)
     }
@@ -285,7 +289,7 @@ impl PreparedExecutionPlanCore {
     fn new(
         plan: Rc<AccessPlannedQuery>,
         execution_shape_fingerprint_prefix: u64,
-        continuation_identity: Option<AcceptedContinuationIdentity>,
+        continuation_identity: AcceptedContinuationIdentity,
         continuation: Option<PlannedContinuationContract>,
         index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
         index_range_specs: Arc<[LoweredIndexRangeSpec]>,
@@ -321,21 +325,18 @@ impl PreparedExecutionPlanCore {
         authority: &EntityAuthority,
     ) -> Result<Option<Rc<PreparedProjectionContract>>, InternalError> {
         // Projection adapters request and consume this shape before execution.
-        if let Some(cached) = self.residents.prepared_projection_contract.get() {
-            return Ok(cached.clone());
-        }
-
-        let prepared = if self.residents.plan.scalar_projection_plan().is_some() {
-            Some(Rc::new(prepare_projection_contract_from_plan(
-                authority.row_layout_ref(),
-                &self.residents.plan,
-            )?))
-        } else {
-            None
-        };
-        self.remember_lazy(&self.residents.prepared_projection_contract, &prepared);
-
-        Ok(prepared)
+        self.try_initialize_lazy(&self.residents.prepared_projection_contract, || {
+            if self.residents.plan.scalar_projection_plan().is_some() {
+                prepare_projection_contract_from_plan(
+                    authority.row_layout_ref(),
+                    &self.residents.plan,
+                )
+                .map(Rc::new)
+                .map(Some)
+            } else {
+                Ok(None)
+            }
+        })
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_covering_read_execution_plan(
@@ -372,71 +373,63 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_grouped_runtime_residents(
         &self,
         authority: &EntityAuthority,
-    ) -> Result<Option<Rc<PreparedGroupedRuntimeResidents>>, InternalError> {
-        // Grouped execution needs both the runtime preparation and slot layout
-        // together, so cache them behind one grouped-resident initializer.
-        if let Some(cached) = self.residents.prepared_grouped_runtime_residents.get() {
-            return Ok(cached.clone());
-        }
+    ) -> Result<Rc<PreparedGroupedRuntimeResidents>, InternalError> {
+        // A grouped runtime requires the complete planner contract. Failed
+        // construction is never cached; declined retention still returns the
+        // completed preparation/layout pair for this execution.
+        self.try_initialize_lazy(&self.residents.prepared_grouped_runtime_residents, || {
+            let plan = &self.residents.plan;
+            let grouped_plan = plan
+                .grouped_plan()
+                .ok_or_else(InternalError::planner_executor_invariant)?;
+            let grouped_distinct_execution_strategy = plan
+                .grouped_distinct_execution_strategy()
+                .ok_or_else(InternalError::planner_executor_invariant)?;
+            let aggregate_specs = plan
+                .grouped_aggregate_execution_specs()
+                .ok_or_else(InternalError::planner_executor_invariant)?;
+            let execution_preparation = ExecutionPreparation::from_runtime_plan(
+                plan,
+                plan.slot_map().map(<[usize]>::to_vec),
+                &ExecutionConstructionBudget,
+            )?;
+            let grouped_slot_layout = compile_grouped_row_slot_layout_from_inputs(
+                authority.row_layout(),
+                &grouped_plan.group.group_fields,
+                aggregate_specs,
+                grouped_distinct_execution_strategy,
+                execution_preparation.effective_runtime_filter_program(),
+            );
 
-        let prepared = if let Some(grouped_plan) = self.residents.plan.grouped_plan() {
-            if let Some(grouped_distinct_execution_strategy) =
-                self.residents.plan.grouped_distinct_execution_strategy()
-            {
-                let execution_preparation = ExecutionPreparation::from_runtime_plan(
-                    &self.residents.plan,
-                    self.residents.plan.slot_map().map(<[usize]>::to_vec),
-                    &ExecutionConstructionBudget,
-                )?;
-                let grouped_slot_layout = compile_grouped_row_slot_layout_from_inputs(
-                    authority.row_layout(),
-                    &grouped_plan.group.group_fields,
-                    self.residents
-                        .plan
-                        .grouped_aggregate_execution_specs()
-                        .unwrap_or(&[]),
-                    grouped_distinct_execution_strategy,
-                    execution_preparation.effective_runtime_filter_program(),
-                );
-
-                Some(Rc::new(PreparedGroupedRuntimeResidents::new(
-                    execution_preparation,
-                    grouped_slot_layout,
-                )))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        self.remember_lazy(
-            &self.residents.prepared_grouped_runtime_residents,
-            &prepared,
-        );
-
-        Ok(prepared)
+            Ok(Rc::new(PreparedGroupedRuntimeResidents::new(
+                execution_preparation,
+                grouped_slot_layout,
+            )))
+        })
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_scalar_execution_preparation(
         &self,
-    ) -> Result<ExecutionPreparation, InternalError> {
+    ) -> Result<Rc<ExecutionPreparation>, InternalError> {
         // Scalar execution preparation is fully plan-deterministic: it depends
         // on the effective runtime predicate and slot map, but not on store
         // handles, cursor state, route retry policy, diagnostics, or
-        // materialization mode.
+        // materialization mode. Share the immutable bundle through execution
+        // so warm handoffs do not copy its programs, literals or slot metadata.
         self.try_initialize_lazy(&self.residents.scalar_execution_preparation, || {
             ExecutionPreparation::from_runtime_plan(
                 &self.residents.plan,
                 slot_map_for_model_plan(&self.residents.plan),
                 &ExecutionConstructionBudget,
             )
+            .map(Rc::new)
         })
     }
 
     #[cfg(feature = "sql")]
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_aggregate_execution_preparation(
         &self,
-    ) -> Result<ExecutionPreparation, InternalError> {
+    ) -> Result<Rc<ExecutionPreparation>, InternalError> {
         // Aggregate route planning additionally consumes the predicate
         // capability snapshot and strict index program. Keep that immutable
         // preparation in the existing aggregate resident rather than
@@ -447,30 +440,24 @@ impl PreparedExecutionPlanCore {
                 slot_map_for_model_plan(&self.residents.plan),
                 &ExecutionConstructionBudget,
             )
+            .map(Rc::new)
         })
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_initial_scalar_route_plan(
         &self,
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
     ) -> Result<ExecutionRoutePlan, InternalError> {
-        if let Some(route_plan) = self.residents.initial_scalar_route_plan.get() {
-            return Ok(route_plan.clone());
-        }
-
-        let continuation = ScalarContinuationContext::initial();
-        let route_plan = build_execution_route_plan(
-            &self.residents.plan,
-            RoutePlanRequest::Load {
-                continuation,
-                probe_fetch_hint: None,
-                authority: Some(Box::new(authority)),
-                load_terminal_fast_path: None,
-            },
-        )?;
-        self.remember_lazy(&self.residents.initial_scalar_route_plan, &route_plan);
-
-        Ok(route_plan)
+        self.try_initialize_lazy(&self.residents.initial_scalar_route_plan, || {
+            build_execution_route_plan(
+                &self.residents.plan,
+                RoutePlanRequest::Load {
+                    continuation: ScalarContinuationContext::initial(),
+                    authority: Some(authority),
+                    load_terminal_fast_path: None,
+                },
+            )
+        })
     }
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_cursorless_retained_slot_layout(
@@ -478,21 +465,14 @@ impl PreparedExecutionPlanCore {
         authority: &EntityAuthority,
     ) -> Result<Option<RetainedSlotLayout>, InternalError> {
         // Only cursorless retained output shares a cached scalar layout.
-        let layout_cache = &self.residents.cursorless_retained_slot_layout;
-
-        if let Some(cached) = layout_cache.get() {
-            return Ok(cached.clone());
-        }
-
-        let layout = compile_retained_slot_layout_for_mode(
-            authority,
-            &self.residents.plan,
-            ProjectionMaterializationMode::RetainSlotRows,
-            CursorEmissionMode::Suppress,
-        )?;
-        self.remember_lazy(layout_cache, &layout);
-
-        Ok(layout)
+        self.try_initialize_lazy(&self.residents.cursorless_retained_slot_layout, || {
+            compile_retained_slot_layout_for_mode(
+                authority,
+                &self.residents.plan,
+                ProjectionMaterializationMode::RetainSlotRows,
+                CursorEmissionMode::Suppress,
+            )
+        })
     }
 
     // Classification only inspects the retained variant; do not copy its order
@@ -589,7 +569,10 @@ fn retain_lazy<T: Retained + Clone>(
 
 #[cfg(test)]
 mod retention_tests {
-    use super::{ExecutionFamily, ExecutorPlanError, PreparedExecutionPlanCore, retain_lazy};
+    use super::{
+        AcceptedContinuationIdentity, ExecutionFamily, ExecutionPreparation, ExecutorPlanError,
+        PreparedExecutionPlanCore, PreparedExecutionPlanResidents, retain_lazy,
+    };
     use crate::db::{
         QueryError, RequestExecutionRoot,
         executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
@@ -613,6 +596,11 @@ mod retention_tests {
         rc::Rc,
         sync::{Arc, OnceLock},
     };
+
+    fn accepted_identity() -> AcceptedContinuationIdentity {
+        let schema = crate::db::query::plan::exact_metadata_schema(&[], &[]);
+        AcceptedContinuationIdentity::new([0x22; 16], schema.value_catalog_handle().authority())
+    }
 
     #[test]
     fn execution_family_uses_retained_ordering_and_preserves_missing_contract_error() {
@@ -656,7 +644,7 @@ mod retention_tests {
             let continuation = with_preparation_work(|work| {
                 plan.planned_continuation_contract_with_accepted_identity(
                     "tests::Entity",
-                    None,
+                    Some(accepted_identity()),
                     work,
                 )
             })
@@ -665,7 +653,7 @@ mod retention_tests {
             let core = PreparedExecutionPlanCore::new(
                 Rc::clone(&plan),
                 0,
-                None,
+                accepted_identity(),
                 continuation,
                 Arc::default(),
                 Arc::default(),
@@ -674,14 +662,147 @@ mod retention_tests {
                 assert_eq!(core.execution_family().unwrap(), expected);
             }
 
-            let missing =
-                PreparedExecutionPlanCore::new(plan, 0, None, None, Arc::default(), Arc::default());
+            let missing = PreparedExecutionPlanCore::new(
+                plan,
+                0,
+                accepted_identity(),
+                None,
+                Arc::default(),
+                Arc::default(),
+            );
             let error = missing.execution_family().unwrap_err();
             let expected =
                 ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error();
             assert_eq!(error.diagnostic(), expected.diagnostic());
             assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
         }
+    }
+
+    #[test]
+    fn scalar_preparation_shares_completed_programs_without_requiring_retention() {
+        assert_shared_preparation(
+            IndexCompilePolicy::ConservativeSubset,
+            PreparedExecutionPlanCore::get_or_init_scalar_execution_preparation,
+            |residents| &residents.scalar_execution_preparation,
+        );
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn aggregate_preparation_shares_strict_programs_without_requiring_retention() {
+        assert_shared_preparation(
+            IndexCompilePolicy::StrictAllOrNone,
+            PreparedExecutionPlanCore::get_or_init_aggregate_execution_preparation,
+            |residents| &residents.aggregate_execution_preparation,
+        );
+    }
+
+    fn assert_shared_preparation(
+        policy: IndexCompilePolicy,
+        prepare: fn(
+            &PreparedExecutionPlanCore,
+        ) -> Result<Rc<ExecutionPreparation>, crate::error::InternalError>,
+        resident: fn(&PreparedExecutionPlanResidents) -> &OnceLock<Rc<ExecutionPreparation>>,
+    ) {
+        use crate::db::{
+            predicate::Predicate,
+            query::plan::{LogicalPlan, exact_metadata_schema},
+        };
+        use crate::retained::RetainedBytes;
+
+        let schema = exact_metadata_schema(&[], &[]);
+        let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
+        let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+            unreachable!()
+        };
+        scalar.predicate = Some(Predicate::eq("age".into(), Value::Int64(1)));
+        with_preparation_work(|work| {
+            let projection = plan.prepare_projection(&schema, work)?;
+            plan.finalize_static_execution_planning_contract_with_schema(&schema, projection, work)
+        })
+        .unwrap();
+        plan.static_execution_planning_contract
+            .as_mut()
+            .unwrap()
+            .slot_map = Some(vec![1]);
+
+        for retain in [false, true] {
+            let core = PreparedExecutionPlanCore::new(
+                Rc::new(plan.clone()),
+                0,
+                accepted_identity(),
+                None,
+                Arc::default(),
+                Arc::default(),
+            );
+            let (entry, total) = CacheEntryWeight::for_tests(32, if retain { 16_000 } else { 32 });
+            core.attach_cache_retention(&entry);
+            let cell = resident(&core.residents);
+
+            let error = preparation_with_budget(|| prepare(&core), 0).unwrap_err();
+            assert!(error.diagnostic_facts().contains(&(
+                DiagnosticFactTag::BudgetResource,
+                Resource::TemporaryBytes.raw(),
+            )));
+            assert!(cell.get().is_none());
+            assert_eq!(total.get(), 32);
+
+            let first = preparation_with_budget(|| prepare(&core), 16_000_000).unwrap();
+            assert!(first.prepared_index_program(policy).is_some());
+            // The resident's inline pointer slot was charged at entry admission;
+            // lazy retention adds only its shared allocation and owned payload.
+            let bytes = RetainedBytes::measure(&first, usize::MAX).unwrap() - size_of_val(&first);
+            assert!(bytes > size_of_val(first.as_ref()));
+            let weight = if retain { 32 + bytes } else { 32 };
+            assert_eq!(total.get(), weight);
+
+            // Warm reuse needs no literal construction; declined retention
+            // leaves a usable result and permits fresh preparation next time.
+            let again =
+                preparation_with_budget(|| prepare(&core), if retain { 0 } else { 16_000_000 })
+                    .unwrap();
+            assert_eq!(Rc::ptr_eq(&first, &again), retain);
+            assert_eq!(
+                first.prepared_index_program(policy),
+                again.prepared_index_program(policy)
+            );
+            assert_eq!(total.get(), weight);
+            assert_eq!(cell.get().is_some(), retain);
+            if retain {
+                assert!(Rc::ptr_eq(&first, cell.get().unwrap()));
+                let detached = core.residents.as_ref().clone();
+                assert!(Rc::ptr_eq(&first, resident(&detached).get().unwrap()));
+            }
+
+            drop(entry);
+            assert_eq!(total.get(), 0);
+            drop(core);
+            assert!(first.prepared_index_program(policy).is_some());
+        }
+    }
+
+    fn preparation_with_budget<T>(
+        prepare: impl FnOnce() -> Result<T, crate::error::InternalError>,
+        limit: u64,
+    ) -> Result<T, QueryError> {
+        use crate::db::executor::budget::{
+            HardExecutionContext, with_query_execution_budget_for_tests,
+        };
+        use icydb_diagnostic_code::DiagnosticExecutionBudgetScope;
+
+        with_query_execution_budget_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                16_000_000,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(Resource::TemporaryBytes, limit),
+            HardExecutionContext::new(
+                DiagnosticExecutionBudgetScope::Execution,
+                Lane::PublicRead,
+                0,
+            ),
+            || prepare().map_err(QueryError::execute),
+        )
     }
 
     #[test]
@@ -718,7 +839,7 @@ mod retention_tests {
                     MissingRowPolicy::Error,
                 )),
                 0,
-                None,
+                accepted_identity(),
                 None,
                 Arc::default(),
                 Arc::default(),
@@ -808,7 +929,7 @@ mod retention_tests {
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_schema_fingerprint(
     authority: &EntityAuthority,
     plan: AccessPlannedQuery,
-    schema_fingerprint: Option<CommitSchemaFingerprint>,
+    schema_fingerprint: CommitSchemaFingerprint,
     budget: &dyn ConstructionBudget,
 ) -> Result<PreparedExecutionPlanCore, InternalError> {
     // Metadata construction belongs to the planner's preparation boundary.
@@ -816,12 +937,10 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     if !plan.has_static_execution_planning_contract() {
         return Err(InternalError::query_executor_invariant());
     }
-    let continuation_identity = schema_fingerprint.map(|entity_schema_fingerprint| {
-        AcceptedContinuationIdentity::new(
-            entity_schema_fingerprint,
-            authority.accepted_schema_authority(),
-        )
-    });
+    let continuation_identity = AcceptedContinuationIdentity::new(
+        schema_fingerprint,
+        authority.accepted_schema_authority(),
+    );
 
     // Phase 1: lower access-derived execution specs once and retain invariant
     // state. Projection shapes, grouped residents, and retained-slot layouts are
@@ -852,7 +971,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_lowered_access(
     authority: &EntityAuthority,
     plan: AccessPlannedQuery,
-    continuation_identity: Option<AcceptedContinuationIdentity>,
+    continuation_identity: AcceptedContinuationIdentity,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     index_range_specs: Arc<[LoweredIndexRangeSpec]>,
     budget: &dyn ConstructionBudget,
@@ -899,7 +1018,7 @@ Self{execution_preparation,grouped_slot_layout} => [execution_preparation,groupe
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_shared_lowered_access(
     authority: &EntityAuthority,
     plan: Rc<AccessPlannedQuery>,
-    continuation_identity: Option<AcceptedContinuationIdentity>,
+    continuation_identity: AcceptedContinuationIdentity,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
     index_range_specs: Arc<[LoweredIndexRangeSpec]>,
     budget: &dyn ConstructionBudget,
@@ -909,7 +1028,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     // aggregate source plan.
     let continuation = plan.planned_continuation_contract_with_accepted_identity(
         authority.entity_path(),
-        continuation_identity,
+        Some(continuation_identity),
         budget,
     )?;
     let execution_shape_fingerprint_prefix = read_shape_fingerprint_prefix(authority, &plan)?;

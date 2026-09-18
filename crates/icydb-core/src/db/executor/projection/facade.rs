@@ -8,9 +8,8 @@ use crate::{
     db::{
         Db,
         executor::{
-            ExecutionPreparation, PageWorkEnvelope, ProductionScalarOutputWork,
-            SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeHandoff,
-            StructuralCursorPage,
+            PageWorkEnvelope, ProductionScalarOutputWork, SharedPreparedExecutionPlan,
+            SharedPreparedProjectionRuntimeHandoff, StructuralCursorPage,
             budget::ExecutionConstructionBudget,
             budget::{
                 charge_runtime_value_rows, prepared_read_execution_context,
@@ -18,7 +17,7 @@ use crate::{
             },
             pipeline::execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister,
             pipeline::execute_resumed_scalar_retained_slot_page_from_runtime_handoff_for_canister,
-            planning::preparation::slot_map_for_model_plan,
+            planning::preparation::compile_strict_index_program_for_plan,
             projection::{
                 DistinctProjectionRuntime, MaterializedProjectionRows,
                 PreparedCoveringProjectionRuntime, ProjectionDistinctStrategy,
@@ -29,7 +28,6 @@ use crate::{
             terminal::RetainedSlotRow,
             with_production_scalar_page_work,
         },
-        index::IndexCompilePolicy,
     },
     error::InternalError,
     metrics::EntityMetricsSpan,
@@ -256,23 +254,17 @@ where
         let covering = prepared_plan.projection_covering_read_execution_plan();
         let index_prefix_specs = prepared_plan.index_prefix_specs();
         let index_range_specs = prepared_plan.index_range_specs();
-        let covering_execution_preparation = prepared_plan
+        let index_predicate_execution = if prepared_plan
             .logical_plan()
             .has_residual_filter_predicate()?
-            .then(|| {
-                ExecutionPreparation::from_plan(
-                    prepared_plan.logical_plan(),
-                    slot_map_for_model_plan(prepared_plan.logical_plan()),
-                    &ExecutionConstructionBudget,
-                )
-            })
-            .transpose()?;
-        let index_predicate_execution =
-            covering_execution_preparation
-                .as_ref()
-                .and_then(|prepared| {
-                    prepared.prepared_index_program(IndexCompilePolicy::StrictAllOrNone)
-                });
+        {
+            compile_strict_index_program_for_plan(
+                prepared_plan.logical_plan(),
+                &ExecutionConstructionBudget,
+            )?
+        } else {
+            None
+        };
 
         if let Some(projected) = try_execute_prepared_covering_projection_rows_for_canister(
             db,
@@ -281,7 +273,7 @@ where
                 prepared_plan.logical_plan(),
                 index_prefix_specs,
                 index_range_specs,
-                index_predicate_execution,
+                index_predicate_execution.as_ref(),
             ),
             covering,
             || prepared_plan.hybrid_covering_read_plan(),
@@ -333,9 +325,7 @@ where
     }
 
     let row_layout = authority.row_layout();
-    let prepared_projection = prepared_projection_contract
-        .as_deref()
-        .ok_or_else(InternalError::query_executor_invariant)?;
+    let prepared_projection = prepared_projection_contract.as_ref();
     let resolved_order = (emit_cursor || (distinct && group_seek.is_none()))
         .then(|| {
             scalar_runtime

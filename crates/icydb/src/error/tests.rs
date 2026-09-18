@@ -285,6 +285,12 @@ fn internal_error_class_matrix_maps_to_runtime_kind_and_preserves_origin() {
 fn query_execute_preserves_runtime_class_and_origin() {
     let cases = [
         (
+            CoreErrorClass::InvariantViolation,
+            CoreErrorOrigin::Cursor,
+            RuntimeErrorKind::InvariantViolation,
+            ErrorOrigin::Cursor,
+        ),
+        (
             CoreErrorClass::Conflict,
             CoreErrorOrigin::Store,
             RuntimeErrorKind::Conflict,
@@ -317,6 +323,10 @@ fn query_execute_preserves_runtime_class_and_origin() {
 
         assert_eq!(facade.code(), expected_kind.diagnostic_code().error_code());
         assert_eq!(facade.origin(), expected_origin);
+        assert_eq!(facade.class(), expected_kind.diagnostic_code().class());
+        let bytes = Encode!(&facade).expect("query error should encode");
+        let decoded = Decode!(bytes.as_slice(), Error).expect("query error should decode");
+        assert_eq!(decoded, facade);
     }
 }
 
@@ -596,6 +606,35 @@ fn malformed_numeric_facts_fail_compactly_at_the_public_facade() {
     );
     assert_eq!(error.origin(), ErrorOrigin::Query);
     assert!(error.facts().is_empty());
+}
+
+#[test]
+fn grouped_cursor_policy_facts_survive_public_candid_projection() {
+    use icydb_diagnostic_code::{DiagnosticDecodeReason, DiagnosticFactTag};
+
+    for reason in [
+        DiagnosticDecodeReason::CursorGroupedContinuationRequiresLimit,
+        DiagnosticDecodeReason::CursorGlobalDistinctContinuationUnsupported,
+    ] {
+        let facts = vec![(DiagnosticFactTag::DecodeReason, reason.raw())];
+        let error = Error::from_diagnostic_and_facts(
+            icydb_diagnostic_code::Diagnostic::new(
+                icydb_diagnostic_code::DiagnosticCode::QueryInvalidContinuationCursor,
+                icydb_diagnostic_code::ErrorOrigin::Cursor,
+                None,
+            ),
+            facts.clone(),
+        );
+        assert_eq!(
+            error.code(),
+            icydb_diagnostic_code::ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR
+        );
+        assert_eq!(error.origin(), ErrorOrigin::Cursor);
+        let bytes = Encode!(&error).expect("cursor rejection should encode");
+        let decoded = Decode!(bytes.as_slice(), Error).expect("cursor rejection should decode");
+        assert_eq!(decoded, error);
+        assert_eq!(decoded.core_facts().unwrap(), facts);
+    }
 }
 
 #[test]

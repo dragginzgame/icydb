@@ -11,7 +11,6 @@ use crate::{
         RuntimeGroupedRow,
         aggregate::{GroupedAggregateExecutionSpec, PlannedProjectionLayout, ProjectionSpec},
         pipeline::contracts::GroupedCursorPage,
-        pipeline::runtime::GroupedFoldStage,
         projection::*,
     },
     error::InternalError,
@@ -19,18 +18,18 @@ use crate::{
 };
 use std::borrow::Cow;
 
-// Finalize grouped output after grouped fold execution.
-pub(in crate::db::executor) fn finalize_grouped_output(
-    folded: GroupedFoldStage,
+// Check grouped cardinality where the fold still owns its filtered-row count.
+// Global DISTINCT can emit one implicit group for empty input and bypasses this check.
+pub(in crate::db::executor::aggregate::runtime) fn finalize_grouped_output(
+    page: GroupedCursorPage,
+    filtered_rows: usize,
 ) -> GroupedCursorPage {
-    if folded.should_check_filtered_rows_upper_bound() {
-        debug_assert!(
-            folded.filtered_rows() >= folded.page_row_count(),
-            "grouped pagination must return at most filtered row cardinality",
-        );
-    }
+    debug_assert!(
+        filtered_rows >= page.rows.len(),
+        "grouped pagination must return at most filtered row cardinality",
+    );
 
-    folded.into_page()
+    page
 }
 
 // Evaluate grouped projection semantics for each grouped row while preserving

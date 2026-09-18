@@ -23,12 +23,13 @@ use crate::{
                 dispatch::{GroupedCountKeyPath, GroupedCountProbeKind},
                 generic::OrderedGroupedPageSelection,
             },
+            runtime::grouped_output::finalize_grouped_output,
             value_reducer::finalize_count,
         },
         group::GroupKey,
         pipeline::{
             contracts::{GroupedCursorPage, GroupedRouteStage},
-            runtime::{GroupedFoldStage, GroupedStreamStage},
+            runtime::GroupedStreamStage,
         },
         route::GroupedExecutionMode,
     },
@@ -46,7 +47,7 @@ pub(super) fn execute_single_grouped_count_fold_stage(
     stream: &mut GroupedStreamStage,
     grouped_execution_context: &mut ExecutionContext,
     grouped_projection_spec: &ProjectionSpec,
-) -> Result<GroupedFoldStage, InternalError> {
+) -> Result<GroupedCursorPage, InternalError> {
     if matches!(
         route.grouped_execution_mode()?,
         GroupedExecutionMode::OrderedStreaming
@@ -116,13 +117,12 @@ pub(super) fn execute_single_grouped_count_fold_stage(
     let (page_rows, next_cursor) =
         finalize_grouped_count_page(route, grouped_projection_spec, grouped_counts.into_groups())?;
 
-    Ok(GroupedFoldStage::new(
+    Ok(finalize_grouped_output(
         crate::db::executor::pipeline::contracts::GroupedCursorPage {
             rows: page_rows,
             next_cursor,
         },
         filtered_rows,
-        true,
     ))
 }
 
@@ -133,7 +133,7 @@ fn execute_ordered_grouped_count_fold_stage(
     stream: &mut GroupedStreamStage,
     grouped_execution_context: &mut ExecutionContext,
     grouped_projection_spec: &ProjectionSpec,
-) -> Result<GroupedFoldStage, InternalError> {
+) -> Result<GroupedCursorPage, InternalError> {
     let mut transitions = OrderedGroupFoldState::<u32>::new(1);
     let mut selection = OrderedGroupedPageSelection::new(route, grouped_projection_spec, 1)?;
     let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
@@ -204,13 +204,12 @@ fn execute_ordered_grouped_count_fold_stage(
     }
     let (page_rows, next_cursor) = selection.finish(route)?;
 
-    Ok(GroupedFoldStage::new(
+    Ok(finalize_grouped_output(
         GroupedCursorPage {
             rows: page_rows,
             next_cursor,
         },
         filtered_rows,
-        true,
     ))
 }
 

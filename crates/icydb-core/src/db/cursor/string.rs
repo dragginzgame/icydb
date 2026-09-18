@@ -9,7 +9,16 @@ use crate::db::cursor::{GroupedContinuationToken, TokenWireError};
 use base64::{DecodeError, Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
 // Unpadded Base64 needs ceil(4N/3) symbols for N binary bytes.
-const MAX_CURSOR_TOKEN_TEXT_LEN: usize = (MAX_CURSOR_TOKEN_BYTES * 4).div_ceil(3);
+const MAX_CURSOR_TOKEN_TEXT_LEN: usize = encoded_cursor_len(MAX_CURSOR_TOKEN_BYTES);
+
+/// Return the unpadded Base64 length, conservatively saturating on overflow.
+#[must_use]
+pub(in crate::db) const fn encoded_cursor_len(bytes: usize) -> usize {
+    match base64::encoded_len(bytes, false) {
+        Some(len) => len,
+        None => usize::MAX,
+    }
+}
 
 ///
 /// CursorDecodeError
@@ -38,9 +47,10 @@ pub(in crate::db) fn encode_cursor(bytes: &[u8]) -> String {
 #[cfg(test)]
 pub(in crate::db) fn encode_grouped_cursor_token(
     token: &GroupedContinuationToken,
+    mac_key: &[u8; 32],
 ) -> Result<String, TokenWireError> {
     token
-        .encode()
+        .encode(mac_key)
         .map(|encoded| encode_cursor(encoded.as_slice()))
 }
 
@@ -117,6 +127,7 @@ mod tests {
     #[test]
     fn cursor_text_enforces_binary_budget_for_all_final_symbol_lengths() {
         for len in [
+            0,
             1,
             2,
             3,
@@ -127,9 +138,14 @@ mod tests {
             let raw = vec![0xff; len];
             let text = encode_cursor(&raw);
             assert_eq!(text.len(), (len * 4).div_ceil(3));
+            assert_eq!(encoded_cursor_len(len), text.len());
+            if len == 0 {
+                continue;
+            }
             assert_eq!(decode_cursor(&text).unwrap(), raw);
         }
         let rejected = encode_cursor(&vec![0; MAX_CURSOR_TOKEN_BYTES + 1]);
+        assert_eq!(encoded_cursor_len(usize::MAX), usize::MAX);
         assert_eq!(
             decode_cursor(&rejected),
             Err(CursorDecodeError::TooLong {

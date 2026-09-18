@@ -6,28 +6,12 @@
 use crate::db::cursor::encode_cursor;
 use crate::db::{
     GroupedRow, QueryError,
-    cursor::GroupedContinuationToken,
     executor::{RuntimeGroupedRow, StructuralGroupedProjectionResult},
     schema::{AcceptedEnumCatalog, output_value_from_runtime},
 };
 
 /// Grouped rows and an optional encoded continuation.
 type FinalizedGroupedProjection = (Vec<GroupedRow>, Option<Vec<u8>>);
-
-// Encode one grouped executor cursor into the raw cursor bytes stored by core
-// paged grouped response DTOs. The response layer receives opaque bytes only;
-// external string formatting is left to the SQL/facade surfaces.
-fn encode_grouped_page_cursor(
-    cursor: Option<GroupedContinuationToken>,
-) -> Result<Option<Vec<u8>>, QueryError> {
-    cursor
-        .map(|token| {
-            token
-                .encode()
-                .map_err(|_err| QueryError::serialize_internal())
-        })
-        .transpose()
-}
 
 // Convert one executor-owned grouped runtime carrier into the public grouped row
 // DTO at the session boundary. This preserves `db::response` as DTO-only while
@@ -70,7 +54,6 @@ pub(in crate::db) fn finalize_structural_grouped_projection_result(
     result: StructuralGroupedProjectionResult,
 ) -> Result<FinalizedGroupedProjection, QueryError> {
     let (rows, next_cursor, value_catalog) = result.into_rows_and_cursor();
-    let next_cursor = encode_grouped_page_cursor(next_cursor)?;
     let rows = grouped_rows_from_runtime_rows(value_catalog.enum_catalog(), rows)?;
 
     Ok((rows, next_cursor))
@@ -78,7 +61,7 @@ pub(in crate::db) fn finalize_structural_grouped_projection_result(
 
 // Convert core grouped cursor bytes into the query surface's external cursor
 // string. The byte payload already came from the cursor-owned grouped encoder,
-// so this is only lowercase-hex display formatting.
+// so this is only unpadded URL-safe Base64 display formatting.
 pub(in crate::db) fn grouped_cursor_from_bytes(cursor: Option<Vec<u8>>) -> Option<String> {
     cursor.as_deref().map(encode_cursor)
 }

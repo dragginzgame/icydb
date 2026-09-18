@@ -10,20 +10,10 @@ use crate::db::{
     query::plan::{AccessPlannedQuery, CoveringReadExecutionPlan},
 };
 
-/// Derive one route-owned scalar load terminal fast-path contract from the
-/// planner-owned covering-read contract.
-pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract(
-    authority: EntityAuthority,
-    plan: &AccessPlannedQuery,
-    strict_predicate_compatible: bool,
-) -> Option<CoveringReadExecutionPlan> {
-    authority.covering_read_execution_plan(plan, strict_predicate_compatible)
-}
-
 /// Derive one route-owned scalar load terminal fast-path contract directly from
-/// one structural model + plan boundary.
+/// accepted entity authority and the planner-owned covering-read contract.
 pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract_for_plan(
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     plan: &AccessPlannedQuery,
 ) -> Option<CoveringReadExecutionPlan> {
     if !plan.scalar_plan().mode.is_load() {
@@ -32,5 +22,5 @@ pub(in crate::db::executor) fn derive_load_terminal_fast_path_contract_for_plan(
 
     let strict_predicate_compatible = covering_strict_predicate_compatible_for_plan(plan).ok()?;
 
-    derive_load_terminal_fast_path_contract(authority, plan, strict_predicate_compatible)
+    authority.covering_read_execution_plan(plan, strict_predicate_compatible)
 }

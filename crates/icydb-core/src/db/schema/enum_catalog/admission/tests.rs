@@ -11,7 +11,8 @@ use crate::{
             AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot,
             AcceptedValueAdmissionContract, FieldId, LeafCodec, PersistedFieldSnapshot,
             PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot, SchemaInsertDefault,
-            SchemaRowLayout, SchemaVersion, empty_accepted_enum_catalog_for_tests,
+            SchemaRowLayout, SchemaVersion, TestEnumDefinition, TestEnumVariant,
+            build_accepted_enum_catalog_for_tests, empty_accepted_enum_catalog_for_tests,
         },
     },
     error::ErrorClass,
@@ -107,6 +108,163 @@ fn row_contract(
         accepted.entity_path(),
         descriptor.row_decode_contract(catalog),
     )
+}
+
+#[test]
+fn group_key_decimal_validation_preserves_strict_storage_and_exact_values() {
+    let catalog = catalog();
+    let admission = admission(&catalog, AcceptedFieldKind::Decimal { scale: 2 });
+    let key = Value::Decimal(Decimal::new(1, 0));
+    assert_eq!(
+        admission.with_validated(&key, &mut ValueAdmissionBudget::standard(), |_| ()),
+        Err(ValueAdmissionError::ScalarConstraint),
+    );
+    admission
+        .validate_group_key(&key, &mut ValueAdmissionBudget::standard())
+        .unwrap();
+    let Value::Decimal(decimal) = key else {
+        panic!("decimal key")
+    };
+    assert_eq!(decimal.scale(), 0, "validation must not rewrite the key");
+    admission
+        .with_validated(
+            &Value::Decimal(Decimal::new(100, 2)),
+            &mut ValueAdmissionBudget::standard(),
+            |_| (),
+        )
+        .unwrap();
+    for decimal in [
+        Decimal::new(1234, 3),
+        Decimal::try_from_i128_with_scale(i128::MAX, 0).unwrap(),
+    ] {
+        assert_eq!(
+            admission.validate_group_key(
+                &Value::Decimal(decimal),
+                &mut ValueAdmissionBudget::standard(),
+            ),
+            Err(ValueAdmissionError::ScalarConstraint),
+        );
+    }
+    assert_eq!(
+        admission.validate_group_key(&Value::Nat64(1), &mut ValueAdmissionBudget::standard()),
+        Err(ValueAdmissionError::TypeMismatch),
+    );
+}
+
+#[test]
+fn group_key_decimal_validation_recurses_through_collection_keys_and_values() {
+    let catalog = catalog();
+    let decimal = AcceptedFieldKind::Decimal { scale: 2 };
+    let key = Value::Decimal(Decimal::new(1, 0));
+    for (kind, value) in [
+        (
+            AcceptedFieldKind::List(Box::new(decimal.clone())),
+            Value::List(vec![key.clone()]),
+        ),
+        (
+            AcceptedFieldKind::Set(Box::new(decimal.clone())),
+            Value::List(vec![key.clone()]),
+        ),
+        (
+            AcceptedFieldKind::Map {
+                key: Box::new(decimal.clone()),
+                value: Box::new(AcceptedFieldKind::List(Box::new(decimal))),
+            },
+            Value::Map(vec![(key.clone(), Value::List(vec![key]))]),
+        ),
+    ] {
+        let admission = admission(&catalog, kind);
+        admission
+            .validate_group_key(&value, &mut ValueAdmissionBudget::standard())
+            .unwrap();
+        assert_eq!(
+            admission.with_validated(&value, &mut ValueAdmissionBudget::standard(), |_| ()),
+            Err(ValueAdmissionError::ScalarConstraint),
+        );
+    }
+}
+
+#[test]
+fn group_key_validation_retains_nullability_and_resource_limits() {
+    let catalog = catalog();
+    let admission = admission(&catalog, AcceptedFieldKind::Decimal { scale: 2 });
+    admission
+        .validate_group_key(&Value::Null, &mut ValueAdmissionBudget::standard())
+        .unwrap();
+    assert_eq!(
+        validate_group_key_value(
+            &catalog,
+            admission.value_contract(),
+            false,
+            &Value::Null,
+            &mut ValueAdmissionBudget::standard(),
+        ),
+        Err(ValueAdmissionError::TypeMismatch),
+    );
+    for (mut budget, expected) in [
+        (
+            ValueAdmissionBudget {
+                max_depth: 0,
+                remaining_bytes: 21,
+            },
+            ValueAdmissionError::DepthExceeded,
+        ),
+        (
+            ValueAdmissionBudget {
+                max_depth: 1,
+                remaining_bytes: 20,
+            },
+            ValueAdmissionError::SizeExceeded,
+        ),
+    ] {
+        assert_eq!(
+            admission.validate_group_key(&Value::Decimal(Decimal::new(1, 0)), &mut budget),
+            Err(expected),
+        );
+    }
+}
+
+#[test]
+fn group_key_validation_keeps_opaque_enum_payloads_in_stored_form() {
+    let path = "tests::DecimalGroup";
+    let enums = build_accepted_enum_catalog_for_tests(&[TestEnumDefinition::new(
+        path,
+        vec![TestEnumVariant::payload(
+            "Amount",
+            AcceptedFieldKind::Decimal { scale: 2 },
+            FieldStorageDecode::CatalogValue,
+        )],
+    )])
+    .unwrap();
+    let type_id = enums.type_id(path).unwrap();
+    let variant_id = enums
+        .enum_type(type_id)
+        .unwrap()
+        .variant_id("Amount")
+        .unwrap();
+    let catalog = AcceptedValueCatalogHandle::new_for_tests(
+        enums,
+        AcceptedCompositeCatalog::empty(),
+        AcceptedSchemaRevision::INITIAL,
+    );
+    let admission = admission(&catalog, AcceptedFieldKind::Enum { type_id });
+    for (decimal, expected) in [
+        (Decimal::new(100, 2), Ok(())),
+        (
+            Decimal::new(1, 0),
+            Err(ValueAdmissionError::ScalarConstraint),
+        ),
+    ] {
+        let value = Value::Enum(ValueEnum::new(
+            type_id,
+            variant_id,
+            CanonicalEnumBody::Payload(Box::new(Value::Decimal(decimal))),
+        ));
+        assert_eq!(
+            admission.validate_group_key(&value, &mut ValueAdmissionBudget::standard()),
+            expected,
+        );
+    }
 }
 
 #[test]

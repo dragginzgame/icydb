@@ -30,7 +30,6 @@ pub(in crate::db::executor) struct RetainedSlotLayout {
 struct RetainedSlotLayoutData {
     required_slots: Box<[usize]>,
     value_modes: Box<[RetainedSlotValueMode]>,
-    has_value_mode_overrides: bool,
     slot_to_value_index: Box<[Option<usize>]>,
 }
 
@@ -85,7 +84,6 @@ impl RetainedSlotLayout {
                 } else {
                     Vec::new().into_boxed_slice()
                 },
-                has_value_mode_overrides,
                 slot_to_value_index: slot_to_value_index.into_boxed_slice(),
             }),
         }
@@ -107,7 +105,7 @@ impl RetainedSlotLayout {
     /// Return whether any retained slot uses a non-standard materialization mode.
     #[must_use]
     pub(in crate::db::executor) fn has_value_mode_overrides(&self) -> bool {
-        self.data.has_value_mode_overrides
+        !self.data.value_modes.is_empty()
     }
 
     /// Resolve one global slot index to one retained-row value index.
@@ -301,6 +299,6 @@ crate::retained::retained_fields!(RetainedSlotLayout {
 Self{data} => [data],
 });
 crate::retained::retained_fields!(RetainedSlotLayoutData {
-Self{required_slots,value_modes,has_value_mode_overrides,slot_to_value_index} => [required_slots,value_modes,has_value_mode_overrides,slot_to_value_index],
+Self{required_slots,value_modes,slot_to_value_index} => [required_slots,value_modes,slot_to_value_index],
 });
 crate::retained::retained_copy!(RetainedSlotValueMode);

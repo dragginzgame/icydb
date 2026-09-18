@@ -428,7 +428,7 @@ fn continuation_token_malformed_corpus_fails_closed() {
         Direction::Asc,
         0,
     )
-    .encode()
+    .encode(&[0x55; 32])
     .expect("current grouped token should encode");
 
     let mut future_grouped = grouped.clone();
@@ -439,15 +439,15 @@ fn continuation_token_malformed_corpus_fails_closed() {
     truncated_grouped.pop();
     assert_err(
         "corrupt grouped token magic",
-        GroupedContinuationToken::decode(&corrupt_grouped_magic),
+        GroupedContinuationToken::decode(&corrupt_grouped_magic, &[0x55; 32]),
     );
     assert_err(
         "future grouped token",
-        GroupedContinuationToken::decode(&future_grouped),
+        GroupedContinuationToken::decode(&future_grouped, &[0x55; 32]),
     );
     assert_err(
         "truncated grouped token",
-        GroupedContinuationToken::decode(&truncated_grouped),
+        GroupedContinuationToken::decode(&truncated_grouped, &[0x55; 32]),
     );
 }
 

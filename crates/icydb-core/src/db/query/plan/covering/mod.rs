@@ -79,7 +79,6 @@ pub(in crate::db) struct CoveringReadField {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct CoveringReadPlan {
     pub(in crate::db) fields: Vec<CoveringReadField>,
-    pub(in crate::db) prefix_len: usize,
     pub(in crate::db) order_contract: CoveringProjectionOrder,
 }
 
@@ -118,7 +117,6 @@ impl CoveringExistingRowMode {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct CoveringReadExecutionPlan {
     pub(in crate::db) fields: Vec<CoveringReadField>,
-    pub(in crate::db) prefix_len: usize,
     pub(in crate::db) order_contract: CoveringProjectionOrder,
     pub(in crate::db) existing_row_mode: CoveringExistingRowMode,
     pub(in crate::db) strict_predicate_compatible: bool,
@@ -204,7 +202,6 @@ impl CoveringReadExecutionPlan {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct CoveringHybridReadExecutionPlan {
     pub(in crate::db) fields: Vec<CoveringReadField>,
-    pub(in crate::db) prefix_len: usize,
     pub(in crate::db) order_contract: CoveringProjectionOrder,
     pub(in crate::db) existing_row_mode: CoveringExistingRowMode,
     pub(in crate::db) strict_predicate_compatible: bool,
@@ -484,7 +481,6 @@ fn covering_read_execution_plan(
 ) -> CoveringReadExecutionPlan {
     CoveringReadExecutionPlan {
         fields: covering.fields,
-        prefix_len: covering.prefix_len,
         order_contract: covering.order_contract,
         existing_row_mode,
         strict_predicate_compatible,
@@ -501,7 +497,6 @@ fn covering_hybrid_read_execution_plan(
 ) -> CoveringHybridReadExecutionPlan {
     CoveringHybridReadExecutionPlan {
         fields: covering.fields,
-        prefix_len: covering.prefix_len,
         order_contract: covering.order_contract,
         existing_row_mode,
         strict_predicate_compatible,
@@ -565,7 +560,6 @@ fn primary_store_covering_plan(
     Some((
         CoveringReadPlan {
             fields,
-            prefix_len: 0,
             order_contract,
         },
         access_facts.existing_row_mode,
@@ -782,7 +776,6 @@ fn covering_index_projection_plan(
 
     Some(CoveringReadPlan {
         fields,
-        prefix_len: index_facts.prefix_len,
         order_contract,
     })
 }
@@ -1069,11 +1062,11 @@ fn unary_field_function_expr(function: Function, field: &str) -> Expr {
 // Exhaustive cache-retention coverage; new owned fields require accounting.
 crate::retained::retained_copy!(CoveringExistingRowMode);
 crate::retained::retained_fields!(CoveringHybridReadExecutionPlan {
-Self{fields,prefix_len,order_contract,existing_row_mode,strict_predicate_compatible} => [fields,prefix_len,order_contract,existing_row_mode,strict_predicate_compatible],
+Self{fields,order_contract,existing_row_mode,strict_predicate_compatible} => [fields,order_contract,existing_row_mode,strict_predicate_compatible],
 });
 crate::retained::retained_copy!(CoveringProjectionOrder);
 crate::retained::retained_fields!(CoveringReadExecutionPlan {
-Self{fields,prefix_len,order_contract,existing_row_mode,strict_predicate_compatible,ordered_distinct_group_seek} => [fields,prefix_len,order_contract,existing_row_mode,strict_predicate_compatible,ordered_distinct_group_seek],
+Self{fields,order_contract,existing_row_mode,strict_predicate_compatible,ordered_distinct_group_seek} => [fields,order_contract,existing_row_mode,strict_predicate_compatible,ordered_distinct_group_seek],
 });
 crate::retained::retained_fields!(CoveringReadField {
 Self{field_slot,source} => [field_slot,source],

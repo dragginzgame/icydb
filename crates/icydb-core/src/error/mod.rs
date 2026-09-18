@@ -693,11 +693,6 @@ impl InternalError {
         Self::query_executor_invariant()
     }
 
-    /// Construct a query-origin fast-stream invariant for route kind/request mismatch.
-    pub(crate) fn fast_stream_route_kind_request_match_required() -> Self {
-        Self::query_executor_invariant()
-    }
-
     /// Construct a query-origin scan invariant for missing index-prefix executable specs.
     pub(crate) fn secondary_index_prefix_spec_required() -> Self {
         Self::query_executor_invariant()
