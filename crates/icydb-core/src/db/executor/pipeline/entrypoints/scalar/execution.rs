@@ -47,7 +47,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         suppress_route_scan_hints,
         enforced_scan_probe_limit,
     } = prepared;
-    let accepted_schema = authority.accepted_schema_authority()?;
+    let accepted_schema = authority.accepted_schema_authority();
     let accepted_root = CardinalityAcceptedRootIdentity::new(
         accepted_schema.revision(),
         accepted_schema.fingerprint(),
@@ -63,7 +63,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         ),
         store,
         authority,
-    )?;
+    );
     let plan = plan_core.plan();
     let index_prefix_specs = plan_core.index_prefix_specs();
     let index_range_specs = plan_core.index_range_specs();

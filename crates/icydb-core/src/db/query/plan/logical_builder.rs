@@ -1,7 +1,7 @@
 //! Module: query::plan::logical_builder
 //! Responsibility: construct logical planning inputs and logical plan contracts from query intent.
 //! Does not own: access-path planning heuristics or runtime executor routing.
-//! Boundary: emits planner-domain logical plan structures prior to access planning.
+//! Boundary: assembles logical plans from normalized predicates and canonical order.
 
 #[cfg(test)]
 mod tests;
@@ -14,7 +14,6 @@ use crate::db::{
         OrderSpec, OrderTerm, PageSpec, QueryMode, ScalarPlan, expr::Expr,
     },
     query::preparation::PreparationWork,
-    schema::SchemaInfo,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
@@ -31,7 +30,6 @@ pub(in crate::db::query) struct LogicalPlanningInputs<'a> {
     mode: QueryMode,
     filter_expr: Option<&'a Expr>,
     filter_predicate_covers_expr: bool,
-    order: Option<&'a OrderSpec>,
     distinct: bool,
     group: Option<&'a GroupSpec>,
     having_expr: Option<&'a Expr>,
@@ -44,7 +42,6 @@ impl<'a> LogicalPlanningInputs<'a> {
         mode: QueryMode,
         filter_expr: Option<&'a Expr>,
         filter_predicate_covers_expr: bool,
-        order: Option<&'a OrderSpec>,
         distinct: bool,
         group: Option<&'a GroupSpec>,
         having_expr: Option<&'a Expr>,
@@ -53,7 +50,6 @@ impl<'a> LogicalPlanningInputs<'a> {
             mode,
             filter_expr,
             filter_predicate_covers_expr,
-            order,
             distinct,
             group,
             having_expr,
@@ -118,9 +114,11 @@ pub(in crate::db::query) struct LogicalQuery {
 
 /// Materialize borrowed clauses only when a plan needs them, under the current
 /// request. Shape-only inspections and stripped filters never allocate copies.
+/// Canonical order is transferred from access planning without another copy.
 pub(in crate::db::query) fn logical_query_from_logical_inputs(
     inputs: LogicalPlanningInputs<'_>,
     normalized_predicate: Option<Predicate>,
+    canonical_order: Option<OrderSpec>,
     consistency: MissingRowPolicy,
     work: &PreparationWork<'_>,
 ) -> Result<LogicalQuery, QueryError> {
@@ -128,7 +126,6 @@ pub(in crate::db::query) fn logical_query_from_logical_inputs(
         mode,
         filter_expr,
         filter_predicate_covers_expr,
-        order,
         distinct,
         group,
         having_expr,
@@ -139,7 +136,7 @@ pub(in crate::db::query) fn logical_query_from_logical_inputs(
         filter_expr: filter_expr.map(|expr| work.copy_expr(expr)).transpose()?,
         filter_predicate_covers_expr,
         normalized_predicate,
-        order: order.map(|order| work.copy_order_spec(order)).transpose()?,
+        order: canonical_order,
         distinct,
         group: group
             .map(|group| {
@@ -163,11 +160,7 @@ pub(in crate::db::query) fn logical_query_from_logical_inputs(
 }
 
 /// Build a logical plan from intent-owned scalar and grouped plan inputs.
-pub(in crate::db::query) fn build_logical_plan(
-    schema: &SchemaInfo,
-    query: LogicalQuery,
-    work: &PreparationWork<'_>,
-) -> Result<LogicalPlan, QueryError> {
+pub(in crate::db::query) fn build_logical_plan(query: LogicalQuery) -> LogicalPlan {
     let LogicalQuery {
         mode,
         filter_expr,
@@ -179,7 +172,6 @@ pub(in crate::db::query) fn build_logical_plan(
         having_expr,
         consistency,
     } = query;
-    let grouped_order = group.is_some();
     let predicate_covers_filter_expr = filter_predicate_covers_expr && filter_expr.is_some();
 
     // Build scalar shape first so grouped/non-grouped plans share one scalar contract.
@@ -188,12 +180,7 @@ pub(in crate::db::query) fn build_logical_plan(
         filter_expr,
         predicate_covers_filter_expr,
         predicate: normalized_predicate,
-        order: canonicalize_order_spec_for_grouping(
-            schema.primary_key_names(),
-            order,
-            grouped_order,
-            work,
-        )?,
+        order,
         distinct,
         delete_limit: match mode {
             QueryMode::Delete(spec) if spec.limit.is_some() || spec.offset() > 0 => {
@@ -217,18 +204,18 @@ pub(in crate::db::query) fn build_logical_plan(
     // Grouped shape wraps scalar shape; HAVING without GROUP BY is invalid and
     // should be rejected by intent validation before reaching this boundary.
     if let Some(group) = group {
-        Ok(LogicalPlan::Grouped(GroupPlan {
+        LogicalPlan::Grouped(GroupPlan {
             scalar,
             group,
             having_expr,
-        }))
+        })
     } else {
         debug_assert!(
             having_expr.is_none(),
             "HAVING clauses require grouped shape before logical plan assembly"
         );
 
-        Ok(LogicalPlan::Scalar(scalar))
+        LogicalPlan::Scalar(scalar)
     }
 }
 

@@ -20,10 +20,7 @@ use crate::{
             plan::{CardinalityTiebreakRoutePin, PreparedQueryParameterContract, VisibleIndexes},
             preparation::PreparationWork,
         },
-        schema::{
-            AcceptedSchemaSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-            SchemaInfo,
-        },
+        schema::{AcceptedSchemaSnapshot, SchemaInfo},
         session::{AcceptedSchemaCatalogContext, CacheEntryWeight, bounded_cache::BoundedCache},
     },
     error::InternalError,
@@ -34,7 +31,7 @@ use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource, DiagnosticExecuti
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 pub(in crate::db) use identity::QueryPlanVisibility;
-use identity::{QueryPlanAcceptedSchema, QueryPlanCacheKey, SchemaCacheIdentity};
+use identity::{QueryPlanCacheKey, SchemaCacheIdentity};
 use template::PreparedQueryTemplate;
 
 const SHARED_QUERY_PLAN_CACHE_MAX_ENTRIES: usize = 1024;
@@ -121,44 +118,6 @@ thread_local! {
     // identity.
     static QUERY_PLAN_CACHES: RefCell<HashMap<usize, QueryPlanCache>> =
         RefCell::new(HashMap::default());
-}
-
-// Preparation owns a handle to the captured root, never a deep metadata copy.
-// An authority without complete expression-index metadata still reconstructs
-// that view from the same accepted snapshot and catalog.
-pub(in crate::db::session) fn schema_info_for_plan_cache_authority(
-    authority: &EntityAuthority,
-    accepted_schema: &AcceptedSchemaSnapshot,
-) -> Result<Rc<SchemaInfo>, QueryError> {
-    if let Some(schema_info) = authority.accepted_schema_info_handle()
-        && (!accepted_schema_has_expression_indexes(accepted_schema)
-            || !schema_info.expression_indexes().is_empty())
-    {
-        return Ok(schema_info);
-    }
-
-    let enum_catalog = authority
-        .accepted_value_catalog_handle()
-        .map_err(QueryError::execute)?
-        .clone();
-    Ok(Rc::new(SchemaInfo::from_accepted_snapshot_and_catalog(
-        accepted_schema,
-        enum_catalog,
-        true,
-    )))
-}
-
-fn accepted_schema_has_expression_indexes(accepted_schema: &AcceptedSchemaSnapshot) -> bool {
-    accepted_schema
-        .persisted_snapshot()
-        .indexes()
-        .iter()
-        .any(|index| match index.key() {
-            PersistedIndexKeySnapshot::FieldPath(_) => false,
-            PersistedIndexKeySnapshot::Items(items) => items
-                .iter()
-                .any(|item| matches!(item, PersistedIndexKeyItemSnapshot::Expression(_))),
-        })
 }
 
 // A compiled front-end artifact may retain an exact or policy-fallback plan,
@@ -269,9 +228,8 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
-    fn lookup_shared_query_template_for_authority(
+    fn lookup_shared_query_template(
         &self,
-        _authority: &EntityAuthority,
         cache_key: &QueryPlanCacheKey,
     ) -> Option<PreparedQueryTemplate> {
         self.with_query_plan_cache(|cache| {
@@ -335,30 +293,16 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(None)
     }
 
-    fn resolve_shared_query_plan_for_authority(
+    // A current lookup already missed. Compile and publish only after the
+    // complete preparation interval succeeds, without probing the cache again.
+    fn compile_shared_query_plan_on_miss(
         &self,
-        authority: &EntityAuthority,
-        build_cache_key: impl FnOnce(&PreparationWork<'_>) -> Result<QueryPlanCacheKey, QueryError>,
+        cache_key: QueryPlanCacheKey,
         planning_context: HardExecutionContext,
         build_prepared_plan: impl FnOnce(
             &PreparationWork<'_>,
         ) -> Result<SharedPreparedExecutionPlan, QueryError>,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheReuse), QueryError> {
-        // Key construction, hashing/comparison and current lifecycle validation
-        // complete before reuse or compilation, without overlapping its interval.
-        let (cache_key, cached_plan) = PreparationWork::run(
-            self.db.request_execution_scope(),
-            planning_context.lane(),
-            |work| {
-                let cache_key = build_cache_key(work)?;
-                let cached = self.lookup_shared_query_plan_for_authority(authority, &cache_key)?;
-                Ok((cache_key, cached))
-            },
-        )?;
-        if let Some(cached_plan) = cached_plan {
-            return Ok(cached_plan);
-        }
-
         self.charge_request_planning_resource(
             planning_context,
             DiagnosticExecutionBudgetResource::PlanCompilations,
@@ -430,14 +374,11 @@ impl<C: CanisterKind> DbSession<C> {
         lane: DiagnosticExecutionLane,
     ) -> Result<SharedPreparedExecutionPlan, QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let schema = QueryPlanAcceptedSchema::from_accepted_schema_with_fingerprint(
+        let schema = SchemaCacheIdentity::from_accepted_schema_with_fingerprint(
             accepted_schema,
             schema_fingerprint,
             authority.accepted_runtime_root_identity(),
-            authority
-                .accepted_schema_authority()
-                .map_err(QueryError::execute)?
-                .revision(),
+            authority.accepted_schema_authority().revision(),
         );
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
             authority, schema, visibility, query, lane,
@@ -450,7 +391,6 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn shared_query_plan_for_accepted_authority_with_route_pin(
         &self,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
         schema_fingerprint: CommitSchemaFingerprint,
         query: &StructuralQuery,
         lane: DiagnosticExecutionLane,
@@ -468,15 +408,15 @@ impl<C: CanisterKind> DbSession<C> {
             DiagnosticExecutionBudgetResource::PlanCompilations,
         )?;
         PreparationWork::run(self.db.request_execution_scope(), lane, |work| {
-            let schema_info = schema_info_for_plan_cache_authority(&authority, accepted_schema)?;
+            let schema_info = authority.accepted_schema_info_handle();
             let planning_state =
                 query.prepare_scalar_planning_state_with_schema_info(schema_info, work)?;
             let visible_indexes = Self::visible_indexes_for_accepted_schema(
                 planning_state.schema_info(),
                 visibility,
             )?;
-            let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
-                &visible_indexes,
+            let plan = query.build_plan_with_indexes_from_scalar_planning_state(
+                visible_indexes.accepted_semantic_index_contracts(),
                 planning_state,
                 work,
             )?;
@@ -513,14 +453,11 @@ impl<C: CanisterKind> DbSession<C> {
             }
             QueryPlanVisibility::StoreNotReady => QueryPlanVisibility::StoreNotReady,
         };
-        let schema = QueryPlanAcceptedSchema::from_accepted_schema_with_fingerprint(
+        let schema = SchemaCacheIdentity::from_accepted_schema_with_fingerprint(
             accepted_schema,
             schema_fingerprint,
             authority.accepted_runtime_root_identity(),
-            authority
-                .accepted_schema_authority()
-                .map_err(QueryError::execute)?
-                .revision(),
+            authority.accepted_schema_authority().revision(),
         );
 
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
@@ -550,17 +487,21 @@ impl<C: CanisterKind> DbSession<C> {
         lane: DiagnosticExecutionLane,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheReuse), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let schema = QueryPlanAcceptedSchema::from_catalog(catalog);
+        let schema = SchemaCacheIdentity::from_catalog(catalog);
 
         self.cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
             authority, schema, visibility, query, lane,
         )
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "keep early filterless reuse, normalized lookup and their shared miss handoff in one owner"
+    )]
     fn cached_shared_query_plan_for_accepted_authority_with_schema_and_visibility(
         &self,
         authority: EntityAuthority,
-        schema: QueryPlanAcceptedSchema<'_>,
+        schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
         lane: DiagnosticExecutionLane,
@@ -571,24 +512,31 @@ impl<C: CanisterKind> DbSession<C> {
             planning_context,
             DiagnosticExecutionBudgetResource::PlanningSteps,
         )?;
-        let schema_identity = schema.identity();
-        if let Some(cached) = self.try_cached_filterless_query_plan_for_authority(
-            &authority,
-            schema_identity,
-            visibility,
-            query,
-            lane,
-        )? {
-            return Ok(cached);
-        }
-        let schema_info =
-            schema_info_for_plan_cache_authority(&authority, schema.accepted_schema())?;
+        // Filterless hits bypass schema projection. Retain their miss key so
+        // either construction path can publish without a second lookup.
+        let filterless_key = if query.has_scalar_filter() {
+            None
+        } else {
+            let (key, cached) = self.lookup_shared_query_plan_with_fingerprint(
+                &authority,
+                schema_identity,
+                visibility,
+                query,
+                None,
+                lane,
+            )?;
+            if let Some(cached) = cached {
+                return Ok(cached);
+            }
+            Some(key)
+        };
+        let schema_info = authority.accepted_schema_info_handle();
         if query.trivial_scalar_load_fast_path_eligible_with_schema(&schema_info) {
-            return self.cached_trivial_scalar_load_plan_for_authority(
+            return self.compile_trivial_scalar_load_plan_on_miss(
                 authority,
+                filterless_key.ok_or_else(QueryError::invariant)?,
                 schema_identity,
                 schema_info,
-                visibility,
                 query,
                 planning_context,
             );
@@ -625,7 +573,6 @@ impl<C: CanisterKind> DbSession<C> {
 
             return self.resolve_parameterized_query_plan_for_authority(
                 &authority,
-                schema,
                 schema_identity,
                 visibility,
                 query,
@@ -637,41 +584,43 @@ impl<C: CanisterKind> DbSession<C> {
         }
         let visible_indexes =
             Self::visible_indexes_for_accepted_schema(planning_state.schema_info(), visibility)?;
-        self.resolve_shared_query_plan_for_authority(
-            &authority,
-            |work| {
-                QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
-                    authority.clone(),
-                    schema_identity,
-                    visibility,
-                    query,
-                    normalized_predicate_fingerprint,
-                    work,
-                )
-            },
-            planning_context,
-            |work| {
-                let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
-                    &visible_indexes,
-                    planning_state,
-                    work,
-                )?;
-                let plan = self.apply_exact_cardinality_tiebreak(
-                    &authority,
-                    visible_indexes.accepted_semantic_index_contracts(),
-                    plan,
-                    work,
-                )?;
+        let cache_key = if let Some(key) = filterless_key {
+            key
+        } else {
+            let (key, cached) = self.lookup_shared_query_plan_with_fingerprint(
+                &authority,
+                schema_identity,
+                visibility,
+                query,
+                normalized_predicate_fingerprint,
+                lane,
+            )?;
+            if let Some(cached) = cached {
+                return Ok(cached);
+            }
+            key
+        };
+        self.compile_shared_query_plan_on_miss(cache_key, planning_context, |work| {
+            let plan = query.build_plan_with_indexes_from_scalar_planning_state(
+                visible_indexes.accepted_semantic_index_contracts(),
+                planning_state,
+                work,
+            )?;
+            let plan = self.apply_exact_cardinality_tiebreak(
+                &authority,
+                visible_indexes.accepted_semantic_index_contracts(),
+                plan,
+                work,
+            )?;
 
-                SharedPreparedExecutionPlan::from_plan(
-                    authority.clone(),
-                    plan,
-                    schema.fingerprint(),
-                    work,
-                )
-                .map_err(QueryError::execute)
-            },
-        )
+            SharedPreparedExecutionPlan::from_plan(
+                authority,
+                plan,
+                schema_identity.fingerprint(),
+                work,
+            )
+            .map_err(QueryError::execute)
+        })
     }
 
     #[expect(
@@ -681,7 +630,6 @@ impl<C: CanisterKind> DbSession<C> {
     fn resolve_parameterized_query_plan_for_authority(
         &self,
         authority: &EntityAuthority,
-        schema: QueryPlanAcceptedSchema<'_>,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
@@ -695,15 +643,14 @@ impl<C: CanisterKind> DbSession<C> {
             planning_context.lane(),
             |work| {
                 let cache_key = QueryPlanCacheKey::for_authority_with_parameter_contract(
-                    authority.clone(),
+                    authority,
                     schema_identity,
                     visibility,
                     query,
                     parameter_contract,
                     work,
                 )?;
-                let template =
-                    self.lookup_shared_query_template_for_authority(authority, &cache_key);
+                let template = self.lookup_shared_query_template(&cache_key);
                 let mut reused = template
                     .as_ref()
                     .and_then(|template| template.reused_bound_plan(bound_predicate_fingerprint));
@@ -733,7 +680,7 @@ impl<C: CanisterKind> DbSession<C> {
                     SharedPreparedExecutionPlan::from_plan(
                         authority.clone(),
                         bound,
-                        schema.fingerprint(),
+                        schema_identity.fingerprint(),
                         work,
                     )
                     .map_err(QueryError::execute)
@@ -761,8 +708,8 @@ impl<C: CanisterKind> DbSession<C> {
                     planning_state.schema_info(),
                     visibility,
                 )?;
-                let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
-                    &visible_indexes,
+                let plan = query.build_plan_with_indexes_from_scalar_planning_state(
+                    visible_indexes.accepted_semantic_index_contracts(),
                     planning_state,
                     work,
                 )?;
@@ -779,7 +726,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let prepared_plan = SharedPreparedExecutionPlan::from_plan(
                     authority.clone(),
                     plan,
-                    schema.fingerprint(),
+                    schema_identity.fingerprint(),
                     work,
                 )
                 .map_err(QueryError::execute)?;
@@ -793,68 +740,54 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((prepared_plan, QueryPlanCacheReuse::Miss))
     }
 
-    fn try_cached_filterless_query_plan_for_authority(
+    // Own key construction and current lifecycle checking for ordinary plans.
+    // Returning the key lets a miss continue directly into construction.
+    fn lookup_shared_query_plan_with_fingerprint(
         &self,
         authority: &EntityAuthority,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
+        normalized_predicate_fingerprint: Option<[u8; 32]>,
         lane: DiagnosticExecutionLane,
-    ) -> Result<CachedPreparedPlanLookup, QueryError> {
-        if query.has_scalar_filter() {
-            return Ok(None);
-        }
-
+    ) -> Result<(QueryPlanCacheKey, CachedPreparedPlanLookup), QueryError> {
         PreparationWork::run(self.db.request_execution_scope(), lane, |work| {
             let cache_key = QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
-                authority.clone(),
+                authority,
                 schema_identity,
                 visibility,
                 query,
-                None,
+                normalized_predicate_fingerprint,
                 work,
             )?;
-            self.lookup_shared_query_plan_for_authority(authority, &cache_key)
+            let cached = self.lookup_shared_query_plan_for_authority(authority, &cache_key)?;
+            Ok((cache_key, cached))
         })
     }
 
-    fn cached_trivial_scalar_load_plan_for_authority(
+    fn compile_trivial_scalar_load_plan_on_miss(
         &self,
         authority: EntityAuthority,
+        cache_key: QueryPlanCacheKey,
         schema_identity: SchemaCacheIdentity,
         schema_info: Rc<SchemaInfo>,
-        visibility: QueryPlanVisibility,
         query: &StructuralQuery,
         planning_context: HardExecutionContext,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheReuse), QueryError> {
-        self.resolve_shared_query_plan_for_authority(
-            &authority,
-            |work| {
-                QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint(
-                    authority.clone(),
-                    schema_identity,
-                    visibility,
-                    query,
-                    None,
-                    work,
-                )
-            },
-            planning_context,
-            |work| {
-                let Some(plan) =
-                    query.try_build_trivial_scalar_load_plan_with_schema_info(schema_info, work)?
-                else {
-                    return Err(QueryError::invariant());
-                };
+        self.compile_shared_query_plan_on_miss(cache_key, planning_context, |work| {
+            let Some(plan) =
+                query.try_build_trivial_scalar_load_plan_with_schema_info(schema_info, work)?
+            else {
+                return Err(QueryError::invariant());
+            };
 
-                SharedPreparedExecutionPlan::from_plan(
-                    authority.clone(),
-                    plan,
-                    schema_identity.fingerprint(),
-                    work,
-                )
-                .map_err(QueryError::execute)
-            },
-        )
+            SharedPreparedExecutionPlan::from_plan(
+                authority,
+                plan,
+                schema_identity.fingerprint(),
+                work,
+            )
+            .map_err(QueryError::execute)
+        })
     }
 }

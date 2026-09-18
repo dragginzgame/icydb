@@ -5,6 +5,7 @@
 
 use crate::db::query::{expr::FilterExpr, plan::expr::ProjectionSelection};
 use crate::db::{
+    access::SemanticIndexAccessContract,
     predicate::MissingRowPolicy,
     query::{
         intent::{QueryError, QueryModel},
@@ -220,31 +221,14 @@ impl StructuralQuery {
             .prepare_scalar_planning_state_with_schema_info(schema_info, work)
     }
 
-    pub(in crate::db) fn build_plan_with_visible_indexes_from_scalar_planning_state(
+    pub(in crate::db) fn build_plan_with_indexes_from_scalar_planning_state(
         &self,
-        visible_indexes: &VisibleIndexes,
+        indexes: &[SemanticIndexAccessContract],
         planning_state: PreparedScalarPlanningState<'_>,
         work: &PreparationWork<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         self.intent
-            .build_plan_model_with_indexes_from_scalar_planning_state(
-                visible_indexes,
-                planning_state,
-                work,
-            )
-    }
-
-    pub(in crate::db) fn build_plan_from_parameterized_template(
-        &self,
-        template_indexes: &[crate::db::access::SemanticIndexAccessContract],
-        planning_state: PreparedScalarPlanningState<'_>,
-        work: &PreparationWork<'_>,
-    ) -> Result<AccessPlannedQuery, QueryError> {
-        self.intent.build_plan_model_from_parameterized_template(
-            template_indexes,
-            planning_state,
-            work,
-        )
+            .build_plan_model_with_indexes_from_scalar_planning_state(indexes, planning_state, work)
     }
 
     pub(in crate::db) fn try_build_count_cardinality_prefix_access_with_schema_info(

@@ -77,7 +77,11 @@ impl PreparedQueryTemplate {
         planning_state: PreparedScalarPlanningState<'_>,
         work: &PreparationWork<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        query.build_plan_from_parameterized_template(&self.candidate_indexes, planning_state, work)
+        query.build_plan_with_indexes_from_scalar_planning_state(
+            &self.candidate_indexes,
+            planning_state,
+            work,
+        )
     }
 
     pub(super) fn remember_bound_plan(

@@ -74,7 +74,6 @@ impl AcceptedSchemaEntityRuntime {
         let schema_info = Rc::new(SchemaInfo::from_accepted_snapshot_and_catalog(
             inspection_plan.snapshot(),
             inspection_plan.value_catalog().clone(),
-            true,
         ));
         debug_assert!(std::ptr::eq(
             schema_info.enum_catalog(),

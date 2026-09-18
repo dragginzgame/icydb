@@ -48,7 +48,6 @@ fn schema(names: &[&str], key_ids: &[u32]) -> SchemaInfo {
     SchemaInfo::from_accepted_snapshot_and_catalog(
         &AcceptedSchemaSnapshot::new(snapshot),
         newtype_query_schema().value_catalog,
-        true,
     )
 }
 

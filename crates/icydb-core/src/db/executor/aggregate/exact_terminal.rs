@@ -345,15 +345,17 @@ fn exact_user_index_first_component_cardinality(
 #[cfg(feature = "sql")]
 fn accepted_index_target_matches(authority: &EntityAuthority, index_id: IndexId) -> bool {
     index_id.entity_tag() == authority.entity_tag()
-        && authority.accepted_schema_info().is_some_and(|schema| {
-            schema.field_path_indexes().iter().any(|index| {
+        && authority
+            .accepted_schema_info()
+            .field_path_indexes()
+            .iter()
+            .any(|index| {
                 IndexId::new_with_generation(
                     authority.entity_tag(),
                     index.ordinal(),
                     index.physical_generation(),
                 ) == index_id
             })
-        })
 }
 
 #[cfg(feature = "sql")]

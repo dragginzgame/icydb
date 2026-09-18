@@ -53,7 +53,7 @@ impl PreparedLoadPlan {
         if self
             .authority
             .accepted_schema_info()
-            .and_then(|schema| schema.accepted_field_is_nullable(target_field))
+            .accepted_field_is_nullable(target_field)
             != Some(false)
         {
             return Ok(None);
@@ -61,7 +61,7 @@ impl PreparedLoadPlan {
 
         let aggregate = self
             .authority
-            .aggregate_route_shape(kind, Some(target_field))?;
+            .aggregate_route_shape(kind, Some(target_field));
         let execution_preparation = self.core.get_or_init_aggregate_execution_preparation()?;
 
         Ok(Some(build_aggregate_execution_route_plan_for_explain(
@@ -119,7 +119,7 @@ impl PreparedLoadPlan {
     ) -> Result<Option<PreparedGroupedRuntimeResidents>, InternalError> {
         let Some(residents) = self
             .core
-            .get_or_init_grouped_runtime_residents(self.authority.clone())?
+            .get_or_init_grouped_runtime_residents(&self.authority)?
         else {
             return Ok(None);
         };

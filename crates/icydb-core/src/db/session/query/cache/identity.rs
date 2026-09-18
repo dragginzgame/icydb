@@ -94,7 +94,7 @@ impl SchemaCacheIdentity {
         )
     }
 
-    fn from_catalog(catalog: &AcceptedSchemaCatalogContext) -> Self {
+    pub(super) fn from_catalog(catalog: &AcceptedSchemaCatalogContext) -> Self {
         Self::new(
             catalog.runtime_root_identity(),
             catalog.revision(),
@@ -109,54 +109,10 @@ impl SchemaCacheIdentity {
     }
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct QueryPlanAcceptedSchema<'schema> {
-    accepted_schema: &'schema AcceptedSchemaSnapshot,
-    identity: SchemaCacheIdentity,
-}
-
-impl<'schema> QueryPlanAcceptedSchema<'schema> {
-    pub(super) fn from_accepted_schema_with_fingerprint(
-        accepted_schema: &'schema AcceptedSchemaSnapshot,
-        fingerprint: CommitSchemaFingerprint,
-        runtime_root: AcceptedSchemaRuntimeRootIdentity,
-        revision: AcceptedSchemaRevision,
-    ) -> Self {
-        Self {
-            accepted_schema,
-            identity: SchemaCacheIdentity::from_accepted_schema_with_fingerprint(
-                accepted_schema,
-                fingerprint,
-                runtime_root,
-                revision,
-            ),
-        }
-    }
-
-    pub(super) fn from_catalog(catalog: &'schema AcceptedSchemaCatalogContext) -> Self {
-        Self {
-            accepted_schema: catalog.snapshot(),
-            identity: SchemaCacheIdentity::from_catalog(catalog),
-        }
-    }
-
-    pub(super) const fn accepted_schema(self) -> &'schema AcceptedSchemaSnapshot {
-        self.accepted_schema
-    }
-
-    pub(super) const fn identity(self) -> SchemaCacheIdentity {
-        self.identity
-    }
-
-    pub(super) const fn fingerprint(self) -> CommitSchemaFingerprint {
-        self.identity.fingerprint
-    }
-}
-
 impl QueryPlanCacheKey {
     // Assemble the authority shell once; callers only choose structural identity.
     fn from_authority_cache_inputs(
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         structural_query: StructuralQueryCacheKey,
@@ -170,7 +126,7 @@ impl QueryPlanCacheKey {
     }
 
     pub(super) fn for_authority_with_normalized_predicate_fingerprint(
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
@@ -189,7 +145,7 @@ impl QueryPlanCacheKey {
     }
 
     pub(super) fn for_authority_with_parameter_contract(
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
         schema_identity: SchemaCacheIdentity,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,

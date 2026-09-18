@@ -335,59 +335,32 @@ fn expression_lookup_selection_preserves_equality_membership_and_warm_results() 
 }
 
 #[test]
-fn scalar_preparation_reconstructs_missing_expression_indexes() {
-    use crate::db::session::query::schema_info_for_plan_cache_authority;
-    use crate::db::{executor::EntityAuthority, schema::SchemaInfo};
-    use std::rc::Rc;
-
+fn scalar_preparation_shares_complete_expression_index_authority() {
     let session = initialize();
     let catalog = session
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap();
-    let complete = catalog.accepted_schema_info();
-    assert!(!complete.expression_indexes().is_empty());
-    let incomplete = Rc::new(SchemaInfo::from_accepted_snapshot_and_catalog(
-        catalog.snapshot(),
-        catalog.value_catalog_handle().clone(),
-        false,
+    let authority = catalog.accepted_entity_authority();
+    let schema = authority.accepted_schema_info_handle();
+    assert!(std::ptr::eq(
+        schema.as_ref(),
+        catalog.accepted_schema_info()
     ));
-    assert!(incomplete.expression_indexes().is_empty());
-    let authority = EntityAuthority::from_accepted_runtime_contracts(
-        ENTITY_SOURCE,
-        ENTITY_TAG,
-        STORE_PATH,
-        catalog.inspection_plan().row_contract().clone(),
-        incomplete.clone(),
-        catalog
-            .accepted_entity_authority()
-            .accepted_schema_fingerprint(),
-        catalog.runtime_root_identity(),
-    );
-    let prepared = schema_info_for_plan_cache_authority(&authority, catalog.snapshot()).unwrap();
-    assert!(!Rc::ptr_eq(&incomplete, &prepared));
-    assert_eq!(
-        prepared.expression_indexes().len(),
-        complete.expression_indexes().len()
-    );
-    for (actual, expected) in prepared
-        .expression_indexes()
-        .iter()
-        .zip(complete.expression_indexes())
-    {
-        assert_eq!(actual.name(), expected.name());
-        assert_eq!(actual.ordinal(), expected.ordinal());
-        assert_eq!(actual.physical_generation(), expected.physical_generation());
-        assert_eq!(actual.key_items().len(), expected.key_items().len());
-    }
-    assert_eq!(prepared.field("common"), complete.field("common"));
-    // Reconstructed query metadata must not mutate the captured root authority.
-    assert!(incomplete.expression_indexes().is_empty());
-    let shared = schema_info_for_plan_cache_authority(
-        &catalog.accepted_entity_authority(),
-        catalog.snapshot(),
-    )
+    assert!(!schema.expression_indexes().is_empty());
+    assert!(std::ptr::eq(
+        authority.accepted_value_catalog_handle().enum_catalog(),
+        schema.enum_catalog(),
+    ));
+    let query = StructuralQuery::new(MissingRowPolicy::Ignore).limit(20);
+    let prepared = crate::db::query::preparation::with_preparation_work(|work| {
+        query.prepare_scalar_planning_state_with_schema_info(schema.clone(), work)
+    })
     .unwrap();
-    assert!(std::ptr::eq(shared.as_ref(), complete));
+    assert!(std::ptr::eq(prepared.schema_info(), schema.as_ref()));
+    assert_eq!(
+        prepared.schema_info().expression_indexes().len(),
+        catalog.accepted_schema_info().expression_indexes().len(),
+    );
 }
 
 #[test]
@@ -526,7 +499,6 @@ fn pinned_route_requires_one_current_eligible_index_identity() {
         .structural_projection_prepared_plan_for_accepted_authority_with_route_pin(
             &query,
             catalog.accepted_entity_authority(),
-            catalog.snapshot(),
             DiagnosticExecutionLane::TrustedRead,
             route_pin,
         )
@@ -554,7 +526,6 @@ fn pinned_route_requires_one_current_eligible_index_identity() {
             .structural_projection_prepared_plan_for_accepted_authority_with_route_pin(
                 &query,
                 catalog.accepted_entity_authority(),
-                catalog.snapshot(),
                 DiagnosticExecutionLane::TrustedRead,
                 rejected,
             )

@@ -48,9 +48,7 @@ pub(in crate::db) use access_plan::{
     ResidualFilterContract, ResidualFilterShape, ResolvedOrder, ResolvedOrderField,
     ResolvedOrderValueSource, StaticExecutionPlanningContract,
 };
-pub(in crate::db::query) use access_planner::{
-    AccessPlanningInputs, normalize_query_predicate, plan_query_access_with_accepted_schema,
-};
+pub(in crate::db::query) use access_planner::{AccessPlanningInputs, normalize_query_predicate};
 pub(in crate::db) use aggregate_shape::AggregateShape;
 pub(in crate::db) use cardinality_tiebreak::{
     CardinalityTiebreakCandidate, CardinalityTiebreakCandidateEvidence, CardinalityTiebreakFamily,
@@ -115,7 +113,6 @@ pub(in crate::db) use pipeline::exact_first_component_metadata_index;
 pub(in crate::db::query) use pipeline::try_build_count_cardinality_prefix_access_from_query_model;
 pub(in crate::db) use pipeline::{CountCardinalityPrefixAccess, CountCardinalityPrefixValues};
 pub(in crate::db::query) use pipeline::{
-    build_query_model_plan_from_parameterized_template,
     build_query_model_plan_with_indexes_from_scalar_planning_state,
     prepare_query_model_scalar_planning_state_with_schema_info,
     try_build_trivial_scalar_load_plan_with_schema_info,

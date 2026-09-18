@@ -198,7 +198,6 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &StructuralQuery,
         authority: EntityAuthority,
-        accepted_schema: &AcceptedSchemaSnapshot,
         lane: DiagnosticExecutionLane,
         route_pin: CardinalityTiebreakRoutePin,
     ) -> Result<Option<(SharedPreparedExecutionPlan, StructuralProjectionContract)>, QueryError>
@@ -206,7 +205,6 @@ impl<C: CanisterKind> DbSession<C> {
         let schema_fingerprint = authority.accepted_schema_fingerprint();
         let Some(prepared_plan) = self.shared_query_plan_for_accepted_authority_with_route_pin(
             authority,
-            accepted_schema,
             schema_fingerprint,
             query,
             lane,

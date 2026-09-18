@@ -1126,7 +1126,7 @@ mod tests {
             AcceptedSchemaRevision::INITIAL,
         );
 
-        SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog, true)
+        SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog)
     }
 
     // Inspect junction depth and leaf order without imposing a recursive walk

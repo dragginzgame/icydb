@@ -54,15 +54,13 @@ impl SharedPreparedExecutionPlan {
         schema_fingerprint: CommitSchemaFingerprint,
         budget: &dyn ConstructionBudget,
     ) -> Result<Self, InternalError> {
-        Ok(Self {
-            authority: authority.clone(),
-            core: build_prepared_execution_plan_core_with_schema_fingerprint(
-                authority,
-                plan,
-                Some(schema_fingerprint),
-                budget,
-            )?,
-        })
+        let core = build_prepared_execution_plan_core_with_schema_fingerprint(
+            &authority,
+            plan,
+            Some(schema_fingerprint),
+            budget,
+        )?;
+        Ok(Self { authority, core })
     }
 
     #[must_use]
@@ -89,7 +87,7 @@ impl SharedPreparedExecutionPlan {
     /// Borrow the accepted schema authority frozen into this shared plan.
     pub(in crate::db) fn accepted_schema_authority(
         &self,
-    ) -> Result<&crate::db::schema::AcceptedSchemaAuthority, InternalError> {
+    ) -> &crate::db::schema::AcceptedSchemaAuthority {
         self.authority.accepted_schema_authority()
     }
 
@@ -141,7 +139,7 @@ impl SharedPreparedExecutionPlan {
         &self,
     ) -> Option<Rc<CoveringReadExecutionPlan>> {
         self.core
-            .get_or_init_projection_covering_read_execution_plan(self.authority.clone())
+            .get_or_init_projection_covering_read_execution_plan(&self.authority)
     }
 
     #[must_use]
@@ -149,7 +147,7 @@ impl SharedPreparedExecutionPlan {
         &self,
     ) -> Option<Rc<CoveringHybridReadExecutionPlan>> {
         self.core
-            .get_or_init_hybrid_covering_read_plan(self.authority.clone())
+            .get_or_init_hybrid_covering_read_plan(&self.authority)
     }
 
     #[cfg(test)]
@@ -169,9 +167,8 @@ impl SharedPreparedExecutionPlan {
         self,
     ) -> Result<SharedPreparedProjectionRuntimeHandoff, InternalError> {
         let Self { authority, core } = self;
-        let prepared_projection_contract = core.get_or_init_projection_shape(authority.clone())?;
-        let retained_slot_layout =
-            core.get_or_init_cursorless_retained_slot_layout(authority.clone())?;
+        let prepared_projection_contract = core.get_or_init_projection_shape(&authority)?;
+        let retained_slot_layout = core.get_or_init_cursorless_retained_slot_layout(&authority)?;
         let execution_preparation = core.get_or_init_scalar_execution_preparation()?;
         let scalar_runtime = PreparedScalarRuntimeHandoff {
             authority: authority.clone(),

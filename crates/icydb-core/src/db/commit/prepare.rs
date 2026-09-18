@@ -554,9 +554,8 @@ where
     )?;
     Ok(AcceptedStorageConstraintSchedule {
         row_contract,
-        schema_info: (!accepted.persisted_snapshot().indexes().is_empty()).then(|| {
-            SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, value_catalog, true)
-        }),
+        schema_info: (!accepted.persisted_snapshot().indexes().is_empty())
+            .then(|| SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, value_catalog)),
         candidate_unique,
         relations,
     })

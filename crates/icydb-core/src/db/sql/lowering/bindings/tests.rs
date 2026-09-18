@@ -58,7 +58,7 @@ fn schema(kind: AcceptedFieldKind) -> SchemaInfo {
         AcceptedCompositeCatalog::empty(),
         AcceptedSchemaRevision::INITIAL,
     );
-    SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog, true)
+    SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog)
 }
 
 #[test]

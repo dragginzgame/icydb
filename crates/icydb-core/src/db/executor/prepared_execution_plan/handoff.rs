@@ -45,7 +45,7 @@ impl PreparedScalarRuntimeHandoff {
         let residents = plan_core.core.into_residents();
         let execution_plan = residents.plan.clone_without_scalar_page();
         let core = build_prepared_execution_plan_core_with_lowered_access(
-            authority.clone(),
+            &authority,
             execution_plan,
             residents.continuation_identity,
             residents.index_prefix_specs,

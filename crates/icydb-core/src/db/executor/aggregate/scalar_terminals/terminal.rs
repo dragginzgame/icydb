@@ -559,7 +559,6 @@ mod tests {
                 AcceptedCompositeCatalog::empty(),
                 AcceptedSchemaRevision::INITIAL,
             ),
-            true,
         )
     }
 

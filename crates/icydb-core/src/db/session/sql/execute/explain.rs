@@ -553,9 +553,8 @@ impl<C: CanisterKind> DbSession<C> {
         authority: &EntityAuthority,
         schema_info: &SchemaInfo,
     ) -> Result<ExplainExecutionDescriptor, QueryError> {
-        let aggregate = authority
-            .aggregate_route_shape(strategy.aggregate_kind(), strategy.projected_field())
-            .map_err(QueryError::execute)?;
+        let aggregate =
+            authority.aggregate_route_shape(strategy.aggregate_kind(), strategy.projected_field());
         let mut execution = PreparationWork::run(
             self.db.request_execution_scope(),
             DiagnosticExecutionLane::Diagnostic,

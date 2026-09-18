@@ -140,7 +140,7 @@ fn probe_preparation_charges_exact_backing_and_bookkeeping() {
                 let result = PreparationWork::run(&root.scope(), lane, |work| {
                     prepare_cardinality_candidates(
                         authority.entity_tag(),
-                        authority.accepted_schema_info().unwrap(),
+                        authority.accepted_schema_info(),
                         candidates.clone(),
                         work,
                     )
@@ -194,7 +194,7 @@ fn duplicate_probe_comparison_preserves_identity_and_budget_errors() {
         assert!(
             prepare_cardinality_candidates(
                 authority.entity_tag(),
-                authority.accepted_schema_info().unwrap(),
+                authority.accepted_schema_info(),
                 vec![candidates[0].clone(); 2],
                 work
             )
@@ -230,7 +230,7 @@ fn cardinality_probe_preparation_native_timing() {
                 for input in inputs {
                     let result = prepare_cardinality_candidates(
                         authority.entity_tag(),
-                        authority.accepted_schema_info().unwrap(),
+                        authority.accepted_schema_info(),
                         input,
                         work,
                     )

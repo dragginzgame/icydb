@@ -377,7 +377,6 @@ fn pinned_route_unavailability_does_not_hide_watermark_exhaustion() {
             .structural_projection_prepared_plan_for_accepted_authority_with_route_pin(
                 &query(),
                 catalog.accepted_entity_authority(),
-                catalog.snapshot(),
                 lane,
                 pin,
             )
@@ -388,7 +387,6 @@ fn pinned_route_unavailability_does_not_hide_watermark_exhaustion() {
                 .structural_projection_prepared_plan_for_accepted_authority_with_route_pin(
                     &query(),
                     catalog.accepted_entity_authority(),
-                    catalog.snapshot(),
                     lane,
                     pin,
                 )

@@ -109,7 +109,7 @@ pub(in crate::db::query::plan) fn schema() -> SchemaInfo {
         AcceptedCompositeCatalog::empty(),
         AcceptedSchemaRevision::INITIAL,
     );
-    SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog, true)
+    SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog)
 }
 
 fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {

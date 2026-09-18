@@ -125,7 +125,7 @@ fn after_image_schema(index: PersistedIndexSnapshot) -> (SchemaInfo, StructuralR
         AcceptedSchemaRevision::INITIAL,
     );
     (
-        SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog, true),
+        SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog),
         row_contract,
     )
 }
@@ -181,7 +181,6 @@ fn malformed_accepted_predicates_reject_query_mutation_and_inspection_plans() {
         let schema = SchemaInfo::from_accepted_snapshot_and_catalog(
             &accepted,
             contract.accepted_value_catalog_handle().clone(),
-            true,
         );
         let old = ObservedNameRow::new("Ada", false);
         let new = ObservedNameRow::new("Ada", false);

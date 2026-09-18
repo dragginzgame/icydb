@@ -606,7 +606,7 @@ fn assert_filtered_unique_incremental_key_parity(
         AcceptedCompositeCatalog::empty(),
         AcceptedSchemaRevision::INITIAL,
     );
-    let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, value_catalog, true);
+    let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, value_catalog);
     let accepted_index = &schema.field_path_indexes()[0];
     let present_key = IndexKey::new_from_slots_with_accepted_field_path_index_primary_key_value(
         EntityTag::new(7),

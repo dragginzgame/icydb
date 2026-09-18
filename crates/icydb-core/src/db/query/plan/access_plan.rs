@@ -237,7 +237,6 @@ pub(in crate::db) struct StaticExecutionPlanningContract {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum PlannedNonIndexAccessReason {
-    IntentKeyAccessOverride,
     PlannerPrimaryKeyLookup,
     PlannerKeySetAccess,
     PlannerPrimaryKeyRange,

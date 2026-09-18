@@ -233,7 +233,7 @@ fn covering_prefix_cardinality_proof(
         });
     }
     if index_prefix_specs.len() > 1 {
-        let accepted_schema = authority.accepted_schema_authority()?;
+        let accepted_schema = authority.accepted_schema_authority();
         let accepted_root = CardinalityAcceptedRootIdentity::new(
             accepted_schema.revision(),
             accepted_schema.fingerprint(),

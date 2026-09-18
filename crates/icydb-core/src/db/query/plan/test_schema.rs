@@ -86,5 +86,5 @@ pub(in crate::db) fn exact_metadata_schema(
         AcceptedSchemaRevision::INITIAL,
     );
 
-    SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog, true)
+    SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog)
 }

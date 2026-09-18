@@ -1,23 +1,16 @@
 //! Module: db::query::plan::access_planner
-//! Responsibility: derive the canonical access plan from normalized query
-//! intent, predicate, ordering, and planner-visible index metadata.
-//! Does not own: executor runtime behavior or final access-choice scoring policy outside planning.
-//! Boundary: turns validated logical query intent into planner-owned access plans.
+//! Responsibility: prepare canonical predicate and order inputs for access planning.
+//! Does not own: access selection, executor routing, or final access-choice scoring.
+//! Boundary: projects borrowed intent under accepted schema authority.
 
-use crate::{
-    db::{
-        QueryError,
-        access::AccessPlan,
-        predicate::{Predicate, normalize, normalize_enum_literals},
-        query::plan::{
-            OrderSpec, PlannedAccessSelection, VisibleIndexes,
-            canonicalize_order_spec_for_grouping,
-            plan_access_selection_with_order_and_semantic_indexes,
-        },
-        query::preparation::PreparationWork,
-        schema::SchemaInfo,
+use crate::db::{
+    QueryError,
+    predicate::{Predicate, normalize, normalize_enum_literals},
+    query::{
+        plan::{OrderSpec, canonicalize_order_spec_for_grouping},
+        preparation::PreparationWork,
     },
-    value::Value,
+    schema::SchemaInfo,
 };
 
 ///
@@ -25,8 +18,8 @@ use crate::{
 ///
 /// Access-planning input contract projected from query intent.
 /// Carries the optional predicate and raw order shape.
-/// Access planning consumes this contract before logical plan assembly and
-/// normalizes order independently of the later logical-plan pass.
+/// Raw order remains available for allocation-free shape checks; the pipeline
+/// supplies one canonical order to both access selection and logical assembly.
 ///
 
 #[derive(Debug)]
@@ -56,6 +49,24 @@ impl<'a> AccessPlanningInputs<'a> {
     pub(in crate::db::query) const fn order(&self) -> Option<&'a OrderSpec> {
         self.order
     }
+
+    /// Materialize order only when constructing a plan. Access selection borrows
+    /// this result before logical assembly takes ownership of it.
+    pub(in crate::db::query) fn canonical_order(
+        &self,
+        schema: &SchemaInfo,
+        grouped: bool,
+        work: &PreparationWork<'_>,
+    ) -> Result<Option<OrderSpec>, QueryError> {
+        canonicalize_order_spec_for_grouping(
+            schema.primary_key_names(),
+            self.order
+                .map(|order| work.copy_order_spec(order))
+                .transpose()?,
+            grouped,
+            work,
+        )
+    }
 }
 
 // Normalize one optional predicate into canonical planner form.
@@ -71,41 +82,4 @@ pub(in crate::db::query) fn normalize_query_predicate(
             Ok::<Predicate, QueryError>(normalize(predicate))
         })
         .transpose()
-}
-
-/// Select one access plan from accepted schema and accepted semantic indexes.
-///
-/// Standalone SQL and dynamic reads enter here after accepted catalog
-/// selection; generated model metadata is neither required nor consulted.
-pub(in crate::db::query) fn plan_query_access_with_accepted_schema(
-    visible_indexes: &VisibleIndexes,
-    schema_info: &SchemaInfo,
-    normalized_predicate: Option<&Predicate>,
-    order: Option<&OrderSpec>,
-    grouped: bool,
-    key_access_override: Option<AccessPlan<Value>>,
-    work: &PreparationWork<'_>,
-) -> Result<PlannedAccessSelection, QueryError> {
-    if let Some(plan) = key_access_override {
-        return Ok(PlannedAccessSelection::new(
-            plan,
-            Some(crate::db::query::plan::PlannedNonIndexAccessReason::IntentKeyAccessOverride),
-        ));
-    }
-
-    let canonical_order = canonicalize_order_spec_for_grouping(
-        schema_info.primary_key_names(),
-        order.map(|order| work.copy_order_spec(order)).transpose()?,
-        grouped,
-        work,
-    )?;
-    plan_access_selection_with_order_and_semantic_indexes(
-        visible_indexes.accepted_semantic_index_contracts(),
-        schema_info,
-        normalized_predicate,
-        canonical_order.as_ref(),
-        grouped,
-        work,
-    )
-    .map_err(QueryError::from)
 }

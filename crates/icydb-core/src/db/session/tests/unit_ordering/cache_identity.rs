@@ -17,14 +17,12 @@ use icydb_diagnostic_code::DiagnosticExecutionLane;
 
 #[test]
 fn scalar_preparation_shares_schema_without_following_root_replacement() {
-    use crate::db::session::query::schema_info_for_plan_cache_authority;
-
     let session = initialize();
     let first = session
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap();
     let authority = first.accepted_entity_authority();
-    let schema = schema_info_for_plan_cache_authority(&authority, first.snapshot()).unwrap();
+    let schema = authority.accepted_schema_info_handle();
     assert!(std::ptr::eq(schema.as_ref(), first.accepted_schema_info()));
     let query = query();
     let prepared = with_preparation_work(|work| {
@@ -42,11 +40,9 @@ fn scalar_preparation_shares_schema_without_following_root_replacement() {
     let current = session
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap();
-    let current_schema = schema_info_for_plan_cache_authority(
-        &current.accepted_entity_authority(),
-        current.snapshot(),
-    )
-    .unwrap();
+    let current_schema = current
+        .accepted_entity_authority()
+        .accepted_schema_info_handle();
     assert!(!Rc::ptr_eq(&schema, &current_schema));
     assert!(std::ptr::eq(
         current_schema.as_ref(),

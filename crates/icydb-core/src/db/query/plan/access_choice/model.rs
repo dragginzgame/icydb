@@ -67,9 +67,6 @@ impl AccessChoiceExplainSnapshot {
         reason: PlannedNonIndexAccessReason,
     ) -> Self {
         let chosen_reason = match reason {
-            PlannedNonIndexAccessReason::IntentKeyAccessOverride => {
-                AccessChoiceSelectedReason::IntentKeyAccessOverride
-            }
             PlannedNonIndexAccessReason::PlannerPrimaryKeyLookup => {
                 AccessChoiceSelectedReason::PlannerPrimaryKeyLookup
             }
@@ -361,7 +358,6 @@ impl AccessChoiceRankingReason {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum AccessChoiceSelectedReason {
     NonIndexAccess,
-    IntentKeyAccessOverride,
     PlannerPrimaryKeyLookup,
     PlannerKeySetAccess,
     PlannerPrimaryKeyRange,
@@ -389,7 +385,6 @@ impl AccessChoiceSelectedReason {
     pub(in crate::db) const fn code(self) -> &'static str {
         match self {
             Self::NonIndexAccess => "non_index_access",
-            Self::IntentKeyAccessOverride => "intent_key_access_override",
             Self::PlannerPrimaryKeyLookup => "planner_primary_key_lookup",
             Self::PlannerKeySetAccess => "planner_key_set_access",
             Self::PlannerPrimaryKeyRange => "planner_primary_key_range",

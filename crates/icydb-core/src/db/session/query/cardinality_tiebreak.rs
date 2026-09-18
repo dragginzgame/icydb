@@ -67,9 +67,7 @@ impl<C: CanisterKind> DbSession<C> {
         plan: AccessPlannedQuery,
         work: &PreparationWork<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        let schema_info = authority
-            .accepted_schema_info()
-            .ok_or_else(QueryError::invariant)?;
+        let schema_info = authority.accepted_schema_info();
         let Some(candidates) =
             exact_cardinality_tiebreak_candidates(semantic_indexes, schema_info, &plan, work)
                 .map_err(QueryError::execute)?
@@ -123,9 +121,7 @@ impl<C: CanisterKind> DbSession<C> {
         route_pin: CardinalityTiebreakRoutePin,
         work: &PreparationWork<'_>,
     ) -> Result<Option<AccessPlannedQuery>, QueryError> {
-        let schema_info = authority
-            .accepted_schema_info()
-            .ok_or_else(QueryError::invariant)?;
+        let schema_info = authority.accepted_schema_info();
         let Some(candidates) =
             exact_cardinality_tiebreak_candidates(semantic_indexes, schema_info, &plan, work)
                 .map_err(QueryError::execute)?
@@ -169,9 +165,7 @@ impl<C: CanisterKind> DbSession<C> {
             .db
             .recovered_store(authority.store_path())
             .map_err(QueryError::execute)?;
-        let accepted_schema = authority
-            .accepted_schema_authority()
-            .map_err(QueryError::execute)?;
+        let accepted_schema = authority.accepted_schema_authority();
         let accepted_root = CardinalityAcceptedRootIdentity::new(
             accepted_schema.revision(),
             accepted_schema.fingerprint(),
@@ -180,9 +174,7 @@ impl<C: CanisterKind> DbSession<C> {
         let database_incarnation = authority
             .accepted_runtime_root_identity()
             .database_incarnation();
-        let schema_info = authority
-            .accepted_schema_info()
-            .ok_or_else(QueryError::invariant)?;
+        let schema_info = authority.accepted_schema_info();
         let Some((prepared, keys)) =
             prepare_cardinality_candidates(authority.entity_tag(), schema_info, candidates, work)?
         else {

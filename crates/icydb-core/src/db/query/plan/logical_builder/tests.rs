@@ -8,8 +8,9 @@ use crate::{
         query::{
             builder::min_by,
             plan::{
-                FieldSlot, GroupAggregateSpec, GroupField, GroupFieldSet, GroupSpec,
-                GroupedExecutionConfig, LoadSpec, OrderDirection, OrderSpec, OrderTerm, QueryMode,
+                AccessPlanningInputs, FieldSlot, GroupAggregateSpec, GroupField, GroupFieldSet,
+                GroupSpec, GroupedExecutionConfig, LoadSpec, OrderDirection, OrderSpec, OrderTerm,
+                QueryMode, build_logical_plan, exact_metadata_schema,
                 expr::{Expr, ProjectionField, ProjectionSelection},
                 logical_builder::{LogicalPlanningInputs, logical_query_from_logical_inputs},
             },
@@ -40,6 +41,59 @@ fn assert_budget_error(error: QueryError, resource: Resource) {
             .diagnostic_facts()
             .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
     );
+}
+
+#[test]
+fn canonical_order_moves_into_the_logical_plan_without_more_construction() {
+    let schema = exact_metadata_schema(&[], &[]);
+    let order = OrderSpec {
+        fields: vec![OrderTerm::field("rank", OrderDirection::Desc)],
+    };
+    let request = root(Resource::TemporaryBytes, 16_000_000);
+    PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
+        let canonical = AccessPlanningInputs::new(None, Some(&order))
+            .canonical_order(&schema, false, work)?
+            .unwrap();
+        assert_eq!(
+            canonical.fields,
+            vec![
+                OrderTerm::field("rank", OrderDirection::Desc),
+                OrderTerm::field("id", OrderDirection::Desc),
+            ]
+        );
+        let backing = canonical.fields.as_ptr();
+        let bytes = request.observed(Resource::TemporaryBytes);
+        let steps = request.observed(Resource::PredicateExpressionSteps);
+        let logical = logical_query_from_logical_inputs(
+            LogicalPlanningInputs::new(
+                QueryMode::Load(LoadSpec::new()),
+                None,
+                false,
+                false,
+                None,
+                None,
+            ),
+            None,
+            Some(canonical),
+            MissingRowPolicy::Ignore,
+            work,
+        )?;
+        let plan = build_logical_plan(logical);
+        assert_eq!(
+            plan.scalar_semantics()
+                .order
+                .as_ref()
+                .unwrap()
+                .fields
+                .as_ptr(),
+            backing
+        );
+        assert_eq!(request.observed(Resource::TemporaryBytes), bytes);
+        assert_eq!(request.observed(Resource::PredicateExpressionSteps), steps);
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(order.fields.len(), 1, "source syntax remains reusable");
 }
 
 #[test]
@@ -74,12 +128,12 @@ fn logical_clauses_preserve_scalar_grouped_and_shared_slot_identity() {
                         QueryMode::Load(LoadSpec::new()),
                         Some(&filter),
                         true,
-                        Some(&order),
                         true,
                         grouped.then_some(&group),
                         grouped.then_some(&having),
                     ),
                     Some(Predicate::True),
+                    Some(work.copy_order_spec(&order)?),
                     MissingRowPolicy::Ignore,
                     work,
                 )
@@ -114,12 +168,12 @@ fn logical_copy_charges_exact_backing_cumulatively_in_every_lane() {
                         QueryMode::Load(LoadSpec::new()),
                         None,
                         false,
-                        Some(&order),
                         false,
                         None,
                         None,
                     ),
                     None,
+                    Some(work.copy_order_spec(&order)?),
                     MissingRowPolicy::Ignore,
                     work,
                 )
@@ -146,12 +200,12 @@ fn rejected_order_backing_does_not_visit_operands_or_change_source() {
                 QueryMode::Load(LoadSpec::new()),
                 None,
                 false,
-                Some(&order),
                 false,
                 None,
                 None,
             ),
             None,
+            Some(work.copy_order_spec(&order)?),
             MissingRowPolicy::Ignore,
             work,
         )
@@ -172,12 +226,12 @@ fn stripped_filter_never_copies_its_payload() {
                 QueryMode::Load(LoadSpec::new()),
                 Some(&filter),
                 true,
-                None,
                 false,
                 None,
                 None,
             )
             .without_filter_expr(),
+            None,
             None,
             MissingRowPolicy::Ignore,
             work,

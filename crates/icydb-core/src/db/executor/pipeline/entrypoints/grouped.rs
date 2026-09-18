@@ -67,9 +67,8 @@ where
     let value_catalog = plan
         .authority_ref()
         .accepted_schema_info()
-        .map(crate::db::schema::SchemaInfo::value_catalog_handle)
-        .cloned()
-        .ok_or_else(InternalError::query_executor_invariant)?;
+        .value_catalog_handle()
+        .clone();
     let prepared =
         prepare_grouped_route_runtime_for_load_plan(db, plan.into_prepared_load_plan(), cursor)?;
     let page = execute_prepared_grouped_route_runtime(prepared)?;
@@ -158,7 +157,7 @@ impl GroupedPathRuntimeContext {
     // its resolved structural entity authority.
     fn from_store(store: StoreHandle, authority: EntityAuthority) -> Result<Self, InternalError> {
         let entity_tag = authority.entity_tag();
-        let accepted_schema = authority.accepted_schema_authority()?;
+        let accepted_schema = authority.accepted_schema_authority();
         let accepted_root = CardinalityAcceptedRootIdentity::new(
             accepted_schema.revision(),
             accepted_schema.fingerprint(),
@@ -207,7 +206,7 @@ impl GroupedPathRuntimeContext {
             execution_preparation,
             StructuralGroupedRowRuntime::new(
                 self.row_store,
-                self.authority.row_layout()?,
+                self.authority.row_layout(),
                 grouped_slot_layout,
                 single_grouped_path,
             ),
@@ -232,7 +231,7 @@ impl PreparedGroupedRouteRuntime {
                 &ExecutionConstructionBudget,
             )?;
             let grouped_slot_layout = compile_grouped_row_slot_layout_from_inputs(
-                runtime.authority.row_layout()?,
+                runtime.authority.row_layout(),
                 route.group_fields(),
                 route.grouped_aggregate_execution_specs(),
                 route.grouped_distinct_execution_strategy(),

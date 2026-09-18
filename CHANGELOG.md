@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.259.md](docs/changelog/0.259.md)
 
+- `0.259.1` simplifies query preparation and authority ownership, reducing redundant cache work and temporary clones without changing public APIs or stored data.
 - `0.259.0` adds automated migration rehearsal and fixes pending-migration startup failures and needless retries; potentially breaking for callers expecting the previous error.
 
 ## [0.258.x] - 2026-09-17 - Logical Memory Identity

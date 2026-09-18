@@ -552,7 +552,6 @@ impl QueryIntent {
                 .filter
                 .as_ref()
                 .is_some_and(NormalizedFilter::predicate_subset_covers_expr),
-            self.scalar().order.as_ref(),
             self.scalar().distinct,
             group,
             having_expr,

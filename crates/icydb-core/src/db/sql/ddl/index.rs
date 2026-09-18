@@ -640,7 +640,7 @@ mod tests {
             AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::new(1),
         );
-        let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog, true);
+        let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog);
         (accepted, schema)
     }
 

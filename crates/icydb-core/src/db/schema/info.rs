@@ -835,15 +835,6 @@ impl SchemaInfo {
     pub(in crate::db) fn from_accepted_snapshot_and_catalog(
         schema: &AcceptedSchemaSnapshot,
         value_catalog: AcceptedValueCatalogHandle,
-        include_expression_indexes: bool,
-    ) -> Self {
-        Self::from_snapshot(schema, value_catalog, include_expression_indexes)
-    }
-
-    fn from_snapshot(
-        schema: &AcceptedSchemaSnapshot,
-        value_catalog: AcceptedValueCatalogHandle,
-        include_expression_indexes: bool,
     ) -> Self {
         let snapshot = schema.persisted_snapshot();
         let indexed_field_ids = accepted_indexed_field_ids(snapshot);
@@ -912,15 +903,11 @@ impl SchemaInfo {
                 .indexes()
                 .iter()
                 .filter_map(|index| {
-                    include_expression_indexes
-                        .then(|| {
-                            schema_expression_index_info_from_accepted_index(
-                                index,
-                                snapshot,
-                                &value_catalog,
-                            )
-                        })
-                        .flatten()
+                    schema_expression_index_info_from_accepted_index(
+                        index,
+                        snapshot,
+                        &value_catalog,
+                    )
                 })
                 .collect(),
             value_catalog,
@@ -1253,7 +1240,7 @@ mod tests {
             AcceptedSchemaRevision::INITIAL,
         );
 
-        SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog, true)
+        SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog)
     }
 
     fn enum_newtype_query_schema(collection: bool) -> SchemaInfo {
@@ -1311,7 +1298,7 @@ mod tests {
             AcceptedSchemaRevision::INITIAL,
         );
 
-        SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog, true)
+        SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog)
     }
 
     fn scalar_field(

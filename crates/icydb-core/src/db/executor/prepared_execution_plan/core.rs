@@ -226,7 +226,7 @@ impl PreparedScalarPlanCore {
 
     pub(in crate::db::executor) fn get_or_init_cursorless_retained_slot_layout(
         &self,
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
     ) -> Result<Option<RetainedSlotLayout>, InternalError> {
         self.core
             .get_or_init_cursorless_retained_slot_layout(authority)
@@ -318,7 +318,7 @@ impl PreparedExecutionPlanCore {
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_shape(
         &self,
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
     ) -> Result<Option<Rc<PreparedProjectionContract>>, InternalError> {
         // Projection adapters request and consume this shape before execution.
         if let Some(cached) = self.residents.prepared_projection_contract.get() {
@@ -327,7 +327,7 @@ impl PreparedExecutionPlanCore {
 
         let prepared = if self.residents.plan.scalar_projection_plan().is_some() {
             Some(Rc::new(prepare_projection_contract_from_plan(
-                authority.row_layout_ref()?,
+                authority.row_layout_ref(),
                 &self.residents.plan,
             )?))
         } else {
@@ -340,7 +340,7 @@ impl PreparedExecutionPlanCore {
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_projection_covering_read_execution_plan(
         &self,
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
     ) -> Option<Rc<CoveringReadExecutionPlan>> {
         self.initialize_lazy(
             &self.residents.projection_covering_read_execution_plan,
@@ -357,7 +357,7 @@ impl PreparedExecutionPlanCore {
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_hybrid_covering_read_plan(
         &self,
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
     ) -> Option<Rc<CoveringHybridReadExecutionPlan>> {
         self.initialize_lazy(&self.residents.hybrid_covering_read_plan, || {
             let strict_predicate_compatible =
@@ -371,7 +371,7 @@ impl PreparedExecutionPlanCore {
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_grouped_runtime_residents(
         &self,
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
     ) -> Result<Option<Rc<PreparedGroupedRuntimeResidents>>, InternalError> {
         // Grouped execution needs both the runtime preparation and slot layout
         // together, so cache them behind one grouped-resident initializer.
@@ -389,7 +389,7 @@ impl PreparedExecutionPlanCore {
                     &ExecutionConstructionBudget,
                 )?;
                 let grouped_slot_layout = compile_grouped_row_slot_layout_from_inputs(
-                    authority.row_layout()?,
+                    authority.row_layout(),
                     &grouped_plan.group.group_fields,
                     self.residents
                         .plan
@@ -475,7 +475,7 @@ impl PreparedExecutionPlanCore {
 
     pub(in crate::db::executor::prepared_execution_plan) fn get_or_init_cursorless_retained_slot_layout(
         &self,
-        authority: EntityAuthority,
+        authority: &EntityAuthority,
     ) -> Result<Option<RetainedSlotLayout>, InternalError> {
         // Only cursorless retained output shares a cached scalar layout.
         let layout_cache = &self.residents.cursorless_retained_slot_layout;
@@ -485,7 +485,7 @@ impl PreparedExecutionPlanCore {
         }
 
         let layout = compile_retained_slot_layout_for_mode(
-            &authority,
+            authority,
             &self.residents.plan,
             ProjectionMaterializationMode::RetainSlotRows,
             CursorEmissionMode::Suppress,
@@ -806,7 +806,7 @@ mod retention_tests {
 }
 
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_schema_fingerprint(
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     plan: AccessPlannedQuery,
     schema_fingerprint: Option<CommitSchemaFingerprint>,
     budget: &dyn ConstructionBudget,
@@ -816,13 +816,12 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     if !plan.has_static_execution_planning_contract() {
         return Err(InternalError::query_executor_invariant());
     }
-    let continuation_identity = schema_fingerprint
-        .map(|entity_schema_fingerprint| {
-            authority.accepted_schema_authority().map(|accepted| {
-                AcceptedContinuationIdentity::new(entity_schema_fingerprint, accepted)
-            })
-        })
-        .transpose()?;
+    let continuation_identity = schema_fingerprint.map(|entity_schema_fingerprint| {
+        AcceptedContinuationIdentity::new(
+            entity_schema_fingerprint,
+            authority.accepted_schema_authority(),
+        )
+    });
 
     // Phase 1: lower access-derived execution specs once and retain invariant
     // state. Projection shapes, grouped residents, and retained-slot layouts are
@@ -831,9 +830,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
     let lowered_access = lower_access_with_schema_info(
         authority.entity_tag(),
         &plan.access,
-        authority
-            .accepted_schema_info()
-            .ok_or_else(InternalError::query_executor_invariant)?,
+        authority.accepted_schema_info(),
         budget,
     )
     .map_err(LoweredAccessError::into_internal_error)?;
@@ -853,7 +850,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
 // already-lowered access specs. Logical rewrites that preserve the access plan
 // can reuse the lowered specs while refreshing continuation metadata locally.
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_lowered_access(
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     plan: AccessPlannedQuery,
     continuation_identity: Option<AcceptedContinuationIdentity>,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
@@ -900,7 +897,7 @@ Self{execution_preparation,grouped_slot_layout} => [execution_preparation,groupe
 // access specs. This avoids cloning large cached plans when an aggregate path
 // falls back into scalar materialization with the same access contract.
 pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution_plan_core_with_shared_lowered_access(
-    authority: EntityAuthority,
+    authority: &EntityAuthority,
     plan: Rc<AccessPlannedQuery>,
     continuation_identity: Option<AcceptedContinuationIdentity>,
     index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
@@ -915,7 +912,7 @@ pub(in crate::db::executor::prepared_execution_plan) fn build_prepared_execution
         continuation_identity,
         budget,
     )?;
-    let execution_shape_fingerprint_prefix = read_shape_fingerprint_prefix(&authority, &plan)?;
+    let execution_shape_fingerprint_prefix = read_shape_fingerprint_prefix(authority, &plan)?;
 
     Ok(PreparedExecutionPlanCore::new(
         plan,

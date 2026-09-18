@@ -24,16 +24,17 @@ use std::rc::Rc;
 ///
 /// EntityAuthority is the canonical structural entity-identity bundle used by
 /// executor runtime preparation once a session has resolved accepted schema
-/// authority. It deliberately carries no generated application model.
+/// authority. Its row layout and complete schema view are required at construction;
+/// it deliberately carries no generated application model.
 ///
 
 #[derive(Clone, Debug)]
 pub(in crate::db) struct EntityAuthority {
     entity_path: Rc<str>,
-    row_layout: Option<RowLayout>,
+    row_layout: RowLayout,
     entity_tag: EntityTag,
     store_path: &'static str,
-    accepted_schema_info: Option<Rc<SchemaInfo>>,
+    accepted_schema_info: Rc<SchemaInfo>,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     accepted_runtime_root_identity: AcceptedSchemaRuntimeRootIdentity,
 }
@@ -56,58 +57,51 @@ impl EntityAuthority {
 
         Self {
             entity_path,
-            row_layout: Some(row_layout),
+            row_layout,
             entity_tag,
             store_path,
-            accepted_schema_info: Some(accepted_schema_info),
+            accepted_schema_info,
             accepted_schema_fingerprint,
             accepted_runtime_root_identity,
         }
     }
 
     /// Borrow the frozen structural row-decode layout for this entity.
-    pub(in crate::db::executor) fn row_layout(&self) -> Result<RowLayout, InternalError> {
-        Ok(self.row_layout_ref()?.clone())
+    pub(in crate::db::executor) fn row_layout(&self) -> RowLayout {
+        self.row_layout.clone()
     }
 
     /// Borrow the frozen structural row-decode layout for metadata-only callers.
-    pub(in crate::db::executor) fn row_layout_ref(&self) -> Result<&RowLayout, InternalError> {
-        self.row_layout
-            .as_ref()
-            .ok_or_else(InternalError::query_executor_invariant)
+    pub(in crate::db::executor) const fn row_layout_ref(&self) -> &RowLayout {
+        &self.row_layout
     }
 
     /// Borrow the immutable store/revision authority that admitted this
     /// executor's accepted row layout.
-    pub(in crate::db) fn accepted_schema_authority(
-        &self,
-    ) -> Result<&AcceptedSchemaAuthority, InternalError> {
-        Ok(self.accepted_value_catalog_handle()?.authority())
+    pub(in crate::db) fn accepted_schema_authority(&self) -> &AcceptedSchemaAuthority {
+        self.accepted_value_catalog_handle().authority()
     }
 
     /// Borrow the immutable accepted catalog handle frozen into this
     /// executor's row layout.
     pub(in crate::db) fn accepted_value_catalog_handle(
         &self,
-    ) -> Result<&crate::db::schema::AcceptedValueCatalogHandle, InternalError> {
-        Ok(self
-            .row_layout_ref()?
+    ) -> &crate::db::schema::AcceptedValueCatalogHandle {
+        self.row_layout_ref()
             .contract()
-            .accepted_value_catalog_handle())
+            .accepted_value_catalog_handle()
     }
 
     /// Borrow the accepted schema view attached to this executor authority.
     #[must_use]
-    pub(in crate::db) fn accepted_schema_info(&self) -> Option<&SchemaInfo> {
-        self.accepted_schema_info
-            .as_ref()
-            .map(std::convert::AsRef::as_ref)
+    pub(in crate::db) fn accepted_schema_info(&self) -> &SchemaInfo {
+        &self.accepted_schema_info
     }
 
     /// Share this authority's immutable schema view with detached preparation.
     #[must_use]
-    pub(in crate::db) fn accepted_schema_info_handle(&self) -> Option<Rc<SchemaInfo>> {
-        self.accepted_schema_info.as_ref().map(Rc::clone)
+    pub(in crate::db) fn accepted_schema_info_handle(&self) -> Rc<SchemaInfo> {
+        Rc::clone(&self.accepted_schema_info)
     }
 
     /// Return the entity snapshot fingerprint captured by the runtime root.
@@ -157,12 +151,7 @@ impl EntityAuthority {
             return Err(InternalError::query_executor_invariant());
         }
 
-        let schema_info = self
-            .accepted_schema_info
-            .as_ref()
-            .ok_or_else(InternalError::query_executor_invariant)?;
-
-        validate_access_runtime_invariants_with_schema(schema_info.as_ref(), &plan.access)
+        validate_access_runtime_invariants_with_schema(&self.accepted_schema_info, &plan.access)
             .map_err(crate::db::access::AccessPlanError::into_internal_error)
     }
 
@@ -172,17 +161,8 @@ impl EntityAuthority {
         &self,
         kind: AggregateKind,
         target_field: Option<&'a str>,
-    ) -> Result<AggregateRouteShape<'a>, InternalError> {
-        let schema_info = self
-            .accepted_schema_info
-            .as_ref()
-            .ok_or_else(InternalError::query_executor_invariant)?;
-
-        Ok(AggregateRouteShape::new_from_schema_info(
-            kind,
-            target_field,
-            schema_info,
-        ))
+    ) -> AggregateRouteShape<'a> {
+        AggregateRouteShape::new_from_schema_info(kind, target_field, &self.accepted_schema_info)
     }
 
     /// Derive one covering-read execution contract through authority-owned schema metadata.
@@ -192,10 +172,8 @@ impl EntityAuthority {
         plan: &AccessPlannedQuery,
         strict_predicate_compatible: bool,
     ) -> Option<CoveringReadExecutionPlan> {
-        let schema_info = self.accepted_schema_info.as_ref()?;
-
         covering_read_execution_plan_with_schema_info(
-            schema_info,
+            &self.accepted_schema_info,
             plan,
             strict_predicate_compatible,
         )
@@ -208,10 +186,8 @@ impl EntityAuthority {
         plan: &AccessPlannedQuery,
         strict_predicate_compatible: bool,
     ) -> Option<CoveringHybridReadExecutionPlan> {
-        let schema_info = self.accepted_schema_info.as_ref()?;
-
         covering_hybrid_projection_execution_plan_with_schema_info(
-            schema_info,
+            &self.accepted_schema_info,
             plan,
             strict_predicate_compatible,
         )

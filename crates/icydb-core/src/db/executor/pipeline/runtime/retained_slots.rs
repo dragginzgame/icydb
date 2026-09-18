@@ -67,7 +67,7 @@ fn compile_retained_slot_layout(
     cursor_emission: CursorEmissionMode,
     extra_slots: &[usize],
 ) -> Result<Option<RetainedSlotLayout>, InternalError> {
-    let row_layout = authority.row_layout_ref()?;
+    let row_layout = authority.row_layout_ref();
     let mut required_slots = RetainedSlotRequirements::new(row_layout.field_count());
 
     // Phase 1: retain projection inputs, including scalar byte-length values.

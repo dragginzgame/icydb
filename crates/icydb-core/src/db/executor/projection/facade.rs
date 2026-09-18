@@ -332,7 +332,7 @@ where
         ));
     }
 
-    let row_layout = authority.row_layout()?;
+    let row_layout = authority.row_layout();
     let prepared_projection = prepared_projection_contract
         .as_deref()
         .ok_or_else(InternalError::query_executor_invariant)?;

@@ -61,9 +61,8 @@ impl<C: CanisterKind> DbSession<C> {
         let value_catalog = prepared_plan
             .authority_ref()
             .accepted_schema_info()
-            .map(crate::db::schema::SchemaInfo::value_catalog_handle)
-            .cloned()
-            .ok_or_else(QueryError::invariant)?;
+            .value_catalog_handle()
+            .clone();
         let (columns, fixed_scales) = projection.into_components();
         let (rows, row_count) = match scan_budget {
             Some(scan_budget) => execute_sql_projection_rows_for_canister_with_scan_budget(

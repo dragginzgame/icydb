@@ -83,8 +83,7 @@ impl<C: CanisterKind> DbSession<C> {
         let authority = plan.authority_ref();
         self.ensure_accepted_schema_authority_is_current_for_store_path(
             authority.store_path(),
-            plan.accepted_schema_authority()
-                .map_err(QueryError::execute)?,
+            plan.accepted_schema_authority(),
         )
         .map_err(QueryError::execute)?;
         ensure_grouped_execution_family(plan.execution_family().map_err(QueryError::execute)?)?;

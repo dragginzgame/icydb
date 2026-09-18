@@ -20,8 +20,7 @@ use crate::{
                 VisibleIndexes, build_logical_plan, fold_constant_predicate,
                 is_limit_zero_load_window, logical_query_from_logical_inputs,
                 normalize_query_predicate, plan_access_selection_with_order_and_semantic_indexes,
-                plan_query_access_with_accepted_schema, predicate_is_constant_false,
-                primary_key_input_resource_from_value_list,
+                predicate_is_constant_false, primary_key_input_resource_from_value_list,
                 rerank_access_plan_by_residual_burden_with_semantic_indexes,
                 residual_query_predicate_after_access_path_bounds,
                 validate_group_query_semantics_with_schema, validate_query_semantics_with_schema,
@@ -50,8 +49,8 @@ pub(in crate::db) const MAX_EXACT_COUNT_PREFIX_CARDINALITY_KEYS: usize = 17;
 ///
 /// PreparedScalarPlanningState captures the validated scalar planning inputs
 /// that both cache-key construction and planner misses need to reuse.
-/// This exists so the miss path can normalize one predicate and materialize one
-/// access inputs exactly once before handing the same state to planning.
+/// Cache lookup and plan construction share the normalized predicate and
+/// primary-key input resource summary without preparing either twice.
 /// Schema metadata stays shared with its immutable accepted root; retaining this
 /// state does not make that root current authority for a later execution.
 ///
@@ -141,33 +140,34 @@ impl<'a> CountCardinalityPrefixAccess<'a> {
     }
 }
 
-/// Build a query model plan from an already prepared scalar planning state.
+/// Build a plan from prepared inputs and accepted candidate indexes. Cold
+/// planning supplies currently visible indexes; template rebinding supplies its
+/// retained candidates after the cache owner checks current authority/visibility.
 pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_planning_state(
     query: &QueryModel,
-    visible_indexes: &VisibleIndexes,
+    indexes: &[SemanticIndexAccessContract],
     planning_state: PreparedScalarPlanningState<'_>,
     work: &PreparationWork<'_>,
 ) -> Result<AccessPlannedQuery, QueryError> {
     // Phase 1: reuse the caller-provided validated scalar planning state so
     // cache-key construction and planner misses share one normalized predicate
-    // plus one explicit key-access override materialization.
+    // and primary-key input resource summary.
     let PreparedScalarPlanningState {
         schema_info,
         access_inputs,
         normalized_predicate,
         primary_key_input_resource,
     } = planning_state;
-    let access_order = access_inputs.order();
+    let canonical_order = access_inputs.canonical_order(&schema_info, query.is_grouped(), work)?;
 
     // Phase 2: choose one access path from the shared normalized predicate and
     // the already-projected planner access inputs.
     let access_selection = plan_access_from_normalized_predicate(
         query,
-        visible_indexes,
+        indexes,
         &schema_info,
         normalized_predicate.as_ref(),
-        access_order,
-        None,
+        canonical_order.as_ref(),
         work,
     )?;
     let (access_plan_value, planned_non_index_reason) =
@@ -175,48 +175,10 @@ pub(in crate::db::query) fn build_query_model_plan_with_indexes_from_scalar_plan
 
     assemble_query_model_plan(
         query,
-        visible_indexes.accepted_semantic_index_contracts(),
+        indexes,
         schema_info,
         normalized_predicate,
-        primary_key_input_resource,
-        access_plan_value,
-        planned_non_index_reason,
-        work,
-    )
-}
-
-/// Bind one validated execution to the index authority retained by a prepared
-/// parameterized template. This reuses the chosen physical topology while
-/// deriving fresh key/range bounds from the current execution's values.
-pub(in crate::db::query) fn build_query_model_plan_from_parameterized_template(
-    query: &QueryModel,
-    template_indexes: &[SemanticIndexAccessContract],
-    planning_state: PreparedScalarPlanningState<'_>,
-    work: &PreparationWork<'_>,
-) -> Result<AccessPlannedQuery, QueryError> {
-    let PreparedScalarPlanningState {
-        schema_info,
-        access_inputs,
-        normalized_predicate,
-        primary_key_input_resource,
-    } = planning_state;
-    let access_order = access_inputs.order();
-    let access_selection = plan_access_from_parameterized_template(
-        query,
-        template_indexes,
-        &schema_info,
-        normalized_predicate.as_ref(),
-        access_order,
-        work,
-    )?;
-    let (access_plan_value, planned_non_index_reason) =
-        access_selection.into_access_and_non_index_reason();
-
-    assemble_query_model_plan(
-        query,
-        template_indexes,
-        schema_info,
-        normalized_predicate,
+        canonical_order,
         primary_key_input_resource,
         access_plan_value,
         planned_non_index_reason,
@@ -233,6 +195,7 @@ fn assemble_query_model_plan(
     rerank_indexes: &[SemanticIndexAccessContract],
     schema_info: Rc<SchemaInfo>,
     normalized_predicate: Option<Predicate>,
+    canonical_order: Option<OrderSpec>,
     primary_key_input_resource: Option<PrimaryKeyInputResourceSummary>,
     access_plan_value: AccessPlan<Value>,
     planned_non_index_reason: Option<PlannedNonIndexAccessReason>,
@@ -255,10 +218,11 @@ fn assemble_query_model_plan(
     let logical_query = logical_query_from_logical_inputs(
         logical_inputs,
         normalized_predicate,
+        canonical_order,
         query.consistency(),
         work,
     )?;
-    let logical = build_logical_plan(&schema_info, logical_query, work)?;
+    let logical = build_logical_plan(logical_query);
     let mut plan = AccessPlannedQuery::from_planned_access_with_projection(
         logical,
         access_plan_value,
@@ -338,38 +302,6 @@ pub(in crate::db) fn apply_exact_cardinality_tiebreak_selection(
     reselected.set_cardinality_tiebreak(state);
     simplify_limit_one_page_for_by_key_access(&mut reselected);
     finalize_query_model_plan(schema_info, reselected, work)
-}
-
-fn plan_access_from_parameterized_template(
-    query: &QueryModel,
-    template_indexes: &[SemanticIndexAccessContract],
-    schema_info: &SchemaInfo,
-    normalized_predicate: Option<&Predicate>,
-    order: Option<&OrderSpec>,
-    work: &PreparationWork<'_>,
-) -> Result<PlannedAccessSelection, QueryError> {
-    let limit_zero_window = is_limit_zero_load_window(query.mode());
-    let constant_false_predicate = predicate_is_constant_false(normalized_predicate);
-    if limit_zero_window || constant_false_predicate {
-        return Ok(PlannedAccessSelection::new(
-            AccessPlan::by_keys(Vec::new()),
-            if limit_zero_window {
-                Some(PlannedNonIndexAccessReason::LimitZeroWindow)
-            } else {
-                Some(PlannedNonIndexAccessReason::ConstantFalsePredicate)
-            },
-        ));
-    }
-
-    plan_access_selection_with_order_and_semantic_indexes(
-        template_indexes,
-        schema_info,
-        normalized_predicate,
-        order,
-        query.is_grouped(),
-        work,
-    )
-    .map_err(QueryError::from)
 }
 
 /// Build the exact-prefix COUNT metadata access proof directly from query
@@ -646,20 +578,21 @@ pub(in crate::db::query) fn try_build_trivial_scalar_load_plan_with_schema_info(
         return Ok(None);
     }
 
-    // Phase 2: assemble the same logical scalar plan shape without projecting
-    // access-planning inputs or normalizing an absent predicate.
-    let logical_inputs = LogicalPlanningInputs::new(
-        query.mode(),
+    // Phase 2: assemble the same logical scalar plan shape without access
+    // selection or normalizing an absent predicate.
+    let logical_inputs = LogicalPlanningInputs::new(query.mode(), None, false, false, None, None);
+    let canonical_order =
+        query
+            .planning_access_inputs()
+            .canonical_order(&schema_info, false, work)?;
+    let logical_query = logical_query_from_logical_inputs(
+        logical_inputs,
         None,
-        false,
-        query.scalar_order_for_trivial_fast_path(),
-        false,
-        None,
-        None,
-    );
-    let logical_query =
-        logical_query_from_logical_inputs(logical_inputs, None, query.consistency(), work)?;
-    let logical = build_logical_plan(&schema_info, logical_query, work)?;
+        canonical_order,
+        query.consistency(),
+        work,
+    )?;
+    let logical = build_logical_plan(logical_query);
     let mut plan = AccessPlannedQuery::from_planned_access_with_projection(
         logical,
         AccessPlan::<Value>::full_scan(),
@@ -689,9 +622,8 @@ pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_with_schem
     // work so compile attribution keeps policy failures honest.
     query.validate_policy_shape()?;
 
-    // Phase 2: project the planner access inputs once so cache-key construction
-    // and miss-path planning reuse the same explicit key-access override
-    // materialization.
+    // Phase 2: retain borrowed intent inputs alongside the normalized predicate
+    // and primary-key resource facts needed by cache lookup and planning.
     let access_inputs = query.planning_access_inputs();
     let primary_key_input_resource =
         primary_key_input_resource_from_predicate(&schema_info, access_inputs.predicate(), work)?;
@@ -713,11 +645,10 @@ pub(in crate::db::query) fn prepare_query_model_scalar_planning_state_with_schem
 // without recomputing planner inputs or scattering the empty-window gates.
 fn plan_access_from_normalized_predicate(
     query: &QueryModel,
-    visible_indexes: &VisibleIndexes,
+    indexes: &[SemanticIndexAccessContract],
     schema_info: &SchemaInfo,
     normalized_predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
-    key_access_override: Option<AccessPlan<Value>>,
     work: &PreparationWork<'_>,
 ) -> Result<PlannedAccessSelection, QueryError> {
     let limit_zero_window = is_limit_zero_load_window(query.mode());
@@ -735,15 +666,15 @@ fn plan_access_from_normalized_predicate(
         ));
     }
 
-    plan_query_access_with_accepted_schema(
-        visible_indexes,
+    plan_access_selection_with_order_and_semantic_indexes(
+        indexes,
         schema_info,
         normalized_predicate,
         order,
         query.is_grouped(),
-        key_access_override,
         work,
     )
+    .map_err(QueryError::from)
 }
 
 // Keep grouped and scalar semantic validation behind one pipeline-local gate so
@@ -944,12 +875,59 @@ fn simplify_limit_one_page_for_by_key_access(plan: &mut AccessPlannedQuery) {
     scalar.page = None;
 }
 
+///
+/// TESTS
+///
+
 #[cfg(all(test, feature = "sql"))]
 mod tests {
     mod candidate_outputs;
 
     use super::{VisibleIndexes, exact_first_component_metadata_index};
     use crate::db::query::plan::exact_metadata_schema;
+
+    #[test]
+    fn empty_access_preserves_reason_precedence() {
+        use crate::db::{
+            access::AccessPlan,
+            predicate::{MissingRowPolicy, Predicate},
+            query::{
+                intent::QueryModel, plan::PlannedNonIndexAccessReason,
+                preparation::with_preparation_work,
+            },
+        };
+
+        let schema = exact_metadata_schema(&[], &[]);
+        for (limit, predicate, reason) in [
+            (0, None, PlannedNonIndexAccessReason::LimitZeroWindow),
+            (
+                0,
+                Some(Predicate::False),
+                PlannedNonIndexAccessReason::LimitZeroWindow,
+            ),
+            (
+                1,
+                Some(Predicate::False),
+                PlannedNonIndexAccessReason::ConstantFalsePredicate,
+            ),
+        ] {
+            let query = QueryModel::new(MissingRowPolicy::Ignore).limit(limit);
+            let selection = with_preparation_work(|work| {
+                super::plan_access_from_normalized_predicate(
+                    &query,
+                    &[],
+                    &schema,
+                    predicate.as_ref(),
+                    None,
+                    work,
+                )
+            })
+            .unwrap();
+            let (access, actual_reason) = selection.into_access_and_non_index_reason();
+            assert_eq!(access, AccessPlan::by_keys(Vec::new()));
+            assert_eq!(actual_reason, Some(reason));
+        }
+    }
 
     #[test]
     fn primary_key_summary_preserves_scope_and_propagates_exhaustion() {

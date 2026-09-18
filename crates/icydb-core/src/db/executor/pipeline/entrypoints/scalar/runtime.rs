@@ -237,7 +237,7 @@ fn initial_retained_slot_layout(
         }
         prepared
             .plan_core
-            .get_or_init_cursorless_retained_slot_layout(prepared.authority.clone())
+            .get_or_init_cursorless_retained_slot_layout(&prepared.authority)
     } else {
         Ok(prepared.retained_slot_layout.clone())
     }

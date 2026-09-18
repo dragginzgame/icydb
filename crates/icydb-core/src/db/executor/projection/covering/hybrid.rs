@@ -69,7 +69,7 @@ where
     };
     let row_presence_proven = existing_row_mode == CoveringExistingRowMode::ProvenByPlanner;
 
-    let row_layout = authority.row_layout()?;
+    let row_layout = authority.row_layout();
     let ownership = HybridProjectionOwnership::compile(hybrid.fields.as_slice());
 
     store.with_data(|data_store| {

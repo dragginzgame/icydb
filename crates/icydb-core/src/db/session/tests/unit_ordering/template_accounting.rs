@@ -1,5 +1,5 @@
-//! Candidate-list construction shares the request; warm template reuse does not
-//! allocate another candidate list or publish an incomplete cold artifact.
+//! Cache construction shares the request and publishes only complete artifacts.
+//! Warm reuse avoids compilation and retains parameterized candidate backing.
 
 use super::*;
 use crate::db::{
@@ -7,7 +7,7 @@ use crate::db::{
     executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     query::{
         intent::StructuralQuery,
-        plan::{OrderSpec, OrderTerm, VisibleIndexes},
+        plan::{OrderSpec, VisibleIndexes},
         preparation::PreparationWork,
     },
 };
@@ -23,6 +23,79 @@ fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
         )
         .with_limit_for_tests(resource, limit),
     )
+}
+
+#[test]
+fn filterless_misses_require_compilation_but_warm_plans_do_not() {
+    let setup = initialize();
+    let catalog = setup
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    // Primary-key ordering uses trivial construction; label ordering uses the
+    // general planner. Both must preserve the same cold/warm admission contract.
+    for field in ["id", "label"] {
+        let query = StructuralQuery::new(MissingRowPolicy::Ignore)
+            .order_spec(OrderSpec {
+                fields: vec![asc(field).lower()],
+            })
+            .limit(1);
+        for lane in [
+            DiagnosticExecutionLane::PublicRead,
+            DiagnosticExecutionLane::TrustedRead,
+            DiagnosticExecutionLane::Diagnostic,
+        ] {
+            setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+            let rejected = request(Resource::PlanCompilations, 0);
+            let reader = new_request_session_with_root(&rejected);
+            let error = reader
+                .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+                    catalog.accepted_entity_authority(),
+                    &catalog,
+                    &query,
+                    lane,
+                )
+                .unwrap_err();
+            assert!(error.diagnostic_facts().contains(&(
+                DiagnosticFactTag::BudgetResource,
+                Resource::PlanCompilations.raw(),
+            )));
+            assert_eq!(setup.shared_query_cache_usage_for_tests(), (0, 0));
+
+            let cold = request(Resource::PlanCompilations, 1);
+            let reader = new_request_session_with_root(&cold);
+            let (expected, reuse) = reader
+                .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+                    catalog.accepted_entity_authority(),
+                    &catalog,
+                    &query,
+                    lane,
+                )
+                .unwrap();
+            assert!(!reuse.is_hit());
+            assert_eq!(cold.observed(Resource::PlanCompilations), 1);
+            let retained = setup.shared_query_cache_usage_for_tests();
+            assert_eq!(retained.0, 1);
+
+            let warm = request(Resource::PlanCompilations, 0);
+            let reader = new_request_session_with_root(&warm);
+            let (actual, reuse) = reader
+                .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+                    catalog.accepted_entity_authority(),
+                    &catalog,
+                    &query,
+                    lane,
+                )
+                .unwrap();
+            assert!(reuse.is_hit());
+            assert_eq!(actual.logical_plan(), expected.logical_plan());
+            assert_eq!(warm.observed(Resource::PlanCompilations), 0);
+            assert_eq!(setup.shared_query_cache_usage_for_tests(), retained);
+            for root in [&rejected, &cold, &warm] {
+                assert_eq!(root.observed(Resource::RowsVisited), 0);
+                assert_eq!(root.observed(Resource::QueryExecutions), 0);
+            }
+        }
+    }
 }
 
 #[test]
@@ -106,11 +179,11 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
         DiagnosticExecutionLane::TrustedRead,
     ] {
         let costs = construction_costs(&setup, &queries, lane);
-        let (access_order_bytes, access_order_steps) = access_order_cost();
         // A cold plan and the rebound A have identical operands. Only cold
-        // preparation constructs candidate backing and selects its initial order.
-        assert_eq!(costs[0].0 - costs[2].0, bytes + access_order_bytes);
-        assert_eq!(costs[0].1 - costs[2].1, count as u64 + access_order_steps);
+        // preparation constructs candidate backing. Both paths construct the
+        // canonical order once and transfer it into the logical plan.
+        assert_eq!(costs[0].0 - costs[2].0, bytes);
+        assert_eq!(costs[0].1 - costs[2].1, count as u64);
         for (resource, exact, rebound, memo) in [
             (
                 Resource::TemporaryBytes,
@@ -199,7 +272,7 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
 
 // Observe shared preparation owners instead of maintaining a second formula for
 // projection, metadata, operand copies and access lowering. The test independently
-// pins cold-only candidate/order costs, cheaper bound-plan hits and cache publication
+// pins cold-only candidate costs, cheaper bound-plan hits and cache publication
 // at the observed exact boundary (including rejection one unit below it).
 fn construction_costs(
     setup: &DbSession<TestCanister>,
@@ -230,12 +303,6 @@ fn construction_costs(
             root.observed(Resource::PredicateExpressionSteps),
         )
     })
-}
-
-const fn access_order_cost() -> (u64, u64) {
-    // Initial access selection also copies and canonicalizes the id order.
-    // Template rebinding retains its existing topology and skips this work.
-    ((size_of::<OrderTerm>() + "id".len()) as u64, 4 + 4)
 }
 
 fn indexed_query(setup: &DbSession<TestCanister>, label: &str) -> StructuralQuery {

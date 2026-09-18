@@ -9,13 +9,13 @@ use crate::db::query::intent::{StructuralQueryCacheKey, state::GroupedIntent};
 #[cfg(feature = "sql")]
 use crate::db::query::plan::expr::FieldId;
 use crate::db::{
+    access::SemanticIndexAccessContract,
     predicate::MissingRowPolicy,
     query::{
         intent::{QueryError, QueryIntent},
         plan::{
             AccessPlannedQuery, AccessPlanningInputs, GroupAggregateSpec, LogicalPlanningInputs,
             OrderSpec, PreparedQueryParameterContract, PreparedScalarPlanningState, QueryMode,
-            VisibleIndexes, build_query_model_plan_from_parameterized_template,
             build_query_model_plan_with_indexes_from_scalar_planning_state,
             expr::{Expr, ProjectionSelection, is_normalized_bool_expr, normalize_bool_expr},
             prepare_query_model_scalar_planning_state_with_schema_info,
@@ -189,13 +189,6 @@ impl QueryModel {
         order
             .primary_key_only_direction_fields(schema_info.primary_key_names())
             .is_some()
-    }
-
-    #[must_use]
-    pub(in crate::db::query) const fn scalar_order_for_trivial_fast_path(
-        &self,
-    ) -> Option<&OrderSpec> {
-        self.intent.scalar().order.as_ref()
     }
 
     #[must_use]
@@ -419,27 +412,13 @@ impl QueryModel {
 
     pub(in crate::db::query::intent) fn build_plan_model_with_indexes_from_scalar_planning_state(
         &self,
-        visible_indexes: &VisibleIndexes,
+        indexes: &[SemanticIndexAccessContract],
         planning_state: PreparedScalarPlanningState<'_>,
         work: &PreparationWork<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         build_query_model_plan_with_indexes_from_scalar_planning_state(
             self,
-            visible_indexes,
-            planning_state,
-            work,
-        )
-    }
-
-    pub(in crate::db::query::intent) fn build_plan_model_from_parameterized_template(
-        &self,
-        template_indexes: &[crate::db::access::SemanticIndexAccessContract],
-        planning_state: PreparedScalarPlanningState<'_>,
-        work: &PreparationWork<'_>,
-    ) -> Result<AccessPlannedQuery, QueryError> {
-        build_query_model_plan_from_parameterized_template(
-            self,
-            template_indexes,
+            indexes,
             planning_state,
             work,
         )

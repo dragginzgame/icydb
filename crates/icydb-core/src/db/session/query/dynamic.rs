@@ -98,21 +98,22 @@ impl<C: CanisterKind> DbSession<C> {
         let [primary_key] = catalog.accepted_schema_info().primary_key_names() else {
             return false;
         };
-        matches!(
-            request.filter_expr(),
-            Some(
-                FilterExpr::Compare {
-                    operator: CompareOperator::Eq,
-                    field,
-                    ..
-                } | FilterExpr::Set {
-                    operator: SetOperator::In,
-                    field,
-                    ..
-                }
-            )
-                if field.eq_ignore_ascii_case(primary_key)
-        )
+        // This is only a cheap candidate check, not normalization. Multi-value
+        // lists (including duplicates) use the ordinary paged preparation once.
+        let field = match request.filter_expr() {
+            Some(FilterExpr::Compare {
+                operator: CompareOperator::Eq,
+                field,
+                ..
+            }) => field,
+            Some(FilterExpr::Set {
+                operator: SetOperator::In,
+                field,
+                values,
+            }) if values.len() == 1 => field,
+            _ => return false,
+        };
+        field.eq_ignore_ascii_case(primary_key)
     }
 
     fn exact_primary_key_candidate_bound(
@@ -487,8 +488,9 @@ impl<C: CanisterKind> DbSession<C> {
         let page_output_limit = usize::try_from(page_output_limit).unwrap_or(page_row_limit);
         let execution_limit = u32::try_from(page_row_limit).unwrap_or(u32::MAX);
         let execution_lane = lane.execution_lane();
-        let exact_candidate =
-            decoded_token.is_none() && Self::may_select_exact_single_primary_key(request, &catalog);
+        let exact_candidate = decoded_token.is_none()
+            && page_output_limit > 0
+            && Self::may_select_exact_single_primary_key(request, &catalog);
         let initial_plan = if exact_candidate {
             let query =
                 self.structural_query_from_dynamic_request(request, &catalog, execution_lane)?;
@@ -522,7 +524,6 @@ impl<C: CanisterKind> DbSession<C> {
                 self.structural_projection_prepared_plan_for_accepted_authority_with_route_pin(
                     &query,
                     catalog.accepted_entity_authority(),
-                    catalog.snapshot(),
                     execution_lane,
                     route_pin,
                 )?
@@ -590,9 +591,8 @@ impl<C: CanisterKind> DbSession<C> {
         let value_catalog = prepared_plan
             .authority_ref()
             .accepted_schema_info()
-            .map(crate::db::schema::SchemaInfo::value_catalog_handle)
-            .cloned()
-            .ok_or_else(QueryError::invariant)?;
+            .value_catalog_handle()
+            .clone();
         let (columns, _fixed_scales) = projection.into_components();
         let projection_request = StructuralProjectionRequest::new(prepared_plan, execution_lane)
             .with_distinct_output_offset(usize::try_from(prior_rows_emitted).unwrap_or(usize::MAX))

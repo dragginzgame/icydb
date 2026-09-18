@@ -166,7 +166,7 @@ fn direct_count_cardinality_range_from_planned_query(
     };
 
     let authority = prepared_plan.authority_ref();
-    let schema = authority.accepted_schema_info()?;
+    let schema = authority.accepted_schema_info();
     let accepted = schema
         .field_path_indexes()
         .iter()
@@ -325,9 +325,7 @@ impl<C: CanisterKind> DbSession<C> {
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<ExactTarget, QueryError> {
-        let Some(schema_info) = authority.accepted_schema_info() else {
-            return Err(QueryError::invariant());
-        };
+        let schema_info = authority.accepted_schema_info();
         let exact_numeric = command.exact_indexed_numeric_target().is_some();
         if exact_numeric || command.exact_distinct_cardinality_target().is_some() {
             let target = (if exact_numeric {

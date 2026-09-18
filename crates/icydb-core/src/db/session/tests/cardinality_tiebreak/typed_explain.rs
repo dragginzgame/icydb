@@ -160,6 +160,76 @@ fn live_range_pagination_advances_without_diagnostic_warmup() {
 }
 
 #[test]
+fn primary_key_membership_prepares_one_plan_and_preserves_paged_results() {
+    let setup = initialize();
+    seed_rows(&setup);
+    for (members, expected) in [
+        (vec![], vec![]),
+        (vec![1], vec![1]),
+        (vec![1, 1], vec![1]),
+        (vec![3, 1, 2, 1], vec![1, 2, 3]),
+        (vec![90, 91], vec![]),
+    ] {
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .filter(FieldRef::new("id").in_list(members))
+            .select(["id"]);
+        setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+        for warm in [false, true] {
+            let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+            let reader = new_request_session(&root);
+            let first = reader.execute_trusted_live_page(&query, None).unwrap();
+            assert_eq!(
+                root.observed(Resource::PlanCompilations),
+                u64::from(!warm),
+                "first-page preparation must not compile a losing point-read candidate",
+            );
+            let mut actual = first.rows;
+            let mut continuation = first.continuation;
+            for _ in 0..4 {
+                let Some(token) = continuation.as_deref() else {
+                    break;
+                };
+                let page_reader =
+                    new_request_session(&crate::db::RequestExecutionRoot::__new_runtime_root());
+                let page = page_reader
+                    .execute_trusted_live_page(&query, Some(token))
+                    .unwrap();
+                if page.continuation.is_some() {
+                    assert_ne!(page.continuation, continuation);
+                }
+                actual.extend(page.rows);
+                continuation = page.continuation;
+            }
+            assert!(continuation.is_none(), "bounded traversal must finish");
+            assert_eq!(
+                actual,
+                expected
+                    .iter()
+                    .map(|id| vec![OutputValue::nat64(*id)])
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    let empty = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("id").eq(1_u64))
+        .limit(0);
+    let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+    let reader = new_request_session(&root);
+    reader.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+    let page = reader.execute_trusted_live_page(&empty, None).unwrap();
+    assert!(page.rows.is_empty() && page.continuation.is_none());
+    assert_eq!(root.observed(Resource::PlanCompilations), 1);
+
+    let invalid = DynamicQuery::new(ENTITY_NAME).filter(
+        FieldRef::new("id").in_list([InputValue::nat64(1), InputValue::text("invalid".into())]),
+    );
+    reader
+        .execute_trusted_live_page(&invalid, None)
+        .expect_err("all membership operands must still be validated");
+}
+
+#[test]
 fn typed_explain_point_range_and_large_membership_preserve_reports_and_rows() {
     let setup = initialize();
     seed_rows(&setup);

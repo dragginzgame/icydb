@@ -82,7 +82,6 @@ fn schema(id_name: &str) -> SchemaInfo {
             composites,
             AcceptedSchemaRevision::INITIAL,
         ),
-        true,
     )
 }
 

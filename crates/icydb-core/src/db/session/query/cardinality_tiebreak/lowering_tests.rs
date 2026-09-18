@@ -50,7 +50,6 @@ fn mixed_index_specs_preserve_depth_first_leaf_order() {
         vec![
             authority
                 .accepted_schema_info()
-                .unwrap()
                 .field_slot_index("common")
                 .unwrap(),
         ],
@@ -79,7 +78,7 @@ fn mixed_index_specs_preserve_depth_first_leaf_order() {
             lower_access_with_schema_info(
                 authority.entity_tag(),
                 access,
-                authority.accepted_schema_info().unwrap(),
+                authority.accepted_schema_info(),
                 work,
             )
             .unwrap()
@@ -119,7 +118,7 @@ fn traversal_budget_is_exact_cumulative_and_row_free_in_every_lane() {
                     lower_access_with_schema_info(
                         authority.entity_tag(),
                         &tree,
-                        authority.accepted_schema_info().unwrap(),
+                        authority.accepted_schema_info(),
                         work,
                     )
                     .map_err(|error| QueryError::execute(error.into_internal_error()))
@@ -154,7 +153,7 @@ fn traversal_exhaustion_precedes_leaf_encoding_and_keeps_its_error_kind() {
             let error = lower_access_with_schema_info(
                 authority.entity_tag(),
                 &tree,
-                authority.accepted_schema_info().unwrap(),
+                authority.accepted_schema_info(),
                 work,
             )
             .unwrap_err();
@@ -182,7 +181,7 @@ fn traversal_exhaustion_precedes_leaf_encoding_and_keeps_its_error_kind() {
 #[test]
 fn spec_backing_exhaustion_precedes_encoding_for_every_index_shape() {
     let (_, authority, candidates) = ranking_candidates_for_tests();
-    let schema = authority.accepted_schema_info().unwrap();
+    let schema = authority.accepted_schema_info();
     let branch_index = SemanticIndexAccessContract::from_accepted_field_path_index(
         schema
             .field_path_indexes()
@@ -285,7 +284,7 @@ fn composite_spec_growth_charges_replacement_backing_and_preserves_order() {
             lower_access_with_schema_info(
                 authority.entity_tag(),
                 &access,
-                authority.accepted_schema_info().unwrap(),
+                authority.accepted_schema_info(),
                 work,
             )
             .map_err(|error| QueryError::execute(error.into_internal_error()))
@@ -349,7 +348,7 @@ fn multi_lookup_reservation_preserves_deferred_raw_bounds() {
             lower_access_with_schema_info(
                 authority.entity_tag(),
                 &access,
-                authority.accepted_schema_info().unwrap(),
+                authority.accepted_schema_info(),
                 work,
             )
             .map_err(|error| QueryError::execute(error.into_internal_error()))
@@ -367,7 +366,7 @@ fn multi_lookup_reservation_preserves_deferred_raw_bounds() {
                 let (expected, _) = lower_access_with_schema_info(
                     authority.entity_tag(),
                     &single,
-                    authority.accepted_schema_info().unwrap(),
+                    authority.accepted_schema_info(),
                     work,
                 )
                 .unwrap()
@@ -386,7 +385,7 @@ fn multi_lookup_reservation_preserves_deferred_raw_bounds() {
 #[test]
 fn accepted_composite_ranges_preserve_prefix_and_endpoint_contracts() {
     let (_, authority, _) = ranking_candidates_for_tests();
-    let schema = authority.accepted_schema_info().unwrap();
+    let schema = authority.accepted_schema_info();
     let accepted = schema
         .field_path_indexes()
         .iter()
@@ -470,7 +469,7 @@ fn cardinality_bounds_exhaustion_is_not_unavailable_evidence() {
         lower_access_with_schema_info(
             authority.entity_tag(),
             &access,
-            authority.accepted_schema_info().unwrap(),
+            authority.accepted_schema_info(),
             work,
         )
     })
