@@ -493,7 +493,8 @@ fn publish_live_candidate_with_prepared_domains(
         vec![record],
     )?;
     let marker = CommitMarker::from_parts(marker_id, vec![batch])?;
-    let commit = begin_commit(marker)?;
+    let commit = begin_commit(&marker)?;
+    drop(marker);
 
     finish_commit(commit, |_guard| {
         apply_live_schema_checkpoint(incarnation, store_path, expected_revision, candidate)?;
@@ -550,15 +551,20 @@ fn publish_journaled_candidate(
     let positions = prepare_journaled_schema_positions(store, &batch)?;
     let marker = CommitMarker::from_parts_with_schema_application(
         marker_id,
-        vec![batch.clone()],
-        application_record.clone(),
+        vec![batch],
+        application_record,
     )?;
-    let commit = begin_commit(marker)?;
+    // Keep the marker as the sole batch owner through journal publication.
+    let batch = marker
+        .journal_batches()
+        .first()
+        .ok_or_else(InternalError::store_invariant)?;
+    let commit = begin_commit(&marker)?;
 
     finish_commit(commit, |guard| {
         let marker_bytes = guard.journal_batch_bytes(0)?;
         journal_store
-            .with_borrow_mut(|journal| journal.append_marker_encoded_batch(&batch, marker_bytes))?;
+            .with_borrow_mut(|journal| journal.append_marker_encoded_batch(batch, marker_bytes))?;
         store.with_schema_mut(|schema_store| {
             schema_store.apply_journaled_accepted_schema_candidate(
                 incarnation,
@@ -568,9 +574,7 @@ fn publish_journaled_candidate(
         })?;
         apply_constraint_validation_job_change(store, job_change)?;
         apply_staged_schema_domain(store, domain)?;
-        if let Some(operation) = application_record.as_ref() {
-            apply_schema_application_record_op(operation)?;
-        }
+        apply_database_control_ops(marker.database_control())?;
         publish_journaled_schema_positions(store, positions);
         Ok(())
     })
@@ -691,15 +695,16 @@ fn publish_candidates_atomically(
                 .transpose()
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let marker = CommitMarker::from_parts_with_database_control(
-        marker_id,
-        batches.clone(),
-        database_control.clone(),
-    )?;
-    let commit = begin_commit(marker)?;
+    let marker =
+        CommitMarker::from_parts_with_database_control(marker_id, batches, database_control)?;
+    let commit = begin_commit(&marker)?;
 
     finish_commit(commit, |guard| {
-        for (batch_ordinal, (publication, batch)) in publications.iter().zip(&batches).enumerate() {
+        for (batch_ordinal, (publication, batch)) in publications
+            .iter()
+            .zip(marker.journal_batches())
+            .enumerate()
+        {
             let marker_bytes = (batch.journal_sequence() != JournalSequence::new(0))
                 .then(|| guard.journal_batch_bytes(batch_ordinal))
                 .transpose()?;
@@ -739,7 +744,7 @@ fn publish_candidates_atomically(
                 }
             })?;
         }
-        apply_database_control_ops(database_control.as_slice())?;
+        apply_database_control_ops(marker.database_control())?;
         for (publication, positions) in publications.iter().zip(positions) {
             if let Some(positions) = positions {
                 publish_journaled_schema_positions(publication.store, positions);
@@ -753,14 +758,11 @@ fn publish_database_control_atomically(
     database_control: Vec<DatabaseControlOp>,
 ) -> Result<(), InternalError> {
     let marker_id = generate_commit_id()?;
-    let marker = CommitMarker::from_parts_with_database_control(
-        marker_id,
-        Vec::new(),
-        database_control.clone(),
-    )?;
-    let commit = begin_commit(marker)?;
+    let marker =
+        CommitMarker::from_parts_with_database_control(marker_id, Vec::new(), database_control)?;
+    let commit = begin_commit(&marker)?;
     finish_commit(commit, |_guard| {
-        apply_database_control_ops(&database_control)
+        apply_database_control_ops(marker.database_control())
     })
 }
 
@@ -807,13 +809,17 @@ fn publish_journaled_constraint_validation_job(
         vec![record],
     )?;
     let positions = prepare_journaled_schema_positions(store, &batch)?;
-    let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
-    let commit = begin_commit(marker)?;
+    let marker = CommitMarker::from_parts(marker_id, vec![batch])?;
+    let batch = marker
+        .journal_batches()
+        .first()
+        .ok_or_else(InternalError::store_invariant)?;
+    let commit = begin_commit(&marker)?;
 
     finish_commit(commit, |guard| {
         let marker_bytes = guard.journal_batch_bytes(0)?;
         journal_store
-            .with_borrow_mut(|journal| journal.append_marker_encoded_batch(&batch, marker_bytes))?;
+            .with_borrow_mut(|journal| journal.append_marker_encoded_batch(batch, marker_bytes))?;
         store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))?;
         publish_journaled_schema_positions(store, positions);
         Ok(())
@@ -853,13 +859,17 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
         records,
     )?;
     let positions = prepare_journaled_schema_positions(store, &batch)?;
-    let marker = CommitMarker::from_parts(marker_id, vec![batch.clone()])?;
-    let commit = begin_commit(marker)?;
+    let marker = CommitMarker::from_parts(marker_id, vec![batch])?;
+    let batch = marker
+        .journal_batches()
+        .first()
+        .ok_or_else(InternalError::store_invariant)?;
+    let commit = begin_commit(&marker)?;
 
     finish_commit(commit, |guard| {
         let marker_bytes = guard.journal_batch_bytes(0)?;
         journal_store
-            .with_borrow_mut(|journal| journal.append_marker_encoded_batch(&batch, marker_bytes))?;
+            .with_borrow_mut(|journal| journal.append_marker_encoded_batch(batch, marker_bytes))?;
         store.with_index_mut(|index_store| {
             for key in entries {
                 index_store.insert(key, IndexEntryValue::presence());
@@ -1496,7 +1506,8 @@ mod tests {
             ],
         )
         .expect("application marker should admit");
-        let _interrupted = begin_commit(marker).expect("marker should persist before interruption");
+        let _interrupted =
+            begin_commit(&marker).expect("marker should persist before interruption");
         with_schema_application_store(|store| store.apply(&application))
             .expect("interruption should leave only the receipt applied");
         assert!(

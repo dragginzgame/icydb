@@ -495,18 +495,26 @@ pub(in crate::db::schema) fn publish_migration_rewrite_page(
         ));
     }
     let positions = prepare_migration_positions(&batches)?;
+    // Split only the store bindings; the marker owns the prepared payloads.
+    // Both vectors retain the same ordinal order established by preflight.
+    let (stores, batches): (Vec<_>, Vec<_>) = batches
+        .into_iter()
+        .map(|(store_path, store, batch)| ((store_path, store), batch))
+        .unzip();
     let marker = CommitMarker::from_parts_with_database_control(
         marker_id,
-        batches.iter().map(|(_, _, batch)| batch.clone()).collect(),
+        batches,
         vec![DatabaseControlOp::SchemaMigration(operation.clone())],
     )?;
-    let commit = begin_commit(marker)?;
+    let commit = begin_commit(&marker)?;
     #[cfg(test)]
     if take_migration_rewrite_interruption(MigrationRewriteInterruption::MarkerPersisted) {
         return Err(InternalError::executor_invariant());
     }
     finish_commit(commit, |guard| {
-        for (batch_ordinal, (_, store, batch)) in batches.iter().enumerate() {
+        for (batch_ordinal, ((_, store), batch)) in
+            stores.iter().zip(marker.journal_batches()).enumerate()
+        {
             let journal = store
                 .journal_tail_store()
                 .ok_or_else(InternalError::store_invariant)?;
@@ -518,7 +526,9 @@ pub(in crate::db::schema) fn publish_migration_rewrite_page(
         if take_migration_rewrite_interruption(MigrationRewriteInterruption::JournalPublished) {
             return Err(InternalError::executor_invariant());
         }
-        for ((store_path, store, batch), positions) in batches.iter().zip(positions) {
+        for (((store_path, store), batch), positions) in
+            stores.iter().zip(marker.journal_batches()).zip(positions)
+        {
             for record in batch.records() {
                 apply_migration_effect(store_path, *store, record)?;
             }

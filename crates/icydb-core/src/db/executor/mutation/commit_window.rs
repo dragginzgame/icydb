@@ -112,7 +112,6 @@ pub(in crate::db::executor) struct OpenCommitWindow {
 
 pub(in crate::db::executor) struct PreparedJournalAppend {
     journal_store: &'static LocalKey<RefCell<crate::db::journal::JournalTailStore>>,
-    batch: JournalBatch,
     marker_batch_ordinal: usize,
     data_store: &'static LocalKey<RefCell<crate::db::data::DataStore>>,
     position: JournalOverlayPosition,
@@ -120,12 +119,9 @@ pub(in crate::db::executor) struct PreparedJournalAppend {
     schema_positions: PreparedSchemaPositionPublication,
 }
 
-struct CommitWindowPayload {
-    marker: CommitMarker,
-    effects: PreparedCommitEffects,
-}
-
 struct PreparedCommitEffects {
+    // The marker owns each batch once; publication and tail append both borrow it.
+    marker: CommitMarker,
     journal_appends: Vec<PreparedJournalAppend>,
     identity_range_applies: Vec<PreparedIdentityRangeApply>,
     mutation_progress: Option<MutationProgressRecordOp>,
@@ -579,7 +575,7 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
         fixed_commit_work_units,
         &mut relation_budget,
     )?;
-    let CommitWindowPayload { marker, effects } = commit_window_payload_for_prepared_row_ops(
+    let effects = prepare_commit_effects_for_row_ops(
         db,
         &row_ops,
         &prepared_row_ops,
@@ -589,7 +585,8 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
     preflight_identity_range_applies(effects.identity_range_applies.as_slice())?;
     let positioned_rows = preflight_positioned_rows(&prepared_row_ops, &effects.journal_appends)?;
     finish_current_execution_instruction_watermark()?;
-    let commit = begin_commit_window_payload::<C>(marker, effects.mutation_progress.is_some())?;
+    let commit =
+        begin_commit_window_payload::<C>(&effects.marker, effects.mutation_progress.is_some())?;
 
     Ok(OpenCommitWindow {
         commit,
@@ -627,7 +624,7 @@ fn apply_prepared_row_ops<C: CanisterKind>(
             std::mem::forget(apply_guard);
             return Err(InternalError::executor_invariant());
         }
-        append_prepared_journal_batches(guard, &effects.journal_appends)?;
+        append_prepared_journal_batches(guard, &effects)?;
         #[cfg(test)]
         if take_mutation_commit_interruption(MutationCommitInterruption::JournalPublished) {
             std::mem::forget(apply_guard);
@@ -658,7 +655,7 @@ fn apply_prepared_row_ops<C: CanisterKind>(
                 std::mem::forget(apply_guard);
                 return Err(InternalError::executor_invariant());
             }
-            enforce_preflighted_apply(apply_prepared_state_effects::<C>(&effects))?;
+            enforce_preflighted_apply(apply_prepared_state_effects::<C>(effects))?;
             #[cfg(test)]
             if take_mutation_commit_interruption(MutationCommitInterruption::ProgressReplaced)
                 || take_mutation_commit_interruption(MutationCommitInterruption::StateMaterialized)
@@ -705,7 +702,7 @@ fn apply_prepared_row_ops<C: CanisterKind>(
             std::mem::forget(apply_guard);
             return Err(InternalError::executor_invariant());
         }
-        enforce_preflighted_apply(apply_prepared_state_effects::<C>(&effects))?;
+        enforce_preflighted_apply(apply_prepared_state_effects::<C>(effects))?;
         #[cfg(test)]
         if take_mutation_commit_interruption(MutationCommitInterruption::ProgressReplaced)
             || take_mutation_commit_interruption(MutationCommitInterruption::StateMaterialized)
@@ -744,12 +741,13 @@ fn trap_preflighted_commit_apply_contradiction(_error: InternalError) -> ! {
 }
 
 fn apply_prepared_state_effects<C: CanisterKind>(
-    effects: &PreparedCommitEffects,
+    effects: PreparedCommitEffects,
 ) -> Result<(), InternalError> {
     apply_identity_range_applies(effects.identity_range_applies.as_slice())?;
-    for append in &effects.journal_appends {
+    // This is the final use of prepared positions; transfer their keys directly.
+    for append in effects.journal_appends {
         append.schema_store.with_borrow_mut(|store| {
-            store.publish_prepared_journal_batch_positions(append.schema_positions.clone());
+            store.publish_prepared_journal_batch_positions(append.schema_positions);
         });
     }
     if let Some(operation) = effects.mutation_progress.as_ref() {
@@ -863,13 +861,13 @@ pub(in crate::db::executor) fn synchronized_store_handles_for_prepared_row_ops<C
     clippy::too_many_lines,
     reason = "one builder must bind row records, range ordinals, journal sequence, and marker identity before publication"
 )]
-fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
+fn prepare_commit_effects_for_row_ops<C: CanisterKind>(
     db: &Db<C>,
     row_ops: &[CommitRowOp],
     prepared_row_ops: &[PreparedRowCommitOp],
     identity_ranges: &[IdentityRangeAdvance],
     mutation_progress: Option<MutationProgressRecordOp>,
-) -> Result<CommitWindowPayload, InternalError> {
+) -> Result<PreparedCommitEffects, InternalError> {
     if row_ops.len() != prepared_row_ops.len() {
         return Err(InternalError::executor_invariant());
     }
@@ -970,7 +968,6 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
             });
         }
         let marker_batch_ordinal = marker_batches.len();
-        marker_batches.push(batch.clone());
         if let Some(journal_store) = journal_store {
             let position = JournalOverlayPosition::new(
                 handle
@@ -983,7 +980,6 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
             })?;
             journal_appends.push(PreparedJournalAppend {
                 journal_store,
-                batch,
                 marker_batch_ordinal,
                 data_store: handle.data_store(),
                 position,
@@ -991,6 +987,7 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
                 schema_positions,
             });
         }
+        marker_batches.push(batch);
     }
     if identity_range_applies.len() != identity_ranges.len() {
         return Err(InternalError::identity_state_corruption());
@@ -1005,13 +1002,11 @@ fn commit_window_payload_for_prepared_row_ops<C: CanisterKind>(
         None => CommitMarker::from_parts(marker_id, marker_batches)?,
     };
 
-    Ok(CommitWindowPayload {
+    Ok(PreparedCommitEffects {
         marker,
-        effects: PreparedCommitEffects {
-            journal_appends,
-            identity_range_applies,
-            mutation_progress,
-        },
+        journal_appends,
+        identity_range_applies,
+        mutation_progress,
     })
 }
 
@@ -1070,7 +1065,7 @@ fn apply_identity_range_applies(
 }
 
 fn begin_commit_window_payload<C: CanisterKind>(
-    marker: CommitMarker,
+    marker: &CommitMarker,
     has_mutation_progress: bool,
 ) -> Result<CommitGuard, InternalError> {
     if has_mutation_progress {
@@ -1114,13 +1109,18 @@ fn push_journal_record(
 
 fn append_prepared_journal_batches(
     guard: &CommitGuard,
-    appends: &[PreparedJournalAppend],
+    effects: &PreparedCommitEffects,
 ) -> Result<(), InternalError> {
-    for append in appends {
+    for append in &effects.journal_appends {
+        let batch = effects
+            .marker
+            .journal_batches()
+            .get(append.marker_batch_ordinal)
+            .ok_or_else(InternalError::executor_invariant)?;
         let marker_bytes = guard.journal_batch_bytes(append.marker_batch_ordinal)?;
-        append.journal_store.with_borrow_mut(|store| {
-            store.append_marker_encoded_batch(&append.batch, marker_bytes)
-        })?;
+        append
+            .journal_store
+            .with_borrow_mut(|store| store.append_marker_encoded_batch(batch, marker_bytes))?;
     }
 
     Ok(())

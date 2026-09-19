@@ -66,6 +66,26 @@ impl SqlReturningFieldProjection {
             self.output_ordered,
         )
     }
+
+    // Pre-commit checks borrow the full after-image. Select references first so
+    // unreturned text/blob/container values are never copied just to discard them.
+    pub(super) fn project_borrowed_row(&self, row: &[Value]) -> Result<Vec<Value>, QueryError> {
+        let mut projected = vec![None; self.selection.len()];
+        for &(input_index, output_index) in &self.selection {
+            projected[output_index] = Some(
+                row.get(input_index)
+                    .ok_or_else(sql_returning_projection_alignment_error)?,
+            );
+        }
+        projected
+            .into_iter()
+            .map(|value| {
+                value
+                    .cloned()
+                    .ok_or_else(sql_returning_projection_alignment_error)
+            })
+            .collect()
+    }
 }
 
 /// Derive canonical SQL `RETURNING *` labels from the accepted row descriptor.
@@ -128,10 +148,9 @@ pub(super) fn sql_materialized_returning_projection_rows(
                 .map_err(query_error_to_internal_invariant)?;
             let rows = rows
                 .iter()
-                .cloned()
                 .map(|row| {
                     projection
-                        .project_owned_row(row)
+                        .project_borrowed_row(row)
                         .and_then(|row| sql_returning_output_value_row(enum_catalog, row))
                         .map_err(query_error_to_internal_invariant)
                 })
@@ -332,8 +351,53 @@ fn sql_returning_projection_alignment_error() -> QueryError {
 
 #[cfg(test)]
 mod tests {
-    use super::{sql_returning_field_indices, sql_returning_field_selection};
+    use super::{
+        SqlReturningFieldProjection, sql_returning_field_indices, sql_returning_field_selection,
+    };
+    use crate::{db::QueryError, value::Value};
     use icydb_diagnostic_code::DiagnosticFactTag;
+
+    #[test]
+    fn borrowed_returning_projection_preserves_selection_order_and_alignment() {
+        let columns = ["id", "blob", "label"].map(str::to_string);
+        let row = vec![
+            Value::Nat64(7),
+            Value::Blob(vec![3; 64 * 1024]),
+            Value::Text("name".into()),
+        ];
+        for (fields, expected) in [
+            (vec!["id"], vec![Value::Nat64(7)]),
+            (
+                vec!["id", "label"],
+                vec![Value::Nat64(7), Value::Text("name".into())],
+            ),
+            (
+                vec!["label", "id"],
+                vec![Value::Text("name".into()), Value::Nat64(7)],
+            ),
+            (vec![], vec![]),
+        ] {
+            let fields = fields.into_iter().map(str::to_string).collect::<Vec<_>>();
+            let projection = SqlReturningFieldProjection::from_fields(&columns, &fields).unwrap();
+            assert_eq!(projection.project_borrowed_row(&row).unwrap(), expected);
+            assert_eq!(projection.project_owned_row(row.clone()).unwrap(), expected);
+            let short = projection.project_borrowed_row(&row[..1]);
+            let owned_short = projection.project_owned_row(row[..1].to_vec());
+            if fields.iter().any(|field| field == "label") {
+                assert_eq!(
+                    short.unwrap_err().diagnostic(),
+                    QueryError::invariant().diagnostic()
+                );
+                assert_eq!(
+                    owned_short.unwrap_err().diagnostic(),
+                    QueryError::invariant().diagnostic()
+                );
+            } else {
+                assert_eq!(short.unwrap(), owned_short.unwrap());
+            }
+        }
+        assert_eq!(row[1], Value::Blob(vec![3; 64 * 1024]));
+    }
 
     #[test]
     fn unknown_returning_field_retains_projection_index() {

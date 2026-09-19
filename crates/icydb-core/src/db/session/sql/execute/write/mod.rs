@@ -205,7 +205,7 @@ impl<C: CanisterKind> DbSession<C> {
         let rows = self
             .execute_accepted_structural_save_batch(
                 catalog,
-                descriptor,
+                returning.is_some(),
                 rows,
                 execution.context.operation_timestamp(),
                 |rows| {

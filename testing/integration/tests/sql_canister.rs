@@ -124,6 +124,111 @@ fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
     reset_icydb_fixtures(fixture);
 }
 
+/// Matched retained-Wasm probe; setup and verification reads are outside the
+/// cycle interval. Select explicitly for a before/after source comparison.
+#[test]
+#[ignore = "manual wasm-release RETURNING instruction and cycle measurement"]
+fn returning_selected_cells_wasm_cost_matrix() {
+    use icydb_testing_integration::{
+        CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
+        CanisterWasmProfile, build_canister_with_options, install_prebuilt_fixture_canister,
+    };
+    use sha2::{Digest, Sha256};
+
+    let artifact = build_canister_with_options(
+        "sql",
+        CanisterBuildOptions {
+            profile: CanisterWasmProfile::WasmRelease,
+            sql_mode: CanisterSqlMode::Enabled,
+            candid_export: CanisterCandidExportMode::Enabled,
+            build_profile: CanisterBuildProfile::LocalTest,
+        },
+    )
+    .expect("retained SQL actor build");
+    let module = std::fs::read(&artifact).expect("read while artifact retention is alive");
+    println!(
+        "returning_wasm path={} raw_bytes={} sha256={:x}",
+        artifact.as_ref().display(),
+        module.len(),
+        Sha256::digest(&module)
+    );
+
+    for wide in [false, true] {
+        for (shape, returning) in [
+            ("count", ""),
+            ("id", " RETURNING id"),
+            ("all", " RETURNING *"),
+        ] {
+            let fixture = install_prebuilt_fixture_canister("sql", module.clone());
+            reset_sql_fixtures(&fixture);
+            if wide {
+                seed_oversized_sql_group_name(&fixture);
+            }
+            let id = sql_test_numeric_type_id_by_label(&fixture, "alpha");
+            for repeat in 0..3 {
+                // Drain queued setup/query work without advancing IC time.
+                for _ in 0..64 {
+                    fixture.pocket_ic().tick();
+                }
+                let value = 37 + repeat;
+                let sql = format!(
+                    "UPDATE SqlTestNumericTypes SET int32_value = {value} WHERE id = '{id}'{returning}"
+                );
+                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+                let sample = measure_mutation_sql(&fixture, &sql);
+                let cycles = before
+                    .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+                    .unwrap();
+                let rejected = wide && shape == "all";
+                if rejected {
+                    assert_eq!(
+                        sample.result.as_ref().unwrap_err().code(),
+                        ErrorCode::SQL_WRITE_RETURNING_RESPONSE_TOO_LARGE
+                    );
+                } else {
+                    match sample.result.as_ref().expect("UPDATE succeeds") {
+                        SqlQueryResult::Count { row_count, .. } => {
+                            assert_eq!(shape, "count");
+                            assert_eq!(*row_count, 1);
+                        }
+                        SqlQueryResult::Projection(output) => {
+                            assert_eq!(output.row_count, 1);
+                            if shape == "id" {
+                                assert_eq!(output.columns, ["id"]);
+                                assert_eq!(first_projected_text(output), id);
+                            } else {
+                                assert_eq!(shape, "all");
+                            }
+                        }
+                        _ => panic!("expected mutation result"),
+                    }
+                }
+                let observed = expect_projection(
+                    query_sql(
+                        &fixture,
+                        &format!("SELECT int32_value FROM SqlTestNumericTypes WHERE id = '{id}'"),
+                    )
+                    .expect("post-update read"),
+                );
+                assert_eq!(
+                    observed.rendered_rows(),
+                    string_rows(&[&[&if rejected {
+                        "35".to_string()
+                    } else {
+                        value.to_string()
+                    }]])
+                );
+                let response = candid::encode_one(&sample.result).unwrap();
+                println!(
+                    "returning_cost wide={wide} shape={shape} repeat={repeat} instructions={} cycles={cycles} response_sha256={:x}",
+                    sample.local_instructions,
+                    Sha256::digest(response)
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn bound_null_functions_match_literals_in_non_test_wasm() {
     let fixture = install_sql_canister_fixture();

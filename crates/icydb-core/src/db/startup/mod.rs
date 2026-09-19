@@ -853,7 +853,7 @@ mod tests {
 
         let marker = CommitMarker::from_parts([0x5a; 16], Vec::new())
             .expect("empty marker should admit for control observation");
-        let interrupted = begin_commit(marker).expect("marker should persist");
+        let interrupted = begin_commit(&marker).expect("marker should persist");
         assert_eq!(
             observe_generated_startup_state::<CurrentCanister>(&CURRENT_STORES, SUBMISSION),
             Ok(DatabaseStartupState::Recovering),
@@ -957,7 +957,7 @@ mod tests {
         let terminal = InternalError::store_corruption();
         let marker = CommitMarker::from_parts([0x7b; 16], Vec::new())
             .expect("empty marker should admit for receipt priority");
-        let interrupted = begin_commit(marker).expect("marker should persist");
+        let interrupted = begin_commit(&marker).expect("marker should persist");
         assert!(
             record_generated_schema_startup_failure::<DriverCanister>(
                 &DRIVER_STORES,

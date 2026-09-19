@@ -734,11 +734,21 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
     }
 
     // Phase 3: compare canonical logical values without letting the managed
-    // timestamp manufacture a change. Historical values are encoded through
-    // their accepted current contract before comparison.
+    // timestamp manufacture a change. Unassigned values (including historical
+    // fills) already crossed canonical encoding above and preserve the exact
+    // baseline value, so only assigned slots need a second encoding to compare.
     let mut logical_changed = false;
     for (slot, payload) in payloads.iter().enumerate() {
         if !contract.has_active_field_slot(slot) || updated_at_slot == Some(slot) {
+            continue;
+        }
+        if matches!(
+            provenance[slot],
+            Some(
+                AcceptedFieldWriteProvenance::Preserved
+                    | AcceptedFieldWriteProvenance::HistoricalFill
+            )
+        ) {
             continue;
         }
         let before = baseline.required_cached_value(slot)?;
@@ -1171,6 +1181,10 @@ mod tests {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one width matrix shares insert/default, unchanged-update, boundary rejection and primary-key assertions"
+    )]
     fn assert_narrow_integer_write(
         kind: AcceptedFieldKind,
         width: usize,
@@ -1238,9 +1252,20 @@ mod tests {
             .unwrap()
             .into();
         reader.validate_primary_key_value(&key).unwrap();
-        for value in [boundary, Value::Null, invalid.clone()] {
-            let patch = AcceptedMutationIntentPatch::new()
-                .set_authored(FieldSlot::from_validated_index(1), input(&value));
+        for value in [
+            None,
+            Some(initial.clone()),
+            Some(boundary),
+            Some(Value::Null),
+            Some(invalid.clone()),
+        ] {
+            let patch = value
+                .as_ref()
+                .map_or_else(AcceptedMutationIntentPatch::new, |value| {
+                    AcceptedMutationIntentPatch::new()
+                        .set_authored(FieldSlot::from_validated_index(1), input(value))
+                });
+            let value = value.unwrap_or_else(|| initial.clone());
             let result = resolve_update_structural_patch_with_accepted_contract(
                 accepted.entity_path(),
                 layout.row_decode_contract(catalog.clone()),
@@ -1262,6 +1287,9 @@ mod tests {
                 continue;
             }
             let updated = result.unwrap().into_parts().0.into_raw_row();
+            if value == initial {
+                assert_eq!(updated.as_bytes(), row.as_bytes());
+            }
             let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                 &updated, &contract,
             )

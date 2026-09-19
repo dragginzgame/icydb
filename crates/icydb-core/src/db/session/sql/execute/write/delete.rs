@@ -82,20 +82,25 @@ impl<C: CanisterKind> DbSession<C> {
                 let keys = rows.into_rows().into_iter().map(|(key, _)| key).collect();
                 let columns = projection_labels_from_accepted_write_descriptor(&descriptor);
                 let rows = self
-                    .execute_accepted_structural_delete_batch(catalog, &descriptor, keys, |rows| {
-                        let Some(returning) = returning else {
-                            return Ok(());
-                        };
-                        validate_sql_materialized_returning_bounds(
-                            entity_name.as_str(),
-                            columns.as_slice(),
-                            rows,
-                            u32::try_from(rows.len()).unwrap_or(u32::MAX),
-                            returning,
-                            catalog.enum_catalog(),
-                            execution_bounds.map(|bounds| bounds.returning),
-                        )
-                    })
+                    .execute_accepted_structural_delete_batch(
+                        catalog,
+                        returning.is_some(),
+                        keys,
+                        |rows| {
+                            let Some(returning) = returning else {
+                                return Ok(());
+                            };
+                            validate_sql_materialized_returning_bounds(
+                                entity_name.as_str(),
+                                columns.as_slice(),
+                                rows,
+                                u32::try_from(rows.len()).unwrap_or(u32::MAX),
+                                returning,
+                                catalog.enum_catalog(),
+                                execution_bounds.map(|bounds| bounds.returning),
+                            )
+                        },
+                    )
                     .map_err(QueryError::execute)?;
                 let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
                 match returning {

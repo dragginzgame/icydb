@@ -220,13 +220,13 @@ impl CommitGuard {
 }
 
 /// Persist a commit marker and open the commit window.
-pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
+pub(crate) fn begin_commit(marker: &CommitMarker) -> Result<CommitGuard, InternalError> {
     begin_commit_with_preflighted_mutation_progress(marker, false)
 }
 
 /// Persist one marker after preflighting its exact mutation-progress predecessor.
 pub(in crate::db) fn begin_mutation_progress_commit<C: CanisterKind>(
-    marker: CommitMarker,
+    marker: &CommitMarker,
 ) -> Result<CommitGuard, InternalError> {
     let mut progress_count = 0_usize;
     for operation in marker.database_control() {
@@ -242,7 +242,7 @@ pub(in crate::db) fn begin_mutation_progress_commit<C: CanisterKind>(
 }
 
 fn begin_commit_with_preflighted_mutation_progress(
-    marker: CommitMarker,
+    marker: &CommitMarker,
     mutation_progress_preflighted: bool,
 ) -> Result<CommitGuard, InternalError> {
     for operation in marker.database_control() {
@@ -273,8 +273,8 @@ fn begin_commit_with_preflighted_mutation_progress(
     let startup_recovery_wakeup = startup_recovery_wakeup()?;
     // Encode once without publishing marker authority so Gate 2 consumes the
     // exact envelopes later appended by the successful commit.
-    let prepared = with_commit_store(|store| store.prepare_set_if_empty(&marker))?;
-    let proposed = ExactBacklogMeasurement::from_prepared_marker(&marker, prepared.encoded())?;
+    let prepared = with_commit_store(|store| store.prepare_set_if_empty(marker))?;
+    let proposed = ExactBacklogMeasurement::from_prepared_marker(marker, prepared.encoded())?;
     let current = current_database_backlog()?;
     match admit_backlog(current, proposed, BACKLOG_LIMITS)? {
         BacklogAdmission::Admitted { .. } => {}
@@ -372,7 +372,7 @@ mod tests {
         let marker = CommitMarker::from_parts([0x6d; 16], Vec::new())
             .expect("empty control marker should admit");
 
-        let error = begin_commit(marker).expect_err("missing wake-up wiring must fail closed");
+        let error = begin_commit(&marker).expect_err("missing wake-up wiring must fail closed");
         assert_eq!(
             error.diagnostic().error_code(),
             icydb_diagnostic_code::ErrorCode::RUNTIME_INVARIANT_VIOLATION,

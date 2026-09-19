@@ -59,9 +59,9 @@ struct AcceptedStructuralMutationCommitOptions {
 }
 
 impl AcceptedStructuralMutationCommitOptions {
-    const fn standard() -> Self {
+    const fn standard(capture_output_values: bool) -> Self {
         Self {
-            capture_output_values: true,
+            capture_output_values,
             packing: AcceptedStructuralMutationPacking::Complete,
         }
     }
@@ -932,7 +932,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn execute_accepted_structural_delete_batch(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
-        _descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        capture_output_values: bool,
         keys: Vec<DecodedDataStoreKey>,
         precommit_validation: impl FnOnce(&[Vec<Value>]) -> Result<(), InternalError>,
     ) -> Result<Vec<Vec<Value>>, InternalError> {
@@ -955,7 +955,7 @@ impl<C: CanisterKind> DbSession<C> {
                     }))
             },
             Timestamp::now(),
-            AcceptedStructuralMutationCommitOptions::standard(),
+            AcceptedStructuralMutationCommitOptions::standard(capture_output_values),
             |rows, _report| {
                 let rows = rows
                     .into_iter()
@@ -974,10 +974,11 @@ impl<C: CanisterKind> DbSession<C> {
     /// intent only. Accepted defaults, generated values, managed timestamps,
     /// constraints, relations, row encoding, and commit preparation remain
     /// owned by this database boundary.
+    /// Count-only callers omit result values, never row validation or constraints.
     pub(in crate::db::session) fn execute_accepted_structural_save_batch<T>(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
-        _descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        capture_output_values: bool,
         mutations: Vec<AcceptedStructuralMutation>,
         operation_timestamp: Timestamp,
         precommit_preparation: impl FnOnce(
@@ -1012,7 +1013,7 @@ impl<C: CanisterKind> DbSession<C> {
                     }))
             },
             operation_timestamp,
-            AcceptedStructuralMutationCommitOptions::standard(),
+            AcceptedStructuralMutationCommitOptions::standard(capture_output_values),
             |rows, _report| {
                 precommit_preparation(rows).map(|prepared| {
                     (
@@ -1602,7 +1603,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<DynamicMutationResult, InternalError> {
         self.execute_accepted_structural_save_batch(
             catalog,
-            descriptor,
+            true,
             mutations,
             Timestamp::now(),
             |rows| {
@@ -1753,7 +1754,7 @@ impl<C: CanisterKind> DbSession<C> {
             identity_candidate_count,
             || Ok(items.next()),
             Timestamp::now(),
-            AcceptedStructuralMutationCommitOptions::standard(),
+            AcceptedStructuralMutationCommitOptions::standard(true),
             |rows, _report| {
                 if rows.len() != result_catalogs.len() {
                     return Err(InternalError::executor_invariant());
@@ -7258,8 +7259,6 @@ mod identity_pre_key_tests {
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
             .expect("identity catalog should resolve");
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-            .expect("identity row layout should build");
         let initial_description = session
             .try_describe_entity_by_name(ENTITY_NAME)
             .expect("accepted Identity description should resolve");
@@ -7290,7 +7289,7 @@ mod identity_pre_key_tests {
         let rejected = session
             .execute_accepted_structural_save_batch(
                 &catalog,
-                &descriptor,
+                true,
                 batch(&[1_000, 2_000]),
                 Timestamp::from_millis(6),
                 |_| Err::<(), _>(InternalError::executor_unsupported()),
@@ -7302,7 +7301,7 @@ mod identity_pre_key_tests {
         let rows = session
             .execute_accepted_structural_save_batch(
                 &catalog,
-                &descriptor,
+                true,
                 batch(&[10, 20, 30]),
                 Timestamp::from_millis(7),
                 Ok,
@@ -7818,12 +7817,10 @@ mod identity_pre_key_tests {
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
             .expect("journaled predecessor catalog should resolve");
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-            .expect("journaled predecessor row layout should build");
         session
             .execute_accepted_structural_save_batch(
                 &catalog,
-                &descriptor,
+                true,
                 batch(&[901]),
                 Timestamp::from_millis(21),
                 Ok,
@@ -7934,8 +7931,6 @@ mod identity_pre_key_tests {
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
             .expect("journaled identity catalog should resolve");
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-            .expect("journaled identity row layout should build");
 
         for (ordinal, interruption) in [
             MutationCommitInterruption::MarkerPersisted,
@@ -7949,7 +7944,7 @@ mod identity_pre_key_tests {
             interrupt_next_mutation_commit_for_tests(interruption);
             let interrupted = session.execute_accepted_structural_save_batch(
                 &catalog,
-                &descriptor,
+                true,
                 batch(&[u64::try_from(ordinal).expect("ordinal should fit")]),
                 Timestamp::from_millis(8),
                 Ok,
@@ -7961,7 +7956,7 @@ mod identity_pre_key_tests {
 
             let Err(pending) = session.execute_accepted_structural_save_batch(
                 &catalog,
-                &descriptor,
+                true,
                 batch(&[100 + u64::try_from(ordinal).expect("ordinal should fit")]),
                 Timestamp::from_millis(9),
                 Ok,
@@ -7977,7 +7972,7 @@ mod identity_pre_key_tests {
             let committed = session
                 .execute_accepted_structural_save_batch(
                     &catalog,
-                    &descriptor,
+                    true,
                     batch(&[100 + u64::try_from(ordinal).expect("ordinal should fit")]),
                     Timestamp::from_millis(9),
                     Ok,
@@ -8180,14 +8175,12 @@ mod identity_pre_key_tests {
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
             .expect("journaled identity catalog should resolve");
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-            .expect("journaled identity row layout should build");
 
         for payload in 0_u64..64 {
             session
                 .execute_accepted_structural_save_batch(
                     &catalog,
-                    &descriptor,
+                    true,
                     batch(&[payload]),
                     Timestamp::from_millis(8),
                     Ok,
@@ -8207,7 +8200,7 @@ mod identity_pre_key_tests {
             .expect("database sequence preview should remain readable");
         let Err(pressure) = session.execute_accepted_structural_save_batch(
             &catalog,
-            &descriptor,
+            true,
             batch(&[64]),
             Timestamp::from_millis(8),
             Ok,
@@ -8228,7 +8221,7 @@ mod identity_pre_key_tests {
         session
             .execute_accepted_structural_save_batch(
                 &catalog,
-                &descriptor,
+                true,
                 batch(&[64]),
                 Timestamp::from_millis(8),
                 Ok,
@@ -8589,13 +8582,11 @@ mod identity_pre_key_tests {
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
             .expect("journaled identity catalog should resolve");
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-            .expect("journaled identity row layout should build");
         let payloads = (0_u64..129).collect::<Vec<_>>();
         session
             .execute_accepted_structural_save_batch(
                 &catalog,
-                &descriptor,
+                true,
                 batch(&payloads),
                 Timestamp::from_millis(9),
                 Ok,
@@ -8640,12 +8631,10 @@ mod identity_pre_key_tests {
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
             .expect("journaled identity catalog should resolve");
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-            .expect("journaled identity row layout should build");
         session
             .execute_accepted_structural_save_batch(
                 &catalog,
-                &descriptor,
+                true,
                 batch(&[7]),
                 Timestamp::from_millis(9),
                 Ok,
@@ -8710,12 +8699,10 @@ mod identity_pre_key_tests {
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
             .expect("journaled identity catalog should resolve");
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-            .expect("journaled identity row layout should build");
         session
             .execute_accepted_structural_save_batch(
                 &catalog,
-                &descriptor,
+                true,
                 batch(&[7, 8]),
                 Timestamp::from_millis(9),
                 Ok,

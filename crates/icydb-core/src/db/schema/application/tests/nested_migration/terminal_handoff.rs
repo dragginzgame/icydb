@@ -272,7 +272,7 @@ fn recover_handoff(applied_before_recovery: bool) {
         vec![DatabaseControlOp::SchemaMigration(operation.clone())],
     )
     .expect("handoff marker should encode");
-    let guard = begin_commit(marker).expect("handoff marker should persist");
+    let guard = begin_commit(&marker).expect("handoff marker should persist");
     finish_commit(guard, |_| {
         if applied_before_recovery {
             apply_schema_migration_record_op(&operation)?;

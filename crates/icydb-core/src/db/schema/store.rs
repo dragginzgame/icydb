@@ -861,7 +861,6 @@ pub(in crate::db) struct PreparedAcceptedSchemaFold {
 }
 
 /// Exact schema/control keys whose live values belong to one journal batch.
-#[derive(Clone)]
 pub(in crate::db) struct PreparedSchemaPositionPublication {
     keys: Vec<RawSchemaKey>,
     position: JournalOverlayPosition,

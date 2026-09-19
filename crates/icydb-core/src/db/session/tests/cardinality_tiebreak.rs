@@ -249,6 +249,154 @@ fn sql_mutation_selectors_preserve_exact_and_prefix_bounds() {
 }
 
 #[test]
+fn sql_count_only_writes_preserve_counts_values_and_returning() {
+    let session = initialize();
+    let insert = "INSERT INTO PlannerRow (id, common, rare, wide_fixed, wide_branch, selective_fixed, selective_branch) \
+                  VALUES (1, 'before', 'group-a', 'all', 'x', 'target', 'x')";
+    let count = |result, expected| {
+        assert!(matches!(
+            result,
+            SqlStatementResult::Count { row_count } if row_count == expected
+        ));
+    };
+    count(session.execute_trusted_sql_mutation(insert).unwrap(), 1);
+    count(
+        session
+            .execute_trusted_sql_exact_update(
+                "UPDATE PlannerRow SET common = 'missing' WHERE id = 2",
+                1,
+            )
+            .unwrap(),
+        0,
+    );
+    count(
+        session
+            .execute_trusted_sql_exact_update(
+                "UPDATE PlannerRow SET common = 'after' WHERE id = 1",
+                1,
+            )
+            .unwrap(),
+        1,
+    );
+    // A logical no-op still reports a matched row, without changing its value.
+    count(
+        session
+            .execute_trusted_sql_exact_update(
+                "UPDATE PlannerRow SET common = 'after' WHERE id = 1",
+                1,
+            )
+            .unwrap(),
+        1,
+    );
+    assert_eq!(
+        projection_rows(&session, "SELECT id, common FROM PlannerRow WHERE id = 1"),
+        vec![vec![
+            OutputValue::nat64(1),
+            OutputValue::text("after".into())
+        ]]
+    );
+    let returned = session
+        .execute_trusted_sql_mutation("DELETE FROM PlannerRow WHERE id = 1 RETURNING common, id")
+        .unwrap();
+    let SqlStatementResult::Projection { columns, rows, .. } = returned else {
+        panic!("expected before-image projection");
+    };
+    assert_eq!(columns, ["common", "id"]);
+    assert_eq!(
+        rows,
+        vec![vec![
+            OutputValue::text("after".into()),
+            OutputValue::nat64(1)
+        ]]
+    );
+    count(session.execute_trusted_sql_mutation(insert).unwrap(), 1);
+    count(
+        session
+            .execute_trusted_sql_mutation("DELETE FROM PlannerRow WHERE id = 1")
+            .unwrap(),
+        1,
+    );
+    count(
+        session
+            .execute_trusted_sql_mutation("DELETE FROM PlannerRow WHERE id = 1")
+            .unwrap(),
+        0,
+    );
+    assert!(projection_rows(&session, "SELECT id FROM PlannerRow WHERE id = 1").is_empty());
+}
+
+#[test]
+fn sql_returning_bounds_reject_before_mutation_and_preserve_field_order() {
+    use crate::db::{
+        query::preparation::with_preparation_work,
+        schema::AcceptedRowLayoutRuntimeContract,
+        session::sql::{
+            SqlUpdateExposurePolicy, SqlValidatedUpdatePlan, classify_sql_update_policy_for_entity,
+            with_accepted_sql_update_policy_context,
+        },
+        sql_statement_dispatch,
+    };
+    use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
+
+    let session = initialize();
+    insert_row(&session, 1, "before", "group-a");
+    let replacement = "x".repeat(512);
+    let sql =
+        format!("UPDATE PlannerRow SET common = '{replacement}' WHERE id = 1 RETURNING common, id");
+    let dispatch = sql_statement_dispatch(&sql).unwrap();
+    let catalog = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    let descriptor =
+        AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot()).unwrap();
+    for limit in [256, 4096] {
+        let plan = with_accepted_sql_update_policy_context(&descriptor, |mut context| {
+            context.max_returning_response_bytes = Some(limit);
+            with_preparation_work(|work| {
+                classify_sql_update_policy_for_entity(
+                    &dispatch,
+                    ENTITY_NAME,
+                    SqlUpdateExposurePolicy::PublicPrimaryKeyOnly,
+                    context,
+                    work,
+                )
+            })
+        })
+        .unwrap()
+        .unwrap();
+        let SqlValidatedUpdatePlan::PublicPrimaryKeyOnly(plan) = plan else {
+            panic!("expected primary-key plan");
+        };
+        let result = session.execute_validated_sql_public_primary_key_update(&plan);
+        if limit == 256 {
+            let error = result.unwrap_err();
+            assert_eq!(
+                error.diagnostic().detail(),
+                Some(&DiagnosticDetail::SqlWriteBoundary {
+                    boundary: SqlWriteBoundaryCode::ReturningResponseTooLarge
+                })
+            );
+            assert_eq!(
+                projection_rows(&session, "SELECT common FROM PlannerRow WHERE id = 1"),
+                vec![vec![OutputValue::text("before".into())]]
+            );
+        } else {
+            let SqlStatementResult::Projection { columns, rows, .. } = result.unwrap() else {
+                panic!("expected RETURNING projection");
+            };
+            assert_eq!(columns, ["common", "id"]);
+            assert_eq!(
+                rows,
+                vec![vec![
+                    OutputValue::text(replacement.clone()),
+                    OutputValue::nat64(1)
+                ]]
+            );
+        }
+    }
+}
+
+#[test]
 fn sql_insert_select_reuses_source_syntax_with_current_rows() {
     let session = initialize();
     insert_row(&session, 1, "before", "group-a");

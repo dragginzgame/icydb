@@ -29,6 +29,7 @@ const DATABASE_BOOT_INITIALIZED_STATE: u8 = 0x01;
 // and restart at version 1 rather than implying a supported migration ladder.
 const DATABASE_FORMAT_VERSION_CURRENT: DatabaseFormatVersion = DatabaseFormatVersion(1);
 const CRC32C_REVERSED_POLYNOMIAL: u32 = 0x82f6_3b78;
+const CRC32C_TABLE: [u32; 256] = crc32c_table();
 const WASM_PAGE_BYTES: u64 = 65_536;
 const VIRGIN_SCAN_CHUNK_BYTES: usize = 256;
 
@@ -365,14 +366,29 @@ fn memory_page_is_zero<M: Memory>(memory: &M) -> bool {
     true
 }
 
+// Derive the byte transitions at compile time. The persisted checksum remains
+// CRC32C; this changes only the work required to compute it.
+const fn crc32c_table() -> [u32; 256] {
+    let mut table = [0; 256];
+    let mut index = 0_u32;
+    while index < 256 {
+        let mut crc = index;
+        let mut bit = 0;
+        while bit < 8 {
+            let mask = 0_u32.wrapping_sub(crc & 1);
+            crc = (crc >> 1) ^ (CRC32C_REVERSED_POLYNOMIAL & mask);
+            bit += 1;
+        }
+        table[index as usize] = crc;
+        index += 1;
+    }
+    table
+}
+
 pub(in crate::db) fn crc32c(bytes: &[u8]) -> u32 {
     let mut crc = u32::MAX;
     for byte in bytes {
-        crc ^= u32::from(*byte);
-        for _ in 0..8 {
-            let mask = 0_u32.wrapping_sub(crc & 1);
-            crc = (crc >> 1) ^ (CRC32C_REVERSED_POLYNOMIAL & mask);
-        }
+        crc = (crc >> 8) ^ CRC32C_TABLE[usize::from(crc.to_le_bytes()[0] ^ byte)];
     }
     !crc
 }
@@ -443,4 +459,42 @@ pub(in crate::db) fn open_registered_store_memory(
 ) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory(stable_key, memory_id)
         .map_err(InternalError::database_format_memory_registration_failed)
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::crc32c;
+
+    #[test]
+    fn crc32c_matches_known_vectors_and_bit_recurrence() {
+        assert_eq!(crc32c(b""), 0);
+        assert_eq!(crc32c(b"123456789"), 0xe306_9283);
+        assert_eq!(crc32c(&[0; 32]), 0x8a91_36aa);
+        assert_eq!(crc32c(&[255; 32]), 0x62a8_ab43);
+
+        // Independently exercise every byte transition and long/tail lengths.
+        let bytes: Vec<u8> = (0_u8..=255)
+            .map(|byte| byte.wrapping_mul(73))
+            .cycle()
+            .take(4097)
+            .collect();
+        for len in (0..=256).chain([511, 512, 513, 4096, 4097]) {
+            let mut remainder = u32::MAX;
+            for byte in &bytes[..len] {
+                remainder ^= u32::from(*byte);
+                for _ in 0..8 {
+                    remainder = if remainder & 1 == 0 {
+                        remainder >> 1
+                    } else {
+                        (remainder >> 1) ^ 0x82f6_3b78
+                    };
+                }
+            }
+            assert_eq!(crc32c(&bytes[..len]), !remainder, "length {len}");
+        }
+    }
 }
