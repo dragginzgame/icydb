@@ -10,6 +10,8 @@
 )]
 mod sql_harness;
 
+mod batch_workload;
+
 use std::collections::BTreeSet;
 
 use crate::sql_harness::{

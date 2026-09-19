@@ -2,6 +2,12 @@
 //! Small SQL canister used for lightweight SQL fixture smoke tests.
 //!
 
+#[cfg(feature = "test-admin-api")]
+mod batch_workload;
+
+// Candid's service collector resolves endpoint return types at the crate root.
+#[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
+use crate::batch_workload::BatchWorkloadSample;
 use candid::CandidType;
 use ic_cdk::{query, update};
 #[cfg(feature = "sql")]
