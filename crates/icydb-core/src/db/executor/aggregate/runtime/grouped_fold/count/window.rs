@@ -274,12 +274,11 @@ impl<'a> GroupedCountWindowSelection<'a> {
             return;
         }
 
-        if retained
-            .peek()
-            .is_some_and(|largest_retained| candidate.cmp(largest_retained).is_lt())
+        if let Some(mut largest_retained) = retained.peek_mut()
+            && candidate.cmp(&largest_retained).is_lt()
         {
-            retained.pop();
-            retained.push(candidate);
+            // Replacing the root repairs the heap once, without removing a slot.
+            *largest_retained = candidate;
         }
     }
 

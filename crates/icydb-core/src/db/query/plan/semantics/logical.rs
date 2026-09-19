@@ -793,11 +793,8 @@ fn resolve_grouped_static_planning_semantics(
         return Ok((None, None));
     };
 
-    let mut aggregate_specs = grouped_aggregate_specs_from_projection_spec(
-        projection_spec,
-        &grouped.group.group_fields,
-        grouped.group.aggregates.as_slice(),
-    )?;
+    let mut aggregate_specs =
+        grouped_aggregate_specs_from_projection_spec(projection_spec, &grouped.group.group_fields)?;
     extend_grouped_having_aggregate_specs(&mut aggregate_specs, grouped)?;
 
     let grouped_aggregate_execution_specs = Some(grouped_aggregate_execution_specs(

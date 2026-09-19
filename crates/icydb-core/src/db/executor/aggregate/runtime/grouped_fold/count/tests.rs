@@ -235,3 +235,52 @@ fn grouped_count_bounded_candidate_selection_keeps_smallest_canonical_window() {
         "bounded grouped count selection should retain the smallest canonical grouped-key window only",
     );
 }
+
+#[test]
+fn grouped_count_bounded_selection_matches_sorted_windows() {
+    use crate::db::{
+        direction::Direction,
+        executor::{group::GroupKey, pipeline::contracts::GroupedRouteStage},
+    };
+
+    for direction in [Direction::Asc, Direction::Desc] {
+        for values in [
+            vec![],
+            vec![1],
+            vec![9, 2, 5, 1, 8, 3, 7, 4, 6],
+            (1..10).collect(),
+        ] {
+            for bound in [0, 1, 3, 9, 12] {
+                let rows = values
+                    .iter()
+                    .map(|&value| {
+                        (
+                            GroupKey::from_group_values(vec![Value::Nat64(value)]).unwrap(),
+                            1,
+                        )
+                    })
+                    .collect();
+                let route = GroupedRouteStage::new_for_test(direction, Some(bound));
+                let selected = GroupedCountWindowSelection::new(&route)
+                    .unwrap()
+                    .retain_smallest_candidates(rows, bound);
+                let mut expected = values.clone();
+                expected.sort_unstable();
+                if direction == Direction::Desc {
+                    expected.reverse();
+                }
+                expected.truncate(bound);
+                assert_eq!(
+                    selected
+                        .into_iter()
+                        .map(|(key, _)| key.into_canonical_value())
+                        .collect::<Vec<_>>(),
+                    expected
+                        .into_iter()
+                        .map(|value| Value::List(vec![Value::Nat64(value)]))
+                        .collect::<Vec<_>>(),
+                );
+            }
+        }
+    }
+}

@@ -624,6 +624,47 @@ fn grouped_input_and_filter_expressions_preserve_independent_results_on_warm_cal
 }
 
 #[test]
+fn grouped_top_k_matches_independent_ranked_windows() {
+    let session = initialize();
+    seed_rows(&session);
+    // Each seeded id has one row. MAX(id) ranks distinct groups, while COUNT(*)
+    // ties every group and must fall back to canonical ascending group keys.
+    for (order, descending) in [
+        ("MAX(id) ASC", false),
+        ("MAX(id) DESC", true),
+        ("COUNT(*) DESC", false),
+    ] {
+        for limit in [1, 3, 20] {
+            let sql = format!(
+                "SELECT id, MAX(id), COUNT(*) FROM PlannerRow GROUP BY id ORDER BY {order} LIMIT {limit}"
+            );
+            for _ in 0..2 {
+                let SqlStatementResult::Grouped {
+                    rows, row_count, ..
+                } = session.execute_trusted_sql_query(&sql).unwrap()
+                else {
+                    panic!("top-k query must return grouped rows");
+                };
+                let mut expected: Vec<u64> = (0..12).collect();
+                if descending {
+                    expected.reverse();
+                }
+                expected.truncate(limit);
+                assert_eq!(usize::try_from(row_count).unwrap(), expected.len());
+                assert_eq!(rows.len(), expected.len());
+                for (row, id) in rows.iter().zip(expected) {
+                    assert_eq!(row.group_key(), &[OutputValue::nat64(id)]);
+                    assert_eq!(
+                        row.aggregate_values(),
+                        &[OutputValue::nat64(id), OutputValue::nat64(1)]
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn exact_cardinality_supports_multi_lookup_and_branch_set_but_excludes_range_and_grouped() {
     let session = initialize();
     seed_rows(&session);

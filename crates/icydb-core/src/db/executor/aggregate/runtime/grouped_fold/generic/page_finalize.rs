@@ -70,20 +70,7 @@ impl<'a> OrderedGroupedPageSelection<'a> {
         grouped_projection_spec: &'a ProjectionSpec,
         aggregate_count: usize,
     ) -> Result<Self, InternalError> {
-        let compiled_projection = compile_grouped_projection_plan_if_needed(
-            grouped_projection_spec,
-            route.projection_is_identity(),
-            route.projection_layout(),
-            route.group_fields(),
-            route.grouped_aggregate_execution_specs(),
-        )?;
-        let compiled_having_expr = compile_grouped_having_expr(route)?;
-        let selection = GroupedPageFinalizeSelection::new(
-            route,
-            route.grouped_pagination_window(),
-            compiled_projection,
-            compiled_having_expr,
-        )?;
+        let selection = GroupedPageFinalizeSelection::new(route, grouped_projection_spec)?;
         if selection.compiled_top_k_order.is_some() {
             return Err(InternalError::query_executor_invariant());
         }
@@ -350,22 +337,8 @@ pub(super) fn finalize_grouped_page(
     route: &GroupedRouteStage,
     grouped_projection_spec: &ProjectionSpec,
     grouped_bundle: GroupedAggregateBundle,
-    pagination_window: &GroupedPaginationWindow,
 ) -> Result<(Vec<RuntimeGroupedRow>, Option<GroupedContinuationToken>), InternalError> {
-    let compiled_projection = compile_grouped_projection_plan_if_needed(
-        grouped_projection_spec,
-        route.projection_is_identity(),
-        route.projection_layout(),
-        route.group_fields(),
-        route.grouped_aggregate_execution_specs(),
-    )?;
-    let compiled_having_expr = compile_grouped_having_expr(route)?;
-    let selection = GroupedPageFinalizeSelection::new(
-        route,
-        pagination_window,
-        compiled_projection,
-        compiled_having_expr,
-    )?;
+    let selection = GroupedPageFinalizeSelection::new(route, grouped_projection_spec)?;
     let (page_rows, next_cursor_boundary) =
         if let Some(selection_bound) = route.grouped_selection_bound() {
             selection.finalize_bounded(grouped_bundle, selection_bound)?
@@ -546,19 +519,25 @@ struct GroupedPageFinalizeSelection<'a> {
 }
 
 impl<'a> GroupedPageFinalizeSelection<'a> {
-    // Build one grouped page-finalize selection contract from the grouped
-    // route and one already-resolved grouped projection plan.
+    // Both finalization paths compile projection, HAVING, then top-k in that
+    // order, preserving admission/error ordering under one setup owner.
     fn new(
         route: &'a GroupedRouteStage,
-        pagination_window: &'a GroupedPaginationWindow,
-        compiled_projection: Option<CompiledGroupedProjectionPlan<'a>>,
-        compiled_having_expr: Option<CompiledExpr>,
+        grouped_projection_spec: &'a ProjectionSpec,
     ) -> Result<Self, InternalError> {
+        let compiled_projection = compile_grouped_projection_plan_if_needed(
+            grouped_projection_spec,
+            route.projection_is_identity(),
+            route.projection_layout(),
+            route.group_fields(),
+            route.grouped_aggregate_execution_specs(),
+        )?;
+        let compiled_having_expr = compile_grouped_having_expr(route)?;
         Ok(Self {
             direction: route.direction(),
             compiled_having_expr,
             compiled_top_k_order: compile_grouped_top_k_order(route)?,
-            pagination_window,
+            pagination_window: route.grouped_pagination_window(),
             resume_boundary: route.grouped_resume_boundary(),
             compiled_projection,
         })
@@ -647,12 +626,11 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
                     return Ok(());
                 }
 
-                if retained
-                    .peek()
-                    .is_some_and(|largest_retained| candidate.cmp(largest_retained).is_lt())
+                if let Some(mut largest_retained) = retained.peek_mut()
+                    && candidate.cmp(&largest_retained).is_lt()
                 {
-                    retained.pop();
-                    retained.push(candidate);
+                    // Replacing the root repairs the heap once, without removing a slot.
+                    *largest_retained = candidate;
                 }
 
                 Ok(())

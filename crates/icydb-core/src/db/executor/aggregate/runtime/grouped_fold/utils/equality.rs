@@ -35,11 +35,10 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn group_key_match
 
 // Return true when one canonical grouped key value matches this row's grouped
 // slot values under the borrowed grouped-key equality contract.
-fn canonical_group_value_matches_row_view_with_context(
+fn canonical_group_value_matches_row_view(
     canonical_group_value: &Value,
     row_view: &RowView,
     group_fields: &[FieldSlot],
-    _context: &'static str,
 ) -> Result<bool, InternalError> {
     let Value::List(canonical_group_values) = canonical_group_value else {
         return Err(InternalError::query_executor_invariant());
@@ -67,12 +66,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn group_key_match
     row_view: &RowView,
     group_fields: &[FieldSlot],
 ) -> Result<bool, InternalError> {
-    canonical_group_value_matches_row_view_with_context(
-        group_key.canonical_value(),
-        row_view,
-        group_fields,
-        "grouped aggregate",
-    )
+    canonical_group_value_matches_row_view(group_key.canonical_value(), row_view, group_fields)
 }
 
 // Search one stable-hash bucket slice for a matching group key without owning
@@ -81,14 +75,12 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn find_matching_g
     'a,
 >(
     bucket_indexes: &[usize],
-    group_count: usize,
     mut group_key_at: impl FnMut(usize) -> Option<&'a GroupKey>,
     mut matches_group: impl FnMut(&GroupKey) -> Result<bool, InternalError>,
-    missing_group_error: impl Fn(usize, usize) -> InternalError,
 ) -> Result<Option<usize>, InternalError> {
     for group_index in bucket_indexes.iter().copied() {
         let Some(group_key) = group_key_at(group_index) else {
-            return Err(missing_group_error(group_index, group_count));
+            return Err(InternalError::query_executor_invariant());
         };
         if matches_group(group_key)? {
             return Ok(Some(group_index));
@@ -111,14 +103,12 @@ fn find_matching_group_in_bucket(
 
     find_matching_group_index_in_bucket(
         bucket.as_slice(),
-        grouped_counts.len(),
         |group_index| {
             grouped_counts
                 .get(group_index)
                 .map(|(group_key, _)| group_key)
         },
         matches_group,
-        |_group_index, _group_count| InternalError::query_executor_invariant(),
     )
 }
 
@@ -131,12 +121,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn find_matching_g
     group_fields: &[FieldSlot],
 ) -> Result<Option<usize>, InternalError> {
     find_matching_group_in_bucket(grouped_counts, bucket, |group_key| {
-        canonical_group_value_matches_row_view_with_context(
-            group_key.canonical_value(),
-            row_view,
-            group_fields,
-            "grouped count",
-        )
+        canonical_group_value_matches_row_view(group_key.canonical_value(), row_view, group_fields)
     })
 }
 
@@ -150,4 +135,50 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn find_matching_s
     find_matching_group_in_bucket(grouped_counts, bucket, |group_key| {
         group_key_matches_single_group_value(group_key, group_value)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{find_matching_group_index_in_bucket, group_key_matches_single_group_value};
+    use crate::{db::executor::group::GroupKey, error::InternalError, value::Value};
+
+    #[test]
+    fn bucket_lookup_preserves_matching_absence_and_typed_failure() {
+        let keys = [1, 2]
+            .map(|value| GroupKey::from_single_canonical_group_value(Value::Nat64(value)).unwrap());
+        for (bucket, target, expected) in [
+            (&[0, 1][..], 2, Some(1)),
+            (&[1, 0][..], 1, Some(0)),
+            (&[0, 1][..], 3, None),
+            (&[][..], 1, None),
+        ] {
+            let found = find_matching_group_index_in_bucket(
+                bucket,
+                |index| keys.get(index),
+                |key| group_key_matches_single_group_value(key, &Value::Nat64(target)),
+            )
+            .unwrap();
+            assert_eq!(found, expected);
+        }
+
+        let missing = find_matching_group_index_in_bucket(
+            &[2],
+            |index| keys.get(index),
+            |_| unreachable!("missing keys must reject before comparison"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            missing.diagnostic(),
+            InternalError::query_executor_invariant().diagnostic()
+        );
+        let comparison_error = InternalError::planner_executor_invariant();
+        let expected = comparison_error.diagnostic();
+        let error = find_matching_group_index_in_bucket(
+            &[0],
+            |index| keys.get(index),
+            |_| Err(InternalError::planner_executor_invariant()),
+        )
+        .unwrap_err();
+        assert_eq!(error.diagnostic(), expected);
+    }
 }

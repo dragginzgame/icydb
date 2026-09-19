@@ -74,12 +74,8 @@ impl<'a> GenericGroupedFoldRunner<'a> {
     ) -> Result<GroupedCursorPage, InternalError> {
         let filtered_rows =
             self.fold_rows_into_bundle(stream, grouped_execution_context, &mut grouped_bundle)?;
-        let (page_rows, next_cursor) = finalize_grouped_page(
-            self.route,
-            self.grouped_projection_spec,
-            grouped_bundle,
-            self.route.grouped_pagination_window(),
-        )?;
+        let (page_rows, next_cursor) =
+            finalize_grouped_page(self.route, self.grouped_projection_spec, grouped_bundle)?;
 
         Ok(finalize_grouped_output(
             GroupedCursorPage {
@@ -332,12 +328,11 @@ fn build_grouped_specs(
         .map(|aggregate_spec| {
             GroupedAggregateBundleSpec::new(
                 aggregate_spec.kind(),
-                aggregate_spec.kind().materialized_fold_direction(),
                 GroupedDistinctExecutionMode::new(
                     aggregate_spec.distinct(),
                     aggregate_spec.uses_grouped_distinct_value_dedup(),
                 ),
-                aggregate_spec.target_slot().cloned(),
+                aggregate_spec.target_slot(),
                 aggregate_spec.compiled_input_expr().cloned(),
                 aggregate_spec.compiled_filter_expr().cloned(),
                 grouped_execution_context

@@ -73,7 +73,6 @@ fn grouped_distinct_strategy_none_maps_to_no_global_field_spec() {
 #[test]
 fn grouped_distinct_count_strategy_maps_to_count_field_spec() {
     let strategy = GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount {
-        target_field: "rank".to_string(),
         target_slot: FieldSlot::from_test_slot(1, "rank"),
     };
     let spec = global_distinct_field_target_and_kind(&strategy)
@@ -86,7 +85,6 @@ fn grouped_distinct_count_strategy_maps_to_count_field_spec() {
 #[test]
 fn grouped_distinct_sum_strategy_maps_to_sum_field_spec() {
     let strategy = GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum {
-        target_field: "score".to_string(),
         target_slot: FieldSlot::from_test_slot(2, "score"),
     };
     let spec = global_distinct_field_target_and_kind(&strategy)
@@ -99,7 +97,6 @@ fn grouped_distinct_sum_strategy_maps_to_sum_field_spec() {
 #[test]
 fn grouped_distinct_avg_strategy_maps_to_avg_field_spec() {
     let strategy = GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg {
-        target_field: "score".to_string(),
         target_slot: FieldSlot::from_test_slot(2, "score"),
     };
     let spec = global_distinct_field_target_and_kind(&strategy)

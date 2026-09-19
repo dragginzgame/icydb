@@ -166,6 +166,70 @@ fn preparation_measurement_wasm() -> Vec<u8> {
     module
 }
 
+/// Small matched-actor probe for materialized grouped heap selection; the rank
+/// field has no ordering index. Setup/startup charges stay outside each sample.
+#[test]
+#[ignore = "manual wasm-release grouped heap instruction and cycle measurement"]
+fn grouped_heap_wasm_cost_matrix() {
+    use sha2::{Digest, Sha256};
+
+    let module = preparation_measurement_wasm();
+    println!(
+        "grouped_heap_wasm sha256={:x} raw_bytes={}",
+        Sha256::digest(&module),
+        module.len()
+    );
+    for (shape, sql) in [
+        (
+            "count",
+            "SELECT rank, COUNT(*) FROM PerfAuditUser GROUP BY rank ORDER BY rank DESC LIMIT 1",
+        ),
+        (
+            "generic",
+            "SELECT rank, SUM(age) FROM PerfAuditUser GROUP BY rank ORDER BY rank DESC LIMIT 1",
+        ),
+        (
+            "top_k",
+            "SELECT rank, SUM(age) FROM PerfAuditUser GROUP BY rank ORDER BY SUM(age) DESC LIMIT 1",
+        ),
+    ] {
+        let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(
+            "sql_perf",
+            module.clone(),
+        );
+        reset_icydb_fixtures(&fixture);
+        let mut expected = None;
+        for phase in ["compile", "hit", "repeat"] {
+            settle_measurement_rounds(&fixture);
+            let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+            let sample: Result<SqlQueryPerfResult, Error> = fixture
+                .update_candid("warm_user_query_with_perf", (sql.to_string(),))
+                .expect("grouped heap measurement should decode");
+            let cycles = before
+                .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+                .unwrap();
+            let sample = sample.expect("grouped heap query should execute");
+            let SqlQueryResult::Grouped(rows) = &sample.result else {
+                panic!("grouped heap query should return groups");
+            };
+            assert_eq!(rows.row_count, 1);
+            if let Some(expected) = &expected {
+                assert_eq!(&sample.result, expected);
+            } else {
+                println!(
+                    "grouped_heap_result shape={shape} result={:?}",
+                    sample.result
+                );
+                expected = Some(sample.result.clone());
+            }
+            println!(
+                "grouped_heap_cost shape={shape} phase={phase} instructions={} cycles={cycles}",
+                sample.instructions
+            );
+        }
+    }
+}
+
 /// Manual matched-artifact probe: queries do not persist cold cache changes;
 /// updates warm caches and expose actual whole-call charged cycles separately.
 #[test]

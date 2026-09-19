@@ -1,8 +1,8 @@
 //! Grouped layout classification preserves output positions and identity eligibility.
 
 use super::{
-    extend_unique_grouped_aggregate_specs_from_expr,
-    planned_projection_layout_and_aggregate_specs_from_spec,
+    extend_unique_grouped_aggregate_specs_from_expr, grouped_aggregate_specs_from_projection_spec,
+    planned_projection_layout_from_spec,
 };
 use crate::{
     db::{
@@ -56,10 +56,9 @@ fn aggregate_collection_preserves_first_seen_slots_and_semantic_distinctions() {
         (filtered(false), 3, 0),
     ] {
         let expression = Expr::Aggregate(aggregate.clone());
-        let scan =
-            extend_unique_grouped_aggregate_specs_from_expr(&mut specs, &expression).unwrap();
-        assert!(scan.contains_aggregate());
-        assert_eq!(scan.introduced_aggregate_count(), introduced);
+        let previous_len = specs.len();
+        extend_unique_grouped_aggregate_specs_from_expr(&mut specs, &expression).unwrap();
+        assert_eq!(specs.len() - previous_len, introduced);
         assert_eq!(
             specs[expected_slot].semantic_key(),
             AggregateSemanticKeyRef::from_aggregate_expr(&aggregate)
@@ -73,9 +72,7 @@ fn aggregate_collection_preserves_first_seen_slots_and_semantic_distinctions() {
         left: Box::new(Expr::Aggregate(sum("amount"))),
         right: Box::new(Expr::Aggregate(filtered(false))),
     };
-    let scan = extend_unique_grouped_aggregate_specs_from_expr(&mut specs, &expression).unwrap();
-    assert!(scan.contains_aggregate());
-    assert_eq!(scan.introduced_aggregate_count(), 0);
+    extend_unique_grouped_aggregate_specs_from_expr(&mut specs, &expression).unwrap();
     assert_eq!(specs.len(), 7);
 }
 
@@ -95,13 +92,14 @@ fn assert_layout(
             })
             .collect(),
     );
-    let (layout, aggregates, actual_identity) =
-        planned_projection_layout_and_aggregate_specs_from_spec(
-            &projection,
-            keys,
-            &[GroupAggregateSpec::from_aggregate_expr(count())],
-        )
-        .unwrap();
+    let aggregates = grouped_aggregate_specs_from_projection_spec(&projection, keys).unwrap();
+    let (layout, actual_identity) = planned_projection_layout_from_spec(
+        &projection,
+        keys,
+        &[GroupAggregateSpec::from_aggregate_expr(count())],
+        &aggregates,
+    )
+    .unwrap();
     assert_eq!(layout.group_field_positions, group_positions);
     assert_eq!(layout.aggregate_positions, aggregate_positions);
     assert_eq!(actual_identity, identity);
@@ -164,5 +162,62 @@ fn grouped_layout_preserves_reordered_and_computed_aggregate_positions() {
         &[0],
         &[1, 2],
         false,
+    );
+}
+
+#[test]
+fn grouped_layout_reuses_semantic_slots_across_repeated_filtered_and_distinct_outputs() {
+    let keys = GroupFieldSet::Direct(Vec::new());
+    let filtered = sum("amount").with_filter_expr(Expr::Literal(Value::Bool(true)));
+    let projection = ProjectionSpec::from_fields_for_test(
+        [
+            Expr::Aggregate(filtered.clone()),
+            plus_zero(Expr::Aggregate(filtered.clone())),
+            Expr::Aggregate(sum("amount").distinct()),
+            Expr::Aggregate(sum("amount")),
+        ]
+        .into_iter()
+        .map(|expr| ProjectionField::Scalar { expr, alias: None })
+        .collect(),
+    );
+    let mut specs = grouped_aggregate_specs_from_projection_spec(&projection, &keys).unwrap();
+    let expected = [filtered, sum("amount").distinct(), sum("amount")];
+    assert_eq!(specs.len(), expected.len());
+    for (spec, aggregate) in specs.iter().zip(&expected) {
+        assert_eq!(
+            spec.semantic_key(),
+            AggregateSemanticKeyRef::from_aggregate_expr(aggregate)
+        );
+    }
+    // HAVING can add slots without changing projection order or layout.
+    extend_unique_grouped_aggregate_specs_from_expr(&mut specs, &Expr::Aggregate(count())).unwrap();
+    let declared = expected
+        .into_iter()
+        .map(GroupAggregateSpec::from_aggregate_expr)
+        .collect::<Vec<_>>();
+    let (layout, identity) =
+        planned_projection_layout_from_spec(&projection, &keys, &declared, &specs).unwrap();
+    assert!(layout.group_field_positions.is_empty());
+    assert_eq!(layout.aggregate_positions, [0, 1, 2, 3]);
+    assert!(!identity);
+}
+
+#[test]
+fn grouped_layout_preserves_identity_with_having_only_slots_and_requires_frozen_inputs() {
+    let keys = GroupFieldSet::Direct(Vec::new());
+    let projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+        expr: Expr::Aggregate(count()),
+        alias: None,
+    }]);
+    let mut specs = grouped_aggregate_specs_from_projection_spec(&projection, &keys).unwrap();
+    extend_unique_grouped_aggregate_specs_from_expr(&mut specs, &Expr::Aggregate(sum("amount")))
+        .unwrap();
+    let declared = [GroupAggregateSpec::from_aggregate_expr(count())];
+    let (layout, identity) =
+        planned_projection_layout_from_spec(&projection, &keys, &declared, &specs).unwrap();
+    assert_eq!(layout.aggregate_positions, [0]);
+    assert!(identity);
+    assert!(
+        planned_projection_layout_from_spec(&projection, &keys, &declared, &specs[1..]).is_err()
     );
 }

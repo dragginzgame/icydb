@@ -11,9 +11,13 @@ use crate::{
         },
         predicate::Predicate,
         query::{
-            builder::count,
+            builder::{count, sum},
             explain::{ExplainExecutionMode, ExplainGrouping, ExplainPlan},
-            plan::{AccessPlannedQuery, GroupAggregateSpec},
+            plan::{
+                AccessPlannedQuery, GroupAggregateSpec,
+                expr::{BinaryOp, Expr},
+                grouped_executor_handoff,
+            },
             preparation::{PreparationWork, with_preparation_work as with_work},
         },
     },
@@ -91,6 +95,26 @@ fn assert_execution_diagnostics(
                 descriptor.execution_mode,
                 ExplainExecutionMode::Materialized
             );
+            // Execution still receives complete owned metadata from the same
+            // handoff that diagnostics may drop without materializing residents.
+            let (specs, _, strategy) = grouped_executor_handoff(plan)
+                .unwrap()
+                .into_route_stage_residents();
+            assert_eq!(specs, plan.grouped_aggregate_execution_specs().unwrap());
+            assert_eq!(
+                &strategy,
+                plan.grouped_distinct_execution_strategy().unwrap()
+            );
+            assert!(
+                specs
+                    .iter()
+                    .any(|spec| spec.compiled_input_expr().is_some())
+            );
+            assert!(
+                specs
+                    .iter()
+                    .any(|spec| spec.compiled_filter_expr().is_some())
+            );
         }
         assert_eq!(root.observed(Resource::RowsVisited), 0);
         assert_eq!(root.observed(Resource::PlanCompilations), 0);
@@ -110,6 +134,18 @@ fn assert_execution_diagnostics(
         )));
         assert_eq!(exhausted.observed(Resource::RowsVisited), 0);
     }
+}
+
+// Include compiled input and FILTER programs in the retained grouped metadata.
+fn grouped_diagnostic_aggregates() -> Vec<GroupAggregateSpec> {
+    vec![
+        GroupAggregateSpec::from_aggregate_expr(count()),
+        GroupAggregateSpec::from_aggregate_expr(sum("id").with_filter_expr(Expr::Binary {
+            op: BinaryOp::Gt,
+            left: Box::new(Expr::Field("id".into())),
+            right: Box::new(Expr::Literal(Value::Nat64(0))),
+        })),
+    ]
 }
 
 #[test]
@@ -135,7 +171,7 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
             .group_fields_with_schema(&["rare".into()], schema, work)
     })
     .unwrap()
-    .group_aggregates(vec![GroupAggregateSpec::from_aggregate_expr(count())])
+    .group_aggregates(grouped_diagnostic_aggregates())
     .grouped_limits(16, 4096);
     for (query, is_grouped) in [(scalar, false), (grouped, true)] {
         let prepare = || {

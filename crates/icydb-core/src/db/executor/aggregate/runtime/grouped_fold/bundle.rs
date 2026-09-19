@@ -55,7 +55,6 @@ use std::{cmp::Ordering, rc::Rc};
 
 pub(super) struct GroupedAggregateBundleSpec {
     kind: AggregateKind,
-    direction: Direction,
     distinct_mode: GroupedDistinctExecutionMode,
     target_field: Option<AggregateFieldSlot>,
     grouped_input_expr: Option<Rc<CompiledExpr>>,
@@ -74,9 +73,8 @@ impl GroupedAggregateBundleSpec {
     /// Build one bundle aggregate-slot blueprint.
     pub(super) fn new(
         kind: AggregateKind,
-        direction: Direction,
         distinct_mode: GroupedDistinctExecutionMode,
-        target_field: Option<FieldSlot>,
+        target_field: Option<&FieldSlot>,
         compiled_input_expr: Option<CompiledExpr>,
         compiled_filter_expr: Option<CompiledExpr>,
         max_distinct_values_per_group: u64,
@@ -87,13 +85,11 @@ impl GroupedAggregateBundleSpec {
             return Err(Self::unsupported_field_target_aggregate(kind));
         }
         let target_field = target_field
-            .as_ref()
             .map(|planned| resolve_aggregate_target_slot_from_planner_slot(kind, planned))
             .transpose()
             .map_err(AggregateFieldValueError::into_internal_error)?;
         Ok(Self {
             kind,
-            direction,
             distinct_mode,
             target_field,
             grouped_input_expr: compiled_input_expr.map(Rc::new),
@@ -107,7 +103,7 @@ impl GroupedAggregateBundleSpec {
     fn build_state(&self) -> GroupedTerminalAggregateState {
         AggregateStateFactory::create_grouped_terminal(
             self.kind,
-            self.direction,
+            self.kind.materialized_fold_direction(),
             self.distinct_mode,
             self.target_field,
             self.grouped_input_expr.clone(),
@@ -505,10 +501,8 @@ impl GroupedAggregateBundle {
 
         find_matching_group_index_in_bucket(
             bucket.as_slice(),
-            self.groups.len(),
             |group_index| self.groups.get(group_index).map(|entry| &entry.group_key),
             |group_key| group_key_matches_row_view(group_key, row_view, group_fields),
-            |_group_index, _group_count| InternalError::query_executor_invariant(),
         )
         .map_err(GroupError::from)
     }
@@ -525,10 +519,8 @@ impl GroupedAggregateBundle {
 
         find_matching_group_index_in_bucket(
             bucket.as_slice(),
-            self.groups.len(),
             |group_index| self.groups.get(group_index).map(|entry| &entry.group_key),
             |group_key| group_key_matches_path_group_values(group_key, row_view, group_fields),
-            |_group_index, _group_count| InternalError::query_executor_invariant(),
         )
         .map_err(GroupError::from)
     }
@@ -627,10 +619,8 @@ impl GroupedAggregateBundle {
             if let Some(bucket) = self.bucket_index.get(&group_hash) {
                 let existing = find_matching_group_index_in_bucket(
                     bucket.as_slice(),
-                    self.groups.len(),
                     |group_index| self.groups.get(group_index).map(|entry| &entry.group_key),
                     |group_key| group_key_matches_single_group_value(group_key, group_value),
-                    |_group_index, _group_count| InternalError::query_executor_invariant(),
                 )
                 .map_err(GroupError::from)?;
                 if let Some(group_index) = existing {
@@ -825,10 +815,36 @@ mod tests {
     use std::rc::Rc;
 
     #[test]
+    fn grouped_bundle_extrema_preserve_materialized_results() {
+        for (kind, expected) in [(AggregateKind::Min, 1), (AggregateKind::Max, 9)] {
+            let spec = GroupedAggregateBundleSpec::new(
+                kind,
+                GroupedDistinctExecutionMode::new(false, false),
+                None,
+                Some(CompiledExpr::Slot {
+                    slot: 0,
+                    field: "value".into(),
+                }),
+                None,
+                u64::MAX,
+            )
+            .unwrap();
+            let mut state = spec.build_state();
+            let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
+            for value in [4, 9, 1, 6] {
+                let row = RowView::new(vec![Some(Value::Nat64(value))]);
+                state
+                    .apply_with_row_view(&data_key(value), Some(&row), &mut context)
+                    .unwrap();
+            }
+            assert_eq!(state.finalize().unwrap(), Value::Nat64(expected));
+        }
+    }
+
+    #[test]
     fn shared_expressions_keep_group_reducers_and_distinct_sets_independent() {
         let spec = GroupedAggregateBundleSpec::new(
             AggregateKind::Count,
-            Direction::Asc,
             GroupedDistinctExecutionMode::new(true, true),
             None,
             Some(CompiledExpr::Slot {
@@ -886,7 +902,6 @@ mod tests {
     fn count_rows_fold() -> OrderedGroupedAggregateFold {
         let spec = GroupedAggregateBundleSpec::new(
             AggregateKind::Count,
-            Direction::Asc,
             GroupedDistinctExecutionMode::new(false, false),
             None,
             None,
