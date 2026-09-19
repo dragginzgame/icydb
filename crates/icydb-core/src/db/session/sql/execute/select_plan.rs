@@ -141,15 +141,6 @@ impl<C: CanisterKind> DbSession<C> {
         Self::sql_select_projection_from_prepared_plan(prepared_plan)
     }
 
-    fn select_authority_for_context(
-        context: &SqlCompiledCommandExecutionContext,
-    ) -> EntityAuthority {
-        match context.accepted_authority() {
-            Some(authority) => authority.clone(),
-            None => context.accepted_catalog().accepted_entity_authority(),
-        }
-    }
-
     fn sql_select_prepared_plan_for_accepted_authority_with_catalog(
         &self,
         query: &StructuralQuery,
@@ -204,7 +195,7 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        let authority = Self::select_authority_for_context(context);
+        let authority = context.accepted_catalog().accepted_entity_authority();
         let resolved = self.resolve_select_prepared_plan_for_authority_with_catalog(
             query,
             authority,

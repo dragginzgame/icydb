@@ -3,7 +3,6 @@
 
 use super::{CompiledSqlCommand, SqlCompiledSchemaFingerprint};
 use crate::db::{
-    executor::EntityAuthority,
     schema::{AcceptedSchemaSnapshot, SchemaVersion},
     session::{AcceptedSchemaCatalogContext, sql::SqlCompiledCommandSurface},
 };
@@ -21,7 +20,6 @@ use crate::db::{
 pub(in crate::db) struct SqlCompiledCommandExecutionContext {
     command: CompiledSqlCommand,
     catalog: AcceptedSchemaCatalogContext,
-    accepted_authority: Option<EntityAuthority>,
     surface: SqlCompiledCommandSurface,
 }
 
@@ -30,13 +28,11 @@ impl SqlCompiledCommandExecutionContext {
     pub(in crate::db::session::sql) fn new(
         command: CompiledSqlCommand,
         catalog: AcceptedSchemaCatalogContext,
-        accepted_authority: Option<EntityAuthority>,
         surface: SqlCompiledCommandSurface,
     ) -> Self {
         let context = Self {
             command,
             catalog,
-            accepted_authority,
             surface,
         };
         debug_assert_eq!(
@@ -75,10 +71,5 @@ impl SqlCompiledCommandExecutionContext {
     #[must_use]
     pub(in crate::db) fn compiled_schema_fingerprint(&self) -> SqlCompiledSchemaFingerprint {
         SqlCompiledSchemaFingerprint::from_catalog(&self.catalog)
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn accepted_authority(&self) -> Option<&EntityAuthority> {
-        self.accepted_authority.as_ref()
     }
 }

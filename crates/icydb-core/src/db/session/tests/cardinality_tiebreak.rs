@@ -213,6 +213,69 @@ fn verbose_explain_preserves_internal_plan_cache_reuse_fact() {
 }
 
 #[test]
+fn sql_mutation_selectors_preserve_exact_and_prefix_bounds() {
+    let session = initialize();
+    for id in 0..3 {
+        insert_row(&session, id, "before", "group-a");
+    }
+    let read = "SELECT id, common FROM PlannerRow ORDER BY id";
+    let before = projection_rows(&session, read);
+    let error = session
+        .execute_trusted_sql_exact_update("UPDATE PlannerRow SET common = 'exact' WHERE id >= 0", 2)
+        .expect_err("an exact update must not silently truncate matching rows");
+    assert_eq!(
+        error.diagnostic().detail(),
+        Some(&icydb_diagnostic_code::DiagnosticDetail::SqlWriteBoundary {
+            boundary: icydb_diagnostic_code::SqlWriteBoundaryCode::ExactUpdateAffectedRowsExceeded,
+        }),
+    );
+    assert_eq!(projection_rows(&session, read), before);
+
+    let exact = session
+        .execute_trusted_sql_exact_update("UPDATE PlannerRow SET common = 'exact' WHERE id = 2", 1)
+        .expect("bounded primary-only selector should update its complete match");
+    assert!(matches!(exact, SqlStatementResult::Count { row_count: 1 }));
+    let prefix = session
+        .execute_trusted_sql_prefix_update(
+            "UPDATE PlannerRow SET common = 'prefix' WHERE id >= 0 ORDER BY id LIMIT 1",
+        )
+        .expect("ordinary selector should update the requested prefix");
+    assert!(matches!(prefix, SqlStatementResult::Count { row_count: 1 }));
+    assert_eq!(
+        projection_rows(&session, read),
+        [(0, "prefix"), (1, "before"), (2, "exact")]
+            .map(|(id, value)| { vec![OutputValue::nat64(id), OutputValue::text(value.into())] }),
+    );
+}
+
+#[test]
+fn sql_insert_select_reuses_source_syntax_with_current_rows() {
+    let session = initialize();
+    insert_row(&session, 1, "before", "group-a");
+    let sql = "INSERT INTO PlannerRow (id, common, rare, wide_fixed, wide_branch, selective_fixed, selective_branch) \
+               SELECT CASE WHEN id = 1 THEN 101 ELSE 102 END, common, rare, wide_fixed, wide_branch, selective_fixed, selective_branch FROM PlannerRow";
+    for expected in ["before", "after"] {
+        let result = session
+            .execute_trusted_sql_mutation(sql)
+            .expect("cold/warm INSERT SELECT should execute its current source");
+        assert!(matches!(result, SqlStatementResult::Count { row_count: 1 }));
+        assert_eq!(
+            projection_rows(&session, "SELECT common FROM PlannerRow WHERE id = 101"),
+            vec![vec![OutputValue::text(expected.into())]],
+        );
+        session
+            .execute_trusted_sql_mutation("DELETE FROM PlannerRow WHERE id = 101")
+            .expect("remove the copied row before repeating the source");
+        session
+            .execute_trusted_sql_exact_update(
+                "UPDATE PlannerRow SET common = 'after' WHERE id = 1",
+                1,
+            )
+            .expect("change the source without changing compiled INSERT syntax");
+    }
+}
+
+#[test]
 fn grouped_pages_preserve_filtered_counts_with_and_without_retention() {
     use crate::db::count;
 

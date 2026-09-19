@@ -77,16 +77,16 @@ pub(super) fn observe<C: CanisterKind>(
         .as_ref()
         .is_some_and(|receipt| receipt.failure().kind() == StartupFailureKind::SchemaReconciliation)
     {
-        let observation = generated_schema_reconciled(stores, incarnation, submission_key)
-            .map_err(|error| {
+        let (reconciled, accepted_head) =
+            generated_schema_reconciled(stores, incarnation, submission_key).map_err(|error| {
                 StartupFailure::from_internal(StartupFailureKind::SchemaReconciliation, &error)
             })?;
         if let Some(receipt) = receipt.as_ref()
-            && schema_receipt_matches(receipt, incarnation, submission_key, &observation.1)
+            && schema_receipt_matches(receipt, incarnation, submission_key, &accepted_head)
         {
             return Err(receipt.failure().clone());
         }
-        Some(observation)
+        Some(reconciled)
     } else {
         None
     };
@@ -95,14 +95,7 @@ pub(super) fn observe<C: CanisterKind>(
     }
 
     let reconciled = match schema_observation {
-        Some((reconciled, accepted_head)) => {
-            if let Some(receipt) = receipt.as_ref()
-                && schema_receipt_matches(receipt, incarnation, submission_key, &accepted_head)
-            {
-                return Err(receipt.failure().clone());
-            }
-            reconciled
-        }
+        Some(reconciled) => reconciled,
         None => generated_schema_is_reconciled(stores, incarnation, submission_key).map_err(
             |error| StartupFailure::from_internal(StartupFailureKind::SchemaReconciliation, &error),
         )?,

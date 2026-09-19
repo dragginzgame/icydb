@@ -17,7 +17,6 @@ mod select_plan;
 mod write;
 mod write_returning;
 
-use crate::db::executor::EntityAuthority;
 #[cfg(feature = "sql")]
 use crate::db::sql::lowering::LoweredSqlCommand;
 use crate::error::InternalError;
@@ -56,9 +55,8 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         lowered: &LoweredSqlCommand,
         catalog: &AcceptedSchemaCatalogContext,
-        accepted_authority: Option<&EntityAuthority>,
     ) -> Result<SqlStatementResult, QueryError> {
-        let authority = catalog.accepted_or_provided_entity_authority(accepted_authority);
+        let authority = catalog.accepted_entity_authority();
         let schema_info = catalog.accepted_schema_info();
 
         if let Some(explain) = self.explain_lowered_sql_execution_for_authority(
@@ -85,11 +83,9 @@ impl<C: CanisterKind> DbSession<C> {
                 self.execute_select_compiled_sql_with_context(query, context)
             }
             #[cfg(feature = "sql")]
-            CompiledSqlCommand::Explain(lowered) => self.execute_accepted_explain_sql_with_catalog(
-                lowered,
-                context.accepted_catalog(),
-                context.accepted_authority(),
-            ),
+            CompiledSqlCommand::Explain(lowered) => {
+                self.execute_accepted_explain_sql_with_catalog(lowered, context.accepted_catalog())
+            }
             compiled => self.execute_compiled_sql_with_catalog(
                 compiled,
                 context.accepted_catalog(),
@@ -114,11 +110,9 @@ impl<C: CanisterKind> DbSession<C> {
                     command,
                     context.accepted_catalog(),
                 ),
-            compiled => self.execute_compiled_sql_query_with_catalog(
-                compiled,
-                context.accepted_catalog(),
-                context.accepted_authority(),
-            ),
+            compiled => {
+                self.execute_compiled_sql_query_with_catalog(compiled, context.accepted_catalog())
+            }
         }
     }
 
@@ -126,11 +120,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         compiled: &CompiledSqlCommand,
         catalog: &AcceptedSchemaCatalogContext,
-        accepted_authority: Option<&EntityAuthority>,
     ) -> Result<SqlStatementResult, QueryError> {
-        #[cfg(not(feature = "sql"))]
-        let _ = accepted_authority;
-
         if let Some(result) =
             self.execute_accepted_metadata_compiled_sql_with_catalog_cache(compiled, catalog)
         {
@@ -139,11 +129,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         #[cfg(feature = "sql")]
         if let CompiledSqlCommand::Explain(lowered) = compiled {
-            return self.execute_accepted_explain_sql_with_catalog(
-                lowered,
-                catalog,
-                accepted_authority,
-            );
+            return self.execute_accepted_explain_sql_with_catalog(lowered, catalog);
         }
 
         Err(QueryError::execute(

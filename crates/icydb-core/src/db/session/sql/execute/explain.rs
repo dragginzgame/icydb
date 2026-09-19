@@ -461,13 +461,14 @@ impl<C: CanisterKind> DbSession<C> {
         let mut rendered = Vec::with_capacity(strategies.len());
 
         for strategy in strategies {
-            rendered.push(self.render_global_aggregate_terminal_explain(
+            let diagnostics = self.global_aggregate_terminal_diagnostics(
                 command,
                 strategy,
                 plan,
                 authority,
                 schema_info,
-            )?);
+            )?;
+            rendered.push(render_sql_execution_explain(&diagnostics));
         }
 
         Ok(rendered.join("\n\n"))
@@ -484,26 +485,29 @@ impl<C: CanisterKind> DbSession<C> {
         let mut rendered = Vec::with_capacity(strategies.len());
 
         for strategy in strategies {
-            rendered.push(self.render_global_aggregate_terminal_explain_json(
+            let diagnostics = self.global_aggregate_terminal_diagnostics(
                 command,
                 strategy,
                 plan,
                 authority,
                 schema_info,
-            )?);
+            )?;
+            rendered.push(render_sql_execution_explain_json(&diagnostics)?);
         }
 
         Ok(render_sql_execution_explain_json_array(&rendered))
     }
 
-    fn render_global_aggregate_terminal_explain(
+    // Text and JSON share terminal construction and admission. Each caller
+    // renders before preparing the next terminal to preserve failure ordering.
+    fn global_aggregate_terminal_diagnostics(
         &self,
         command: &SqlGlobalAggregateCommand,
         strategy: &PreparedSqlScalarAggregateStrategy,
         plan: &AccessPlannedQuery,
         authority: &EntityAuthority,
         schema_info: &SchemaInfo,
-    ) -> Result<String, QueryError> {
+    ) -> Result<FinalizedQueryDiagnostics, QueryError> {
         let execution = self.global_aggregate_terminal_execution_descriptor(
             command,
             strategy,
@@ -513,36 +517,10 @@ impl<C: CanisterKind> DbSession<C> {
         )?;
         let execution = execution.into_execution_node_descriptor(strategy.aggregate_kind());
 
-        Ok(render_sql_execution_explain(
-            &FinalizedQueryDiagnostics::new(execution, Vec::new(), Vec::new(), None)
+        Ok(
+            FinalizedQueryDiagnostics::new(execution, Vec::new(), Vec::new(), None)
                 .with_admission(diagnostic_explain_admission_for_plan(plan)?),
-        ))
-    }
-
-    fn render_global_aggregate_terminal_explain_json(
-        &self,
-        command: &SqlGlobalAggregateCommand,
-        strategy: &PreparedSqlScalarAggregateStrategy,
-        plan: &AccessPlannedQuery,
-        authority: &EntityAuthority,
-        schema_info: &SchemaInfo,
-    ) -> Result<String, QueryError> {
-        let execution = self.global_aggregate_terminal_execution_descriptor(
-            command,
-            strategy,
-            plan,
-            authority,
-            schema_info,
-        )?;
-        let diagnostics = FinalizedQueryDiagnostics::new(
-            execution.into_execution_node_descriptor(strategy.aggregate_kind()),
-            Vec::new(),
-            Vec::new(),
-            None,
         )
-        .with_admission(diagnostic_explain_admission_for_plan(plan)?);
-
-        render_sql_execution_explain_json(&diagnostics)
     }
 
     fn global_aggregate_terminal_execution_descriptor(

@@ -1626,7 +1626,16 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         request: &DynamicMutation,
     ) -> Result<DynamicMutationResult, InternalError> {
-        self.execute_trusted_dynamic_mutation_batch_with_result_policy(vec![request.clone()], false)
+        if request.entity().is_empty() {
+            return Err(InternalError::executor_unsupported());
+        }
+        let catalog =
+            self.accepted_schema_catalog_context_for_entity_name(Some(request.entity()))?;
+        let descriptor =
+            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+        let mutation = lower_dynamic_mutation_intent(&catalog, &descriptor, request.clone(), 0)?;
+
+        self.execute_lowered_dynamic_mutation_batch(&catalog, &descriptor, vec![mutation], false)
     }
 
     /// Execute one bounded same-store structural mutation batch atomically.
@@ -1765,61 +1774,6 @@ impl<C: CanisterKind> DbSession<C> {
                 validate_structural_mutation_result_bytes(encoded.len())?;
                 Ok((results, AcceptedStructuralMutationCommitDirective::Standard))
             },
-        )
-    }
-
-    fn execute_trusted_dynamic_mutation_batch_with_result_policy(
-        &self,
-        requests: Vec<DynamicMutation>,
-        enforce_mixed_batch_result_bound: bool,
-    ) -> Result<DynamicMutationResult, InternalError> {
-        if requests.is_empty() {
-            return Err(InternalError::mutation_batch_empty());
-        }
-        if requests.len() > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
-            return Err(InternalError::mutation_batch_too_many_items(
-                requests.len(),
-                MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
-            ));
-        }
-        let first = requests
-            .first()
-            .ok_or_else(InternalError::mutation_batch_empty)?;
-        if first.entity().is_empty() {
-            return Err(InternalError::executor_unsupported());
-        }
-        let catalog = self.accepted_schema_catalog_context_for_entity_name(Some(first.entity()))?;
-        let accepted_identity = catalog.identity();
-        let descriptor =
-            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
-        let mut mutations = Vec::with_capacity(requests.len());
-
-        let request_count = requests.len();
-        for (batch_position, request) in requests.into_iter().enumerate() {
-            let batch_position = u32::try_from(batch_position).map_err(|_| {
-                InternalError::mutation_batch_too_many_items(
-                    request_count,
-                    MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
-                )
-            })?;
-            if request.entity().is_empty() {
-                return Err(InternalError::executor_unsupported());
-            }
-            let item_catalog =
-                self.accepted_schema_catalog_context_for_entity_name(Some(request.entity()))?;
-            if item_catalog.identity() != accepted_identity {
-                return Err(InternalError::query_executor_invariant());
-            }
-            let mutation =
-                lower_dynamic_mutation_intent(&catalog, &descriptor, request, batch_position)?;
-            mutations.push(mutation);
-        }
-
-        self.execute_lowered_dynamic_mutation_batch(
-            &catalog,
-            &descriptor,
-            mutations,
-            enforce_mixed_batch_result_bound,
         )
     }
 
@@ -2005,14 +1959,43 @@ impl<C: CanisterKind> DbSession<C> {
         entity: &str,
         patches: Vec<DynamicStructuralPatch>,
     ) -> Result<DynamicMutationResult, InternalError> {
-        let mutations = patches
-            .into_iter()
-            .map(|patch| DynamicMutation::Insert {
-                entity: entity.to_string(),
+        let patch_count = patches.len();
+        if patch_count == 0 {
+            return Err(InternalError::mutation_batch_empty());
+        }
+        if patch_count > MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS {
+            return Err(InternalError::mutation_batch_too_many_items(
+                patch_count,
+                MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+            ));
+        }
+        if entity.is_empty() {
+            return Err(InternalError::executor_unsupported());
+        }
+        let catalog = self.accepted_schema_catalog_context_for_entity_name(Some(entity))?;
+        let descriptor =
+            AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
+        let mut mutations = Vec::with_capacity(patch_count);
+        // The batch already names one entity. Lower each patch against that
+        // captured authority without constructing or resolving per-row names.
+        for (batch_position, patch) in patches.into_iter().enumerate() {
+            let batch_position = u32::try_from(batch_position).map_err(|_| {
+                InternalError::mutation_batch_too_many_items(
+                    patch_count,
+                    MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS,
+                )
+            })?;
+            mutations.push(lower_dynamic_save_intent(
+                &catalog,
+                &descriptor,
                 patch,
-            })
-            .collect();
-        self.execute_trusted_dynamic_mutation_batch_with_result_policy(mutations, false)
+                MutationMode::Insert,
+                AcceptedStructuralMutationTarget::ResolveFromAfterImage,
+                batch_position,
+            )?);
+        }
+
+        self.execute_lowered_dynamic_mutation_batch(&catalog, &descriptor, mutations, false)
     }
 }
 
@@ -7037,6 +7020,85 @@ mod identity_pre_key_tests {
             ],
         );
         assert_dynamic_payload(&session, 1, 100);
+    }
+
+    #[test]
+    fn dynamic_insert_batch_checks_count_before_entity_resolution() {
+        use icydb_diagnostic_code::{DiagnosticDetail, RuntimeBoundaryCode};
+
+        let session = initialize();
+        for (count, boundary) in [
+            (0, RuntimeBoundaryCode::MutationBatchEmpty),
+            (
+                MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS + 1,
+                RuntimeBoundaryCode::MutationBatchTooManyItems,
+            ),
+        ] {
+            let error = session
+                .execute_trusted_dynamic_insert_batch(
+                    "",
+                    (0..count).map(|_| dynamic_payload_patch(10)).collect(),
+                )
+                .expect_err("batch count must reject before the empty entity name");
+            assert_eq!(
+                error.diagnostic().detail(),
+                Some(&DiagnosticDetail::RuntimeBoundary { boundary }),
+            );
+        }
+        let error = session
+            .execute_trusted_dynamic_insert_batch("", vec![dynamic_payload_patch(10)])
+            .expect_err("an admitted count must still validate the entity name");
+        assert_eq!(error.class(), ErrorClass::Unsupported);
+        assert_eq!(DATA_STORE.with(|store| store.borrow().len()), 0);
+    }
+
+    #[test]
+    fn dynamic_insert_batch_preserves_positions_atomicity_and_identity_order() {
+        use icydb_diagnostic_code::DiagnosticFactTag;
+
+        let session = initialize();
+        let authored_identity = DynamicStructuralPatch::new(vec![(
+            "id".to_string(),
+            DynamicWriteCell::Value(InputValue::nat64(99)),
+        )]);
+        let error = session
+            .execute_trusted_dynamic_insert_batch(
+                ENTITY_NAME,
+                vec![dynamic_payload_patch(10), authored_identity],
+            )
+            .expect_err("a late generated-field write must reject during lowering");
+        assert!(
+            error
+                .diagnostic_facts()
+                .contains(&(DiagnosticFactTag::BatchPosition, 1))
+        );
+
+        let wrong_type = DynamicStructuralPatch::new(vec![(
+            "payload".to_string(),
+            DynamicWriteCell::Value(InputValue::text("invalid".to_string())),
+        )]);
+        session
+            .execute_trusted_dynamic_insert_batch(
+                ENTITY_NAME,
+                vec![dynamic_payload_patch(10), wrong_type],
+            )
+            .expect_err("late value validation must reject the complete staged batch");
+        assert_eq!(DATA_STORE.with(|store| store.borrow().len()), 0);
+
+        let inserted = session
+            .execute_trusted_dynamic_insert_batch(
+                ENTITY_NAME,
+                vec![dynamic_payload_patch(10), dynamic_payload_patch(20)],
+            )
+            .expect("rejected batches must not consume generated identities");
+        assert_eq!(inserted.affected_rows, 2);
+        assert_eq!(
+            inserted.rows,
+            vec![
+                vec![OutputValue::nat64(1), OutputValue::nat64(10)],
+                vec![OutputValue::nat64(2), OutputValue::nat64(20)],
+            ],
+        );
     }
 
     #[test]

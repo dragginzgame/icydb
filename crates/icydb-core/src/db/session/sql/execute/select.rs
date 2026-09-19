@@ -117,17 +117,17 @@ impl<C: CanisterKind> DbSession<C> {
         Self::grouped_sql_statement_result_from_result(columns, fixed_scales, result)
     }
 
-    // Execute one SQL load query from a structural lowered query through the
-    // shared lower query-plan cache while bypassing only the compiled SQL
-    // command cache for lowered or aggregate-only paths.
+    // Borrow one SQL mutation source query through the shared query-plan cache
+    // without re-entering the compiled SQL command cache. The prepared plan
+    // owns execution state; no temporary query copy is needed here.
     pub(in crate::db::session) fn execute_sql_projection_from_structural_query_without_sql_compiled_cache(
         &self,
-        query: StructuralQuery,
+        query: &StructuralQuery,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
     ) -> Result<StructuralProjectionPayload, QueryError> {
         let (prepared_plan, projection) = self.sql_select_prepared_plan_for_accepted_authority(
-            &query,
+            query,
             authority,
             accepted_schema,
         )?;
@@ -139,14 +139,14 @@ impl<C: CanisterKind> DbSession<C> {
     // and one executor-enforced scanned-key ceiling.
     pub(in crate::db::session::sql) fn execute_primary_only_sql_projection_from_structural_query_with_scan_budget(
         &self,
-        query: StructuralQuery,
+        query: &StructuralQuery,
         authority: EntityAuthority,
         accepted_schema: &AcceptedSchemaSnapshot,
         scan_budget: StructuralProjectionScanBudget,
     ) -> Result<StructuralProjectionPayload, QueryError> {
         let (prepared_plan, projection) = self
             .sql_primary_only_select_prepared_plan_for_accepted_authority(
-                &query,
+                query,
                 authority,
                 accepted_schema,
             )?;

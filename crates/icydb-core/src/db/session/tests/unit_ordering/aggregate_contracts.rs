@@ -10,6 +10,57 @@ use crate::{
 };
 use icydb_diagnostic_code::DiagnosticCode;
 
+#[test]
+fn global_aggregate_explain_preserves_terminal_order_and_warm_rendering() {
+    let session = initialize();
+    seed_singleton(&session);
+    let gets_before = DataStore::current_get_call_count();
+    let terminals = [
+        "SUM(amount) FILTER (WHERE label = 'singleton')",
+        "MAX(amount)",
+    ];
+
+    for json in [false, true] {
+        let prefix = if json {
+            "EXPLAIN EXECUTION JSON"
+        } else {
+            "EXPLAIN EXECUTION"
+        };
+        let explain = |projection: &str| {
+            let sql = format!("{prefix} SELECT {projection} FROM Singleton");
+            let SqlStatementResult::Explain(text) = session
+                .execute_trusted_sql_query(&sql)
+                .expect("aggregate execution diagnostics")
+            else {
+                panic!("expected explain result");
+            };
+            assert!(text.contains("admission"));
+            text
+        };
+        let single: Vec<_> = terminals.iter().map(|terminal| explain(terminal)).collect();
+        assert!(single[0].contains("filter_expr"));
+        let expected = if json {
+            let objects: Vec<_> = single
+                .iter()
+                .map(|text| {
+                    text.strip_prefix("{\"terminals\":[")
+                        .and_then(|body| body.strip_suffix("]}"))
+                        .expect("single-terminal JSON envelope")
+                })
+                .collect();
+            format!("{{\"terminals\":[{}]}}", objects.join(","))
+        } else {
+            single.join("\n\n")
+        };
+        // Combined output retains terminal order and each terminal's admission
+        // and FILTER metadata, both before and after the command cache warms.
+        for _ in 0..2 {
+            assert_eq!(explain(&terminals.join(", ")), expected);
+        }
+    }
+    assert_eq!(DataStore::current_get_call_count(), gets_before);
+}
+
 fn with_operand(
     kind: AcceptedFieldKind,
     value: InputValue,

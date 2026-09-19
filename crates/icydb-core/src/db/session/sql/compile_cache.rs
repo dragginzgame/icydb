@@ -92,7 +92,6 @@ impl<C: CanisterKind> DbSession<C> {
         // Bound invocations never construct, look up, or insert a SQL-text key.
         // They use the same semantic compiler and execution context as misses.
         if !bindings.is_empty() {
-            let authority = catalog.accepted_entity_authority();
             let compiled = self.compile_sql_statement(
                 parsed,
                 surface,
@@ -100,24 +99,14 @@ impl<C: CanisterKind> DbSession<C> {
                 bindings,
             )?;
             return Ok(SqlCompiledCommandExecutionContext::new(
-                compiled,
-                catalog,
-                Some(authority),
-                surface,
+                compiled, catalog, surface,
             ));
         }
-        let entity_path = catalog.identity().entity_path_handle();
         let context = SqlCompiledCommandCacheContext::from_catalog(surface, sql, catalog);
         let (cache_key, catalog) = context.into_cache_inputs();
-        let (compiled, accepted_authority) = self.compile_sql_statement_with_cache(
-            cache_key,
-            &catalog,
-            parsed,
-            surface,
-            entity_path.as_ref(),
-        )?;
-        let context =
-            SqlCompiledCommandExecutionContext::new(compiled, catalog, accepted_authority, surface);
+        let compiled =
+            self.compile_sql_statement_with_cache(cache_key, &catalog, parsed, surface)?;
+        let context = SqlCompiledCommandExecutionContext::new(compiled, catalog, surface);
 
         Ok(context)
     }
@@ -130,19 +119,11 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         parsed: &SqlStatement,
         surface: SqlCompiledCommandSurface,
-        _entity_path: &str,
-    ) -> Result<
-        (
-            CompiledSqlCommand,
-            Option<crate::db::executor::EntityAuthority>,
-        ),
-        QueryError,
-    > {
+    ) -> Result<CompiledSqlCommand, QueryError> {
         let cached = self.with_sql_compiled_command_cache(|cache| cache.get(&cache_key).cloned());
         if let Some(compiled) = cached {
-            return Ok((compiled, None));
+            return Ok(compiled);
         }
-        let authority = catalog.accepted_entity_authority();
         let schema = catalog.accepted_schema_info();
 
         let compiled = self.compile_sql_statement(parsed, surface, schema, &[])?;
@@ -151,6 +132,6 @@ impl<C: CanisterKind> DbSession<C> {
             cache.insert(cache_key, compiled.clone());
         });
 
-        Ok((compiled, Some(authority)))
+        Ok(compiled)
     }
 }

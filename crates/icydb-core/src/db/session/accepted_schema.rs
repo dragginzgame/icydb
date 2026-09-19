@@ -356,17 +356,6 @@ impl AcceptedSchemaCatalogContext {
         self.entity.authority.clone()
     }
 
-    #[must_use]
-    pub(in crate::db) fn accepted_or_provided_entity_authority(
-        &self,
-        accepted_authority: Option<&EntityAuthority>,
-    ) -> EntityAuthority {
-        match accepted_authority {
-            Some(authority) => authority.clone(),
-            None => self.accepted_entity_authority(),
-        }
-    }
-
     /// Borrow schema metadata compiled once with the accepted runtime root.
     #[must_use]
     pub(in crate::db) fn accepted_schema_info(&self) -> &SchemaInfo {

@@ -340,6 +340,62 @@ fn bound_sql_resolves_current_authority_after_field_rename() {
     assert_query_field(&error, QueryFieldRole::Predicate, "label");
 }
 
+#[test]
+fn compiled_sql_contexts_reject_superseded_authority_before_cached_execution() {
+    let session = initialize();
+    seed_singleton(&session);
+    let mut contexts = Vec::new();
+    for sql in [
+        "SELECT label FROM Singleton",
+        "EXPLAIN SELECT label FROM Singleton",
+    ] {
+        // Retain both cold and warm contexts, including a prepared SELECT,
+        // before publishing a schema that no longer admits the field name.
+        for _ in 0..2 {
+            let (context, _) = session
+                .compile_sql_query_for_tests(sql)
+                .expect("current accepted SQL should compile");
+            for result in [
+                session.execute_compiled_sql_query_context(&context),
+                session.execute_compiled_sql_context(&context),
+            ] {
+                match result.expect("current context should execute") {
+                    SqlStatementResult::Projection { rows, .. } => assert_eq!(rows.len(), 1),
+                    SqlStatementResult::Explain(text) => assert!(!text.is_empty()),
+                    _ => panic!("expected SELECT or EXPLAIN"),
+                }
+            }
+            contexts.push(context);
+        }
+    }
+    publish_schema_with_label(
+        &session,
+        AcceptedSchemaRevision::INITIAL,
+        AcceptedSchemaRevision::new(2),
+        "renamed",
+    );
+    let current = new_request_session();
+    for context in &contexts {
+        for result in [
+            current.execute_compiled_sql_query_context(context),
+            current.execute_compiled_sql_context(context),
+        ] {
+            let error = result.expect_err("retained context must reject superseded authority");
+            let QueryError::Execute(QueryExecutionError::Conflict(error)) = error else {
+                panic!("expected accepted-schema conflict");
+            };
+            assert_eq!(error.origin, ErrorOrigin::Query);
+            assert_eq!(
+                error.diagnostic_facts(),
+                vec![
+                    (DiagnosticFactTag::ExpectedRevision, 1),
+                    (DiagnosticFactTag::CurrentRevision, 2),
+                ]
+            );
+        }
+    }
+}
+
 struct TestCanister;
 
 impl Path for TestCanister {

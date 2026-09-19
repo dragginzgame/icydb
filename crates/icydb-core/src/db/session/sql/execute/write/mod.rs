@@ -166,15 +166,13 @@ impl<C: CanisterKind> DbSession<C> {
         let payload = match scan_budget {
             Some(scan_budget) => self
                 .execute_primary_only_sql_projection_from_structural_query_with_scan_budget(
-                    query.clone(),
+                    query,
                     authority,
                     schema,
                     scan_budget,
                 ),
             None => self.execute_sql_projection_from_structural_query_without_sql_compiled_cache(
-                query.clone(),
-                authority,
-                schema,
+                query, authority, schema,
             ),
         }?;
         let (_, _, projected_rows, _) = payload.into_runtime_components();

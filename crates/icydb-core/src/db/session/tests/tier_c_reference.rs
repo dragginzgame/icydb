@@ -952,11 +952,7 @@ fn planned_select_execution_facts(
         }
         _ => panic!("scheduled SELECT should compile to a query command"),
     };
-    let authority = context
-        .accepted_authority()
-        .cloned()
-        .or_else(|| Some(context.accepted_catalog().accepted_entity_authority()))
-        .expect("scheduled SELECT should resolve accepted authority");
+    let authority = context.accepted_catalog().accepted_entity_authority();
     let plan = session
         .sql_select_prepared_plan_for_tests(query, authority, context.accepted_schema())
         .expect("scheduled SELECT should produce one prepared plan");
