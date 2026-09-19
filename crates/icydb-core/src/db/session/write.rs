@@ -1568,12 +1568,7 @@ impl<C: CanisterKind> DbSession<C> {
             AcceptedStructuralMutationCommitDirective::Skip => {}
             AcceptedStructuralMutationCommitDirective::Standard if batch.is_empty() => {}
             AcceptedStructuralMutationCommitDirective::Standard => {
-                commit_structural_row_ops_with_window(
-                    &self.db,
-                    batch,
-                    identity_ranges,
-                    "accepted_structural_batch_apply",
-                )?;
+                commit_structural_row_ops_with_window(&self.db, batch, identity_ranges)?;
             }
             AcceptedStructuralMutationCommitDirective::WithMutationProgress(operation)
                 if batch.is_empty() =>
@@ -1587,7 +1582,6 @@ impl<C: CanisterKind> DbSession<C> {
                     batch,
                     identity_ranges,
                     operation,
-                    "accepted_structural_batch_apply",
                 )?;
             }
         }
@@ -4383,6 +4377,20 @@ mod mixed_relation_batch_tests {
                 insert_with_code(2, None, 20),
             ])
             .expect("the unique-overlay fixture should commit");
+
+        let conflict = session
+            .execute_trusted_dynamic_mutation_batch(vec![update_code(1, 30), update_code(2, 30)])
+            .expect_err("the final row must still reject a duplicate unique membership");
+        assert_eq!(
+            conflict.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+        );
+        for (id, code) in [(1, 10), (2, 20)] {
+            let unchanged = session
+                .execute_trusted_dynamic_mutation(&update_code(id, code))
+                .expect("rejected preflight must preserve both original unique values");
+            assert_eq!(unchanged.affected_rows, 0);
+        }
 
         let swapped = session
             .execute_trusted_dynamic_mutation_batch(vec![update_code(1, 20), update_code(2, 10)])

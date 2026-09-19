@@ -120,11 +120,10 @@ pub(in crate::db::executor) struct PreparedJournalAppend {
 }
 
 struct PreparedCommitEffects {
-    // The marker owns each batch once; publication and tail append both borrow it.
+    // The marker owns recovery payloads; publication and live application borrow them.
     marker: CommitMarker,
     journal_appends: Vec<PreparedJournalAppend>,
     identity_range_applies: Vec<PreparedIdentityRangeApply>,
-    mutation_progress: Option<MutationProgressRecordOp>,
 }
 
 #[derive(Clone, Copy)]
@@ -506,7 +505,7 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
     let mut batch = PreparedRowOpBatch::with_row_capacity(row_ops.len(), fixed_commit_work_units)?;
     let mut contexts = CommitPrepareContextCache::new(CommitPrepareMode::NormalWrite);
 
-    for row_op in row_ops {
+    for (ordinal, row_op) in row_ops.iter().enumerate() {
         let context = contexts.get_or_prepare(
             row_op.entity_path.as_ref(),
             row_op.schema_fingerprint,
@@ -528,7 +527,10 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
             overlay,
             relation_budget,
         )?;
-        overlay.stage_prepared_row_op(&row);
+        // Only later rows consume staged canonical images and index changes.
+        if ordinal + 1 < row_ops.len() {
+            overlay.stage_prepared_row_op(&row);
+        }
         batch.push(row)?;
     }
 
@@ -575,9 +577,11 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
         fixed_commit_work_units,
         &mut relation_budget,
     )?;
+    // Journal preparation and publication use owned prepared operations only.
+    drop(overlay);
     let effects = prepare_commit_effects_for_row_ops(
         db,
-        &row_ops,
+        row_ops,
         &prepared_row_ops,
         identity_ranges.as_slice(),
         mutation_progress,
@@ -585,8 +589,7 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
     preflight_identity_range_applies(effects.identity_range_applies.as_slice())?;
     let positioned_rows = preflight_positioned_rows(&prepared_row_ops, &effects.journal_appends)?;
     finish_current_execution_instruction_watermark()?;
-    let commit =
-        begin_commit_window_payload::<C>(&effects.marker, effects.mutation_progress.is_some())?;
+    let commit = begin_commit_window_payload::<C>(&effects.marker)?;
 
     Ok(OpenCommitWindow {
         commit,
@@ -597,24 +600,26 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
     })
 }
 
-/// Apply prepared row ops under the shared commit-window guard.
+/// Apply one prepared window and publish index readiness only after commit closure.
 fn apply_prepared_row_ops<C: CanisterKind>(
-    _db: &Db<C>,
-    commit: CommitGuard,
-    apply_phase: &'static str,
-    prepared_row_ops: Vec<PreparedRowCommitOp>,
-    positioned_rows: Vec<Option<JournalOverlayPosition>>,
-    effects: PreparedCommitEffects,
-    index_store_guards: Vec<IndexStoreGenerationGuard>,
+    db: &Db<C>,
+    window: OpenCommitWindow,
 ) -> Result<(), InternalError> {
+    let OpenCommitWindow {
+        commit,
+        prepared_row_ops,
+        positioned_rows,
+        effects,
+        index_store_guards,
+    } = window;
+    let synchronized_store_handles =
+        synchronized_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
     if positioned_rows.len() != prepared_row_ops.len() {
         return Err(InternalError::query_executor_invariant());
     }
     finish_commit(commit, |guard| {
-        #[cfg(not(test))]
-        let _ = apply_phase;
         #[cfg(test)]
-        let mut apply_guard = CommitApplyGuard::new(apply_phase);
+        let mut apply_guard = CommitApplyGuard::new();
         // Enforce that index stores are unchanged between preflight and apply.
         for index_store_guard in &index_store_guards {
             index_store_guard.verify()?;
@@ -631,46 +636,13 @@ fn apply_prepared_row_ops<C: CanisterKind>(
             return Err(InternalError::executor_invariant());
         }
 
-        // Single-row writes dominate the hot write lanes, so avoid the extra
-        // rollback vector and reverse-apply scaffolding when only one prepared
-        // row op remains.
-        if prepared_row_ops.len() == 1 {
-            let mut prepared_iter = prepared_row_ops.into_iter();
-            let mut position_iter = positioned_rows.into_iter();
-            let Some(row_op) = prepared_iter.next() else {
-                return Err(InternalError::query_executor_invariant());
-            };
-            let Some(position) = position_iter.next() else {
-                return Err(InternalError::query_executor_invariant());
-            };
-            #[cfg(test)]
-            apply_guard.record_single_row_rollback(row_op.snapshot_rollback());
-
-            match position {
-                Some(position) => enforce_preflighted_apply(row_op.apply_positioned(position))?,
-                None => row_op.apply(),
-            }
-            #[cfg(test)]
-            if take_mutation_commit_interruption(MutationCommitInterruption::RowsPublished) {
-                std::mem::forget(apply_guard);
-                return Err(InternalError::executor_invariant());
-            }
-            enforce_preflighted_apply(apply_prepared_state_effects::<C>(effects))?;
-            #[cfg(test)]
-            if take_mutation_commit_interruption(MutationCommitInterruption::ProgressReplaced)
-                || take_mutation_commit_interruption(MutationCommitInterruption::StateMaterialized)
-            {
-                std::mem::forget(apply_guard);
-                return Err(InternalError::executor_invariant());
-            }
-            #[cfg(test)]
-            apply_guard.finish()?;
-
-            return Ok(());
-        }
-
+        // Rollback snapshots are native-test support, not a production apply route.
         #[cfg(test)]
-        {
+        let multiple_rows = prepared_row_ops.len() > 1;
+        #[cfg(test)]
+        if let [row_op] = prepared_row_ops.as_slice() {
+            apply_guard.record_single_row_rollback(row_op.snapshot_rollback());
+        } else {
             let mut rollback = Vec::with_capacity(prepared_row_ops.len());
             for row_op in &prepared_row_ops {
                 rollback.push(row_op.snapshot_rollback());
@@ -686,7 +658,8 @@ fn apply_prepared_row_ops<C: CanisterKind>(
                 None => row_op.apply(),
             }
             #[cfg(test)]
-            if row_index == 0
+            if multiple_rows
+                && row_index == 0
                 && take_mutation_commit_interruption(MutationCommitInterruption::RowPrefixPublished)
             {
                 std::mem::forget(apply_guard);
@@ -714,7 +687,8 @@ fn apply_prepared_row_ops<C: CanisterKind>(
         apply_guard.finish()?;
 
         Ok(())
-    })
+    })?;
+    mark_store_handles_index_ready(&synchronized_store_handles)
 }
 
 #[cfg(test)]
@@ -750,7 +724,7 @@ fn apply_prepared_state_effects<C: CanisterKind>(
             store.publish_prepared_journal_batch_positions(append.schema_positions);
         });
     }
-    if let Some(operation) = effects.mutation_progress.as_ref() {
+    if let Some(operation) = effects.marker.mutation_progress() {
         apply_preflighted_mutation_progress_record_op::<C>(operation)?;
     }
     Ok(())
@@ -762,30 +736,11 @@ pub(in crate::db) fn commit_structural_row_ops_with_window<C: CanisterKind>(
     db: &Db<C>,
     batch: AcceptedMutationConstraintBatch,
     identity_ranges: Vec<IdentityRangeAdvance>,
-    apply_phase: &'static str,
 ) -> Result<(), InternalError> {
     let (row_ops, deleted_key_groups) = batch.into_parts();
-    let OpenCommitWindow {
-        commit,
-        prepared_row_ops,
-        positioned_rows,
-        effects,
-        index_store_guards,
-    } = open_commit_window_structural(db, row_ops, &deleted_key_groups, identity_ranges)?;
-    let synchronized_store_handles =
-        synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
+    let window = open_commit_window_structural(db, row_ops, &deleted_key_groups, identity_ranges)?;
 
-    apply_prepared_row_ops(
-        db,
-        commit,
-        apply_phase,
-        prepared_row_ops,
-        positioned_rows,
-        effects,
-        index_store_guards,
-    )?;
-    mark_store_handles_index_ready(synchronized_store_handles.as_slice())?;
-    Ok(())
+    apply_prepared_row_ops(db, window)
 }
 
 /// Commit one accepted row batch and exact mutation-progress successor together.
@@ -794,36 +749,17 @@ pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress<C: Caniste
     batch: AcceptedMutationConstraintBatch,
     identity_ranges: Vec<IdentityRangeAdvance>,
     mutation_progress: MutationProgressRecordOp,
-    apply_phase: &'static str,
 ) -> Result<(), InternalError> {
     let (row_ops, deleted_key_groups) = batch.into_parts();
-    let OpenCommitWindow {
-        commit,
-        prepared_row_ops,
-        positioned_rows,
-        effects,
-        index_store_guards,
-    } = open_commit_window_structural_inner(
+    let window = open_commit_window_structural_inner(
         db,
         row_ops,
         &deleted_key_groups,
         identity_ranges,
         Some(mutation_progress),
     )?;
-    let synchronized_store_handles =
-        synchronized_store_handles_for_prepared_row_ops(db, prepared_row_ops.as_slice());
 
-    apply_prepared_row_ops(
-        db,
-        commit,
-        apply_phase,
-        prepared_row_ops,
-        positioned_rows,
-        effects,
-        index_store_guards,
-    )?;
-    mark_store_handles_index_ready(synchronized_store_handles.as_slice())?;
-    Ok(())
+    apply_prepared_row_ops(db, window)
 }
 /// Resolve the exact registered store pairs that one prepared-op batch
 /// synchronized through authoritative row + paired index mutation.
@@ -832,25 +768,21 @@ pub(in crate::db::executor) fn synchronized_store_handles_for_prepared_row_ops<C
     db: &Db<C>,
     prepared_row_ops: &[PreparedRowCommitOp],
 ) -> Vec<StoreHandle> {
-    let registered_handles = db.with_store_registry(|registry| {
+    db.with_store_registry(|registry| {
         registry
             .iter()
             .map(|(_, handle)| handle)
-            .collect::<Vec<StoreHandle>>()
-    });
-
-    registered_handles
-        .into_iter()
-        .filter(|handle| {
-            prepared_row_ops.iter().any(|row_op| {
-                ptr::eq(handle.data_store(), row_op.data_store)
-                    && row_op
-                        .index_ops
-                        .iter()
-                        .any(|index_op| ptr::eq(handle.index_store(), index_op.index_store))
+            .filter(|handle| {
+                prepared_row_ops.iter().any(|row_op| {
+                    ptr::eq(handle.data_store(), row_op.data_store)
+                        && row_op
+                            .index_ops
+                            .iter()
+                            .any(|index_op| ptr::eq(handle.index_store(), index_op.index_store))
+                })
             })
-        })
-        .collect()
+            .collect()
+    })
 }
 
 // Project durable recovery payloads into one marker-bound commit payload.
@@ -863,7 +795,7 @@ pub(in crate::db::executor) fn synchronized_store_handles_for_prepared_row_ops<C
 )]
 fn prepare_commit_effects_for_row_ops<C: CanisterKind>(
     db: &Db<C>,
-    row_ops: &[CommitRowOp],
+    row_ops: Vec<CommitRowOp>,
     prepared_row_ops: &[PreparedRowCommitOp],
     identity_ranges: &[IdentityRangeAdvance],
     mutation_progress: Option<MutationProgressRecordOp>,
@@ -894,7 +826,9 @@ fn prepare_commit_effects_for_row_ops<C: CanisterKind>(
     }
     let mut journal_records = Vec::<(StoreHandle, Vec<JournalRecord>)>::new();
 
-    for (row_op, prepared_row_op) in row_ops.iter().zip(prepared_row_ops) {
+    // Preflight is complete. Move original recovery bytes into the journal;
+    // the prepared operations independently retain their canonical apply rows.
+    for (row_op, prepared_row_op) in row_ops.into_iter().zip(prepared_row_ops) {
         let handle = registered_stores
             .iter()
             .map(|(_, handle)| handle)
@@ -993,12 +927,10 @@ fn prepare_commit_effects_for_row_ops<C: CanisterKind>(
         return Err(InternalError::identity_state_corruption());
     }
 
-    let marker = match mutation_progress.as_ref() {
-        Some(operation) => CommitMarker::from_parts_with_mutation_progress(
-            marker_id,
-            marker_batches,
-            operation.clone(),
-        )?,
+    let marker = match mutation_progress {
+        Some(operation) => {
+            CommitMarker::from_parts_with_mutation_progress(marker_id, marker_batches, operation)?
+        }
         None => CommitMarker::from_parts(marker_id, marker_batches)?,
     };
 
@@ -1006,7 +938,6 @@ fn prepare_commit_effects_for_row_ops<C: CanisterKind>(
         marker,
         journal_appends,
         identity_range_applies,
-        mutation_progress,
     })
 }
 
@@ -1066,26 +997,25 @@ fn apply_identity_range_applies(
 
 fn begin_commit_window_payload<C: CanisterKind>(
     marker: &CommitMarker,
-    has_mutation_progress: bool,
 ) -> Result<CommitGuard, InternalError> {
-    if has_mutation_progress {
+    if marker.mutation_progress().is_some() {
         begin_mutation_progress_commit::<C>(marker)
     } else {
         begin_commit(marker)
     }
 }
 
-fn journal_record_for_row_op(row_op: &CommitRowOp) -> Result<JournalRecord, InternalError> {
-    match row_op.after.as_ref() {
+fn journal_record_for_row_op(row_op: CommitRowOp) -> Result<JournalRecord, InternalError> {
+    match row_op.after {
         Some(after) => JournalRecord::row_put(
             row_op.entity_path.as_ref(),
-            row_op.key.clone(),
-            after.clone(),
+            row_op.key,
+            after,
             row_op.schema_fingerprint,
         ),
         None => JournalRecord::row_delete(
             row_op.entity_path.as_ref(),
-            row_op.key.clone(),
+            row_op.key,
             row_op.schema_fingerprint,
         ),
     }

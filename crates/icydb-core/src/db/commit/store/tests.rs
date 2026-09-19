@@ -4,8 +4,8 @@ use crate::{
         MutationJobAdvanceRequest, MutationJobId, MutationJobIdempotencyKey, MutationJobPhase,
         MutationJobStatus,
         commit::marker::{
-            COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, DatabaseControlOp,
-            MAX_COMMIT_BYTES, commit_marker_payload_capacity, decode_commit_marker_payload,
+            COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, MAX_COMMIT_BYTES,
+            commit_marker_payload_capacity, decode_commit_marker_payload,
             encode_commit_marker_payload,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey},
@@ -185,6 +185,7 @@ fn current_commit_marker_round_trips_one_bounded_mutation_progress_effect() {
     assert_eq!(operation.after_bytes().len(), 18_842);
     let empty = CommitMarker::from_parts([0x71; 16], Vec::new())
         .expect("empty comparison marker should admit");
+    assert!(empty.mutation_progress().is_none());
     let marker =
         CommitMarker::from_parts_with_mutation_progress([0x71; 16], Vec::new(), operation.clone())
             .expect("bounded mutation progress marker should admit");
@@ -199,9 +200,10 @@ fn current_commit_marker_round_trips_one_bounded_mutation_progress_effect() {
         .try_decode()
         .expect("current marker should decode")
         .expect("current marker should remain present");
-    let [DatabaseControlOp::MutationProgress(decoded)] = decoded.database_control() else {
-        panic!("marker must contain exactly one mutation progress replacement");
-    };
+    assert_eq!(decoded.database_control().len(), 1);
+    let decoded = decoded
+        .mutation_progress()
+        .expect("marker must contain exactly one mutation progress replacement");
     assert_eq!(decoded.key(), operation.key());
     assert_eq!(decoded.job_id(), operation.job_id());
     assert_eq!(decoded.expected_sequence(), operation.expected_sequence());

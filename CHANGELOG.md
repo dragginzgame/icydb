@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.259.md](docs/changelog/0.259.md)
 
+- `0.259.6` simplifies write preparation and commit completion while preserving validation and recovery.
 - `0.259.5` reduces write and schema-publication copying and SQL response-size checking work while preserving validation, response limits and atomicity.
 - `0.259.4` simplifies query diagnostics, batch-insert and startup preparation while preserving schema and mutation safety checks.
 - `0.259.3` simplifies grouped query preparation, execution and EXPLAIN, and reduces bounded group-selection work (no API or data migration).

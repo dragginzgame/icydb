@@ -98,8 +98,8 @@ pub(crate) struct CommitApplyGuard {
 
 #[cfg(test)]
 impl CommitApplyGuard {
-    /// Create one apply-phase rollback guard for diagnostic context `phase`.
-    pub(crate) const fn new(_phase: &'static str) -> Self {
+    /// Create one apply-phase rollback guard.
+    pub(crate) const fn new() -> Self {
         Self {
             finished: false,
             rollback: ApplyRollback::None,

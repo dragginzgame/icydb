@@ -208,6 +208,18 @@ impl CommitMarker {
         &self.journal_batches
     }
 
+    /// Borrow the unique progress replacement admitted by marker validation.
+    #[must_use]
+    pub(in crate::db) fn mutation_progress(&self) -> Option<&MutationProgressRecordOp> {
+        self.database_control.iter().find_map(|operation| {
+            if let DatabaseControlOp::MutationProgress(operation) = operation {
+                Some(operation)
+            } else {
+                None
+            }
+        })
+    }
+
     /// Borrow the exact database-wide schema-application record effect.
     #[must_use]
     #[cfg(test)]
