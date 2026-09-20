@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)
 
-- `0.261.0` qualifies populated entity renames with checked dependency transitions and updates the timer runtime to 0.8 (explicit source-version updates required).
+- `0.261.0` qualifies populated entity renames with consistent SQL fixture support and updates the timer runtime to 0.8 (explicit source-version updates required).
 
 ## [0.260.x] - 2026-09-19 - Measured Runtime Footprint
 
