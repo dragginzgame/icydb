@@ -5,6 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.260.x] - 2026-09-19 - Measured Runtime Footprint
+
+Detailed notes: [docs/changelog/0.260.md](docs/changelog/0.260.md)
+
+- `0.260.0` improves catalogue and collection reads, distinguishes unavailable exact-count metadata and audits controlled composed-Wasm costs (potentially breaking: update error-code matching; no data migration).
+
 ## [0.259.x] - 2026-09-18 - Migration Rehearsal
 
 Detailed notes: [docs/changelog/0.259.md](docs/changelog/0.259.md)

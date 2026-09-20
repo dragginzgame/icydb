@@ -186,9 +186,8 @@ fn decode_non_scalar_accepted_slot_value(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
 ) -> Result<Value, InternalError> {
-    if nullable_non_primary_key_component_accepted_slot_payload_is_structural_null(
-        raw_value, field,
-    )? {
+    if nullable_non_primary_key_component_accepted_slot_payload_is_structural_null(raw_value, field)
+    {
         return Ok(Value::Null);
     }
 
@@ -219,9 +218,8 @@ pub(in crate::db) fn validate_non_scalar_accepted_slot_value(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
 ) -> Result<(), InternalError> {
-    if nullable_non_primary_key_component_accepted_slot_payload_is_structural_null(
-        raw_value, field,
-    )? {
+    if nullable_non_primary_key_component_accepted_slot_payload_is_structural_null(raw_value, field)
+    {
         return Ok(());
     }
 
@@ -271,21 +269,16 @@ pub(in crate::db) fn validate_non_scalar_slot_value_with_row_contract(
 // Accepted-schema equivalent of the generated-field nullable structural-null
 // check. Storage-key-compatible accepted kinds keep their own null encoding
 // lane, so only non-storage-key by-kind payloads use the structural null
-// sentinel here.
+// sentinel here. Non-null bytes are validated by the selected accepted codec,
+// not by a preliminary traversal using a different wire grammar.
 fn nullable_non_primary_key_component_accepted_slot_payload_is_structural_null(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
-) -> Result<bool, InternalError> {
-    if !field.nullable()
-        || !matches!(field.storage_decode(), FieldStorageDecode::ByKind)
-        || accepted_kind_supports_primary_key_component_binary(field.kind())
-    {
-        return Ok(false);
-    }
-
-    value_storage_bytes_are_null(raw_value).map_err(|err| {
-        InternalError::persisted_row_field_kind_decode_failed(field.field_name(), field.kind(), err)
-    })
+) -> bool {
+    field.nullable()
+        && matches!(field.storage_decode(), FieldStorageDecode::ByKind)
+        && !accepted_kind_supports_primary_key_component_binary(field.kind())
+        && value_storage_bytes_are_null(raw_value)
 }
 
 #[cfg(test)]
@@ -296,6 +289,89 @@ mod tests {
         data::encode_structural_field_by_accepted_kind_bytes,
         schema::{AcceptedFieldKind, RowLayoutVersion},
     };
+
+    #[test]
+    fn nullable_by_kind_collections_use_their_accepted_codec() {
+        use crate::types::{Float32, Float64};
+
+        for (kind, value) in [
+            (AcceptedFieldKind::Nat64, Value::Nat64(7)),
+            (AcceptedFieldKind::Float32, Value::Float32(Float32::from(7))),
+            (AcceptedFieldKind::Float64, Value::Float64(Float64::from(7))),
+        ] {
+            let kind = AcceptedFieldKind::List(Box::new(kind));
+            let value = Value::List(vec![value]);
+            let field = AcceptedFieldDecodeContract::new(
+                "items",
+                &kind,
+                true,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Structural,
+            );
+            let wire =
+                encode_structural_field_by_accepted_kind_bytes(&kind, &value, "items").unwrap();
+            assert_eq!(
+                decode_runtime_value_from_accepted_field_contract(field, &wire).unwrap(),
+                value
+            );
+            validate_non_scalar_accepted_slot_value(&wire, field).unwrap();
+            assert_eq!(
+                decode_runtime_value_from_accepted_field_contract(field, &[0]).unwrap(),
+                Value::Null
+            );
+            validate_non_scalar_accepted_slot_value(&[0], field).unwrap();
+
+            let mut trailing = wire.clone();
+            trailing.push(0);
+            for malformed in [&[][..], &[0, 0], &wire[..wire.len() - 1], &trailing] {
+                let decoded = decode_runtime_value_from_accepted_field_contract(field, malformed)
+                    .unwrap_err();
+                let validated =
+                    validate_non_scalar_accepted_slot_value(malformed, field).unwrap_err();
+                assert_eq!(decoded.class(), crate::error::ErrorClass::Corruption);
+                assert_eq!(decoded.diagnostic_code(), validated.diagnostic_code());
+            }
+        }
+    }
+
+    #[test]
+    fn nullable_by_kind_collections_keep_accepted_depth_and_kind_boundaries() {
+        use crate::db::schema::MAX_ACCEPTED_RECURSIVE_DEPTH;
+
+        let mut kind = AcceptedFieldKind::Nat64;
+        let mut value = Value::Nat64(7);
+        for _ in 1..MAX_ACCEPTED_RECURSIVE_DEPTH {
+            kind = AcceptedFieldKind::List(Box::new(kind));
+            value = Value::List(vec![value]);
+        }
+        let field = AcceptedFieldDecodeContract::new(
+            "items",
+            &kind,
+            true,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Structural,
+        );
+        let wire = encode_structural_field_by_accepted_kind_bytes(&kind, &value, "items").unwrap();
+        assert_eq!(
+            decode_runtime_value_from_accepted_field_contract(field, &wire).unwrap(),
+            value
+        );
+        validate_non_scalar_accepted_slot_value(&wire, field).unwrap();
+
+        // One extra list does not fit this accepted schema, even if a binary
+        // walker can determine its framing independently of the field kind.
+        let deeper = AcceptedFieldKind::List(Box::new(kind.clone()));
+        let excessive = encode_structural_field_by_accepted_kind_bytes(
+            &deeper,
+            &Value::List(vec![value]),
+            "items",
+        )
+        .unwrap();
+        for malformed in [&excessive[..], &[0xff], &[0, 0]] {
+            assert!(decode_runtime_value_from_accepted_field_contract(field, malformed).is_err());
+            assert!(validate_non_scalar_accepted_slot_value(malformed, field).is_err());
+        }
+    }
 
     #[test]
     fn row_emission_preserves_collection_bytes_and_slot_offsets() {

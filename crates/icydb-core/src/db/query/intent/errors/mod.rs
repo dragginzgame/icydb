@@ -173,6 +173,11 @@ impl QueryError {
         Self::execute(InternalError::query_unsupported())
     }
 
+    /// Reject an admitted exact count whose metadata is unavailable, without scanning.
+    pub(in crate::db) fn exact_count_metadata_unavailable() -> Self {
+        Self::execute(InternalError::query_exact_count_metadata_unavailable())
+    }
+
     /// Construct one query-origin unsupported SQL write boundary error.
     #[cfg(feature = "sql")]
     pub(in crate::db) fn sql_write_boundary(

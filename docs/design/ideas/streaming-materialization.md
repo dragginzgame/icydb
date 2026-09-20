@@ -1,6 +1,12 @@
 # Nested Collection Materialization
 
-Status: unpromoted measurement question; no implementation authority
+Status: broader streaming deferred after the bounded
+[0.260 investigation](../../reports/investigations/2026/09/19/collection-materialization/02/report.md).
+A smaller nullable by-kind correctness fix was retained (-252 raw actor bytes),
+but the named-list fixture's 54 instruction/cycle observations were unchanged.
+Collection ownership remains intact. Reopening requires new evidence at the
+actual canonical consumer and the promotion gates below; this is not another
+pending 0.260 implementation slice.
 
 The general streaming/key-first execution work is already covered by the
 [0.222 design](../archive/0.222-streaming-execution-and-key-first-operators/0.222-design.md).
@@ -42,5 +48,5 @@ success must still preserve required whole-value corruption checks.
   instructions, raw Wasm, defined functions and implementation complexity.
 - If consumers require an owned public `Value`, retain the existing allocation.
 
-No borrowed collection API, persisted format, execution route or release line
-is selected by this idea.
+No borrowed collection API, persisted format or execution route is selected
+by this idea. The 0.260 status tracker owns its sequencing.

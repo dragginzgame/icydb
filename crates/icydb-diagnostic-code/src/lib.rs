@@ -37,6 +37,8 @@ pub use query_field::{
 #[remain::sorted]
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub enum DiagnosticCode {
+    /// An admitted exact count has no available exact-cardinality metadata.
+    QueryExactCountMetadataUnavailable,
     QueryIntent,
     QueryInvalidContinuationCursor,
     QueryNotFound,
@@ -76,7 +78,8 @@ impl DiagnosticCode {
                 ErrorClass::NotFound
             }
             Self::RuntimeConflict => ErrorClass::Conflict,
-            Self::QueryUnsupportedSqlFeature
+            Self::QueryExactCountMetadataUnavailable
+            | Self::QueryUnsupportedSqlFeature
             | Self::QueryUnknownAggregateTargetField
             | Self::QueryUnsupportedProjection
             | Self::QuerySqlSurfaceMismatch
@@ -113,7 +116,8 @@ impl DiagnosticCode {
             | Self::RuntimeNotFound
             | Self::RuntimeUnsupported
             | Self::RuntimeInternal => ErrorOrigin::Runtime,
-            Self::QueryValidate
+            Self::QueryExactCountMetadataUnavailable
+            | Self::QueryValidate
             | Self::QueryIntent
             | Self::QueryPlan
             | Self::QueryReadAdmission
@@ -136,6 +140,9 @@ impl DiagnosticCode {
     #[must_use]
     pub const fn error_code(self) -> ErrorCode {
         match self {
+            Self::QueryExactCountMetadataUnavailable => {
+                ErrorCode::QUERY_EXACT_COUNT_METADATA_UNAVAILABLE
+            }
             Self::QueryValidate => ErrorCode::QUERY_VALIDATE,
             Self::QueryIntent => ErrorCode::QUERY_INTENT,
             Self::QueryPlan => ErrorCode::QUERY_PLAN,
@@ -1074,7 +1081,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 274);
+        assert_eq!(last, 275);
     }
 
     #[test]

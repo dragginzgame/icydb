@@ -355,19 +355,24 @@ impl From<TypedAdapterError> for TypedOperationError {
 /// Opaque accepted-schema binding for one automatic generated adapter.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypedEntityBinding {
-    inner: core::db::DynamicTypedEntityBinding,
+    // Projection rows and generated adapters share immutable accepted mappings.
+    // Arc preserves Send/Sync and value equality for independently issued
+    // bindings while making clone-derived equality checks constant-time.
+    inner: Arc<core::db::DynamicTypedEntityBinding>,
 }
 
 impl TypedEntityBinding {
-    const fn new(inner: core::db::DynamicTypedEntityBinding) -> Self {
-        Self { inner }
+    fn new(inner: core::db::DynamicTypedEntityBinding) -> Self {
+        Self {
+            inner: Arc::new(inner),
+        }
     }
 
-    pub(crate) const fn inner(&self) -> &core::db::DynamicTypedEntityBinding {
+    pub(crate) fn inner(&self) -> &core::db::DynamicTypedEntityBinding {
         &self.inner
     }
 
-    pub(crate) const fn entity(&self) -> &str {
+    pub(crate) fn entity(&self) -> &str {
         self.inner.entity()
     }
 
@@ -656,6 +661,13 @@ fn exact_record_output_values(
 mod typed_record_output_tests {
     use super::{TypedAdapterError, exact_record_output_values};
     use crate::value::PublicValue;
+
+    #[test]
+    fn typed_bindings_and_output_rows_remain_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<super::TypedEntityBinding>();
+        assert_send_sync::<super::OutputRow>();
+    }
 
     fn text(value: &str) -> PublicValue {
         PublicValue::Text(value.to_string())
@@ -1372,7 +1384,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<Vec<DynamicMutationResult>, TypedOperationError> {
         let requests = writes
             .into_iter()
-            .map(|write| (write.binding.inner, write.mutation))
+            .map(|write| (Arc::unwrap_or_clone(write.binding.inner), write.mutation))
             .collect();
         self.inner
             .execute_trusted_typed_mutation_batch(requests)

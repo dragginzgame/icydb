@@ -119,7 +119,9 @@ impl<C: CanisterKind> DbSession<C> {
     /// `IN` filter over the leading field of an accepted unfiltered field-path
     /// user index. Every indexed component, including trailing fields, must be
     /// present for all matching rows. Unsupported shapes and
-    /// unavailable exact-cardinality metadata fail closed.
+    /// unavailable exact-cardinality metadata fail closed. Unavailable metadata
+    /// returns `ErrorCode::QUERY_EXACT_COUNT_METADATA_UNAVAILABLE`; unsupported
+    /// count shapes return `ErrorCode::RUNTIME_UNSUPPORTED`.
     pub fn execute_exact_count(
         &self,
         request: &crate::db::DynamicQuery,

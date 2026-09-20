@@ -70,14 +70,11 @@ pub(in crate::db) fn validate_structural_value_storage_bytes(
     ValueStorageSlice::from_raw(raw_bytes).map(|_| ())
 }
 
-/// Return `true` when one structural value-storage payload is the canonical
-/// encoded `NULL` form and reject malformed bytes fail-closed.
-pub(in crate::db) fn value_storage_bytes_are_null(
-    raw_bytes: &[u8],
-) -> Result<bool, FieldDecodeError> {
-    let slice = ValueStorageSlice::from_raw(raw_bytes)?;
-
-    Ok(slice.as_bytes()[0] == TAG_NULL)
+/// Recognize only the complete null sentinel. Every other payload, including
+/// malformed bytes, must still pass the caller's accepted field decoder or
+/// validator; this check must not apply the generic value grammar to by-kind data.
+pub(in crate::db) fn value_storage_bytes_are_null(raw_bytes: &[u8]) -> bool {
+    raw_bytes == [TAG_NULL]
 }
 
 /// Decode one canonical structural value-storage account payload.

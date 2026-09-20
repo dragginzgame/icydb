@@ -221,7 +221,10 @@ where
     /// This terminal accepts a bare entity query or one strict equality or
     /// bounded `IN` filter over the leading field of an accepted unfiltered
     /// field-path user index. The index may have trailing fields. Other shapes
-    /// and unavailable exact-cardinality metadata fail closed.
+    /// and unavailable exact-cardinality metadata fail closed. Unavailable
+    /// metadata returns `TypedOperationError::Database` with
+    /// `ErrorCode::QUERY_EXACT_COUNT_METADATA_UNAVAILABLE`; unsupported count
+    /// shapes return `ErrorCode::RUNTIME_UNSUPPORTED`.
     pub fn execute_exact_count(self) -> Result<u64, TypedOperationError> {
         self.session
             .execute_public_typed_exact_count(&self.binding, &self.request)?

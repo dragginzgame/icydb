@@ -806,6 +806,9 @@ fn diagnostic_detail_text(detail: DiagnosticDetail) -> String {
 
 const fn code_label(code: DiagnosticCode) -> &'static str {
     match code {
+        DiagnosticCode::QueryExactCountMetadataUnavailable => {
+            "E_QUERY_EXACT_COUNT_METADATA_UNAVAILABLE"
+        }
         DiagnosticCode::QueryValidate => "E_QUERY_VALIDATE",
         DiagnosticCode::QueryIntent => "E_QUERY_INTENT",
         DiagnosticCode::QueryPlan => "E_QUERY_PLAN",
@@ -841,6 +844,9 @@ const fn code_label(code: DiagnosticCode) -> &'static str {
 
 const fn code_text(code: DiagnosticCode) -> &'static str {
     match code {
+        DiagnosticCode::QueryExactCountMetadataUnavailable => {
+            "exact-count metadata is unavailable; no rows were scanned"
+        }
         DiagnosticCode::QueryValidate => "query validation failed",
         DiagnosticCode::QueryIntent => "query intent is invalid",
         DiagnosticCode::QueryPlan => "query planning failed",

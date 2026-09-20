@@ -1,0 +1,13 @@
+8024973c209ab9244ac24687f3a8d42e772f0c3c4454d7a5f57aeaaa0c34c658  Cargo.lock
+500e3b7563d86074dc997dbf437b5e1806b8c2b89c6ab721c10a280315b1b0d4  crates/icydb/src/db/session/write.rs
+180825efa8e5e3acfade027d8f4e635ba7e7e3327c7b742048f83ad2730297aa  crates/icydb-core/src/db/data/persisted_row/contract.rs
+ba24cb2249a6fa57afb02ace251b8fd1141f76f8399af80252817ac20589b77a  crates/icydb-core/src/db/data/structural_field/value_storage/decode/value.rs
+1f207e156ce37a7e00f3a342989f5ee96cd4c26463c8f61808f020678b24de21  canisters/test/sql/src/lib.rs
+1ee9ce256ab8ffa46852fd2c3a4657acb8dbf63186d2f6cd73da7651cf92fc02  canisters/test/sql/src/catalog_workload.rs
+d7e787fd6a31c4149c84dbb65d46869c7daea14b250cfc97bacbafb496ca588f  canisters/test/sql/src/collection_workload.rs
+2b4ab622d4e8944101e8e7a1b61f8ff72da21dca4ba7a2a4423c51a8040c4f30  schema/test/sql/src/sql.rs
+fb5d93c7c165ffad36bde590da3e99605622c0ab07033c440fd94e9c2a75ba14  testing/integration/tests/sql_canister.rs
+de158468310896ad0de3380ec710fd587ffc4194de74d7fa3b4112707f476f7e  testing/integration/tests/catalog_workload.rs
+
+Candidate replaces only the facade binding owner above:
+00abef2e33eb05bbfffc72e766a9f9aadbada9f8c45aef6ffd218936e147367e  crates/icydb/src/db/session/write.rs

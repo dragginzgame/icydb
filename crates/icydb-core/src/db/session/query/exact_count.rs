@@ -156,7 +156,7 @@ impl<C: CanisterKind> DbSession<C> {
             target,
         )
         .map_err(QueryError::execute)?
-        .ok_or_else(QueryError::unsupported_query)
+        .ok_or_else(QueryError::exact_count_metadata_unavailable)
     }
 
     /// Return exact visible cardinality without entering row execution.
@@ -165,7 +165,9 @@ impl<C: CanisterKind> DbSession<C> {
     /// filter over the leading field of an accepted unfiltered field-path user
     /// index. Every component, including trailing fields, must be present for
     /// all matching rows. Metadata that is not ready fails closed; this terminal
-    /// never falls back to a scan.
+    /// never falls back to a scan. Unavailable metadata reports
+    /// `QUERY_EXACT_COUNT_METADATA_UNAVAILABLE`; unsupported count shapes report
+    /// `RUNTIME_UNSUPPORTED`.
     pub fn execute_public_exact_count(&self, request: &DynamicQuery) -> Result<u64, QueryError> {
         let catalog = self
             .accepted_schema_catalog_context_for_entity_name(Some(request.entity()))

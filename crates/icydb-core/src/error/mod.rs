@@ -1106,6 +1106,19 @@ impl InternalError {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Query)
     }
 
+    /// An admitted metadata-only count has no available exact cardinality.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn query_exact_count_metadata_unavailable() -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+            detail: Some(ErrorDetail::Query(
+                QueryErrorDetail::ExactCountMetadataUnavailable,
+            )),
+        }
+    }
+
     /// Detached explain rendering exceeded its fixed output policy, not a
     /// request/execution budget. Retain numeric facts without report contents.
     pub(crate) fn query_explain_output_exceeded(limit: u64, observed: u64) -> Self {
@@ -2528,6 +2541,9 @@ pub enum StoreError {
 ///
 
 pub enum QueryErrorDetail {
+    /// The exact-count shape is supported, but its metadata is unavailable.
+    ExactCountMetadataUnavailable,
+
     NumericOverflow,
 
     NumericNotRepresentable,
@@ -2998,6 +3014,9 @@ impl QueryErrorDetail {
     #[must_use]
     pub const fn diagnostic_code(&self) -> diagnostic_code::DiagnosticCode {
         match self {
+            Self::ExactCountMetadataUnavailable => {
+                diagnostic_code::DiagnosticCode::QueryExactCountMetadataUnavailable
+            }
             Self::NumericOverflow => diagnostic_code::DiagnosticCode::QueryNumericOverflow,
             Self::NumericNotRepresentable => {
                 diagnostic_code::DiagnosticCode::QueryNumericNotRepresentable
@@ -3053,7 +3072,8 @@ impl QueryErrorDetail {
                     reason: error.diagnostic_code(),
                 })
             }
-            Self::NumericOverflow
+            Self::ExactCountMetadataUnavailable
+            | Self::NumericOverflow
             | Self::NumericNotRepresentable
             | Self::UnknownAggregateTargetField
             | Self::StaleSchemaRevision => None,

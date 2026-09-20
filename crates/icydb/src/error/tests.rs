@@ -254,6 +254,28 @@ fn public_error_sql_write_boundary_collapses_detail_to_leaf_code() {
 }
 
 #[test]
+fn exact_count_metadata_diagnostic_survives_public_candid_round_trip() {
+    use icydb_diagnostic_code::{Diagnostic, DiagnosticCode, ErrorClass, ErrorCode};
+
+    let error = Error::from_diagnostic(Diagnostic::from_code(
+        DiagnosticCode::QueryExactCountMetadataUnavailable,
+    ));
+    let wire = Encode!(&error).expect("public error should encode");
+    let decoded = Decode!(&wire, Error).expect("public error should decode");
+    assert_eq!(
+        decoded.code(),
+        ErrorCode::QUERY_EXACT_COUNT_METADATA_UNAVAILABLE
+    );
+    assert_eq!(decoded.class(), ErrorClass::Unsupported);
+    assert_eq!(decoded.origin(), ErrorOrigin::Query);
+    assert_eq!(
+        decoded.diagnostic().code(),
+        DiagnosticCode::QueryExactCountMetadataUnavailable
+    );
+    assert_eq!(decoded, error);
+}
+
+#[test]
 fn internal_error_class_matrix_maps_to_runtime_kind_and_preserves_origin() {
     let cases = [
         (CoreErrorClass::Corruption, RuntimeErrorKind::Corruption),

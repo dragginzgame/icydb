@@ -15,6 +15,7 @@ Generated Rust adapters never choose admission or execution semantics.
 | --- | --- |
 | Typed live page | `db.query::<E>()?.execute_live_page(continuation)` |
 | Dynamic live page | `execute_live_page(&request, continuation)` |
+| Exact metadata count | `db.query::<E>()?.execute_exact_count()` or `db.execute_exact_count(&request)` |
 | Adapter-owned public page step | `advance_live_page(&request, continuation.as_deref())` |
 | Bounded typed grouped page | `db.query::<E>()?...execute_grouped()` |
 | Bounded dynamic grouped page | `execute_public_dynamic_grouped_query(&request)` |
@@ -45,6 +46,22 @@ shapes, and excessive primary-key input work before row execution.
 
 The returned typed error preserves the stable `QueryReadAdmissionCode`; see
 [READ_ADMISSION.md](../contracts/READ_ADMISSION.md) for the complete table.
+
+## Exact Counts
+
+Exact counts use metadata without scanning rows. They accept bare entity counts
+or a strict equality/bounded `IN` filter on the leading field of an accepted,
+unfiltered field-path user index whose components are present for every matching
+row. Unsupported shapes return `ErrorCode::RUNTIME_UNSUPPORTED`. An admitted
+count whose exact metadata is unavailable returns
+`ErrorCode::QUERY_EXACT_COUNT_METADATA_UNAVAILABLE` (E275, Unsupported class,
+Query origin). Typed queries carry that code in `TypedOperationError::Database`.
+Other admission, budget and storage errors retain their own diagnostics.
+
+Callers can identify unavailable metadata by its code without treating a
+query-shape rejection as the same condition. This terminal never starts a scan
+automatically. Before removing an application-owned bounded count path, qualify
+metadata availability for the application's actual tables and lifecycle.
 
 ## Public Endpoint Template
 

@@ -690,4 +690,5 @@ define_error_code_registry! {
         detail(QueryReadAdmission { reason: QueryReadAdmissionCode::ExplainDoesNotAcceptCursor });
     RUNTIME_BOUNDARY_MEMORY_BUCKET_SIZE_MISMATCH = 274 => RuntimeConflict,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MemoryBucketSizeMismatch });
+    QUERY_EXACT_COUNT_METADATA_UNAVAILABLE = 275 => QueryExactCountMetadataUnavailable;
 }

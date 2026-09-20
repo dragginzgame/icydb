@@ -11,6 +11,8 @@
 mod sql_harness;
 
 mod batch_workload;
+mod catalog_workload;
+mod collection_workload;
 
 use std::collections::BTreeSet;
 

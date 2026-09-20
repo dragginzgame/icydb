@@ -1,0 +1,9 @@
+catalog_wasm path=/home/adam/projects/icydb/target/icydb/canister-artifact-cache/.ic-testkit/artifact-sets/namespaces/823dde03c7560a3664bd3b412f48ad81c265e1cc1d77fb12be6d3b9aad847199/entries/0271c1936bab4957b2bdfa0ab68f1fa4d0eaab90f83ccbe65bec04dd557db069/outputs/0000.artifact raw_bytes=4302295 sha256=e17148f7337f72361f4369215c9b4fef077d3053913abc9e3afa5f0b512f04dc
+catalog_message count=16 staged=false observation=0 instructions=7681441 binding=0 page=0 adapter=0 pages=1 cycles=16769025
+catalog_message count=16 staged=false observation=1 instructions=7848678 binding=0 page=0 adapter=0 pages=1 cycles=16957139
+catalog_message count=16 staged=true observation=0 instructions=7862513 binding=595189 page=5338240 adapter=1914834 pages=1 cycles=16994737
+catalog_message count=16 staged=true observation=1 instructions=7708105 binding=595252 page=5180679 adapter=1917886 pages=1 cycles=17006178
+catalog_message count=128 staged=false observation=0 instructions=62012603 binding=0 page=0 adapter=0 pages=2 cycles=76858075
+catalog_message count=128 staged=false observation=1 instructions=61612618 binding=0 page=0 adapter=0 pages=2 cycles=76880387
+catalog_message count=128 staged=true observation=0 instructions=61705427 binding=893327 page=45285697 adapter=15488772 pages=2 cycles=77070868
+catalog_message count=128 staged=true observation=1 instructions=61950676 binding=1052812 page=45378388 adapter=15481437 pages=2 cycles=77081240

@@ -5651,7 +5651,7 @@ mod identity_pre_key_tests {
     }
 
     #[test]
-    fn exact_count_rejects_non_metadata_shapes_and_unready_cardinality() {
+    fn exact_count_rejects_non_metadata_shapes_without_physical_reads() {
         let session = initialize();
         insert_exact_key_fixture(&session, 10);
         let rejected = [
@@ -5666,23 +5666,65 @@ mod identity_pre_key_tests {
             DynamicQuery::new(ENTITY_NAME)
                 .filter(crate::db::FieldRef::new("payload").in_list(0_u64..=16)),
         ];
+        let data_reads_before = DataStore::current_get_call_count();
+        let index_reads_before = IndexStore::current_entry_read_count();
         for request in rejected {
+            let error = session
+                .execute_public_exact_count(&request)
+                .expect_err("unsupported count shape must reject");
+            assert_eq!(
+                error.diagnostic().error_code(),
+                icydb_diagnostic_code::ErrorCode::RUNTIME_UNSUPPORTED,
+            );
             assert!(matches!(
-                session.execute_public_exact_count(&request),
-                Err(crate::db::QueryError::Execute(
-                    QueryExecutionError::Unsupported(_)
-                )),
+                error,
+                crate::db::QueryError::Execute(QueryExecutionError::Unsupported(_)),
             ));
         }
+        assert_eq!(DataStore::current_get_call_count(), data_reads_before);
+        assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
+    }
 
+    #[test]
+    fn exact_count_unavailable_metadata_has_a_typed_diagnostic_without_physical_reads() {
         let journaled = initialize_journaled();
         insert_exact_key_fixture(&journaled, 10);
-        assert!(matches!(
-            journaled.execute_public_exact_count(&DynamicQuery::new(ENTITY_NAME)),
-            Err(crate::db::QueryError::Execute(
-                QueryExecutionError::Unsupported(_)
-            )),
-        ));
+        let binding = exact_key_binding(&journaled);
+        let requests = [
+            DynamicQuery::new(ENTITY_NAME),
+            DynamicQuery::new(ENTITY_NAME).filter(crate::db::FieldRef::new("payload").eq(10_u64)),
+        ];
+        let data_reads_before = DataStore::current_get_call_count();
+        let index_reads_before = IndexStore::current_entry_read_count();
+        for request in requests {
+            let dynamic = journaled
+                .execute_public_exact_count(&request)
+                .expect_err("journal overlay has no exact metadata");
+            let typed = journaled
+                .execute_public_exact_count_for_typed_binding(&binding, &request)
+                .expect_err("typed binding must retain unavailable-metadata diagnostic");
+            for error in [dynamic, typed] {
+                let diagnostic = error.diagnostic();
+                assert_eq!(
+                    diagnostic.error_code(),
+                    icydb_diagnostic_code::ErrorCode::QUERY_EXACT_COUNT_METADATA_UNAVAILABLE,
+                );
+                assert_eq!(
+                    diagnostic.class(),
+                    icydb_diagnostic_code::ErrorClass::Unsupported
+                );
+                assert_eq!(
+                    diagnostic.origin(),
+                    icydb_diagnostic_code::ErrorOrigin::Query
+                );
+                assert!(matches!(
+                    error,
+                    crate::db::QueryError::Execute(QueryExecutionError::Unsupported(_)),
+                ));
+            }
+        }
+        assert_eq!(DataStore::current_get_call_count(), data_reads_before);
+        assert_eq!(IndexStore::current_entry_read_count(), index_reads_before);
     }
 
     #[test]

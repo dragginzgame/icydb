@@ -4,10 +4,18 @@
 
 #[cfg(feature = "test-admin-api")]
 mod batch_workload;
+#[cfg(feature = "test-admin-api")]
+mod catalog_workload;
+#[cfg(feature = "test-admin-api")]
+mod collection_workload;
 
 // Candid's service collector resolves endpoint return types at the crate root.
 #[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
 use crate::batch_workload::BatchWorkloadSample;
+#[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
+use crate::catalog_workload::{CatalogLabelSample, CatalogWorkloadSample};
+#[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
+use crate::collection_workload::CollectionWorkloadSample;
 use candid::CandidType;
 use ic_cdk::{query, update};
 #[cfg(feature = "sql")]

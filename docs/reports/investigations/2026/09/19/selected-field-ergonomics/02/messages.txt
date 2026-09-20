@@ -1,0 +1,17 @@
+catalog_wasm path=/home/adam/projects/icydb/target/icydb/canister-artifact-cache/.ic-testkit/artifact-sets/namespaces/823dde03c7560a3664bd3b412f48ad81c265e1cc1d77fb12be6d3b9aad847199/entries/7f2ba5b881a9d51ef9e5f245060e3b761203901c94ccb158d3c43aad500950b8/outputs/0000.artifact raw_bytes=4309787 sha256=5c7ff4ff362793d908b0b8d2ddfa72bfffb64811260775030dbeb5fc332385e2
+catalog_message count=16 staged=false observation=0 instructions=6396918 binding=0 page=0 adapter=0 pages=1 cycles=15488143
+catalog_message count=16 staged=false observation=1 instructions=6572606 binding=0 page=0 adapter=0 pages=1 cycles=15681826
+catalog_message count=16 staged=true observation=0 instructions=6428004 binding=595573 page=5170902 adapter=646473 pages=1 cycles=15723472
+catalog_message count=16 staged=true observation=1 instructions=6584546 binding=593808 page=5326966 adapter=649156 pages=1 cycles=15719270
+catalog_labels count=16 selected=false observation=0 instructions=6437195 pages=1 cycles=14910189
+catalog_labels count=16 selected=true observation=1 instructions=2966762 pages=1 cycles=11255097
+catalog_labels count=16 selected=true observation=2 instructions=2657055 pages=1 cycles=10959501
+catalog_labels count=16 selected=false observation=3 instructions=6593470 pages=1 cycles=14897218
+catalog_message count=128 staged=false observation=0 instructions=51925836 binding=0 page=0 adapter=0 pages=2 cycles=66774634
+catalog_message count=128 staged=false observation=1 instructions=51706599 binding=0 page=0 adapter=0 pages=2 cycles=66807871
+catalog_message count=128 staged=true observation=0 instructions=51844428 binding=892036 page=45513491 adapter=5401565 pages=2 cycles=66974646
+catalog_message count=128 staged=true observation=1 instructions=51673922 binding=1052300 page=45177535 adapter=5398150 pages=2 cycles=66986466
+catalog_labels count=128 selected=false observation=0 instructions=51751088 pages=2 cycles=60783897
+catalog_labels count=128 selected=true observation=1 instructions=28196160 pages=2 cycles=37182944
+catalog_labels count=128 selected=true observation=2 instructions=27912376 pages=2 cycles=36912519
+catalog_labels count=128 selected=false observation=3 instructions=51839250 pages=2 cycles=60776066

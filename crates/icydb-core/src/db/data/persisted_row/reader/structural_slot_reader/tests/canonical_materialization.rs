@@ -10,6 +10,7 @@ use crate::{
         },
         structural_field::encode_canonical_value_storage_bytes,
     },
+    db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, PredicateProgram},
     error::ErrorClass,
 };
 
@@ -97,6 +98,115 @@ fn canonical_materialization_preserves_nullable_empty_and_populated_rereads() {
         let taken = reader.take_direct_projection_value(2).unwrap();
         assert_eq!(taken, value);
         assert_eq!(reader.required_cached_value(2).unwrap(), &taken);
+    }
+}
+
+#[test]
+fn collection_predicates_preserve_early_late_absent_empty_and_null_results() {
+    let contract = payload_contract(
+        AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Blob { max_len: Some(8) })),
+        LeafCodec::Structural,
+        true,
+    );
+    for (value, membership, empty) in [
+        (Value::Null, [false; 3], false),
+        (Value::List(vec![]), [false; 3], true),
+        (
+            Value::List(vec![Value::Blob(vec![1]), Value::Blob(vec![2])]),
+            [true, true, false],
+            false,
+        ),
+    ] {
+        let row = row_with_payload(
+            &contract,
+            encode_canonical_value_storage_bytes(&value).unwrap(),
+        );
+        let comparisons = [1, 2, 3]
+            .into_iter()
+            .zip(membership)
+            .map(|(byte, expected)| {
+                (
+                    Predicate::Compare(ComparePredicate::with_coercion(
+                        "snapshot",
+                        CompareOp::Contains,
+                        Value::Blob(vec![byte]),
+                        CoercionId::Strict,
+                    )),
+                    expected,
+                )
+            });
+        let emptiness = [
+            (
+                Predicate::IsEmpty {
+                    field: "snapshot".into(),
+                },
+                empty,
+            ),
+            (
+                Predicate::IsNotEmpty {
+                    field: "snapshot".into(),
+                },
+                !empty,
+            ),
+        ];
+        for (predicate, expected) in comparisons.chain(emptiness) {
+            // A fresh reader prevents another predicate from warming this slot.
+            let reader =
+                StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract).unwrap();
+            let program = PredicateProgram::compile_with_row_contract(&contract, &predicate);
+            assert_eq!(
+                program.eval_with_structural_slot_reader(&reader).unwrap(),
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn collection_predicates_reject_invalid_tail_after_matching_first_item() {
+    let contract = payload_contract(
+        AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Blob { max_len: Some(8) })),
+        LeafCodec::Structural,
+        false,
+    );
+    let first = Value::Blob(vec![1]);
+    let encode = |tail| {
+        encode_canonical_value_storage_bytes(&Value::List(vec![first.clone(), tail])).unwrap()
+    };
+    let valid = encode(Value::Blob(vec![2]));
+    let mut truncated = valid.clone();
+    truncated.pop();
+    let mut trailing = valid;
+    trailing.push(0);
+    for payload in [
+        encode(Value::Nat64(2)),
+        encode(Value::Blob(vec![2; 9])),
+        truncated,
+        trailing,
+    ] {
+        let row = row_with_payload(&contract, payload);
+        for predicate in [
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "snapshot",
+                CompareOp::Contains,
+                first.clone(),
+                CoercionId::Strict,
+            )),
+            Predicate::IsEmpty {
+                field: "snapshot".into(),
+            },
+            Predicate::IsNotEmpty {
+                field: "snapshot".into(),
+            },
+        ] {
+            let reader =
+                StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract).unwrap();
+            let program = PredicateProgram::compile_with_row_contract(&contract, &predicate);
+            let error = program
+                .eval_with_structural_slot_reader(&reader)
+                .expect_err("a boolean result must not hide invalid trailing items");
+            assert_eq!(error.class(), ErrorClass::Corruption);
+        }
     }
 }
 

@@ -114,6 +114,55 @@ pub struct SqlTestNumericTypes {}
 )]
 pub struct SqlTestCallerNat64 {}
 
+/// Nullable list payload for the collection-materialization qualification.
+#[list(item(prim = "Nat64"))]
+pub struct SqlTestCollectionItems {}
+
+/// Fixed-key collection probe; the scalar control leaves the list untouched.
+#[entity(
+    store = "SqlTestStore",
+    version = 1,
+    pk(field = "id"),
+    fields(
+        field(name = "id", value(item(prim = "Nat64"))),
+        field(name = "marker", value(item(prim = "Nat64"))),
+        field(name = "items", value(opt, item(is = "SqlTestCollectionItems")))
+    )
+)]
+pub struct SqlTestCollectionProbe {}
+
+/// Nested catalogue payload for complete-row typed-read qualification.
+#[record(fields(
+    field(name = "x", value(item(prim = "Nat64"))),
+    field(name = "y", value(item(prim = "Nat64")))
+))]
+pub struct SqlTestCatalogPoint {}
+
+#[record(fields(
+    field(name = "shape", value(item(prim = "Blob", max_len = 4096))),
+    field(name = "points", value(many, item(is = "SqlTestCatalogPoint"))),
+    field(name = "asset", value(item(prim = "Text", max_len = 96))),
+    field(name = "enabled", value(item(prim = "Bool")))
+))]
+pub struct SqlTestCatalogPlacement {}
+
+/// Indexed catalogue shape; all fields, including nested values, are returned.
+#[entity(
+    store = "SqlTestStore",
+    version = 1,
+    pk(field = "id"),
+    index(field = "key", unique),
+    fields(
+        field(name = "id", value(item(prim = "Nat64"))),
+        field(name = "key", value(item(prim = "Text", max_len = 64))),
+        field(name = "name", value(item(prim = "Text", max_len = 96))),
+        field(name = "description", value(item(prim = "Text", max_len = 512))),
+        field(name = "placement", value(opt, item(is = "SqlTestCatalogPlacement"))),
+        field(name = "capacity", value(item(prim = "Nat64")))
+    )
+)]
+pub struct SqlTestCatalogItem {}
+
 /// Generated Nat64 subject for the Identity closeout instruction probe.
 #[entity(
     store = "SqlTestStore",
