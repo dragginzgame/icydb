@@ -1,8 +1,9 @@
 # Entity Lifecycle And Relation DDL
 
-Status: unpromoted workload questions; no implementation authority
+Status: entity rename promoted to [0.261 qualification](../0.261-entity-rename/0.261-design.md);
+other lifecycle questions remain unpromoted
 
-Reviewed: 2026-09-06
+Reviewed: 2026-09-20
 
 ## Maintained Starting Point
 
@@ -33,9 +34,14 @@ only one when a concrete application workload demonstrates the missing behavior.
 | Entity rename | Which source/display identity changes, and which accepted entity/tag/store identities must remain stable? Compare explicit source-lineage support before treating a rename as replacement or data movement. |
 | Relation DDL | Which exact relation change cannot already be delivered through maintained source migration and activation? Define accepted source/target checks and bounded activation through the existing relation owner. |
 
-The current migration rename vocabulary includes fields, named types, and local
-relations; that does not establish support for entity rename. Audit the exact
-requested transition rather than inferring capability from the command name.
+Entity rename already has a separate current owner: `EntityMigration::from_name`,
+also emitted by the generated `entity_migration(..., from_name = "...")`
+declaration. The local rename enum covers fields, named types and local relations;
+it is not the complete entity-transition vocabulary. Existing planner tests
+preserve accepted IDs across entity rename. The user authorised 0.261 to qualify
+the populated same-store transition, including relationships and recovery,
+before proposing any additional runtime capability. Other rows above remain
+independent workload questions, not implied implementation scope.
 
 ## Ownership And Boundaries
 

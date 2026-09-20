@@ -159,11 +159,6 @@ impl EntityMigration {
                 }
             }
         }
-        if renames.is_empty() && transforms.is_empty() && from_name.is_none() {
-            return Err(DarlingError::custom(
-                "entity_migration(...) must declare a rename or transform",
-            ));
-        }
         let from =
             from.ok_or_else(|| DarlingError::custom("entity_migration requires from = N"))?;
         if from == 0 {
@@ -695,8 +690,14 @@ mod tests {
     #[test]
     fn empty_and_unknown_plan_forms_reject() {
         assert!(parse(quote!()).is_err());
-        assert!(parse(quote!(entity_migration(entity = "User", from = 1))).is_err());
         assert!(parse(quote!(unknown(entity = "User", from = 1))).is_err());
+    }
+
+    #[test]
+    fn dependency_only_transition_parses() {
+        let plan = parse(quote!(entity_migration(entity = "Holder", from = 1)))
+            .expect("dependency-only transition should parse");
+        assert_eq!(plan.transitions.len(), 1);
     }
 
     #[test]

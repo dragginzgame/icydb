@@ -12,6 +12,8 @@ ignored = ["candid", "icydb"]
 [features]
 default = []
 migration-v2 = []
+entity-rename = []
+entity-rename-successor = ["entity-rename"]
 
 [dependencies]
 candid = { workspace = true }

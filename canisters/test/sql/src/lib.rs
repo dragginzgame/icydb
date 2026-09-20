@@ -8,6 +8,8 @@ mod batch_workload;
 mod catalog_workload;
 #[cfg(feature = "test-admin-api")]
 mod collection_workload;
+#[cfg(all(feature = "entity-rename", feature = "test-admin-api"))]
+mod entity_rename;
 
 // Candid's service collector resolves endpoint return types at the crate root.
 #[cfg(all(feature = "test-admin-api", feature = "candid-export"))]

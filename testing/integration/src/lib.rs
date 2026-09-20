@@ -680,6 +680,26 @@ pub fn build_schema_migration_fixture_wasms() -> Result<(Vec<u8>, Vec<u8>), Stri
     ))
 }
 
+/// Build the populated entity-rename source and successor using the SQL actor.
+/// Both actors use current formats and the same durable namespace/store keys.
+///
+/// # Errors
+/// Returns a build, post-link or retained-artifact read failure.
+pub fn build_entity_rename_fixture_wasms() -> Result<(Vec<u8>, Vec<u8>), String> {
+    Ok((
+        build_fixture_variant_wasm(
+            "canister_test_sql",
+            "test-admin-api,local-sql-query,entity-rename",
+            "entity-rename-source",
+        )?,
+        build_fixture_variant_wasm(
+            "canister_test_sql",
+            "test-admin-api,local-sql-query,entity-rename-successor",
+            "entity-rename-successor",
+        )?,
+    ))
+}
+
 // Read while the retained Cargo/post-link owner is alive. Variant-specific
 // features must not borrow a mutable artifact path from another build.
 fn build_fixture_variant_wasm(

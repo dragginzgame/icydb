@@ -1,10 +1,13 @@
 use icydb_model::prelude::*;
 use icydb_testing_wasm_helpers::{define_fixture_canister, define_fixture_store};
 
-#[cfg(not(feature = "migration-v2"))]
+#[cfg(all(
+    not(feature = "entity-rename-successor"),
+    any(not(feature = "migration-v2"), feature = "entity-rename")
+))]
 define_fixture_canister!(SqlTestCanister = "SqlTestCanister", namespace = "test_sql",);
 
-#[cfg(feature = "migration-v2")]
+#[cfg(all(feature = "migration-v2", not(feature = "entity-rename")))]
 define_fixture_canister!(
     SqlTestCanister = "SqlTestCanister",
     namespace = "test_sql",
@@ -20,6 +23,16 @@ define_fixture_canister!(
     )),
 );
 
+#[cfg(feature = "entity-rename-successor")]
+define_fixture_canister!(
+    SqlTestCanister = "SqlTestCanister",
+    namespace = "test_sql",
+    migrations(
+        entity_migration(entity = "CatalogItem", from = 1, from_name = "Item"),
+        entity_migration(entity = "Holder", from = 1)
+    ),
+);
+
 define_fixture_store!(
     SqlTestStore,
     canister = "SqlTestCanister",
@@ -32,7 +45,7 @@ define_fixture_store!(
 /// Small indexed user fixture used by generated-vs-typed SQL smoke tests.
 ///
 
-#[cfg(not(feature = "migration-v2"))]
+#[cfg(any(not(feature = "migration-v2"), feature = "entity-rename"))]
 #[entity(store = "SqlTestStore",
     version = 1,
     pk(fields = ["id"]),
@@ -50,7 +63,7 @@ define_fixture_store!(
 )]
 pub struct SqlTestUser {}
 
-#[cfg(feature = "migration-v2")]
+#[cfg(all(feature = "migration-v2", not(feature = "entity-rename")))]
 #[entity(store = "SqlTestStore",
     version = 2,
     pk(fields = ["id"]),

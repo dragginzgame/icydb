@@ -124,6 +124,45 @@ application callback, SQL migration language, or compatibility alias.
 
 ## Deploy And Run
 
+### Entity rename with inbound relations
+
+For a same-store `Item` to `CatalogItem` rename, keep all fields, indexes and
+durable namespace/store keys unchanged. Rename the declaration and update its
+self-reference target spelling. Advance its source version from 1 to 2.
+Every inbound owner whose target spelling changes also advances explicitly:
+`Holder(item_id -> Item.id)` becomes `Holder(item_id -> CatalogItem.id)` at
+source version 2, even though Holder's rows do not change.
+
+Declare the two transitions together on the canister:
+
+```rust
+migrations(
+    entity_migration(entity = "CatalogItem", from = 1, from_name = "Item"),
+    entity_migration(entity = "Holder", from = 1)
+)
+```
+
+The companion is not permission for arbitrary empty migrations. The planner
+requires its complete accepted source meaning to match after reversing only
+relation-target entity names explicitly renamed by this plan. Unrelated field,
+type, index or constraint changes still reject, as do meaningless version bumps.
+Do not add a fake transform, rename Holder's own fields, or omit its transition.
+See the compiled [Item/Holder declarations](../../schema/test/sql/src/entity_rename.rs)
+and [canister plan](../../schema/test/sql/src/sql.rs).
+
+This metadata-only transition publishes atomically in one `Advance`, preserving
+accepted identities and stored rows/indexes. It does not enter physical rewrite
+phases. Retrying the exact command after a lost response returns the same receipt;
+keep its original database, predecessor head and plan digest. Startup readiness
+still governs ordinary requests, including after deploying the successor.
+
+The generated rename rehearsal also records recurring accepted-runtime
+preparation in query-only traffic after publication or restart. Ordinary updates
+can retain that heap preparation; restart alone is not a query-cost remedy.
+See the [measured scope and limitations](../design/0.261-entity-rename/i1-read-investigation.md).
+
+### Controller workflow
+
 Build the successor Wasm with its migration capability and source endpoints,
 then upgrade the canister. Inspect the exact deployed plan before advancing:
 
@@ -211,22 +250,36 @@ paths or ignored-test flag:
 cargo test -p icydb-testing-integration --test schema_migration_closeout -- --nocapture
 ```
 
-Three tests cover uninterrupted success, upgrades during both `Prepared` and
+Three physical-migration tests cover uninterrupted success, upgrades during both `Prepared` and
 gated validation, and a rejected Int32-to-Nat16 cast.
 They verify preserved row IDs, typed output, indexed lookup, accepted-head and
 receipt bindings, retained progress, and source data after the permitted abort.
 The source/successor actors use the same current storage format, not different
 IcyDB releases. The host bounds advancement to 32 calls; exhausting this fixture
-limit fails qualification rather than claiming successful migration.
+limit fails qualification rather than claiming successful migration. Two further
+tests rehearse the populated Item/Holder rename, with a restart before admission,
+exact-command lost-response retries, and restart after publication. They check
+self/inbound relation validation, restrictive deletion and uniqueness, without
+combining the rename with the physical cast. Run only that slice with the
+`entity_rename::` test-name filter. Native compound-marker interruption remains
+separate from generated-canister restarts; see the
+[0.261 tracker](../design/0.261-entity-rename/0.261-status.md).
 
 The target prints raw Wasm sizes, artifact hashes and whole-call cycle charges
 around explicit migration commands. These charges include ingress and any work
 scheduled during the call, not just the migration function. They exclude install,
 upgrade, seeding, separate reads and startup delivery outside the command.
-Instruction counts are not instrumented, and no numeric performance ceiling is
-inferred from this small dataset. It creates disposable local
-PocketIC canisters and uses existing SQL fixture endpoints only for seeding and
-inspection; migration commands remain typed. It does not inspect application
+Migration-body instruction counts are not instrumented. The rename tests also
+use the existing SQL query instruction probe before/after publication and after
+restart; its interval is not the migration command or whole request envelope.
+No numeric performance ceiling or optimization claim is inferred from this small
+dataset. Raw actor-size differences include fixture declaration/plan reachability,
+not just runtime-library code. The target creates disposable local
+PocketIC canisters and uses fixture controls for seeding and SQL/typed inspection;
+migration commands remain typed. Fixed rename controls seed through accepted
+structural writes and check restrictive deletes through the trusted mutation
+API; `icydb_update` owns the public UPDATE checks, not INSERT/DELETE setup.
+It does not inspect application
 data, deploy a production canister or prove another dataset will migrate.
 
 A valid pending migration

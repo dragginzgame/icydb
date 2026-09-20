@@ -449,6 +449,19 @@ fn resolve_transitions<'a>(
         if *source_digest == current_digest && transition.transforms().is_empty() {
             return Err(SchemaMigrationPlanningError::EmptyEntityVersionBump);
         }
+        // A companion may change only relation target names explained by this
+        // plan. Comparing complete source meaning also protects named types and
+        // referenced target fields that a snapshot-only comparison would miss.
+        if transition.from_name().is_none()
+            && transition.renames().is_empty()
+            && transition.transforms().is_empty()
+            && proposal
+                .entity_source_digest_before_entity_renames(transition.entity())
+                .map_err(|_| SchemaMigrationPlanningError::CandidateMismatch)?
+                != *source_digest
+        {
+            return Err(SchemaMigrationPlanningError::UnexplainedSchemaDifference);
+        }
         resolved.push(ResolvedTransition {
             store_path: store.path,
             store_identity: store.identity,

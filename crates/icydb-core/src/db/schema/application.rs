@@ -3152,6 +3152,9 @@ mod tests {
     mod collection_relations;
 
     #[cfg(feature = "migration")]
+    mod entity_rename;
+
+    #[cfg(feature = "migration")]
     mod nested_migration;
 
     use super::{

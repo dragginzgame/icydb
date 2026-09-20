@@ -6,8 +6,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     DeclaredEntityVersion, EntityFragment, EntitySourceDigest, EntitySourceKey, FieldFragment,
-    FieldSourceKey, FieldType, NamedTypeFragment, SchemaContractError, SchemaProposal,
-    TypeSourceKey,
+    FieldSourceKey, FieldType, NamedTypeFragment, RelationFragment, SchemaContractError,
+    SchemaMigrationPlan, SchemaProposal, TypeSourceKey,
 };
 
 const ENTITY_SOURCE_DIGEST_PROFILE: &[u8] = b"icydb.entity-source-meaning.v1";
@@ -27,6 +27,44 @@ impl SchemaProposal {
         &self,
         source: &EntitySourceKey,
     ) -> Result<EntitySourceDigest, SchemaContractError> {
+        self.entity_source_digest_with_targets(source, &BTreeMap::new())
+    }
+
+    /// Compute source meaning with relation targets mapped to the explicit
+    /// predecessor entity names in this proposal's migration plan.
+    ///
+    /// This comparison proof changes only target names, not target fields or
+    /// reachable type contracts. The planner compares it to accepted lineage to
+    /// admit a dependency-only transition; it is not runtime schema authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed reference or encoding error for invalid dependencies or
+    /// colliding predecessor target names.
+    pub fn entity_source_digest_before_entity_renames(
+        &self,
+        source: &EntitySourceKey,
+    ) -> Result<EntitySourceDigest, SchemaContractError> {
+        let targets = self
+            .migration()
+            .into_iter()
+            .flat_map(SchemaMigrationPlan::transitions)
+            .filter_map(|transition| {
+                transition
+                    .from_name()
+                    .map(|from| (transition.entity(), from))
+            })
+            .collect();
+        self.entity_source_digest_with_targets(source, &targets)
+    }
+
+    // Share the exact canonical encoding with ordinary lineage digests. Only
+    // explicit relation target correspondences may differ in the proof.
+    fn entity_source_digest_with_targets(
+        &self,
+        source: &EntitySourceKey,
+        target_names: &BTreeMap<&EntitySourceKey, &EntitySourceKey>,
+    ) -> Result<EntitySourceDigest, SchemaContractError> {
         let mut entities = BTreeMap::new();
         let mut types = BTreeMap::new();
         for fragment in self.fragments() {
@@ -41,13 +79,31 @@ impl SchemaProposal {
             .get(source)
             .copied()
             .ok_or(SchemaContractError::InvalidMigrationReference)?;
-        let normalized = normalized_entity(entity)?;
+        let normalized = normalized_entity(entity, target_names)?;
 
         let mut pending_types = Vec::new();
         for field in entity.fields() {
             collect_field_type_sources(field.field_type(), &mut pending_types);
         }
-        let relation_targets = relation_target_meanings(entity, &entities, &mut pending_types)?;
+        let mut relation_targets = relation_target_meanings(entity, &entities, &mut pending_types)?;
+        if !target_names.is_empty() {
+            for (target, _) in &mut relation_targets {
+                if let Some(predecessor) = target_names.get(target) {
+                    target.clone_from(predecessor);
+                }
+            }
+            // Renames can reverse lexical order. Preserve canonical ordering
+            // without merging ambiguous predecessor targets.
+            crate::compact_sort_unstable_by(&mut relation_targets, |left, right| {
+                left.0.cmp(&right.0)
+            });
+            if relation_targets
+                .windows(2)
+                .any(|pair| pair[0].0 == pair[1].0)
+            {
+                return Err(SchemaContractError::InvalidMigrationReference);
+            }
+        }
         let reachable_types = reachable_type_meanings(&types, pending_types)?;
         let encoded = crate::codec::encode_entity_source_meaning(
             &normalized,
@@ -67,14 +123,33 @@ impl SchemaProposal {
     }
 }
 
-fn normalized_entity(entity: &EntityFragment) -> Result<EntityFragment, SchemaContractError> {
+fn normalized_entity(
+    entity: &EntityFragment,
+    target_names: &BTreeMap<&EntitySourceKey, &EntitySourceKey>,
+) -> Result<EntityFragment, SchemaContractError> {
+    let relations = entity
+        .relations()
+        .iter()
+        .map(|relation| {
+            let Some(predecessor) = target_names.get(relation.target_entity()) else {
+                return Ok(relation.clone());
+            };
+            RelationFragment::try_new(
+                relation.name().clone(),
+                relation.source().clone(),
+                (*predecessor).clone(),
+                relation.target_fields().to_vec(),
+                relation.on_delete(),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     EntityFragment::try_new(
         entity.name().clone(),
         DeclaredEntityVersion::try_new(1)?,
         entity.fields().to_vec(),
         entity.primary_key().to_vec(),
         entity.indexes().to_vec(),
-        entity.relations().to_vec(),
+        relations,
         entity.constraints().to_vec(),
     )
 }
@@ -187,10 +262,12 @@ fn collect_field_type_sources(field_type: &FieldType, pending: &mut Vec<TypeSour
 #[cfg(test)]
 mod tests {
     use crate::{
-        DeclaredEntityVersion, EntityFragment, EntitySourceKey, EntityStoreAssignment,
-        ExpectedAcceptedHead, FieldFragment, FieldInsertPolicy, FieldSourceKey, FieldType,
-        SchemaFragment, SchemaName, SchemaProposal, SchemaSubmissionKey, TargetDatabaseIdentity,
-        TargetStoreIdentity,
+        DeclaredEntityVersion, EntityFragment, EntityMigration, EntitySourceKey,
+        EntityStoreAssignment, ExpectedAcceptedHead, FieldFragment, FieldInsertPolicy,
+        FieldSourceKey, FieldType, NamedTypeFragment, RelationDeleteAction, RelationFragment,
+        RelationSourceFragment, ScalarType, SchemaCapability, SchemaFragment, SchemaMigrationPlan,
+        SchemaName, SchemaProposal, SchemaSubmissionKey, TargetDatabaseIdentity,
+        TargetStoreIdentity, TypeSourceKey,
     };
 
     fn proposal(version: u32, field_name: &str) -> SchemaProposal {
@@ -246,5 +323,165 @@ mod tests {
                 .entity_source_digest(&source)
                 .expect("digest should derive"),
         );
+    }
+
+    // Zebra -> Alpha crosses Middle in canonical target order. Payload keeps a
+    // reachable named-type contract in the owner's source meaning.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one predecessor/successor fixture keeps the complete dependency contract visible"
+    )]
+    fn dependency_proposal(
+        renamed: bool,
+        payload: ScalarType,
+        target: FieldInsertPolicy,
+    ) -> SchemaProposal {
+        let name = |value| SchemaName::try_new(value).unwrap();
+        let key = |value| EntitySourceKey::try_new(value).unwrap();
+        let field = |value| FieldSourceKey::try_new(value).unwrap();
+        let id = |policy| {
+            FieldFragment::new(
+                name("id"),
+                FieldType::Scalar(ScalarType::Nat64),
+                false,
+                policy,
+                None,
+            )
+        };
+        let target_name = if renamed { "Alpha" } else { "Zebra" };
+        let mut entities = Vec::new();
+        for entity in [target_name, "Middle", "Holder"] {
+            let mut fields = vec![id(if entity == target_name {
+                target.clone()
+            } else {
+                FieldInsertPolicy::Required
+            })];
+            let relations = if entity == "Holder" {
+                fields.push(FieldFragment::new(
+                    name("payload"),
+                    FieldType::Named(TypeSourceKey::try_new("Payload").unwrap()),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ));
+                [target_name, "Middle"]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(ordinal, target)| {
+                        RelationFragment::try_new(
+                            name(if ordinal == 0 { "first" } else { "second" }),
+                            RelationSourceFragment::direct(vec![field("id")]),
+                            key(target),
+                            vec![field("id")],
+                            RelationDeleteAction::Restrict,
+                        )
+                        .unwrap()
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            entities.push(
+                EntityFragment::try_new(
+                    name(entity),
+                    DeclaredEntityVersion::try_new(if renamed && entity != "Middle" {
+                        2
+                    } else {
+                        1
+                    })
+                    .unwrap(),
+                    fields,
+                    vec![field("id")],
+                    Vec::new(),
+                    relations,
+                    Vec::new(),
+                )
+                .unwrap(),
+            );
+        }
+        let migration = renamed.then(|| {
+            SchemaMigrationPlan::try_new(vec![
+                EntityMigration::try_new(
+                    key("Alpha"),
+                    DeclaredEntityVersion::try_new(1).unwrap(),
+                    Some(key("Zebra")),
+                    Vec::new(),
+                    Vec::new(),
+                )
+                .unwrap(),
+                EntityMigration::try_new(
+                    key("Holder"),
+                    DeclaredEntityVersion::try_new(1).unwrap(),
+                    None,
+                    Vec::new(),
+                    Vec::new(),
+                )
+                .unwrap(),
+            ])
+            .unwrap()
+        });
+        let assignments = entities
+            .iter()
+            .map(|entity| {
+                EntityStoreAssignment::new(
+                    entity.source_key().clone(),
+                    TargetStoreIdentity::from_bytes([2; 32]),
+                )
+            })
+            .collect();
+        let mut capabilities = vec![SchemaCapability::RESTRICTIVE_RELATIONS];
+        if renamed {
+            capabilities.push(SchemaCapability::VERSIONED_MIGRATIONS);
+        }
+        SchemaProposal::try_compose(
+            capabilities,
+            TargetDatabaseIdentity::from_bytes([1; 32]),
+            SchemaSubmissionKey::try_new("dependency").unwrap(),
+            ExpectedAcceptedHead::Empty,
+            vec![
+                SchemaFragment::try_new(
+                    entities,
+                    vec![NamedTypeFragment::newtype(
+                        name("Payload"),
+                        FieldType::Scalar(payload),
+                    )],
+                )
+                .unwrap(),
+            ],
+            assignments,
+            Vec::new(),
+            migration,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn entity_rename_dependency_proof_preserves_canonical_order_and_complete_meaning() {
+        let holder = EntitySourceKey::try_new("Holder").unwrap();
+        let before = dependency_proposal(false, ScalarType::Nat64, FieldInsertPolicy::Required)
+            .entity_source_digest(&holder)
+            .unwrap();
+        let renamed = dependency_proposal(true, ScalarType::Nat64, FieldInsertPolicy::Required);
+        assert_ne!(before, renamed.entity_source_digest(&holder).unwrap());
+        assert_eq!(
+            before,
+            renamed
+                .entity_source_digest_before_entity_renames(&holder)
+                .unwrap()
+        );
+        for (payload, target) in [
+            (ScalarType::Nat32, FieldInsertPolicy::Required),
+            (
+                ScalarType::Nat64,
+                FieldInsertPolicy::Default(crate::ScalarLiteral::Nat(1)),
+            ),
+        ] {
+            assert_ne!(
+                before,
+                dependency_proposal(true, payload, target)
+                    .entity_source_digest_before_entity_renames(&holder)
+                    .unwrap()
+            );
+        }
     }
 }

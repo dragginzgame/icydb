@@ -217,9 +217,12 @@ pub struct EntityMigration {
 impl EntityMigration {
     /// Construct and canonicalize one entity transition.
     ///
+    /// A declaration without local operations is reserved for a dependency-only
+    /// entity-rename change, proved against accepted source meaning by the planner.
+    ///
     /// # Errors
     ///
-    /// Returns a typed migration error for an empty transition, a no-op
+    /// Returns a typed migration error for a no-op
     /// entity rename, duplicate rename ownership, duplicate transform target,
     /// or invalid transform.
     pub fn try_new(
@@ -240,9 +243,6 @@ impl EntityMigration {
             MAX_SCHEMA_MIGRATION_TRANSFORMS,
         )?;
         if from_name.as_ref() == Some(&entity) {
-            return Err(SchemaContractError::InvalidMigrationPlan);
-        }
-        if from_name.is_none() && renames.is_empty() && transforms.is_empty() {
             return Err(SchemaContractError::InvalidMigrationPlan);
         }
         for rename in &renames {
@@ -582,6 +582,22 @@ mod tests {
                 141, 56, 136, 233, 54, 180, 100, 187, 24, 63, 167, 158, 239, 93,
             ],
         );
+    }
+
+    #[test]
+    fn dependency_only_companion_roundtrips_exactly() {
+        let companion = EntityMigration::try_new(
+            entity("Holder"),
+            DeclaredEntityVersion::try_new(1).unwrap(),
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let plan = SchemaMigrationPlan::try_new(vec![transition("CatalogItem", "Item"), companion])
+            .unwrap();
+        let encoded = crate::encode_schema_migration_plan(&plan).unwrap();
+        assert_eq!(crate::decode_schema_migration_plan(&encoded).unwrap(), plan);
     }
 
     #[test]
