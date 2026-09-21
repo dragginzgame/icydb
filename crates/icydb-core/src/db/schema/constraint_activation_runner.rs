@@ -154,12 +154,13 @@ pub(in crate::db) fn advance_accepted_row_local_constraint_activation(
     let required_kind = RowLocalActivationKind::from_activation(activation.kind())?;
 
     match activation.state() {
-        ConstraintActivationState::EnforcingNewWrites => start_journaled_row_local_validation(
+        ConstraintActivationState::EnforcingNewWrites => start_journaled_validation(
             store,
             store_path,
             entity_tag,
             entity_path,
             constraint_id,
+            None,
         ),
         ConstraintActivationState::Validating => resume_journaled_row_local_validation(
             store,
@@ -225,13 +226,13 @@ pub(in crate::db) fn advance_unique_constraint_activation<C: CanisterKind>(
     let candidate = unique_candidate_for_activation(&accepted, constraint_id)?;
 
     match activation.state() {
-        ConstraintActivationState::EnforcingNewWrites => start_journaled_staged_validation(
+        ConstraintActivationState::EnforcingNewWrites => start_journaled_validation(
             store,
             runtime_entity.store_path(),
             entity_tag,
             runtime_entity.entity_path(),
             constraint_id,
-            candidate.physical_generation(),
+            Some(candidate.physical_generation()),
         ),
         ConstraintActivationState::Validating => resume_journaled_unique_validation(
             store,
@@ -476,15 +477,14 @@ fn advance_row_local_constraint_activation<C: CanisterKind>(
                     &accepted,
                     required_kind,
                 ),
-                StoreRecoveryCapability::StableBasePlusJournalReplay => {
-                    start_journaled_row_local_validation(
-                        store,
-                        runtime_entity.store_path(),
-                        entity_tag,
-                        runtime_entity.entity_path(),
-                        constraint_id,
-                    )
-                }
+                StoreRecoveryCapability::StableBasePlusJournalReplay => start_journaled_validation(
+                    store,
+                    runtime_entity.store_path(),
+                    entity_tag,
+                    runtime_entity.entity_path(),
+                    constraint_id,
+                    None,
+                ),
             }
         }
         ConstraintActivationState::Validating => {
@@ -524,12 +524,15 @@ impl RowLocalActivationKind {
     }
 }
 
-fn start_journaled_row_local_validation(
+// Publish the validating activation and its initial job atomically. Only unique
+// validation supplies a staged generation, which must match the activation epoch.
+fn start_journaled_validation(
     store: StoreHandle,
     store_path: &'static str,
     entity_tag: EntityTag,
     entity_path: &str,
     constraint_id: ConstraintId,
+    staged_generation: Option<u64>,
 ) -> Result<ConstraintValidationProgress, InternalError> {
     let current = current_bundle(store, store_path)?;
     let snapshot = current
@@ -554,57 +557,14 @@ fn start_journaled_row_local_validation(
         .constraint_catalog()
         .activation(constraint_id)
         .ok_or_else(InternalError::store_corruption)?;
-    let job =
-        ConstraintValidationJob::start(entity_tag, entity_path.to_string(), activation, None)?;
-    publish_accepted_schema_candidate_with_constraint_validation_job(
-        store_path,
-        store,
-        current.revision(),
-        &candidate,
-        &job,
-    )?;
-    Ok(ConstraintValidationProgress::Started)
-}
-
-fn start_journaled_staged_validation(
-    store: StoreHandle,
-    store_path: &'static str,
-    entity_tag: EntityTag,
-    entity_path: &str,
-    constraint_id: ConstraintId,
-    staged_generation: u64,
-) -> Result<ConstraintValidationProgress, InternalError> {
-    let current = current_bundle(store, store_path)?;
-    let snapshot = current
-        .entity_snapshots()
-        .get(&entity_tag)
-        .ok_or_else(InternalError::store_corruption)?;
-    if snapshot.entity_path() != entity_path {
-        return Err(InternalError::store_corruption());
-    }
-    let catalog = snapshot
-        .constraint_catalog()
-        .clone()
-        .with_validation_started(constraint_id)
-        .map_err(|_| InternalError::store_invariant())?;
-    let candidate = candidate_with_catalog(&current, entity_tag, catalog)?;
-    let candidate_snapshot = candidate
-        .bundle()
-        .entity_snapshots()
-        .get(&entity_tag)
-        .ok_or_else(InternalError::store_corruption)?;
-    let activation = candidate_snapshot
-        .constraint_catalog()
-        .activation(constraint_id)
-        .ok_or_else(InternalError::store_corruption)?;
-    if activation.activation_epoch() != staged_generation {
+    if staged_generation.is_some_and(|generation| activation.activation_epoch() != generation) {
         return Err(InternalError::store_corruption());
     }
     let job = ConstraintValidationJob::start(
         entity_tag,
         entity_path.to_string(),
         activation,
-        Some(staged_generation),
+        staged_generation,
     )?;
     publish_accepted_schema_candidate_with_constraint_validation_job(
         store_path,

@@ -223,7 +223,8 @@ impl SchemaDdlAcceptedSnapshotDerivation {
         let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(
             self.accepted_after
                 .persisted_snapshot()
-                .clone_with_version(schema_version),
+                .clone()
+                .with_schema_version(schema_version),
         )
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
         let comparison = SchemaAdmissionIdentityComparison::from_snapshots(

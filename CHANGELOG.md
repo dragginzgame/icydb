@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)
 
+- `0.261.2` simplifies schema mutation and validation, strengthens field-removal checks, and preserves generation checks and atomic publication.
 - `0.261.1` simplifies schema, startup and typed-binding internals, aligns schema validation with shared ownership, and documents lower-cost catalogue reads and schedule-dependent Toko Miner back-pressure, preserving runtime behavior.
 - `0.261.0` qualifies populated entity renames with consistent SQL fixture support and updates the timer runtime to 0.8 (explicit source-version updates required).
 

@@ -3,6 +3,9 @@
 //! Does not own: SQL syntax binding or physical nonempty-row migration.
 //! Boundary: applies bound field changes through accepted-schema transitions.
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{
         commit::publish_accepted_schema_candidate,
@@ -13,7 +16,7 @@ use crate::{
             PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation, SchemaFieldDropTarget,
             SchemaFieldNullabilityTarget, SchemaFieldRenameTarget, SchemaInsertDefaultTarget,
             SchemaRowLayout, derive_sql_ddl_field_nullability_persisted_after,
-            sql_ddl::candidate_with_snapshot,
+            mutation::derive_dense_field_removal_candidate, sql_ddl::candidate_with_snapshot,
         },
     },
     error::InternalError,
@@ -48,12 +51,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
     let Some(target) = derivation.admission().field_drop_target() else {
         return Err(InternalError::store_unsupported());
     };
-    validate_sql_ddl_field_drop_metadata_change(
-        entity_path,
-        envelope.before(),
-        envelope.after(),
-        target,
-    )?;
+    validate_sql_ddl_field_drop_metadata_change(envelope.before(), envelope.after(), target)?;
     validate_sql_ddl_drop_schema_gate(
         store,
         entity_tag,
@@ -68,99 +66,29 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
 }
 
 fn validate_sql_ddl_field_drop_metadata_change(
-    _entity_path: &str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldDropTarget,
 ) -> Result<(), InternalError> {
-    if before.entity_path() != after.entity_path()
-        || before.entity_name() != after.entity_name()
-        || before.fields().len() != after.fields().len().saturating_add(1)
-    {
-        return Err(InternalError::store_unsupported());
-    }
-
     let before_field = before
         .fields()
         .iter()
         .find(|field| field.id() == target.field_id())
         .ok_or_else(InternalError::store_unsupported)?;
-    if before_field.name() != target.name() || before_field.slot() != target.slot() {
-        return Err(InternalError::store_unsupported());
-    }
-    let target_name_remains = after
-        .fields()
-        .iter()
-        .any(|field| field.name() == target.name());
-    if target_name_remains {
-        return Err(InternalError::store_unsupported());
-    }
-    if before.row_layout().slot_for_field(target.field_id()) != Some(target.slot()) {
+    if before_field.name() != target.name()
+        || before_field.slot() != target.slot()
+        || before.row_layout().slot_for_field(target.field_id()) != Some(target.slot())
+    {
         return Err(InternalError::store_unsupported());
     }
 
-    let retained_fields = before
-        .fields()
-        .iter()
-        .filter(|field| field.id() != target.field_id())
-        .collect::<Vec<_>>();
-    let identities = retained_fields
-        .iter()
-        .enumerate()
-        .map(|(offset, field)| {
-            let id = u32::try_from(offset)
-                .ok()
-                .and_then(|offset| offset.checked_add(1))
-                .map(FieldId::new)
-                .ok_or_else(InternalError::store_unsupported)?;
-            Ok::<_, InternalError>((
-                field.id(),
-                id,
-                crate::db::schema::SchemaFieldSlot::from_generated_index(offset)
-                    .ok_or_else(InternalError::store_unsupported)?,
-            ))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let map_field = |field_id: FieldId, _slot| {
-        identities
-            .iter()
-            .find(|(before_id, _, _)| *before_id == field_id)
-            .map(|(_, after_id, after_slot)| (*after_id, *after_slot))
-    };
-    let expected_fields = retained_fields
-        .iter()
-        .zip(&identities)
-        .map(|(field, (_, id, slot))| field.clone_for_full_layout_rewrite(*id, *slot))
-        .collect::<Vec<_>>();
-    let expected_layout = after.row_layout().clone();
-    let expected_primary_key = before
-        .primary_key_field_ids()
-        .iter()
-        .map(|field_id| map_field(*field_id, target.slot()).map(|(id, _)| id))
-        .collect::<Option<Vec<_>>>()
-        .ok_or_else(InternalError::store_unsupported)?;
-    let expected_indexes = before
-        .indexes()
-        .iter()
-        .map(|index| index.clone_with_dense_identities(index.ordinal(), map_field))
-        .collect::<Option<Vec<_>>>()
-        .ok_or_else(InternalError::store_unsupported)?;
-    let expected_relations = before
-        .relations()
-        .iter()
-        .map(|relation| {
-            relation.clone_with_mapped_field_ids(|field_id| {
-                map_field(field_id, target.slot()).map(|(id, _)| id)
-            })
-        })
-        .collect::<Option<Vec<_>>>()
-        .ok_or_else(InternalError::store_unsupported)?;
-    if after.fields() != expected_fields
-        || after.row_layout() != &expected_layout
-        || after.primary_key_field_ids() != expected_primary_key
-        || after.indexes() != expected_indexes
-        || after.relations() != expected_relations
-    {
+    // Version admission belongs to the bound DDL request. Validate every other
+    // part of the after-image against the catalog-native dense removal owner.
+    let expected = derive_dense_field_removal_candidate(before, target.field_id())
+        .map_err(|_| InternalError::store_unsupported())?
+        .into_snapshot()
+        .with_schema_version(after.version());
+    if &expected != after {
         return Err(InternalError::store_unsupported());
     }
 
@@ -239,14 +167,13 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_nullability_change(
     let Some(target) = derivation.admission().field_nullability_target() else {
         return Err(InternalError::store_unsupported());
     };
-    validate_sql_ddl_field_nullability_metadata_change(
-        entity_path,
+    let target_is_required = validate_sql_ddl_field_nullability_metadata_change(
         envelope.before(),
         envelope.after(),
         target,
     )?;
 
-    if target_field_is_required(envelope.after(), target)? {
+    if target_is_required {
         return publish_sql_ddl_not_null_activation(
             envelope.store(),
             entity_tag,
@@ -383,12 +310,12 @@ pub(in crate::db) fn execute_admin_sql_ddl_not_null_activation_abort(
     )
 }
 
+// Return the target's requiredness only after validating the complete after-image.
 fn validate_sql_ddl_field_nullability_metadata_change(
-    _entity_path: &str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldNullabilityTarget,
-) -> Result<(), InternalError> {
+) -> Result<bool, InternalError> {
     let after_field = after
         .fields()
         .iter()
@@ -408,19 +335,7 @@ fn validate_sql_ddl_field_nullability_metadata_change(
         return Err(InternalError::store_unsupported());
     }
 
-    Ok(())
-}
-
-fn target_field_is_required(
-    snapshot: &PersistedSchemaSnapshot,
-    target: &SchemaFieldNullabilityTarget,
-) -> Result<bool, InternalError> {
-    snapshot
-        .fields()
-        .iter()
-        .find(|field| field.id() == target.field_id())
-        .map(|field| !field.nullable())
-        .ok_or_else(InternalError::store_unsupported)
+    Ok(!after_field.nullable())
 }
 
 /// Execute one metadata-only SQL DDL field-rename publication.

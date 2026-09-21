@@ -316,6 +316,8 @@ impl PersistedSchemaSnapshot {
     }
 
     /// Set the declared schema version on one already-derived candidate.
+    /// DDL callers supply the version from source intent; storage must never
+    /// synthesize it.
     #[must_use]
     pub(in crate::db) fn with_schema_version(mut self, version: SchemaVersion) -> Self {
         let payload = Rc::make_mut(&mut self.payload);
@@ -848,29 +850,6 @@ impl PersistedSchemaSnapshot {
     #[must_use]
     pub(in crate::db) fn candidate_relations(&self) -> &[PersistedRelationEdgeSnapshot] {
         self.payload.candidate_relations.as_slice()
-    }
-
-    /// Clone this accepted schema shape with a new declared schema version.
-    /// DDL callers supply the version from source intent; storage must never
-    /// synthesize it.
-    #[must_use]
-    pub(in crate::db) fn clone_with_version(&self, version: SchemaVersion) -> Self {
-        Self::new_with_primary_key_fields_and_indexes(
-            version,
-            self.payload.entity_path.clone(),
-            self.payload.entity_name.clone(),
-            self.payload.primary_key_field_ids.clone(),
-            self.payload.row_layout.clone(),
-            self.payload.fields.clone(),
-            self.payload.indexes.clone(),
-        )
-        .with_constraint_catalog(self.payload.constraint_catalog.clone())
-        .with_relation_id_allocator(self.payload.relation_id_allocator)
-        .with_relations(self.payload.relations.clone())
-        .with_constraint_candidates(
-            self.payload.candidate_indexes.clone(),
-            self.payload.candidate_relations.clone(),
-        )
     }
 }
 

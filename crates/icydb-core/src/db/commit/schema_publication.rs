@@ -338,19 +338,7 @@ pub(in crate::db) fn publish_constraint_validation_job(
     store: StoreHandle,
     job: &ConstraintValidationJob,
 ) -> Result<(), InternalError> {
-    let bundle = store
-        .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
-        .ok_or_else(InternalError::store_corruption)?;
-    if bundle.store_path() != store_path {
-        return Err(InternalError::store_corruption());
-    }
-    store.with_schema(|schema_store| {
-        schema_store.validate_constraint_validation_job_closure_with_change(
-            &bundle,
-            Some(job),
-            None,
-        )
-    })?;
+    validated_job_checkpoint_bundle(store_path, store, job)?;
 
     match store.storage_capabilities().recovery() {
         StoreRecoveryCapability::None => {
@@ -370,19 +358,7 @@ pub(in crate::db) fn publish_constraint_validation_job_with_candidate_index_entr
     job: &ConstraintValidationJob,
     entries: Vec<RawIndexStoreKey>,
 ) -> Result<(), InternalError> {
-    let bundle = store
-        .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
-        .ok_or_else(InternalError::store_corruption)?;
-    if bundle.store_path() != store_path {
-        return Err(InternalError::store_corruption());
-    }
-    store.with_schema(|schema_store| {
-        schema_store.validate_constraint_validation_job_closure_with_change(
-            &bundle,
-            Some(job),
-            None,
-        )
-    })?;
+    let bundle = validated_job_checkpoint_bundle(store_path, store, job)?;
     validate_candidate_index_entries(&bundle, job, entries.as_slice())?;
     if store.storage_capabilities().recovery()
         != StoreRecoveryCapability::StableBasePlusJournalReplay
@@ -883,6 +859,30 @@ pub(in crate::db::commit) fn validate_candidate_index_entries(
         return Err(InternalError::store_corruption());
     }
     Ok(())
+}
+
+// Check checkpoint ownership and activation/job closure once for both publication
+// paths. Candidate-index validation uses this same accepted bundle afterward.
+fn validated_job_checkpoint_bundle(
+    store_path: &'static str,
+    store: StoreHandle,
+    job: &ConstraintValidationJob,
+) -> Result<crate::db::schema::AcceptedSchemaRevisionBundle, InternalError> {
+    let bundle = store
+        .with_schema(crate::db::schema::SchemaStore::current_accepted_schema_bundle)?
+        .ok_or_else(InternalError::store_corruption)?;
+    if bundle.store_path() != store_path {
+        return Err(InternalError::store_corruption());
+    }
+    store.with_schema(|schema_store| {
+        schema_store.validate_constraint_validation_job_closure_with_change(
+            &bundle,
+            Some(job),
+            None,
+        )
+    })?;
+
+    Ok(bundle)
 }
 
 fn validate_constraint_validation_job_change(

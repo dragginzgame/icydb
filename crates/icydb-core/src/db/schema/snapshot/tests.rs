@@ -22,11 +22,13 @@ fn shared_payload_preserves_detached_candidate_and_current_encoding() {
         encode_persisted_schema_snapshot(accepted.persisted_snapshot()).unwrap(),
         before,
     );
-    assert_eq!(
-        encode_persisted_schema_snapshot(&candidate).unwrap(),
-        encode_persisted_schema_snapshot(&original.clone_with_version(SchemaVersion::new(7)))
-            .unwrap(),
-    );
+    let candidate_bytes = encode_persisted_schema_snapshot(&candidate).expect("candidate encodes");
+    let mut decoded =
+        decode_persisted_schema_snapshot(&candidate_bytes).expect("candidate decodes");
+    assert_eq!(decoded, candidate);
+    // Every persisted component other than the declared version stays exact.
+    Rc::make_mut(&mut decoded.payload).version = original.version();
+    assert_eq!(decoded, original);
     let edited = original
         .clone()
         .with_relation_id_allocator(RelationIdAllocator::new(9))

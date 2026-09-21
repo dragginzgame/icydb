@@ -215,7 +215,7 @@ fn snapshot_delta_request_lowers_only_current_plan_shapes() {
 
     let allocator_drift = snapshot_with_indexes(
         &stored
-            .clone_with_version(stored.version())
+            .clone()
             .with_constraint_catalog(AcceptedConstraintCatalog::from_persisted_parts(
                 ConstraintIdAllocator::new(
                     stored

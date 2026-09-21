@@ -3178,6 +3178,63 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
 }
 
 #[test]
+fn sql_canister_ddl_endpoint_publishes_empty_drop_column() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+    let reset: Result<(), Error> = fixture
+        .update_candid("icydb_fixtures_reset", ())
+        .expect("fixture reset should decode");
+    reset.expect("fixture rows should be removed");
+    let mut schema_version = DdlSchemaVersion::initial();
+    for sql in [
+        "ALTER TABLE SqlTestUser ADD COLUMN nickname text",
+        "ALTER TABLE SqlTestUser ADD COLUMN handle text",
+    ] {
+        schema_version.publish(&fixture, sql).expect("add field");
+    }
+
+    // Schema publication changes the cardinality proof's accepted-root binding.
+    // Rebuild that proof through the existing startup lifecycle before requiring
+    // exact emptiness; deleting all visible rows alone is not sufficient.
+    upgrade_fixture_canister(&fixture, "sql");
+    deliver_fixture_startup_watchdog(&fixture);
+
+    let dropped = schema_version
+        .publish(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN nickname")
+        .expect("empty entity should admit dense field removal");
+    assert!(matches!(
+        dropped,
+        SqlQueryResult::Ddl {
+            mutation_kind,
+            status,
+            rows_scanned: 0,
+            index_keys_written: 0,
+            ..
+        } if mutation_kind == "drop_field" && status == "published"
+    ));
+    let description = expect_describe(
+        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE").expect("describe after removal"),
+    );
+    assert!(
+        !description
+            .fields()
+            .iter()
+            .any(|field| field.name() == "nickname")
+    );
+    assert!(
+        description
+            .fields()
+            .iter()
+            .any(|field| field.name() == "handle")
+    );
+    let rows = expect_projection(
+        query_sql(&fixture, "SELECT handle FROM SqlTestUser")
+            .expect("retained field should remain queryable after remapping"),
+    );
+    assert_eq!(rows.row_count, 0);
+}
+
+#[test]
 fn sql_canister_ddl_endpoint_rejects_nonempty_drop_column_before_publication() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
