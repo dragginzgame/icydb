@@ -21,11 +21,13 @@ pub(in crate::db) use field::{
     SchemaFieldAdditionTarget, SchemaFieldDropTarget, SchemaFieldNullabilityTarget,
     SchemaFieldRenameTarget, SchemaInsertDefaultTarget,
     derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
-    derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
+    derive_sql_ddl_field_default_persisted_after, derive_sql_ddl_field_drop_accepted_after,
+    derive_sql_ddl_field_nullability_accepted_after,
     derive_sql_ddl_field_nullability_persisted_after, derive_sql_ddl_field_rename_accepted_after,
-    resolve_sql_ddl_field_drop_candidate, resolve_sql_ddl_field_drop_default_candidate,
-    resolve_sql_ddl_field_nullability_candidate, resolve_sql_ddl_field_rename_candidate,
-    resolve_sql_ddl_field_set_default_candidate, validate_sql_ddl_field_default_change_candidate,
+    derive_sql_ddl_field_rename_persisted_after, resolve_sql_ddl_field_drop_candidate,
+    resolve_sql_ddl_field_drop_default_candidate, resolve_sql_ddl_field_nullability_candidate,
+    resolve_sql_ddl_field_rename_candidate, resolve_sql_ddl_field_set_default_candidate,
+    validate_sql_ddl_field_default_change_candidate,
 };
 #[cfg(feature = "sql")]
 mod field_allocation;

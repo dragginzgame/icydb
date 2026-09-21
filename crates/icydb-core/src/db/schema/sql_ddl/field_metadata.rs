@@ -12,11 +12,15 @@ use crate::{
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, ConstraintActivationKind,
-            ConstraintId, ConstraintOrigin, FieldId, PersistedFieldSnapshot,
-            PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation, SchemaFieldDropTarget,
+            ConstraintId, ConstraintOrigin, FieldId, PersistedSchemaSnapshot,
+            SchemaDdlAcceptedSnapshotDerivation, SchemaFieldDropTarget,
             SchemaFieldNullabilityTarget, SchemaFieldRenameTarget, SchemaInsertDefaultTarget,
-            SchemaRowLayout, derive_sql_ddl_field_nullability_persisted_after,
-            mutation::derive_dense_field_removal_candidate, sql_ddl::candidate_with_snapshot,
+            derive_sql_ddl_field_nullability_persisted_after,
+            mutation::{
+                derive_dense_field_removal_candidate, derive_sql_ddl_field_default_persisted_after,
+                derive_sql_ddl_field_rename_persisted_after,
+            },
+            sql_ddl::candidate_with_snapshot,
         },
     },
     error::InternalError,
@@ -120,22 +124,36 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_default_change(
 }
 
 fn validate_sql_ddl_field_default_metadata_change(
-    entity_path: &str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
     target: &SchemaInsertDefaultTarget,
 ) -> Result<(), InternalError> {
-    validate_sql_ddl_single_field_metadata_change(
-        entity_path,
+    let before_field = before
+        .fields()
+        .iter()
+        .find(|field| field.id() == target.field_id())
+        .ok_or_else(InternalError::store_unsupported)?;
+    let after_field = after
+        .fields()
+        .iter()
+        .find(|field| field.id() == target.field_id())
+        .ok_or_else(InternalError::store_unsupported)?;
+    if before_field.name() != target.name()
+        || before_field.insert_default() == after_field.insert_default()
+    {
+        return Err(InternalError::store_unsupported());
+    }
+    // The admitted request owns the version; derivation owns every other component.
+    let expected = derive_sql_ddl_field_default_persisted_after(
         before,
-        after,
-        SqlDdlSingleFieldMetadataTarget {
-            field_id: target.field_id(),
-            before_name: target.name(),
-            after_name: target.name(),
-        },
-        SqlDdlSingleFieldMetadataChange::Default,
+        target.field_id(),
+        after_field.insert_default().clone(),
     )
+    .with_schema_version(after.version());
+    if &expected != after {
+        return Err(InternalError::store_unsupported());
+    }
+    Ok(())
 }
 
 /// Result of one SQL DDL field-nullability lifecycle operation.
@@ -363,144 +381,33 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_rename(
 }
 
 fn validate_sql_ddl_field_rename_metadata_change(
-    entity_path: &str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
     target: &SchemaFieldRenameTarget,
 ) -> Result<(), InternalError> {
-    validate_sql_ddl_single_field_metadata_change(
-        entity_path,
-        before,
-        after,
-        SqlDdlSingleFieldMetadataTarget {
-            field_id: target.field_id(),
-            before_name: target.old_name(),
-            after_name: target.new_name(),
-        },
-        SqlDdlSingleFieldMetadataChange::Rename,
-    )?;
-
-    let expected_indexes = before
-        .indexes()
+    let before_field = before
+        .fields()
         .iter()
-        .map(|index| {
-            index.clone_with_renamed_field_path_root(
-                target.field_id(),
-                target.old_name(),
-                target.new_name(),
-            )
-        })
-        .collect::<Option<Vec<_>>>()
+        .find(|field| field.id() == target.field_id())
         .ok_or_else(InternalError::store_unsupported)?;
-    if after.indexes() != expected_indexes {
+    let unchanged = target.old_name() == target.new_name();
+    if before_field.name() != target.old_name() || unchanged {
         return Err(InternalError::store_unsupported());
     }
-
+    let expected =
+        derive_sql_ddl_field_rename_persisted_after(before, before_field, target.new_name())
+            .map_err(|_| InternalError::store_unsupported())?
+            .with_schema_version(after.version());
+    if &expected != after {
+        return Err(InternalError::store_unsupported());
+    }
     Ok(())
-}
-
-#[derive(Clone, Copy)]
-struct SqlDdlSingleFieldMetadataTarget<'a> {
-    field_id: FieldId,
-    before_name: &'a str,
-    after_name: &'a str,
-}
-
-#[derive(Clone, Copy)]
-enum SqlDdlSingleFieldMetadataChange {
-    Default,
-    Rename,
-}
-
-impl SqlDdlSingleFieldMetadataChange {
-    const fn require_unchanged_indexes(self) -> bool {
-        !matches!(self, Self::Rename)
-    }
-
-    fn target_field_matches_allowed_change(
-        self,
-        before_field: &PersistedFieldSnapshot,
-        after_field: &PersistedFieldSnapshot,
-    ) -> bool {
-        match self {
-            Self::Default => {
-                before_field.clone_with_insert_default(after_field.insert_default().clone())
-                    == *after_field
-            }
-            Self::Rename => {
-                before_field.clone_with_name(after_field.name().to_string()) == *after_field
-            }
-        }
-    }
-
-    fn target_field_changed(
-        self,
-        before_field: &PersistedFieldSnapshot,
-        after_field: &PersistedFieldSnapshot,
-    ) -> bool {
-        match self {
-            Self::Default => before_field.insert_default() != after_field.insert_default(),
-            Self::Rename => before_field.name() != after_field.name(),
-        }
-    }
-}
-
-fn validate_sql_ddl_single_field_metadata_change(
-    _entity_path: &str,
-    before: &PersistedSchemaSnapshot,
-    after: &PersistedSchemaSnapshot,
-    target: SqlDdlSingleFieldMetadataTarget<'_>,
-    change: SqlDdlSingleFieldMetadataChange,
-) -> Result<(), InternalError> {
-    if before.entity_path() != after.entity_path()
-        || before.entity_name() != after.entity_name()
-        || before.primary_key_field_ids() != after.primary_key_field_ids()
-        || !row_layout_allocation_matches(before.row_layout(), after.row_layout())
-        || before.fields().len() != after.fields().len()
-        || (change.require_unchanged_indexes() && before.indexes() != after.indexes())
-    {
-        return Err(InternalError::store_unsupported());
-    }
-
-    let mut changed = 0usize;
-    for (before_field, after_field) in before.fields().iter().zip(after.fields()) {
-        if before_field.id() == target.field_id {
-            let field_id_drifted = after_field.id() != target.field_id;
-            let before_name_drifted = before_field.name() != target.before_name;
-            let after_name_drifted = after_field.name() != target.after_name;
-            if field_id_drifted || before_name_drifted || after_name_drifted {
-                return Err(InternalError::store_unsupported());
-            }
-            if !change.target_field_matches_allowed_change(before_field, after_field) {
-                return Err(InternalError::store_unsupported());
-            }
-            if change.target_field_changed(before_field, after_field) {
-                changed = changed.saturating_add(1);
-            }
-            continue;
-        }
-
-        if before_field != after_field {
-            return Err(InternalError::store_unsupported());
-        }
-    }
-
-    if changed != 1 {
-        return Err(InternalError::store_unsupported());
-    }
-
-    Ok(())
-}
-
-fn row_layout_allocation_matches(left: &SchemaRowLayout, right: &SchemaRowLayout) -> bool {
-    left == right
 }
 
 fn execute_admin_sql_ddl_checked_field_metadata_publication<T>(
     envelope: SqlDdlPublicationEnvelope<'_>,
     target: Option<&T>,
     validate: impl FnOnce(
-        &str,
         &PersistedSchemaSnapshot,
         &PersistedSchemaSnapshot,
         &T,
@@ -509,12 +416,7 @@ fn execute_admin_sql_ddl_checked_field_metadata_publication<T>(
     let Some(target) = target else {
         return Err(InternalError::store_unsupported());
     };
-    validate(
-        envelope.entity_path(),
-        envelope.before(),
-        envelope.after(),
-        target,
-    )?;
+    validate(envelope.before(), envelope.after(), target)?;
 
     envelope.publish()
 }

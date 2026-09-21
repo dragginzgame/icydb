@@ -224,26 +224,29 @@ pub(in crate::db) fn publish_accepted_schema_candidates_with_database_control(
     }
 
     let incarnation = database_incarnation_id()?;
-    let already_current = publications
-        .iter()
-        .map(|publication| {
-            publication.store.with_schema(|schema_store| {
-                schema_store.preflight_accepted_schema_candidate(
-                    incarnation,
-                    publication.expected_revision,
-                    publication.candidate,
-                )
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    if already_current.iter().all(|current| *current) {
+    let mut all_current = true;
+    let mut any_current = false;
+    // Complete preflight in sorted store order before classifying a mixed publication.
+    // A later preflight error must retain priority over the mixed-state rejection.
+    for publication in &publications {
+        let current = publication.store.with_schema(|schema_store| {
+            schema_store.preflight_accepted_schema_candidate(
+                incarnation,
+                publication.expected_revision,
+                publication.candidate,
+            )
+        })?;
+        all_current &= current;
+        any_current |= current;
+    }
+    if all_current {
         return if database_control.is_empty() {
             Ok(())
         } else {
             Err(InternalError::store_invariant())
         };
     }
-    if already_current.iter().any(|current| *current) {
+    if any_current {
         return Err(InternalError::store_invariant());
     }
 

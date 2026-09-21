@@ -596,16 +596,8 @@ fn resume_journaled_unique_validation(
             schema_store.constraint_validation_job(entity_tag, constraint_id)
         })?
         .ok_or_else(InternalError::store_corruption)?;
-    if !job.acknowledge_receipt(acknowledged_receipt) {
-        return job
-            .last_receipt()
-            .cloned()
-            .map(|receipt| ConstraintValidationProgress::Findings {
-                receipt,
-                phase: job.phase(),
-                rows_scanned: job.rows_scanned(),
-            })
-            .ok_or_else(InternalError::store_corruption);
+    if let Some(progress) = acknowledge_validation_receipt(&mut job, acknowledged_receipt)? {
+        return Ok(progress);
     }
     if job.staged_generation() != Some(candidate.physical_generation()) {
         return Err(InternalError::store_corruption());
@@ -628,9 +620,14 @@ fn resume_journaled_unique_validation(
             )?;
             let captured_revision = scan
                 .exhausted
-                .then(|| current_store_revision(store, store_path))
+                .then(|| current_store_revision(store))
                 .transpose()?
-                .map(|revision| vec![revision]);
+                .map(|revision| {
+                    vec![ConstraintStoreRevision::new(
+                        store_path.to_string(),
+                        revision,
+                    )]
+                });
             job.record_forward_page(
                 scan.checkpoint,
                 scan.rows_scanned,
@@ -648,10 +645,10 @@ fn resume_journaled_unique_validation(
         }
         ConstraintValidationPhase::Verify => {
             let captured = required_captured_revision(&job, store_path)?;
-            if current_store_revision(store, store_path)?.revision() != captured {
-                job.restart_forward(0, Vec::new())?;
-                publish_constraint_validation_job(store_path, store, &job)?;
-                return Ok(restarted_progress(&job));
+            if let Some(progress) =
+                restart_validation_if_revision_changed(store, store_path, &mut job, captured)?
+            {
+                return Ok(progress);
             }
             let scan = scan_unique_validation_page(
                 store,
@@ -672,10 +669,10 @@ fn resume_journaled_unique_validation(
                 publish_constraint_validation_job(store_path, store, &job)?;
                 return Ok(progress_for_job(job));
             }
-            if current_store_revision(store, store_path)?.revision() != captured {
-                job.restart_forward(0, Vec::new())?;
-                publish_constraint_validation_job(store_path, store, &job)?;
-                return Ok(restarted_progress(&job));
+            if let Some(progress) =
+                restart_validation_if_revision_changed(store, store_path, &mut job, captured)?
+            {
+                return Ok(progress);
             }
             let rows_scanned = job.rows_scanned();
             promote_unique_activation(store, store_path, entity_tag, constraint_id)?;
@@ -711,16 +708,8 @@ fn resume_journaled_row_local_validation(
             schema_store.constraint_validation_job(entity_tag, constraint_id)
         })?
         .ok_or_else(InternalError::store_corruption)?;
-    if !job.acknowledge_receipt(acknowledged_receipt) {
-        return job
-            .last_receipt()
-            .cloned()
-            .map(|receipt| ConstraintValidationProgress::Findings {
-                receipt,
-                phase: job.phase(),
-                rows_scanned: job.rows_scanned(),
-            })
-            .ok_or_else(InternalError::store_corruption);
+    if let Some(progress) = acknowledge_validation_receipt(&mut job, acknowledged_receipt)? {
+        return Ok(progress);
     }
     if contract.entity_path() != entity_path {
         return Err(InternalError::store_corruption());
@@ -747,9 +736,14 @@ fn resume_journaled_row_local_validation(
             )?;
             let captured_revision = scan
                 .exhausted
-                .then(|| current_store_revision(store, store_path))
+                .then(|| current_store_revision(store))
                 .transpose()?
-                .map(|revision| vec![revision]);
+                .map(|revision| {
+                    vec![ConstraintStoreRevision::new(
+                        store_path.to_string(),
+                        revision,
+                    )]
+                });
             job.record_forward_page(
                 scan.checkpoint,
                 scan.rows_scanned,
@@ -762,10 +756,10 @@ fn resume_journaled_row_local_validation(
         }
         ConstraintValidationPhase::Verify => {
             let captured = required_captured_revision(&job, store_path)?;
-            if current_store_revision(store, store_path)?.revision() != captured {
-                job.restart_forward(0, Vec::new())?;
-                publish_constraint_validation_job(store_path, store, &job)?;
-                return Ok(restarted_progress(&job));
+            if let Some(progress) =
+                restart_validation_if_revision_changed(store, store_path, &mut job, captured)?
+            {
+                return Ok(progress);
             }
             let scan = scan_row_local_validation_page(
                 store,
@@ -787,10 +781,10 @@ fn resume_journaled_row_local_validation(
                 publish_constraint_validation_job(store_path, store, &job)?;
                 return Ok(progress_for_job(job));
             }
-            if current_store_revision(store, store_path)?.revision() != captured {
-                job.restart_forward(0, Vec::new())?;
-                publish_constraint_validation_job(store_path, store, &job)?;
-                return Ok(restarted_progress(&job));
+            if let Some(progress) =
+                restart_validation_if_revision_changed(store, store_path, &mut job, captured)?
+            {
+                return Ok(progress);
             }
             let rows_scanned = job.rows_scanned();
             promote_row_local_activation(store, store_path, entity_tag, constraint_id)?;
@@ -1242,19 +1236,12 @@ fn activation_dependency_fields(
     Ok(fields)
 }
 
-fn current_store_revision(
-    store: StoreHandle,
-    store_path: &'static str,
-) -> Result<ConstraintStoreRevision, InternalError> {
+// Revision checks need only the number; capture sites own the persisted store path.
+fn current_store_revision(store: StoreHandle) -> Result<u64, InternalError> {
     let journal = store
         .journal_tail_store()
         .ok_or_else(InternalError::store_unsupported)?;
-    let revision =
-        journal.with_borrow(crate::db::journal::JournalTailStore::data_mutation_revision)?;
-    Ok(ConstraintStoreRevision::new(
-        store_path.to_string(),
-        revision,
-    ))
+    journal.with_borrow(crate::db::journal::JournalTailStore::data_mutation_revision)
 }
 
 fn required_captured_revision(
@@ -1271,6 +1258,41 @@ fn required_captured_revision(
         return Err(InternalError::store_corruption());
     }
     Ok(revision.revision())
+}
+
+// Preserve the retained finding receipt until the caller acknowledges its sequence.
+fn acknowledge_validation_receipt(
+    job: &mut ConstraintValidationJob,
+    acknowledged_receipt: Option<u64>,
+) -> Result<Option<ConstraintValidationProgress>, InternalError> {
+    if job.acknowledge_receipt(acknowledged_receipt) {
+        return Ok(None);
+    }
+    let receipt = job
+        .last_receipt()
+        .cloned()
+        .ok_or_else(InternalError::store_corruption)?;
+    Ok(Some(ConstraintValidationProgress::Findings {
+        receipt,
+        phase: job.phase(),
+        rows_scanned: job.rows_scanned(),
+    }))
+}
+
+// Both sides of a Verify page must still refer to the captured source revision.
+// Persist the restart before exposing it to the caller.
+fn restart_validation_if_revision_changed(
+    store: StoreHandle,
+    store_path: &'static str,
+    job: &mut ConstraintValidationJob,
+    captured: u64,
+) -> Result<Option<ConstraintValidationProgress>, InternalError> {
+    if current_store_revision(store)? == captured {
+        return Ok(None);
+    }
+    job.restart_forward(0, Vec::new())?;
+    publish_constraint_validation_job(store_path, store, job)?;
+    Ok(Some(restarted_progress(job)))
 }
 
 fn progress_for_job(job: ConstraintValidationJob) -> ConstraintValidationProgress {
@@ -1371,7 +1393,6 @@ fn scan_unique_validation_page(
             let mut decoded_bytes = 0usize;
             let mut staged_bytes = 0usize;
             let mut findings = Vec::new();
-            let mut staged_entries = Vec::new();
             let mut page_keys = Vec::new();
             let mut has_more = false;
 
@@ -1428,10 +1449,7 @@ fn scan_unique_validation_page(
                             ));
                         } else {
                             staged_bytes = next_staged_bytes;
-                            page_keys.push(candidate_key.clone());
-                            if mode == UniqueValidationMode::Forward {
-                                staged_entries.push(candidate_key);
-                            }
+                            page_keys.push(candidate_key);
                         }
                     }
                     decoded_bytes = decoded_bytes.saturating_add(row_bytes);
@@ -1440,7 +1458,14 @@ fn scan_unique_validation_page(
                     Ok(StoreVisit::Continue)
                 })
             })?;
-            icydb_schema::compact_sort_unstable_by(&mut staged_entries, Ord::cmp);
+            // Forward publishes the same keys used for page-local conflict checks.
+            // Verify retains those checks but must not emit index writes.
+            let staged_entries = if mode == UniqueValidationMode::Forward {
+                icydb_schema::compact_sort_unstable_by(&mut page_keys, Ord::cmp);
+                page_keys
+            } else {
+                Vec::new()
+            };
 
             Ok(UniqueValidationPageScan {
                 checkpoint: final_checkpoint,

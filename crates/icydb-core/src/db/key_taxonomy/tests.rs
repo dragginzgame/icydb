@@ -991,6 +991,89 @@ fn raw_data_store_key_entity_prefix_range_handles_max_entity_tag() {
 }
 
 #[test]
+fn raw_index_ordering_matches_decoded_keys_at_every_component_count() {
+    let mut keys = Vec::new();
+    for (kind, ordinal) in [
+        (IndexKeyKind::User, 1),
+        (IndexKeyKind::System, 1),
+        (IndexKeyKind::User, 2),
+    ] {
+        for count in 0..=crate::MAX_INDEX_FIELDS {
+            for payload in [&[0x20, b'a'][..], &[0x20, b'a', b'a'], &[0x20, b'z']] {
+                for primary in [1, 2] {
+                    let key = IndexKey::new_from_components_with_primary_key_value(
+                        &IndexId::new(EntityTag::new(0x1596), ordinal),
+                        kind,
+                        &vec![payload; count],
+                        &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(primary)),
+                    )
+                    .expect("bounded comparison fixture should build");
+                    let raw = key
+                        .to_raw()
+                        .expect("bounded comparison fixture should encode");
+                    keys.push((key, raw));
+                }
+            }
+        }
+    }
+    for (left, left_raw) in &keys {
+        for (right, right_raw) in &keys {
+            assert_eq!(left_raw.cmp(right_raw), left.cmp(right));
+        }
+    }
+}
+
+#[test]
+fn raw_index_ordering_validates_complete_frames_before_comparing() {
+    let index = IndexId::new(EntityTag::new(0x1597), 1);
+    let primary = EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat64(1))
+        .expect("primary key should encode");
+    let raw = IndexStoreKey::new(
+        index,
+        vec![EncodedIndexComponent::from_canonical_bytes(vec![
+            0x20, b'a', b'a',
+        ])],
+        primary.clone(),
+    )
+    .to_raw()
+    .expect("comparison frame should encode");
+    let other = IndexStoreKey::new(
+        index,
+        vec![EncodedIndexComponent::from_canonical_bytes(vec![
+            0x20, b'z',
+        ])],
+        primary,
+    )
+    .to_raw()
+    .expect("comparison peer should encode");
+    assert!(raw < other);
+    assert!(raw.as_bytes() > other.as_bytes());
+
+    let mut malformed: Vec<Vec<u8>> = (0..raw.as_bytes().len())
+        .map(|len| raw.as_bytes()[..len].to_vec())
+        .collect();
+    let mut trailing = raw.as_bytes().to_vec();
+    trailing.push(0);
+    malformed.push(trailing);
+    let mut excessive_count = raw.as_bytes().to_vec();
+    excessive_count[super::TAG_SIZE + IndexId::STORED_SIZE_USIZE] =
+        u8::try_from(crate::MAX_INDEX_FIELDS + 1).expect("count fits framing byte");
+    std::assert_matches!(
+        super::decode_raw_index_store_key_segments(&excessive_count).err(),
+        Some(CompactStoreKeyDecodeError::TooManyIndexComponents),
+    );
+    malformed.push(excessive_count);
+
+    for bytes in malformed {
+        let invalid = RawIndexStoreKey::from_persisted_bytes(bytes);
+        for peer in [&raw, &other] {
+            assert_eq!(invalid.cmp(peer), invalid.as_bytes().cmp(peer.as_bytes()));
+            assert_eq!(peer.cmp(&invalid), peer.as_bytes().cmp(invalid.as_bytes()));
+        }
+    }
+}
+
+#[test]
 fn raw_index_store_key_decodes_live_compact_shape() {
     let entity = EntityTag::new(0x1591);
     let index_id = IndexId::new(entity, 7);

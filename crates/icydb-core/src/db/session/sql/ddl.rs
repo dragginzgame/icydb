@@ -507,7 +507,7 @@ impl<C: CanisterKind> DbSession<C> {
                 accepted_before.snapshot(),
                 accepted_before.identity(),
                 next_schema_version,
-                alter.field().id(),
+                alter.field_id(),
                 constraint_id,
             )
             .map_err(QueryError::from_sql_ddl_execution_error)?;

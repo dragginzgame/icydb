@@ -537,6 +537,37 @@ fn nullability_mutations_add_and_retire_one_stable_constraint() {
 
 #[test]
 #[cfg(feature = "sql")]
+fn nullability_changes_update_index_metadata_and_preserve_exact_no_ops() {
+    let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(base_snapshot())
+        .expect("base snapshot should admit");
+    let indexed =
+        derive_sql_ddl_field_path_index_accepted_after(&accepted, non_unique_name_index())
+            .expect("non-unique field index should admit");
+    let mut current = indexed.accepted_after().clone();
+
+    for nullable in [false, true, true, false, false] {
+        let before = current.persisted_snapshot().clone();
+        let changed = derive_sql_ddl_field_nullability_accepted_after(&current, "name", nullable)
+            .expect("non-unique indexed field should permit both nullability directions");
+        let after = changed.accepted_after().persisted_snapshot();
+        assert_eq!(after.fields()[1].nullable(), nullable);
+        assert_eq!(
+            after.indexes()[0].key().field_paths()[0].nullable(),
+            nullable
+        );
+        assert_eq!(after.row_layout(), before.row_layout());
+        if before.fields()[1].nullable() == nullable {
+            assert_eq!(
+                after, &before,
+                "no-op must preserve the complete accepted snapshot"
+            );
+        }
+        current = changed.accepted_after().clone();
+    }
+}
+
+#[test]
+#[cfg(feature = "sql")]
 fn nullability_mutation_revalidates_nullable_unique_contract_before_publication() {
     let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(base_snapshot())
         .expect("test accepted schema should be internally valid");

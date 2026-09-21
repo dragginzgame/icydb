@@ -407,10 +407,6 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
         self.after
     }
 
-    pub(super) const fn entity_path(&self) -> &str {
-        self.entity_path
-    }
-
     pub(super) fn require_transition_plan(
         &self,
         operation: &'static str,

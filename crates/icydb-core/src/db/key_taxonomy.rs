@@ -50,7 +50,14 @@ pub(in crate::db) const COMPOSITE_PRIMARY_KEY_MAX_SIZE: usize = COMPOSITE_PRIMAR
     + (MAX_PRIMARY_KEY_FIELDS * MAX_ENCODED_PRIMARY_KEY_COMPONENT_SIZE);
 const INDEX_PRIMARY_KEY_MAX_SIZE: usize = COMPOSITE_PRIMARY_KEY_MAX_SIZE;
 
-type BorrowedIndexStoreKeySegments<'a> = (IndexStoreKeyKind, IndexId, Vec<&'a [u8]>, &'a [u8]);
+/// Fully validated comparison frame with bounded, allocation-free component storage.
+struct BorrowedIndexStoreKeySegments<'a> {
+    kind: IndexStoreKeyKind,
+    index_id: IndexId,
+    component_count: usize,
+    components: [&'a [u8]; MAX_INDEX_FIELDS],
+    primary_key: &'a [u8],
+}
 
 //
 // PrimaryKeyKind
@@ -1385,23 +1392,21 @@ fn take_len_prefixed<'a>(input: &mut &'a [u8]) -> Result<&'a [u8], CompactStoreK
 }
 
 fn compare_raw_index_store_key_bytes(left: &[u8], right: &[u8]) -> Ordering {
-    let Ok((left_kind, left_index_id, left_components, left_primary_key)) =
-        decode_raw_index_store_key_segments(left)
-    else {
+    let Ok(left_key) = decode_raw_index_store_key_segments(left) else {
         return left.cmp(right);
     };
-    let Ok((right_kind, right_index_id, right_components, right_primary_key)) =
-        decode_raw_index_store_key_segments(right)
-    else {
+    let Ok(right_key) = decode_raw_index_store_key_segments(right) else {
         return left.cmp(right);
     };
 
-    left_kind
-        .cmp(&right_kind)
-        .then_with(|| left_index_id.cmp(&right_index_id))
-        .then_with(|| left_components.len().cmp(&right_components.len()))
-        .then_with(|| compare_segments(&left_components, &right_components))
-        .then_with(|| left_primary_key.cmp(right_primary_key))
+    left_key
+        .kind
+        .cmp(&right_key.kind)
+        .then_with(|| left_key.index_id.cmp(&right_key.index_id))
+        .then_with(|| left_key.component_count.cmp(&right_key.component_count))
+        // Equal counts have identical empty padding beyond their active components.
+        .then_with(|| left_key.components.cmp(&right_key.components))
+        .then_with(|| left_key.primary_key.cmp(right_key.primary_key))
 }
 
 fn decode_raw_index_store_key_segments(
@@ -1421,13 +1426,13 @@ fn decode_raw_index_store_key_segments(
         return Err(CompactStoreKeyDecodeError::TooManyIndexComponents);
     }
 
-    let mut components = Vec::with_capacity(component_count);
-    for _ in 0..component_count {
+    let mut components = [&[][..]; MAX_INDEX_FIELDS];
+    for slot in components.iter_mut().take(component_count) {
         let component = take_len_prefixed(&mut input)?;
         if component.len() > INDEX_COMPONENT_MAX_SIZE {
             return Err(CompactStoreKeyDecodeError::IndexSegmentTooLarge);
         }
-        components.push(component);
+        *slot = component;
     }
 
     let primary_key = take_len_prefixed(&mut input)?;
@@ -1438,18 +1443,13 @@ fn decode_raw_index_store_key_segments(
         return Err(CompactStoreKeyDecodeError::TrailingIndexBytes);
     }
 
-    Ok((key_kind, index_id, components, primary_key))
-}
-
-fn compare_segments(left: &[&[u8]], right: &[&[u8]]) -> Ordering {
-    for (left_segment, right_segment) in left.iter().zip(right.iter()) {
-        let segment_order = left_segment.cmp(right_segment);
-        if segment_order != Ordering::Equal {
-            return segment_order;
-        }
-    }
-
-    Ordering::Equal
+    Ok(BorrowedIndexStoreKeySegments {
+        kind: key_kind,
+        index_id,
+        component_count,
+        components,
+        primary_key,
+    })
 }
 
 const fn max_encoded_primary_key_len(kind: PrimaryKeyKind) -> usize {

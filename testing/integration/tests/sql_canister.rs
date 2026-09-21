@@ -2373,6 +2373,48 @@ fn sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_ind
 }
 
 #[test]
+fn sql_canister_unique_validation_retains_same_page_conflicts() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+    for name in ["alice", "bob", "charlie"] {
+        let id = sql_test_user_id_by_name(&fixture, name);
+        update_sql(
+            &fixture,
+            &format!("UPDATE SqlTestUser SET rank = 7 WHERE id = '{id}'"),
+        )
+        .expect("historical rows should share one rank before unique activation");
+    }
+    let mut schema_version = DdlSchemaVersion::initial();
+    schema_version
+        .publish(
+            &fixture,
+            "CREATE UNIQUE INDEX duplicate_rank_idx ON SqlTestUser (rank)",
+        )
+        .expect("unique activation should admit before historical validation");
+    let sql = "ALTER TABLE SqlTestUser VALIDATE CONSTRAINT duplicate_rank_idx";
+    ddl_sql(&fixture, sql).expect("first validation call should start the durable job");
+    let result = ddl_sql(&fixture, sql).expect("Forward should report historical conflicts");
+    let SqlQueryResult::Ddl {
+        constraint_validation: Some(validation),
+        ..
+    } = &result
+    else {
+        panic!("validation should return a bounded finding page");
+    };
+    assert!(!validation.complete);
+    assert_eq!(validation.rows_scanned, 3);
+    assert_eq!(validation.findings.len(), 2);
+    assert!(validation.page_sequence.is_some());
+    assert_eq!(
+        ddl_sql(&fixture, sql).expect("unacknowledged conflicts should remain retained"),
+        result,
+    );
+    schema_version
+        .publish(&fixture, "DROP INDEX duplicate_rank_idx ON SqlTestUser")
+        .expect("conflicting activation should remain abortable");
+}
+
+#[test]
 fn sql_canister_ddl_endpoint_drops_supported_ddl_field_path_index() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
@@ -3118,6 +3160,49 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
         )
         .expect("matching ALTER COLUMN DROP NOT NULL should no-op through the canister endpoint");
     assert_ddl_no_op(drop_not_null_no_op, "drop_field_not_null", "nickname");
+}
+
+#[test]
+fn sql_canister_ddl_endpoint_aborts_pending_not_null_for_bound_field() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+    let mut schema_version = DdlSchemaVersion::initial();
+    schema_version
+        .publish(
+            &fixture,
+            "ALTER TABLE SqlTestUser ADD COLUMN nickname text DEFAULT 'anonymous'",
+        )
+        .expect("setup should add a nullable field with a default");
+
+    // Abort an unvalidated activation through its bound field identity.
+    schema_version
+        .publish(
+            &fixture,
+            "ALTER TABLE SqlTestUser ALTER COLUMN nickname SET NOT NULL",
+        )
+        .expect("nullable field should admit a not-null activation");
+    schema_version
+        .publish(
+            &fixture,
+            "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP NOT NULL",
+        )
+        .expect("DROP NOT NULL should abort the pending activation for the bound field");
+    let after_abort = expect_describe(
+        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+            .expect("aborted activation should leave its field visible"),
+    );
+    assert!(after_abort.fields().iter().any(|field| {
+        field.name() == "nickname"
+            && field.nullable()
+            && field.insert_default() == Some("'anonymous'")
+    }));
+    let repeated_abort = schema_version
+        .no_op(
+            &fixture,
+            "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP NOT NULL",
+        )
+        .expect("aborted activation should leave no pending change");
+    assert_ddl_no_op(repeated_abort, "drop_field_not_null", "nickname");
 }
 
 #[test]

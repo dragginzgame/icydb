@@ -1,11 +1,16 @@
-use super::validate_sql_ddl_field_drop_metadata_change;
+use super::{
+    validate_sql_ddl_field_default_metadata_change, validate_sql_ddl_field_drop_metadata_change,
+    validate_sql_ddl_field_rename_metadata_change,
+};
 use crate::{
     db::schema::{
         AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, FieldStorageDecode, LeafCodec,
-        PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexSnapshot, PersistedSchemaSnapshot, RelationIdAllocator, ScalarCodec,
-        SchemaDdlAcceptedSnapshotDerivation, SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault,
-        SchemaRowLayout, SchemaVersion, derive_sql_ddl_field_drop_accepted_after,
+        PersistedFieldOrigin, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
+        PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
+        RelationIdAllocator, ScalarCodec, SchemaDdlAcceptedSnapshotDerivation, SchemaFieldSlot,
+        SchemaFieldWritePolicy, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+        derive_sql_ddl_field_default_accepted_after, derive_sql_ddl_field_drop_accepted_after,
+        derive_sql_ddl_field_rename_accepted_after,
     },
     error::ErrorClass,
 };
@@ -14,7 +19,7 @@ fn field_drop_fixture() -> (AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDer
     let fields = [("id", 1, 0), ("removed", 2, 1), ("retained", 3, 2)]
         .into_iter()
         .map(|(name, id, slot)| {
-            PersistedFieldSnapshot::new_initial(
+            PersistedFieldSnapshot::new_initial_with_write_policy_and_origin(
                 FieldId::new(id),
                 name.to_string(),
                 SchemaFieldSlot::new(slot),
@@ -22,6 +27,12 @@ fn field_drop_fixture() -> (AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDer
                 Vec::new(),
                 false,
                 SchemaInsertDefault::None,
+                SchemaFieldWritePolicy::none(),
+                if id == 1 {
+                    PersistedFieldOrigin::Generated
+                } else {
+                    PersistedFieldOrigin::SqlDdl
+                },
                 FieldStorageDecode::ByKind,
                 LeafCodec::Scalar(ScalarCodec::Text),
             )
@@ -63,6 +74,89 @@ fn field_drop_fixture() -> (AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDer
         .with_declared_schema_version(&before, SchemaVersion::new(2))
         .expect("declared version admission");
     (before, derivation)
+}
+
+#[test]
+fn field_default_validates_complete_candidate_and_rejects_unchanged_default() {
+    let (before, _) = field_drop_fixture();
+    let derivation = derive_sql_ddl_field_default_accepted_after(
+        &before,
+        "retained",
+        SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, b'A', b'd', b'a']),
+    )
+    .expect("text default should derive")
+    .with_declared_schema_version(&before, SchemaVersion::new(2))
+    .expect("declared version should admit");
+    let after = derivation.accepted_after().persisted_snapshot();
+    let target = derivation
+        .admission()
+        .field_default_target()
+        .expect("default target");
+    validate_sql_ddl_field_default_metadata_change(before.persisted_snapshot(), after, target)
+        .expect("complete default candidate should validate");
+    assert_eq!(after.indexes(), before.persisted_snapshot().indexes());
+    assert_eq!(after.row_layout(), before.persisted_snapshot().row_layout());
+
+    for mismatched in [
+        after
+            .clone()
+            .with_relation_id_allocator(RelationIdAllocator::new(7)),
+        before.persisted_snapshot().clone(),
+    ] {
+        let error = validate_sql_ddl_field_default_metadata_change(
+            before.persisted_snapshot(),
+            &mismatched,
+            target,
+        )
+        .expect_err("allocator drift and unchanged defaults must reject before publication");
+        assert_eq!(error.class(), ErrorClass::Unsupported);
+    }
+}
+
+#[test]
+fn field_rename_validates_index_rewrite_and_complete_candidate() {
+    let (before, _) = field_drop_fixture();
+    let derivation = derive_sql_ddl_field_rename_accepted_after(&before, "retained", "renamed")
+        .expect("indexed field rename should derive")
+        .with_declared_schema_version(&before, SchemaVersion::new(2))
+        .expect("declared version should admit");
+    let after = derivation.accepted_after().persisted_snapshot();
+    let target = derivation
+        .admission()
+        .field_rename_target()
+        .expect("rename target");
+    validate_sql_ddl_field_rename_metadata_change(before.persisted_snapshot(), after, target)
+        .expect("complete rename candidate should validate");
+    assert_eq!(after.fields()[2].name(), "renamed");
+    assert_ne!(after.indexes(), before.persisted_snapshot().indexes());
+    assert_eq!(after.row_layout(), before.persisted_snapshot().row_layout());
+
+    for mismatched in [
+        after
+            .clone()
+            .with_relation_id_allocator(RelationIdAllocator::new(7)),
+        before.persisted_snapshot().clone(),
+    ] {
+        let error = validate_sql_ddl_field_rename_metadata_change(
+            before.persisted_snapshot(),
+            &mismatched,
+            target,
+        )
+        .expect_err("allocator drift and a missing rename must reject before publication");
+        assert_eq!(error.class(), ErrorClass::Unsupported);
+    }
+    let no_op = derive_sql_ddl_field_rename_accepted_after(&before, "retained", "retained")
+        .expect("unchanged rename can be classified before publication");
+    let error = validate_sql_ddl_field_rename_metadata_change(
+        before.persisted_snapshot(),
+        no_op.accepted_after().persisted_snapshot(),
+        no_op
+            .admission()
+            .field_rename_target()
+            .expect("rename target"),
+    )
+    .expect_err("a no-op must not enter publication");
+    assert_eq!(error.class(), ErrorClass::Unsupported);
 }
 
 #[test]
