@@ -1,0 +1,119 @@
+#[derive(CandidType, Deserialize, Debug, Clone)]
+struct ReadProbe {
+    resources: Vec<(String, String, String, u64)>,
+    customers: Vec<(String, String, u32, u32, String)>,
+    tokens: Vec<(String, u8)>,
+    instructions: Vec<u64>,
+}
+
+#[test]
+#[ignore = "isolated ICYDB-038 diagnostic actor"]
+fn icydb038_actual_catalogue_comparison() {
+    let release = env::var("TOKO_MINER_QUALIFICATION_RELEASE_BUILD_ID").expect("build");
+    let caller = Principal::from_slice(&[0x73, 0x38]);
+    let fixture = fixture(&release, &[caller]);
+    let hub = fixture.unique_role(&"user_hub".parse().unwrap()).unwrap();
+    advance(&fixture, 48);
+    let mut shard = fixture
+        .nodes()
+        .into_iter()
+        .find(|node| node.role.to_string() == "game_shard")
+        .expect("Game Shard")
+        .canister_id;
+    let mut before_restoration: Option<ReadProbe> = None;
+    for state in [
+        "install-ready",
+        "prepared",
+        "restored",
+        "restored-after-login",
+    ] {
+        if state == "prepared" {
+            shard = enrol(&fixture, hub, caller, 0);
+        }
+        if state == "restored-after-login" {
+            let result: Result<(), LoginAuthorizationError> = fixture
+                .pic()
+                .update_candid_as_or_panic(shard, caller, "toko_miner_authorize_login", ());
+            assert_eq!(result, Ok(()));
+        }
+        if state == "restored" {
+            fixture
+                .upgrade_same_release(shard, Duration::from_mins(5))
+                .expect("restore");
+            for observation in 0..2 {
+                let cold: Result<ReadProbe, String> = fixture.pic().query_candid_as_or_panic(
+                    shard,
+                    caller,
+                    "icydb038_read",
+                    (false, false),
+                );
+                match cold {
+                    Ok(sample) => println!(
+                        "ICYDB038_COLD observation={observation} instructions={:?}",
+                        sample.instructions
+                    ),
+                    Err(error) => {
+                        println!("ICYDB038_COLD observation={observation} error={error:?}")
+                    }
+                }
+            }
+            advance(&fixture, 48);
+        }
+        let mut expected: Option<ReadProbe> = None;
+        for (selected, point) in [
+            (false, false),
+            (true, false),
+            (true, false),
+            (false, false),
+            (false, true),
+            (true, true),
+        ] {
+            let result: Result<ReadProbe, String> = fixture.pic().query_candid_as_or_panic(
+                shard,
+                caller,
+                "icydb038_read",
+                (selected, point),
+            );
+            let sample = result.expect("read probe");
+            assert!(
+                !sample.resources.is_empty()
+                    && !sample.customers.is_empty()
+                    && !sample.tokens.is_empty()
+            );
+            if let Some(full) = &expected {
+                assert_eq!(sample.resources, full.resources);
+                assert_eq!(sample.tokens, full.tokens);
+                if point {
+                    assert_eq!(sample.customers, full.customers[..1]);
+                } else {
+                    assert_eq!(sample.customers, full.customers);
+                }
+            }
+            println!(
+                "ICYDB038 state={state} selected={selected} point={point} counts={:?} instructions={:?}",
+                (
+                    sample.resources.len(),
+                    sample.customers.len(),
+                    sample.tokens.len()
+                ),
+                sample.instructions
+            );
+            if expected.is_none() {
+                if state == "prepared" {
+                    before_restoration = Some(sample.clone());
+                }
+                if state.starts_with("restored") {
+                    let before = before_restoration.as_ref().expect("prepared data");
+                    assert_eq!(sample.resources, before.resources);
+                    assert_eq!(sample.customers, before.customers);
+                    assert_eq!(sample.tokens, before.tokens);
+                }
+                println!(
+                    "ICYDB038_OUTPUT {}",
+                    json!({"state":state,"resources":sample.resources,"customers":sample.customers,"tokens":sample.tokens})
+                );
+                expected = Some(sample);
+            }
+        }
+    }
+}

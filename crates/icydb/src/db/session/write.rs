@@ -1164,7 +1164,7 @@ impl StructuralMutation {
 
 impl<C: CanisterKind> DbSession<C> {
     #[inline(never)]
-    fn ensure_typed_write_binding_is_current(
+    fn ensure_typed_binding_is_current(
         &self,
         binding: &TypedEntityBinding,
     ) -> Result<(), TypedOperationError> {
@@ -1227,7 +1227,7 @@ impl<C: CanisterKind> DbSession<C> {
         binding: &TypedEntityBinding,
         mutations: Vec<StructuralMutation>,
     ) -> Result<Vec<OutputRow>, TypedOperationError> {
-        self.ensure_typed_write_binding_is_current(binding)?;
+        self.ensure_typed_binding_is_current(binding)?;
         if mutations
             .iter()
             .any(|mutation| mutation.entity() != binding.entity())
@@ -1279,15 +1279,7 @@ impl<C: CanisterKind> DbSession<C> {
         columns: Vec<String>,
         rows: Vec<Vec<OutputValue>>,
     ) -> Result<PreparedOutputRows, TypedOperationError> {
-        let current = self
-            .inner
-            .typed_entity_binding_is_current(&binding.inner)
-            .map_err(|error| TypedOperationError::Database(Error::from(error)))?;
-        if !current {
-            return Err(TypedOperationError::Adapter(
-                TypedAdapterError::StaleBinding,
-            ));
-        }
+        self.ensure_typed_binding_is_current(binding)?;
         PreparedOutputRows::new(binding, entity, columns, rows)
             .map_err(TypedOperationError::Adapter)
     }
@@ -1330,7 +1322,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         T: icydb_model::TypedInputValue,
     {
-        self.ensure_typed_write_binding_is_current(binding)?;
+        self.ensure_typed_binding_is_current(binding)?;
         let value = value
             .encode_typed_input(binding)
             .map_err(TypedAdapterError::from)?;

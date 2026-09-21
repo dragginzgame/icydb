@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "original": {
+    "release_build_id": "02b415c78f5eb0ef52bf360389b7b9461e762b3abcb4e7a2ed5258bf70eb6492",
+    "artifacts": [
+      {
+        "role": "game_hub",
+        "path": "/home/adam/projects/toko-miner/.canic/release-builds/02b415c78f5eb0ef52bf360389b7b9461e762b3abcb4e7a2ed5258bf70eb6492/artifacts/game_hub/game_hub.wasm",
+        "raw_bytes": 4122928,
+        "sha256": "3ef864e3a03abe35afa8df625ed57a1daf465046035747049a0841510a5ba9ef"
+      },
+      {
+        "role": "game_shard",
+        "path": "/home/adam/projects/toko-miner/.canic/release-builds/02b415c78f5eb0ef52bf360389b7b9461e762b3abcb4e7a2ed5258bf70eb6492/artifacts/game_shard/game_shard.wasm",
+        "raw_bytes": 10168655,
+        "sha256": "65ddc7b8d4ded685add41587ce160485bc48fa9001bc5e6d0fb13f64fac0fd24"
+      },
+      {
+        "role": "translation",
+        "path": "/home/adam/projects/toko-miner/.canic/release-builds/02b415c78f5eb0ef52bf360389b7b9461e762b3abcb4e7a2ed5258bf70eb6492/artifacts/translation/translation.wasm",
+        "raw_bytes": 8729999,
+        "sha256": "a0da1d325e07f777e9104a2c37e5393f6372b1409b153a60831e2f0661283ce3"
+      },
+      {
+        "role": "user_hub",
+        "path": "/home/adam/projects/toko-miner/.canic/release-builds/02b415c78f5eb0ef52bf360389b7b9461e762b3abcb4e7a2ed5258bf70eb6492/artifacts/user_hub/user_hub.wasm",
+        "raw_bytes": 7595328,
+        "sha256": "b3ee5674fd87303b421e9d893ee4601c6809aec87937afbb5b018a2ba0274026"
+      },
+      {
+        "role": "user_shard",
+        "path": "/home/adam/projects/toko-miner/.canic/release-builds/02b415c78f5eb0ef52bf360389b7b9461e762b3abcb4e7a2ed5258bf70eb6492/artifacts/user_shard/user_shard.wasm",
+        "raw_bytes": 7289688,
+        "sha256": "455ca6862f70727690434a3beaefa10bff28cdf97c31ec3e9f2f1532764d2a1d"
+      }
+    ]
+  },
+  "instrumented": {
+    "release_build_id": "9a4a3b66532c406069f12c7cefd3ebd1952fe72cb5a8dbd8bbb5dc19eae7e0a1",
+    "artifacts": [
+      {
+        "role": "game_hub",
+        "path": "/tmp/icydb-039-instrumented/.canic/release-builds/9a4a3b66532c406069f12c7cefd3ebd1952fe72cb5a8dbd8bbb5dc19eae7e0a1/artifacts/game_hub/game_hub.wasm",
+        "raw_bytes": 4123180,
+        "sha256": "e2652f908a0ea98620e0ce678390f0e7d5626a0a76fd4be56d3867f1cf8bb6e8"
+      },
+      {
+        "role": "game_shard",
+        "path": "/tmp/icydb-039-instrumented/.canic/release-builds/9a4a3b66532c406069f12c7cefd3ebd1952fe72cb5a8dbd8bbb5dc19eae7e0a1/artifacts/game_shard/game_shard.wasm",
+        "raw_bytes": 10186625,
+        "sha256": "903982a23c346b360b6574f471228f128ff1358b4831c636b7680bbf2b786708"
+      },
+      {
+        "role": "translation",
+        "path": "/tmp/icydb-039-instrumented/.canic/release-builds/9a4a3b66532c406069f12c7cefd3ebd1952fe72cb5a8dbd8bbb5dc19eae7e0a1/artifacts/translation/translation.wasm",
+        "raw_bytes": 8727169,
+        "sha256": "a7636f9cabb5e4e819e74547c62d88997c69e439649e83a0c27c80e532cfd2a6"
+      },
+      {
+        "role": "user_hub",
+        "path": "/tmp/icydb-039-instrumented/.canic/release-builds/9a4a3b66532c406069f12c7cefd3ebd1952fe72cb5a8dbd8bbb5dc19eae7e0a1/artifacts/user_hub/user_hub.wasm",
+        "raw_bytes": 7591960,
+        "sha256": "73553f656923820a0126a9127f6a2264402f67e15d3a5f0a51e42478390ecf93"
+      },
+      {
+        "role": "user_shard",
+        "path": "/tmp/icydb-039-instrumented/.canic/release-builds/9a4a3b66532c406069f12c7cefd3ebd1952fe72cb5a8dbd8bbb5dc19eae7e0a1/artifacts/user_shard/user_shard.wasm",
+        "raw_bytes": 7286844,
+        "sha256": "088f8b037077e87e6fe275b2509a4fa20c758565a85051079626ae7fc055284c"
+      }
+    ]
+  }
+}

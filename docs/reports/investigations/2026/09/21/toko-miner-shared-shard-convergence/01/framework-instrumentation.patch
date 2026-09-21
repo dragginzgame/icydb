@@ -1,0 +1,53 @@
+--- a/crates/icydb-core/src/db/journal/store.rs
++++ b/crates/icydb-core/src/db/journal/store.rs
+@@ -823,6 +823,15 @@
+             JournalTailKey::tail_convergence_control(),
+             RawJournalChunk::from_bytes(encode_tail_control(next_control)),
+         );
++        #[cfg(target_arch = "wasm32")]
++        ic_cdk::println!(
++            "ICYDB039_APPEND db={} seq={} batches={} records={} bytes={}",
++            batch.database_commit_sequence().get(),
++            batch.journal_sequence().get(),
++            next_control.batch_count(),
++            next_control.record_count(),
++            next_control.encoded_batch_bytes()
++        );
+         Ok(())
+     }
+ 
+@@ -1038,6 +1047,17 @@
+         for key in retirement.batch_keys {
+             let _ = self.map.remove(&key);
+         }
++        #[cfg(target_arch = "wasm32")]
++        ic_cdk::println!(
++            "ICYDB039_RETIRE seq={} batches={} records={} bytes={}",
++            retirement
++                .next_watermark
++                .highest_folded_journal_sequence()
++                .get(),
++            retirement.next_control.batch_count(),
++            retirement.next_control.record_count(),
++            retirement.next_control.encoded_batch_bytes()
++        );
+     }
+ 
+     /// Return whether any physical journal batch remains in this tail.
+--- a/crates/icydb-core/src/db/commit/backlog_admission.rs
++++ b/crates/icydb-core/src/db/commit/backlog_admission.rs
+@@ -419,6 +419,14 @@
+                 icydb_diagnostic_code::DiagnosticBacklogResource::EncodedBytes
+             }
+         };
++        #[cfg(target_arch = "wasm32")]
++        ic_cdk::println!(
++            "ICYDB039_PRESSURE resource={} current={} proposed={} limit={}",
++            resource.raw(),
++            self.current,
++            self.proposed,
++            self.limit
++        );
+         InternalError::convergence_backlog_pressure(
+             resource,
+             self.current,

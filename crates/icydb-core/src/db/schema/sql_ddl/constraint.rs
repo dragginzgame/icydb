@@ -9,8 +9,9 @@ use crate::{
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
-            AcceptedSchemaSnapshot, CandidateSchemaRevision, ConstraintOrigin,
-            PersistedSchemaSnapshot, SchemaVersion, validate_unpublished_check_candidate_exact,
+            AcceptedSchemaSnapshot, ConstraintOrigin, SchemaVersion,
+            sql_ddl::{candidate_with_snapshot, publish_sql_ddl_constraint_removal},
+            validate_unpublished_check_candidate_exact,
         },
         sql::ddl::{
             BoundSqlAddCheckConstraintRequest, BoundSqlCreateIndexRequest,
@@ -20,8 +21,6 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-
-use super::publish_sql_ddl_constraint_removal;
 
 /// Publish one SQL-DDL check as either a write-gated activation or an exactly
 /// validated accepted constraint.
@@ -71,8 +70,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_check_addition(
         .find(|activation| activation.name() == request.constraint_name())
         .map(crate::db::schema::ConstraintActivationSnapshot::id)
         .ok_or_else(InternalError::store_invariant)?;
-    let activation_candidate =
-        candidate_with_snapshot(&current, entity_tag, activation_snapshot.clone())?;
+    let activation_candidate = candidate_with_snapshot(&current, entity_tag, &activation_snapshot)?;
 
     if request.not_valid() {
         publish_accepted_schema_candidate(
@@ -98,7 +96,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_check_addition(
         .with_directly_validated_activation(activation_id)
         .map_err(|_| InternalError::store_invariant())?;
     let validated = activation_snapshot.with_constraint_catalog(validated_catalog);
-    let validated_candidate = candidate_with_snapshot(&current, entity_tag, validated)?;
+    let validated_candidate = candidate_with_snapshot(&current, entity_tag, &validated)?;
     publish_accepted_schema_candidate(
         accepted_before_identity.store_path(),
         store,
@@ -153,7 +151,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation(
         .find(|activation| activation.name() == request.candidate_index().name())
         .map(crate::db::schema::ConstraintActivationSnapshot::id)
         .ok_or_else(InternalError::store_invariant)?;
-    let candidate = candidate_with_snapshot(&current, entity_tag, after)?;
+    let candidate = candidate_with_snapshot(&current, entity_tag, &after)?;
     publish_accepted_schema_candidate(
         accepted_before_identity.store_path(),
         store,
@@ -198,7 +196,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation_abort(
     let after = before
         .with_aborted_unique_activation(constraint_id, next_schema_version)
         .map_err(|_| InternalError::store_invariant())?;
-    let candidate = candidate_with_snapshot(&current, entity_tag, after)?;
+    let candidate = candidate_with_snapshot(&current, entity_tag, &after)?;
     publish_sql_ddl_constraint_removal(
         store,
         &accepted_before_identity,
@@ -255,7 +253,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_check_drop(
         .clone()
         .with_constraint_catalog(catalog)
         .with_schema_version(next_schema_version);
-    let candidate = candidate_with_snapshot(&current, entity_tag, after)?;
+    let candidate = candidate_with_snapshot(&current, entity_tag, &after)?;
     publish_sql_ddl_constraint_removal(
         store,
         &accepted_before_identity,
@@ -305,34 +303,4 @@ pub(super) fn current_sql_ddl_bundle(
         return Err(InternalError::schema_ddl_publication_race_lost(entity_path));
     }
     Ok((root.root().revision(), root.root().fingerprint(), bundle))
-}
-
-pub(super) fn candidate_with_snapshot(
-    current: &AcceptedSchemaRevisionBundle,
-    entity_tag: EntityTag,
-    snapshot: PersistedSchemaSnapshot,
-) -> Result<CandidateSchemaRevision, InternalError> {
-    let accepted_before = current
-        .entity_snapshots()
-        .get(&entity_tag)
-        .ok_or_else(InternalError::store_corruption)?;
-    let mut entity_snapshots = current.entity_snapshots().clone();
-    entity_snapshots.insert(entity_tag, snapshot.clone());
-    let revision = current
-        .revision()
-        .checked_next()
-        .ok_or_else(InternalError::store_unsupported)?;
-    let source_bindings = current
-        .source_bindings()
-        .clone()
-        .with_sql_ddl_entity_transition(entity_tag, accepted_before, &snapshot, revision)?;
-    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
-        revision,
-        current.store_path(),
-        current.enum_catalog().clone(),
-        current.composite_catalog().clone(),
-        source_bindings,
-        entity_snapshots,
-    )?;
-    CandidateSchemaRevision::new(bundle)
 }

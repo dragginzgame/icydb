@@ -136,46 +136,51 @@ fn prepare_accepted_entity_snapshot_revision(
         return Err(InternalError::store_corruption());
     }
     let expected_revision = current.revision();
-    let mut entity_snapshots = current.entity_snapshots().clone();
-    if entity_snapshots
-        .insert(expected_identity.entity_tag(), accepted_after.clone())
-        .is_none()
-    {
-        return Err(InternalError::store_corruption());
-    }
-    if entity_snapshots == *current.entity_snapshots() {
-        return Ok(None);
-    }
-
-    let candidate_revision = expected_revision
-        .checked_next()
-        .ok_or_else(InternalError::store_unsupported)?;
     let accepted_before = current
         .entity_snapshots()
         .get(&expected_identity.entity_tag())
         .ok_or_else(InternalError::store_corruption)?;
+    if accepted_before == accepted_after {
+        return Ok(None);
+    }
+
+    let candidate =
+        candidate_with_snapshot(&current, expected_identity.entity_tag(), accepted_after)?;
+    Ok(Some((expected_revision, candidate)))
+}
+
+// SQL DDL candidates share revision advancement and source-lineage bookkeeping.
+// Callers retain their admission checks and decide whether an unchanged snapshot
+// is a no-op before asking for a candidate.
+fn candidate_with_snapshot(
+    current: &AcceptedSchemaRevisionBundle,
+    entity_tag: EntityTag,
+    snapshot: &PersistedSchemaSnapshot,
+) -> Result<CandidateSchemaRevision, InternalError> {
+    let accepted_before = current
+        .entity_snapshots()
+        .get(&entity_tag)
+        .ok_or_else(InternalError::store_corruption)?;
+    let mut entity_snapshots = current.entity_snapshots().clone();
+    entity_snapshots.insert(entity_tag, snapshot.clone());
+    let revision = current
+        .revision()
+        .checked_next()
+        .ok_or_else(InternalError::store_unsupported)?;
     let source_bindings = current
         .source_bindings()
         .clone()
-        .with_sql_ddl_entity_transition(
-            expected_identity.entity_tag(),
-            accepted_before,
-            accepted_after,
-            candidate_revision,
-        )?;
+        .with_sql_ddl_entity_transition(entity_tag, accepted_before, snapshot, revision)?;
     let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
-        candidate_revision,
-        expected_identity.store_path(),
+        revision,
+        current.store_path(),
         current.enum_catalog().clone(),
         current.composite_catalog().clone(),
         source_bindings,
         entity_snapshots,
     )?;
 
-    Ok(Some((
-        expected_revision,
-        CandidateSchemaRevision::new(bundle)?,
-    )))
+    CandidateSchemaRevision::new(bundle)
 }
 
 fn validate_publishable_transition_plan(

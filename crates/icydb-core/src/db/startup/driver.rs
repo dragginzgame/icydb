@@ -6,7 +6,7 @@
 use std::thread::LocalKey;
 
 use icydb_diagnostic_code::{Diagnostic, DiagnosticConstraintKind, DiagnosticFactTag, ErrorCode};
-use icydb_schema::{ExpectedAcceptedHead, SchemaSubmissionKey};
+use icydb_schema::SchemaSubmissionKey;
 
 use crate::{
     db::{
@@ -289,24 +289,11 @@ pub(super) fn record_schema_failure<C: CanisterKind>(
     let binding = StartupFailureBinding::SchemaReconciliation {
         incarnation,
         submission_key: submission_key.to_string(),
-        accepted_head: accepted_head_binding(&accepted_head),
+        accepted_head: AcceptedHeadBinding::from_expected_head(&accepted_head),
     };
     let receipt = StartupFailureReceipt::new(failure, binding)?;
     super::receipt::publish::<C>(&receipt)?;
     Ok(true)
-}
-
-const fn accepted_head_binding(head: &ExpectedAcceptedHead) -> AcceptedHeadBinding {
-    match head {
-        ExpectedAcceptedHead::Empty => AcceptedHeadBinding::Empty,
-        ExpectedAcceptedHead::Exact {
-            revision,
-            fingerprint,
-        } => AcceptedHeadBinding::Exact {
-            revision: *revision,
-            fingerprint: fingerprint.to_bytes(),
-        },
-    }
 }
 
 #[cfg(test)]

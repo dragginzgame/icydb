@@ -357,7 +357,7 @@ pub(in crate::db) fn publish_constraint_validation_job(
             store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))
         }
         StoreRecoveryCapability::StableBasePlusJournalReplay => {
-            publish_journaled_constraint_validation_job(store_path, store, job)
+            publish_journaled_constraint_validation_job(store_path, store, job, Vec::new())
         }
     }
 }
@@ -390,9 +390,7 @@ pub(in crate::db) fn publish_constraint_validation_job_with_candidate_index_entr
         return Err(InternalError::store_unsupported());
     }
 
-    publish_journaled_constraint_validation_job_with_candidate_index_entries(
-        store_path, store, job, entries,
-    )
+    publish_journaled_constraint_validation_job(store_path, store, job, entries)
 }
 
 /// Publish one accepted-schema candidate and its prevalidated entity-owned
@@ -788,45 +786,9 @@ fn apply_database_control_ops(operations: &[DatabaseControlOp]) -> Result<(), In
     Ok(())
 }
 
+// Publish a prevalidated job and any candidate keys through one marker. Job-only
+// checkpoints use an empty entry list and skip the candidate-index write borrow.
 fn publish_journaled_constraint_validation_job(
-    store_path: &'static str,
-    store: StoreHandle,
-    job: &ConstraintValidationJob,
-) -> Result<(), InternalError> {
-    let journal_store = store
-        .journal_tail_store()
-        .ok_or_else(InternalError::store_invariant)?;
-    let marker_id = generate_commit_id()?;
-    let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
-    let sequence = journal_store
-        .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
-    let record = JournalRecord::constraint_validation_job_put(store_path, job)?;
-    let batch = JournalBatch::new_with_database_commit_sequence(
-        marker_id,
-        marker_id,
-        sequence,
-        database_commit_sequence,
-        vec![record],
-    )?;
-    let positions = prepare_journaled_schema_positions(store, &batch)?;
-    let marker = CommitMarker::from_parts(marker_id, vec![batch])?;
-    let batch = marker
-        .journal_batches()
-        .first()
-        .ok_or_else(InternalError::store_invariant)?;
-    let commit = begin_commit(&marker)?;
-
-    finish_commit(commit, |guard| {
-        let marker_bytes = guard.journal_batch_bytes(0)?;
-        journal_store
-            .with_borrow_mut(|journal| journal.append_marker_encoded_batch(batch, marker_bytes))?;
-        store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))?;
-        publish_journaled_schema_positions(store, positions);
-        Ok(())
-    })
-}
-
-fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
     store_path: &'static str,
     store: StoreHandle,
     job: &ConstraintValidationJob,
@@ -870,11 +832,13 @@ fn publish_journaled_constraint_validation_job_with_candidate_index_entries(
         let marker_bytes = guard.journal_batch_bytes(0)?;
         journal_store
             .with_borrow_mut(|journal| journal.append_marker_encoded_batch(batch, marker_bytes))?;
-        store.with_index_mut(|index_store| {
-            for key in entries {
-                index_store.insert(key, IndexEntryValue::presence());
-            }
-        });
+        if !entries.is_empty() {
+            store.with_index_mut(|index_store| {
+                for key in entries {
+                    index_store.insert(key, IndexEntryValue::presence());
+                }
+            });
+        }
         store.with_schema_mut(|schema_store| schema_store.apply_constraint_validation_job(job))?;
         publish_journaled_schema_positions(store, positions);
         Ok(())

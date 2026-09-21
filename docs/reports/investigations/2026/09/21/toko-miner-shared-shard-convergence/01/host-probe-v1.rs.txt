@@ -1,0 +1,361 @@
+//! Simultaneous ingress submission, exact replay, and atomic-rejection measurements.
+
+use super::*;
+
+pub(super) struct Player {
+    caller: Principal,
+    initial: FieldProbe,
+    pub(super) workload: Workload,
+    revision: u64,
+    ack: Option<String>,
+    sequence: u64,
+    last: OpeningRequest,
+}
+
+impl Player {
+    pub(super) fn new(
+        fixture: &ManagedComponentGroupFixture,
+        shard: Principal,
+        caller: Principal,
+    ) -> Self {
+        let initial = read(fixture, shard, caller);
+        let workload = Workload::from_field(&initial);
+        advance(fixture, 20);
+        let mut setup = request("cadence-position".into(), 0, None, vec![]);
+        setup.final_context = Some(context(fixture, Some(workload.position.clone())));
+        let receipt = execute(fixture, shard, caller, setup.clone());
+        Self {
+            caller,
+            initial,
+            workload,
+            revision: receipt.action_revision,
+            ack: Some(setup.operation_id.clone()),
+            sequence: 0,
+            last: setup,
+        }
+    }
+
+    fn request(&mut self, actions: Vec<Entry>) -> OpeningRequest {
+        self.sequence += 1;
+        request(
+            format!("cadence-{}", self.sequence),
+            self.revision,
+            self.ack.take(),
+            actions,
+        )
+    }
+
+    pub(super) fn assert_conserved(
+        &self,
+        fixture: &ManagedComponentGroupFixture,
+        shard: Principal,
+    ) {
+        let field = read(fixture, shard, self.caller);
+        assert_eq!(
+            field.inventory, self.initial.inventory,
+            "inventory conserved"
+        );
+        assert_eq!(
+            field.lockers, self.initial.lockers,
+            "locker state conserved"
+        );
+    }
+}
+
+pub(super) struct Wave {
+    at: u64,
+    calls: usize,
+    actions_per_call: usize,
+    pub(super) bytes: usize,
+    pub(super) cycles: u128,
+    pub(super) replay: bool,
+}
+
+impl Wave {
+    pub(super) fn json(&self) -> Value {
+        json!({"at_second": self.at, "calls": self.calls, "actions_per_call": self.actions_per_call,
+            "candid_argument_bytes": self.bytes, "gross_cycles": self.cycles.to_string(),
+            "exact_replay": self.replay})
+    }
+}
+
+pub(super) fn send(
+    fixture: &ManagedComponentGroupFixture,
+    shard: Principal,
+    players: &mut [Player],
+    pending: &mut [Vec<Entry>],
+    batch: &Batch,
+) -> Wave {
+    let requests: Vec<_> = players
+        .iter_mut()
+        .zip(pending)
+        .map(|(player, entries)| player.request(std::mem::take(entries)))
+        .collect();
+    issue(fixture, shard, players, &requests, batch.at, false)
+}
+
+pub(super) fn replay(
+    fixture: &ManagedComponentGroupFixture,
+    shard: Principal,
+    players: &mut [Player],
+) -> Wave {
+    let requests: Vec<_> = players.iter().map(|player| player.last.clone()).collect();
+    issue(fixture, shard, players, &requests, 0, true)
+}
+
+fn issue(
+    fixture: &ManagedComponentGroupFixture,
+    shard: Principal,
+    players: &mut [Player],
+    requests: &[OpeningRequest],
+    at: u64,
+    replay: bool,
+) -> Wave {
+    let before = fixture.pic().cycle_balance(shard);
+    let mut bytes = 0;
+    let submitted: Vec<_> = players
+        .iter()
+        .zip(requests)
+        .map(|(player, req)| {
+            let payload = candid::encode_args((req,)).expect("Candid");
+            bytes += payload.len();
+            fixture
+                .pic()
+                .submit_call(shard, player.caller, "execute_actions", payload)
+                .expect("submit ingress")
+        })
+        .collect();
+    for ((player, req), message) in players.iter_mut().zip(requests).zip(submitted) {
+        let response = fixture.pic().await_call(message).expect("ingress reply");
+        let (result,): (Result<Receipt, candid::Reserved>,) =
+            candid::decode_args(&response).expect("Candid receipt");
+        if result.is_err() {
+            let path = std::env::temp_dir().join("toko-miner-cadence-rejection.candid");
+            fs::write(&path, response).expect("retain typed rejection evidence");
+            panic!(
+                "trace rejected at {at}s, replay={replay}; reply retained at {}",
+                path.display()
+            );
+        }
+        let receipt = result.expect("trace commits");
+        assert_eq!(receipt.replayed, replay);
+        assert_eq!(
+            receipt.action_revision,
+            player.revision + u64::from(!replay)
+        );
+        player.revision = receipt.action_revision;
+        player.ack = Some(req.operation_id.clone());
+        player.last = req.clone();
+    }
+    Wave {
+        at,
+        calls: players.len(),
+        actions_per_call: requests[0].actions.len(),
+        bytes,
+        cycles: before
+            .checked_sub(fixture.pic().cycle_balance(shard))
+            .expect("no funding"),
+        replay,
+    }
+}
+
+pub(super) fn reject(
+    fixture: &ManagedComponentGroupFixture,
+    shard: Principal,
+    player: &mut Player,
+    count: usize,
+) -> Value {
+    let mut actions = Vec::new();
+    for index in 0..count {
+        advance(fixture, 1);
+        actions.push(player.workload.entry(fixture, index, true));
+    }
+    let OpeningAction::Field {
+        action: FieldCommand::TransferLockerItem { quantity, .. },
+        ..
+    } = &mut actions.last_mut().expect("last").action
+    else {
+        panic!("transfer")
+    };
+    *quantity = u64::MAX;
+    let ack = player.ack.clone();
+    let req = player.request(actions);
+    let before = fixture.pic().cycle_balance(shard);
+    let result: Result<Receipt, candid::Reserved> =
+        fixture
+            .pic()
+            .update_candid_as_or_panic(shard, player.caller, "execute_actions", (req,));
+    assert!(
+        result.is_err(),
+        "invalid final transfer rejects the whole batch"
+    );
+    let cycles = before
+        .checked_sub(fixture.pic().cycle_balance(shard))
+        .expect("no funding");
+    player.ack = ack;
+    player.assert_conserved(fixture, shard);
+    json!({"submitted_actions": count, "preceding_valid_actions": count - 1,
+        "committed_actions": 0, "gross_cycles": cycles.to_string(), "inventory_unchanged": true})
+}
+
+fn icydb039_snapshot(fixture: &ManagedComponentGroupFixture, shard: Principal, label: &str) {
+    let status = fixture.diagnostic_status(shard).expect("timer inventory");
+    let timers: Vec<_> = status
+        .timers
+        .into_iter()
+        .filter(|timer| timer.owner == "icydb" || timer.owner == "toko-miner")
+        .collect();
+    println!(
+        "ICYDB039_TIMER {}",
+        json!({"label": label,
+        "time_ns": fixture.pic().get_time().as_nanos_since_unix_epoch().to_string(),
+        "timers": timers})
+    );
+}
+
+#[test]
+#[ignore = "bounded ICYDB-039 schedule investigation on retained managed Wasms"]
+fn icydb039_shared_shard_schedule() {
+    let release = env::var("TOKO_MINER_QUALIFICATION_RELEASE_BUILD_ID").expect("build");
+    let rounds: usize = env::var("ICYDB039_ROUNDS")
+        .unwrap_or_else(|_| "1".into())
+        .parse()
+        .expect("rounds");
+    let callers: Vec<_> = (0..96)
+        .map(|index| Principal::from_slice(&[0x74, index]))
+        .collect();
+    let fixture = fixture(&release, &callers);
+    let (shard, residents) = residents(&fixture, &callers);
+    let mut players: Vec<_> = residents
+        .into_iter()
+        .map(|caller| Player::new(&fixture, shard, caller))
+        .collect();
+    // Match the benchmark's sampler/idle preparation; query observations themselves
+    // do not advance virtual time or explicitly tick the replica.
+    let _ = sampled_application(&fixture, shard);
+    advance(&fixture, WINDOW_SECS);
+    icydb039_snapshot(&fixture, shard, "start");
+    let players = &mut players[..8];
+    let plan = Trace::Steady.batches(5);
+    let mut pending: Vec<Vec<Entry>> = (0..players.len()).map(|_| vec![]).collect();
+    let mut event_index = 0;
+    let mut batch_index = 0;
+    let mut rejected = 0;
+    let mut accepted = 0;
+    let mut replayed = 0;
+    let mut stop_at = None;
+    for second in 1..=WINDOW_SECS {
+        fixture.pic().advance_time(Duration::from_secs(1));
+        for _ in 0..rounds {
+            fixture.pic().tick();
+        }
+        if Trace::Steady.has_event(second) {
+            for (player, entries) in players.iter().zip(&mut pending) {
+                entries.push(player.workload.entry(&fixture, event_index, true));
+            }
+            event_index += 1;
+        }
+        if !plan
+            .get(batch_index)
+            .is_some_and(|batch| batch.at == second)
+        {
+            continue;
+        }
+        icydb039_snapshot(&fixture, shard, &format!("before-{second}"));
+        let requests: Vec<_> = players
+            .iter_mut()
+            .zip(&mut pending)
+            .map(|(player, entries)| player.request(std::mem::take(entries)))
+            .collect();
+        let submitted: Vec<_> = players
+            .iter()
+            .zip(&requests)
+            .map(|(player, req)| {
+                fixture
+                    .pic()
+                    .submit_call(
+                        shard,
+                        player.caller,
+                        "execute_actions",
+                        candid::encode_args((req,)).expect("Candid"),
+                    )
+                    .expect("submit")
+            })
+            .collect();
+        let mut rejected_requests = Vec::new();
+        for (index, ((player, req), message)) in
+            players.iter_mut().zip(&requests).zip(submitted).enumerate()
+        {
+            let response = fixture.pic().await_call(message).expect("reply");
+            let (result,): (Result<Receipt, candid::Reserved>,) =
+                candid::decode_args(&response).expect("receipt");
+            match result {
+                Ok(receipt) => {
+                    assert!(!receipt.replayed);
+                    assert_eq!(receipt.action_revision, player.revision + 1);
+                    player.revision = receipt.action_revision;
+                    player.ack = Some(req.operation_id.clone());
+                    player.last = req.clone();
+                    accepted += 1;
+                }
+                Err(_) => {
+                    fs::write(
+                        format!("/tmp/icydb039-{rounds}-{second}-{index}.candid"),
+                        response,
+                    )
+                    .expect("retain rejection");
+                    rejected_requests.push((index, req.clone()));
+                    rejected += 1;
+                }
+            }
+        }
+        println!(
+            "ICYDB039_WAVE {}",
+            json!({"rounds":rounds,"at":second,"accepted_total":accepted,"rejected_total":rejected})
+        );
+        icydb039_snapshot(&fixture, shard, &format!("after-{second}"));
+        if !rejected_requests.is_empty() {
+            stop_at = Some(second);
+            // Observe ordinary timer recovery without changing or bypassing its owner.
+            for block in 0..8 {
+                for _ in 0..16 {
+                    fixture.pic().tick();
+                }
+                icydb039_snapshot(&fixture, shard, &format!("drain-{block}"));
+            }
+            for (index, req) in rejected_requests {
+                let result: Result<Receipt, candid::Reserved> =
+                    fixture.pic().update_candid_as_or_panic(
+                        shard,
+                        players[index].caller,
+                        "execute_actions",
+                        (req,),
+                    );
+                let receipt = result
+                    .expect("unchanged rejected request succeeds after ordinary timer service");
+                assert!(!receipt.replayed);
+                assert_eq!(receipt.action_revision, players[index].revision + 1);
+            }
+            break;
+        }
+        if batch_index == 0 {
+            replay(&fixture, shard, players);
+            replayed += players.len();
+            icydb039_snapshot(&fixture, shard, "after-exact-replays");
+        }
+        batch_index += 1;
+    }
+    if rejected == 0 {
+        assert_eq!(event_index, 60);
+        assert_eq!(accepted, 160);
+        assert_eq!(replayed, 8);
+        for player in players.iter() {
+            player.assert_conserved(&fixture, shard);
+        }
+    }
+    icydb039_snapshot(&fixture, shard, "end");
+    println!(
+        "ICYDB039_RESULT {}",
+        json!({"release":release,"rounds":rounds,"residents":32,"active":8,"accepted":accepted,"replayed":replayed,"rejected":rejected,"stop_at":stop_at,"complete_conservation_checked":rejected==0})
+    );
+}

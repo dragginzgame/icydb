@@ -1,0 +1,242 @@
+//! Disposable ICYDB-038 probe; excluded from the application worktree.
+use crate::design::{NftCollection, NftRarity, NftToken, OrderCustomer, Resource};
+use candid::{CandidType, Deserialize};
+use icydb::model::TypedOutputValue;
+use icydb::{
+    db::{DynamicQuery, query::asc},
+    traits::EntitySource,
+    types::Ulid,
+    value::{OutputValue, PublicValue},
+};
+
+#[derive(CandidType, Deserialize, Debug, PartialEq, Eq)]
+pub struct Sample {
+    pub resources: Vec<(String, String, String, u64)>,
+    pub customers: Vec<(String, String, u32, u32, String)>,
+    pub tokens: Vec<(String, u8)>,
+    pub instructions: Vec<u64>,
+}
+
+fn values<const N: usize>(row: Vec<OutputValue>) -> Result<[PublicValue; N], String> {
+    row.into_iter()
+        .map(OutputValue::into_public)
+        .collect::<Vec<_>>()
+        .try_into()
+        .map_err(|_| "projection arity".into())
+}
+
+#[ic_cdk::query]
+fn icydb038_read(selected: bool, point_customer: bool) -> Result<Sample, String> {
+    icydb::db::with_request_execution(|| measure(selected, point_customer))
+}
+
+fn measure(selected: bool, point_customer: bool) -> Result<Sample, String> {
+    let counter = || ic_cdk::api::performance_counter(1);
+    let started = counter();
+    let db = crate::db().map_err(|e| format!("{e:?}"))?;
+    let prepared = counter();
+    let collection = db
+        .query::<NftCollection>()
+        .map_err(|e| format!("{e:?}"))?
+        .filter(NftCollection::KEY.eq("to_the_mun"))
+        .order_by(asc(NftCollection::KEY))
+        .limit(1)
+        .execute_live_page(None)
+        .map_err(|e| format!("{e:?}"))?
+        .rows
+        .into_iter()
+        .next()
+        .ok_or("collection")?
+        .id;
+    let resource_start = counter();
+    let resources = if selected {
+        let columns = [
+            Resource::ID.as_str(),
+            Resource::KEY.as_str(),
+            Resource::NAME.as_str(),
+            Resource::MAX_STACK.as_str(),
+        ];
+        let query = DynamicQuery::new(Resource::ENTITY)
+            .select(columns)
+            .order_by(asc(Resource::CATALOG_ORDER))
+            .limit(257);
+        let page = db
+            .execute_live_page(&query, None)
+            .map_err(|e| format!("{e:?}"))?;
+        if page.continuation.is_some() || page.columns != columns {
+            return Err("resource bound/columns".into());
+        }
+        page.rows
+            .into_iter()
+            .map(|row| {
+                let [
+                    PublicValue::Ulid(id),
+                    PublicValue::Text(key),
+                    PublicValue::Text(name),
+                    PublicValue::Nat64(max_stack),
+                ] = values(row)?
+                else {
+                    return Err("resource values".into());
+                };
+                Ok((id.to_string(), key, name, max_stack))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    } else {
+        let page = db
+            .query::<Resource>()
+            .map_err(|e| format!("{e:?}"))?
+            .order_by(asc(Resource::CATALOG_ORDER))
+            .limit(257)
+            .execute_live_page(None)
+            .map_err(|e| format!("{e:?}"))?;
+        if page.continuation.is_some() {
+            return Err("resource bound".into());
+        }
+        page.rows
+            .into_iter()
+            .map(|r| (r.id.to_string(), r.key, r.name, r.max_stack))
+            .collect()
+    };
+    let resource_end = counter();
+    let customer_id = Ulid::from_u128(crate::design::orders::CUSTOMERS[0].id);
+    let customers = if selected {
+        let columns = [
+            OrderCustomer::ID.as_str(),
+            OrderCustomer::USERNAME.as_str(),
+            OrderCustomer::USERNAME_COLOUR.as_str(),
+            OrderCustomer::USERNAME_ACCENT.as_str(),
+            OrderCustomer::AVATAR.as_str(),
+        ];
+        let mut query = DynamicQuery::new(OrderCustomer::ENTITY)
+            .select(columns)
+            .order_by(asc(OrderCustomer::CATALOG_ORDER))
+            .limit(64);
+        if point_customer {
+            query = query.filter(OrderCustomer::ID.eq(customer_id));
+        }
+        let page = db
+            .execute_live_page(&query, None)
+            .map_err(|e| format!("{e:?}"))?;
+        if page.continuation.is_some() || page.columns != columns {
+            return Err("customer bound/columns".into());
+        }
+        page.rows
+            .into_iter()
+            .map(|row| {
+                let [
+                    PublicValue::Ulid(id),
+                    PublicValue::Text(name),
+                    PublicValue::Nat64(colour),
+                    PublicValue::Nat64(accent),
+                    PublicValue::Text(avatar),
+                ] = values(row)?
+                else {
+                    return Err("customer values".into());
+                };
+                if colour > 0xffffff || accent > 0xffffff {
+                    return Err("customer colour".into());
+                }
+                Ok((
+                    id.to_string(),
+                    name,
+                    u32::try_from(colour).map_err(|_| "colour")?,
+                    u32::try_from(accent).map_err(|_| "accent")?,
+                    avatar,
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    } else {
+        let mut query = db
+            .query::<OrderCustomer>()
+            .map_err(|e| format!("{e:?}"))?
+            .order_by(asc(OrderCustomer::CATALOG_ORDER))
+            .limit(64);
+        if point_customer {
+            query = query.filter(OrderCustomer::ID.eq(customer_id));
+        }
+        let page = query
+            .execute_live_page(None)
+            .map_err(|e| format!("{e:?}"))?;
+        if page.continuation.is_some()
+            || page
+                .rows
+                .iter()
+                .any(|c| c.username_colour > 0xffffff || c.username_accent > 0xffffff)
+        {
+            return Err("customer bound/colour".into());
+        }
+        page.rows
+            .into_iter()
+            .map(|r| {
+                (
+                    r.id.to_string(),
+                    r.username,
+                    r.username_colour,
+                    r.username_accent,
+                    r.avatar,
+                )
+            })
+            .collect()
+    };
+    let customer_end = counter();
+    let tokens = if selected {
+        let binding = NftToken::typed_binding(&db).map_err(|e| format!("{e:?}"))?;
+        let columns = [NftToken::ID.as_str(), NftToken::RARITY.as_str()];
+        let query = DynamicQuery::new(NftToken::ENTITY)
+            .select(columns)
+            .filter(NftToken::COLLECTION_ID.eq(collection))
+            .order_by(asc(NftToken::TOKEN_NUMBER))
+            .limit(100);
+        let page = db
+            .execute_live_page(&query, None)
+            .map_err(|e| format!("{e:?}"))?;
+        if page.continuation.is_some() || page.columns != columns {
+            return Err("token bound/columns".into());
+        }
+        page.rows
+            .into_iter()
+            .map(|row| {
+                let [id, tag] = values(row)?;
+                let PublicValue::Ulid(id) = id else {
+                    return Err("token id".into());
+                };
+                Ok((
+                    id.to_string(),
+                    NftRarity::decode_typed_output(&binding, tag)
+                        .map_err(|e| format!("{e:?}"))?
+                        .level(),
+                ))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    } else {
+        let page = db
+            .query::<NftToken>()
+            .map_err(|e| format!("{e:?}"))?
+            .filter(NftToken::COLLECTION_ID.eq(collection))
+            .order_by(asc(NftToken::TOKEN_NUMBER))
+            .limit(100)
+            .execute_live_page(None)
+            .map_err(|e| format!("{e:?}"))?;
+        if page.continuation.is_some() {
+            return Err("token bound".into());
+        }
+        page.rows
+            .into_iter()
+            .map(|r| (r.id.to_string(), r.rarity.level()))
+            .collect()
+    };
+    let end = counter();
+    Ok(Sample {
+        resources,
+        customers,
+        tokens,
+        instructions: vec![
+            prepared - started,
+            resource_start - prepared,
+            resource_end - resource_start,
+            customer_end - resource_end,
+            end - customer_end,
+            end - started,
+        ],
+    })
+}

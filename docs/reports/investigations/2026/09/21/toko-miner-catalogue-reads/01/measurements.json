@@ -1,0 +1,455 @@
+{
+  "schema_version": 1,
+  "release_build_id": "609bb28830d3a967d259e0da4bb0589ec6cb67ee9cbe7a02bd16f5321b056ddd",
+  "instruction_order": [
+    "session_open",
+    "collection_lookup_including_lazy_preparation",
+    "resource_read_and_projection",
+    "customer_read_and_projection",
+    "token_read_and_projection",
+    "diagnostic_body"
+  ],
+  "samples": [
+    {
+      "state": "install-ready",
+      "selected": false,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        1839680,
+        9370972,
+        25886753,
+        10199991,
+        9210455,
+        56507851
+      ]
+    },
+    {
+      "state": "install-ready",
+      "selected": true,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        1839680,
+        9370972,
+        13686652,
+        4956617,
+        7289453,
+        37143374
+      ]
+    },
+    {
+      "state": "install-ready",
+      "selected": true,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        1839680,
+        9370972,
+        13686652,
+        4956617,
+        7289453,
+        37143374
+      ]
+    },
+    {
+      "state": "install-ready",
+      "selected": false,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        1839680,
+        9370972,
+        25886753,
+        10199991,
+        9210455,
+        56507851
+      ]
+    },
+    {
+      "state": "install-ready",
+      "selected": false,
+      "point_customer": true,
+      "rows": [
+        64,
+        1,
+        9
+      ],
+      "instructions": [
+        1839680,
+        9370972,
+        25886753,
+        5197434,
+        9211896,
+        51506735
+      ]
+    },
+    {
+      "state": "install-ready",
+      "selected": true,
+      "point_customer": true,
+      "rows": [
+        64,
+        1,
+        9
+      ],
+      "instructions": [
+        1839680,
+        9370972,
+        13686652,
+        1607925,
+        7288446,
+        33793675
+      ]
+    },
+    {
+      "state": "prepared",
+      "selected": false,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        1761804,
+        8987735,
+        26070369,
+        10184616,
+        9243874,
+        56248398
+      ]
+    },
+    {
+      "state": "prepared",
+      "selected": true,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        1761804,
+        8987735,
+        13866022,
+        4949594,
+        7335584,
+        36900739
+      ]
+    },
+    {
+      "state": "prepared",
+      "selected": true,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        1761804,
+        8987735,
+        13866022,
+        4949594,
+        7335584,
+        36900739
+      ]
+    },
+    {
+      "state": "prepared",
+      "selected": false,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        1761804,
+        8987735,
+        26070369,
+        10184616,
+        9243874,
+        56248398
+      ]
+    },
+    {
+      "state": "prepared",
+      "selected": false,
+      "point_customer": true,
+      "rows": [
+        64,
+        1,
+        9
+      ],
+      "instructions": [
+        1761804,
+        8987735,
+        26070369,
+        5137680,
+        9241782,
+        51199370
+      ]
+    },
+    {
+      "state": "prepared",
+      "selected": true,
+      "point_customer": true,
+      "rows": [
+        64,
+        1,
+        9
+      ],
+      "instructions": [
+        1761804,
+        8987735,
+        13866022,
+        1551027,
+        7337020,
+        33503608
+      ]
+    },
+    {
+      "state": "restored",
+      "selected": false,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        1199274,
+        8749443,
+        26029569,
+        10054878,
+        9211552,
+        55244716
+      ]
+    },
+    {
+      "state": "restored",
+      "selected": true,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        1199274,
+        8749443,
+        13943900,
+        4829048,
+        7331175,
+        36052840
+      ]
+    },
+    {
+      "state": "restored",
+      "selected": true,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        1199274,
+        8749443,
+        13943900,
+        4829048,
+        7331175,
+        36052840
+      ]
+    },
+    {
+      "state": "restored",
+      "selected": false,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        1199274,
+        8749443,
+        26029569,
+        10054878,
+        9211552,
+        55244716
+      ]
+    },
+    {
+      "state": "restored",
+      "selected": false,
+      "point_customer": true,
+      "rows": [
+        64,
+        1,
+        9
+      ],
+      "instructions": [
+        1199274,
+        8749443,
+        26029569,
+        5059309,
+        9218815,
+        50256410
+      ]
+    },
+    {
+      "state": "restored",
+      "selected": true,
+      "point_customer": true,
+      "rows": [
+        64,
+        1,
+        9
+      ],
+      "instructions": [
+        1199274,
+        8749443,
+        13943900,
+        1452239,
+        7323009,
+        32667865
+      ]
+    },
+    {
+      "state": "restored-after-login",
+      "selected": false,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        799705,
+        8895027,
+        25983084,
+        10055665,
+        9202953,
+        54936434
+      ]
+    },
+    {
+      "state": "restored-after-login",
+      "selected": true,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        799705,
+        8895027,
+        13877260,
+        4830532,
+        7315738,
+        35718262
+      ]
+    },
+    {
+      "state": "restored-after-login",
+      "selected": true,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        799705,
+        8895027,
+        13877260,
+        4830532,
+        7315738,
+        35718262
+      ]
+    },
+    {
+      "state": "restored-after-login",
+      "selected": false,
+      "point_customer": false,
+      "rows": [
+        64,
+        17,
+        9
+      ],
+      "instructions": [
+        799705,
+        8895027,
+        25983084,
+        10055665,
+        9202953,
+        54936434
+      ]
+    },
+    {
+      "state": "restored-after-login",
+      "selected": false,
+      "point_customer": true,
+      "rows": [
+        64,
+        1,
+        9
+      ],
+      "instructions": [
+        799705,
+        8895027,
+        25983084,
+        5056036,
+        9195608,
+        49929460
+      ]
+    },
+    {
+      "state": "restored-after-login",
+      "selected": true,
+      "point_customer": true,
+      "rows": [
+        64,
+        1,
+        9
+      ],
+      "instructions": [
+        799705,
+        8895027,
+        13877260,
+        1456322,
+        7319188,
+        32347502
+      ]
+    }
+  ],
+  "cold_observations": [
+    "ICYDB038_COLD observation=0 error=\"Error { code: 259, class: 6, origin: 8, facts: [], query_field: None }\"",
+    "ICYDB038_COLD observation=1 error=\"Error { code: 259, class: 6, origin: 8, facts: [], query_field: None }\""
+  ],
+  "validation": "One focused IC test passed; 24 admitted diagnostic queries, two immediately-after-upgrade queries rejected; exact values/order and same-release restoration compare equal.",
+  "log": {
+    "path": "/tmp/icydb-038-ic-final.log",
+    "sha256": "d4953041d616d23219f98fb60f8de16a46bae84e854a5f9a3159e47c1176d830"
+  }
+}

@@ -13,6 +13,7 @@ use crate::{
             PersistedSchemaSnapshot, SchemaDdlAcceptedSnapshotDerivation, SchemaFieldDropTarget,
             SchemaFieldNullabilityTarget, SchemaFieldRenameTarget, SchemaInsertDefaultTarget,
             SchemaRowLayout, derive_sql_ddl_field_nullability_persisted_after,
+            sql_ddl::candidate_with_snapshot,
         },
     },
     error::InternalError,
@@ -20,8 +21,7 @@ use crate::{
 };
 
 use super::{
-    SqlDdlPublicationEnvelope,
-    constraint::{candidate_with_snapshot, current_sql_ddl_bundle},
+    SqlDdlPublicationEnvelope, constraint::current_sql_ddl_bundle,
     publish_sql_ddl_constraint_removal, require_exact_empty_sql_ddl_entity,
     validate_sql_ddl_drop_schema_gate,
 };
@@ -313,7 +313,7 @@ fn publish_sql_ddl_not_null_activation(
         })
         .map(crate::db::schema::ConstraintActivationSnapshot::id)
         .ok_or_else(InternalError::store_invariant)?;
-    let candidate = candidate_with_snapshot(&current, entity_tag, after)?;
+    let candidate = candidate_with_snapshot(&current, entity_tag, &after)?;
     publish_accepted_schema_candidate(
         accepted_before_identity.store_path(),
         store,
@@ -371,7 +371,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_not_null_activation_abort(
         .clone()
         .with_constraint_catalog(catalog)
         .with_schema_version(next_schema_version);
-    let candidate = candidate_with_snapshot(&current, entity_tag, after)?;
+    let candidate = candidate_with_snapshot(&current, entity_tag, &after)?;
     publish_sql_ddl_constraint_removal(
         store,
         &accepted_before_identity,

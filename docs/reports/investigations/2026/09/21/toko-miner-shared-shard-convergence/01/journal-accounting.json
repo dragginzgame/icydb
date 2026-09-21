@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "release_build_id": "9a4a3b66532c406069f12c7cefd3ebd1952fe72cb5a8dbd8bbb5dc19eae7e0a1",
+  "host_probe": "host-probe-v2.rs.txt",
+  "log_path": "/tmp/icydb039-instrumented-rounds1.log",
+  "log_sha256": "fa4e438975ef168a17f1a9492b1401cbcd5b07ad99a2026aaabf735e6ff4661a",
+  "game_shard": "xu6vt-ul777-77777-aaacq-cai",
+  "result": {
+    "kind": "ICYDB039_RESULT",
+    "accepted": 54,
+    "active": 8,
+    "aggregate_conservation_checked": true,
+    "complete_conservation_checked": false,
+    "rejected": 2,
+    "rejection_atomicity_checked": true,
+    "release": "9a4a3b66532c406069f12c7cefd3ebd1952fe72cb5a8dbd8bbb5dc19eae7e0a1",
+    "replayed": 8,
+    "residents": 32,
+    "rounds": 1,
+    "stop_at": 42
+  },
+  "snapshots": [
+    {
+      "label": "start",
+      "appended": 0,
+      "retired": 0,
+      "retained": 0,
+      "icydb_callbacks": 124
+    },
+    {
+      "label": "before-6",
+      "appended": 0,
+      "retired": 0,
+      "retained": 0,
+      "icydb_callbacks": 124
+    },
+    {
+      "label": "after-6",
+      "appended": 8,
+      "retired": 0,
+      "retained": 8,
+      "icydb_callbacks": 124
+    },
+    {
+      "label": "after-exact-replays",
+      "appended": 8,
+      "retired": 0,
+      "retained": 8,
+      "icydb_callbacks": 124
+    },
+    {
+      "label": "before-12",
+      "appended": 8,
+      "retired": 6,
+      "retained": 2,
+      "icydb_callbacks": 130
+    },
+    {
+      "label": "after-12",
+      "appended": 24,
+      "retired": 7,
+      "retained": 17,
+      "icydb_callbacks": 131
+    },
+    {
+      "label": "before-18",
+      "appended": 24,
+      "retired": 12,
+      "retained": 12,
+      "icydb_callbacks": 136
+    },
+    {
+      "label": "after-18",
+      "appended": 40,
+      "retired": 13,
+      "retained": 27,
+      "icydb_callbacks": 137
+    },
+    {
+      "label": "before-24",
+      "appended": 40,
+      "retired": 18,
+      "retained": 22,
+      "icydb_callbacks": 142
+    },
+    {
+      "label": "after-24",
+      "appended": 56,
+      "retired": 19,
+      "retained": 37,
+      "icydb_callbacks": 143
+    },
+    {
+      "label": "before-30",
+      "appended": 56,
+      "retired": 24,
+      "retained": 32,
+      "icydb_callbacks": 148
+    },
+    {
+      "label": "after-30",
+      "appended": 72,
+      "retired": 25,
+      "retained": 47,
+      "icydb_callbacks": 149
+    },
+    {
+      "label": "before-36",
+      "appended": 72,
+      "retired": 30,
+      "retained": 42,
+      "icydb_callbacks": 154
+    },
+    {
+      "label": "after-36",
+      "appended": 88,
+      "retired": 31,
+      "retained": 57,
+      "icydb_callbacks": 155
+    },
+    {
+      "label": "before-42",
+      "appended": 88,
+      "retired": 36,
+      "retained": 52,
+      "icydb_callbacks": 160
+    },
+    {
+      "label": "after-42",
+      "appended": 100,
+      "retired": 37,
+      "retained": 63,
+      "icydb_callbacks": 161
+    },
+    {
+      "label": "drain-0",
+      "appended": 100,
+      "retired": 45,
+      "retained": 55,
+      "icydb_callbacks": 169
+    },
+    {
+      "label": "drain-1",
+      "appended": 100,
+      "retired": 53,
+      "retained": 47,
+      "icydb_callbacks": 177
+    },
+    {
+      "label": "drain-2",
+      "appended": 100,
+      "retired": 61,
+      "retained": 39,
+      "icydb_callbacks": 185
+    },
+    {
+      "label": "drain-3",
+      "appended": 100,
+      "retired": 69,
+      "retained": 31,
+      "icydb_callbacks": 193
+    },
+    {
+      "label": "drain-4",
+      "appended": 100,
+      "retired": 77,
+      "retained": 23,
+      "icydb_callbacks": 201
+    },
+    {
+      "label": "drain-5",
+      "appended": 100,
+      "retired": 85,
+      "retained": 15,
+      "icydb_callbacks": 209
+    },
+    {
+      "label": "drain-6",
+      "appended": 100,
+      "retired": 93,
+      "retained": 7,
+      "icydb_callbacks": 217
+    },
+    {
+      "label": "drain-7",
+      "appended": 100,
+      "retired": 100,
+      "retained": 0,
+      "icydb_callbacks": 224
+    },
+    {
+      "label": "after-retry-drain",
+      "appended": 104,
+      "retired": 104,
+      "retained": 0,
+      "icydb_callbacks": 228
+    },
+    {
+      "label": "end",
+      "appended": 104,
+      "retired": 104,
+      "retained": 0,
+      "icydb_callbacks": 228
+    }
+  ],
+  "pressure": [
+    {
+      "kind": "PRESSURE",
+      "actor": "xu6vt-ul777-77777-aaacq-cai",
+      "resource": 1,
+      "current": 64,
+      "proposed": 1,
+      "limit": 64
+    },
+    {
+      "kind": "PRESSURE",
+      "actor": "xu6vt-ul777-77777-aaacq-cai",
+      "resource": 1,
+      "current": 64,
+      "proposed": 1,
+      "limit": 64
+    },
+    {
+      "kind": "PRESSURE",
+      "actor": "xu6vt-ul777-77777-aaacq-cai",
+      "resource": 1,
+      "current": 64,
+      "proposed": 1,
+      "limit": 64
+    }
+  ],
+  "events_file": "journal-events.jsonl"
+}

@@ -18,7 +18,6 @@ use crate::{
         },
     },
     error::InternalError,
-    types::EntityTag,
 };
 
 /// Stage one complete accepted-after user-index domain for SQL index DDL
@@ -29,15 +28,8 @@ pub(super) fn stage_sql_ddl_user_index_domain_replacement(
     accepted_before: &PersistedSchemaSnapshot,
     accepted_after: &PersistedSchemaSnapshot,
 ) -> Result<StagedUserIndexDomainReplacement, InternalError> {
-    let accepted_before_row_contract = catalog_backed_row_authority(
-        store,
-        accepted_before_identity.entity_tag(),
-        accepted_before_identity.store_path(),
-        accepted_before_identity.entity_path(),
-        accepted_before,
-    )?;
-
-    let accepted_after_snapshot = AcceptedSchemaSnapshot::try_new(accepted_after.clone())?;
+    // Both row contracts use the same accepted catalogue selection. Validate the
+    // before snapshot before deriving candidate decode authority from its catalogues.
     let selection = store
         .with_schema(|schema_store| {
             schema_store.current_accepted_catalog_selection(
@@ -47,6 +39,16 @@ pub(super) fn stage_sql_ddl_user_index_domain_replacement(
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
+    let authority = AcceptedStructuralRowAuthority::from_catalog_selection(
+        accepted_before_identity.entity_path(),
+        &selection,
+    )?;
+    if authority.accepted_schema().persisted_snapshot() != accepted_before {
+        return Err(InternalError::store_unsupported());
+    }
+    let accepted_before_row_contract = authority.into_row_contract();
+
+    let accepted_after_snapshot = AcceptedSchemaSnapshot::try_new(accepted_after.clone())?;
     let accepted_after_row_contract = AcceptedStructuralRowAuthority::from_candidate_snapshot(
         accepted_before_identity.entity_path(),
         accepted_after_snapshot.into(),
@@ -62,27 +64,6 @@ pub(super) fn stage_sql_ddl_user_index_domain_replacement(
         accepted_before_row_contract,
         accepted_after_row_contract,
     )
-}
-
-fn catalog_backed_row_authority(
-    store: StoreHandle,
-    entity_tag: EntityTag,
-    store_path: &'static str,
-    entity_path: &str,
-    accepted_before: &PersistedSchemaSnapshot,
-) -> Result<StructuralRowContract, InternalError> {
-    let selection = store
-        .with_schema(|schema_store| {
-            schema_store.current_accepted_catalog_selection(entity_tag, entity_path, store_path)
-        })?
-        .ok_or_else(InternalError::store_corruption)?;
-    let authority =
-        AcceptedStructuralRowAuthority::from_catalog_selection(entity_path, &selection)?;
-    if authority.accepted_schema().persisted_snapshot() != accepted_before {
-        return Err(InternalError::store_unsupported());
-    }
-
-    Ok(authority.into_row_contract())
 }
 
 fn stage_user_index_domain_replacement(

@@ -222,16 +222,7 @@ fn schema_receipt_matches(
     submission_key: &str,
     accepted_head: &ExpectedAcceptedHead,
 ) -> bool {
-    let accepted_head = match accepted_head {
-        ExpectedAcceptedHead::Empty => AcceptedHeadBinding::Empty,
-        ExpectedAcceptedHead::Exact {
-            revision,
-            fingerprint,
-        } => AcceptedHeadBinding::Exact {
-            revision: *revision,
-            fingerprint: fingerprint.to_bytes(),
-        },
-    };
+    let accepted_head = AcceptedHeadBinding::from_expected_head(accepted_head);
     matches!(
         receipt.binding(),
         StartupFailureBinding::SchemaReconciliation {

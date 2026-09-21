@@ -23,7 +23,7 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use icydb_schema::SchemaSubmissionKey;
+use icydb_schema::{ExpectedAcceptedHead, SchemaSubmissionKey};
 
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory_by_key;
@@ -97,6 +97,22 @@ pub(in crate::db) enum AcceptedHeadBinding {
         revision: u64,
         fingerprint: [u8; 32],
     },
+}
+
+impl AcceptedHeadBinding {
+    /// Preserve the accepted revision and fingerprint in a startup receipt binding.
+    pub(super) const fn from_expected_head(head: &ExpectedAcceptedHead) -> Self {
+        match head {
+            ExpectedAcceptedHead::Empty => Self::Empty,
+            ExpectedAcceptedHead::Exact {
+                revision,
+                fingerprint,
+            } => Self::Exact {
+                revision: *revision,
+                fingerprint: fingerprint.to_bytes(),
+            },
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

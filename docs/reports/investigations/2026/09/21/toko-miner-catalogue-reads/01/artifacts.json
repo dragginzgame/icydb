@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "release_build_id": "609bb28830d3a967d259e0da4bb0589ec6cb67ee9cbe7a02bd16f5321b056ddd",
+  "artifacts": {
+    "game_hub": {
+      "raw_bytes": 4122928,
+      "sha256": "c783a5989ba550c38578c3c058f70b5acd437f6ca5c09cdca7667cae65b6a007",
+      "path": "/tmp/icydb-038-investigation/.canic/release-builds/609bb28830d3a967d259e0da4bb0589ec6cb67ee9cbe7a02bd16f5321b056ddd/artifacts/game_hub/game_hub.wasm"
+    },
+    "game_shard": {
+      "raw_bytes": 10216852,
+      "sha256": "85b90e0282b34497b783f11a42f746f81cdb7274f38a24a1f049b0b98d79537f",
+      "path": "/tmp/icydb-038-investigation/.canic/release-builds/609bb28830d3a967d259e0da4bb0589ec6cb67ee9cbe7a02bd16f5321b056ddd/artifacts/game_shard/game_shard.wasm"
+    },
+    "translation": {
+      "raw_bytes": 8729999,
+      "sha256": "ec9f45079048638692a977ed76f2e45a3c5d179fc474a57188d197a61bf86a14",
+      "path": "/tmp/icydb-038-investigation/.canic/release-builds/609bb28830d3a967d259e0da4bb0589ec6cb67ee9cbe7a02bd16f5321b056ddd/artifacts/translation/translation.wasm"
+    },
+    "user_hub": {
+      "raw_bytes": 7595328,
+      "sha256": "ab012f8bab7c707634361e62879ae009e1773a44abb13f34972d835e97e6bba6",
+      "path": "/tmp/icydb-038-investigation/.canic/release-builds/609bb28830d3a967d259e0da4bb0589ec6cb67ee9cbe7a02bd16f5321b056ddd/artifacts/user_hub/user_hub.wasm"
+    },
+    "user_shard": {
+      "raw_bytes": 7289688,
+      "sha256": "5e3e2ce26be387cbc7d852237a42c8b6d10043355c65c0b82f14aaa9f0f97e21",
+      "path": "/tmp/icydb-038-investigation/.canic/release-builds/609bb28830d3a967d259e0da4bb0589ec6cb67ee9cbe7a02bd16f5321b056ddd/artifacts/user_shard/user_shard.wasm"
+    }
+  },
+  "profile": "Canic fast; SQL off; default metrics and database-demo on",
+  "icydb": "0.261.0",
+  "canic": "0.110.33",
+  "rustc": "1.98.1 (48a229cea 2026-09-01)",
+  "ic_wasm": "0.11.1",
+  "pocket_ic_client": "16.0.0"
+}
