@@ -175,18 +175,14 @@ do
   fi
 done
 
-for sql_ddl_binding_owner in \
-  crates/icydb-core/src/db/schema/sql_ddl.rs \
-  crates/icydb-core/src/db/schema/sql_ddl/constraint.rs
-do
-  if ! rg -q --fixed-strings \
-    '.with_sql_ddl_entity_transition(' \
-    "$sql_ddl_binding_owner"
-  then
-    echo "[ERROR] SQL DDL candidates must evolve immutable source bindings with structural owners: $sql_ddl_binding_owner" >&2
-    status=1
-  fi
-done
+# SQL DDL callers share the candidate builder in the parent module.
+if ! rg -q --fixed-strings \
+  '.with_sql_ddl_entity_transition(' \
+  crates/icydb-core/src/db/schema/sql_ddl.rs
+then
+  echo "[ERROR] the shared SQL DDL candidate builder must evolve immutable source bindings with structural owners" >&2
+  status=1
+fi
 
 if ! rg -q --fixed-strings \
   'current.source_bindings().clone()' \
