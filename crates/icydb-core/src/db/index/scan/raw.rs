@@ -72,24 +72,6 @@ impl MergedEntryValue<'_> {
     }
 }
 
-struct MergedEntryReadRecorder {
-    count: u64,
-}
-
-impl MergedEntryReadRecorder {
-    const fn new() -> Self {
-        Self { count: 0 }
-    }
-
-    const fn record(&mut self) {
-        self.count = self.count.saturating_add(1);
-    }
-}
-
-impl Drop for MergedEntryReadRecorder {
-    fn drop(&mut self) {}
-}
-
 fn merged_range_structural_bytes<I, E, K>(
     contract: MergedRangeContract,
 ) -> Result<(usize, usize), InternalError> {
@@ -159,14 +141,12 @@ where
         return Err(InternalError::executor_invariant());
     }
 
-    let mut entry_reads = MergedEntryReadRecorder::new();
     let mut heads = Vec::new();
     heads
         .try_reserve_exact(contract.range_count)
         .map_err(|_| InternalError::executor_internal())?;
     for range in &mut retained_ranges {
         let head = if let Some(entry) = range.next() {
-            entry_reads.record();
             let order_key = decode_order_key(entry_key(&entry))?;
             Some(MergedRangeHead { order_key, entry })
         } else {
@@ -211,7 +191,6 @@ where
             .ok_or_else(InternalError::executor_invariant)?
             .next()
         {
-            entry_reads.record();
             let order_key = decode_order_key(entry_key(&entry))?;
             Some(MergedRangeHead { order_key, entry })
         } else {
@@ -290,7 +269,7 @@ impl IndexStore {
             (IndexStoreBackend::Heap(map), Direction::Asc) => {
                 let ranges = bounds
                     .iter()
-                    .map(|(lower, upper)| map.range((lower.clone(), upper.clone())));
+                    .map(|(lower, upper)| map.range((lower.as_ref(), upper.as_ref())));
                 visit_merged_ranges(
                     ranges,
                     contract,
@@ -304,7 +283,7 @@ impl IndexStore {
             (IndexStoreBackend::Heap(map), Direction::Desc) => {
                 let ranges = bounds
                     .iter()
-                    .map(|(lower, upper)| map.range((lower.clone(), upper.clone())).rev());
+                    .map(|(lower, upper)| map.range((lower.as_ref(), upper.as_ref())).rev());
                 visit_merged_ranges(
                     ranges,
                     contract,
@@ -325,7 +304,7 @@ impl IndexStore {
                 Direction::Asc,
             ) if canonical.is_empty() => {
                 let ranges = bounds.iter().map(|(lower, upper)| {
-                    live.range((lower.clone(), upper.clone()))
+                    live.range((lower.as_ref(), upper.as_ref()))
                         .filter(|(key, _value)| !tombstones.contains(*key))
                 });
                 visit_merged_ranges(
@@ -348,7 +327,7 @@ impl IndexStore {
                 Direction::Desc,
             ) if canonical.is_empty() => {
                 let ranges = bounds.iter().map(|(lower, upper)| {
-                    live.range((lower.clone(), upper.clone()))
+                    live.range((lower.as_ref(), upper.as_ref()))
                         .rev()
                         .filter(|(key, _value)| !tombstones.contains(*key))
                 });
@@ -373,7 +352,7 @@ impl IndexStore {
             ) if live.is_empty() && tombstones.is_empty() => {
                 let ranges = bounds
                     .iter()
-                    .map(|(lower, upper)| canonical.range((lower.clone(), upper.clone())));
+                    .map(|(lower, upper)| canonical.range((lower.as_ref(), upper.as_ref())));
                 visit_merged_ranges(
                     ranges,
                     contract,
@@ -395,7 +374,7 @@ impl IndexStore {
             ) if live.is_empty() && tombstones.is_empty() => {
                 let ranges = bounds
                     .iter()
-                    .map(|(lower, upper)| canonical.range((lower.clone(), upper.clone())).rev());
+                    .map(|(lower, upper)| canonical.range((lower.as_ref(), upper.as_ref())).rev());
                 visit_merged_ranges(
                     ranges,
                     contract,
@@ -435,9 +414,7 @@ impl IndexStore {
         match direction {
             Direction::Asc => match &self.backend {
                 IndexStoreBackend::Heap(map) => {
-                    let mut entry_reads = MergedEntryReadRecorder::new();
-                    for (key, value) in map.range((bounds.0.clone(), bounds.1.clone())) {
-                        entry_reads.record();
+                    for (key, value) in map.range((bounds.0.as_ref(), bounds.1.as_ref())) {
                         if visit(key, value)? {
                             return Ok(());
                         }
@@ -449,9 +426,7 @@ impl IndexStore {
             },
             Direction::Desc => match &self.backend {
                 IndexStoreBackend::Heap(map) => {
-                    let mut entry_reads = MergedEntryReadRecorder::new();
-                    for (key, value) in map.range((bounds.0.clone(), bounds.1.clone())).rev() {
-                        entry_reads.record();
+                    for (key, value) in map.range((bounds.0.as_ref(), bounds.1.as_ref())).rev() {
                         if visit(key, value)? {
                             return Ok(());
                         }
@@ -484,14 +459,14 @@ impl IndexStore {
 
         match &self.backend {
             IndexStoreBackend::Heap(map) => {
-                for (key, value) in map.range((bounds.0.clone(), bounds.1.clone())) {
+                for (key, value) in map.range((bounds.0.as_ref(), bounds.1.as_ref())) {
                     if visit(key, value)? {
                         break;
                     }
                 }
             }
             IndexStoreBackend::Journaled { canonical, .. } => {
-                for entry in canonical.range((bounds.0.clone(), bounds.1.clone())) {
+                for entry in canonical.range((bounds.0.as_ref(), bounds.1.as_ref())) {
                     if visit(entry.key(), &entry.value())? {
                         break;
                     }

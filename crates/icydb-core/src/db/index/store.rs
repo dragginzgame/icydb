@@ -975,8 +975,8 @@ impl IndexStore {
             return Ok(());
         };
 
-        let lower = bounds.0.clone();
-        let upper = bounds.1.clone();
+        let lower = bounds.0.as_ref();
+        let upper = bounds.1.as_ref();
         match direction {
             Direction::Asc if canonical.is_empty() => {
                 for (key, value) in live.range((lower, upper)) {
@@ -1008,7 +1008,7 @@ impl IndexStore {
             }
             Direction::Asc => {
                 for entry in ordered_overlay_entries(
-                    canonical.range((lower.clone(), upper.clone())),
+                    canonical.range((lower, upper)),
                     live.range((lower, upper)),
                     direction,
                     |entry| entry.key(),
@@ -1032,7 +1032,7 @@ impl IndexStore {
             }
             Direction::Desc => {
                 for entry in ordered_overlay_entries(
-                    canonical.range((lower.clone(), upper.clone())).rev(),
+                    canonical.range((lower, upper)).rev(),
                     live.range((lower, upper)).rev(),
                     direction,
                     |entry| entry.key(),

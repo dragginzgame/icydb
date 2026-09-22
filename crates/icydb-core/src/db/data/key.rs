@@ -34,8 +34,6 @@ use std::{
 
 #[derive(Debug)]
 pub(in crate::db) enum DecodedDataStoreKeyDecodeError {
-    Key,
-
     StoreKey,
 }
 
@@ -193,15 +191,15 @@ impl DecodedDataStoreKey {
     pub(in crate::db) fn try_from_raw(
         raw: &RawDataStoreKey,
     ) -> Result<Self, DecodedDataStoreKeyDecodeError> {
-        let decoded = DataStoreKey::try_from_raw_bytes(raw.as_bytes()).map_err(|source| {
-            let _ = source;
-            DecodedDataStoreKeyDecodeError::StoreKey
-        })?;
-        let entity = decoded.entity_tag();
-        let key = decoded
-            .primary_key()
-            .decode()
-            .map_err(|_| DecodedDataStoreKeyDecodeError::Key)?;
+        let entity = raw
+            .entity_tag_prefix()
+            .ok_or(DecodedDataStoreKeyDecodeError::StoreKey)?;
+        let primary_key = raw
+            .encoded_primary_key_bytes()
+            .ok_or(DecodedDataStoreKeyDecodeError::StoreKey)?;
+        // Malformed primary payloads remain store-key corruption at this boundary.
+        let key = EncodedPrimaryKey::decode_bytes(primary_key)
+            .map_err(|_| DecodedDataStoreKeyDecodeError::StoreKey)?;
 
         Ok(Self::new_with_raw_primary_key_value(
             entity,

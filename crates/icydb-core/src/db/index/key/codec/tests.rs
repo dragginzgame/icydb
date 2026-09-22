@@ -8,7 +8,10 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::{
         index::{IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey},
-        key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
+        key_taxonomy::{
+            CompositePrimaryKeyValue, IndexStoreKeyKind, PrimaryKeyComponent, PrimaryKeyValue,
+            encode_index_store_key,
+        },
     },
     types::{Decimal, EntityTag, Float32, Float64, IntBig, Principal},
     value::Value,
@@ -44,6 +47,45 @@ fn expected_index_id_entity_email_bytes() -> Vec<u8> {
     out.extend_from_slice(&0u16.to_be_bytes());
     out.extend_from_slice(&0u64.to_be_bytes());
     out
+}
+
+#[test]
+fn index_key_encoding_enforces_segment_and_component_bounds() {
+    use super::IndexKeyEncodeError;
+
+    for (components, primary_key, expected) in [
+        (vec![vec![]], vec![1], IndexKeyEncodeError::EmptySegment),
+        (vec![vec![1]], vec![], IndexKeyEncodeError::EmptySegment),
+        (
+            vec![vec![1; IndexKey::MAX_COMPONENT_SIZE + 1]],
+            vec![1],
+            IndexKeyEncodeError::SegmentTooLarge,
+        ),
+        (
+            vec![vec![1]],
+            vec![1; IndexKey::MAX_PK_SIZE + 1],
+            IndexKeyEncodeError::SegmentTooLarge,
+        ),
+        (
+            vec![vec![1]; MAX_INDEX_FIELDS + 1],
+            vec![1],
+            IndexKeyEncodeError::TooManyComponents,
+        ),
+    ] {
+        let key = key_with(IndexKeyKind::User, index_id(), components, primary_key);
+        assert_eq!(key.to_raw(), Err(expected));
+    }
+
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![vec![1; IndexKey::MAX_COMPONENT_SIZE]; MAX_INDEX_FIELDS],
+        IndexKey::wildcard_high_pk(),
+    );
+    let raw = key
+        .to_raw()
+        .expect("maximum-size sentinel key should encode");
+    assert_eq!(IndexKey::try_from_raw(&raw).unwrap(), key);
 }
 
 #[test]
@@ -1159,9 +1201,13 @@ fn index_key_borrowed_component_match_validates_complete_frame() {
     malformed.push(trailing.into_bytes());
 
     // The ordering decoder admits wider primary keys; strict codec consumers do not.
-    let oversized = peer
-        .to_raw_with_primary_key_segment(&[1; IndexKey::MAX_PK_SIZE + 1])
-        .expect("framing helper can construct an oversized primary segment");
+    let oversized = encode_index_store_key(
+        IndexStoreKeyKind::User,
+        peer.index_id,
+        peer.components.iter().map(Vec::as_slice),
+        &[1; IndexKey::MAX_PK_SIZE + 1],
+    )
+    .expect("framing helper can construct an oversized primary segment");
     assert_eq!(
         key.has_same_index_components_as_raw(&oversized),
         Err(IndexKeyDecodeError::OverlongSegment),

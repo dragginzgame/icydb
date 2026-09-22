@@ -7,7 +7,6 @@ use crate::db::index::key::codec::{
     bounds::SEGMENT_LEN_SIZE,
     error::{IndexKeyDecodeError, IndexKeyEncodeError},
 };
-use std::cmp::Ordering;
 
 pub(super) fn push_segment(bytes: &mut Vec<u8>, segment: &[u8]) -> Result<(), IndexKeyEncodeError> {
     if segment.is_empty() {
@@ -21,23 +20,6 @@ pub(super) fn push_segment(bytes: &mut Vec<u8>, segment: &[u8]) -> Result<(), In
     bytes.extend_from_slice(segment);
 
     Ok(())
-}
-
-/// Compare one decoded segment under canonical component ordering semantics.
-pub(super) fn compare_segment_bytes(left: &[u8], right: &[u8]) -> Ordering {
-    left.cmp(right)
-}
-
-/// Compare encoded component segments under canonical component ordering semantics.
-pub(super) fn compare_component_segments(left: &[Vec<u8>], right: &[Vec<u8>]) -> Ordering {
-    for (left_segment, right_segment) in left.iter().zip(right.iter()) {
-        let segment_order = compare_segment_bytes(left_segment, right_segment);
-        if segment_order != Ordering::Equal {
-            return segment_order;
-        }
-    }
-
-    Ordering::Equal
 }
 
 pub(super) fn read_segment<'a>(

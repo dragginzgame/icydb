@@ -129,60 +129,67 @@ fn heap_index_store_preserves_range_order_and_early_stop() {
 
 #[test]
 fn merged_ranges_preserve_logical_order_direction_and_early_stop() {
-    let mut index_store = IndexStore::init_journaled(test_memory(94));
-    for value in [10_u8, 11, 12, 20, 21, 22] {
-        index_store.insert(raw_key(value), IndexEntryValue::presence());
+    for (mut index_store, fold) in [
+        (IndexStore::init_heap(), false),
+        (IndexStore::init_journaled(test_memory(94)), false),
+        (IndexStore::init_journaled(test_memory(96)), true),
+    ] {
+        for value in [10_u8, 11, 12, 20, 21, 22] {
+            index_store.insert(raw_key(value), IndexEntryValue::presence());
+        }
+        if fold {
+            index_store
+                .fold_journaled_materialized_view()
+                .expect("canonical index seed should fold");
+        }
+
+        let bounds = [
+            (Bound::Excluded(raw_key(9)), Bound::Included(raw_key(12))),
+            (Bound::Included(raw_key(20)), Bound::Unbounded),
+        ];
+        let decode_order = |key: &RawIndexStoreKey| {
+            let raw = key.as_bytes()[0];
+            Ok::<u8, crate::error::InternalError>(match raw {
+                10..=12 => raw.saturating_sub(10).saturating_mul(2).saturating_add(1),
+                20..=22 => raw.saturating_sub(20).saturating_mul(2).saturating_add(2),
+                _ => return Err(crate::error::InternalError::executor_invariant()),
+            })
+        };
+
+        let mut asc = Vec::new();
+        assert!(
+            index_store
+                .visit_raw_entries_in_merged_ranges(
+                    bounds.as_slice(),
+                    Direction::Asc,
+                    |_bytes| Ok(()),
+                    decode_order,
+                    |order, _key, _value| {
+                        asc.push(order);
+                        Ok(asc.len() == 4)
+                    },
+                )
+                .expect("merged ASC ranges should execute"),
+        );
+        assert_eq!(asc, vec![1, 2, 3, 4]);
+
+        let mut desc = Vec::new();
+        assert!(
+            index_store
+                .visit_raw_entries_in_merged_ranges(
+                    bounds.as_slice(),
+                    Direction::Desc,
+                    |_bytes| Ok(()),
+                    decode_order,
+                    |order, _key, _value| {
+                        desc.push(order);
+                        Ok(false)
+                    },
+                )
+                .expect("merged DESC ranges should execute"),
+        );
+        assert_eq!(desc, vec![6, 5, 4, 3, 2, 1]);
     }
-    index_store
-        .fold_journaled_materialized_view()
-        .expect("canonical index seed should fold");
-
-    let bounds = [
-        (Bound::Included(raw_key(10)), Bound::Included(raw_key(12))),
-        (Bound::Included(raw_key(20)), Bound::Included(raw_key(22))),
-    ];
-    let decode_order = |key: &RawIndexStoreKey| {
-        let raw = key.as_bytes()[0];
-        Ok::<u8, crate::error::InternalError>(match raw {
-            10..=12 => raw.saturating_sub(10).saturating_mul(2).saturating_add(1),
-            20..=22 => raw.saturating_sub(20).saturating_mul(2).saturating_add(2),
-            _ => return Err(crate::error::InternalError::executor_invariant()),
-        })
-    };
-
-    let mut asc = Vec::new();
-    assert!(
-        index_store
-            .visit_raw_entries_in_merged_ranges(
-                bounds.as_slice(),
-                Direction::Asc,
-                |_bytes| Ok(()),
-                decode_order,
-                |order, _key, _value| {
-                    asc.push(order);
-                    Ok(asc.len() == 4)
-                },
-            )
-            .expect("canonical merged ASC ranges should execute"),
-    );
-    assert_eq!(asc, vec![1, 2, 3, 4]);
-
-    let mut desc = Vec::new();
-    assert!(
-        index_store
-            .visit_raw_entries_in_merged_ranges(
-                bounds.as_slice(),
-                Direction::Desc,
-                |_bytes| Ok(()),
-                decode_order,
-                |order, _key, _value| {
-                    desc.push(order);
-                    Ok(false)
-                },
-            )
-            .expect("canonical merged DESC ranges should execute"),
-    );
-    assert_eq!(desc, vec![6, 5, 4, 3, 2, 1]);
 }
 
 #[test]

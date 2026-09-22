@@ -1,0 +1,924 @@
+{
+  "manifest": {
+    "scope": "C24-C26 only; C21-C23 present on both sides",
+    "head": "26b41f74b8f8872ba86d1b35de9a9b40ba51e7f8",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "wasm_opt": "wasm-opt version 132 (version_132)",
+    "lock_sha256": "794dd20b26181d7cf5ac3843e6a2ba11fbbf33f8db51806867e468561dfc65fe",
+    "profile": "wasm-release",
+    "build_profile": "local",
+    "sql": "on",
+    "candid": "on",
+    "files": {
+      "baseline": {
+        "CHANGELOG.md": "d434647feae5d9e79807e89cd0a7dbed5d1462075236f09b49cdb373777dcf4c",
+        "docs/changelog/0.261.md": "b01902fbceda6a97712fcb40a39c0f27820594a72ef2d60eca6b9f27588d812c",
+        "docs/design/0.261-entity-rename/0.261-status.md": "f6a444111a3e1a53365ad751bf088715d93bcbdeb0995b5d27a311c535933343",
+        "crates/icydb-core/src/db/index/scan/raw.rs": "f29c4b121038ed13d6f4ff1599cf0bf610aec93a7ca65d337eaee617d1b208ce",
+        "crates/icydb-core/src/db/index/store.rs": "f032dce94bc9a70f80ca5d86d356ab1cf2dce0d4a372ff0ae418dd803f3ee926",
+        "crates/icydb-core/src/db/key_taxonomy.rs": "2f65aa07e218f29425ca36558a4181d7fe2a1df1775459bf78a6542e7bd264c0",
+        "crates/icydb-core/src/db/index/key/codec/mod.rs": "5f25c270d6d28e36f68bc18cf7a9cec49b314ed0ddd59cab702400a343933c65",
+        "crates/icydb-core/src/db/index/key/codec/tests.rs": "d62199e0d255b7c55ba0a33bb9360e787e31e7c475a63c5257c4bedd32e8b0c5",
+        "crates/icydb-core/src/db/index/scan/tests.rs": "8001e6e9c04212e92bec6080abbdbc7c361eb4670f26dc35adaf8d4db84cbc35"
+      },
+      "after": {
+        "CHANGELOG.md": "379b39c60d9782330b43ac5d691df690eb717ca71d046c8758ebe9f76d202b43",
+        "docs/changelog/0.261.md": "8c450594e4f475fced9ec7d2e214d05f74e470baaca1c26ad51844c95ed2e2ba",
+        "docs/design/0.261-entity-rename/0.261-status.md": "9021af657cd3f1a7a4b995459825d10423a62aa79f853bcb2f7920ed692f102c",
+        "crates/icydb-core/src/db/index/scan/raw.rs": "642f33a419dded54d56d5d920f370f5209ffa070dd43a232c0843d2e6d4bfe7b",
+        "crates/icydb-core/src/db/index/store.rs": "ce00d59ebaa20c7c2f06fd188f18b9cb20ef2a489696900848d99e1648ed008a",
+        "crates/icydb-core/src/db/key_taxonomy.rs": "543357a1295cf16c95ee47573b92a38d003a54aee6383460fb3295b20cce8f8c",
+        "crates/icydb-core/src/db/index/key/codec/mod.rs": "5e8dd9a42dc78fce14ba81e85e7136c385151419a9a0e253d3ba73478d4a16fb",
+        "crates/icydb-core/src/db/index/key/codec/tests.rs": "f47489007331aaccc1262a886bce86e037bfe39fd07d48ec12109ef763022d2a",
+        "crates/icydb-core/src/db/index/scan/tests.rs": "aadb715313433737b19d8d4fbd4d40030515f8ec74987421704c345b5aea2137"
+      }
+    },
+    "host_probe_sha256": "0f4fcca0274c4ce761155ca7e5434e24678054346dea3c39042d706c4c61f7a3",
+    "artifacts": {
+      "before": {
+        "wasm": {
+          "bytes": 4464234,
+          "sha256": "55df012cf900fb752c52719be32abbcadd2b9d369c7ac02705c33abdad1d06da"
+        },
+        "compiler.wasm": {
+          "bytes": 5112377,
+          "sha256": "23fe72b93ea67bfcf0804d3df843eaa15b983864b925ce1d675cfa0fa2d02b4f"
+        },
+        "did": {
+          "bytes": 59806,
+          "sha256": "8832e02af370bc524ff016aa74804c2f393ae13f2e0b372ef9e57ad680a58189"
+        }
+      },
+      "after": {
+        "wasm": {
+          "bytes": 4463362,
+          "sha256": "78abc34b3d783f72d6350f31ff8483f4fd7aadcf422f12c8a3f6b72eface38b5"
+        },
+        "compiler.wasm": {
+          "bytes": 5111198,
+          "sha256": "eeaf76b5284ff76d55d80c71ee0521c5d025ed3ee31aece01fe70dbea918585c"
+        },
+        "did": {
+          "bytes": 59806,
+          "sha256": "8832e02af370bc524ff016aa74804c2f393ae13f2e0b372ef9e57ad680a58189"
+        }
+      }
+    },
+    "host_sha256": "cde640fc83a012a10a6a7d38a1553540a04e9e938f578190850730b6bbe02a2c",
+    "host_adjustment": "Restrict the existing indexed write matrix to accepted widths 20, 300 and 4092 on both variants; the maintained 4094-digit rejection assertion already fails on baseline. Add host-only ASC/DESC index-range samples through existing actor endpoints.",
+    "host_source_sha256": "e9bf5f6e7a3c6ae26c9f2e38cfc51622ec2cb87f7a4810cd7fdec4db84d2195c",
+    "pocket_ic": "16.0.0",
+    "actor": "sql_perf",
+    "post_link": "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1",
+    "artifact_directory": "/tmp/icydb-c24-c26-measure",
+    "unchanged_fixture_sha256": {
+      "canisters/audit/sql_perf/src/lib.rs": "1b56f404e581a9311f4f130c20dbf47877e706b0c985c88faf87f1e899698e13",
+      "canisters/audit/sql_perf/src/indexed_big_integer.rs": "b6a716a25978487d762ad561d97b26430f7a5c7da122725526ac571e5a893217",
+      "schema/audit/sql_perf/src/sql_perf.rs": "07459fd471c7626a14bbc3b76f27fb9c21263cee1d1f192a871c0d64e0463e56"
+    }
+  },
+  "replay_exact": true,
+  "samples_per_artifact_per_trial": 24,
+  "samples": [
+    {
+      "kind": "write",
+      "case": {
+        "negative": "false",
+        "digits": "20",
+        "rows": "1",
+        "accepted": "true"
+      },
+      "before": {
+        "negative": "false",
+        "digits": 20,
+        "rows": 1,
+        "accepted": "true",
+        "instructions": 25104345,
+        "cycles": 32942799
+      },
+      "after": {
+        "negative": "false",
+        "digits": 20,
+        "rows": 1,
+        "accepted": "true",
+        "instructions": 25099630,
+        "cycles": 32938041
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -4715,
+          "percent": -0.018781609319024256
+        },
+        "cycles": {
+          "absolute": -4758,
+          "percent": -0.014443217165608788
+        }
+      }
+    },
+    {
+      "kind": "write",
+      "case": {
+        "negative": "false",
+        "digits": "20",
+        "rows": "32",
+        "accepted": "true"
+      },
+      "before": {
+        "negative": "false",
+        "digits": 20,
+        "rows": 32,
+        "accepted": "true",
+        "instructions": 43526482,
+        "cycles": 51706251
+      },
+      "after": {
+        "negative": "false",
+        "digits": 20,
+        "rows": 32,
+        "accepted": "true",
+        "instructions": 43353616,
+        "cycles": 51534082
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -172866,
+          "percent": -0.39715132502553274
+        },
+        "cycles": {
+          "absolute": -172169,
+          "percent": -0.3329752141573753
+        }
+      }
+    },
+    {
+      "kind": "write",
+      "case": {
+        "negative": "false",
+        "digits": "300",
+        "rows": "1",
+        "accepted": "true"
+      },
+      "before": {
+        "negative": "false",
+        "digits": 300,
+        "rows": 1,
+        "accepted": "true",
+        "instructions": 25202372,
+        "cycles": 33088519
+      },
+      "after": {
+        "negative": "false",
+        "digits": 300,
+        "rows": 1,
+        "accepted": "true",
+        "instructions": 25199766,
+        "cycles": 33086245
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -2606,
+          "percent": -0.01034029654034152
+        },
+        "cycles": {
+          "absolute": -2274,
+          "percent": -0.006872474407210549
+        }
+      }
+    },
+    {
+      "kind": "write",
+      "case": {
+        "negative": "false",
+        "digits": "300",
+        "rows": "32",
+        "accepted": "true"
+      },
+      "before": {
+        "negative": "false",
+        "digits": 300,
+        "rows": 32,
+        "accepted": "true",
+        "instructions": 48929165,
+        "cycles": 58619453
+      },
+      "after": {
+        "negative": "false",
+        "digits": 300,
+        "rows": 32,
+        "accepted": "true",
+        "instructions": 48759309,
+        "cycles": 58452809
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -169856,
+          "percent": -0.3471467375337388
+        },
+        "cycles": {
+          "absolute": -166644,
+          "percent": -0.2842810559832416
+        }
+      }
+    },
+    {
+      "kind": "write",
+      "case": {
+        "negative": "false",
+        "digits": "4092",
+        "rows": "1",
+        "accepted": "true"
+      },
+      "before": {
+        "negative": "false",
+        "digits": 4092,
+        "rows": 1,
+        "accepted": "true",
+        "instructions": 26394052,
+        "cycles": 37396791
+      },
+      "after": {
+        "negative": "false",
+        "digits": 4092,
+        "rows": 1,
+        "accepted": "true",
+        "instructions": 26386494,
+        "cycles": 37389321
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -7558,
+          "percent": -0.028635239485017307
+        },
+        "cycles": {
+          "absolute": -7470,
+          "percent": -0.019974975927747385
+        }
+      }
+    },
+    {
+      "kind": "write",
+      "case": {
+        "negative": "false",
+        "digits": "4092",
+        "rows": "32",
+        "accepted": "true"
+      },
+      "before": {
+        "negative": "false",
+        "digits": 4092,
+        "rows": 32,
+        "accepted": "true",
+        "instructions": 121787122,
+        "cycles": 231371421
+      },
+      "after": {
+        "negative": "false",
+        "digits": 4092,
+        "rows": 32,
+        "accepted": "true",
+        "instructions": 121565408,
+        "cycles": 231149235
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -221714,
+          "percent": -0.1820504470086747
+        },
+        "cycles": {
+          "absolute": -222186,
+          "percent": -0.09603001055173534
+        }
+      }
+    },
+    {
+      "kind": "write",
+      "case": {
+        "negative": "true",
+        "digits": "20",
+        "rows": "1",
+        "accepted": "true"
+      },
+      "before": {
+        "negative": "true",
+        "digits": 20,
+        "rows": 1,
+        "accepted": "true",
+        "instructions": 25108816,
+        "cycles": 32948209
+      },
+      "after": {
+        "negative": "true",
+        "digits": 20,
+        "rows": 1,
+        "accepted": "true",
+        "instructions": 25104014,
+        "cycles": 32943407
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -4802,
+          "percent": -0.019124756818481605
+        },
+        "cycles": {
+          "absolute": -4802,
+          "percent": -0.014574388550224384
+        }
+      }
+    },
+    {
+      "kind": "write",
+      "case": {
+        "negative": "true",
+        "digits": "20",
+        "rows": "32",
+        "accepted": "true"
+      },
+      "before": {
+        "negative": "true",
+        "digits": 20,
+        "rows": 32,
+        "accepted": "true",
+        "instructions": 43674315,
+        "cycles": 51876278
+      },
+      "after": {
+        "negative": "true",
+        "digits": 20,
+        "rows": 32,
+        "accepted": "true",
+        "instructions": 43515315,
+        "cycles": 51716793
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -159000,
+          "percent": -0.36405837160811794
+        },
+        "cycles": {
+          "absolute": -159485,
+          "percent": -0.3074333898819804
+        }
+      }
+    },
+    {
+      "kind": "write",
+      "case": {
+        "negative": "true",
+        "digits": "300",
+        "rows": "1",
+        "accepted": "true"
+      },
+      "before": {
+        "negative": "true",
+        "digits": 300,
+        "rows": 1,
+        "accepted": "true",
+        "instructions": 25280553,
+        "cycles": 33168652
+      },
+      "after": {
+        "negative": "true",
+        "digits": 300,
+        "rows": 1,
+        "accepted": "true",
+        "instructions": 25275561,
+        "cycles": 33163687
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -4992,
+          "percent": -0.019746403490461622
+        },
+        "cycles": {
+          "absolute": -4965,
+          "percent": -0.014968953215222614
+        }
+      }
+    },
+    {
+      "kind": "write",
+      "case": {
+        "negative": "true",
+        "digits": "300",
+        "rows": "32",
+        "accepted": "true"
+      },
+      "before": {
+        "negative": "true",
+        "digits": 300,
+        "rows": 32,
+        "accepted": "true",
+        "instructions": 51254748,
+        "cycles": 60984409
+      },
+      "after": {
+        "negative": "true",
+        "digits": 300,
+        "rows": 32,
+        "accepted": "true",
+        "instructions": 51093552,
+        "cycles": 60819644
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -161196,
+          "percent": -0.3144996440134678
+        },
+        "cycles": {
+          "absolute": -164765,
+          "percent": -0.27017561160591064
+        }
+      }
+    },
+    {
+      "kind": "write",
+      "case": {
+        "negative": "true",
+        "digits": "4092",
+        "rows": "1",
+        "accepted": "true"
+      },
+      "before": {
+        "negative": "true",
+        "digits": 4092,
+        "rows": 1,
+        "accepted": "true",
+        "instructions": 27440214,
+        "cycles": 38448483
+      },
+      "after": {
+        "negative": "true",
+        "digits": 4092,
+        "rows": 1,
+        "accepted": "true",
+        "instructions": 27433325,
+        "cycles": 38441760
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -6889,
+          "percent": -0.02510548933765604
+        },
+        "cycles": {
+          "absolute": -6723,
+          "percent": -0.01748573539299327
+        }
+      }
+    },
+    {
+      "kind": "write",
+      "case": {
+        "negative": "true",
+        "digits": "4092",
+        "rows": "32",
+        "accepted": "true"
+      },
+      "before": {
+        "negative": "true",
+        "digits": 4092,
+        "rows": 32,
+        "accepted": "true",
+        "instructions": 153390748,
+        "cycles": 263149302
+      },
+      "after": {
+        "negative": "true",
+        "digits": 4092,
+        "rows": 32,
+        "accepted": "true",
+        "instructions": 153201736,
+        "cycles": 262958055
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -189012,
+          "percent": -0.12322255576979128
+        },
+        "cycles": {
+          "absolute": -191247,
+          "percent": -0.07267623305343215
+        }
+      }
+    },
+    {
+      "kind": "range",
+      "case": {
+        "digits": "20",
+        "direction": "ASC",
+        "repeat": "0"
+      },
+      "before": {
+        "digits": 20,
+        "direction": "ASC",
+        "repeat": 0,
+        "instructions": 2982197,
+        "cycles": 14935605,
+        "result_sha256": "db0fa88e8608b5c33e410b4c405b87a825628f5b551dab593ec4bc952f5d65cf"
+      },
+      "after": {
+        "digits": 20,
+        "direction": "ASC",
+        "repeat": 0,
+        "instructions": 2976486,
+        "cycles": 14928534,
+        "result_sha256": "db0fa88e8608b5c33e410b4c405b87a825628f5b551dab593ec4bc952f5d65cf"
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -5711,
+          "percent": -0.19150310995551267
+        },
+        "cycles": {
+          "absolute": -7071,
+          "percent": -0.0473432445488482
+        }
+      }
+    },
+    {
+      "kind": "range",
+      "case": {
+        "digits": "20",
+        "direction": "ASC",
+        "repeat": "1"
+      },
+      "before": {
+        "digits": 20,
+        "direction": "ASC",
+        "repeat": 1,
+        "instructions": 2551458,
+        "cycles": 15266216,
+        "result_sha256": "db0fa88e8608b5c33e410b4c405b87a825628f5b551dab593ec4bc952f5d65cf"
+      },
+      "after": {
+        "digits": 20,
+        "direction": "ASC",
+        "repeat": 1,
+        "instructions": 2702961,
+        "cycles": 15256793,
+        "result_sha256": "db0fa88e8608b5c33e410b4c405b87a825628f5b551dab593ec4bc952f5d65cf"
+      },
+      "delta": {
+        "instructions": {
+          "absolute": 151503,
+          "percent": 5.937899036550866
+        },
+        "cycles": {
+          "absolute": -9423,
+          "percent": -0.06172452951012877
+        }
+      }
+    },
+    {
+      "kind": "range",
+      "case": {
+        "digits": "20",
+        "direction": "ASC",
+        "repeat": "2"
+      },
+      "before": {
+        "digits": 20,
+        "direction": "ASC",
+        "repeat": 2,
+        "instructions": 3031460,
+        "cycles": 15613946,
+        "result_sha256": "db0fa88e8608b5c33e410b4c405b87a825628f5b551dab593ec4bc952f5d65cf"
+      },
+      "after": {
+        "digits": 20,
+        "direction": "ASC",
+        "repeat": 2,
+        "instructions": 2623789,
+        "cycles": 15368367,
+        "result_sha256": "db0fa88e8608b5c33e410b4c405b87a825628f5b551dab593ec4bc952f5d65cf"
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -407671,
+          "percent": -13.448008550335482
+        },
+        "cycles": {
+          "absolute": -245579,
+          "percent": -1.572818299743063
+        }
+      }
+    },
+    {
+      "kind": "range",
+      "case": {
+        "digits": "20",
+        "direction": "DESC",
+        "repeat": "0"
+      },
+      "before": {
+        "digits": 20,
+        "direction": "DESC",
+        "repeat": 0,
+        "instructions": 3157443,
+        "cycles": 15981515,
+        "result_sha256": "580e59e1b422fb9cb648bc6da493bd446c9de2696c07a2e313a78c75c3478a04"
+      },
+      "after": {
+        "digits": 20,
+        "direction": "DESC",
+        "repeat": 0,
+        "instructions": 3308969,
+        "cycles": 15973903,
+        "result_sha256": "580e59e1b422fb9cb648bc6da493bd446c9de2696c07a2e313a78c75c3478a04"
+      },
+      "delta": {
+        "instructions": {
+          "absolute": 151526,
+          "percent": 4.799009831689757
+        },
+        "cycles": {
+          "absolute": -7612,
+          "percent": -0.0476300275662226
+        }
+      }
+    },
+    {
+      "kind": "range",
+      "case": {
+        "digits": "20",
+        "direction": "DESC",
+        "repeat": "1"
+      },
+      "before": {
+        "digits": 20,
+        "direction": "DESC",
+        "repeat": 1,
+        "instructions": 2650732,
+        "cycles": 15557799,
+        "result_sha256": "580e59e1b422fb9cb648bc6da493bd446c9de2696c07a2e313a78c75c3478a04"
+      },
+      "after": {
+        "digits": 20,
+        "direction": "DESC",
+        "repeat": 1,
+        "instructions": 2726584,
+        "cycles": 15475996,
+        "result_sha256": "580e59e1b422fb9cb648bc6da493bd446c9de2696c07a2e313a78c75c3478a04"
+      },
+      "delta": {
+        "instructions": {
+          "absolute": 75852,
+          "percent": 2.8615491871679217
+        },
+        "cycles": {
+          "absolute": -81803,
+          "percent": -0.525800596858206
+        }
+      }
+    },
+    {
+      "kind": "range",
+      "case": {
+        "digits": "20",
+        "direction": "DESC",
+        "repeat": "2"
+      },
+      "before": {
+        "digits": 20,
+        "direction": "DESC",
+        "repeat": 2,
+        "instructions": 2659507,
+        "cycles": 15585462,
+        "result_sha256": "580e59e1b422fb9cb648bc6da493bd446c9de2696c07a2e313a78c75c3478a04"
+      },
+      "after": {
+        "digits": 20,
+        "direction": "DESC",
+        "repeat": 2,
+        "instructions": 2649834,
+        "cycles": 15474996,
+        "result_sha256": "580e59e1b422fb9cb648bc6da493bd446c9de2696c07a2e313a78c75c3478a04"
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -9673,
+          "percent": -0.36371402669742925
+        },
+        "cycles": {
+          "absolute": -110466,
+          "percent": -0.708775909241574
+        }
+      }
+    },
+    {
+      "kind": "range",
+      "case": {
+        "digits": "4092",
+        "direction": "ASC",
+        "repeat": "0"
+      },
+      "before": {
+        "digits": 4092,
+        "direction": "ASC",
+        "repeat": 0,
+        "instructions": 3725102,
+        "cycles": 16480890,
+        "result_sha256": "db0fa88e8608b5c33e410b4c405b87a825628f5b551dab593ec4bc952f5d65cf"
+      },
+      "after": {
+        "digits": 4092,
+        "direction": "ASC",
+        "repeat": 0,
+        "instructions": 3726227,
+        "cycles": 16322742,
+        "result_sha256": "db0fa88e8608b5c33e410b4c405b87a825628f5b551dab593ec4bc952f5d65cf"
+      },
+      "delta": {
+        "instructions": {
+          "absolute": 1125,
+          "percent": 0.03020051531474843
+        },
+        "cycles": {
+          "absolute": -158148,
+          "percent": -0.9595841001305148
+        }
+      }
+    },
+    {
+      "kind": "range",
+      "case": {
+        "digits": "4092",
+        "direction": "ASC",
+        "repeat": "1"
+      },
+      "before": {
+        "digits": 4092,
+        "direction": "ASC",
+        "repeat": 1,
+        "instructions": 3773544,
+        "cycles": 16650994,
+        "result_sha256": "db0fa88e8608b5c33e410b4c405b87a825628f5b551dab593ec4bc952f5d65cf"
+      },
+      "after": {
+        "digits": 4092,
+        "direction": "ASC",
+        "repeat": 1,
+        "instructions": 4006555,
+        "cycles": 16804167,
+        "result_sha256": "db0fa88e8608b5c33e410b4c405b87a825628f5b551dab593ec4bc952f5d65cf"
+      },
+      "delta": {
+        "instructions": {
+          "absolute": 233011,
+          "percent": 6.17485843546544
+        },
+        "cycles": {
+          "absolute": 153173,
+          "percent": 0.9199030400227157
+        }
+      }
+    },
+    {
+      "kind": "range",
+      "case": {
+        "digits": "4092",
+        "direction": "ASC",
+        "repeat": "2"
+      },
+      "before": {
+        "digits": 4092,
+        "direction": "ASC",
+        "repeat": 2,
+        "instructions": 4007068,
+        "cycles": 16914307,
+        "result_sha256": "db0fa88e8608b5c33e410b4c405b87a825628f5b551dab593ec4bc952f5d65cf"
+      },
+      "after": {
+        "digits": 4092,
+        "direction": "ASC",
+        "repeat": 2,
+        "instructions": 3924860,
+        "cycles": 16989351,
+        "result_sha256": "db0fa88e8608b5c33e410b4c405b87a825628f5b551dab593ec4bc952f5d65cf"
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -82208,
+          "percent": -2.0515748672096406
+        },
+        "cycles": {
+          "absolute": 75044,
+          "percent": 0.4436717389603961
+        }
+      }
+    },
+    {
+      "kind": "range",
+      "case": {
+        "digits": "4092",
+        "direction": "DESC",
+        "repeat": "0"
+      },
+      "before": {
+        "digits": 4092,
+        "direction": "DESC",
+        "repeat": 0,
+        "instructions": 4329825,
+        "cycles": 17321731,
+        "result_sha256": "580e59e1b422fb9cb648bc6da493bd446c9de2696c07a2e313a78c75c3478a04"
+      },
+      "after": {
+        "digits": 4092,
+        "direction": "DESC",
+        "repeat": 0,
+        "instructions": 4010818,
+        "cycles": 17402632,
+        "result_sha256": "580e59e1b422fb9cb648bc6da493bd446c9de2696c07a2e313a78c75c3478a04"
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -319007,
+          "percent": -7.367664974912381
+        },
+        "cycles": {
+          "absolute": 80901,
+          "percent": 0.46704916500550664
+        }
+      }
+    },
+    {
+      "kind": "range",
+      "case": {
+        "digits": "4092",
+        "direction": "DESC",
+        "repeat": "1"
+      },
+      "before": {
+        "digits": 4092,
+        "direction": "DESC",
+        "repeat": 1,
+        "instructions": 3748380,
+        "cycles": 16897361,
+        "result_sha256": "580e59e1b422fb9cb648bc6da493bd446c9de2696c07a2e313a78c75c3478a04"
+      },
+      "after": {
+        "digits": 4092,
+        "direction": "DESC",
+        "repeat": 1,
+        "instructions": 3664378,
+        "cycles": 16897608,
+        "result_sha256": "580e59e1b422fb9cb648bc6da493bd446c9de2696c07a2e313a78c75c3478a04"
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -84002,
+          "percent": -2.241021454601721
+        },
+        "cycles": {
+          "absolute": 247,
+          "percent": 0.001461766722034287
+        }
+      }
+    },
+    {
+      "kind": "range",
+      "case": {
+        "digits": "4092",
+        "direction": "DESC",
+        "repeat": "2"
+      },
+      "before": {
+        "digits": 4092,
+        "direction": "DESC",
+        "repeat": 2,
+        "instructions": 3756421,
+        "cycles": 16906544,
+        "result_sha256": "580e59e1b422fb9cb648bc6da493bd446c9de2696c07a2e313a78c75c3478a04"
+      },
+      "after": {
+        "digits": 4092,
+        "direction": "DESC",
+        "repeat": 2,
+        "instructions": 3591106,
+        "cycles": 16903239,
+        "result_sha256": "580e59e1b422fb9cb648bc6da493bd446c9de2696c07a2e313a78c75c3478a04"
+      },
+      "delta": {
+        "instructions": {
+          "absolute": -165315,
+          "percent": -4.400864546332799
+        },
+        "cycles": {
+          "absolute": -3305,
+          "percent": -0.019548643412870187
+        }
+      }
+    }
+  ],
+  "host_probe_source": "\n// Disposable host-only measurement; both frozen Wasms use identical calls.\n#[test]\n#[ignore = \"manual matched-artifact index scan measurement\"]\nfn indexed_range_wasm_cost_probe() {\n    let module = preparation_measurement_wasm();\n    for digits in [20_u32, 4_092] {\n        let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(\"sql_perf\", module.clone());\n        let prepared: Result<(), Error> = fixture.update_candid(\"prepare_indexed_big_integer_fixture\", ()).unwrap();\n        prepared.unwrap();\n        let written: Result<IndexedBigIntegerAttempt, Error> = fixture.update_candid(\"measure_indexed_big_integer_write\", (false, digits, 32_u16)).unwrap();\n        assert_eq!(written.unwrap().outcome.unwrap(), 32);\n        for direction in [\"ASC\", \"DESC\"] {\n            let sql = format!(\"SELECT id FROM PerfAuditIndexedBigInteger WHERE unsigned > 0 ORDER BY unsigned {direction}, id {direction} LIMIT 8\");\n            let explained = query_perf(&fixture, \"query_user_with_perf\", &format!(\"EXPLAIN JSON {sql}\"));\n            let SqlQueryResult::Explain { explain, .. } = explained.result else { panic!(\"explain expected\") };\n            let plan: serde_json::Value = serde_json::from_str(&explain).unwrap();\n            assert_eq!(plan[\"access_decision\"][\"selected\"][\"index_name\"], \"perf_big_unsigned_idx\");\n            println!(\"indexed_range_plan digits={digits} direction={direction} plan={explain}\");\n            for repeat in 0..3 {\n                settle_measurement_rounds(&fixture);\n                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());\n                let sample: Result<SqlQueryPerfResult, Error> = fixture.update_candid(\"warm_user_query_with_perf\", (sql.clone(),)).unwrap();\n                let cycles = before.checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id())).unwrap();\n                let sample = sample.unwrap();\n                let SqlQueryResult::Projection(ref projection) = sample.result else { panic!(\"projection expected\") };\n                assert_eq!(projection.rows.len(), 8);\n                println!(\"indexed_range_cost digits={digits} direction={direction} repeat={repeat} instructions={} cycles={cycles} result={:?}\", sample.instructions, sample.result);\n            }\n        }\n    }\n}\n",
+  "initial_failure": {
+    "scope": "Maintained ignored indexed write matrix on pre-C24 baseline",
+    "message": "oversized components must reject: 1",
+    "case": {
+      "negative": false,
+      "digits": 4094,
+      "rows": 1
+    },
+    "log_sha256": "ac42f06e16062f4d483d526e730ee0e86c10eb08127d8ce23c9927c4d1bc2485",
+    "disposition": "Known-valid widths 20, 300 and 4092 used for matched measurement; maintained rejection fixture repair deferred."
+  }
+}

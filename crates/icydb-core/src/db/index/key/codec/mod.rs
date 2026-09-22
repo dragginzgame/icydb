@@ -16,8 +16,8 @@ use crate::{
     db::{
         index::key::IndexId,
         key_taxonomy::{
-            CompactPrimaryKeyDecodeError, EncodedIndexComponent, EncodedPrimaryKey, IndexStoreKey,
-            IndexStoreKeyKind, PrimaryKeyValue,
+            CompactPrimaryKeyDecodeError, EncodedPrimaryKey, IndexStoreKeyKind, PrimaryKeyValue,
+            encode_index_store_key,
         },
     },
 };
@@ -27,7 +27,7 @@ use bounds::{
 use error::IndexKeyDecodeError;
 use std::cmp::Ordering;
 use std::ops::Bound;
-use tuple::{compare_component_segments, compare_segment_bytes, push_segment, read_segment};
+use tuple::{push_segment, read_segment};
 
 pub(crate) use crate::db::key_taxonomy::RawIndexStoreKey;
 pub(in crate::db) use error::IndexKeyEncodeError;
@@ -55,8 +55,8 @@ impl Ord for IndexKey {
             .cmp(&other.key_kind)
             .then_with(|| self.index_id.cmp(&other.index_id))
             .then_with(|| self.components.len().cmp(&other.components.len()))
-            .then_with(|| compare_component_segments(&self.components, &other.components))
-            .then_with(|| compare_segment_bytes(&self.primary_key, &other.primary_key))
+            .then_with(|| self.components.cmp(&other.components))
+            .then_with(|| self.primary_key.cmp(&other.primary_key))
     }
 }
 
@@ -80,8 +80,7 @@ impl IndexKey {
         &self,
         primary_key: &[u8],
     ) -> Result<RawIndexStoreKey, IndexKeyEncodeError> {
-        // Phase 1: validate in-memory invariants before crossing into the
-        // store-key taxonomy wrapper.
+        // Validate codec bounds before handing borrowed segments to taxonomy framing.
         let component_count = self.components.len();
         if component_count > MAX_INDEX_FIELDS || u8::try_from(component_count).is_err() {
             return Err(IndexKeyEncodeError::TooManyComponents);
@@ -102,51 +101,15 @@ impl IndexKey {
             }
         }
 
-        // Phase 2: write ordinary row keys through the compact taxonomy
-        // contract. Prefix/range sentinels intentionally use wildcard primary
-        // segments, so they stay on the raw segment path below.
-        let Ok(primary_key) = EncodedPrimaryKey::try_from(primary_key) else {
-            return self.to_raw_with_primary_key_segment(primary_key);
-        };
-        let components = self
-            .components
-            .iter()
-            .cloned()
-            .map(EncodedIndexComponent::from_canonical_bytes)
-            .collect();
-        IndexStoreKey::new_with_kind(
+        // Row keys and range sentinels share framing; primary-key interpretation
+        // belongs to their consumers, so encoding does not decode the suffix.
+        encode_index_store_key(
             index_key_kind_to_store_key_kind(self.key_kind),
             self.index_id,
-            components,
+            self.components.iter().map(Vec::as_slice),
             primary_key,
         )
-        .to_raw()
         .map_err(IndexKeyEncodeError::from)
-    }
-
-    fn to_raw_with_primary_key_segment(
-        &self,
-        primary_key: &[u8],
-    ) -> Result<RawIndexStoreKey, IndexKeyEncodeError> {
-        let component_count = self.components.len();
-        let mut capacity = KEY_PREFIX_SIZE + SEGMENT_LEN_SIZE + primary_key.len();
-        for component in &self.components {
-            capacity += SEGMENT_LEN_SIZE + component.len();
-        }
-
-        let mut bytes = Vec::with_capacity(capacity);
-        bytes.push(index_key_kind_to_store_key_kind(self.key_kind).tag());
-        bytes.extend_from_slice(&self.index_id.to_bytes());
-        let component_count_u8 =
-            u8::try_from(component_count).map_err(|_| IndexKeyEncodeError::TooManyComponents)?;
-        bytes.push(component_count_u8);
-
-        for component in &self.components {
-            push_segment(&mut bytes, component)?;
-        }
-        push_segment(&mut bytes, primary_key)?;
-
-        Ok(RawIndexStoreKey::from_persisted_bytes(bytes))
     }
 
     pub(crate) fn to_raw(&self) -> Result<RawIndexStoreKey, IndexKeyEncodeError> {

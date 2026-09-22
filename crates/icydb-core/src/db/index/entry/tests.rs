@@ -188,13 +188,35 @@ fn index_entry_value_rejects_oversized_payload() {
 }
 
 #[test]
-fn index_entry_value_rejects_invalid_raw_key_primary_suffix() {
-    let raw = IndexEntryValue::presence();
-    let invalid_raw_key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![0]));
-    std::assert_matches!(
-        raw.decode_row_witness(&invalid_raw_key),
-        Err(IndexEntryCorruption::InvalidKey)
-    );
+fn index_entry_value_validates_complete_key_before_witness() {
+    let key = raw_key_for(PrimaryKeyComponent::Int64(1));
+    let bytes = key.as_bytes();
+    let mut malformed = (0..bytes.len())
+        .map(|len| bytes[..len].to_vec())
+        .collect::<Vec<_>>();
+    let mut trailing = bytes.to_vec();
+    trailing.push(0);
+    malformed.push(trailing);
+
+    // Keep the frame valid while corrupting the primary-key discriminator.
+    let decoded = IndexKey::try_from_raw(&key).expect("fixture key should decode");
+    let primary_start = bytes.len() - decoded.primary_key_bytes().len();
+    let mut invalid_primary = bytes.to_vec();
+    invalid_primary[primary_start] = 0;
+    malformed.push(invalid_primary);
+
+    for bytes in malformed {
+        let key = RawIndexStoreKey::from_persisted_bytes(bytes);
+        for entry in [
+            IndexEntryValue::presence(),
+            IndexEntryValue::from_persisted_bytes(vec![9]),
+        ] {
+            std::assert_matches!(
+                entry.decode_row_witness(&key),
+                Err(IndexEntryCorruption::InvalidKey)
+            );
+        }
+    }
 }
 
 #[test]

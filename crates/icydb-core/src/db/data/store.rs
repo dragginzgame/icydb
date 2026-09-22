@@ -326,24 +326,19 @@ impl DataStore {
         } else {
             live.get(&key).cloned().or_else(|| canonical.get(&key))
         };
-        let cardinality_key = key.clone();
         let next_present = row.is_some();
         if let Some(row) = row {
             tombstones.remove(&key);
             live.insert(key.clone(), row);
             self.entity_cardinality
-                .apply_insert(&cardinality_key, previous.as_ref());
+                .apply_insert(&key, previous.as_ref());
         } else {
             live.remove(&key);
             tombstones.insert(key.clone());
             self.entity_cardinality
-                .apply_remove(&cardinality_key, previous.as_ref());
+                .apply_remove(&key, previous.as_ref());
         }
-        entity_cardinality_delta.apply_presence_transition(
-            &cardinality_key,
-            previous.is_some(),
-            next_present,
-        );
+        entity_cardinality_delta.apply_presence_transition(&key, previous.is_some(), next_present);
         positions.publish_preflighted(key, position);
         self.bump_generation();
 
@@ -676,9 +671,7 @@ impl DataStore {
         checkpoint: Option<&RawDataStoreKey>,
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<bool, crate::error::InternalError>,
     ) -> Result<(), crate::error::InternalError> {
-        let lower = checkpoint
-            .cloned()
-            .map_or(Bound::Unbounded, Bound::Excluded);
+        let lower = checkpoint.map_or(Bound::Unbounded, Bound::Excluded);
         match &self.backend {
             DataStoreBackend::Heap(map) => {
                 for (key, row) in map.range((lower, Bound::Unbounded)) {
@@ -715,10 +708,10 @@ impl DataStore {
         key_range: impl RangeBounds<RawDataStoreKey>,
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
-        let bounds = Self::owned_range_bounds(&key_range);
+        let bounds = (key_range.start_bound(), key_range.end_bound());
         match &self.backend {
             DataStoreBackend::Heap(map) => {
-                for (key, row) in map.range((bounds.0.clone(), bounds.1)) {
+                for (key, row) in map.range(bounds) {
                     if visitor(key, row)?.should_stop() {
                         break;
                     }
@@ -744,11 +737,11 @@ impl DataStore {
         mut preflight: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
     ) -> Result<Option<bool>, E> {
-        let bounds = Self::owned_range_bounds(&key_range);
+        let bounds = (key_range.start_bound(), key_range.end_bound());
         let mut stopped = false;
         match &self.backend {
             DataStoreBackend::Heap(map) => {
-                for (key, row) in map.range((bounds.0.clone(), bounds.1)) {
+                for (key, row) in map.range(bounds) {
                     if preflight(key)?.should_stop() {
                         stopped = true;
                         break;
@@ -765,7 +758,7 @@ impl DataStore {
                 tombstones,
                 ..
             } if canonical.is_empty() => {
-                for (key, row) in live.range((bounds.0.clone(), bounds.1)) {
+                for (key, row) in live.range(bounds) {
                     if tombstones.contains(key) {
                         continue;
                     }
@@ -785,7 +778,7 @@ impl DataStore {
                 tombstones,
                 ..
             } if live.is_empty() && tombstones.is_empty() => {
-                for entry in canonical.range((bounds.0.clone(), bounds.1)) {
+                for entry in canonical.range(bounds) {
                     if preflight(entry.key())?.should_stop() {
                         stopped = true;
                         break;
@@ -813,7 +806,11 @@ impl DataStore {
         key_range: impl RangeBounds<RawDataStoreKey>,
         visitor: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
-        self.visit_keys_in_bounds(Self::owned_range_bounds(&key_range), false, visitor)
+        self.visit_keys_in_bounds(
+            (key_range.start_bound(), key_range.end_bound()),
+            false,
+            visitor,
+        )
     }
 
     /// Visit only raw keys in reverse storage order without fetching row payloads.
@@ -822,7 +819,11 @@ impl DataStore {
         key_range: impl RangeBounds<RawDataStoreKey>,
         visitor: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
-        self.visit_keys_in_bounds(Self::owned_range_bounds(&key_range), true, visitor)
+        self.visit_keys_in_bounds(
+            (key_range.start_bound(), key_range.end_bound()),
+            true,
+            visitor,
+        )
     }
 
     /// Sum of bytes used by all stored rows.
@@ -872,26 +873,9 @@ impl DataStore {
         DATA_STORE_GET_CALL_COUNT.with(Cell::get)
     }
 
-    fn owned_range_bounds(
-        key_range: &impl RangeBounds<RawDataStoreKey>,
-    ) -> (Bound<RawDataStoreKey>, Bound<RawDataStoreKey>) {
-        let lower = match key_range.start_bound() {
-            Bound::Included(key) => Bound::Included(key.clone()),
-            Bound::Excluded(key) => Bound::Excluded(key.clone()),
-            Bound::Unbounded => Bound::Unbounded,
-        };
-        let upper = match key_range.end_bound() {
-            Bound::Included(key) => Bound::Included(key.clone()),
-            Bound::Excluded(key) => Bound::Excluded(key.clone()),
-            Bound::Unbounded => Bound::Unbounded,
-        };
-
-        (lower, upper)
-    }
-
     fn visit_keys_in_bounds<E>(
         &self,
-        bounds: (Bound<RawDataStoreKey>, Bound<RawDataStoreKey>),
+        bounds: (Bound<&RawDataStoreKey>, Bound<&RawDataStoreKey>),
         reverse: bool,
         mut visitor: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
@@ -921,7 +905,7 @@ impl DataStore {
 
     fn visit_journaled_keys_in_bounds<E>(
         backend: &DataStoreBackend,
-        bounds: (Bound<RawDataStoreKey>, Bound<RawDataStoreKey>),
+        bounds: (Bound<&RawDataStoreKey>, Bound<&RawDataStoreKey>),
         reverse: bool,
         mut visitor: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
@@ -977,8 +961,8 @@ impl DataStore {
         match direction {
             Direction::Asc => {
                 for entry in ordered_overlay_entries(
-                    canonical.range((bounds.0.clone(), bounds.1.clone())),
-                    live.range((bounds.0, bounds.1)),
+                    canonical.range(bounds),
+                    live.range(bounds),
                     direction,
                     |entry| entry.key(),
                     |entry| entry.0,
@@ -997,8 +981,8 @@ impl DataStore {
             }
             Direction::Desc => {
                 for entry in ordered_overlay_entries(
-                    canonical.range((bounds.0.clone(), bounds.1.clone())).rev(),
-                    live.range((bounds.0, bounds.1)).rev(),
+                    canonical.range(bounds).rev(),
+                    live.range(bounds).rev(),
                     direction,
                     |entry| entry.key(),
                     |entry| entry.0,
@@ -1022,7 +1006,7 @@ impl DataStore {
 
     fn visit_journaled_entries_in_bounds<E>(
         backend: &DataStoreBackend,
-        bounds: (Bound<RawDataStoreKey>, Bound<RawDataStoreKey>),
+        bounds: (Bound<&RawDataStoreKey>, Bound<&RawDataStoreKey>),
         mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
         let DataStoreBackend::Journaled {
@@ -1054,8 +1038,8 @@ impl DataStore {
         }
 
         for entry in ordered_overlay_entries(
-            canonical.range((bounds.0.clone(), bounds.1.clone())),
-            live.range((bounds.0, bounds.1)),
+            canonical.range(bounds),
+            live.range(bounds),
             Direction::Asc,
             |entry| entry.key(),
             |entry| entry.0,

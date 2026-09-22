@@ -453,6 +453,7 @@ pub(in crate::db) enum CompactStoreKeyEncodeError {
 
 #[derive(Debug)]
 pub(in crate::db) enum CompactStoreKeyDecodeError {
+    #[cfg(test)]
     DataStoreKeyTooShort,
 
     TruncatedIndexSegment,
@@ -507,6 +508,7 @@ impl fmt::Display for CompactPrimaryKeyDecodeError {
 impl fmt::Display for CompactStoreKeyDecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            #[cfg(test)]
             Self::DataStoreKeyTooShort => f.write_str("data-store key is too short"),
             Self::TruncatedIndexSegment => f.write_str("truncated index-store key segment"),
             Self::UnknownIndexKeyKind => f.write_str("unknown index-store key kind"),
@@ -562,6 +564,7 @@ impl EncodedPrimaryKey {
         Ok(Self { bytes })
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn decode(&self) -> Result<PrimaryKeyValue, CompactPrimaryKeyDecodeError> {
         Self::decode_bytes(self.as_bytes())
     }
@@ -640,11 +643,13 @@ impl From<EncodedPrimaryKey> for Vec<u8> {
 //
 
 /// Canonical ordered bytes for one secondary-index component.
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(in crate::db) struct EncodedIndexComponent {
     bytes: Vec<u8>,
 }
 
+#[cfg(test)]
 impl EncodedIndexComponent {
     #[cfg(test)]
     pub(in crate::db) fn encode_primary_overlap(
@@ -676,6 +681,7 @@ impl EncodedIndexComponent {
     }
 }
 
+#[cfg(test)]
 impl TryFrom<&[u8]> for EncodedIndexComponent {
     type Error = CompactPrimaryKeyDecodeError;
 
@@ -718,6 +724,7 @@ impl DataStoreKey {
         RawDataStoreKey { bytes }
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn try_from_raw_bytes(
         bytes: &[u8],
     ) -> Result<Self, CompactStoreKeyDecodeError> {
@@ -739,11 +746,13 @@ impl DataStoreKey {
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn entity_tag(&self) -> EntityTag {
         self.entity_tag
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) const fn primary_key(&self) -> &EncodedPrimaryKey {
         &self.primary_key
     }
@@ -890,6 +899,7 @@ impl IndexStoreKeyKind {
 
 /// Logical index-store key:
 /// `key_kind + IndexId + EncodedIndexComponent[] + EncodedPrimaryKey`.
+#[cfg(test)]
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(in crate::db) struct IndexStoreKey {
     key_kind: IndexStoreKeyKind,
@@ -898,6 +908,7 @@ pub(in crate::db) struct IndexStoreKey {
     primary_key: EncodedPrimaryKey,
 }
 
+#[cfg(test)]
 impl IndexStoreKey {
     #[must_use]
     #[cfg(test)]
@@ -925,32 +936,12 @@ impl IndexStoreKey {
     }
 
     pub(in crate::db) fn to_raw(&self) -> Result<RawIndexStoreKey, CompactStoreKeyEncodeError> {
-        let component_count = u8::try_from(self.components.len())
-            .map_err(|_| CompactStoreKeyEncodeError::TooManyIndexComponents)?;
-        let primary_len = self.primary_key.as_bytes().len();
-        let component_len: usize = self
-            .components
-            .iter()
-            .map(|component| LENGTH_PREFIX_SIZE + component.as_bytes().len())
-            .sum();
-        let mut bytes = Vec::with_capacity(
-            TAG_SIZE
-                + IndexId::STORED_SIZE_USIZE
-                + TAG_SIZE
-                + component_len
-                + LENGTH_PREFIX_SIZE
-                + primary_len,
-        );
-
-        bytes.push(self.key_kind.tag());
-        bytes.extend_from_slice(&self.index_id.to_bytes());
-        bytes.push(component_count);
-        for component in &self.components {
-            push_len_prefixed(component.as_bytes(), &mut bytes)?;
-        }
-        push_len_prefixed(self.primary_key.as_bytes(), &mut bytes)?;
-
-        Ok(RawIndexStoreKey { bytes })
+        encode_index_store_key(
+            self.key_kind,
+            self.index_id,
+            self.components.iter().map(EncodedIndexComponent::as_bytes),
+            self.primary_key.as_bytes(),
+        )
     }
 
     #[cfg(test)]
@@ -1009,6 +1000,39 @@ impl IndexStoreKey {
     pub(in crate::db) const fn primary_key(&self) -> &EncodedPrimaryKey {
         &self.primary_key
     }
+}
+
+/// Frame borrowed index segments, including range sentinels, without owned intermediates.
+/// Callers own semantic admission; this owner checks the persisted count/length widths.
+pub(in crate::db) fn encode_index_store_key<'a>(
+    key_kind: IndexStoreKeyKind,
+    index_id: IndexId,
+    components: impl ExactSizeIterator<Item = &'a [u8]> + Clone,
+    primary_key: &[u8],
+) -> Result<RawIndexStoreKey, CompactStoreKeyEncodeError> {
+    let component_count = u8::try_from(components.len())
+        .map_err(|_| CompactStoreKeyEncodeError::TooManyIndexComponents)?;
+    let component_len: usize = components
+        .clone()
+        .map(|component| LENGTH_PREFIX_SIZE + component.len())
+        .sum();
+    let mut bytes = Vec::with_capacity(
+        TAG_SIZE
+            + IndexId::STORED_SIZE_USIZE
+            + TAG_SIZE
+            + component_len
+            + LENGTH_PREFIX_SIZE
+            + primary_key.len(),
+    );
+    bytes.push(key_kind.tag());
+    bytes.extend_from_slice(&index_id.to_bytes());
+    bytes.push(component_count);
+    for component in components {
+        push_len_prefixed(component, &mut bytes)?;
+    }
+    push_len_prefixed(primary_key, &mut bytes)?;
+
+    Ok(RawIndexStoreKey { bytes })
 }
 
 /// Raw persisted index-store key bytes.

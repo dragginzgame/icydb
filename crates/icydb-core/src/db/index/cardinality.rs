@@ -874,7 +874,7 @@ fn counted_prefixes(
         return Some(Vec::new());
     }
 
-    let witness = entry.decode_row_witness(raw_key).ok()?;
+    let witness = entry.decode_row_witness_from_index_key(&index_key).ok()?;
     if witness.existence_witness() != IndexEntryExistenceWitness::Present {
         return Some(Vec::new());
     }

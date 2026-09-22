@@ -431,7 +431,43 @@ fn data_key_rejects_corrupt_key() {
     let off = RawDataStoreKey::ENTITY_TAG_SIZE_USIZE;
     raw_bytes[off] = 0xFF;
     let raw = RawDataStoreKey::from_persisted_bytes(raw_bytes);
-    assert!(DecodedDataStoreKey::try_from_raw(&raw).is_err());
+    std::assert_matches!(
+        DecodedDataStoreKey::try_from_raw(&raw),
+        Err(DecodedDataStoreKeyDecodeError::StoreKey),
+    );
+}
+
+#[test]
+fn data_key_decode_preserves_values_and_rejects_incomplete_or_trailing_bytes() {
+    let scalar = DecodedDataStoreKey::new(
+        EntityTag::new(7),
+        &scalar_key(PrimaryKeyComponent::Nat64(u64::MAX)),
+    );
+    for key in [
+        scalar,
+        composite_data_key_fixture(),
+        max_width_data_store_key_fixture(),
+    ] {
+        let raw = key.to_raw().expect("key should encode");
+        let decoded = DecodedDataStoreKey::try_from_raw(&raw).expect("key should decode");
+        assert_eq!(decoded.entity_tag(), key.entity_tag());
+        assert_eq!(decoded.primary_key_value(), key.primary_key_value());
+        assert_eq!(decoded.raw_key().expect("raw key should be retained"), &raw);
+
+        for len in 0..raw.as_bytes().len() {
+            let truncated = RawDataStoreKey::from_persisted_bytes(raw.as_bytes()[..len].to_vec());
+            std::assert_matches!(
+                DecodedDataStoreKey::try_from_raw(&truncated),
+                Err(DecodedDataStoreKeyDecodeError::StoreKey),
+            );
+        }
+        let mut trailing = raw.into_bytes();
+        trailing.push(0);
+        std::assert_matches!(
+            DecodedDataStoreKey::try_from_raw(&RawDataStoreKey::from_persisted_bytes(trailing)),
+            Err(DecodedDataStoreKeyDecodeError::StoreKey),
+        );
+    }
 }
 
 #[test]

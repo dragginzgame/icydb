@@ -45,7 +45,9 @@ use crate::{
         positioned_overlay::{
             JournalOverlayPosition, classify_derived_index_overlay, classify_journal_overlay,
         },
-        registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
+        registry::{
+            StoreHandle, StoreRecoveryCapability, StoreRegistry, StoreSchemaMetadataCapability,
+        },
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, IdentityAdvanceId,
@@ -2350,16 +2352,18 @@ fn recovery_accepted_runtime_entity_for_path<C: CanisterKind>(
         .map_err(|_| InternalError::store_corruption())
 }
 
-fn runtime_store_domain_key<C: CanisterKind>(db: &Db<C>) -> RuntimeStoreDomainKey {
-    RuntimeStoreDomainKey {
-        store_registry: std::ptr::from_ref(db.store).cast::<()>() as usize,
-    }
+fn runtime_store_domain_key(stores: &'static LocalKey<StoreRegistry>) -> RuntimeStoreDomainKey {
+    // LocalKey handles are const values and can have distinct addresses for the
+    // same TLS storage. Recovery authority belongs to the registry itself.
+    stores.with(|registry| RuntimeStoreDomainKey {
+        store_registry: std::ptr::from_ref(registry).cast::<()>() as usize,
+    })
 }
 
 fn recovery_domain_key<C: CanisterKind>(db: &Db<C>) -> Result<RecoveryDomainKey, InternalError> {
     Ok(RecoveryDomainKey {
         commit_allocation: current_commit_memory_allocation()?,
-        runtime_stores: runtime_store_domain_key(db),
+        runtime_stores: runtime_store_domain_key(db.store),
     })
 }
 
@@ -2414,13 +2418,11 @@ fn advance_recovery_stage(
 }
 
 pub(in crate::db) fn startup_recovery_witness(
-    stores: &'static LocalKey<crate::db::registry::StoreRegistry>,
+    stores: &'static LocalKey<StoreRegistry>,
 ) -> Result<(bool, bool), InternalError> {
     let key = RecoveryDomainKey {
         commit_allocation: current_commit_memory_allocation()?,
-        runtime_stores: RuntimeStoreDomainKey {
-            store_registry: std::ptr::from_ref(stores).cast::<()>() as usize,
-        },
+        runtime_stores: runtime_store_domain_key(stores),
     };
     Ok((
         recovery_domain_recovered(key)?,
@@ -2430,13 +2432,11 @@ pub(in crate::db) fn startup_recovery_witness(
 
 #[cfg(test)]
 pub(in crate::db) fn mark_startup_recovery_complete_for_tests(
-    stores: &'static LocalKey<crate::db::registry::StoreRegistry>,
+    stores: &'static LocalKey<StoreRegistry>,
 ) -> Result<(), InternalError> {
     let key = RecoveryDomainKey {
         commit_allocation: current_commit_memory_allocation()?,
-        runtime_stores: RuntimeStoreDomainKey {
-            store_registry: std::ptr::from_ref(stores).cast::<()>() as usize,
-        },
+        runtime_stores: runtime_store_domain_key(stores),
     };
     mark_recovery_domain_recovered(key)
 }
@@ -2972,6 +2972,44 @@ mod tests {
     mod schema_snapshot;
 
     use super::*;
+
+    #[test]
+    fn recovery_readiness_follows_registry_storage_and_commit_allocation() {
+        thread_local! {
+            static STORES: StoreRegistry = StoreRegistry::new();
+            static OTHER_STORES: StoreRegistry = StoreRegistry::new();
+        }
+        static DRIVER: LocalKey<StoreRegistry> = STORES;
+        static READER: LocalKey<StoreRegistry> = STORES;
+        let domain = |stores| RecoveryDomainKey {
+            commit_allocation: CommitMemoryAllocation {
+                memory_id: 0,
+                stable_key: "recovery-registry-test",
+            },
+            runtime_stores: runtime_store_domain_key(stores),
+        };
+        let driver = domain(&DRIVER);
+        let reader = domain(&READER);
+        let other_registry = domain(&OTHER_STORES);
+        let other_allocation = RecoveryDomainKey {
+            commit_allocation: CommitMemoryAllocation {
+                memory_id: 1,
+                ..driver.commit_allocation
+            },
+            ..reader
+        };
+
+        mark_recovery_domain_recovered(driver).unwrap();
+        mark_recovery_domain_in_progress(driver);
+        assert!(recovery_domain_recovered(reader).unwrap());
+        assert!(recovery_domain_in_progress(reader));
+        for isolated in [other_registry, other_allocation] {
+            assert!(!recovery_domain_recovered(isolated).unwrap());
+            assert!(!recovery_domain_in_progress(isolated));
+        }
+        clear_recovery_domain_in_progress(reader);
+        assert!(!recovery_domain_in_progress(driver));
+    }
 
     #[test]
     fn missing_commit_allocation_reports_recovery_origin_before_selecting_memory() {

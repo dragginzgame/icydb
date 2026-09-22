@@ -184,21 +184,47 @@ fn data_store_visit_entries_preserves_storage_key_order() {
 
 #[test]
 fn data_store_visit_range_preserves_raw_key_bounds() {
-    let store = seed_store(222, &[(1, 1, 11), (1, 2, 12), (1, 3, 13), (1, 4, 14)]);
+    let entries = [(1, 1, 11), (1, 2, 12), (1, 3, 13), (1, 4, 14)];
+    let mut canonical = DataStore::init_journaled(test_memory(226));
+    for (entity, id, value) in entries {
+        canonical
+            .fold_recovered_journal_put(raw_key(entity, id), raw_row(value))
+            .expect("canonical seed should fold");
+    }
+    for store in [
+        seed_heap_store(&entries),
+        seed_store(222, &entries),
+        canonical,
+    ] {
+        let lower = raw_key(1, 2);
+        let upper = raw_key(1, 4);
+        let bounds = (Bound::Included(&lower), Bound::Excluded(&upper));
+        let mut visited = Vec::new();
+        store
+            .visit_range(bounds, |key, row| {
+                visited.push((key.clone(), row.as_bytes()[0]));
+                Ok::<_, Infallible>(StoreVisit::Continue)
+            })
+            .unwrap();
+        assert_eq!(visited, vec![(raw_key(1, 2), 12), (raw_key(1, 3), 13)]);
 
-    let mut visited = Vec::new();
-    let _: Result<(), Infallible> = store.visit_range(
-        (
-            Bound::Included(raw_key(1, 2)),
-            Bound::Excluded(raw_key(1, 4)),
-        ),
-        |key, row| {
-            visited.push((key.clone(), row.as_bytes()[0]));
-            Ok(StoreVisit::Continue)
-        },
-    );
-
-    assert_eq!(visited, vec![(raw_key(1, 2), 12), (raw_key(1, 3), 13)]);
+        let mut keys = Vec::new();
+        store
+            .visit_key_range(bounds, |key| {
+                keys.push(key.clone());
+                Ok::<_, Infallible>(StoreVisit::Continue)
+            })
+            .unwrap();
+        assert_eq!(keys, vec![raw_key(1, 2), raw_key(1, 3)]);
+        keys.clear();
+        store
+            .visit_key_range_rev(bounds, |key| {
+                keys.push(key.clone());
+                Ok::<_, Infallible>(StoreVisit::Continue)
+            })
+            .unwrap();
+        assert_eq!(keys, vec![raw_key(1, 3), raw_key(1, 2)]);
+    }
 }
 
 #[test]
@@ -528,5 +554,18 @@ fn journaled_mixed_data_range_traversal_streams_without_snapshot() {
         desc_keys,
         vec![raw_key(1, 5), raw_key(1, 4), raw_key(1, 3), raw_key(1, 0),],
         "key-only traversal must merge live overrides and tombstones without reading row values",
+    );
+
+    let checkpoint = raw_key(1, 1);
+    let mut canonical_rows = Vec::new();
+    store
+        .visit_canonical_entries_after(Some(&checkpoint), |key, row| {
+            canonical_rows.push((key.clone(), row.as_bytes()[0]));
+            Ok(false)
+        })
+        .unwrap();
+    assert_eq!(
+        canonical_rows,
+        vec![(raw_key(1, 3), 13), (raw_key(1, 5), 15)]
     );
 }

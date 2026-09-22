@@ -168,15 +168,16 @@ impl IndexEntryValue {
         Ok(false)
     }
 
-    // Decode the key-owned raw entry row identity plus its storage-owned
-    // existence witness without allocating a temporary vector.
+    // Validate the complete key frame without materialising unused components,
+    // then validate the storage-owned existence witness.
     pub(in crate::db) fn decode_row_witness(
         &self,
         raw_key: &RawIndexStoreKey,
     ) -> Result<IndexEntryRowWitness, IndexEntryCorruption> {
-        let key = IndexKey::try_from_raw(raw_key).map_err(|_| IndexEntryCorruption::InvalidKey)?;
+        let (primary_key_value, _) = IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
+            .map_err(|_| IndexEntryCorruption::InvalidKey)?;
 
-        self.decode_row_witness_from_index_key(&key)
+        self.decode_row_witness_from_primary_key_value(&primary_key_value)
     }
 
     // Decode row identity from a caller-owned decoded index key. Index scans

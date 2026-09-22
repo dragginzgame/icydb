@@ -7,6 +7,7 @@ use crate::db::{
         generate_marker_batch_id, next_database_commit_sequence,
     },
     journal::{DatabaseCommitSequence, JournalBatch, JournalRecord},
+    registry::StoreRegistry,
     schema::{
         EntitySourceLineageCatalogOp,
         application::{
@@ -17,6 +18,12 @@ use crate::db::{
         migration_planner::plan_schema_migration,
     },
 };
+use std::thread::LocalKey;
+
+// Separate handles deliberately reach the same TLS registry, as generated
+// startup and request code can do across compilation units.
+static RECOVERY_DRIVER_REGISTRY: LocalKey<StoreRegistry> = MIGRATION_EXECUTION_REGISTRY;
+static RECOVERY_READER_REGISTRY: LocalKey<StoreRegistry> = MIGRATION_EXECUTION_REGISTRY;
 
 // Construct the same candidate, receipt and lineage operations as Advance, then
 // retain the compound marker at its durable boundary. No recovery-specific
@@ -92,15 +99,24 @@ fn interrupt_publication(
 
 fn assert_recovery(receipt_first: bool) {
     let root = RequestExecutionRoot::__new_runtime_root();
-    let db = initialize(&root, true);
+    initialize(&root, true);
+    let db = Db::<MigrationExecutionCanister>::new(&RECOVERY_DRIVER_REGISTRY, root.scope());
+    drive_startup_recovery_to_completion(&db);
+    let reader = Db::<MigrationExecutionCanister>::new(&RECOVERY_READER_REGISTRY, root.scope());
     let state = physical_state(&db);
     let item = snapshot(&db, "Item");
     let holder = snapshot(&db, "Holder");
     let candidate = proposal(&schema_application_target(&db).unwrap(), true, true);
     interrupt_publication(&db, &candidate, receipt_first);
     for _ in 0..2 {
+        // Model fresh readiness for both handles before startup resumes.
+        forget_recovered_domain_for_tests(&reader).unwrap();
         forget_recovered_domain_for_tests(&db).unwrap();
         drive_startup_recovery_to_completion(&db);
+        assert_eq!(
+            crate::db::commit::startup_recovery_witness(&RECOVERY_READER_REGISTRY).unwrap(),
+            (true, false),
+        );
         assert_eq!(
             advance(&db, &candidate).unwrap().phase(),
             SchemaMigrationPhase::Applied
@@ -109,7 +125,7 @@ fn assert_recovery(receipt_first: bool) {
         assert_lineage(&db, &candidate);
         assert_snapshot_identity(&item, &snapshot(&db, "CatalogItem"));
         assert_snapshot_identity(&holder, &snapshot(&db, "Holder"));
-        let session = DbSession::new(&MIGRATION_EXECUTION_REGISTRY, &root);
+        let session = DbSession::new(&RECOVERY_READER_REGISTRY, &root);
         assert_rows(&session);
         assert_constraints(&session, true);
     }
