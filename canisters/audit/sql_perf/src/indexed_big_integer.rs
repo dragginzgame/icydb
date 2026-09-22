@@ -51,13 +51,15 @@ fn measure_indexed_big_integer_write(
     digits: u32,
     rows: u16,
 ) -> Result<IndexedBigIntegerAttempt, Error> {
-    if ![20, 300, 4_092, 4_093, 4_094].contains(&digits) || ![1, 32].contains(&rows) {
+    if ![20, 300, 9_854, 9_855, 9_856, 9_857].contains(&digits) || ![1, 32].contains(&rows) {
         return Err(query_validate_error());
     }
-    // Tag + length use three bytes; signed values also need the sign marker.
+    // All-nines decimal values occupy a binary magnitude: 9,854 digits use
+    // 4,092 bytes, 9,855–9,856 use 4,093, and 9,857 use 4,094.
+    // The 4,096-byte component also needs tag + length (3), plus a signed marker.
     // This selects a fixture, not engine admission: the shared encoder and
     // index-key builder remain responsible for accepting or rejecting it.
-    let oversized = digits > if negative { 4_092 } else { 4_093 };
+    let oversized = digits > if negative { 9_854 } else { 9_856 };
     let mut mutations = Vec::with_capacity(usize::from(rows));
     for id in 0..rows {
         let width = if oversized && id + 1 < rows {

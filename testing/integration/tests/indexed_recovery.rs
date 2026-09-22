@@ -26,7 +26,7 @@ struct RecoveryBacklog {
 fn indexed_big_integer_recovery_wasm_cost_matrix() {
     let module = preparation_measurement_wasm();
     for negative in [false, true] {
-        for digits in [20_u32, 300, if negative { 4_092 } else { 4_093 }] {
+        for digits in [20_u32, 300, if negative { 9_854 } else { 9_856 }] {
             for rows in [1_u16, 32] {
                 let fixture = install_prebuilt_fixture_canister("sql_perf", module.clone());
                 let prepared: Result<(), Error> = fixture

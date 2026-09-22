@@ -104,8 +104,8 @@ The initial maintained ignored write test fails on the baseline because it
 expects a 4094-digit unsigned value to exceed the index-component limit, while
 the current encoder accepts it. The disposable host narrowed the write matrix
 to known-valid widths on both artifacts. This is not a rejection-boundary
-qualification. Repair the maintained boundary fixture separately; no production
-change was made to suppress the failure.
+qualification. The subsequent C30 fixture repair below closes this follow-up;
+it does not change the artifacts or measurement scope recorded above.
 
 Two disposable PocketIC servers were started and stopped (initial attempt and
 matched replays). No persistent local network was restarted.
@@ -115,3 +115,30 @@ runtime source files and 53 net added test lines. Shared framing, borrowed
 bounds and removal of unused bookkeeping simplify the implementation without
 adding an independent behavior axis. This measurement adds only evidence and
 note updates to the worktree.
+
+## Subsequent C30 fixture repair
+
+The maintained audit fixture now targets the binary index-component boundary.
+All-nines unsigned values fit through 9,856 decimal digits and reject at 9,857;
+negative signed values fit through 9,854 and reject at 9,855. The write matrix
+checks both signs at 20, 300, 9,854, 9,855, 9,856 and 9,857 digits, with one or
+32 rows. Rejected batches place the oversized value last and must leave no rows.
+The recovery matrix uses the largest accepted width for each sign.
+
+The first repair run exposed the fixture's separate 2-KiB LEB128 field limit,
+which rejected these values before index admission. Its audit-only limit is now
+8 KiB, admitting both sides of the index boundary. Production encoder limits,
+mutation admission and recovery code are unchanged. The native exact-byte
+boundary check and strict host/actor lint pass.
+
+Both maintained ignored matrices pass on the corrected actor: 24 write cases
+(16 accepted, eight rejected with no partial rows) and 24 recovery observations
+across 12 fixtures, each with and without journal debt. The qualified artifact
+is 4,461,284 raw Wasm bytes, SHA-256
+`0bee936fe5cb897ece2b1231b0518a027f2151f30e6da5b591c70ea1b917148e`,
+built through the canonical wasm-release LocalTest SQL/Candid pipeline and run
+on PocketIC 16.0.0. The final log is `/tmp/icydb-c30-wasm-final.log`; the first
+field-limit failure is retained in `/tmp/icydb-c30-wasm.log`. Two disposable
+servers were started and stopped. No matched before/after cost comparison was
+performed for this fixture repair; do not attribute the artifact-size difference
+from C24–C26 to this repair.

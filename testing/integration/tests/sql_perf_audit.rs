@@ -483,7 +483,7 @@ fn big_integer_write_wasm_cost_matrix() {
 fn indexed_big_integer_write_wasm_cost_matrix() {
     let module = preparation_measurement_wasm();
     for negative in [false, true] {
-        for digits in [20_u32, 300, 4_092, 4_093, 4_094] {
+        for digits in [20_u32, 300, 9_854, 9_855, 9_856, 9_857] {
             for rows in [1_u16, 32] {
                 let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(
                     "sql_perf",
@@ -505,7 +505,8 @@ fn indexed_big_integer_write_wasm_cost_matrix() {
                     .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
                     .expect("the update should charge cycles");
                 let sample = sample.expect("the fixed measurement input should be valid");
-                let accepted = digits <= if negative { 4_092 } else { 4_093 };
+                // Binary magnitude plus tag/length/sign must fit 4,096 bytes.
+                let accepted = digits <= if negative { 9_854 } else { 9_856 };
                 assert!(sample.instructions > 0);
                 if accepted {
                     assert_eq!(
