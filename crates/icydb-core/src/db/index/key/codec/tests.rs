@@ -1098,6 +1098,88 @@ fn index_key_primary_suffix_uses_compact_primary_key_bytes() {
 }
 
 #[test]
+fn index_key_borrowed_component_match_preserves_duplicate_domain() {
+    let mut keys = Vec::new();
+    for kind in [IndexKeyKind::User, IndexKeyKind::System] {
+        for id in [index_id(), other_index_id()] {
+            for count in 0..=MAX_INDEX_FIELDS {
+                for component in [vec![1], vec![1, 2], vec![2]] {
+                    for primary in [1, 2] {
+                        let key = key_with(
+                            kind,
+                            id,
+                            vec![component.clone(); count],
+                            compact_pk(PrimaryKeyComponent::Nat64(primary)),
+                        );
+                        let raw = key.to_raw().expect("comparison key should encode");
+                        keys.push((key, raw));
+                    }
+                }
+            }
+        }
+    }
+    for (left, _) in &keys {
+        for (right, raw) in &keys {
+            assert_eq!(
+                left.has_same_index_components_as_raw(raw)
+                    .expect("complete frame should compare"),
+                left.index_id() == right.index_id() && left.has_same_components(right),
+            );
+        }
+    }
+}
+
+#[test]
+fn index_key_borrowed_component_match_validates_complete_frame() {
+    use super::error::IndexKeyDecodeError;
+
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![vec![1]],
+        compact_pk(PrimaryKeyComponent::Nat64(1)),
+    );
+    let peer = key_with(
+        IndexKeyKind::User,
+        other_index_id(),
+        vec![vec![2]],
+        compact_pk(PrimaryKeyComponent::Nat64(2)),
+    );
+    let raw = peer.to_raw().expect("peer should encode");
+    let mut malformed: Vec<Vec<u8>> = (0..raw.as_bytes().len())
+        .map(|len| raw.as_bytes()[..len].to_vec())
+        .collect();
+    let mut trailing = raw.as_bytes().to_vec();
+    trailing.push(0);
+    let trailing = RawIndexStoreKey::from_persisted_bytes(trailing);
+    assert_eq!(
+        key.has_same_index_components_as_raw(&trailing),
+        Err(IndexKeyDecodeError::TrailingBytes),
+    );
+    malformed.push(trailing.into_bytes());
+
+    // The ordering decoder admits wider primary keys; strict codec consumers do not.
+    let oversized = peer
+        .to_raw_with_primary_key_segment(&[1; IndexKey::MAX_PK_SIZE + 1])
+        .expect("framing helper can construct an oversized primary segment");
+    assert_eq!(
+        key.has_same_index_components_as_raw(&oversized),
+        Err(IndexKeyDecodeError::OverlongSegment),
+    );
+    malformed.push(oversized.into_bytes());
+    for bytes in malformed {
+        let raw = RawIndexStoreKey::from_persisted_bytes(bytes);
+        let expected = IndexKey::try_from_raw(&raw).err();
+        assert!(expected.is_some());
+        assert_eq!(key.has_same_index_components_as_raw(&raw).err(), expected);
+        assert_eq!(
+            IndexKey::primary_key_value_and_bytes_from_raw(&raw).err(),
+            expected
+        );
+    }
+}
+
+#[test]
 fn index_key_primary_suffix_fast_decode_matches_full_decode() {
     let primary_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(42));
     let primary_key_bytes = IndexKey::compact_primary_key_value_bytes(&primary_key)

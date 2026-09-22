@@ -1506,9 +1506,10 @@ fn candidate_unique_key_conflicts(
     let candidate =
         IndexKey::try_from_raw(candidate_raw).map_err(|_| InternalError::index_invariant())?;
     for page_raw in page_keys {
-        let page =
-            IndexKey::try_from_raw(page_raw).map_err(|_| InternalError::index_invariant())?;
-        if page.index_id() == candidate.index_id() && page.has_same_components(&candidate) {
+        if candidate
+            .has_same_index_components_as_raw(page_raw)
+            .map_err(|_| InternalError::index_invariant())?
+        {
             return Ok(true);
         }
     }

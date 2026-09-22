@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)
 
+- `0.261.4` removes redundant index-key copying and decoding, including temporary keys in unique validation, while preserving encoding and validation.
 - `0.261.3` simplifies schema validation and DDL binding, strengthens candidate checks, and removes redundant copying and temporary allocations, including index-key comparisons.
 - `0.261.2` simplifies schema mutation and validation, strengthens field-removal checks, and preserves generation checks and atomic publication.
 - `0.261.1` simplifies schema, startup and typed-binding internals, aligns schema validation with shared ownership, and documents lower-cost catalogue reads and schedule-dependent Toko Miner back-pressure, preserving runtime behavior.

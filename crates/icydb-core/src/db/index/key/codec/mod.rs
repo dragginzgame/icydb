@@ -66,6 +66,15 @@ impl PartialOrd for IndexKey {
     }
 }
 
+// Borrowed framing preserves strict codec validation without materialising key bytes.
+struct BorrowedIndexKeyFrame<'a> {
+    key_kind: IndexKeyKind,
+    index_id: IndexId,
+    component_count: usize,
+    components: [&'a [u8]; MAX_INDEX_FIELDS],
+    primary_key: &'a [u8],
+}
+
 impl IndexKey {
     fn to_raw_with_primary_key(
         &self,
@@ -105,18 +114,14 @@ impl IndexKey {
             .cloned()
             .map(EncodedIndexComponent::from_canonical_bytes)
             .collect();
-        let raw = IndexStoreKey::new_with_kind(
+        IndexStoreKey::new_with_kind(
             index_key_kind_to_store_key_kind(self.key_kind),
             self.index_id,
             components,
             primary_key,
         )
         .to_raw()
-        .map_err(IndexKeyEncodeError::from)?;
-
-        Ok(RawIndexStoreKey::from_persisted_bytes(
-            raw.as_bytes().to_vec(),
-        ))
+        .map_err(IndexKeyEncodeError::from)
     }
 
     fn to_raw_with_primary_key_segment(
@@ -413,33 +418,34 @@ impl IndexKey {
     }
 
     pub(crate) fn try_from_raw(raw: &RawIndexStoreKey) -> Result<Self, IndexKeyDecodeError> {
-        let bytes = raw.as_bytes();
-        let (key_kind, index_id, component_count_usize, mut offset) =
-            parse_index_key_header(bytes)?;
-
-        // Phase 2: decode length-prefixed components + primary key.
-        let mut components = Vec::with_capacity(component_count_usize);
-        for _ in 0..component_count_usize {
-            let component = read_segment(
-                bytes,
-                &mut offset,
-                Self::MAX_COMPONENT_SIZE,
-                "component segment",
-            )?;
-            components.push(component.to_vec());
-        }
-
-        let primary_key = read_segment(bytes, &mut offset, Self::MAX_PK_SIZE, "primary key")?;
-        if offset != bytes.len() {
-            return Err(IndexKeyDecodeError::TrailingBytes);
-        }
-
+        let frame = decode_index_key_frame(raw)?;
         Ok(Self {
-            key_kind,
-            index_id,
-            components,
-            primary_key: primary_key.to_vec(),
+            key_kind: frame.key_kind,
+            index_id: frame.index_id,
+            components: frame
+                .components
+                .iter()
+                .take(frame.component_count)
+                .map(|component| component.to_vec())
+                .collect(),
+            primary_key: frame.primary_key.to_vec(),
         })
+    }
+
+    /// Compare physical index identity and component values after validating the
+    /// complete raw frame. Primary-key suffix and key kind do not affect this match.
+    pub(in crate::db) fn has_same_index_components_as_raw(
+        &self,
+        raw: &RawIndexStoreKey,
+    ) -> Result<bool, IndexKeyDecodeError> {
+        let frame = decode_index_key_frame(raw)?;
+        Ok(self.index_id == frame.index_id
+            && self.components.len() == frame.component_count
+            && self
+                .components
+                .iter()
+                .zip(frame.components)
+                .all(|(left, right)| left.as_slice() == right))
     }
 
     #[must_use]
@@ -470,28 +476,13 @@ impl IndexKey {
     pub(in crate::db) fn primary_key_value(
         &self,
     ) -> Result<PrimaryKeyValue, CompactPrimaryKeyDecodeError> {
-        EncodedPrimaryKey::try_from(self.primary_key.as_slice())?.decode()
+        EncodedPrimaryKey::decode_bytes(&self.primary_key)
     }
 
     pub(in crate::db) fn primary_key_value_and_bytes_from_raw(
         raw: &RawIndexStoreKey,
     ) -> Result<(PrimaryKeyValue, &[u8]), IndexKeyDecodeError> {
-        let bytes = raw.as_bytes();
-        let (_, _, component_count_usize, mut offset) = parse_index_key_header(bytes)?;
-
-        for _ in 0..component_count_usize {
-            let _ = read_segment(
-                bytes,
-                &mut offset,
-                Self::MAX_COMPONENT_SIZE,
-                "component segment",
-            )?;
-        }
-
-        let primary_key = read_segment(bytes, &mut offset, Self::MAX_PK_SIZE, "primary key")?;
-        if offset != bytes.len() {
-            return Err(IndexKeyDecodeError::TrailingBytes);
-        }
+        let primary_key = decode_index_key_frame(raw)?.primary_key;
         let primary_key_value = EncodedPrimaryKey::decode_bytes(primary_key)
             .map_err(|_| IndexKeyDecodeError::InvalidPrimaryKey)?;
 
@@ -506,7 +497,7 @@ impl IndexKey {
     pub(in crate::db) fn compact_primary_key_value_bytes(
         primary_key: &PrimaryKeyValue,
     ) -> Result<Vec<u8>, IndexKeyEncodeError> {
-        Ok(EncodedPrimaryKey::encode(*primary_key)?.as_bytes().to_vec())
+        Ok(EncodedPrimaryKey::encode(*primary_key)?.into())
     }
 }
 
@@ -644,6 +635,34 @@ const fn index_key_kind_to_store_key_kind(kind: IndexKeyKind) -> IndexStoreKeyKi
         IndexKeyKind::User => IndexStoreKeyKind::User,
         IndexKeyKind::System => IndexStoreKeyKind::System,
     }
+}
+
+// All consumers validate the complete strict frame before using borrowed segments.
+fn decode_index_key_frame(
+    raw: &RawIndexStoreKey,
+) -> Result<BorrowedIndexKeyFrame<'_>, IndexKeyDecodeError> {
+    let bytes = raw.as_bytes();
+    let (key_kind, index_id, component_count, mut offset) = parse_index_key_header(bytes)?;
+    let mut components = [&[][..]; MAX_INDEX_FIELDS];
+    for component in components.iter_mut().take(component_count) {
+        *component = read_segment(
+            bytes,
+            &mut offset,
+            IndexKey::MAX_COMPONENT_SIZE,
+            "component segment",
+        )?;
+    }
+    let primary_key = read_segment(bytes, &mut offset, IndexKey::MAX_PK_SIZE, "primary key")?;
+    if offset != bytes.len() {
+        return Err(IndexKeyDecodeError::TrailingBytes);
+    }
+    Ok(BorrowedIndexKeyFrame {
+        key_kind,
+        index_id,
+        component_count,
+        components,
+        primary_key,
+    })
 }
 
 // Parse the fixed-width index-key prefix and return the decoded frame header.
