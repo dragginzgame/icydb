@@ -6,7 +6,7 @@
 use crate::{
     db::{
         commit::{PreparedIndexMutation, PreparedRowCommitOp},
-        data::DataStore,
+        data::{CanonicalRow, DataStore},
         index::IndexStore,
         positioned_overlay::JournalOverlayPosition,
     },
@@ -85,7 +85,7 @@ impl PreparedRowCommitOp {
             store
                 .publish_preflighted_journal_entry(
                     self.data_key,
-                    self.data_value.map(|value| value.as_raw_row().clone()),
+                    self.data_value.map(CanonicalRow::into_raw_row),
                     position,
                 )
                 .map(|_| store.generation())
@@ -105,7 +105,7 @@ impl PreparedRowCommitOp {
             .data_store
             .with_borrow_mut(|store| match self.data_value {
                 Some(value) => store
-                    .fold_recovered_journal_put(self.data_key, value.as_raw_row().clone())
+                    .fold_recovered_journal_put(self.data_key, value.into_raw_row())
                     .map(|_| store.generation()),
                 None => store
                     .fold_recovered_journal_delete(&self.data_key)

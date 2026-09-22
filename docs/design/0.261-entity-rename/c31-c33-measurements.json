@@ -1,0 +1,1763 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-22",
+  "scope": "C31-C33 versus 0.261.5 on frozen Toko Miner; separate 0.261.4-to-0.261.5 walking-32 investigation",
+  "source_manifest_sha256": "90dc305a4f41dbe79d2d3f04a80c29161b52ac4198fec68b1895a5da283caa7c",
+  "source_manifest": {
+    "frozen_application_head": "f53c690783a521e3c96a3b1533407d9867ca94c4",
+    "host_binary_sha256": "4035f98a1870e2a5168fb43120c43402fd81d7fdee743070c18603a862aa4c64",
+    "scratch_cargo_lock_sha256": "c1ba7bc6132d45fc3639c896c6b42628df59fe12e1e1cb1216f192c5ed147b24",
+    "baseline_core_files": {
+      "src/db/commit/apply.rs": "66d812186c444ac528900e1291e27a6f0bd43304ec56058432cea8717c2e87d4",
+      "src/db/index/cardinality.rs": "f4384a679c9309b92bbf4e9c1350f3f05cfcaec595f3208a2936b1a55dc3e8ce",
+      "src/db/index/store.rs": "ce00d59ebaa20c7c2f06fd188f18b9cb20ef2a489696900848d99e1648ed008a"
+    },
+    "candidate_core_files": {
+      "src/db/commit/apply.rs": "53498a8916214e7bc5a341d443c80d293c51a430594032e98101209ae10dbc3d",
+      "src/db/index/cardinality.rs": "17ec9a9da67149f6c94d8102c187696b8a1722809dd1777551f4bbd79730bf9e",
+      "src/db/index/store.rs": "18291d52a8a3341124d51ea03dca31770880885f11a61ed5b672f97bd50cb242"
+    },
+    "pending_diff_sha256": "1410f0505b7812fda223eb310ce3571f7bbaa418a1a7263d3b4e3aeb3a631cb7",
+    "key_frozen_sources": {
+      "apps/toko_miner/canic.toml": "b34957b58f6243d9f4b31097605906573259706d58331b677dae3df3e8682196",
+      "apps/toko_miner/game_shard/src/action/executor.rs": "0006af77b2dd6014c6531112045364375578bb5d27ac2ac26c073dba56507c9c",
+      "apps/toko_miner/user_hub/src/qualification.rs": "30925bfb2ddfc7c466f5ba888f31e59b0a3fde394e0809ce3bb76547e86be6cc",
+      "apps/toko_miner/user_hub/src/qualification/opening/costs.rs": "9f2b1626e522429127e7dbd8f3d3f7d3a2486f42cc925ff52483067856a2375e",
+      "apps/toko_miner/user_hub/src/qualification/opening/costs/physics.rs": "cacee200f4340920845bd0c6f87f6bb8d627c5e0b1db477d3229559283319182"
+    },
+    "published_application_lock_sha256": "9dd62e29a8767551f3d47ed50e264d2532d80e85f0960f76cf5f7dbed0b1116e",
+    "profile4_lock_sha256": "b0ac6e0056834f8140a3636e90a426958f649763fe6e580067380069c05bc22a",
+    "private_cli_sha256": "b556ea7b5d8f1f73eec4d72be13c0aceb3140668c1d557fdfb862b83865aa633",
+    "app_source_differences": [],
+    "profile-app_source_differences": [
+      "apps/toko_miner/game_shard/src/action/executor.rs"
+    ]
+  },
+  "walking32_published_regression": {
+    "before": {
+      "actions": 64,
+      "batch_size": 32,
+      "batches": [
+        {
+          "actions": 32,
+          "balance_after": "100342858206257",
+          "balance_before": "100344844471833",
+          "candid_argument_bytes": 3204,
+          "net_cycles": "1986265576"
+        },
+        {
+          "actions": 32,
+          "balance_after": "100339793059868",
+          "balance_before": "100341779800028",
+          "candid_argument_bytes": 3198,
+          "net_cycles": "1986740160"
+        }
+      ],
+      "checkpoint_tail_cycles": "1026381608",
+      "exact_retry_cycles": "230610715",
+      "gross_cycles": "6120106563",
+      "idle_after_cycles": "127016307",
+      "idle_before_cycles": "87967655",
+      "inventory_conserved": true,
+      "observations": {
+        "action_body_instructions": "3851917815",
+        "actions_committed": "64",
+        "canonical_intent_bytes": "9172",
+        "commits": "2",
+        "database_attributed_instructions": [
+          {
+            "instructions": "58730077",
+            "name": "icydb.entity.Item.instructions_total"
+          },
+          {
+            "instructions": "37103675",
+            "name": "icydb.entity.Resource.instructions_total"
+          },
+          {
+            "instructions": "6787063",
+            "name": "icydb.entity.OrderCustomer.instructions_total"
+          },
+          {
+            "instructions": "6334612",
+            "name": "icydb.entity.NftToken.instructions_total"
+          },
+          {
+            "instructions": "5779518",
+            "name": "icydb.entity.Robot.instructions_total"
+          },
+          {
+            "instructions": "1845965",
+            "name": "icydb.entity.UserPrincipal.instructions_total"
+          },
+          {
+            "instructions": "1831914",
+            "name": "icydb.entity.User.instructions_total"
+          },
+          {
+            "instructions": "1288813",
+            "name": "icydb.entity.ActionDelta.instructions_total"
+          },
+          {
+            "instructions": "951271",
+            "name": "icydb.entity.NftCollection.instructions_total"
+          },
+          {
+            "instructions": "533770",
+            "name": "icydb.entity.StarSystem.instructions_total"
+          },
+          {
+            "instructions": "531796",
+            "name": "icydb.entity.Location.instructions_total"
+          },
+          {
+            "instructions": "529584",
+            "name": "icydb.entity.PlanetHazard.instructions_total"
+          },
+          {
+            "instructions": "529543",
+            "name": "icydb.entity.Hazard.instructions_total"
+          },
+          {
+            "instructions": "525518",
+            "name": "icydb.entity.MinionType.instructions_total"
+          },
+          {
+            "instructions": "524884",
+            "name": "icydb.entity.RobotAppearanceOption.instructions_total"
+          },
+          {
+            "instructions": "523852",
+            "name": "icydb.entity.CatalogRecipe.instructions_total"
+          },
+          {
+            "instructions": "523429",
+            "name": "icydb.entity.PlanetCreature.instructions_total"
+          },
+          {
+            "instructions": "523210",
+            "name": "icydb.entity.Creature.instructions_total"
+          },
+          {
+            "instructions": "523117",
+            "name": "icydb.entity.Minion.instructions_total"
+          },
+          {
+            "instructions": "522961",
+            "name": "icydb.entity.Rocket.instructions_total"
+          },
+          {
+            "instructions": "515231",
+            "name": "icydb.entity.CelestialObject.instructions_total"
+          },
+          {
+            "instructions": "513568",
+            "name": "icydb.entity.Machine.instructions_total"
+          }
+        ]
+      },
+      "position_only_setup": {
+        "actions": 0,
+        "balance_after": "100346200541980",
+        "balance_before": "100346496183580",
+        "candid_argument_bytes": 295,
+        "net_cycles": "295641600"
+      },
+      "rejection_cycles": "43934752",
+      "simulated_elapsed_ns": 74000000002,
+      "workload": "inventory_with_walking"
+    },
+    "after": {
+      "actions": 64,
+      "batch_size": 32,
+      "batches": [
+        {
+          "actions": 32,
+          "balance_after": "100342728379812",
+          "balance_before": "100344722649848",
+          "candid_argument_bytes": 3204,
+          "net_cycles": "1994270036"
+        },
+        {
+          "actions": 32,
+          "balance_after": "100339654152917",
+          "balance_before": "100341647726519",
+          "candid_argument_bytes": 3198,
+          "net_cycles": "1993573602"
+        }
+      ],
+      "checkpoint_tail_cycles": "1025693788",
+      "exact_retry_cycles": "231319428",
+      "gross_cycles": "6137783709",
+      "idle_after_cycles": "127820725",
+      "idle_before_cycles": "91169079",
+      "inventory_conserved": true,
+      "observations": {
+        "action_body_instructions": "3865783516",
+        "actions_committed": "64",
+        "canonical_intent_bytes": "9172",
+        "commits": "2",
+        "database_attributed_instructions": [
+          {
+            "instructions": "58752491",
+            "name": "icydb.entity.Item.instructions_total"
+          },
+          {
+            "instructions": "37039378",
+            "name": "icydb.entity.Resource.instructions_total"
+          },
+          {
+            "instructions": "6755865",
+            "name": "icydb.entity.OrderCustomer.instructions_total"
+          },
+          {
+            "instructions": "6299787",
+            "name": "icydb.entity.NftToken.instructions_total"
+          },
+          {
+            "instructions": "5705901",
+            "name": "icydb.entity.Robot.instructions_total"
+          },
+          {
+            "instructions": "1850759",
+            "name": "icydb.entity.UserPrincipal.instructions_total"
+          },
+          {
+            "instructions": "1835335",
+            "name": "icydb.entity.User.instructions_total"
+          },
+          {
+            "instructions": "1287518",
+            "name": "icydb.entity.ActionDelta.instructions_total"
+          },
+          {
+            "instructions": "958441",
+            "name": "icydb.entity.NftCollection.instructions_total"
+          },
+          {
+            "instructions": "533325",
+            "name": "icydb.entity.StarSystem.instructions_total"
+          },
+          {
+            "instructions": "531853",
+            "name": "icydb.entity.Location.instructions_total"
+          },
+          {
+            "instructions": "530543",
+            "name": "icydb.entity.PlanetHazard.instructions_total"
+          },
+          {
+            "instructions": "530390",
+            "name": "icydb.entity.Hazard.instructions_total"
+          },
+          {
+            "instructions": "526741",
+            "name": "icydb.entity.MinionType.instructions_total"
+          },
+          {
+            "instructions": "524456",
+            "name": "icydb.entity.RobotAppearanceOption.instructions_total"
+          },
+          {
+            "instructions": "523901",
+            "name": "icydb.entity.CatalogRecipe.instructions_total"
+          },
+          {
+            "instructions": "523786",
+            "name": "icydb.entity.Creature.instructions_total"
+          },
+          {
+            "instructions": "523677",
+            "name": "icydb.entity.PlanetCreature.instructions_total"
+          },
+          {
+            "instructions": "523095",
+            "name": "icydb.entity.Minion.instructions_total"
+          },
+          {
+            "instructions": "522655",
+            "name": "icydb.entity.Rocket.instructions_total"
+          },
+          {
+            "instructions": "515929",
+            "name": "icydb.entity.CelestialObject.instructions_total"
+          },
+          {
+            "instructions": "513784",
+            "name": "icydb.entity.Machine.instructions_total"
+          }
+        ]
+      },
+      "position_only_setup": {
+        "actions": 0,
+        "balance_after": "100346088869126",
+        "balance_before": "100346385098624",
+        "candid_argument_bytes": 295,
+        "net_cycles": "296229498"
+      },
+      "rejection_cycles": "44354432",
+      "simulated_elapsed_ns": 74000000002,
+      "workload": "inventory_with_walking"
+    },
+    "gross_cycle_delta": 17677146,
+    "batch_update_cycle_delta": 14837902,
+    "checkpoint_tail_cycle_delta": -687820,
+    "action_body_instruction_delta": 13865701,
+    "source_sha256": "9de4084e4b81849a7f4e578205ed632e85ccbf9a652c36fb4a289706ef43e2ec",
+    "source": "toko-miner/docs/upstream/artifacts/icydb-0.261.5-action-comparison.json"
+  },
+  "published5": {
+    "report": {
+      "cycle_measurement": "replica balance deltas, not instruction-price estimates",
+      "environment": "PocketIC managed application subnet",
+      "release_build_id": "0b10b47d4d4a3b634e33aedb65513d46db307f587ff5cc8cf10593f17af04638",
+      "schema_version": 1,
+      "trials": [
+        {
+          "actions": 64,
+          "batch_size": 1,
+          "checkpoint_tail_cycles": "3384221672",
+          "exact_retry_cycles": "221109014",
+          "gross_cycles": "43962178473",
+          "idle_after_cycles": "85764310",
+          "idle_before_cycles": "84779727",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100458019735075",
+            "balance_before": "100458344561689",
+            "candid_argument_bytes": 295,
+            "net_cycles": "324826614"
+          },
+          "rejection_cycles": "44361378",
+          "simulated_elapsed_ns": 74000000064,
+          "workload": "inventory_stationary",
+          "batch_update_cycles": 19941930925,
+          "request_bytes": 22130,
+          "observations": {
+            "action_body_instructions": "16622921771",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "110770",
+            "commits": "64"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 8,
+          "checkpoint_tail_cycles": "1451215851",
+          "exact_retry_cycles": "223606316",
+          "gross_cycles": "13134264311",
+          "idle_after_cycles": "123781519",
+          "idle_before_cycles": "88472319",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100423002604652",
+            "balance_before": "100423328147745",
+            "candid_argument_bytes": 295,
+            "net_cycles": "325543093"
+          },
+          "rejection_cycles": "44818247",
+          "simulated_elapsed_ns": 74000000008,
+          "workload": "inventory_stationary",
+          "batch_update_cycles": 5370330009,
+          "request_bytes": 7924,
+          "observations": {
+            "action_body_instructions": "4936817873",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "19004",
+            "commits": "8"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 16,
+          "checkpoint_tail_cycles": "1026818313",
+          "exact_retry_cycles": "225975140",
+          "gross_cycles": "8658894364",
+          "idle_after_cycles": "82514928",
+          "idle_before_cycles": "88213068",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100408593860647",
+            "balance_before": "100408889687891",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295827244"
+          },
+          "rejection_cycles": "44354023",
+          "simulated_elapsed_ns": 74000000004,
+          "workload": "inventory_stationary",
+          "batch_update_cycles": 4447872598,
+          "request_bytes": 6910,
+          "observations": {
+            "action_body_instructions": "4222491484",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "12450",
+            "commits": "4"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 32,
+          "checkpoint_tail_cycles": "1024507654",
+          "exact_retry_cycles": "230821518",
+          "gross_cycles": "6090838589",
+          "idle_after_cycles": "81036268",
+          "idle_before_cycles": "88234897",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100406059693861",
+            "balance_before": "100406354926690",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295232829"
+          },
+          "rejection_cycles": "44974048",
+          "simulated_elapsed_ns": 74000000002,
+          "workload": "inventory_stationary",
+          "batch_update_cycles": 3948389005,
+          "request_bytes": 6402,
+          "observations": {
+            "action_body_instructions": "3825809120",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "9172",
+            "commits": "2"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 1,
+          "checkpoint_tail_cycles": "3387185886",
+          "exact_retry_cycles": "221269092",
+          "gross_cycles": "43801135455",
+          "idle_after_cycles": "86777110",
+          "idle_before_cycles": "124072398",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100396159988109",
+            "balance_before": "100396455722699",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295734590"
+          },
+          "rejection_cycles": "44359391",
+          "simulated_elapsed_ns": 74000000064,
+          "workload": "inventory_with_walking",
+          "batch_update_cycles": 19797302488,
+          "request_bytes": 22130,
+          "observations": {
+            "action_body_instructions": "16444066423",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "110770",
+            "commits": "64"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 8,
+          "checkpoint_tail_cycles": "1451311724",
+          "exact_retry_cycles": "223123313",
+          "gross_cycles": "13150839453",
+          "idle_after_cycles": "80789930",
+          "idle_before_cycles": "125818691",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100454163126894",
+            "balance_before": "100454488136918",
+            "candid_argument_bytes": 295,
+            "net_cycles": "325010024"
+          },
+          "rejection_cycles": "44399130",
+          "simulated_elapsed_ns": 74000000008,
+          "workload": "inventory_with_walking",
+          "batch_update_cycles": 5387710020,
+          "request_bytes": 7924,
+          "observations": {
+            "action_body_instructions": "4958400316",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "19004",
+            "commits": "8"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 16,
+          "checkpoint_tail_cycles": "1028392698",
+          "exact_retry_cycles": "226075688",
+          "gross_cycles": "8674941237",
+          "idle_after_cycles": "81133719",
+          "idle_before_cycles": "87230247",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100395424093298",
+            "balance_before": "100395719539631",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295446333"
+          },
+          "rejection_cycles": "44727581",
+          "simulated_elapsed_ns": 74000000004,
+          "workload": "inventory_with_walking",
+          "batch_update_cycles": 4428558196,
+          "request_bytes": 6910,
+          "observations": {
+            "action_body_instructions": "4201824294",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "12450",
+            "commits": "4"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 32,
+          "checkpoint_tail_cycles": "1025693788",
+          "exact_retry_cycles": "231319428",
+          "gross_cycles": "6137783709",
+          "idle_after_cycles": "127820725",
+          "idle_before_cycles": "91169079",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100346088869126",
+            "balance_before": "100346385098624",
+            "candid_argument_bytes": 295,
+            "net_cycles": "296229498"
+          },
+          "rejection_cycles": "44354432",
+          "simulated_elapsed_ns": 74000000002,
+          "workload": "inventory_with_walking",
+          "batch_update_cycles": 3987843638,
+          "request_bytes": 6402,
+          "observations": {
+            "action_body_instructions": "3865783516",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "9172",
+            "commits": "2"
+          }
+        }
+      ]
+    },
+    "raw_report_sha256": "7d3a7a8b6f57279bb365f37240f280aa047abcddbab3f0e4ad891081dcb6a28a",
+    "log_sha256": "9b550d0850ea7d2fc56a8a43120f6387df89aad966a5aab230135330eac1cce2"
+  },
+  "baseline": {
+    "report": {
+      "cycle_measurement": "replica balance deltas, not instruction-price estimates",
+      "environment": "PocketIC managed application subnet",
+      "release_build_id": "a0cc4a13cdc42d51f56aa032929ab8115935b2b844a78f5bb2399a8674001a3b",
+      "schema_version": 1,
+      "trials": [
+        {
+          "actions": 64,
+          "batch_size": 1,
+          "checkpoint_tail_cycles": "3380427171",
+          "exact_retry_cycles": "221034281",
+          "gross_cycles": "43947144276",
+          "idle_after_cycles": "82883937",
+          "idle_before_cycles": "83179575",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100458031904519",
+            "balance_before": "100458356717485",
+            "candid_argument_bytes": 295,
+            "net_cycles": "324812966"
+          },
+          "rejection_cycles": "44191397",
+          "simulated_elapsed_ns": 74000000064,
+          "workload": "inventory_stationary",
+          "batch_update_cycles": 19941092883,
+          "request_bytes": 22130,
+          "observations": {
+            "action_body_instructions": "16622646434",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "110770",
+            "commits": "64"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 8,
+          "checkpoint_tail_cycles": "1451901866",
+          "exact_retry_cycles": "223548821",
+          "gross_cycles": "13133697129",
+          "idle_after_cycles": "125453118",
+          "idle_before_cycles": "86872472",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100423014988504",
+            "balance_before": "100423340530394",
+            "candid_argument_bytes": 295,
+            "net_cycles": "325541890"
+          },
+          "rejection_cycles": "44800674",
+          "simulated_elapsed_ns": 74000000008,
+          "workload": "inventory_stationary",
+          "batch_update_cycles": 5370915609,
+          "request_bytes": 7924,
+          "observations": {
+            "action_body_instructions": "4936768329",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "19004",
+            "commits": "8"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 16,
+          "checkpoint_tail_cycles": "1026229553",
+          "exact_retry_cycles": "225867063",
+          "gross_cycles": "8650792057",
+          "idle_after_cycles": "81554714",
+          "idle_before_cycles": "89012779",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100408629620173",
+            "balance_before": "100408925222460",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295602287"
+          },
+          "rejection_cycles": "44184176",
+          "simulated_elapsed_ns": 74000000004,
+          "workload": "inventory_stationary",
+          "batch_update_cycles": 4442912712,
+          "request_bytes": 6910,
+          "observations": {
+            "action_body_instructions": "4217695331",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "12450",
+            "commits": "4"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 32,
+          "checkpoint_tail_cycles": "1025335331",
+          "exact_retry_cycles": "231141036",
+          "gross_cycles": "6094591470",
+          "idle_after_cycles": "80716907",
+          "idle_before_cycles": "87434857",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100406067779884",
+            "balance_before": "100406363385539",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295605655"
+          },
+          "rejection_cycles": "45129134",
+          "simulated_elapsed_ns": 74000000002,
+          "workload": "inventory_stationary",
+          "batch_update_cycles": 3951449337,
+          "request_bytes": 6402,
+          "observations": {
+            "action_body_instructions": "3828670323",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "9172",
+            "commits": "2"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 1,
+          "checkpoint_tail_cycles": "3395138985",
+          "exact_retry_cycles": "221415483",
+          "gross_cycles": "43789658371",
+          "idle_after_cycles": "88216842",
+          "idle_before_cycles": "129190372",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100396212413713",
+            "balance_before": "100396507907483",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295493770"
+          },
+          "rejection_cycles": "44022342",
+          "simulated_elapsed_ns": 74000000064,
+          "workload": "inventory_with_walking",
+          "batch_update_cycles": 19778961908,
+          "request_bytes": 22130,
+          "observations": {
+            "action_body_instructions": "16432772687",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "110770",
+            "commits": "64"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 8,
+          "checkpoint_tail_cycles": "1450420899",
+          "exact_retry_cycles": "223058936",
+          "gross_cycles": "13146895584",
+          "idle_after_cycles": "79750042",
+          "idle_before_cycles": "125497432",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100454176786960",
+            "balance_before": "100454501818308",
+            "candid_argument_bytes": 295,
+            "net_cycles": "325031348"
+          },
+          "rejection_cycles": "44246078",
+          "simulated_elapsed_ns": 74000000008,
+          "workload": "inventory_with_walking",
+          "batch_update_cycles": 5388810731,
+          "request_bytes": 7924,
+          "observations": {
+            "action_body_instructions": "4957454149",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "19004",
+            "commits": "8"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 16,
+          "checkpoint_tail_cycles": "1028105348",
+          "exact_retry_cycles": "225993081",
+          "gross_cycles": "8673130326",
+          "idle_after_cycles": "80573141",
+          "idle_before_cycles": "87710253",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100395434466351",
+            "balance_before": "100395729832489",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295366138"
+          },
+          "rejection_cycles": "44632257",
+          "simulated_elapsed_ns": 74000000004,
+          "workload": "inventory_with_walking",
+          "batch_update_cycles": 4429634380,
+          "request_bytes": 6910,
+          "observations": {
+            "action_body_instructions": "4202900048",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "12450",
+            "commits": "4"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 32,
+          "checkpoint_tail_cycles": "1028260771",
+          "exact_retry_cycles": "231160540",
+          "gross_cycles": "6135921636",
+          "idle_after_cycles": "129257801",
+          "idle_before_cycles": "89568829",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100346159125287",
+            "balance_before": "100346455140476",
+            "candid_argument_bytes": 295,
+            "net_cycles": "296015189"
+          },
+          "rejection_cycles": "44023437",
+          "simulated_elapsed_ns": 74000000002,
+          "workload": "inventory_with_walking",
+          "batch_update_cycles": 3986025858,
+          "request_bytes": 6402,
+          "observations": {
+            "action_body_instructions": "3864388295",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "9172",
+            "commits": "2"
+          }
+        }
+      ]
+    },
+    "raw_report_sha256": "b98991951d52524a8db900cd085e9e1a98f7a24146c819bca64ed74f6af0e16a",
+    "log_sha256": "d4c558da367ee0866aa8fb96bfb70f1236120eb92bd6932adfe72bf2d62eb3c8"
+  },
+  "candidate": {
+    "report": {
+      "cycle_measurement": "replica balance deltas, not instruction-price estimates",
+      "environment": "PocketIC managed application subnet",
+      "release_build_id": "10636466100ab40e21a35c2e753bf6578e5fb4a6dcbb5fe2da0d09ba82fa4a8d",
+      "schema_version": 1,
+      "trials": [
+        {
+          "actions": 64,
+          "batch_size": 1,
+          "checkpoint_tail_cycles": "3438288838",
+          "exact_retry_cycles": "220927455",
+          "gross_cycles": "44300531995",
+          "idle_after_cycles": "84163500",
+          "idle_before_cycles": "82379576",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100457892624715",
+            "balance_before": "100458217034112",
+            "candid_argument_bytes": 295,
+            "net_cycles": "324409397"
+          },
+          "rejection_cycles": "44167669",
+          "simulated_elapsed_ns": 74000000064,
+          "workload": "inventory_stationary",
+          "batch_update_cycles": 19919600062,
+          "request_bytes": 22130,
+          "observations": {
+            "action_body_instructions": "16577486554",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "110770",
+            "commits": "64"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 8,
+          "checkpoint_tail_cycles": "1474680074",
+          "exact_retry_cycles": "223448184",
+          "gross_cycles": "13248789040",
+          "idle_after_cycles": "125134515",
+          "idle_before_cycles": "87352487",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100422859662313",
+            "balance_before": "100423185099187",
+            "candid_argument_bytes": 295,
+            "net_cycles": "325436874"
+          },
+          "rejection_cycles": "44968896",
+          "simulated_elapsed_ns": 74000000008,
+          "workload": "inventory_stationary",
+          "batch_update_cycles": 5375161257,
+          "request_bytes": 7924,
+          "observations": {
+            "action_body_instructions": "4941711017",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "19004",
+            "commits": "8"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 16,
+          "checkpoint_tail_cycles": "1040926979",
+          "exact_retry_cycles": "226024369",
+          "gross_cycles": "8697717976",
+          "idle_after_cycles": "81954416",
+          "idle_before_cycles": "88053009",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100408081334123",
+            "balance_before": "100408376421760",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295087637"
+          },
+          "rejection_cycles": "44555509",
+          "simulated_elapsed_ns": 74000000004,
+          "workload": "inventory_stationary",
+          "batch_update_cycles": 4432816862,
+          "request_bytes": 6910,
+          "observations": {
+            "action_body_instructions": "4208127337",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "12450",
+            "commits": "4"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 32,
+          "checkpoint_tail_cycles": "1042545765",
+          "exact_retry_cycles": "231189456",
+          "gross_cycles": "6127841505",
+          "idle_after_cycles": "81036674",
+          "idle_before_cycles": "89034898",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100405777022277",
+            "balance_before": "100406072361062",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295338785"
+          },
+          "rejection_cycles": "44965596",
+          "simulated_elapsed_ns": 74000000002,
+          "workload": "inventory_stationary",
+          "batch_update_cycles": 3949983100,
+          "request_bytes": 6402,
+          "observations": {
+            "action_body_instructions": "3827126505",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "9172",
+            "commits": "2"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 1,
+          "checkpoint_tail_cycles": "3446033964",
+          "exact_retry_cycles": "221204592",
+          "gross_cycles": "44125634088",
+          "idle_after_cycles": "85336364",
+          "idle_before_cycles": "131116713",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100395590556802",
+            "balance_before": "100395886057118",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295500316"
+          },
+          "rejection_cycles": "44568890",
+          "simulated_elapsed_ns": 74000000064,
+          "workload": "inventory_with_walking",
+          "batch_update_cycles": 19754203419,
+          "request_bytes": 22130,
+          "observations": {
+            "action_body_instructions": "16403384695",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "110770",
+            "commits": "64"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 8,
+          "checkpoint_tail_cycles": "1467851396",
+          "exact_retry_cycles": "223472666",
+          "gross_cycles": "13245008913",
+          "idle_after_cycles": "79910203",
+          "idle_before_cycles": "125817807",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100453978062819",
+            "balance_before": "100454303654268",
+            "candid_argument_bytes": 295,
+            "net_cycles": "325591449"
+          },
+          "rejection_cycles": "44641651",
+          "simulated_elapsed_ns": 74000000008,
+          "workload": "inventory_with_walking",
+          "batch_update_cycles": 5384424425,
+          "request_bytes": 7924,
+          "observations": {
+            "action_body_instructions": "4951707648",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "19004",
+            "commits": "8"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 16,
+          "checkpoint_tail_cycles": "1041130600",
+          "exact_retry_cycles": "225979935",
+          "gross_cycles": "8722772802",
+          "idle_after_cycles": "79692506",
+          "idle_before_cycles": "87390220",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100395073644216",
+            "balance_before": "100395369178888",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295534672"
+          },
+          "rejection_cycles": "44970973",
+          "simulated_elapsed_ns": 74000000004,
+          "workload": "inventory_with_walking",
+          "batch_update_cycles": 4423559422,
+          "request_bytes": 6910,
+          "observations": {
+            "action_body_instructions": "4198031425",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "12450",
+            "commits": "4"
+          }
+        },
+        {
+          "actions": 64,
+          "batch_size": 32,
+          "checkpoint_tail_cycles": "1042441930",
+          "exact_retry_cycles": "231197709",
+          "gross_cycles": "6153052387",
+          "idle_after_cycles": "127341402",
+          "idle_before_cycles": "88769063",
+          "inventory_conserved": true,
+          "position_only_setup": {
+            "actions": 0,
+            "balance_after": "100345130793271",
+            "balance_before": "100345426619415",
+            "candid_argument_bytes": 295,
+            "net_cycles": "295826144"
+          },
+          "rejection_cycles": "44724733",
+          "simulated_elapsed_ns": 74000000002,
+          "workload": "inventory_with_walking",
+          "batch_update_cycles": 3973908424,
+          "request_bytes": 6402,
+          "observations": {
+            "action_body_instructions": "3851656683",
+            "actions_committed": "64",
+            "canonical_intent_bytes": "9172",
+            "commits": "2"
+          }
+        }
+      ]
+    },
+    "raw_report_sha256": "e96048e9a0bf5e8c9ebbeb0755d5b8c26673885434595a8a79ebbd5c7fdc017c",
+    "log_sha256": "8ae09a7f3b719c80ed72934a9f517d73cb46d3e16531fb93a9c1ce398b31c9ec"
+  },
+  "replays": {
+    "baseline": {
+      "all_retained_metrics_equal": true,
+      "trials": 8,
+      "raw_report_sha256": "d2863b5ba252aecc4245b130fb23fb95a43856fdc41c62d1e7ec0dd42729041f",
+      "log_sha256": "926431ef409c331a9c3efcc30bc6eaf03cdebfb801a75affd9faf5f252ebd82c"
+    },
+    "candidate": {
+      "all_retained_metrics_equal": true,
+      "trials": 8,
+      "raw_report_sha256": "07ad3272416b8791b955f8d54f433abcf453530e98df1f0ac57a405663b0f25e",
+      "log_sha256": "f731b5228987db4c5181007ffbafbce2942006b8d90013a1802e80c6e24f4d07"
+    }
+  },
+  "artifacts": {
+    "baseline": {
+      "release_build_id": "a0cc4a13cdc42d51f56aa032929ab8115935b2b844a78f5bb2399a8674001a3b",
+      "roles": {
+        "game_hub": {
+          "raw_wasm_bytes": 4127733,
+          "sha256": "be247f8ca9cb5bc173d2c03f898d00c116e3177a6dfb7e05be880bdd2ee2bcdf"
+        },
+        "game_shard": {
+          "raw_wasm_bytes": 10270752,
+          "sha256": "54eb138f5a9bfaf57d70514809754d5ae601925c7fd226866332499a5c2dd23e"
+        },
+        "translation": {
+          "raw_wasm_bytes": 8716644,
+          "sha256": "bfbe56a89ea64379027771a3d71850abb876b6105bf019960d1a4549a685e28d"
+        },
+        "user_hub": {
+          "raw_wasm_bytes": 7582051,
+          "sha256": "1f8a1d04591d801292652a93a1490497e2c87df68fc09ce376b43a2f0bbe35ad"
+        },
+        "user_shard": {
+          "raw_wasm_bytes": 7276299,
+          "sha256": "882d76c3611898dbcf353765f5fef500261700978c571b24c87efa7c2ca95dbc"
+        }
+      }
+    },
+    "candidate": {
+      "release_build_id": "10636466100ab40e21a35c2e753bf6578e5fb4a6dcbb5fe2da0d09ba82fa4a8d",
+      "roles": {
+        "game_hub": {
+          "raw_wasm_bytes": 4127724,
+          "sha256": "509b4ad6aab555c2afe076dbf8c9bd183ec1fcd010a6a02e7d206839bf3c7e52"
+        },
+        "game_shard": {
+          "raw_wasm_bytes": 10272688,
+          "sha256": "dfd2af35327995b51e8fa5eb943226abad0fa77807663c5d90a6741f72b39321"
+        },
+        "translation": {
+          "raw_wasm_bytes": 8719159,
+          "sha256": "e92689a332e72cd523ad500fda126d84d162f7b8ff892baad8d8736c23827097"
+        },
+        "user_hub": {
+          "raw_wasm_bytes": 7584669,
+          "sha256": "1c69692db5bc028f9f26646ad5a5ebb45de40d054d3f0431a846fa19dd1a73ae"
+        },
+        "user_shard": {
+          "raw_wasm_bytes": 7278753,
+          "sha256": "884c556d6ab144d3c9698643108ad9a09ca6cdf9def366bbcd99a0e668374b4e"
+        }
+      }
+    }
+  },
+  "diagnostic_artifacts": {
+    "profile4": {
+      "build_id": "f6287f51f49607d2521dbfd0da36b2646372c2df3d602d86940ad5b09cffb249",
+      "game_shard_wasm_sha256": "4ef56aa19001b3b8f5f1ef293eb36f3093c3a810906cbd79e94702812b29757d"
+    },
+    "profile5": {
+      "build_id": "3767414b8e6b29e539716f9fb2fe974766fccc1dd3dc3e35587b6e21949f5630",
+      "game_shard_wasm_sha256": "2e317319c2066e0d8fd9bf28276e1ec0f27dd6aba21ee5a5e9714e12a9a91342"
+    }
+  },
+  "diagnostic_instrumentation_patch": "--- a/apps/toko_miner/game_shard/src/action/executor.rs\n+++ b/apps/toko_miner/game_shard/src/action/executor.rs\n@@ -958,6 +958,7 @@\n     principal: Principal,\n     request: &ExecuteActionsRequest,\n ) -> Result<ExecuteActionsReceipt, ExecuteActionsError> {\n+    let phase0 = ic_cdk::api::performance_counter(0);\n     validate_request(request)?;\n     let fingerprint = fingerprint(request)?;\n     let mut robot = crate::robot::read_robot(principal)\n@@ -991,6 +992,7 @@\n         fingerprint,\n         revision: robot.action_revision,\n     });\n+    let phase1 = ic_cdk::api::performance_counter(0);\n     super::active::prepare(robot.user_id, now())?;\n     let mut user = crate::robot::read_user_for_id(robot.user_id)\n         .map_err(ExecuteActionsError::Robot)?\n@@ -1004,6 +1006,7 @@\n         return receipt(&reset, request, false)\n             .map_err(|_| ExecuteActionsError::CommittedProjectionUnavailable);\n     }\n+    let phase2 = ic_cdk::api::performance_counter(0);\n     let references = inventory_references(request);\n     let requires_rockets = (request.final_context.is_some()\n         || request.actions.iter().any(|entry| entry.context.is_some()))\n@@ -1036,6 +1039,7 @@\n     };\n     validate_revisions(&request.expected_revisions, &containers)?;\n \n+    let phase3 = ic_cdk::api::performance_counter(0);\n     let applied = apply_actions(\n         request,\n         &mut robot,\n@@ -1044,8 +1048,16 @@\n         &mut containers,\n         &items,\n     )?;\n+    let phase4 = ic_cdk::api::performance_counter(0);\n     persist(&mut robot, &user, &mut containers, &mut rockets, applied)?;\n-    receipt(&robot, request, false).map_err(|_| ExecuteActionsError::CommittedProjectionUnavailable)\n+    let phase5 = ic_cdk::api::performance_counter(0);\n+    let result = receipt(&robot, request, false).map_err(|_| ExecuteActionsError::CommittedProjectionUnavailable);\n+    let phase6 = ic_cdk::api::performance_counter(0);\n+    if request.actions.len() == 32 {\n+        ic_cdk::println!(\"ICYDB_PHASE {} {} {} {} {} {} {}\", request.operation_id,\n+            phase1-phase0, phase2-phase1, phase3-phase2, phase4-phase3, phase5-phase4, phase6-phase5);\n+    }\n+    result\n }\n \n #[cfg(test)]\n",
+  "diagnostic_instrumentation_sha256": "6c4f2ae157028068b0c93856c6ba9c42f90f583b392b1a90d0d9eb8432a49951",
+  "diagnostics": {
+    "profile4": {
+      "diagnostic_only": true,
+      "release_build_id": "f6287f51f49607d2521dbfd0da36b2646372c2df3d602d86940ad5b09cffb249",
+      "functional_trials_passed": 8,
+      "raw_report_sha256": "c2670d143eccef29c6662fcb090688b13aa2eb57bcd8eb7148ee694508e1d64f",
+      "log_sha256": "17d17d55cdcb571f6029147c2058d7061f25d79dceb923367aca839c094ba567",
+      "phase_rows_order": "stationary32 twice, walking32 twice",
+      "instruction_spans": [
+        {
+          "operation_id": "cost-31",
+          "admission_read": 12903471,
+          "active_state_prepare": 3997,
+          "inventory_load": 9231,
+          "apply_actions": 1734095755,
+          "persist": 12932609,
+          "receipt": 155621484
+        },
+        {
+          "operation_id": "cost-63",
+          "admission_read": 13300107,
+          "active_state_prepare": 3998,
+          "inventory_load": 9231,
+          "apply_actions": 1732189132,
+          "persist": 12929789,
+          "receipt": 155588819
+        },
+        {
+          "operation_id": "cost-31",
+          "admission_read": 13105739,
+          "active_state_prepare": 4662,
+          "inventory_load": 9915,
+          "apply_actions": 1742450706,
+          "persist": 13189401,
+          "receipt": 156012332
+        },
+        {
+          "operation_id": "cost-63",
+          "admission_read": 13103727,
+          "active_state_prepare": 4662,
+          "inventory_load": 9915,
+          "apply_actions": 1743131076,
+          "persist": 13177748,
+          "receipt": 155837102
+        }
+      ],
+      "walking32_instructions": {
+        "admission_read": 26209466,
+        "active_state_prepare": 9324,
+        "inventory_load": 19830,
+        "apply_actions": 3485581782,
+        "persist": 26367149,
+        "receipt": 311849434
+      }
+    },
+    "profile5": {
+      "diagnostic_only": true,
+      "release_build_id": "3767414b8e6b29e539716f9fb2fe974766fccc1dd3dc3e35587b6e21949f5630",
+      "functional_trials_passed": 8,
+      "raw_report_sha256": "90a6b0cd8ad8c05d74aa08eca0b1b689d5defecf17f1d59553a9dd9fb0dcc9ea",
+      "log_sha256": "9be92abd76d22fd007fd1b7b102342b32c4b516a6dd97c30f61ef31334ae5063",
+      "phase_rows_order": "stationary32 twice, walking32 twice",
+      "instruction_spans": [
+        {
+          "operation_id": "cost-31",
+          "admission_read": 13056647,
+          "active_state_prepare": 3997,
+          "inventory_load": 9231,
+          "apply_actions": 1732422098,
+          "persist": 12897948,
+          "receipt": 155565172
+        },
+        {
+          "operation_id": "cost-63",
+          "admission_read": 13136296,
+          "active_state_prepare": 3997,
+          "inventory_load": 9231,
+          "apply_actions": 1730236472,
+          "persist": 12906399,
+          "receipt": 155620771
+        },
+        {
+          "operation_id": "cost-31",
+          "admission_read": 12957101,
+          "active_state_prepare": 4664,
+          "inventory_load": 9915,
+          "apply_actions": 1753719430,
+          "persist": 13146684,
+          "receipt": 155946481
+        },
+        {
+          "operation_id": "cost-63",
+          "admission_read": 12956366,
+          "active_state_prepare": 4662,
+          "inventory_load": 9915,
+          "apply_actions": 1750020896,
+          "persist": 13154180,
+          "receipt": 156083984
+        }
+      ],
+      "walking32_instructions": {
+        "admission_read": 25913467,
+        "active_state_prepare": 9326,
+        "inventory_load": 19830,
+        "apply_actions": 3503740326,
+        "persist": 26300864,
+        "receipt": 312030465
+      }
+    }
+  },
+  "ablation": {
+    "date": "2026-09-22",
+    "scope": "Isolate C31, C32, C33 and C31+C32 against the same local-path 0.261.5 baseline. Production sources remain unchanged.",
+    "timer_probe": "Host-only controller queries of existing game_shard_timer_inventory at start, after update calls and end; no canister instrumentation.",
+    "probe_patch": "--- a/costs.rs\n+++ b/costs.rs\n@@ -10,6 +10,33 @@\n use serde_json::{Value, json};\n \n const ACTIONS: usize = 64;\n+\n+#[derive(CandidType, Deserialize, Debug, serde::Serialize)]\n+struct TimerProbeInventory { timers: Vec<TimerProbe> }\n+#[derive(CandidType, Deserialize, Debug, serde::Serialize)]\n+struct TimerProbe {\n+    owner: String, subsystem: String, name: String,\n+    scheduler_performance: TimerProbePerformance,\n+    work_performance: TimerProbePerformance,\n+    counters: TimerProbeCounters,\n+}\n+#[derive(CandidType, Deserialize, Debug, serde::Serialize)]\n+struct TimerProbePerformance { instructions: TimerProbeInstructions }\n+#[derive(CandidType, Deserialize, Debug, serde::Serialize)]\n+struct TimerProbeInstructions { samples: u64, total: u64 }\n+#[derive(CandidType, Deserialize, Debug, serde::Serialize)]\n+struct TimerProbeCounters {\n+    work_started: u64, work_completed: u64, succeeded: u64, no_work: u64,\n+    retryable_failure: u64, invariant_failure: u64, unacknowledged: u64,\n+}\n+fn timer_probe(fixture: &ManagedComponentGroupFixture, shard: Principal) -> TimerProbeInventory {\n+    let controller = fixture.pic().get_controllers(shard)[0];\n+    let result: Result<TimerProbeInventory, candid::Reserved> = fixture.pic().query_candid_as_or_panic(\n+        shard, controller, \"game_shard_timer_inventory\", (),\n+    );\n+    result.expect(\"existing timer inventory\")\n+}\n+\n \n #[test]\n #[ignore = \"requires managed Wasms; run make action-benchmark\"]\n@@ -242,6 +269,7 @@\n     let idle_before = fixture.pic().cycle_balance(shard);\n     advance(fixture, ACTIONS as u64 + 10);\n     let start = fixture.pic().cycle_balance(shard);\n+    let timer_start = timer_probe(fixture, shard);\n     let start_at = fixture.pic().get_time().as_nanos_since_unix_epoch();\n     let mut ack = Some(\"cost-position\".into());\n     let mut queued = Vec::new();\n@@ -267,8 +295,10 @@\n         last = Some(req);\n     }\n     let after_updates = fixture.pic().cycle_balance(shard);\n+    let timer_updates = timer_probe(fixture, shard);\n     advance(fixture, 10);\n     let end = fixture.pic().cycle_balance(shard);\n+    let timer_end = timer_probe(fixture, shard);\n     let end_at = fixture.pic().get_time().as_nanos_since_unix_epoch();\n     let metrics_after = sampled_application(fixture, shard);\n     let observations = measured_observations(&metrics_before, &metrics_after, size);\n@@ -295,6 +325,7 @@\n         \"exact_retry_cycles\": retry_cycles.to_string(),\n         \"rejection_cycles\": rejection_cycles.to_string(),\n         \"inventory_conserved\": true,\n+        \"timer_probe\": {\"start\": timer_start, \"updates\": timer_updates, \"end\": timer_end},\n     })\n }\n \n",
+    "probe_binary_sha256": "83943c294d55acd516755741ae459b5eceff5b30722dd61f428edfc32e37f5ac",
+    "trial_columns": ["workload", "batch_size", "gross_cycles", "batch_update_cycles", "checkpoint_tail_cycles", "action_body_instructions", "recovery_work_instructions", "recovery_tail_work_instructions", "recovery_scheduler_instructions", "recovery_completions", "other_timer_work_instructions", "other_timer_scheduler_instructions"],
+    "variants": {
+      "baseline": {
+        "release_build_id": "a0cc4a13cdc42d51f56aa032929ab8115935b2b844a78f5bb2399a8674001a3b",
+        "raw_report_sha256": "224e4298439b60da7c9475727672429468b2658e71227753797d54879681803e",
+        "log_sha256": "c68dab90c6c5534ed3f2cce44eb00e71061ef8cc06072949f9c7df544b4eee97",
+        "functional_trials_passed": 8,
+        "wasm": {
+          "game_hub": {
+            "raw_bytes": 4127733,
+            "sha256": "be247f8ca9cb5bc173d2c03f898d00c116e3177a6dfb7e05be880bdd2ee2bcdf"
+          },
+          "game_shard": {
+            "raw_bytes": 10270752,
+            "sha256": "54eb138f5a9bfaf57d70514809754d5ae601925c7fd226866332499a5c2dd23e"
+          },
+          "translation": {
+            "raw_bytes": 8716644,
+            "sha256": "bfbe56a89ea64379027771a3d71850abb876b6105bf019960d1a4549a685e28d"
+          },
+          "user_hub": {
+            "raw_bytes": 7582051,
+            "sha256": "1f8a1d04591d801292652a93a1490497e2c87df68fc09ce376b43a2f0bbe35ad"
+          },
+          "user_shard": {
+            "raw_bytes": 7276299,
+            "sha256": "882d76c3611898dbcf353765f5fef500261700978c571b24c87efa7c2ca95dbc"
+          }
+        },
+        "probe_leaves_previous_metrics_exact": true,
+        "conserved_work_matches_baseline": true,
+        "all_timer_counters_match_baseline": true,
+        "timer_failures": 0,
+        "trials": [
+          ["inventory_stationary", 1, 43947144276, 19941092883, 3380427171, 16622646434, 20665674726, 2917736540, 134242471, 72, 145688649, 26431937],
+          ["inventory_stationary", 8, 13133697129, 5370915609, 1451901866, 4936768329, 5887637368, 1195796420, 30919564, 16, 549688949, 18604903],
+          ["inventory_stationary", 16, 8650792057, 4442912712, 1026229553, 4217695331, 3158764902, 789726336, 14179603, 8, 274790442, 11365860],
+          ["inventory_stationary", 32, 6094591470, 3951449337, 1025335331, 3828670323, 1580444349, 790181080, 5609800, 4, 138768264, 6584832],
+          ["inventory_with_walking", 1, 43789658371, 19778961908, 3395138985, 16432772687, 20689732978, 2924959691, 136322465, 72, 129991005, 26671988],
+          ["inventory_with_walking", 8, 13146895584, 5388810731, 1450420899, 4957454149, 5885935463, 1195148720, 26999564, 16, 547351660, 17484903],
+          ["inventory_with_walking", 16, 8673130326, 4429634380, 1028105348, 4202900048, 3161188909, 790651423, 13219600, 8, 295392735, 10965253],
+          ["inventory_with_walking", 32, 6135921636, 3986025858, 1028260771, 3864388295, 1580342829, 790334847, 7529799, 4, 140340861, 6824831]
+        ]
+      },
+      "combined": {
+        "release_build_id": "10636466100ab40e21a35c2e753bf6578e5fb4a6dcbb5fe2da0d09ba82fa4a8d",
+        "raw_report_sha256": "d110a0a5d019c91682837b5930deafd7cdefda1fec28083f970ca69d909c821d",
+        "log_sha256": "989651448c2af50f9282891395a5b9b804b68fb4190a330fe14b70032c29a79c",
+        "functional_trials_passed": 8,
+        "wasm": {
+          "game_hub": {
+            "raw_bytes": 4127724,
+            "sha256": "509b4ad6aab555c2afe076dbf8c9bd183ec1fcd010a6a02e7d206839bf3c7e52"
+          },
+          "game_shard": {
+            "raw_bytes": 10272688,
+            "sha256": "dfd2af35327995b51e8fa5eb943226abad0fa77807663c5d90a6741f72b39321"
+          },
+          "translation": {
+            "raw_bytes": 8719159,
+            "sha256": "e92689a332e72cd523ad500fda126d84d162f7b8ff892baad8d8736c23827097"
+          },
+          "user_hub": {
+            "raw_bytes": 7584669,
+            "sha256": "1c69692db5bc028f9f26646ad5a5ebb45de40d054d3f0431a846fa19dd1a73ae"
+          },
+          "user_shard": {
+            "raw_bytes": 7278753,
+            "sha256": "884c556d6ab144d3c9698643108ad9a09ca6cdf9def366bbcd99a0e668374b4e"
+          }
+        },
+        "probe_leaves_previous_metrics_exact": true,
+        "conserved_work_matches_baseline": true,
+        "all_timer_counters_match_baseline": true,
+        "timer_failures": 0,
+        "trials": [
+          ["inventory_stationary", 1, 44300531995, 19919600062, 3438288838, 16577486554, 21020165706, 2972170233, 135202467, 72, 148877072, 27471937],
+          ["inventory_stationary", 8, 13248789040, 5375161257, 1474680074, 4941711017, 5992916596, 1217242345, 30439564, 16, 549176664, 19244903],
+          ["inventory_stationary", 16, 8697717976, 4432816862, 1040926979, 4208127337, 3215545400, 803630826, 14739601, 8, 274150181, 11045860],
+          ["inventory_stationary", 32, 6127841505, 3949983100, 1042545765, 3827126505, 1608620165, 804204294, 7289800, 4, 139548457, 7384832],
+          ["inventory_with_walking", 1, 44125634088, 19754203419, 3446033964, 16403384695, 21055446241, 2980348126, 134242465, 72, 129656839, 25391988],
+          ["inventory_with_walking", 8, 13245008913, 5384424425, 1467851396, 4951707648, 5992351571, 1216977657, 28199564, 16, 548397248, 18044903],
+          ["inventory_with_walking", 16, 8722772802, 4423559422, 1041130600, 4198031425, 3217251240, 804319956, 12579600, 8, 295444899, 9605253],
+          ["inventory_with_walking", 32, 6153052387, 3973908424, 1042441930, 3851656683, 1608227670, 804434577, 6809801, 4, 141303750, 7224832]
+        ]
+      },
+      "c31": {
+        "release_build_id": "9d439e5af5d20eee87130ee871b56c8d82b50dd6b484b7229a285d688101f4f7",
+        "raw_report_sha256": "675e50f7b50f2c2846f7d2fe939eb9c2045bd75dadfb598f724378a82b92a6f0",
+        "log_sha256": "9dbb6531ef6c99d3892c0d51c61ef82d4779114b5ea209e285f9abc337c2c0d4",
+        "functional_trials_passed": 8,
+        "wasm": {
+          "game_hub": {
+            "raw_bytes": 4127733,
+            "sha256": "e08cbddb932ea2dffcde70ebc899186b189598074284c33e9ded1df98eb0d25a"
+          },
+          "game_shard": {
+            "raw_bytes": 10270480,
+            "sha256": "5279725af992d4966a49fff3cc4b2a08982606ccf954622fdbce184a2224f004"
+          },
+          "translation": {
+            "raw_bytes": 8716502,
+            "sha256": "f74126d9692ca0ed5ee3841fa3e6c0e4d23a0495e86bf461e629309c3eafaf79"
+          },
+          "user_hub": {
+            "raw_bytes": 7581909,
+            "sha256": "164c7c666dd3afa0d65f83fd6a31ae2a2c27943890f2a917aab1b6f68fa9e7ab"
+          },
+          "user_shard": {
+            "raw_bytes": 7276157,
+            "sha256": "c2c9c3926c6d54b83def366ee55b5358d494d357a219ff76b6e7433806a74faf"
+          }
+        },
+        "source_sha256": {
+          "src/db/commit/apply.rs": "53498a8916214e7bc5a341d443c80d293c51a430594032e98101209ae10dbc3d",
+          "src/db/index/cardinality.rs": "f4384a679c9309b92bbf4e9c1350f3f05cfcaec595f3208a2936b1a55dc3e8ce",
+          "src/db/index/store.rs": "ce00d59ebaa20c7c2f06fd188f18b9cb20ef2a489696900848d99e1648ed008a"
+        },
+        "build_log_sha256": "702716633d301c521ea6e5fed2cbfdfe9184f67c60b188fb1976ea54df79af18",
+        "conserved_work_matches_baseline": true,
+        "all_timer_counters_match_baseline": true,
+        "timer_failures": 0,
+        "trials": [
+          ["inventory_stationary", 1, 43931680109, 19925752703, 3379887583, 16587035101, 20664756874, 2920246342, 133762468, 72, 148886124, 26751936],
+          ["inventory_stationary", 8, 13128921745, 5376367147, 1450437784, 4942897480, 5887440944, 1195838347, 24839563, 16, 547498075, 15404903],
+          ["inventory_stationary", 16, 8642949220, 4436012111, 1025588260, 4210781212, 3158916445, 789786075, 12259603, 8, 274814914, 10725861],
+          ["inventory_stationary", 32, 6105238798, 3961331434, 1026581681, 3839099578, 1579533960, 789832329, 7209800, 4, 138763468, 7304832],
+          ["inventory_with_walking", 1, 43787005200, 19773427724, 3392072773, 16408925526, 20695160287, 2924600468, 132242466, 72, 131524210, 27871988],
+          ["inventory_with_walking", 8, 13168902977, 5396829387, 1453140497, 4965589949, 5892244460, 1195888977, 28119564, 16, 545671089, 17724903],
+          ["inventory_with_walking", 16, 8671635918, 4430358782, 1028378975, 4204867472, 3160961538, 790478545, 14659600, 8, 295080175, 11045253],
+          ["inventory_with_walking", 32, 6128700732, 3980522736, 1028628793, 3858218026, 1580499320, 790397671, 5369801, 4, 140466846, 6264832]
+        ]
+      },
+      "c32": {
+        "release_build_id": "c9c23d3e972ad793b15c37fb5f14b69a74ffea65358bb9094bfff0bb44385025",
+        "raw_report_sha256": "bc564bfcd83333893f506d844a8ff0eb7d522b8a000ced541bd78cf84e7dead1",
+        "log_sha256": "4f0cc9dce56c7973a5b358a0791e3f7e68f260b92314376727e9002c03fe14b0",
+        "functional_trials_passed": 8,
+        "wasm": {
+          "game_hub": {
+            "raw_bytes": 4127775,
+            "sha256": "ca607166edb9749aa2ba9f893d364191ca01939f84cc982061d358e6e32904d2"
+          },
+          "game_shard": {
+            "raw_bytes": 10269932,
+            "sha256": "251a80c1f341ddb4c471bfd38e693eeb73e7d058bae2ee15c85473f7eb084715"
+          },
+          "translation": {
+            "raw_bytes": 8716494,
+            "sha256": "8e251d87f079fbe648d4dffc11f4fe1691f58127c03cb0ad02cd91e38e6acd15"
+          },
+          "user_hub": {
+            "raw_bytes": 7581896,
+            "sha256": "feef057debe9f60fa7bb2b937e7741a5c725d87d0e7fa82a4f01ab116fe466da"
+          },
+          "user_shard": {
+            "raw_bytes": 7276113,
+            "sha256": "12e7cf5e6111bd53884390ac9846acbb460d49bb2ee3c00da276a5619a9bcff1"
+          }
+        },
+        "source_sha256": {
+          "src/db/commit/apply.rs": "66d812186c444ac528900e1291e27a6f0bd43304ec56058432cea8717c2e87d4",
+          "src/db/index/cardinality.rs": "77f984775ed8a96d7424ca214c4c756fdcb99900e0240c2dfa7aadbb0484c254",
+          "src/db/index/store.rs": "ce00d59ebaa20c7c2f06fd188f18b9cb20ef2a489696900848d99e1648ed008a"
+        },
+        "build_log_sha256": "5549d303903ffd0b0aeaf232601ab45ecd226947744bc3540ea247251d99b0d8",
+        "conserved_work_matches_baseline": true,
+        "all_timer_counters_match_baseline": true,
+        "timer_failures": 0,
+        "trials": [
+          ["inventory_stationary", 1, 43918730116, 19915921281, 3383649279, 16597914248, 20664627331, 2917799614, 126402469, 72, 146610291, 26111937],
+          ["inventory_stationary", 8, 13131721137, 5367257611, 1451994953, 4934594018, 5887914882, 1195808209, 29879564, 16, 548532573, 18524904],
+          ["inventory_stationary", 16, 8646884206, 4444643946, 1023004894, 4219273259, 3157279170, 789132311, 13299600, 8, 274556777, 10805860],
+          ["inventory_stationary", 32, 6099898299, 3948400415, 1029947867, 3825889671, 1580775063, 790613226, 7609800, 4, 139832121, 7864832],
+          ["inventory_with_walking", 1, 43760128621, 19759044353, 3394389634, 16406810162, 20677945970, 2923554229, 135202470, 72, 129046311, 29951989],
+          ["inventory_with_walking", 8, 13134053121, 5385277017, 1450596589, 4953886036, 5886841542, 1195442612, 24199564, 16, 545937483, 15324903],
+          ["inventory_with_walking", 16, 8671445816, 4426520887, 1027044333, 4201060788, 3160519099, 790393001, 15939600, 8, 294128674, 11445253],
+          ["inventory_with_walking", 32, 6132890274, 3985634450, 1027891304, 3863912992, 1580444578, 790367371, 7289800, 4, 140479231, 6744832]
+        ]
+      },
+      "c33": {
+        "release_build_id": "89fc47e20cbe27a3b770dd7406570f9de34e0a6cc8aa420ad029eb1f63f7d1ef",
+        "raw_report_sha256": "15722e85a2e4c74f5add47dd8329e3a8eb6a78a316494dac4074cbc6563523fc",
+        "log_sha256": "f7d7d79bb7039e5811c2293d02e0cf78baaf355d8136279bc9647276bd1888aa",
+        "functional_trials_passed": 8,
+        "wasm": {
+          "game_hub": {
+            "raw_bytes": 4127762,
+            "sha256": "3d1ed9a4c694f93f714b810059fdc559a140be1dd297861a3acb0d3fab830517"
+          },
+          "game_shard": {
+            "raw_bytes": 10270875,
+            "sha256": "0feb43070ea3a68203ae2a39cb8cc652218fc3efc4ab15320fb18df12023e954"
+          },
+          "translation": {
+            "raw_bytes": 8716994,
+            "sha256": "3e5368ec55af63e25d3bc7a04459e37f9a8372a88938b060a473d48136c7518e"
+          },
+          "user_hub": {
+            "raw_bytes": 7582401,
+            "sha256": "7302de49d22f243cc5bd9c2a4e72142a47657c33c81f90b3f8737453085d4550"
+          },
+          "user_shard": {
+            "raw_bytes": 7276644,
+            "sha256": "18304b5c2446d33941942c6c1afdb3bbbcd3168c90c70413567f8a6d39ea0860"
+          }
+        },
+        "source_sha256": {
+          "src/db/commit/apply.rs": "66d812186c444ac528900e1291e27a6f0bd43304ec56058432cea8717c2e87d4",
+          "src/db/index/cardinality.rs": "f030bc8c2e9b50a86630645b2ddd354eba9ee1e8316a1a99c28029a5e622c879",
+          "src/db/index/store.rs": "ce00d59ebaa20c7c2f06fd188f18b9cb20ef2a489696900848d99e1648ed008a"
+        },
+        "build_log_sha256": "2d5464150d03fb85d45289df7ee9e86cb9860bd1658adf13bf53012f969e3dd0",
+        "conserved_work_matches_baseline": true,
+        "all_timer_counters_match_baseline": true,
+        "timer_failures": 0,
+        "trials": [
+          ["inventory_stationary", 1, 44268010906, 19917188133, 3436241461, 16574610481, 21015979660, 2971813188, 124482468, 72, 143671951, 24911936],
+          ["inventory_stationary", 8, 13242945573, 5381660791, 1474181397, 4949642607, 5990357970, 1217156973, 26999564, 16, 545391698, 17324903],
+          ["inventory_stationary", 16, 8681798840, 4425769072, 1039613279, 4200798459, 3216199197, 803742595, 13299598, 8, 275026258, 9925860],
+          ["inventory_stationary", 32, 6127218063, 3952577669, 1041985849, 3830178658, 1608081685, 804126385, 7769800, 4, 138947655, 6664832],
+          ["inventory_with_walking", 1, 44108796946, 19736443078, 3448015488, 16389970632, 21058473236, 2978674383, 131682470, 72, 128751819, 28191989],
+          ["inventory_with_walking", 8, 13241622570, 5379833266, 1472360607, 4947839173, 5989728406, 1216237164, 30439563, 16, 545902131, 19244903],
+          ["inventory_with_walking", 16, 8731258999, 4429885782, 1040433510, 4202297036, 3216543253, 804203803, 14739600, 8, 297033463, 10565253],
+          ["inventory_with_walking", 32, 6148346639, 3971496746, 1042275904, 3849745056, 1609007034, 804655748, 6009800, 4, 141190016, 6504833]
+        ]
+      },
+      "c31-c32": {
+        "release_build_id": "67d1ac9a131f6fd34e59f9113630517646905c84a4c6982ec054e196078eeb89",
+        "raw_report_sha256": "7baf117afefdc4f1516bf332186217ee197aa047be3d3eb3fa9605cc754851f3",
+        "log_sha256": "7b178f837aca51b825089d72dc5a2558e534f87d8eb0a66bcf0fd3a4b9346794",
+        "functional_trials_passed": 8,
+        "wasm": {
+          "game_hub": {
+            "raw_bytes": 4127733,
+            "sha256": "602a5aef457acd2003b14229d4ce84732a576c1c644617ecce6a4512b2695643"
+          },
+          "game_shard": {
+            "raw_bytes": 10269918,
+            "sha256": "f256d8a57d33c1e81bbcbcf2058d117dea0d8e014c0452c74334056654e0e754"
+          },
+          "translation": {
+            "raw_bytes": 8716381,
+            "sha256": "51ab52cb25ffa477eaf84fa1c7c3d462c3de92835b389debb9ce4f65c63c15ed"
+          },
+          "user_hub": {
+            "raw_bytes": 7581887,
+            "sha256": "201783b17032de93ed02200d218b8edb94edaa02dce552f646d31980777b17db"
+          },
+          "user_shard": {
+            "raw_bytes": 7275965,
+            "sha256": "19cfcdf8cb22afbeac002e8d26694465fce969d79d9c7256eff71a03bd3feae6"
+          }
+        },
+        "source_sha256": {
+          "src/db/commit/apply.rs": "53498a8916214e7bc5a341d443c80d293c51a430594032e98101209ae10dbc3d",
+          "src/db/index/cardinality.rs": "77f984775ed8a96d7424ca214c4c756fdcb99900e0240c2dfa7aadbb0484c254",
+          "src/db/index/store.rs": "ce00d59ebaa20c7c2f06fd188f18b9cb20ef2a489696900848d99e1648ed008a"
+        },
+        "build_log_sha256": "cde3806e7877b3681132330cffbb3213a065e4096b3973ffb6899b10e97149d4",
+        "conserved_work_matches_baseline": true,
+        "all_timer_counters_match_baseline": true,
+        "timer_failures": 0,
+        "trials": [
+          ["inventory_stationary", 1, 43911488857, 19901771029, 3381164204, 16562886500, 20665905840, 2920960263, 132482468, 72, 149525255, 25791936],
+          ["inventory_stationary", 8, 13130053653, 5375837051, 1451181273, 4942927210, 5887001049, 1195339032, 30679564, 16, 549600761, 18124903],
+          ["inventory_stationary", 16, 8640505678, 4439012854, 1025826205, 4215050024, 3160583917, 790235609, 13859600, 8, 273544531, 11205859],
+          ["inventory_stationary", 32, 6097702667, 3950466514, 1025640490, 3828097291, 1580246281, 789878225, 7929800, 4, 139060014, 7944832],
+          ["inventory_with_walking", 1, 43765191169, 19744351006, 3393879024, 16398547816, 20693038585, 2925100706, 133122467, 72, 132509881, 25711989],
+          ["inventory_with_walking", 8, 13178636150, 5400678723, 1453229800, 4971006494, 5892147608, 1196070330, 31159563, 16, 547975250, 19324903],
+          ["inventory_with_walking", 16, 8670088362, 4428088373, 1027408360, 4202926846, 3161705796, 790583100, 13139600, 8, 296177515, 10005253],
+          ["inventory_with_walking", 32, 6132778635, 3982050704, 1028304465, 3860491346, 1579504604, 789771112, 7369799, 4, 141451533, 7624832]
+        ]
+      }
+    },
+    "pending_candidate_patch": "diff --git a/crates/icydb-core/src/db/commit/apply.rs b/crates/icydb-core/src/db/commit/apply.rs\nindex 8c66b0f29..468bcd058 100644\n--- a/crates/icydb-core/src/db/commit/apply.rs\n+++ b/crates/icydb-core/src/db/commit/apply.rs\n@@ -6,7 +6,7 @@\n use crate::{\n     db::{\n         commit::{PreparedIndexMutation, PreparedRowCommitOp},\n-        data::DataStore,\n+        data::{CanonicalRow, DataStore},\n         index::IndexStore,\n         positioned_overlay::JournalOverlayPosition,\n     },\n@@ -85,7 +85,7 @@ impl PreparedRowCommitOp {\n             store\n                 .publish_preflighted_journal_entry(\n                     self.data_key,\n-                    self.data_value.map(|value| value.as_raw_row().clone()),\n+                    self.data_value.map(CanonicalRow::into_raw_row),\n                     position,\n                 )\n                 .map(|_| store.generation())\n@@ -105,7 +105,7 @@ impl PreparedRowCommitOp {\n             .data_store\n             .with_borrow_mut(|store| match self.data_value {\n                 Some(value) => store\n-                    .fold_recovered_journal_put(self.data_key, value.as_raw_row().clone())\n+                    .fold_recovered_journal_put(self.data_key, value.into_raw_row())\n                     .map(|_| store.generation()),\n                 None => store\n                     .fold_recovered_journal_delete(&self.data_key)\ndiff --git a/crates/icydb-core/src/db/index/cardinality.rs b/crates/icydb-core/src/db/index/cardinality.rs\nindex 555c1a021..67ac37ad7 100644\n--- a/crates/icydb-core/src/db/index/cardinality.rs\n+++ b/crates/icydb-core/src/db/index/cardinality.rs\n@@ -9,7 +9,7 @@ use crate::db::index::{\n };\n use crate::db::journal::FoldWatermark;\n use crate::error::InternalError;\n-use std::collections::BTreeMap as HeapBTreeMap;\n+use std::collections::{BTreeMap as HeapBTreeMap, btree_map::Entry};\n use std::ops::Bound;\n \n /// Exact lookup key for one user-index component prefix.\n@@ -347,16 +347,13 @@ impl IndexPrefixCardinality {\n         parent_component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,\n         max_children: usize,\n     ) -> Option<Vec<Vec<Vec<u8>>>> {\n-        let mut parents = parent_component_prefixes\n-            .into_iter()\n-            .map(<[Vec<u8>]>::to_vec)\n-            .collect::<Vec<_>>();\n-        if parents.iter().any(Vec::is_empty) {\n+        let mut parents = parent_component_prefixes.into_iter().collect::<Vec<_>>();\n+        if parents.iter().any(|parent| parent.is_empty()) {\n             return None;\n         }\n         parents.sort_unstable();\n         parents.dedup();\n-        let Some(parent_len) = parents.first().map(Vec::len) else {\n+        let Some(parent_len) = parents.first().map(|parent| parent.len()) else {\n             return Some(Vec::new());\n         };\n         if parents.iter().any(|parent| parent.len() != parent_len) {\n@@ -375,10 +372,7 @@ impl IndexPrefixCardinality {\n                 continue;\n             }\n             let parent = &key.components[..parent_len];\n-            if parents\n-                .binary_search_by(|candidate| candidate.as_slice().cmp(parent))\n-                .is_err()\n-            {\n+            if parents.binary_search(&parent).is_err() {\n                 continue;\n             }\n             if children.len() == max_children {\n@@ -780,19 +774,25 @@ fn apply_count_delta<K: Ord>(\n     }\n }\n \n-fn apply_signed_count_delta<K: Clone + Ord>(\n-    counts: &mut HeapBTreeMap<K, i64>,\n-    key: K,\n-    delta: i64,\n-) -> bool {\n-    let count = counts.entry(key.clone()).or_insert(0);\n-    let Some(next) = count.checked_add(delta) else {\n-        return false;\n-    };\n-    *count = next;\n-    if *count == 0 {\n-        counts.remove(&key);\n+fn apply_signed_count_delta<K: Ord>(counts: &mut HeapBTreeMap<K, i64>, key: K, delta: i64) -> bool {\n+    match counts.entry(key) {\n+        Entry::Occupied(mut entry) => {\n+            let Some(next) = entry.get().checked_add(delta) else {\n+                return false;\n+            };\n+            if next == 0 {\n+                entry.remove();\n+            } else {\n+                *entry.get_mut() = next;\n+            }\n+        }\n+        Entry::Vacant(entry) => {\n+            if delta != 0 {\n+                entry.insert(delta);\n+            }\n+        }\n     }\n+\n     true\n }\n \n@@ -891,14 +891,34 @@ fn counted_prefixes(\n #[cfg(test)]\n mod tests {\n     use super::{\n-        IndexPrefixCardinality, IndexPrefixCardinalityFirstKey, checked_metadata_count_increment,\n+        IndexPrefixCardinality, IndexPrefixCardinalityFirstKey, apply_signed_count_delta,\n+        checked_metadata_count_increment,\n     };\n     use crate::{\n         db::index::{EncodedValue, IndexId, IndexKeyKind, UserIndexPrefixCardinalityKey},\n         types::EntityTag,\n         value::Value,\n     };\n-    use std::ops::Bound;\n+    use std::{collections::BTreeMap, ops::Bound};\n+\n+    #[test]\n+    fn signed_count_deltas_cancel_and_preserve_counts_on_overflow() {\n+        for delta in [0, 1, -1] {\n+            let mut counts = BTreeMap::new();\n+            assert!(apply_signed_count_delta(&mut counts, 7, delta));\n+            assert!(apply_signed_count_delta(&mut counts, 7, delta));\n+            assert_eq!(counts.get(&7).copied(), (delta != 0).then_some(2 * delta));\n+            assert!(apply_signed_count_delta(&mut counts, 7, -2 * delta));\n+            assert!(counts.is_empty());\n+        }\n+\n+        for (initial, delta) in [(i64::MAX, 1), (i64::MIN, -1)] {\n+            let mut counts = BTreeMap::new();\n+            assert!(apply_signed_count_delta(&mut counts, 7, initial));\n+            assert!(!apply_signed_count_delta(&mut counts, 7, delta));\n+            assert_eq!(counts.get(&7), Some(&initial));\n+        }\n+    }\n \n     #[test]\n     fn user_prefix_lookup_key_preserves_physical_generation_and_encoded_components() {\ndiff --git a/crates/icydb-core/src/db/index/store.rs b/crates/icydb-core/src/db/index/store.rs\nindex 0edd36653..6a5d953c4 100644\n--- a/crates/icydb-core/src/db/index/store.rs\n+++ b/crates/icydb-core/src/db/index/store.rs\n@@ -1361,9 +1361,10 @@ mod tests {\n             std::slice::from_ref(&collection),\n             std::slice::from_ref(&missing_b),\n             std::slice::from_ref(&other_collection),\n+            std::slice::from_ref(&collection),\n         ];\n         assert_eq!(\n-            store.exact_child_prefixes_for_parent_set(7, IndexKeyKind::User, index_id, parents, 4,),\n+            store.exact_child_prefixes_for_parent_set(7, IndexKeyKind::User, index_id, parents, 3,),\n             Some(vec![\n                 vec![collection.clone(), draft],\n                 vec![collection.clone(), review],\n",
+    "variant_construction": {
+      "c31": "Replace commit/apply.rs with candidate source; other files remain published .5.",
+      "c32": "Replace only exact_child_prefixes_for_parent_set_synchronized in index/cardinality.rs; tests remain published .5.",
+      "c33": "Replace only apply_signed_count_delta and add btree_map::Entry import; tests remain published .5.",
+      "c31-c32": "Combine the c31 and c32 production edits; tests remain published .5."
+    }
+  },
+  "action_application_split": {
+    "date": "2026-09-22",
+    "purpose": "Split the existing .4-to-.5 action-application attribution on the frozen Toko/Canic .35 workload. Diagnostic instrumentation is not a release performance comparison.",
+    "source": {
+      "executor_sha256": "cea5a5af707dbfe01684f39be701d5d48d5d1beba5c21fc717b51020f7609f4e",
+      "original_executor_sha256": "0006af77b2dd6014c6531112045364375578bb5d27ac2ac26c073dba56507c9c",
+      "frozen_application_head": "f53c690783a521e3c96a3b1533407d9867ca94c4",
+      "app_files_compared": 313,
+      "app_file_differences": ["game_shard/src/action/executor.rs"],
+      "canic_version": "0.110.35",
+      "rust_version": "1.98.1",
+      "pocket_ic_version": "16.0.0",
+      "build_profile": "fast"
+    },
+    "full_temporary_patch": "--- a/apps/toko_miner/game_shard/src/action/executor.rs\n+++ b/apps/toko_miner/game_shard/src/action/executor.rs\n@@ -894,7 +894,8 @@\n     rockets: &mut [Rocket],\n     containers: &mut [LoadedContainer],\n     items: &[Item],\n-) -> Result<AppliedActions, ExecuteActionsError> {\n+) -> Result<(AppliedActions, [u64; 7]), ExecuteActionsError> {\n+    let split_start = ic_cdk::api::performance_counter(0);\n     let needs_field = (request.final_context.is_some()\n         || request.actions.iter().any(|entry| entry.context.is_some()))\n         || request.actions.iter().any(|entry| {\n@@ -926,9 +927,17 @@\n             return Err(ExecuteActionsError::InvalidActionContext);\n         }\n     }\n+    let split_setup = ic_cdk::api::performance_counter(0) - split_start;\n+    let mut split_context = 0;\n+    let mut split_command = 0;\n+    let mut split_final_context = 0;\n+    let mut split_context_calls = 0;\n+    let mut split_command_calls = 0;\n+    let mut split_final_context_calls = 0;\n     let mut previous_at = None;\n     for entry in &request.actions {\n         if let Some(context) = &entry.context {\n+            let split_before = ic_cdk::api::performance_counter(0);\n             apply_context(\n                 context,\n                 robot,\n@@ -937,11 +946,17 @@\n                 received_at,\n                 previous_at,\n             )?;\n+            split_context += ic_cdk::api::performance_counter(0) - split_before;\n+            split_context_calls += 1;\n             previous_at = Some(context.observed_at);\n         }\n+        let split_before = ic_cdk::api::performance_counter(0);\n         apply_action(entry, robot, user, rockets, containers, &mut applied, items)?;\n+        split_command += ic_cdk::api::performance_counter(0) - split_before;\n+        split_command_calls += 1;\n     }\n     if let Some(context) = &request.final_context {\n+        let split_before = ic_cdk::api::performance_counter(0);\n         apply_context(\n             context,\n             robot,\n@@ -950,14 +965,28 @@\n             received_at,\n             previous_at,\n         )?;\n-    }\n-    Ok(applied)\n+        split_final_context = ic_cdk::api::performance_counter(0) - split_before;\n+        split_final_context_calls = 1;\n+    }\n+    Ok((\n+        applied,\n+        [\n+            split_setup,\n+            split_context,\n+            split_command,\n+            split_final_context,\n+            split_context_calls,\n+            split_command_calls,\n+            split_final_context_calls,\n+        ],\n+    ))\n }\n \n pub(crate) fn execute_action_batch(\n     principal: Principal,\n     request: &ExecuteActionsRequest,\n ) -> Result<ExecuteActionsReceipt, ExecuteActionsError> {\n+    let phase0 = ic_cdk::api::performance_counter(0);\n     validate_request(request)?;\n     let fingerprint = fingerprint(request)?;\n     let mut robot = crate::robot::read_robot(principal)\n@@ -991,6 +1020,7 @@\n         fingerprint,\n         revision: robot.action_revision,\n     });\n+    let phase1 = ic_cdk::api::performance_counter(0);\n     super::active::prepare(robot.user_id, now())?;\n     let mut user = crate::robot::read_user_for_id(robot.user_id)\n         .map_err(ExecuteActionsError::Robot)?\n@@ -1004,6 +1034,7 @@\n         return receipt(&reset, request, false)\n             .map_err(|_| ExecuteActionsError::CommittedProjectionUnavailable);\n     }\n+    let phase2 = ic_cdk::api::performance_counter(0);\n     let references = inventory_references(request);\n     let requires_rockets = (request.final_context.is_some()\n         || request.actions.iter().any(|entry| entry.context.is_some()))\n@@ -1036,7 +1067,8 @@\n     };\n     validate_revisions(&request.expected_revisions, &containers)?;\n \n-    let applied = apply_actions(\n+    let phase3 = ic_cdk::api::performance_counter(0);\n+    let (applied, action_split) = apply_actions(\n         request,\n         &mut robot,\n         &mut user,\n@@ -1044,8 +1076,36 @@\n         &mut containers,\n         &items,\n     )?;\n+    let phase4 = ic_cdk::api::performance_counter(0);\n     persist(&mut robot, &user, &mut containers, &mut rockets, applied)?;\n-    receipt(&robot, request, false).map_err(|_| ExecuteActionsError::CommittedProjectionUnavailable)\n+    let phase5 = ic_cdk::api::performance_counter(0);\n+    let result = receipt(&robot, request, false)\n+        .map_err(|_| ExecuteActionsError::CommittedProjectionUnavailable);\n+    let phase6 = ic_cdk::api::performance_counter(0);\n+    if request.actions.len() == 32 {\n+        ic_cdk::println!(\n+            \"ICYDB_ACTION_SPLIT {} setup={} context={} command={} final_context={} context_calls={} command_calls={} final_context_calls={}\",\n+            request.operation_id,\n+            action_split[0],\n+            action_split[1],\n+            action_split[2],\n+            action_split[3],\n+            action_split[4],\n+            action_split[5],\n+            action_split[6]\n+        );\n+        ic_cdk::println!(\n+            \"ICYDB_PHASE {} {} {} {} {} {} {}\",\n+            request.operation_id,\n+            phase1 - phase0,\n+            phase2 - phase1,\n+            phase3 - phase2,\n+            phase4 - phase3,\n+            phase5 - phase4,\n+            phase6 - phase5\n+        );\n+    }\n+    result\n }\n \n #[cfg(test)]\n",
+    "patch_sha256": "723c9da8739c7361c4d088896568ef899d9acb22c18e8aec6b3aa94c15f61641",
+    "host_test_binary_sha256": "4035f98a1870e2a5168fb43120c43402fd81d7fdee743070c18603a862aa4c64",
+    "dependencies": {
+      "non_icydb_packages_identical": true,
+      "lock_sha256": {
+        "0.261.4": "b0ac6e0056834f8140a3636e90a426958f649763fe6e580067380069c05bc22a",
+        "0.261.5": "9dd62e29a8767551f3d47ed50e264d2532d80e85f0960f76cf5f7dbed0b1116e"
+      },
+      "before": "0.261.4",
+      "after": "0.261.5",
+      "icydb_packages_compared": 6
+    },
+    "call_columns": ["workload", "operation_id", "setup", "context", "command", "final_context", "context_calls", "command_calls", "final_context_calls", "unassigned_application_instructions", "outer_admission", "outer_active_preparation", "outer_inventory", "outer_application", "outer_persistence", "outer_response"],
+    "trial_columns": ["workload", "batch_size", "gross_cycles", "action_body_instructions", "actions", "commits", "actions_committed", "canonical_intent_bytes", "inventory_conserved"],
+    "variants": {
+      "profile4": {
+        "icydb_version": "0.261.4",
+        "release_build_id": "71ccdb7b4c337cc933ecc8a078da4959ca110698dde57f0099ac981eeceda671",
+        "functional_trials_passed": 8,
+        "raw_report_sha256": "e6186a05d47b94d956179a58fc6341d66709ed98865b536a0c40ce38644dce0b",
+        "log_sha256": "bc873113f3ef7bf150e1c15cb3924b53ce7809d9482a77e131c2ecaab34e713d",
+        "build_log_sha256": "bf2b76659979ceec81e276ddb7c8df048f67132aa757c732fa478d4b0bf0a074",
+        "wasm": {
+          "game_hub": {
+            "raw_bytes": 4123254,
+            "sha256": "7cb0a58813e62981f208d7f4c8b13a589e3e40f22c59c5f41da320c1aa90a526"
+          },
+          "game_shard": {
+            "raw_bytes": 10281619,
+            "sha256": "78b142bacc645076bfdfa8e581f52f1c00fa7125bb538fba8215f5f31a47105a"
+          },
+          "translation": {
+            "raw_bytes": 8724056,
+            "sha256": "2a661c4cb03d522fa98ed3020be3b6ab3766065746397b9443132c9d7e5ea12c"
+          },
+          "user_hub": {
+            "raw_bytes": 7589087,
+            "sha256": "b9185357210c624fde25f9795fb43413c69644a885a65769272478e88d817aeb"
+          },
+          "user_shard": {
+            "raw_bytes": 7283791,
+            "sha256": "8f1ea196a9853fbc548135ffe0ce661a52d0b8a997570460247f0459a79c864d"
+          }
+        },
+        "calls": [
+          ["inventory_stationary", "cost-31", 5584, 792377005, 944290003, 0, 32, 32, 0, 16995, 12827246, 3997, 9238, 1736689587, 13082650, 155914992],
+          ["inventory_stationary", "cost-63", 5584, 792552699, 944784605, 0, 32, 32, 0, 16995, 12983969, 3998, 9238, 1737359883, 13089833, 155907387],
+          ["inventory_with_walking", "cost-31", 5916, 797434009, 945635166, 0, 32, 32, 0, 16995, 12862592, 4661, 9922, 1743092086, 13183831, 156166546],
+          ["inventory_with_walking", "cost-63", 5916, 797366058, 945687071, 0, 32, 32, 0, 16995, 12868910, 4661, 9922, 1743076040, 13174780, 156061082]
+        ],
+        "trials": [
+          ["inventory_stationary", 1, 43866929189, 16598921744, 64, 64, 64, 110770, true],
+          ["inventory_stationary", 8, 13132441629, 4950670304, 64, 8, 64, 19004, true],
+          ["inventory_stationary", 16, 8631593755, 4211938683, 64, 4, 64, 12450, true],
+          ["inventory_stationary", 32, 6104982754, 3838295868, 64, 2, 64, 9172, true],
+          ["inventory_with_walking", 1, 43712848238, 16420180588, 64, 64, 64, 110770, true],
+          ["inventory_with_walking", 8, 13131862633, 4953901561, 64, 8, 64, 19004, true],
+          ["inventory_with_walking", 16, 8671654303, 4212995876, 64, 4, 64, 12450, true],
+          ["inventory_with_walking", 32, 6116571526, 3850928580, 64, 2, 64, 9172, true]
+        ]
+      },
+      "profile5": {
+        "icydb_version": "0.261.5",
+        "release_build_id": "0c2028bac186b80f94f430bd6239318ef97062d1b0454bd18860723974767463",
+        "functional_trials_passed": 8,
+        "raw_report_sha256": "b10e7c48715234a19518c4e255ca0ef914edf26d3ccd3f42852d17af02f5c6f6",
+        "log_sha256": "93f03e685dbb656cc6aa4e0cc4bc02cdd9cc7ccf484c2914a8457780a60b0139",
+        "build_log_sha256": "aeae1f5d8a8d3b270646c2bfa69f11668efb684f5b2bf3e1067e830743edab0a",
+        "wasm": {
+          "game_hub": {
+            "raw_bytes": 4123130,
+            "sha256": "7f9d456d3fbfc97bc34885843459b0fcacc4fa6350bfa6314d4e293359bf25a1"
+          },
+          "game_shard": {
+            "raw_bytes": 10280446,
+            "sha256": "f575aa85667b4f6bf6a9b98b4217112f3ced2fdb318ff166861b321ee9ff0e44"
+          },
+          "translation": {
+            "raw_bytes": 8721636,
+            "sha256": "2ff146f027e10c509b51527e646dcc1b44cee6dd920f78916d9b87cad13c95b3"
+          },
+          "user_hub": {
+            "raw_bytes": 7587043,
+            "sha256": "6b89c31d9cf01dee2f7954ba6f512c08c35291216340b5bb764e6dd98901be59"
+          },
+          "user_shard": {
+            "raw_bytes": 7281032,
+            "sha256": "5171d4a120494d77db1bbe0d41e6214ae7b0f245fbbe201697be164bd5d513eb"
+          }
+        },
+        "calls": [
+          ["inventory_stationary", "cost-31", 5584, 792106034, 945016282, 0, 32, 32, 0, 16995, 12898305, 3998, 9238, 1737144895, 12996861, 155601032],
+          ["inventory_stationary", "cost-63", 5584, 791785551, 943880446, 0, 32, 32, 0, 16995, 12980481, 3998, 9238, 1735688576, 12999655, 155631816],
+          ["inventory_with_walking", "cost-31", 5916, 799675649, 951891244, 0, 32, 32, 0, 16995, 12874803, 4662, 9922, 1751589804, 13165538, 156128225],
+          ["inventory_with_walking", "cost-63", 5916, 800079343, 951921088, 0, 32, 32, 0, 16995, 12871361, 4662, 9922, 1752023342, 13157182, 156052502]
+        ],
+        "trials": [
+          ["inventory_stationary", 1, 43901353606, 16591915045, 64, 64, 64, 110770, true],
+          ["inventory_stationary", 8, 13146596450, 4945321903, 64, 8, 64, 19004, true],
+          ["inventory_stationary", 16, 8657946394, 4228581524, 64, 4, 64, 12450, true],
+          ["inventory_stationary", 32, 6105713791, 3836381718, 64, 2, 64, 9172, true],
+          ["inventory_with_walking", 1, 43753588753, 16426613850, 64, 64, 64, 110770, true],
+          ["inventory_with_walking", 8, 13155519023, 4962039536, 64, 8, 64, 19004, true],
+          ["inventory_with_walking", 16, 8673785636, 4207552042, 64, 4, 64, 12450, true],
+          ["inventory_with_walking", 32, 6138437277, 3868305645, 64, 2, 64, 9172, true]
+        ]
+      }
+    },
+    "conserved_work_and_call_counts_match": true,
+    "limitations": ["Diagnostic builds change generated Wasm; do not substitute these deltas for the uninstrumented release result.", "Spans include called application helpers and database reads; no exclusive IcyDB operation attribution is established.", "Frozen Toko/Canic .35 composition only; current gameplay changes and Canic .36 are not qualified."]
+  },
+  "actor_codec_split": {
+    "date": "2026-09-22",
+    "purpose": "Nested diagnostic split of CoreActors Candid decode/encode versus command interaction on the frozen .4/.5 workload; spans are nested and not additive across levels.",
+    "source": {
+      "original_executor_sha256": "0006af77b2dd6014c6531112045364375578bb5d27ac2ac26c073dba56507c9c",
+      "frozen_application_head": "f53c690783a521e3c96a3b1533407d9867ca94c4",
+      "app_files_compared": 313,
+      "app_file_differences": ["game_shard/src/action/executor.rs", "game_shard/src/outpost.rs", "game_shard/src/outpost/core.rs"],
+      "canic_version": "0.110.35",
+      "rust_version": "1.98.1",
+      "pocket_ic_version": "16.0.0",
+      "build_profile": "fast",
+      "instrumented_source_sha256": {
+        "apps/toko_miner/game_shard/src/action/executor.rs": "7228487fedc696396acb0b84ac5ecc57e47ce40331f78f841ef77a44994a854b",
+        "apps/toko_miner/game_shard/src/outpost.rs": "0dab0178f35c169afc35948c8b8fd4f2821ab766dbb5cdc6da95efc42eaf1e4a",
+        "apps/toko_miner/game_shard/src/outpost/core.rs": "e45867e2757e3bd823c2a72e730421ef37dc1bf71240f0811b3f87bc77585ca0"
+      }
+    },
+    "full_temporary_patch": "--- a/apps/toko_miner/game_shard/src/action/executor.rs\n+++ b/apps/toko_miner/game_shard/src/action/executor.rs\n@@ -894,7 +894,9 @@\n     rockets: &mut [Rocket],\n     containers: &mut [LoadedContainer],\n     items: &[Item],\n-) -> Result<AppliedActions, ExecuteActionsError> {\n+) -> Result<(AppliedActions, [u64; 7]), ExecuteActionsError> {\n+    let split_start = ic_cdk::api::performance_counter(0);\n+    crate::outpost::profile_reset();\n     let needs_field = (request.final_context.is_some()\n         || request.actions.iter().any(|entry| entry.context.is_some()))\n         || request.actions.iter().any(|entry| {\n@@ -926,9 +928,18 @@\n             return Err(ExecuteActionsError::InvalidActionContext);\n         }\n     }\n+    let split_setup = ic_cdk::api::performance_counter(0) - split_start;\n+    let mut split_context = 0;\n+    let mut split_command = 0;\n+    let mut split_final_context = 0;\n+    let mut split_context_calls = 0;\n+    let mut split_command_calls = 0;\n+    let mut split_final_context_calls = 0;\n     let mut previous_at = None;\n     for entry in &request.actions {\n         if let Some(context) = &entry.context {\n+            crate::outpost::profile_lane(1);\n+            let split_before = ic_cdk::api::performance_counter(0);\n             apply_context(\n                 context,\n                 robot,\n@@ -937,11 +948,19 @@\n                 received_at,\n                 previous_at,\n             )?;\n+            split_context += ic_cdk::api::performance_counter(0) - split_before;\n+            split_context_calls += 1;\n             previous_at = Some(context.observed_at);\n         }\n+        crate::outpost::profile_lane(2);\n+        let split_before = ic_cdk::api::performance_counter(0);\n         apply_action(entry, robot, user, rockets, containers, &mut applied, items)?;\n+        split_command += ic_cdk::api::performance_counter(0) - split_before;\n+        split_command_calls += 1;\n     }\n     if let Some(context) = &request.final_context {\n+        crate::outpost::profile_lane(1);\n+        let split_before = ic_cdk::api::performance_counter(0);\n         apply_context(\n             context,\n             robot,\n@@ -950,14 +969,29 @@\n             received_at,\n             previous_at,\n         )?;\n-    }\n-    Ok(applied)\n+        split_final_context = ic_cdk::api::performance_counter(0) - split_before;\n+        split_final_context_calls = 1;\n+    }\n+    crate::outpost::profile_lane(0);\n+    Ok((\n+        applied,\n+        [\n+            split_setup,\n+            split_context,\n+            split_command,\n+            split_final_context,\n+            split_context_calls,\n+            split_command_calls,\n+            split_final_context_calls,\n+        ],\n+    ))\n }\n \n pub(crate) fn execute_action_batch(\n     principal: Principal,\n     request: &ExecuteActionsRequest,\n ) -> Result<ExecuteActionsReceipt, ExecuteActionsError> {\n+    let phase0 = ic_cdk::api::performance_counter(0);\n     validate_request(request)?;\n     let fingerprint = fingerprint(request)?;\n     let mut robot = crate::robot::read_robot(principal)\n@@ -991,6 +1025,7 @@\n         fingerprint,\n         revision: robot.action_revision,\n     });\n+    let phase1 = ic_cdk::api::performance_counter(0);\n     super::active::prepare(robot.user_id, now())?;\n     let mut user = crate::robot::read_user_for_id(robot.user_id)\n         .map_err(ExecuteActionsError::Robot)?\n@@ -1004,6 +1039,7 @@\n         return receipt(&reset, request, false)\n             .map_err(|_| ExecuteActionsError::CommittedProjectionUnavailable);\n     }\n+    let phase2 = ic_cdk::api::performance_counter(0);\n     let references = inventory_references(request);\n     let requires_rockets = (request.final_context.is_some()\n         || request.actions.iter().any(|entry| entry.context.is_some()))\n@@ -1036,7 +1072,8 @@\n     };\n     validate_revisions(&request.expected_revisions, &containers)?;\n \n-    let applied = apply_actions(\n+    let phase3 = ic_cdk::api::performance_counter(0);\n+    let (applied, action_split) = apply_actions(\n         request,\n         &mut robot,\n         &mut user,\n@@ -1044,8 +1081,41 @@\n         &mut containers,\n         &items,\n     )?;\n+    let phase4 = ic_cdk::api::performance_counter(0);\n     persist(&mut robot, &user, &mut containers, &mut rockets, applied)?;\n-    receipt(&robot, request, false).map_err(|_| ExecuteActionsError::CommittedProjectionUnavailable)\n+    let phase5 = ic_cdk::api::performance_counter(0);\n+    let result = receipt(&robot, request, false)\n+        .map_err(|_| ExecuteActionsError::CommittedProjectionUnavailable);\n+    let phase6 = ic_cdk::api::performance_counter(0);\n+    if request.actions.len() == 32 {\n+        ic_cdk::println!(\n+            \"ICYDB_CODEC_SPLIT {} {:?}\",\n+            request.operation_id,\n+            crate::outpost::profile_take()\n+        );\n+        ic_cdk::println!(\n+            \"ICYDB_ACTION_SPLIT {} setup={} context={} command={} final_context={} context_calls={} command_calls={} final_context_calls={}\",\n+            request.operation_id,\n+            action_split[0],\n+            action_split[1],\n+            action_split[2],\n+            action_split[3],\n+            action_split[4],\n+            action_split[5],\n+            action_split[6]\n+        );\n+        ic_cdk::println!(\n+            \"ICYDB_PHASE {} {} {} {} {} {} {}\",\n+            request.operation_id,\n+            phase1 - phase0,\n+            phase2 - phase1,\n+            phase3 - phase2,\n+            phase4 - phase3,\n+            phase5 - phase4,\n+            phase6 - phase5\n+        );\n+    }\n+    result\n }\n \n #[cfg(test)]\n--- a/apps/toko_miner/game_shard/src/outpost.rs\n+++ b/apps/toko_miner/game_shard/src/outpost.rs\n@@ -1507,3 +1507,47 @@\n     }\n     faces\n }\n+\n+// Scratch-only nested instruction probe; lanes are entry context (1) and command (2).\n+thread_local! {\n+    static PROFILE_LANE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };\n+    static PROFILE_COUNTS: std::cell::Cell<[u64; 18]> = const { std::cell::Cell::new([0; 18]) };\n+}\n+pub(crate) fn profile_reset() {\n+    PROFILE_LANE.set(0);\n+    PROFILE_COUNTS.set([0; 18]);\n+}\n+pub(crate) fn profile_lane(lane: usize) {\n+    PROFILE_LANE.set(lane);\n+}\n+pub(crate) fn profile_codec(encode: bool, instructions: u64, bytes: usize) {\n+    let lane = PROFILE_LANE.get();\n+    if lane == 0 {\n+        return;\n+    }\n+    PROFILE_COUNTS.with(|counts| {\n+        let mut values = counts.get();\n+        let base = (lane - 1) * 6;\n+        let kind = usize::from(encode);\n+        values[base + kind] += instructions;\n+        values[base + 2 + kind] += bytes as u64;\n+        values[base + 4 + kind] += 1;\n+        counts.set(values);\n+    });\n+}\n+pub(crate) fn profile_core(spans: [u64; 5]) {\n+    if PROFILE_LANE.get() != 2 {\n+        return;\n+    }\n+    PROFILE_COUNTS.with(|counts| {\n+        let mut values = counts.get();\n+        for (i, span) in spans.into_iter().enumerate() {\n+            values[12 + i] += span;\n+        }\n+        values[17] += 1;\n+        counts.set(values);\n+    });\n+}\n+pub(crate) fn profile_take() -> [u64; 18] {\n+    PROFILE_COUNTS.get()\n+}\n--- a/apps/toko_miner/game_shard/src/outpost/core.rs\n+++ b/apps/toko_miner/game_shard/src/outpost/core.rs\n@@ -43,7 +43,10 @@\n }\n \n pub(super) fn encode(actors: &CoreActors) -> Result<Vec<u8>, FieldError> {\n+    let codec_start = ic_cdk::api::performance_counter(0);\n     let bytes = candid::encode_one(actors).map_err(|_| FieldError::Catalogue)?;\n+    let codec_end = ic_cdk::api::performance_counter(0);\n+    super::profile_codec(true, codec_end - codec_start, bytes.len());\n     if bytes.len() > 16_384 {\n         return Err(FieldError::Catalogue);\n     }\n@@ -56,8 +59,11 @@\n     }\n     let mut config = candid::de::DecoderConfig::new();\n     config.set_decoding_quota(100_000).set_skipping_quota(0);\n+    let codec_start = ic_cdk::api::performance_counter(0);\n     let actors: CoreActors = candid::decode_one_with_config(robot.core_field.as_bytes(), &config)\n         .map_err(|_| FieldError::Catalogue)?;\n+    let codec_end = ic_cdk::api::performance_counter(0);\n+    super::profile_codec(false, codec_end - codec_start, robot.core_field.len());\n     if actors.map_id != crate::maps::core()?.id {\n         return Err(FieldError::Catalogue);\n     }\n@@ -190,7 +196,9 @@\n     if robot.current_location_id != Some(TOK_CORE_LOCATION_ID) {\n         return Err(FieldError::NotAtSite);\n     }\n+    let core0 = ic_cdk::api::performance_counter(0);\n     let mut actors = read(robot)?;\n+    let core1 = ic_cdk::api::performance_counter(0);\n     let map = crate::maps::core()?;\n     let scene = super::decoration::PlacementScene {\n         map: &map,\n@@ -199,6 +207,7 @@\n         mak: None,\n         rockets,\n     };\n+    let core2 = ic_cdk::api::performance_counter(0);\n     if !super::interaction::map_action(\n         action,\n         robot,\n@@ -298,6 +307,7 @@\n             _ => return Err(FieldError::NotAtSite),\n         }\n     }\n+    let core3 = ic_cdk::api::performance_counter(0);\n     super::harvest::interrupt(\n         &mut actors.items,\n         &map,\n@@ -305,7 +315,16 @@\n         (!actors.minion_stowed).then_some(actors.minion),\n     );\n     validate_actors(&actors, now)?;\n+    let core4 = ic_cdk::api::performance_counter(0);\n     robot.core_field = encode(&actors)?.into();\n+    let core5 = ic_cdk::api::performance_counter(0);\n+    super::profile_core([\n+        core1 - core0,\n+        core2 - core1,\n+        core3 - core2,\n+        core4 - core3,\n+        core5 - core4,\n+    ]);\n     Ok(())\n }\n \n",
+    "patch_sha256": "cc1e5c37fd4d3e5050c864430b8fd889a133e43d23d5a4be8d8319d7e40c79fc",
+    "host_test_binary_sha256": "4035f98a1870e2a5168fb43120c43402fd81d7fdee743070c18603a862aa4c64",
+    "dependencies": {
+      "non_icydb_packages_identical": true,
+      "lock_sha256": {
+        "0.261.4": "b0ac6e0056834f8140a3636e90a426958f649763fe6e580067380069c05bc22a",
+        "0.261.5": "9dd62e29a8767551f3d47ed50e264d2532d80e85f0960f76cf5f7dbed0b1116e"
+      },
+      "before": "0.261.4",
+      "after": "0.261.5",
+      "icydb_packages_compared": 6
+    },
+    "call_columns": ["workload", "operation_id", "setup", "context", "command", "final_context", "context_calls", "command_calls", "final_context_calls", "unassigned_application_instructions", "outer_admission", "outer_active_preparation", "outer_inventory", "outer_application", "outer_persistence", "outer_response"],
+    "trial_columns": ["workload", "batch_size", "gross_cycles", "action_body_instructions", "actions", "commits", "actions_committed", "canonical_intent_bytes", "inventory_conserved"],
+    "variants": {
+      "profile4": {
+        "icydb_version": "0.261.4",
+        "release_build_id": "088d52614fb4605dfb834a78ae8efff72ace608ddc72e89769c45651601b9133",
+        "functional_trials_passed": 8,
+        "raw_report_sha256": "8fcf7a7816640c69878a1b4803d2036145d40cbd152080172f67fa62a7b5e5d4",
+        "log_sha256": "991101880ebef65ec68ef700556a8764ff67b395b5bf4e15f82cc3360d7c4b2b",
+        "build_log_sha256": "ac62ffa73eae120a6ef8f1cd689aeab5d89111624f8463bd908c08d2f98b0e66",
+        "wasm": {
+          "game_hub": {
+            "raw_bytes": 4123254,
+            "sha256": "38949a363e57cd91fd1bf2a48b2fdf742b94a5ee0c3e0ff446b02a03fa518ee2"
+          },
+          "game_shard": {
+            "raw_bytes": 10278171,
+            "sha256": "5de9a7eb4a51fa5833b9ceb92bf845b2c0560d4e107edddc3df5e511a85f1465"
+          },
+          "translation": {
+            "raw_bytes": 8724056,
+            "sha256": "9e47b9e617bb83217fb6da06d5ab08fe51cea655bcd7de340ab626f7c1a75b48"
+          },
+          "user_hub": {
+            "raw_bytes": 7589087,
+            "sha256": "41828637d3bcce22612015fd70d485b862d04b9b63ef5f7237ff44097ec1494d"
+          },
+          "user_shard": {
+            "raw_bytes": 7283791,
+            "sha256": "419d18add3a3e4106ea927617703e0509a59d0976229ee212ca8f3fcc6661dfa"
+          }
+        },
+        "calls": [
+          ["inventory_stationary", "cost-31", 6458, 791820855, 944290570, 0, 32, 32, 0, 21740, 12827087, 3997, 9243, 1736139623, 13085430, 155879236],
+          ["inventory_stationary", "cost-63", 6458, 791821619, 944403483, 0, 32, 32, 0, 21740, 12986254, 3998, 9243, 1736253300, 13082666, 155896401],
+          ["inventory_with_walking", "cost-31", 6790, 795613933, 941089997, 0, 32, 32, 0, 21740, 12864152, 4661, 9927, 1736732460, 13173383, 155942578],
+          ["inventory_with_walking", "cost-63", 6790, 796112523, 942541433, 0, 32, 32, 0, 21740, 12866345, 4662, 9927, 1738682486, 13166977, 155942391]
+        ],
+        "trials": [
+          ["inventory_stationary", 1, 43830800525, 16588131004, 64, 64, 64, 110770, true],
+          ["inventory_stationary", 8, 13114948869, 4949800323, 64, 8, 64, 19004, true],
+          ["inventory_stationary", 16, 8620482665, 4203100058, 64, 4, 64, 12450, true],
+          ["inventory_stationary", 32, 6102908907, 3836639246, 64, 2, 64, 9172, true],
+          ["inventory_with_walking", 1, 43698958645, 16404427772, 64, 64, 64, 110770, true],
+          ["inventory_with_walking", 8, 13123166144, 4951893998, 64, 8, 64, 19004, true],
+          ["inventory_with_walking", 16, 8662795511, 4204424792, 64, 4, 64, 12450, true],
+          ["inventory_with_walking", 32, 6105311289, 3839862765, 64, 2, 64, 9172, true]
+        ],
+        "codec_calls": [
+          ["inventory_stationary", "cost-31", 81476986, 126402428, 53344, 53344, 32, 32, 79883659, 126181820, 53344, 53344, 32, 32, 371988550, 47296, 445732461, 10592, 126233628, 32, 583941441, 292104891, 51808, 278043],
+          ["inventory_stationary", "cost-63", 81480436, 126336846, 53344, 53344, 32, 32, 79911670, 126113911, 53344, 53344, 32, 32, 372043237, 47296, 445860026, 10592, 126165719, 32, 584004337, 292131567, 51808, 276613],
+          ["inventory_with_walking", "cost-31", 81499443, 126471333, 53344, 53344, 32, 32, 79931805, 126260198, 53344, 53344, 32, 32, 371536068, 47296, 442903603, 10592, 126312006, 32, 587643157, 291604263, 51808, 280432],
+          ["inventory_with_walking", "cost-63", 81481432, 126438597, 53344, 53344, 32, 32, 79909300, 126239034, 53344, 53344, 32, 32, 371763491, 47296, 444151201, 10592, 126290842, 32, 588192494, 291854191, 51808, 278011]
+        ]
+      },
+      "profile5": {
+        "icydb_version": "0.261.5",
+        "release_build_id": "603fa4f13b4811c8c03d955e5bfc4f76a5c8337b9838e40d071fcb12a5819fa6",
+        "functional_trials_passed": 8,
+        "raw_report_sha256": "6303f7c9ff51a0094439022b8ef39bbc90344481f15f6405ce409e867ad16b3c",
+        "log_sha256": "b5a972be13ac5f4d58531ae6b52bd8dba3b799a68377bdf508eb561a0bed287d",
+        "build_log_sha256": "49e1b3f41bfc0caccf417bbc10cd89497418171dbdd1ad6eacf64bbe2f4cef78",
+        "wasm": {
+          "game_hub": {
+            "raw_bytes": 4123130,
+            "sha256": "144b6fe8cb670ea9e2f518ea63a29ab4c831cd52e678d2fd396cbcdc2561eb3d"
+          },
+          "game_shard": {
+            "raw_bytes": 10277844,
+            "sha256": "146b349f09a6f6630c190e501d7e63172a0c6d2c42d554dbbbcfb9571fa11767"
+          },
+          "translation": {
+            "raw_bytes": 8721636,
+            "sha256": "44c99a2e9c7e0390906d8f9c29fc3a6bdf8c45dca0c14b6995d1dfcd74d9cac1"
+          },
+          "user_hub": {
+            "raw_bytes": 7587043,
+            "sha256": "74375b54fcaee6551636123ea91e3efa53c8c7b2bb0f076cabc852789a220b16"
+          },
+          "user_shard": {
+            "raw_bytes": 7281032,
+            "sha256": "63d3f8c9fb5223b150914fb251705b1c3cad775ee18ab4dc1b14dc90c4023206"
+          }
+        },
+        "calls": [
+          ["inventory_stationary", "cost-31", 6458, 792128923, 944878111, 0, 32, 32, 0, 21740, 12907579, 3997, 9243, 1737035232, 12981523, 155862959],
+          ["inventory_stationary", "cost-63", 6458, 791586515, 942951744, 0, 32, 32, 0, 21740, 12899304, 3998, 9243, 1734566457, 12981138, 155795987],
+          ["inventory_with_walking", "cost-31", 6790, 799494714, 951110067, 0, 32, 32, 0, 21740, 12876505, 4664, 9927, 1750633311, 13133041, 156072278],
+          ["inventory_with_walking", "cost-63", 6790, 799144262, 950248515, 0, 32, 32, 0, 21740, 12875390, 4661, 9927, 1749421307, 13149286, 156108463]
+        ],
+        "trials": [
+          ["inventory_stationary", 1, 43900878983, 16593717400, 64, 64, 64, 110770, true],
+          ["inventory_stationary", 8, 13140118005, 4946247943, 64, 8, 64, 19004, true],
+          ["inventory_stationary", 16, 8651419598, 4219781344, 64, 4, 64, 12450, true],
+          ["inventory_stationary", 32, 6103545494, 3835519338, 64, 2, 64, 9172, true],
+          ["inventory_with_walking", 1, 43768733295, 16425190636, 64, 64, 64, 110770, true],
+          ["inventory_with_walking", 8, 13150600418, 4964826220, 64, 8, 64, 19004, true],
+          ["inventory_with_walking", 16, 8667778224, 4201321215, 64, 4, 64, 12450, true],
+          ["inventory_with_walking", 32, 6135582695, 3864761406, 64, 2, 64, 9172, true]
+        ],
+        "codec_calls": [
+          ["inventory_stationary", "cost-31", 81454881, 126676252, 53344, 53344, 32, 32, 79866684, 126462504, 53344, 53344, 32, 32, 372052414, 47296, 445969995, 10592, 126515752, 32, 583997790, 292185730, 53248, 282062],
+          ["inventory_stationary", "cost-63", 81482928, 126698256, 53344, 53344, 32, 32, 79903595, 126468622, 53344, 53344, 32, 32, 371752128, 47296, 444342589, 10592, 126521870, 32, 583405331, 291848533, 53248, 277269],
+          ["inventory_with_walking", "cost-31", 81543943, 126731563, 53344, 53344, 32, 32, 79922180, 126525664, 53344, 53344, 32, 32, 373367123, 47296, 450824705, 10592, 126577570, 32, 591219208, 293444943, 51906, 282781],
+          ["inventory_with_walking", "cost-63", 81546314, 126682544, 53344, 53344, 32, 32, 79951592, 126437261, 53344, 53344, 32, 32, 373234560, 47296, 450190970, 10592, 126488401, 32, 590915404, 293282968, 51140, 276696]
+        ]
+      }
+    },
+    "codec_columns": ["workload", "operation_id", "context_decode", "context_encode", "context_decoded_bytes", "context_encoded_bytes", "context_decode_calls", "context_encode_calls", "command_decode", "command_encode", "command_decoded_bytes", "command_encoded_bytes", "command_decode_calls", "command_encode_calls", "command_read_total", "command_map_scene", "command_interaction", "command_post_processing", "command_encode_total", "command_core_calls", "context_other", "command_read_other", "command_encode_other", "command_outer_other"],
+    "codec_call_and_byte_counts_match": true,
+    "conserved_work_and_call_counts_match": true,
+    "limitations": ["Diagnostic builds change generated Wasm; do not substitute these deltas for the uninstrumented release result.", "Spans include called application helpers and database reads; no exclusive IcyDB operation attribution is established.", "Frozen Toko/Canic .35 composition only; current gameplay changes and Canic .36 are not qualified.", "Command read/encode totals include their codec spans; compare nested spans separately and never add parent and child counters."]
+  }
+}

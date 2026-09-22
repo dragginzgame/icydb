@@ -1361,9 +1361,10 @@ mod tests {
             std::slice::from_ref(&collection),
             std::slice::from_ref(&missing_b),
             std::slice::from_ref(&other_collection),
+            std::slice::from_ref(&collection),
         ];
         assert_eq!(
-            store.exact_child_prefixes_for_parent_set(7, IndexKeyKind::User, index_id, parents, 4,),
+            store.exact_child_prefixes_for_parent_set(7, IndexKeyKind::User, index_id, parents, 3,),
             Some(vec![
                 vec![collection.clone(), draft],
                 vec![collection.clone(), review],

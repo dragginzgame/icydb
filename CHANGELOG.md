@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)
 
+- `0.261.6` removes redundant row and prefix copies from journal writes, recovery and child enumeration while preserving checked cardinality updates.
 - `0.261.5` fixes false recovery-pending errors, removes redundant key copying and decoding, and corrects indexed-scalar measurement boundaries.
 - `0.261.4` removes redundant index-key copying and decoding, including temporary keys in unique validation, while preserving encoding and validation.
 - `0.261.3` simplifies schema validation and DDL binding, strengthens candidate checks, and removes redundant copying and temporary allocations, including index-key comparisons.

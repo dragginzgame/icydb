@@ -347,16 +347,13 @@ impl IndexPrefixCardinality {
         parent_component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
         max_children: usize,
     ) -> Option<Vec<Vec<Vec<u8>>>> {
-        let mut parents = parent_component_prefixes
-            .into_iter()
-            .map(<[Vec<u8>]>::to_vec)
-            .collect::<Vec<_>>();
-        if parents.iter().any(Vec::is_empty) {
+        let mut parents = parent_component_prefixes.into_iter().collect::<Vec<_>>();
+        if parents.iter().any(|parent| parent.is_empty()) {
             return None;
         }
         parents.sort_unstable();
         parents.dedup();
-        let Some(parent_len) = parents.first().map(Vec::len) else {
+        let Some(parent_len) = parents.first().map(|parent| parent.len()) else {
             return Some(Vec::new());
         };
         if parents.iter().any(|parent| parent.len() != parent_len) {
@@ -375,10 +372,7 @@ impl IndexPrefixCardinality {
                 continue;
             }
             let parent = &key.components[..parent_len];
-            if parents
-                .binary_search_by(|candidate| candidate.as_slice().cmp(parent))
-                .is_err()
-            {
+            if parents.binary_search(&parent).is_err() {
                 continue;
             }
             if children.len() == max_children {
@@ -891,14 +885,34 @@ fn counted_prefixes(
 #[cfg(test)]
 mod tests {
     use super::{
-        IndexPrefixCardinality, IndexPrefixCardinalityFirstKey, checked_metadata_count_increment,
+        IndexPrefixCardinality, IndexPrefixCardinalityFirstKey, apply_signed_count_delta,
+        checked_metadata_count_increment,
     };
     use crate::{
         db::index::{EncodedValue, IndexId, IndexKeyKind, UserIndexPrefixCardinalityKey},
         types::EntityTag,
         value::Value,
     };
-    use std::ops::Bound;
+    use std::{collections::BTreeMap, ops::Bound};
+
+    #[test]
+    fn signed_count_deltas_cancel_and_preserve_counts_on_overflow() {
+        for delta in [0, 1, -1] {
+            let mut counts = BTreeMap::new();
+            assert!(apply_signed_count_delta(&mut counts, 7, delta));
+            assert!(apply_signed_count_delta(&mut counts, 7, delta));
+            assert_eq!(counts.get(&7).copied(), (delta != 0).then_some(2 * delta));
+            assert!(apply_signed_count_delta(&mut counts, 7, -2 * delta));
+            assert!(counts.is_empty());
+        }
+
+        for (initial, delta) in [(i64::MAX, 1), (i64::MIN, -1)] {
+            let mut counts = BTreeMap::new();
+            assert!(apply_signed_count_delta(&mut counts, 7, initial));
+            assert!(!apply_signed_count_delta(&mut counts, 7, delta));
+            assert_eq!(counts.get(&7), Some(&initial));
+        }
+    }
 
     #[test]
     fn user_prefix_lookup_key_preserves_physical_generation_and_encoded_components() {
