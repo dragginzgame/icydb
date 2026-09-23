@@ -1,7 +1,7 @@
 //! Generated actor qualification for the E2 Item/Holder workload.
 //! Reuses the migration closeout's build, controller and lifecycle owners.
 
-use super::{migration_command, migration_status, projection, query_sql, upgrade};
+use super::{migration_command, migration_status, projection, query_sql};
 use candid::CandidType;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
@@ -60,7 +60,9 @@ fn measured_rows(
     sql: &str,
     label: &str,
 ) -> RowProjectionOutput {
-    // Readiness delivery is outside the existing query instruction interval.
+    // Retain the local query interval and separately charge the complete
+    // delivery envelope, including any readiness/watchdog work it triggers.
+    let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
     projection(fixture, sql);
     let measured: QueryMeasurement = fixture
         .query_candid("measure_sql_query_instructions", (sql.to_string(),))
@@ -72,8 +74,9 @@ fn measured_rows(
     };
     let encoded = candid::encode_args((&rows,)).expect("projection should encode");
     eprintln!(
-        "entity-rename read: label={label} local_instructions={} projection_blake3={}",
+        "entity-rename read: label={label} local_instructions={} delivery_cycles={} projection_blake3={}",
         measured.local_instructions,
+        before - fixture.pocket_ic().cycle_balance(fixture.canister_id()),
         blake3::hash(&encoded)
     );
     rows
@@ -175,8 +178,19 @@ fn measured_catalog(fixture: &StandaloneCanisterFixture, label: &str) -> EntityS
     measured.description
 }
 
-// A metadata rename publishes in one atomic command; there is no artificial
-// Prepared/rewrite phase at which to interrupt. Restart on either side instead.
+fn upgrade(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
+    // Include the existing readiness driver in the lifecycle envelope so cache
+    // preparation cannot appear to save query work without paying for it here.
+    let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+    super::upgrade(fixture, wasm);
+    let after = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+    eprintln!(
+        "entity-rename upgrade and watchdog: cycles={}",
+        before - after
+    );
+}
+
+// A metadata rename publishes in one atomic command; restart on either side.
 fn rehearse(restart_before: bool) {
     let fixture = install_prebuilt_fixture_canister("sql", artifacts().0.clone());
     projection(&fixture, SOURCE_ROWS);

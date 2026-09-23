@@ -231,6 +231,40 @@ mod tests {
     }
 
     #[test]
+    fn documentation_primary_keys_match_compiled_capabilities() {
+        // Read the checkout at test time so published library builds do not
+        // depend on repository documentation. Compare data, not source syntax.
+        let guide = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/guides/schema-authoring.md"
+        ))
+        .expect("repository schema authoring guide");
+        let section = guide
+            .split_once("<!-- icydb-primary-key-primitives:start -->")
+            .expect("primary-key data start")
+            .1
+            .split_once("<!-- icydb-primary-key-primitives:end -->")
+            .expect("primary-key data end")
+            .0;
+        let documented = section
+            .split('`')
+            .skip(1)
+            .step_by(2)
+            .collect::<HashSet<_>>();
+        macro_rules! admitted_primitives {
+            (@entries $(($primitive:ident, $kind:ident)),* $(,)?) => {
+                [$( (stringify!($primitive), ScalarKind::$kind) ),*]
+                    .into_iter()
+                    .filter(|(_, kind)| kind.is_primary_key_component_encodable())
+                    .map(|(name, _)| name)
+                    .collect::<HashSet<_>>()
+            };
+        }
+        let expected = authoring_primitive_registry!(admitted_primitives);
+        assert_eq!(documented, expected);
+    }
+
+    #[test]
     fn all_scalar_kind_variants_are_audited() {
         for kind in EXPECTED_SCALAR_KINDS {
             assert_variant_is_known(kind);

@@ -1,6 +1,6 @@
 .PHONY: help version tags patch minor major package publish release-prepare release-clean release-stage release-commit release-push \
         release-patch release-minor release-major release \
-        test test-unit test-integration-feedback test-durability \
+        test test-unit test-integration-feedback test-durability test-documentation \
         test-canister-artifact-contract test-sql-canister-matrix \
         test-sql-tier-c-shard test-sql-tier-c-merge \
         test-sql-tier-c-replay \
@@ -92,6 +92,7 @@ help:
 	@echo "  test-integration-feedback TEST_TARGET=... TEST_NAME=..."
 	@echo "                  Run one exact integration test, then its complete binary"
 	@echo "  test-durability  Run the focused commit, mutation-job, convergence, and recovery checks"
+	@echo "  test-documentation  Check links, compiled doc data, the example, and codec evidence"
 	@echo "  test-canister-artifact-contract"
 	@echo "                  Build and inspect all 34 independent production/local canister artifacts"
 	@echo "  test-sql-canister-matrix"
@@ -455,6 +456,19 @@ check-versioning: security-check
 	@$(MAKE) --no-print-directory help >/dev/null
 	@echo "Versioning tooling checks passed."
 
+# Focused documentation evidence: evaluate compiled owners and the example.
+# Structural link checks also run in the fast invariant gate below.
+test-documentation:
+	perl scripts/ci/test-documentation.pl
+	perl scripts/ci/check-documentation.pl
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-schema --lib documentation_
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-model-macros --lib documentation_
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-model-facade-only --lib tests::
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::startup::receipt::tests::
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::migration_record::tests::
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::control_store::tests::
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::identity_state::tests::
+
 check-invariants:
 	bash scripts/ci/check-ci-workflow-invariants.sh
 	bash scripts/ci/check-deployment-inventory-invariants.sh
@@ -466,7 +480,9 @@ check-invariants:
 	bash scripts/ci/check-mutation-atomicity-invariants.sh
 	bash scripts/ci/check-release-cleanup-invariants.sh
 	bash scripts/ci/test-pre-commit.sh
-	bash scripts/ci/check-durability-doc-invariants.sh
+	bash scripts/ci/check-persisted-format-invariants.sh
+	perl scripts/ci/test-documentation.pl
+	perl scripts/ci/check-documentation.pl
 	bash scripts/ci/check-read-admission-invariants.sh
 	bash scripts/ci/test-read-admission-invariants.sh
 	bash scripts/ci/check-schema-model-boundary-invariants.sh

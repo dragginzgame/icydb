@@ -41,7 +41,7 @@ pub enum StartupFailureKind {
     DatabaseControl,
     /// Journal-tail or fold-continuation recovery failure.
     JournalRecovery,
-    /// Generated-schema reconciliation failure.
+    /// Accepted-schema reconciliation or runtime preparation failure.
     SchemaReconciliation,
 }
 

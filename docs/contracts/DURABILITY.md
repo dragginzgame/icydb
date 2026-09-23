@@ -284,37 +284,52 @@ Supplying arbitrary bytes with caller-asserted schema or row-layout metadata is
 not a restore lane. Cross-schema restore requires an explicit migration; a
 source artifact cannot be relabeled as another accepted schema.
 
-## Checksum Decision
+## Corruption Detection
 
-The current line does not add persisted checksums.
+The current codecs checksum selected control and metadata envelopes and bind
+journal batches to their content digests. The
+[persisted-format inventory](PERSISTED_FORMAT_INVENTORY.md) identifies the
+covered surfaces and their code owners. Raw rows, secondary-index entries,
+and stable-memory pages do not have blanket per-record checksums.
 
-This is an explicit no-checksum-now decision, not a claim that checksums are
-unnecessary forever. The current supported boundary is same-canister stable
-memory plus fail-closed decoding and startup recovery of internally produced
-states. The 0.189/0.190 evidence strengthened marker, journal, row, schema,
-index, and structural decode failure behavior without changing persisted bytes.
+Checksums do not authorize imported data, prove schema semantics, or repair
+corruption. Bounded decoding, accepted-schema validation, exact replay identity,
+and publication ordering remain required independently. A checksum change is a
+persisted-format change under the [format policy](PERSISTED_FORMAT_POLICY.md).
 
-Adding checksums later is a persisted-format change and must be classified
-under `docs/contracts/PERSISTED_FORMAT_POLICY.md` before implementation.
-
-Future checksum design must state whether checksums cover marker/journal only
-or also row, schema, index, and structural value envelopes, and whether the
-goal is accidental-corruption detection, hostile-import rejection, or both.
+Behavioral evidence lives with the codecs: current-form round trips and
+malformed/checksum rejection in the
+[startup receipt tests](../../crates/icydb-core/src/db/startup/receipt.rs),
+[migration record tests](../../crates/icydb-core/src/db/schema/migration_record.rs),
+[schema-control tests](../../crates/icydb-core/src/db/schema/control_store.rs), and
+[identity-state tests](../../crates/icydb-core/src/db/schema/identity_state.rs).
+These execute the codecs; prose wording is not a correctness gate.
 
 ## Recovery Size And Scale Limits
 
-0.190 provided a checked host characterization for secondary-index rebuild
-recovery over a 256-row dataset. 0.191 raises that simple secondary-index host
-regression floor to 1,024 rows, adds a 128-row-per-shape mixed ordinary,
-conditional, and expression index rebuild floor, and adds a PocketIC same-WASM
-upgrade/reentry instruction probe over a 32-row journaled `sql_perf` fixture.
-These are proof shapes and regression budgets, not production IC
-instruction-budget guarantees.
+Recovery already uses the existing replicated driver and complete-batch
+convergence engine. One synchronous step validates and preflights a retained
+batch, applies it, publishes its fold watermark, and retires the exact batch
+and eligible live overlays. Progress stops between complete batches. Ordinary
+write admission bounds both individual commits and cumulative retained debt;
+it does not introduce a cursor within a batch. See the implemented
+[convergence design](../design/archive/0.229-continuous-journal-convergence-and-bounded-backlog-admission/0.229-design.md)
+and maintained [recovery qualification](../../testing/integration/tests/recovery_closeout.rs).
 
-Until production recovery-size measurements or streaming rebuild/fold designs
-land, operators should treat large recovery work as bounded by canister
-instruction and memory budgets. If recovery cannot complete, guarded reads and
-writes must fail rather than proceed on partially recovered state.
+After upgrade, retained debt blocks readiness until volatile overlays have
+been recovered through that same engine. During ordinary operation, complete
+live overlays can serve reads while admitted debt converges in the background.
+Pressure rejects new writes before publication when the admitted backlog would
+be exceeded.
+
+This bounded mechanism does not establish a universal production dataset or
+instruction-budget guarantee. Earlier 256/1,024-row rebuild probes are
+historical regression floors, not current capacity certification. Production
+qualification still needs representative schema, row width, index/relation
+fanout, retained debt, and IC instruction/cycle measurements. If recovery cannot
+complete, guarded reads and writes fail closed. The remaining readiness item is
+capacity evidence for the maintained engine, rather than an unimplemented
+generic streaming-recovery system.
 
 Constraint activation avoids one unbounded message by limiting every page by
 rows, decoded bytes, findings, and staged derived-state work. The complete

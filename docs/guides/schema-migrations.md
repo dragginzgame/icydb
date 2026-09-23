@@ -156,10 +156,11 @@ phases. Retrying the exact command after a lost response returns the same receip
 keep its original database, predecessor head and plan digest. Startup readiness
 still governs ordinary requests, including after deploying the successor.
 
-The generated rename rehearsal also records recurring accepted-runtime
-preparation in query-only traffic after publication or restart. Ordinary updates
-can retain that heap preparation; restart alone is not a query-cost remedy.
-See the [measured scope and limitations](../design/0.261-entity-rename/i1-read-investigation.md).
+The existing replicated watchdog prepares the accepted runtime root before
+becoming quiescent. The rename rehearsal qualifies retained preparation after
+publication and restart; it does not promise warm caches before the callback
+or after every later schema change. See the
+[current measurement and lifecycle costs](../design/0.261-entity-rename/c37-runtime-preparation.md).
 
 ### Controller workflow
 

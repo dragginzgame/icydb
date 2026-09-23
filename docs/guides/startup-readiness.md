@@ -110,6 +110,19 @@ Application timers are lost on upgrade, so the composed callback or
 application-owned participant root must recreate readiness polling before any
 scheduler restoration can occur.
 
+Before becoming quiescent, the existing replicated watchdog also prepares the
+accepted-schema runtime root in heap. This avoids repeating that preparation
+in query-only traffic after the callback has completed. It uses the current
+accepted snapshots and cache owner, not generated-model reconstruction.
+Deterministic preparation failures use the existing schema-failure receipt;
+retryable errors retain their existing classification.
+
+`Ready` remains the recovery/schema-admission condition, not a promise that
+every cache is warm: it can be observed before that callback, and later schema
+publication invalidates cached metadata. There is no new endpoint, timer, or
+readiness state. The [rename measurement](../design/0.261-entity-rename/c37-runtime-preparation.md)
+separates query instruction savings from the replicated preparation cost.
+
 ## Explicit Schema Migration
 
 `Recovering` can also mean that the accepted migration authority requires the

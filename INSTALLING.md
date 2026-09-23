@@ -5,30 +5,21 @@ maintainer-only workstation setup for this repository.
 
 ## Downstream Canisters
 
-Pin IcyDB by tag in the canister crate:
+Copy the runtime and build dependency declarations from
+[README's release-pinned example](README.md#add-icydb). README is the sole
+release-pin owner and is updated by release tooling.
 
-```toml
-[dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.237.3" }
-```
+The default crate feature set provides accepted-schema runtime support plus
+structural, typed, and dynamic reads and writes. Enable `sql` only when the
+canister uses session/library SQL APIs or generated SQL endpoints:
 
-The default crate feature set provides structural writes and accepted-schema
-runtime support. Enable SQL when the canister uses typed queries,
-session/library SQL APIs, or generated SQL endpoints:
+Add `features = ["sql"]` to the runtime dependency when needed. The other
+optional features are `metrics` and `migration`.
 
-```toml
-[dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.237.3", features = ["sql"] }
-```
-
-Schema-authoring crates use `icydb-model` with the same tag:
-
-```toml
-[dependencies]
-icydb-model = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.237.3" }
-```
-
-The runtime `icydb` facade does not re-export model declaration macros.
+Runtime-enabled crates normally author models through `icydb::model`, which
+re-exports the model declaration surface. Schema-only tooling that deliberately
+omits the runtime may depend on `icydb-model` directly.
+Use the same release tag for every IcyDB package.
 
 The public runtime `icydb` crate path supports Rust `1.88.0` and newer.
 Its library dependency path, including `icydb-model` and
@@ -38,6 +29,9 @@ pinned Rust `1.98.1` toolchain listed below.
 
 Generated endpoint build scripts should depend on `icydb` with the same tag and
 call `icydb::build::build_canister!(SchemaCanister)`.
+The [compiled single-package example](testing/model-facade-only/) owns the
+complete host/runtime setup; [schema authoring](docs/guides/schema-authoring.md)
+explains how to adapt it.
 
 ## Explicit Endpoint Declarations
 
@@ -97,9 +91,10 @@ code enabled only by those features, such as SQL introspection, is present in
 that Wasm. No IcyDB TOML file or target environment variable participates in
 endpoint selection.
 
-Readonly SQL is a generated controller-gated admin surface, not a generated
-public read endpoint. Do not expose `icydb_query` or a thin wrapper around it
-to arbitrary callers. Caller-facing reads should use ordinary typed
+Readonly SQL is controller-gated by default. An explicit
+`authorization = guard(path)` declaration replaces controller authority with
+one synchronous application decision; anonymous callers still reject. Do not
+expose unrestricted SQL to arbitrary callers. Caller-facing reads should use ordinary typed
 execution so the default bounded read-admission gate applies after the endpoint
 has performed caller authorization. See
 [docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md).
@@ -108,7 +103,7 @@ Hand-written public read endpoint guidance is in
 
 Current generated endpoint surfaces:
 
-- `icydb_query` for controller-gated read SQL
+- `icydb_query` for controller- or application-guarded read SQL
   - `introspection = true` admits `EXPLAIN`, `DESCRIBE`, and `SHOW`; these are
     included by the `icydb/sql` capability
 - `icydb_ddl` for supported accepted-catalog SQL DDL
@@ -153,7 +148,7 @@ The repository provides local maintainer targets for Ubuntu-like hosts with
 `apt-get`. `make install-dev` is the initial workstation bootstrap: it installs
 system packages, Rust, Cargo helper tools, ICP tooling, and repository hooks.
 `make update-dev` refreshes user-local Rust, Cargo, actionlint, and npm-backed
-ICP tooling without installing system packages, ensures the repository's
+ICP tooling (apart from installing `gh` if missing), ensures the repository's
 formatting hook is installed, then runs the maintainer update checks.
 
 ### System Prerequisites
@@ -161,7 +156,7 @@ formatting hook is installed, then runs the maintainer update checks.
 On Ubuntu, `make install-dev` installs the normal build and script dependencies:
 
 ```bash
-build-essential cmake curl wget gzip libssl-dev pkg-config ripgrep shellcheck nodejs npm
+build-essential cmake curl wget gzip libssl-dev pkg-config perl ripgrep shellcheck nodejs npm
 ```
 
 Canister development and wasm inspection also need:
@@ -223,9 +218,8 @@ That target installs apt-backed system prerequisites when `apt-get` is present,
 the pinned Rust toolchain, the wasm target, standard Cargo helper tools,
 `candid-extractor`, `ic-wasm`, `twiggy`, and npm-backed ICP CLI tools.
 
-`make update-dev` does not run `apt-get` or `sudo`; install missing system
-packages manually or re-run `make install-dev` when the host package surface
-needs to change.
+`make update-dev` may install the apt-backed GitHub CLI if it is missing. Other
+missing system packages require manual installation or `make install-dev`.
 
 ### Common Commands
 
@@ -234,6 +228,7 @@ make validate-fast # formatting, workflows, shell, invariants, and type checks
 make check         # type-check workspace
 make clippy        # lint with warnings denied
 make test          # complete unit and integration test boundary
+make test-documentation # focused compiled examples, capability lists, and codec evidence
 make validate      # complete formatting, invariant, feature, lint, and test gate
 make fmt           # format workspace
 make install-hooks # install the formatting-only pre-commit hook
@@ -253,6 +248,10 @@ make test-integration-feedback \
 `make validate-fast` intentionally omits executable tests and the
 feature-specific Clippy lanes. It is an iteration preflight, not a substitute
 for `make validate`.
+
+The [documentation maintenance policy](docs/governance/documentation.md) names
+the source owners and explains the distinction between structural link checks
+and executable behavioral evidence.
 
 ### SQL Evidence Commands
 
@@ -279,9 +278,8 @@ POCKET_IC_BIN="$(bash scripts/ci/install-pocketic.sh)" make ci-sql-tier-b
 ```
 
 Tier B starts one runner-owned PocketIC server, connects the parallel fixture
-pool to that server, runs the complete `sql_canister` binary and the focused
-0.237 performance regressions, then reports elapsed time and peak server
-resources. The runner stops the server on success, failure, or termination.
+pool to that server, and runs the complete `sql_canister` and `sql_perf_audit`
+binaries. The runner stops the server on success, failure, or termination.
 
 The complete Tier C native profile is a scheduled eight-shard lane. Run one
 exact shard locally with:
@@ -381,11 +379,11 @@ make install-hooks
 ```
 
 The pre-commit hook runs `make fmt`, covering Cargo manifests, derive ordering,
-and Rust code. When formatting changes a file, the hook aborts and lists the
-affected paths so you can review and re-stage them. It never runs `git add`,
-tests, Clippy, builds, PocketIC, or release validation. It also rejects
-partially staged Rust and Cargo-manifest paths rather than risk committing an
-unformatted staged snapshot.
+and Rust code. It refreshes already fully staged Rust/Cargo-manifest paths and
+continues; other formatted files remain unstaged. Partially staged formatter
+inputs reject before formatting. Formatter failures stop the commit without
+refreshing the index. The hook does not run tests, Clippy, builds, PocketIC, or
+release validation.
 
 `git commit --no-verify` remains an explicit bypass, and `git push` performs no
 repository validation. `make validate` retains the non-mutating `fmt-check`

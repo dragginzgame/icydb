@@ -8,585 +8,161 @@
 <img src="assets/icydblogo.svg" alt="IcyDB logo" width="220"/>
 
 IcyDB is a schema-first persistence and query runtime for Internet Computer
-canisters. It gives Rust canisters typed entities, stable-memory storage,
-accepted schema catalogs, indexes, typed queries, a reduced single-entity SQL
-surface, pagination, grouped aggregates, DDL-backed catalog mutation, and
-generated observability endpoints.
+canisters. It provides typed entities, durable stable-memory storage, indexes,
+bounded typed and dynamic queries, a single-entity SQL frontend, explicit
+schema migrations, and generated operational endpoints.
 
 Current workspace version: `0.261.6`
 
-IcyDB's dependency-facing minimum supported Rust version is `1.88.0` for the
-public `icydb` crate path and its library dependencies. Other workspace
-packages declare a `1.96.0` Rust floor;
-repository development, formatting, Clippy, tests, CI, and release builds use
-the pinned Rust `1.98.1` toolchain.
+IcyDB is pre-1.0. Incompatible internal format changes require recreation or
+reinstall; schema migration operates only within the current supported format.
+Read the [release notes](CHANGELOG.md) before upgrading.
 
-For local development setup, test prerequisites, and troubleshooting, see
-[INSTALLING.md](INSTALLING.md). Safety notes for host-touching commands live in
-[SECURITY.md](SECURITY.md).
+## Add IcyDB
 
-## Current Shape
-
-- Schema macros declare canisters, stores, entities, fields, indexes, records,
-  enums, collection types, validators, normalizers, and explicit relations.
-- Accepted schema snapshots are the runtime authority for row layouts, index
-  catalogs, schema reconciliation, SQL DDL, and observability.
-- Primary keys can be scalar or composite. Composite keys use ordered
-  components and generated key structs.
-- Every declared relation is validated at write and delete time. Identifiers
-  that intentionally permit missing targets remain ordinary key-typed fields.
-  Scalar and composite relation identities use full accepted primary-key
-  metadata; collection relations to composite targets remain intentionally
-  deferred.
-- SQL is intentionally single-entity. It is useful for canister-local reads,
-  writes, aggregates, introspection, and accepted-catalog DDL, not joins or
-  general relational workloads.
-- Named-record scalar paths retain their exact accepted query/index
-  capabilities. Lists, sets, and maps remain owner-local aggregates with
-  whole-field replacement, not document traversal or multikey behavior. See
-  the [nested storage contract](docs/contracts/NESTED_STORAGE.md).
-
-## Use IcyDB
-
-Pin IcyDB by tag in downstream canisters:
+Use the same release for runtime and host-side model generation:
 
 ```toml
 [dependencies]
 icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.261.6" }
-```
 
-Base IcyDB provides accepted-schema runtime support together with structural,
-typed, and dynamic reads and writes. Enable `sql` only when the canister uses
-session/library SQL APIs or generated SQL endpoints; SQL is an optional
-frontend over the same engine-neutral query runtime.
-
-IcyDB has three optional Cargo features:
-
-- `sql` adds SQL, including `EXPLAIN`, `DESCRIBE`, and `SHOW`.
-- `metrics` adds one heap-only, on-canister entity hit/cost report.
-- `migration` adds explicit schema-migration operations and endpoints.
-
-Canisters that enable `metrics` may declare `icydb_metrics` and
-`icydb_metrics_reset`. The report is update-side only: IC query calls cannot
-retain heap mutations, while endpoint-level cost remains visible in Canic.
-
-Runtime-enabled application and schema crates normally depend only on `icydb`.
-Application-model declarations, macros, reusable types, and validation are
-available through `icydb::model`. Schema-only tooling that deliberately omits
-the runtime may depend on the independently published `icydb-model` package;
-low-level proposal tools may depend on `icydb-schema` directly.
-
-Canisters normally call `icydb::start!()` in `src/lib.rs`, add `icydb` as a
-build dependency using the same tag, and call
-`icydb::build::build_canister!(SchemaCanister)` in `build.rs`. Public IcyDB
-methods are declared explicitly beside `start!()` with `icydb::endpoints!`.
-Applications that only need install or post-upgrade callbacks use the composed
-`start!` form so IcyDB registers recovery first. Applications or frameworks
-that must own the complete lifecycle root use `start!(participant)`, invoke
-the matching hidden participant synchronously, and schedule no
-database-dependent work before that call returns. Both forms must poll typed
-readiness before restoring application timers or caches. See
-[startup readiness](docs/guides/startup-readiness.md).
-
-```toml
 [build-dependencies]
 icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.261.6" }
 ```
 
-## Minimal Schema
-
-Schema definitions can live in a shared source module within the canister
-package or in a separate schema crate when sharing is useful.
-See [Schema authoring](docs/guides/schema-authoring.md) for primary-key types,
-reserved names, relation suffixes, and host/Wasm crate layouts.
-
-```rust
-use icydb::model::prelude::*;
-
-#[canister(
-    memory_namespace = "app",
-    memory_min = 100,
-    memory_max = 104,
-    commit_memory_id = 104
-)]
-pub struct AppCanister {}
-
-#[store(
-    canister = "AppCanister",
-    storage(journaled(
-        data_memory_id = 100,
-        index_memory_id = 101,
-        schema_memory_id = 102,
-        journal_memory_id = 103,
-    ))
-)]
-pub struct AppStore {}
-
-#[entity(
-    store = "AppStore",
-    version = 1,
-    pk(field = "id"),
-    index(field = "name"),
-    index(fields = ["active", "score"]),
-    constraint(
-        name = "score_nonnegative",
-        check = "score >= 0"
-    ),
-    fields(
-        field(
-            name = "id",
-            value(item(prim = "Ulid")),
-            generated(insert = "Ulid::generate")
-        ),
-        field(
-            name = "name",
-            value(item(prim = "Text", unbounded))
-        ),
-        field(
-            name = "active",
-            value(item(prim = "Bool"))
-        ),
-        field(
-            name = "score",
-            value(item(prim = "Decimal", scale = 3))
-        )
-    ),
-    timestamps
-)]
-pub struct User {}
-
-```
-
-Entity and named-type names come from their Rust declarations. Nested fields,
-variants, relations, constraints, and rules use one `name = "..."` vocabulary;
-indexes derive canonical names from their entity and key shape. The main branch
-also accepts strict scalar shorthand such as `pk(field = "id")` and
-`index(field = "name")`. Composite keys use ordered field lists such as
-`pk(fields = ["tenant_id", "local_id"])`.
-Managed timestamps are likewise explicit: place `timestamps` after
-`fields(...)`, or omit it when an entity should have no database-managed
-timestamp fields. The bare form creates conventional `created_at` and
-`updated_at` `Timestamp` fields. Either current name can be overridden with
-`timestamps(created_at(name = "inserted_at"), updated_at(name = "modified_at"))`;
-an omitted nested entry retains its conventional name.
-Entity and store names come directly from their Rust declarations; neither
-macro accepts a second name or generated-symbol override.
-
-Schema evolution uses explicit adjacent per-entity versions and a coordinated
-canister-owned plan; it never infers a rename from generated identifiers. See
-[Schema Migrations](docs/guides/schema-migrations.md) for adoption, deployment,
-bounded advancement, recovery, and abort guidance.
-
-Typed adapters are automatic when the schema crate depends on the `icydb`
-runtime facade. Named enums, records, newtypes, lists, sets, maps, and tuples
-implement the model-owned adapter traits directly, including the built-in
-types under `icydb::model::base::types`. A schema-only crate can instead use
-`icydb-model` directly and remains independent of runtime and persistence. No
-suffix-derived sibling types are created, so names such as `X` and `XEntity`
-can coexist.
-
-For macro-development diagnostics, place `#[debug]` on the public struct
-immediately below an IcyDB model attribute. The macro intentionally emits its
-generated Rust as a compiler error so it can be inspected during testing;
-remove `#[debug]` for normal compilation.
-
-## Generated Numeric Identities
-
-Use `Identity::next` when one entity needs a database-authored sequential
-unsigned primary key:
-
-```rust
-#[entity(
-    store = "AppStore",
-    version = 1,
-    pk(field = "id"),
-    fields(
-        field(
-            name = "id",
-            value(item(prim = "Nat64")),
-            generated(insert = "Identity::next")
-        ),
-        field(name = "name", value(item(prim = "Text", unbounded)))
-    )
-)]
-pub struct Project {}
-```
-
-The supported exact kinds are `Nat8`, `Nat16`, `Nat32`, `Nat64`, and
-`Nat128`; `Nat64` is the normal default. Values start at one, advance by one,
-never cycle, and are generated only for logical inserts. Rejected writes
-consume nothing, but deleting a committed row does not make its value reusable,
-so visible IDs are not guaranteed to be dense.
-
-Generated typed insert inputs omit `id`. SQL can omit the field or use
-`DEFAULT`, and `RETURNING` obtains the generated value:
-
-```sql
-INSERT INTO Project (name) VALUES ('North') RETURNING id;
-INSERT INTO Project (id, name) VALUES (DEFAULT, 'South') RETURNING id;
-```
-
-SQL DDL such as `GENERATED ALWAYS AS IDENTITY` is not accepted yet; the schema
-macro remains the authoring surface. Ordinary Nat primary keys without
-`generated(insert = "Identity::next")` remain caller-authored. Numeric
-Identity is entity-local and store-local; use ULID for decentralized or
-cross-system allocation. Narrower Nat kinds constrain the lifetime allocation
-domain but do not currently promise smaller physical keys.
-
-## Storage Modes
-
-Stores choose one explicit storage contract:
-
-- `storage(journaled(...))`: durable journaled cached-stable storage. Reads use
-  live Rust BTree projections, writes publish marker-bound journal batches, and
-  recovery folds committed journal records into canonical stable data, index,
-  and schema BTrees.
-- `storage(heap())`: volatile Rust `BTreeMap` storage. It is useful for live
-  in-process state, tests, and deliberate perf comparisons, but rows and
-  indexes are not recovered across upgrade/reinitialization and do not
-  participate in the journaled durable commit path.
-
-Journaled stores use four memory IDs: `data_memory_id`, `index_memory_id`,
-`schema_memory_id`, and `journal_memory_id`. The first three are the canonical
-stable source-of-truth roles; the fourth is the durable journal tail. `heap()`
-storage is never durable. Stable allocation keys are derived from the canister
-memory namespace, memory ID, and role, so renaming a Rust store does not
-redirect its stable memory. Durable examples should use
-`storage(journaled(...))` unless volatility is the point of the example. The
-full operator-facing durability boundary is documented in
-[docs/contracts/DURABILITY.md](docs/contracts/DURABILITY.md).
-
-## Query From Rust
-
-Opted-in generated adapters provide typed reads over accepted schema. Planning,
-admission, and execution do not consume generated model metadata. Generated
-IcyDB endpoints establish one request scope automatically. Put the thin IcyDB
-boundary outside the framework attribute on a manual IC-CDK or Canic endpoint.
-Every nested zero-argument `db!()` then shares the same scope, including before
-and after `.await`:
-
-```rust,ignore
-#[icydb::request_execution]
-#[canic_query(requires(auth::authenticated()))]
-async fn active_users() -> Result<Vec<User>, Error> {
-    authorize().await?;
-    load_active_users()
-}
-```
-
-```rust
-use icydb::prelude::*;
-
-pub fn top_users() -> Result<Vec<User>, Box<dyn std::error::Error>> {
-    let session = db!()?;
-    let rows = session
-        .query::<User>()?
-        .filter(User::ACTIVE.eq(true))
-        .order_by(desc(User::SCORE))
-        .order_by(asc(User::ID))
-        .limit(10)
-        .execute_live_page(None)?
-        .rows;
-
-    Ok(rows)
-}
-
-pub fn rename_user(
-    id: Ulid,
-    name: String,
-) -> Result<u32, icydb::Error> {
-    let session = db!()?;
-    let patch = session.structural_patch([(
-        User::NAME.as_str(),
-        icydb::db::WriteCell::Value(InputValue::text(name)),
-    )]);
-    let result = session.execute_trusted_structural_mutation(
-        icydb::db::StructuralMutation::Update {
-            entity: <User as icydb::traits::EntitySource>::ENTITY.to_string(),
-            key: InputValue::ulid(id),
-            patch,
-        },
-    )?;
-
-    Ok(result.affected_rows)
-}
-```
-
-Ordinary typed reads are bounded by default. Caller-facing endpoints
-still enforce caller authorization first and then receive typed errors for
-unsafe read shapes. Broad maintenance scans belong on explicit trusted/admin
-paths after controller authorization. See the
-[public facade API reference](docs/guides/public-facade-api.md) for the current
-surface and [READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)
-for the full admission contract.
-
-Base IcyDB also supports SQL-independent grouped typed and dynamic reads.
-Grouped calls declare ordered keys and aggregates, require explicit engine and
-page limits, and return an opaque continuation cursor; the public facade guide
-contains the maintained example.
-
-Use the structural insert-batch helper when a same-entity batch must be
-all-or-nothing:
-
-```rust
-pub fn import_users(
-    patches: Vec<icydb::db::StructuralPatch>,
-) -> Result<icydb::db::DynamicMutationResult, icydb::Error> {
-    db!()?.execute_trusted_structural_insert_batch(
-        <User as icydb::traits::EntitySource>::ENTITY,
-        patches,
-    )
-}
-```
-
-With the `sql` feature enabled, the same entity can be queried or mutated
-through session/library reduced single-entity SQL:
-
-```rust
-use icydb::prelude::*;
-
-#[icydb::request_execution]
-fn admin_work() -> Result<(), icydb::Error> {
-    let session = db!()?;
-    let rows = session.execute_trusted_sql_query(
-        "SELECT id, name, score FROM User WHERE score >= 100 ORDER BY score DESC LIMIT 10",
-    )?;
-    let updated = session.execute_trusted_sql_exact_update(
-        "UPDATE User SET name = 'Ada' WHERE id = '01J...' RETURNING id, name",
-        1,
-    )?;
-
-    // Large fixed convergence work uses IcyDB-custodied durable mutation jobs;
-    // the application retains only a fresh job ID, sequence, and replay key.
-
-    let ddl = session.execute_admin_sql_ddl(
-        "CREATE INDEX IF NOT EXISTS user_score_idx ON User (score)",
-    )?;
-    consume(rows, updated, ddl);
-    Ok(())
-}
-```
-
-The async boundary retains one counter set across suspension but installs it
-only while this future is being polled. Other interleaved messages therefore
-cannot inherit its scope. The called canister has a separate IcyDB instance
-and creates its own request root.
-
-Use the explicit form only for low-level framework integration that already
-owns and passes the root itself:
-
-```rust
-let work = icydb::db::with_request_execution_root(|request_root| async move {
-    let before = db!(&request_root)?.get(user_id)?;
-    call_another_canister().await?;
-    let after = db!(&request_root)?.get(user_id)?;
-    Ok::<_, icydb::Error>((before, after))
-});
-let result = work.await?;
-```
-
-`db!(&request_root)` does not create another allowance; it attaches the new
-session to that root's existing counters. It is not an authorization token and
-is never sent to another canister. Passing a different explicit root while a
-request root is active returns a typed mismatch error. Do not create a
-separate explicit root around each query. Lifecycle hooks, timers, and
-background task entry functions that access IcyDB also use
-`#[icydb::request_execution]`; synchronous unit tests use `#[icydb::test]`.
-
-`execute_trusted_sql_query` is an explicit trusted/admin SQL bypass. It is not
-public-safe for caller-controlled SQL by itself; public reads should prefer
-typed APIs or an application-owned SQL allowlist after caller
-authorization.
-
-## SQL Scope
-
-IcyDB supports a focused, canister-friendly SQL subset:
-
-- `SELECT`, `EXPLAIN`, compact `DESCRIBE`, `DESCRIBE ... VERBOSE`,
-  `SHOW ENTITIES`, `SHOW STORES`, `SHOW MEMORY`, compact/verbose
-  `SHOW COLUMNS`, `SHOW RELATIONS`, `SHOW INDEXES`, and `SHOW CONSTRAINTS`
-- `INSERT`, `UPDATE`, and `DELETE`, including supported `RETURNING` shapes
-- `CREATE INDEX`, `CREATE UNIQUE INDEX`, `CREATE INDEX IF NOT EXISTS`,
-  `DROP INDEX`, and `DROP INDEX IF EXISTS`
-- `ALTER TABLE ... ADD COLUMN`, `ALTER COLUMN ... SET/DROP DEFAULT`,
-  `ALTER COLUMN ... SET/DROP NOT NULL`, `RENAME COLUMN`, and dense-rewrite
-  `DROP COLUMN`
-- `ALTER TABLE ... ADD CONSTRAINT ... CHECK`, explicit `NOT VALID`, bounded
-  `VALIDATE CONSTRAINT`, and ownership-safe `DROP CONSTRAINT`
-- `WHERE`, `ORDER BY`, `LIMIT`, `OFFSET`, projection aliases, `DISTINCT`,
-  aggregates, grouped aggregates, `HAVING`, searched `CASE`, and common
-  scalar/numeric/text functions
-- field-path indexes, multi-field indexes, unique indexes, filtered indexes,
-  and deterministic `LOWER`/`UPPER`/`TRIM` expression indexes
-
-Generated checks and SQL DDL checks converge on one accepted constraint
-catalog. `SET NOT NULL`, `CREATE UNIQUE INDEX`, and `ADD ... CHECK NOT VALID`
-publish an explicit new-write gate when historical proof is required;
-`VALIDATE CONSTRAINT` advances the bounded durable proof before atomic
-promotion. `SHOW CONSTRAINTS` exposes the same accepted identity and activation
-state without performing a table scan.
-
-Reusable durable numeric and length rules also become accepted constraints.
-One rule is bound by persisted root field and nominal type, then enforced over
-every finite direct or nested occurrence—including recursive named values—by
-the same mutation, activation, integrity, and recovery authority.
-
-Rules use a closed typed grammar with named operands:
-
-```rust
-use icydb::model::prelude::*;
-
-#[newtype(
-    item(prim = "Nat16"),
-    ty(
-        rule(name = "range", numeric_range_inclusive(min = 0, max = 360)),
-        rule(name = "step", multiple_of(divisor = 5)),
-    )
-)]
-pub struct Bearing {}
-```
-
-The available operations are `length_range_inclusive`,
-`numeric_minimum_inclusive`, `numeric_maximum_inclusive`,
-`numeric_range_inclusive`, and exact integer/decimal `multiple_of`. The old
-string `kind` and positional rule `args(...)` spelling is removed. Accepted
-snapshots written with the retired `ICYT` profile are incompatible development
-state and must be recreated; the current profile is `ICYU`.
-
-Application validators and normalizers are explicit typed authoring behavior.
-Database writes never invoke them, and they do not become database constraints
-or recovery-time policy.
-
-```rust
-use icydb::model::{NormalizeAndValidate as _, normalize, validate};
-use icydb::model::{base::types::web::MimeType, visitor::VisitorError};
-
-fn prepare_explicitly(mut value: MimeType) -> Result<MimeType, VisitorError> {
-    normalize(&mut value)?;
-    validate(&value)?;
-    Ok(value)
-}
-
-fn prepare_conveniently(value: MimeType) -> Result<MimeType, VisitorError> {
-    value.normalize_and_validate()
-}
-```
-
-Direct validation checks the value as supplied. The consuming convenience
-normalizes first and validates second. Generated typed adapters perform
-neither operation implicitly.
-
-IcyDB SQL is not Postgres-style transaction SQL. Mutation statements are
-single-entity IcyDB operations, and returning `Err` from a canister update
-method does not roll back earlier state changes made by that method. Use the
-structural mutation-batch helper when one same-store combination of inserts,
-updates, replacements, and deletes across at most 64 entities must be all-or-
-nothing; the same-entity insert-batch helper is its convenience shape. On the
-Internet Computer, update calls for one canister execute one at a time; two
-concurrent client requests observe serialized canister state rather than a
-shared database transaction.
-
-Generated canister SQL endpoints are deliberately narrower than the
-session/library SQL APIs. The exported methods are `icydb_query`, `icydb_ddl`,
-and `icydb_update` only when their exact declarations appear in the canister
-source. Generated Rust wrappers use hidden `__icydb_*` names only to avoid
-collisions with non-exported application hooks. Cargo features compile private
-capabilities; source declarations alone ask IcyDB to export maintained public
-wrappers. Local-only methods use ordinary canister-owned `#[cfg(feature =
-"...")]` declarations.
-Generated SQL endpoints are controller-gated by default. A source declaration
-may instead use `authorization = guard(path)` to replace controller authority
-with one synchronous application decision for the complete generated SQL read
-lane. Guarded SQL still rejects anonymous callers and never adds an implicit
-controller fallback. The dedicated `icydb_schema` declaration independently
-accepts `public`, `controller`, or `guard(path)` authority; its schema guard
-does not authorize SQL introspection, and the SQL guard does not export the
-schema method. Caller-facing list/count/complete reads that need a narrower
-shape should be hand-written typed endpoints using the read-intent guidance
-and endpoint templates in
-[docs/guides/read-intent.md](docs/guides/read-intent.md).
-
-Out of scope by design: joins, subqueries, CTEs, quoted identifiers, window
-functions, cursor pagination in scalar SQL, and broad unbounded pattern
-matching.
-
-Detailed SQL contract: [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.md)
-
-## Local Development
-
-Use the fast non-mutating preflight while iterating:
-
-```bash
-make validate-fast
-```
-
-For integration-test changes, run the exact case first and then its complete
-test binary through the focused feedback target:
-
-```bash
-make test-integration-feedback TEST_TARGET=sql_canister TEST_NAME=exact_test_name
-```
-
-Repository setup, the complete validation boundary, PocketIC and CI-equivalent
-Tier B commands, local SQL demos, CLI usage, and Wasm reports live in
-[INSTALLING.md](INSTALLING.md).
-
-## Repository Map
-
-- `crates/icydb` - public runtime facade, model-authoring re-export,
-  accepted-schema session APIs, and generated actor-wiring/build surfaces.
-- `crates/icydb-core` - runtime, planner, executor, persisted rows, stores,
-  SQL, schema catalog, and metrics internals.
-- `crates/icydb-diagnostic-code` - compact diagnostic code registry and
-  public diagnostic metadata.
-- `crates/icydb-schema` - bounded public schema-proposal contract and canonical
-  scalar atoms shared by standalone IcyDB and model tooling.
-- `crates/icydb-model` - application-model declarations, host graph, reusable
-  model types and behavior, fragment lowering, and generated canister actor
-  glue.
-- `crates/icydb-model-macros` - current application-model declaration and
-  application helper macros consumed through `icydb::model` or standalone
-  `icydb-model`.
-- `crates/icydb-cli` - developer CLI for local SQL, canister
-  lifecycle helpers, and observability reports.
-- `schema/*` - demo, audit, and test schemas.
-- `canisters/*` - demo, audit, and integration canisters.
-- `testing/*` - macro, wasm, and IC testkit support.
-- `docs/contracts/*` - behavior contracts.
-- `docs/operations/*` - operator-facing deployment and durability guides.
-- `docs/changelog/*` - detailed release notes.
-
-## More Docs
-
-- [INSTALLING.md](INSTALLING.md)
-- [SECURITY.md](SECURITY.md)
-- [CHANGELOG.md](CHANGELOG.md)
-- [docs/operations/DURABILITY_GUIDE.md](docs/operations/DURABILITY_GUIDE.md)
-- [docs/guides/public-facade-api.md](docs/guides/public-facade-api.md)
-- [docs/guides/read-intent.md](docs/guides/read-intent.md)
-- [docs/guides/diagnostics.md](docs/guides/diagnostics.md)
-- [docs/guides/startup-readiness.md](docs/guides/startup-readiness.md)
-- [docs/contracts/QUERY_CONTRACT.md](docs/contracts/QUERY_CONTRACT.md)
-- [docs/contracts/QUERY_PRACTICE.md](docs/contracts/QUERY_PRACTICE.md)
-- [docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md)
-- [docs/contracts/WRITE_ADMISSION.md](docs/contracts/WRITE_ADMISSION.md)
-- [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.md)
-- [docs/contracts/DURABILITY.md](docs/contracts/DURABILITY.md)
-- [docs/contracts/ATOMICITY.md](docs/contracts/ATOMICITY.md)
-- [docs/contracts/PERSISTED_FORMAT_POLICY.md](docs/contracts/PERSISTED_FORMAT_POLICY.md)
-- [docs/contracts/PERSISTED_FORMAT_INVENTORY.md](docs/contracts/PERSISTED_FORMAT_INVENTORY.md)
-- [docs/contracts/REF_INTEGRITY.md](docs/contracts/REF_INTEGRITY.md)
-- [docs/contracts/RESOURCE_MODEL.md](docs/contracts/RESOURCE_MODEL.md)
-- [docs/contracts/TRANSACTION_SEMANTICS.md](docs/contracts/TRANSACTION_SEMANTICS.md)
-- [docs/1.0-FEATURES.md](docs/1.0-FEATURES.md)
-- [docs/1.0-TODO.md](docs/1.0-TODO.md)
-- [docs/FOUNDATIONS.md](docs/FOUNDATIONS.md)
+The default feature set includes structural, typed, and dynamic reads and writes.
+Optional features are `sql` for session SQL and generated SQL endpoints,
+`metrics` for heap-only entity hit/instruction reports, and `migration` for
+explicit schema-migration operations. Features compile capabilities; public
+endpoints require explicit source declarations.
+
+Runtime-enabled crates author schemas through `icydb::model`. Standalone
+schema-only tooling may depend on `icydb-model` instead. The public dependency
+path supports Rust `1.88.0`; workspace development uses pinned Rust `1.98.1`,
+with a `1.96.0` declared floor for other workspace packages.
+
+See [installation](INSTALLING.md) for feature and endpoint setup, local tools,
+validation, and troubleshooting.
+
+## Start From A Compiled Example
+
+The maintained [single-package example](testing/model-facade-only/) is compiled
+by the workspace. Its native test exercises generated startup, a typed insert,
+and a typed read; its separate PocketIC test covers install and same-code
+upgrade.
+
+| File | Responsibility |
+| --- | --- |
+| [Cargo.toml](testing/model-facade-only/Cargo.toml) | Runtime and build dependencies, with SQL disabled |
+| [design/mod.rs](testing/model-facade-only/src/design/mod.rs) | Canister namespace, journaled store key, record, and entity |
+| [build.rs](testing/model-facade-only/src/build.rs) | Generate the actor from the shared schema module |
+| [lib.rs](testing/model-facade-only/src/lib.rs) | Host memory grant, lifecycle wiring, typed writes and reads |
+| [Canister test](testing/integration/tests/model_facade.rs) | Install, write, read, and upgrade qualification |
+
+The fixture deliberately renames its IcyDB dependency to `runtime_api` to
+exercise Cargo dependency resolution. Applications can use the ordinary
+`icydb` name from the dependency example above. Its test endpoints are
+demonstrations; application endpoints must enforce their own authorization.
+
+Keep schema declarations in a module shared by the build script and canister.
+Declare a permanent database `memory_namespace` and journaled store `key`;
+grant the corresponding `icydb.<namespace>` memory pool in the canister host
+with `icydb::ic_memory_range!` and `mode = Allowed`. Persisted logical keys
+own allocation identity; Rust names and declaration order do not.
+
+[Schema authoring](docs/guides/schema-authoring.md) covers scalar/composite
+primary keys, generated identities, relations, named values, managed timestamps,
+host grants, and memory profiles. [Startup readiness](docs/guides/startup-readiness.md)
+covers composed lifecycle hooks and readiness before restoring application
+timers or caches.
+
+## Runtime Contracts
+
+Accepted schema snapshots are the runtime authority. Generated declarations
+propose schema and supply typed adapters; query planning, admission, storage,
+and recovery consume accepted metadata.
+
+- Journaled stores publish durable batches and converge them through the
+  existing replicated recovery driver. Heap stores are intentionally volatile.
+- Ordinary typed/dynamic reads use bounded public admission. A limit alone does
+  not make an unsafe scan admissible. Trusted methods require application-owned
+  authorization.
+- Manual endpoints, timers, and background entries use
+  `#[icydb::request_execution]` so nested database calls share request budgets.
+  Generated IcyDB endpoints establish their scope automatically.
+- Declared relations enforce target existence and delete restrictions.
+  Collection relations to composite targets remain outside the supported scope.
+- Named-record scalar paths support their accepted query/index capabilities.
+  Lists, sets, and maps remain owner-local values with whole-field replacement.
+- Same-store mutation batches can be atomic across at most 64 accepted entities.
+  Separate writes remain separate commits; returning `Err` from application
+  code does not undo earlier successful writes.
+- Source-versioned schema migration is explicit. Supported entity renames retain
+  accepted identity and data; physical transformations use bounded advancement,
+  recovery, and terminal receipts.
+
+Use the [public facade guide](docs/guides/public-facade-api.md) for maintained
+query/write examples, [read intent](docs/guides/read-intent.md) for caller-facing
+endpoints, and [schema migrations](docs/guides/schema-migrations.md) for deployment.
+
+## SQL And Observability
+
+The optional SQL frontend supports single-entity reads, mutations, aggregates,
+grouping, introspection, and accepted-catalog DDL. It excludes joins, subqueries,
+CTEs, window functions, and transaction blocks. The
+[SQL subset contract](docs/contracts/SQL_SUBSET.md) owns the exact supported
+syntax and semantics.
+
+Generated SQL reads are controller-gated by default; an explicit synchronous
+application guard can replace that authorization. Generated updates and DDL
+remain administrative surfaces. Prefer typed endpoints for narrowly scoped
+caller-facing reads.
+
+Typed query explanations and SQL `EXPLAIN` describe planning. Optional metrics
+report update-side entity hits and instructions; query calls cannot retain
+heap counters. Storage snapshots and schema inspection have separate APIs.
+[Diagnostics](docs/guides/diagnostics.md) explains compact E-codes.
+
+## Development
+
+Start with [INSTALLING.md](INSTALLING.md) and [local command safety](SECURITY.md).
+Use focused tests while iterating; the complete validation workflow belongs to
+release preparation. Raw non-gzipped Wasm bytes, IC cycles, and instruction counts
+are the performance measures.
+
+The public facade is in `crates/icydb`; runtime internals are in
+`crates/icydb-core`. Model authoring lives in `icydb-model` and
+`icydb-model-macros`, proposal/scalar contracts in `icydb-schema`, diagnostics
+in `icydb-diagnostic-code`, and the CLI in `icydb-cli`.
+`schema/`, `canisters/`, and `testing/` hold compiled examples and qualification
+fixtures.
+
+## Documentation
+
+Guides explain usage; contracts define maintained behavior. Design reports and
+release notes retain historical evidence and do not replace current contracts.
+
+- [Durability operations](docs/operations/DURABILITY_GUIDE.md),
+  [durability](docs/contracts/DURABILITY.md),
+  [atomicity](docs/contracts/ATOMICITY.md), and
+  [transaction semantics](docs/contracts/TRANSACTION_SEMANTICS.md)
+- [Query contract](docs/contracts/QUERY_CONTRACT.md),
+  [predicate semantics](docs/contracts/QUERY_PRACTICE.md),
+  [cursors](docs/contracts/CURSOR.md), and
+  [resource bounds](docs/contracts/RESOURCE_MODEL.md)
+- [Read admission](docs/contracts/READ_ADMISSION.md),
+  [write admission](docs/contracts/WRITE_ADMISSION.md),
+  [relations](docs/contracts/REF_INTEGRITY.md),
+  [identity](docs/contracts/IDENTITY_CONTRACT.md), and
+  [nested storage](docs/contracts/NESTED_STORAGE.md)
+- [Persisted-format policy](docs/contracts/PERSISTED_FORMAT_POLICY.md) and
+  [durable-surface inventory](docs/contracts/PERSISTED_FORMAT_INVENTORY.md)
+- [Multi-canister workflows](docs/guides/multi-canister-workflows.md) and
+  [foundations](docs/FOUNDATIONS.md)
+- [1.0 feature contract](docs/1.0-FEATURES.md) and
+  [1.0 readiness](docs/1.0-TODO.md)
 
 ## License
 
-Licensed under either:
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT License ([LICENSE-MIT](LICENSE-MIT))
-
-at your option.
+Licensed under either [Apache License 2.0](LICENSE-APACHE) or
+[MIT](LICENSE-MIT), at your option.

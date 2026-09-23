@@ -134,8 +134,10 @@ delete-safety decisions until atomic promotion.
 
 Recovery is not a general repair tool for arbitrary hostile stable-memory
 images. It does not promise to detect every well-formed-but-wrong value.
-Checksums remain future work; explicit Quick/Deep integrity inspection is
-read-only diagnostic verification after recovery, not part of replay.
+Checksummed control and metadata envelopes detect corruption at their bounded
+decoding boundaries, but raw row and derived-index records do not have blanket
+per-record checksums. Explicit Quick/Deep integrity inspection is read-only
+diagnostic verification after recovery, not part of replay.
 
 ## Integrity Inspection Workflow
 
@@ -189,24 +191,28 @@ format compatibility, corruption detection, and resource limits first.
 
 ## Checksums
 
-The current line does not write persisted checksums.
+The current line checksums selected control and metadata records, including
+schema-control, startup, migration, job, and identity envelopes named in the
+[persisted-format inventory](../contracts/PERSISTED_FORMAT_INVENTORY.md). It
+does not provide a blanket checksum over every raw row, index entry, or stable
+memory page.
 
-Current protection is structural validation, bounded fallible decoding, and
-startup recovery. Checksums remain a future persisted-format feature and must
-be classified under `docs/contracts/PERSISTED_FORMAT_POLICY.md` before being
-added.
+All persisted decoding remains bounded, fallible, and structurally validated;
+startup recovery protects publication and derived-state consistency. Adding
+checksums to another durable surface is a format change and must follow the
+[persisted-format policy](../contracts/PERSISTED_FORMAT_POLICY.md).
 
 ## Recovery Size Limits
 
-0.190 added a checked 256-row secondary-index rebuild characterization. 0.191
-raises the simple secondary-index host floor to 1,024 rows, adds a
-128-row-per-shape mixed ordinary, conditional, and expression index rebuild
-floor, and adds a PocketIC same-WASM upgrade/reentry instruction probe over the
-32-row journaled `sql_perf` fixture. Treat those as regression floors and
-audit budgets, not production limits.
+The replicated driver already converges retained journals one complete batch
+at a time. Commit admission bounds individual batches and total backlog;
+startup waits for retained debt, while ordinary operation can retain complete
+live overlays during background convergence. This is the current production
+mechanism, as described in the [durability contract](../contracts/DURABILITY.md#recovery-size-and-scale-limits).
 
-Until IcyDB publishes a production recovery-size bound or streaming
-fold/rebuild design:
+Production capacity still depends on schema size, row width, index/relation
+fanout, and retained debt. Historical rebuild row-count probes are regression
+floors, not deployment limits. For each deployment:
 
 - avoid claiming arbitrary large-index recovery is budget-certified;
 - monitor canister instruction and memory pressure around large schema/index
@@ -221,8 +227,8 @@ staging bounds. Large historical domains therefore require repeated bounded
 pages; hitting a bound retains incomplete progress and never promotes the
 constraint.
 
-The future streaming recovery follow-up is tracked in
-`docs/design/archive/0.191-durability-productization-format-policy/streaming-recovery-followup.md`.
+Use current recovery/convergence fixtures for qualification. Archived proposals
+describe their original design context and do not define current missing work.
 
 ## Quick Checklist
 

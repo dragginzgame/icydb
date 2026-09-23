@@ -51,6 +51,11 @@ pub(super) fn drive_recovery_page<C: CanisterKind>(
     match session.drive_startup_recovery_page_with_failure_authority() {
         Ok(true) if startup_ready => {
             super::receipt::clear::<C>()?;
+            // Prepare the accepted root in replicated heap before this watchdog
+            // becomes quiescent; query-only preparation cannot retain the cache.
+            if let Err(error) = session.current_accepted_runtime_root_identity() {
+                return record_schema_application_failure::<C>(stores, submission_key, error);
+            }
             match drive_cardinality_page(stores) {
                 Ok(step) => Ok(step),
                 Err(_) => Ok(GeneratedStartupDriverStep::Terminal),

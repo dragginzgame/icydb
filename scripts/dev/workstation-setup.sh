@@ -26,6 +26,7 @@ DEV_SYSTEM_PACKAGES=(
   gzip
   libssl-dev
   pkg-config
+  perl
   ripgrep
   shellcheck
   nodejs
