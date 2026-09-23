@@ -331,8 +331,9 @@ appends missing primary-key components as hidden tie breakers. With no authored
 term, scalar page execution uses accepted primary-key order.
 For caller-facing read APIs, use the maintained bounded typed/dynamic surface
 described in [`docs/guides/read-intent.md`](../guides/read-intent.md).
-`Query::limit(...)` supplies the returned-row bound, while accepted planning
-must still prove bounded/index-backed access. Trusted SQL retains its explicit
+Scalar pages supply their own returned-row envelope; `Query::limit(...)` is an
+optional total-traversal cap. Accepted planning must still prove bounded/index-backed
+access. Trusted SQL retains its explicit
 `LIMIT` / `OFFSET` semantics.
 
 Rationale:

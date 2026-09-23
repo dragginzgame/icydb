@@ -2,7 +2,9 @@
 
 **Status:** Authoritative (current baseline; resource model introduced in `0.36`)
 
-All query execution paths must conform to this model.
+This is the documentation home for resource scope and limits. Compiled input,
+admission, request and execution owners enforce them; prose is not runtime
+policy. All query execution paths must conform to this model.
 
 ## 1. Purpose
 
@@ -32,16 +34,17 @@ Heap memory consumed during query execution. This includes:
 - Key buffers
 - Row decode buffers
 
-Constraint (grouped runtime path):
-
-`M <= M_max`
-
-Where `M_max` is represented by explicit grouped execution limits:
+Grouped state has explicit accounting limits:
 
 - `max_groups`
 - `max_group_bytes`
 - `max_distinct_values_per_group`
 - `max_distinct_values_total`
+
+`max_group_bytes` caps the total accounted live grouped state, not bytes per
+group. These estimates are not measurements of the complete Wasm heap or
+allocator overhead. Request/execution byte counters separately bound charged
+construction, decoding and materialization work.
 
 ### 2.2 Instruction Cost (`I`)
 
@@ -53,18 +56,16 @@ Instruction execution cost per call. Major contributors include:
 - Aggregate fold updates
 - Hash and DISTINCT bookkeeping
 
-Constraint:
+Finite per-execution and cumulative request budgets charge named work and
+sample IC instruction usage at maintained boundaries. Scan/page bounds and
+grouped-state limits are additional controls, not replacements for them.
+One group can contain many input rows: a group-count cap does not bound all
+row visits, predicate evaluations or aggregate fold operations.
 
-`I <= I_max`
-
-Enforcement is contract-based, not one universal scalar cap. Current controls:
-
-- Route-derived load scan-budget hints for eligible scalar load shapes
-- Grouped memory and DISTINCT caps that bound grouped hash/distinct work
-
-All Class B operators must ensure the same cardinality caps that bound memory
-also bound hash, DISTINCT, and fold operation counts, so worst-case instruction
-growth remains proportional to capped structures.
+Instruction sampling is not continuous, and construction estimates are not IC
+instruction measurements. Failure headroom reserves capacity to return typed
+exhaustion; these controls do not prove that every intervening allocation or
+operation is individually bounded below the replica's hard limit.
 
 ### 2.3 Stable Memory Growth (`S`)
 
@@ -87,6 +88,100 @@ Boundedness is enforced by two distinct authorities:
 Runtime caps are necessary but are not a substitute for planner proof. A shape
 without planner-bounded admission must not be classified as Class A only because
 runtime caps exist.
+
+### Public Read And Input Ceilings
+
+The following table is checked against the compiled default admission policy
+and shared query-input constants. Byte values are exact bytes. These are
+admission/input ceilings, not the larger internal execution profiles below.
+They are not caller-selectable modes.
+
+<!-- icydb-read-resource-limits:start -->
+
+| Limit | Value | Scope |
+| --- | ---: | --- |
+| `max_returned_rows` | 100 | Public returned-row bound; scalar pages supply an envelope |
+| `max_primary_key_input_terms` | 1024 | Public primary-key predicate input |
+| `max_primary_key_input_bytes` | 65536 | Public primary-key predicate input bytes |
+| `max_groups` | 100 | Maximum public grouped-query group limit |
+| `max_group_bytes` | 65536 | Maximum public grouped-query total live-state byte limit |
+| `max_input_depth` | 128 | Authored expression/value nesting |
+| `max_input_nodes` | 4096 | Counted nodes across query components |
+| `max_input_bytes` | 2097152 | Counted variable payload across query components |
+
+<!-- icydb-read-resource-limits:end -->
+
+Grouped calls must supply positive group and memory limits within the public
+ceilings. Their byte limit is shared across retained groups and states.
+Trusted reads bypass public shape policy, not query-input or execution limits.
+For scalar pages, an authored `LIMIT` restricts the whole traversal, not each
+page. See [read admission](READ_ADMISSION.md) for eligibility and diagnostics.
+
+DISTINCT execution counts are derived from the grouped byte and group limits
+by the grouped accounting owner: the per-group cap is the byte limit divided
+by 64 (with a minimum of one), and the total cap is that count multiplied by
+the group limit with saturating arithmetic. Live-memory and request/execution
+caps also apply and can reject before either count cap is reached.
+
+### Request And Execution Budgets
+
+| Authority | Scope and responsibility | Compiled owner |
+| --- | --- | --- |
+| Input admission | Authored query components, including effective SQL parameter copies; not planner-produced work | [input](../../crates/icydb-core/src/db/query/admission/input.rs) |
+| Public admission | Selected-plan row, access, key-input and grouped-policy proofs | [policy](../../crates/icydb-core/src/db/query/admission/policy.rs) |
+| Request root | Monotonic preparation and attached execution charges across nested calls and async polls | [request](../../crates/icydb-core/src/db/session/request.rs) |
+| Read execution | One prepared execution's physical work, attached to its request scope | [execution budget](../../crates/icydb-core/src/db/executor/budget.rs) |
+| Mutation advancement | Separate fixed engine-owned profile and explicit pre-publication instruction checks | [execution budget](../../crates/icydb-core/src/db/executor/budget.rs) |
+| Grouped state | Live group memory plus cumulative group/DISTINCT work | [grouped accounting](../../crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context.rs) |
+
+Named resources include query/planning work, key and row visits, stored/decoded/
+materialized bytes, expression/value steps, sort work and scratch, group/DISTINCT
+state, cursor work, temporary bytes, result rows/bytes and instruction units.
+Current internal profile values and failure reserves live in the linked owners;
+they are not a second public tuning API.
+
+Generated endpoints establish a request root automatically. Manual entries use
+the [request scope](../guides/public-facade-api.md#request-entry). Re-entering a
+helper, deriving another session, catching an error or resuming after `await`
+does not reset that root's counters. An outbound call does not share the root
+with another canister. Native counters do not measure IC instructions.
+
+### Preparation Accounting And Coverage
+
+Construction charges apply before the maintained allocation/copy boundaries,
+on cold and warm calls and on public and trusted reads. Reservations may be
+conservative: discarded candidates can leave unused admitted work or capacity.
+Limits do not imply every implementation step has complete accounting.
+
+- Typed/dynamic clause copies, accepted predicate materialization, grouped
+  destination vectors and expression-to-predicate lowering use the existing
+  request's work/temporary-byte authority.
+- Filtered plan-cache hits still normalize current operands and derive identity.
+  Filterless early hits skip that normalization, but cache-key lookup and warm
+  lifecycle validation still charge their instruction intervals. Hits are not
+  a budget bypass. See the [cache owner](../../crates/icydb-core/src/db/session/query/cache.rs).
+- Key/fingerprint/continuation construction admits retained backing and supported
+  value copies. Only complete successful identities or plans publish. Exhaustion
+  cannot become a placeholder fingerprint, missing predicate or absent candidate.
+- Access planning admits maintained candidate lists, child dispatch, selected
+  operand copies and bound construction. Optional compilation preserves the
+  distinction between unsupported input and resource exhaustion. Successful
+  cache/memo reuse skips work it no longer performs, not work still required.
+- Cold accepted-runtime and inspection-plan construction has its own admitted
+  boundaries. A shared request profile is not proof of complete schema compilation,
+  journal replay or publication accounting. Atomic candidate publication and
+  independent persisted-data verification remain required.
+
+Full allocation/stack bounds for boolean normalization, payload comparisons,
+schema lookup/validation, proof/scoring internals and parser/normalizer scratch
+remain separately qualified work. Endpoint decoding and the final application
+response also remain application responsibilities. Partial construction guards
+must not be described as a whole-pipeline bound. The pinned-toolchain lowercase
+expansion allowance must be requalified on toolchain changes.
+
+Detailed historical construction changes and their original measurement scope
+remain in the [0.257](../changelog/0.257.md) and [0.261](../changelog/0.261.md)
+notes. They do not replace current code or certify unmeasured paths.
 
 ## 3. Operator Classification
 

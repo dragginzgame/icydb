@@ -463,6 +463,7 @@ test-documentation:
 	perl scripts/ci/check-documentation.pl
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-schema --lib documentation_
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-model-macros --lib documentation_
+	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features documentation_
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-model-facade-only --lib tests::
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::startup::receipt::tests::
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::migration_record::tests::

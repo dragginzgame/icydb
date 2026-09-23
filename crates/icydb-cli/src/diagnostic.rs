@@ -15,7 +15,7 @@ use icydb::diagnostic::{
     SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode,
     SqlWriteBoundaryCode,
 };
-use std::fmt::Write as _;
+use std::{fmt::Write as _, fs::File, io::Read, path::Path};
 
 use crate::{
     cli::DiagnosticArgs,
@@ -37,18 +37,90 @@ struct DiagnosticSchemaIdentity {
     constraint_id: Option<u32>,
 }
 
+const MAX_DIAGNOSTIC_ERROR_BYTES: u64 = 64 * 1024;
+
+// Bound bytes before deserializing the existing public payload. JSON's default
+// recursion bound stays enabled; no CLI-owned transport shape is introduced.
+fn read_error_json(reader: impl Read) -> Result<icydb::Error, String> {
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_DIAGNOSTIC_ERROR_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|err| format!("cannot read diagnostic error JSON: {err}"))?;
+    if bytes.len() as u64 > MAX_DIAGNOSTIC_ERROR_BYTES {
+        return Err("diagnostic error JSON exceeds 64 KiB".to_string());
+    }
+    if bytes.iter().find(|byte| !byte.is_ascii_whitespace()) != Some(&b'{') {
+        return Err("diagnostic error JSON must be an object".to_string());
+    }
+    serde_json::from_slice(&bytes).map_err(|err| format!("invalid public IcyDB Error JSON: {err}"))
+}
+
+fn load_error_json(path: &Path) -> Result<icydb::Error, String> {
+    if path == Path::new("-") {
+        read_error_json(std::io::stdin().lock())
+    } else {
+        let file =
+            File::open(path).map_err(|err| format!("cannot open diagnostic error JSON: {err}"))?;
+        read_error_json(file)
+    }
+}
+
 /// Resolve and print one compact diagnostic entirely from host-side authority.
 pub(crate) fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String> {
-    if args.facts().is_empty()
+    println!("{}", diagnostic_command_report(&args)?);
+    Ok(())
+}
+
+fn diagnostic_command_report(args: &DiagnosticArgs) -> Result<String, String> {
+    let payload = args.error_json().map(load_error_json).transpose()?;
+    let code = payload.as_ref().map(|error| error.code().raw().to_string());
+    let code = code
+        .as_deref()
+        .or_else(|| args.code())
+        .ok_or("a diagnostic input is required")?;
+    if payload.is_none()
+        && args.facts().is_empty()
         && args.artifact().is_none()
         && args.source_metadata().is_none()
         && args.canister_name().is_none()
     {
-        println!("{}", render_error_code_report(args.code())?);
-        return Ok(());
+        return render_error_code_report(code);
     }
 
-    let facts = parse_facts(args.facts())?;
+    let facts = match &payload {
+        Some(error) => error
+            .facts()
+            .iter()
+            .map(|fact| RawDiagnosticFact {
+                tag: fact.tag(),
+                value: fact.value(),
+            })
+            .collect(),
+        None => parse_facts(args.facts())?,
+    };
+    let mut report = resolved_diagnostic_report(args, code, &facts)?;
+    if let Some(error) = payload {
+        // Preserve actual origin and validated caller field context alongside
+        // the registry's default origin and exact-schema resolution.
+        write!(
+            report,
+            "\norigin: {}\npayload: {}",
+            origin_text(error.origin().into()),
+            render_error(&error)
+        )
+        .map_err(|err| format!("cannot render diagnostic error: {err}"))?;
+    }
+    Ok(report)
+}
+
+// Both CLI input sources share the same fingerprint/provenance checks and
+// resolver order. Payload decoding never supplies schema authority itself.
+fn resolved_diagnostic_report(
+    args: &DiagnosticArgs,
+    code: &str,
+    facts: &[RawDiagnosticFact],
+) -> Result<String, String> {
     let explicit_artifact = args
         .artifact()
         .map(DiagnosticSchemaArtifact::read_deployment)
@@ -72,10 +144,9 @@ pub(crate) fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String>
         }
         matches
     });
-    let fact_schema_is_valid =
-        diagnostic_fact_schema_mismatch(args.code(), facts.as_slice())?.is_none();
+    let fact_schema_is_valid = diagnostic_fact_schema_mismatch(code, facts)?.is_none();
     let identity = fact_schema_is_valid
-        .then(|| DiagnosticSchemaIdentity::from_facts(facts.as_slice()))
+        .then(|| DiagnosticSchemaIdentity::from_facts(facts))
         .flatten();
     let exact_artifact_found = identity.is_some_and(|identity| {
         explicit_artifact.is_some_and(|artifact| {
@@ -132,14 +203,7 @@ pub(crate) fn run_diagnostic_command(args: DiagnosticArgs) -> Result<(), String>
         .flatten()
         .collect::<Vec<_>>();
 
-    let report = render_error_code_report_with_facts(
-        args.code(),
-        facts.as_slice(),
-        artifacts.as_slice(),
-        &mut notes,
-    )?;
-    println!("{report}");
-    Ok(())
+    render_error_code_report_with_facts(code, facts, artifacts.as_slice(), &mut notes)
 }
 
 /// Render one compact public IcyDB error code for CLI lookup.
@@ -1622,9 +1686,90 @@ const fn sql_ddl_feature_text(feature: SqlFeatureCode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        RawDiagnosticFact, artifact::DiagnosticSchemaArtifact, parse_error_code, render_error,
+        MAX_DIAGNOSTIC_ERROR_BYTES, RawDiagnosticFact, artifact::DiagnosticSchemaArtifact,
+        diagnostic_command_report, parse_error_code, read_error_json, render_error,
         render_error_code_report, render_error_code_report_with_facts,
     };
+    use crate::cli::{CliArgs, CliCommand};
+    use clap::Parser;
+    use std::io::{Cursor, Write as _};
+
+    #[test]
+    fn error_json_preserves_public_payload_and_large_numeric_values() {
+        let input = serde_json::to_vec(&serde_json::json!({
+            "code": u16::MAX, "class": 0, "origin": 0,
+            "facts": [{ "tag": 255, "value": u64::MAX }], "query_field": null,
+        }))
+        .unwrap();
+        let error = read_error_json(input.as_slice()).expect("public payload");
+        assert_eq!(error.code().raw(), u16::MAX);
+        assert_eq!(error.facts()[0].tag(), 255);
+        assert_eq!(error.facts()[0].value(), u64::MAX);
+        assert!(error.query_field().is_none());
+    }
+
+    #[test]
+    fn error_json_bounds_reads_and_accepts_the_exact_byte_limit() {
+        let mut input =
+            br#"{"code":7,"class":0,"origin":0,"facts":[],"query_field":null}"#.to_vec();
+        input.resize(usize::try_from(MAX_DIAGNOSTIC_ERROR_BYTES).unwrap(), b' ');
+        assert!(read_error_json(input.as_slice()).is_ok());
+        input.extend_from_slice(&[b' '; 32]);
+        let mut reader = Cursor::new(input);
+        assert!(read_error_json(&mut reader).is_err());
+        assert_eq!(reader.position(), MAX_DIAGNOSTIC_ERROR_BYTES + 1);
+    }
+
+    #[test]
+    fn error_json_rejects_malformed_wrong_shape_and_trailing_data() {
+        for input in [
+            "{",
+            "[]",
+            "{}",
+            "[7,0,0,[],null]",
+            r#"{"Err":{"code":7,"class":0,"origin":0,"facts":[]}}"#,
+            r#"{"code":7,"class":0,"origin":0,"facts":"invalid"}"#,
+            r#"{"code":7,"class":0,"origin":0,"facts":[]} {}"#,
+        ] {
+            assert!(read_error_json(input.as_bytes()).is_err());
+        }
+    }
+
+    #[test]
+    fn diagnostic_json_file_reaches_the_shared_context_renderer() {
+        let input = serde_json::json!({
+            "code": icydb::ErrorCode::QUERY_PLAN.raw(),
+            "class": icydb::ErrorCode::QUERY_PLAN.class().wire_code(),
+            "origin": icydb::diagnostic::ErrorOrigin::Query.wire_code(),
+            "facts": [{ "tag": icydb::diagnostic::DiagnosticFactTag::TermIndex.raw(), "value": 1 }],
+            "query_field": { "role": icydb::diagnostic::QueryFieldRole::OrderBy.raw(), "field": "line\n\u{1b}`" },
+        });
+        let bytes = serde_json::to_vec(&input).unwrap();
+        let expected = read_error_json(bytes.as_slice()).unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "icydb-diagnostic-input-{}.json",
+            std::process::id()
+        ));
+        let mut file = std::fs::File::create_new(&path).expect("new test input");
+        file.write_all(&bytes).unwrap();
+        drop(file);
+        let args = CliArgs::try_parse_from([
+            "icydb",
+            "diagnostic",
+            "--error-json",
+            path.to_str().unwrap(),
+        ])
+        .unwrap();
+        let CliCommand::Diagnostic(args) = args.into_command() else {
+            panic!("diagnostic command")
+        };
+        let report = diagnostic_command_report(&args);
+        std::fs::remove_file(path).expect("remove this test's input");
+        let report = report.expect("structured report");
+        assert!(report.ends_with(&format!("payload: {}", render_error(&expected))));
+        assert!(!report.contains('\u{1b}'));
+        assert!(expected.validated_query_field().unwrap().is_some());
+    }
 
     fn decoded_query_field_error(
         code: icydb::ErrorCode,

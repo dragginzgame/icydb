@@ -23,7 +23,7 @@ Generated Rust adapters never choose admission or execution semantics.
 | Adapter-owned trusted page step | `advance_trusted_live_page(&request, continuation.as_deref())` |
 | Trusted dynamic grouped maintenance read | `execute_trusted_dynamic_grouped_query(&request)` |
 | Trusted SQL read | `execute_trusted_sql_query(sql)` |
-| Query diagnostics | SQL `EXPLAIN` through a trusted/admin surface |
+| Query diagnostics | Typed `db.query::<E>()?.explain()` without SQL, or SQL `EXPLAIN` through a trusted/admin surface |
 
 Public scalar typed and dynamic reads return bounded live pages. A non-null
 continuation means traversal is not yet proven exhausted; it does not promise
@@ -39,10 +39,13 @@ intentionally do not collect a complete traversal.
 
 ## When Admission Rejects A Read
 
-The public lane is deliberately fail-closed. A request must carry a positive
-row limit no greater than 100 and select a planner-proven bounded/index-backed
-route. It rejects unbounded scans, materialized ordering, unsupported grouped
-shapes, and excessive primary-key input work before row execution.
+The public lane is deliberately fail-closed. Scalar live/exhaustive pages
+supply a bounded page envelope; an explicit query `LIMIT` is optional and caps
+the entire traversal, not each page. Exact key lookups carry their own finite
+proof. All public reads still need a planner-proven bounded/index-backed route.
+Full scans, unsupported grouped shapes and excessive key-input work reject.
+Materialized ordering also rejects unless an exact primary-key candidate set
+provides the required bounded materialization proof.
 
 The returned typed error preserves the stable `QueryReadAdmissionCode`; see
 [READ_ADMISSION.md](../contracts/READ_ADMISSION.md) for the complete table.
@@ -94,7 +97,7 @@ own IcyDB instance and request scope.
 
 ## Exact Lookup
 
-Use a strict accepted primary-key predicate and a small limit. Admission
+Use a strict accepted primary-key predicate or the exact-key helper. Admission
 recognizes planner-proven exact primary-key access; it never trusts the
 spelling of the predicate alone.
 
@@ -107,7 +110,8 @@ set; both operations carry their own bounded exhaustion proof.
 
 ## Bounded Lists
 
-Use an accepted indexed order and an explicit limit:
+Use an accepted indexed order and pass the continuation through unchanged.
+Add `.limit(...)` only when you intend a cap on the complete traversal:
 
 ```rust
 let page = db!()?

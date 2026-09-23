@@ -12,30 +12,26 @@ Ordinary caller-facing reads use `PublicRead`. The admission owner evaluates
 the selected plan before row execution and rejects unsafe shapes with a typed
 `QueryReadAdmissionCode`. Rejection is never converted into an empty result.
 
-The default policy has these frozen ceilings:
+The [resource model](RESOURCE_MODEL.md#public-read-and-input-ceilings) owns the
+documented numeric ceilings. Grouped bytes cap total accounted live grouped
+state, not a separate allowance per group.
 
-- maximum returned rows: 100;
-- primary-key predicate input: 1024 terms and 64 KiB;
-- grouped engine budget: 100 groups, 64 KiB per group, and 1024 distinct
-  entries.
-
-`PublicRead` also rejects unbounded full scans and materialized ordering. A
-caller-supplied `LIMIT` does not prove safe access by itself: the selected
-route must be bounded/index-backed.
+`PublicRead` rejects full scans and requires a bounded/index-backed selected
+route. Materialized ordering normally rejects; exact `ByKey`/`ByKeys` candidates
+are admitted only when their exact scan bound matches the proven materialized
+row bound and the public returned-row and key-input policies also pass. An
+authored `LIMIT` alone does not establish any of those access proofs.
 
 `DiagnosticExplain` observes planning but cannot execute rows.
 
 Trusted bypass surfaces are explicit method choices. They retain accepted
 schema, planning, execution, and result-shape validation, but application code
-owns authorization and the resource policy.
+owns authorization. Engine input, request and execution budgets still apply.
 
 ## Query Input Safety Limits
 
-Typed/dynamic query input and SQL syntax admission share these ceilings:
-
-- maximum authored expression/value depth: 128 levels;
-- maximum counted input nodes: 4,096 across the request's components;
-- maximum counted variable payload: 2 MiB across those components.
+Typed/dynamic query input and SQL syntax admission share the input ceilings
+listed in the [resource model](RESOURCE_MODEL.md#public-read-and-input-ceilings).
 
 These preparation safety limits also apply to trusted reads; choosing a trusted
 lane does not bypass them. They are separate from the public row/access policy
@@ -51,337 +47,25 @@ These are input-content limits, not a complete bound on heap allocation,
 rendering, SQL parsing or endpoint deserialization. Endpoint authorization and
 decoder limits remain the application's responsibility.
 
-Typed/dynamic ORDER BY and aggregate operand copies also consume the current
-request's preparation work and temporary-byte budgets. This applies before
-cache lookup on both cold and warm calls, including trusted reads. Exhaustion
-rejects the call; retrying within the same request does not reset its charges.
-Copying preserves authored syntax and typed values rather than normalizing them.
-Scalar ORDER BY and selected-field vectors charge destination backing before
-allocation; selected names and implicit accepted-primary-key ordering are also
-charged. Clauses retain authored order and duplicate projections. These charges
-do not establish complete bounds for downstream planning.
+## Preparation And Accepted Metadata
 
-General scalar preparation also charges its instruction interval for predicate
-normalization, parameter-contract derivation and predicate fingerprinting before
-shared-plan lookup. Filtered cache hits repeat this work and can reject for
-instruction exhaustion without changing the retained plan. Existing filterless
-fast hits skip this interval. Completion accounting covers successful and failed
-preparation; it does not establish an intra-operation allocation or stack bound.
+Preparation and execution share the finite authorities described in the
+[resource model](RESOURCE_MODEL.md#request-and-execution-budgets). Trusted
+reads, cache hits and repeated calls do not reset the current request budget.
+The [preparation coverage summary](RESOURCE_MODEL.md#preparation-accounting-and-coverage)
+distinguishes accounted construction from remaining qualification gaps.
 
-Schema-aware predicate materialization additionally charges structural/value
-visits and admits child containers, boxes, field names, coercion parameters and
-operand copies before their construction. Enum input lifting and accepted output
-use a conservative source-shaped backing allowance; canonical enum values keep
-the existing accepted validation and admitted copy path. Numeric conversion
-admits possible fixed-width bigint output. These charges apply on filtered warm
-calls, cursor-pinned preparation and SQL binding validation without creating a
-new request budget. Exhaustion remains a resource error, not a literal error.
-Every supplied child is normalized before boolean simplification may discard it.
-Schema metadata derivation, sorting/comparison scratch and boolean normalization
-remain separate; this does not establish complete normalization bounds.
+All authored index-predicate fields bind before boolean simplification,
+including fields in discarded branches. Invalid persisted predicate SQL fails
+with typed store corruption; it is not a false predicate or missing index.
+Reduced index-predicate parsing retains the source-complexity limit even when
+a flat boolean chain has a shallower internal representation.
 
-Expression-to-predicate extraction uses the same request for copied fields and
-literals, dotted labels, membership backing and predicate shells. This applies
-to typed filters, SQL filter extraction and SQL binding comparison validation.
-Unsupported shapes remain an absent predicate; construction exhaustion returns
-the existing typed resource error and cannot publish a missing filter or replace
-an existing intent. Source expressions are borrowed after canonical-form checks.
-Capability traversal, boolean normalization and value sorting remain separate
-owners; these construction checks do not complete their bounds.
-
-When accepted-index predicates are prepared, malformed persisted SQL returns
-typed `StoreCorruption`, not a successful false predicate or missing index.
-Planner-visible index construction and its session/cache consumers propagate
-this failure before returning a newly prepared plan. Mutation planning, integrity
-inspection and staged index preparation use the same parse/normalization owner.
-This does not make boolean normalization budgeted, add a cache revalidation pass
-or change the meaning of absent predicates and valid false membership.
-
-Reduced index-predicate parsing emits one AND/OR list for a flat authored chain.
-Explicit parentheses and operator precedence remain structural. Admission still
-counts each boolean operator as `max(prefix, right) + 1` under the existing 128
-source-complexity ceiling, independently of the shallower output; nesting and
-token/byte ceilings also remain unchanged. Thus 128 simple chain terms fit, but
-129 do not. This is not a wider-input or full derived-work bound.
-The approved 0.257.15 hard cut permits changed canonical shapes/digests and index
-choices for affected reduced-predicate chains (notably eligible OR-to-IN).
-Ordinary identity contracts outside this explicit representation change remain
-unchanged. The schema codec still stores the same SQL source text.
-
-Every index's snapshot acceptance checks authored predicate field names before
-boolean simplification, matching SQL DDL's validation ordering. This includes
-non-unique indexes and unique indexes with non-nullable keys. Unknown fields
-reject even in branches normalization would discard. Snapshot acceptance
-uses its existing predicate rejection; invalid persisted input remains store
-corruption. This is field-binding validation, not new schema/replay resource
-admission or a change to nullable guard inference.
-
-Accepted inspection-plan setup admits unique-activation dependencies and the
-active index list under one standalone construction allowance. Index-list
-backing, per-index visits and predicate-source bytes are admitted before their
-respective construction/traversal; nested index metadata, parser, normalizer and
-executable-program scratch remain separately unqualified. No allowance is reset
-per index. Cold construction failure cannot publish a
-partial runtime plan; cached successful plans retain their existing validity
-contract. Quick and Deep integrity setup use the existing shared resource-error
-classifier: exhaustion remains an operational error with its budget facts, not
-an `Uninspectable` authority result. Genuine authority failures retain their
-existing diagnostics. This is not a complete bound on schema compilation.
-
-Journal `SchemaPut` preflight now retains its validated, encoded storage payload
-and fingerprint through application. Replay/fold application consumes that
-prepared result and does not repeat snapshot decoding or semantic construction.
-The whole batch still finishes preflight before its first effect; snapshot
-payloads remain retained until application. Current journal/schema limits are
-unchanged. Recovery verification and other control-record kinds remain separate;
-this is not a new recovery budget or complete replay-admission qualification.
-
-Accepted-catalog publication also retains the batch-validated candidate through
-application. Canonical fold preparation retains encoded snapshots, identity
-updates and retention keys for consumption in the same atomic callback. Root
-conflict checks and independent stored-bundle verification still run against
-storage; those checks are not replaced with trust in the prepared value. Replay
-still uses the existing live/durable publication owners. This removes specific
-discard-and-rebuild work, not all construction during publication or verification,
-and does not enable shared-normalizer resource rejection in those paths.
-
-Candidate constructors own immutable bundle/root integrity. Root publication
-checks current stored roots and expected/next revisions without re-hashing or
-decoding that already-admitted candidate. Persisted input still passes through
-the verifying constructor; bytes read back from storage are independently
-verified. No resource admission or storage-corruption check is removed.
-
-Shared-plan key construction, lookup comparisons and warm lifecycle validation
-also charge instructions before returning a cached plan or compiling/rebinding.
-This includes filterless early hits. Hits still skip compilation, and exhaustion
-does not replace shared cache entries. These intervals are separate from the
-normalization and compilation intervals.
-
-Cache-key names, aliases, expression/container backing and the shared payload
-charge existing construction resources before allocation. Only complete keys
-enter the memo; failed construction can retry under a fresh request. Reusing an
-immutable key skips those copies, but a bound-plan hit still constructs its
-parameterized key. Value-hash errors propagate instead of becoming cache keys.
-Parameter-contract derivation charges predicate/list visits and admits child
-backing, field names and coercion parameters before allocation. Existing template
-slot/payload limits stop traversal before further metadata copying; they remain
-cache eligibility limits, not new query rejection limits. Ineligible construction
-still consumes the work already performed. Exhaustion propagates on cold and warm
-calls without publishing or replacing a plan. Literal payloads are not copied into
-contracts. Payload-size estimation and insertion accounting remain separately
-owned work; this is not full preparation qualification.
-
-Normalized predicate cache fingerprints admit their output buffer before using
-the shared encoder. The sizing walk charges predicate/nested-value visits and
-reserves conservative byte-work, case-folding and map-reference allowances.
-It performs no encoding, sorting or coercion itself. Admission can exceed actual
-allocation, including map scratch for already-ordered input. Exhaustion returns
-no digest and cannot publish/replace a cache entry. Successful fingerprint bytes
-are unchanged.
-
-Predicate-only continuation identity also admits its input copy through the
-shared construction owner, then reserves final raw encoding output and possible
-coercion/map/membership scratch. Raw membership allows its ordered view even
-when canonical input will not allocate one. Preparation and execution supply
-their existing cumulative authority, including DISTINCT's rewritten scalar
-handoff; no fresh budget is created. Exhaustion returns no continuation contract
-and does not replace the source query or publish a placeholder identity.
-Expression-owned and absent filters do not enter this predicate-copy path.
-Successful continuation bytes remain unchanged. Boolean normalization between
-copying and final encoding, nested payload comparisons and other identity
-sections remain separately owned work, not a complete hashing-bounds claim.
-
-Grouped key and aggregate destination vectors also charge backing before
-allocation. Group keys select the existing direct/path representation up front;
-that name scan charges preparation work. Authored key count determines reserved
-capacity, even when duplicate keys collapse. Typed/dynamic preparation pays
-these costs before shared-plan lookup; a reusable concrete SQL command still
-skips completed SQL lowering. Key-payload copying, duplicate comparisons and
-downstream rebinding remain separate, incomplete accounting work.
-
-Query raw index bounds charge both destination buffers and a byte-filling work
-allowance before construction, including first materialization of deferred
-prefix bounds during execution. The caller's existing preparation or execution
-budget owns these charges; warm materialized bounds skip construction charges.
-Admission failure leaves a deferred memo empty and remains a typed budget error,
-including during advisory cardinality selection. Bound bytes and inclusivity
-are unchanged. Prefix/range scalar operands and exact-count metadata keys also
-admit scalar output before encoding. Text escaping and decimal digits reserve
-conservative capacity; exhausted requests can reject before otherwise valid
-encoding. This does not move stored-component size caps onto comparison literals.
-Optional index-predicate literals use the same scalar admission before encoding.
-The shared access planner also admits its eligible-index list before filtering:
-one visit per visible index and destination backing for every visible contract.
-Contracts share their immutable payload, so this charges the list, not a deep
-copy of schema metadata. This conservative reservation can reject sooner or
-leave spare capacity when filtering discards indexes. Rebinding, reranking,
-cardinality selection and verbose explain use the same current request.
-Construction exhaustion propagates; it is not an unsupported candidate or
-unavailable-cardinality fallback, and failed projection leaves the previous
-snapshot unchanged. This does not bound predicate implication checks, scoring,
-or candidate-plan payloads. Indexed candidate projection separately admits
-maximum backing for its candidate, alternative and rejection lists, then charges
-each retained name copy. Cardinality tie-set enumeration admits its destination
-list before retaining routes. These use visible-index counts without a second
-sizing walk; unused capacity and earlier conservative rejection are possible.
-Ranking reasons retain fixed-size evidence rather than a score list, and selected
-identity borrows shared contracts. Copies of previously frozen snapshots,
-candidate-route contents and proof/scoring work are not qualified by these
-list/name checks.
-Recursive candidate planning additionally charges each predicate dispatch and
-admits AND/OR child-list backing before candidate extraction or child recursion.
-Both reserve one slot per child; the conservative allowance includes children
-later filtered out. AND-family inspection borrows its candidate and selection
-consumes the winner, without cloned family operands or fallback append slots.
-The AND index-range path box is admitted before child recursion; its underlying
-bound construction remains a separate owner. Ordering preference is computed
-once without changing family precedence or diagnostic reasons.
-Exhaustion propagates through ordinary planning and alternative evaluation;
-it is not semantic absence. These checks cover child-list backing and dispatch,
-not operand payloads, redundancy proofs, family scoring or normalization work.
-AND equality-prefix construction separately admits its literal-cache backing,
-outer visits and selected path box. Its shared builder reserves index-arity
-output backing after the first matched slot and admits key/literal visits,
-expression conversion and retained value copies. Raw duplicates stay borrowed
-until one value per slot is retained; the last equal representation is preserved.
-Ordinary AND planning and exact-count branch proofs pass the current request to
-this same fallible owner. Gaps and conflicts retain their existing semantics;
-exhaustion is not candidate absence. Branch collection separately admits its
-literal-cache growth and per-set backing before schema-compatibility caching.
-Branch construction admits candidate/literal visits, output-list backing,
-conversion/copies and the retained path. Exclusions are lowered once per
-candidate and applied to the retained list; unchanged values stay borrowed.
-Each exclusion set admits a conservative batch of branch visits before pruning,
-not payload-comparison work; early removals can leave unused admitted work.
-Singleton output moves into the fixed prefix, admitting growth if required.
-Ordinary planning and count-only proofs share this owner and preserve their
-existing distinct branch caps. Canonical sorting, payload comparisons, schema
-validation internals and other candidate payloads are not qualified here.
-AND range extraction separately admits comparison-cache growth, candidate visits,
-an upfront key/compare walk allowance, prefix/slot storage and operand construction.
-Raw duplicate equalities and starts-with inputs are borrowed where no retained
-copy is needed. Range merges consume admitted values without copying prior bounds;
-prefix output uses the existing strict or expression lower-only allowance.
-Primary-key ranges admit their child walk, then copy bounds and admit their path
-only after validating the complete interval. Secondary path-box admission remains
-at the existing AND handoff. Early gaps and rejection may leave unused walk or
-container capacity; field/type checks, payload comparisons and scoring internals
-are not bounded by these construction checks. Limits and range semantics do not
-change, but newly charged work can exhaust the current request.
-Primary-key child reduction admits both child inspection passes up front,
-reference-list backing and visits, and a conservative linear intersection-walk
-allowance. It canonicalizes borrowed views and retains surviving references in
-place; only the final owned keys, output list when needed, and path box are
-copied/allocated under the current budget. Explicit empty children retain their
-highest-priority reason without constructing an additional losing key candidate.
-The prepared child candidate then enters the existing pure family selector.
-Sorting and payload comparison remain outside these construction checks; no
-input or session borrow escapes into the returned access path.
-Exact secondary-index intersection construction admits candidate/suffix-slot/
-identity visits as one conservative batch after the outer shape/order gate.
-It selects at most three borrowed prefixes in fixed-size scratch before copying
-anything. Fewer than two distinct eligible prefixes produce no allocation; valid
-candidates admit one child list, each retained prefix's backing and copied values,
-and its path box. Two or three nonempty flat prefix paths need no second list
-flattening pass. The existing cap, selected-first order, physical index identity
-and runtime metadata fallback remain unchanged. Early rejection or reaching the
-cap may leave unused admitted visits. Field-name comparison and order/schema
-validation internals are not qualified by these structural checks.
-Selected-access child-redundancy proofs admit equality-prefix slot visits and
-conservative literal/membership visits before checking them. Scalar lookup proofs
-borrow identity values without constructing a list. IN/NOT IN proofs admit one
-lookup-view list and any expression conversion through existing shared helpers;
-unchanged values stay borrowed. Ordering and duplicate removal are unnecessary
-for membership and are not performed. The filtered-index implication owner
-receives the original child predicate, with no copied predicate shell. Proof
-decisions and unsupported-input behavior are unchanged; current-budget exhaustion
-propagates instead of silently treating a failed proof as absence. Payload
-comparison, schema lookup and filtered implication traversal remain separately
-owned work, not bounded by these construction checks. No new limit is introduced.
-Access-choice AND equality-prefix evaluation admits constraint-list backing and
-child visits before collection, then a conservative index-slot/constraint walk
-before matching. Raw operands stay borrowed; expression output uses existing
-lowercase admission. Only a prefix score survives, with no owned operand list.
-Branch-set evaluation consumes that same equality result before its separately
-owned branch-value checks. The evaluator propagates construction failures through
-chosen-score lookup, explain projection, residual reranking and cardinality ties.
-A semantic rejection can still use the established score hint; exhaustion cannot.
-Reserving for every child/key slot can admit unused capacity/work after filtering
-or early gaps. Comparison payloads, schema lookup, branch-value construction and
-other evaluator families are not qualified by this equality-construction gate.
-Access-choice branch-value scoring separately admits its child walk, lookup-view
-list backing and a conservative literal/equal-set walk before construction.
-Canonicalization borrows raw operands; expression outputs use shared conversion
-admission. No owned operand list escapes the scorer. Every matching IN clause is
-checked before applying the existing distinct-branch cap, preserving later error
-precedence even when an earlier set is oversized or singleton. Exhaustion remains
-an error through the evaluator's existing fallible callers. Sorting, payload
-comparison and schema lookup internals are outside these structural allowances;
-this does not qualify all branch evaluation as bounded or raise a limit.
-Access-choice AND range evaluation admits child visits before validating the
-original predicate slice; it does not allocate a comparison-reference list.
-Whole-input validation still precedes per-key classification, preserving later
-unsupported-clause rejection over earlier key conflicts. A conservative
-key-slot/comparison batch precedes scoring. Equality conflict scratch borrows raw
-operands and admits expression conversion; only equality/range flags and bound
-strength leave classification. Construction failures propagate separately from
-semantic rejection. Early gaps may leave unused admitted visits; payload
-comparison and schema internals remain outside these structural checks. Single
-comparison eligibility and ordinary score/cursor semantics are unchanged.
-Primary-key equality/IN construction separately admits operand copies, the IN
-destination and the path box before each allocation. The existing literal gate
-runs first, including every IN slot; unsupported literals remain absence while
-construction exhaustion propagates. Comparison selection consumes the completed
-route without another copy. Key types, ordering and deduplication are unchanged.
-This does not qualify semantic validation, secondary-index operands or later
-normalization as fully budgeted.
-Single-comparison secondary equality/IN planning admits outer candidate visits
-and the winning value-list/path backing. Candidate ranking borrows index
-identities and converts only the winner's literals; IN no longer retains a
-compatibility list or converted values for losing indexes. Scalar copies and
-expression conversion for the selected equality/IN operands now use the shared
-copy helper and existing lowercase allowance. Unchanged values are copied once;
-derived results move into the destination. Lowercase capacity/work reservations
-are conservative and can reject earlier than exact-output charging. AND/range
-payloads and score/proof internals remain separate work. Failure remains a typed
-construction error, not missing candidate evidence.
-Single ordered comparisons likewise rank borrowed identities before copying or
-converting the winning operand. Existing admission covers outer candidate visits,
-the selected bound, range-slot backing and the retained path. All four operators
-keep their original inclusive/exclusive bounds and ranking. Single starts-with
-comparisons admit candidate visits and build one shared prefix/bound pair before
-ranking by its actual bound count. For one predicate, the accepted coercion gate
-admits either raw keys or LOWER keys, not mixed conversion semantics. Existing
-copy/lowercase, semantic-prefix, slot-list and path-box admission applies before
-construction. Empty or unsupported prefixes stay absent without operand copies;
-exhaustion propagates. AND-family bound construction, scoring/proofs and
-normalization remain separate
-owners; these checks are not a complete range-planning boundedness verdict.
-Unsupported compilation remains successful absence, while construction failures
-propagate without publishing a completed execution-preparation resident or
-changing its retained weight. Warm same-policy results skip compilation; this
-does not exempt any copies they still perform. Scalar load explain uses
-capabilities without building an unused program; aggregate/grouped route
-preparation still compiles where route selection depends on the result.
-Accepted validation, expression conversion, semantic prefix-bound output,
-program containers and remaining copies are separately owned work, not fully
-bounded by scalar-output admission. Prefix successor construction walks borrowed
-UTF-8 without a character-vector scratch allocation. Optional predicate
-compilation separately admits its semantic prefix strings and scan/copy work
-before construction. For a nonempty strict prefix of `n` UTF-8 bytes, the shared
-owner charges `2n + 1` temporary bytes and `3n + 1` byte-work units: successor
-width grows by at most one byte. Lower-only construction needs `n` of each;
-empty unsupported prefixes need neither. These are conservative construction
-allowances, not measured IC instructions or allocator telemetry. Planner
-candidate-bound construction and prior expression conversion are not covered by
-this prefix boundary. Optional expression-index predicate compilation separately
-admits its supported lowercase conversion before running it. The text owner
-provides a conservative pinned-Rust-1.98.1 allowance for cumulative requested
-backing and byte-work units, without a sizing scan or a different Unicode codec.
-Identity operands and unsupported source/target pairs do not charge conversion.
-Planner candidate conversion remains outside this compiler check; no new replay
-limit is installed. Toolchain upgrades require requalifying the lowercase
-allocation/expansion allowance, not merely preserving output spelling.
+Construction exhaustion is a typed resource error, not unsupported syntax,
+candidate absence, an unavailable-cardinality fallback or a successful empty
+result. It must not publish partial keys, plans, bounds or continuation
+identities, or replace a valid retained entry. Integrity setup likewise reports
+resource exhaustion as an operational error rather than an authority verdict.
 
 ## Read Surface Inventory
 
@@ -400,6 +84,7 @@ allocation/expansion allowance, not merely preserving output spelling.
 | `execute_trusted_dynamic_grouped_query` | trusted bypass | Explicit grouped maintenance/admin read with caller-owned authorization and explicit engine limits. |
 | `execute_trusted_sql_query` | trusted bypass | Trusted/admin SQL; caller-controlled SQL is not public-safe. |
 | generated `icydb_query` | trusted bypass | Controller-gated by default, or protected by one declared synchronous application guard, then returns the canonical `SqlQueryResult`. |
+| `DbSession::query::<E>()?.explain()` | diagnostic | SQL-free accepted-plan inspection; no rows execute and no execution permission is granted. |
 | SQL `EXPLAIN` | `DiagnosticExplain` | Observational planning only on its diagnostic route. |
 
 Public scalar and grouped callers may provide only the opaque cursor issued by
@@ -419,7 +104,7 @@ admission-policy controls.
   declarations, explicit `.grouped_limits(...)`, and the grouped terminal.
 - Controller/admin maintenance: `execute_trusted_live_page`.
 - Authorized SQL tooling: `execute_trusted_sql_query`.
-- Planner inspection: trusted SQL `EXPLAIN`.
+- Planner inspection: typed `Query::explain()` without SQL, or trusted SQL `EXPLAIN`.
 
 Ordinary typed and dynamic pages require a safe selected route and return at
 most 100 rows. A query `LIMIT`, when supplied, is the total traversal limit,
@@ -509,7 +194,7 @@ See [the read-intent guide](../guides/read-intent.md) for maintained examples.
 | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | No proven finite returned-row bound. | Add a positive limit or use exact selected primary-key access. |
 | `QueryReadAdmissionCode::PublicQueryRequiresIndex` | The selected route is not index-backed/bounded. | Add or select an accepted index, or move authorized maintenance to a trusted lane. |
 | `QueryReadAdmissionCode::UnboundedFullScanRejected` | Planning selected a full entity scan. | Use indexed filtering or an explicit trusted lane. |
-| `QueryReadAdmissionCode::SortRequiresMaterialization` | Ordering would materialize rows. | Use accepted index order or a trusted lane with its own budget. |
+| `QueryReadAdmissionCode::SortRequiresMaterialization` | Ordering requires materialization without the exact primary-key candidate proof. | Use accepted index order, an admissible exact key set, or authorized trusted execution. |
 | `QueryReadAdmissionCode::GroupedQueryRequiresLimits` | Grouped execution lacks hard budgets. | Use a supported surface with explicit group and memory bounds. |
 | `QueryReadAdmissionCode::GroupedQueryExceedsBudget` | Group limits exceed the built-in public policy. | Reduce the bounds or use authorized trusted execution. |
 | `QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute` | An explain-only lane was asked to execute. | Execute through a row-owning lane. |
@@ -522,14 +207,18 @@ See [the read-intent guide](../guides/read-intent.md) for maintained examples.
 
 ## Regression Guard
 
-`scripts/ci/check-read-admission-invariants.sh` verifies:
+The focused documentation gate compares the resource model's numeric data
+against compiled policy/input owners. Structural checks validate local links;
+they do not prescribe wording or headings. Existing paging, grouped-budget,
+input-boundary and typed-explain tests exercise the corresponding behavior.
+
+`scripts/ci/check-read-admission-invariants.sh` retains static architecture checks:
 
 - every plan-admission rejection has a public diagnostic counterpart; public
   diagnostics may also describe input rejection before planning;
 - every public rejection identifier has documentation in this contract;
-- default budgets remain synchronized with this contract;
 - typed execution enters the identity-bound
   live or exhaustive page boundary;
-- trusted SQL documentation and generated-controller ownership remain intact;
+- generated-controller and trusted-dispatch ownership remain intact;
 - public reads enter through the maintained typed or dynamic admission
   boundaries.

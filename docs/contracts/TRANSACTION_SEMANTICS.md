@@ -153,8 +153,10 @@ No new fallible semantics are introduced after marker persistence.
 ### Failure after marker persistence
 
 * Marker-bound journal publication remains authoritative
-* Guarded read/write entrypoints publish and fold pending marker batches before
-  normal execution
+* The dedicated replicated recovery driver publishes and folds pending marker
+  batches before ordinary work is admitted
+* Guarded read/write entrypoints only check readiness; while recovery is pending
+  they return the typed recovery-pending error and never drive recovery
 * Durable end state converges to the marker-described journal state
 
 This follows the same commit/recovery model documented in

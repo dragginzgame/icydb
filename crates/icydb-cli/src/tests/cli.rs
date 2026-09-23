@@ -59,7 +59,56 @@ fn cli_args_group_diagnostic_lookup_under_top_level_keyword() {
         panic!("expected diagnostic command");
     };
 
-    assert_eq!(args.code(), "E7");
+    assert_eq!(args.code(), Some("E7"));
+}
+
+#[test]
+fn cli_args_accept_diagnostic_json_file_and_stdin_with_resolvers() {
+    for path in ["error.json", "-"] {
+        let args = CliArgs::try_parse_from([
+            "icydb",
+            "diagnostic",
+            "--error-json",
+            path,
+            "--artifact",
+            "schema.json",
+        ])
+        .expect("structured diagnostic input");
+        let CliCommand::Diagnostic(args) = args.into_command() else {
+            panic!("expected diagnostic command");
+        };
+        assert_eq!(args.error_json(), Some(Path::new(path)));
+        assert_eq!(args.code(), None);
+        assert!(args.facts().is_empty());
+        assert_eq!(args.artifact(), Some(Path::new("schema.json")));
+    }
+}
+
+#[test]
+fn cli_args_require_one_unambiguous_diagnostic_input() {
+    let missing = CliArgs::try_parse_from(["icydb", "diagnostic"]).expect_err("input required");
+    assert_eq!(
+        missing.kind(),
+        clap::error::ErrorKind::MissingRequiredArgument
+    );
+    for args in [
+        vec!["icydb", "diagnostic", "E7", "--error-json", "error.json"],
+        vec![
+            "icydb",
+            "diagnostic",
+            "--error-json",
+            "error.json",
+            "--fact",
+            "term_index=1",
+        ],
+    ] {
+        assert_eq!(
+            CliArgs::try_parse_from(args)
+                .expect_err("conflicting input")
+                .kind(),
+            clap::error::ErrorKind::ArgumentConflict
+        );
+    }
 }
 
 #[test]
@@ -86,7 +135,7 @@ fn cli_args_accept_exact_diagnostic_resolver_inputs() {
         panic!("expected diagnostic command");
     };
 
-    assert_eq!(args.code(), "E210");
+    assert_eq!(args.code(), Some("E210"));
     assert_eq!(args.facts().len(), 2);
     assert_eq!(args.artifact(), Some(Path::new("schema.diagnostic.json")));
     assert_eq!(

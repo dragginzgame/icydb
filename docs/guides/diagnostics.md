@@ -12,6 +12,28 @@ The CLI can always explain a code:
 icydb diagnostic E210
 ```
 
+To inspect a complete decoded public `icydb::Error`, pass its JSON object from
+a file or stdin:
+
+```console
+icydb diagnostic --error-json error.json
+icydb diagnostic --error-json - < error.json
+icydb diagnostic --error-json error.json --artifact app.diagnostic.json
+```
+
+The input is the existing error record (`code`, `class`, `origin`, `facts`, and
+optional `query_field`), not a Candid-text response or a JSON `Err` wrapper.
+Numbers must retain their integer precision, including `u64` fact values.
+Input is limited to 64 KiB before decoding; malformed JSON is rejected.
+Do not combine `--error-json` with a positional code or `--fact` overrides.
+
+Structured input preserves the payload's origin and validated query-field
+context while using the same numeric-fact and exact-schema resolution as manual
+lookup. Invalid fact or query-field context is reported and untrusted names or
+fields are withheld by the shared renderer. No canister is contacted unless
+`--canister` is explicitly supplied. `--artifact` and `--source-metadata` remain
+offline options.
+
 Pass the facts printed by the caller as repeated `--fact TAG=VALUE` arguments.
 Tags may use their numeric identity or maintained CLI label:
 
@@ -175,7 +197,8 @@ normalization. It is present only when its UTF-8 representation is at most 256
 bytes; longer references are omitted rather than truncated.
 
 Structured Rust consumers should call `Error::validated_query_field()` before
-using decoded context. The shared CLI does the same and renders, for example:
+using decoded context. The CLI does the same for `--error-json` and errors it
+receives directly, rendering, for example:
 
 ```text
 E_QUERY_PLAN: query planning failed; order_by field `id`; facts term_index=1

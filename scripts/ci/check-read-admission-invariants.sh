@@ -12,13 +12,10 @@ require_rg "read-admission invariant checks"
 status=0
 
 DOC="docs/contracts/READ_ADMISSION.md"
-GUIDE="docs/guides/read-intent.md"
-POLICY="crates/icydb-core/src/db/query/admission/policy.rs"
 ADMISSION="crates/icydb-core/src/db/query/admission.rs"
 DIAGNOSTICS="crates/icydb-diagnostic-code/src/lib.rs"
 TYPED_QUERY="crates/icydb/src/db/query/typed.rs"
 PREPARED_QUERY="crates/icydb/src/db/session/prepared_query.rs"
-FACADE_SQL="crates/icydb/src/db/session/sql.rs"
 GENERATED_SQL="crates/icydb-model/src/build/actor/db/sql.rs"
 GENERATED_ENDPOINT="crates/icydb-model/src/build/actor/endpoint.rs"
 
@@ -49,42 +46,9 @@ require_literal() {
   fi
 }
 
-for section in \
-  "# Read Admission" \
-  "## Core Rule" \
-  "## Read Surface Inventory" \
-  "## Which API should I use?" \
-  "## Generated SQL Query Surface" \
-  "## Public Endpoint Guidance" \
-  "## Common Rejections And Fixes" \
-  "## Regression Guard"
-do
-  require_literal "$DOC" "read-admission section" "$section"
-done
-
-for literal in \
-  'maximum returned rows: 100' \
-  '1024 terms and 64 KiB' \
-  '100 groups, 64 KiB per group, and 1024 distinct' \
-  '`execute_live_page`' \
-  '`execute_trusted_live_page`' \
-  '`execute_trusted_sql_query`' \
-  'generated `icydb_query`' \
-  '`DiagnosticExplain`'
-do
-  require_literal "$DOC" "read-admission contract fact" "$literal"
-done
-
-for literal in \
-  'const DEFAULT_BOUNDED_READ_MAX_ROWS: u32 = 100;' \
-  'const DEFAULT_BOUNDED_READ_MAX_GROUPS: u32 = 100;' \
-  'const DEFAULT_BOUNDED_READ_MAX_GROUP_BYTES: u32 = 64 * 1024;' \
-  'const DEFAULT_BOUNDED_READ_MAX_DISTINCT_ENTRIES: u32 = 1024;' \
-  'const DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_TERMS: u32 = 1024;' \
-  'const DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_BYTES: u32 = 64 * 1024;'
-do
-  require_literal "$POLICY" "read-admission budget authority" "$literal"
-done
+# Numeric documentation data is compared with compiled owners in the focused
+# documentation tests. Local links have a structural checker; do not assert
+# prose, headings, code-example spelling, or numeric Rust source syntax here.
 
 internal_variants="$(extract_enum_variants QueryAdmissionRejection "$ADMISSION")"
 public_variants="$(extract_enum_variants QueryReadAdmissionCode "$DIAGNOSTICS")"
@@ -121,10 +85,6 @@ require_literal \
   "accepted binding supplied to prepared live-page public admission" \
   'self.binding.inner(),'
 require_literal \
-  "$FACADE_SQL" \
-  "trusted SQL caller-control warning" \
-  'caller-controlled SQL public-safe'
-require_literal \
   "$GENERATED_ENDPOINT" \
   "generated query controller gate" \
   'require_sql_controller'
@@ -132,10 +92,6 @@ require_literal \
   "$GENERATED_SQL" \
   "generated query trusted dispatch" \
   'execute_trusted_sql_query_dispatch'
-require_literal \
-  "$GUIDE" \
-  "typed public endpoint guidance" \
-  '.query::<User>()?'
 
 if [[ $status -ne 0 ]]; then
   echo "[FAIL] Read-admission invariants failed." >&2

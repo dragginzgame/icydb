@@ -13,7 +13,6 @@ use super::{
 pub(in crate::db::query) const DEFAULT_BOUNDED_READ_MAX_ROWS: u32 = 100;
 const DEFAULT_BOUNDED_READ_MAX_GROUPS: u32 = 100;
 const DEFAULT_BOUNDED_READ_MAX_GROUP_BYTES: u32 = 64 * 1024;
-const DEFAULT_BOUNDED_READ_MAX_DISTINCT_ENTRIES: u32 = 1024;
 const DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_TERMS: u32 = 1024;
 const DEFAULT_BOUNDED_READ_MAX_PRIMARY_KEY_INPUT_BYTES: u32 = 64 * 1024;
 
@@ -29,7 +28,6 @@ const fn non_zero_default(value: u32) -> NonZeroU32 {
 pub(in crate::db) struct GroupedAdmissionPolicy {
     groups: Option<NonZeroU32>,
     group_bytes: Option<NonZeroU32>,
-    distinct_entries: Option<NonZeroU32>,
 }
 
 impl GroupedAdmissionPolicy {
@@ -39,7 +37,6 @@ impl GroupedAdmissionPolicy {
         Self {
             groups: None,
             group_bytes: None,
-            distinct_entries: None,
         }
     }
 
@@ -48,12 +45,10 @@ impl GroupedAdmissionPolicy {
     pub(in crate::db) const fn bounded(
         max_groups: NonZeroU32,
         max_group_bytes: NonZeroU32,
-        max_distinct_entries: Option<NonZeroU32>,
     ) -> Self {
         Self {
             groups: Some(max_groups),
             group_bytes: Some(max_group_bytes),
-            distinct_entries: max_distinct_entries,
         }
     }
 
@@ -67,26 +62,19 @@ impl GroupedAdmissionPolicy {
         Self::bounded(
             non_zero_default(DEFAULT_BOUNDED_READ_MAX_GROUPS),
             non_zero_default(DEFAULT_BOUNDED_READ_MAX_GROUP_BYTES),
-            Some(non_zero_default(DEFAULT_BOUNDED_READ_MAX_DISTINCT_ENTRIES)),
         )
     }
 
     /// Return the maximum allowed output groups.
     #[must_use]
-    pub(in crate::db) const fn max_groups(&self) -> Option<NonZeroU32> {
+    pub(in crate::db) const fn max_groups(self) -> Option<NonZeroU32> {
         self.groups
     }
 
-    /// Return the maximum allowed bytes per group accumulator.
+    /// Return the maximum allowed total accounted live grouped-state bytes.
     #[must_use]
-    pub(in crate::db) const fn max_group_bytes(&self) -> Option<NonZeroU32> {
+    pub(in crate::db) const fn max_group_bytes(self) -> Option<NonZeroU32> {
         self.group_bytes
-    }
-
-    /// Return the maximum allowed distinct entries for distinct-style aggregates.
-    #[must_use]
-    pub(in crate::db) const fn max_distinct_entries(&self) -> Option<NonZeroU32> {
-        self.distinct_entries
     }
 }
 
@@ -146,9 +134,9 @@ impl QueryAdmissionPolicy {
 
     /// Build the default bounded policy used by ordinary typed/dynamic reads.
     ///
-    /// The policy rejects unindexed full scans, materialized sorts, and queries
-    /// without a proven row bound. Scalar public continuation is not exposed;
-    /// trusted SQL owns its separate `OFFSET` semantics.
+    /// The policy rejects full scans and queries without a proven row bound.
+    /// Materialized sorts require exact bounded primary-key candidates. Scalar
+    /// pages supply their envelope; authored limits cap the whole traversal.
     #[must_use]
     pub(in crate::db) const fn default_bounded_read() -> Self {
         Self::public_read(non_zero_default(DEFAULT_BOUNDED_READ_MAX_ROWS))
@@ -158,7 +146,7 @@ impl QueryAdmissionPolicy {
     /// Return this policy with explicit grouped execution budgets attached.
     ///
     /// Public read policies still reject grouped queries unless the selected
-    /// plan is executed with matching group-count and per-group byte caps.
+    /// plan is executed with matching group-count and total live-state byte caps.
     #[must_use]
     pub(in crate::db) const fn with_grouped_policy(
         mut self,
@@ -189,7 +177,7 @@ impl QueryAdmissionPolicy {
         self.lane
     }
 
-    /// Return whether the surface requires caller-visible LIMIT.
+    /// Return whether admission requires a limit or another proven row bound.
     #[must_use]
     pub(in crate::db) const fn require_limit(&self) -> bool {
         self.limit_required
@@ -293,10 +281,6 @@ impl QueryAdmissionPolicy {
             return Some(QueryAdmissionRejection::GroupedQueryExceedsBudget);
         }
 
-        if grouped.distinct_aggregate_count() > 0 && self.grouped.max_distinct_entries().is_none() {
-            return Some(QueryAdmissionRejection::GroupedQueryRequiresLimits);
-        }
-
         None
     }
 
@@ -390,8 +374,73 @@ fn primary_key_materialized_sort_has_exact_candidate_bound(
 #[cfg(test)]
 mod tests {
     use super::QueryAdmissionPolicy;
+    use crate::db::query::admission::input::{
+        MAX_QUERY_INPUT_BYTES, MAX_QUERY_INPUT_DEPTH, MAX_QUERY_INPUT_NODES,
+    };
+    use std::{collections::BTreeMap, num::NonZeroU32};
 
-    use std::num::NonZeroU32;
+    #[test]
+    fn documentation_resource_limits_match_compiled_owners() {
+        // Read checkout data at test time; library builds do not embed docs.
+        // Only keys and numbers are contractual, not table order or prose.
+        let document = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/contracts/RESOURCE_MODEL.md"
+        ))
+        .expect("repository resource model");
+        let section = document
+            .split_once("<!-- icydb-read-resource-limits:start -->")
+            .expect("resource data start")
+            .1
+            .split_once("<!-- icydb-read-resource-limits:end -->")
+            .expect("resource data end")
+            .0;
+        let mut documented = BTreeMap::new();
+        for line in section.lines() {
+            let mut cells = line.split('|').skip(1).map(str::trim);
+            let Some(key) = cells
+                .next()
+                .and_then(|cell| cell.strip_prefix('`'))
+                .and_then(|cell| cell.strip_suffix('`'))
+            else {
+                continue;
+            };
+            let value = cells
+                .next()
+                .expect("numeric data cell")
+                .parse::<u64>()
+                .expect("numeric resource limit");
+            assert!(documented.insert(key, value).is_none(), "duplicate limit");
+        }
+        let policy = QueryAdmissionPolicy::default_bounded_read();
+        let value = |limit: Option<NonZeroU32>| u64::from(limit.expect("bounded policy").get());
+        let expected = BTreeMap::from([
+            ("max_returned_rows", value(policy.max_returned_rows)),
+            (
+                "max_primary_key_input_terms",
+                value(policy.max_primary_key_input_terms),
+            ),
+            (
+                "max_primary_key_input_bytes",
+                value(policy.max_primary_key_input_bytes),
+            ),
+            ("max_groups", value(policy.grouped.max_groups())),
+            ("max_group_bytes", value(policy.grouped.max_group_bytes())),
+            (
+                "max_input_depth",
+                u64::try_from(MAX_QUERY_INPUT_DEPTH).expect("input depth"),
+            ),
+            (
+                "max_input_nodes",
+                u64::try_from(MAX_QUERY_INPUT_NODES).expect("input nodes"),
+            ),
+            (
+                "max_input_bytes",
+                u64::try_from(MAX_QUERY_INPUT_BYTES).expect("input bytes"),
+            ),
+        ]);
+        assert_eq!(documented, expected);
+    }
 
     #[test]
     fn public_read_keeps_bounded_access_requirements() {

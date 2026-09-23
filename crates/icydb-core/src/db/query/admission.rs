@@ -286,6 +286,7 @@ impl QueryAdmissionGroupedSummary {
 
     /// Return the number of aggregate expressions with DISTINCT state.
     #[must_use]
+    #[cfg(feature = "sql")]
     pub(in crate::db) const fn distinct_aggregate_count(self) -> u32 {
         self.distinct_aggregate_count
     }

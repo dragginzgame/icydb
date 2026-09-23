@@ -223,7 +223,8 @@ let page = db!()?
     .execute_grouped()?;
 ```
 
-`grouped_limits` is mandatory and bounds total groups and bytes per group. A
+`grouped_limits` is mandatory and bounds cumulative groups and total accounted
+live grouped-state bytes, not a separate byte allowance per group. A
 positive `limit` bounds the current page; pass a returned `next_cursor` back
 through `.cursor(...)` for the next page. Group keys and aggregates define the
 output in declaration order, so grouped queries do not also use `.select(...)`.
@@ -235,7 +236,8 @@ Ordinary public reads:
 - return at most 100 rows per page; an optional query `LIMIT` bounds the total
   window across all pages;
 - require a planner-proven bounded/index-backed route;
-- reject full scans and materialized sorts;
+- reject full scans; materialized sorts require the exact bounded primary-key
+  candidate proof described in the read-admission contract;
 - expose only IcyDB-issued scalar continuation; callers cannot supply offsets
   or page-policy controls.
 

@@ -43,7 +43,7 @@ In particular, it assumes:
 * Deterministic replay
 * Explicit stable-memory persistence
 * No shared memory across instances
-* No background threads or asynchronous maintenance tasks
+* No background threads; bounded maintenance runs in replicated timer messages
 * Message-bound execution with bounded instruction limits
 
 These assumptions influence:
@@ -77,7 +77,7 @@ IcyDB provides:
 - mechanical execution
 - index maintenance
 - explicit atomicity and recovery rules
-- optional write-time integrity checks
+- enforced accepted-schema constraints, including declared relations
 - reduced SQL parsing and execution for admitted single-entity shapes
 - bounded scalar expressions, grouped queries, and aggregates
 
@@ -401,8 +401,10 @@ ordinary key-typed fields carry no target-existence or delete-safety guarantee.
 To preserve atomicity and bounded execution, IcyDB constrains where relations may appear.
 
 Conceptually:
-- direct `Id<T>` shapes may be validated
-- nested or inferred relations are not discovered
+- direct relation adapters use `Id<T>` for scalar target keys
+- explicitly annotated nested scalar relation leaves are supported through
+  accepted locators, including admitted wrappers, records and collections
+- relations are never inferred from identifier types, names or cardinality
 - reference validation never implies traversal or joins
 
 These constraints exist to preserve:
@@ -435,9 +437,9 @@ IcyDB relies on:
 - deterministic recovery
 - recovery-before-read
 
-Guarded read and write entrypoints perform the required marker check before
-operation-specific execution. If recovery cannot complete, the guarded
-operation fails rather than proceeding on partial state.
+The dedicated replicated driver owns recovery. Guarded read and write
+entrypoints perform state-only admission before operation-specific execution;
+pending recovery rejects rather than advancing a page or exposing partial state.
 
 ### Explicit integrity inspection
 

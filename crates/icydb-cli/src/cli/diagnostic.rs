@@ -1,7 +1,7 @@
 //! Module: CLI diagnostic command arguments.
-//! Responsibility: define compact diagnostic-code lookup clap surfaces.
+//! Responsibility: define diagnostic lookup and structured-error input arguments.
 //! Does not own: diagnostic registry rendering or canister error transport.
-//! Boundary: exposes parsed diagnostic-code input to the command dispatcher.
+//! Boundary: select one diagnostic input plus optional schema resolvers.
 
 use std::path::{Path, PathBuf};
 
@@ -12,15 +12,23 @@ use crate::cli::{DEFAULT_ENVIRONMENT, ICP_ENVIRONMENT_ENV};
 ///
 /// DiagnosticArgs
 ///
-/// DiagnosticArgs owns host-side lookup of compact IcyDB error codes. The code
-/// is intentionally a string so users can paste either `E7` or `7`.
+/// DiagnosticArgs selects a compact code or a complete public error payload.
+/// Manual codes remain strings so users can paste either `E7` or `7`.
 ///
 
 #[derive(Args, Debug)]
 pub(crate) struct DiagnosticArgs {
     /// Compact IcyDB error code, for example E7, 7, E190, or 190.
-    #[arg(value_name = "CODE")]
-    code: String,
+    #[arg(
+        value_name = "CODE",
+        required_unless_present = "error_json",
+        conflicts_with = "error_json"
+    )]
+    code: Option<String>,
+
+    /// Read one public IcyDB Error JSON object from PATH, or - for stdin (64 KiB maximum).
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["code", "facts"])]
+    error_json: Option<PathBuf>,
 
     /// Add one numeric diagnostic fact as TAG=VALUE or LABEL=VALUE.
     #[arg(long = "fact", value_name = "TAG=VALUE")]
@@ -44,8 +52,12 @@ pub(crate) struct DiagnosticArgs {
 }
 
 impl DiagnosticArgs {
-    pub(crate) fn code(&self) -> &str {
-        &self.code
+    pub(crate) fn code(&self) -> Option<&str> {
+        self.code.as_deref()
+    }
+
+    pub(crate) fn error_json(&self) -> Option<&Path> {
+        self.error_json.as_deref()
     }
 
     pub(crate) const fn facts(&self) -> &[String] {

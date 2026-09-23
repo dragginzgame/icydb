@@ -11,13 +11,10 @@ files=(
   scripts/ci/check-read-admission-invariants.sh
   scripts/ci/invariant-common.sh
   docs/contracts/READ_ADMISSION.md
-  docs/guides/read-intent.md
-  crates/icydb-core/src/db/query/admission/policy.rs
   crates/icydb-core/src/db/query/admission.rs
   crates/icydb-diagnostic-code/src/lib.rs
   crates/icydb/src/db/query/typed.rs
   crates/icydb/src/db/session/prepared_query.rs
-  crates/icydb/src/db/session/sql.rs
   crates/icydb-model/src/build/actor/db/sql.rs
   crates/icydb-model/src/build/actor/endpoint.rs
 )
@@ -35,6 +32,11 @@ expect_failure() {
 
 # Input diagnostics legitimately extend the plan-only rejection vocabulary.
 bash "$checker"
+
+# Narrative headings are not architecture or diagnostic identifiers.
+sed -i '/^#/s/.*/# Reworded guidance/' "$scratch/$contract"
+bash "$checker"
+cp "$contract" "$scratch/$contract"
 
 # A missing public counterpart must still reject.
 sed -i '/^[[:space:]]*PublicQueryRequiresLimit,$/d' "$scratch/$diagnostics"
