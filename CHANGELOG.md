@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)
 
+- `0.261.10` bounds dynamic page execution by small query limits without changing APIs or stored data.
 - `0.261.9` improves binding diagnostics and resource guidance with matched application evidence (potentially breaking: update adapter-error matches; no data migration).
 - `0.261.8` aligns resource guidance and admission with enforced limits and adds structured diagnostic CLI input.
 - `0.261.7` replaces brittle documentation assertions with executable evidence and reduces repeated cold-query preparation through the existing startup driver.

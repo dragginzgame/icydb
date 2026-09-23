@@ -7,6 +7,7 @@ mod prefix_accounting;
 mod prepared_explain;
 mod projection_metadata;
 mod residual_bounds;
+mod scalar_page_limits;
 mod secondary_order;
 mod sparse_indexes;
 mod typed_explain;

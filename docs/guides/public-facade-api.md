@@ -144,6 +144,12 @@ before crossing the existing `InputValue` / `OutputValue` boundary.
 Always return or consume `page.continuation`; a non-null value proves the read
 has not yet established exhaustion.
 
+An optional `limit` bounds the total returned window across pages and caps
+the planned execution window when it is smaller than the normal page size.
+Ordered streaming reads can still inspect a lookahead row. This is not a cap
+on all rows visited: residual filters and materialized ordering can require
+more work, and a one-sided primary-key filter is not necessarily a seek.
+
 Typed page terminals return complete generated entity rows. When only selected
 fields are needed, use the structural page terminal; it returns selected columns
 and values without attempting to decode a complete entity:

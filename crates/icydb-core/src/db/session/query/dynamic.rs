@@ -486,7 +486,13 @@ impl<C: CanisterKind> DbSession<C> {
             .unwrap_or(page_row_limit as u64)
             .min(page_row_limit as u64);
         let page_output_limit = usize::try_from(page_output_limit).unwrap_or(page_row_limit);
-        let execution_limit = u32::try_from(page_row_limit).unwrap_or(u32::MAX);
+        // Bound physical execution as well as outward projection. Use the
+        // authored total, not the remaining total, to reuse the same prepared
+        // plan across pages. The cursor authenticates that total separately.
+        let execution_limit = request
+            .row_limit()
+            .unwrap_or(u32::MAX)
+            .min(u32::try_from(page_row_limit).unwrap_or(u32::MAX));
         let execution_lane = lane.execution_lane();
         let exact_candidate = decoded_token.is_none()
             && page_output_limit > 0
