@@ -8,7 +8,7 @@ use crate::{
     value::{InputValue, OutputValue},
 };
 use candid::CandidType;
-use icydb_schema::ScalarType;
+use icydb_schema::{MAX_SOURCE_KEY_BYTES, ScalarType};
 use serde::Deserialize;
 use std::collections::BTreeSet;
 
@@ -214,16 +214,69 @@ impl TypedEntityDescriptor {
     }
 }
 
+/// Bounded generated-source context for an unavailable accepted binding.
+///
+/// Only static descriptor keys are retained, never row values or a schema dump.
+/// Malformed oversized keys are represented by UTF-8 prefixes of at most
+/// `MAX_SOURCE_KEY_BYTES` bytes; valid source keys are retained in full.
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TypedBindingContext {
+    entity_source: &'static str,
+    field_source: Option<&'static str>,
+}
+
+impl TypedBindingContext {
+    pub(crate) fn new(entity_source: &'static str, field_source: Option<&'static str>) -> Self {
+        // Move back at most three bytes to a valid UTF-8 boundary. Zero is
+        // always a boundary, so oversized descriptors cannot underflow here.
+        let bounded = |source: &'static str| {
+            let mut end = source.len().min(MAX_SOURCE_KEY_BYTES);
+            while !source.is_char_boundary(end) {
+                end -= 1;
+            }
+            &source[..end]
+        };
+        Self {
+            entity_source: bounded(entity_source),
+            field_source: field_source.map(bounded),
+        }
+    }
+
+    /// Borrow the bounded entity source key supplied by the generated adapter.
+    #[must_use]
+    pub const fn entity_source(self) -> &'static str {
+        self.entity_source
+    }
+
+    /// Borrow the bounded field source key, or `None` for an entity lookup failure.
+    #[must_use]
+    pub const fn field_source(self) -> Option<&'static str> {
+        self.field_source
+    }
+}
+
 /// Typed binding issuance failure before an opaque binding exists.
 #[doc(hidden)]
 #[derive(Debug)]
 pub enum DynamicTypedBindingError {
-    /// A requested immutable source identity is unavailable.
-    FieldUnavailable,
     /// The requested logical field contract disagrees with accepted authority.
     IncompatibleField,
+
     /// Accepted database inspection failed.
     Internal(InternalError),
+
+    /// A generated entity or field source identity cannot bind to accepted authority.
+    SourceUnavailable(TypedBindingContext),
+}
+
+impl DynamicTypedBindingError {
+    pub(crate) fn source_unavailable(
+        entity_source: &'static str,
+        field_source: Option<&'static str>,
+    ) -> Self {
+        Self::SourceUnavailable(TypedBindingContext::new(entity_source, field_source))
+    }
 }
 
 impl From<InternalError> for DynamicTypedBindingError {

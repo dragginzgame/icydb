@@ -1,0 +1,575 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-23",
+  "application_commit": "37f38533c8f8487f2b754dd3e6bbe50e4f7c33e8",
+  "assets_commit": "4c9228a114568ad210e47c40780ad92e443c717c",
+  "icydb_repository_head": "857c1438f4019661994aca321d88e1335d243fa2",
+  "scratch_root": "/tmp/icydb-c43-toko.YDrded",
+  "canic_version": "0.110.38",
+  "canic_cli_sha256": "e9562bfc1459fb4faab89bd55452e98a99a0035253e00b9b2302841e623d0abd",
+  "pocket_ic_version": "16.0.0",
+  "pocket_ic_sha256": "69e324bdb68d32d878b7a9504b1379f08f8d1921272bacb065b0fabb3d0f3792",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "profile": "fast; default application features, metrics and database-demo enabled; SQL/migration disabled",
+  "host_binary_sha256": "426c09b5ed6490ca128014df13228516da658cf41e7e7ba701bbb2e8cdff54fb",
+  "host_probe_sha256": "2eae5e126f9917479dc471b8f70dc6269874d5a92e45b436f87eb5282570be73",
+  "host_probe_patch": "--- /tmp/icydb-c43-toko.YDrded/source/apps/toko_miner/user_hub/src/qualification/opening/costs.rs\t2026-09-23 12:46:33.000000000 +0200\n+++ /tmp/icydb-c43-toko.YDrded/host-app/apps/toko_miner/user_hub/src/qualification/opening/costs.rs\t2026-09-23 13:24:02.646667282 +0200\n@@ -7,10 +7,118 @@\n mod physics;\n \n use super::*;\n+use canic::testing::CanisterInstallExt;\n use serde_json::{Value, json};\n \n const ACTIONS: usize = 64;\n \n+// Host-only measurement: normal managed readiness and same-release restoration,\n+// without a priming update or any change to the deployed application.\n+#[test]\n+#[ignore = \"requires exact managed artefacts\"]\n+fn c43_query_and_same_release_costs() {\n+    let release = env::var(\"TOKO_MINER_QUALIFICATION_RELEASE_BUILD_ID\").expect(\"build\");\n+    let caller = Principal::from_slice(&[0x74; 29]);\n+    let fixture = fixture(&release, &[caller]);\n+    let hub = fixture.unique_role(&\"user_hub\".parse().unwrap()).unwrap();\n+    let before_enrol: Vec<_> = fixture\n+        .nodes()\n+        .iter()\n+        .map(|node| {\n+            (\n+                node.canister_id,\n+                fixture.pic().cycle_balance(node.canister_id),\n+            )\n+        })\n+        .collect();\n+    let shard = enrol(&fixture, hub, caller, 0);\n+    let before = before_enrol.iter().find(|(id, _)| *id == shard).unwrap().1;\n+    let enrolled = fixture.pic().cycle_balance(shard);\n+    let (initial, initial_queries) = c43_queries(&fixture, shard, caller);\n+    let before_cooldown = fixture.pic().cycle_balance(shard);\n+    fixture\n+        .pic()\n+        .wait_out_install_code_rate_limit(Duration::from_mins(5));\n+    let before_upgrade = fixture.pic().cycle_balance(shard);\n+    fixture\n+        .upgrade_same_release(shard, Duration::ZERO)\n+        .expect(\"same-release restore\");\n+    let after_upgrade = fixture.pic().cycle_balance(shard);\n+    let (restored, restored_queries) = c43_queries(&fixture, shard, caller);\n+    let after_ready = fixture.pic().cycle_balance(shard);\n+    assert_eq!(restored, initial, \"field survives same-release restoration\");\n+    let report = json!({\n+        \"release_build_id\": release,\n+        \"post_fixture_shard_balance\": before.to_string(),\n+        \"initialisation_and_fixture_cycles\": null,\n+        \"enrolment_shard_cycles\": before.checked_sub(enrolled).expect(\"no funding\").to_string(),\n+        \"initial_queries\": initial_queries,\n+        \"cooldown_background_cycles\": before_cooldown.checked_sub(before_upgrade).expect(\"no funding\").to_string(),\n+        \"upgrade_delivery_cycles\": before_upgrade.checked_sub(after_upgrade).expect(\"no funding\").to_string(),\n+        \"post_upgrade_readiness_cycles\": after_upgrade.checked_sub(after_ready).expect(\"no funding\").to_string(),\n+        \"restored_queries\": restored_queries,\n+        \"restored_field_equal\": true,\n+        \"query_instructions\": null,\n+        \"scope\": \"First successful caller-owned field read after enrolment or same-release upgrade; fixture readiness may already have prepared the heap. Query instructions are unavailable.\"\n+    });\n+    fs::write(\n+        env::var(\"C43_QUERY_REPORT\").expect(\"report path\"),\n+        serde_json::to_vec_pretty(&report).unwrap(),\n+    )\n+    .unwrap();\n+    println!(\"C43_QUERY_COST {report}\");\n+}\n+\n+fn c43_queries(\n+    fixture: &ManagedComponentGroupFixture,\n+    shard: Principal,\n+    caller: Principal,\n+) -> (FieldProbe, Value) {\n+    let mut rejected = 0;\n+    let mut expected = None;\n+    let mut cycles = Vec::new();\n+    for _ in 0..64 {\n+        let before = fixture.pic().cycle_balance(shard);\n+        let result: Result<Vec<GameplayReadResult<FieldProbe>>, candid::Reserved> =\n+            fixture.pic().query_candid_as_or_panic(\n+                shard,\n+                caller,\n+                \"get_my_gameplay\",\n+                (vec![GameplayRead::Field {\n+                    location_key: \"tok_core\".into(),\n+                }],),\n+            );\n+        let after = fixture.pic().cycle_balance(shard);\n+        let field = result.ok().and_then(|mut rows| match rows.remove(0) {\n+            GameplayReadResult::Field(Ok(field)) => Some(field),\n+            _ => None,\n+        });\n+        if let Some(field) = field {\n+            if let Some(ref prior) = expected {\n+                assert_eq!(prior, &field);\n+            } else {\n+                expected = Some(field);\n+            }\n+            cycles.push(\n+                before\n+                    .checked_sub(after)\n+                    .expect(\"no query funding\")\n+                    .to_string(),\n+            );\n+            if cycles.len() == 3 {\n+                return (\n+                    expected.unwrap(),\n+                    json!({\"rejected_before_ready\": rejected, \"charged_cycles\": cycles, \"repeated_fields_equal\": true}),\n+                );\n+            }\n+        } else {\n+            rejected += 1;\n+            advance(fixture, 1);\n+        }\n+    }\n+    panic!(\"no bounded first-ready query result\");\n+}\n+\n #[test]\n #[ignore = \"requires managed Wasms; run make action-benchmark\"]\n fn direct_batches_report_charged_cycles_and_conserved_work() {\n@@ -38,7 +146,6 @@\n         \"schema_version\": 1, \"release_build_id\": release,\n         \"environment\": \"PocketIC managed application subnet\",\n         \"cycle_measurement\": \"replica balance deltas, not instruction-price estimates\",\n-        \"latency_measurement\": \"collection waits and local execution; not live network latency\",\n         \"trials\": trials,\n     });\n     if let Ok(path) = env::var(\"TOKO_MINER_ACTION_COST_REPORT\") {\n@@ -356,7 +463,6 @@\n ) -> (Receipt, Value) {\n     let bytes = candid::encode_args((&req,)).expect(\"request\").len();\n     let before = fixture.pic().cycle_balance(shard);\n-    let wall = std::time::Instant::now();\n     let receipt = execute(fixture, shard, caller, req.clone());\n     assert!(!receipt.replayed);\n     let after = fixture.pic().cycle_balance(shard);\n@@ -364,7 +470,6 @@\n         \"actions\": req.actions.len(), \"candid_argument_bytes\": bytes,\n         \"balance_before\": before.to_string(), \"balance_after\": after.to_string(),\n         \"net_cycles\": before.checked_sub(after).expect(\"funding invalidates cost trial\").to_string(),\n-        \"host_elapsed_ms\": wall.elapsed().as_secs_f64() * 1000.0,\n         \"oldest_action_queue_ms\": req.actions.len().saturating_sub(1) * 1000,\n     });\n     (receipt, measured)\n",
+  "dependency_changes": [
+    {
+      "package": "icydb",
+      "before": "0.261.6",
+      "after": "0.261.8",
+      "before_checksum": "e2b83e350d2a3ec715403a8b68baee216ff6ef1811502514421b78fd2cf66bc9",
+      "after_checksum": "d89c5bb87a1e6f2057149a0036f7d7da5498cfbccce52c8c1c5ef18765ee05b5"
+    },
+    {
+      "package": "icydb-core",
+      "before": "0.261.6",
+      "after": "0.261.8",
+      "before_checksum": "3cd4e76e939e1790ba92fc8ca1e1aa05c0cddab77d0fab45e982e0d5851206d9",
+      "after_checksum": "3f1fbe5ac5137c772c153bf9f9e02f496b6a74f1afcfbc7b9722f1dc30643d2a"
+    },
+    {
+      "package": "icydb-diagnostic-code",
+      "before": "0.261.6",
+      "after": "0.261.8",
+      "before_checksum": "a799a79507678a05016eac35c5bd2b4f023b66436db0c7df71fea55938600e68",
+      "after_checksum": "7df5bba417da8593f1a38d1ae8a07cc3830ec178b9f2482afa652757252a8070"
+    },
+    {
+      "package": "icydb-model",
+      "before": "0.261.6",
+      "after": "0.261.8",
+      "before_checksum": "a3632fc9d87b558837a6f21fdb9efbd0c87bdcf9436bcca1d7a7f663af3b0a6f",
+      "after_checksum": "00f396e8b32fc6b171fb2a35c4101cb680db01678f465694647961cbfddf9e8c"
+    },
+    {
+      "package": "icydb-model-macros",
+      "before": "0.261.6",
+      "after": "0.261.8",
+      "before_checksum": "0e9076f91fb5ceb989af3efd8e3e5f36aa38ef1196ee5880c0863025b1e04366",
+      "after_checksum": "85ba53840dda973df482333ea36429585fdfa3f82b6c32b1d0aefd0a7ed34da0"
+    },
+    {
+      "package": "icydb-schema",
+      "before": "0.261.6",
+      "after": "0.261.8",
+      "before_checksum": "029def5d68b8ef4b092853c4c65f21932e747cd19394938f1052c9e2907c6404",
+      "after_checksum": "adfeaee4fdfcec6baac458b75cb32045440e62a6940ddbfe2256f1887f93f0dd"
+    }
+  ],
+  "equivalent_work_checks_passed": true,
+  "repetitions_identical": true,
+  "setup_failures": [
+    {
+      "issue": "Missing trait import in temporary host probe",
+      "resolved": true,
+      "log_sha256": "92aab9be101fd6cd2ce1084521dae9b978bf74823a79530d4ff99200489ed6e7"
+    },
+    {
+      "issue": "First managed build rejected host-source changes during compilation; artefacts excluded",
+      "resolved": true,
+      "log_sha256": "28aa5f84d1486939914d41a1df908529668d336aa0cd30f7e7067b841da21e8b"
+    },
+    {
+      "issue": "Temporary absolute-startup counter underflow; replaced with unmeasured absolute cost and exact post-fixture balance",
+      "resolved": true,
+      "log_sha256": "19d93cfe470ccc2dbffd3e543b84d6d9833ae8f5d47e798dbcdcb7d9988ccb44"
+    }
+  ],
+  "variants": {
+    "v6": {
+      "release_build_id": "92fd4b00c15815da70dc83b9ae2710645e770e247d53a249a1c72e3c9055f9df",
+      "raw_wasm": {
+        "fleet_coordinator": {
+          "bytes": 5332298,
+          "sha256": "ca03a20df7ed9ca391e5d18e123878955f427dfd3066fa2f9fe96956d9a3a3f5"
+        },
+        "game_hub": {
+          "bytes": 4156733,
+          "sha256": "099de159eefcc1fdb643b48558c9dcf7bed252527fb489271dc8b596c617768e"
+        },
+        "game_shard": {
+          "bytes": 10399842,
+          "sha256": "035db1a81d17b629aed2aa205f67d2e1786566c450e1b0682012d876c5f42d21"
+        },
+        "root": {
+          "bytes": 9726376,
+          "sha256": "2bc1dd29eb0c6eed5cb363b31c8a1f377a900bc96d6a26a3c222d7da8b9c22bf"
+        },
+        "translation": {
+          "bytes": 8739486,
+          "sha256": "9a868b1d0371302fcd9b4e71846c107861bb3ca0b8cbf30cd1eae42ef3ac5183"
+        },
+        "user_hub": {
+          "bytes": 7613139,
+          "sha256": "a42fd21b44abf46cc1d61be086919e7bb7d00d6c0d2408b67ff43dd409c14576"
+        },
+        "user_shard": {
+          "bytes": 7307336,
+          "sha256": "2def157f1ec872b302d3ca00b620ed632a08925667d6b54f2edf34d11dbbc6d0"
+        },
+        "wasm_store": {
+          "bytes": 3787502,
+          "sha256": "1328e051daed356d1a2450e0405ed79aa0a98d78edc2179d72132c756b717f60"
+        }
+      },
+      "runs": [
+        {
+          "repeat": "a",
+          "trials": [
+            {
+              "workload": "inventory_stationary",
+              "batch_size": 1,
+              "actions": 64,
+              "gross_cycles": "45395304868",
+              "checkpoint_tail_cycles": "3454266352",
+              "idle_before_cycles": "83696522",
+              "idle_after_cycles": "86427930",
+              "exact_retry_cycles": "237256252",
+              "rejection_cycles": "45198486",
+              "batch_count": 64,
+              "update_delivery_cycles": "20995856762",
+              "candid_argument_bytes": 25010,
+              "position_only_setup_cycles": "320949858",
+              "action_body_instructions": "17546360860",
+              "canonical_intent_bytes": "112562",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_stationary",
+              "batch_size": 8,
+              "actions": 64,
+              "gross_cycles": "13374803127",
+              "checkpoint_tail_cycles": "1493226907",
+              "idle_before_cycles": "86572431",
+              "idle_after_cycles": "122237110",
+              "exact_retry_cycles": "239521193",
+              "rejection_cycles": "45350156",
+              "batch_count": 8,
+              "update_delivery_cycles": "5410170344",
+              "candid_argument_bytes": 8284,
+              "position_only_setup_cycles": "321613346",
+              "action_body_instructions": "4964989313",
+              "canonical_intent_bytes": "19228",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_stationary",
+              "batch_size": 16,
+              "actions": 64,
+              "gross_cycles": "8717680385",
+              "checkpoint_tail_cycles": "1051520186",
+              "idle_before_cycles": "89226488",
+              "idle_after_cycles": "81447874",
+              "exact_retry_cycles": "242121964",
+              "rejection_cycles": "45346383",
+              "batch_count": 4,
+              "update_delivery_cycles": "4406386187",
+              "candid_argument_bytes": 7090,
+              "position_only_setup_cycles": "313746529",
+              "action_body_instructions": "4175716071",
+              "canonical_intent_bytes": "12562",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_stationary",
+              "batch_size": 32,
+              "actions": 64,
+              "gross_cycles": "6090511676",
+              "checkpoint_tail_cycles": "1053376362",
+              "idle_before_cycles": "87484798",
+              "idle_after_cycles": "83806886",
+              "exact_retry_cycles": "247028378",
+              "rejection_cycles": "45344580",
+              "batch_count": 2,
+              "update_delivery_cycles": "3891719347",
+              "candid_argument_bytes": 6492,
+              "position_only_setup_cycles": "313387805",
+              "action_body_instructions": "3766764700",
+              "canonical_intent_bytes": "9228",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_with_walking",
+              "batch_size": 1,
+              "actions": 64,
+              "gross_cycles": "45224934928",
+              "checkpoint_tail_cycles": "3446725339",
+              "idle_before_cycles": "125832716",
+              "idle_after_cycles": "87933208",
+              "exact_retry_cycles": "237160668",
+              "rejection_cycles": "45346409",
+              "batch_count": 64,
+              "update_delivery_cycles": "20833354420",
+              "candid_argument_bytes": 25010,
+              "position_only_setup_cycles": "313436429",
+              "action_body_instructions": "17385216525",
+              "canonical_intent_bytes": "112562",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_with_walking",
+              "batch_size": 8,
+              "actions": 64,
+              "gross_cycles": "13376954090",
+              "checkpoint_tail_cycles": "1490459760",
+              "idle_before_cycles": "121704487",
+              "idle_after_cycles": "80098175",
+              "exact_retry_cycles": "239567749",
+              "rejection_cycles": "45430593",
+              "batch_count": 8,
+              "update_delivery_cycles": "5423712354",
+              "candid_argument_bytes": 8284,
+              "position_only_setup_cycles": "321580183",
+              "action_body_instructions": "4976771248",
+              "canonical_intent_bytes": "19228",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_with_walking",
+              "batch_size": 16,
+              "actions": 64,
+              "gross_cycles": "8734986134",
+              "checkpoint_tail_cycles": "1052079078",
+              "idle_before_cycles": "87735576",
+              "idle_after_cycles": "79316288",
+              "exact_retry_cycles": "242151542",
+              "rejection_cycles": "45348473",
+              "batch_count": 4,
+              "update_delivery_cycles": "4395023414",
+              "candid_argument_bytes": 7090,
+              "position_only_setup_cycles": "313234831",
+              "action_body_instructions": "4163194950",
+              "canonical_intent_bytes": "12562",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_with_walking",
+              "batch_size": 32,
+              "actions": 64,
+              "gross_cycles": "6097481310",
+              "checkpoint_tail_cycles": "1047320788",
+              "idle_before_cycles": "89492185",
+              "idle_after_cycles": "123851399",
+              "exact_retry_cycles": "246907161",
+              "rejection_cycles": "45360467",
+              "batch_count": 2,
+              "update_delivery_cycles": "3909984608",
+              "candid_argument_bytes": 6492,
+              "position_only_setup_cycles": "312650987",
+              "action_body_instructions": "3785593339",
+              "canonical_intent_bytes": "9228",
+              "inventory_conserved": true
+            }
+          ],
+          "lifecycle": {
+            "cooldown_background_cycles": "562173076",
+            "enrolment_shard_cycles": "1572433098",
+            "initial_queries": {
+              "charged_cycles": [
+                "0",
+                "0",
+                "0"
+              ],
+              "rejected_before_ready": 0,
+              "repeated_fields_equal": true
+            },
+            "initialisation_and_fixture_cycles": null,
+            "post_fixture_shard_balance": "100460061662690",
+            "post_upgrade_readiness_cycles": "121424475",
+            "query_instructions": null,
+            "release_build_id": "92fd4b00c15815da70dc83b9ae2710645e770e247d53a249a1c72e3c9055f9df",
+            "restored_field_equal": true,
+            "restored_queries": {
+              "charged_cycles": [
+                "0",
+                "0",
+                "0"
+              ],
+              "rejected_before_ready": 1,
+              "repeated_fields_equal": true
+            },
+            "scope": "First successful caller-owned field read after enrolment or same-release upgrade; fixture readiness may already have prepared the heap. Query instructions are unavailable.",
+            "upgrade_delivery_cycles": "24394141320"
+          },
+          "raw_report_sha256": {
+            "actions": "11a552979ddbffe1a77987ddd458d4a23e0fed34b847b18fe348fcc8b628c06e",
+            "queries": "253f2db78bf08bb8c531e42d9fbca45c8b6ddf842258ce5b69b66d1d9a69103b"
+          },
+          "log_sha256": {
+            "actions": "9a1461761000a9c51214609480db568746cb37e94e370823c3fba49788125ead",
+            "queries": "a1d7cfd5054e0d6023bd9500548c9fc67715fb1241f779b980b22d37936ee41b"
+          }
+        },
+        {
+          "repeat": "b",
+          "raw_report_sha256": {
+            "actions": "11a552979ddbffe1a77987ddd458d4a23e0fed34b847b18fe348fcc8b628c06e",
+            "queries": "253f2db78bf08bb8c531e42d9fbca45c8b6ddf842258ce5b69b66d1d9a69103b"
+          },
+          "log_sha256": {
+            "actions": "cc4acf674e655f2619f7024d8171b67c9ca712f0caa858309677cad6b7942101",
+            "queries": "c41f96fcaffad5be83bc14aeecff82380c58f0e3b97dfc732437ab2f791d02f2"
+          },
+          "identical_to_repeat": "a"
+        }
+      ],
+      "lock_sha256": "892bb5b514806cbf56aeea5693fb23befccf8d1fff6111bce8045e65ad7963d2",
+      "manifest_sha256": "0278fce3a699ee516ccc0bfa092722db4139ff196e7ba03fdcc8902b17c04d41",
+      "build_log_sha256": "54f216b8c46f54ce6f1b8c4a27d0cfc02038b279772ea7ee1533ae495d0ed2a1"
+    },
+    "v8": {
+      "release_build_id": "9e6ddaf3c9c8eb95747261f6bcf5b05dcd98eb16f4425fb46b60b03b3e685905",
+      "raw_wasm": {
+        "fleet_coordinator": {
+          "bytes": 5332298,
+          "sha256": "ba0ef4960900b27213ea5bf05f40e06f601aab03f66e7bde49a05b9441c861d7"
+        },
+        "game_hub": {
+          "bytes": 4156715,
+          "sha256": "7fb0b3888a54d77a1e9a1840c9bcf83f3edc95b5928c65de8ec41a8b52b1816d"
+        },
+        "game_shard": {
+          "bytes": 10394129,
+          "sha256": "34fe5d32fc664eb9ebc30a637368b1d1f8e5167aaeef7f69e33075835d6a75e4"
+        },
+        "root": {
+          "bytes": 9726376,
+          "sha256": "338c05d7b28165cb00078d9f853401bb72eb1ca39b4dd5b8d4564ac20f9d120d"
+        },
+        "translation": {
+          "bytes": 8737729,
+          "sha256": "224247a185e9f1646ab694b4154710f1649690f2df7aaad33af5809eda34fc56"
+        },
+        "user_hub": {
+          "bytes": 7613238,
+          "sha256": "883c7e180754a002aa15c4f1469d025c443c5b8ab38eb112806b5f94c5e8bd2d"
+        },
+        "user_shard": {
+          "bytes": 7305633,
+          "sha256": "304e3bcd846c3cb8fcaebb360cbd19f4fe133be0a3d6e298cb9839c9777cf528"
+        },
+        "wasm_store": {
+          "bytes": 3787502,
+          "sha256": "2160f5fff5fe5f0c4f1481bd55e6419c4e018c702b64f2d3b26f69b41765662b"
+        }
+      },
+      "runs": [
+        {
+          "repeat": "a",
+          "trials": [
+            {
+              "workload": "inventory_stationary",
+              "batch_size": 1,
+              "actions": 64,
+              "gross_cycles": "45405975745",
+              "checkpoint_tail_cycles": "3448360629",
+              "idle_before_cycles": "84976174",
+              "idle_after_cycles": "83867745",
+              "exact_retry_cycles": "237074159",
+              "rejection_cycles": "45195630",
+              "batch_count": 64,
+              "update_delivery_cycles": "21000115444",
+              "candid_argument_bytes": 25010,
+              "position_only_setup_cycles": "320929152",
+              "action_body_instructions": "17541908661",
+              "canonical_intent_bytes": "112562",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_stationary",
+              "batch_size": 8,
+              "actions": 64,
+              "gross_cycles": "13357708005",
+              "checkpoint_tail_cycles": "1489776953",
+              "idle_before_cycles": "86892579",
+              "idle_after_cycles": "120869029",
+              "exact_retry_cycles": "239402555",
+              "rejection_cycles": "45187844",
+              "batch_count": 8,
+              "update_delivery_cycles": "5401344881",
+              "candid_argument_bytes": 8284,
+              "position_only_setup_cycles": "321253479",
+              "action_body_instructions": "4957546912",
+              "canonical_intent_bytes": "19228",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_stationary",
+              "batch_size": 16,
+              "actions": 64,
+              "gross_cycles": "8709779092",
+              "checkpoint_tail_cycles": "1052357700",
+              "idle_before_cycles": "89066620",
+              "idle_after_cycles": "81767262",
+              "exact_retry_cycles": "242144024",
+              "rejection_cycles": "45213574",
+              "batch_count": 4,
+              "update_delivery_cycles": "4398445611",
+              "candid_argument_bytes": 7090,
+              "position_only_setup_cycles": "313665477",
+              "action_body_instructions": "4167376443",
+              "canonical_intent_bytes": "12562",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_stationary",
+              "batch_size": 32,
+              "actions": 64,
+              "gross_cycles": "6081370138",
+              "checkpoint_tail_cycles": "1051480478",
+              "idle_before_cycles": "90204697",
+              "idle_after_cycles": "82446673",
+              "exact_retry_cycles": "246855782",
+              "rejection_cycles": "45109345",
+              "batch_count": 2,
+              "update_delivery_cycles": "3882598025",
+              "candid_argument_bytes": 6492,
+              "position_only_setup_cycles": "313415142",
+              "action_body_instructions": "3758021378",
+              "canonical_intent_bytes": "9228",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_with_walking",
+              "batch_size": 1,
+              "actions": 64,
+              "gross_cycles": "45199487807",
+              "checkpoint_tail_cycles": "3442585191",
+              "idle_before_cycles": "123439308",
+              "idle_after_cycles": "85052075",
+              "exact_retry_cycles": "237199937",
+              "rejection_cycles": "45195464",
+              "batch_count": 64,
+              "update_delivery_cycles": "20824612534",
+              "candid_argument_bytes": 25010,
+              "position_only_setup_cycles": "313247209",
+              "action_body_instructions": "17368324475",
+              "canonical_intent_bytes": "112562",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_with_walking",
+              "batch_size": 8,
+              "actions": 64,
+              "gross_cycles": "13372388435",
+              "checkpoint_tail_cycles": "1488410816",
+              "idle_before_cycles": "121938012",
+              "idle_after_cycles": "78738802",
+              "exact_retry_cycles": "239821609",
+              "rejection_cycles": "45422237",
+              "batch_count": 8,
+              "update_delivery_cycles": "5423650417",
+              "candid_argument_bytes": 8284,
+              "position_only_setup_cycles": "321334054",
+              "action_body_instructions": "4979461767",
+              "canonical_intent_bytes": "19228",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_with_walking",
+              "batch_size": 16,
+              "actions": 64,
+              "gross_cycles": "8728303325",
+              "checkpoint_tail_cycles": "1051794112",
+              "idle_before_cycles": "86455339",
+              "idle_after_cycles": "81396742",
+              "exact_retry_cycles": "241994469",
+              "rejection_cycles": "45196483",
+              "batch_count": 4,
+              "update_delivery_cycles": "4391027355",
+              "candid_argument_bytes": 7090,
+              "position_only_setup_cycles": "313216799",
+              "action_body_instructions": "4160093112",
+              "canonical_intent_bytes": "12562",
+              "inventory_conserved": true
+            },
+            {
+              "workload": "inventory_with_walking",
+              "batch_size": 32,
+              "actions": 64,
+              "gross_cycles": "6096606757",
+              "checkpoint_tail_cycles": "1046094432",
+              "idle_before_cycles": "89332060",
+              "idle_after_cycles": "123850598",
+              "exact_retry_cycles": "246852704",
+              "rejection_cycles": "45202431",
+              "batch_count": 2,
+              "update_delivery_cycles": "3908242064",
+              "candid_argument_bytes": 6492,
+              "position_only_setup_cycles": "312536973",
+              "action_body_instructions": "3783576232",
+              "canonical_intent_bytes": "9228",
+              "inventory_conserved": true
+            }
+          ],
+          "lifecycle": {
+            "cooldown_background_cycles": "563748809",
+            "enrolment_shard_cycles": "1573125640",
+            "initial_queries": {
+              "charged_cycles": [
+                "0",
+                "0",
+                "0"
+              ],
+              "rejected_before_ready": 0,
+              "repeated_fields_equal": true
+            },
+            "initialisation_and_fixture_cycles": null,
+            "post_fixture_shard_balance": "100460072114984",
+            "post_upgrade_readiness_cycles": "121424825",
+            "query_instructions": null,
+            "release_build_id": "9e6ddaf3c9c8eb95747261f6bcf5b05dcd98eb16f4425fb46b60b03b3e685905",
+            "restored_field_equal": true,
+            "restored_queries": {
+              "charged_cycles": [
+                "0",
+                "0",
+                "0"
+              ],
+              "rejected_before_ready": 1,
+              "repeated_fields_equal": true
+            },
+            "scope": "First successful caller-owned field read after enrolment or same-release upgrade; fixture readiness may already have prepared the heap. Query instructions are unavailable.",
+            "upgrade_delivery_cycles": "24384095256"
+          },
+          "raw_report_sha256": {
+            "actions": "deed7c06550c782a658442fca6a175818987b7b09a6c9a062ea26257cc462b9b",
+            "queries": "e24e16cf8e5a8945d0dafd54e9e79249362cd1a1c1e7ba0c6e7098da8c16362e"
+          },
+          "log_sha256": {
+            "actions": "37b99df20eadc59dbce4d7a1a380fe2fecc9babfcd61e176c08965ee23003a32",
+            "queries": "e1012b4b5a659000394d0eacbb0c291deab43167b1442e04645367289b24ed01"
+          }
+        },
+        {
+          "repeat": "b",
+          "raw_report_sha256": {
+            "actions": "deed7c06550c782a658442fca6a175818987b7b09a6c9a062ea26257cc462b9b",
+            "queries": "e24e16cf8e5a8945d0dafd54e9e79249362cd1a1c1e7ba0c6e7098da8c16362e"
+          },
+          "log_sha256": {
+            "actions": "a4e0463ac625b14ec132e861378bbe4fb3e7965cd8b139140b476bc027083e2b",
+            "queries": "6ee1f6f6af26f84c0bbd0fea9ecf87ad00a150c46c7cc72edcab2c211cf0aa91"
+          },
+          "identical_to_repeat": "a"
+        }
+      ],
+      "lock_sha256": "12e165ce871f9380863ce29d107996240b0ab9241dc26d8cd46c05cf5bd85675",
+      "manifest_sha256": "d6c0c972930ac694ec9cb9f0ee202001d8b440f78d2df30ca075832617083ab6",
+      "build_log_sha256": "727681882fd007ba43c66575c3c4fb3238ab7635104f58c55d21bd82818d20af"
+    }
+  },
+  "limitations": [
+    "Frozen committed application only; concurrent downstream edits excluded.",
+    "Query instruction counts unavailable; zero charged query cycles is not zero CPU.",
+    "First successful public read follows normal fixture readiness/enrolment, not raw schema publication.",
+    "Gross workload cycles include inter-batch background work and checkpoint tail; no idle subtraction.",
+    "Action-body instructions exclude Candid envelope; update delivery cycles include full delivered calls.",
+    "Absolute initialisation cost is unmeasured because fixture child creation adds funding beyond the explicit top-up; post-fixture balances are retained separately.",
+    "Disposable PocketIC fixtures; no live latency/capacity or release/full-suite qualification.",
+    "Only identical-release recovery, never a cross-version persisted-state upgrade.",
+    "No host timing metric retained or used."
+  ]
+}

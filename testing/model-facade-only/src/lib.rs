@@ -62,7 +62,9 @@ fn profile_rank() -> Result<Option<u64>, String> {
 
 #[cfg(test)]
 mod tests {
+    use runtime_api::db::{TypedAdapterError, TypedEntityDescriptor, TypedOperationError};
     use runtime_api::model::{TypedInputValue, TypedNamedType, TypedOutputValue};
+    use runtime_api::traits::EntitySource;
 
     use super::{FacadePlayer, FacadeProfile};
 
@@ -93,5 +95,41 @@ mod tests {
         assert_eq!(super::profile_rank().unwrap(), None);
         super::insert_profile(19).unwrap();
         assert_eq!(super::profile_rank().unwrap(), Some(19));
+    }
+
+    #[test]
+    fn generated_schema_binding_mismatch_keeps_source_context() {
+        crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
+        runtime_api::db::with_request_execution(|| {
+            let session = crate::db().unwrap();
+            FacadePlayer::typed_binding(&session).unwrap();
+            for (descriptor, entity, field) in [
+                (
+                    TypedEntityDescriptor::new("fixture::MissingEntity", &[], &[]),
+                    "fixture::MissingEntity",
+                    None,
+                ),
+                (
+                    TypedEntityDescriptor::new(
+                        FacadePlayer::ENTITY,
+                        &["fixture::MissingField"],
+                        &[],
+                    ),
+                    FacadePlayer::ENTITY,
+                    Some("fixture::MissingField"),
+                ),
+            ] {
+                let error = session.bind_typed_entity(&descriptor).unwrap_err();
+                let TypedOperationError::Adapter(TypedAdapterError::BindingUnavailable(context)) =
+                    error
+                else {
+                    panic!("expected generated binding source context");
+                };
+                assert_eq!(context.entity_source(), entity);
+                assert_eq!(context.field_source(), field);
+            }
+            // A rejected descriptor cannot replace or repair accepted authority.
+            FacadePlayer::typed_binding(&session).unwrap();
+        });
     }
 }

@@ -35,7 +35,7 @@ pub use icydb_core::db::{
     ReadSetStoreIdentity, ReadSetStoreRevision, ResumableJobAdvance, ResumableJobAdvanceReceipt,
     ResumableJobAdvanceRequest, ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId,
     ResumableJobIdempotencyKey, ResumableJobState, ResumableJobStatus, RowProjectionOutput,
-    ScalarPageWork,
+    ScalarPageWork, TypedBindingContext,
 };
 #[cfg(feature = "migration")]
 pub use icydb_core::db::{

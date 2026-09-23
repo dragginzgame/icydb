@@ -271,15 +271,18 @@ whereas ordered streaming releases each active group at its proven key
 transition. The budget records peak live groups, aggregate states, DISTINCT
 values, and estimated bytes for diagnostics without weakening cumulative caps.
 
-Distinct insertions must pass through grouped budget accounting.
-Budget enforcement over these counters is authoritative.
-This includes global DISTINCT field aggregates modeled as grouped execution with
-zero group keys.
-Non-grouped scalar DISTINCT projection helpers (for example
-`count_distinct_by(field)` / `distinct_values_by(field)`) are effective-window
-materialized terminals and are not grouped Class B operators. Their DISTINCT
-key admission is owned by the materialized helper boundary
-`executor::aggregate::materialized_distinct`.
+Grouped DISTINCT insertions pass through the authoritative
+[grouped budget accounting](../../crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context.rs).
+This includes global DISTINCT field aggregates modeled as grouped execution
+with zero group keys.
+
+Outside grouped execution,
+[scalar aggregate reducers](../../crates/icydb-core/src/db/executor/aggregate/scalar_terminals/reducer.rs)
+own DISTINCT value sets, while
+[projected-row DISTINCT](../../crates/icydb-core/src/db/executor/projection/materialize/distinct.rs)
+owns adjacent deduplication or global replay. These paths charge execution
+budgets for DISTINCT entries and retained state; they do not obtain their
+limits from grouped-query configuration.
 
 All cardinality-sensitive state must be reachable exclusively through
 budget-accounted structures.

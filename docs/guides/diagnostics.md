@@ -1,6 +1,6 @@
 # Compact diagnostics
 
-IcyDB errors carry a stable numeric E-code and a bounded list of numeric facts.
+`icydb::Error` carries a stable numeric E-code and a bounded list of numeric facts.
 They deliberately omit schema names, SQL text, keys, rows, and values so normal
 canisters do not retain a large diagnostic prose catalog. One narrow exception
 lets a failed query return the caller's own rejected field reference as bounded,
@@ -58,6 +58,30 @@ An E23 raised while compiling an accepted relation includes `entity_tag` and
 catalog. Existing cause facts, such as expected and actual target-key arity,
 follow those identities. These remain numeric diagnostics and do not disclose
 schema names or row values.
+
+## Generated binding diagnostics
+
+Typed operations distinguish database errors from adapter errors. When a
+generated entity or field source cannot bind to the accepted schema, the Rust
+API returns `TypedOperationError::Adapter(TypedAdapterError::BindingUnavailable(context))`.
+The [binding context](../../crates/icydb-core/src/db/dynamic_write.rs) exposes
+`entity_source()` and `field_source()`; `None` identifies the entity lookup,
+while `Some` identifies the requested primary-key or ordinary field. A malformed
+named-type key identifies its containing field. Invalid and absent source keys
+both fail closed; this context is not a separate reason classifier.
+
+Context retains only static generated source keys, not row values or accepted
+schema dumps. Valid keys are complete; malformed oversized keys are UTF-8
+prefixes of at most the schema's 128-byte source-key limit. Display escapes the
+keys. Applications should inspect the typed variant/accessors, not parse text.
+Later value/row projection failures keep their own adapter classifications.
+
+This adapter error is not an `icydb::Error` JSON payload and cannot be submitted
+to `diagnostic --error-json`. Compare the identified generated declaration with
+the accepted schema and regenerate the current artefacts when they disagree;
+there is no generated-model fallback. A mismatch alone does not establish a
+build-cache invalidation defect. Changed binding-issuance classification and
+exhaustive adapter-error matches require source updates; stored data is unchanged.
 
 ## Live schema resolution
 

@@ -44,7 +44,9 @@ use crate::{
     types::{CurrentTimestamp, Timestamp},
     value::{InputValue, Value},
 };
-use icydb_schema::{EntitySourceKey, FieldSourceKey, FieldType, TypeSourceKey};
+use icydb_schema::{
+    EntitySourceKey, FieldSourceKey, FieldType, SchemaContractError, TypeSourceKey,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct AcceptedIdentityInsertField {
@@ -694,15 +696,15 @@ fn prepare_dynamic_mutation_result(
 
 fn typed_descriptor_field_type(
     field_type: TypedFieldType,
-) -> Result<FieldType, DynamicTypedBindingError> {
+) -> Result<FieldType, SchemaContractError> {
     match field_type {
         TypedFieldType::Scalar(scalar) => Ok(FieldType::Scalar(scalar)),
         TypedFieldType::List(item) => Ok(FieldType::List(Box::new(typed_descriptor_field_type(
             *item,
         )?))),
-        TypedFieldType::Named(source_key) => TypeSourceKey::try_new(source_key.to_string())
-            .map(FieldType::Named)
-            .map_err(|_| DynamicTypedBindingError::FieldUnavailable),
+        TypedFieldType::Named(source_key) => {
+            TypeSourceKey::try_new(source_key.to_string()).map(FieldType::Named)
+        }
     }
 }
 
@@ -730,11 +732,14 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         descriptor: &TypedEntityDescriptor,
     ) -> Result<DynamicTypedEntityBinding, DynamicTypedBindingError> {
+        let unavailable = |field_source| {
+            DynamicTypedBindingError::source_unavailable(descriptor.entity_source_key, field_source)
+        };
         let entity_source = EntitySourceKey::try_new(descriptor.entity_source_key)
-            .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?;
+            .map_err(|_| unavailable(None))?;
         let catalog = self
             .find_accepted_schema_catalog_context_for_entity_source_key(entity_source.as_str())?
-            .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
+            .ok_or_else(|| unavailable(None))?;
         let identity = catalog.identity();
         if identity.entity_path() != entity_source.as_str() {
             return Err(InternalError::store_invariant().into());
@@ -768,11 +773,11 @@ impl<C: CanisterKind> DbSession<C> {
                 .zip(snapshot.primary_key_field_ids())
             {
                 let source = FieldSourceKey::try_new((*source_key).to_string())
-                    .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?;
+                    .map_err(|_| unavailable(Some(*source_key)))?;
                 let descriptor_field_id = bundle
                     .source_bindings()
                     .field(entity_tag, &source)
-                    .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
+                    .ok_or_else(|| unavailable(Some(*source_key)))?;
                 if descriptor_field_id != *accepted_field_id {
                     return Err(DynamicTypedBindingError::IncompatibleField);
                 }
@@ -781,11 +786,11 @@ impl<C: CanisterKind> DbSession<C> {
             let mut fields = Vec::with_capacity(descriptor.fields.len());
             for field_descriptor in descriptor.fields {
                 let source = FieldSourceKey::try_new(field_descriptor.source_key.to_string())
-                    .map_err(|_| DynamicTypedBindingError::FieldUnavailable)?;
+                    .map_err(|_| unavailable(Some(field_descriptor.source_key)))?;
                 let field_id = bundle
                     .source_bindings()
                     .field(entity_tag, &source)
-                    .ok_or(DynamicTypedBindingError::FieldUnavailable)?;
+                    .ok_or_else(|| unavailable(Some(field_descriptor.source_key)))?;
                 let field = snapshot
                     .fields()
                     .iter()
@@ -796,7 +801,8 @@ impl<C: CanisterKind> DbSession<C> {
                 if runtime_field.field_id() != field_id {
                     return Err(InternalError::store_invariant().into());
                 }
-                let field_type = typed_descriptor_field_type(field_descriptor.field_type)?;
+                let field_type = typed_descriptor_field_type(field_descriptor.field_type)
+                    .map_err(|_| unavailable(Some(field_descriptor.source_key)))?;
                 let expected_kind = lower_field_type(&field_type, bundle.source_bindings())
                     .map_err(|_| DynamicTypedBindingError::IncompatibleField)?;
                 if field.nullable() != field_descriptor.nullable
@@ -1996,6 +2002,7 @@ impl<C: CanisterKind> DbSession<C> {
 
 #[cfg(test)]
 mod typed_adapter_tests {
+    mod binding_diagnostics_tests;
     mod incarnation_tests;
     mod input_handoff_tests;
 
@@ -2375,7 +2382,7 @@ mod typed_adapter_tests {
 
         assert!(matches!(
             typed_descriptor_field_type(TypedFieldType::Named("")),
-            Err(DynamicTypedBindingError::FieldUnavailable),
+            Err(icydb_schema::SchemaContractError::EmptyIdentity),
         ));
         assert!(matches!(
             typed_descriptor_field_type(TypedFieldType::Scalar(ScalarType::Nat16)),
@@ -2894,7 +2901,9 @@ mod typed_adapter_tests {
 
         assert!(matches!(
             session.issue_typed_entity_binding(&ENTITY_DESCRIPTOR),
-            Err(DynamicTypedBindingError::FieldUnavailable),
+            Err(DynamicTypedBindingError::SourceUnavailable(context))
+                if context.entity_source() == ENTITY_SOURCE
+                    && context.field_source() == Some(VALUE_SOURCE),
         ));
         assert!(
             !session

@@ -7,7 +7,7 @@
 //! above the core save pipeline.
 
 use crate::{
-    db::{DynamicMutationResult, session::DbSession},
+    db::{DynamicMutationResult, TypedBindingContext, session::DbSession},
     error::Error,
     traits::CanisterKind,
     value::{InputValue, OutputValue, PublicEnumValue, PublicValue},
@@ -271,6 +271,9 @@ pub enum TypedAdapterError {
     /// The typed batch row selected by this handle has already been decoded.
     BatchRowConsumed,
 
+    /// A generated entity or field source cannot bind to accepted schema authority.
+    BindingUnavailable(TypedBindingContext),
+
     /// The row belongs to another accepted entity.
     EntityMismatch,
 
@@ -298,6 +301,14 @@ impl fmt::Display for TypedAdapterError {
         formatter.write_str(match self {
             Self::BatchHandleMismatch => "typed batch handle mismatch",
             Self::BatchRowConsumed => "typed batch row already consumed",
+            Self::BindingUnavailable(context) => {
+                return write!(
+                    formatter,
+                    "typed binding source unavailable (entity {:?}, field {:?})",
+                    context.entity_source(),
+                    context.field_source(),
+                );
+            }
             Self::EntityMismatch => "typed binding entity mismatch",
             Self::FieldUnavailable => "typed binding field unavailable",
             Self::IncompatibleField => "typed binding field contract is incompatible",
@@ -1294,8 +1305,8 @@ impl<C: CanisterKind> DbSession<C> {
             .issue_typed_entity_binding(descriptor)
             .map(TypedEntityBinding::new)
             .map_err(|error| match error {
-                core::db::DynamicTypedBindingError::FieldUnavailable => {
-                    TypedOperationError::Adapter(TypedAdapterError::FieldUnavailable)
+                core::db::DynamicTypedBindingError::SourceUnavailable(context) => {
+                    TypedOperationError::Adapter(TypedAdapterError::BindingUnavailable(context))
                 }
                 core::db::DynamicTypedBindingError::IncompatibleField => {
                     TypedOperationError::Adapter(TypedAdapterError::IncompatibleField)
