@@ -27,13 +27,13 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
         FastStreamRouteRequest::PrimaryKey {
             plan,
             executable_access,
-            stream_direction,
+            continuation,
             probe_fetch_hint,
         } => execute_primary_key_fast_stream_route(
             runtime,
             plan,
             executable_access,
-            stream_direction,
+            continuation,
             probe_fetch_hint,
         ),
         FastStreamRouteRequest::SecondaryIndex {

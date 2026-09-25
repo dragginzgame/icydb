@@ -6,7 +6,6 @@
 use crate::{
     db::{
         access::ExecutableAccessPlan,
-        direction::Direction,
         executor::{
             LoweredIndexRangeSpec,
             pipeline::contracts::{AccessScanContinuationInput, AccessStreamBindings},
@@ -27,7 +26,7 @@ pub(in crate::db::executor) enum FastStreamRouteRequest<'a, 'plan> {
     PrimaryKey {
         plan: &'a AccessPlannedQuery,
         executable_access: &'a ExecutableAccessPlan<'plan, Value>,
-        stream_direction: Direction,
+        continuation: AccessScanContinuationInput<'a>,
         probe_fetch_hint: Option<usize>,
     },
     SecondaryIndex {

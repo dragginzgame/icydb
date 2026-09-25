@@ -374,7 +374,7 @@ fn and_prefix_ranges_merge_unicode_bounds_with_cumulative_admission() {
 }
 
 #[test]
-fn and_primary_range_copies_only_a_complete_valid_interval() {
+fn and_primary_range_copies_valid_interval_endpoints() {
     use crate::db::query::plan::planner::range::primary_key_range_from_and;
 
     let schema = schema();
@@ -422,7 +422,6 @@ fn and_primary_range_copies_only_a_complete_valid_interval() {
         }
     }
     for (invalid, compared_nodes) in [
-        (vec![children[0].clone()], 0),
         (
             vec![
                 children[0].clone(),
@@ -457,5 +456,51 @@ fn and_primary_range_copies_only_a_complete_valid_interval() {
         })
         .unwrap();
         assert_eq!(root.observed(Resource::NestedValueSteps), compared_nodes);
+    }
+}
+
+#[test]
+fn scalar_primary_key_one_sided_comparisons_select_bounded_access() {
+    use crate::db::{
+        access::AccessPlan,
+        query::plan::planner::{compare::plan_compare, range::primary_key_range_from_and},
+    };
+
+    let schema = schema();
+    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let indexes = visible.accepted_semantic_index_contracts();
+    for (op, expected) in [
+        (
+            CompareOp::Gt,
+            AccessPlan::key_range_bounds(Some(Value::Nat64(40)), None),
+        ),
+        (
+            CompareOp::Gte,
+            AccessPlan::key_range_bounds(Some(Value::Nat64(40)), None),
+        ),
+        (
+            CompareOp::Lt,
+            AccessPlan::key_range_bounds(None, Some(Value::Nat64(40))),
+        ),
+        (
+            CompareOp::Lte,
+            AccessPlan::key_range_bounds(None, Some(Value::Nat64(40))),
+        ),
+    ] {
+        let cmp = ComparePredicate::with_coercion("id", op, Value::Nat64(40), CoercionId::Strict);
+        let root = request(Resource::TemporaryBytes, 16_000_000);
+        PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+            assert_eq!(
+                plan_compare(indexes, &schema, &cmp, None, false, work).unwrap(),
+                expected
+            );
+            assert_eq!(
+                primary_key_range_from_and(&schema, &[Predicate::Compare(cmp.clone())], work)
+                    .unwrap(),
+                Some(expected.clone())
+            );
+            Ok(())
+        })
+        .unwrap();
     }
 }

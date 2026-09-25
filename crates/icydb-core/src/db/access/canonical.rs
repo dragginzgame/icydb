@@ -253,7 +253,12 @@ impl AccessPath<Value> {
                     start: right_start,
                     end: right_end,
                 },
-            ) => Self::canonical_cmp_key_range(left_start, left_end, right_start, right_end),
+            ) => Self::canonical_cmp_key_range(
+                left_start.as_ref(),
+                left_end.as_ref(),
+                right_start.as_ref(),
+                right_end.as_ref(),
+            ),
             (
                 Self::IndexPrefix {
                     index: left_index,
@@ -323,17 +328,27 @@ impl AccessPath<Value> {
 
     // Compare key-range bounds once the variant pairing is already fixed.
     fn canonical_cmp_key_range(
-        left_start: &Value,
-        left_end: &Value,
-        right_start: &Value,
-        right_end: &Value,
+        left_start: Option<&Value>,
+        left_end: Option<&Value>,
+        right_start: Option<&Value>,
+        right_end: Option<&Value>,
     ) -> Ordering {
-        let cmp = Value::canonical_cmp(left_start, right_start);
+        let cmp = match (left_start, right_start) {
+            (Some(left), Some(right)) => Value::canonical_cmp(left, right),
+            (None, Some(_)) => Ordering::Less,
+            (Some(_), None) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        };
         if cmp != Ordering::Equal {
             return cmp;
         }
 
-        Value::canonical_cmp(left_end, right_end)
+        match (left_end, right_end) {
+            (Some(left), Some(right)) => Value::canonical_cmp(left, right),
+            (None, Some(_)) => Ordering::Less,
+            (Some(_), None) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        }
     }
 
     // Compare one index-prefix shape after rank + variant pairing succeeds.

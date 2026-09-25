@@ -131,7 +131,7 @@ impl AccessPlanProjection<Value> for AdmissionAccessProjection {
         )
     }
 
-    fn key_range(&mut self, _start: &Value, _end: &Value) -> Self::Output {
+    fn key_range(&mut self, _start: Option<&Value>, _end: Option<&Value>) -> Self::Output {
         AdmissionAccessSummary::non_index(QueryAdmissionAccessKind::KeyRange, None)
     }
 

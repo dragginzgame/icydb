@@ -10,8 +10,8 @@ use crate::{
                 ACCESS_TAG_BY_KEY, ACCESS_TAG_BY_KEYS, ACCESS_TAG_FULL_SCAN,
                 ACCESS_TAG_INDEX_BRANCH_SET, ACCESS_TAG_INDEX_MULTI_LOOKUP,
                 ACCESS_TAG_INDEX_PREFIX, ACCESS_TAG_INDEX_RANGE, ACCESS_TAG_INTERSECTION,
-                ACCESS_TAG_KEY_RANGE, ACCESS_TAG_UNION, write_str, write_tag, write_u32,
-                write_value_bound,
+                ACCESS_TAG_KEY_OPEN_RANGE, ACCESS_TAG_KEY_RANGE, ACCESS_TAG_UNION, write_str,
+                write_tag, write_u32, write_value_bound,
             },
             plan::{AccessPlanProjection, project_access_plan},
         },
@@ -91,11 +91,23 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
         Ok(())
     }
 
-    fn key_range(&mut self, start: &Value, end: &Value) -> Self::Output {
+    fn key_range(&mut self, start: Option<&Value>, end: Option<&Value>) -> Self::Output {
         self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
-        write_tag(self.hasher, ACCESS_TAG_KEY_RANGE);
-        self.hasher.update(self.budget.hash_value(start)?);
-        self.hasher.update(self.budget.hash_value(end)?);
+        if let (Some(start), Some(end)) = (start, end) {
+            // Preserve existing two-ended identities; only the new open shape
+            // needs presence framing.
+            write_tag(self.hasher, ACCESS_TAG_KEY_RANGE);
+            self.hasher.update(self.budget.hash_value(start)?);
+            self.hasher.update(self.budget.hash_value(end)?);
+        } else {
+            write_tag(self.hasher, ACCESS_TAG_KEY_OPEN_RANGE);
+            for endpoint in [start, end] {
+                self.hasher.update([u8::from(endpoint.is_some())]);
+                if let Some(value) = endpoint {
+                    self.hasher.update(self.budget.hash_value(value)?);
+                }
+            }
+        }
         Ok(())
     }
 

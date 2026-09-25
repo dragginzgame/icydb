@@ -116,11 +116,11 @@ impl AccessPlanProjection<Value> for ExplainAccessProjection<'_, '_> {
         })
     }
 
-    fn key_range(&mut self, start: &Value, end: &Value) -> Self::Output {
+    fn key_range(&mut self, start: Option<&Value>, end: Option<&Value>) -> Self::Output {
         self.node()?;
         Ok(ExplainAccessPath::KeyRange {
-            start: self.work.copy_value(start)?,
-            end: self.work.copy_value(end)?,
+            start: start.map(|start| self.work.copy_value(start)).transpose()?,
+            end: end.map(|end| self.work.copy_value(end)).transpose()?,
         })
     }
 

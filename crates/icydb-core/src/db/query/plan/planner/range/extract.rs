@@ -77,28 +77,30 @@ pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
         }
 
         match cmp.op {
-            CompareOp::Gte if lower.is_none() => lower = Some(&cmp.value),
-            CompareOp::Lt if upper.is_none() => upper = Some(&cmp.value),
+            CompareOp::Gt | CompareOp::Gte if lower.is_none() => lower = Some(&cmp.value),
+            CompareOp::Lt | CompareOp::Lte if upper.is_none() => upper = Some(&cmp.value),
             _ => return Ok(None),
         }
     }
 
-    let (Some(start), Some(end)) = (lower, upper) else {
-        return Ok(None);
-    };
-    budget.admit_value_comparison(start)?;
-    if canonical_cmp(start, end) != Ordering::Less {
+    if lower.is_none() && upper.is_none() {
         return Ok(None);
     }
+    if let (Some(start), Some(end)) = (lower, upper) {
+        budget.admit_value_comparison(start)?;
+        if canonical_cmp(start, end) != Ordering::Less {
+            return Ok(None);
+        }
+    }
 
-    // Only a complete, compatible primary range retains operand copies.
-    let start = budget.copy_value(start)?;
-    let end = budget.copy_value(end)?;
+    // Retain only authored endpoints. The residual predicate owns exclusivity.
+    let start = lower.map(|start| budget.copy_value(start)).transpose()?;
+    let end = upper.map(|end| budget.copy_value(end)).transpose()?;
     budget.charge(
         Resource::TemporaryBytes,
         size_of::<AccessPath<Value>>() as u64,
     )?;
-    Ok(Some(AccessPlan::key_range(start, end)))
+    Ok(Some(AccessPlan::key_range_bounds(start, end)))
 }
 
 // Build one deterministic secondary-range candidate from a normalized AND-group.

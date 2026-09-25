@@ -106,8 +106,8 @@ fn logical_summaries_depend_on_plan_shape_not_operand_payload_size() {
                 keys: vec![value.clone()],
             },
             ExplainAccessPath::KeyRange {
-                start: value.clone(),
-                end: value.clone(),
+                start: Some(value.clone()),
+                end: Some(value.clone()),
             },
             ExplainAccessPath::IndexPrefix {
                 name: "by_owner".into(),
@@ -474,8 +474,8 @@ fn decision_projection_counts_composite_constraints_with_cumulative_visits() {
         ExplainAccessPath::Intersection(vec![
             ExplainAccessPath::ByKeys { keys: vec![] },
             ExplainAccessPath::KeyRange {
-                start: Value::Nat64(1),
-                end: Value::Nat64(3),
+                start: Some(Value::Nat64(1)),
+                end: Some(Value::Nat64(3)),
             },
         ]),
         ExplainAccessPath::IndexRange {

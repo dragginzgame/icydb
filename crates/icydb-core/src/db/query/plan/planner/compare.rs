@@ -51,6 +51,27 @@ pub(super) fn plan_compare(
     // keys are addressed through full-key values at typed/structural
     // boundaries; partial component predicates must not masquerade as ByKey.
     let primary_key_name = schema.scalar_primary_key_name();
+    if cmp.coercion.id == CoercionId::Strict
+        && primary_key_name.is_some_and(|name| cmp.field == name)
+        && let Some(field_type) = primary_key_name.and_then(|name| schema.field(name))
+        && field_type.is_keyable()
+        && literal_matches_type(&cmp.value, field_type)
+    {
+        let path = match cmp.op {
+            CompareOp::Gt | CompareOp::Gte => Some(AccessPath::KeyRange {
+                start: Some(budget.copy_value(&cmp.value)?),
+                end: None,
+            }),
+            CompareOp::Lt | CompareOp::Lte => Some(AccessPath::KeyRange {
+                start: None,
+                end: Some(budget.copy_value(&cmp.value)?),
+            }),
+            _ => None,
+        };
+        if let Some(path) = path {
+            return Ok(AccessPlan::Path(budget.boxed(path)?));
+        }
+    }
     if primary_key_exact_coercion_supports_access(cmp.coercion.id)
         && primary_key_name.is_some_and(|name| cmp.field == name)
         && let Some(field_type) = primary_key_name.and_then(|name| schema.field(name))
@@ -201,7 +222,8 @@ fn plan_pk_compare(
             AccessPath::ByKeys(keys)
         }
         _ => {
-            // NOTE: Only Eq/In comparisons can be expressed as key access paths.
+            // Other comparisons are handled by the strict scalar range path
+            // or by secondary-index planning.
             return Ok(None);
         }
     };

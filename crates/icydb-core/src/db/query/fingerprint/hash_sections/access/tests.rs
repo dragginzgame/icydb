@@ -292,6 +292,21 @@ fn access_key_hashes_preserve_payload_and_framing() {
 }
 
 #[test]
+fn open_primary_key_range_hashes_frame_the_present_endpoint() {
+    let value = Value::Nat64(40);
+    let lower = AccessPlan::key_range_bounds(Some(value.clone()), None);
+    let upper = AccessPlan::key_range_bounds(None, Some(value.clone()));
+    let two_sided = AccessPlan::key_range(value.clone(), value);
+    let root = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let lower_hash = admitted_hash(&lower, &root, Lane::Diagnostic).unwrap();
+    let upper_hash = admitted_hash(&upper, &root, Lane::Diagnostic).unwrap();
+    let two_sided_hash = admitted_hash(&two_sided, &root, Lane::Diagnostic).unwrap();
+    assert_ne!(lower_hash, upper_hash);
+    assert_ne!(lower_hash, two_sided_hash);
+    assert_ne!(upper_hash, two_sided_hash);
+}
+
+#[test]
 fn access_projection_hash_preserves_canonical_postorder() {
     let access = AccessPlan::Union(vec![
         AccessPlan::by_keys(vec![Value::Nat64(7), Value::Nat64(2)]),

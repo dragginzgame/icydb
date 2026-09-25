@@ -44,6 +44,7 @@ impl<'a> PrimaryKeyAccessProof<'a> {
 
         access
             .as_primary_key_range_path()
+            .and_then(|(start, end)| start.zip(end))
             .map(|(start, end)| Self::HalfOpenRange { start, end })
     }
 

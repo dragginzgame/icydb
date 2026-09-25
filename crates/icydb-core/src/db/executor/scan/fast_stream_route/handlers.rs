@@ -13,10 +13,10 @@
 use crate::{
     db::{
         access::ExecutableAccessPlan,
-        direction::Direction,
         executor::{
             AccessStreamBindings, AccessStreamExecutionPolicy,
-            pipeline::contracts::FastPathKeyResult, route::verify_pk_stream_fast_path_access,
+            pipeline::contracts::{AccessScanContinuationInput, FastPathKeyResult},
+            route::verify_pk_stream_fast_path_access,
             scan::fast_stream::execute_structural_fast_stream_request,
             stream::access::TraversalRuntime,
         },
@@ -30,7 +30,7 @@ pub(super) fn execute_primary_key_fast_stream_route(
     runtime: &TraversalRuntime,
     _plan: &AccessPlannedQuery,
     executable_access: &ExecutableAccessPlan<'_, Value>,
-    stream_direction: Direction,
+    continuation: AccessScanContinuationInput<'_>,
     probe_fetch_hint: Option<usize>,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
     // Phase 1: validate that the routed access shape is PK-stream compatible.
@@ -40,7 +40,7 @@ pub(super) fn execute_primary_key_fast_stream_route(
     Ok(Some(execute_structural_fast_stream_request(
         runtime,
         executable_access,
-        AccessStreamBindings::no_index(stream_direction),
+        AccessStreamBindings::new(&[], &[], continuation),
         AccessStreamExecutionPolicy::canonical_key_order(probe_fetch_hint),
         None,
     )?))

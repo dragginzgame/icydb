@@ -159,8 +159,8 @@ fn access_projection_preserves_every_dto_shape_and_charges_branch_field_copy() {
             keys: values.clone(),
         },
         ExplainAccessPath::KeyRange {
-            start: Value::Nat64(1),
-            end: Value::Nat64(9),
+            start: Some(Value::Nat64(1)),
+            end: Some(Value::Nat64(9)),
         },
         ExplainAccessPath::FullScan,
         ExplainAccessPath::IndexPrefix {

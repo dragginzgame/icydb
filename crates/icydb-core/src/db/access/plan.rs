@@ -45,8 +45,16 @@ impl<K> AccessPlan<K> {
     }
 
     /// Construct a primary-key range access plan.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn key_range(start: K, end: K) -> Self {
+        Self::key_range_bounds(Some(start), Some(end))
+    }
+
+    /// Construct a primary-key range from optional endpoints. Runtime
+    /// validation rejects a range with neither endpoint.
+    #[must_use]
+    pub(in crate::db) fn key_range_bounds(start: Option<K>, end: Option<K>) -> Self {
         Self::path(AccessPath::KeyRange { start, end })
     }
 
@@ -203,8 +211,8 @@ impl<K> AccessPlan<K> {
     /// Borrow the primary-key range endpoints when this is a single `KeyRange`
     /// path.
     #[must_use]
-    pub(in crate::db) fn as_primary_key_range_path(&self) -> Option<(&K, &K)> {
-        self.as_path().and_then(|path| path.as_key_range())
+    pub(in crate::db) fn as_primary_key_range_path(&self) -> Option<(Option<&K>, Option<&K>)> {
+        self.as_path().and_then(AccessPath::as_key_range)
     }
 
     /// Borrow the primary-key payload when this is a single `ByKey` path.

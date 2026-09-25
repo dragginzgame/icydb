@@ -57,7 +57,7 @@ impl FastPathRouteHandler {
             Self::PrimaryKey => inputs.runtime().try_execute_pk_order_stream(
                 inputs.plan(),
                 inputs.executable_access().clone(),
-                inputs.stream_bindings().direction(),
+                inputs.stream_bindings().continuation,
                 route_plan.scan_hints.physical_fetch_hint,
             ),
             Self::SecondaryPrefix => inputs.runtime().try_execute_secondary_index_order_stream(

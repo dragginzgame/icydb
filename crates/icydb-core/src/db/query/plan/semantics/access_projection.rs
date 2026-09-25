@@ -24,7 +24,7 @@ pub(in crate::db) trait AccessPlanProjection<K> {
 
     fn by_key(&mut self, key: &K) -> Self::Output;
     fn by_keys(&mut self, keys: &[K]) -> Self::Output;
-    fn key_range(&mut self, start: &K, end: &K) -> Self::Output;
+    fn key_range(&mut self, start: Option<&K>, end: Option<&K>) -> Self::Output;
     fn index_prefix<'a>(
         &mut self,
         index_name: &str,
@@ -104,7 +104,7 @@ impl<K> AccessPath<K> {
         match self {
             Self::ByKey(key) => projection.by_key(key),
             Self::ByKeys(keys) => projection.by_keys(keys),
-            Self::KeyRange { start, end } => projection.key_range(start, end),
+            Self::KeyRange { start, end } => projection.key_range(start.as_ref(), end.as_ref()),
             Self::IndexPrefix { index, values } => {
                 let fields = index_contract_key_fields(index);
 
@@ -159,7 +159,9 @@ where
     match access {
         ExplainAccessPath::ByKey { key } => projection.by_key(key),
         ExplainAccessPath::ByKeys { keys } => projection.by_keys(keys),
-        ExplainAccessPath::KeyRange { start, end } => projection.key_range(start, end),
+        ExplainAccessPath::KeyRange { start, end } => {
+            projection.key_range(start.as_ref(), end.as_ref())
+        }
         ExplainAccessPath::IndexPrefix {
             name,
             fields,
@@ -238,7 +240,7 @@ impl<K> AccessPlanProjection<K> for AccessStrategyLabelProjection<'_> {
         self.out.write_str("ByKeys")
     }
 
-    fn key_range(&mut self, _start: &K, _end: &K) -> Self::Output {
+    fn key_range(&mut self, _start: Option<&K>, _end: Option<&K>) -> Self::Output {
         self.out.write_str("KeyRange")
     }
 

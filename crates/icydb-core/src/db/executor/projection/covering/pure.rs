@@ -511,11 +511,24 @@ where
     let scan_limit = (scan_limit != usize::MAX).then_some(scan_limit);
 
     if let Some((start, end)) = plan.access.as_primary_key_range_path() {
-        let start = DecodedDataStoreKey::try_from_structural_key(authority.entity_tag(), start)?;
-        let end = DecodedDataStoreKey::try_from_structural_key(authority.entity_tag(), end)?;
+        let start = start
+            .map(|start| {
+                DecodedDataStoreKey::try_from_structural_key(authority.entity_tag(), start)
+            })
+            .transpose()?;
+        let end = end
+            .map(|end| DecodedDataStoreKey::try_from_structural_key(authority.entity_tag(), end))
+            .transpose()?;
 
         return Ok(Some(OrderedKeyStreamBox::primary_range(
-            PrimaryRangeKeyStream::new(store, start, end, direction, scan_limit)?,
+            PrimaryRangeKeyStream::new_bounds(
+                store,
+                authority.entity_tag(),
+                start,
+                end,
+                direction,
+                scan_limit,
+            )?,
         )));
     }
     if plan.access.is_single_full_scan() {

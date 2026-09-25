@@ -20,8 +20,8 @@ pub(in crate::db) enum ExecutionPathPayload<'a, K> {
     ByKey(&'a K),
     ByKeys(&'a [K]),
     KeyRange {
-        start: &'a K,
-        end: &'a K,
+        start: Option<&'a K>,
+        end: Option<&'a K>,
     },
     IndexPrefix {
         index: IndexShapeDetails,

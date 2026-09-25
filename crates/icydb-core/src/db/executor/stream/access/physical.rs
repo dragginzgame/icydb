@@ -242,15 +242,22 @@ impl KeyAccessRuntime {
     // Resolve one primary-key range scan as a dynamic ordered stream.
     fn resolve_key_range_stream(
         &self,
-        start: Value,
-        end: Value,
+        start: Option<Value>,
+        end: Option<Value>,
         continuation: AccessScanContinuationInput<'_>,
         primary_scan_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let start = DecodedDataStoreKey::try_from_structural_key(self.entity_tag, &start)?;
-        let end = DecodedDataStoreKey::try_from_structural_key(self.entity_tag, &end)?;
-        let mut stream = PrimaryRangeKeyStream::new(
+        let start = start
+            .as_ref()
+            .map(|start| DecodedDataStoreKey::try_from_structural_key(self.entity_tag, start))
+            .transpose()?;
+        let end = end
+            .as_ref()
+            .map(|end| DecodedDataStoreKey::try_from_structural_key(self.entity_tag, end))
+            .transpose()?;
+        let mut stream = PrimaryRangeKeyStream::new_bounds(
             self.store,
+            self.entity_tag,
             start,
             end,
             continuation.direction(),
@@ -851,6 +858,7 @@ pub(in crate::db::executor) struct PrimaryRangeKeyStream {
 
 impl PrimaryRangeKeyStream {
     // Build one primary stream from validated structural data keys.
+    #[cfg(test)]
     pub(in crate::db::executor) fn new(
         store: StoreHandle,
         start: DecodedDataStoreKey,
@@ -858,11 +866,42 @@ impl PrimaryRangeKeyStream {
         direction: Direction,
         limit: Option<usize>,
     ) -> Result<Self, InternalError> {
+        Self::new_bounds(
+            store,
+            start.entity_tag(),
+            Some(start),
+            Some(end),
+            direction,
+            limit,
+        )
+    }
+
+    // Reuse the entity-prefix limits for whichever authored endpoint is absent.
+    pub(in crate::db::executor) fn new_bounds(
+        store: StoreHandle,
+        entity: EntityTag,
+        start: Option<DecodedDataStoreKey>,
+        end: Option<DecodedDataStoreKey>,
+        direction: Direction,
+        limit: Option<usize>,
+    ) -> Result<Self, InternalError> {
+        let range = RawDataStoreKeyRange::entity_prefix(entity);
+        let lower_bound = match start {
+            Some(start) => Bound::Included(start.to_raw()?),
+            None => Bound::Included(RawDataStoreKey::store_range_lower_key(&range)),
+        };
+        let upper_bound = match end {
+            Some(end) => Bound::Included(end.to_raw()?),
+            None => range
+                .upper_exclusive()
+                .map(RawDataStoreKey::from_store_range_bound)
+                .map_or(Bound::Unbounded, Bound::Excluded),
+        };
         Ok(Self {
             store,
-            entity_tag: start.entity_tag(),
-            lower_bound: Bound::Included(start.to_raw()?),
-            upper_bound: Bound::Included(end.to_raw()?),
+            entity_tag: entity,
+            lower_bound,
+            upper_bound,
             direction,
             remaining: limit,
             chunk_entries: primary_range_chunk_entries_for_active_page()?,
@@ -1978,8 +2017,8 @@ fn resolve_physical_key_stream(
         ExecutionPathPayload::ByKeys(keys) => runtime.resolve_by_keys(keys)?,
         ExecutionPathPayload::KeyRange { start, end } => {
             return runtime.resolve_key_range_stream(
-                (*start).clone(),
-                (*end).clone(),
+                start.cloned(),
+                end.cloned(),
                 request.continuation,
                 primary_scan_fetch_hint,
             );
@@ -2189,6 +2228,28 @@ mod physical_seek_tests {
                     .ensure_physical_head(&mut work)
                     .expect("successor should load"),
                 HeldHeadSeekOutcome::Held(&data_key(next)),
+            );
+        }
+    }
+
+    #[test]
+    fn primary_leaf_one_sided_bounds_seek_in_both_directions() {
+        reset_heap_stores();
+        load_primary_keys();
+
+        for (start, end, direction, first) in [
+            (Some(data_key(40)), None, Direction::Asc, data_key(40)),
+            (Some(data_key(40)), None, Direction::Desc, data_key(100)),
+            (None, Some(data_key(60)), Direction::Asc, data_key(1)),
+            (None, Some(data_key(60)), Direction::Desc, data_key(60)),
+        ] {
+            let mut stream =
+                PrimaryRangeKeyStream::new_bounds(STORE, ENTITY, start, end, direction, None)
+                    .expect("one-sided primary stream should build");
+            let mut work = HeldHeadSeekWork::unbounded();
+            assert_eq!(
+                stream.ensure_physical_head(&mut work).unwrap(),
+                HeldHeadSeekOutcome::Held(&first),
             );
         }
     }

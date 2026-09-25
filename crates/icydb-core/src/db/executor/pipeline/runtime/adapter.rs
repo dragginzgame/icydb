@@ -10,7 +10,6 @@ use crate::db::executor::{
 use crate::{
     db::{
         access::ExecutableAccessPlan,
-        direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, AccessStreamExecutionPolicy,
             EntityAuthority, ExecutableAccess, ExecutionKernel, LoweredIndexRangeSpec,
@@ -239,7 +238,7 @@ impl ExecutionRuntimeAdapter {
         &self,
         plan: &AccessPlannedQuery,
         executable_access: ExecutableAccessPlan<'_, Value>,
-        direction: Direction,
+        continuation: AccessScanContinuationInput<'_>,
         physical_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         execute_fast_stream_route(
@@ -247,7 +246,7 @@ impl ExecutionRuntimeAdapter {
             FastStreamRouteRequest::PrimaryKey {
                 plan,
                 executable_access: &executable_access,
-                stream_direction: direction,
+                continuation,
                 probe_fetch_hint: physical_fetch_hint,
             },
         )

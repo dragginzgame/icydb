@@ -221,3 +221,100 @@ fn authored_total_limit_stays_stable_across_filtered_pages() {
             .collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn unfiltered_small_pages_resume_until_physical_exhaustion() {
+    initialize_payload_store();
+    insert_payload_rows(0..16);
+    for (order, expected) in [
+        (asc("id"), (0..16).collect::<Vec<_>>()),
+        (desc("id"), (0..16).rev().collect::<Vec<_>>()),
+    ] {
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .select(["id"])
+            .order_by(order);
+        let mut continuation = None;
+        let mut actual = Vec::new();
+        for _ in 0..16 {
+            let root = RequestExecutionRoot::__new_runtime_root();
+            let page = new_request_session(&root)
+                .execute_trusted_live_page(&query, continuation.as_deref())
+                .unwrap();
+            assert!(root.observed(Resource::RowsVisited) <= 3);
+            actual.extend(page.rows);
+            continuation = page.continuation;
+            if continuation.is_none() {
+                break;
+            }
+        }
+        assert!(continuation.is_none());
+        assert_eq!(
+            actual,
+            expected
+                .into_iter()
+                .map(|id| vec![OutputValue::nat64(id)])
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn one_sided_primary_ranges_resume_across_small_pages() {
+    initialize_payload_store();
+    insert_payload_rows(0..16);
+
+    for (order, descending) in [(asc("id"), false), (desc("id"), true)] {
+        for (filter, mut expected) in [
+            (
+                FieldRef::new("id").gt(InputValue::nat64(7)),
+                (8..16).collect::<Vec<_>>(),
+            ),
+            (
+                FieldRef::new("id").gte(InputValue::nat64(7)),
+                (7..16).collect::<Vec<_>>(),
+            ),
+            (
+                FieldRef::new("id").lt(InputValue::nat64(7)),
+                (0..7).collect::<Vec<_>>(),
+            ),
+            (
+                FieldRef::new("id").lte(InputValue::nat64(7)),
+                (0..8).collect::<Vec<_>>(),
+            ),
+        ] {
+            if descending {
+                expected.reverse();
+            }
+            let query = DynamicQuery::new(ENTITY_NAME)
+                .select(["id"])
+                .filter(filter)
+                .order_by(order.clone());
+            let mut continuation = None;
+            let mut actual = Vec::new();
+            let mut pages = 0;
+            for _ in 0..16 {
+                let root = RequestExecutionRoot::__new_runtime_root();
+                let page = new_request_session(&root)
+                    .execute_trusted_live_page(&query, continuation.as_deref())
+                    .unwrap();
+                assert!(root.observed(Resource::RowsVisited) <= 4);
+                assert!(page.continuation.is_none() || page.continuation != continuation);
+                actual.extend(page.rows);
+                pages += 1;
+                continuation = page.continuation;
+                if continuation.is_none() {
+                    break;
+                }
+            }
+            assert!(continuation.is_none());
+            assert!(pages > 1);
+            assert_eq!(
+                actual,
+                expected
+                    .into_iter()
+                    .map(|id| vec![OutputValue::nat64(id)])
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+}

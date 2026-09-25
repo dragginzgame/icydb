@@ -378,8 +378,8 @@ pub enum ExplainAccessPath {
         keys: Vec<Value>,
     },
     KeyRange {
-        start: Value,
-        end: Value,
+        start: Option<Value>,
+        end: Option<Value>,
     },
     IndexPrefix {
         name: String,

@@ -105,7 +105,7 @@ impl AccessPlanProjection<Value> for ExplainAccessNodeDescriptorProjection {
         empty_execution_node_descriptor(ExplainExecutionNodeType::ByKeysLookup, self.execution_mode)
     }
 
-    fn key_range(&mut self, _start: &Value, _end: &Value) -> Self::Output {
+    fn key_range(&mut self, _start: Option<&Value>, _end: Option<&Value>) -> Self::Output {
         empty_execution_node_descriptor(
             ExplainExecutionNodeType::PrimaryKeyRangeScan,
             self.execution_mode,

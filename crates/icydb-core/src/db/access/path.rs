@@ -496,8 +496,9 @@ pub(crate) enum AccessPath<K> {
     /// Empty key lists are a valid no-op and return no rows.
     ByKeys(Vec<K>),
 
-    /// Range scan over primary keys (inclusive).
-    KeyRange { start: K, end: K },
+    /// Range scan over primary keys. Present endpoints are inclusive; the
+    /// predicate retains any stricter comparison semantics.
+    KeyRange { start: Option<K>, end: Option<K> },
 
     /// Index scan using a prefix of index fields and bound values.
     ///
@@ -645,9 +646,9 @@ impl<K> AccessPath<K> {
 
     /// Borrow the primary-key range endpoints when this path is `KeyRange`.
     #[must_use]
-    pub(crate) const fn as_key_range(&self) -> Option<(&K, &K)> {
+    pub(crate) const fn as_key_range(&self) -> Option<(Option<&K>, Option<&K>)> {
         match self {
-            Self::KeyRange { start, end } => Some((start, end)),
+            Self::KeyRange { start, end } => Some((start.as_ref(), end.as_ref())),
             Self::ByKey(_)
             | Self::ByKeys(_)
             | Self::IndexPrefix { .. }
@@ -687,8 +688,14 @@ impl<K> AccessPath<K> {
                 Ok(AccessPath::ByKeys(mapped))
             }
             Self::KeyRange { start, end } => Ok(AccessPath::KeyRange {
-                start: map_key(start)?,
-                end: map_key(end)?,
+                start: match start {
+                    Some(start) => Some(map_key(start)?),
+                    None => None,
+                },
+                end: match end {
+                    Some(end) => Some(map_key(end)?),
+                    None => None,
+                },
             }),
             Self::IndexPrefix { index, values } => Ok(AccessPath::IndexPrefix { index, values }),
             Self::IndexMultiLookup { index, values } => {

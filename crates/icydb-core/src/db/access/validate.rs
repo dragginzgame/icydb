@@ -180,7 +180,9 @@ impl AccessPath<Value> {
                 Ok(())
             }
             Self::FullScan => Ok(()),
-            Self::KeyRange { start, end } => validate_pk_range_runtime(schema, start, end),
+            Self::KeyRange { start, end } => {
+                validate_pk_range_runtime(schema, start.as_ref(), end.as_ref())
+            }
             Self::IndexPrefix { index, values } => {
                 validate_index_reference_with_schema(schema, index)?;
                 validate_index_prefix_shape(index, values.len())
@@ -215,8 +217,8 @@ impl AccessPath<Value> {
 
 fn validate_pk_range_runtime(
     schema: &SchemaInfo,
-    start: &Value,
-    end: &Value,
+    start: Option<&Value>,
+    end: Option<&Value>,
 ) -> Result<(), AccessPlanError> {
     let primary_key_names = schema.primary_key_names();
     if primary_key_names.len() > 1 {
@@ -225,8 +227,13 @@ fn validate_pk_range_runtime(
         });
     }
 
-    let ordering = Value::canonical_cmp(start, end);
-    if ordering == std::cmp::Ordering::Greater {
+    if start.is_none() && end.is_none() {
+        return Err(AccessPlanError::InvalidKeyRange);
+    }
+    if start
+        .zip(end)
+        .is_some_and(|(start, end)| Value::canonical_cmp(start, end) == std::cmp::Ordering::Greater)
+    {
         return Err(AccessPlanError::InvalidKeyRange);
     }
 

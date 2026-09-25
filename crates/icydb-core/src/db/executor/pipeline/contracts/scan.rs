@@ -55,12 +55,6 @@ impl<'a> AccessStreamBindings<'a> {
         }
     }
 
-    /// Build one binding envelope with no index-lowered specs.
-    #[must_use]
-    pub(in crate::db::executor) const fn no_index(direction: Direction) -> Self {
-        Self::new(&[], &[], AccessScanContinuationInput::new(None, direction))
-    }
-
     /// Build one binding envelope for one index-range spec with explicit continuation contract.
     #[must_use]
     pub(in crate::db::executor) const fn with_index_range_continuation(

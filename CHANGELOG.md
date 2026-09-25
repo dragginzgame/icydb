@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)
 
+- `0.261.11` seeks one-sided scalar primary-key bounds and resumes small ordered pages at their authenticated cursor (restart affected saved continuations).
 - `0.261.10` bounds dynamic page execution by small query limits without changing APIs or stored data.
 - `0.261.9` improves binding diagnostics and resource guidance with matched application evidence (potentially breaking: update adapter-error matches; no data migration).
 - `0.261.8` aligns resource guidance and admission with enforced limits and adds structured diagnostic CLI input.

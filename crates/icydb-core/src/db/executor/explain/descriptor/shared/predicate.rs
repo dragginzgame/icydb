@@ -185,7 +185,7 @@ impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
         None
     }
 
-    fn key_range(&mut self, _start: &Value, _end: &Value) -> Self::Output {
+    fn key_range(&mut self, _start: Option<&Value>, _end: Option<&Value>) -> Self::Output {
         None
     }
 
