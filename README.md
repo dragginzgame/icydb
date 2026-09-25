@@ -12,7 +12,7 @@ canisters. It provides typed entities, durable stable-memory storage, indexes,
 bounded typed and dynamic queries, a single-entity SQL frontend, explicit
 schema migrations, and generated operational endpoints.
 
-Current workspace version: `0.261.10`
+Current workspace version: `0.261.11`
 
 IcyDB is pre-1.0. Incompatible internal format changes require recreation or
 reinstall; schema migration operates only within the current supported format.
@@ -24,10 +24,10 @@ Use the same release for runtime and host-side model generation:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.261.10" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.261.11" }
 
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.261.10" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.261.11" }
 ```
 
 The default feature set includes structural, typed, and dynamic reads and writes.
