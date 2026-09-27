@@ -58,7 +58,8 @@ impl StagedSchemaDomain {
 }
 
 /// Test-only returned-error cuts through the real index publication path.
-#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
+#[cfg(feature = "sql")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaPublicationInterruption {
     MarkerPersisted,
@@ -66,20 +67,23 @@ pub(in crate::db) enum SchemaPublicationInterruption {
     IndexInserted,
 }
 
-#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
+#[cfg(feature = "sql")]
 thread_local! {
     static NEXT_SCHEMA_PUBLICATION_INTERRUPTION: std::cell::Cell<Option<SchemaPublicationInterruption>> =
         const { std::cell::Cell::new(None) };
 }
 
-#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
+#[cfg(feature = "sql")]
 pub(in crate::db) fn interrupt_next_schema_publication_for_tests(
     interruption: SchemaPublicationInterruption,
 ) {
     NEXT_SCHEMA_PUBLICATION_INTERRUPTION.with(|next| next.set(Some(interruption)));
 }
 
-#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
+#[cfg(feature = "sql")]
 fn interrupt_schema_publication_at(
     interruption: SchemaPublicationInterruption,
 ) -> Result<(), InternalError> {
@@ -575,7 +579,8 @@ fn publish_journaled_candidate(
     let commit = begin_commit(&marker)?;
 
     finish_commit(commit, |guard| {
-        #[cfg(all(test, feature = "sql"))]
+        #[cfg(test)]
+        #[cfg(feature = "sql")]
         interrupt_schema_publication_at(SchemaPublicationInterruption::MarkerPersisted)?;
         let marker_bytes = guard.journal_batch_bytes(0)?;
         journal_store

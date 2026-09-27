@@ -9,8 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)
 
-- `0.261.13` strengthens interrupted schema/index recovery verification without changing runtime behavior.
-- `0.261.12` strengthens empty-range scan verification without changing runtime behavior.
+- `0.261.12` strengthens empty-range scan and interrupted schema/index recovery verification without changing runtime behavior.
 - `0.261.11` seeks one-sided scalar primary-key bounds and resumes small ordered pages at their authenticated cursor (restart affected saved continuations).
 - `0.261.10` bounds dynamic page execution by small query limits without changing APIs or stored data.
 - `0.261.9` improves binding diagnostics and resource guidance with matched application evidence (potentially breaking: update adapter-error matches; no data migration).
