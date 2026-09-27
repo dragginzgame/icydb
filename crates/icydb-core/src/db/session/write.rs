@@ -4432,6 +4432,8 @@ mod identity_pre_key_tests {
     mod nested_relation_tests;
     mod replay_construction_tests;
     mod result_boundary_tests;
+    #[cfg(feature = "sql")]
+    mod schema_publication_tests;
 
     use super::DynamicTypedEntityBinding;
     use super::{

@@ -1,340 +1,166 @@
 # Recurring Audit — Planner Boundary & Envelope Semantics
 
+Method: `BOUNDARY-5` + `DOMAIN-1`.
+
 Apply [Domain Scope And Change Triggers](../../README.md#domain-scope-and-change-triggers)
-to all inventories, checks, and output sections below. Record selected and
-excluded obligations before analysis; broad coverage requires a requested baseline.
-
-`icydb-core`
-
-## Purpose
-
-Verify strict preservation of:
-
-* Range envelope containment
-* Inclusive/exclusive semantics
-* Strict continuation rules
-* Raw vs logical ordering alignment
-* AccessPath immutability under cursor continuation
-
-This audit evaluates correctness only.
-
-Do NOT discuss:
-
-* Performance
-* Refactoring
-* Feature additions
-* Style
-
----
-
-# STEP 0 — Invariant Registry (Mandatory First Step)
-
-Before analyzing code, enumerate and freeze the invariants.
-
-At minimum:
-
-### A. Resume Invariant
-
-* Continuation must always rewrite lower bound as:
-
-  ```
-  Bound::Excluded(anchor)
-  ```
-* Resume must be strictly monotonic.
-* Resume must never include the anchor.
-
-### B. Envelope Containment Invariant
-
-* Anchor must lie within original `[lower, upper]` envelope.
-* Continuation must not widen the envelope.
-* Upper bound must remain immutable.
-
-### C. Inclusivity/Exclusivity Invariant
-
-* Logical `> >= < <=` semantics must map 1:1 to raw bounds.
-* No inversion of inclusive/exclusive flags.
-* Equal-bound tightening must only make range stricter, never looser.
-
-### D. Ordering Alignment Invariant
-
-* Raw index key lexicographic ordering defines canonical order.
-* Logical comparator must not diverge from raw ordering.
-* No secondary ordering path may exist.
-
-### E. AccessPath Immutability Invariant
-
-* Cursor continuation must not:
-
-  * Change index id
-  * Change access path variant
-  * Widen predicate
-  * Modify upper bound
-  * Introduce composite path
-
-Produce:
-
-| Invariant | Enforced Where | Structural or Implicit? |
-
----
-
-# STEP 1 — Bound Transformation Proof Table
-
-For each transformation:
-
-* Identify the invariant it must preserve.
-* Explain *why* it preserves that invariant.
-* Identify whether protection is:
-
-  * Structural (enforced by type or logic)
-  * Guarded (runtime check)
-  * Implicit (assumed by construction)
-
-Produce:
-
-| Location | Transformation | Invariant Preserved | Enforcement Type | Risk |
-
-Do NOT use “Correct? Yes”.
-
----
-
-# STEP 2 — Envelope Containment Attack Matrix
-
-Simulate explicitly:
-
-1. Anchor == lower (Included)
-2. Anchor == lower (Excluded)
-3. Anchor == upper (Included)
-4. Anchor == upper (Excluded)
-5. Anchor just below lower
-6. Anchor just above upper
-7. Empty range
-8. Single-element range
-9. Unbounded range (`lower=None`, bounded upper)
-10. Unbounded range (bounded lower, `upper=None`)
-11. Continuation produces empty envelope
-12. Composite or mutated AccessPath
-
-Required empty-envelope proof (`#11`):
-
-* continuation rewrite yields strict empty envelope
-* traversal stops immediately
-* no store scan occurs after empty-envelope detection
-
-For each:
-
-* Is escape structurally impossible?
-* Is escape prevented by runtime check?
-* Is it only prevented by tests?
-* Is it drift-sensitive?
-* Is unbounded-side handling explicit (`lower=None` / `upper=None`)?
-
-Produce:
-
-| Scenario | Lower=None? | Upper=None? | Structural Prevention? | Runtime Guard? | Test Only? | Risk |
-
----
-
-# STEP 3 — Upper Bound Immutability Verification
-
-Explicitly verify:
-
-* Cursor continuation does not modify upper bound.
-* No code path rewrites upper bound.
-* No tightening or widening of upper occurs during continuation.
-* Upper bound is passed through unchanged to store traversal.
-
-Produce:
-
-| Code Path | Upper Modified? | Proven Immutable? | Risk |
-
----
-
-# STEP 4 — Raw vs Logical Ordering Alignment
-
-Explicitly verify:
-
-* Canonical encode preserves lexicographic ordering.
-* Logical comparator is identical to raw ordering comparator.
-* No alternate comparator path exists.
-* No fallback scan reorders entities.
-
-Produce:
-
-| Layer | Ordering Source | Divergence Possible? | Risk |
-
----
-
-# STEP 4A — Logical → Raw Bound Mapping Table (Mandatory)
-
-Explicitly restate and verify the logical-operator to raw-bound mapping.
-
-Produce:
-
-| Logical Operator | Raw Lower Bound | Raw Upper Bound | Enforced Where | Drift Risk |
-| ---------------- | --------------- | --------------- | -------------- | ---------- |
-
-Required mapping rows:
-
-* `>`  -> `Excluded(v)` lower
-* `>=` -> `Included(v)` lower
-* `<`  -> `Excluded(v)` upper
-* `<=` -> `Included(v)` upper
-
----
-
-# STEP 5 — Anchor/Boundary Consistency Check
-
-Explicitly evaluate:
-
-* Anchor validity check
-* Boundary validity check
-* Mutual consistency between anchor and boundary
-
-Determine:
-
-* Is inconsistency structurally impossible?
-* Is it guarded?
-* Is it drift-sensitive?
-* Is it a correctness hole or only test gap?
-
-Produce:
-
-| Issue | Structural? | Guarded? | Drift-Sensitive? | Risk Level |
-
----
-
-# STEP 6 — Composite AccessPath + Cursor/Plan Binding Containment
-
-Verify explicitly:
-
-* Cursor cannot convert IndexRange to composite path.
-* Cursor cannot introduce new path type.
-* Cursor cannot change index id.
-* Planner revalidation prevents mutation of plan shape.
-* Cursor contains access-path fingerprint (or equivalent shape identity).
-* Resume plan must match bound cursor plan identity.
-* Mismatched plan identity is rejected before execution.
-
-Produce:
-
-| Property | Mutable? | Prevention Mechanism | Risk |
-
----
-
-# STEP 7 — Duplication / Omission Guarantee
-
-## STEP 7A — Resume Monotonicity Proof (Mandatory)
-
-Produce:
-
-| Property | Mechanism | Structural? | Risk |
-| -------- | --------- | ----------- | ---- |
-
-Required properties:
-
-* resume lower bound strictly increases (`Bound::Excluded(anchor)`)
-* anchor cannot reappear in resumed scan
-* equal-bound collapse is handled deterministically
-
-Explicitly verify:
-
-* Strict monotonicity proof.
-* No equal-bound duplication.
-* No off-by-one omission.
-* Store traversal respects bounds strictly.
-* Logical post-filtering does not reintroduce duplicates.
-
-Produce:
-
-| Mechanism | Duplication Possible? | Omission Possible? | Risk |
-
----
-
-# STEP 8 — Canonical Envelope Definition (Mandatory)
-
-Auditor must restate canonical continuation envelope semantics before drift
-analysis.
-
-Required definition:
-
-* `effective_envelope = (lower', upper)`
-* `lower' = Bound::Excluded(anchor)` for resumed scans
-
-Also state:
-
-* upper bound is immutable across continuation rewrite
-* empty-envelope detection condition and expected no-scan outcome
-
-Produce:
-
-| Definition Element | Stated? | Verified In Code? | Risk |
-| ------------------ | ------- | ----------------- | ---- |
-
----
-
-# STEP 9 — Drift Sensitivity Analysis
-
-Identify:
-
-* Assumptions not enforced structurally.
-* Areas relying on canonical ordering alignment.
-* Areas lacking adversarial tests.
-* Areas where adding DESC would multiply risk.
-* Areas where composite support would introduce envelope ambiguity.
-
-Produce:
-
-| Drift Vector | Impacted Invariant | Risk |
-
----
-
-# Required Output Sections
-
-0. Run Metadata + Comparability Note
-1. Invariant Registry
-2. Bound Transformation Proof Table
-3. Envelope Attack Matrix (including unbounded and empty-envelope scenario)
-4. Upper Bound Immutability
-5. Ordering Alignment
-6. Logical → Raw Bound Mapping Table
-7. Anchor/Boundary Consistency
-8. Composite + Cursor/Plan Binding Containment
-9. Resume Monotonicity Proof
-10. Duplication/Omission Proof
-11. Canonical Envelope Definition
-12. Drift Sensitivity
-13. Verdict And Findings
-14. Verification Readout (`PASS`/`FAIL`/`BLOCKED`)
-
-Run metadata must include:
-
-- compared baseline report path (daily baseline rule: first run of day compares
-  to latest prior comparable report or `N/A`; same-day reruns compare to that
-  day's `boundary-semantics.md` baseline)
-- method tag/version
-- comparability status (`comparable` or `non-comparable` with reason)
-
----
-
-# Verdict And Findings
-
-Apply [Findings And Verdicts](../../README.md#findings-and-verdicts).
-Summarize the supported verdict, each finding's consequence and severity, and
-any unresolved verification. Keep owner, disposition, and action trigger with
-the finding.
-
----
-
-# Why This Is Stronger
-
-This version:
-
-* Eliminates shallow “Correct? Yes” answers
-* Forces invariant restatement
-* Forces immutability verification
-* Separates structural vs test-based safety
-* Forces composite-path containment validation
-* Forces drift analysis
-* Forces monotonicity proof
-
-It converts the audit from evaluation into formal reasoning.
+and [Executed-Test Evidence](../../README.md#executed-test-evidence).
+This is a correctness audit of `icydb-core`, not a performance, style, or
+refactoring review. A run does not authorize fixing its findings.
+
+## 0. Freeze Scope And Invariants
+
+Record the requested baseline or change trigger, snapshot (including dirty
+inputs), affected owners, selected obligations, and exclusions with reasons.
+Follow each selected contract through planning, accepted-schema lowering,
+continuation admission, and traversal. Inspect current callers before deciding
+whether a path is reachable. Historical names and tests are discovery hints.
+Keep this method and scope fixed once execution begins.
+
+Freeze these invariants before evaluating implementation:
+
+| Invariant | Required contract |
+| --- | --- |
+| Resume | For an anchor admitted inside the original envelope, ASC yields `(Excluded(anchor), upper)`; DESC yields `(lower, Excluded(anchor))`. Without an anchor, retain both bounds. |
+| Containment | The resumed envelope is a subset of the original. Included endpoints admit equality; excluded endpoints reject it. Check containment before rewriting. |
+| Opposite edge | ASC retains the upper bound byte-for-byte; DESC retains the lower bound. Monotonicity is directional, not always increasing. |
+| Bound lowering | Logical strictness survives value encoding, equality prefixes, remaining component sentinels, and primary-key suffixes. Equal-bound tightening cannot loosen the interval. |
+| Ordering | Bounds, anchor comparison, and raw traversal agree within the same physical key domain. Each route establishes how physical order relates to requested logical order and tie-breaks. |
+| Plan binding | External continuation remains bound to accepted authority, query/order/window and route identity before execution. It cannot select a wider predicate, different index, or different access shape. |
+| Empty envelope | A proven empty traversal envelope returns before constructing or advancing a store range. Distinguish an empty interval from a nonempty interval containing no stored keys. |
+| Progress | The anchor cannot recur; no eligible row is skipped by resume, merge, residual filtering, or tie-break handling under the declared data-consistency contract. |
+
+Produce an invariant registry with owner symbols, enforcement type
+(structural, runtime guard, or assumption), and source references. A debug
+assertion alone is not production admission evidence.
+
+## 1. Transformation And Ordering Proof
+
+Trace logical predicate -> tightened semantic interval -> accepted index
+contract -> encoded component bounds -> complete raw bounds -> admitted
+continuation -> effective bounds -> store traversal -> logical result order.
+
+Produce one table with location, transformation, invariant, enforcement, and
+remaining risk. Include every reachable selected traversal adapter, including
+merged or covering routes when they consume these bounds. Do not assume a
+guard in one scanner protects another.
+
+Restate the logical-to-raw mapping using complete keys. Let `low(v)` and
+`high(v)` denote the full key with the equality prefix and encoded `v`, then
+low/high sentinels for every remaining component and primary-key suffix:
+
+| Logical operator | Semantic bound | Complete raw bound |
+| --- | --- | --- |
+| `>` | lower `Excluded(v)` | lower `Excluded(high(v))` |
+| `>=` | lower `Included(v)` | lower `Included(low(v))` |
+| `<` | upper `Excluded(v)` | upper `Excluded(low(v))` |
+| `<=` | upper `Included(v)` | upper `Included(high(v))` |
+
+Verify the current encoder rather than copying this notation as proof. A
+logically unbounded component can still have a physical bound that confines
+index identity and equality prefix; distinguish that from `Bound::Unbounded`.
+Check that sentinel ordering encloses all admitted suffixes.
+
+For ordering, identify the actual `Ord` implementation; serialized framing
+bytes need not be the comparator. Separate:
+
+- independent semantic-value versus encoded-component ordering evidence;
+- full-key comparison (namespace, index, components, primary-key tie-break);
+- containment/advancement agreement with that comparator; and
+- any planner-approved merge, sort, or residual route that changes result order.
+
+Comparing the raw comparator against helpers using that same comparator does
+not prove semantic encoding order. Name the tested value domain and avoid
+claiming all types from a sampled subset. Unsupported values must follow the
+current admission contract; they are not missing features.
+
+## 2. Adversarial Envelope Matrix
+
+For both ASC and DESC, reason through the following cases. Share rows when the
+proof is symmetric; identify direction-specific outcomes explicitly.
+
+1. Anchor equals included lower endpoint.
+2. Anchor equals excluded lower endpoint.
+3. Anchor equals included upper endpoint.
+4. Anchor equals excluded upper endpoint.
+5. Anchor below lower or above upper.
+6. Inverted bounds and all equal-endpoint inclusion combinations.
+7. Singleton interval, including continuation after its only key.
+8. Lower unbounded, upper unbounded, and both unbounded.
+9. Continuation collapses to an empty envelope.
+10. Equal indexed values with different suffix components or primary keys.
+11. Equal-bound tightening and prefix boundaries with neighboring keys.
+12. Mismatched index/authority/query/order/route, including composite access.
+
+Use columns: scenario, direction, expected outcome, production enforcement,
+source evidence, executed proof (or gap), and risk. Reasoning a case through
+source is not executing it.
+
+For the empty-envelope case, trace the early return ahead of range creation,
+then identify a focused check that observes no traversal (instrumentation or
+a populated-store callback plus source proof of the pre-range guard). An
+emptiness-helper assertion alone does not establish the storage obligation.
+
+## 3. Continuation And Plan Binding
+
+Distinguish public cursor admission from internal raw scan anchors. Identify
+who creates each anchor, whether it denotes the last emitted or last physically
+consumed key, and how any separate logical boundary is enforced. Do not assume
+a current token carries the raw anchor used by an earlier implementation.
+
+Verify the current signature/authentication and accepted-authority checks,
+order/window/route binding, and boundary-shape admission before row execution.
+For composite access, inspect per-child bounds and merge order; establish
+rejection or supported semantics from current owners rather than requiring
+all composite plans to be rejected.
+
+Show why resume preserves the original access contract and opposite edge,
+excludes the anchor, and handles equal collapse deterministically. Trace
+residual filtering and tie-breaks to explain duplication/omission behavior.
+State the between-page data-consistency assumptions; do not claim snapshot
+pagination for a live mutable view.
+
+## 4. Focused Verification
+
+Inspect assertions, discover and list current selectors, then execute only
+focused package/target selections as required by the shared evidence contract.
+Cover these selected obligations with existing tests where possible:
+
+- directional containment, strict advancement, unchanged no-anchor bounds,
+  bounded/unbounded edges, and equal-bound collapse;
+- component inequality lowering including suffix and prefix boundaries;
+- independent semantic/encoded ordering and full-key tie-break order;
+- empty-envelope traversal suppression;
+- current continuation rejection and a maintained multi-page route proving
+  ordering and no duplicate/omitted eligible rows under stated assumptions.
+
+A missing required test is a verification gap, not permission to silently omit
+its obligation or add implementation. Do not resurrect removed APIs or tests.
+Record exact commands and selected/passed/failed/ignored counts, including
+failed or blocked attempts. Never count zero-test success as behavioral proof.
+Full workspace/repository suites remain user-owned.
+
+## 5. Report And Verdict
+
+Write a new `boundary-semantics` run under the canonical report hierarchy.
+Required sections:
+
+1. Metadata, selection rationale, scope/exclusions, and method changes.
+2. Invariant registry and transformation proof (including logical/raw mapping).
+3. Adversarial matrix and opposite-edge/empty-envelope proof.
+4. Ordering, continuation binding, and duplication/omission analysis.
+5. Findings, drift triggers, and verdict.
+6. Verification readout.
+
+Apply [Findings And Verdicts](../../README.md#findings-and-verdicts) and the
+shared finding-ownership rules. Findings distinguish demonstrated defects
+from missing proof, with owner, consequence, disposition, and action trigger.
+Do not use composite risk scores or report excluded families as passing.
+
+Run `01` compares to the latest prior comparable `boundary-semantics` report;
+subsequent same-day runs compare to run `01`. If none is comparable, record
+`N/A` and link the historical reference separately. `BOUNDARY-5` corrects the
+ASC-only invariants, component/raw-key conflation, universal raw/logical order
+claim, and current-cursor assumptions, and makes proof coverage explicit.
+Mark affected historical deltas `N/A (method change)`; retain stable evidence
+such as directional exclusive resume where it remains applicable. Historical
+reports are immutable and their test results are not newly executed evidence.

@@ -1,4 +1,13 @@
-# Recurring Audit — Invariant Preservation (icydb-core)
+# Archived Audit — Invariant Preservation (icydb-core)
+
+Inactive historical method, retired on 2026-09-27. Do not use this definition
+or its recurring scope for new runs. The content below preserves the previous
+method, including superseded assumptions and execution-time paths.
+
+Current domain ownership is defined in [audit governance](../../README.md).
+For an identified gap between owners, use the targeted
+[boundary handoff review](../../targeted/integrity/boundary-handoff-review.md).
+Historical reports remain immutable; this archive is not an active checklist.
 
 Apply [Domain Scope And Change Triggers](../../README.md#domain-scope-and-change-triggers)
 to all inventories, checks, and output sections below. Record selected and

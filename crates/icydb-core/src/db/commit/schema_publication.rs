@@ -57,6 +57,42 @@ impl StagedSchemaDomain {
     }
 }
 
+/// Test-only returned-error cuts through the real index publication path.
+#[cfg(all(test, feature = "sql"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum SchemaPublicationInterruption {
+    MarkerPersisted,
+    IndexDeleted,
+    IndexInserted,
+}
+
+#[cfg(all(test, feature = "sql"))]
+thread_local! {
+    static NEXT_SCHEMA_PUBLICATION_INTERRUPTION: std::cell::Cell<Option<SchemaPublicationInterruption>> =
+        const { std::cell::Cell::new(None) };
+}
+
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db) fn interrupt_next_schema_publication_for_tests(
+    interruption: SchemaPublicationInterruption,
+) {
+    NEXT_SCHEMA_PUBLICATION_INTERRUPTION.with(|next| next.set(Some(interruption)));
+}
+
+#[cfg(all(test, feature = "sql"))]
+fn interrupt_schema_publication_at(
+    interruption: SchemaPublicationInterruption,
+) -> Result<(), InternalError> {
+    NEXT_SCHEMA_PUBLICATION_INTERRUPTION.with(|next| {
+        if next.get() == Some(interruption) {
+            next.set(None);
+            Err(InternalError::executor_invariant())
+        } else {
+            Ok(())
+        }
+    })
+}
+
 /// Exact validation-job mutation paired with one accepted-schema publication.
 
 #[derive(Clone, Copy)]
@@ -539,6 +575,8 @@ fn publish_journaled_candidate(
     let commit = begin_commit(&marker)?;
 
     finish_commit(commit, |guard| {
+        #[cfg(all(test, feature = "sql"))]
+        interrupt_schema_publication_at(SchemaPublicationInterruption::MarkerPersisted)?;
         let marker_bytes = guard.journal_batch_bytes(0)?;
         journal_store
             .with_borrow_mut(|journal| journal.append_marker_encoded_batch(batch, marker_bytes))?;
@@ -1035,13 +1073,18 @@ fn apply_user_index_domain_replacement(
     store.with_index_mut(|index_store| {
         for key in deletion_keys {
             index_store.remove(&key);
+            #[cfg(test)]
+            interrupt_schema_publication_at(SchemaPublicationInterruption::IndexDeleted)?;
         }
         for entry in final_entries {
             let (key, value) = entry.into_parts();
             index_store.insert_preflighted_absent(key, value);
+            #[cfg(test)]
+            interrupt_schema_publication_at(SchemaPublicationInterruption::IndexInserted)?;
         }
         index_store.mark_prefix_cardinality_data_generation(data_generation);
-    });
+        Ok::<(), InternalError>(())
+    })?;
     store.mark_index_ready()?;
     Ok(())
 }

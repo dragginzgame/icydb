@@ -3,7 +3,7 @@ use crate::{
         direction::Direction,
         index::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexStore, IndexStoreVisit,
-            RawIndexStoreKey, key::EncodedValue,
+            RawIndexStoreKey, key::EncodedValue, resume_bounds_for_continuation,
         },
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
     },
@@ -16,6 +16,89 @@ use std::{borrow::Cow, cell::Cell, ops::Bound};
 
 fn raw_key(value: u8) -> RawIndexStoreKey {
     <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
+}
+
+#[test]
+fn empty_envelopes_skip_populated_store_traversal() {
+    for (mut store, journaled) in [
+        (IndexStore::init_heap(), false),
+        (IndexStore::init_journaled(test_memory(97)), true),
+    ] {
+        // Populate canonical storage, then retain a live overlay as well.
+        for value in 1..=3 {
+            store.insert(bigint_scan_key(value, 1), IndexEntryValue::presence());
+        }
+        if journaled {
+            store.fold_journaled_materialized_view().unwrap();
+        }
+        store.insert(bigint_scan_key(4, 1), IndexEntryValue::presence());
+
+        let low = bigint_scan_key(1, 1);
+        let high = bigint_scan_key(3, 1);
+        let lower = Bound::Included(low.clone());
+        let upper = Bound::Included(high.clone());
+        let asc_empty =
+            resume_bounds_for_continuation(Direction::Asc, Some(&high), &lower, &upper).unwrap();
+        let desc_empty =
+            resume_bounds_for_continuation(Direction::Desc, Some(&low), &lower, &upper).unwrap();
+
+        // Controls prove the callbacks observe populated storage and that an
+        // included singleton is not mistaken for an empty equal-bound range.
+        let cases = [
+            ("ASC endpoint resume", asc_empty, 0, 0),
+            ("DESC endpoint resume", desc_empty, 0, 0),
+            ("inverted", (upper.clone(), lower.clone()), 0, 0),
+            (
+                "equal lower excluded",
+                (Bound::Excluded(low.clone()), lower.clone()),
+                0,
+                0,
+            ),
+            (
+                "equal upper excluded",
+                (lower.clone(), Bound::Excluded(low.clone())),
+                0,
+                0,
+            ),
+            (
+                "equal both excluded",
+                (Bound::Excluded(low.clone()), Bound::Excluded(low)),
+                0,
+                0,
+            ),
+            ("singleton", (lower.clone(), lower), 1, 1),
+            (
+                "unbounded control",
+                (Bound::Unbounded, Bound::Unbounded),
+                4,
+                if journaled { 3 } else { 4 },
+            ),
+        ];
+        for (case, (lower, upper), expected_live, expected_canonical) in cases {
+            for direction in [Direction::Asc, Direction::Desc] {
+                let mut visited = 0;
+                store
+                    .visit_raw_entries_in_range((&lower, &upper), direction, |_, _| {
+                        visited += 1;
+                        Ok(false)
+                    })
+                    .unwrap();
+                assert_eq!(
+                    visited, expected_live,
+                    "{case}: {journaled:?}, {direction:?}"
+                );
+            }
+
+            let mut visited = 0;
+            store
+                .visit_canonical_raw_entries_in_range((&lower, &upper), |_, _| {
+                    visited += 1;
+                    Ok(false)
+                })
+                .unwrap();
+            assert_eq!(visited, expected_canonical, "{case}: {journaled:?}");
+        }
+    }
 }
 
 #[test]

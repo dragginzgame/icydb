@@ -15,7 +15,7 @@ Location:
 - `docs/audits/recurring/<domain>/<focus>.md`
 
 Domains currently include `access`, `contracts`, `crosscutting`, `executor`,
-`integrity`, `range`, `security`, and `storage`.
+`range`, `security`, and `storage`.
 
 The active crosscutting structural audits are exactly:
 
@@ -31,6 +31,13 @@ module-structure, and velocity-preservation methods. Those superseded methods
 are historical references under `docs/audits/archive/structural/` and are not
 eligible for new runs.
 
+The broad invariant-preservation sweep is also retired. Its definition is
+preserved under [archive/integrity](archive/integrity/invariant-preservation.md)
+and is ineligible for new recurring runs. Domain audits own its correctness
+checks; the targeted [boundary handoff review](targeted/integrity/boundary-handoff-review.md)
+preserves the check for guarantees lost between owners. Historical reports
+remain unchanged.
+
 Domain-safety audits follow the change triggers and scope contract below.
 Performance, Wasm, and completeness retain their own scope and run conditions.
 Do not fold their materially different correctness or empirical questions into
@@ -44,6 +51,10 @@ cleanup slice that is not part of the recurring baseline.
 Location:
 
 - `docs/audits/targeted/<area>/<focus>.md`
+
+Use the [boundary handoff review](targeted/integrity/boundary-handoff-review.md)
+when a concrete producer/consumer change leaves invariant coverage unclear.
+It is not an additional baseline sweep or a prerequisite for every domain run.
 
 One-time release or investigation prompts belong with their owning design or
 issue context. Their executed results still use the report hierarchy below.
@@ -93,7 +104,6 @@ requested; a trigger selects relevant coverage, not extra implementation authori
 | [Resource model](recurring/contracts/resource-model-compliance.md) | Budget admission, accounting, route selection, or boundedness policy | Are admitted operations bounded and exhaustion fail-closed? |
 | [Cursor ordering](recurring/executor/cursor-ordering.md) | Tokens, signatures, anchors, ordering, or between-page state | Does continuation remain bound to the accepted query and paginate safely? |
 | [State transitions](recurring/executor/executor-state-machine-integrity.md) | Plan handoff, mutation/publication lifecycle, or recovery admission | Can a transition bypass its owner or expose incomplete state? |
-| [Invariant preservation](recurring/integrity/invariant-preservation.md) | Invariant definition, enforcement ownership, or consumer/replay handoff | Does each affected invariant survive every relevant boundary? |
 | [Range envelopes](recurring/range/boundary-envelope-semantics.md) | Bound encoding, tightening, comparison, or resume substitution | Are strictness, direction, and containment preserved? |
 | [Security boundary](recurring/security/security-audit.md) | Untrusted input, persisted decode, namespace/cache identity, or admission policy | Can malformed or mismatched input cross a protected boundary or fail open? |
 | [Recovery consistency](recurring/storage/storage-recovery-consistency.md) | Marker/journal protocol, live apply, replay, or startup publication | Does recovery converge to the same accepted state after every relevant interruption? |
@@ -128,6 +138,21 @@ semantic ownership, state-space, and maintenance-friction findings.
 Keep one owning finding per underlying cause; adjacent reports link it and
 explain the consequence for their own scoped verdict. Do not copy finding tables
 or create parallel debt entries. Distinct defects still need distinct findings.
+
+Use these ownership splits when coverage overlaps:
+
+| Shared boundary | Owning questions and evidence reuse |
+| --- | --- |
+| Index / recovery | Index integrity owns accepted membership, uniqueness, and row agreement; recovery consistency owns interruption, replay, and convergence. Share the relevant mutation fixtures and assertions. |
+| Cursor / range | Cursor ordering owns token binding and pagination; range envelopes owns physical bound lowering, direction, and containment. Share anchor and traversal proof where the obligations coincide. |
+| Security / resource | Security owns adversarial reachability and fail-open exposure; resource compliance owns admission, accounting, and exhaustion. Share rejection evidence while checking the distinct threat and budget contexts. |
+| State transitions / recovery | State transitions owns legal entry, publication, and readiness gates; recovery consistency owns replay equivalence and idempotence. Share interruption evidence without repeating the full recovery matrix. |
+| Error taxonomy / domain audits | Error taxonomy owns class, origin, diagnostic context, and public projection; the domain audit owns the behavior producing that error. Share typed producer assertions. |
+
+The targeted handoff review routes known obligations to these owners and
+investigates only the remaining coverage gap. Protective checks at distinct
+trust boundaries are not duplicate semantic authority merely because they
+enforce the same invariant.
 
 Collect a shared owner map or test result once and link its exact report section
 or artifact. Reuse requires the same relevant source snapshot (including dirty

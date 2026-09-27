@@ -86,6 +86,10 @@ pub(in crate::db) use schema_publication::{
     AcceptedSchemaPublication, publish_accepted_schema_candidates_with_application_record,
     publish_accepted_schema_candidates_with_database_control,
 };
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db) use schema_publication::{
+    SchemaPublicationInterruption, interrupt_next_schema_publication_for_tests,
+};
 pub(in crate::db) use schema_publication::{
     publish_accepted_schema_candidate_with_constraint_validation_job,
     publish_accepted_schema_candidate_with_constraint_validation_job_removal,
