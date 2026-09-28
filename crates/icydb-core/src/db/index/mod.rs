@@ -24,8 +24,10 @@ pub(in crate::db) use envelope::{envelope_is_empty, key_within_envelope};
 pub(in crate::db) use envelope::{
     resume_bounds_for_continuation, validate_index_scan_continuation_advancement,
 };
-pub(in crate::db) use expression_contract::SemanticIndexExpression;
-pub(in crate::db) use expression_contract::index_expression_supports_text_casefold_lookup;
+pub(in crate::db) use expression_contract::{
+    SemanticIndexExpression, index_expression_output_kind,
+    index_expression_supports_text_casefold_lookup, index_expression_text,
+};
 pub(in crate::db) use key::{
     EncodedValue, admit_query_index_component, encode_accepted_index_literal_component,
 };

@@ -385,7 +385,7 @@ impl<'a> DataRowOrderWindow<'a> {
                 rows: Vec::new(),
                 retained_backing_bytes: 0,
             },
-            |keep_count| DataRowOrderCandidates::Bounded(BoundedCachedOrderWindow::new(keep_count)),
+            |keep_count| DataRowOrderCandidates::Bounded(BoundedOrderRows::new(keep_count)),
         );
 
         Self {
@@ -419,12 +419,9 @@ impl<'a> DataRowOrderWindow<'a> {
 
         match &mut self.candidates {
             DataRowOrderCandidates::Bounded(window) => {
-                window.push_cached(
-                    candidate,
-                    cached_values,
-                    retained_backing_bytes,
-                    self.resolved_order,
-                );
+                window.push((candidate, cached_values), |left, right| {
+                    compare_cached_orderable_rows(&left.1, &right.1, self.resolved_order)
+                });
             }
             DataRowOrderCandidates::Complete {
                 rows,
@@ -450,7 +447,7 @@ impl<'a> DataRowOrderWindow<'a> {
     /// Consume the selected candidates in final canonical order.
     pub(in crate::db::executor) fn into_sorted_rows(self) -> Result<Vec<DataRow>, InternalError> {
         let mut rows = match self.candidates {
-            DataRowOrderCandidates::Bounded(window) => window.into_rows_with_cached_values(),
+            DataRowOrderCandidates::Bounded(window) => window.into_rows(),
             DataRowOrderCandidates::Complete { rows, .. } => rows,
         };
         let rows_sorted = rows.len();
@@ -466,7 +463,7 @@ impl<'a> DataRowOrderWindow<'a> {
 }
 
 enum DataRowOrderCandidates {
-    Bounded(BoundedCachedOrderWindow<DataRow>),
+    Bounded(BoundedOrderRows<(DataRow, CachedOrderValues)>),
     Complete {
         rows: Vec<(DataRow, CachedOrderValues)>,
         retained_backing_bytes: u64,
@@ -484,9 +481,9 @@ where
         resolved_order: &'a ResolvedOrder,
     ) -> Self {
         let candidates = if resolved_order_uses_only_direct_fields(resolved_order) {
-            BoundedOrderCandidates::Direct(BoundedDirectOrderWindow::new(keep_count))
+            BoundedOrderCandidates::Direct(BoundedOrderRows::new(keep_count))
         } else {
-            BoundedOrderCandidates::Cached(BoundedCachedOrderWindow::new(keep_count))
+            BoundedOrderCandidates::Cached(BoundedOrderRows::new(keep_count))
         };
 
         Self {
@@ -511,7 +508,9 @@ where
         match &mut self.candidates {
             BoundedOrderCandidates::Direct(window) => {
                 charge_order_candidate_work(comparisons, candidate.retained_order_backing_bytes())?;
-                window.push(candidate, self.resolved_order);
+                window.push(candidate, |left, right| {
+                    compare_borrowed_direct_orderable_rows(left, right, self.resolved_order)
+                });
             }
             BoundedOrderCandidates::Cached(window) => {
                 let cached_values = cache_order_values_from_row(&candidate, self.resolved_order);
@@ -519,12 +518,9 @@ where
                     .retained_order_backing_bytes()
                     .saturating_add(cached_values.estimated_backing_bytes());
                 charge_order_candidate_work(comparisons, retained_backing_bytes)?;
-                window.push_cached(
-                    candidate,
-                    cached_values,
-                    retained_backing_bytes,
-                    self.resolved_order,
-                );
+                window.push((candidate, cached_values), |left, right| {
+                    compare_cached_orderable_rows(&left.1, &right.1, self.resolved_order)
+                });
             }
         }
 
@@ -541,7 +537,7 @@ where
                 storage: PendingOrderRowStorage::Cached {
                     resolved_order: self.resolved_order.clone(),
                     keep_count: window.keep_count,
-                    rows: window.into_rows_with_cached_values(),
+                    rows: window.into_rows(),
                 },
             },
         }
@@ -555,8 +551,8 @@ where
 ///
 
 enum BoundedOrderCandidates<R> {
-    Direct(BoundedDirectOrderWindow<R>),
-    Cached(BoundedCachedOrderWindow<R>),
+    Direct(BoundedOrderRows<R>),
+    Cached(BoundedOrderRows<(R, CachedOrderValues)>),
 }
 
 impl<R> BoundedOrderCandidates<R> {
@@ -568,196 +564,66 @@ impl<R> BoundedOrderCandidates<R> {
     }
 }
 
-///
-/// BoundedDirectOrderWindow
-///
-/// BoundedDirectOrderWindow retains the best `keep_count` rows under one
-/// direct-slot order while a scan is still running.
-/// It deliberately does not final-sort rows; the canonical post-access
-/// order/window phase remains the final ordering authority.
-///
-
-struct BoundedDirectOrderWindow<R> {
+/// Retain the best bounded set while keeping each caller's comparison strategy.
+/// Budget charging happens before insertion; this buffer owns only selection,
+/// and canonical post-access ordering still owns the final sort.
+struct BoundedOrderRows<R> {
     rows: Vec<R>,
     worst_index: Option<usize>,
     keep_count: usize,
-    retained_backing_bytes: u64,
-    peak_retained_backing_bytes: u64,
 }
 
-impl<R> BoundedDirectOrderWindow<R>
-where
-    R: OrderReadableRow,
-{
-    /// Build one bounded direct-order accumulator.
-    #[must_use]
+impl<R> BoundedOrderRows<R> {
     fn new(keep_count: usize) -> Self {
         Self {
             rows: Vec::with_capacity(keep_count.min(BOUNDED_ORDER_INITIAL_CAPACITY)),
             worst_index: None,
             keep_count,
-            retained_backing_bytes: 0,
-            peak_retained_backing_bytes: 0,
         }
     }
 
-    /// Retain one candidate if it belongs in the bounded order window.
-    fn push(&mut self, candidate: R, resolved_order: &ResolvedOrder) {
+    fn push(&mut self, candidate: R, compare: impl Fn(&R, &R) -> Ordering) {
         if self.keep_count == 0 {
             return;
         }
-        let candidate_backing_bytes = candidate.retained_order_backing_bytes();
         if self.rows.len() < self.keep_count {
+            let appended_index = self.rows.len();
             self.rows.push(candidate);
-            self.retained_backing_bytes = self
-                .retained_backing_bytes
-                .saturating_add(candidate_backing_bytes);
-            self.peak_retained_backing_bytes = self
-                .peak_retained_backing_bytes
-                .max(self.retained_backing_bytes);
-            self.update_worst_after_append(resolved_order);
+            if self.worst_index.is_none_or(|worst_index| {
+                compare(&self.rows[appended_index], &self.rows[worst_index]).is_gt()
+            }) {
+                self.worst_index = Some(appended_index);
+            }
             return;
         }
 
         let worst_index = self
             .worst_index
-            .unwrap_or_else(|| worst_direct_order_row_index(self.rows.as_slice(), resolved_order));
-        if compare_borrowed_direct_orderable_rows(
-            &candidate,
-            &self.rows[worst_index],
-            resolved_order,
-        )
-        .is_lt()
-        {
-            self.retained_backing_bytes = self
-                .retained_backing_bytes
-                .saturating_sub(self.rows[worst_index].retained_order_backing_bytes())
-                .saturating_add(candidate_backing_bytes);
-            self.peak_retained_backing_bytes = self
-                .peak_retained_backing_bytes
-                .max(self.retained_backing_bytes);
+            .unwrap_or_else(|| self.worst_row_index(&compare));
+        // Equal candidates do not displace retained rows; worst-row scans also
+        // retain the first maximum when several retained rows compare equally.
+        if compare(&candidate, &self.rows[worst_index]).is_lt() {
             self.rows[worst_index] = candidate;
-            self.worst_index = Some(worst_direct_order_row_index(
-                self.rows.as_slice(),
-                resolved_order,
-            ));
+            self.worst_index = Some(self.worst_row_index(&compare));
         }
     }
 
-    /// Consume the retained, not-yet-final-sorted rows.
-    #[must_use]
     fn into_rows(self) -> Vec<R> {
         self.rows
     }
 
-    fn update_worst_after_append(&mut self, resolved_order: &ResolvedOrder) {
-        let appended_index = self.rows.len().saturating_sub(1);
-        let Some(worst_index) = self.worst_index else {
-            self.worst_index = Some(appended_index);
-            return;
-        };
-        if compare_borrowed_direct_orderable_rows(
-            &self.rows[appended_index],
-            &self.rows[worst_index],
-            resolved_order,
-        )
-        .is_gt()
-        {
-            self.worst_index = Some(appended_index);
+    fn worst_row_index(&self, compare: &impl Fn(&R, &R) -> Ordering) -> usize {
+        debug_assert!(
+            !self.rows.is_empty(),
+            "bounded order window must have retained rows before resolving worst row",
+        );
+        let mut worst_index = 0;
+        for index in 1..self.rows.len() {
+            if compare(&self.rows[index], &self.rows[worst_index]).is_gt() {
+                worst_index = index;
+            }
         }
-    }
-}
-
-///
-/// BoundedCachedOrderWindow
-///
-/// Expression-backed candidates paired with their complete resolved order
-/// tuples so comparisons never re-evaluate an expression for an already-seen
-/// row.
-///
-
-struct BoundedCachedOrderWindow<R> {
-    rows: Vec<(R, CachedOrderValues)>,
-    row_backing_bytes: Vec<u64>,
-    worst_index: Option<usize>,
-    keep_count: usize,
-    retained_backing_bytes: u64,
-    peak_retained_backing_bytes: u64,
-}
-
-impl<R> BoundedCachedOrderWindow<R> {
-    fn new(keep_count: usize) -> Self {
-        Self {
-            rows: Vec::with_capacity(keep_count.min(BOUNDED_ORDER_INITIAL_CAPACITY)),
-            row_backing_bytes: Vec::with_capacity(keep_count.min(BOUNDED_ORDER_INITIAL_CAPACITY)),
-            worst_index: None,
-            keep_count,
-            retained_backing_bytes: 0,
-            peak_retained_backing_bytes: 0,
-        }
-    }
-
-    fn push_cached(
-        &mut self,
-        candidate: R,
-        cached_values: CachedOrderValues,
-        retained_backing_bytes: u64,
-        resolved_order: &ResolvedOrder,
-    ) {
-        if self.rows.len() < self.keep_count {
-            self.rows.push((candidate, cached_values));
-            self.row_backing_bytes.push(retained_backing_bytes);
-            self.retained_backing_bytes = self
-                .retained_backing_bytes
-                .saturating_add(retained_backing_bytes);
-            self.peak_retained_backing_bytes = self
-                .peak_retained_backing_bytes
-                .max(self.retained_backing_bytes);
-            self.update_worst_after_append(resolved_order);
-            return;
-        }
-
-        let worst_index = self
-            .worst_index
-            .unwrap_or_else(|| worst_cached_order_row_index(self.rows.as_slice(), resolved_order));
-        if compare_cached_orderable_rows(&cached_values, &self.rows[worst_index].1, resolved_order)
-            .is_lt()
-        {
-            self.rows[worst_index] = (candidate, cached_values);
-            self.retained_backing_bytes = self
-                .retained_backing_bytes
-                .saturating_sub(self.row_backing_bytes[worst_index])
-                .saturating_add(retained_backing_bytes);
-            self.peak_retained_backing_bytes = self
-                .peak_retained_backing_bytes
-                .max(self.retained_backing_bytes);
-            self.row_backing_bytes[worst_index] = retained_backing_bytes;
-            self.worst_index = Some(worst_cached_order_row_index(
-                self.rows.as_slice(),
-                resolved_order,
-            ));
-        }
-    }
-
-    fn into_rows_with_cached_values(self) -> Vec<(R, CachedOrderValues)> {
-        self.rows
-    }
-
-    fn update_worst_after_append(&mut self, resolved_order: &ResolvedOrder) {
-        let appended_index = self.rows.len().saturating_sub(1);
-        let Some(worst_index) = self.worst_index else {
-            self.worst_index = Some(appended_index);
-            return;
-        };
-        if compare_cached_orderable_rows(
-            &self.rows[appended_index].1,
-            &self.rows[worst_index].1,
-            resolved_order,
-        )
-        .is_gt()
-        {
-            self.worst_index = Some(appended_index);
-        }
+        worst_index
     }
 }
 
@@ -939,49 +805,6 @@ where
     }
 
     Ordering::Equal
-}
-
-// Find the currently worst retained row under canonical direct-slot ordering.
-fn worst_direct_order_row_index<R>(rows: &[R], resolved_order: &ResolvedOrder) -> usize
-where
-    R: OrderReadableRow,
-{
-    debug_assert!(
-        !rows.is_empty(),
-        "bounded order window must have retained rows before resolving worst row",
-    );
-    let mut worst_index = 0usize;
-    for index in 1..rows.len() {
-        if compare_borrowed_direct_orderable_rows(&rows[index], &rows[worst_index], resolved_order)
-            .is_gt()
-        {
-            worst_index = index;
-        }
-    }
-
-    worst_index
-}
-
-// Find the currently worst retained cached tuple under the complete resolved
-// order, including direction and the planner-appended primary-key tie-breaker.
-fn worst_cached_order_row_index<R>(
-    rows: &[(R, CachedOrderValues)],
-    resolved_order: &ResolvedOrder,
-) -> usize {
-    debug_assert!(
-        !rows.is_empty(),
-        "bounded cached order window must have retained rows before resolving worst row",
-    );
-    let mut worst_index = 0usize;
-    for index in 1..rows.len() {
-        if compare_cached_orderable_rows(&rows[index].1, &rows[worst_index].1, resolved_order)
-            .is_gt()
-        {
-            worst_index = index;
-        }
-    }
-
-    worst_index
 }
 
 // Cache one row's order values once so sort/select hot loops can compare
@@ -1169,7 +992,132 @@ fn compare_order_value_with_boundary(
 
 #[cfg(test)]
 mod tests {
-    use super::reorder_rows_by_original_indices;
+    use super::{BoundedOrderRows, reorder_rows_by_original_indices};
+
+    #[test]
+    fn bounded_selection_matches_sorted_prefixes_in_both_directions() {
+        let input = [4, 1, 7, 7, 2, 9, 0, 5];
+        for descending in [false, true] {
+            let compare = |left: &i32, right: &i32| {
+                if descending {
+                    right.cmp(left)
+                } else {
+                    left.cmp(right)
+                }
+            };
+            for keep_count in 0..=input.len() + 1 {
+                let mut window = BoundedOrderRows::new(keep_count);
+                for (index, value) in input.into_iter().enumerate() {
+                    window.push(value, compare);
+                    let mut expected = input[..=index].to_vec();
+                    expected.sort_by(compare);
+                    expected.truncate(keep_count);
+                    let mut actual = window.rows.clone();
+                    actual.sort_by(compare);
+                    assert_eq!(actual, expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn equal_candidates_preserve_retained_row_identity() {
+        let mut window = BoundedOrderRows::new(2);
+        for row in [(1, 'a'), (1, 'b'), (1, 'c')] {
+            window.push(row, |left, right| left.0.cmp(&right.0));
+        }
+        assert_eq!(window.into_rows(), vec![(1, 'a'), (1, 'b')]);
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn bounded_strategies_preserve_budget_charges_and_cache_each_candidate_once() {
+        use super::*;
+        use crate::db::{
+            executor::budget::{
+                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+                current_execution_budget_usage, with_execution_budget_for_tests,
+            },
+            query::plan::{ResolvedOrderField, expr::CompiledExpr},
+        };
+        use icydb_diagnostic_code::{DiagnosticExecutionBudgetScope, DiagnosticExecutionLane};
+        use std::{cell::Cell, rc::Rc};
+
+        struct Row(Value, Rc<Cell<usize>>);
+        impl OrderReadableRow for Row {
+            fn read_order_slot_ref(&self, slot: usize) -> Option<&Value> {
+                (slot == 0).then_some(&self.0)
+            }
+            fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
+                self.1.set(self.1.get() + 1);
+                self.read_order_slot_ref(slot).map(Cow::Borrowed)
+            }
+            fn order_slots_are_borrowed(&self) -> bool {
+                true
+            }
+        }
+
+        for cached in [false, true] {
+            let source = if cached {
+                ResolvedOrderValueSource::expression(CompiledExpr::Slot {
+                    slot: 0,
+                    field: "value".to_string(),
+                })
+            } else {
+                ResolvedOrderValueSource::direct_field(0)
+            };
+            let order =
+                ResolvedOrder::new(vec![ResolvedOrderField::new(source, OrderDirection::Asc)]);
+            let reads = Rc::new(Cell::new(0));
+            let budget = HardExecutionBudget::uniform_for_tests(
+                16_000_000,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            );
+            let context = HardExecutionContext::new(
+                DiagnosticExecutionBudgetScope::Execution,
+                DiagnosticExecutionLane::TrustedRead,
+                0,
+            );
+            with_execution_budget_for_tests(
+                budget,
+                context,
+                || {
+                    let mut window = BoundedOrderWindow::new(2, &order);
+                    let mut expected_bytes = 0;
+                    for value in [4, 1, 5, 0] {
+                        let row = Row(Value::Int64(value), Rc::clone(&reads));
+                        expected_bytes += row.retained_order_backing_bytes();
+                        if cached {
+                            expected_bytes += runtime_value_work(&row.0).0;
+                        }
+                        window.push(row)?;
+                    }
+                    let usage = current_execution_budget_usage()?;
+                    assert_eq!(
+                        usage.observed(DiagnosticExecutionBudgetResource::SortEntries),
+                        4
+                    );
+                    assert_eq!(
+                        usage.observed(DiagnosticExecutionBudgetResource::SortComparisons),
+                        7
+                    );
+                    assert_eq!(
+                        usage.observed(DiagnosticExecutionBudgetResource::SortTemporaryBytes),
+                        expected_bytes
+                    );
+                    let rows = window.into_pending_rows().apply_order(&order, Some(2))?;
+                    assert_eq!(
+                        rows.into_iter().map(|row| row.0).collect::<Vec<_>>(),
+                        vec![Value::Int64(0), Value::Int64(1)]
+                    );
+                    assert_eq!(reads.get(), if cached { 4 } else { 0 });
+                    Ok::<_, InternalError>(())
+                },
+                std::convert::identity,
+            )
+            .unwrap();
+        }
+    }
 
     #[test]
     fn compact_order_indices_reorder_complete_and_bounded_rows() {

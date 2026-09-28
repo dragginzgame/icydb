@@ -667,6 +667,30 @@ impl CandidateSchemaRevision {
         Self::prepare(bundle, &MaintenanceConstructionBudget::new())
     }
 
+    /// Replace one entity snapshot and validate the complete publication candidate.
+    /// Callers select the revision and resolve source bindings before construction;
+    /// SQL-owned identities use that same revision during source-binding updates.
+    pub(in crate::db::schema) fn from_entity_snapshot(
+        current: &AcceptedSchemaRevisionBundle,
+        revision: AcceptedSchemaRevision,
+        entity_tag: EntityTag,
+        snapshot: PersistedSchemaSnapshot,
+        source_bindings: AcceptedSourceBindingCatalog,
+    ) -> Result<Self, InternalError> {
+        let mut entity_snapshots = current.entity_snapshots().clone();
+        entity_snapshots.insert(entity_tag, snapshot);
+        let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+            revision,
+            current.store_path(),
+            current.enum_catalog().clone(),
+            current.composite_catalog().clone(),
+            source_bindings,
+            entity_snapshots,
+        )?;
+
+        Self::new(bundle)
+    }
+
     // Keep one authority across all stages, including failed validation. These
     // intervals account actual IC instructions, not native elapsed time. Byte
     // visits below cover wire verification/hash input, not decoder allocations

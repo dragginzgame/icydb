@@ -3,10 +3,10 @@
 //! Does not own: startup reconciliation, stable-memory storage, or generated model metadata.
 //! Boundary: schema-owned DTOs that can become the `icydb_schema` payload.
 
-#[cfg(any(test, feature = "sql", feature = "migration"))]
-use crate::db::predicate::relabel_sql_predicate_field_root;
 #[cfg(any(test, feature = "sql"))]
 use crate::db::predicate::sql_predicate_references_field_root;
+#[cfg(any(test, feature = "sql", feature = "migration"))]
+use crate::db::{index::index_expression_text, predicate::relabel_sql_predicate_field_root};
 use crate::{
     db::schema::{
         AcceptedConstraintCatalog, AcceptedConstraintIdentity, AcceptedConstraintKind,
@@ -1709,7 +1709,7 @@ impl PersistedIndexExpressionSnapshot {
         new_name: &str,
     ) -> Self {
         let source = self.source.clone_with_renamed_root(field_id, new_name);
-        let canonical_text = canonical_expression_text_for_path(self.op, source.path());
+        let canonical_text = index_expression_text(self.op, &source.path().join("."));
 
         Self {
             op: self.op,
@@ -1744,21 +1744,6 @@ impl PersistedIndexExpressionSnapshot {
             output_kind: self.output_kind.clone(),
             canonical_text: self.canonical_text.clone(),
         })
-    }
-}
-
-#[cfg(any(test, feature = "sql", feature = "migration"))]
-fn canonical_expression_text_for_path(op: PersistedIndexExpressionOp, path: &[String]) -> String {
-    let path = path.join(".");
-    match op {
-        PersistedIndexExpressionOp::Lower => format!("expr:v1:LOWER({path})"),
-        PersistedIndexExpressionOp::Upper => format!("expr:v1:UPPER({path})"),
-        PersistedIndexExpressionOp::Trim => format!("expr:v1:TRIM({path})"),
-        PersistedIndexExpressionOp::LowerTrim => format!("expr:v1:LOWER(TRIM({path}))"),
-        PersistedIndexExpressionOp::Date => format!("expr:v1:DATE({path})"),
-        PersistedIndexExpressionOp::Year => format!("expr:v1:YEAR({path})"),
-        PersistedIndexExpressionOp::Month => format!("expr:v1:MONTH({path})"),
-        PersistedIndexExpressionOp::Day => format!("expr:v1:DAY({path})"),
     }
 }
 

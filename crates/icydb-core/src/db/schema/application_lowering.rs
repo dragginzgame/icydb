@@ -17,6 +17,7 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::{
         data::encode_input_value_for_candidate_field_contract,
+        index::{index_expression_output_kind, index_expression_text},
         schema::{
             AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
             AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedNamedTypeIdentity,
@@ -3252,54 +3253,6 @@ const fn index_expression_op(component: &IndexKeyFragment) -> Option<PersistedIn
         IndexKeyFragment::Month(_) => Some(PersistedIndexExpressionOp::Month),
         IndexKeyFragment::Day(_) => Some(PersistedIndexExpressionOp::Day),
         IndexKeyFragment::Field(_) => None,
-    }
-}
-
-fn index_expression_output_kind(
-    op: PersistedIndexExpressionOp,
-    source: &AcceptedFieldKind,
-) -> Option<AcceptedFieldKind> {
-    match op {
-        PersistedIndexExpressionOp::Lower
-        | PersistedIndexExpressionOp::Upper
-        | PersistedIndexExpressionOp::Trim
-        | PersistedIndexExpressionOp::LowerTrim
-            if matches!(source, AcceptedFieldKind::Text { .. }) =>
-        {
-            Some(source.clone())
-        }
-        PersistedIndexExpressionOp::Date
-            if matches!(
-                source,
-                AcceptedFieldKind::Date | AcceptedFieldKind::Timestamp
-            ) =>
-        {
-            Some(AcceptedFieldKind::Date)
-        }
-        PersistedIndexExpressionOp::Year
-        | PersistedIndexExpressionOp::Month
-        | PersistedIndexExpressionOp::Day
-            if matches!(
-                source,
-                AcceptedFieldKind::Date | AcceptedFieldKind::Timestamp
-            ) =>
-        {
-            Some(AcceptedFieldKind::Int64)
-        }
-        _ => None,
-    }
-}
-
-fn index_expression_text(op: PersistedIndexExpressionOp, field: &str) -> String {
-    match op {
-        PersistedIndexExpressionOp::Lower => format!("expr:v1:LOWER({field})"),
-        PersistedIndexExpressionOp::Upper => format!("expr:v1:UPPER({field})"),
-        PersistedIndexExpressionOp::Trim => format!("expr:v1:TRIM({field})"),
-        PersistedIndexExpressionOp::LowerTrim => format!("expr:v1:LOWER(TRIM({field}))"),
-        PersistedIndexExpressionOp::Date => format!("expr:v1:DATE({field})"),
-        PersistedIndexExpressionOp::Year => format!("expr:v1:YEAR({field})"),
-        PersistedIndexExpressionOp::Month => format!("expr:v1:MONTH({field})"),
-        PersistedIndexExpressionOp::Day => format!("expr:v1:DAY({field})"),
     }
 }
 

@@ -161,8 +161,6 @@ fn candidate_with_snapshot(
         .entity_snapshots()
         .get(&entity_tag)
         .ok_or_else(InternalError::store_corruption)?;
-    let mut entity_snapshots = current.entity_snapshots().clone();
-    entity_snapshots.insert(entity_tag, snapshot.clone());
     let revision = current
         .revision()
         .checked_next()
@@ -171,16 +169,13 @@ fn candidate_with_snapshot(
         .source_bindings()
         .clone()
         .with_sql_ddl_entity_transition(entity_tag, accepted_before, snapshot, revision)?;
-    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+    CandidateSchemaRevision::from_entity_snapshot(
+        current,
         revision,
-        current.store_path(),
-        current.enum_catalog().clone(),
-        current.composite_catalog().clone(),
+        entity_tag,
+        snapshot.clone(),
         source_bindings,
-        entity_snapshots,
-    )?;
-
-    CandidateSchemaRevision::new(bundle)
+    )
 }
 
 fn validate_publishable_transition_plan(

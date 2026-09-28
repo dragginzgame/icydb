@@ -714,6 +714,29 @@ fn grouped_cursor_policy_rejections_are_request_errors_on_cold_and_warm_plans() 
 }
 
 #[test]
+fn bounded_ordering_preserves_direct_expression_and_tiebreak_results() {
+    let session = initialize();
+    for (id, text) in [(0, "é"), (1, "ab"), (2, ""), (3, "éé"), (4, "abc")] {
+        insert_row(&session, id, "everyone", text);
+    }
+    for (order, ids) in [
+        ("rare ASC, id ASC", [2, 1, 4, 0, 3]),
+        ("OCTET_LENGTH(rare) DESC, id ASC", [3, 4, 0, 1, 2]),
+    ] {
+        let expected = ids.map(|id| vec![OutputValue::nat64(id)]);
+        for keep_count in 0..=ids.len() + 1 {
+            let sql = format!("SELECT id FROM PlannerRow ORDER BY {order} LIMIT {keep_count}");
+            for _ in 0..2 {
+                assert_eq!(
+                    projection_rows(&session, &sql),
+                    expected[..keep_count.min(expected.len())],
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn byte_length_projection_preserves_mixed_outputs_and_order_inputs() {
     let session = initialize();
     for (id, text) in [(0, "é"), (1, "abc"), (2, ""), (3, "éé")] {

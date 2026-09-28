@@ -1,10 +1,12 @@
 //! Schema-owned secondary-index candidate helpers for SQL DDL.
 
-use crate::db::schema::{
-    AcceptedFieldKind, AcceptedSchemaSnapshot, PersistedIndexExpressionOp,
-    PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-    SchemaIndexId,
+use crate::db::{
+    index::index_expression_output_kind,
+    schema::{
+        AcceptedSchemaSnapshot, PersistedIndexExpressionOp, PersistedIndexExpressionSnapshot,
+        PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
+        PersistedIndexSnapshot, SchemaIndexId,
+    },
 };
 
 /// Schema-owned outcome for resolving one SQL DDL secondary-index addition
@@ -313,8 +315,7 @@ fn sql_ddl_index_expression_snapshot(
 ) -> Result<PersistedIndexKeyItemSnapshot, SchemaDdlSecondaryIndexKeyCandidateError> {
     let source = sql_ddl_index_field_path_snapshot(accepted_before, expression.source())?;
     let persisted_op = persisted_expression_op_for_sql_ddl_intent(expression.op());
-    let Some(output_kind) = sql_ddl_index_expression_output_kind(persisted_op, source.kind())
-    else {
+    let Some(output_kind) = index_expression_output_kind(persisted_op, source.kind()) else {
         return Err(
             SchemaDdlSecondaryIndexKeyCandidateError::FieldPathNotIndexable {
                 field_path: source.path().join("."),
@@ -340,46 +341,6 @@ const fn persisted_expression_op_for_sql_ddl_intent(
         SchemaDdlSecondaryIndexExpressionOpIntent::Lower => PersistedIndexExpressionOp::Lower,
         SchemaDdlSecondaryIndexExpressionOpIntent::Upper => PersistedIndexExpressionOp::Upper,
         SchemaDdlSecondaryIndexExpressionOpIntent::Trim => PersistedIndexExpressionOp::Trim,
-    }
-}
-
-fn sql_ddl_index_expression_output_kind(
-    op: PersistedIndexExpressionOp,
-    source_kind: &AcceptedFieldKind,
-) -> Option<AcceptedFieldKind> {
-    match op {
-        PersistedIndexExpressionOp::Lower
-        | PersistedIndexExpressionOp::Upper
-        | PersistedIndexExpressionOp::Trim
-        | PersistedIndexExpressionOp::LowerTrim => {
-            if matches!(source_kind, AcceptedFieldKind::Text { .. }) {
-                Some(source_kind.clone())
-            } else {
-                None
-            }
-        }
-        PersistedIndexExpressionOp::Date => {
-            if matches!(
-                source_kind,
-                AcceptedFieldKind::Date | AcceptedFieldKind::Timestamp
-            ) {
-                Some(AcceptedFieldKind::Date)
-            } else {
-                None
-            }
-        }
-        PersistedIndexExpressionOp::Year
-        | PersistedIndexExpressionOp::Month
-        | PersistedIndexExpressionOp::Day => {
-            if matches!(
-                source_kind,
-                AcceptedFieldKind::Date | AcceptedFieldKind::Timestamp
-            ) {
-                Some(AcceptedFieldKind::Int64)
-            } else {
-                None
-            }
-        }
     }
 }
 

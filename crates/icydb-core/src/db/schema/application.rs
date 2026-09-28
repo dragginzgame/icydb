@@ -615,8 +615,6 @@ fn aborted_generated_row_local_candidate(
         .constraints()
         .iter()
         .any(|constraint| constraint.id() == constraint_id);
-    let mut snapshots = current.entity_snapshots().clone();
-    snapshots.insert(entity_tag, snapshot.with_constraint_catalog(catalog));
     let mut source_bindings = current.source_bindings().clone();
     if !accepted_identity_remains {
         source_bindings.remove_constraint_identity(entity_tag, constraint_id)?;
@@ -625,15 +623,13 @@ fn aborted_generated_row_local_candidate(
         .revision()
         .checked_next()
         .ok_or_else(InternalError::store_unsupported)?;
-    let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
+    CandidateSchemaRevision::from_entity_snapshot(
+        current,
         revision,
-        current.store_path(),
-        current.enum_catalog().clone(),
-        current.composite_catalog().clone(),
+        entity_tag,
+        snapshot.with_constraint_catalog(catalog),
         source_bindings,
-        snapshots,
-    )?;
-    CandidateSchemaRevision::new(bundle)
+    )
 }
 
 /// Apply one exact source-keyed schema proposal through catalog-native
