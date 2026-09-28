@@ -11,8 +11,9 @@ use crate::{
         integrity::DatabaseIncarnationId,
         journal::FoldWatermark,
         registry::StoreAllocationIdentities,
-        schema::enum_catalog::{
-            AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedSchemaRoot,
+        schema::{
+            enum_catalog::{AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedSchemaRoot},
+            wire::SchemaWireReader,
         },
     },
     error::InternalError,
@@ -319,8 +320,8 @@ impl CardinalityGenerationHeader {
             CARDINALITY_GENERATION_HEADER_BODY_BYTES,
             CARDINALITY_GENERATION_HEADER_FINGERPRINT_DOMAIN,
         )?;
-        let mut reader = CardinalityReader::new(&bytes[..CARDINALITY_GENERATION_HEADER_BODY_BYTES]);
-        reader.read_exact::<8>()?;
+        let mut reader = SchemaWireReader::new(&bytes[..CARDINALITY_GENERATION_HEADER_BODY_BYTES]);
+        reader.read_array::<8>()?;
         reader.read_u8()?;
         let state = CardinalityGenerationState::from_tag(reader.read_u8()?)?;
         let slot = CardinalityCountSlot::from_tag(reader.read_u8()?)?;
@@ -577,8 +578,8 @@ impl CardinalityBuildCursor {
             .checked_sub(CARDINALITY_FINGERPRINT_BYTES)
             .ok_or_else(InternalError::store_corruption)?;
         validate_record_fingerprint(bytes, body_len, CARDINALITY_BUILD_CURSOR_FINGERPRINT_DOMAIN)?;
-        let mut reader = CardinalityReader::new(&bytes[..body_len]);
-        reader.read_exact::<8>()?;
+        let mut reader = SchemaWireReader::new(&bytes[..body_len]);
+        reader.read_array::<8>()?;
         reader.read_u8()?;
         let slot = CardinalityCountSlot::from_tag(reader.read_u8()?)?;
         let generation = CardinalityGenerationId::try_new(reader.read_u64()?)?;
@@ -591,9 +592,7 @@ impl CardinalityBuildCursor {
             reader.read_u64()?,
         );
         let checkpoint_tag = reader.read_u8()?;
-        let checkpoint_len =
-            usize::try_from(reader.read_u32()?).map_err(|_| InternalError::store_corruption())?;
-        let checkpoint_bytes = reader.read_bytes(checkpoint_len)?;
+        let checkpoint_bytes = reader.read_len_prefixed_bytes()?;
         let checkpoint = decode_checkpoint(checkpoint_tag, checkpoint_bytes)?;
         reader.finish()?;
         Self::new(generation, slot, source, phase, checkpoint, totals)
@@ -755,13 +754,13 @@ fn encode_source_identity(out: &mut Vec<u8>, source: CardinalitySourceIdentity) 
 }
 
 fn decode_source_identity(
-    reader: &mut CardinalityReader<'_>,
+    reader: &mut SchemaWireReader<'_>,
 ) -> Result<CardinalitySourceIdentity, InternalError> {
-    let database_incarnation = DatabaseIncarnationId::try_from_bytes(reader.read_exact::<16>()?)?;
-    let store_allocation_fingerprint = reader.read_exact::<32>()?;
+    let database_incarnation = DatabaseIncarnationId::try_from_bytes(reader.read_array::<16>()?)?;
+    let store_allocation_fingerprint = reader.read_array::<32>()?;
     let root_present = reader.read_u8()?;
     let root_revision = AcceptedSchemaRevision::new(reader.read_u64()?);
-    let root_fingerprint = AcceptedSchemaFingerprint::new(reader.read_exact::<32>()?);
+    let root_fingerprint = AcceptedSchemaFingerprint::new(reader.read_array::<32>()?);
     let accepted_root = match root_present {
         0 if root_revision == AcceptedSchemaRevision::NONE
             && root_fingerprint.as_bytes() == [0; 32] =>
@@ -775,7 +774,7 @@ fn decode_source_identity(
         _ => return Err(InternalError::store_corruption()),
     };
     let accepted_index_count = reader.read_u32()?;
-    let accepted_index_set_fingerprint = reader.read_exact::<32>()?;
+    let accepted_index_set_fingerprint = reader.read_array::<32>()?;
     if accepted_root.is_none() && accepted_index_count != 0 {
         return Err(InternalError::store_corruption());
     }
@@ -916,64 +915,6 @@ fn fingerprint(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-struct CardinalityReader<'a> {
-    bytes: &'a [u8],
-    cursor: usize,
-}
-
-impl<'a> CardinalityReader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, cursor: 0 }
-    }
-
-    fn read_u8(&mut self) -> Result<u8, InternalError> {
-        let value = *self
-            .bytes
-            .get(self.cursor)
-            .ok_or_else(InternalError::store_corruption)?;
-        self.cursor = self
-            .cursor
-            .checked_add(1)
-            .ok_or_else(InternalError::store_corruption)?;
-        Ok(value)
-    }
-
-    fn read_u32(&mut self) -> Result<u32, InternalError> {
-        Ok(u32::from_be_bytes(self.read_exact::<4>()?))
-    }
-
-    fn read_u64(&mut self) -> Result<u64, InternalError> {
-        Ok(u64::from_be_bytes(self.read_exact::<8>()?))
-    }
-
-    fn read_exact<const N: usize>(&mut self) -> Result<[u8; N], InternalError> {
-        let bytes = self.read_bytes(N)?;
-        let mut out = [0_u8; N];
-        out.copy_from_slice(bytes);
-        Ok(out)
-    }
-
-    fn read_bytes(&mut self, len: usize) -> Result<&'a [u8], InternalError> {
-        let end = self
-            .cursor
-            .checked_add(len)
-            .ok_or_else(InternalError::store_corruption)?;
-        let bytes = self
-            .bytes
-            .get(self.cursor..end)
-            .ok_or_else(InternalError::store_corruption)?;
-        self.cursor = end;
-        Ok(bytes)
-    }
-
-    fn finish(self) -> Result<(), InternalError> {
-        if self.cursor != self.bytes.len() {
-            return Err(InternalError::store_corruption());
-        }
-        Ok(())
-    }
-}
-
 ///
 /// TESTS
 ///
@@ -1049,7 +990,9 @@ mod tests {
             source(2),
         )
         .encode();
-        assert!(CardinalityGenerationHeader::decode(&encoded[..encoded.len() - 1]).is_err());
+        for end in 0..encoded.len() {
+            assert!(CardinalityGenerationHeader::decode(&encoded[..end]).is_err());
+        }
         let mut trailing = encoded.clone();
         trailing.push(0);
         assert!(CardinalityGenerationHeader::decode(&trailing).is_err());
@@ -1283,7 +1226,9 @@ mod tests {
         )
         .unwrap();
         let encoded = cursor.encode().unwrap();
-        assert!(CardinalityBuildCursor::decode(&encoded[..encoded.len() - 1]).is_err());
+        for end in 0..encoded.len() {
+            assert!(CardinalityBuildCursor::decode(&encoded[..end]).is_err());
+        }
         let mut future = encoded.clone();
         future[8] = 2;
         assert_eq!(
@@ -1293,6 +1238,36 @@ mod tests {
         let mut corrupt = encoded;
         corrupt[50] ^= 1;
         assert!(CardinalityBuildCursor::decode(&corrupt).is_err());
+    }
+
+    #[test]
+    fn build_cursor_rejects_authenticated_checkpoint_length_mismatches() {
+        let cursor = CardinalityBuildCursor::new(
+            CardinalityGenerationId::INITIAL,
+            CardinalityCountSlot::A,
+            source(6),
+            CardinalityBuildPhase::Rows,
+            None,
+            CardinalityBuildTotals::default(),
+        )
+        .unwrap();
+        let encoded = cursor.encode().unwrap();
+        // Valid fingerprints must not mask truncated, oversized or unused
+        // checkpoint bytes inside the admitted record envelope.
+        for (declared_len, extra) in [(1_u32, None), (u32::MAX, None), (0, Some(0))] {
+            let mut malformed = encoded[..CARDINALITY_BUILD_CURSOR_FIXED_BODY_BYTES].to_vec();
+            malformed[CARDINALITY_BUILD_CURSOR_FIXED_BODY_BYTES - 4..]
+                .copy_from_slice(&declared_len.to_be_bytes());
+            malformed.extend(extra);
+            let checksum = fingerprint(CARDINALITY_BUILD_CURSOR_FINGERPRINT_DOMAIN, &malformed);
+            malformed.extend_from_slice(&checksum);
+            assert_eq!(
+                CardinalityBuildCursor::decode(&malformed)
+                    .unwrap_err()
+                    .class(),
+                ErrorClass::Corruption,
+            );
+        }
     }
 
     #[test]

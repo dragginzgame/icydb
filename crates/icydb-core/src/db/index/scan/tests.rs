@@ -102,6 +102,60 @@ fn empty_envelopes_skip_populated_store_traversal() {
 }
 
 #[test]
+fn other_key_probe_preserves_replay_exclusion_and_effective_overlay() {
+    let key = |value, row_id| {
+        IndexKey::new_from_components_with_primary_key_value(
+            &IndexId::new(EntityTag::new(17), 0),
+            IndexKeyKind::User,
+            &[EncodedValue::try_new(&Value::Nat64(value))
+                .unwrap()
+                .into_bytes()],
+            &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(row_id)),
+        )
+        .unwrap()
+        .to_raw()
+        .unwrap()
+    };
+    let candidate = key(7, 1);
+    let conflicting = key(7, 2);
+    let outside = key(8, 2);
+    let (lower, upper) = IndexKey::try_from_raw(&candidate)
+        .unwrap()
+        .raw_bounds_for_all_components()
+        .unwrap();
+    let bounds = (Bound::Included(lower), Bound::Included(upper));
+    for (mut store, journaled) in [
+        (IndexStore::init_heap(), false),
+        (IndexStore::init_journaled(test_memory(98)), true),
+    ] {
+        let probe = |store: &IndexStore| {
+            store
+                .contains_other_raw_key_in_range((&bounds.0, &bounds.1), &candidate)
+                .unwrap()
+        };
+        assert!(!probe(&store));
+        store.insert(outside.clone(), IndexEntryValue::presence());
+        assert!(!probe(&store));
+        store.insert(candidate.clone(), IndexEntryValue::presence());
+        if journaled {
+            store.fold_journaled_materialized_view().unwrap();
+        }
+        assert!(!probe(&store));
+        store.insert(conflicting.clone(), IndexEntryValue::presence());
+        assert!(probe(&store));
+        if journaled {
+            store.fold_journaled_materialized_view().unwrap();
+        }
+        assert!(probe(&store));
+        store.remove(&conflicting);
+        assert!(!probe(&store));
+        store.insert(conflicting.clone(), IndexEntryValue::presence());
+        store.remove(&candidate);
+        assert!(probe(&store));
+    }
+}
+
+#[test]
 fn visit_raw_entries_in_range_preserves_directional_store_order() {
     let mut index_store = IndexStore::init_journaled(test_memory(91));
     for value in [1_u8, 2, 3] {

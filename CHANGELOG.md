@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)
 
+- `0.261.16` simplifies progress and cardinality decoding and unique-index conflict checks while preserving stored formats and error reporting.
 - `0.261.15` simplifies integrity-job decoding and ordering bookkeeping while preserving stored bytes, bounds and resource enforcement.
 - `0.261.14` simplifies ordering and schema maintenance while preserving validation and stored representations.
 - `0.261.13` simplifies binary decoding, schema-removal checks and constraint descriptions while preserving formats and public behavior.

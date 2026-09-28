@@ -45,16 +45,12 @@ const PROGRESS_HEADER_MAGIC: &[u8; 8] = b"ICYIPROG";
 const PROGRESS_HEADER_VERSION: u8 = 1;
 const PROGRESS_HEADER_BYTES: usize = 8 + 1 + 4;
 const JOB_RECORD_MAGIC: &[u8; 8] = b"ICYIJPTH";
-const JOB_RECORD_VERSION: u8 = 1;
-const JOB_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
+const PROGRESS_JOB_RECORD_VERSION: u8 = 1;
+const PROGRESS_JOB_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
 const RESUMABLE_JOB_KEY_DOMAIN: &[u8] = b"icydb.resumable-job.progress-key.v1";
 const RESUMABLE_JOB_RECORD_MAGIC: &[u8; 8] = b"ICYRJOB1";
-const RESUMABLE_JOB_RECORD_VERSION: u8 = 1;
-const RESUMABLE_JOB_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
 const MUTATION_JOB_KEY_DOMAIN: &[u8] = b"icydb.mutation-job.progress-key.v1";
 const MUTATION_JOB_RECORD_MAGIC: &[u8; 8] = b"ICYMJOB1";
-const MUTATION_JOB_RECORD_VERSION: u8 = 1;
-const MUTATION_JOB_RECORD_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
 const MUTATION_PROGRESS_BEFORE_DIGEST_DOMAIN: &[u8] = b"icydb.mutation-job.progress-before.v1";
 const MAX_PROGRESS_RECORD_BYTES: u32 = 512 * 1024;
 const MAX_PROGRESS_JOBS_GLOBAL: u64 = 64;
@@ -733,14 +729,14 @@ impl InspectionProgressStore {
         let mut job_ids = Vec::with_capacity(limit);
         let mut has_more = false;
         for entry in self.map.range((Excluded(lower), Unbounded)) {
-            let Ok(job_id) = integrity_job_id_from_record(&entry.value().0) else {
+            let Ok(job) = decode_job_record_unbound(&entry.value().0) else {
                 continue;
             };
             if job_ids.len() == limit {
                 has_more = true;
                 break;
             }
-            job_ids.push(job_id);
+            job_ids.push(job.id);
         }
         Ok(ProgressScanPage {
             job_ids,
@@ -809,7 +805,7 @@ fn decode_progress_header(bytes: &[u8]) -> Result<(), IntegrityJobError> {
 fn encode_job_record(job: &IntegrityJob) -> Result<Vec<u8>, IntegrityJobError> {
     let payload =
         encode_integrity_job_payload(job).map_err(|_| IntegrityJobError::CapacityExceeded)?;
-    let total_len = JOB_RECORD_HEADER_BYTES
+    let total_len = PROGRESS_JOB_RECORD_HEADER_BYTES
         .checked_add(payload.len())
         .ok_or(IntegrityJobError::CapacityExceeded)?;
     if total_len > MAX_PROGRESS_RECORD_BYTES as usize {
@@ -819,27 +815,30 @@ fn encode_job_record(job: &IntegrityJob) -> Result<Vec<u8>, IntegrityJobError> {
         u32::try_from(payload.len()).map_err(|_| IntegrityJobError::CapacityExceeded)?;
     let mut bytes = Vec::with_capacity(total_len);
     bytes.extend_from_slice(JOB_RECORD_MAGIC);
-    bytes.push(JOB_RECORD_VERSION);
+    bytes.push(PROGRESS_JOB_RECORD_VERSION);
     bytes.extend_from_slice(&payload_len.to_be_bytes());
     bytes.extend_from_slice(&crc32c(payload.as_slice()).to_be_bytes());
     bytes.extend_from_slice(&payload);
     Ok(bytes)
 }
 
-fn decode_job_record(
+// All job families use the same envelope. Callers retain payload semantics,
+// family size ceilings and public error mapping; validate framing before decoding.
+fn decode_progress_record_payload(
     bytes: &[u8],
-    expected_id: IntegrityJobId,
-) -> Result<IntegrityJob, IntegrityJobError> {
-    if bytes.len() < JOB_RECORD_HEADER_BYTES
-        || !bytes.starts_with(JOB_RECORD_MAGIC)
-        || bytes[JOB_RECORD_MAGIC.len()] != JOB_RECORD_VERSION
+    magic: [u8; 8],
+    max_bytes: usize,
+) -> Result<&[u8], IntegrityJobError> {
+    if bytes.len() < PROGRESS_JOB_RECORD_HEADER_BYTES
+        || !bytes.starts_with(&magic)
+        || bytes[magic.len()] != PROGRESS_JOB_RECORD_VERSION
     {
         return Err(IntegrityJobError::IncompatibleProgressFormat);
     }
-    if bytes.len() > MAX_PROGRESS_RECORD_BYTES as usize {
+    if bytes.len() > max_bytes {
         return Err(IntegrityJobError::CorruptProgressRecord);
     }
-    let payload_len_offset = JOB_RECORD_MAGIC.len() + 1;
+    let payload_len_offset = magic.len() + 1;
     let checksum_offset = payload_len_offset + 4;
     let payload_offset = checksum_offset + 4;
     let mut payload_len = [0; 4];
@@ -853,35 +852,35 @@ fn decode_job_record(
     if u32::from_be_bytes(checksum) != crc32c(payload) {
         return Err(IntegrityJobError::CorruptProgressRecord);
     }
-    if payload.len() > MAX_INTEGRITY_JOB_PAYLOAD_BYTES {
-        return Err(IntegrityJobError::CorruptProgressRecord);
-    }
-    let job = decode_integrity_job_payload(payload)
-        .map_err(|_| IntegrityJobError::CorruptProgressRecord)?;
+    Ok(payload)
+}
+
+fn decode_job_record(
+    bytes: &[u8],
+    expected_id: IntegrityJobId,
+) -> Result<IntegrityJob, IntegrityJobError> {
+    let job = decode_job_record_unbound(bytes)?;
     if job.id != expected_id {
         return Err(IntegrityJobError::CorruptProgressRecord);
     }
     Ok(job)
 }
 
-fn integrity_job_id_from_record(bytes: &[u8]) -> Result<IntegrityJobId, IntegrityJobError> {
-    if bytes.len() < JOB_RECORD_HEADER_BYTES || !bytes.starts_with(JOB_RECORD_MAGIC) {
+fn decode_job_record_unbound(bytes: &[u8]) -> Result<IntegrityJob, IntegrityJobError> {
+    let payload = decode_progress_record_payload(
+        bytes,
+        *JOB_RECORD_MAGIC,
+        MAX_PROGRESS_RECORD_BYTES as usize,
+    )?;
+    if payload.len() > MAX_INTEGRITY_JOB_PAYLOAD_BYTES {
         return Err(IntegrityJobError::CorruptProgressRecord);
     }
-    let payload_len_offset = JOB_RECORD_MAGIC.len() + 1;
-    let checksum_offset = payload_len_offset + 4;
-    let payload_offset = checksum_offset + 4;
-    let payload = bytes
-        .get(payload_offset..)
-        .ok_or(IntegrityJobError::CorruptProgressRecord)?;
-    let job = decode_integrity_job_payload(payload)
-        .map_err(|_| IntegrityJobError::CorruptProgressRecord)?;
-    decode_job_record(bytes, job.id).map(|job| job.id)
+    decode_integrity_job_payload(payload).map_err(|_| IntegrityJobError::CorruptProgressRecord)
 }
 
 fn encode_resumable_job_record(record: &ResumableJobRecord) -> Result<Vec<u8>, ResumableJobError> {
     let payload = encode_resumable_job_payload(record)?;
-    let total_len = RESUMABLE_JOB_RECORD_HEADER_BYTES
+    let total_len = PROGRESS_JOB_RECORD_HEADER_BYTES
         .checked_add(payload.len())
         .ok_or(ResumableJobError::PayloadTooLarge)?;
     if total_len > MAX_PROGRESS_RECORD_BYTES as usize {
@@ -891,7 +890,7 @@ fn encode_resumable_job_record(record: &ResumableJobRecord) -> Result<Vec<u8>, R
         u32::try_from(payload.len()).map_err(|_| ResumableJobError::PayloadTooLarge)?;
     let mut bytes = Vec::with_capacity(total_len);
     bytes.extend_from_slice(RESUMABLE_JOB_RECORD_MAGIC);
-    bytes.push(RESUMABLE_JOB_RECORD_VERSION);
+    bytes.push(PROGRESS_JOB_RECORD_VERSION);
     bytes.extend_from_slice(&payload_len.to_be_bytes());
     bytes.extend_from_slice(&crc32c(payload.as_slice()).to_be_bytes());
     bytes.extend_from_slice(&payload);
@@ -912,29 +911,12 @@ fn decode_resumable_job_record(
 fn decode_resumable_job_record_unbound(
     bytes: &[u8],
 ) -> Result<ResumableJobRecord, ResumableJobError> {
-    if bytes.len() < RESUMABLE_JOB_RECORD_HEADER_BYTES
-        || !bytes.starts_with(RESUMABLE_JOB_RECORD_MAGIC)
-        || bytes[RESUMABLE_JOB_RECORD_MAGIC.len()] != RESUMABLE_JOB_RECORD_VERSION
-    {
-        return Err(ResumableJobError::IncompatibleProgressFormat);
-    }
-    if bytes.len() > MAX_PROGRESS_RECORD_BYTES as usize {
-        return Err(ResumableJobError::CorruptProgressStore);
-    }
-    let payload_len_offset = RESUMABLE_JOB_RECORD_MAGIC.len() + 1;
-    let checksum_offset = payload_len_offset + 4;
-    let payload_offset = checksum_offset + 4;
-    let mut payload_len = [0; 4];
-    payload_len.copy_from_slice(&bytes[payload_len_offset..checksum_offset]);
-    if u32::from_be_bytes(payload_len) as usize != bytes.len() - payload_offset {
-        return Err(ResumableJobError::CorruptProgressStore);
-    }
-    let payload = &bytes[payload_offset..];
-    let mut checksum = [0; 4];
-    checksum.copy_from_slice(&bytes[checksum_offset..payload_offset]);
-    if u32::from_be_bytes(checksum) != crc32c(payload) {
-        return Err(ResumableJobError::CorruptProgressStore);
-    }
+    let payload = decode_progress_record_payload(
+        bytes,
+        *RESUMABLE_JOB_RECORD_MAGIC,
+        MAX_PROGRESS_RECORD_BYTES as usize,
+    )
+    .map_err(map_integrity_store_error)?;
     decode_resumable_job_payload(payload)
 }
 
@@ -954,7 +936,7 @@ fn decode_resumable_job_record_for_inventory(
 
 fn encode_mutation_job_record(record: &MutationJobRecord) -> Result<Vec<u8>, MutationJobError> {
     let payload = encode_mutation_job_payload(record)?;
-    let total_len = MUTATION_JOB_RECORD_HEADER_BYTES
+    let total_len = PROGRESS_JOB_RECORD_HEADER_BYTES
         .checked_add(payload.len())
         .ok_or(MutationJobError::CapacityExceeded)?;
     if total_len > MAX_MUTATION_JOB_RECORD_BYTES {
@@ -964,7 +946,7 @@ fn encode_mutation_job_record(record: &MutationJobRecord) -> Result<Vec<u8>, Mut
         u32::try_from(payload.len()).map_err(|_| MutationJobError::CapacityExceeded)?;
     let mut bytes = Vec::with_capacity(total_len);
     bytes.extend_from_slice(MUTATION_JOB_RECORD_MAGIC);
-    bytes.push(MUTATION_JOB_RECORD_VERSION);
+    bytes.push(PROGRESS_JOB_RECORD_VERSION);
     bytes.extend_from_slice(&payload_len.to_be_bytes());
     bytes.extend_from_slice(&crc32c(payload.as_slice()).to_be_bytes());
     bytes.extend_from_slice(&payload);
@@ -983,29 +965,12 @@ fn decode_mutation_job_record(
 }
 
 fn decode_mutation_job_record_unbound(bytes: &[u8]) -> Result<MutationJobRecord, MutationJobError> {
-    if bytes.len() < MUTATION_JOB_RECORD_HEADER_BYTES
-        || !bytes.starts_with(MUTATION_JOB_RECORD_MAGIC)
-        || bytes[MUTATION_JOB_RECORD_MAGIC.len()] != MUTATION_JOB_RECORD_VERSION
-    {
-        return Err(MutationJobError::IncompatibleProgressFormat);
-    }
-    if bytes.len() > MAX_MUTATION_JOB_RECORD_BYTES {
-        return Err(MutationJobError::CorruptProgressStore);
-    }
-    let payload_len_offset = MUTATION_JOB_RECORD_MAGIC.len() + 1;
-    let checksum_offset = payload_len_offset + 4;
-    let payload_offset = checksum_offset + 4;
-    let mut payload_len = [0; 4];
-    payload_len.copy_from_slice(&bytes[payload_len_offset..checksum_offset]);
-    if u32::from_be_bytes(payload_len) as usize != bytes.len() - payload_offset {
-        return Err(MutationJobError::CorruptProgressStore);
-    }
-    let payload = &bytes[payload_offset..];
-    let mut checksum = [0; 4];
-    checksum.copy_from_slice(&bytes[checksum_offset..payload_offset]);
-    if u32::from_be_bytes(checksum) != crc32c(payload) {
-        return Err(MutationJobError::CorruptProgressStore);
-    }
+    let payload = decode_progress_record_payload(
+        bytes,
+        *MUTATION_JOB_RECORD_MAGIC,
+        MAX_MUTATION_JOB_RECORD_BYTES,
+    )
+    .map_err(map_mutation_store_error)?;
     decode_mutation_job_payload(payload)
 }
 
@@ -1257,7 +1222,7 @@ mod tests {
         let encoded = encode_job_record(&job).expect("current job should encode");
 
         assert_eq!(encoded[JOB_RECORD_MAGIC.len()], 1);
-        assert!(!encoded[JOB_RECORD_HEADER_BYTES..].starts_with(b"DIDL"));
+        assert!(!encoded[PROGRESS_JOB_RECORD_HEADER_BYTES..].starts_with(b"DIDL"));
         assert_eq!(
             decode_job_record(&encoded, job.id).expect("current job should decode"),
             job,
@@ -1282,7 +1247,7 @@ mod tests {
 
         assert_eq!(encoded.len(), 175);
         assert_eq!(encoded[RESUMABLE_JOB_RECORD_MAGIC.len()], 1);
-        assert!(!encoded[RESUMABLE_JOB_RECORD_HEADER_BYTES..].starts_with(b"DIDL"));
+        assert!(!encoded[PROGRESS_JOB_RECORD_HEADER_BYTES..].starts_with(b"DIDL"));
         assert_eq!(
             decode_resumable_job_record(&encoded, record.state().job_id)
                 .expect("current resumable record should decode"),
@@ -1290,7 +1255,7 @@ mod tests {
         );
 
         let mut future = encoded.clone();
-        future[RESUMABLE_JOB_RECORD_MAGIC.len()] = RESUMABLE_JOB_RECORD_VERSION + 1;
+        future[RESUMABLE_JOB_RECORD_MAGIC.len()] = PROGRESS_JOB_RECORD_VERSION + 1;
         assert_eq!(
             decode_resumable_job_record(&future, record.state().job_id),
             Err(ResumableJobError::IncompatibleProgressFormat),
@@ -1315,7 +1280,7 @@ mod tests {
 
         assert_eq!(encoded.len(), 97);
         assert_eq!(encoded[MUTATION_JOB_RECORD_MAGIC.len()], 1);
-        assert!(!encoded[MUTATION_JOB_RECORD_HEADER_BYTES..].starts_with(b"DIDL"));
+        assert!(!encoded[PROGRESS_JOB_RECORD_HEADER_BYTES..].starts_with(b"DIDL"));
         assert_eq!(
             decode_mutation_job_record(&encoded, record.state().job_id)
                 .expect("current mutation record should decode"),
@@ -1323,7 +1288,7 @@ mod tests {
         );
 
         let mut future = encoded.clone();
-        future[MUTATION_JOB_RECORD_MAGIC.len()] = MUTATION_JOB_RECORD_VERSION + 1;
+        future[MUTATION_JOB_RECORD_MAGIC.len()] = PROGRESS_JOB_RECORD_VERSION + 1;
         assert_eq!(
             decode_mutation_job_record(&future, record.state().job_id),
             Err(MutationJobError::IncompatibleProgressFormat),
@@ -1341,10 +1306,74 @@ mod tests {
 
         let mut oversized = vec![0; MAX_MUTATION_JOB_RECORD_BYTES + 1];
         oversized[..MUTATION_JOB_RECORD_MAGIC.len()].copy_from_slice(MUTATION_JOB_RECORD_MAGIC);
-        oversized[MUTATION_JOB_RECORD_MAGIC.len()] = MUTATION_JOB_RECORD_VERSION;
+        oversized[MUTATION_JOB_RECORD_MAGIC.len()] = PROGRESS_JOB_RECORD_VERSION;
         assert_eq!(
             decode_mutation_job_record(&oversized, record.state().job_id),
             Err(MutationJobError::CorruptProgressStore),
+        );
+    }
+
+    #[test]
+    fn job_envelopes_preserve_family_rejections() {
+        fn check<E: std::fmt::Debug + PartialEq>(
+            encoded: &[u8],
+            max_bytes: usize,
+            decode: impl Fn(&[u8]) -> Result<(), E>,
+            incompatible: E,
+            corrupt: E,
+        ) {
+            assert_eq!(decode(encoded), Ok(()));
+            for end in 0..encoded.len() {
+                let expected = if end < PROGRESS_JOB_RECORD_HEADER_BYTES {
+                    &incompatible
+                } else {
+                    &corrupt
+                };
+                assert_eq!(&decode(&encoded[..end]).unwrap_err(), expected);
+            }
+            for offset in [0, 8, 9, 13, encoded.len() - 1] {
+                let mut invalid = encoded.to_vec();
+                invalid[offset] ^= 0xff;
+                let expected = if offset < 9 { &incompatible } else { &corrupt };
+                assert_eq!(&decode(&invalid).unwrap_err(), expected);
+            }
+            let mut trailing = encoded.to_vec();
+            trailing.push(0);
+            assert_eq!(decode(&trailing).unwrap_err(), corrupt);
+            // A consistent length and checksum cannot bypass the family ceiling.
+            let mut oversized = encoded.to_vec();
+            oversized.resize(max_bytes + 1, 0);
+            let payload = &oversized[PROGRESS_JOB_RECORD_HEADER_BYTES..];
+            let len = u32::try_from(payload.len()).unwrap();
+            let checksum = crc32c(payload);
+            oversized[9..13].copy_from_slice(&len.to_be_bytes());
+            oversized[13..17].copy_from_slice(&checksum.to_be_bytes());
+            assert_eq!(decode(&oversized).unwrap_err(), corrupt);
+        }
+
+        let integrity = current_job_codec_fixture();
+        check(
+            &encode_job_record(&integrity).unwrap(),
+            MAX_PROGRESS_RECORD_BYTES as usize,
+            |bytes| decode_job_record(bytes, integrity.id).map(|_| ()),
+            IntegrityJobError::IncompatibleProgressFormat,
+            IntegrityJobError::CorruptProgressRecord,
+        );
+        let resumable = current_resumable_record();
+        check(
+            &encode_resumable_job_record(&resumable).unwrap(),
+            MAX_PROGRESS_RECORD_BYTES as usize,
+            |bytes| decode_resumable_job_record(bytes, resumable.state().job_id).map(|_| ()),
+            ResumableJobError::IncompatibleProgressFormat,
+            ResumableJobError::CorruptProgressStore,
+        );
+        let mutation = current_mutation_record(7);
+        check(
+            &encode_mutation_job_record(&mutation).unwrap(),
+            MAX_MUTATION_JOB_RECORD_BYTES,
+            |bytes| decode_mutation_job_record(bytes, mutation.state().job_id).map(|_| ()),
+            MutationJobError::IncompatibleProgressFormat,
+            MutationJobError::CorruptProgressStore,
         );
     }
 

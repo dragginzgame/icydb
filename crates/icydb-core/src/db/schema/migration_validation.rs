@@ -18,7 +18,6 @@ use crate::{
     db::{
         Db,
         data::{DecodedDataStoreKey, RawDataStoreKey, StoreVisit, StructuralSlotReader},
-        direction::Direction,
         index::{IndexEntryValue, IndexKey, IndexKeyKind, RawIndexStoreKey},
         key_taxonomy::RawDataStoreKeyRange,
         registry::{StoreHandle, StoreRecoveryCapability},
@@ -540,20 +539,12 @@ fn candidate_unique_key_conflicts<'a>(
     let (lower, upper) = candidate
         .raw_bounds_for_all_components()
         .map_err(|_| InternalError::index_invariant())?;
-    let mut conflict = false;
     store.with_index(|index_store| {
-        index_store.visit_raw_entries_in_range(
+        index_store.contains_other_raw_key_in_range(
             (&Bound::Included(lower), &Bound::Included(upper)),
-            Direction::Asc,
-            |raw, _| {
-                if raw != candidate_raw {
-                    conflict = true;
-                }
-                Ok(conflict)
-            },
+            candidate_raw,
         )
-    })?;
-    Ok(conflict)
+    })
 }
 
 /// Persist an invisible candidate page before its cursor is advanced. Exact

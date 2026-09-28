@@ -19,7 +19,6 @@ use crate::{
             publish_accepted_schema_candidate,
             publish_constraint_validation_job_with_candidate_index_entries,
         },
-        direction::Direction,
         index::{IndexKey, RawIndexStoreKey},
         schema::{PersistedFieldSnapshot, PersistedIndexSnapshot, UniqueConstraintProjection},
     },
@@ -1510,18 +1509,10 @@ fn candidate_unique_key_conflicts(
     let (lower, upper) = candidate
         .raw_bounds_for_all_components()
         .map_err(|_| InternalError::index_invariant())?;
-    let mut conflict = false;
     store.with_index(|index_store| {
-        index_store.visit_raw_entries_in_range(
+        index_store.contains_other_raw_key_in_range(
             (&Bound::Included(lower), &Bound::Included(upper)),
-            Direction::Asc,
-            |raw, _| {
-                if raw != candidate_raw {
-                    conflict = true;
-                }
-                Ok(conflict)
-            },
+            candidate_raw,
         )
-    })?;
-    Ok(conflict)
+    })
 }

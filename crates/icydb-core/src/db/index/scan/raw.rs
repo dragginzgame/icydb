@@ -441,6 +441,23 @@ impl IndexStore {
         Ok(())
     }
 
+    /// Return whether the effective range contains a key other than `excluded`.
+    ///
+    /// Candidate unique-index validation excludes the exact replayed entry and
+    /// stops at the first conflicting key, including live journaled changes.
+    pub(in crate::db) fn contains_other_raw_key_in_range(
+        &self,
+        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
+        excluded: &RawIndexStoreKey,
+    ) -> Result<bool, InternalError> {
+        let mut found = false;
+        self.visit_raw_entries_in_range(bounds, Direction::Asc, |key, _| {
+            found = key != excluded;
+            Ok(found)
+        })?;
+        Ok(found)
+    }
+
     /// Visit only canonical predecessor entries in one bounded raw-key range.
     ///
     /// Complete online folds use this view while reconstructing the exact
