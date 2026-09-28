@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        codec::{ByteDecodeError, ByteReader},
         data::RawDataStoreKey,
         index::IndexKey,
         integrity::{
@@ -46,6 +47,13 @@ impl InternalError {
     }
 
     const fn store_unsupported() -> Self {
+        Self
+    }
+}
+
+// Primitive failures retain the integrity payload's compact corruption boundary.
+impl From<ByteDecodeError> for InternalError {
+    fn from(_: ByteDecodeError) -> Self {
         Self
     }
 }
@@ -131,96 +139,28 @@ impl JobWriter {
     }
 }
 
-struct JobReader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
+// Tags and collection allocation limits belong to this format, not the byte reader.
+fn decode_bool(reader: &mut ByteReader<'_>) -> Result<bool, InternalError> {
+    match reader.read_u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(InternalError),
+    }
 }
 
-impl<'a> JobReader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
+fn decode_bounded_count(reader: &mut ByteReader<'_>, max: usize) -> Result<usize, InternalError> {
+    let count = reader.read_u32()? as usize;
+    if count > max || count > reader.remaining() {
+        return Err(InternalError);
     }
+    Ok(count)
+}
 
-    const fn remaining(&self) -> usize {
-        self.bytes.len().saturating_sub(self.offset)
-    }
-
-    fn read_u8(&mut self) -> Result<u8, InternalError> {
-        Ok(self.read_array::<1>()?[0])
-    }
-
-    fn read_u16(&mut self) -> Result<u16, InternalError> {
-        Ok(u16::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_u32(&mut self) -> Result<u32, InternalError> {
-        Ok(u32::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_u64(&mut self) -> Result<u64, InternalError> {
-        Ok(u64::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_bool(&mut self) -> Result<bool, InternalError> {
-        match self.read_u8()? {
-            0 => Ok(false),
-            1 => Ok(true),
-            _ => Err(InternalError),
-        }
-    }
-
-    fn read_bounded_count(&mut self, max: usize) -> Result<usize, InternalError> {
-        let count = self.read_u32()? as usize;
-        if count > max || count > self.remaining() {
-            return Err(InternalError);
-        }
-        Ok(count)
-    }
-
-    fn read_bounded_string(&mut self, max_bytes: usize) -> Result<String, InternalError> {
-        let bytes = self.read_bounded_len_prefixed_bytes(max_bytes)?;
-        let value = std::str::from_utf8(bytes).map_err(|_| InternalError)?;
-        Ok(value.to_string())
-    }
-
-    fn read_bounded_len_prefixed_bytes(
-        &mut self,
-        max_bytes: usize,
-    ) -> Result<&'a [u8], InternalError> {
-        let len = self.read_u32()? as usize;
-        if len > max_bytes {
-            return Err(InternalError);
-        }
-        self.read_slice(len)
-    }
-
-    fn read_optional_u32(&mut self) -> Result<Option<u32>, InternalError> {
-        match self.read_u8()? {
-            0 => Ok(None),
-            1 => self.read_u32().map(Some),
-            _ => Err(InternalError),
-        }
-    }
-
-    fn read_array<const N: usize>(&mut self) -> Result<[u8; N], InternalError> {
-        let bytes = self.read_slice(N)?;
-        let mut value = [0; N];
-        value.copy_from_slice(bytes);
-        Ok(value)
-    }
-
-    fn read_slice(&mut self, len: usize) -> Result<&'a [u8], InternalError> {
-        let end = self.offset.checked_add(len).ok_or(InternalError)?;
-        let value = self.bytes.get(self.offset..end).ok_or(InternalError)?;
-        self.offset = end;
-        Ok(value)
-    }
-
-    const fn finish(self) -> Result<(), InternalError> {
-        if self.offset != self.bytes.len() {
-            return Err(InternalError);
-        }
-        Ok(())
+fn decode_optional_u32(reader: &mut ByteReader<'_>) -> Result<Option<u32>, InternalError> {
+    match reader.read_u8()? {
+        0 => Ok(None),
+        1 => Ok(Some(reader.read_u32()?)),
+        _ => Err(InternalError),
     }
 }
 
@@ -253,7 +193,7 @@ pub(super) fn decode_integrity_job_payload(bytes: &[u8]) -> Result<IntegrityJob,
         return Err(InternalError::store_corruption());
     }
 
-    let mut reader = JobReader::new(bytes);
+    let mut reader = ByteReader::new(bytes);
     let id = decode_job_id(&mut reader)?;
     let database_incarnation_id = decode_database_incarnation_id(&mut reader)?;
     let owner =
@@ -300,13 +240,13 @@ pub(super) fn decode_integrity_job_payload(bytes: &[u8]) -> Result<IntegrityJob,
     Ok(job)
 }
 
-fn decode_job_id(reader: &mut JobReader<'_>) -> Result<IntegrityJobId, InternalError> {
+fn decode_job_id(reader: &mut ByteReader<'_>) -> Result<IntegrityJobId, InternalError> {
     IntegrityJobId::try_from_bytes(reader.read_array()?)
         .map_err(|_| InternalError::store_corruption())
 }
 
 fn decode_database_incarnation_id(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<DatabaseIncarnationId, InternalError> {
     DatabaseIncarnationId::try_from_bytes(reader.read_array()?)
         .map_err(|_| InternalError::store_corruption())
@@ -322,7 +262,7 @@ fn encode_entity_identity(
 }
 
 fn decode_entity_identity(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<IntegrityEntityIdentity, InternalError> {
     let identity = IntegrityEntityIdentity {
         entity_tag: reader.read_u64()?,
@@ -374,7 +314,7 @@ fn encode_checkpoint(
     Ok(())
 }
 
-fn decode_checkpoint(reader: &mut JobReader<'_>) -> Result<IntegrityCheckpoint, InternalError> {
+fn decode_checkpoint(reader: &mut ByteReader<'_>) -> Result<IntegrityCheckpoint, InternalError> {
     match reader.read_u8()? {
         1 => Ok(IntegrityCheckpoint::QuickMetadata),
         2 => decode_physical_checkpoint(reader).map(IntegrityCheckpoint::Rows),
@@ -420,7 +360,7 @@ fn encode_physical_checkpoint(
 }
 
 fn decode_physical_checkpoint(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<PhysicalUnitCheckpoint, InternalError> {
     match reader.read_u8()? {
         1 => Ok(PhysicalUnitCheckpoint::BeforeFirst),
@@ -465,7 +405,7 @@ fn encode_journal_checkpoint(writer: &mut JobWriter, checkpoint: &JournalInspect
 }
 
 fn decode_journal_checkpoint(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<JournalInspectionCheckpoint, InternalError> {
     match reader.read_u8()? {
         1 => Ok(JournalInspectionCheckpoint::BeforeFirst),
@@ -527,7 +467,7 @@ fn encode_proof_vector(
     Ok(())
 }
 
-fn decode_proof_vector(reader: &mut JobReader<'_>) -> Result<IntegrityProofVector, InternalError> {
+fn decode_proof_vector(reader: &mut ByteReader<'_>) -> Result<IntegrityProofVector, InternalError> {
     let database_incarnation_id = decode_database_incarnation_id(reader)?;
     let accepted_schema_version = reader.read_u32()?;
     let accepted_schema_fingerprint = reader.read_array()?;
@@ -535,7 +475,7 @@ fn decode_proof_vector(reader: &mut JobReader<'_>) -> Result<IntegrityProofVecto
     let database_control_fingerprint = reader.read_array()?;
     let allocation_registry_generation = reader.read_u64()?;
 
-    let store_count = reader.read_bounded_count(MAX_PROOF_STORES)?;
+    let store_count = decode_bounded_count(reader, MAX_PROOF_STORES)?;
     let mut stores = Vec::with_capacity(store_count);
     for _ in 0..store_count {
         stores.push(IntegrityStoreProof {
@@ -546,7 +486,7 @@ fn decode_proof_vector(reader: &mut JobReader<'_>) -> Result<IntegrityProofVecto
         });
     }
 
-    let index_count = reader.read_bounded_count(icydb_schema::MAX_FRAGMENT_INDEXES)?;
+    let index_count = decode_bounded_count(reader, icydb_schema::MAX_FRAGMENT_INDEXES)?;
     let mut index_generations = Vec::with_capacity(index_count);
     for _ in 0..index_count {
         index_generations.push(IntegrityIndexGenerationProof {
@@ -556,7 +496,7 @@ fn decode_proof_vector(reader: &mut JobReader<'_>) -> Result<IntegrityProofVecto
         });
     }
 
-    let relation_count = reader.read_bounded_count(icydb_schema::MAX_FRAGMENT_RELATIONS)?;
+    let relation_count = decode_bounded_count(reader, icydb_schema::MAX_FRAGMENT_RELATIONS)?;
     let mut relation_generations = Vec::with_capacity(relation_count);
     for _ in 0..relation_count {
         relation_generations.push(IntegrityRelationGenerationProof {
@@ -588,7 +528,7 @@ fn encode_journal_proof(writer: &mut JobWriter, proof: JournalTailProofIdentity)
 }
 
 fn decode_journal_proof(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<JournalTailProofIdentity, InternalError> {
     Ok(JournalTailProofIdentity::from_persisted_parts(
         reader.read_u64()?,
@@ -617,13 +557,13 @@ fn encode_job_state(writer: &mut JobWriter, state: &IntegrityJobState) {
     }
 }
 
-fn decode_job_state(reader: &mut JobReader<'_>) -> Result<IntegrityJobState, InternalError> {
+fn decode_job_state(reader: &mut ByteReader<'_>) -> Result<IntegrityJobState, InternalError> {
     match reader.read_u8()? {
         1 => Ok(IntegrityJobState::InProgress),
         2 => decode_pending_terminal(reader).map(IntegrityJobState::TerminalPending),
         3 => Ok(IntegrityJobState::Terminal {
             outcome: decode_terminal_outcome(reader)?,
-            receipt_acknowledged: reader.read_bool()?,
+            receipt_acknowledged: decode_bool(reader)?,
         }),
         _ => Err(InternalError::store_corruption()),
     }
@@ -637,7 +577,7 @@ fn encode_pending_terminal(writer: &mut JobWriter, pending: IntegrityPendingTerm
 }
 
 fn decode_pending_terminal(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<IntegrityPendingTerminal, InternalError> {
     match reader.read_u8()? {
         1 => Ok(IntegrityPendingTerminal::Expired),
@@ -666,7 +606,7 @@ fn encode_terminal_outcome(writer: &mut JobWriter, outcome: &IntegrityTerminalOu
 }
 
 fn decode_terminal_outcome(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<IntegrityTerminalOutcome, InternalError> {
     match reader.read_u8()? {
         1 => Ok(IntegrityTerminalOutcome::DeepCompleteClean),
@@ -700,7 +640,7 @@ fn encode_authority_class(writer: &mut JobWriter, class: IntegrityAuthorityClass
 }
 
 fn decode_authority_class(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<IntegrityAuthorityClass, InternalError> {
     match reader.read_u8()? {
         1 => Ok(IntegrityAuthorityClass::Corruption),
@@ -729,7 +669,7 @@ fn encode_receipt_envelope(
 }
 
 fn decode_receipt_envelope(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<IntegrityReceiptEnvelope, InternalError> {
     let replay_key = match reader.read_u8()? {
         1 => IntegrityReceiptReplayKey::Start,
@@ -761,7 +701,7 @@ fn encode_job_receipt(
     Ok(())
 }
 
-fn decode_job_receipt(reader: &mut JobReader<'_>) -> Result<IntegrityJobReceipt, InternalError> {
+fn decode_job_receipt(reader: &mut ByteReader<'_>) -> Result<IntegrityJobReceipt, InternalError> {
     match reader.read_u8()? {
         1 => decode_page(reader).map(IntegrityJobReceipt::Page),
         2 => decode_abort_receipt(reader).map(IntegrityJobReceipt::Abort),
@@ -789,7 +729,7 @@ fn encode_page(writer: &mut JobWriter, page: &DeepIntegrityPage) -> Result<(), I
     encode_verifier_families(writer, &page.blocked_verifier_families)
 }
 
-fn decode_page(reader: &mut JobReader<'_>) -> Result<DeepIntegrityPage, InternalError> {
+fn decode_page(reader: &mut ByteReader<'_>) -> Result<DeepIntegrityPage, InternalError> {
     let job_id = decode_job_id(reader)?;
     let page_sequence = reader.read_u64()?;
     let phase = decode_phase(reader)?;
@@ -800,7 +740,7 @@ fn decode_page(reader: &mut JobReader<'_>) -> Result<DeepIntegrityPage, Internal
     };
     let pages_completed = reader.read_u64()?;
     let findings_seen = reader.read_u64()?;
-    let finding_count = reader.read_bounded_count(MAX_INTEGRITY_RECEIPT_FINDINGS)?;
+    let finding_count = decode_bounded_count(reader, MAX_INTEGRITY_RECEIPT_FINDINGS)?;
     let mut findings = Vec::with_capacity(finding_count);
     for _ in 0..finding_count {
         findings.push(decode_finding(reader)?);
@@ -834,7 +774,7 @@ fn encode_abort_receipt(writer: &mut JobWriter, receipt: &IntegrityAbortReceipt)
 }
 
 fn decode_abort_receipt(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<IntegrityAbortReceipt, InternalError> {
     let job_id = decode_job_id(reader)?;
     let page_sequence = reader.read_u64()?;
@@ -862,9 +802,9 @@ fn encode_verifier_families(
 }
 
 fn decode_verifier_families(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<Vec<IntegrityVerifierFamily>, InternalError> {
-    let count = reader.read_bounded_count(MAX_BLOCKED_VERIFIER_FAMILIES)?;
+    let count = decode_bounded_count(reader, MAX_BLOCKED_VERIFIER_FAMILIES)?;
     let mut families = Vec::with_capacity(count);
     for _ in 0..count {
         families.push(decode_verifier_family(reader)?);
@@ -891,7 +831,7 @@ fn encode_verifier_family(writer: &mut JobWriter, family: IntegrityVerifierFamil
 }
 
 fn decode_verifier_family(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<IntegrityVerifierFamily, InternalError> {
     match reader.read_u8()? {
         1 => Ok(IntegrityVerifierFamily::DataKey),
@@ -922,7 +862,7 @@ fn encode_phase(writer: &mut JobWriter, phase: IntegrityPhase) {
     });
 }
 
-fn decode_phase(reader: &mut JobReader<'_>) -> Result<IntegrityPhase, InternalError> {
+fn decode_phase(reader: &mut ByteReader<'_>) -> Result<IntegrityPhase, InternalError> {
     match reader.read_u8()? {
         1 => Ok(IntegrityPhase::QuickMetadata),
         2 => Ok(IntegrityPhase::Rows),
@@ -967,7 +907,7 @@ fn encode_finding(writer: &mut JobWriter, finding: &IntegrityFinding) -> Result<
     encode_optional_string(writer, finding.observed.as_deref(), MAX_FINDING_TEXT_BYTES)
 }
 
-fn decode_finding(reader: &mut JobReader<'_>) -> Result<IntegrityFinding, InternalError> {
+fn decode_finding(reader: &mut ByteReader<'_>) -> Result<IntegrityFinding, InternalError> {
     let diagnostic_code = reader.read_u16()?;
     let class = decode_finding_class(reader)?;
     let severity = decode_severity(reader)?;
@@ -981,16 +921,16 @@ fn decode_finding(reader: &mut JobReader<'_>) -> Result<IntegrityFinding, Intern
         .to_vec();
     let primary_key = decode_optional_bytes(reader, RawDataStoreKey::MAX_STORED_SIZE_USIZE)?;
 
-    let field_path_count = reader.read_bounded_count(MAX_FINDING_FIELD_PATHS)?;
+    let field_path_count = decode_bounded_count(reader, MAX_FINDING_FIELD_PATHS)?;
     let mut field_paths = Vec::with_capacity(field_path_count);
     for _ in 0..field_path_count {
         field_paths.push(reader.read_bounded_string(MAX_INTEGRITY_PATH_BYTES)?);
     }
     let value_path = decode_optional_value_path(reader)?.map(Box::new);
-    let constraint_id = reader.read_optional_u32()?;
+    let constraint_id = decode_optional_u32(reader)?;
     let constraint_name = decode_optional_string(reader, MAX_FINDING_TEXT_BYTES)?;
-    let schema_index_id = reader.read_optional_u32()?;
-    let relation_id = reader.read_optional_u32()?;
+    let schema_index_id = decode_optional_u32(reader)?;
+    let relation_id = decode_optional_u32(reader)?;
     let expected = decode_optional_string(reader, MAX_FINDING_TEXT_BYTES)?;
     let observed = decode_optional_string(reader, MAX_FINDING_TEXT_BYTES)?;
 
@@ -1025,7 +965,7 @@ fn encode_finding_class(writer: &mut JobWriter, class: IntegrityFindingClass) {
 }
 
 fn decode_finding_class(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<IntegrityFindingClass, InternalError> {
     match reader.read_u8()? {
         1 => Ok(IntegrityFindingClass::Corruption),
@@ -1042,7 +982,7 @@ fn encode_severity(writer: &mut JobWriter, severity: IntegritySeverity) {
     });
 }
 
-fn decode_severity(reader: &mut JobReader<'_>) -> Result<IntegritySeverity, InternalError> {
+fn decode_severity(reader: &mut ByteReader<'_>) -> Result<IntegritySeverity, InternalError> {
     match reader.read_u8()? {
         1 => Ok(IntegritySeverity::Error),
         2 => Ok(IntegritySeverity::Advisory),
@@ -1077,7 +1017,7 @@ fn encode_finding_kind(writer: &mut JobWriter, kind: IntegrityFindingKind) {
     });
 }
 
-fn decode_finding_kind(reader: &mut JobReader<'_>) -> Result<IntegrityFindingKind, InternalError> {
+fn decode_finding_kind(reader: &mut ByteReader<'_>) -> Result<IntegrityFindingKind, InternalError> {
     match reader.read_u8()? {
         1 => Ok(IntegrityFindingKind::MalformedDataKey),
         2 => Ok(IntegrityFindingKind::MalformedRow),
@@ -1121,14 +1061,14 @@ fn encode_optional_bytes(
 }
 
 fn decode_optional_bytes(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
     max_bytes: usize,
 ) -> Result<Option<Vec<u8>>, InternalError> {
     match reader.read_u8()? {
         0 => Ok(None),
-        1 => reader
-            .read_bounded_len_prefixed_bytes(max_bytes)
-            .map(|bytes| Some(bytes.to_vec())),
+        1 => Ok(Some(
+            reader.read_bounded_len_prefixed_bytes(max_bytes)?.to_vec(),
+        )),
         _ => Err(InternalError::store_corruption()),
     }
 }
@@ -1149,12 +1089,12 @@ fn encode_optional_string(
 }
 
 fn decode_optional_string(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
     max_bytes: usize,
 ) -> Result<Option<String>, InternalError> {
     match reader.read_u8()? {
         0 => Ok(None),
-        1 => reader.read_bounded_string(max_bytes).map(Some),
+        1 => Ok(Some(reader.read_bounded_string(max_bytes)?)),
         _ => Err(InternalError::store_corruption()),
     }
 }
@@ -1181,12 +1121,12 @@ fn encode_optional_value_path(
 }
 
 fn decode_optional_value_path(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<Option<ConstraintValuePath>, InternalError> {
     match reader.read_u8()? {
         0 => Ok(None),
         1 => {
-            let count = reader.read_bounded_count(MAX_ACCEPTED_TARGET_PATH_COMPONENTS)?;
+            let count = decode_bounded_count(reader, MAX_ACCEPTED_TARGET_PATH_COMPONENTS)?;
             let mut components = Vec::with_capacity(count);
             for _ in 0..count {
                 components.push(decode_value_path_component(reader)?);
@@ -1251,7 +1191,7 @@ fn encode_value_path_component(writer: &mut JobWriter, component: ConstraintValu
 }
 
 fn decode_value_path_component(
-    reader: &mut JobReader<'_>,
+    reader: &mut ByteReader<'_>,
 ) -> Result<ConstraintValuePathComponent, InternalError> {
     match reader.read_u8()? {
         1 => Ok(ConstraintValuePathComponent::RootField {
@@ -1397,7 +1337,9 @@ mod tests {
         let mut trailing = payload.clone();
         trailing.push(0);
         assert!(decode_integrity_job_payload(&trailing).is_err());
-        assert!(decode_integrity_job_payload(&payload[..payload.len() - 1]).is_err());
+        for end in 0..payload.len() {
+            assert!(decode_integrity_job_payload(&payload[..end]).is_err());
+        }
 
         let mut reserved_identity = payload;
         reserved_identity[..32].fill(0);
@@ -1408,6 +1350,37 @@ mod tests {
     fn current_job_payload_rejects_oversized_input_before_decoding() {
         let oversized = vec![0; MAX_INTEGRITY_JOB_PAYLOAD_BYTES + 1];
         assert!(decode_integrity_job_payload(&oversized).is_err());
+    }
+
+    #[test]
+    fn payload_tags_and_collection_counts_keep_format_bounds() {
+        assert_eq!(decode_bool(&mut ByteReader::new(&[0])), Ok(false));
+        assert_eq!(decode_bool(&mut ByteReader::new(&[1])), Ok(true));
+        assert_eq!(decode_optional_u32(&mut ByteReader::new(&[0])), Ok(None));
+        assert_eq!(
+            decode_optional_u32(&mut ByteReader::new(&[1, 0, 0, 0, 7])),
+            Ok(Some(7))
+        );
+        for tag in [2, u8::MAX] {
+            assert_eq!(
+                decode_bool(&mut ByteReader::new(&[tag])),
+                Err(InternalError)
+            );
+            assert_eq!(
+                decode_optional_u32(&mut ByteReader::new(&[tag])),
+                Err(InternalError)
+            );
+        }
+        let bytes = [0, 0, 0, 2, 10, 20];
+        assert_eq!(decode_bounded_count(&mut ByteReader::new(&bytes), 2), Ok(2));
+        assert_eq!(
+            decode_bounded_count(&mut ByteReader::new(&bytes), 1),
+            Err(InternalError)
+        );
+        assert_eq!(
+            decode_bounded_count(&mut ByteReader::new(&bytes[..5]), 2),
+            Err(InternalError)
+        );
     }
 
     #[test]

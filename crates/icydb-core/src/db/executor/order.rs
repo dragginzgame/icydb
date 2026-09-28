@@ -381,10 +381,7 @@ impl<'a> DataRowOrderWindow<'a> {
         keep_count: Option<usize>,
     ) -> Self {
         let candidates = keep_count.map_or_else(
-            || DataRowOrderCandidates::Complete {
-                rows: Vec::new(),
-                retained_backing_bytes: 0,
-            },
+            || DataRowOrderCandidates::Complete(Vec::new()),
             |keep_count| DataRowOrderCandidates::Bounded(BoundedOrderRows::new(keep_count)),
         );
 
@@ -411,7 +408,7 @@ impl<'a> DataRowOrderWindow<'a> {
                     retained_count.saturating_add(1)
                 }
             }
-            DataRowOrderCandidates::Bounded(_) | DataRowOrderCandidates::Complete { .. } => 0,
+            DataRowOrderCandidates::Bounded(_) | DataRowOrderCandidates::Complete(_) => 0,
         };
         let retained_backing_bytes = data_row_retained_backing_bytes(&candidate)
             .saturating_add(cached_values.estimated_backing_bytes());
@@ -423,12 +420,8 @@ impl<'a> DataRowOrderWindow<'a> {
                     compare_cached_orderable_rows(&left.1, &right.1, self.resolved_order)
                 });
             }
-            DataRowOrderCandidates::Complete {
-                rows,
-                retained_backing_bytes: total,
-            } => {
+            DataRowOrderCandidates::Complete(rows) => {
                 rows.push((candidate, cached_values));
-                *total = total.saturating_add(retained_backing_bytes);
             }
         }
 
@@ -440,7 +433,7 @@ impl<'a> DataRowOrderWindow<'a> {
     pub(in crate::db::executor) const fn retained_count(&self) -> usize {
         match &self.candidates {
             DataRowOrderCandidates::Bounded(window) => window.rows.len(),
-            DataRowOrderCandidates::Complete { rows, .. } => rows.len(),
+            DataRowOrderCandidates::Complete(rows) => rows.len(),
         }
     }
 
@@ -448,7 +441,7 @@ impl<'a> DataRowOrderWindow<'a> {
     pub(in crate::db::executor) fn into_sorted_rows(self) -> Result<Vec<DataRow>, InternalError> {
         let mut rows = match self.candidates {
             DataRowOrderCandidates::Bounded(window) => window.into_rows(),
-            DataRowOrderCandidates::Complete { rows, .. } => rows,
+            DataRowOrderCandidates::Complete(rows) => rows,
         };
         let rows_sorted = rows.len();
         if rows_sorted > 1 {
@@ -464,10 +457,7 @@ impl<'a> DataRowOrderWindow<'a> {
 
 enum DataRowOrderCandidates {
     Bounded(BoundedOrderRows<(DataRow, CachedOrderValues)>),
-    Complete {
-        rows: Vec<(DataRow, CachedOrderValues)>,
-        retained_backing_bytes: u64,
-    },
+    Complete(Vec<(DataRow, CachedOrderValues)>),
 }
 
 impl<'a, R> BoundedOrderWindow<'a, R>
