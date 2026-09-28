@@ -11,7 +11,8 @@ use crate::{
         MutationJobId, MutationJobPhase, MutationJobRestartReason, MutationJobStatus,
         MutationJobTargetFailureReason, QueryError,
         codec::{
-            finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_u64,
+            ByteReader, finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32,
+            write_hash_u64,
         },
         commit::database_incarnation_id,
         data::{
@@ -301,22 +302,33 @@ impl DecodedMutationJobEngineContinuation {
             return Err(malformed_continuation());
         }
 
-        let mut reader = ResumableTokenReader::new(payload);
-        if reader.read_array::<4>()? != *RESUMABLE_UPDATE_CONTINUATION_MAGIC
-            || reader.read_u8()? != RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION
+        let mut reader = ByteReader::new(payload);
+        if reader
+            .read_array::<4>()
+            .map_err(|_| malformed_continuation())?
+            != *RESUMABLE_UPDATE_CONTINUATION_MAGIC
+            || reader.read_u8().map_err(|_| malformed_continuation())?
+                != RESUMABLE_UPDATE_CONTINUATION_FORMAT_VERSION
         {
             return Err(malformed_continuation());
         }
-        let operation_id = Ulid::from_bytes(reader.read_array()?);
-        let entity_tag = reader.read_u64()?;
-        let target_identity = reader.read_array()?;
-        let schema_fingerprint_method_version = reader.read_u8()?;
-        let schema_fingerprint = reader.read_array()?;
-        let scope_fingerprint = reader.read_array()?;
-        let patch_fingerprint = reader.read_array()?;
-        let operation_timestamp = Timestamp::from_millis(reader.read_i64()?);
-        let phase = MutationJobEnginePhase::from_wire(reader.read_u8()?)?;
-        let checkpoint_bytes = reader.read_len_prefixed_bytes()?;
+        let operation_id =
+            Ulid::from_bytes(reader.read_array().map_err(|_| malformed_continuation())?);
+        let entity_tag = reader.read_u64().map_err(|_| malformed_continuation())?;
+        let target_identity = reader.read_array().map_err(|_| malformed_continuation())?;
+        let schema_fingerprint_method_version =
+            reader.read_u8().map_err(|_| malformed_continuation())?;
+        let schema_fingerprint = reader.read_array().map_err(|_| malformed_continuation())?;
+        let scope_fingerprint = reader.read_array().map_err(|_| malformed_continuation())?;
+        let patch_fingerprint = reader.read_array().map_err(|_| malformed_continuation())?;
+        let operation_timestamp =
+            Timestamp::from_millis(reader.read_i64().map_err(|_| malformed_continuation())?);
+        let phase = MutationJobEnginePhase::from_wire(
+            reader.read_u8().map_err(|_| malformed_continuation())?,
+        )?;
+        let checkpoint_bytes = reader
+            .read_len_prefixed_bytes()
+            .map_err(|_| malformed_continuation())?;
         let checkpoint = if checkpoint_bytes.is_empty() {
             None
         } else {
@@ -328,13 +340,14 @@ impl DecodedMutationJobEngineContinuation {
             }
             Some(raw)
         };
-        let retained_verify_revision = match reader.read_u8()? {
-            0 => None,
-            1 => Some(reader.read_u64()?),
-            _ => return Err(malformed_continuation()),
-        };
-        let batch_policy_identity = reader.read_u32()?;
-        if !reader.is_exhausted()
+        let retained_verify_revision =
+            match reader.read_u8().map_err(|_| malformed_continuation())? {
+                0 => None,
+                1 => Some(reader.read_u64().map_err(|_| malformed_continuation())?),
+                _ => return Err(malformed_continuation()),
+            };
+        let batch_policy_identity = reader.read_u32().map_err(|_| malformed_continuation())?;
+        if reader.remaining() != 0
             || (phase == MutationJobEnginePhase::Forward && retained_verify_revision.is_some())
             || (phase == MutationJobEnginePhase::Verify && retained_verify_revision.is_none())
         {
@@ -361,61 +374,6 @@ impl DecodedMutationJobEngineContinuation {
         self.phase = MutationJobEnginePhase::Forward;
         self.checkpoint = None;
         self.retained_verify_revision = None;
-    }
-}
-
-struct ResumableTokenReader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> ResumableTokenReader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    fn read_exact(&mut self, len: usize) -> Result<&'a [u8], QueryError> {
-        let end = self
-            .offset
-            .checked_add(len)
-            .ok_or_else(malformed_continuation)?;
-        let value = self
-            .bytes
-            .get(self.offset..end)
-            .ok_or_else(malformed_continuation)?;
-        self.offset = end;
-        Ok(value)
-    }
-
-    fn read_array<const N: usize>(&mut self) -> Result<[u8; N], QueryError> {
-        self.read_exact(N)?
-            .try_into()
-            .map_err(|_| malformed_continuation())
-    }
-
-    fn read_u8(&mut self) -> Result<u8, QueryError> {
-        Ok(self.read_exact(1)?[0])
-    }
-
-    fn read_u32(&mut self) -> Result<u32, QueryError> {
-        Ok(u32::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_u64(&mut self) -> Result<u64, QueryError> {
-        Ok(u64::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_i64(&mut self) -> Result<i64, QueryError> {
-        Ok(i64::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_len_prefixed_bytes(&mut self) -> Result<&'a [u8], QueryError> {
-        let len = usize::try_from(self.read_u32()?).map_err(|_| malformed_continuation())?;
-        self.read_exact(len)
-    }
-
-    const fn is_exhausted(&self) -> bool {
-        self.offset == self.bytes.len()
     }
 }
 

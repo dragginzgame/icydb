@@ -8,9 +8,10 @@ use crate::{
     db::{
         data::decode_admitted_value_from_accepted_field_contract,
         schema::{
-            AcceptedConstraintKind, AcceptedFieldKind, AcceptedFieldPersistenceContract,
-            AcceptedIdentityInspection, AcceptedInsertOmissionPolicy,
-            AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+            AcceptedCheckExprV1, AcceptedConstraintKind, AcceptedFieldKind,
+            AcceptedFieldPersistenceContract, AcceptedIdentityInspection,
+            AcceptedInsertOmissionPolicy, AcceptedRowLayoutRuntimeContract, AcceptedRuleOperation,
+            AcceptedRuleTarget, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
             ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
             ConstraintOrigin, ConstraintValidationJob, FieldId, FieldInsertGeneration,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
@@ -1184,10 +1185,7 @@ fn describe_accepted_constraint(
             description.semantics = "primary_key_v1".to_string();
         }
         AcceptedConstraintKind::NotNull { field_id } => {
-            description.kind = "not_null".to_string();
-            description.field_id = Some(field_id.get());
-            description.fields = vec![accepted_field_name(snapshot, *field_id)?];
-            description.semantics = "not_null_v1".to_string();
+            apply_not_null_description(&mut description, snapshot, *field_id)?;
         }
         AcceptedConstraintKind::Unique { index_id } => {
             let index = snapshot
@@ -1203,55 +1201,13 @@ fn describe_accepted_constraint(
                 .iter()
                 .find(|relation| relation.id() == *relation_id)
                 .ok_or_else(InternalError::store_invariant)?;
-            description.kind = "relation".to_string();
-            description.relation_id = Some(relation_id.get());
-            description.fields = relation
-                .source()
-                .root_field_ids()
-                .iter()
-                .map(|field_id| accepted_field_name(snapshot, *field_id))
-                .collect::<Result<Vec<_>, _>>()?;
-            description.relation = Some(relation.name().to_string());
-            description.target_entity = Some(relation.target_path().to_string());
-            description.action = Some("restrict".to_string());
-            description.semantics = "relation_pk_restrict_v1".to_string();
+            apply_relation_description(&mut description, snapshot, relation)?;
         }
         AcceptedConstraintKind::Check { expression } => {
-            description.kind = "check".to_string();
-            description.fields = expression
-                .dependencies()
-                .into_iter()
-                .map(|field_id| accepted_field_name(snapshot, field_id))
-                .collect::<Result<Vec<_>, _>>()?;
-            description.semantics = "check_expr_v1".to_string();
-            description.check_sql = Some(render_accepted_check_expr_sql(
-                expression,
-                snapshot,
-                value_catalog,
-            )?);
+            apply_check_description(&mut description, snapshot, value_catalog, expression)?;
         }
         AcceptedConstraintKind::TargetedRule { target, operation } => {
-            description.kind = "targeted_rule".to_string();
-            description.field_id = Some(target.root_field_id().get());
-            description.fields = vec![accepted_field_name(snapshot, target.root_field_id())?];
-            description.semantics = match operation.as_ref() {
-                crate::db::schema::AcceptedRuleOperation::LengthRangeInclusive { .. } => {
-                    "targeted_length_range_v1"
-                }
-                crate::db::schema::AcceptedRuleOperation::MultipleOf { .. } => {
-                    "targeted_multiple_of_v1"
-                }
-                crate::db::schema::AcceptedRuleOperation::NumericMaximumInclusive { .. } => {
-                    "targeted_numeric_maximum_v1"
-                }
-                crate::db::schema::AcceptedRuleOperation::NumericMinimumInclusive { .. } => {
-                    "targeted_numeric_minimum_v1"
-                }
-                crate::db::schema::AcceptedRuleOperation::NumericRangeInclusive { .. } => {
-                    "targeted_numeric_range_v1"
-                }
-            }
-            .to_string();
+            apply_targeted_rule_description(&mut description, snapshot, target, operation)?;
         }
     }
     Ok(description)
@@ -1285,10 +1241,7 @@ fn describe_constraint_activation(
     }
     match activation.kind() {
         ConstraintActivationKind::NotNull { field_id } => {
-            description.kind = "not_null".to_string();
-            description.field_id = Some(field_id.get());
-            description.fields = vec![accepted_field_name(snapshot, *field_id)?];
-            description.semantics = "not_null_v1".to_string();
+            apply_not_null_description(&mut description, snapshot, *field_id)?;
         }
         ConstraintActivationKind::Unique { index_id } => {
             let index = snapshot
@@ -1304,55 +1257,13 @@ fn describe_constraint_activation(
                 .iter()
                 .find(|relation| relation.id() == *relation_id)
                 .ok_or_else(InternalError::store_invariant)?;
-            description.kind = "relation".to_string();
-            description.relation_id = Some(relation_id.get());
-            description.fields = relation
-                .source()
-                .root_field_ids()
-                .iter()
-                .map(|field_id| accepted_field_name(snapshot, *field_id))
-                .collect::<Result<Vec<_>, _>>()?;
-            description.relation = Some(relation.name().to_string());
-            description.target_entity = Some(relation.target_path().to_string());
-            description.action = Some("restrict".to_string());
-            description.semantics = "relation_pk_restrict_v1".to_string();
+            apply_relation_description(&mut description, snapshot, relation)?;
         }
         ConstraintActivationKind::Check { expression } => {
-            description.kind = "check".to_string();
-            description.fields = expression
-                .dependencies()
-                .into_iter()
-                .map(|field_id| accepted_field_name(snapshot, field_id))
-                .collect::<Result<Vec<_>, _>>()?;
-            description.semantics = "check_expr_v1".to_string();
-            description.check_sql = Some(render_accepted_check_expr_sql(
-                expression,
-                snapshot,
-                value_catalog,
-            )?);
+            apply_check_description(&mut description, snapshot, value_catalog, expression)?;
         }
         ConstraintActivationKind::TargetedRule { target, operation } => {
-            description.kind = "targeted_rule".to_string();
-            description.field_id = Some(target.root_field_id().get());
-            description.fields = vec![accepted_field_name(snapshot, target.root_field_id())?];
-            description.semantics = match operation.as_ref() {
-                crate::db::schema::AcceptedRuleOperation::LengthRangeInclusive { .. } => {
-                    "targeted_length_range_v1"
-                }
-                crate::db::schema::AcceptedRuleOperation::MultipleOf { .. } => {
-                    "targeted_multiple_of_v1"
-                }
-                crate::db::schema::AcceptedRuleOperation::NumericMaximumInclusive { .. } => {
-                    "targeted_numeric_maximum_v1"
-                }
-                crate::db::schema::AcceptedRuleOperation::NumericMinimumInclusive { .. } => {
-                    "targeted_numeric_minimum_v1"
-                }
-                crate::db::schema::AcceptedRuleOperation::NumericRangeInclusive { .. } => {
-                    "targeted_numeric_range_v1"
-                }
-            }
-            .to_string();
+            apply_targeted_rule_description(&mut description, snapshot, target, operation)?;
         }
     }
     Ok(description)
@@ -1382,6 +1293,81 @@ fn accepted_constraint_description(
         semantics: String::new(),
         check_sql: None,
     }
+}
+
+// Render constraint meaning once; callers retain accepted/candidate lookup and
+// validation-state ownership.
+fn apply_not_null_description(
+    description: &mut EntityConstraintDescription,
+    snapshot: &PersistedSchemaSnapshot,
+    field_id: FieldId,
+) -> Result<(), InternalError> {
+    description.kind = "not_null".to_string();
+    description.field_id = Some(field_id.get());
+    description.fields = vec![accepted_field_name(snapshot, field_id)?];
+    description.semantics = "not_null_v1".to_string();
+    Ok(())
+}
+
+fn apply_relation_description(
+    description: &mut EntityConstraintDescription,
+    snapshot: &PersistedSchemaSnapshot,
+    relation: &PersistedRelationEdgeSnapshot,
+) -> Result<(), InternalError> {
+    description.kind = "relation".to_string();
+    description.relation_id = Some(relation.id().get());
+    description.fields = relation
+        .source()
+        .root_field_ids()
+        .iter()
+        .map(|field_id| accepted_field_name(snapshot, *field_id))
+        .collect::<Result<Vec<_>, _>>()?;
+    description.relation = Some(relation.name().to_string());
+    description.target_entity = Some(relation.target_path().to_string());
+    description.action = Some("restrict".to_string());
+    description.semantics = "relation_pk_restrict_v1".to_string();
+    Ok(())
+}
+
+fn apply_check_description(
+    description: &mut EntityConstraintDescription,
+    snapshot: &PersistedSchemaSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
+    expression: &AcceptedCheckExprV1,
+) -> Result<(), InternalError> {
+    description.kind = "check".to_string();
+    description.fields = expression
+        .dependencies()
+        .into_iter()
+        .map(|field_id| accepted_field_name(snapshot, field_id))
+        .collect::<Result<Vec<_>, _>>()?;
+    description.semantics = "check_expr_v1".to_string();
+    description.check_sql = Some(render_accepted_check_expr_sql(
+        expression,
+        snapshot,
+        value_catalog,
+    )?);
+    Ok(())
+}
+
+fn apply_targeted_rule_description(
+    description: &mut EntityConstraintDescription,
+    snapshot: &PersistedSchemaSnapshot,
+    target: &AcceptedRuleTarget,
+    operation: &AcceptedRuleOperation,
+) -> Result<(), InternalError> {
+    description.kind = "targeted_rule".to_string();
+    description.field_id = Some(target.root_field_id().get());
+    description.fields = vec![accepted_field_name(snapshot, target.root_field_id())?];
+    description.semantics = match operation {
+        AcceptedRuleOperation::LengthRangeInclusive { .. } => "targeted_length_range_v1",
+        AcceptedRuleOperation::MultipleOf { .. } => "targeted_multiple_of_v1",
+        AcceptedRuleOperation::NumericMaximumInclusive { .. } => "targeted_numeric_maximum_v1",
+        AcceptedRuleOperation::NumericMinimumInclusive { .. } => "targeted_numeric_minimum_v1",
+        AcceptedRuleOperation::NumericRangeInclusive { .. } => "targeted_numeric_range_v1",
+    }
+    .to_string();
+    Ok(())
 }
 
 fn apply_unique_index_description(
@@ -2295,16 +2281,21 @@ mod tests {
         SqlColumnKey, SqlColumnSummary, SqlDescribeOutput, SqlShowRelationsOutput,
         classify_compact_column_key, compact_column_capacity_from_counts, compact_column_extras,
         describe_accepted_constraint, describe_compact_columns_with_persisted_schema,
-        describe_entity_fields_with_persisted_schema, nested_path_nullable,
+        describe_constraint_activation, describe_entity_fields_with_persisted_schema,
+        nested_path_nullable,
     };
     use crate::db::schema::{
-        AcceptedCompositeCatalog, AcceptedConstraintCatalog, AcceptedFieldKind,
-        AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
-        CompositeFieldId, CompositeTypeId, FieldId, FieldStorageDecode, LeafCodec,
-        MAX_SCHEMA_SNAPSHOT_BYTES, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
-        PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
-        PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault,
-        SchemaRowLayout, SchemaVersion,
+        AcceptedCheckExprV1, AcceptedCheckValueExprV1, AcceptedCompositeCatalog,
+        AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedConstraintSnapshot,
+        AcceptedFieldKind, AcceptedNamedTypeIdentity, AcceptedRuleOperation, AcceptedRuleTarget,
+        AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
+        AcceptedValueCatalogHandle, CompositeFieldId, CompositeTypeId, ConstraintActivationKind,
+        ConstraintActivationSnapshot, ConstraintActivationState, ConstraintId, ConstraintOrigin,
+        ConstraintValidationJob, FieldId, FieldStorageDecode, LeafCodec, MAX_SCHEMA_SNAPSHOT_BYTES,
+        PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
+        PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
+        PersistedSchemaSnapshot, RelationId, ScalarCodec, SchemaFieldSlot, SchemaIndexId,
+        SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
         composite_catalog::{
             AcceptedCompositeElement, AcceptedCompositeField, AcceptedCompositeShape,
             decode_accepted_composite_catalog, encode_accepted_composite_catalog,
@@ -2319,8 +2310,7 @@ mod tests {
     const REACHABLE_COMPACT_REPLY_TOP_LEVEL_COMPOSITES: usize = 95;
     const IC_QUERY_REPLY_BYTES: usize = 3 * 1024 * 1024;
 
-    #[test]
-    fn filtered_unique_constraint_description_exposes_partial_backing_contract() {
+    fn constraint_description_fixture() -> (PersistedSchemaSnapshot, AcceptedValueCatalogHandle) {
         let snapshot = PersistedSchemaSnapshot::new_with_indexes(
             SchemaVersion::initial(),
             "tests::Account".to_string(),
@@ -2382,6 +2372,12 @@ mod tests {
             AcceptedCompositeCatalog::empty(),
             AcceptedSchemaRevision::INITIAL,
         );
+        (snapshot, value_catalog)
+    }
+
+    #[test]
+    fn filtered_unique_constraint_description_exposes_partial_backing_contract() {
+        let (snapshot, value_catalog) = constraint_description_fixture();
         let constraint = snapshot
             .constraints()
             .iter()
@@ -2394,6 +2390,161 @@ mod tests {
         assert_eq!(description.index(), Some("account_email"));
         assert_eq!(description.predicate_sql(), Some("email IS NOT NULL"));
         assert_eq!(description.semantics(), "partial_unique_index_v1");
+    }
+
+    #[test]
+    fn row_local_constraint_descriptions_preserve_meaning_across_activation() {
+        let (snapshot, values) = constraint_description_fixture();
+        let field_id = FieldId::new(2);
+        let expression = Box::new(AcceptedCheckExprV1::IsNotNull(
+            AcceptedCheckValueExprV1::Field(field_id),
+        ));
+        let target = AcceptedRuleTarget::new(
+            field_id,
+            AcceptedNamedTypeIdentity::Composite(CompositeTypeId::new(1).unwrap()),
+        );
+        let operation = Box::new(AcceptedRuleOperation::LengthRangeInclusive { min: 1, max: 10 });
+        for (accepted, activating, semantics) in [
+            (
+                AcceptedConstraintKind::NotNull { field_id },
+                ConstraintActivationKind::NotNull { field_id },
+                "not_null_v1",
+            ),
+            (
+                AcceptedConstraintKind::Check {
+                    expression: expression.clone(),
+                },
+                ConstraintActivationKind::Check { expression },
+                "check_expr_v1",
+            ),
+            (
+                AcceptedConstraintKind::TargetedRule {
+                    target,
+                    operation: operation.clone(),
+                },
+                ConstraintActivationKind::TargetedRule { target, operation },
+                "targeted_length_range_v1",
+            ),
+        ] {
+            assert_constraint_description_lifecycle(
+                &snapshot, &values, accepted, activating, semantics,
+            );
+        }
+    }
+
+    fn assert_constraint_description_lifecycle(
+        snapshot: &PersistedSchemaSnapshot,
+        values: &AcceptedValueCatalogHandle,
+        accepted: AcceptedConstraintKind,
+        activating: ConstraintActivationKind,
+        semantics: &str,
+    ) {
+        let id = ConstraintId::new(10).unwrap();
+        let constraint = AcceptedConstraintSnapshot::new(
+            id,
+            "rule".into(),
+            ConstraintOrigin::Generated,
+            accepted,
+        );
+        let mut expected = describe_accepted_constraint(snapshot, values, &constraint).unwrap();
+        assert_eq!(expected.semantics(), semantics);
+        assert_eq!(expected.fields(), &["email"]);
+        assert_eq!(expected.validation_state(), "validated");
+        for state in [
+            ConstraintActivationState::EnforcingNewWrites,
+            ConstraintActivationState::Validating,
+        ] {
+            let activation = ConstraintActivationSnapshot::new(
+                id,
+                "rule".into(),
+                ConstraintOrigin::Generated,
+                activating.clone(),
+                state,
+                AcceptedSchemaFingerprint::new([1; 32]),
+                1,
+            );
+            let job = (state == ConstraintActivationState::Validating).then(|| {
+                ConstraintValidationJob::start(
+                    crate::types::EntityTag::new(1),
+                    snapshot.entity_path().into(),
+                    &activation,
+                    None,
+                )
+                .unwrap()
+            });
+            if job.is_some() {
+                assert!(
+                    describe_constraint_activation(snapshot, values, &activation, None).is_err()
+                );
+            }
+            let description =
+                describe_constraint_activation(snapshot, values, &activation, job.as_ref())
+                    .unwrap();
+            assert_eq!(
+                description.validation_state(),
+                if job.is_some() {
+                    "validating"
+                } else {
+                    "enforcing_new_writes"
+                }
+            );
+            assert_eq!(description.validation_progress().is_some(), job.is_some());
+            expected
+                .validation_state
+                .clone_from(&description.validation_state);
+            expected
+                .validation_progress
+                .clone_from(&description.validation_progress);
+            assert_eq!(description, expected);
+        }
+    }
+
+    #[test]
+    fn relation_descriptions_use_the_owner_for_their_lifecycle_state() {
+        let (snapshot, values) = constraint_description_fixture();
+        let relation_id = RelationId::new(1).unwrap();
+        let accepted = PersistedRelationEdgeSnapshot::new_direct(
+            relation_id,
+            "accepted_relation".into(),
+            "AcceptedTarget".into(),
+            vec![FieldId::new(1)],
+        );
+        let candidate = PersistedRelationEdgeSnapshot::new_direct(
+            relation_id,
+            "candidate_relation".into(),
+            "CandidateTarget".into(),
+            vec![FieldId::new(2)],
+        );
+        let snapshot = snapshot
+            .with_relations(vec![accepted])
+            .with_constraint_candidates(Vec::new(), vec![candidate]);
+        let id = ConstraintId::new(10).unwrap();
+        let constraint = AcceptedConstraintSnapshot::new(
+            id,
+            "relation".into(),
+            ConstraintOrigin::SqlDdl,
+            AcceptedConstraintKind::Relation { relation_id },
+        );
+        let activation = ConstraintActivationSnapshot::new(
+            id,
+            "relation".into(),
+            ConstraintOrigin::SqlDdl,
+            ConstraintActivationKind::Relation { relation_id },
+            ConstraintActivationState::EnforcingNewWrites,
+            AcceptedSchemaFingerprint::new([1; 32]),
+            1,
+        );
+        let accepted = describe_accepted_constraint(&snapshot, &values, &constraint).unwrap();
+        let candidate =
+            describe_constraint_activation(&snapshot, &values, &activation, None).unwrap();
+        assert_eq!(accepted.relation(), Some("accepted_relation"));
+        assert_eq!(accepted.target_entity(), Some("AcceptedTarget"));
+        assert_eq!(accepted.fields(), &["id"]);
+        assert_eq!(candidate.relation(), Some("candidate_relation"));
+        assert_eq!(candidate.target_entity(), Some("CandidateTarget"));
+        assert_eq!(candidate.fields(), &["email"]);
+        assert_eq!(candidate.action(), Some("restrict"));
+        assert_eq!(candidate.semantics(), "relation_pk_restrict_v1");
     }
 
     #[test]

@@ -5,6 +5,7 @@
 
 mod hash_stream;
 pub(in crate::db) mod hex;
+mod reader;
 
 use crate::{db::schema::RowLayoutVersion, error::InternalError};
 use std::borrow::Cow;
@@ -13,6 +14,8 @@ pub(in crate::db) use hash_stream::{
     finalize_hash_sha256, new_hash_sha256, new_hash_sha256_prefixed, write_hash_len_u32,
     write_hash_str_u32, write_hash_tag_u8, write_hash_u32, write_hash_u64,
 };
+
+pub(in crate::db) use reader::{ByteDecodeError, ByteReader};
 
 /// Max serialized bytes for a single row (protocol-level limit).
 pub(crate) const MAX_ROW_BYTES: u32 = 4 * 1024 * 1024;

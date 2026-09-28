@@ -3,7 +3,7 @@
 //! Does not own: any persisted format, semantic validation, or version policy.
 //! Boundary: schema codecs -> checked big-endian bytes.
 
-use crate::error::InternalError;
+use crate::{db::codec::ByteReader, error::InternalError};
 
 ///
 /// SchemaWireWriter
@@ -118,33 +118,42 @@ impl<const MAX_BYTES: usize> SchemaWireWriter<MAX_BYTES> {
 ///
 
 pub(in crate::db::schema) struct SchemaWireReader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
+    reader: ByteReader<'a>,
 }
 
 impl<'a> SchemaWireReader<'a> {
     pub(in crate::db::schema) const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
+        Self {
+            reader: ByteReader::new(bytes),
+        }
     }
 
     const fn remaining(&self) -> usize {
-        self.bytes.len().saturating_sub(self.offset)
+        self.reader.remaining()
     }
 
     pub(in crate::db::schema) fn read_u8(&mut self) -> Result<u8, InternalError> {
-        Ok(self.read_array::<1>()?[0])
+        self.reader
+            .read_u8()
+            .map_err(|_| InternalError::store_corruption())
     }
 
     pub(in crate::db::schema) fn read_u16(&mut self) -> Result<u16, InternalError> {
-        Ok(u16::from_be_bytes(self.read_array()?))
+        self.reader
+            .read_u16()
+            .map_err(|_| InternalError::store_corruption())
     }
 
     pub(in crate::db::schema) fn read_u32(&mut self) -> Result<u32, InternalError> {
-        Ok(u32::from_be_bytes(self.read_array()?))
+        self.reader
+            .read_u32()
+            .map_err(|_| InternalError::store_corruption())
     }
 
     pub(in crate::db::schema) fn read_u64(&mut self) -> Result<u64, InternalError> {
-        Ok(u64::from_be_bytes(self.read_array()?))
+        self.reader
+            .read_u64()
+            .map_err(|_| InternalError::store_corruption())
     }
 
     pub(in crate::db::schema) fn read_bool(&mut self) -> Result<bool, InternalError> {
@@ -175,36 +184,35 @@ impl<'a> SchemaWireReader<'a> {
     }
 
     pub(in crate::db::schema) fn read_string(&mut self) -> Result<String, InternalError> {
-        let bytes = self.read_len_prefixed_bytes()?;
-        let value = std::str::from_utf8(bytes).map_err(|_| InternalError::store_corruption())?;
-        Ok(value.to_string())
+        self.reader
+            .read_string()
+            .map_err(|_| InternalError::store_corruption())
     }
 
     pub(in crate::db::schema) fn read_bounded_string(
         &mut self,
         max_bytes: usize,
     ) -> Result<String, InternalError> {
-        let bytes = self.read_bounded_len_prefixed_bytes(max_bytes)?;
-        let value = std::str::from_utf8(bytes).map_err(|_| InternalError::store_corruption())?;
-        Ok(value.to_string())
+        self.reader
+            .read_bounded_string(max_bytes)
+            .map_err(|_| InternalError::store_corruption())
     }
 
     pub(in crate::db::schema) fn read_len_prefixed_bytes(
         &mut self,
     ) -> Result<&'a [u8], InternalError> {
-        let len = self.read_u32()? as usize;
-        self.read_slice(len)
+        self.reader
+            .read_len_prefixed_bytes()
+            .map_err(|_| InternalError::store_corruption())
     }
 
     pub(in crate::db::schema) fn read_bounded_len_prefixed_bytes(
         &mut self,
         max_bytes: usize,
     ) -> Result<&'a [u8], InternalError> {
-        let len = self.read_u32()? as usize;
-        if len > max_bytes {
-            return Err(InternalError::store_corruption());
-        }
-        self.read_slice(len)
+        self.reader
+            .read_bounded_len_prefixed_bytes(max_bytes)
+            .map_err(|_| InternalError::store_corruption())
     }
 
     pub(in crate::db::schema) fn read_optional_u32(
@@ -220,30 +228,14 @@ impl<'a> SchemaWireReader<'a> {
     pub(in crate::db::schema) fn read_array<const N: usize>(
         &mut self,
     ) -> Result<[u8; N], InternalError> {
-        let bytes = self.read_slice(N)?;
-        let mut value = [0_u8; N];
-        value.copy_from_slice(bytes);
-        Ok(value)
-    }
-
-    fn read_slice(&mut self, len: usize) -> Result<&'a [u8], InternalError> {
-        let end = self
-            .offset
-            .checked_add(len)
-            .ok_or_else(InternalError::store_corruption)?;
-        let value = self
-            .bytes
-            .get(self.offset..end)
-            .ok_or_else(InternalError::store_corruption)?;
-        self.offset = end;
-        Ok(value)
+        self.reader
+            .read_array()
+            .map_err(|_| InternalError::store_corruption())
     }
 
     pub(in crate::db::schema) fn finish(self) -> Result<(), InternalError> {
-        if self.offset == self.bytes.len() {
-            Ok(())
-        } else {
-            Err(InternalError::store_corruption())
-        }
+        self.reader
+            .finish()
+            .map_err(|_| InternalError::store_corruption())
     }
 }

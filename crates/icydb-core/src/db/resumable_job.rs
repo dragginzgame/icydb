@@ -5,6 +5,7 @@
 
 use crate::db::{
     ReadSetRevisionError, ReadSetRevisionProof, ReadSetStoreIdentity, ReadSetStoreRevision,
+    codec::{ByteDecodeError, ByteReader},
 };
 use candid::CandidType;
 use serde::Deserialize;
@@ -241,13 +242,19 @@ impl fmt::Display for ResumableJobError {
     }
 }
 
-impl StdError for ResumableJobError {}
+impl From<ByteDecodeError> for ResumableJobError {
+    fn from(_: ByteDecodeError) -> Self {
+        Self::CorruptProgressStore
+    }
+}
 
 impl From<ReadSetRevisionError> for ResumableJobError {
     fn from(error: ReadSetRevisionError) -> Self {
         Self::SourceProof(error)
     }
 }
+
+impl StdError for ResumableJobError {}
 
 /// Failure from protocol handling or the application page closure.
 #[derive(Debug)]
@@ -461,10 +468,10 @@ pub(in crate::db) fn encode_resumable_job_payload(
 pub(in crate::db) fn decode_resumable_job_payload(
     bytes: &[u8],
 ) -> Result<ResumableJobRecord, ResumableJobError> {
-    let mut reader = Reader::new(bytes);
-    let job_id = ResumableJobId::try_from_bytes(reader.array()?)?;
-    let sequence = reader.u64()?;
-    let status = match reader.u8()? {
+    let mut reader = ByteReader::new(bytes);
+    let job_id = ResumableJobId::try_from_bytes(reader.read_array()?)?;
+    let sequence = reader.read_u64()?;
+    let status = match reader.read_u8()? {
         0 => ResumableJobStatus::Active,
         1 => ResumableJobStatus::Invalidated,
         2 => ResumableJobStatus::Completed,
@@ -472,23 +479,27 @@ pub(in crate::db) fn decode_resumable_job_payload(
     };
     let proof = read_proof(&mut reader)?;
     let continuation = read_optional_string(&mut reader, MAX_RESUMABLE_JOB_CONTINUATION_BYTES)?;
-    let application_state = reader.bytes(MAX_RESUMABLE_JOB_STATE_BYTES)?.to_vec();
-    let last_receipt = match reader.u8()? {
+    let application_state = reader
+        .read_bounded_len_prefixed_bytes(MAX_RESUMABLE_JOB_STATE_BYTES)?
+        .to_vec();
+    let last_receipt = match reader.read_u8()? {
         0 => None,
         1 => {
-            let request_sequence = reader.u64()?;
-            let committed_sequence = reader.u64()?;
-            let receipt_status = match reader.u8()? {
+            let request_sequence = reader.read_u64()?;
+            let committed_sequence = reader.read_u64()?;
+            let receipt_status = match reader.read_u8()? {
                 0 => ResumableJobAdvanceStatus::Advanced,
                 1 => ResumableJobAdvanceStatus::Invalidated,
                 _ => return Err(ResumableJobError::CorruptProgressStore),
             };
             let idempotency_key = ResumableJobIdempotencyKey::new(
-                reader.string(MAX_RESUMABLE_JOB_IDEMPOTENCY_KEY_BYTES)?,
+                reader.read_bounded_string(MAX_RESUMABLE_JOB_IDEMPOTENCY_KEY_BYTES)?,
             )?;
             let receipt_continuation =
                 read_optional_string(&mut reader, MAX_RESUMABLE_JOB_CONTINUATION_BYTES)?;
-            let application_receipt = reader.bytes(MAX_RESUMABLE_JOB_RECEIPT_BYTES)?.to_vec();
+            let application_receipt = reader
+                .read_bounded_len_prefixed_bytes(MAX_RESUMABLE_JOB_RECEIPT_BYTES)?
+                .to_vec();
             Some(ResumableJobAdvanceReceipt {
                 request_sequence,
                 committed_sequence,
@@ -500,9 +511,7 @@ pub(in crate::db) fn decode_resumable_job_payload(
         }
         _ => return Err(ResumableJobError::CorruptProgressStore),
     };
-    if !reader.is_empty() {
-        return Err(ResumableJobError::CorruptProgressStore);
-    }
+    reader.finish()?;
     let record = ResumableJobRecord {
         state: ResumableJobState {
             job_id,
@@ -535,21 +544,21 @@ fn write_proof(bytes: &mut Vec<u8>, proof: &ReadSetRevisionProof) -> Result<(), 
     Ok(())
 }
 
-fn read_proof(reader: &mut Reader<'_>) -> Result<ReadSetRevisionProof, ResumableJobError> {
-    let database_incarnation = reader.array()?;
-    let accepted_root_revision = reader.u64()?;
-    let accepted_root_fingerprint_method = reader.u8()?;
-    let accepted_root_fingerprint = reader.array()?;
-    let count = reader.u32()? as usize;
+fn read_proof(reader: &mut ByteReader<'_>) -> Result<ReadSetRevisionProof, ResumableJobError> {
+    let database_incarnation = reader.read_array()?;
+    let accepted_root_revision = reader.read_u64()?;
+    let accepted_root_fingerprint_method = reader.read_u8()?;
+    let accepted_root_fingerprint = reader.read_array()?;
+    let count = reader.read_u32()? as usize;
     if count == 0 || count > crate::db::MAX_READ_SET_PROOF_STORES {
         return Err(ResumableJobError::CorruptProgressStore);
     }
     let mut stores = Vec::with_capacity(count);
     for _ in 0..count {
         stores.push(ReadSetStoreRevision::new(
-            ReadSetStoreIdentity::from_bytes(reader.array()?),
-            reader.u64()?,
-            reader.u64()?,
+            ReadSetStoreIdentity::from_bytes(reader.read_array()?),
+            reader.read_u64()?,
+            reader.read_u64()?,
         ));
     }
     ReadSetRevisionProof::from_parts(
@@ -588,79 +597,13 @@ fn write_bytes(bytes: &mut Vec<u8>, value: &[u8]) -> Result<(), ResumableJobErro
 }
 
 fn read_optional_string(
-    reader: &mut Reader<'_>,
+    reader: &mut ByteReader<'_>,
     max: usize,
 ) -> Result<Option<String>, ResumableJobError> {
-    match reader.u8()? {
+    match reader.read_u8()? {
         0 => Ok(None),
-        1 => reader.string(max).map(Some),
+        1 => Ok(Some(reader.read_bounded_string(max)?)),
         _ => Err(ResumableJobError::CorruptProgressStore),
-    }
-}
-
-struct Reader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> Reader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    fn u8(&mut self) -> Result<u8, ResumableJobError> {
-        let value = *self
-            .bytes
-            .get(self.offset)
-            .ok_or(ResumableJobError::CorruptProgressStore)?;
-        self.offset += 1;
-        Ok(value)
-    }
-
-    fn u32(&mut self) -> Result<u32, ResumableJobError> {
-        Ok(u32::from_be_bytes(self.array()?))
-    }
-
-    fn u64(&mut self) -> Result<u64, ResumableJobError> {
-        Ok(u64::from_be_bytes(self.array()?))
-    }
-
-    fn array<const N: usize>(&mut self) -> Result<[u8; N], ResumableJobError> {
-        self.take(N)?
-            .try_into()
-            .map_err(|_| ResumableJobError::CorruptProgressStore)
-    }
-
-    fn bytes(&mut self, max: usize) -> Result<&'a [u8], ResumableJobError> {
-        let len = self.u32()? as usize;
-        if len > max {
-            return Err(ResumableJobError::CorruptProgressStore);
-        }
-        self.take(len)
-    }
-
-    fn string(&mut self, max: usize) -> Result<String, ResumableJobError> {
-        let bytes = self.bytes(max)?;
-        std::str::from_utf8(bytes)
-            .map(str::to_string)
-            .map_err(|_| ResumableJobError::CorruptProgressStore)
-    }
-
-    fn take(&mut self, len: usize) -> Result<&'a [u8], ResumableJobError> {
-        let end = self
-            .offset
-            .checked_add(len)
-            .ok_or(ResumableJobError::CorruptProgressStore)?;
-        let bytes = self
-            .bytes
-            .get(self.offset..end)
-            .ok_or(ResumableJobError::CorruptProgressStore)?;
-        self.offset = end;
-        Ok(bytes)
-    }
-
-    const fn is_empty(&self) -> bool {
-        self.offset == self.bytes.len()
     }
 }
 
@@ -723,10 +666,13 @@ mod tests {
         let bytes =
             encode_resumable_job_payload(&record).expect("current resumable payload should encode");
 
-        assert_eq!(
-            decode_resumable_job_payload(&bytes[..bytes.len() - 1]),
-            Err(ResumableJobError::CorruptProgressStore),
-        );
+        for end in 0..bytes.len() {
+            assert_eq!(
+                decode_resumable_job_payload(&bytes[..end]),
+                Err(ResumableJobError::CorruptProgressStore),
+                "truncation at byte {end} must retain corruption classification",
+            );
+        }
         let mut trailing = bytes;
         trailing.push(0);
         assert_eq!(

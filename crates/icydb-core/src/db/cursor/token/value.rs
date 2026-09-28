@@ -5,11 +5,14 @@
 //! Boundary: scalar/grouped token codec -> value payload bytes.
 
 use crate::{
-    db::cursor::token::{
-        TokenWireError,
-        bytes::{
-            ByteCursor, checked_len_u32, write_i64, write_i128, write_len_prefixed_bytes,
-            write_string, write_u32, write_u64, write_u128,
+    db::{
+        codec::ByteReader,
+        cursor::token::{
+            TokenWireError,
+            bytes::{
+                checked_len_u32, write_i64, write_i128, write_len_prefixed_bytes, write_string,
+                write_u32, write_u64, write_u128,
+            },
         },
     },
     types::{
@@ -67,7 +70,7 @@ pub(in crate::db) fn encode_current_value_payload(
 /// Decode one runtime value through the current bounded binary value wire.
 #[cfg(feature = "sql")]
 pub(in crate::db) fn decode_current_value_payload(bytes: &[u8]) -> Result<Value, TokenWireError> {
-    let mut cursor = ByteCursor::new(bytes);
+    let mut cursor = ByteReader::new(bytes);
     let value = read_value(&mut cursor)?;
     cursor.finish()?;
     Ok(value)
@@ -95,13 +98,13 @@ fn write_value_slice_at_depth(
 }
 
 pub(in crate::db::cursor::token) fn read_value_vec(
-    cursor: &mut ByteCursor<'_>,
+    cursor: &mut ByteReader<'_>,
 ) -> Result<Vec<Value>, TokenWireError> {
     read_value_vec_at_depth(cursor, 0)
 }
 
 fn read_value_vec_at_depth(
-    cursor: &mut ByteCursor<'_>,
+    cursor: &mut ByteReader<'_>,
     depth: usize,
 ) -> Result<Vec<Value>, TokenWireError> {
     let len = usize::try_from(cursor.read_u32()?).map_err(|_| TokenWireError::decode())?;
@@ -315,12 +318,12 @@ fn write_map_entries(
 }
 
 pub(in crate::db::cursor::token) fn read_value(
-    cursor: &mut ByteCursor<'_>,
+    cursor: &mut ByteReader<'_>,
 ) -> Result<Value, TokenWireError> {
     read_value_at_depth(cursor, 0)
 }
 
-fn read_value_at_depth(cursor: &mut ByteCursor<'_>, depth: usize) -> Result<Value, TokenWireError> {
+fn read_value_at_depth(cursor: &mut ByteReader<'_>, depth: usize) -> Result<Value, TokenWireError> {
     if depth > MAX_VALUE_NESTING_DEPTH {
         return Err(TokenWireError::decode());
     }
@@ -360,7 +363,7 @@ fn read_value_at_depth(cursor: &mut ByteCursor<'_>, depth: usize) -> Result<Valu
     }
 }
 
-fn read_bool(cursor: &mut ByteCursor<'_>) -> Result<Value, TokenWireError> {
+fn read_bool(cursor: &mut ByteReader<'_>) -> Result<Value, TokenWireError> {
     match cursor.read_u8()? {
         0 => Ok(Value::Bool(false)),
         1 => Ok(Value::Bool(true)),
@@ -368,22 +371,22 @@ fn read_bool(cursor: &mut ByteCursor<'_>) -> Result<Value, TokenWireError> {
     }
 }
 
-fn read_account(cursor: &mut ByteCursor<'_>) -> Result<Account, TokenWireError> {
+fn read_account(cursor: &mut ByteReader<'_>) -> Result<Account, TokenWireError> {
     Account::try_from_bytes(cursor.read_exact(Account::STORED_SIZE as usize)?)
         .map_err(|_| TokenWireError::decode())
 }
 
-fn read_principal(cursor: &mut ByteCursor<'_>) -> Result<Principal, TokenWireError> {
+fn read_principal(cursor: &mut ByteReader<'_>) -> Result<Principal, TokenWireError> {
     Principal::try_from_bytes(cursor.read_len_prefixed_bytes()?)
         .map_err(|_| TokenWireError::decode())
 }
 
-fn read_date(cursor: &mut ByteCursor<'_>) -> Result<Date, TokenWireError> {
+fn read_date(cursor: &mut ByteReader<'_>) -> Result<Date, TokenWireError> {
     Date::try_from_days_since_epoch(i32::from_be_bytes(cursor.read_array()?))
         .ok_or_else(TokenWireError::decode)
 }
 
-fn read_decimal(cursor: &mut ByteCursor<'_>) -> Result<Decimal, TokenWireError> {
+fn read_decimal(cursor: &mut ByteReader<'_>) -> Result<Decimal, TokenWireError> {
     let mantissa = cursor.read_i128()?;
     let scale = u32::from(cursor.read_u8()?);
     Decimal::try_from_i128_with_scale(mantissa, scale)
@@ -391,7 +394,7 @@ fn read_decimal(cursor: &mut ByteCursor<'_>) -> Result<Decimal, TokenWireError> 
         .ok_or_else(TokenWireError::decode)
 }
 
-fn read_value_enum(cursor: &mut ByteCursor<'_>, depth: usize) -> Result<ValueEnum, TokenWireError> {
+fn read_value_enum(cursor: &mut ByteReader<'_>, depth: usize) -> Result<ValueEnum, TokenWireError> {
     let type_id = EnumTypeId::new(cursor.read_u32()?).ok_or_else(TokenWireError::decode)?;
     let variant_id = EnumVariantId::new(cursor.read_u32()?).ok_or_else(TokenWireError::decode)?;
     let body = match cursor.read_u8()? {
@@ -439,7 +442,7 @@ fn write_big_magnitude(
     Ok(())
 }
 
-fn read_big_int(cursor: &mut ByteCursor<'_>) -> Result<IntBig, TokenWireError> {
+fn read_big_int(cursor: &mut ByteReader<'_>) -> Result<IntBig, TokenWireError> {
     let sign = match cursor.read_u8()? {
         0 => Sign::NoSign,
         1 => Sign::Plus,
@@ -453,14 +456,14 @@ fn read_big_int(cursor: &mut ByteCursor<'_>) -> Result<IntBig, TokenWireError> {
     Ok(IntBig::from_bigint(BigInt::from_bytes_le(sign, magnitude)))
 }
 
-fn read_big_nat(cursor: &mut ByteCursor<'_>) -> Result<NatBig, TokenWireError> {
+fn read_big_nat(cursor: &mut ByteReader<'_>) -> Result<NatBig, TokenWireError> {
     Ok(NatBig::from_biguint(BigUint::from_bytes_le(
         read_big_magnitude(cursor)?,
     )))
 }
 
 // Validate the full borrowed frame before allocating a decoded integer.
-fn read_big_magnitude<'a>(cursor: &mut ByteCursor<'a>) -> Result<&'a [u8], TokenWireError> {
+fn read_big_magnitude<'a>(cursor: &mut ByteReader<'a>) -> Result<&'a [u8], TokenWireError> {
     let magnitude = cursor.read_len_prefixed_bytes()?;
     if magnitude.last() == Some(&0) {
         return Err(TokenWireError::decode());
@@ -468,7 +471,7 @@ fn read_big_magnitude<'a>(cursor: &mut ByteCursor<'a>) -> Result<&'a [u8], Token
     Ok(magnitude)
 }
 
-fn read_map_value(cursor: &mut ByteCursor<'_>, depth: usize) -> Result<Value, TokenWireError> {
+fn read_map_value(cursor: &mut ByteReader<'_>, depth: usize) -> Result<Value, TokenWireError> {
     let len = usize::try_from(cursor.read_u32()?).map_err(|_| TokenWireError::decode())?;
     if len > cursor.remaining() / 2 || (len != 0 && depth > MAX_VALUE_NESTING_DEPTH) {
         return Err(TokenWireError::decode());
@@ -529,7 +532,7 @@ mod tests {
                 let (value, bytes) = nested_payload(depth, kind);
                 let mut encoded = Vec::new();
                 let result = write_value(&mut encoded, &value);
-                let mut cursor = ByteCursor::new(&bytes);
+                let mut cursor = ByteReader::new(&bytes);
                 let decoded = read_value(&mut cursor);
                 if depth <= MAX_VALUE_NESTING_DEPTH {
                     result.unwrap();
@@ -555,7 +558,7 @@ mod tests {
             wire.extend_from_slice(&[VALUE_BOOL, 0]);
             let mut encoded = Vec::new();
             let result = write_value(&mut encoded, &value);
-            let decoded = read_value(&mut ByteCursor::new(&wire));
+            let decoded = read_value(&mut ByteReader::new(&wire));
             if depth < MAX_VALUE_NESTING_DEPTH {
                 result.unwrap();
                 assert_eq!(encoded, wire);
@@ -575,7 +578,7 @@ mod tests {
             }
             let mut encoded = Vec::new();
             write_value(&mut encoded, &leaf).unwrap();
-            assert_eq!(read_value(&mut ByteCursor::new(&encoded)).unwrap(), leaf);
+            assert_eq!(read_value(&mut ByteReader::new(&encoded)).unwrap(), leaf);
         }
     }
 
@@ -587,7 +590,7 @@ mod tests {
             hostile.extend_from_slice(&[VALUE_LIST, 0, 0, 0, 1]);
         }
         hostile.push(VALUE_UNIT);
-        let mut cursor = ByteCursor::new(&hostile);
+        let mut cursor = ByteReader::new(&hostile);
         assert_eq!(read_value(&mut cursor), Err(TokenWireError::Decode));
         assert!(cursor.remaining() > 4000);
 
@@ -596,7 +599,7 @@ mod tests {
         let values = vec![first, second, Value::Bool(true)];
         let mut encoded = Vec::new();
         write_value_slice(&mut encoded, &values).unwrap();
-        let mut cursor = ByteCursor::new(&encoded);
+        let mut cursor = ByteReader::new(&encoded);
         assert_eq!(read_value_vec(&mut cursor).unwrap(), values);
         cursor.finish().unwrap();
 
@@ -604,7 +607,7 @@ mod tests {
         let wide = Value::List(vec![Value::Bool(true); 1000]);
         let mut encoded = Vec::new();
         write_value(&mut encoded, &wide).unwrap();
-        assert_eq!(read_value(&mut ByteCursor::new(&encoded)).unwrap(), wide);
+        assert_eq!(read_value(&mut ByteReader::new(&encoded)).unwrap(), wide);
     }
 
     #[test]
@@ -640,7 +643,7 @@ mod tests {
         let mut encoded = vec![VALUE_DATE];
         encoded.extend_from_slice(&(Date::MIN.as_days_since_epoch() - 1).to_be_bytes());
 
-        assert!(read_value(&mut ByteCursor::new(encoded.as_slice())).is_err());
+        assert!(read_value(&mut ByteReader::new(encoded.as_slice())).is_err());
     }
 
     #[test]
@@ -652,7 +655,7 @@ mod tests {
             assert_eq!(encoded.len(), 33);
             assert_eq!(encoded[0], VALUE_U256);
             assert_eq!(
-                read_value(&mut ByteCursor::new(encoded.as_slice())).expect("U256 should decode"),
+                read_value(&mut ByteReader::new(encoded.as_slice())).expect("U256 should decode"),
                 Value::U256(value),
             );
         }
@@ -663,7 +666,7 @@ mod tests {
         let mut encoded = vec![VALUE_U256];
         encoded.extend_from_slice(&[0; 31]);
 
-        assert!(read_value(&mut ByteCursor::new(encoded.as_slice())).is_err());
+        assert!(read_value(&mut ByteReader::new(encoded.as_slice())).is_err());
     }
 
     #[test]
@@ -701,7 +704,7 @@ mod tests {
             let mut encoded = Vec::new();
             write_value(&mut encoded, &value).unwrap();
             assert_eq!(encoded.len(), width);
-            let mut cursor = ByteCursor::new(&encoded);
+            let mut cursor = ByteReader::new(&encoded);
             let decoded = read_value(&mut cursor).unwrap();
             cursor.finish().unwrap();
             assert_eq!(decoded, value);
@@ -709,13 +712,13 @@ mod tests {
                 assert_eq!(expected.parts(), actual.parts());
             }
             for len in 0..encoded.len() {
-                assert!(read_value(&mut ByteCursor::new(&encoded[..len])).is_err());
+                assert!(read_value(&mut ByteReader::new(&encoded[..len])).is_err());
             }
             let nested = Value::List(vec![value; 1000]);
             encoded.clear();
             write_value(&mut encoded, &nested).unwrap();
             assert_eq!(encoded.len(), 5 + 1000 * width);
-            let mut cursor = ByteCursor::new(&encoded);
+            let mut cursor = ByteReader::new(&encoded);
             assert_eq!(read_value(&mut cursor).unwrap(), nested);
             cursor.finish().unwrap();
         }
@@ -733,16 +736,16 @@ mod tests {
             vec![VALUE_INT_BIG, 0, 0, 0, 0, 1, 1],
             vec![VALUE_INT_BIG, 2, 0, 0, 0, 1, 0],
         ] {
-            assert!(read_value(&mut ByteCursor::new(&payload)).is_err());
+            assert!(read_value(&mut ByteReader::new(&payload)).is_err());
         }
         for scale in [29, 255] {
             let mut payload = vec![VALUE_DECIMAL];
             payload.extend_from_slice(&0_i128.to_be_bytes());
             payload.push(scale);
-            assert!(read_value(&mut ByteCursor::new(&payload)).is_err());
+            assert!(read_value(&mut ByteReader::new(&payload)).is_err());
         }
         let mut invalid_account = vec![VALUE_ACCOUNT];
         invalid_account.extend_from_slice(&[255; 62]);
-        assert!(read_value(&mut ByteCursor::new(&invalid_account)).is_err());
+        assert!(read_value(&mut ByteReader::new(&invalid_account)).is_err());
     }
 }

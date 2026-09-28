@@ -6,6 +6,7 @@
 #[cfg(feature = "sql")]
 mod intent;
 
+use crate::db::codec::{ByteDecodeError, ByteReader};
 use candid::CandidType;
 use serde::Deserialize;
 use std::{error::Error as StdError, fmt};
@@ -357,6 +358,12 @@ impl fmt::Display for MutationJobError {
     }
 }
 
+impl From<ByteDecodeError> for MutationJobError {
+    fn from(_: ByteDecodeError) -> Self {
+        Self::CorruptProgressStore
+    }
+}
+
 impl StdError for MutationJobError {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -705,36 +712,40 @@ pub(in crate::db) fn decode_mutation_job_payload(
     if bytes.len() > MAX_MUTATION_JOB_RECORD_BYTES {
         return Err(MutationJobError::CorruptProgressStore);
     }
-    let mut reader = Reader::new(bytes);
-    let job_id = MutationJobId::try_from_bytes(reader.array()?)
+    let mut reader = ByteReader::new(bytes);
+    let job_id = MutationJobId::try_from_bytes(reader.read_array()?)
         .map_err(|_| MutationJobError::CorruptProgressStore)?;
     let state = MutationJobState {
         job_id,
-        sequence: reader.u64()?,
+        sequence: reader.read_u64()?,
         status: read_status(&mut reader)?,
         phase: read_phase(&mut reader)?,
-        keys_scanned_total: reader.u64()?,
-        rows_updated_total: reader.u64()?,
-        verify_restarts_total: reader.u64()?,
+        keys_scanned_total: reader.read_u64()?,
+        rows_updated_total: reader.read_u64()?,
+        verify_restarts_total: reader.read_u64()?,
     };
-    let canonical_intent = reader.bytes(MAX_MUTATION_JOB_INTENT_BYTES)?.to_vec();
-    let engine_continuation = reader.bytes(MAX_MUTATION_JOB_CONTINUATION_BYTES)?.to_vec();
-    let last_receipt = match reader.u8()? {
+    let canonical_intent = reader
+        .read_bounded_len_prefixed_bytes(MAX_MUTATION_JOB_INTENT_BYTES)?
+        .to_vec();
+    let engine_continuation = reader
+        .read_bounded_len_prefixed_bytes(MAX_MUTATION_JOB_CONTINUATION_BYTES)?
+        .to_vec();
+    let last_receipt = match reader.read_u8()? {
         0 => None,
         1 => {
             let receipt = MutationJobAdvanceReceipt {
-                request_sequence: reader.u64()?,
-                committed_sequence: reader.u64()?,
+                request_sequence: reader.read_u64()?,
+                committed_sequence: reader.read_u64()?,
                 status: read_status(&mut reader)?,
                 phase: read_phase(&mut reader)?,
-                keys_scanned: reader.u64()?,
-                rows_updated: reader.u64()?,
-                keys_scanned_total: reader.u64()?,
-                rows_updated_total: reader.u64()?,
-                verify_restarts_total: reader.u64()?,
+                keys_scanned: reader.read_u64()?,
+                rows_updated: reader.read_u64()?,
+                keys_scanned_total: reader.read_u64()?,
+                rows_updated_total: reader.read_u64()?,
+                verify_restarts_total: reader.read_u64()?,
             };
             let idempotency_key = MutationJobIdempotencyKey::new(
-                reader.string(MAX_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES)?,
+                reader.read_bounded_string(MAX_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES)?,
             )
             .map_err(|_| MutationJobError::CorruptProgressStore)?;
             Some(RetainedMutationJobReceipt {
@@ -744,9 +755,7 @@ pub(in crate::db) fn decode_mutation_job_payload(
         }
         _ => return Err(MutationJobError::CorruptProgressStore),
     };
-    if !reader.is_empty() {
-        return Err(MutationJobError::CorruptProgressStore);
-    }
+    reader.finish()?;
     let record = MutationJobRecord {
         state,
         canonical_intent,
@@ -847,21 +856,23 @@ fn write_status(bytes: &mut Vec<u8>, status: MutationJobStatus) {
     }
 }
 
-fn read_status(reader: &mut Reader<'_>) -> Result<MutationJobStatus, MutationJobError> {
-    match reader.u8()? {
+fn read_status(reader: &mut ByteReader<'_>) -> Result<MutationJobStatus, MutationJobError> {
+    match reader.read_u8()? {
         0 => Ok(MutationJobStatus::Active),
         1 => Ok(MutationJobStatus::Completed),
-        2 => Ok(MutationJobStatus::RestartRequired(match reader.u8()? {
-            0 => MutationJobRestartReason::AcceptedSchemaChanged,
-            1 => MutationJobRestartReason::TargetAllocationChanged,
-            2 => MutationJobRestartReason::IntentIneligible,
-            3 => MutationJobRestartReason::BatchPolicyChanged,
-            4 => MutationJobRestartReason::UnsupportedContinuation,
-            5 => MutationJobRestartReason::ManagedTimestampRegression,
-            6 => MutationJobRestartReason::CandidateExceedsBatchPolicy,
-            7 => MutationJobRestartReason::ExecutionBudgetPolicyExceeded,
-            _ => return Err(MutationJobError::CorruptProgressStore),
-        })),
+        2 => Ok(MutationJobStatus::RestartRequired(
+            match reader.read_u8()? {
+                0 => MutationJobRestartReason::AcceptedSchemaChanged,
+                1 => MutationJobRestartReason::TargetAllocationChanged,
+                2 => MutationJobRestartReason::IntentIneligible,
+                3 => MutationJobRestartReason::BatchPolicyChanged,
+                4 => MutationJobRestartReason::UnsupportedContinuation,
+                5 => MutationJobRestartReason::ManagedTimestampRegression,
+                6 => MutationJobRestartReason::CandidateExceedsBatchPolicy,
+                7 => MutationJobRestartReason::ExecutionBudgetPolicyExceeded,
+                _ => return Err(MutationJobError::CorruptProgressStore),
+            },
+        )),
         _ => Err(MutationJobError::CorruptProgressStore),
     }
 }
@@ -873,8 +884,8 @@ fn write_phase(bytes: &mut Vec<u8>, phase: MutationJobPhase) {
     });
 }
 
-fn read_phase(reader: &mut Reader<'_>) -> Result<MutationJobPhase, MutationJobError> {
-    match reader.u8()? {
+fn read_phase(reader: &mut ByteReader<'_>) -> Result<MutationJobPhase, MutationJobError> {
+    match reader.read_u8()? {
         0 => Ok(MutationJobPhase::Forward),
         1 => Ok(MutationJobPhase::Verify),
         _ => Err(MutationJobError::CorruptProgressStore),
@@ -886,72 +897,6 @@ fn write_bytes(bytes: &mut Vec<u8>, value: &[u8]) -> Result<(), MutationJobError
     bytes.extend_from_slice(&len.to_be_bytes());
     bytes.extend_from_slice(value);
     Ok(())
-}
-
-struct Reader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> Reader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    fn u8(&mut self) -> Result<u8, MutationJobError> {
-        let value = *self
-            .bytes
-            .get(self.offset)
-            .ok_or(MutationJobError::CorruptProgressStore)?;
-        self.offset += 1;
-        Ok(value)
-    }
-
-    fn u32(&mut self) -> Result<u32, MutationJobError> {
-        Ok(u32::from_be_bytes(self.array()?))
-    }
-
-    fn u64(&mut self) -> Result<u64, MutationJobError> {
-        Ok(u64::from_be_bytes(self.array()?))
-    }
-
-    fn array<const N: usize>(&mut self) -> Result<[u8; N], MutationJobError> {
-        self.take(N)?
-            .try_into()
-            .map_err(|_| MutationJobError::CorruptProgressStore)
-    }
-
-    fn bytes(&mut self, max: usize) -> Result<&'a [u8], MutationJobError> {
-        let len = self.u32()? as usize;
-        if len > max {
-            return Err(MutationJobError::CorruptProgressStore);
-        }
-        self.take(len)
-    }
-
-    fn string(&mut self, max: usize) -> Result<String, MutationJobError> {
-        let bytes = self.bytes(max)?;
-        std::str::from_utf8(bytes)
-            .map(str::to_string)
-            .map_err(|_| MutationJobError::CorruptProgressStore)
-    }
-
-    fn take(&mut self, len: usize) -> Result<&'a [u8], MutationJobError> {
-        let end = self
-            .offset
-            .checked_add(len)
-            .ok_or(MutationJobError::CorruptProgressStore)?;
-        let bytes = self
-            .bytes
-            .get(self.offset..end)
-            .ok_or(MutationJobError::CorruptProgressStore)?;
-        self.offset = end;
-        Ok(bytes)
-    }
-
-    const fn is_empty(&self) -> bool {
-        self.offset == self.bytes.len()
-    }
 }
 
 #[cfg(test)]
@@ -1256,10 +1201,13 @@ mod tests {
     fn payload_decode_is_bounded_fallible_and_rejects_trailing_bytes() {
         let bytes = encode_mutation_job_payload(&initial_record())
             .expect("current mutation payload should encode");
-        assert_eq!(
-            decode_mutation_job_payload(&bytes[..bytes.len() - 1]),
-            Err(MutationJobError::CorruptProgressStore),
-        );
+        for end in 0..bytes.len() {
+            assert_eq!(
+                decode_mutation_job_payload(&bytes[..end]),
+                Err(MutationJobError::CorruptProgressStore),
+                "truncation at byte {end} must retain corruption classification",
+            );
+        }
         let mut trailing = bytes;
         trailing.push(0);
         assert_eq!(

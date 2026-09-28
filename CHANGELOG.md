@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)
 
+- `0.261.13` simplifies binary decoding, schema-removal checks and constraint descriptions while preserving formats and public behavior.
 - `0.261.12` strengthens empty-range scan and interrupted schema/index recovery verification without changing runtime behavior.
 - `0.261.11` seeks one-sided scalar primary-key bounds and resumes small ordered pages at their authenticated cursor (restart affected saved continuations).
 - `0.261.10` bounds dynamic page execution by small query limits without changing APIs or stored data.

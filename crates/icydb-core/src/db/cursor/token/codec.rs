@@ -6,11 +6,11 @@
 
 use crate::{
     db::{
+        codec::ByteReader,
         cursor::{
             ContinuationSignature, CursorBoundary, CursorBoundarySlot,
             token::bytes::{
-                ByteCursor, checked_len_u32, write_len_prefixed_bytes, write_string, write_u32,
-                write_u64,
+                checked_len_u32, write_len_prefixed_bytes, write_string, write_u32, write_u64,
             },
             token::scalar::{
                 MAX_SCALAR_CURSOR_LOGICAL_BOUNDARY_BYTES, MAX_SCALAR_CURSOR_ORDER_TERMS,
@@ -136,7 +136,7 @@ pub(in crate::db::cursor::token) fn decode_grouped_token(
     mac_key: &[u8; 32],
 ) -> Result<DecodedGroupedTokenPayload, TokenWireError> {
     let payload = decode_authenticated_payload(bytes, TOKEN_VARIANT_GROUPED, mac_key)?;
-    let mut cursor = ByteCursor::new(payload);
+    let mut cursor = ByteReader::new(payload);
 
     // Authentication has succeeded; now interpret the fixed fields and key tuple.
     let signature = ContinuationSignature::from_bytes(cursor.read_array()?);
@@ -161,7 +161,7 @@ pub(in crate::db::cursor::token) fn decode_scalar_token(
     mac_key: &[u8; 32],
 ) -> Result<ScalarPageToken, TokenWireError> {
     let payload = decode_authenticated_payload(bytes, TOKEN_VARIANT_SCALAR, mac_key)?;
-    read_scalar_payload(ByteCursor::new(payload))
+    read_scalar_payload(ByteReader::new(payload))
 }
 
 fn decode_authenticated_payload<'a>(
@@ -173,7 +173,7 @@ fn decode_authenticated_payload<'a>(
         return Err(TokenWireError::decode());
     }
 
-    let mut framing = ByteCursor::new(bytes);
+    let mut framing = ByteReader::new(bytes);
     if framing.read_array::<4>()? != *TOKEN_WIRE_MAGIC
         || framing.read_u8()? != TOKEN_WIRE_VERSION
         || framing.read_u8()? != variant
@@ -247,7 +247,7 @@ fn write_scalar_payload(out: &mut Vec<u8>, token: &ScalarPageToken) -> Result<()
     Ok(())
 }
 
-fn read_scalar_payload(mut cursor: ByteCursor<'_>) -> Result<ScalarPageToken, TokenWireError> {
+fn read_scalar_payload(mut cursor: ByteReader<'_>) -> Result<ScalarPageToken, TokenWireError> {
     let mode = match cursor.read_u8()? {
         PAGE_MODE_LIVE => ScalarPageMode::Live,
         PAGE_MODE_EXHAUSTIVE => ScalarPageMode::Exhaustive,
@@ -345,7 +345,7 @@ fn write_optional_cardinality_route_pin(
 }
 
 fn read_optional_cardinality_route_pin(
-    cursor: &mut ByteCursor<'_>,
+    cursor: &mut ByteReader<'_>,
     entity_tag: EntityTag,
 ) -> Result<Option<CardinalityTiebreakRoutePin>, TokenWireError> {
     match cursor.read_u8()? {
@@ -378,10 +378,10 @@ fn write_optional_u32(out: &mut Vec<u8>, value: Option<u32>) {
     }
 }
 
-fn read_optional_u32(cursor: &mut ByteCursor<'_>) -> Result<Option<u32>, TokenWireError> {
+fn read_optional_u32(cursor: &mut ByteReader<'_>) -> Result<Option<u32>, TokenWireError> {
     match cursor.read_u8()? {
         0 => Ok(None),
-        1 => cursor.read_u32().map(Some),
+        1 => Ok(Some(cursor.read_u32()?)),
         _ => Err(TokenWireError::decode()),
     }
 }
@@ -397,13 +397,10 @@ fn write_optional_bytes(out: &mut Vec<u8>, value: Option<&[u8]>) -> Result<(), T
     Ok(())
 }
 
-fn read_optional_bytes(cursor: &mut ByteCursor<'_>) -> Result<Option<Vec<u8>>, TokenWireError> {
+fn read_optional_bytes(cursor: &mut ByteReader<'_>) -> Result<Option<Vec<u8>>, TokenWireError> {
     match cursor.read_u8()? {
         0 => Ok(None),
-        1 => cursor
-            .read_len_prefixed_bytes()
-            .map(<[u8]>::to_vec)
-            .map(Some),
+        1 => Ok(Some(cursor.read_len_prefixed_bytes()?.to_vec())),
         _ => Err(TokenWireError::decode()),
     }
 }
@@ -435,7 +432,7 @@ fn write_optional_boundary(
 }
 
 fn read_optional_boundary(
-    cursor: &mut ByteCursor<'_>,
+    cursor: &mut ByteReader<'_>,
 ) -> Result<Option<CursorBoundary>, TokenWireError> {
     match cursor.read_u8()? {
         0 => Ok(None),
@@ -498,7 +495,7 @@ fn write_direction(out: &mut Vec<u8>, direction: Direction) {
     });
 }
 
-fn read_direction(cursor: &mut ByteCursor<'_>) -> Result<Direction, TokenWireError> {
+fn read_direction(cursor: &mut ByteReader<'_>) -> Result<Direction, TokenWireError> {
     match cursor.read_u8()? {
         DIRECTION_ASC => Ok(Direction::Asc),
         DIRECTION_DESC => Ok(Direction::Desc),
