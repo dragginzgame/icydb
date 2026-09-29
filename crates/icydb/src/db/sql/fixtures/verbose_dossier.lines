@@ -1,5 +1,5 @@
 entity: Account
-path: fixtures::pre_0_224::Account
+path: fixtures::describe::Account
 row layout: current=3 history_floor=1
 identity: field=id generator=Identity::next type=Nat64 domain=1..=18446744073709551615 high_water=17 remaining=18446744073709551598 exhausted=no
 

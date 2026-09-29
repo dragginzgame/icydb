@@ -186,7 +186,7 @@ fn execute_hybrid_covering_projection_with_checked_rows(
         )?;
         let Some(sparse_row_fields) = sparse_row_fields else {
             if matches!(plan.scalar_consistency(), MissingRowPolicy::Error) {
-                return Err(crate::db::executor::ExecutorError::missing_row(&data_key).into());
+                return Err(crate::db::executor::ExecutorError::store_corruption().into());
             }
             continue;
         };

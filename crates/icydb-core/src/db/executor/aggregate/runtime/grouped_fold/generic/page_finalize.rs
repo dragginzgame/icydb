@@ -269,9 +269,7 @@ impl GroupedPageCandidate {
     // first materializing the public grouped DTO.
     fn group_key_values(&self) -> Result<&[Value], InternalError> {
         let Value::List(values) = self.group_key.canonical_value() else {
-            return Err(GroupedRouteStage::canonical_group_key_must_be_list(
-                self.group_key.canonical_value(),
-            ));
+            return Err(InternalError::query_executor_invariant());
         };
 
         Ok(values.as_slice())
@@ -326,7 +324,7 @@ impl GroupedPageCandidate {
     fn into_group_key_values(group_key: GroupKey) -> Result<Vec<Value>, InternalError> {
         match group_key.into_canonical_value() {
             Value::List(values) => Ok(values),
-            value => Err(GroupedRouteStage::canonical_group_key_must_be_list(&value)),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 }
@@ -475,9 +473,7 @@ fn compile_grouped_page_candidate_top_k_ranking(
     compiled_order: &CompiledGroupedTopKOrder,
 ) -> Result<GroupedPageCandidateRanking, InternalError> {
     let Value::List(group_key_values) = candidate.group_key.canonical_value() else {
-        return Err(GroupedRouteStage::canonical_group_key_must_be_list(
-            candidate.group_key.canonical_value(),
-        ));
+        return Err(InternalError::query_executor_invariant());
     };
     let grouped_row = GroupedRowView::new(
         group_key_values.as_slice(),

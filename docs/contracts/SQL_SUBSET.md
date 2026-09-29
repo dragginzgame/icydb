@@ -60,11 +60,11 @@ The remaining public SQL surfaces are:
 - `execute_admin_sql_ddl(...)`
 - `execute_admin_integrity_sql(...)`
 
-Query and row-mutation entry points resolve the entity named by the statement
+Query, row-mutation and DDL entry points resolve the entity named by the statement
 directly through accepted catalog authority; they do not require a generated
-Rust entity parameter. DDL remains bound to its current typed administrative
-surface. The integrity entry point resolves entity-bearing starts through the
-registered runtime selector and then requires an exact accepted-authority
+Rust entity parameter. DDL is an administrative frontend over catalog-native
+schema mutation. The integrity entry point resolves entity-bearing starts
+through the registered runtime selector and then requires an exact accepted-authority
 match. Query and direct mutation surfaces return SQL-shaped output; resumable
 update and integrity execution return their canonical typed receipts instead.
 
@@ -85,9 +85,10 @@ bounded read-admission gate applies.
 Cursor-based pagination is not part of the scalar SQL surface.
 
 - SQL uses `LIMIT` / `OFFSET` for scalar windowing.
-- Scalar cursor pagination is not exposed by the maintained typed/dynamic API.
-- This is intentional: cursor semantics are transport-level, not query
-  semantics.
+- Typed and dynamic APIs expose scalar cursor pagination through
+  `execute_live_page`, using an opaque continuation from the prior page.
+  See the [read-intent guide](../guides/read-intent.md) for examples.
+- Cursor semantics are transport-level, not query semantics.
 
 Grouped SQL is the explicit exception.
 Grouped SQL result payloads may carry `next_cursor` because grouped execution

@@ -1395,54 +1395,6 @@ mod tests {
         });
     }
 
-    // Manual native preparation probe: includes accepted-value lowering,
-    // canonicalization, predicate extraction and output disposal, not row reads.
-    #[test]
-    #[ignore = "manual native typed-membership preparation microbenchmark"]
-    fn typed_membership_native_timing() {
-        use std::{hint::black_box, time::Instant};
-
-        let schema = membership_schema();
-        let root = crate::db::RequestExecutionRoot::__new_runtime_root();
-        let scope = root.scope();
-        for count in [4, 16, 64, 128] {
-            let filter = FilterExpr::Set {
-                operator: SetOperator::In,
-                field: "id".to_string(),
-                values: (0..count)
-                    .rev()
-                    .map(|value| FilterValue::String(value.to_string()))
-                    .collect(),
-            };
-            let prepare = || {
-                let expr = crate::db::query::preparation::PreparationWork::run(
-                    &scope,
-                    icydb_diagnostic_code::DiagnosticExecutionLane::PublicRead,
-                    |work| {
-                        normalize_bool_expr(filter.lower_bool_expr_for_schema(&schema, work)?, work)
-                    },
-                )
-                .expect("timing workload fits request budget");
-                let predicate = crate::db::query::preparation::with_preparation_work(|work| {
-                    derive_normalized_bool_expr_predicate_subset(&expr, work)
-                })
-                .expect("fixture predicate construction fits");
-                drop(black_box((expr, predicate)));
-            };
-            prepare();
-            let mut samples = Vec::new();
-            for _ in 0..7 {
-                let start = Instant::now();
-                for _ in 0..64 {
-                    prepare();
-                }
-                samples.push(start.elapsed().as_nanos() / 64);
-            }
-            samples.sort_unstable();
-            println!("membership_native count={count} median_ns={}", samples[3]);
-        }
-    }
-
     #[test]
     fn typed_filter_atoms_use_reversible_string_representations() {
         assert_eq!(

@@ -156,14 +156,9 @@ fn parameter_payload_and_list_caps_preserve_eligibility_without_operand_copies()
 }
 
 #[test]
-fn parameter_coercion_metadata_is_admitted_before_copying() {
-    let mut predicate = Predicate::eq("field".into(), Value::Nat64(1));
-    let Predicate::Compare(compare) = &mut predicate else {
-        unreachable!()
-    };
-    compare.coercion.params = vec![("name".into(), "value".into())];
-    let bytes =
-        ("field".len() + size_of::<(String, String)>() + "name".len() + "value".len()) as u64;
+fn parameter_field_metadata_is_admitted_before_copying() {
+    let predicate = Predicate::eq("field".into(), Value::Nat64(1));
+    let bytes = "field".len() as u64;
     let admitted = request(Resource::TemporaryBytes, bytes);
     assert!(
         contract(&predicate, &admitted, Lane::PublicRead)
@@ -181,11 +176,7 @@ fn parameter_coercion_metadata_is_admitted_before_copying() {
 
 #[test]
 fn parameter_construction_exhaustion_is_cumulative_in_every_read_lane() {
-    let mut equality = Predicate::eq("account".into(), Value::Nat64(1));
-    let Predicate::Compare(compare) = &mut equality else {
-        unreachable!()
-    };
-    compare.coercion.params = vec![("name".into(), "value".repeat(32))];
+    let equality = Predicate::eq("account".into(), Value::Nat64(1));
     let predicate = Predicate::And(vec![
         equality,
         Predicate::in_("block".into(), vec![Value::Nat64(2), Value::Nat64(3)]),

@@ -117,21 +117,9 @@ pub(in crate::db::executor) fn project_grouped_values_from_compiled_projection(
         }
     }
 
-    // Phase 2: preserve the old out-of-bounds diagnostics when the planner
-    // layout references a projection position that does not exist.
-    if let Some(position) = expected_group_position {
-        return Err(PlannedProjectionLayout::projected_position_out_of_bounds(
-            "group-field",
-            position,
-            compiled_projection.compiled_projection().len(),
-        ));
-    }
-    if let Some(position) = expected_aggregate_position {
-        return Err(PlannedProjectionLayout::projected_position_out_of_bounds(
-            "aggregate",
-            position,
-            compiled_projection.compiled_projection().len(),
-        ));
+    // Every planned output position must have been reached by projection evaluation.
+    if expected_group_position.is_some() || expected_aggregate_position.is_some() {
+        return Err(InternalError::query_executor_invariant());
     }
 
     Ok(RuntimeGroupedRow::new(

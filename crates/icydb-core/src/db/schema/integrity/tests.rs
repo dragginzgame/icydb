@@ -110,7 +110,6 @@ fn index_width_is_enforced_for_accepted_and_candidate_key_forms() {
             for split in 0..=1 {
                 assert_eq!(
                     schema_snapshot_index_integrity_detail(
-                        "test",
                         &layout,
                         &fields,
                         &indexes[..split],
@@ -251,7 +250,6 @@ fn index_integrity_keeps_one_ordinal_sequence_across_active_and_candidate_entrie
     for split in 0..=indexes.len() {
         assert_eq!(
             schema_snapshot_index_integrity_detail(
-                "test",
                 &layout,
                 &fields,
                 &indexes[..split],
@@ -262,7 +260,7 @@ fn index_integrity_keeps_one_ordinal_sequence_across_active_and_candidate_entrie
         );
     }
     assert_eq!(
-        schema_snapshot_index_integrity_detail("test", &layout, &fields, &[], &[]),
+        schema_snapshot_index_integrity_detail(&layout, &fields, &[], &[]),
         None
     );
 }
@@ -281,7 +279,6 @@ fn index_integrity_rejects_conflicts_and_malformed_keys_on_either_side_of_the_sp
         for split in 0..=indexes.len() {
             assert_eq!(
                 schema_snapshot_index_integrity_detail(
-                    "test",
                     &layout,
                     &fields,
                     &indexes[..split],
@@ -305,7 +302,6 @@ fn relation_integrity_admits_active_and_candidate_entries_without_an_ordinal_req
     for split in 0..=relations.len() {
         assert_eq!(
             schema_snapshot_relation_integrity_detail(
-                "test",
                 &layout,
                 &fields,
                 &relations[..split],
@@ -316,7 +312,7 @@ fn relation_integrity_admits_active_and_candidate_entries_without_an_ordinal_req
         );
     }
     assert_eq!(
-        schema_snapshot_relation_integrity_detail("test", &layout, &fields, &[], &[]),
+        schema_snapshot_relation_integrity_detail(&layout, &fields, &[], &[]),
         None
     );
 }
@@ -333,7 +329,6 @@ fn relation_integrity_rejects_conflicts_and_invalid_sources_on_either_side_of_th
         for split in 0..=relations.len() {
             assert_eq!(
                 schema_snapshot_relation_integrity_detail(
-                    "test",
                     &layout,
                     &fields,
                     &relations[..split],

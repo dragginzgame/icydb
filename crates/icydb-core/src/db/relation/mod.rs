@@ -17,7 +17,6 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::fmt::{Debug, Display};
 
 pub(crate) use reverse_index::ReverseRelationSourceInfo;
 pub(in crate::db) use reverse_index::{
@@ -28,17 +27,6 @@ pub(in crate::db) use validate::{
     validate_candidate_relation_target_delete_barrier,
     validate_delete_relations_for_accepted_source,
 };
-
-///
-/// RelationTargetDecodeContext
-/// Call-site context labels for relation target key decode diagnostics.
-///
-
-#[derive(Clone, Copy, Debug)]
-enum RelationTargetDecodeContext {
-    DeleteValidation,
-    ReverseIndexPrepare,
-}
 
 ///
 /// RelationTargetMismatchPolicy
@@ -96,13 +84,12 @@ impl AcceptedRelationTargetContract {
 
 #[derive(Clone, Copy)]
 struct AcceptedRelationTupleEdgeLocalComponent<'a> {
-    field_name: &'a str,
     kind: &'a AcceptedFieldKind,
 }
 
 impl<'a> AcceptedRelationTupleEdgeLocalComponent<'a> {
-    const fn new(field_name: &'a str, kind: &'a AcceptedFieldKind) -> Self {
-        Self { field_name, kind }
+    const fn new(kind: &'a AcceptedFieldKind) -> Self {
+        Self { kind }
     }
 }
 
@@ -118,16 +105,13 @@ impl AcceptedRelationTupleEdgeDescriptor {
 
 fn accepted_relation_tuple_edge_descriptor<C>(
     db: &Db<C>,
-    source_path: &str,
-    relation_name: &str,
     target_path: &str,
     local_components: &[AcceptedRelationTupleEdgeLocalComponent<'_>],
 ) -> Result<AcceptedRelationTupleEdgeDescriptor, InternalError>
 where
     C: CanisterKind,
 {
-    let target_contract =
-        accepted_relation_target_contract(db, source_path, relation_name, target_path)?;
+    let target_contract = accepted_relation_target_contract(db, target_path)?;
     let target_kinds = target_contract.primary_key_kinds();
     if local_components.len() != target_kinds.len() {
         return Err(InternalError::relation_target_primary_key_arity_mismatch(
@@ -139,15 +123,7 @@ where
     for (local, target_kind) in local_components.iter().zip(target_kinds) {
         let local_kind = relation_local_component_key_kind(local.kind);
         if local_kind != target_kind {
-            return Err(InternalError::relation_target_identity_mismatch(
-                source_path,
-                relation_name,
-                target_path,
-                format!(
-                    "local field '{}' kind {local_kind:?} does not match accepted target primary-key kind {target_kind:?}",
-                    local.field_name,
-                ),
-            ));
+            return Err(InternalError::executor_internal());
         }
         validate_relation_primary_key_component_kind(local_kind)?;
     }
@@ -172,9 +148,6 @@ impl AcceptedRelationScalarTargetDescriptor {
 
 fn accepted_scalar_relation_target_descriptor<C>(
     db: &Db<C>,
-    source_path: &str,
-    diagnostic_relation_name: &str,
-    authority_relation_name: &str,
     kind: &AcceptedFieldKind,
     expected_edge_target_path: Option<&str>,
 ) -> Result<Option<AcceptedRelationScalarTargetDescriptor>, InternalError>
@@ -191,25 +164,15 @@ where
     }
     validate_relation_primary_key_component_kind(target.scalar_target_key_kind)?;
     let declared_target = AcceptedRelationTargetAuthority::try_new(
-        source_path,
-        authority_relation_name,
         target.target_path,
         target.target_entity_name,
         target.target_entity_tag,
         target.target_store_path,
     )?;
-    let target_registration =
-        declared_target.validate_against_db(db, source_path, diagnostic_relation_name)?;
-    let target_contract = accepted_relation_target_contract_for_runtime_entity(
-        db,
-        source_path,
-        diagnostic_relation_name,
-        target_registration,
-    )?;
+    let target_registration = declared_target.validate_against_db(db)?;
+    let target_contract =
+        accepted_relation_target_contract_for_runtime_entity(db, target_registration)?;
     validate_accepted_relation_primary_key_kinds(
-        source_path,
-        diagnostic_relation_name,
-        target.target_path,
         std::slice::from_ref(target.scalar_target_key_kind),
         target_contract.primary_key_kinds(),
     )?;
@@ -222,21 +185,17 @@ where
 
 fn accepted_relation_target_contract<C>(
     db: &Db<C>,
-    source_path: &str,
-    relation_name: &str,
     target_path: &str,
 ) -> Result<AcceptedRelationTargetContract, InternalError>
 where
     C: CanisterKind,
 {
     let target = db.accepted_runtime_entity_for_path(target_path)?;
-    accepted_relation_target_contract_for_runtime_entity(db, source_path, relation_name, target)
+    accepted_relation_target_contract_for_runtime_entity(db, target)
 }
 
 fn accepted_relation_target_contract_for_runtime_entity<C>(
     db: &Db<C>,
-    source_path: &str,
-    relation_name: &str,
     target: AcceptedRuntimeEntity,
 ) -> Result<AcceptedRelationTargetContract, InternalError>
 where
@@ -259,8 +218,6 @@ where
         .cloned()
         .collect();
     let target = AcceptedRelationTargetAuthority::try_new(
-        source_path,
-        relation_name,
         target.entity_path(),
         accepted.entity_name(),
         target.entity_tag(),
@@ -274,36 +231,17 @@ where
 }
 
 fn validate_accepted_relation_primary_key_kinds(
-    source_path: &str,
-    relation_name: &str,
-    target_path: &str,
     relation_key_kinds: &[AcceptedFieldKind],
     accepted_key_kinds: &[AcceptedFieldKind],
 ) -> Result<(), InternalError> {
     if accepted_key_kinds.len() != relation_key_kinds.len() {
-        return Err(InternalError::relation_target_identity_mismatch(
-            source_path,
-            relation_name,
-            target_path,
-            format!(
-                "target accepted primary-key component count {} does not match relation component count {}",
-                accepted_key_kinds.len(),
-                relation_key_kinds.len(),
-            ),
-        ));
+        return Err(InternalError::executor_internal());
     }
 
     for (accepted_key_kind, relation_key_kind) in accepted_key_kinds.iter().zip(relation_key_kinds)
     {
         if accepted_key_kind != relation_key_kind {
-            return Err(InternalError::relation_target_identity_mismatch(
-                source_path,
-                relation_name,
-                target_path,
-                format!(
-                    "target accepted primary-key kind {accepted_key_kind:?} does not match relation key kind {relation_key_kind:?}"
-                ),
-            ));
+            return Err(InternalError::executor_internal());
         }
     }
 
@@ -385,22 +323,13 @@ struct AcceptedRelationTargetAuthority {
 
 impl AcceptedRelationTargetAuthority {
     fn try_new(
-        source_path: &str,
-        field_name: &str,
         target_path: &str,
         target_entity_name: &str,
         target_entity_tag: EntityTag,
         target_store_path: &str,
     ) -> Result<Self, InternalError> {
-        let entity_name = EntityName::try_from_str(target_entity_name).map_err(|err| {
-            InternalError::relation_target_name_invalid(
-                source_path,
-                field_name,
-                target_path,
-                target_entity_name,
-                err,
-            )
-        })?;
+        let entity_name = EntityName::try_from_str(target_entity_name)
+            .map_err(|_| InternalError::executor_internal())?;
 
         Ok(Self {
             path: target_path.to_string(),
@@ -416,11 +345,6 @@ impl AcceptedRelationTargetAuthority {
     }
 
     #[must_use]
-    const fn entity_name(&self) -> EntityName {
-        self.entity_name
-    }
-
-    #[must_use]
     const fn entity_tag(&self) -> EntityTag {
         self.entity_tag
     }
@@ -430,55 +354,20 @@ impl AcceptedRelationTargetAuthority {
         self.store_path.as_str()
     }
 
-    fn validate_against_db<C>(
-        &self,
-        db: &Db<C>,
-        source_path: &str,
-        field_name: &str,
-    ) -> Result<AcceptedRuntimeEntity, InternalError>
+    fn validate_against_db<C>(&self, db: &Db<C>) -> Result<AcceptedRuntimeEntity, InternalError>
     where
         C: CanisterKind,
     {
         let runtime = db
             .accepted_runtime_entity_for_tag(self.entity_tag)
-            .map_err(|err| {
-                InternalError::relation_target_identity_mismatch(
-                    source_path,
-                    field_name,
-                    self.path.as_str(),
-                    format!(
-                        "target_entity_tag={} is not registered: {err}",
-                        self.entity_tag.value()
-                    ),
-                )
-            })?;
+            .map_err(|_| InternalError::executor_internal())?;
 
         if runtime.entity_path() != self.path {
-            return Err(InternalError::relation_target_identity_mismatch(
-                source_path,
-                field_name,
-                self.path.as_str(),
-                format!(
-                    "target_entity_tag={} resolves to entity_path={} but relation declares {}",
-                    self.entity_tag.value(),
-                    runtime.entity_path(),
-                    self.path
-                ),
-            ));
+            return Err(InternalError::executor_internal());
         }
 
         if runtime.store_path() != self.store_path {
-            return Err(InternalError::relation_target_identity_mismatch(
-                source_path,
-                field_name,
-                self.path.as_str(),
-                format!(
-                    "target_store_path={} does not match runtime store {} for target_entity_tag={}",
-                    self.store_path,
-                    runtime.store_path(),
-                    self.entity_tag.value(),
-                ),
-            ));
+            return Err(InternalError::executor_internal());
         }
 
         let store = db.store_handle(runtime.store_path())?;
@@ -493,43 +382,10 @@ impl AcceptedRelationTargetAuthority {
             .ok_or_else(InternalError::store_corruption)?;
         let accepted = selection.snapshot();
         if accepted.entity_name() != self.entity_name.as_str() {
-            return Err(InternalError::relation_target_identity_mismatch(
-                source_path,
-                field_name,
-                self.path.as_str(),
-                format!(
-                    "target_entity_tag={} resolves to accepted entity_name={} but relation declares {}",
-                    self.entity_tag.value(),
-                    accepted.entity_name(),
-                    self.entity_name.as_str(),
-                ),
-            ));
+            return Err(InternalError::executor_internal());
         }
 
         Ok(runtime)
-    }
-}
-
-impl InternalError {
-    /// Construct the canonical relation invalid target-name error.
-    pub(in crate::db::relation) fn relation_target_name_invalid(
-        _source_path: &str,
-        _field_name: &str,
-        _target_path: &str,
-        _target_entity_name: &str,
-        _err: impl Debug,
-    ) -> Self {
-        Self::executor_internal()
-    }
-
-    /// Construct the canonical relation target identity mismatch error.
-    pub(in crate::db::relation) fn relation_target_identity_mismatch(
-        _source_path: &str,
-        _field_name: &str,
-        _target_path: &str,
-        _detail: impl Display,
-    ) -> Self {
-        Self::executor_internal()
     }
 }
 
@@ -594,9 +450,6 @@ mod tests {
     #[test]
     fn accepted_relation_target_authority_rejects_primary_key_arity_drift() {
         let err = validate_accepted_relation_primary_key_kinds(
-            "Source",
-            "target_id",
-            "Target",
             &[AcceptedFieldKind::Nat64],
             &[AcceptedFieldKind::Nat64, AcceptedFieldKind::Ulid],
         )
@@ -612,9 +465,6 @@ mod tests {
     #[test]
     fn accepted_relation_target_authority_rejects_primary_key_kind_drift() {
         let err = validate_accepted_relation_primary_key_kinds(
-            "Source",
-            "target_id",
-            "Target",
             &[AcceptedFieldKind::Nat64],
             &[AcceptedFieldKind::Nat128],
         )
@@ -630,9 +480,6 @@ mod tests {
     #[test]
     fn accepted_relation_target_authority_accepts_matching_ordered_primary_key_kinds() {
         validate_accepted_relation_primary_key_kinds(
-            "Source",
-            "author",
-            "Target",
             &[AcceptedFieldKind::Nat64, AcceptedFieldKind::Ulid],
             &[AcceptedFieldKind::Nat64, AcceptedFieldKind::Ulid],
         )

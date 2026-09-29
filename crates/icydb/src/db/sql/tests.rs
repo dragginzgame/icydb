@@ -28,20 +28,17 @@ use icydb_core::db::{GroupedRow, SqlStatementResult};
 use icydb_core::types::{Decimal, Float32, Float64};
 use serde::Deserialize;
 
-const PRE_0_224_VERBOSE_DOSSIER_CANDID_BYTES: usize = 2_063;
-const PRE_0_224_VERBOSE_DOSSIER_CANDID_SHA256: &str =
-    "8456e5335bc0456b7d10b2ba8b344c8d8bd09326cba18ab0e4a881dca2f890c8";
-const CURRENT_VERBOSE_DOSSIER_CANDID_BYTES: usize = 2_074;
+const CURRENT_VERBOSE_DOSSIER_CANDID_BYTES: usize = 2_069;
 const CURRENT_VERBOSE_DOSSIER_CANDID_SHA256: &str =
-    "7e6bca5053e8cba781c2cc49bd7a3d8d7e0c51602906fa89f146b2652459674d";
-const PRE_0_224_RELATION_CONTROL_CANDID_BYTES: usize = 242;
-const PRE_0_224_RELATION_CONTROL_CANDID_SHA256: &str =
-    "4a25beaeb6f7fb4f0665e713ecefeb06dea781fb448da21b5c610ae33341b4ea";
-const PRE_0_224_VERBOSE_DOSSIER_LINES: &str =
-    include_str!("fixtures/pre_0_224_verbose_dossier.lines");
+    "2ce73f91af7f6f94c835d6481e00b7d9eca0bd116babc2a422a5edbd98ffed98";
+const CURRENT_RELATION_CONTROL_CANDID_BYTES: usize = 239;
+const CURRENT_RELATION_CONTROL_CANDID_SHA256: &str =
+    "aedff66356b6b56b31af2f32ce1e75a806e91ba68eb7cd031993f39019700aee";
+const CURRENT_VERBOSE_DOSSIER_LINES: &str = include_str!("fixtures/verbose_dossier.lines");
 
+// Mirror the complete current public wire, including fields without public constructors.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct Pre0224EntitySchemaDescription {
+struct EntitySchemaDescriptionContract {
     entity_path: String,
     entity_name: String,
     entity_tag: u64,
@@ -49,17 +46,17 @@ struct Pre0224EntitySchemaDescription {
     accepted_schema_fingerprint: [u8; 16],
     primary_key: String,
     primary_key_fields: Vec<String>,
-    identity: Option<Box<Pre0224EntityIdentityDescription>>,
+    identity: Option<Box<EntityIdentityDescriptionContract>>,
     fields: Vec<EntityFieldDescription>,
     indexes: Vec<EntityIndexDescription>,
     relations: Vec<EntityRelationDescription>,
-    constraints: Vec<Pre0224EntityConstraintDescription>,
+    constraints: Vec<EntityConstraintDescriptionContract>,
     row_layout_current: u32,
     row_layout_history_floor: u32,
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct Pre0224EntityIdentityDescription {
+struct EntityIdentityDescriptionContract {
     field: String,
     generator: String,
     accepted_kind: String,
@@ -71,18 +68,19 @@ struct Pre0224EntityIdentityDescription {
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct Pre0224EntityConstraintDescription {
+struct EntityConstraintDescriptionContract {
     id: u32,
     name: String,
     kind: String,
     origin: String,
     validation_state: String,
-    validation_progress: Option<Pre0224ConstraintValidationProgressDescription>,
+    validation_progress: Option<ConstraintValidationProgressContract>,
     field_id: Option<u32>,
     index_id: Option<u32>,
     relation_id: Option<u32>,
     fields: Vec<String>,
     index: Option<String>,
+    predicate_sql: Option<String>,
     relation: Option<String>,
     target_entity: Option<String>,
     action: Option<String>,
@@ -91,7 +89,7 @@ struct Pre0224EntityConstraintDescription {
 }
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct Pre0224ConstraintValidationProgressDescription {
+struct ConstraintValidationProgressContract {
     phase: String,
     rows_scanned: u64,
     findings_seen: u64,
@@ -185,7 +183,7 @@ fn required_field(name: &str, slot: u16, kind: &str, primary_key: bool) -> Entit
     )
 }
 
-fn pre_0_224_field(
+fn dossier_field(
     name: &str,
     slot: Option<u16>,
     kind: &str,
@@ -221,9 +219,9 @@ fn pre_0_224_field(
 
 #[expect(
     clippy::too_many_lines,
-    reason = "the named golden keeps the complete pre-0.224 dossier visible in one fixture"
+    reason = "the named golden keeps the complete current dossier visible in one fixture"
 )]
-fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
+fn verbose_dossier_fixture() -> EntitySchemaDescriptionContract {
     let mut fields = vec![
         EntityFieldDescription::new(
             "id".to_string(),
@@ -242,7 +240,7 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
             None,
             None,
         ),
-        pre_0_224_field(
+        dossier_field(
             "display_name",
             Some(1),
             "Text(64)",
@@ -251,7 +249,7 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
             true,
             "generated",
         ),
-        pre_0_224_field(
+        dossier_field(
             "profile",
             Some(2),
             "Composite(Profile)",
@@ -260,7 +258,7 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
             true,
             "generated",
         ),
-        pre_0_224_field(
+        dossier_field(
             "profile.nickname",
             None,
             "Text(32)",
@@ -269,7 +267,7 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
             true,
             "generated",
         ),
-        pre_0_224_field(
+        dossier_field(
             "profile.rank",
             None,
             "Nat16",
@@ -278,7 +276,7 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
             true,
             "generated",
         ),
-        pre_0_224_field(
+        dossier_field(
             "friend_id",
             Some(3),
             "Nat64",
@@ -287,7 +285,7 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
             true,
             "generated",
         ),
-        pre_0_224_field(
+        dossier_field(
             "member_ids",
             Some(4),
             "List<Nat64>(16)",
@@ -296,7 +294,7 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
             true,
             "generated",
         ),
-        pre_0_224_field(
+        dossier_field(
             "watcher_ids",
             Some(5),
             "Set<Nat64>(16)",
@@ -324,15 +322,15 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
         Some("5e0f8f3b90b05d27".to_string()),
     ));
 
-    Pre0224EntitySchemaDescription {
-        entity_path: "fixtures::pre_0_224::Account".to_string(),
+    EntitySchemaDescriptionContract {
+        entity_path: "fixtures::describe::Account".to_string(),
         entity_name: "Account".to_string(),
         entity_tag: 42,
         accepted_schema_fingerprint_method: 1,
         accepted_schema_fingerprint: [0x24; 16],
         primary_key: "id".to_string(),
         primary_key_fields: vec!["id".to_string()],
-        identity: Some(Box::new(Pre0224EntityIdentityDescription {
+        identity: Some(Box::new(EntityIdentityDescriptionContract {
             field: "id".to_string(),
             generator: "Identity::next".to_string(),
             accepted_kind: "Nat64".to_string(),
@@ -366,28 +364,28 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
         relations: vec![
             EntityRelationDescription::new(
                 "friend_id".to_string(),
-                "fixtures::pre_0_224::User".to_string(),
+                "fixtures::describe::User".to_string(),
                 "User".to_string(),
                 "stores::accounts".to_string(),
                 EntityRelationCardinality::Single,
             ),
             EntityRelationDescription::new(
                 "member_ids".to_string(),
-                "fixtures::pre_0_224::Group".to_string(),
+                "fixtures::describe::Group".to_string(),
                 "Group".to_string(),
                 "stores::accounts".to_string(),
                 EntityRelationCardinality::List,
             ),
             EntityRelationDescription::new(
                 "watcher_ids".to_string(),
-                "fixtures::pre_0_224::User".to_string(),
+                "fixtures::describe::User".to_string(),
                 "User".to_string(),
                 "stores::accounts".to_string(),
                 EntityRelationCardinality::Set,
             ),
         ],
         constraints: vec![
-            Pre0224EntityConstraintDescription {
+            EntityConstraintDescriptionContract {
                 id: 0,
                 name: "account_pk".to_string(),
                 kind: "primary_key".to_string(),
@@ -399,13 +397,14 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
                 relation_id: None,
                 fields: vec!["id".to_string()],
                 index: None,
+                predicate_sql: None,
                 relation: None,
                 target_entity: None,
                 action: None,
                 semantics: "primary_key_v1".to_string(),
                 check_sql: None,
             },
-            Pre0224EntityConstraintDescription {
+            EntityConstraintDescriptionContract {
                 id: 8,
                 name: "account_score_name_unique".to_string(),
                 kind: "unique".to_string(),
@@ -417,13 +416,14 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
                 relation_id: None,
                 fields: vec!["legacy_score".to_string(), "display_name".to_string()],
                 index: Some("account_score_name_idx".to_string()),
+                predicate_sql: None,
                 relation: None,
                 target_entity: None,
                 action: None,
                 semantics: "unique_index_v1".to_string(),
                 check_sql: None,
             },
-            Pre0224EntityConstraintDescription {
+            EntityConstraintDescriptionContract {
                 id: 9,
                 name: "account_score_nonnegative".to_string(),
                 kind: "check".to_string(),
@@ -435,13 +435,14 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
                 relation_id: None,
                 fields: vec!["legacy_score".to_string()],
                 index: None,
+                predicate_sql: None,
                 relation: None,
                 target_entity: None,
                 action: None,
                 semantics: "check_expr_v1".to_string(),
                 check_sql: Some("legacy_score >= 0".to_string()),
             },
-            Pre0224EntityConstraintDescription {
+            EntityConstraintDescriptionContract {
                 id: 10,
                 name: "account_friend_relation".to_string(),
                 kind: "relation".to_string(),
@@ -453,19 +454,20 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
                 relation_id: Some(0),
                 fields: vec!["friend_id".to_string()],
                 index: None,
+                predicate_sql: None,
                 relation: Some("account_friend".to_string()),
-                target_entity: Some("fixtures::pre_0_224::User".to_string()),
+                target_entity: Some("fixtures::describe::User".to_string()),
                 action: Some("restrict".to_string()),
                 semantics: "relation_pk_restrict_v1".to_string(),
                 check_sql: None,
             },
-            Pre0224EntityConstraintDescription {
+            EntityConstraintDescriptionContract {
                 id: 11,
                 name: "account_display_name_not_null".to_string(),
                 kind: "not_null".to_string(),
                 origin: "sql_ddl".to_string(),
                 validation_state: "validating".to_string(),
-                validation_progress: Some(Pre0224ConstraintValidationProgressDescription {
+                validation_progress: Some(ConstraintValidationProgressContract {
                     phase: "forward".to_string(),
                     rows_scanned: 41,
                     findings_seen: 2,
@@ -476,6 +478,7 @@ fn pre_0_224_verbose_dossier_fixture() -> Pre0224EntitySchemaDescription {
                 relation_id: None,
                 fields: vec!["display_name".to_string()],
                 index: None,
+                predicate_sql: None,
                 relation: None,
                 target_entity: None,
                 action: None,
@@ -513,13 +516,13 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn pre_0_224_verbose_dossier_golden() {
-    let expected = pre_0_224_verbose_dossier_fixture();
+fn verbose_dossier_golden() {
+    let expected = verbose_dossier_fixture();
     let expected_bytes = Encode!(&expected).expect("golden mirror should encode");
     let description = Decode!(&expected_bytes, EntitySchemaDescription)
         .expect("golden mirror should decode as the maintained dossier");
     let actual_bytes = Encode!(&description).expect("maintained dossier should encode");
-    let actual = Decode!(&actual_bytes, Pre0224EntitySchemaDescription)
+    let actual = Decode!(&actual_bytes, EntitySchemaDescriptionContract)
         .expect("maintained dossier should decode as the complete golden mirror");
     let relation_bytes = Encode!(&description.relations().to_vec())
         .expect("maintained relation projection should encode");
@@ -530,31 +533,23 @@ fn pre_0_224_verbose_dossier_golden() {
         actual, expected,
         "the complete typed dossier must remain exact"
     );
-    assert_eq!(expected_bytes.len(), PRE_0_224_VERBOSE_DOSSIER_CANDID_BYTES);
     assert_eq!(
-        sha256_hex(&expected_bytes),
-        PRE_0_224_VERBOSE_DOSSIER_CANDID_SHA256
-    );
-    assert_ne!(
         actual_bytes, expected_bytes,
-        "the maintained dossier intentionally adds optional predicate metadata"
+        "current contract encoding must be exact"
     );
     assert_eq!(actual_bytes.len(), CURRENT_VERBOSE_DOSSIER_CANDID_BYTES);
     assert_eq!(
         sha256_hex(&actual_bytes),
         CURRENT_VERBOSE_DOSSIER_CANDID_SHA256
     );
-    assert_eq!(
-        relation_bytes.len(),
-        PRE_0_224_RELATION_CONTROL_CANDID_BYTES
-    );
+    assert_eq!(relation_bytes.len(), CURRENT_RELATION_CONTROL_CANDID_BYTES);
     assert_eq!(
         sha256_hex(&relation_bytes),
-        PRE_0_224_RELATION_CONTROL_CANDID_SHA256
+        CURRENT_RELATION_CONTROL_CANDID_SHA256
     );
     assert_eq!(
         lines.join("\n"),
-        PRE_0_224_VERBOSE_DOSSIER_LINES.trim_end(),
+        CURRENT_VERBOSE_DOSSIER_LINES.trim_end(),
         "verbose shell lines must remain exact",
     );
     assert_eq!(
@@ -564,7 +559,7 @@ fn pre_0_224_verbose_dossier_golden() {
 }
 
 #[test]
-fn sql_introspection_0_224_candid_envelopes_are_exact() {
+fn sql_introspection_candid_envelopes_are_exact() {
     let column = SqlColumnSummaryContract {
         name: "profile.name".to_string(),
         field_type: "text(max_len=64)".to_string(),

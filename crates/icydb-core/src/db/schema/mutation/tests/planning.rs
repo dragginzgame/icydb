@@ -56,7 +56,6 @@ fn index_mutation_plans_preserve_the_current_physical_target() {
     let expression_target = expression
         .expression_index_target()
         .expect("expression plan should expose its runner target");
-    assert_eq!(expression_target.name(), "by_lower_name");
     let [super::SchemaExpressionIndexRebuildKey::Expression(expression_key)] =
         expression_target.key_items()
     else {

@@ -27,16 +27,12 @@ fn scalar_compilation_resolves_accepted_slots_and_preserves_syntax() {
     let cases = [
         (
             Expr::Field(FieldId::new("id")),
-            CompiledExpr::Slot {
-                slot: 0,
-                field: "id".to_string(),
-            },
+            CompiledExpr::Slot { slot: 0 },
         ),
         (
             Expr::FieldPath(FieldPath::new("profile", vec!["name".to_string()])),
             CompiledExpr::FieldPath {
                 root_slot: 2,
-                field: "profile.name".to_string(),
                 segments: vec!["name".to_string()].into_boxed_slice(),
                 segment_bytes: vec![b"name".to_vec().into_boxed_slice()].into_boxed_slice(),
             },
@@ -77,7 +73,6 @@ fn scalar_compilation_resolves_accepted_slots_and_preserves_syntax() {
             CompiledExpr::BinarySlotLiteral {
                 op: BinaryOp::Add,
                 slot: 0,
-                field: "id".to_string(),
                 literal: Value::Nat64(3),
                 slot_on_left: true,
             },

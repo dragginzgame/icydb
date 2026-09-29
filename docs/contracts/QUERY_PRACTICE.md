@@ -104,15 +104,16 @@ A `Predicate` is defined as:
 * `False`
 * `And(Vec<Predicate>)`
 * `Or(Vec<Predicate>)`
-* `Not(Predicate)`
-* `Compare { field, op, value, coercion }`
+* `Not(Box<Predicate>)`
+* `Compare(ComparePredicate)` — a field, operator, literal and coercion policy
+* `CompareFields(CompareFieldsPredicate)` — two fields, operator and coercion policy
 * `IsNull { field }`
+* `IsNotNull { field }`
 * `IsMissing { field }`
 * `IsEmpty { field }`
 * `IsNotEmpty { field }`
-* `MapContainsKey { field, key, coercion }`
-* `MapContainsValue { field, value, coercion }`
-* `MapContainsEntry { field, key, value, coercion }`
+* `TextContains { field, value }`
+* `TextContainsCi { field, value }`
 
 Map field predicates are intentionally rejected at validation time in the
 current contract:
@@ -137,12 +138,14 @@ For `Compare`:
 
 * Logical operators use **strict two-valued boolean logic** with short-circuiting.
 * Predicates always evaluate to `true` or `false`; there is no `Unknown` state.
-* `Compare` predicates are **field-to-literal only**.
-  Field-to-field comparisons are explicitly out of scope for the query builder.
+* `Compare` predicates compare a field with a literal. `CompareFields`
+  supports equality and ordering between admitted fields in compatible
+  comparison families; the builder exposes helpers such as `eq_field` and
+  `gt_field`.
 
 ### Coercion Model (Data, Not Behavior)
 
-Every `Compare` or map predicate carries an explicit `CoercionSpec`.
+Every `Compare` and `CompareFields` predicate carries an explicit `CoercionSpec`.
 
 Coercion is:
 
@@ -159,14 +162,8 @@ There is **no implicit coercion**.
 * `TextCasefold` — text comparisons use canonical casefolding.
 * `CollectionElement` — element-level coercion for list/set membership.
 
-#### CoercionSpec Example
-
-```text
-CoercionSpec {
-  id: TextCasefold,
-  params: { locale: "root" }
-}
-```
+`CoercionSpec::new(CoercionId::TextCasefold)` selects canonical text
+casefolding. The coercion ID completely specifies comparison policy.
 
 #### Coercion Table (Conceptual)
 
@@ -204,7 +201,9 @@ Given a row `R` and predicate `P`:
      * apply the operator to coerced values.
    * if coercion fails at runtime, return false; this condition must be
      unreachable after successful validation and is treated as a validation bug.
-7. Map fields:
+7. `CompareFields` reads both admitted fields and applies its declared
+   equality or ordering coercion. A missing operand does not match.
+8. Map fields:
 
    * validation rejects field predicates on maps, including emptiness checks;
      there is no map-key/value predicate or index surface.
@@ -316,7 +315,7 @@ Validation is mandatory and occurs before evaluation:
 * Field exists in schema and has a known type.
 * Operator is valid for the field type.
 * `CoercionSpec` is allowed for the field type and operator.
-* List/map predicates use correctly typed literals.
+* Collection predicates use correctly typed literals.
 * Ordering operators are only used on orderable domains.
 * Bounded row windows require deterministic total ordering; scalar page
   execution supplies accepted primary-key order when no term is authored.

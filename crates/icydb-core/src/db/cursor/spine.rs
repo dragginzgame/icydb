@@ -13,13 +13,11 @@ use crate::db::{
 
 /// Validate continuation token signature against the executable signature.
 fn validate_cursor_signature(
-    entity_path: &str,
     expected_signature: &ContinuationSignature,
     actual_signature: &ContinuationSignature,
 ) -> Result<(), CursorPlanError> {
     if actual_signature != expected_signature {
         return Err(CursorPlanError::continuation_cursor_signature_mismatch(
-            entity_path,
             expected_signature,
             actual_signature,
         ));
@@ -32,7 +30,6 @@ fn validate_cursor_signature(
 /// canonical grouped cursor spine.
 pub(in crate::db::cursor) fn validate_grouped_cursor_token(
     cursor: Option<GroupedContinuationToken>,
-    entity_path: &str,
     continuation_signature: ContinuationSignature,
     expected_direction: Direction,
     expected_initial_offset: u32,
@@ -42,7 +39,7 @@ pub(in crate::db::cursor) fn validate_grouped_cursor_token(
     };
     let (signature, last_group_key, direction, initial_offset) = token.into_components();
 
-    validate_cursor_signature(entity_path, &continuation_signature, &signature)?;
+    validate_cursor_signature(&continuation_signature, &signature)?;
     validate_grouped_cursor_direction(expected_direction, direction)?;
     validate_cursor_window_offset(expected_initial_offset, initial_offset)?;
 

@@ -113,16 +113,4 @@ impl dyn ConstructionBudget + '_ {
         )?;
         Ok(next)
     }
-
-    /// Append label bytes, charging growth (including the retained prefix) first.
-    pub(in crate::db) fn push_text(
-        &self,
-        out: &mut String,
-        text: &str,
-    ) -> Result<(), InternalError> {
-        self.charge(Resource::PredicateExpressionSteps, text.len() as u64)?;
-        self.reserve_string(out, text.len())?;
-        out.push_str(text);
-        Ok(())
-    }
 }

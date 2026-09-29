@@ -331,7 +331,7 @@ pub(in crate::db::schema) fn plan_schema_migration(
         working.insert(store.path, WorkingStore::new(store));
     }
     apply_rename_bindings(&resolved, &mut working)?;
-    rebuild_transitioned_snapshots(proposal, &resolved, &mut working)?;
+    rebuild_transitioned_snapshots(&resolved, &mut working)?;
     // The ordinary lowerer is the remaining-change authority. Its returned
     // candidate may deliberately contain staged activation state, which is
     // already the exact accepted plan and must not be lowered a second time.
@@ -785,7 +785,6 @@ fn inverse_field_source(transition: &EntityMigration, current: &FieldSourceKey) 
 }
 
 fn rebuild_transitioned_snapshots(
-    _proposal: &SchemaProposal,
     transitions: &[ResolvedTransition<'_>],
     stores: &mut BTreeMap<&'static str, WorkingStore<'_>>,
 ) -> Result<(), SchemaMigrationPlanningError> {

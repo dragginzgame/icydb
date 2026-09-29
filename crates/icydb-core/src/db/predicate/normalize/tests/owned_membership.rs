@@ -36,7 +36,7 @@ fn assert_normalized_identity(input: Predicate, expected: &Predicate) {
 }
 
 #[test]
-fn duplicate_only_or_preserves_equality_and_complete_coercion_metadata() {
+fn duplicate_only_or_preserves_equality_and_coercion() {
     for coercion in [CoercionId::Strict, CoercionId::TextCasefold] {
         for value in [
             Value::Null,
@@ -45,13 +45,8 @@ fn duplicate_only_or_preserves_equality_and_complete_coercion_metadata() {
             Value::Decimal(Decimal::from_i128_with_scale(100, 2)),
             Value::Enum(ValueEnum::test_payload(1, 1, Value::Null)),
         ] {
-            for params in [vec![], vec![("fixture".into(), "value".into())]] {
-                let mut leaf =
-                    ComparePredicate::with_coercion("tag", CompareOp::Eq, value.clone(), coercion);
-                leaf.coercion.params = params;
-                let expected = Predicate::Compare(leaf);
-                assert_normalized_identity(Predicate::Or(vec![expected.clone(); 3]), &expected);
-            }
+            let expected = equality(value, coercion);
+            assert_normalized_identity(Predicate::Or(vec![expected.clone(); 3]), &expected);
         }
     }
 }
@@ -128,31 +123,6 @@ fn eligible_or_membership_preserves_canonical_identity_across_input_orders() {
                 }
             }
         }
-    }
-}
-
-#[test]
-fn equal_values_with_distinct_coercion_metadata_remain_membership() {
-    let first = equality(Value::Nat64(7), CoercionId::Strict);
-    let mut second = first.clone();
-    let Predicate::Compare(compare) = &mut second else {
-        panic!("compare fixture")
-    };
-    compare
-        .coercion
-        .params
-        .push(("fixture".into(), "other".into()));
-    let expected = Predicate::Compare(ComparePredicate::with_coercion(
-        "tag",
-        CompareOp::In,
-        Value::List(vec![Value::Nat64(7)]),
-        CoercionId::Strict,
-    ));
-    for children in [
-        vec![first.clone(), second.clone(), first.clone()],
-        vec![second, first],
-    ] {
-        assert_normalized_identity(Predicate::Or(children), &expected);
     }
 }
 

@@ -377,7 +377,6 @@ pub(in crate::db) fn resolve_sql_ddl_field_set_default_candidate<'a>(
 /// Insert defaults affect only future after-images, so changing one neither
 /// rewrites historical rows nor rebuilds accepted indexes.
 pub(in crate::db) fn validate_sql_ddl_field_default_change_candidate(
-    _accepted_before: &AcceptedSchemaSnapshot,
     field: &PersistedFieldSnapshot,
     default: &SchemaInsertDefault,
 ) -> Result<(), SchemaDdlFieldDefaultCandidateError> {
@@ -404,11 +403,7 @@ pub(in crate::db) fn resolve_sql_ddl_field_drop_default_candidate<'a>(
         .find(|field| field.name() == field_name)
         .ok_or(SchemaDdlFieldDefaultCandidateError::Unknown)?;
 
-    validate_sql_ddl_field_default_change_candidate(
-        accepted_before,
-        field,
-        &SchemaInsertDefault::None,
-    )?;
+    validate_sql_ddl_field_default_change_candidate(field, &SchemaInsertDefault::None)?;
 
     Ok(field)
 }
@@ -562,7 +557,7 @@ pub(in crate::db) fn derive_sql_ddl_field_default_accepted_after(
         .iter()
         .find(|field| field.name() == field_name)
         .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
-    validate_sql_ddl_field_default_change_candidate(accepted_before, before_field, &default)
+    validate_sql_ddl_field_default_change_candidate(before_field, &default)
         .map_err(|_| SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
     let persisted_after =
         derive_sql_ddl_field_default_persisted_after(before, before_field.id(), default);

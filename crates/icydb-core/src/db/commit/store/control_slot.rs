@@ -394,7 +394,7 @@ fn parse_current_control(bytes: &[u8]) -> Result<ParsedCurrentControl<'_>, Inter
         registry.push(read_registry_entry(bytes, &mut cursor)?);
     }
     validate_registry(registry.iter().map(|entry| entry.roles))?;
-    let marker_len = read_u32_le(bytes, &mut cursor, "commit control-slot")? as usize;
+    let marker_len = read_u32_le(bytes, &mut cursor)? as usize;
     let encoded_len = cursor
         .checked_add(marker_len)
         .ok_or_else(control_slot_canonical_envelope_required)?;

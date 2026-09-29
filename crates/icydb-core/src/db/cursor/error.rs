@@ -104,9 +104,8 @@ impl CursorPlanError {
         Self::continuation_cursor_invariant()
     }
 
-    /// Construct one cursor-signature mismatch error for the current entity path.
+    /// Construct one cursor-signature mismatch error with expected and actual signature prefixes.
     pub(in crate::db) const fn continuation_cursor_signature_mismatch(
-        _entity_path: &str,
         expected: &ContinuationSignature,
         actual: &ContinuationSignature,
     ) -> Self {

@@ -169,17 +169,6 @@ struct CommitInputs {
     rows: CommitRowImages<RawRow>,
 }
 
-impl CommitInputs {
-    /// Build the canonical schema-fingerprint mismatch mapping for structural commit inputs.
-    fn schema_fingerprint_mismatch(
-        _entity_path: &str,
-        _marker: crate::db::commit::CommitSchemaFingerprint,
-        _runtime: crate::db::commit::CommitSchemaFingerprint,
-    ) -> InternalError {
-        InternalError::store_unsupported()
-    }
-}
-
 ///
 /// CommitRowImages
 ///
@@ -708,11 +697,7 @@ fn prepare_row_commit_structural_inputs(
         return Err(InternalError::store_corruption());
     }
     if op.schema_fingerprint != authority.schema_fingerprint {
-        return Err(CommitInputs::schema_fingerprint_mismatch(
-            authority.entity_path.as_ref(),
-            op.schema_fingerprint,
-            authority.schema_fingerprint,
-        ));
+        return Err(InternalError::store_unsupported());
     }
 
     let raw_key = op.key.clone();

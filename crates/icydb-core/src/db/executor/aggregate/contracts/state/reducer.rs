@@ -32,11 +32,6 @@ pub(in crate::db::executor::aggregate::contracts::state) enum GroupedAggregateRe
 }
 
 impl GroupedAggregateReducerState {
-    // Build the canonical grouped reducer-state mismatch for one aggregate kind.
-    fn state_mismatch(_kind: &'static str) -> InternalError {
-        InternalError::query_executor_invariant()
-    }
-
     /// Build the initial grouped reducer state for one aggregate terminal.
     #[must_use]
     pub(in crate::db::executor::aggregate::contracts::state) const fn for_kind(
@@ -60,7 +55,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<(), InternalError> {
         match self {
             Self::Count(reducer) => reducer.increment_count(),
-            _ => Err(Self::state_mismatch("COUNT")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -71,7 +66,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<(), InternalError> {
         match self {
             Self::Sum(reducer) => reducer.ingest_sum_value(value),
-            _ => Err(Self::state_mismatch("SUM")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -82,7 +77,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<(), InternalError> {
         match self {
             Self::Avg(reducer) => reducer.ingest(value),
-            _ => Err(Self::state_mismatch("AVG")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -95,7 +90,7 @@ impl GroupedAggregateReducerState {
                 *exists = true;
                 Ok(())
             }
-            _ => Err(Self::state_mismatch("EXISTS")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -106,7 +101,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<(), InternalError> {
         match self {
             Self::Min(reducer) => reducer.ingest_canonical_ordered_owned(value),
-            _ => Err(Self::state_mismatch("MIN")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -117,7 +112,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<(), InternalError> {
         match self {
             Self::Max(reducer) => reducer.ingest_canonical_ordered_owned(value),
-            _ => Err(Self::state_mismatch("MAX")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -128,7 +123,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<(), InternalError> {
         match self {
             Self::Min(reducer) => reducer.ingest_owned(value),
-            _ => Err(Self::state_mismatch("MIN")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -139,7 +134,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<(), InternalError> {
         match self {
             Self::Max(reducer) => reducer.ingest_owned(value),
-            _ => Err(Self::state_mismatch("MAX")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -150,7 +145,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<(), InternalError> {
         match self {
             Self::Min(reducer) => reducer.replace_selected(value),
-            _ => Err(Self::state_mismatch("MIN")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -161,7 +156,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<(), InternalError> {
         match self {
             Self::Max(reducer) => reducer.replace_selected(value),
-            _ => Err(Self::state_mismatch("MAX")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -171,7 +166,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<Option<&Value>, InternalError> {
         match self {
             Self::Min(reducer) => Ok(reducer.selected()),
-            _ => Err(Self::state_mismatch("MIN")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -181,7 +176,7 @@ impl GroupedAggregateReducerState {
     ) -> Result<Option<&Value>, InternalError> {
         match self {
             Self::Max(reducer) => Ok(reducer.selected()),
-            _ => Err(Self::state_mismatch("MAX")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -195,7 +190,7 @@ impl GroupedAggregateReducerState {
                 *first_key = Some(key.as_runtime_value());
                 Ok(())
             }
-            _ => Err(Self::state_mismatch("FIRST")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 
@@ -209,7 +204,7 @@ impl GroupedAggregateReducerState {
                 *last_key = Some(key.as_runtime_value());
                 Ok(())
             }
-            _ => Err(Self::state_mismatch("LAST")),
+            _ => Err(InternalError::query_executor_invariant()),
         }
     }
 

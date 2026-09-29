@@ -630,7 +630,6 @@ fn validate_typed_schema_snapshot_for_store(
     snapshot: &PersistedSchemaSnapshot,
 ) -> Result<(), InternalError> {
     if schema_snapshot_integrity_detail(
-        "schema snapshot",
         snapshot.version(),
         snapshot.primary_key_field_ids(),
         snapshot.row_layout(),

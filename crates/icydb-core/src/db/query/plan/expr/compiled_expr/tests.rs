@@ -10,7 +10,48 @@ use std::{borrow::Cow, cell::RefCell, cmp::Ordering};
 use super::ProjectionAccessKind;
 
 #[test]
-fn grouped_compilation_preserves_first_matching_slots_and_path_labels() {
+fn compiled_expression_retention_enforces_inline_and_owned_payload_limits() {
+    use crate::retained::RetainedBytes;
+
+    let mut text = String::with_capacity(256);
+    text.push_str("retained literal");
+    let payload_bytes = text.capacity();
+    let segments = vec!["rank".to_string()].into_boxed_slice();
+    let segment_bytes = vec![b"rank".to_vec().into_boxed_slice()].into_boxed_slice();
+    let path_bytes = size_of_val(segments.as_ref())
+        + segments[0].capacity()
+        + size_of_val(segment_bytes.as_ref())
+        + segment_bytes[0].len();
+    let expressions = [
+        (CompiledExpr::Slot { slot: 3 }, 0),
+        (CompiledExpr::GroupKey { offset: 2 }, 0),
+        (
+            CompiledExpr::FieldPath {
+                root_slot: 3,
+                segments,
+                segment_bytes,
+            },
+            path_bytes,
+        ),
+        (
+            CompiledExpr::BinarySlotLiteral {
+                op: BinaryOp::Eq,
+                slot: 3,
+                literal: Value::Text(text),
+                slot_on_left: true,
+            },
+            payload_bytes,
+        ),
+    ];
+    for (expr, payload_bytes) in expressions {
+        let exact = size_of_val(&expr) + payload_bytes;
+        assert_eq!(RetainedBytes::measure(&expr, exact), Some(exact));
+        assert_eq!(RetainedBytes::measure(&expr, exact - 1), None);
+    }
+}
+
+#[test]
+fn grouped_compilation_resolves_first_matching_fields_paths_and_aggregates() {
     use crate::db::query::{
         builder::count,
         plan::{
@@ -33,9 +74,7 @@ fn grouped_compilation_preserves_first_matching_slots_and_path_labels() {
             work,
         )
         .unwrap();
-        assert!(
-            matches!(field, CompiledExpr::GroupKey {offset: 0, ref field} if field == "account")
-        );
+        assert!(matches!(field, CompiledExpr::GroupKey { offset: 0 }));
         let aggregate =
             compile_grouped_projection_expr(&Expr::Aggregate(count()), &fields, &specs, work)
                 .unwrap();
@@ -49,9 +88,7 @@ fn grouped_compilation_preserves_first_matching_slots_and_path_labels() {
         )]);
         let path = Expr::FieldPath(FieldPath::new("account", vec!["owner".into()]));
         let compiled = compile_grouped_projection_expr(&path, &fields, &[], work).unwrap();
-        assert!(
-            matches!(compiled, CompiledExpr::GroupKey {offset: 0, ref field} if field == "account.owner")
-        );
+        assert!(matches!(compiled, CompiledExpr::GroupKey { offset: 0 }));
     });
 }
 
@@ -300,7 +337,6 @@ impl CompiledExprValueReader for TracingRowView {
     fn read_field_path(
         &self,
         root_slot: usize,
-        _field: &str,
         _segments: &[String],
         _segment_bytes: &[Box<[u8]>],
     ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
@@ -358,80 +394,56 @@ fn evaluate(expr: &CompiledExpr) -> Value {
 fn field_path_expr(root_slot: usize) -> CompiledExpr {
     CompiledExpr::FieldPath {
         root_slot,
-        field: "profile.rank".to_string(),
         segments: vec!["rank".to_string()].into_boxed_slice(),
         segment_bytes: vec![b"rank".to_vec().into_boxed_slice()].into_boxed_slice(),
     }
 }
 
-fn slot_expr(slot: usize) -> CompiledExpr {
-    CompiledExpr::Slot {
-        slot,
-        field: format!("slot_{slot}"),
-    }
+const fn slot_expr(slot: usize) -> CompiledExpr {
+    CompiledExpr::Slot { slot }
 }
 
 fn direct_slot_binary_expr(op: BinaryOp, left_slot: usize, right_slot: usize) -> CompiledExpr {
     match op {
         BinaryOp::Add => CompiledExpr::Add {
             left_slot,
-            left_field: "left".to_string(),
             right_slot,
-            right_field: "right".to_string(),
         },
         BinaryOp::Sub => CompiledExpr::Sub {
             left_slot,
-            left_field: "left".to_string(),
             right_slot,
-            right_field: "right".to_string(),
         },
         BinaryOp::Mul => CompiledExpr::Mul {
             left_slot,
-            left_field: "left".to_string(),
             right_slot,
-            right_field: "right".to_string(),
         },
         BinaryOp::Div => CompiledExpr::Div {
             left_slot,
-            left_field: "left".to_string(),
             right_slot,
-            right_field: "right".to_string(),
         },
         BinaryOp::Eq => CompiledExpr::Eq {
             left_slot,
-            left_field: "left".to_string(),
             right_slot,
-            right_field: "right".to_string(),
         },
         BinaryOp::Ne => CompiledExpr::Ne {
             left_slot,
-            left_field: "left".to_string(),
             right_slot,
-            right_field: "right".to_string(),
         },
         BinaryOp::Lt => CompiledExpr::Lt {
             left_slot,
-            left_field: "left".to_string(),
             right_slot,
-            right_field: "right".to_string(),
         },
         BinaryOp::Lte => CompiledExpr::Lte {
             left_slot,
-            left_field: "left".to_string(),
             right_slot,
-            right_field: "right".to_string(),
         },
         BinaryOp::Gt => CompiledExpr::Gt {
             left_slot,
-            left_field: "left".to_string(),
             right_slot,
-            right_field: "right".to_string(),
         },
         BinaryOp::Gte => CompiledExpr::Gte {
             left_slot,
-            left_field: "left".to_string(),
             right_slot,
-            right_field: "right".to_string(),
         },
         BinaryOp::And | BinaryOp::Or => CompiledExpr::Binary {
             op,
@@ -441,11 +453,10 @@ fn direct_slot_binary_expr(op: BinaryOp, left_slot: usize, right_slot: usize) ->
     }
 }
 
-fn slot_literal_expr(op: BinaryOp, slot: usize, literal: Value) -> CompiledExpr {
+const fn slot_literal_expr(op: BinaryOp, slot: usize, literal: Value) -> CompiledExpr {
     CompiledExpr::BinarySlotLiteral {
         op,
         slot,
-        field: format!("slot_{slot}"),
         literal,
         slot_on_left: true,
     }
@@ -460,7 +471,6 @@ fn case_slot_literal_expr(
     CompiledExpr::CaseSlotLiteral {
         op,
         slot,
-        field: format!("slot_{slot}"),
         literal: Value::Nat64(5),
         slot_on_left: true,
         then_expr: Box::new(then_expr),
@@ -475,7 +485,6 @@ fn case_slot_bool_expr(
 ) -> CompiledExpr {
     CompiledExpr::CaseSlotBool {
         slot,
-        field: format!("slot_{slot}"),
         then_expr: Box::new(then_expr),
         else_expr: Box::new(else_expr),
     }
@@ -589,10 +598,7 @@ fn assert_evaluation_reads_are_advertised(expr: &CompiledExpr, context: &str) {
 
 #[test]
 fn grouped_compiled_expr_reads_slots_without_cloning_contract_drift() {
-    let expr = CompiledExpr::Slot {
-        slot: 0,
-        field: "age".to_string(),
-    };
+    let expr = CompiledExpr::Slot { slot: 0 };
 
     assert_eq!(evaluate(&expr), Value::Nat64(7));
 }
@@ -601,9 +607,7 @@ fn grouped_compiled_expr_reads_slots_without_cloning_contract_drift() {
 fn grouped_compiled_expr_preserves_slot_arithmetic_semantics() {
     let expr = CompiledExpr::Add {
         left_slot: 0,
-        left_field: "age".to_string(),
         right_slot: 1,
-        right_field: "rank".to_string(),
     };
     let value = evaluate(&expr);
 
@@ -634,14 +638,7 @@ fn compiled_expr_referenced_slot_matrix_covers_row_slot_variants() {
     for (context, expr, expected) in [
         ("slot", slot_expr(0), vec![0]),
         ("field-path", field_path_expr(3), vec![3]),
-        (
-            "group-key",
-            CompiledExpr::GroupKey {
-                offset: 0,
-                field: "tier".to_string(),
-            },
-            vec![],
-        ),
+        ("group-key", CompiledExpr::GroupKey { offset: 0 }, vec![]),
         ("aggregate", CompiledExpr::Aggregate { index: 0 }, vec![]),
         ("literal", CompiledExpr::Literal(Value::Nat64(1)), vec![]),
     ] {
@@ -821,7 +818,6 @@ fn grouped_compiled_expr_case_only_true_selects_branch() {
                 condition: CompiledExpr::BinarySlotLiteral {
                     op: BinaryOp::Gt,
                     slot: 0,
-                    field: "age".to_string(),
                     literal: Value::Nat64(5),
                     slot_on_left: true,
                 },
@@ -860,7 +856,6 @@ fn grouped_compiled_expr_case_slot_literal_selects_without_condition_value() {
     let expr = CompiledExpr::CaseSlotLiteral {
         op: BinaryOp::Gt,
         slot: 0,
-        field: "age".to_string(),
         literal: Value::Nat64(5),
         slot_on_left: true,
         then_expr: Box::new(CompiledExpr::Literal(Value::Text("selected".to_string()))),
@@ -874,7 +869,6 @@ fn grouped_compiled_expr_case_slot_literal_selects_without_condition_value() {
 fn grouped_compiled_expr_case_slot_bool_preserves_null_fallthrough() {
     let expr = CompiledExpr::CaseSlotBool {
         slot: 2,
-        field: "maybe_flag".to_string(),
         then_expr: Box::new(CompiledExpr::Literal(Value::Text("selected".to_string()))),
         else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
     };
@@ -887,17 +881,10 @@ fn compiled_expr_case_slot_literal_references_condition_and_branch_slots() {
     let expr = CompiledExpr::CaseSlotLiteral {
         op: BinaryOp::Gt,
         slot: 0,
-        field: "score".to_string(),
         literal: Value::Nat64(10),
         slot_on_left: true,
-        then_expr: Box::new(CompiledExpr::Slot {
-            slot: 2,
-            field: "min_score".to_string(),
-        }),
-        else_expr: Box::new(CompiledExpr::Slot {
-            slot: 3,
-            field: "max_score".to_string(),
-        }),
+        then_expr: Box::new(CompiledExpr::Slot { slot: 2 }),
+        else_expr: Box::new(CompiledExpr::Slot { slot: 3 }),
     };
     let mut slots = Vec::new();
     expr.extend_referenced_slots(&mut slots);
@@ -913,15 +900,8 @@ fn compiled_expr_case_slot_literal_references_condition_and_branch_slots() {
 fn compiled_expr_case_slot_bool_references_condition_and_branch_slots() {
     let expr = CompiledExpr::CaseSlotBool {
         slot: 4,
-        field: "active".to_string(),
-        then_expr: Box::new(CompiledExpr::Slot {
-            slot: 0,
-            field: "score".to_string(),
-        }),
-        else_expr: Box::new(CompiledExpr::Slot {
-            slot: 1,
-            field: "fallback".to_string(),
-        }),
+        then_expr: Box::new(CompiledExpr::Slot { slot: 0 }),
+        else_expr: Box::new(CompiledExpr::Slot { slot: 1 }),
     };
     let mut required = [false; 5];
     expr.mark_referenced_slots(&mut required);
@@ -937,11 +917,7 @@ fn compiled_expr_case_slot_bool_references_condition_and_branch_slots() {
 fn grouped_compiled_expr_function_calls_reuse_projection_semantics() {
     let expr = CompiledExpr::FunctionCall {
         function: Function::Lower,
-        args: vec![CompiledExpr::Slot {
-            slot: 3,
-            field: "name".to_string(),
-        }]
-        .into_boxed_slice(),
+        args: vec![CompiledExpr::Slot { slot: 3 }].into_boxed_slice(),
     };
 
     assert_eq!(evaluate(&expr), Value::Text("mixed".to_string()));
@@ -967,10 +943,7 @@ fn grouped_compiled_expr_function_error_preserves_projection_reason() {
 
 #[test]
 fn grouped_compiled_expr_missing_slot_keeps_compact_diagnostic() {
-    let expr = CompiledExpr::Slot {
-        slot: 99,
-        field: "missing_field".to_string(),
-    };
+    let expr = CompiledExpr::Slot { slot: 99 };
     let err = expr
         .evaluate(&row_view())
         .expect_err("missing grouped slot should stay a projection error");
@@ -999,10 +972,7 @@ fn compiled_expr_aggregate_in_row_context_errors_not_null() {
 
 #[test]
 fn compiled_expr_group_key_in_row_context_errors_not_null() {
-    let expr = CompiledExpr::GroupKey {
-        offset: 0,
-        field: "class".to_string(),
-    };
+    let expr = CompiledExpr::GroupKey { offset: 0 };
     let err = expr
         .evaluate(&row_view())
         .expect_err("row readers must not silently NULL grouped-key leaves");
@@ -1018,10 +988,7 @@ fn compiled_expr_group_key_in_row_context_errors_not_null() {
 
 #[test]
 fn compiled_expr_slot_in_grouped_context_errors_not_null() {
-    let expr = CompiledExpr::Slot {
-        slot: 0,
-        field: "age".to_string(),
-    };
+    let expr = CompiledExpr::Slot { slot: 0 };
     let err = expr
         .evaluate(&grouped_view())
         .expect_err("grouped-output readers must not silently NULL slot leaves");
@@ -1038,10 +1005,7 @@ fn compiled_expr_slot_in_grouped_context_errors_not_null() {
 #[test]
 fn compiled_expr_out_of_bounds_grouped_reads_error_not_null() {
     let grouped_view = grouped_view();
-    let group_key = CompiledExpr::GroupKey {
-        offset: 9,
-        field: "class".to_string(),
-    };
+    let group_key = CompiledExpr::GroupKey { offset: 9 };
     let aggregate = CompiledExpr::Aggregate { index: 9 };
 
     std::assert_matches!(
@@ -1081,10 +1045,7 @@ fn compiled_expr_case_missing_condition_read_errors_before_else() {
 fn compiled_expr_case_slot_bool_matches_generic_non_boolean_admission() {
     let generic = CompiledExpr::Case {
         when_then_arms: vec![super::CompiledExprCaseArm {
-            condition: CompiledExpr::Slot {
-                slot: 3,
-                field: "name".to_string(),
-            },
+            condition: CompiledExpr::Slot { slot: 3 },
             result: CompiledExpr::Literal(Value::Text("then".to_string())),
         }]
         .into_boxed_slice(),
@@ -1092,7 +1053,6 @@ fn compiled_expr_case_slot_bool_matches_generic_non_boolean_admission() {
     };
     let specialized = CompiledExpr::CaseSlotBool {
         slot: 3,
-        field: "name".to_string(),
         then_expr: Box::new(CompiledExpr::Literal(Value::Text("then".to_string()))),
         else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
     };

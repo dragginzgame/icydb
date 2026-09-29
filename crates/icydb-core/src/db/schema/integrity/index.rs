@@ -14,7 +14,6 @@ use crate::{
 // contracts are validated separately from row-layout integrity so existing
 // field-only callers can keep their narrow checks.
 pub(in crate::db::schema) fn schema_snapshot_index_integrity_detail(
-    subject: &str,
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
     indexes: &[PersistedIndexSnapshot],
@@ -57,7 +56,7 @@ pub(in crate::db::schema) fn schema_snapshot_index_integrity_detail(
             return Some(());
         }
 
-        if let Some(detail) = index_key_detail(subject, row_layout, fields, index) {
+        if let Some(detail) = index_key_detail(row_layout, fields, index) {
             return Some(detail);
         }
     }
@@ -73,7 +72,6 @@ const fn index_key_len(key: &PersistedIndexKeySnapshot) -> usize {
 }
 
 fn index_key_detail(
-    subject: &str,
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
     index: &PersistedIndexSnapshot,
@@ -81,23 +79,21 @@ fn index_key_detail(
     match index.key() {
         PersistedIndexKeySnapshot::FieldPath(paths) => paths
             .iter()
-            .find_map(|path| index_field_path_detail(subject, row_layout, fields, index, path)),
+            .find_map(|path| index_field_path_detail(row_layout, fields, path)),
         PersistedIndexKeySnapshot::Items(items) => items.iter().find_map(|item| match item {
             PersistedIndexKeyItemSnapshot::FieldPath(path) => {
-                index_field_path_detail(subject, row_layout, fields, index, path)
+                index_field_path_detail(row_layout, fields, path)
             }
             PersistedIndexKeyItemSnapshot::Expression(expression) => {
-                index_expression_detail(subject, row_layout, fields, index, expression)
+                index_expression_detail(row_layout, fields, expression)
             }
         }),
     }
 }
 
 fn index_expression_detail(
-    subject: &str,
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
-    index: &PersistedIndexSnapshot,
     expression: &PersistedIndexExpressionSnapshot,
 ) -> Option<()> {
     if expression.canonical_text().is_empty() {
@@ -112,7 +108,7 @@ fn index_expression_detail(
         return Some(());
     }
 
-    index_field_path_detail(subject, row_layout, fields, index, expression.source())
+    index_field_path_detail(row_layout, fields, expression.source())
 }
 
 const fn expression_output_kind_matches_op(
@@ -138,10 +134,8 @@ const fn expression_output_kind_matches_op(
 }
 
 fn index_field_path_detail(
-    _subject: &str,
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
-    _index: &PersistedIndexSnapshot,
     path: &PersistedIndexFieldPathSnapshot,
 ) -> Option<()> {
     let Some(row_layout_slot) = row_layout.slot_for_field(path.field_id()) else {

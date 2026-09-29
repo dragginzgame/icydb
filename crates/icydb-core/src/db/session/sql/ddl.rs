@@ -563,9 +563,8 @@ impl<C: CanisterKind> DbSession<C> {
                 execute_admin_sql_ddl_field_default_change(
                     store,
                     accepted_before_identity.entity_tag(),
-                    accepted_before_identity.entity_path(),
                     accepted_before,
-                    accepted_before_identity.clone(),
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::from_sql_ddl_execution_error)?;
@@ -589,9 +588,8 @@ impl<C: CanisterKind> DbSession<C> {
                 execute_admin_sql_ddl_field_rename(
                     store,
                     accepted_before_identity.entity_tag(),
-                    accepted_before_identity.entity_path(),
                     accepted_before,
-                    accepted_before_identity.clone(),
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::from_sql_ddl_execution_error)?;
@@ -612,9 +610,8 @@ impl<C: CanisterKind> DbSession<C> {
                 execute_admin_sql_ddl_secondary_index_drop(
                     store,
                     accepted_before_identity.entity_tag(),
-                    accepted_before_identity.entity_path(),
                     accepted_before,
-                    accepted_before_identity.clone(),
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::from_sql_ddl_execution_error)?;
@@ -652,9 +649,8 @@ impl<C: CanisterKind> DbSession<C> {
         execute(
             store,
             accepted_before_identity.entity_tag(),
-            accepted_before_identity.entity_path(),
             accepted_before,
-            accepted_before_identity.clone(),
+            accepted_before_identity,
             derivation,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)

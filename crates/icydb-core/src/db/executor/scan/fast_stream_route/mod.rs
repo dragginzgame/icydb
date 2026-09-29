@@ -25,33 +25,28 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
     match request {
         FastStreamRouteRequest::PrimaryKey {
-            plan,
             executable_access,
             continuation,
             probe_fetch_hint,
         } => execute_primary_key_fast_stream_route(
             runtime,
-            plan,
             executable_access,
             continuation,
             probe_fetch_hint,
         ),
         FastStreamRouteRequest::SecondaryIndex {
-            plan,
             executable_access,
             bindings,
             probe_fetch_hint,
             index_predicate_execution,
         } => execute_secondary_index_fast_stream_route(
             runtime,
-            plan,
             executable_access,
             bindings,
             probe_fetch_hint,
             index_predicate_execution,
         ),
         FastStreamRouteRequest::IndexRangeLimitPushdown {
-            plan,
             executable_access,
             index_range_spec,
             continuation,
@@ -59,7 +54,6 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
             index_predicate_execution,
         } => execute_index_range_fast_stream_route(
             runtime,
-            plan,
             executable_access,
             index_range_spec,
             continuation,

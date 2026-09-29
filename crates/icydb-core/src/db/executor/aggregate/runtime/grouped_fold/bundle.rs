@@ -63,13 +63,6 @@ pub(super) struct GroupedAggregateBundleSpec {
 }
 
 impl GroupedAggregateBundleSpec {
-    // Build the canonical grouped bundle invariant for unsupported field-target
-    // aggregate kinds that should already have been removed before grouped
-    // bundle construction.
-    fn unsupported_field_target_aggregate(_kind: AggregateKind) -> InternalError {
-        InternalError::query_executor_invariant()
-    }
-
     /// Build one bundle aggregate-slot blueprint.
     pub(super) fn new(
         kind: AggregateKind,
@@ -82,7 +75,7 @@ impl GroupedAggregateBundleSpec {
         if (target_field.is_some() || compiled_input_expr.is_some())
             && !kind.supports_field_target()
         {
-            return Err(Self::unsupported_field_target_aggregate(kind));
+            return Err(InternalError::query_executor_invariant());
         }
         let target_field = target_field
             .map(|planned| resolve_aggregate_target_slot_from_planner_slot(kind, planned))
@@ -532,14 +525,7 @@ impl GroupedAggregateBundle {
         group_key: GroupKey,
         execution_context: &mut ExecutionContext,
     ) -> Result<usize, GroupError> {
-        let group_count_before_insert = self.groups.len();
-        let group_capacity_before_insert = self.groups.capacity();
-        execution_context.record_new_group_states(
-            group_count_before_insert,
-            group_capacity_before_insert,
-            self.aggregate_specs.len(),
-            &group_key,
-        )?;
+        execution_context.record_new_group_states(self.aggregate_specs.len(), &group_key)?;
         let new_index = self.groups.len();
         let group_hash = group_key.hash();
         let new_hash_bucket = !self.bucket_index.contains_key(&group_hash);
@@ -821,10 +807,7 @@ mod tests {
                 kind,
                 GroupedDistinctExecutionMode::new(false, false),
                 None,
-                Some(CompiledExpr::Slot {
-                    slot: 0,
-                    field: "value".into(),
-                }),
+                Some(CompiledExpr::Slot { slot: 0 }),
                 None,
                 u64::MAX,
             )
@@ -847,14 +830,8 @@ mod tests {
             AggregateKind::Count,
             GroupedDistinctExecutionMode::new(true, true),
             None,
-            Some(CompiledExpr::Slot {
-                slot: 0,
-                field: "value".into(),
-            }),
-            Some(CompiledExpr::Slot {
-                slot: 1,
-                field: "admit".into(),
-            }),
+            Some(CompiledExpr::Slot { slot: 0 }),
+            Some(CompiledExpr::Slot { slot: 1 }),
             u64::MAX,
         )
         .unwrap();

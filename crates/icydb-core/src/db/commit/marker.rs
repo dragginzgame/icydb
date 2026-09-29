@@ -253,21 +253,6 @@ impl CommitMarker {
     pub(in crate::db) const fn database_control(&self) -> &[DatabaseControlOp] {
         self.database_control.as_slice()
     }
-
-    // Build the canonical payload corruption for truncated variable-length fields.
-    fn payload_truncated_length(_label: &'static str) -> InternalError {
-        InternalError::commit_corruption()
-    }
-
-    // Build the canonical payload corruption for truncated byte payloads.
-    fn payload_truncated_bytes(_label: &'static str) -> InternalError {
-        InternalError::commit_corruption()
-    }
-
-    // Build the canonical payload corruption for invalid fixed-size payloads.
-    fn payload_invalid_fixed_size(_label: &'static str) -> InternalError {
-        InternalError::commit_corruption()
-    }
 }
 
 const COMMIT_MARKER_ID_BYTES: usize = COMMIT_ID_BYTES;
@@ -395,15 +380,11 @@ pub(in crate::db) fn write_commit_marker_payload(
     marker: &CommitMarker,
 ) -> Result<Vec<Range<usize>>, InternalError> {
     out.extend_from_slice(&marker.id);
-    write_len_u32(
-        out,
-        marker.journal_batches.len(),
-        "commit marker journal batch count",
-    )?;
+    write_len_u32(out, marker.journal_batches.len())?;
     let mut journal_batch_ranges = Vec::with_capacity(marker.journal_batches.len());
     for batch in &marker.journal_batches {
         let encoded = encode_journal_batch(batch)?;
-        write_len_u32(out, encoded.len(), "commit marker journal batch")?;
+        write_len_u32(out, encoded.len())?;
         let batch_start = out.len();
         out.extend_from_slice(&encoded);
         journal_batch_ranges.push(batch_start..out.len());
@@ -417,32 +398,17 @@ pub(in crate::db) fn write_commit_marker_payload(
             DatabaseControlOp::SchemaApplication(operation) => {
                 out.push(1);
                 out.extend_from_slice(&operation.key().to_bytes());
-                write_replace_bytes(
-                    out,
-                    operation.before_bytes(),
-                    operation.after_bytes(),
-                    "commit marker schema application",
-                )?;
+                write_replace_bytes(out, operation.before_bytes(), operation.after_bytes())?;
             }
             #[cfg(any(test, feature = "migration"))]
             DatabaseControlOp::EntitySourceLineage(operation) => {
                 out.push(2);
-                write_replace_bytes(
-                    out,
-                    operation.before_bytes(),
-                    operation.after_bytes(),
-                    "commit marker entity source lineage",
-                )?;
+                write_replace_bytes(out, operation.before_bytes(), operation.after_bytes())?;
             }
             #[cfg(any(test, feature = "migration"))]
             DatabaseControlOp::SchemaMigration(operation) => {
                 out.push(3);
-                write_replace_bytes(
-                    out,
-                    operation.before_bytes(),
-                    operation.after_bytes(),
-                    "commit marker schema migration",
-                )?;
+                write_replace_bytes(out, operation.before_bytes(), operation.after_bytes())?;
             }
             DatabaseControlOp::MutationProgress(operation) => {
                 out.push(4);
@@ -450,16 +416,8 @@ pub(in crate::db) fn write_commit_marker_payload(
                 out.extend_from_slice(&operation.job_id().to_bytes());
                 out.extend_from_slice(&operation.expected_sequence().to_le_bytes());
                 out.extend_from_slice(&operation.expected_before_digest());
-                write_len_prefixed_bytes(
-                    out,
-                    operation.before_bytes(),
-                    "commit marker mutation progress before",
-                )?;
-                write_len_prefixed_bytes(
-                    out,
-                    operation.after_bytes(),
-                    "commit marker mutation progress after",
-                )?;
+                write_len_prefixed_bytes(out, operation.before_bytes())?;
+                write_len_prefixed_bytes(out, operation.after_bytes())?;
             }
         }
     }
@@ -477,22 +435,17 @@ pub(in crate::db) fn decode_commit_marker_payload(
     }
 
     let mut cursor = 0;
-    let id = read_fixed_array::<COMMIT_MARKER_ID_BYTES>(bytes, &mut cursor, "commit marker id")?;
-    let journal_batch_count =
-        read_len_u32(bytes, &mut cursor, "commit marker journal batch count")? as usize;
+    let id = read_fixed_array::<COMMIT_MARKER_ID_BYTES>(bytes, &mut cursor)?;
+    let journal_batch_count = read_len_u32(bytes, &mut cursor)? as usize;
     let mut journal_batches = Vec::new();
     for _ in 0..journal_batch_count {
         journal_batches
             .try_reserve(1)
             .map_err(|_| InternalError::commit_corruption())?;
-        let encoded = read_len_prefixed_bytes(bytes, &mut cursor, "commit marker journal batch")?;
+        let encoded = read_len_prefixed_bytes(bytes, &mut cursor)?;
         journal_batches.push(decode_journal_batch(encoded)?);
     }
-    let database_control_count = usize::from(read_tag_u8(
-        bytes,
-        &mut cursor,
-        "commit marker database control count",
-    )?);
+    let database_control_count = usize::from(read_tag_u8(bytes, &mut cursor)?);
     if database_control_count > MAX_DATABASE_CONTROL_OPS_PER_MARKER {
         return Err(InternalError::commit_corruption());
     }
@@ -517,17 +470,12 @@ fn decode_database_control_op(
     bytes: &[u8],
     cursor: &mut usize,
 ) -> Result<DatabaseControlOp, InternalError> {
-    match read_tag_u8(bytes, cursor, "commit marker database control operation")? {
+    match read_tag_u8(bytes, cursor)? {
         1 => {
             let key = ApplicationRecordKey::from_bytes(read_fixed_array::<
                 COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES,
-            >(
-                bytes,
-                cursor,
-                "commit marker schema application key",
-            )?);
-            let (before, after) =
-                read_replace_bytes(bytes, cursor, "commit marker schema application")?;
+            >(bytes, cursor)?);
+            let (before, after) = read_replace_bytes(bytes, cursor)?;
             SchemaApplicationRecordOp::from_encoded(key, before, after)
                 .map(DatabaseControlOp::SchemaApplication)
                 .map_err(|_| InternalError::commit_corruption())
@@ -543,30 +491,18 @@ fn decode_mutation_progress_control_op(
     bytes: &[u8],
     cursor: &mut usize,
 ) -> Result<DatabaseControlOp, InternalError> {
-    let key = read_fixed_array::<COMMIT_MARKER_MUTATION_PROGRESS_KEY_BYTES>(
-        bytes,
-        cursor,
-        "commit marker mutation progress key",
-    )?;
-    let job_id =
-        crate::db::MutationJobId::try_from_bytes(read_fixed_array::<
-            COMMIT_MARKER_MUTATION_JOB_ID_BYTES,
-        >(
-            bytes, cursor, "commit marker mutation job id"
-        )?)
-        .map_err(|_| InternalError::commit_corruption())?;
+    let key = read_fixed_array::<COMMIT_MARKER_MUTATION_PROGRESS_KEY_BYTES>(bytes, cursor)?;
+    let job_id = crate::db::MutationJobId::try_from_bytes(read_fixed_array::<
+        COMMIT_MARKER_MUTATION_JOB_ID_BYTES,
+    >(bytes, cursor)?)
+    .map_err(|_| InternalError::commit_corruption())?;
     let expected_sequence = u64::from_le_bytes(read_fixed_array::<
         COMMIT_MARKER_MUTATION_SEQUENCE_BYTES,
-    >(
-        bytes, cursor, "commit marker mutation sequence"
-    )?);
-    let expected_before_digest = read_fixed_array::<COMMIT_MARKER_MUTATION_DIGEST_BYTES>(
-        bytes,
-        cursor,
-        "commit marker mutation before digest",
-    )?;
-    let before = read_len_prefixed_bytes(bytes, cursor, "commit marker mutation before")?;
-    let after = read_len_prefixed_bytes(bytes, cursor, "commit marker mutation after")?;
+    >(bytes, cursor)?);
+    let expected_before_digest =
+        read_fixed_array::<COMMIT_MARKER_MUTATION_DIGEST_BYTES>(bytes, cursor)?;
+    let before = read_len_prefixed_bytes(bytes, cursor)?;
+    let after = read_len_prefixed_bytes(bytes, cursor)?;
     if before.len() > crate::db::MAX_MUTATION_JOB_RECORD_BYTES
         || after.len() > crate::db::MAX_MUTATION_JOB_RECORD_BYTES
     {
@@ -589,7 +525,7 @@ fn decode_lineage_control_op(
     bytes: &[u8],
     cursor: &mut usize,
 ) -> Result<DatabaseControlOp, InternalError> {
-    let (before, after) = read_replace_bytes(bytes, cursor, "commit marker entity source lineage")?;
+    let (before, after) = read_replace_bytes(bytes, cursor)?;
     crate::db::schema::EntitySourceLineageCatalogOp::from_encoded(before, after)
         .map(DatabaseControlOp::EntitySourceLineage)
         .map_err(|_| InternalError::commit_corruption())
@@ -608,7 +544,7 @@ fn decode_migration_control_op(
     bytes: &[u8],
     cursor: &mut usize,
 ) -> Result<DatabaseControlOp, InternalError> {
-    let (before, after) = read_replace_bytes(bytes, cursor, "commit marker schema migration")?;
+    let (before, after) = read_replace_bytes(bytes, cursor)?;
     crate::db::schema::SchemaMigrationRecordOp::from_encoded(before, after)
         .map(DatabaseControlOp::SchemaMigration)
         .map_err(|_| InternalError::commit_corruption())
@@ -626,37 +562,31 @@ fn write_replace_bytes(
     out: &mut Vec<u8>,
     before: Option<&[u8]>,
     after: &[u8],
-    label: &'static str,
 ) -> Result<(), InternalError> {
     match before {
         None => out.push(0),
         Some(before) => {
             out.push(1);
-            write_len_prefixed_bytes(out, before, label)?;
+            write_len_prefixed_bytes(out, before)?;
         }
     }
-    write_len_prefixed_bytes(out, after, label)
+    write_len_prefixed_bytes(out, after)
 }
 
 fn read_replace_bytes(
     bytes: &[u8],
     cursor: &mut usize,
-    label: &'static str,
 ) -> Result<(Option<Vec<u8>>, Vec<u8>), InternalError> {
-    let before = match read_tag_u8(bytes, cursor, label)? {
+    let before = match read_tag_u8(bytes, cursor)? {
         0 => None,
-        1 => Some(read_len_prefixed_bytes(bytes, cursor, label)?.to_vec()),
+        1 => Some(read_len_prefixed_bytes(bytes, cursor)?.to_vec()),
         _ => return Err(InternalError::commit_corruption()),
     };
-    let after = read_len_prefixed_bytes(bytes, cursor, label)?.to_vec();
+    let after = read_len_prefixed_bytes(bytes, cursor)?.to_vec();
     Ok((before, after))
 }
 
-fn read_tag_u8(
-    bytes: &[u8],
-    cursor: &mut usize,
-    _label: &'static str,
-) -> Result<u8, InternalError> {
+fn read_tag_u8(bytes: &[u8], cursor: &mut usize) -> Result<u8, InternalError> {
     let tag = *bytes
         .get(*cursor)
         .ok_or_else(InternalError::commit_corruption)?;
@@ -665,7 +595,7 @@ fn read_tag_u8(
 }
 
 // Write one bounded little-endian u32 length field.
-fn write_len_u32(out: &mut Vec<u8>, len: usize, _label: &'static str) -> Result<(), InternalError> {
+fn write_len_u32(out: &mut Vec<u8>, len: usize) -> Result<(), InternalError> {
     let len = u32::try_from(len)
         .map_err(|_| InternalError::commit_marker_payload_exceeds_u32_length_limit())?;
     out.extend_from_slice(&len.to_le_bytes());
@@ -674,26 +604,18 @@ fn write_len_u32(out: &mut Vec<u8>, len: usize, _label: &'static str) -> Result<
 }
 
 // Write one length-delimited byte slice into the marker payload.
-fn write_len_prefixed_bytes(
-    out: &mut Vec<u8>,
-    bytes: &[u8],
-    label: &'static str,
-) -> Result<(), InternalError> {
-    write_len_u32(out, bytes.len(), label)?;
+fn write_len_prefixed_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> Result<(), InternalError> {
+    write_len_u32(out, bytes.len())?;
     out.extend_from_slice(bytes);
 
     Ok(())
 }
 
 // Read one little-endian u32 length from the marker payload.
-fn read_len_u32(
-    bytes: &[u8],
-    cursor: &mut usize,
-    label: &'static str,
-) -> Result<u32, InternalError> {
+fn read_len_u32(bytes: &[u8], cursor: &mut usize) -> Result<u32, InternalError> {
     let payload = bytes
         .get(*cursor..cursor.saturating_add(4))
-        .ok_or_else(|| CommitMarker::payload_truncated_length(label))?;
+        .ok_or_else(InternalError::commit_corruption)?;
     *cursor = cursor.saturating_add(4);
 
     Ok(u32::from_le_bytes([
@@ -705,28 +627,26 @@ fn read_len_u32(
 fn read_fixed_array<const N: usize>(
     bytes: &[u8],
     cursor: &mut usize,
-    label: &'static str,
 ) -> Result<[u8; N], InternalError> {
     let payload = bytes
         .get(*cursor..cursor.saturating_add(N))
-        .ok_or_else(|| CommitMarker::payload_truncated_bytes(label))?;
+        .ok_or_else(InternalError::commit_corruption)?;
     *cursor = cursor.saturating_add(N);
 
     payload
         .try_into()
-        .map_err(|_| CommitMarker::payload_invalid_fixed_size(label))
+        .map_err(|_| InternalError::commit_corruption())
 }
 
 // Read one length-delimited byte slice from the marker payload.
 fn read_len_prefixed_bytes<'a>(
     bytes: &'a [u8],
     cursor: &mut usize,
-    label: &'static str,
 ) -> Result<&'a [u8], InternalError> {
-    let len = read_len_u32(bytes, cursor, label)? as usize;
+    let len = read_len_u32(bytes, cursor)? as usize;
     let payload = bytes
         .get(*cursor..cursor.saturating_add(len))
-        .ok_or_else(|| CommitMarker::payload_truncated_bytes(label))?;
+        .ok_or_else(InternalError::commit_corruption)?;
     *cursor = cursor.saturating_add(len);
 
     Ok(payload)

@@ -63,12 +63,10 @@ pub(in crate::db) struct GroupedAggregateExecutionSpec {
 
 impl GroupedAggregateExecutionSpec {
     // Compile one grouped aggregate-attached scalar expression through the
-    // shared scalar projection seam and preserve a stable planner/executor
-    // invariant message for both aggregate inputs and aggregate-local filters.
+    // shared scalar projection seam and preserve the planner/executor
+    // error classification for aggregate inputs and aggregate-local filters.
     fn compile_attached_scalar_expr(
         schema_info: &SchemaInfo,
-        _kind: AggregateKind,
-        _role: &'static str,
         expr: &Expr,
         budget: &dyn crate::db::query::construction::ConstructionBudget,
     ) -> Result<CompiledExpr, InternalError> {
@@ -122,15 +120,11 @@ impl GroupedAggregateExecutionSpec {
         budget.charge(Resource::PredicateExpressionSteps, 1)?;
         let compiled_input_expr = self
             .input_expr()
-            .map(|expr| {
-                Self::compile_attached_scalar_expr(schema_info, self.kind(), "input", expr, budget)
-            })
+            .map(|expr| Self::compile_attached_scalar_expr(schema_info, expr, budget))
             .transpose()?;
         let compiled_filter_expr = self
             .filter_expr()
-            .map(|expr| {
-                Self::compile_attached_scalar_expr(schema_info, self.kind(), "filter", expr, budget)
-            })
+            .map(|expr| Self::compile_attached_scalar_expr(schema_info, expr, budget))
             .transpose()?;
         let target_slot = self
             .target_field()
@@ -278,16 +272,6 @@ impl PlannedProjectionLayout {
     /// Construct one grouped layout invariant for mixed field/aggregate ordering.
     pub(in crate::db) fn group_fields_must_precede_aggregates() -> InternalError {
         InternalError::planner_executor_invariant()
-    }
-
-    /// Construct one grouped layout invariant for runtime projection splits
-    /// that reference a layout position outside the projected value buffer.
-    pub(in crate::db) fn projected_position_out_of_bounds(
-        _position_kind: &str,
-        _position: usize,
-        _projected_len: usize,
-    ) -> InternalError {
-        InternalError::query_executor_invariant()
     }
 }
 

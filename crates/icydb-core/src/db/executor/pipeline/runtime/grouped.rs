@@ -127,12 +127,6 @@ enum RowViewStorage {
 }
 
 impl RowView {
-    // Build the shared missing-slot invariant so borrowed and consuming slot
-    // access paths preserve the same failure text.
-    fn missing_required_slot_error(_index: usize) -> InternalError {
-        InternalError::query_executor_invariant()
-    }
-
     /// Build one structural row view from slot-indexed values.
     #[must_use]
     #[cfg(test)]
@@ -189,7 +183,7 @@ impl RowView {
         index: usize,
     ) -> Result<&Value, InternalError> {
         self.slot_value_ref(index)
-            .ok_or_else(|| Self::missing_required_slot_error(index))
+            .ok_or_else(InternalError::query_executor_invariant)
     }
 
     /// Consume this row view and move out one required slot value without
@@ -204,18 +198,18 @@ impl RowView {
             RowViewStorage::Dense(mut slots) => slots
                 .get_mut(index)
                 .and_then(Option::take)
-                .ok_or_else(|| Self::missing_required_slot_error(index)),
+                .ok_or_else(InternalError::query_executor_invariant),
             RowViewStorage::Single { slot, value } => {
                 if slot == index {
                     return Ok(value);
                 }
 
-                Err(Self::missing_required_slot_error(index))
+                Err(InternalError::query_executor_invariant())
             }
-            RowViewStorage::SinglePath { .. } => Err(Self::missing_required_slot_error(index)),
+            RowViewStorage::SinglePath { .. } => Err(InternalError::query_executor_invariant()),
             RowViewStorage::Retained(mut row) => row
                 .take_slot(index)
-                .ok_or_else(|| Self::missing_required_slot_error(index)),
+                .ok_or_else(InternalError::query_executor_invariant),
         }
     }
 
@@ -257,7 +251,6 @@ impl RowView {
         eval_effective_runtime_filter_program_with_value_cow_reader(
             effective_runtime_filter_program,
             &mut |slot| self.slot_value_ref(slot).map(Cow::Borrowed),
-            "grouped row filter expression could not read slot",
         )
     }
 
@@ -304,14 +297,13 @@ impl CompiledExprValueReader for RowView {
     fn read_field_path(
         &self,
         root_slot: usize,
-        field: &str,
         segments: &[String],
         _segment_bytes: &[Box<[u8]>],
     ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
         let Some(root) = self.slot_value_ref(root_slot) else {
             return Ok(None);
         };
-        let value = resolve_value_field_path(root, field, segments)?;
+        let value = resolve_value_field_path(root, segments)?;
 
         Ok(Some(value.map_or(Cow::Owned(Value::Null), Cow::Borrowed)))
     }
@@ -333,7 +325,6 @@ struct SingleGroupedSlotDecode {
 /// Prepared raw-row decoder for the common one-scalar-path grouped shape.
 struct SingleGroupedPathDecode {
     root_slot: usize,
-    label: String,
     segment_bytes: Box<[Box<[u8]>]>,
 }
 
@@ -341,7 +332,6 @@ impl SingleGroupedPathDecode {
     fn new(path: &ScalarGroupPath) -> Self {
         Self {
             root_slot: path.root_slot(),
-            label: path.label().to_string(),
             segment_bytes: path
                 .path()
                 .segments()
@@ -441,22 +431,11 @@ impl StructuralGroupedRowRuntime {
         let row_fields = self.row_layout.open_raw_row_with_contract(&row)?;
         row_fields.validate_primary_key(key)?;
         let root_bytes = row_fields.required_bytes(path.root_slot)?;
-        let leaf_bytes =
-            resolve_path_segments(root_bytes, path.segment_bytes.as_ref()).map_err(|_| {
-                InternalError::persisted_row_field_decode_failed(
-                    path.label.as_str(),
-                    "grouped scalar-path traversal failed",
-                )
-            })?;
+        let leaf_bytes = resolve_path_segments(root_bytes, path.segment_bytes.as_ref())
+            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
         let value = match leaf_bytes {
-            Some(leaf_bytes) => {
-                decode_structural_value_storage_bytes(leaf_bytes).map_err(|_| {
-                    InternalError::persisted_row_field_decode_failed(
-                        path.label.as_str(),
-                        "grouped scalar-path leaf decode failed",
-                    )
-                })?
-            }
+            Some(leaf_bytes) => decode_structural_value_storage_bytes(leaf_bytes)
+                .map_err(|_| InternalError::persisted_row_decode_corruption())?,
             None => Value::Null,
         };
 
@@ -539,7 +518,7 @@ impl StructuralGroupedRowRuntime {
             (MissingRowPolicy::Ignore, None) => Ok(None),
             (MissingRowPolicy::Ignore | MissingRowPolicy::Error, Some(row)) => Ok(Some(row)),
             (MissingRowPolicy::Error, None) => {
-                Err(crate::db::executor::ExecutorError::missing_row(key).into())
+                Err(crate::db::executor::ExecutorError::store_corruption().into())
             }
         }
     }

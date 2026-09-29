@@ -3,7 +3,7 @@
 
 use crate::{
     db::{
-        predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
+        predicate::{CoercionId, CompareOp, Predicate},
         query::construction::{ConstructionBudget, ENCODING_NODE_BYTES, encoded_value_capacity},
     },
     error::InternalError,
@@ -58,7 +58,6 @@ fn predicate_capacity(
         }
         Predicate::Compare(compare) => {
             bytes = bytes.saturating_add(compare.field().len() as u64);
-            bytes = bytes.saturating_add(coercion_capacity(compare.coercion(), budget)?);
             // Only direct membership items are coerced. Nested containers keep
             // strict encoding. Raw encoding may need a temporary ordered view;
             // allow it without repeating the encoder's canonicality scan.
@@ -90,8 +89,7 @@ fn predicate_capacity(
         Predicate::CompareFields(compare) => {
             bytes = bytes
                 .saturating_add(compare.left_field.len() as u64)
-                .saturating_add(compare.right_field.len() as u64)
-                .saturating_add(coercion_capacity(&compare.coercion, budget)?);
+                .saturating_add(compare.right_field.len() as u64);
         }
         Predicate::TextContains { field, value } | Predicate::TextContainsCi { field, value } => {
             bytes = bytes
@@ -106,20 +104,4 @@ fn predicate_capacity(
         Predicate::True | Predicate::False => {}
     }
     Ok(bytes)
-}
-
-fn coercion_capacity(
-    spec: &CoercionSpec,
-    budget: &dyn ConstructionBudget,
-) -> Result<u64, InternalError> {
-    budget.charge(
-        Resource::PredicateExpressionSteps,
-        spec.params().len() as u64,
-    )?;
-    Ok(spec.params().iter().fold(0u64, |bytes, (key, value)| {
-        bytes
-            .saturating_add(16)
-            .saturating_add(key.len() as u64)
-            .saturating_add(value.len() as u64)
-    }))
 }

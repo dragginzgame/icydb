@@ -74,7 +74,7 @@ pub(in crate::db::executor) fn try_execute_grouped_count_metadata(
         }
         let key = GroupKey::from_single_canonical_group_value(budget.copy_value(value)?)?;
         context
-            .record_new_group(groups.len(), groups.capacity(), &key)
+            .record_new_group(&key)
             .map_err(GroupError::into_internal_error)?;
         // Preserve the maintained dedicated count fold's saturating Nat32 state.
         groups.push((key, u32::try_from(count).unwrap_or(u32::MAX)));

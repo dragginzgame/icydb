@@ -45,7 +45,7 @@ enum ParameterPredicate {
     Compare {
         field: String,
         operator: ParameterOperator,
-        coercion: ParameterCoercion,
+        coercion: CoercionId,
         slot: ParameterSlot,
     },
 }
@@ -57,12 +57,6 @@ enum ParameterOperator {
     Lte,
     Gt,
     Gte,
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct ParameterCoercion {
-    id: CoercionId,
-    params: Vec<(String, String)>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -136,18 +130,10 @@ impl ParameterPredicate {
                 }
 
                 let field = budget.copy_text(compare.field())?;
-                let mut params = budget.vec_with_capacity(compare.coercion().params().len())?;
-                for (name, value) in compare.coercion().params() {
-                    params.push((budget.copy_text(name)?, budget.copy_text(value)?));
-                }
-
                 Some(Self::Compare {
                     field,
                     operator,
-                    coercion: ParameterCoercion {
-                        id: compare.coercion().id(),
-                        params,
-                    },
+                    coercion: compare.coercion().id(),
                     slot,
                 })
             }
@@ -240,7 +226,11 @@ impl ParameterSlot {
 mod tests {
     use super::PreparedQueryParameterContract;
     use crate::{
-        db::{Predicate, query::preparation::with_preparation_work},
+        db::{
+            Predicate,
+            predicate::{CoercionId, CompareOp, ComparePredicate},
+            query::preparation::with_preparation_work,
+        },
         value::Value,
     };
 
@@ -278,6 +268,25 @@ mod tests {
     }
 
     #[test]
+    fn parameter_contracts_keep_comparison_coercions_distinct() {
+        for (value, alternative) in [
+            (Value::Nat64(7), CoercionId::NumericWiden),
+            (Value::Text("MiXeD".into()), CoercionId::TextCasefold),
+        ] {
+            let [strict, coerced] = [CoercionId::Strict, alternative].map(|coercion| {
+                contract(&Predicate::Compare(ComparePredicate::with_coercion(
+                    "value",
+                    CompareOp::Eq,
+                    value.clone(),
+                    coercion,
+                )))
+                .expect("comparison has a parameter contract")
+            });
+            assert_ne!(strict, coerced);
+        }
+    }
+
+    #[test]
     fn oversized_list_and_payload_do_not_become_templates() {
         let too_many = contract(&Predicate::in_(
             "id".to_string(),
@@ -296,9 +305,6 @@ mod tests {
 }
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.
-crate::retained::retained_fields!(ParameterCoercion {
-Self{id,params} => [id,params],
-});
 crate::retained::retained_copy!(ParameterOperator);
 crate::retained::retained_fields!(ParameterPredicate {
 Self::And(field_0) => [field_0],

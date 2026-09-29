@@ -57,14 +57,8 @@ impl GroupedCountState {
         group_key: GroupKey,
         grouped_execution_context: &mut ExecutionContext,
     ) -> Result<(), InternalError> {
-        let group_count_before_insert = self.groups.len();
-        let group_capacity_before_insert = self.groups.capacity();
         grouped_execution_context
-            .record_new_group(
-                group_count_before_insert,
-                group_capacity_before_insert,
-                &group_key,
-            )
+            .record_new_group(&group_key)
             .map_err(GroupError::into_internal_error)?;
         let new_index = self.groups.len();
         let new_hash_bucket = !self.bucket_index.contains_key(&group_hash);

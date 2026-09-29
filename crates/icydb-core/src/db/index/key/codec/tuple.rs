@@ -26,7 +26,6 @@ pub(super) fn read_segment<'a>(
     bytes: &'a [u8],
     offset: &mut usize,
     max_len: usize,
-    _label: &str,
 ) -> Result<&'a [u8], IndexKeyDecodeError> {
     // Phase 1: decode segment length and enforce shape bounds.
     if *offset + SEGMENT_LEN_SIZE > bytes.len() {

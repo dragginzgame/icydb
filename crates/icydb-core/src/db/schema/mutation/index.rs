@@ -105,7 +105,6 @@ impl SchemaFieldPathIndexRebuildKey {
 pub(in crate::db) struct SchemaExpressionIndexRebuildTarget {
     ordinal: u16,
     physical_generation: u64,
-    name: String,
     store: String,
     unique: bool,
     predicate_sql: Option<String>,
@@ -123,12 +122,6 @@ impl SchemaExpressionIndexRebuildTarget {
     #[must_use]
     pub(in crate::db) const fn physical_generation(&self) -> u64 {
         self.physical_generation
-    }
-
-    /// Borrow the accepted index name used for derivation diagnostics.
-    #[must_use]
-    pub(in crate::db) const fn name(&self) -> &str {
-        self.name.as_str()
     }
 
     /// Borrow the accepted ordered key-item contract.
@@ -253,7 +246,6 @@ impl SchemaMutationRequest<'_> {
             target: SchemaExpressionIndexRebuildTarget {
                 ordinal: index.ordinal(),
                 physical_generation: index.physical_generation(),
-                name: index.name().to_string(),
                 store: index.store().to_string(),
                 unique: index.unique(),
                 predicate_sql: index.predicate_sql().map(str::to_string),

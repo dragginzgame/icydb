@@ -74,7 +74,6 @@ fn compiled_age_eq_null() -> CompiledExpr {
     CompiledExpr::BinarySlotLiteral {
         op: BinaryOp::Eq,
         slot: 0,
-        field: "age".to_string(),
         literal: Value::Null,
         slot_on_left: true,
     }

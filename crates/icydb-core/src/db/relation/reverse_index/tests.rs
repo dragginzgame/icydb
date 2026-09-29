@@ -96,8 +96,6 @@ fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelation
             .expect("test scalar relation component should build"),
         ),
         target: AcceptedRelationTargetIdentity::try_new(
-            "Source",
-            "target_id",
             "Target",
             "Target",
             EntityTag::new(77),
@@ -123,8 +121,6 @@ fn accepted_relation_target_identity_carries_ordered_primary_key_metadata() {
 #[test]
 fn accepted_relation_target_identity_can_carry_ordered_composite_metadata() {
     let target = AcceptedRelationTargetIdentity::try_new(
-        "Source",
-        "target_id",
         "Target",
         "Target",
         EntityTag::new(77),
@@ -142,8 +138,6 @@ fn accepted_relation_target_identity_can_carry_ordered_composite_metadata() {
 #[test]
 fn accepted_relation_target_identity_rejects_empty_primary_key_metadata() {
     AcceptedRelationTargetIdentity::try_new(
-        "Source",
-        "target_id",
         "Target",
         "Target",
         EntityTag::new(77),
@@ -367,8 +361,6 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
             .expect("test scalar relation component should build"),
         ),
         target: AcceptedRelationTargetIdentity::try_new(
-            "Source",
-            "target_id",
             "Target",
             "Target",
             EntityTag::new(77),

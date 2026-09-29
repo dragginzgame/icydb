@@ -1,25 +1,18 @@
-use crate::{db::executor::planning::route::ensure_load_fast_path_spec_arity, error::ErrorClass};
+use crate::{
+    db::executor::planning::route::ensure_index_range_fast_path_spec_arity, error::ErrorClass,
+};
 
 #[test]
-fn fast_path_spec_arity_accepts_single_spec_shapes() {
-    let result = ensure_load_fast_path_spec_arity(true, 1, true, 1);
-
-    assert!(result.is_ok(), "single fast-path specs should be accepted");
-}
-
-#[test]
-fn fast_path_spec_arity_accepts_secondary_prefix_spec_slices() {
-    let result = ensure_load_fast_path_spec_arity(true, 2, false, 0);
-
-    assert!(
-        result.is_ok(),
-        "load secondary fast paths may consume multi-prefix slices after route verification",
-    );
+fn index_range_fast_path_spec_arity_accepts_zero_or_one_spec() {
+    for count in [0, 1] {
+        assert!(ensure_index_range_fast_path_spec_arity(true, count).is_ok());
+    }
+    assert!(ensure_index_range_fast_path_spec_arity(false, 2).is_ok());
 }
 
 #[test]
 fn fast_path_spec_arity_rejects_multiple_range_specs_for_index_range() {
-    let err = ensure_load_fast_path_spec_arity(false, 0, true, 2)
+    let err = ensure_index_range_fast_path_spec_arity(true, 2)
         .expect_err("index-range fast-path must reject multiple index-range specs");
 
     assert_eq!(

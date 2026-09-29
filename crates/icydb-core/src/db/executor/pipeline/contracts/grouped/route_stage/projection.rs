@@ -22,14 +22,6 @@ use crate::{
 };
 
 impl GroupedRouteStage {
-    /// Construct one grouped route invariant for grouped page-finalize keys
-    /// that no longer match the canonical list-based group-key shape.
-    pub(in crate::db::executor) fn canonical_group_key_must_be_list(
-        _value: &Value,
-    ) -> InternalError {
-        InternalError::query_executor_invariant()
-    }
-
     /// Borrow grouped logical plan payload.
     pub(in crate::db::executor) fn plan(&self) -> &AccessPlannedQuery {
         self.planner_payload.plan.as_ref()

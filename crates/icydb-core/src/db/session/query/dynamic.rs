@@ -333,12 +333,10 @@ impl<C: CanisterKind> DbSession<C> {
         token: &ScalarPageToken,
         mode: ScalarPageMode,
         contract: &ScalarCursorContract,
-        entity: &str,
     ) -> Result<(), QueryError> {
         if token.signature() != contract.signature {
             return Err(QueryError::from_cursor_plan_error(
                 CursorPlanError::continuation_cursor_signature_mismatch(
-                    entity,
                     &contract.signature,
                     &token.signature(),
                 ),
@@ -565,7 +563,7 @@ impl<C: CanisterKind> DbSession<C> {
                     mode,
                     exhaustive_proof.as_ref(),
                 )?;
-                Self::validate_scalar_page_token(token, mode, &contract, request.entity())?;
+                Self::validate_scalar_page_token(token, mode, &contract)?;
                 Ok::<_, QueryError>(contract)
             })
             .transpose()?;

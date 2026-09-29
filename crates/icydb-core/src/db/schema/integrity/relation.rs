@@ -13,7 +13,6 @@ use crate::db::schema::{
 // is checked during schema reconciliation where both entity snapshots are
 // available.
 pub(in crate::db::schema) fn schema_snapshot_relation_integrity_detail(
-    _subject: &str,
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
     relations: &[PersistedRelationEdgeSnapshot],
@@ -300,7 +299,6 @@ mod tests {
         );
         assert_eq!(
             schema_snapshot_relation_integrity_detail(
-                "test",
                 &layout,
                 &fields,
                 std::slice::from_ref(&valid),

@@ -13,7 +13,6 @@ use crate::{
             stream::access::TraversalRuntime,
         },
         index::predicate::IndexPredicateExecution,
-        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     value::Value,
@@ -22,7 +21,6 @@ use crate::{
 /// Execute one secondary-index fast-path stream route through the structural runtime.
 pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     runtime: &TraversalRuntime,
-    _plan: &AccessPlannedQuery,
     executable: &ExecutableAccessPlan<'_, Value>,
     bindings: AccessStreamBindings<'_>,
     probe_fetch_hint: Option<usize>,

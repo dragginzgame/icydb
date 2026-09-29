@@ -126,7 +126,7 @@ fn project_slot_row_direct_octet_lengths_into(
             continue;
         };
 
-        let (_slot, _field) = compiled
+        compiled
             .direct_octet_length_slot()
             .ok_or_else(|| ProjectionEvalError::missing_unknown_value().into_internal_error())?;
         let value = row

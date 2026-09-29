@@ -60,7 +60,7 @@ impl ScalarRowRuntimeState {
         match consistency {
             MissingRowPolicy::Error => row
                 .map(Some)
-                .ok_or_else(|| InternalError::from(ExecutorError::missing_row(key))),
+                .ok_or_else(|| InternalError::from(ExecutorError::store_corruption())),
             MissingRowPolicy::Ignore => Ok(row),
         }
     }
@@ -95,7 +95,7 @@ impl ScalarRowRuntimeState {
         match consistency {
             MissingRowPolicy::Error => result
                 .map(Some)
-                .ok_or_else(|| InternalError::from(ExecutorError::missing_row(key))),
+                .ok_or_else(|| InternalError::from(ExecutorError::store_corruption())),
             MissingRowPolicy::Ignore => Ok(result),
         }
     }

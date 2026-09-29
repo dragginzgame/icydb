@@ -36,16 +36,6 @@ impl PreparationWork<'_> {
             .map_err(QueryError::execute)
     }
 
-    /// Copy coercion metadata without changing its identity.
-    pub(in crate::db) fn copy_coercion(
-        &self,
-        coercion: &crate::db::predicate::CoercionSpec,
-    ) -> Result<crate::db::predicate::CoercionSpec, QueryError> {
-        (self as &dyn ConstructionBudget)
-            .copy_coercion(coercion)
-            .map_err(QueryError::execute)
-    }
-
     /// Copy an admitted name, charging traversal, bytes and destination backing.
     pub(in crate::db) fn copy_text(&self, text: &str) -> Result<String, QueryError> {
         (self as &dyn ConstructionBudget)

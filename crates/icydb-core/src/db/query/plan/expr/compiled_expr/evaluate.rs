@@ -10,7 +10,7 @@ use crate::{
             BinaryOp, CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, Function,
             ProjectionEvalError, ProjectionFunctionEvalError, UnaryOp,
             admit_true_only_boolean_value, collapse_true_only_boolean_admission,
-            compiled_expr::missing_field_value, eval_projection_function_call_checked,
+            eval_projection_function_call_checked,
         },
     },
     value::{Value, ops::ordering as value_ordering},
@@ -28,138 +28,97 @@ impl CompiledExpr {
         reader: &'row dyn CompiledExprValueReader,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         match self {
-            Self::Slot { slot, field } => Self::evaluate_slot(reader, *slot, field),
-            Self::GroupKey { offset, field } => Self::evaluate_group_key(reader, *offset, field),
+            Self::Slot { slot } => Self::evaluate_slot(reader, *slot),
+            Self::GroupKey { offset } => Self::evaluate_group_key(reader, *offset),
             Self::Aggregate { index } => Self::evaluate_aggregate(reader, *index),
             Self::Literal(value) => Ok(Cow::Borrowed(value)),
             Self::Add {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             } => Self::evaluate_slot_binary_arithmetic(
                 reader,
                 BinaryOp::Add,
-                (*left_slot, left_field),
-                (*right_slot, right_field),
+                *left_slot,
+                *right_slot,
             ),
             Self::Sub {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             } => Self::evaluate_slot_binary_arithmetic(
                 reader,
                 BinaryOp::Sub,
-                (*left_slot, left_field),
-                (*right_slot, right_field),
+                *left_slot,
+                *right_slot,
             ),
             Self::Mul {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             } => Self::evaluate_slot_binary_arithmetic(
                 reader,
                 BinaryOp::Mul,
-                (*left_slot, left_field),
-                (*right_slot, right_field),
+                *left_slot,
+                *right_slot,
             ),
             Self::Div {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             } => Self::evaluate_slot_binary_arithmetic(
                 reader,
                 BinaryOp::Div,
-                (*left_slot, left_field),
-                (*right_slot, right_field),
+                *left_slot,
+                *right_slot,
             ),
             Self::Eq {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
-            } => Self::evaluate_slot_binary_comparison(
-                reader,
-                BinaryOp::Eq,
-                (*left_slot, left_field),
-                (*right_slot, right_field),
-            ),
+            } => {
+                Self::evaluate_slot_binary_comparison(reader, BinaryOp::Eq, *left_slot, *right_slot)
+            }
             Self::Ne {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
-            } => Self::evaluate_slot_binary_comparison(
-                reader,
-                BinaryOp::Ne,
-                (*left_slot, left_field),
-                (*right_slot, right_field),
-            ),
+            } => {
+                Self::evaluate_slot_binary_comparison(reader, BinaryOp::Ne, *left_slot, *right_slot)
+            }
             Self::Lt {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
-            } => Self::evaluate_slot_binary_comparison(
-                reader,
-                BinaryOp::Lt,
-                (*left_slot, left_field),
-                (*right_slot, right_field),
-            ),
+            } => {
+                Self::evaluate_slot_binary_comparison(reader, BinaryOp::Lt, *left_slot, *right_slot)
+            }
             Self::Lte {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             } => Self::evaluate_slot_binary_comparison(
                 reader,
                 BinaryOp::Lte,
-                (*left_slot, left_field),
-                (*right_slot, right_field),
+                *left_slot,
+                *right_slot,
             ),
             Self::Gt {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
-            } => Self::evaluate_slot_binary_comparison(
-                reader,
-                BinaryOp::Gt,
-                (*left_slot, left_field),
-                (*right_slot, right_field),
-            ),
+            } => {
+                Self::evaluate_slot_binary_comparison(reader, BinaryOp::Gt, *left_slot, *right_slot)
+            }
             Self::Gte {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             } => Self::evaluate_slot_binary_comparison(
                 reader,
                 BinaryOp::Gte,
-                (*left_slot, left_field),
-                (*right_slot, right_field),
+                *left_slot,
+                *right_slot,
             ),
             Self::BinarySlotLiteral {
                 op,
                 slot,
-                field,
                 literal,
                 slot_on_left,
-            } => Self::evaluate_slot_literal_binary(
-                reader,
-                *op,
-                *slot,
-                field,
-                literal,
-                *slot_on_left,
-            ),
+            } => Self::evaluate_slot_literal_binary(reader, *op, *slot, literal, *slot_on_left),
             Self::CaseSlotLiteral {
                 op,
                 slot,
-                field,
                 literal,
                 slot_on_left,
                 then_expr,
@@ -167,7 +126,7 @@ impl CompiledExpr {
             } => Self::evaluate_case_slot_literal(
                 reader,
                 *op,
-                (*slot, field),
+                *slot,
                 literal,
                 *slot_on_left,
                 then_expr,
@@ -175,16 +134,14 @@ impl CompiledExpr {
             ),
             Self::CaseSlotBool {
                 slot,
-                field,
                 then_expr,
                 else_expr,
-            } => Self::evaluate_case_slot_bool(reader, *slot, field, then_expr, else_expr),
+            } => Self::evaluate_case_slot_bool(reader, *slot, then_expr, else_expr),
             Self::FieldPath {
                 root_slot,
-                field,
                 segments,
                 segment_bytes,
-            } => Self::evaluate_field_path(reader, *root_slot, field, segments, segment_bytes),
+            } => Self::evaluate_field_path(reader, *root_slot, segments, segment_bytes),
             Self::FunctionCall { function, args } => {
                 Self::evaluate_function_call(reader, *function, args)
             }
@@ -208,29 +165,24 @@ impl CompiledExpr {
 
     // Resolve one required slot through row-view storage without constructing
     // a caller closure or walking another expression node.
-    fn evaluate_slot<'row>(
-        reader: &'row dyn CompiledExprValueReader,
+    fn evaluate_slot(
+        reader: &dyn CompiledExprValueReader,
         slot: usize,
-        field: &str,
-    ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
+    ) -> Result<Cow<'_, Value>, ProjectionEvalError> {
         reader
             .read_slot_checked(slot)?
-            .ok_or_else(|| missing_field_value(field, slot))
+            .ok_or_else(|| ProjectionEvalError::missing_slot_value(slot))
     }
 
     // Resolve one grouped-key leaf through the same reader contract used by
-    // slot expressions. Missing keys keep the field label resolved during
-    // grouped planning.
-    fn evaluate_group_key<'row>(
-        reader: &'row dyn CompiledExprValueReader,
+    // slot expressions. Missing keys report their resolved group offset.
+    fn evaluate_group_key(
+        reader: &dyn CompiledExprValueReader,
         offset: usize,
-        field: &str,
-    ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
-        reader.read_group_key_checked(offset)?.ok_or_else(|| {
-            let _ = field;
-
-            ProjectionEvalError::missing_group_key_value(offset)
-        })
+    ) -> Result<Cow<'_, Value>, ProjectionEvalError> {
+        reader
+            .read_group_key_checked(offset)?
+            .ok_or_else(|| ProjectionEvalError::missing_group_key_value(offset))
     }
 
     // Resolve one finalized aggregate leaf by compiled aggregate index.
@@ -252,11 +204,10 @@ impl CompiledExpr {
     fn evaluate_field_path<'row>(
         reader: &'row dyn CompiledExprValueReader,
         root_slot: usize,
-        field: &str,
         segments: &[String],
         segment_bytes: &[Box<[u8]>],
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
-        match reader.read_field_path(root_slot, field, segments, segment_bytes)? {
+        match reader.read_field_path(root_slot, segments, segment_bytes)? {
             Some(value) => Ok(value),
             None => Err(ProjectionEvalError::missing_field_path_value(root_slot)),
         }
@@ -265,20 +216,18 @@ impl CompiledExpr {
     // Evaluate one dedicated direct-slot arithmetic variant. NULL propagation
     // and checked numeric behavior stay delegated to the value numeric
     // boundary instead of the generic projection expression evaluator.
-    fn evaluate_slot_binary_arithmetic<'row>(
-        reader: &'row dyn CompiledExprValueReader,
+    fn evaluate_slot_binary_arithmetic(
+        reader: &dyn CompiledExprValueReader,
         op: BinaryOp,
-        left: (usize, &str),
-        right: (usize, &str),
-    ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
-        let (left_slot, left_field) = left;
-        let (right_slot, right_field) = right;
+        left_slot: usize,
+        right_slot: usize,
+    ) -> Result<Cow<'_, Value>, ProjectionEvalError> {
         let left = reader
             .read_slot_checked(left_slot)?
-            .ok_or_else(|| missing_field_value(left_field, left_slot))?;
+            .ok_or_else(|| ProjectionEvalError::missing_slot_value(left_slot))?;
         let right = reader
             .read_slot_checked(right_slot)?
-            .ok_or_else(|| missing_field_value(right_field, right_slot))?;
+            .ok_or_else(|| ProjectionEvalError::missing_slot_value(right_slot))?;
 
         evaluate_numeric_binary_expr(op, left.as_ref(), right.as_ref()).map(Cow::Owned)
     }
@@ -286,20 +235,18 @@ impl CompiledExpr {
     // Evaluate one dedicated direct-slot comparison variant using the
     // value-local ordering helpers. This keeps grouped CASE/FILTER predicates
     // away from generic binary expression dispatch for slot-vs-slot shapes.
-    fn evaluate_slot_binary_comparison<'row>(
-        reader: &'row dyn CompiledExprValueReader,
+    fn evaluate_slot_binary_comparison(
+        reader: &dyn CompiledExprValueReader,
         op: BinaryOp,
-        left: (usize, &str),
-        right: (usize, &str),
-    ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
-        let (left_slot, left_field) = left;
-        let (right_slot, right_field) = right;
+        left_slot: usize,
+        right_slot: usize,
+    ) -> Result<Cow<'_, Value>, ProjectionEvalError> {
         let left = reader
             .read_slot_checked(left_slot)?
-            .ok_or_else(|| missing_field_value(left_field, left_slot))?;
+            .ok_or_else(|| ProjectionEvalError::missing_slot_value(left_slot))?;
         let right = reader
             .read_slot_checked(right_slot)?
-            .ok_or_else(|| missing_field_value(right_field, right_slot))?;
+            .ok_or_else(|| ProjectionEvalError::missing_slot_value(right_slot))?;
 
         evaluate_compare_binary_expr(op, left.as_ref(), right.as_ref()).map(Cow::Owned)
     }
@@ -311,13 +258,12 @@ impl CompiledExpr {
         reader: &'row dyn CompiledExprValueReader,
         op: BinaryOp,
         slot: usize,
-        field: &str,
         literal: &Value,
         slot_on_left: bool,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         let value = reader
             .read_slot_checked(slot)?
-            .ok_or_else(|| missing_field_value(field, slot))?;
+            .ok_or_else(|| ProjectionEvalError::missing_slot_value(slot))?;
         let result = if slot_on_left {
             evaluate_binary_expr(op, value.as_ref(), literal)
         } else {
@@ -333,13 +279,13 @@ impl CompiledExpr {
     fn evaluate_case_slot_literal<'row>(
         reader: &'row dyn CompiledExprValueReader,
         op: BinaryOp,
-        slot_ref: (usize, &str),
+        slot: usize,
         literal: &Value,
         slot_on_left: bool,
         then_expr: &'row Self,
         else_expr: &'row Self,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
-        if Self::evaluate_slot_literal_condition(reader, op, slot_ref, literal, slot_on_left)? {
+        if Self::evaluate_slot_literal_condition(reader, op, slot, literal, slot_on_left)? {
             return then_expr.evaluate(reader);
         }
 
@@ -352,13 +298,12 @@ impl CompiledExpr {
     fn evaluate_case_slot_bool<'row>(
         reader: &'row dyn CompiledExprValueReader,
         slot: usize,
-        field: &str,
         then_expr: &'row Self,
         else_expr: &'row Self,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         let condition = reader
             .read_slot_checked(slot)?
-            .ok_or_else(|| missing_field_value(field, slot))?;
+            .ok_or_else(|| ProjectionEvalError::missing_slot_value(slot))?;
         let select_then = match condition.as_ref() {
             Value::Bool(value) => *value,
             Value::Null => false,
@@ -383,14 +328,13 @@ impl CompiledExpr {
     fn evaluate_slot_literal_condition(
         reader: &dyn CompiledExprValueReader,
         op: BinaryOp,
-        slot_ref: (usize, &str),
+        slot: usize,
         literal: &Value,
         slot_on_left: bool,
     ) -> Result<bool, ProjectionEvalError> {
-        let (slot, field) = slot_ref;
         let slot_value = reader
             .read_slot_checked(slot)?
-            .ok_or_else(|| missing_field_value(field, slot))?;
+            .ok_or_else(|| ProjectionEvalError::missing_slot_value(slot))?;
         let (left, right) = if slot_on_left {
             (slot_value.as_ref(), literal)
         } else {

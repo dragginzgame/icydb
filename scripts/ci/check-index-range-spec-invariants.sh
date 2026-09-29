@@ -69,10 +69,9 @@ REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::prefix_offset < self.prefixes.len\\(\\):::missing invariant check for unused IndexPrefixSpec entries"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::let \\[spec\\] = index_prefix_specs else:::missing invariant error for unresolved index-prefix specs in physical path resolution"
   "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::validate_index_prefix_spec_alignment:::missing invariant error for misaligned index-prefix specs in physical path resolution"
-  "crates/icydb-core/src/db/executor/scan/fast_stream_route/handlers.rs:::index-prefix executable spec must be materialized for index-prefix plans:::missing invariant error for unresolved secondary index prefix specs"
+  "crates/icydb-core/src/db/executor/scan/secondary_index.rs:::return Err\\(InternalError::secondary_index_prefix_spec_required\\(\\)\\):::missing invariant error for unresolved secondary index prefix specs"
   "crates/icydb-core/src/db/executor/stream/access/scan.rs:::visit_raw_entries_in_range:::index-prefix physical execution must use raw-range traversal"
   "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::spec.scan_contract\\(\\).name\\(\\) != details.name\\(\\):::missing invariant error for misaligned IndexPrefixSpec consumption"
-  "crates/icydb-core/src/db/executor/planning/route/guard.rs:::ensure_spec_at_most_one_if_enabled\\(:::missing invariant error for multi-spec secondary fast-path drift"
   "crates/icydb-core/src/db/executor/stream/access/bindings.rs:::validate_index_range_specs_consumed:::missing invariant check for unused IndexRangeSpec entries"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::require_index_range_spec:::missing invariant check for unresolved index-range specs in physical path resolution"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::new_from_existing_prefix_and_suffix_values_with_primary_key_value:::branch-set continuation must use index-owned suffix key construction"
@@ -89,10 +88,10 @@ REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::OrderedKeyStreamBox::intersect_all:::access intersection execution must use the shared intersection tree helper"
   "crates/icydb-core/src/db/executor/traversal.rs:::pub\\(in crate::db::executor\\) fn require_spec:::missing invariant error for unresolved index-range specs at shared traversal boundary"
   "crates/icydb-core/src/db/executor/traversal.rs:::validate_spec_alignment:::missing invariant error for misaligned index-range specs at shared traversal boundary"
-  "crates/icydb-core/src/db/executor/scan/fast_stream_route/handlers.rs:::index-range executable spec must be materialized for index-range plans:::missing invariant error for unresolved index-range pushdown specs"
+  "crates/icydb-core/src/db/executor/scan/index_range_limit.rs:::return Err\\(InternalError::index_range_limit_spec_required\\(\\)\\):::missing invariant error for unresolved index-range pushdown specs"
   "crates/icydb-core/src/db/executor/stream/access/scan.rs:::visit_raw_entries_in_range:::index-range physical execution must use raw-range traversal"
   "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::validate_index_range_spec_alignment:::missing invariant check for misaligned IndexRangeSpec consumption"
-  "crates/icydb-core/src/db/executor/planning/route/guard.rs:::index_range_pushdown_eligible,:::missing invariant error for multi-spec index-range fast-path drift"
+  "crates/icydb-core/src/db/executor/planning/route/guard.rs:::index_range_pushdown_eligible && index_range_spec_count > 1:::missing invariant error for multi-spec index-range fast-path drift"
 )
 
 status=0

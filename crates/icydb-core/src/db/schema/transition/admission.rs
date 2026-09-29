@@ -18,9 +18,6 @@ use super::{
     SchemaTransitionRejectionDetailCode, SchemaTransitionRejectionKind,
 };
 
-#[cfg(test)]
-use crate::db::codec::hex::encode_hex_lower;
-
 ///
 /// SchemaAdmissionIdentity
 ///
@@ -101,17 +98,6 @@ impl SchemaAdmissionRejectionReason {
             Self::VersionRollback => 5,
         }
     }
-
-    #[cfg(test)]
-    const fn detail(self) -> &'static str {
-        match self {
-            Self::EmptyVersionBump => "schema_version bumped without schema shape change",
-            Self::FingerprintMethodMismatch => "schema fingerprint method changed",
-            Self::MissingVersionBump => "schema changed without schema_version bump",
-            Self::VersionGap => "schema_version jumped",
-            Self::VersionRollback => "schema_version moved backwards",
-        }
-    }
 }
 
 impl fmt::Debug for SchemaAdmissionRejectionReason {
@@ -169,7 +155,7 @@ pub(in crate::db::schema) fn schema_admission_rejection(
 
     Some(SchemaTransitionRejection::new(
         SchemaTransitionRejectionKind::SchemaVersion,
-        schema_admission_rejection_detail(classification, comparison),
+        SchemaTransitionRejectionDetail::new(SchemaTransitionRejectionDetailCode::SchemaAdmission),
         Some(classification),
     ))
 }
@@ -223,44 +209,4 @@ pub(super) fn classify_schema_admission_rejection(
             Some(expected_next),
         ))
     }
-}
-
-#[cfg(test)]
-fn schema_admission_rejection_detail(
-    classification: SchemaAdmissionRejectionClassification,
-    comparison: SchemaAdmissionIdentityComparison,
-) -> SchemaTransitionRejectionDetail {
-    let facts = schema_admission_identity_facts(comparison);
-    let extra = classification
-        .expected_next
-        .map(|expected_next| format!("expected_next={expected_next}"));
-
-    let rich = match extra {
-        Some(extra) => format!("{}: {facts} {extra}", classification.reason.detail()),
-        None => format!("{}: {facts}", classification.reason.detail()),
-    };
-
-    SchemaTransitionRejectionDetail::new(SchemaTransitionRejectionDetailCode::SchemaAdmission, rich)
-}
-
-#[cfg(not(test))]
-const fn schema_admission_rejection_detail(
-    classification: SchemaAdmissionRejectionClassification,
-    comparison: SchemaAdmissionIdentityComparison,
-) -> SchemaTransitionRejectionDetail {
-    let _ = (classification, comparison);
-    SchemaTransitionRejectionDetail::new(SchemaTransitionRejectionDetailCode::SchemaAdmission)
-}
-
-#[cfg(test)]
-fn schema_admission_identity_facts(comparison: SchemaAdmissionIdentityComparison) -> String {
-    format!(
-        "stored_version={} candidate_version={} stored_method={} candidate_method={} stored_fingerprint={} candidate_fingerprint={}",
-        comparison.stored.schema_version.get(),
-        comparison.candidate.schema_version.get(),
-        comparison.stored.fingerprint_method_version,
-        comparison.candidate.fingerprint_method_version,
-        encode_hex_lower(&comparison.stored.schema_fingerprint),
-        encode_hex_lower(&comparison.candidate.schema_fingerprint),
-    )
 }

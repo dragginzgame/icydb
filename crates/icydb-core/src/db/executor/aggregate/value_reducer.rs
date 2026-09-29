@@ -183,7 +183,7 @@ impl ValueReducerState {
                 Ok(())
             }
             Self::Sum { .. } | Self::Avg { .. } | Self::Min { .. } | Self::Max { .. } => {
-                Err(reducer_state_mismatch("COUNT"))
+                Err(InternalError::query_executor_invariant())
             }
         }
     }
@@ -198,7 +198,7 @@ impl ValueReducerState {
                 Ok(())
             }
             Self::Count { .. } | Self::Min { .. } | Self::Max { .. } => {
-                Err(reducer_state_mismatch("SUM/AVG"))
+                Err(InternalError::query_executor_invariant())
             }
         }
     }
@@ -214,7 +214,7 @@ impl ValueReducerState {
 
     fn ingest_sum_accumulator(&mut self, value: SumAccumulator) -> Result<(), InternalError> {
         let Self::Sum { sum } = self else {
-            return Err(reducer_state_mismatch("SUM"));
+            return Err(InternalError::query_executor_invariant());
         };
         *sum = Some(match sum.take() {
             Some(current) => current
@@ -256,7 +256,7 @@ impl ValueReducerState {
                 Ok(())
             }
             Self::Count { .. } | Self::Sum { .. } | Self::Avg { .. } => {
-                Err(reducer_state_mismatch("MIN/MAX"))
+                Err(InternalError::query_executor_invariant())
             }
         }
     }
@@ -279,7 +279,7 @@ impl ValueReducerState {
                 Ok(())
             }
             Self::Count { .. } | Self::Sum { .. } | Self::Avg { .. } => {
-                Err(reducer_state_mismatch("MIN/MAX"))
+                Err(InternalError::query_executor_invariant())
             }
         }
     }
@@ -357,10 +357,6 @@ fn coerce_aggregate_decimal(value: &Value) -> Result<Decimal, InternalError> {
             InternalError::query_executor_invariant()
         }
     })
-}
-
-fn reducer_state_mismatch(_kind: &'static str) -> InternalError {
-    InternalError::query_executor_invariant()
 }
 
 #[cfg(test)]

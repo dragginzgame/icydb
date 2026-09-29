@@ -346,13 +346,11 @@ impl PlannedContinuationContract {
     /// Validate one already-decoded grouped cursor token against this immutable continuation contract.
     pub(in crate::db) fn prepare_grouped_cursor_token(
         &self,
-        entity_path: &str,
         cursor: Option<crate::db::cursor::GroupedContinuationToken>,
     ) -> Result<ValidatedGroupedCursor, CursorPlanError> {
         self.validate_grouped_cursor_contract(cursor.is_some())?;
 
         crate::db::cursor::prepare_grouped_cursor_token(
-            entity_path,
             self.order_contract.order_spec(),
             self.order_contract.direction(),
             self.continuation_signature(),

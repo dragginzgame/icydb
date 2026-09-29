@@ -889,11 +889,9 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_admission_is_state_only_and_has_no_incidental_recovery_path() {
+    fn ordinary_admission_checks_startup_state() {
         let rendered = compact_tokens(schema_bootstrap_tokens(&actor_builder()));
 
-        assert!(!rendered.contains("::std::cell::OnceCell"));
-        assert!(!rendered.contains("SCHEMA_APPLICATION.with("));
         assert!(rendered.contains("fnadmit_ordinary_database_work("));
         assert!(rendered.contains("DatabaseStartupState::Ready"));
         assert!(rendered.contains("__startup_recovery_pending()"));

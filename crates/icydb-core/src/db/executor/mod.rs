@@ -153,9 +153,7 @@ pub(in crate::db::executor) fn validate_executor_plan_for_authority(
 // - Corruption indicates invalid persisted bytes or store mismatches; invariant violations
 //   indicate executor/planner contract breaches.
 
-use crate::db::{
-    cursor::CursorPlanError, data::DecodedDataStoreKey, query::plan::AccessPlannedQuery,
-};
+use crate::db::{cursor::CursorPlanError, query::plan::AccessPlannedQuery};
 use crate::error::{ErrorClass, ErrorOrigin, InternalError};
 
 ///
@@ -245,13 +243,6 @@ impl ExecutorError {
     pub(in crate::db::executor) const fn store_corruption() -> Self {
         Self::corruption(ErrorOrigin::Store)
     }
-
-    // Construct the canonical missing-row store corruption error.
-    pub(in crate::db::executor) const fn missing_row(_key: &DecodedDataStoreKey) -> Self {
-        Self::store_corruption()
-    }
-
-    // Construct the canonical persisted-row invariant-violation corruption error.
 }
 
 /// Construct the canonical executor conflict for an occupied mutation key.

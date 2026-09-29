@@ -72,7 +72,7 @@ pub(in crate::db) fn compile_scalar_projection_plan_with_schema(
     Ok(Some(fields))
 }
 
-// Slot lookup internals remain separately owned; labels and path buffers charge here.
+// Slot lookup internals remain separately owned; nested path buffers charge here.
 fn compile_scalar_leaf(
     schema: &SchemaInfo,
     expr: &Expr,
@@ -87,10 +87,7 @@ fn compile_scalar_leaf(
             let Some(slot) = schema.field_slot_index(field.as_str()) else {
                 return Ok(None);
             };
-            CompiledExpr::Slot {
-                slot,
-                field: budget.copy_text(field.as_str())?,
-            }
+            CompiledExpr::Slot { slot }
         }
         Expr::FieldPath(path) => {
             budget.charge(
@@ -100,7 +97,6 @@ fn compile_scalar_leaf(
             let Some(root_slot) = schema.field_slot_index(path.root().as_str()) else {
                 return Ok(None);
             };
-            let mut field = budget.copy_text(path.root().as_str())?;
             let mut segments = budget.vec_with_capacity(path.segments().len())?;
             let mut segment_bytes = budget.vec_with_capacity(path.segments().len())?;
             for segment in path.segments() {
@@ -109,12 +105,9 @@ fn compile_scalar_leaf(
                 let mut bytes = budget.vec_with_capacity(segment.len())?;
                 bytes.extend_from_slice(segment.as_bytes());
                 segment_bytes.push(bytes.into_boxed_slice());
-                budget.push_text(&mut field, ".")?;
-                budget.push_text(&mut field, segment)?;
             }
             CompiledExpr::FieldPath {
                 root_slot,
-                field,
                 segments: segments.into_boxed_slice(),
                 segment_bytes: segment_bytes.into_boxed_slice(),
             }
@@ -141,10 +134,9 @@ pub(in crate::db::query::plan::expr) fn compile_builder_preview_expr(
     CompiledExpr::compile_expr(
         expr,
         &|leaf| match leaf {
-            Expr::Field(field) if field.as_str() == field_name => Ok(CompiledExpr::Slot {
-                slot: value_slot,
-                field: field.as_str().to_string(),
-            }),
+            Expr::Field(field) if field.as_str() == field_name => {
+                Ok(CompiledExpr::Slot { slot: value_slot })
+            }
             Expr::FieldPath(_) => Err(QueryError::unsupported_projection(
                 QueryProjectionCode::NestedFieldPathPreview,
             )),
@@ -247,21 +239,18 @@ impl CompiledExpr {
             Self::BinarySlotLiteral {
                 op,
                 slot,
-                field,
                 literal,
                 slot_on_left,
             } if is_comparison_op(op) => Self::CaseSlotLiteral {
                 op,
                 slot,
-                field,
                 literal,
                 slot_on_left,
                 then_expr: budget.boxed(then_expr)?,
                 else_expr: budget.boxed(else_expr)?,
             },
-            Self::Slot { slot, field } => Self::CaseSlotBool {
+            Self::Slot { slot } => Self::CaseSlotBool {
                 slot,
-                field,
                 then_expr: budget.boxed(then_expr)?,
                 else_expr: budget.boxed(else_expr)?,
             },
@@ -276,8 +265,8 @@ impl CompiledExpr {
         })
     }
 
-    // Specialization consumes the already-owned operands. Moving labels and
-    // literals avoids copying payloads that the temporary operand nodes then drop.
+    // Specialization consumes the already-owned operands, moving literals
+    // without copying payloads that the temporary operand nodes then drop.
     fn compile_binary(
         op: BinaryOp,
         left: Self,
@@ -285,34 +274,18 @@ impl CompiledExpr {
         budget: &dyn ConstructionBudget,
     ) -> Result<Self, InternalError> {
         Ok(match (left, right) {
-            (
-                Self::Slot {
-                    slot: left_slot,
-                    field: left_field,
-                },
-                Self::Slot {
-                    slot: right_slot,
-                    field: right_field,
-                },
-            ) => Self::compile_slot_slot_binary(
-                op,
-                left_slot,
-                left_field,
-                right_slot,
-                right_field,
-                budget,
-            )?,
-            (Self::Slot { field, slot }, Self::Literal(literal)) => Self::BinarySlotLiteral {
+            (Self::Slot { slot: left_slot }, Self::Slot { slot: right_slot }) => {
+                Self::compile_slot_slot_binary(op, left_slot, right_slot, budget)?
+            }
+            (Self::Slot { slot }, Self::Literal(literal)) => Self::BinarySlotLiteral {
                 op,
                 slot,
-                field,
                 literal,
                 slot_on_left: true,
             },
-            (Self::Literal(literal), Self::Slot { field, slot }) => Self::BinarySlotLiteral {
+            (Self::Literal(literal), Self::Slot { slot }) => Self::BinarySlotLiteral {
                 op,
                 slot,
-                field,
                 literal,
                 slot_on_left: false,
             },
@@ -329,82 +302,54 @@ impl CompiledExpr {
     fn compile_slot_slot_binary(
         op: BinaryOp,
         left_slot: usize,
-        left_field: String,
         right_slot: usize,
-        right_field: String,
         budget: &dyn ConstructionBudget,
     ) -> Result<Self, InternalError> {
         Ok(match op {
             BinaryOp::Add => Self::Add {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             },
             BinaryOp::Sub => Self::Sub {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             },
             BinaryOp::Mul => Self::Mul {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             },
             BinaryOp::Div => Self::Div {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             },
             BinaryOp::Eq => Self::Eq {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             },
             BinaryOp::Ne => Self::Ne {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             },
             BinaryOp::Lt => Self::Lt {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             },
             BinaryOp::Lte => Self::Lte {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             },
             BinaryOp::Gt => Self::Gt {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             },
             BinaryOp::Gte => Self::Gte {
                 left_slot,
-                left_field,
                 right_slot,
-                right_field,
             },
             BinaryOp::Or | BinaryOp::And => Self::Binary {
                 op,
-                left: budget.boxed(Self::Slot {
-                    slot: left_slot,
-                    field: left_field,
-                })?,
-                right: budget.boxed(Self::Slot {
-                    slot: right_slot,
-                    field: right_field,
-                })?,
+                left: budget.boxed(Self::Slot { slot: left_slot })?,
+                right: budget.boxed(Self::Slot { slot: right_slot })?,
             },
         })
     }
@@ -478,31 +423,14 @@ fn compile_grouped_leaf(
     budget: &dyn ConstructionBudget,
 ) -> Result<CompiledExpr, GroupedCompilationError> {
     Ok(match expr {
-        Expr::Field(field_id) => {
-            let field_name = field_id.as_str();
+        Expr::Field(_) | Expr::FieldPath(_) => {
             let Some(offset) = resolve_group_field_offset(group_fields, expr, budget)? else {
                 return Err(GroupedCompilationError::Projection(
                     ProjectionEvalError::unknown_group_field(),
                 ));
             };
 
-            CompiledExpr::GroupKey {
-                offset,
-                field: budget.copy_text(field_name)?,
-            }
-        }
-        Expr::FieldPath(path) => {
-            let Some(offset) = resolve_group_field_offset(group_fields, expr, budget)? else {
-                return Err(GroupedCompilationError::Projection(
-                    ProjectionEvalError::unknown_group_field(),
-                ));
-            };
-            let mut field = budget.copy_text(path.root().as_str())?;
-            for segment in path.segments() {
-                budget.push_text(&mut field, ".")?;
-                budget.push_text(&mut field, segment)?;
-            }
-            CompiledExpr::GroupKey { offset, field }
+            CompiledExpr::GroupKey { offset }
         }
         Expr::Aggregate(aggregate_expr) => {
             let Some(index) =
@@ -593,8 +521,8 @@ mod tests {
         }
     }
 
-    fn slot(slot: usize, field: String) -> CompiledExpr {
-        CompiledExpr::Slot { slot, field }
+    const fn slot(slot: usize) -> CompiledExpr {
+        CompiledExpr::Slot { slot }
     }
 
     #[test]
@@ -638,34 +566,27 @@ mod tests {
     }
 
     #[test]
-    fn binary_specialization_moves_owned_labels_and_literals() {
-        let left = "left".to_string();
-        let right = "right".to_string();
-        let pointers = (left.as_ptr(), right.as_ptr());
+    fn binary_specialization_preserves_slots_and_moves_literals() {
         let compiled = CompiledExpr::compile_binary(
             BinaryOp::Add,
-            slot(0, left),
-            slot(1, right),
+            slot(0),
+            slot(1),
             &PreviewConstructionBudget,
         )
         .unwrap();
         let CompiledExpr::Add {
             left_slot,
-            left_field,
             right_slot,
-            right_field,
         } = compiled
         else {
             panic!("slot arithmetic should retain its direct form");
         };
         assert_eq!((left_slot, right_slot), (0, 1));
-        assert_eq!((left_field.as_ptr(), right_field.as_ptr()), pointers);
 
         for slot_on_left in [true, false] {
-            let field = "field".to_string();
             let literal = "large literal".repeat(100);
-            let pointers = (field.as_ptr(), literal.as_ptr());
-            let field = slot(1, field);
+            let pointer = literal.as_ptr();
+            let field = slot(1);
             let literal = CompiledExpr::Literal(Value::Text(literal));
             let (left, right) = if slot_on_left {
                 (field, literal)
@@ -678,7 +599,6 @@ mod tests {
             let CompiledExpr::BinarySlotLiteral {
                 op,
                 slot,
-                field,
                 literal: Value::Text(literal),
                 slot_on_left: actual,
             } = compiled
@@ -688,7 +608,7 @@ mod tests {
             assert_eq!(op, BinaryOp::Lt);
             assert_eq!(slot, 1);
             assert_eq!(actual, slot_on_left);
-            assert_eq!((field.as_ptr(), literal.as_ptr()), pointers);
+            assert_eq!(literal.as_ptr(), pointer);
         }
     }
 
@@ -717,15 +637,9 @@ mod tests {
             ] {
                 let row = Row(values);
                 for (left, right) in [
-                    (slot(0, "left".into()), slot(1, "right".into())),
-                    (
-                        slot(0, "left".into()),
-                        CompiledExpr::Literal(row.0[1].clone()),
-                    ),
-                    (
-                        CompiledExpr::Literal(row.0[0].clone()),
-                        slot(1, "right".into()),
-                    ),
+                    (slot(0), slot(1)),
+                    (slot(0), CompiledExpr::Literal(row.0[1].clone())),
+                    (CompiledExpr::Literal(row.0[0].clone()), slot(1)),
                     (
                         CompiledExpr::Literal(row.0[0].clone()),
                         CompiledExpr::Literal(row.0[1].clone()),

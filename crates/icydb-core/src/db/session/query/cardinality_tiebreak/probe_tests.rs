@@ -16,7 +16,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-use std::{hint::black_box, time::Instant};
 
 fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
     RequestExecutionRoot::new_for_tests(
@@ -213,36 +212,5 @@ fn duplicate_probe_comparison_preserves_identity_and_budget_errors() {
             assert!(result.is_err());
         }
         assert_eq!(root.observed(Resource::PredicateExpressionSteps), 7);
-    }
-}
-
-// Include owned-input cleanup, but exclude input cloning and schema setup.
-#[test]
-#[ignore = "manual native cardinality probe preparation timing"]
-fn cardinality_probe_preparation_native_timing() {
-    const ITERATIONS: usize = 500;
-    for width in [16, 17, 128] {
-        let (_, authority, candidates) = probe_candidates_for_tests(width);
-        for sample in 0..5 {
-            let inputs: Vec<_> = (0..ITERATIONS).map(|_| candidates.clone()).collect();
-            let elapsed = with_preparation_work(|work| {
-                let start = Instant::now();
-                for input in inputs {
-                    let result = prepare_cardinality_candidates(
-                        authority.entity_tag(),
-                        authority.accepted_schema_info(),
-                        input,
-                        work,
-                    )
-                    .unwrap();
-                    assert_eq!(black_box(result).is_some(), width == 16);
-                }
-                start.elapsed()
-            });
-            eprintln!(
-                "cardinality_probe_preparation width={width} sample={sample} ns/op={}",
-                elapsed.as_nanos() / ITERATIONS as u128
-            );
-        }
     }
 }

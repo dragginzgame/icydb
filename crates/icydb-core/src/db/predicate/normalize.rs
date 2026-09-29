@@ -121,7 +121,7 @@ pub(in crate::db) fn normalize_enum_literals(
                 field: work.copy_text(&cmp.field)?,
                 op: cmp.op,
                 value,
-                coercion: work.copy_coercion(&cmp.coercion)?,
+                coercion: cmp.coercion.clone(),
             }))
         }
         Predicate::CompareFields(cmp) => Ok(Predicate::CompareFields(
@@ -267,7 +267,7 @@ fn normalize_compare_fields_with_schema(
         left_field: work.copy_text(&cmp.left_field)?,
         op: cmp.op,
         right_field: work.copy_text(&cmp.right_field)?,
-        coercion: work.copy_coercion(&cmp.coercion)?,
+        coercion: cmp.coercion.clone(),
     })
 }
 

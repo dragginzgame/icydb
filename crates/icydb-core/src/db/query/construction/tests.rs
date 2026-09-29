@@ -54,7 +54,7 @@ fn vector_reservation_charges_replacement_capacity_before_mutation() {
 }
 
 #[test]
-fn text_reservation_and_append_share_the_same_growth_charge() {
+fn text_reservation_charges_growth_before_mutation() {
     for limit in [11, 12] {
         let root = request(limit);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
@@ -63,14 +63,13 @@ fn text_reservation_and_append_share_the_same_growth_charge() {
             budget
                 .reserve_string(&mut text, 4)
                 .map_err(QueryError::execute)?;
-            budget
-                .push_text(&mut text, "éé")
-                .map_err(QueryError::execute)?;
+            text.push_str("éé");
             let pointer = text.as_ptr();
             let capacity = text.capacity();
-            let result = budget.push_text(&mut text, "!");
+            let result = budget.reserve_string(&mut text, 1);
             if limit == 12 {
                 result.unwrap();
+                text.push('!');
                 assert_eq!(text, "éé!");
             } else {
                 assert!(result.is_err());
@@ -82,7 +81,6 @@ fn text_reservation_and_append_share_the_same_growth_charge() {
         })
         .unwrap();
         assert_eq!(root.observed(Resource::TemporaryBytes), 12);
-        assert_eq!(root.observed(Resource::PredicateExpressionSteps), 5);
     }
 }
 

@@ -34,39 +34,6 @@ pub(in crate::db::executor::aggregate::contracts::state) enum ExtremumKind {
 }
 
 impl ExtremumKind {
-    // Return the expression-input label used by invariant errors for this
-    // extrema aggregate.
-    pub(in crate::db::executor::aggregate::contracts::state) const fn expression_label(
-        self,
-    ) -> &'static str {
-        match self {
-            Self::Min => "MIN(expr)",
-            Self::Max => "MAX(expr)",
-        }
-    }
-
-    // Return the field-input label used by invariant errors for this extrema
-    // aggregate.
-    pub(in crate::db::executor::aggregate::contracts::state) const fn field_label(
-        self,
-    ) -> &'static str {
-        match self {
-            Self::Min => "MIN(field)",
-            Self::Max => "MAX(field)",
-        }
-    }
-
-    // Return the primary-key value label used by invariant errors for this
-    // extrema aggregate.
-    pub(in crate::db::executor::aggregate::contracts::state) const fn primary_key_value_label(
-        self,
-    ) -> &'static str {
-        match self {
-            Self::Min => "MIN",
-            Self::Max => "MAX",
-        }
-    }
-
     // Return the extrema early-termination decision for one ordered input
     // direction.
     pub(in crate::db::executor::aggregate::contracts::state) const fn fold_control_for_direction(

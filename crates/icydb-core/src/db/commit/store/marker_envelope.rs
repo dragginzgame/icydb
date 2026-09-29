@@ -94,7 +94,7 @@ fn decode_commit_marker_bytes(bytes: &[u8]) -> Result<(u8, Vec<u8>), InternalErr
 
     let format_version = bytes[0];
     let mut cursor = 1;
-    let payload_len = read_u32_le(bytes, &mut cursor, "commit marker")? as usize;
+    let payload_len = read_u32_le(bytes, &mut cursor)? as usize;
     let payload = bytes
         .get(cursor..)
         .ok_or_else(marker_canonical_envelope_required)?;

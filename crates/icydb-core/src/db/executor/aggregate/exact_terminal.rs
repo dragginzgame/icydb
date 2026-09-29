@@ -45,16 +45,11 @@ use crate::db::{
 #[cfg(feature = "sql")]
 use crate::{types::Decimal, value::Value};
 
-fn measure_exact_cardinality<T>(run: impl FnOnce() -> T) -> (u64, T) {
-    (0, run())
-}
-
 #[cfg(feature = "sql")]
 struct ExactFirstComponentMetadata<T> {
     value: T,
     examined: u64,
     stop_after: u64,
-    local_instructions: u64,
 }
 
 #[cfg(feature = "sql")]
@@ -80,9 +75,7 @@ fn execute_exact_first_component_metadata<T>(
     }
 
     let data_generation = store.with_data(DataStore::generation);
-    let (local_instructions, metadata) = measure_exact_cardinality(|| {
-        store.with_index(|index| read(index, data_generation, stop_after))
-    });
+    let metadata = store.with_index(|index| read(index, data_generation, stop_after));
     let Some((value, examined, complete)) = metadata? else {
         return Ok(None);
     };
@@ -98,7 +91,6 @@ fn execute_exact_first_component_metadata<T>(
         value,
         examined,
         stop_after,
-        local_instructions,
     }))
 }
 
@@ -162,37 +154,30 @@ where
             target.charged_metadata_entries(),
         )?;
         let store = db.recovered_store(authority.store_path())?;
-        let index_prefix_target = !matches!(&target, ExactCardinalityTarget::Entity);
-        let (metadata_local_instructions, output) =
-            measure_exact_cardinality(|| -> Result<Option<u64>, InternalError> {
-                match target {
-                    ExactCardinalityTarget::Entity => {
-                        Ok(store.exact_entity_count(authority.entity_tag()))
-                    }
-                    #[cfg(feature = "sql")]
-                    ExactCardinalityTarget::UserIndexFirstComponentDistinct(index_id) => {
-                        exact_user_index_first_component_cardinality(
-                            store, &authority, index_id, None, None,
-                        )
-                    }
-                    #[cfg(feature = "sql")]
-                    ExactCardinalityTarget::UserIndexFirstComponentRange {
-                        index_id,
-                        lower,
-                        upper,
-                    } => exact_user_index_first_component_cardinality(
-                        store,
-                        &authority,
-                        index_id,
-                        Some(lower),
-                        Some(upper),
-                    ),
-                    ExactCardinalityTarget::UserIndexPrefixes(prefix_keys) => {
-                        Ok(exact_user_index_prefix_cardinality_sum(store, prefix_keys))
-                    }
-                }
-            });
-        let output = output?;
+        let output = match target {
+            ExactCardinalityTarget::Entity => store.exact_entity_count(authority.entity_tag()),
+            #[cfg(feature = "sql")]
+            ExactCardinalityTarget::UserIndexFirstComponentDistinct(index_id) => {
+                exact_user_index_first_component_cardinality(
+                    store, &authority, index_id, None, None,
+                )?
+            }
+            #[cfg(feature = "sql")]
+            ExactCardinalityTarget::UserIndexFirstComponentRange {
+                index_id,
+                lower,
+                upper,
+            } => exact_user_index_first_component_cardinality(
+                store,
+                &authority,
+                index_id,
+                Some(lower),
+                Some(upper),
+            )?,
+            ExactCardinalityTarget::UserIndexPrefixes(prefix_keys) => {
+                exact_user_index_prefix_cardinality_sum(store, prefix_keys)
+            }
+        };
         let Some(output) = output else {
             return Ok(None);
         };
@@ -200,8 +185,6 @@ where
             charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultRows, 1)?;
             charge_current_execution_budget(DiagnosticExecutionBudgetResource::ResultBytes, 32)?;
         }
-
-        let _ = (index_prefix_target, metadata_local_instructions);
 
         Ok(Some(output))
     })
@@ -269,8 +252,6 @@ where
             })
             .collect::<Result<Vec<_>, _>>()?;
         charge_runtime_value_rows(std::slice::from_ref(&row))?;
-
-        let _ = metadata.local_instructions;
 
         Ok(Some(row))
     })

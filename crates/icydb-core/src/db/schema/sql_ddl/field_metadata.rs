@@ -47,7 +47,6 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         entity_tag,
-        entity_path,
         accepted_before,
         &accepted_before_identity,
         derivation,
@@ -56,13 +55,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
         return Err(InternalError::store_unsupported());
     };
     validate_sql_ddl_field_drop_metadata_change(envelope.before(), envelope.after(), target)?;
-    validate_sql_ddl_drop_schema_gate(
-        store,
-        entity_tag,
-        entity_path,
-        envelope.before(),
-        "before row rewrite",
-    )?;
+    validate_sql_ddl_drop_schema_gate(store, entity_tag, envelope.before())?;
     require_exact_empty_sql_ddl_entity(store, entity_tag, entity_path)?;
     envelope.publish()?;
 
@@ -103,7 +96,6 @@ fn validate_sql_ddl_field_drop_metadata_change(
 pub(in crate::db) fn execute_admin_sql_ddl_field_default_change(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -111,7 +103,6 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_default_change(
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         entity_tag,
-        entity_path,
         accepted_before,
         &accepted_before_identity,
         derivation,
@@ -177,7 +168,6 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_nullability_change(
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         entity_tag,
-        entity_path,
         accepted_before,
         &accepted_before_identity,
         derivation,
@@ -360,7 +350,6 @@ fn validate_sql_ddl_field_nullability_metadata_change(
 pub(in crate::db) fn execute_admin_sql_ddl_field_rename(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -368,7 +357,6 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_rename(
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         entity_tag,
-        entity_path,
         accepted_before,
         &accepted_before_identity,
         derivation,

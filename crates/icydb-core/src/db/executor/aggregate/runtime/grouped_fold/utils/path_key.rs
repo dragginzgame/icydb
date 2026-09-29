@@ -38,11 +38,9 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn resolve_group_f
         .slot_value_ref(path.root_slot())
         .ok_or_else(InternalError::query_executor_invariant)?;
 
-    Ok(
-        resolve_value_field_path(root, path.label(), path.path().segments())
-            .map_err(ProjectionEvalError::into_internal_error)?
-            .unwrap_or(&Value::Null),
-    )
+    Ok(resolve_value_field_path(root, path.path().segments())
+        .map_err(ProjectionEvalError::into_internal_error)?
+        .unwrap_or(&Value::Null))
 }
 
 /// Hash one virtual path-aware group tuple without materializing a value vector.

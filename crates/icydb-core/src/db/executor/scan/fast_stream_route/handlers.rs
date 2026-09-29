@@ -3,12 +3,6 @@
 //! paths.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
-// Invariant audit note:
-// - "index-prefix executable spec must be materialized for index-prefix plans"
-// - "index-range executable spec must be materialized for index-range plans"
-// The concrete checks now live in sibling scan modules, but the fast-stream
-// route boundary intentionally keeps these canonical invariant strings visible
-// for repo-wide spec-audit tooling.
 
 use crate::{
     db::{
@@ -20,7 +14,6 @@ use crate::{
             scan::fast_stream::execute_structural_fast_stream_request,
             stream::access::TraversalRuntime,
         },
-        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     value::Value,
@@ -28,7 +21,6 @@ use crate::{
 
 pub(super) fn execute_primary_key_fast_stream_route(
     runtime: &TraversalRuntime,
-    _plan: &AccessPlannedQuery,
     executable_access: &ExecutableAccessPlan<'_, Value>,
     continuation: AccessScanContinuationInput<'_>,
     probe_fetch_hint: Option<usize>,

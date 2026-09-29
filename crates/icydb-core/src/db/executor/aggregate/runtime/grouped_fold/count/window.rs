@@ -136,11 +136,8 @@ impl<'a> GroupedCountWindowSelection<'a> {
                 break;
             }
 
-            let emitted_group_key = match group_key.into_canonical_value() {
-                Value::List(values) => values,
-                value => {
-                    return Err(GroupedRouteStage::canonical_group_key_must_be_list(&value));
-                }
+            let Value::List(emitted_group_key) = group_key.into_canonical_value() else {
+                return Err(InternalError::query_executor_invariant());
             };
             page_rows.push(RuntimeGroupedRow::new(
                 emitted_group_key,
@@ -206,9 +203,7 @@ impl<'a> GroupedCountWindowSelection<'a> {
     fn row_matches_window(&self, group_key: &GroupKey, count: u32) -> Result<bool, InternalError> {
         let aggregate_value = finalize_count(u64::from(count));
         let Value::List(group_key_values) = group_key.canonical_value() else {
-            return Err(GroupedRouteStage::canonical_group_key_must_be_list(
-                group_key.canonical_value(),
-            ));
+            return Err(InternalError::query_executor_invariant());
         };
         let grouped_row = GroupedRowView::new(
             group_key_values.as_slice(),

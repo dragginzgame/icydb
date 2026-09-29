@@ -55,7 +55,6 @@ pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_slot_r
 pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_value_cow_reader<'a, F>(
     filter_program: &EffectiveRuntimeFilterProgram,
     read_slot: &mut F,
-    missing_slot_context: &str,
 ) -> Result<bool, InternalError>
 where
     F: FnMut(usize) -> Option<Cow<'a, Value>>,
@@ -72,5 +71,5 @@ where
         return Err(InternalError::query_executor_invariant());
     };
 
-    eval_compiled_filter_expr_with_value_cow_reader(filter_expr, read_slot, missing_slot_context)
+    eval_compiled_filter_expr_with_value_cow_reader(filter_expr, read_slot)
 }

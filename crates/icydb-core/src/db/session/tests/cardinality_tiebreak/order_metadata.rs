@@ -218,9 +218,7 @@ fn order_slot_construction_preserves_first_reference_order_at_exact_limits() {
         ResolvedOrderField::new(
             ResolvedOrderValueSource::expression(CompiledExpr::Add {
                 left_slot: 3,
-                left_field: "left".into(),
                 right_slot: 8,
-                right_field: "right".into(),
             }),
             OrderDirection::Asc,
         ),

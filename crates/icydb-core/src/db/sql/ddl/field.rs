@@ -330,7 +330,7 @@ fn bind_alter_column_set_default(
         authored_default,
         Some(schema.value_catalog_handle()),
     )?;
-    validate_sql_ddl_field_default_change_candidate(accepted_before, field, &default)
+    validate_sql_ddl_field_default_change_candidate(field, &default)
         .map_err(|error| sql_field_default_candidate_error(entity_name, column_name, error))?;
 
     Ok(bind_alter_table_alter_column_default(

@@ -17,7 +17,6 @@ use crate::{
 /// a non-map ancestor is persisted-row corruption.
 pub(in crate::db::executor) fn resolve_value_field_path<'value>(
     root: &'value Value,
-    field: &str,
     segments: &[String],
 ) -> Result<Option<&'value Value>, ProjectionEvalError> {
     let mut current = root;
@@ -26,10 +25,7 @@ pub(in crate::db::executor) fn resolve_value_field_path<'value>(
             return Ok(None);
         }
         let entries = current.as_map().ok_or_else(|| {
-            let err = InternalError::persisted_row_field_decode_failed(
-                field,
-                "field-path traversal requires a map value",
-            );
+            let err = InternalError::persisted_row_decode_corruption();
             ProjectionEvalError::FieldPathEvaluationFailed {
                 class: err.class(),
                 origin: err.origin(),

@@ -75,7 +75,6 @@ pub(in crate::db) fn decode_optional_grouped_cursor_token(
 /// Validate one already-decoded grouped continuation token into grouped
 /// executor cursor state.
 pub(in crate::db) fn prepare_grouped_cursor_token(
-    entity_path: &str,
     order: Option<&OrderSpec>,
     direction: Direction,
     continuation_signature: ContinuationSignature,
@@ -84,13 +83,7 @@ pub(in crate::db) fn prepare_grouped_cursor_token(
 ) -> Result<ValidatedGroupedCursor, CursorPlanError> {
     validate_grouped_cursor_order_plan(order)?;
 
-    spine::validate_grouped_cursor_token(
-        cursor,
-        entity_path,
-        continuation_signature,
-        direction,
-        initial_offset,
-    )
+    spine::validate_grouped_cursor_token(cursor, continuation_signature, direction, initial_offset)
 }
 
 /// Validate grouped cursor ordering plan shape.

@@ -126,8 +126,6 @@ impl ExecutionBudget {
         &mut self,
         config: &ExecutionConfig,
         new_group_key: bool,
-        group_count_before_insert: usize,
-        group_capacity_before_insert: usize,
         group_key: &GroupKey,
     ) -> Result<(), GroupError> {
         let next_groups = if new_group_key {
@@ -148,11 +146,7 @@ impl ExecutionBudget {
         } else {
             (0, 0)
         };
-        let bytes_delta = estimated_new_group_bytes(
-            group_count_before_insert,
-            group_capacity_before_insert,
-            key_work.0,
-        );
+        let bytes_delta = estimated_new_group_bytes(key_work.0);
         let next_bytes = self.estimated_bytes.saturating_add(bytes_delta);
         if next_bytes > config.max_group_bytes() {
             return Err(GroupError::memory_limit_exceeded(
@@ -553,17 +547,10 @@ impl ExecutionContext {
     /// Record one new canonical group with one aggregate state slot.
     pub(in crate::db::executor::aggregate) fn record_new_group(
         &mut self,
-        group_count_before_insert: usize,
-        group_capacity_before_insert: usize,
         group_key: &GroupKey,
     ) -> Result<(), GroupError> {
-        self.budget.record_new_group_state(
-            &self.config,
-            true,
-            group_count_before_insert,
-            group_capacity_before_insert,
-            group_key,
-        )
+        self.budget
+            .record_new_group_state(&self.config, true, group_key)
     }
 
     /// Record one new canonical group with one or more aggregate state slots.
@@ -572,8 +559,6 @@ impl ExecutionContext {
     /// budget accounting can preserve the per-aggregate-state model.
     pub(in crate::db::executor::aggregate) fn record_new_group_states(
         &mut self,
-        group_count_before_insert: usize,
-        group_capacity_before_insert: usize,
         aggregate_state_count: usize,
         group_key: &GroupKey,
     ) -> Result<(), GroupError> {
@@ -586,11 +571,7 @@ impl ExecutionContext {
         // grouped count and other one-aggregate shapes do not pay the generic
         // bundle loop on every new group insert.
         if aggregate_state_count == 1 {
-            return self.record_new_group(
-                group_count_before_insert,
-                group_capacity_before_insert,
-                group_key,
-            );
+            return self.record_new_group(group_key);
         }
 
         // Count `max_groups` against caller-proven unique canonical group keys,
@@ -598,13 +579,8 @@ impl ExecutionContext {
         // canonical group table already, so this budget layer does not re-check
         // uniqueness through a second `GroupKeySet`.
         for state_index in 0..aggregate_state_count {
-            self.budget.record_new_group_state(
-                &self.config,
-                state_index == 0,
-                group_count_before_insert,
-                group_capacity_before_insert,
-                group_key,
-            )?;
+            self.budget
+                .record_new_group_state(&self.config, state_index == 0, group_key)?;
         }
 
         Ok(())
@@ -700,15 +676,11 @@ impl ExecutionContext {
         &mut self,
     ) -> Result<(), GroupError> {
         let implicit_key = GroupKey::from_group_values(Vec::new()).map_err(GroupError::from)?;
-        self.record_new_group(0, 0, &implicit_key)
+        self.record_new_group(&implicit_key)
     }
 }
 
-fn estimated_new_group_bytes(
-    _group_count_before_insert: usize,
-    _group_capacity_before_insert: usize,
-    retained_key_bytes: u64,
-) -> u64 {
+fn estimated_new_group_bytes(retained_key_bytes: u64) -> u64 {
     retained_vec_element_backing_bytes::<(GroupKey, GroupedTerminalAggregateState)>()
         .saturating_add(retained_key_bytes)
 }

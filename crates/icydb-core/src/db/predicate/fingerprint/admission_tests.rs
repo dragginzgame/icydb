@@ -132,9 +132,8 @@ fn normalized_fingerprint_capacity_covers_value_families_and_coercions() {
                 } else {
                     Value::List(vec![value.clone()])
                 };
-                let mut compare =
+                let compare =
                     ComparePredicate::with_coercion("field".repeat(64), op, operand, coercion);
-                compare.coercion.params = vec![("key".repeat(64), "parameter".repeat(64))];
                 assert_capacity_and_digest(&Predicate::Compare(compare));
             }
         }

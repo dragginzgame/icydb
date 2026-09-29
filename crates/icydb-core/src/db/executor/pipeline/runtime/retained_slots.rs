@@ -133,7 +133,7 @@ fn mark_projection_retained_slots(
     };
 
     for expr in compiled_projection {
-        let Some((slot, _field)) = expr.direct_octet_length_slot() else {
+        let Some(slot) = expr.direct_octet_length_slot() else {
             expr.for_each_referenced_slot(&mut |slot| required_slots.mark_slot(slot));
             continue;
         };

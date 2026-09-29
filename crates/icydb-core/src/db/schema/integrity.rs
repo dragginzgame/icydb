@@ -81,7 +81,6 @@ pub(in crate::db) fn validate_schema_snapshot_acceptance(
 ) -> Result<(), SchemaSnapshotAcceptanceError> {
     let relation_id_high_water = snapshot.relation_id_allocator().high_water();
     if schema_snapshot_integrity_detail(
-        "persisted schema snapshot",
         snapshot.version(),
         snapshot.primary_key_field_ids(),
         snapshot.row_layout(),
@@ -89,7 +88,6 @@ pub(in crate::db) fn validate_schema_snapshot_acceptance(
     )
     .is_some()
         || schema_snapshot_index_integrity_detail(
-            "persisted schema snapshot",
             snapshot.row_layout(),
             snapshot.fields(),
             snapshot.indexes(),
@@ -97,7 +95,6 @@ pub(in crate::db) fn validate_schema_snapshot_acceptance(
         )
         .is_some()
         || schema_snapshot_relation_integrity_detail(
-            "persisted schema snapshot",
             snapshot.row_layout(),
             snapshot.fields(),
             snapshot.relations(),
@@ -137,7 +134,6 @@ pub(in crate::db) fn validate_schema_snapshot_acceptance(
 // decide whether the detail represents a typed caller invariant or raw payload
 // corruption, but the schema module owns the actual metadata consistency rules.
 pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
-    subject: &str,
     version: SchemaVersion,
     primary_key_field_ids: &[FieldId],
     row_layout: &SchemaRowLayout,
@@ -151,11 +147,11 @@ pub(in crate::db::schema) fn schema_snapshot_integrity_detail(
         return Some(());
     }
 
-    if let Some(detail) = duplicate_row_layout_detail(subject, row_layout) {
+    if let Some(detail) = duplicate_row_layout_detail(row_layout) {
         return Some(detail);
     }
 
-    if let Some(detail) = duplicate_field_detail(subject, fields) {
+    if let Some(detail) = duplicate_field_detail(fields) {
         return Some(detail);
     }
 
@@ -292,7 +288,7 @@ fn insert_generation_detail(
 
 // Find duplicate row-layout entries before slot lookup can hide the ambiguity
 // by returning only the first matching field ID.
-fn duplicate_row_layout_detail(_subject: &str, row_layout: &SchemaRowLayout) -> Option<()> {
+fn duplicate_row_layout_detail(row_layout: &SchemaRowLayout) -> Option<()> {
     let entries = row_layout.field_to_slot();
     for (index, (field_id, slot)) in entries.iter().enumerate() {
         for (other_field_id, other_slot) in &entries[index + 1..] {
@@ -311,7 +307,7 @@ fn duplicate_row_layout_detail(_subject: &str, row_layout: &SchemaRowLayout) -> 
 
 // Find duplicate persisted field entries before name or field-ID lookup can
 // become order-dependent. Accepted schema metadata must be unambiguous.
-fn duplicate_field_detail(subject: &str, fields: &[PersistedFieldSnapshot]) -> Option<()> {
+fn duplicate_field_detail(fields: &[PersistedFieldSnapshot]) -> Option<()> {
     for (index, field) in fields.iter().enumerate() {
         for other in &fields[index + 1..] {
             if field.id() == other.id() {
@@ -323,7 +319,7 @@ fn duplicate_field_detail(subject: &str, fields: &[PersistedFieldSnapshot]) -> O
             }
         }
 
-        if let Some(detail) = nested_leaf_detail(subject, field) {
+        if let Some(detail) = nested_leaf_detail(field) {
             return Some(detail);
         }
     }
@@ -334,7 +330,7 @@ fn duplicate_field_detail(subject: &str, fields: &[PersistedFieldSnapshot]) -> O
 // Find ambiguous nested leaf descriptors before accepted field-path inference
 // can become first-match dependent. Nested paths are local to their owning
 // top-level field, so uniqueness is enforced per field.
-fn nested_leaf_detail(_subject: &str, field: &PersistedFieldSnapshot) -> Option<()> {
+fn nested_leaf_detail(field: &PersistedFieldSnapshot) -> Option<()> {
     for (index, leaf) in field.nested_leaves().iter().enumerate() {
         if leaf.path().is_empty() || !leaf.kind().has_valid_local_shape() {
             return Some(());

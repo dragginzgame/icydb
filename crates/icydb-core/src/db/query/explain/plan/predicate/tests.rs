@@ -32,11 +32,7 @@ fn project(
 }
 
 fn coercion() -> CoercionSpec {
-    CoercionSpec {
-        id: CoercionId::NumericWiden,
-        // Raw model copies must not normalize, sort or drop duplicate params.
-        params: vec![("z".into(), "1".into()), ("z".into(), "2".into())],
-    }
+    CoercionSpec::new(CoercionId::NumericWiden)
 }
 
 fn cases() -> Vec<(Predicate, ExplainPredicate)> {
@@ -145,17 +141,14 @@ fn predicate_projection_preserves_every_family() {
 }
 
 #[test]
-fn predicate_projection_charges_payload_and_coercion_backing_exactly() {
+fn predicate_projection_charges_field_and_payload_backing_exactly() {
     let source = Predicate::Compare(ComparePredicate {
         field: "abc".into(),
         op: CompareOp::Eq,
         value: Value::Text("payload".into()),
-        coercion: CoercionSpec {
-            id: CoercionId::Strict,
-            params: vec![("name".into(), "val".into())],
-        },
+        coercion: CoercionSpec::new(CoercionId::Strict),
     });
-    let bytes = (3 + 7 + size_of::<(String, String)>() + 4 + 3) as u64;
+    let bytes = 10;
     let root = request(Resource::TemporaryBytes, bytes);
     assert!(project(&source, &root).is_ok());
     assert_eq!(root.observed(Resource::TemporaryBytes), bytes);

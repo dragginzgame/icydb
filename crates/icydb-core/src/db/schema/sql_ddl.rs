@@ -178,10 +178,7 @@ fn candidate_with_snapshot(
     )
 }
 
-fn validate_publishable_transition_plan(
-    _entity_path: &str,
-    plan: &SchemaTransitionPlan,
-) -> Result<(), InternalError> {
+fn validate_publishable_transition_plan(plan: &SchemaTransitionPlan) -> Result<(), InternalError> {
     match plan.publication_preflight() {
         MutationPublicationPreflight::PublishableNow => Ok(()),
         MutationPublicationPreflight::RequiresPhysicalWork => {
@@ -193,7 +190,6 @@ fn validate_publishable_transition_plan(
 pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -201,16 +197,11 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         entity_tag,
-        entity_path,
         accepted_before,
         &accepted_before_identity,
         derivation,
     );
-    let plan = envelope.require_transition_plan(
-        "field-path index",
-        SchemaTransitionPlanKind::AddFieldPathIndex,
-        "add_field_path_index",
-    )?;
+    let plan = envelope.require_transition_plan(SchemaTransitionPlanKind::AddFieldPathIndex)?;
     let target = plan
         .field_path_index_target()
         .ok_or_else(InternalError::store_unsupported)?;
@@ -241,7 +232,6 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
 pub(in crate::db) fn execute_admin_sql_ddl_expression_index_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -249,16 +239,11 @@ pub(in crate::db) fn execute_admin_sql_ddl_expression_index_addition(
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         entity_tag,
-        entity_path,
         accepted_before,
         &accepted_before_identity,
         derivation,
     );
-    let plan = envelope.require_transition_plan(
-        "expression-index",
-        SchemaTransitionPlanKind::AddExpressionIndex,
-        "add_expression_index",
-    )?;
+    let plan = envelope.require_transition_plan(SchemaTransitionPlanKind::AddExpressionIndex)?;
     let Some(target) = derivation.admission().expression_target() else {
         return Err(InternalError::store_unsupported());
     };
@@ -305,7 +290,6 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         entity_tag,
-        entity_path,
         accepted_before,
         &accepted_before_identity,
         derivation,
@@ -335,12 +319,8 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
         }
         require_exact_empty_sql_ddl_entity(store, entity_tag, entity_path)?;
     } else {
-        let plan = envelope.require_transition_plan(
-            "field-addition",
-            SchemaTransitionPlanKind::AppendOnlyFields,
-            "append-only fields",
-        )?;
-        validate_publishable_transition_plan(entity_path, &plan)?;
+        let plan = envelope.require_transition_plan(SchemaTransitionPlanKind::AppendOnlyFields)?;
+        validate_publishable_transition_plan(&plan)?;
     }
 
     envelope.publish()
@@ -365,7 +345,6 @@ pub(super) fn require_exact_empty_sql_ddl_entity(
 pub(super) struct SqlDdlPublicationEnvelope<'a> {
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &'a str,
     accepted_before_identity: AcceptedCatalogIdentity,
     before: &'a PersistedSchemaSnapshot,
     after: &'a PersistedSchemaSnapshot,
@@ -375,7 +354,6 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
     pub(super) fn new(
         store: StoreHandle,
         entity_tag: EntityTag,
-        entity_path: &'a str,
         accepted_before: &'a AcceptedSchemaSnapshot,
         accepted_before_identity: &AcceptedCatalogIdentity,
         derivation: &'a SchemaDdlAcceptedSnapshotDerivation,
@@ -383,7 +361,6 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
         Self {
             store,
             entity_tag,
-            entity_path,
             accepted_before_identity: accepted_before_identity.clone(),
             before: accepted_before.persisted_snapshot(),
             after: derivation.accepted_after().persisted_snapshot(),
@@ -404,18 +381,9 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
 
     pub(super) fn require_transition_plan(
         &self,
-        operation: &'static str,
         expected_kind: SchemaTransitionPlanKind,
-        expected_label: &'static str,
     ) -> Result<SchemaTransitionPlan, InternalError> {
-        require_sql_ddl_transition_plan(
-            self.entity_path,
-            operation,
-            self.before,
-            self.after,
-            expected_kind,
-            expected_label,
-        )
+        require_sql_ddl_transition_plan(self.before, self.after, expected_kind)
     }
 
     pub(super) fn publish(&self) -> Result<(), InternalError> {
@@ -429,22 +397,14 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
 }
 
 fn require_sql_ddl_transition_plan(
-    entity_path: &str,
-    operation: &'static str,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
     expected_kind: SchemaTransitionPlanKind,
-    expected_label: &'static str,
 ) -> Result<SchemaTransitionPlan, InternalError> {
-    let plan = match decide_schema_transition(before, after) {
-        SchemaTransitionDecision::Accepted(plan) => plan,
-        SchemaTransitionDecision::Rejected(rejection) => {
-            let _ = (operation, entity_path, rejection);
-            return Err(InternalError::store_unsupported());
-        }
+    let SchemaTransitionDecision::Accepted(plan) = decide_schema_transition(before, after) else {
+        return Err(InternalError::store_unsupported());
     };
     if plan.kind() != expected_kind {
-        let _ = (operation, expected_label, entity_path);
         return Err(InternalError::store_unsupported());
     }
 
@@ -466,7 +426,6 @@ fn publish_sql_ddl_accepted_snapshot(
 pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -474,7 +433,6 @@ pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         entity_tag,
-        entity_path,
         accepted_before,
         &accepted_before_identity,
         derivation,
@@ -501,9 +459,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
 fn validate_sql_ddl_drop_schema_gate(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &str,
     accepted_before: &PersistedSchemaSnapshot,
-    boundary: &'static str,
 ) -> Result<(), InternalError> {
     let latest = store.with_schema_mut(|schema_store| {
         schema_store.current_accepted_persisted_snapshot(entity_tag)
@@ -512,6 +468,5 @@ fn validate_sql_ddl_drop_schema_gate(
         return Ok(());
     }
 
-    let _ = (entity_path, boundary);
     Err(InternalError::store_unsupported())
 }

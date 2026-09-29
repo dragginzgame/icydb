@@ -235,9 +235,7 @@ fn storage_index_and_relation_facts_keep_only_safe_numeric_context() {
         ],
     );
 
-    let entity = InternalError::relation_target_entity_mismatch(
-        "decode", "Source", "relation", "Target", "Target", 31, 37,
-    );
+    let entity = InternalError::relation_target_entity_mismatch(31, 37);
     assert_eq!(
         entity.diagnostic_facts(),
         vec![

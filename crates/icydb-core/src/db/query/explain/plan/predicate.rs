@@ -37,13 +37,13 @@ impl ExplainPredicate {
                 field: work.copy_text(&compare.field)?,
                 op: compare.op,
                 value: work.copy_value(&compare.value)?,
-                coercion: work.copy_coercion(&compare.coercion)?,
+                coercion: compare.coercion.clone(),
             },
             Predicate::CompareFields(compare) => Self::CompareFields {
                 left_field: work.copy_text(compare.left_field())?,
                 op: compare.op(),
                 right_field: work.copy_text(compare.right_field())?,
-                coercion: work.copy_coercion(compare.coercion())?,
+                coercion: compare.coercion().clone(),
             },
             Predicate::IsNull { field } => Self::IsNull {
                 field: work.copy_text(field)?,

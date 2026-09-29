@@ -608,14 +608,9 @@ fn decode_index_key_frame(
     let (key_kind, index_id, component_count, mut offset) = parse_index_key_header(bytes)?;
     let mut components = [&[][..]; MAX_INDEX_FIELDS];
     for component in components.iter_mut().take(component_count) {
-        *component = read_segment(
-            bytes,
-            &mut offset,
-            IndexKey::MAX_COMPONENT_SIZE,
-            "component segment",
-        )?;
+        *component = read_segment(bytes, &mut offset, IndexKey::MAX_COMPONENT_SIZE)?;
     }
-    let primary_key = read_segment(bytes, &mut offset, IndexKey::MAX_PK_SIZE, "primary key")?;
+    let primary_key = read_segment(bytes, &mut offset, IndexKey::MAX_PK_SIZE)?;
     if offset != bytes.len() {
         return Err(IndexKeyDecodeError::TrailingBytes);
     }

@@ -549,16 +549,6 @@ impl InternalError {
         )
     }
 
-    /// Construct the canonical index-expression source-type mismatch invariant.
-    pub(crate) fn index_expression_source_type_mismatch(
-        _index_name: &str,
-        _expression: impl Sized,
-        _expected: impl Sized,
-        _source_label: &str,
-    ) -> Self {
-        Self::index_invariant()
-    }
-
     /// Construct a planner-origin invariant violation for executor-boundary
     /// contract drift.
     #[cold]
@@ -1587,27 +1577,8 @@ impl InternalError {
         )
     }
 
-    /// Construct the canonical relation-target key decode corruption error.
-    pub(crate) fn relation_target_key_decode_failed(
-        _context_label: &str,
-        _source_path: &str,
-        _field_name: &str,
-        _target_path: &str,
-        _detail: impl Sized,
-    ) -> Self {
-        Self::identity_corruption()
-    }
-
     /// Construct the canonical relation-target entity mismatch corruption error.
-    pub(crate) fn relation_target_entity_mismatch(
-        _context_label: &str,
-        _source_path: &str,
-        _field_name: &str,
-        _target_path: &str,
-        _target_entity_name: &str,
-        expected_tag: u64,
-        actual_tag: u64,
-    ) -> Self {
+    pub(crate) fn relation_target_entity_mismatch(expected_tag: u64, actual_tag: u64) -> Self {
         Self::with_diagnostic_facts(
             ErrorClass::Corruption,
             ErrorOrigin::Store,

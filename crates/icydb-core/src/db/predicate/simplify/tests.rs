@@ -174,15 +174,14 @@ fn replacements_keep_lower_operand_identity_and_reconsider_survivors() {
 }
 
 #[test]
-fn equal_bounds_reuse_lower_text_and_coercion_allocations_in_both_orders() {
+fn equal_bounds_reuse_lower_text_allocations_in_both_orders() {
     for lower_first in [false, true] {
-        let mut lower = ComparePredicate::with_coercion(
+        let lower = ComparePredicate::with_coercion(
             "label".repeat(32),
             CompareOp::Gte,
             Value::Text("payload".repeat(128)),
             CoercionId::Strict,
         );
-        lower.coercion.params = vec![("key".repeat(16), "value".repeat(32))];
         let mut upper = lower.clone();
         upper.op = CompareOp::Lte;
         let field = lower.field.as_ptr();
@@ -190,9 +189,6 @@ fn equal_bounds_reuse_lower_text_and_coercion_allocations_in_both_orders() {
             unreachable!()
         };
         let payload = text.as_ptr();
-        let params = lower.coercion.params.as_ptr();
-        let param_name = lower.coercion.params[0].0.as_ptr();
-        let param_value = lower.coercion.params[0].1.as_ptr();
         let bounds = if lower_first {
             vec![Predicate::Compare(lower), Predicate::Compare(upper)]
         } else {
@@ -209,22 +205,24 @@ fn equal_bounds_reuse_lower_text_and_coercion_allocations_in_both_orders() {
             panic!("retained text operand")
         };
         assert_eq!(text.as_ptr(), payload);
-        assert_eq!(compare.coercion.params.as_ptr(), params);
-        assert_eq!(compare.coercion.params[0].0.as_ptr(), param_name);
-        assert_eq!(compare.coercion.params[0].1.as_ptr(), param_value);
+        assert_eq!(compare.coercion.id(), CoercionId::Strict);
     }
 }
 
 #[test]
 fn unsupported_pairs_and_distinct_coercion_contracts_survive_reduction() {
-    let mut first = compare("rank", CompareOp::Eq, 1);
-    let mut second = compare("rank", CompareOp::Eq, 2);
-    for (predicate, parameter) in [(&mut first, "first"), (&mut second, "second")] {
-        let Predicate::Compare(compare) = predicate else {
-            unreachable!()
-        };
-        compare.coercion.params = vec![("domain".into(), parameter.into())];
-    }
+    let first = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Eq,
+        Value::Int64(1),
+        CoercionId::Strict,
+    ));
+    let second = Predicate::Compare(ComparePredicate::with_coercion(
+        "rank",
+        CompareOp::Eq,
+        Value::Int64(2),
+        CoercionId::NumericWiden,
+    ));
     let preserved = vec![
         first,
         second,

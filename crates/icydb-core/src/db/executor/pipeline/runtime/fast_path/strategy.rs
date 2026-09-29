@@ -10,7 +10,8 @@ use crate::{
             ExecutionRoutePlan,
             pipeline::contracts::{ExecutionInputs, FastPathKeyResult},
             route::{
-                FastPathOrder, ensure_load_fast_path_spec_arity, try_first_verified_fast_path_hit,
+                FastPathOrder, ensure_index_range_fast_path_spec_arity,
+                try_first_verified_fast_path_hit,
             },
         },
         index::predicate::IndexPredicateExecution,
@@ -55,13 +56,11 @@ impl FastPathRouteHandler {
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
         match self {
             Self::PrimaryKey => inputs.runtime().try_execute_pk_order_stream(
-                inputs.plan(),
                 inputs.executable_access().clone(),
                 inputs.stream_bindings().continuation,
                 route_plan.scan_hints.physical_fetch_hint,
             ),
             Self::SecondaryPrefix => inputs.runtime().try_execute_secondary_index_order_stream(
-                inputs.plan(),
                 inputs.executable_access().clone(),
                 *inputs.stream_bindings(),
                 route_plan.scan_hints.physical_fetch_hint,
@@ -70,7 +69,6 @@ impl FastPathRouteHandler {
             Self::IndexRange { fetch: Some(fetch) } => inputs
                 .runtime()
                 .try_execute_index_range_limit_pushdown_stream(
-                    inputs.plan(),
                     inputs.executable_access().clone(),
                     inputs.stream_bindings().index_range_specs.first(),
                     inputs.stream_bindings().continuation,
@@ -92,9 +90,7 @@ pub(super) fn evaluate_fast_path(
         || route_plan.secondary_fast_path_eligible();
     // Guard fast-path spec arity up front so plan/runtime traversal drift
     // cannot silently consume the wrong spec in release builds.
-    ensure_load_fast_path_spec_arity(
-        route_plan.secondary_fast_path_eligible() && secondary_fast_path_spec_supported,
-        inputs.stream_bindings().index_prefix_specs.len(),
+    ensure_index_range_fast_path_spec_arity(
         route_plan.index_range_limit_fast_path_enabled(),
         inputs.stream_bindings().index_range_specs.len(),
     )?;

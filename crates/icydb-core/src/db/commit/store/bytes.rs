@@ -6,11 +6,7 @@
 use crate::error::InternalError;
 
 /// Read one little-endian `u32` length from a bounded binary envelope.
-pub(super) fn read_u32_le(
-    bytes: &[u8],
-    cursor: &mut usize,
-    _label: &'static str,
-) -> Result<u32, InternalError> {
+pub(super) fn read_u32_le(bytes: &[u8], cursor: &mut usize) -> Result<u32, InternalError> {
     let next = cursor.saturating_add(4);
     let payload = bytes
         .get(*cursor..next)

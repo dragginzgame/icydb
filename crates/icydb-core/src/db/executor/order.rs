@@ -1049,10 +1049,7 @@ mod tests {
 
         for cached in [false, true] {
             let source = if cached {
-                ResolvedOrderValueSource::expression(CompiledExpr::Slot {
-                    slot: 0,
-                    field: "value".to_string(),
-                })
+                ResolvedOrderValueSource::expression(CompiledExpr::Slot { slot: 0 })
             } else {
                 ResolvedOrderValueSource::direct_field(0)
             };

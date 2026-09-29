@@ -185,7 +185,7 @@ fn retained_slot_direct_octet_length_projection_slots_from_compiled(
     let mut slots = Vec::new();
 
     for (index, expr) in compiled_projection.iter().enumerate() {
-        let slot = expr.direct_octet_length_slot().and_then(|(slot, _field)| {
+        let slot = expr.direct_octet_length_slot().and_then(|slot| {
             row_layout
                 .slot_uses_scalar_byte_length_codec(slot)
                 .then_some(slot)

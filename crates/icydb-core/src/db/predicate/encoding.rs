@@ -287,11 +287,6 @@ fn encode_coercion_sort_key_into(out: &mut Vec<u8>, spec: &CoercionSpec) {
         CoercionId::TextCasefold => 2,
         CoercionId::CollectionElement => 3,
     });
-    push_len_u64(out, spec.params.len());
-    for (key, value) in &spec.params {
-        push_str_u64(out, key);
-        push_str_u64(out, value);
-    }
 }
 
 // Canonicalize compare-list literals once so sort-key and fingerprint encoding

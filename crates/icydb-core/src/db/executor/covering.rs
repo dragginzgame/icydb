@@ -56,7 +56,7 @@ fn read_row_presence_with_consistency_from_data_store(
     let row_exists = data.contains(&raw);
 
     match consistency {
-        MissingRowPolicy::Error if !row_exists => Err(ExecutorError::missing_row(key).into()),
+        MissingRowPolicy::Error if !row_exists => Err(ExecutorError::store_corruption().into()),
         MissingRowPolicy::Error | MissingRowPolicy::Ignore => Ok(row_exists),
     }
 }

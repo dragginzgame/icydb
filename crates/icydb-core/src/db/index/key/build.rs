@@ -13,7 +13,7 @@ use crate::{
     db::{
         data::CanonicalSlotReader,
         index::{
-            SemanticIndexExpression, derive_index_expression_value,
+            derive_index_expression_value,
             key::ordered::encode_canonical_index_component,
             key::{IndexId, IndexKey, IndexKeyEncodeError, IndexKeyKind, OrderedValueEncodeError},
         },
@@ -37,22 +37,6 @@ type FieldPathRebuildComponentEncoder<'a> =
     dyn FnMut(&SchemaFieldPathIndexRebuildKey) -> Result<Option<Vec<u8>>, InternalError> + 'a;
 type ExpressionRebuildComponentEncoder<'a> =
     dyn FnMut(&SchemaExpressionIndexRebuildKey) -> Result<Option<Vec<u8>>, InternalError> + 'a;
-
-fn value_for_accepted_expression_with_index_name(
-    index_name: &str,
-    expression: &SemanticIndexExpression,
-    source: &Value,
-) -> Result<Option<Value>, InternalError> {
-    let source_label = source.canonical_tag().label();
-    derive_index_expression_value(expression.op(), source).map_err(|expected| {
-        InternalError::index_expression_source_type_mismatch(
-            index_name,
-            expression.canonical_order_text(),
-            expected,
-            source_label,
-        )
-    })
-}
 
 impl IndexKey {
     /// Build a field-path index key from one canonical slot reader using
@@ -98,7 +82,7 @@ impl IndexKey {
     ) -> Result<Option<Self>, InternalError> {
         let primary_key = primary_key.into();
         build_expression_rebuild_target_key(entity_tag, &primary_key, target, &mut |key_item| {
-            expression_rebuild_component_bytes_from_slots(target.name(), key_item, slots)
+            expression_rebuild_component_bytes_from_slots(key_item, slots)
         })
     }
 
@@ -303,18 +287,8 @@ fn accepted_expression_component_bytes_from_slots(
         }
         SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
             let source = slots.required_value_by_contract_cow(expression.source().slot())?;
-            let semantic_expression = SemanticIndexExpression::new(
-                expression.op(),
-                accepted_field_path_term(
-                    expression.source().field_name(),
-                    expression.source().path(),
-                ),
-            );
-            let Some(value) = value_for_accepted_expression_with_index_name(
-                accepted_index.name(),
-                &semantic_expression,
-                source.as_ref(),
-            )?
+            let Some(value) = derive_index_expression_value(expression.op(), source.as_ref())
+                .map_err(|_| InternalError::index_invariant())?
             else {
                 return Ok(None);
             };
@@ -339,7 +313,6 @@ fn field_path_rebuild_component_bytes_from_slots(
 }
 
 fn expression_rebuild_component_bytes_from_slots(
-    index_name: &str,
     key_item: &SchemaExpressionIndexRebuildKey,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<Vec<u8>>, InternalError> {
@@ -348,13 +321,12 @@ fn expression_rebuild_component_bytes_from_slots(
             field_path_rebuild_component_bytes_from_slots(field, slots)
         }
         SchemaExpressionIndexRebuildKey::Expression(expression) => {
-            expression_rebuild_expression_component_bytes_from_slots(index_name, expression, slots)
+            expression_rebuild_expression_component_bytes_from_slots(expression, slots)
         }
     }
 }
 
 fn expression_rebuild_expression_component_bytes_from_slots(
-    index_name: &str,
     expression: &SchemaExpressionIndexRebuildExpression,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<Vec<u8>>, InternalError> {
@@ -369,12 +341,8 @@ fn expression_rebuild_expression_component_bytes_from_slots(
     else {
         return Ok(None);
     };
-    let semantic_expression = SemanticIndexExpression::new(
-        expression.op(),
-        accepted_field_path_term(expression.source().field_name(), expression.source().path()),
-    );
-    let Some(value) =
-        value_for_accepted_expression_with_index_name(index_name, &semantic_expression, source)?
+    let Some(value) = derive_index_expression_value(expression.op(), source)
+        .map_err(|_| InternalError::index_invariant())?
     else {
         return Ok(None);
     };
@@ -408,14 +376,6 @@ fn resolve_field_path_component<'a>(
     }
 
     Ok(Some(current))
-}
-
-fn accepted_field_path_term(field_name: &str, path: &[String]) -> String {
-    if path.len() <= 1 {
-        field_name.to_string()
-    } else {
-        path.join(".")
-    }
 }
 
 fn build_accepted_field_path_index_key_from_slots(

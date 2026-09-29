@@ -105,7 +105,7 @@ impl SharedPreparedExecutionPlan {
         };
 
         let cursor = contract
-            .prepare_grouped_cursor_token(self.authority.entity_path(), cursor)
+            .prepare_grouped_cursor_token(cursor)
             .map_err(crate::db::executor::ExecutorPlanError::from)?;
         self.validate_grouped_cursor_boundary(&cursor)?;
 

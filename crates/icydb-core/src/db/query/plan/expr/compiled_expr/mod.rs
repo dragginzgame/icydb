@@ -295,12 +295,9 @@ pub(in crate::db) trait CompiledExprValueReader {
     fn read_field_path(
         &self,
         root_slot: usize,
-        field: &str,
         _segments: &[String],
         _segment_bytes: &[Box<[u8]>],
     ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
-        let _ = field;
-
         Err(ProjectionEvalError::missing_field_path_root_value(
             root_slot,
         ))
@@ -322,11 +319,9 @@ pub(in crate::db) trait CompiledExprValueReader {
 pub(in crate::db) enum CompiledExpr {
     Slot {
         slot: usize,
-        field: String,
     },
     GroupKey {
         offset: usize,
-        field: String,
     },
     Aggregate {
         index: usize,
@@ -334,75 +329,53 @@ pub(in crate::db) enum CompiledExpr {
     Literal(Value),
     Add {
         left_slot: usize,
-        left_field: String,
         right_slot: usize,
-        right_field: String,
     },
     Sub {
         left_slot: usize,
-        left_field: String,
         right_slot: usize,
-        right_field: String,
     },
     Mul {
         left_slot: usize,
-        left_field: String,
         right_slot: usize,
-        right_field: String,
     },
     Div {
         left_slot: usize,
-        left_field: String,
         right_slot: usize,
-        right_field: String,
     },
     Eq {
         left_slot: usize,
-        left_field: String,
         right_slot: usize,
-        right_field: String,
     },
     Ne {
         left_slot: usize,
-        left_field: String,
         right_slot: usize,
-        right_field: String,
     },
     Lt {
         left_slot: usize,
-        left_field: String,
         right_slot: usize,
-        right_field: String,
     },
     Lte {
         left_slot: usize,
-        left_field: String,
         right_slot: usize,
-        right_field: String,
     },
     Gt {
         left_slot: usize,
-        left_field: String,
         right_slot: usize,
-        right_field: String,
     },
     Gte {
         left_slot: usize,
-        left_field: String,
         right_slot: usize,
-        right_field: String,
     },
     BinarySlotLiteral {
         op: BinaryOp,
         slot: usize,
-        field: String,
         literal: Value,
         slot_on_left: bool,
     },
     CaseSlotLiteral {
         op: BinaryOp,
         slot: usize,
-        field: String,
         literal: Value,
         slot_on_left: bool,
         then_expr: Box<Self>,
@@ -410,13 +383,11 @@ pub(in crate::db) enum CompiledExpr {
     },
     CaseSlotBool {
         slot: usize,
-        field: String,
         then_expr: Box<Self>,
         else_expr: Box<Self>,
     },
     FieldPath {
         root_slot: usize,
-        field: String,
         segments: Box<[String]>,
         segment_bytes: Box<[Box<[u8]>]>,
     },
@@ -470,7 +441,7 @@ impl CompiledExpr {
     /// when they can answer byte-length requests from their storage-native
     /// scalar view.
     #[must_use]
-    pub(in crate::db) fn direct_octet_length_slot(&self) -> Option<(usize, &str)> {
+    pub(in crate::db) fn direct_octet_length_slot(&self) -> Option<usize> {
         let Self::FunctionCall {
             function: Function::OctetLength,
             args,
@@ -478,11 +449,11 @@ impl CompiledExpr {
         else {
             return None;
         };
-        let [Self::Slot { slot, field }] = args.as_ref() else {
+        let [Self::Slot { slot }] = args.as_ref() else {
             return None;
         };
 
-        Some((*slot, field.as_str()))
+        Some(*slot)
     }
 
     /// Return whether this compiled expression contains a nested field-path leaf.
@@ -667,10 +638,6 @@ impl CompiledExpr {
     }
 }
 
-const fn missing_field_value(_field: &str, index: usize) -> ProjectionEvalError {
-    ProjectionEvalError::missing_slot_value(index)
-}
-
 ///
 /// TESTS
 ///
@@ -680,24 +647,24 @@ mod tests;
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.
 crate::retained::retained_fields!(CompiledExpr {
-Self::Slot{slot,field} => [slot,field],
-Self::GroupKey{offset,field} => [offset,field],
+Self::Slot{slot} => [slot],
+Self::GroupKey{offset} => [offset],
 Self::Aggregate{index} => [index],
 Self::Literal(field_0) => [field_0],
-Self::Add{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
-Self::Sub{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
-Self::Mul{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
-Self::Div{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
-Self::Eq{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
-Self::Ne{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
-Self::Lt{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
-Self::Lte{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
-Self::Gt{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
-Self::Gte{left_slot,left_field,right_slot,right_field} => [left_slot,left_field,right_slot,right_field],
-Self::BinarySlotLiteral{op,slot,field,literal,slot_on_left} => [op,slot,field,literal,slot_on_left],
-Self::CaseSlotLiteral{op,slot,field,literal,slot_on_left,then_expr,else_expr} => [op,slot,field,literal,slot_on_left,then_expr,else_expr],
-Self::CaseSlotBool{slot,field,then_expr,else_expr} => [slot,field,then_expr,else_expr],
-Self::FieldPath{root_slot,field,segments,segment_bytes} => [root_slot,field,segments,segment_bytes],
+Self::Add{left_slot,right_slot} => [left_slot,right_slot],
+Self::Sub{left_slot,right_slot} => [left_slot,right_slot],
+Self::Mul{left_slot,right_slot} => [left_slot,right_slot],
+Self::Div{left_slot,right_slot} => [left_slot,right_slot],
+Self::Eq{left_slot,right_slot} => [left_slot,right_slot],
+Self::Ne{left_slot,right_slot} => [left_slot,right_slot],
+Self::Lt{left_slot,right_slot} => [left_slot,right_slot],
+Self::Lte{left_slot,right_slot} => [left_slot,right_slot],
+Self::Gt{left_slot,right_slot} => [left_slot,right_slot],
+Self::Gte{left_slot,right_slot} => [left_slot,right_slot],
+Self::BinarySlotLiteral{op,slot,literal,slot_on_left} => [op,slot,literal,slot_on_left],
+Self::CaseSlotLiteral{op,slot,literal,slot_on_left,then_expr,else_expr} => [op,slot,literal,slot_on_left,then_expr,else_expr],
+Self::CaseSlotBool{slot,then_expr,else_expr} => [slot,then_expr,else_expr],
+Self::FieldPath{root_slot,segments,segment_bytes} => [root_slot,segments,segment_bytes],
 Self::FunctionCall{function,args} => [function,args],
 Self::Unary{op,expr} => [op,expr],
 Self::Case{when_then_arms,else_expr} => [when_then_arms,else_expr],

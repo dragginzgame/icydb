@@ -75,7 +75,6 @@ fn stage_user_index_domain_replacement(
     accepted_after_row_contract: StructuralRowContract,
 ) -> Result<StagedUserIndexDomainReplacement, InternalError> {
     let entity_tag = accepted_before_identity.entity_tag();
-    let entity_path = accepted_before_identity.entity_path_handle();
     let mut builder = store.with_index(|index_store| {
         StagedUserIndexDomainReplacementBuilder::new(
             accepted_before_identity,
@@ -90,10 +89,8 @@ fn stage_user_index_domain_replacement(
     })?;
     store.with_data(|data_store| {
         data_store.visit_entries(|raw_key, raw_row| {
-            let data_key = DecodedDataStoreKey::try_from_raw(raw_key).map_err(|error| {
-                let _ = (&error, entity_path.as_ref());
-                InternalError::store_corruption()
-            })?;
+            let data_key = DecodedDataStoreKey::try_from_raw(raw_key)
+                .map_err(|_| InternalError::store_corruption())?;
             if data_key.entity_tag() != entity_tag {
                 return Ok::<StoreVisit, InternalError>(StoreVisit::Continue);
             }

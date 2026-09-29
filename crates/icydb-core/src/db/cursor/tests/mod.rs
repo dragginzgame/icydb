@@ -32,7 +32,6 @@ fn grouped_token_fixture(direction: Direction) -> GroupedContinuationToken {
 fn prepare_grouped_cursor_rejects_direction_mismatch() {
     let token = grouped_token_fixture(Direction::Desc);
     let err = prepare_grouped_cursor_token(
-        "grouped::test_entity",
         None::<&OrderSpec>,
         Direction::Asc,
         token.signature(),
@@ -58,7 +57,6 @@ fn prepare_grouped_cursor_rejects_direction_mismatch() {
 fn prepare_grouped_cursor_accepts_matching_descending_direction() {
     let token = grouped_token_fixture(Direction::Desc);
     let prepared = prepare_grouped_cursor_token(
-        "grouped::test_entity",
         None::<&OrderSpec>,
         Direction::Desc,
         token.signature(),
@@ -75,7 +73,6 @@ fn prepare_grouped_cursor_rejects_signature_mismatch() {
     let token = grouped_token_fixture(Direction::Asc);
     let expected_signature = ContinuationSignature::from_bytes([0x24; 32]);
     let err = prepare_grouped_cursor_token(
-        "grouped::test_entity",
         None::<&OrderSpec>,
         Direction::Asc,
         expected_signature,
@@ -107,7 +104,6 @@ fn prepare_grouped_cursor_rejects_signature_mismatch() {
 fn prepare_grouped_cursor_rejects_offset_mismatch() {
     let token = grouped_token_fixture(Direction::Asc);
     let err = prepare_grouped_cursor_token(
-        "grouped::test_entity",
         None::<&OrderSpec>,
         Direction::Asc,
         token.signature(),

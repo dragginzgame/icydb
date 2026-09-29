@@ -14,7 +14,7 @@ use crate::{
         index::StructuralPrimaryRowReader,
         registry::StoreHandle,
         relation::{
-            RelationTargetDecodeContext, RelationTargetMismatchPolicy,
+            RelationTargetMismatchPolicy,
             reverse_index::{
                 AcceptedRelationInfo, RelationCommitBudget, ReverseRelationSourceInfo,
                 accepted_relations_for_row_contract, decode_relation_target_data_key,
@@ -137,10 +137,8 @@ where
 
         for target_raw_key in deleted_target_keys {
             let Some(target_data_key) = decode_relation_target_data_key(
-                &source_info,
                 &relation,
                 target_raw_key,
-                RelationTargetDecodeContext::DeleteValidation,
                 RelationTargetMismatchPolicy::Skip,
             )?
             else {

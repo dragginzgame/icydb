@@ -1,23 +1,19 @@
 use super::{
     CardinalityTiebreakAttempt, PreparedCardinalityCandidate, rank_prepared_cardinality_candidates,
 };
-use crate::{
-    db::{
-        RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
-        query::{
-            plan::{CardinalityTiebreakCandidate, CardinalityTiebreakCandidateEvidence},
-            preparation::{PreparationWork, with_preparation_work},
-        },
-        session::tests::cardinality_tiebreak::ranking_candidates_for_tests,
+use crate::db::{
+    RequestExecutionRoot,
+    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+    query::{
+        plan::{CardinalityTiebreakCandidate, CardinalityTiebreakCandidateEvidence},
+        preparation::{PreparationWork, with_preparation_work},
     },
-    types::EntityTag,
+    session::tests::cardinality_tiebreak::ranking_candidates_for_tests,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-use std::{hint::black_box, time::Instant};
 
 fn prepared<'a>(
     candidates: &[CardinalityTiebreakCandidate<'a>],
@@ -250,37 +246,5 @@ fn exact_cardinality_attempt_propagates_budget_failure_instead_of_policy_fallbac
             assert_eq!(root.observed(resource), exact);
             assert_eq!(root.observed(Resource::RowsVisited), 0);
         }
-    }
-}
-
-// Input construction and accepted-schema setup are outside the timed region.
-// This measures evidence construction only, not planner or storage costs.
-#[test]
-#[ignore = "manual native exact-cardinality evidence timing"]
-fn exact_cardinality_evidence_native_timing() {
-    const ITERATIONS: usize = 2_000;
-    let (_, _, candidates) = ranking_candidates_for_tests();
-    assert_eq!(candidates.len(), 3);
-    let counts = [12, 6, 6];
-    for sample in 0..5 {
-        let inputs: Vec<_> = (0..ITERATIONS).map(|_| prepared(&candidates)).collect();
-        let elapsed = with_preparation_work(|work| {
-            let started = Instant::now();
-            for input in inputs {
-                black_box(rank_prepared_cardinality_candidates(
-                    EntityTag::new(219),
-                    input,
-                    black_box(&counts),
-                    work,
-                ))
-                .unwrap()
-                .unwrap();
-            }
-            started.elapsed()
-        });
-        eprintln!(
-            "exact_cardinality_evidence sample={sample} ns/op={}",
-            elapsed.as_nanos() / ITERATIONS as u128,
-        );
     }
 }

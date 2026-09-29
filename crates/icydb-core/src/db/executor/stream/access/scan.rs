@@ -361,7 +361,6 @@ impl IndexScan {
 
     fn collect_exact_intersection_child(
         store: StoreHandle,
-        entity: EntityTag,
         spec: &LoweredIndexPrefixSpec,
         expected_cardinality: u64,
         additional_cursor_steps: u64,
@@ -370,7 +369,6 @@ impl IndexScan {
         let bounds = spec.raw_bounds(&ExecutionConstructionBudget)?;
         Self::collect_exact_intersection_child_in_bounds(
             store,
-            entity,
             bounds,
             expected_cardinality,
             additional_cursor_steps,
@@ -386,7 +384,6 @@ impl IndexScan {
     // without adding one stable-map point probe per candidate.
     fn collect_exact_intersection_child_in_bounds(
         store: StoreHandle,
-        entity: EntityTag,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         expected_cardinality: u64,
         additional_cursor_steps: u64,
@@ -435,8 +432,8 @@ impl IndexScan {
                 raw_bytes_read = raw_bytes_read
                     .checked_add(raw_bytes)
                     .ok_or_else(InternalError::executor_invariant)?;
-                let (primary_key, primary_key_bytes) =
-                    IndexKey::primary_key_value_and_bytes_from_raw(raw_key).map_err(|error| {
+                let (primary_key, _) = IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
+                    .map_err(|error| {
                         InternalError::index_scan_key_corrupted_during(
                             "exact intersection probe",
                             error,
@@ -446,15 +443,7 @@ impl IndexScan {
                     .decode_existence_witness()
                     .map_err(|_| InternalError::index_entry_decode_failed())?;
                 if matches!(existence_witness, IndexEntryExistenceWitness::Missing) {
-                    let data_key = DecodedDataStoreKey::new_with_raw_primary_key_value(
-                        entity,
-                        &primary_key,
-                        RawDataStoreKey::from_entity_and_primary_key_bytes(
-                            entity,
-                            primary_key_bytes,
-                        ),
-                    );
-                    return Err(ExecutorError::missing_row(&data_key).into());
+                    return Err(ExecutorError::store_corruption().into());
                 }
                 if exceeds_cardinality_proof {
                     return Err(ExecutorError::store_corruption().into());
@@ -537,7 +526,6 @@ impl IndexScan {
             };
             let keys = Self::collect_exact_intersection_child(
                 store,
-                entity,
                 spec,
                 expected_cardinality,
                 additional_cursor_steps,
@@ -1351,7 +1339,6 @@ mod tests {
         let result = with_query_execution_budget_for_tests(budget, context, || {
             IndexScan::collect_exact_intersection_child_in_bounds(
                 EXACT_INTERSECTION_STORE,
-                EXACT_INTERSECTION_ENTITY,
                 (&lower, &upper),
                 1,
                 0,
@@ -1394,7 +1381,6 @@ mod tests {
         let keys = with_query_execution_budget_for_tests(budget, context, || {
             IndexScan::collect_exact_intersection_child_in_bounds(
                 EXACT_INTERSECTION_STORE,
-                EXACT_INTERSECTION_ENTITY,
                 (&lower, &upper),
                 1,
                 0,
@@ -1431,7 +1417,6 @@ mod tests {
         let result = with_query_execution_budget_for_tests(budget, context, || {
             IndexScan::collect_exact_intersection_child_in_bounds(
                 EXACT_INTERSECTION_STORE,
-                EXACT_INTERSECTION_ENTITY,
                 (&lower, &upper),
                 1,
                 0,

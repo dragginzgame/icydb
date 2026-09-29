@@ -58,7 +58,6 @@ impl ScalarTerminalExprCache {
             row,
             &mut self.input_values,
             index,
-            "input",
         )
     }
 
@@ -75,7 +74,6 @@ impl ScalarTerminalExprCache {
             row,
             &mut self.filter_values,
             filter_index,
-            "filter",
         )?;
 
         admit_true_only_boolean_value(value, |_found| InternalError::query_executor_invariant())
@@ -106,7 +104,6 @@ fn cached_scalar_terminal_expr_value<'a>(
     row: &KernelRow,
     values: &'a mut [Option<Value>],
     index: usize,
-    _label: &str,
 ) -> Result<&'a Value, InternalError> {
     let expr = exprs
         .get(index)

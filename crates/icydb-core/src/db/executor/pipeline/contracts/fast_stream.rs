@@ -11,7 +11,6 @@ use crate::{
             pipeline::contracts::{AccessScanContinuationInput, AccessStreamBindings},
         },
         index::predicate::IndexPredicateExecution,
-        query::plan::AccessPlannedQuery,
     },
     value::Value,
 };
@@ -24,20 +23,17 @@ use crate::{
 
 pub(in crate::db::executor) enum FastStreamRouteRequest<'a, 'plan> {
     PrimaryKey {
-        plan: &'a AccessPlannedQuery,
         executable_access: &'a ExecutableAccessPlan<'plan, Value>,
         continuation: AccessScanContinuationInput<'a>,
         probe_fetch_hint: Option<usize>,
     },
     SecondaryIndex {
-        plan: &'a AccessPlannedQuery,
         executable_access: &'a ExecutableAccessPlan<'plan, Value>,
         bindings: AccessStreamBindings<'a>,
         probe_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     },
     IndexRangeLimitPushdown {
-        plan: &'a AccessPlannedQuery,
         executable_access: &'a ExecutableAccessPlan<'plan, Value>,
         index_range_spec: Option<&'a LoweredIndexRangeSpec>,
         continuation: AccessScanContinuationInput<'a>,

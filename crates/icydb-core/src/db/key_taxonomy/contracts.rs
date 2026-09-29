@@ -234,21 +234,6 @@ pub trait PrimaryKeyDecode: Sized {
     fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError>;
 }
 
-fn primary_key_variant_decode_failed(
-    _type_name: &'static str,
-    _key: &PrimaryKeyValue,
-    _expected: &'static str,
-) -> InternalError {
-    InternalError::store_corruption()
-}
-
-fn primary_key_range_decode_failed(
-    _type_name: &'static str,
-    _key: &PrimaryKeyValue,
-) -> InternalError {
-    InternalError::store_corruption()
-}
-
 macro_rules! impl_primary_key_encode_signed {
     ($($ty:ty),* $(,)?) => {
         $(
@@ -363,16 +348,10 @@ macro_rules! impl_primary_key_decode_signed {
             impl PrimaryKeyDecode for $ty {
                 fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
                     let PrimaryKeyValue::Scalar(PrimaryKeyComponent::Int64(value)) = *key else {
-                        return Err(primary_key_variant_decode_failed(
-                            ::std::any::type_name::<Self>(),
-                            key,
-                            "PrimaryKeyComponent::Int64",
-                        ));
+                        return Err(InternalError::store_corruption());
                     };
 
-                    Self::try_from(value).map_err(|_| {
-                        primary_key_range_decode_failed(::std::any::type_name::<Self>(), key)
-                    })
+                    Self::try_from(value).map_err(|_| InternalError::store_corruption())
                 }
             }
         )*
@@ -385,16 +364,10 @@ macro_rules! impl_primary_key_decode_unsigned {
             impl PrimaryKeyDecode for $ty {
                 fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
                     let PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)) = *key else {
-                        return Err(primary_key_variant_decode_failed(
-                            ::std::any::type_name::<Self>(),
-                            key,
-                            "PrimaryKeyComponent::Nat64",
-                        ));
+                        return Err(InternalError::store_corruption());
                     };
 
-                    Self::try_from(value).map_err(|_| {
-                        primary_key_range_decode_failed(::std::any::type_name::<Self>(), key)
-                    })
+                    Self::try_from(value).map_err(|_| InternalError::store_corruption())
                 }
             }
         )*
@@ -408,11 +381,7 @@ impl PrimaryKeyDecode for i128 {
     fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
         match *key {
             PrimaryKeyValue::Scalar(PrimaryKeyComponent::Int128(value)) => Ok(value),
-            _ => Err(primary_key_variant_decode_failed(
-                ::std::any::type_name::<Self>(),
-                key,
-                "PrimaryKeyComponent::Int128",
-            )),
+            _ => Err(InternalError::store_corruption()),
         }
     }
 }
@@ -421,11 +390,7 @@ impl PrimaryKeyDecode for u128 {
     fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
         match *key {
             PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat128(value)) => Ok(value),
-            _ => Err(primary_key_variant_decode_failed(
-                ::std::any::type_name::<Self>(),
-                key,
-                "PrimaryKeyComponent::Nat128",
-            )),
+            _ => Err(InternalError::store_corruption()),
         }
     }
 }
@@ -434,11 +399,7 @@ impl PrimaryKeyDecode for crate::types::U256 {
     fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
         match *key {
             PrimaryKeyValue::Scalar(PrimaryKeyComponent::U256(value)) => Ok(value),
-            _ => Err(primary_key_variant_decode_failed(
-                ::std::any::type_name::<Self>(),
-                key,
-                "PrimaryKeyComponent::U256",
-            )),
+            _ => Err(InternalError::store_corruption()),
         }
     }
 }
@@ -455,11 +416,7 @@ impl PrimaryKeyDecode for crate::types::Principal {
     fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
         match *key {
             PrimaryKeyValue::Scalar(PrimaryKeyComponent::Principal(value)) => Ok(value),
-            _ => Err(primary_key_variant_decode_failed(
-                ::std::any::type_name::<Self>(),
-                key,
-                "PrimaryKeyComponent::Principal",
-            )),
+            _ => Err(InternalError::store_corruption()),
         }
     }
 }
@@ -476,11 +433,7 @@ impl PrimaryKeyDecode for crate::types::Subaccount {
     fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
         match *key {
             PrimaryKeyValue::Scalar(PrimaryKeyComponent::Subaccount(value)) => Ok(value),
-            _ => Err(primary_key_variant_decode_failed(
-                ::std::any::type_name::<Self>(),
-                key,
-                "PrimaryKeyComponent::Subaccount",
-            )),
+            _ => Err(InternalError::store_corruption()),
         }
     }
 }
@@ -495,11 +448,7 @@ impl PrimaryKeyDecode for crate::types::Account {
     fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
         match *key {
             PrimaryKeyValue::Scalar(PrimaryKeyComponent::Account(value)) => Ok(value),
-            _ => Err(primary_key_variant_decode_failed(
-                ::std::any::type_name::<Self>(),
-                key,
-                "PrimaryKeyComponent::Account",
-            )),
+            _ => Err(InternalError::store_corruption()),
         }
     }
 }
@@ -516,11 +465,7 @@ impl PrimaryKeyDecode for crate::types::Timestamp {
     fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
         match *key {
             PrimaryKeyValue::Scalar(PrimaryKeyComponent::Timestamp(value)) => Ok(value),
-            _ => Err(primary_key_variant_decode_failed(
-                ::std::any::type_name::<Self>(),
-                key,
-                "PrimaryKeyComponent::Timestamp",
-            )),
+            _ => Err(InternalError::store_corruption()),
         }
     }
 }
@@ -535,11 +480,7 @@ impl PrimaryKeyDecode for crate::types::Ulid {
     fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
         match *key {
             PrimaryKeyValue::Scalar(PrimaryKeyComponent::Ulid(value)) => Ok(value),
-            _ => Err(primary_key_variant_decode_failed(
-                ::std::any::type_name::<Self>(),
-                key,
-                "PrimaryKeyComponent::Ulid",
-            )),
+            _ => Err(InternalError::store_corruption()),
         }
     }
 }
@@ -554,11 +495,7 @@ impl PrimaryKeyDecode for () {
     fn from_primary_key_value(key: &PrimaryKeyValue) -> Result<Self, InternalError> {
         match *key {
             PrimaryKeyValue::Scalar(PrimaryKeyComponent::Unit) => Ok(()),
-            _ => Err(primary_key_variant_decode_failed(
-                ::std::any::type_name::<Self>(),
-                key,
-                "PrimaryKeyComponent::Unit",
-            )),
+            _ => Err(InternalError::store_corruption()),
         }
     }
 }

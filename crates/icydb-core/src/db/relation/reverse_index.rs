@@ -26,9 +26,8 @@ use crate::{
         relation::{
             AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
             AcceptedRelationTargetContract, AcceptedRelationTupleEdgeLocalComponent,
-            RelationTargetDecodeContext, RelationTargetMismatchPolicy,
-            accepted_relation_target_metadata_from_kind, accepted_relation_tuple_edge_descriptor,
-            accepted_scalar_relation_target_descriptor,
+            RelationTargetMismatchPolicy, accepted_relation_target_metadata_from_kind,
+            accepted_relation_tuple_edge_descriptor, accepted_scalar_relation_target_descriptor,
             validate_relation_primary_key_component_kind,
         },
         schema::AcceptedFieldKind,
@@ -635,10 +634,8 @@ impl RelationConstraintProjection {
         let mut missing_targets = Vec::new();
         for target_key in target_keys {
             let target = decode_relation_target_data_key(
-                &self.source,
                 &self.relation,
                 &target_key,
-                RelationTargetDecodeContext::ReverseIndexPrepare,
                 RelationTargetMismatchPolicy::Reject,
             )?
             .ok_or_else(InternalError::store_invariant)?;
@@ -963,8 +960,6 @@ pub(in crate::db::relation) struct AcceptedRelationTargetIdentity {
 impl AcceptedRelationTargetIdentity {
     #[cfg(test)]
     fn try_new(
-        source_path: &str,
-        field_name: &str,
         target_path: &str,
         target_entity_name: &str,
         target_entity_tag: EntityTag,
@@ -973,8 +968,6 @@ impl AcceptedRelationTargetIdentity {
     ) -> Result<Self, InternalError> {
         Ok(Self {
             authority: AcceptedRelationTargetAuthority::try_new(
-                source_path,
-                field_name,
                 target_path,
                 target_entity_name,
                 target_entity_tag,
@@ -998,11 +991,6 @@ impl AcceptedRelationTargetIdentity {
     #[must_use]
     pub(in crate::db::relation) const fn path(&self) -> &str {
         self.authority.path()
-    }
-
-    #[must_use]
-    const fn entity_name(&self) -> crate::db::identity::EntityName {
-        self.authority.entity_name()
     }
 
     #[must_use]
@@ -1053,34 +1041,6 @@ impl AcceptedRelationTargetPrimaryKey {
         };
 
         Some(key_kind)
-    }
-}
-
-// Resolve the canonical relation-target decode context label used by
-// corruption diagnostics.
-const fn relation_target_key_decode_context_label(
-    context: RelationTargetDecodeContext,
-) -> &'static str {
-    match context {
-        RelationTargetDecodeContext::DeleteValidation => "delete relation target key decode failed",
-        RelationTargetDecodeContext::ReverseIndexPrepare => {
-            "relation target key decode failed while preparing reverse index"
-        }
-    }
-}
-
-// Resolve the canonical relation-target entity mismatch label used by
-// corruption diagnostics.
-const fn relation_target_entity_mismatch_context_label(
-    context: RelationTargetDecodeContext,
-) -> &'static str {
-    match context {
-        RelationTargetDecodeContext::DeleteValidation => {
-            "relation target entity mismatch during delete validation"
-        }
-        RelationTargetDecodeContext::ReverseIndexPrepare => {
-            "relation target entity mismatch while preparing reverse index"
-        }
     }
 }
 
@@ -1167,7 +1127,7 @@ where
     C: CanisterKind,
 {
     let relation_id = binding.reverse_identity.relation_id;
-    match compile_accepted_relation_binding(db, source_path, source_row_contract, binding) {
+    match compile_accepted_relation_binding(db, source_row_contract, binding) {
         Ok(relation) => Ok(relation),
         Err(error) => {
             // Resolve diagnostic identity only on failure; successful planning
@@ -1184,7 +1144,6 @@ where
 
 fn compile_accepted_relation_binding<C>(
     db: &Db<C>,
-    source_path: &str,
     source_row_contract: &StructuralRowContract,
     binding: AcceptedRelationBinding<'_>,
 ) -> Result<AcceptedRelationInfo, InternalError>
@@ -1199,11 +1158,9 @@ where
         source,
     } = binding;
     if let Some((nested, terminal)) = accepted_relation_traversal(&source, source_row_contract)? {
-        let local_component = AcceptedRelationTupleEdgeLocalComponent::new(name, terminal.kind());
+        let local_component = AcceptedRelationTupleEdgeLocalComponent::new(terminal.kind());
         let descriptor = accepted_relation_tuple_edge_descriptor(
             db,
-            source_path,
-            name,
             target_path,
             std::slice::from_ref(&local_component),
         )?;
@@ -1228,14 +1185,8 @@ where
         .collect::<Result<Vec<_>, _>>()?;
 
     if let [(slot, field)] = local_fields.as_slice()
-        && let Some(descriptor) = accepted_scalar_relation_target_descriptor(
-            db,
-            source_path,
-            name,
-            field.field_name(),
-            field.kind(),
-            Some(target_path),
-        )?
+        && let Some(descriptor) =
+            accepted_scalar_relation_target_descriptor(db, field.kind(), Some(target_path))?
     {
         let cardinality = descriptor.cardinality();
         return AcceptedRelationInfo::new(
@@ -1251,17 +1202,10 @@ where
 
     let local_component_facts = local_fields
         .iter()
-        .map(|(_, field)| {
-            AcceptedRelationTupleEdgeLocalComponent::new(field.field_name(), field.kind())
-        })
+        .map(|(_, field)| AcceptedRelationTupleEdgeLocalComponent::new(field.kind()))
         .collect::<Vec<_>>();
-    let tuple_descriptor = accepted_relation_tuple_edge_descriptor(
-        db,
-        source_path,
-        name,
-        target_path,
-        local_component_facts.as_slice(),
-    )?;
+    let tuple_descriptor =
+        accepted_relation_tuple_edge_descriptor(db, target_path, local_component_facts.as_slice())?;
     let component_specs = local_fields
         .iter()
         .map(|(slot, field)| AcceptedRelationLocalComponentSpec {
@@ -1682,21 +1626,12 @@ where
 
 /// Decode one raw relation target key and enforce reverse-index target invariants.
 pub(in crate::db::relation) fn decode_relation_target_data_key(
-    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     target_raw_key: &RawDataStoreKey,
-    context: RelationTargetDecodeContext,
     mismatch_policy: RelationTargetMismatchPolicy,
 ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-    let target_data_key = DecodedDataStoreKey::try_from_raw(target_raw_key).map_err(|err| {
-        InternalError::relation_target_key_decode_failed(
-            relation_target_key_decode_context_label(context),
-            source.path(),
-            relation.field_name(),
-            relation.target().path(),
-            err,
-        )
-    })?;
+    let target_data_key = DecodedDataStoreKey::try_from_raw(target_raw_key)
+        .map_err(|_| InternalError::identity_corruption())?;
 
     let target = relation.target();
     if target_data_key.entity_tag() != target.entity_tag() {
@@ -1705,11 +1640,6 @@ pub(in crate::db::relation) fn decode_relation_target_data_key(
         }
 
         return Err(InternalError::relation_target_entity_mismatch(
-            relation_target_entity_mismatch_context_label(context),
-            source.path(),
-            relation.field_name(),
-            target.path(),
-            target.entity_name().as_str(),
             target.entity_tag().value(),
             target_data_key.entity_tag().value(),
         ));

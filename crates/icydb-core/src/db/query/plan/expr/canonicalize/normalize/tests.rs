@@ -14,7 +14,6 @@ use crate::{
     value::Value,
 };
 use sha2::{Digest as _, Sha256};
-use std::{hint::black_box, time::Instant};
 
 fn binary(op: BinaryOp, left: Expr, right: Expr) -> Expr {
     Expr::Binary {
@@ -138,40 +137,6 @@ fn normalized_ordering_preserves_labels_structure_and_canonical_models() {
     });
 }
 
-// Build and freeze matched binaries with debug assertions disabled. Keep this
-// separate from correctness tests: the baseline's debug checks amplify re-entry.
-#[cfg(not(debug_assertions))]
-#[test]
-#[ignore = "manual native nested-CASE preparation microbenchmark; disable debug assertions"]
-fn nested_case_normalization_native_timing() {
-    crate::db::query::preparation::with_preparation_work(|work| {
-        for levels in [0, 2, 4, 6] {
-            let input = nested_case(levels);
-            drop(black_box(
-                canonicalize_scalar_where_bool_expr_artifact(input.clone(), work)
-                    .expect("canonical preparation"),
-            ));
-            let mut samples = Vec::new();
-            for _ in 0..3 {
-                let inputs = (0..3).map(|_| input.clone()).collect::<Vec<_>>();
-                let start = Instant::now();
-                for expr in inputs {
-                    drop(black_box(
-                        canonicalize_scalar_where_bool_expr_artifact(black_box(expr), work)
-                            .expect("canonical preparation"),
-                    ));
-                }
-                samples.push(start.elapsed().as_nanos() / 3);
-            }
-            samples.sort_unstable();
-            println!(
-                "nested_case_native levels={levels} median_ns={}",
-                samples[1]
-            );
-        }
-    });
-}
-
 fn left_chain(op: BinaryOp, terms: Vec<Expr>) -> Expr {
     terms
         .into_iter()
@@ -275,44 +240,4 @@ fn associative_terms_keep_comparison_normalization_and_nulls() {
             );
         }
     });
-}
-
-// Manual native timing probe, not a correctness or IC-cycle gate. Input-tree
-// allocation/cloning is outside the timer; canonicalization, its public debug
-// checks and output disposal are inside. No rows or planner metadata are read.
-#[test]
-#[ignore = "manual native boolean-normalization microbenchmark"]
-fn boolean_normalization_native_timing() {
-    for count in [4, 16, 64, 128] {
-        let terms = (0..count).rev().map(field).collect::<Vec<_>>();
-        for (shape, expr) in [
-            ("left", left_chain(BinaryOp::And, terms.clone())),
-            ("balanced", balanced_chain(BinaryOp::And, &terms)),
-        ] {
-            // Each workload uses one finite request outside the timer;
-            // unrelated benchmark shapes do not consume its allowance.
-            crate::db::query::preparation::with_preparation_work(|work| {
-                drop(black_box(
-                    normalize_bool_expr(expr.clone(), work).expect("canonical preparation"),
-                ));
-                let mut samples = Vec::new();
-                for _ in 0..7 {
-                    let inputs = (0..64).map(|_| expr.clone()).collect::<Vec<_>>();
-                    let start = Instant::now();
-                    for input in inputs {
-                        drop(black_box(
-                            normalize_bool_expr(black_box(input), work)
-                                .expect("canonical preparation"),
-                        ));
-                    }
-                    samples.push(start.elapsed().as_nanos() / 64);
-                }
-                samples.sort_unstable();
-                println!(
-                    "normalization_native count={count} shape={shape} median_ns={}",
-                    samples[3]
-                );
-            });
-        }
-    }
 }
