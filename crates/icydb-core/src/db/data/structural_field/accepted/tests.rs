@@ -11,8 +11,8 @@ use crate::{
     value::Value,
 };
 
-fn assert_accepted_roundtrip(kind: &AcceptedFieldKind, value: &Value, field_name: &str) {
-    let encoded = encode_structural_field_by_accepted_kind_bytes(kind, value, field_name)
+fn assert_accepted_roundtrip(kind: &AcceptedFieldKind, value: &Value) {
+    let encoded = encode_structural_field_by_accepted_kind_bytes(kind, value)
         .expect("accepted payload should encode");
     let decoded = decode_structural_field_by_accepted_kind_bytes(&encoded, kind)
         .expect("accepted payload should decode");
@@ -44,7 +44,7 @@ fn accepted_kind_codec_roundtrips_nested_collections() {
         ),
     ]);
 
-    assert_accepted_roundtrip(&kind, &value, "payload");
+    assert_accepted_roundtrip(&kind, &value);
 }
 
 #[test]
@@ -53,7 +53,6 @@ fn accepted_kind_codec_rejects_truncated_nested_collections() {
         (
             AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat64)),
             Value::List(vec![Value::Nat64(1), Value::Nat64(2)]),
-            "numbers",
         ),
         (
             AcceptedFieldKind::Map {
@@ -61,14 +60,12 @@ fn accepted_kind_codec_rejects_truncated_nested_collections() {
                 value: Box::new(AcceptedFieldKind::Nat64),
             },
             Value::Map(vec![(Value::Text("alpha".to_string()), Value::Nat64(1))]),
-            "entries",
         ),
     ];
 
-    for (kind, value, field_name) in cases {
-        let mut malformed =
-            encode_structural_field_by_accepted_kind_bytes(&kind, &value, field_name)
-                .expect("accepted payload should encode");
+    for (kind, value) in cases {
+        let mut malformed = encode_structural_field_by_accepted_kind_bytes(&kind, &value)
+            .expect("accepted payload should encode");
         malformed.pop();
         assert_accepted_rejects(&kind, malformed.as_slice());
     }
@@ -88,7 +85,7 @@ fn accepted_kind_codec_roundtrips_relation_lists() {
         Value::Ulid(crate::types::Ulid::from_u128(12)),
     ]);
 
-    assert_accepted_roundtrip(&kind, &value, "targets");
+    assert_accepted_roundtrip(&kind, &value);
 }
 
 // Both operations must accept the same wire language. Materialization may
@@ -139,9 +136,8 @@ fn accepted_by_kind_decode_and_validation_agree_on_mutated_wire() {
         ),
     ];
     for (kind, value) in cases {
-        assert_accepted_roundtrip(&kind, &value, "payload");
-        let wire =
-            encode_structural_field_by_accepted_kind_bytes(&kind, &value, "payload").unwrap();
+        assert_accepted_roundtrip(&kind, &value);
+        let wire = encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap();
         for end in 0..wire.len() {
             assert_accepted_rejects(&kind, &wire[..end]);
         }
@@ -172,7 +168,6 @@ fn accepted_relation_null_filtering_still_checks_following_items() {
     let wire = encode_structural_field_by_accepted_kind_bytes(
         &AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Ulid)),
         &Value::List(vec![Value::Null, key.clone()]),
-        "payload",
     )
     .unwrap();
     validate_structural_field_by_accepted_kind_bytes(&wire, &relation).unwrap();
@@ -186,7 +181,6 @@ fn accepted_relation_null_filtering_still_checks_following_items() {
     let invalid = encode_structural_field_by_accepted_kind_bytes(
         &AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat64)),
         &Value::List(vec![Value::Null, Value::Nat64(11)]),
-        "payload",
     )
     .unwrap();
     assert_accepted_rejects(&relation, &invalid);
@@ -217,9 +211,8 @@ fn accepted_big_integer_collections_preserve_magnitude_boundaries() {
             value: Box::new(AcceptedFieldKind::List(Box::new(kind))),
         };
         let value = Value::Map(vec![(Value::Text("numbers".into()), Value::List(values))]);
-        assert_accepted_roundtrip(&kind, &value, "numbers");
-        let encoded =
-            encode_structural_field_by_accepted_kind_bytes(&kind, &value, "numbers").unwrap();
+        assert_accepted_roundtrip(&kind, &value);
+        let encoded = encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap();
         for end in 0..encoded.len() {
             assert_accepted_rejects(&kind, &encoded[..end]);
         }
@@ -252,13 +245,12 @@ fn big_integer_storage_sizes_cover_one_thousand_256_bit_values() {
             38,
         ),
     ] {
-        let direct = encode_structural_field_by_accepted_kind_bytes(&kind, &value, "big").unwrap();
+        let direct = encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap();
         assert_eq!(direct.len(), direct_len);
         let list = Value::List(vec![value; 1000]);
         let encoded = encode_structural_field_by_accepted_kind_bytes(
             &AcceptedFieldKind::List(Box::new(kind.clone())),
             &list,
-            "bigs",
         )
         .unwrap();
         assert_eq!(encoded.len(), 5 + 1000 * direct_len);

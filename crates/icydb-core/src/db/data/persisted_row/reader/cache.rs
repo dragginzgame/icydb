@@ -131,10 +131,10 @@ pub(super) fn scalar_slot_value_ref_from_validated<'a>(
     match validated {
         ValidatedScalarSlotValue::Null => Ok(ScalarSlotValueRef::Null),
         ValidatedScalarSlotValue::Blob | ValidatedScalarSlotValue::Text => {
-            let field_name = contract.field_name(slot)?;
+            contract.field_name(slot)?;
             let raw_value = field_bytes
                 .field(slot)
-                .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))?;
+                .ok_or_else(InternalError::persisted_row_decode_corruption)?;
             decode_payload_backed_validated_scalar_slot_value(contract, raw_value, slot)
         }
         ValidatedScalarSlotValue::Bool(value) => {

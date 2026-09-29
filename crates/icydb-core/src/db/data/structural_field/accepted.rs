@@ -87,10 +87,9 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
 pub(in crate::db) fn encode_structural_field_by_accepted_kind_bytes(
     kind: &AcceptedFieldKind,
     value: &Value,
-    field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     let mut encoded = Vec::new();
-    encode_accepted_binary_field_into(&mut encoded, kind, value, field_name)?;
+    encode_accepted_binary_field_into(&mut encoded, kind, value)?;
 
     Ok(encoded)
 }
@@ -170,28 +169,27 @@ fn encode_accepted_binary_field_into(
     out: &mut Vec<u8>,
     kind: &AcceptedFieldKind,
     value: &Value,
-    field_name: &str,
 ) -> Result<(), InternalError> {
-    if push_scalar_fast_path_binary_bytes(out, kind, value, field_name)? {
+    if push_scalar_fast_path_binary_bytes(out, kind, value)? {
         return Ok(());
     }
     if !matches!(
         kind,
         AcceptedFieldKind::Composite { .. } | AcceptedFieldKind::Enum { .. }
-    ) && push_leaf_field_binary_bytes(out, kind, value, field_name)?
+    ) && push_leaf_field_binary_bytes(out, kind, value)?
     {
         return Ok(());
     }
 
     match kind {
         AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
-            encode_accepted_list_bytes(out, inner.as_ref(), value, field_name)
+            encode_accepted_list_bytes(out, inner.as_ref(), value)
         }
         AcceptedFieldKind::Map { key, value: item } => {
-            encode_accepted_map_bytes(out, key.as_ref(), item.as_ref(), value, field_name)
+            encode_accepted_map_bytes(out, key.as_ref(), item.as_ref(), value)
         }
         AcceptedFieldKind::Relation { key_kind, .. } => {
-            encode_accepted_binary_field_into(out, key_kind.as_ref(), value, field_name)
+            encode_accepted_binary_field_into(out, key_kind.as_ref(), value)
         }
         AcceptedFieldKind::Composite { .. }
         | AcceptedFieldKind::Enum { .. }
@@ -221,9 +219,7 @@ fn encode_accepted_binary_field_into(
         | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
-        | AcceptedFieldKind::U256 => Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        )),
+        | AcceptedFieldKind::U256 => Err(InternalError::persisted_row_encode_internal()),
     }
 }
 
@@ -253,12 +249,9 @@ fn encode_accepted_list_bytes(
     out: &mut Vec<u8>,
     inner: &AcceptedFieldKind,
     value: &Value,
-    field_name: &str,
 ) -> Result<(), InternalError> {
     let Value::List(items) = value else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
+        return Err(InternalError::persisted_row_encode_internal());
     };
     let skip_null_items = matches!(inner, AcceptedFieldKind::Relation { .. });
     let encoded_len = if skip_null_items {
@@ -275,7 +268,7 @@ fn encode_accepted_list_bytes(
         if skip_null_items && matches!(item, Value::Null) {
             continue;
         }
-        encode_accepted_binary_field_into(out, inner, item, field_name)?;
+        encode_accepted_binary_field_into(out, inner, item)?;
     }
 
     Ok(())
@@ -297,18 +290,15 @@ fn encode_accepted_map_bytes(
     key_kind: &AcceptedFieldKind,
     value_kind: &AcceptedFieldKind,
     value: &Value,
-    field_name: &str,
 ) -> Result<(), InternalError> {
     let Value::Map(entries) = value else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
+        return Err(InternalError::persisted_row_encode_internal());
     };
 
     push_binary_map_len(out, entries.len());
     for (entry_key, entry_value) in entries {
-        encode_accepted_binary_field_into(out, key_kind, entry_key, field_name)?;
-        encode_accepted_binary_field_into(out, value_kind, entry_value, field_name)?;
+        encode_accepted_binary_field_into(out, key_kind, entry_key)?;
+        encode_accepted_binary_field_into(out, value_kind, entry_value)?;
     }
 
     Ok(())

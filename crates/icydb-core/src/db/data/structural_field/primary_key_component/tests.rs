@@ -158,7 +158,7 @@ fn primary_key_component_binary_roundtrips_all_supported_scalar_kinds() {
 
     for (kind, key, value) in cases {
         let mut encoded = Vec::new();
-        encode_primary_key_component_field_binary_into(&mut encoded, key, &kind, "field")
+        encode_primary_key_component_field_binary_into(&mut encoded, key, &kind)
             .expect("primary-key component payload should encode");
         let decoded_key =
             decode_primary_key_component_field_binary_bytes(encoded.as_slice(), &kind)
@@ -189,7 +189,6 @@ fn primary_key_component_binary_roundtrips_128_bit_relation_payloads() {
             &mut encoded_int,
             &INT128_RELATION_KIND,
             &Value::Int128(int_key),
-            "int_relation",
         )
         .expect("primary-key component should append")
     );
@@ -199,7 +198,6 @@ fn primary_key_component_binary_roundtrips_128_bit_relation_payloads() {
             &mut encoded_nat,
             &NAT128_RELATION_KIND,
             &Value::Nat128(nat_key),
-            "nat_relation",
         )
         .expect("primary-key component should append")
     );
@@ -232,7 +230,6 @@ fn primary_key_component_binary_roundtrips_relation_payloads() {
             &mut single,
             &RELATION_KIND,
             &Value::Ulid(left),
-            "relation",
         )
         .expect("primary-key component should append")
     );
@@ -242,7 +239,6 @@ fn primary_key_component_binary_roundtrips_relation_payloads() {
             &mut many,
             &RELATION_LIST_KIND,
             &Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]),
-            "relations",
         )
         .expect("primary-key component should append")
     );
@@ -404,8 +400,7 @@ fn primary_key_component_relation_decode_preserves_scalar_null_semantics() {
         push_primary_key_component_binary_value_bytes(
             &mut target_bytes,
             &RELATION_KIND,
-            &Value::Ulid(target),
-            "id"
+            &Value::Ulid(target)
         )
         .expect("primary-key component should append")
     );
@@ -414,8 +409,7 @@ fn primary_key_component_relation_decode_preserves_scalar_null_semantics() {
         push_primary_key_component_binary_value_bytes(
             &mut null_bytes,
             &RELATION_KIND,
-            &Value::Null,
-            "id"
+            &Value::Null
         )
         .expect("primary-key component should append")
     );
@@ -448,7 +442,6 @@ fn primary_key_component_relation_list_decode_skips_null_items() {
             &mut bytes,
             &RELATION_LIST_KIND,
             &Value::List(vec![Value::Ulid(left), Value::Null, Value::Ulid(right)]),
-            "ids",
         )
         .expect("primary-key component should append")
     );
@@ -538,7 +531,6 @@ fn primary_key_component_relation_encode_binary_bytes_preserves_list_shape() {
                 Value::Ulid(Ulid::from_u128(1)),
                 Value::Ulid(Ulid::from_u128(2))
             ]),
-            "relations",
         )
         .expect("relation list keys should encode")
     );
@@ -578,7 +570,7 @@ fn primary_key_component_scalar_encode_roundtrips_supported_kinds() {
 
     for (kind, key) in cases {
         let mut encoded = Vec::new();
-        encode_primary_key_component_field_binary_into(&mut encoded, key, &kind, "field")
+        encode_primary_key_component_field_binary_into(&mut encoded, key, &kind)
             .expect("scalar key should encode");
         let decoded = decode_primary_key_component_field_binary_bytes(&encoded, &kind)
             .expect("scalar key should decode");

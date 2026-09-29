@@ -637,7 +637,7 @@ impl AcceptedRowDecodeContract {
     ) -> Result<AcceptedFieldPersistenceContract<'_>, InternalError> {
         let field = self.required_field_for_slot(entity_path, slot)?;
         AcceptedFieldPersistenceContract::new(self.value_catalog_handle(), field.decode_contract())
-            .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))
+            .map_err(|_| InternalError::persisted_row_encode_internal())
     }
 }
 

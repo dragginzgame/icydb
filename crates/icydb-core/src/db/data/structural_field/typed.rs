@@ -26,7 +26,7 @@ pub(in crate::db::data::structural_field) fn encode_account_payload_bytes(
 ) -> Result<[u8; 62], InternalError> {
     value
         .to_stored_bytes()
-        .map_err(InternalError::persisted_row_encode_failed)
+        .map_err(|_| InternalError::persisted_row_encode_internal())
 }
 
 // Decode one account payload from the canonical raw bytes shared by structural
@@ -43,7 +43,7 @@ pub(in crate::db::data::structural_field) fn encode_principal_payload_bytes(
 ) -> Result<&[u8], InternalError> {
     value
         .stored_bytes()
-        .map_err(InternalError::persisted_row_encode_failed)
+        .map_err(|_| InternalError::persisted_row_encode_internal())
 }
 
 // Decode one principal payload from its canonical raw byte form.

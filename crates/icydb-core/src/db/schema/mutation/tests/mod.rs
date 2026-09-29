@@ -67,7 +67,7 @@ impl CanonicalSlotReader for RebuildSlotReader {
             .get(slot)
             .and_then(Option::as_ref)
             .cloned()
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing("test"))
+            .ok_or_else(InternalError::persisted_row_decode_corruption)
     }
 
     fn required_value_by_contract_cow(&self, slot: usize) -> Result<Cow<'_, Value>, InternalError> {
@@ -75,7 +75,7 @@ impl CanonicalSlotReader for RebuildSlotReader {
             .get(slot)
             .and_then(Option::as_ref)
             .map(Cow::Borrowed)
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing("test"))
+            .ok_or_else(InternalError::persisted_row_decode_corruption)
     }
 }
 

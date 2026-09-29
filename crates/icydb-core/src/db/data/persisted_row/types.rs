@@ -270,20 +270,21 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
 
     /// Borrow one declared slot payload, erroring when the persisted row is not canonical.
     fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
-        let field_name = self.field_name(slot)?;
+        // Preserve declared-slot validation before checking persisted payload presence.
+        self.field_name(slot)?;
 
         self.get_bytes(slot)
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))
+            .ok_or_else(InternalError::persisted_row_decode_corruption)
     }
 
     /// Read one scalar slot through the structural fast path without allowing
     /// declared-slot absence.
     fn required_scalar(&self, slot: usize) -> Result<ScalarSlotValueRef<'_>, InternalError> {
-        let field_name = self.field_name(slot)?;
+        self.field_name(slot)?;
         debug_assert!(matches!(self.field_leaf_codec(slot)?, LeafCodec::Scalar(_)));
 
         self.get_scalar(slot)?
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))
+            .ok_or_else(InternalError::persisted_row_decode_corruption)
     }
 
     /// Read one value-storage scalar when a concrete reader can expose it without full decode.

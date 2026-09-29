@@ -122,9 +122,7 @@ fn prepare_accepted_entity_snapshot_revision(
         })?
         .ok_or_else(InternalError::store_corruption)?;
     if current_selection.identity() != *expected_identity {
-        return Err(InternalError::schema_ddl_publication_race_lost(
-            expected_identity.entity_path(),
-        ));
+        return Err(InternalError::schema_ddl_publication_race_lost());
     }
 
     let current = store
@@ -282,7 +280,6 @@ fn staged_added_entry_count(
 pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -317,7 +314,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
         ) {
             return Err(InternalError::store_unsupported());
         }
-        require_exact_empty_sql_ddl_entity(store, entity_tag, entity_path)?;
+        require_exact_empty_sql_ddl_entity(store, entity_tag)?;
     } else {
         let plan = envelope.require_transition_plan(SchemaTransitionPlanKind::AppendOnlyFields)?;
         validate_publishable_transition_plan(&plan)?;
@@ -331,15 +328,12 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
 pub(super) fn require_exact_empty_sql_ddl_entity(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &str,
 ) -> Result<(), InternalError> {
     if store.exact_entity_count(entity_tag) == Some(0) {
         return Ok(());
     }
 
-    Err(InternalError::schema_ddl_rewrite_requires_migration(
-        entity_path,
-    ))
+    Err(InternalError::schema_ddl_rewrite_requires_migration())
 }
 
 pub(super) struct SqlDdlPublicationEnvelope<'a> {

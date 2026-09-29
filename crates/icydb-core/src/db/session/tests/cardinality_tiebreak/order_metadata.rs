@@ -138,9 +138,9 @@ fn expression_order_seam_is_budgeted_and_preserves_compiled_output() {
     );
     let plan = order_plan(&setup, vec![OrderTerm::new(expr, OrderDirection::Asc)]);
     let (_, projection_steps) = projection_metadata::cost(&plan, schema);
-    // Three seam nodes, fifteen compiler steps (three nodes and two lookup/copy
-    // label pairs), then one order field, one compiled node, two slots and a duplicate comparison.
-    for limit in [22, 23] {
+    // Three seam nodes, nine compiler steps (three nodes and two field lookups),
+    // then one order field, one compiled node, two slots and a duplicate comparison.
+    for limit in [16, 17] {
         let root = request(Resource::PredicateExpressionSteps, projection_steps + limit);
         let mut candidate = plan.clone();
         let result =
@@ -150,7 +150,7 @@ fn expression_order_seam_is_budgeted_and_preserves_compiled_output() {
                     schema, projection, work,
                 )
             });
-        if limit == 23 {
+        if limit == 17 {
             result.unwrap();
             assert_eq!(
                 candidate.resolved_order().unwrap().fields()[0].source(),
@@ -164,7 +164,7 @@ fn expression_order_seam_is_budgeted_and_preserves_compiled_output() {
         }
         assert_eq!(
             root.observed(Resource::PredicateExpressionSteps),
-            projection_steps + 23
+            projection_steps + 17
         );
         assert_eq!(root.observed(Resource::RowsVisited), 0);
     }

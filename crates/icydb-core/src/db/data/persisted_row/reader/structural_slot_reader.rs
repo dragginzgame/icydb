@@ -217,8 +217,8 @@ impl<'a> StructuralSlotReader<'a> {
                     )?;
                 }
 
-                let field_name = self.contract.field_name(primary_key_slot)?;
-                let raw_value = self.required_field_bytes(primary_key_slot, field_name)?;
+                self.contract.field_name(primary_key_slot)?;
+                let raw_value = self.required_field_bytes(primary_key_slot)?;
 
                 validate_primary_key_component_from_slot_bytes_with_contract(
                     &self.contract,
@@ -242,8 +242,8 @@ impl<'a> StructuralSlotReader<'a> {
                             self.required_validated_scalar_slot_value_for_slot(slot, validated)?;
                     }
 
-                    let field_name = self.contract.field_name(slot)?;
-                    let raw_value = self.required_field_bytes(slot, field_name)?;
+                    self.contract.field_name(slot)?;
+                    let raw_value = self.required_field_bytes(slot)?;
                     validate_primary_key_component_from_slot_bytes_with_contract(
                         &self.contract,
                         slot,
@@ -268,8 +268,8 @@ impl<'a> StructuralSlotReader<'a> {
             return Ok(*validated);
         }
 
-        let field_name = self.contract.field_name(slot)?;
-        let raw_value = self.required_field_bytes(slot, field_name)?;
+        self.contract.field_name(slot)?;
+        let raw_value = self.required_field_bytes(slot)?;
         let validated_value = validated_scalar_slot_value(
             decode_scalar_slot_value_from_row_contract(&self.contract, slot, raw_value)?,
         );
@@ -340,8 +340,8 @@ impl<'a> StructuralSlotReader<'a> {
                         .ok_or_else(InternalError::persisted_row_decode_corruption);
                 }
 
-                let field_name = self.contract.field_name(slot)?;
-                let raw_value = self.required_field_bytes(slot, field_name)?;
+                self.contract.field_name(slot)?;
+                let raw_value = self.required_field_bytes(slot)?;
                 if materialized.get().is_none() {
                     // The row-contract decoder owns storage selection and payload
                     // validation; the reader only retains the resulting value.
@@ -422,51 +422,26 @@ impl<'a> StructuralSlotReader<'a> {
         view: &ValueStorageView<'view>,
     ) -> Result<Option<ScalarSlotValueRef<'view>>, InternalError> {
         let value = match field.kind() {
-            AcceptedFieldKind::Bool if view.is_bool() => {
-                ScalarValueRef::Bool(view.as_bool().map_err(|err| {
-                    InternalError::persisted_row_field_kind_decode_failed(
-                        field.field_name(),
-                        field.kind(),
-                        err,
-                    )
-                })?)
-            }
-            AcceptedFieldKind::Blob { .. } if view.is_blob() => {
-                ScalarValueRef::Blob(view.as_blob().map_err(|err| {
-                    InternalError::persisted_row_field_kind_decode_failed(
-                        field.field_name(),
-                        field.kind(),
-                        err,
-                    )
-                })?)
-            }
-            AcceptedFieldKind::Int64 if view.is_i64() => {
-                ScalarValueRef::Int(view.as_i64().map_err(|err| {
-                    InternalError::persisted_row_field_kind_decode_failed(
-                        field.field_name(),
-                        field.kind(),
-                        err,
-                    )
-                })?)
-            }
-            AcceptedFieldKind::Text { .. } if view.is_text() => {
-                ScalarValueRef::Text(view.as_text().map_err(|err| {
-                    InternalError::persisted_row_field_kind_decode_failed(
-                        field.field_name(),
-                        field.kind(),
-                        err,
-                    )
-                })?)
-            }
-            AcceptedFieldKind::Nat64 if view.is_u64() => {
-                ScalarValueRef::Nat(view.as_u64().map_err(|err| {
-                    InternalError::persisted_row_field_kind_decode_failed(
-                        field.field_name(),
-                        field.kind(),
-                        err,
-                    )
-                })?)
-            }
+            AcceptedFieldKind::Bool if view.is_bool() => ScalarValueRef::Bool(
+                view.as_bool()
+                    .map_err(|_| InternalError::persisted_row_decode_corruption())?,
+            ),
+            AcceptedFieldKind::Blob { .. } if view.is_blob() => ScalarValueRef::Blob(
+                view.as_blob()
+                    .map_err(|_| InternalError::persisted_row_decode_corruption())?,
+            ),
+            AcceptedFieldKind::Int64 if view.is_i64() => ScalarValueRef::Int(
+                view.as_i64()
+                    .map_err(|_| InternalError::persisted_row_decode_corruption())?,
+            ),
+            AcceptedFieldKind::Text { .. } if view.is_text() => ScalarValueRef::Text(
+                view.as_text()
+                    .map_err(|_| InternalError::persisted_row_decode_corruption())?,
+            ),
+            AcceptedFieldKind::Nat64 if view.is_u64() => ScalarValueRef::Nat(
+                view.as_u64()
+                    .map_err(|_| InternalError::persisted_row_decode_corruption())?,
+            ),
             _ => return Ok(None),
         };
 
@@ -502,14 +477,9 @@ impl<'a> StructuralSlotReader<'a> {
             };
         }
 
-        let raw_value = self.required_field_bytes(slot, field.field_name())?;
-        let view = ValueStorageView::from_raw_validated(raw_value).map_err(|err| {
-            InternalError::persisted_row_field_kind_decode_failed(
-                field.field_name(),
-                field.kind(),
-                err,
-            )
-        })?;
+        let raw_value = self.required_field_bytes(slot)?;
+        let view = ValueStorageView::from_raw_validated(raw_value)
+            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
 
         let value = if view.is_null() {
             Some(ScalarSlotValueRef::Null)
@@ -522,14 +492,10 @@ impl<'a> StructuralSlotReader<'a> {
 
     // Borrow one declared slot payload, treating absence as a persisted-row
     // invariant violation instead of a normal structural branch.
-    pub(in crate::db) fn required_field_bytes(
-        &self,
-        slot: usize,
-        field_name: &str,
-    ) -> Result<&[u8], InternalError> {
+    pub(in crate::db) fn required_field_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
         self.field_bytes
             .field(slot)
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))
+            .ok_or_else(InternalError::persisted_row_decode_corruption)
     }
 
     // Validate every declared slot once at the structural row contract
@@ -631,21 +597,22 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
     }
 
     fn required_bytes(&self, slot: usize) -> Result<&[u8], InternalError> {
-        let field_name = self.contract.field_name(slot)?;
+        // Preserve declared-slot validation before checking persisted payload presence.
+        self.contract.field_name(slot)?;
 
         self.get_bytes(slot)
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))
+            .ok_or_else(InternalError::persisted_row_decode_corruption)
     }
 
     fn required_scalar(&self, slot: usize) -> Result<ScalarSlotValueRef<'_>, InternalError> {
-        let field_name = self.contract.field_name(slot)?;
+        self.contract.field_name(slot)?;
         debug_assert!(matches!(
             self.contract.field_leaf_codec(slot)?,
             LeafCodec::Scalar(_)
         ));
 
         self.get_scalar(slot)?
-            .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field_name))
+            .ok_or_else(InternalError::persisted_row_decode_corruption)
     }
 
     fn required_value_storage_scalar(

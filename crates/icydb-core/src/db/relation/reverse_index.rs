@@ -930,11 +930,6 @@ impl AcceptedRelationLocalComponent {
     }
 
     #[must_use]
-    const fn field_name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    #[must_use]
     const fn field_kind(&self) -> &AcceptedFieldKind {
         &self.kind
     }
@@ -1840,8 +1835,7 @@ fn relation_target_keys_from_component_slots(
     let mut null_count = 0usize;
 
     for local_component in local_components.components() {
-        let bytes = row_fields
-            .required_field_bytes(local_component.field_index(), local_component.field_name())?;
+        let bytes = row_fields.required_field_bytes(local_component.field_index())?;
         let value = decode_runtime_value_from_accepted_field_contract(
             local_component.decode_contract(),
             bytes,
@@ -1912,7 +1906,7 @@ fn relation_target_keys_from_field_bytes(
             relation.target().primary_key().component_kinds(),
         )
     })?;
-    let bytes = row_fields.required_field_bytes(component.field_index(), component.field_name())?;
+    let bytes = row_fields.required_field_bytes(component.field_index())?;
     let keys =
         decode_accepted_relation_target_primary_key_components_bytes(bytes, component.field_kind())
             .map_err(|err| {

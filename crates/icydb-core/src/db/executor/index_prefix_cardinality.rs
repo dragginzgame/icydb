@@ -81,7 +81,7 @@ impl ExpandedIndexPrefixFamily {
 pub(in crate::db::executor) enum IndexBranchLiveness {
     ProvenEmpty,
     PossiblyLive,
-    UnknownConservative(IndexBranchUnknownReason),
+    UnknownConservative,
 }
 
 impl IndexBranchLiveness {
@@ -89,19 +89,9 @@ impl IndexBranchLiveness {
     pub(in crate::db::executor) const fn should_scan(self) -> bool {
         match self {
             Self::ProvenEmpty => false,
-            Self::PossiblyLive => true,
-            Self::UnknownConservative(reason) => {
-                let _ = reason;
-                true
-            }
+            Self::PossiblyLive | Self::UnknownConservative => true,
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum IndexBranchUnknownReason {
-    MissingPrefixCardinalityKey,
-    MissingGenerationCompatibleCardinality,
 }
 
 #[must_use]
@@ -112,9 +102,7 @@ pub(in crate::db::executor) fn lowered_index_prefix_liveness(
     let Some(cardinality_key) =
         user_index_prefix_cardinality_key_from_lowered_spec(spec, spec.prefix_components().len())
     else {
-        return IndexBranchLiveness::UnknownConservative(
-            IndexBranchUnknownReason::MissingPrefixCardinalityKey,
-        );
+        return IndexBranchLiveness::UnknownConservative;
     };
     let data_generation = store.with_data(DataStore::generation);
     match store.exact_user_index_prefix_count(
@@ -125,9 +113,7 @@ pub(in crate::db::executor) fn lowered_index_prefix_liveness(
     ) {
         Some(0) => IndexBranchLiveness::ProvenEmpty,
         Some(_) => IndexBranchLiveness::PossiblyLive,
-        None => IndexBranchLiveness::UnknownConservative(
-            IndexBranchUnknownReason::MissingGenerationCompatibleCardinality,
-        ),
+        None => IndexBranchLiveness::UnknownConservative,
     }
 }
 

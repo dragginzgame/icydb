@@ -33,7 +33,7 @@ pub(in crate::db) use execution_contract::{
     ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
 };
 pub(in crate::db) use lowering::{
-    LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
-    LoweredKey, lower_access_with_schema_info,
+    LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
+    lower_access_with_schema_info,
     lower_exact_user_index_prefix_cardinality_keys_for_prefix_access,
 };

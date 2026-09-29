@@ -550,9 +550,8 @@ impl<C: CanisterKind> DbSession<C> {
                 execute_admin_sql_ddl_field_addition(
                     store,
                     accepted_before_identity.entity_tag(),
-                    accepted_before_identity.entity_path(),
                     accepted_before,
-                    accepted_before_identity.clone(),
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::from_sql_ddl_execution_error)?;
@@ -575,9 +574,8 @@ impl<C: CanisterKind> DbSession<C> {
                 let rows_scanned = execute_admin_sql_ddl_field_drop(
                     store,
                     accepted_before_identity.entity_tag(),
-                    accepted_before_identity.entity_path(),
                     accepted_before,
-                    accepted_before_identity.clone(),
+                    accepted_before_identity,
                     derivation,
                 )
                 .map_err(QueryError::from_sql_ddl_execution_error)?;

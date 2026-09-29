@@ -33,9 +33,7 @@ pub(in crate::db) fn decode_runtime_value_from_accepted_field_contract(
     raw_value: &[u8],
 ) -> Result<Value, InternalError> {
     match field.leaf_codec() {
-        LeafCodec::Scalar(codec) => {
-            Ok(decode_scalar_slot_value(raw_value, codec, field.field_name())?.into_value())
-        }
+        LeafCodec::Scalar(codec) => Ok(decode_scalar_slot_value(raw_value, codec)?.into_value()),
         LeafCodec::Structural => decode_non_scalar_accepted_slot_value(raw_value, field),
     }
 }
@@ -76,7 +74,7 @@ pub(in crate::db) fn decode_scalar_slot_value_from_row_contract<'raw>(
         return Err(InternalError::persisted_row_decode_corruption());
     };
 
-    decode_scalar_slot_value(raw_value, codec, accepted_field.field_name())
+    decode_scalar_slot_value(raw_value, codec)
 }
 
 // Build one dense slot image by running one caller-supplied encode step per
@@ -193,22 +191,11 @@ fn decode_non_scalar_accepted_slot_value(
 
     match field.storage_decode() {
         FieldStorageDecode::ByKind => {
-            decode_structural_field_by_accepted_kind_bytes(raw_value, field.kind()).map_err(|err| {
-                InternalError::persisted_row_field_kind_decode_failed(
-                    field.field_name(),
-                    field.kind(),
-                    err,
-                )
-            })
+            decode_structural_field_by_accepted_kind_bytes(raw_value, field.kind())
+                .map_err(|_| InternalError::persisted_row_decode_corruption())
         }
         FieldStorageDecode::CatalogValue => decode_structural_value_storage_bytes(raw_value)
-            .map_err(|err| {
-                InternalError::persisted_row_field_kind_decode_failed(
-                    field.field_name(),
-                    field.kind(),
-                    err,
-                )
-            }),
+            .map_err(|_| InternalError::persisted_row_decode_corruption()),
     }
 }
 
@@ -225,24 +212,11 @@ pub(in crate::db) fn validate_non_scalar_accepted_slot_value(
 
     match field.storage_decode() {
         FieldStorageDecode::ByKind => {
-            validate_structural_field_by_accepted_kind_bytes(raw_value, field.kind()).map_err(
-                |err| {
-                    InternalError::persisted_row_field_kind_decode_failed(
-                        field.field_name(),
-                        field.kind(),
-                        err,
-                    )
-                },
-            )
+            validate_structural_field_by_accepted_kind_bytes(raw_value, field.kind())
+                .map_err(|_| InternalError::persisted_row_decode_corruption())
         }
         FieldStorageDecode::CatalogValue => validate_structural_value_storage_bytes(raw_value)
-            .map_err(|err| {
-                InternalError::persisted_row_field_kind_decode_failed(
-                    field.field_name(),
-                    field.kind(),
-                    err,
-                )
-            }),
+            .map_err(|_| InternalError::persisted_row_decode_corruption()),
     }
 }
 
@@ -308,8 +282,7 @@ mod tests {
                 FieldStorageDecode::ByKind,
                 LeafCodec::Structural,
             );
-            let wire =
-                encode_structural_field_by_accepted_kind_bytes(&kind, &value, "items").unwrap();
+            let wire = encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap();
             assert_eq!(
                 decode_runtime_value_from_accepted_field_contract(field, &wire).unwrap(),
                 value
@@ -351,7 +324,7 @@ mod tests {
             FieldStorageDecode::ByKind,
             LeafCodec::Structural,
         );
-        let wire = encode_structural_field_by_accepted_kind_bytes(&kind, &value, "items").unwrap();
+        let wire = encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap();
         assert_eq!(
             decode_runtime_value_from_accepted_field_contract(field, &wire).unwrap(),
             value
@@ -361,12 +334,9 @@ mod tests {
         // One extra list does not fit this accepted schema, even if a binary
         // walker can determine its framing independently of the field kind.
         let deeper = AcceptedFieldKind::List(Box::new(kind.clone()));
-        let excessive = encode_structural_field_by_accepted_kind_bytes(
-            &deeper,
-            &Value::List(vec![value]),
-            "items",
-        )
-        .unwrap();
+        let excessive =
+            encode_structural_field_by_accepted_kind_bytes(&deeper, &Value::List(vec![value]))
+                .unwrap();
         for malformed in [&excessive[..], &[0xff], &[0, 0]] {
             assert!(decode_runtime_value_from_accepted_field_contract(field, malformed).is_err());
             assert!(validate_non_scalar_accepted_slot_value(malformed, field).is_err());
@@ -377,7 +347,7 @@ mod tests {
     fn row_emission_preserves_collection_bytes_and_slot_offsets() {
         let kind = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat64));
         let value = Value::List((0..1_000).map(Value::Nat64).collect());
-        let field = encode_structural_field_by_accepted_kind_bytes(&kind, &value, "numbers")
+        let field = encode_structural_field_by_accepted_kind_bytes(&kind, &value)
             .expect("the accepted list should encode");
         assert_eq!(field.len(), 9_005);
         let mut fields = vec![field];

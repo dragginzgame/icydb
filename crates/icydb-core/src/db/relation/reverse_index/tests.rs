@@ -179,7 +179,7 @@ fn accepted_relation_info_carries_ordered_local_component_metadata() {
     };
 
     assert_eq!(component.field_index(), 3);
-    assert_eq!(component.field_name(), "target_id");
+    assert_eq!(component.decode_contract().field_name(), "target_id");
     std::assert_matches!(component.field_kind(), AcceptedFieldKind::Relation { .. });
 }
 
@@ -321,10 +321,10 @@ fn accepted_relation_local_components_can_carry_ordered_tuple_metadata() {
         panic!("tuple relation metadata should expose both local components");
     };
     assert_eq!(tenant.field_index(), 2);
-    assert_eq!(tenant.field_name(), "tenant_id");
+    assert_eq!(tenant.decode_contract().field_name(), "tenant_id");
     assert_eq!(tenant.field_kind(), &AcceptedFieldKind::Nat64);
     assert_eq!(local.field_index(), 4);
-    assert_eq!(local.field_name(), "local_id");
+    assert_eq!(local.decode_contract().field_name(), "local_id");
     assert_eq!(local.field_kind(), &AcceptedFieldKind::Ulid);
 }
 

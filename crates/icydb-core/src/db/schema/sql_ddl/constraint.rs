@@ -186,13 +186,13 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation_abort(
         .get(&entity_tag)
         .ok_or_else(InternalError::store_corruption)?;
     if !before.candidate_indexes().contains(request.dropped_index()) {
-        return Err(InternalError::schema_ddl_publication_race_lost(entity_path));
+        return Err(InternalError::schema_ddl_publication_race_lost());
     }
     let activation_state = before
         .constraint_catalog()
         .activation(constraint_id)
         .map(crate::db::schema::ConstraintActivationSnapshot::state)
-        .ok_or_else(|| InternalError::schema_ddl_publication_race_lost(entity_path))?;
+        .ok_or_else(InternalError::schema_ddl_publication_race_lost)?;
     let after = before
         .with_aborted_unique_activation(constraint_id, next_schema_version)
         .map_err(|_| InternalError::store_invariant())?;
@@ -235,7 +235,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_check_drop(
         .activation(request.constraint_id())
         .map(crate::db::schema::ConstraintActivationSnapshot::state);
     if request.is_activation() != activation_state.is_some() {
-        return Err(InternalError::schema_ddl_publication_race_lost(entity_path));
+        return Err(InternalError::schema_ddl_publication_race_lost());
     }
     let catalog = if request.is_activation() {
         before
@@ -300,7 +300,7 @@ pub(super) fn current_sql_ddl_bundle(
         || bundle.store_path() != expected_identity.store_path()
         || bundle.entity_snapshots().get(&entity_tag) != Some(accepted_before.persisted_snapshot())
     {
-        return Err(InternalError::schema_ddl_publication_race_lost(entity_path));
+        return Err(InternalError::schema_ddl_publication_race_lost());
     }
     Ok((root.root().revision(), root.root().fingerprint(), bundle))
 }

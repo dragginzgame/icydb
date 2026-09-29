@@ -44,7 +44,7 @@ pub(in crate::db) fn encode_input_value_for_accepted_field_contract(
         .with_normalized(input, budget, |accepted| {
             encode_accepted_value_ref_for_accepted_field_contract(field, &accepted)
         })
-        .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?
+        .map_err(|_| InternalError::persisted_row_encode_internal())?
 }
 
 /// Normalize and encode one schema-candidate literal without fabricating an
@@ -62,10 +62,10 @@ pub(in crate::db) fn encode_input_value_for_candidate_field_contract(
         field.kind(),
         field.storage_decode(),
     )
-    .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
+    .map_err(|_| InternalError::persisted_row_encode_internal())?;
     let value =
         normalize_candidate_value(enum_catalog, composite_catalog, &contract, input, budget)
-            .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?;
+            .map_err(|_| InternalError::persisted_row_encode_internal())?;
     encode_canonical_value_for_decode_contract(field, &value)
 }
 
@@ -81,7 +81,7 @@ pub(in crate::db) fn encode_canonical_value_for_accepted_field_contract(
         .with_validated(value, &mut budget, |accepted| {
             encode_accepted_value_ref_for_accepted_field_contract(field, &accepted)
         })
-        .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))?
+        .map_err(|_| InternalError::persisted_row_encode_internal())?
 }
 
 pub(in crate::db) fn encode_accepted_value_ref_for_accepted_field_contract(
@@ -104,23 +104,17 @@ fn encode_canonical_value_for_decode_contract(
     }
 
     match field.storage_decode() {
-        FieldStorageDecode::CatalogValue => Err(
-            InternalError::persisted_row_field_encode_internal(field.field_name()),
-        ),
+        FieldStorageDecode::CatalogValue => Err(InternalError::persisted_row_encode_internal()),
         FieldStorageDecode::ByKind => match field.leaf_codec() {
             LeafCodec::Scalar(codec) => {
-                let scalar =
-                    scalar_slot_value_ref_from_accepted_value(value, codec).ok_or_else(|| {
-                        InternalError::persisted_row_field_encode_internal(field.field_name())
-                    })?;
+                let scalar = scalar_slot_value_ref_from_accepted_value(value, codec)
+                    .ok_or_else(InternalError::persisted_row_encode_internal)?;
 
-                encode_scalar_slot_value(scalar, codec, field.field_name())
+                encode_scalar_slot_value(scalar, codec)
             }
-            LeafCodec::Structural => encode_structural_field_by_accepted_kind_bytes(
-                field.kind(),
-                value,
-                field.field_name(),
-            ),
+            LeafCodec::Structural => {
+                encode_structural_field_by_accepted_kind_bytes(field.kind(), value)
+            }
         },
     }
 }
@@ -130,27 +124,17 @@ fn encode_accepted_null_slot_value(
     field: AcceptedFieldDecodeContract<'_>,
 ) -> Result<Vec<u8>, InternalError> {
     if !field.nullable() {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field.field_name(),
-        ));
+        return Err(InternalError::persisted_row_encode_internal());
     }
 
     match field.storage_decode() {
-        FieldStorageDecode::CatalogValue => Err(
-            InternalError::persisted_row_field_encode_internal(field.field_name()),
-        ),
+        FieldStorageDecode::CatalogValue => Err(InternalError::persisted_row_encode_internal()),
         FieldStorageDecode::ByKind => match field.leaf_codec() {
-            LeafCodec::Scalar(codec) => {
-                encode_scalar_slot_value(ScalarSlotValueRef::Null, codec, field.field_name())
-            }
+            LeafCodec::Scalar(codec) => encode_scalar_slot_value(ScalarSlotValueRef::Null, codec),
             LeafCodec::Structural
                 if accepted_kind_supports_primary_key_component_binary(field.kind()) =>
             {
-                encode_structural_field_by_accepted_kind_bytes(
-                    field.kind(),
-                    &Value::Null,
-                    field.field_name(),
-                )
+                encode_structural_field_by_accepted_kind_bytes(field.kind(), &Value::Null)
             }
             LeafCodec::Structural => Ok(encode_structural_value_storage_null_bytes()),
         },
@@ -282,7 +266,7 @@ fn decode_canonical_value_from_accepted_field_contract(
                 .map_err(|_| InternalError::persisted_row_decode_corruption())?,
             FieldStorageDecode::ByKind => match field.leaf_codec() {
                 LeafCodec::Scalar(codec) => {
-                    let value = decode_scalar_slot_value(raw_value, codec, field.field_name())?;
+                    let value = decode_scalar_slot_value(raw_value, codec)?;
                     canonical_value_from_scalar_slot(value)
                 }
                 LeafCodec::Structural => {

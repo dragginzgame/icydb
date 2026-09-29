@@ -256,7 +256,7 @@ impl StructuralRowContract {
             .map(|field| field.leaf_codec())
     }
 
-    /// Return the persisted field name for diagnostics at one row slot.
+    /// Return the accepted field name after validating one declared row slot.
     pub(in crate::db) fn field_name(&self, slot: usize) -> Result<&str, InternalError> {
         self.required_accepted_field_decode_contract(slot)
             .map(|field| field.field_name())
@@ -277,9 +277,7 @@ impl StructuralRowContract {
             }
         }
 
-        Err(InternalError::persisted_row_declared_field_missing(
-            field_name,
-        ))
+        Err(InternalError::persisted_row_decode_corruption())
     }
 
     /// Resolve an omitted field into a current canonical insertion payload.
@@ -309,12 +307,10 @@ impl StructuralRowContract {
                 .insert_default()
                 .slot_payload()
                 .map(FieldMaterialization::DefaultPayload)
-                .ok_or_else(|| {
-                    InternalError::persisted_row_declared_field_missing(field.field_name())
-                }),
-            AcceptedInsertOmissionPolicy::Required => Err(
-                InternalError::persisted_row_declared_field_missing(field.field_name()),
-            ),
+                .ok_or_else(InternalError::persisted_row_decode_corruption),
+            AcceptedInsertOmissionPolicy::Required => {
+                Err(InternalError::persisted_row_decode_corruption())
+            }
         }
     }
 

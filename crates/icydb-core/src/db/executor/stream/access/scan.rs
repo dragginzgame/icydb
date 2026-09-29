@@ -10,8 +10,7 @@ use crate::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
         direction::Direction,
         executor::{
-            ExecutorError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract,
-            LoweredKey,
+            ExecutorError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
             budget::{
                 ExecutionConstructionBudget, charge_current_execution_budget,
                 charge_current_execution_budget_pair,
@@ -433,12 +432,7 @@ impl IndexScan {
                     .checked_add(raw_bytes)
                     .ok_or_else(InternalError::executor_invariant)?;
                 let (primary_key, _) = IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
-                    .map_err(|error| {
-                        InternalError::index_scan_key_corrupted_during(
-                            "exact intersection probe",
-                            error,
-                        )
-                    })?;
+                    .map_err(|_| InternalError::index_corruption())?;
                 let existence_witness = entry
                     .decode_existence_witness()
                     .map_err(|_| InternalError::index_entry_decode_failed())?;
@@ -587,14 +581,8 @@ impl IndexScan {
                         .checked_add(raw_key_bytes)
                         .ok_or_else(InternalError::executor_invariant)?;
                     let (primary_key_value, primary_key_bytes) =
-                        IndexKey::primary_key_value_and_bytes_from_raw(raw_key).map_err(
-                            |error| {
-                                InternalError::index_scan_key_corrupted_during(
-                                    "merged component stream",
-                                    error,
-                                )
-                            },
-                        )?;
+                        IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
+                            .map_err(|_| InternalError::index_corruption())?;
 
                     Ok(MergedPrimaryKeyOrder {
                         value: primary_key_value,
@@ -676,7 +664,6 @@ impl IndexScan {
     pub(in crate::db::executor) fn components_structural(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: LoweredIndexScanContract,
         lower: &Bound<LoweredKey>,
         upper: &Bound<LoweredKey>,
         continuation: IndexScanContinuationInput<'_>,
@@ -701,13 +688,11 @@ impl IndexScan {
 
                     Self::decode_index_entry_and_push_with_components(
                         entity_tag,
-                        &index,
                         raw_key,
                         value,
                         &mut out,
                         Some(limit),
                         component_indices,
-                        "range resolve",
                         predicate_execution,
                     )
                 },
@@ -768,7 +753,6 @@ impl IndexScan {
     pub(in crate::db::executor) fn components_chunk_structural(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: &LoweredIndexScanContract,
         lower: &Bound<LoweredKey>,
         upper: &Bound<LoweredKey>,
         continuation: IndexScanContinuationInput<'_>,
@@ -780,7 +764,6 @@ impl IndexScan {
         Self::resolve_component_chunk(
             store,
             entity_tag,
-            index,
             lower,
             upper,
             continuation,
@@ -822,7 +805,6 @@ impl IndexScan {
                         value,
                         &mut keys,
                         Some(limit),
-                        "range resolve",
                         predicate_execution,
                     )
                 },
@@ -867,7 +849,6 @@ impl IndexScan {
                         value,
                         &mut keys,
                         output_limit,
-                        "range stream",
                         None,
                     )? {
                         return Ok(true);
@@ -888,7 +869,6 @@ impl IndexScan {
     fn resolve_component_chunk(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: &LoweredIndexScanContract,
         lower: &Bound<LoweredKey>,
         upper: &Bound<LoweredKey>,
         continuation: IndexScanContinuationInput<'_>,
@@ -918,13 +898,11 @@ impl IndexScan {
 
                     if Self::decode_index_entry_and_push_with_components(
                         entity_tag,
-                        index,
                         raw_key,
                         value,
                         &mut rows,
                         output_limit,
                         component_indices,
-                        "component stream",
                         predicate_execution,
                     )? {
                         return Ok(true);
@@ -961,7 +939,6 @@ impl IndexScan {
         value: &IndexEntryValue,
         out: &mut Vec<DecodedDataStoreKey>,
         limit: Option<usize>,
-        context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
         charge_current_execution_budget(
@@ -970,32 +947,31 @@ impl IndexScan {
         )?;
         // Phase 1: decode only the primary-key suffix for ordinary row-identity
         // scans. Predicate scans still need the fully decoded index key.
-        let (primary_key_value, primary_key_bytes) = if let Some(execution) =
-            index_predicate_execution
-        {
-            charge_current_execution_budget(
-                DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
-                1,
-            )?;
-            let decoded_key = IndexKey::try_from_raw(raw_key)
-                .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
-            if !eval_index_execution_on_decoded_key(&decoded_key, execution)? {
-                return Ok(false);
-            }
+        let (primary_key_value, primary_key_bytes) =
+            if let Some(execution) = index_predicate_execution {
+                charge_current_execution_budget(
+                    DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+                    1,
+                )?;
+                let decoded_key = IndexKey::try_from_raw(raw_key)
+                    .map_err(|_| InternalError::index_corruption())?;
+                if !eval_index_execution_on_decoded_key(&decoded_key, execution)? {
+                    return Ok(false);
+                }
 
-            (
-                decoded_key
-                    .primary_key_value()
-                    .map_err(|_| InternalError::index_entry_decode_failed())?,
-                Cow::Owned(decoded_key.primary_key_bytes().to_vec()),
-            )
-        } else {
-            let (primary_key_value, primary_key_bytes) =
-                IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
-                    .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
+                (
+                    decoded_key
+                        .primary_key_value()
+                        .map_err(|_| InternalError::index_entry_decode_failed())?,
+                    Cow::Owned(decoded_key.primary_key_bytes().to_vec()),
+                )
+            } else {
+                let (primary_key_value, primary_key_bytes) =
+                    IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
+                        .map_err(|_| InternalError::index_corruption())?;
 
-            (primary_key_value, Cow::Borrowed(primary_key_bytes))
-        };
+                (primary_key_value, Cow::Borrowed(primary_key_bytes))
+            };
 
         // Phase 2: decode the entry-owned existence witness and pair it with
         // the row identity recovered from the raw index-key suffix.
@@ -1017,28 +993,25 @@ impl IndexScan {
         Ok(false)
     }
 
-    #[expect(clippy::too_many_arguments)]
     fn decode_index_entry_and_push_with_components(
         entity: EntityTag,
-        index: &LoweredIndexScanContract,
         raw_key: &RawIndexStoreKey,
         value: &IndexEntryValue,
         out: &mut IndexComponentRows,
         limit: Option<usize>,
         component_indices: &[usize],
-        context: &'static str,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<bool, InternalError> {
         if component_indices.is_empty() && index_predicate_execution.is_none() {
             return Self::decode_index_entry_and_push_without_components(
-                entity, raw_key, value, out, limit, context,
+                entity, raw_key, value, out, limit,
             );
         }
 
         // Phase 1: decode the raw key once, extract requested components, and
         // evaluate any optional index-only predicate against that decoded view.
-        let decoded_key = IndexKey::try_from_raw(raw_key)
-            .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
+        let decoded_key =
+            IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::index_corruption())?;
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::DecodedBytes,
             u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX),
@@ -1046,10 +1019,7 @@ impl IndexScan {
         let mut components = Vec::with_capacity(component_indices.len());
         for component_index in component_indices {
             let Some(component) = decoded_key.component(*component_index) else {
-                return Err(InternalError::index_projection_component_required(
-                    index.name(),
-                    *component_index,
-                ));
+                return Err(InternalError::index_invariant());
             };
             components.push(component.to_vec());
         }
@@ -1091,7 +1061,6 @@ impl IndexScan {
         value: &IndexEntryValue,
         out: &mut IndexComponentRows,
         limit: Option<usize>,
-        context: &'static str,
     ) -> Result<bool, InternalError> {
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::DecodedBytes,
@@ -1099,7 +1068,7 @@ impl IndexScan {
         )?;
         let (primary_key_value, primary_key_bytes) =
             IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
-                .map_err(|err| InternalError::index_scan_key_corrupted_during(context, err))?;
+                .map_err(|_| InternalError::index_corruption())?;
         let row_witness = value
             .decode_row_witness_from_primary_key_value(&primary_key_value)
             .map_err(|_| InternalError::index_entry_decode_failed())?;

@@ -22,7 +22,6 @@ pub(in crate::db::data::structural_field::primary_key_component) fn encode_scala
     out: &mut Vec<u8>,
     key: PrimaryKeyComponent,
     kind: &AcceptedFieldKind,
-    field_name: &str,
 ) -> Result<(), InternalError> {
     match (kind, key) {
         (AcceptedFieldKind::Account, PrimaryKeyComponent::Account(value)) => {
@@ -110,8 +109,6 @@ pub(in crate::db::data::structural_field::primary_key_component) fn encode_scala
             push_binary_bytes(out, &value.to_be_bytes());
             Ok(())
         }
-        (_, _) => Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        )),
+        (_, _) => Err(InternalError::persisted_row_encode_internal()),
     }
 }

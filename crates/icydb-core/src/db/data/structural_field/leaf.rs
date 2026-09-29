@@ -90,7 +90,6 @@ pub(super) fn push_leaf_field_binary_bytes(
     out: &mut Vec<u8>,
     kind: &AcceptedFieldKind,
     value: &Value,
-    field_name: &str,
 ) -> Result<bool, InternalError> {
     match kind {
         AcceptedFieldKind::Account
@@ -99,19 +98,19 @@ pub(super) fn push_leaf_field_binary_bytes(
         | AcceptedFieldKind::Timestamp
         | AcceptedFieldKind::Unit
         | AcceptedFieldKind::U256 => {
-            return push_primary_key_component_binary_value_bytes(out, kind, value, field_name);
+            return push_primary_key_component_binary_value_bytes(out, kind, value);
         }
-        AcceptedFieldKind::Date => push_date_value_bytes(out, value, field_name)?,
-        AcceptedFieldKind::Decimal { .. } => push_decimal_value_bytes(out, value, field_name)?,
-        AcceptedFieldKind::Duration => push_duration_value_bytes(out, value, field_name)?,
+        AcceptedFieldKind::Date => push_date_value_bytes(out, value)?,
+        AcceptedFieldKind::Decimal { .. } => push_decimal_value_bytes(out, value)?,
+        AcceptedFieldKind::Duration => push_duration_value_bytes(out, value)?,
         AcceptedFieldKind::IntBig { max_bytes } => {
-            push_int_big_value_bytes(out, value, *max_bytes, field_name)?;
+            push_int_big_value_bytes(out, value, *max_bytes)?;
         }
         AcceptedFieldKind::Composite { .. } => {
-            push_structured_leaf_null_bytes(out, value, field_name)?;
+            push_structured_leaf_null_bytes(out, value)?;
         }
         AcceptedFieldKind::NatBig { max_bytes } => {
-            push_nat_big_value_bytes(out, value, *max_bytes, field_name)?;
+            push_nat_big_value_bytes(out, value, *max_bytes)?;
         }
         AcceptedFieldKind::Blob { .. }
         | AcceptedFieldKind::Bool
@@ -147,15 +146,9 @@ fn decode_structured_leaf_null_value_bytes(raw_bytes: &[u8]) -> Result<Value, Fi
 }
 
 // Encode the only supported structured leaf `ByKind` case: explicit null.
-fn push_structured_leaf_null_bytes(
-    out: &mut Vec<u8>,
-    value: &Value,
-    field_name: &str,
-) -> Result<(), InternalError> {
+fn push_structured_leaf_null_bytes(out: &mut Vec<u8>, value: &Value) -> Result<(), InternalError> {
     let Value::Null = value else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
+        return Err(InternalError::persisted_row_encode_internal());
     };
 
     push_binary_null(out);
@@ -197,15 +190,9 @@ fn decode_nat_big_value_bytes(raw_bytes: &[u8], max_bytes: u32) -> Result<Value,
 }
 
 // Encode one date payload into canonical signed day-count form.
-fn push_date_value_bytes(
-    out: &mut Vec<u8>,
-    value: &Value,
-    field_name: &str,
-) -> Result<(), InternalError> {
+fn push_date_value_bytes(out: &mut Vec<u8>, value: &Value) -> Result<(), InternalError> {
     let Value::Date(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
+        return Err(InternalError::persisted_row_encode_internal());
     };
 
     push_binary_int64(out, encode_date_payload_days(*value));
@@ -213,15 +200,9 @@ fn push_date_value_bytes(
 }
 
 // Encode one Decimal with its shared fixed payload and generic byte frame.
-fn push_decimal_value_bytes(
-    out: &mut Vec<u8>,
-    value: &Value,
-    field_name: &str,
-) -> Result<(), InternalError> {
+fn push_decimal_value_bytes(out: &mut Vec<u8>, value: &Value) -> Result<(), InternalError> {
     let Value::Decimal(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
+        return Err(InternalError::persisted_row_encode_internal());
     };
 
     push_binary_decimal_payload(out, *value);
@@ -230,15 +211,9 @@ fn push_decimal_value_bytes(
 }
 
 // Encode one duration payload into canonical millis.
-fn push_duration_value_bytes(
-    out: &mut Vec<u8>,
-    value: &Value,
-    field_name: &str,
-) -> Result<(), InternalError> {
+fn push_duration_value_bytes(out: &mut Vec<u8>, value: &Value) -> Result<(), InternalError> {
     let Value::Duration(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
+        return Err(InternalError::persisted_row_encode_internal());
     };
 
     push_binary_nat64(out, encode_duration_payload_millis(*value));
@@ -250,15 +225,12 @@ fn push_int_big_value_bytes(
     out: &mut Vec<u8>,
     value: &Value,
     max_bytes: u32,
-    field_name: &str,
 ) -> Result<(), InternalError> {
     let Value::IntBig(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
+        return Err(InternalError::persisted_row_encode_internal());
     };
     ensure_int_big_max_bytes(value, max_bytes)
-        .map_err(|_| InternalError::persisted_row_field_encode_internal(field_name))?;
+        .map_err(|_| InternalError::persisted_row_encode_internal())?;
 
     let (is_negative, digits) = value.sign_and_u32_digits();
     push_binary_int_big_payload(out, is_negative, digits);
@@ -271,15 +243,12 @@ fn push_nat_big_value_bytes(
     out: &mut Vec<u8>,
     value: &Value,
     max_bytes: u32,
-    field_name: &str,
 ) -> Result<(), InternalError> {
     let Value::NatBig(value) = value else {
-        return Err(InternalError::persisted_row_field_encode_internal(
-            field_name,
-        ));
+        return Err(InternalError::persisted_row_encode_internal());
     };
     ensure_nat_big_max_bytes(value, max_bytes)
-        .map_err(|_| InternalError::persisted_row_field_encode_internal(field_name))?;
+        .map_err(|_| InternalError::persisted_row_encode_internal())?;
 
     push_binary_nat_big_payload(out, value.u32_digits());
 
@@ -341,15 +310,13 @@ mod tests {
                     _ => AcceptedFieldKind::NatBig { max_bytes: length },
                 };
                 let admitted =
-                    encode_structural_field_by_accepted_kind_bytes(&admitted_kind, &value, "field")
-                        .unwrap();
+                    encode_structural_field_by_accepted_kind_bytes(&admitted_kind, &value).unwrap();
                 for max_bytes in [length - 1, length, length + 1] {
                     let kind = match &value {
                         Value::IntBig(_) => AcceptedFieldKind::IntBig { max_bytes },
                         _ => AcceptedFieldKind::NatBig { max_bytes },
                     };
-                    let encoded =
-                        encode_structural_field_by_accepted_kind_bytes(&kind, &value, "field");
+                    let encoded = encode_structural_field_by_accepted_kind_bytes(&kind, &value);
                     assert_eq!(encoded.is_ok(), max_bytes >= length);
                     assert_eq!(
                         decode_leaf_field_by_kind_bytes(&admitted, &kind).is_ok(),
@@ -403,7 +370,7 @@ mod tests {
         ];
 
         for (kind, value) in cases {
-            let encoded = encode_structural_field_by_accepted_kind_bytes(&kind, &value, "field")
+            let encoded = encode_structural_field_by_accepted_kind_bytes(&kind, &value)
                 .expect("leaf payload should encode");
             let decoded = decode_leaf_field_by_kind_bytes(encoded.as_slice(), &kind)
                 .expect("leaf payload should decode")

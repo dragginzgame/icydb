@@ -5,9 +5,7 @@
 
 use crate::{
     db::{
-        access::{
-            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
-        },
+        access::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey},
         cursor::IndexScanContinuationInput,
         data::{DataStore, DecodedDataStoreKey},
         direction::Direction,
@@ -140,7 +138,6 @@ where
         return resolve_covering_projection_components_for_index_bounds(
             resolve_store_for_index(scan_contract.store_path())?,
             entity_tag,
-            scan_contract,
             (spec.lower(), spec.upper()),
             continuation,
             limit,
@@ -168,7 +165,6 @@ struct CoveringPrefixSetScan<'a> {
 
 struct ActiveCoveringPrefixSpec<'a> {
     prefix: &'a LoweredIndexPrefixSpec,
-    scan_contract: LoweredIndexScanContract,
     store: StoreHandle,
 }
 
@@ -217,7 +213,6 @@ where
         };
         active_specs.push(ActiveCoveringPrefixSpec {
             prefix: spec,
-            scan_contract,
             store,
         });
     }
@@ -262,7 +257,6 @@ where
             resolve_covering_projection_components_for_index_bounds(
                 active.store,
                 entity_tag,
-                active.scan_contract,
                 (lower, upper),
                 IndexScanContinuationInput::new(None, scan.direction),
                 scan.limit,
@@ -308,7 +302,6 @@ where
                 streams.push(CoveringComponentStreamBox::prefix(
                     active.store,
                     entity_tag,
-                    active.scan_contract,
                     lower.clone(),
                     upper.clone(),
                     scan.direction,
@@ -388,7 +381,6 @@ fn resolve_branch_ordered_covering_projection_components_for_prefix_set(
         let mut stream = CoveringComponentStreamBox::prefix(
             active.store,
             entity_tag,
-            active.scan_contract,
             lower.clone(),
             upper.clone(),
             scan.direction,
@@ -442,11 +434,9 @@ fn covering_branch_stream_chunk_entries(
 }
 
 // Resolve one bounded component stream from one lowered index-bounds contract.
-#[expect(clippy::too_many_arguments)]
 fn resolve_covering_projection_components_for_index_bounds(
     store: StoreHandle,
     entity_tag: EntityTag,
-    index: crate::db::access::LoweredIndexScanContract,
     bounds: (
         &std::ops::Bound<crate::db::index::RawIndexStoreKey>,
         &std::ops::Bound<crate::db::index::RawIndexStoreKey>,
@@ -459,7 +449,6 @@ fn resolve_covering_projection_components_for_index_bounds(
     IndexScan::components_structural(
         store,
         entity_tag,
-        index,
         bounds.0,
         bounds.1,
         continuation,
@@ -480,7 +469,6 @@ impl<'a> CoveringComponentStreamBox<'a> {
     fn prefix(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: LoweredIndexScanContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
         direction: Direction,
@@ -492,7 +480,6 @@ impl<'a> CoveringComponentStreamBox<'a> {
         Self::Prefix(Box::new(CoveringPrefixComponentStream::new(
             store,
             entity_tag,
-            index,
             lower,
             upper,
             direction,
@@ -550,7 +537,6 @@ impl<'a> CoveringComponentStreamBox<'a> {
 struct CoveringPrefixComponentStream<'a> {
     store: StoreHandle,
     entity_tag: EntityTag,
-    index: LoweredIndexScanContract,
     lower: Bound<LoweredKey>,
     upper: Bound<LoweredKey>,
     direction: Direction,
@@ -569,7 +555,6 @@ impl<'a> CoveringPrefixComponentStream<'a> {
     const fn new(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: LoweredIndexScanContract,
         lower: Bound<LoweredKey>,
         upper: Bound<LoweredKey>,
         direction: Direction,
@@ -581,7 +566,6 @@ impl<'a> CoveringPrefixComponentStream<'a> {
         Self {
             store,
             entity_tag,
-            index,
             lower,
             upper,
             direction,
@@ -608,7 +592,6 @@ impl<'a> CoveringPrefixComponentStream<'a> {
         let chunk = IndexScan::components_chunk_structural(
             self.store,
             self.entity_tag,
-            &self.index,
             &self.lower,
             &self.upper,
             continuation,
@@ -955,7 +938,6 @@ where
     let mut stream = CoveringPrefixComponentStream::new(
         index_store,
         entity_tag,
-        range.scan_contract(),
         range.lower().clone(),
         range.upper().clone(),
         direction,

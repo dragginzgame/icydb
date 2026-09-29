@@ -127,7 +127,6 @@ where
         let chunk = IndexScan::components_chunk_structural(
             store,
             authority.entity_tag(),
-            &scan_contract,
             &lower,
             &upper,
             IndexScanContinuationInput::new(None, direction),
@@ -141,9 +140,8 @@ where
             break;
         };
         let raw_anchor = raw_anchor.ok_or_else(InternalError::query_executor_invariant)?;
-        let decoded_anchor = IndexKey::try_from_raw(&raw_anchor).map_err(|error| {
-            InternalError::index_scan_key_corrupted_during("DISTINCT group seek", error)
-        })?;
+        let decoded_anchor =
+            IndexKey::try_from_raw(&raw_anchor).map_err(|_| InternalError::index_corruption())?;
         let [projected_component] = row.2.as_ref() else {
             return Err(InternalError::query_executor_invariant());
         };

@@ -109,7 +109,6 @@ pub(super) fn push_scalar_fast_path_binary_bytes(
     encoded: &mut Vec<u8>,
     kind: &AcceptedFieldKind,
     value: &Value,
-    field_name: &str,
 ) -> Result<bool, InternalError> {
     if !supports_scalar_binary_fast_path(kind) {
         return Ok(false);
@@ -164,9 +163,7 @@ pub(super) fn push_scalar_fast_path_binary_bytes(
             push_binary_bytes(encoded, &encode_ulid_payload_bytes(*value));
         }
         _ => {
-            return Err(InternalError::persisted_row_field_encode_internal(
-                field_name,
-            ));
+            return Err(InternalError::persisted_row_encode_internal());
         }
     }
 

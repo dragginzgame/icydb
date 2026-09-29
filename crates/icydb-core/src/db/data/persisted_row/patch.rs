@@ -412,7 +412,7 @@ fn encode_authored_value_for_accepted_field_contract(
             encode_accepted_value_ref_for_accepted_field_contract(field, &accepted)
         })
         .map_err(value_admission_error)?
-        .map_err(|_| InternalError::persisted_row_field_encode_internal(field.field_name()))
+        .map_err(|_| InternalError::persisted_row_encode_internal())
 }
 
 // Resolve one active insert slot while keeping field-policy branching inside

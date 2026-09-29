@@ -1036,7 +1036,6 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn execute_accepted_structural_update_with_mutation_progress(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
-        _descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         mutations: Vec<AcceptedStructuralMutation>,
         operation_timestamp: Timestamp,
         mutation_progress: MutationProgressRecordOp,
@@ -1074,7 +1073,6 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session) fn execute_accepted_structural_update_bounded_prefix<T>(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
-        _descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         mutation_capacity: usize,
         mut next_mutation: impl FnMut() -> Result<Option<AcceptedStructuralMutation>, InternalError>,
         operation_timestamp: Timestamp,
@@ -4437,10 +4435,9 @@ mod identity_pre_key_tests {
 
     use super::DynamicTypedEntityBinding;
     use super::{
-        AcceptedMutationIntentPatch, AcceptedRowLayoutRuntimeContract, AcceptedStructuralMutation,
-        AcceptedStructuralMutationPacking, AcceptedStructuralMutationStagedAdmission,
-        AcceptedStructuralMutationTarget, DbSession, DynamicMutation, DynamicStructuralPatch,
-        DynamicTypedMutation, DynamicWriteCell, FieldSlot,
+        AcceptedMutationIntentPatch, AcceptedStructuralMutation, AcceptedStructuralMutationPacking,
+        AcceptedStructuralMutationStagedAdmission, AcceptedStructuralMutationTarget, DbSession,
+        DynamicMutation, DynamicStructuralPatch, DynamicTypedMutation, DynamicWriteCell, FieldSlot,
         MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS, MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES,
         MAX_STRUCTURAL_MUTATION_BATCH_STAGED_BYTES, MutationProgressRecordOp,
         TypedEntityDescriptor, TypedFieldType, add_structural_mutation_staged_bytes,
@@ -7583,8 +7580,6 @@ mod identity_pre_key_tests {
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
             .expect("journaled atomic-progress catalog should resolve");
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-            .expect("journaled atomic-progress row layout should build");
 
         for (ordinal, interruption) in [
             MutationCommitInterruption::MarkerPersisted,
@@ -7611,7 +7606,6 @@ mod identity_pre_key_tests {
             interrupt_next_mutation_commit_for_tests(interruption);
             let interrupted = session.execute_accepted_structural_update_with_mutation_progress(
                 &catalog,
-                &descriptor,
                 batch(&[700 + u64::try_from(ordinal).expect("small ordinal should fit")]),
                 Timestamp::from_millis(17),
                 operation,
@@ -7688,7 +7682,6 @@ mod identity_pre_key_tests {
         session
             .execute_accepted_structural_update_with_mutation_progress(
                 &catalog,
-                &descriptor,
                 batch(&[799]),
                 Timestamp::from_millis(18),
                 operation,
@@ -7912,8 +7905,6 @@ mod identity_pre_key_tests {
         let catalog = session
             .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
             .expect("journaled corruption catalog should resolve");
-        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-            .expect("journaled corruption row layout should build");
         let (before, _after, operation) = atomic_progress_fixture(41);
         with_mutation_progress_store::<JournaledTestCanister, _>(|store| {
             match store.insert_mutation(&before)? {
@@ -7930,7 +7921,6 @@ mod identity_pre_key_tests {
             session
                 .execute_accepted_structural_update_with_mutation_progress(
                     &catalog,
-                    &descriptor,
                     batch(&[811]),
                     Timestamp::from_millis(19),
                     operation,

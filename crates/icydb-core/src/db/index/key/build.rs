@@ -172,9 +172,7 @@ fn accepted_field_path_component_bytes_from_slots(
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<Vec<u8>>, InternalError> {
     let source = slots.required_value_by_contract_cow(field.slot())?;
-    let Some(source) =
-        resolve_field_path_component(source.as_ref(), field.field_name(), field.path())?
-    else {
+    let Some(source) = resolve_field_path_component(source.as_ref(), field.path())? else {
         return Ok(None);
     };
 
@@ -277,9 +275,7 @@ fn accepted_expression_component_bytes_from_slots(
     match key_item {
         SchemaExpressionIndexKeyItemInfo::FieldPath(field) => {
             let source = slots.required_value_by_contract_cow(field.slot())?;
-            let Some(source) =
-                resolve_field_path_component(source.as_ref(), field.field_name(), field.path())?
-            else {
+            let Some(source) = resolve_field_path_component(source.as_ref(), field.path())? else {
                 return Ok(None);
             };
 
@@ -303,9 +299,7 @@ fn field_path_rebuild_component_bytes_from_slots(
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<Vec<u8>>, InternalError> {
     let source = slots.required_value_by_contract_cow(usize::from(field.slot().get()))?;
-    let Some(source) =
-        resolve_field_path_component(source.as_ref(), field.field_name(), field.path())?
-    else {
+    let Some(source) = resolve_field_path_component(source.as_ref(), field.path())? else {
         return Ok(None);
     };
 
@@ -333,12 +327,7 @@ fn expression_rebuild_expression_component_bytes_from_slots(
     let source =
         slots.required_value_by_contract_cow(usize::from(expression.source().slot().get()))?;
     let source_field = expression.source();
-    let Some(source) = resolve_field_path_component(
-        source.as_ref(),
-        source_field.field_name(),
-        source_field.path(),
-    )?
-    else {
+    let Some(source) = resolve_field_path_component(source.as_ref(), source_field.path())? else {
         return Ok(None);
     };
     let Some(value) = derive_index_expression_value(expression.op(), source)
@@ -352,7 +341,6 @@ fn expression_rebuild_expression_component_bytes_from_slots(
 
 fn resolve_field_path_component<'a>(
     root: &'a Value,
-    field_name: &str,
     path: &[String],
 ) -> Result<Option<&'a Value>, InternalError> {
     let mut current = root;
@@ -360,12 +348,9 @@ fn resolve_field_path_component<'a>(
         if matches!(current, Value::Null) {
             return Ok(None);
         }
-        let entries = current.as_map().ok_or_else(|| {
-            InternalError::persisted_row_field_decode_failed(
-                field_name,
-                "field-path index traversal requires a map value",
-            )
-        })?;
+        let entries = current
+            .as_map()
+            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
         let Some((_, value)) = entries
             .iter()
             .find(|(key, _)| matches!(key, Value::Text(text) if text == segment))

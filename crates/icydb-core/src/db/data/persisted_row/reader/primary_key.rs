@@ -29,10 +29,10 @@ pub(super) fn validate_primary_key_value_from_field_bytes(
     match *expected_key {
         PrimaryKeyValue::Scalar(component) => {
             let primary_key_slot = contract.primary_key_slot();
-            let primary_key_name = contract.field_name(primary_key_slot)?;
-            let raw_value = field_bytes.field(primary_key_slot).ok_or_else(|| {
-                InternalError::persisted_row_declared_field_missing(primary_key_name)
-            })?;
+            contract.field_name(primary_key_slot)?;
+            let raw_value = field_bytes
+                .field(primary_key_slot)
+                .ok_or_else(InternalError::persisted_row_decode_corruption)?;
 
             validate_primary_key_component_from_slot_bytes_with_contract(
                 contract,
@@ -48,10 +48,10 @@ pub(super) fn validate_primary_key_value_from_field_bytes(
             }
 
             for (&slot, &component) in slots.iter().zip(composite.components()) {
-                let field_name = contract.field_name(slot)?;
-                let raw_value = field_bytes.field(slot).ok_or_else(|| {
-                    InternalError::persisted_row_declared_field_missing(field_name)
-                })?;
+                contract.field_name(slot)?;
+                let raw_value = field_bytes
+                    .field(slot)
+                    .ok_or_else(InternalError::persisted_row_decode_corruption)?;
                 validate_primary_key_component_from_slot_bytes_with_contract(
                     contract, slot, raw_value, component,
                 )?;
@@ -87,23 +87,21 @@ fn validate_primary_key_value_from_slot_bytes_with_accepted_field(
     expected_key: PrimaryKeyComponent,
 ) -> Result<(), InternalError> {
     let decoded_key = match field.leaf_codec() {
-        LeafCodec::Scalar(codec) => {
-            match decode_scalar_slot_value(raw_value, codec, field.field_name())? {
-                ScalarSlotValueRef::Null => {
-                    return Err(InternalError::persisted_row_primary_key_slot_missing(
-                        expected_key,
-                    ));
-                }
-                ScalarSlotValueRef::Value(value) => {
-                    value.into_primary_key_component().ok_or_else(|| {
-                        InternalError::persisted_row_primary_key_not_primary_key_encodable(
-                            expected_key,
-                            "",
-                        )
-                    })?
-                }
+        LeafCodec::Scalar(codec) => match decode_scalar_slot_value(raw_value, codec)? {
+            ScalarSlotValueRef::Null => {
+                return Err(InternalError::persisted_row_primary_key_slot_missing(
+                    expected_key,
+                ));
             }
-        }
+            ScalarSlotValueRef::Value(value) => {
+                value.into_primary_key_component().ok_or_else(|| {
+                    InternalError::persisted_row_primary_key_not_primary_key_encodable(
+                        expected_key,
+                        "",
+                    )
+                })?
+            }
+        },
         LeafCodec::Structural => {
             let value = decode_runtime_value_from_accepted_field_contract(field, raw_value)
                 .map_err(|err| {

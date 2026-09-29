@@ -39,7 +39,6 @@ use super::{
 pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
-    entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
@@ -56,7 +55,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
     };
     validate_sql_ddl_field_drop_metadata_change(envelope.before(), envelope.after(), target)?;
     validate_sql_ddl_drop_schema_gate(store, entity_tag, envelope.before())?;
-    require_exact_empty_sql_ddl_entity(store, entity_tag, entity_path)?;
+    require_exact_empty_sql_ddl_entity(store, entity_tag)?;
     envelope.publish()?;
 
     Ok(0)

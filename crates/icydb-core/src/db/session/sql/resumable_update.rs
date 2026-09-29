@@ -420,12 +420,6 @@ struct PreparedMutationJobAuthority {
     target_identity: [u8; 32],
 }
 
-struct PreparedMutationJobForwardRuntime<'a> {
-    descriptor: AcceptedRowLayoutRuntimeContract<'a>,
-    compiled_scope: CompiledExpr,
-    row_contract: StructuralRowContract,
-}
-
 struct PreparedMutationJobTraversalRuntime {
     compiled_scope: CompiledExpr,
     row_contract: StructuralRowContract,
@@ -641,11 +635,10 @@ impl<C: CanisterKind> DbSession<C> {
             Err(MutationJobExecutionPreparationError::Failure(error)) => return Err(error),
         };
         let identity = catalog.identity();
-        let PreparedMutationJobForwardRuntime {
-            descriptor,
+        let PreparedMutationJobTraversalRuntime {
             compiled_scope,
             row_contract,
-        } = match prepare_mutation_job_forward_runtime(&catalog, &scope, &fixed_patch) {
+        } = match prepare_mutation_job_traversal_runtime(&catalog, &scope, &fixed_patch) {
             Ok(runtime) => runtime,
             Err(MutationJobExecutionPreparationError::Restart(reason)) => {
                 return persist_terminal_mutation_job_restart::<C>(before, request, reason);
@@ -668,7 +661,6 @@ impl<C: CanisterKind> DbSession<C> {
         ));
         let outcome = match self.execute_accepted_structural_update_bounded_prefix(
             &catalog,
-            &descriptor,
             MAX_RESUMABLE_UPDATE_FORWARD_ROWS,
             || Ok(scanner.borrow_mut().next_mutation(&patch)),
             advance_timestamp,
@@ -1444,24 +1436,6 @@ fn mutation_job_execution_budget_restart_reason(
 
 const fn mutation_verify_revision_changed(retained: u64, current: u64) -> bool {
     current != retained
-}
-
-fn prepare_mutation_job_forward_runtime<'a>(
-    catalog: &'a AcceptedSchemaCatalogContext,
-    scope: &Expr,
-    fixed_patch: &AcceptedFixedUpdatePatch,
-) -> Result<PreparedMutationJobForwardRuntime<'a>, MutationJobExecutionPreparationError> {
-    let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())
-        .map_err(|_| MutationJobExecutionPreparationError::Failure(MutationJobError::Internal))?;
-    let PreparedMutationJobTraversalRuntime {
-        compiled_scope,
-        row_contract,
-    } = prepare_mutation_job_traversal_runtime(catalog, scope, fixed_patch)?;
-    Ok(PreparedMutationJobForwardRuntime {
-        descriptor,
-        compiled_scope,
-        row_contract,
-    })
 }
 
 fn prepare_mutation_job_traversal_runtime(

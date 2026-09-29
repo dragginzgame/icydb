@@ -582,7 +582,7 @@ fn query_schema_ddl_admission_exposes_compact_diagnostic_detail() {
 
 #[test]
 fn schema_ddl_publication_race_exposes_compact_admission_detail() {
-    let err = InternalError::schema_ddl_publication_race_lost("User");
+    let err = InternalError::schema_ddl_publication_race_lost();
     let diagnostic = err.diagnostic();
 
     assert_eq!(

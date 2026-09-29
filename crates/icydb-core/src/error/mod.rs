@@ -1209,19 +1209,9 @@ impl InternalError {
         Self::new(ErrorClass::Internal, ErrorOrigin::Serialize)
     }
 
-    /// Construct the canonical persisted-row encode internal error.
-    pub(crate) fn persisted_row_encode_failed(_detail: impl Sized) -> Self {
-        Self::persisted_row_encode_internal()
-    }
-
     /// Construct the compact persisted-row encode internal error.
     pub(crate) fn persisted_row_encode_internal() -> Self {
         Self::serialize_internal()
-    }
-
-    /// Construct the compact persisted-row field encode internal error.
-    pub(crate) fn persisted_row_field_encode_internal(_field_name: &str) -> Self {
-        Self::persisted_row_encode_internal()
     }
 
     /// Construct a store-origin corruption error.
@@ -1343,22 +1333,6 @@ impl InternalError {
         Self::index_invariant()
     }
 
-    /// Construct the canonical index-scan key-decode corruption error.
-    pub(crate) fn index_scan_key_corrupted_during(
-        _context: &'static str,
-        _err: impl Sized,
-    ) -> Self {
-        Self::index_corruption()
-    }
-
-    /// Construct the canonical index-scan missing projection-component invariant.
-    pub(crate) fn index_projection_component_required(
-        _index_name: &str,
-        _component_index: usize,
-    ) -> Self {
-        Self::index_invariant()
-    }
-
     /// Construct the canonical scan-time index-entry decode corruption error.
     pub(crate) fn index_entry_decode_failed() -> Self {
         Self::index_corruption()
@@ -1433,50 +1407,6 @@ impl InternalError {
         )
     }
 
-    /// Construct the canonical persisted-row field decode corruption error.
-    pub(crate) fn persisted_row_field_decode_failed(field_name: &str, _detail: impl Sized) -> Self {
-        Self::persisted_row_field_decode_corruption(field_name)
-    }
-
-    /// Construct the compact persisted-row field decode corruption error.
-    pub(crate) fn persisted_row_field_decode_corruption(_field_name: &str) -> Self {
-        Self::persisted_row_decode_corruption()
-    }
-
-    /// Construct the canonical persisted-row field-kind decode corruption error.
-    pub(crate) fn persisted_row_field_kind_decode_failed(
-        field_name: &str,
-        _field_kind: impl fmt::Debug,
-        _detail: impl Sized,
-    ) -> Self {
-        Self::persisted_row_field_decode_corruption(field_name)
-    }
-
-    /// Construct the canonical persisted-row scalar-payload length corruption error.
-    pub(crate) fn persisted_row_field_payload_exact_len_required(field_name: &str) -> Self {
-        Self::persisted_row_field_decode_corruption(field_name)
-    }
-
-    /// Construct the canonical persisted-row scalar-payload empty-body corruption error.
-    pub(crate) fn persisted_row_field_payload_must_be_empty(field_name: &str) -> Self {
-        Self::persisted_row_field_decode_corruption(field_name)
-    }
-
-    /// Construct the canonical persisted-row scalar-payload invalid-byte corruption error.
-    pub(crate) fn persisted_row_field_payload_invalid_byte(field_name: &str) -> Self {
-        Self::persisted_row_field_decode_corruption(field_name)
-    }
-
-    /// Construct the canonical persisted-row scalar-payload non-finite corruption error.
-    pub(crate) fn persisted_row_field_payload_non_finite(field_name: &str) -> Self {
-        Self::persisted_row_field_decode_corruption(field_name)
-    }
-
-    /// Construct the canonical persisted-row invalid text payload corruption error.
-    pub(crate) fn persisted_row_field_text_payload_invalid_utf8(field_name: &str) -> Self {
-        Self::persisted_row_field_decode_corruption(field_name)
-    }
-
     /// Construct the canonical persisted-row structural slot-lookup invariant.
     pub(crate) fn persisted_row_slot_lookup_out_of_bounds(_model_path: &str, _slot: usize) -> Self {
         Self::index_invariant()
@@ -1506,11 +1436,6 @@ impl InternalError {
     /// Construct the canonical persisted-row key mismatch corruption error.
     pub(crate) fn persisted_row_key_mismatch() -> Self {
         Self::store_corruption()
-    }
-
-    /// Construct the canonical persisted-row missing declared-field corruption error.
-    pub(crate) fn persisted_row_declared_field_missing(field_name: &str) -> Self {
-        Self::persisted_row_field_decode_corruption(field_name)
     }
 
     /// Construct the canonical reverse-index entry corruption error.
@@ -1723,7 +1648,7 @@ impl InternalError {
     }
 
     /// Construct the canonical schema DDL publication race error.
-    pub(crate) fn schema_ddl_publication_race_lost(_entity_path: &str) -> Self {
+    pub(crate) fn schema_ddl_publication_race_lost() -> Self {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Store,
@@ -1733,7 +1658,7 @@ impl InternalError {
 
     /// Construct the canonical current physical-rewrite migration rejection.
     #[cfg(feature = "sql")]
-    pub(crate) fn schema_ddl_rewrite_requires_migration(_entity_path: &str) -> Self {
+    pub(crate) fn schema_ddl_rewrite_requires_migration() -> Self {
         Self {
             class: ErrorClass::Unsupported,
             origin: ErrorOrigin::Store,

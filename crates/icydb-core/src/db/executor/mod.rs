@@ -26,9 +26,7 @@ mod traversal;
 mod util;
 mod window;
 
-use crate::db::access::{
-    LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredIndexScanContract, LoweredKey,
-};
+use crate::db::access::{LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey};
 
 pub(in crate::db) use crate::db::access::{
     ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,

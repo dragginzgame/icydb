@@ -85,11 +85,6 @@ impl SchemaFieldPathIndexRebuildKey {
     pub(in crate::db) const fn path(&self) -> &[String] {
         self.path.as_slice()
     }
-
-    #[must_use]
-    pub(in crate::db) fn field_name(&self) -> &str {
-        self.path.first().map_or("", String::as_str)
-    }
 }
 
 ///

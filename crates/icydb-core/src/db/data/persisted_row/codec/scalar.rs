@@ -119,60 +119,55 @@ impl ScalarSlotValueRef<'_> {
     }
 }
 
-// Copy a fixed-width scalar payload into an array while preserving the exact
-// field/codec-specific length error used by each scalar owner.
-fn decode_fixed<const N: usize>(bytes: &[u8], field_name: &str) -> Result<[u8; N], InternalError> {
+// Copy a fixed-width scalar payload only when its length matches the codec.
+fn decode_fixed<const N: usize>(bytes: &[u8]) -> Result<[u8; N], InternalError> {
     bytes
         .try_into()
-        .map_err(|_| InternalError::persisted_row_field_payload_exact_len_required(field_name))
+        .map_err(|_| InternalError::persisted_row_decode_corruption())
 }
 
 // Decode the one-byte boolean scalar payload shared by raw scalar slots and
 // generated scalar-field owners.
-fn decode_bool_scalar_payload(bytes: &[u8], field_name: &str) -> Result<bool, InternalError> {
+fn decode_bool_scalar_payload(bytes: &[u8]) -> Result<bool, InternalError> {
     let [value] = bytes else {
-        return Err(InternalError::persisted_row_field_payload_exact_len_required(field_name));
+        return Err(InternalError::persisted_row_decode_corruption());
     };
 
     match *value {
         SCALAR_BOOL_FALSE_TAG => Ok(false),
         SCALAR_BOOL_TRUE_TAG => Ok(true),
-        _ => Err(InternalError::persisted_row_field_payload_invalid_byte(
-            field_name,
-        )),
+        _ => Err(InternalError::persisted_row_decode_corruption()),
     }
 }
 
 // Decode the empty unit scalar payload shared by `()` and the public `Unit`
 // wrapper without giving either owner its own copy of the same guard.
-fn decode_unit_scalar_payload(bytes: &[u8], field_name: &str) -> Result<(), InternalError> {
+fn decode_unit_scalar_payload(bytes: &[u8]) -> Result<(), InternalError> {
     if !bytes.is_empty() {
-        return Err(InternalError::persisted_row_field_payload_must_be_empty(
-            field_name,
-        ));
+        return Err(InternalError::persisted_row_decode_corruption());
     }
 
     Ok(())
 }
 
 // Decode common little-endian scalar words through one fixed-width path.
-fn decode_i32_payload(bytes: &[u8], field_name: &str) -> Result<i32, InternalError> {
-    Ok(i32::from_le_bytes(decode_fixed(bytes, field_name)?))
+fn decode_i32_payload(bytes: &[u8]) -> Result<i32, InternalError> {
+    Ok(i32::from_le_bytes(decode_fixed(bytes)?))
 }
 
 // Decode common little-endian scalar words through one fixed-width path.
-fn decode_i64_payload(bytes: &[u8], field_name: &str) -> Result<i64, InternalError> {
-    Ok(i64::from_le_bytes(decode_fixed(bytes, field_name)?))
+fn decode_i64_payload(bytes: &[u8]) -> Result<i64, InternalError> {
+    Ok(i64::from_le_bytes(decode_fixed(bytes)?))
 }
 
 // Decode common little-endian scalar words through one fixed-width path.
-fn decode_u32_payload(bytes: &[u8], field_name: &str) -> Result<u32, InternalError> {
-    Ok(u32::from_le_bytes(decode_fixed(bytes, field_name)?))
+fn decode_u32_payload(bytes: &[u8]) -> Result<u32, InternalError> {
+    Ok(u32::from_le_bytes(decode_fixed(bytes)?))
 }
 
 // Decode common little-endian scalar words through one fixed-width path.
-fn decode_u64_payload(bytes: &[u8], field_name: &str) -> Result<u64, InternalError> {
-    Ok(u64::from_le_bytes(decode_fixed(bytes, field_name)?))
+fn decode_u64_payload(bytes: &[u8]) -> Result<u64, InternalError> {
+    Ok(u64::from_le_bytes(decode_fixed(bytes)?))
 }
 
 // Write the two-byte scalar slot envelope prefix shared by generic scalar
@@ -249,7 +244,6 @@ fn scalar_value_payload_len(value: ScalarValueRef<'_>, codec: ScalarCodec) -> Op
 pub(in crate::db::data::persisted_row) fn encode_scalar_slot_value(
     value: ScalarSlotValueRef<'_>,
     codec: ScalarCodec,
-    field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
     match value {
         ScalarSlotValueRef::Null => Ok(encode_null_slot_payload()),
@@ -257,7 +251,7 @@ pub(in crate::db::data::persisted_row) fn encode_scalar_slot_value(
             // Validate the accepted integer range before taking its low little-endian
             // bytes. Reads sign/zero extend back into the existing runtime value family.
             let payload_len = scalar_value_payload_len(value, codec)
-                .ok_or_else(|| InternalError::persisted_row_field_encode_internal(field_name))?;
+                .ok_or_else(InternalError::persisted_row_encode_internal)?;
             let mut encoded = Vec::with_capacity(2 + payload_len);
             write_scalar_envelope_prefix(&mut encoded, false);
 
@@ -301,129 +295,111 @@ pub(in crate::db::data::persisted_row) fn encode_scalar_slot_value(
 }
 
 // Split one scalar slot envelope into `NULL` vs payload bytes.
-fn decode_scalar_slot_payload_body<'a>(
-    bytes: &'a [u8],
-    field_name: &str,
-) -> Result<Option<&'a [u8]>, InternalError> {
+fn decode_scalar_slot_payload_body(bytes: &[u8]) -> Result<Option<&[u8]>, InternalError> {
     let Some((&prefix, rest)) = bytes.split_first() else {
-        return Err(InternalError::persisted_row_field_decode_corruption(
-            field_name,
-        ));
+        return Err(InternalError::persisted_row_decode_corruption());
     };
     if prefix != SCALAR_SLOT_PREFIX {
-        return Err(InternalError::persisted_row_field_decode_corruption(
-            field_name,
-        ));
+        return Err(InternalError::persisted_row_decode_corruption());
     }
     let Some((&tag, payload)) = rest.split_first() else {
-        return Err(InternalError::persisted_row_field_decode_corruption(
-            field_name,
-        ));
+        return Err(InternalError::persisted_row_decode_corruption());
     };
 
     match tag {
         SCALAR_SLOT_TAG_NULL => {
             if !payload.is_empty() {
-                return Err(InternalError::persisted_row_field_decode_corruption(
-                    field_name,
-                ));
+                return Err(InternalError::persisted_row_decode_corruption());
             }
 
             Ok(None)
         }
         SCALAR_SLOT_TAG_VALUE => Ok(Some(payload)),
-        _ => Err(InternalError::persisted_row_field_decode_corruption(
-            field_name,
-        )),
+        _ => Err(InternalError::persisted_row_decode_corruption()),
     }
 }
 
 // Decode one scalar slot view using the field-declared scalar codec.
-pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value<'a>(
-    bytes: &'a [u8],
+pub(in crate::db::data::persisted_row) fn decode_scalar_slot_value(
+    bytes: &[u8],
     codec: ScalarCodec,
-    field_name: &str,
-) -> Result<ScalarSlotValueRef<'a>, InternalError> {
-    let Some(payload) = decode_scalar_slot_payload_body(bytes, field_name)? else {
+) -> Result<ScalarSlotValueRef<'_>, InternalError> {
+    let Some(payload) = decode_scalar_slot_payload_body(bytes)? else {
         return Ok(ScalarSlotValueRef::Null);
     };
 
     let value = match codec {
         ScalarCodec::Blob => ScalarValueRef::Blob(payload),
-        ScalarCodec::Bool => ScalarValueRef::Bool(decode_bool_scalar_payload(payload, field_name)?),
+        ScalarCodec::Bool => ScalarValueRef::Bool(decode_bool_scalar_payload(payload)?),
         ScalarCodec::Date => {
-            let days = decode_i32_payload(payload, field_name)?;
+            let days = decode_i32_payload(payload)?;
             ScalarValueRef::Date(
-                Date::try_from_days_since_epoch(days).ok_or_else(|| {
-                    InternalError::persisted_row_field_decode_corruption(field_name)
-                })?,
+                Date::try_from_days_since_epoch(days)
+                    .ok_or_else(InternalError::persisted_row_decode_corruption)?,
             )
         }
         ScalarCodec::Duration => {
-            let millis = decode_u64_payload(payload, field_name)?;
+            let millis = decode_u64_payload(payload)?;
             ScalarValueRef::Duration(Duration::from_millis(millis))
         }
         ScalarCodec::Float32 => {
-            let value = f32::from_bits(decode_u32_payload(payload, field_name)?);
+            let value = f32::from_bits(decode_u32_payload(payload)?);
             let value = Float32::try_new(value)
-                .ok_or_else(|| InternalError::persisted_row_field_payload_non_finite(field_name))?;
+                .ok_or_else(InternalError::persisted_row_decode_corruption)?;
             ScalarValueRef::Float32(value)
         }
         ScalarCodec::Float64 => {
-            let value = f64::from_bits(decode_u64_payload(payload, field_name)?);
+            let value = f64::from_bits(decode_u64_payload(payload)?);
             let value = Float64::try_new(value)
-                .ok_or_else(|| InternalError::persisted_row_field_payload_non_finite(field_name))?;
+                .ok_or_else(InternalError::persisted_row_decode_corruption)?;
             ScalarValueRef::Float64(value)
         }
-        ScalarCodec::Int8 => ScalarValueRef::Int(i64::from(i8::from_le_bytes(decode_fixed(
-            payload, field_name,
-        )?))),
-        ScalarCodec::Int16 => ScalarValueRef::Int(i64::from(i16::from_le_bytes(decode_fixed(
-            payload, field_name,
-        )?))),
-        ScalarCodec::Int32 => ScalarValueRef::Int(i64::from(i32::from_le_bytes(decode_fixed(
-            payload, field_name,
-        )?))),
-        ScalarCodec::Int64 => ScalarValueRef::Int(decode_i64_payload(payload, field_name)?),
+        ScalarCodec::Int8 => {
+            ScalarValueRef::Int(i64::from(i8::from_le_bytes(decode_fixed(payload)?)))
+        }
+        ScalarCodec::Int16 => {
+            ScalarValueRef::Int(i64::from(i16::from_le_bytes(decode_fixed(payload)?)))
+        }
+        ScalarCodec::Int32 => {
+            ScalarValueRef::Int(i64::from(i32::from_le_bytes(decode_fixed(payload)?)))
+        }
+        ScalarCodec::Int64 => ScalarValueRef::Int(decode_i64_payload(payload)?),
         ScalarCodec::Principal => ScalarValueRef::Principal(
             Principal::try_from_bytes(payload)
-                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?,
+                .map_err(|_| InternalError::persisted_row_decode_corruption())?,
         ),
         ScalarCodec::Subaccount => {
-            let bytes = decode_fixed(payload, field_name)?;
+            let bytes = decode_fixed(payload)?;
             ScalarValueRef::Subaccount(Subaccount::from_array(bytes))
         }
         ScalarCodec::Text => {
-            let value = str::from_utf8(payload).map_err(|_| {
-                InternalError::persisted_row_field_text_payload_invalid_utf8(field_name)
-            })?;
+            let value = str::from_utf8(payload)
+                .map_err(|_| InternalError::persisted_row_decode_corruption())?;
             ScalarValueRef::Text(value)
         }
         ScalarCodec::Timestamp => {
-            let millis = decode_i64_payload(payload, field_name)?;
+            let millis = decode_i64_payload(payload)?;
             ScalarValueRef::Timestamp(Timestamp::from_millis(millis))
         }
-        ScalarCodec::Nat8 => ScalarValueRef::Nat(u64::from(u8::from_le_bytes(decode_fixed(
-            payload, field_name,
-        )?))),
-        ScalarCodec::Nat16 => ScalarValueRef::Nat(u64::from(u16::from_le_bytes(decode_fixed(
-            payload, field_name,
-        )?))),
-        ScalarCodec::Nat32 => ScalarValueRef::Nat(u64::from(u32::from_le_bytes(decode_fixed(
-            payload, field_name,
-        )?))),
-        ScalarCodec::Nat64 => ScalarValueRef::Nat(decode_u64_payload(payload, field_name)?),
+        ScalarCodec::Nat8 => {
+            ScalarValueRef::Nat(u64::from(u8::from_le_bytes(decode_fixed(payload)?)))
+        }
+        ScalarCodec::Nat16 => {
+            ScalarValueRef::Nat(u64::from(u16::from_le_bytes(decode_fixed(payload)?)))
+        }
+        ScalarCodec::Nat32 => {
+            ScalarValueRef::Nat(u64::from(u32::from_le_bytes(decode_fixed(payload)?)))
+        }
+        ScalarCodec::Nat64 => ScalarValueRef::Nat(decode_u64_payload(payload)?),
         ScalarCodec::Ulid => {
-            let bytes = decode_fixed(payload, field_name)?;
+            let bytes = decode_fixed(payload)?;
             ScalarValueRef::Ulid(Ulid::from_bytes(bytes))
         }
         ScalarCodec::Unit => {
-            decode_unit_scalar_payload(payload, field_name)?;
+            decode_unit_scalar_payload(payload)?;
             ScalarValueRef::Unit
         }
-        ScalarCodec::U256 => {
-            ScalarValueRef::U256(U256::from_be_bytes(decode_fixed(payload, field_name)?))
-        }
+        ScalarCodec::U256 => ScalarValueRef::U256(U256::from_be_bytes(decode_fixed(payload)?)),
     };
 
     Ok(ScalarSlotValueRef::Value(value))
@@ -454,13 +430,12 @@ mod tests {
                 let encoded = encode_scalar_slot_value(
                     ScalarSlotValueRef::Value(ScalarValueRef::Int(value)),
                     codec,
-                    "signed",
                 )
                 .unwrap();
                 assert_eq!(encoded.len(), 2 + width);
                 assert_eq!(&encoded[2..], &value.to_le_bytes()[..width]);
                 assert_eq!(
-                    decode_scalar_slot_value(&encoded, codec, "signed")
+                    decode_scalar_slot_value(&encoded, codec)
                         .unwrap()
                         .into_value(),
                     Value::Int64(value)
@@ -471,7 +446,6 @@ mod tests {
                     encode_scalar_slot_value(
                         ScalarSlotValueRef::Value(ScalarValueRef::Int(value)),
                         codec,
-                        "signed",
                     )
                     .is_err()
                 );
@@ -486,13 +460,12 @@ mod tests {
                 let encoded = encode_scalar_slot_value(
                     ScalarSlotValueRef::Value(ScalarValueRef::Nat(value)),
                     codec,
-                    "unsigned",
                 )
                 .unwrap();
                 assert_eq!(encoded.len(), 2 + width);
                 assert_eq!(&encoded[2..], &value.to_le_bytes()[..width]);
                 assert_eq!(
-                    decode_scalar_slot_value(&encoded, codec, "unsigned")
+                    decode_scalar_slot_value(&encoded, codec)
                         .unwrap()
                         .into_value(),
                     Value::Nat64(value)
@@ -502,7 +475,6 @@ mod tests {
                 encode_scalar_slot_value(
                     ScalarSlotValueRef::Value(ScalarValueRef::Nat(max + 1)),
                     codec,
-                    "unsigned",
                 )
                 .is_err()
             );
@@ -523,24 +495,23 @@ mod tests {
                 let mut encoded = vec![SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_VALUE];
                 encoded.resize(2 + len, 0);
                 assert_eq!(
-                    decode_scalar_slot_value(&encoded, codec, "narrow")
+                    decode_scalar_slot_value(&encoded, codec)
                         .unwrap_err()
                         .class(),
                     crate::error::ErrorClass::Corruption
                 );
             }
-            let encoded =
-                encode_scalar_slot_value(ScalarSlotValueRef::Null, codec, "narrow").unwrap();
+            let encoded = encode_scalar_slot_value(ScalarSlotValueRef::Null, codec).unwrap();
             assert_eq!(encoded, [SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_NULL]);
             assert_eq!(
-                decode_scalar_slot_value(&encoded, codec, "narrow")
+                decode_scalar_slot_value(&encoded, codec)
                     .unwrap()
                     .into_value(),
                 Value::Null
             );
             let mut trailing = encoded;
             trailing.push(0);
-            assert!(decode_scalar_slot_value(&trailing, codec, "narrow").is_err());
+            assert!(decode_scalar_slot_value(&trailing, codec).is_err());
         }
     }
 
@@ -556,10 +527,10 @@ mod tests {
         let invalid = encoded_date_slot(Date::MAX.as_days_since_epoch() + 1);
 
         assert!(matches!(
-            decode_scalar_slot_value(&valid, ScalarCodec::Date, "created_on"),
+            decode_scalar_slot_value(&valid, ScalarCodec::Date),
             Ok(ScalarSlotValueRef::Value(ScalarValueRef::Date(Date::MAX))),
         ));
-        assert!(decode_scalar_slot_value(&invalid, ScalarCodec::Date, "created_on").is_err());
+        assert!(decode_scalar_slot_value(&invalid, ScalarCodec::Date).is_err());
     }
 
     #[test]
@@ -605,12 +576,11 @@ mod tests {
         let encoded_duration = encode_scalar_slot_value(
             ScalarSlotValueRef::Value(ScalarValueRef::Duration(duration)),
             ScalarCodec::Duration,
-            "elapsed",
         )
         .unwrap();
         assert_eq!(&encoded_duration[2..], &duration.as_millis().to_le_bytes());
         assert!(matches!(
-            decode_scalar_slot_value(&encoded_duration, ScalarCodec::Duration, "elapsed"),
+            decode_scalar_slot_value(&encoded_duration, ScalarCodec::Duration),
             Ok(ScalarSlotValueRef::Value(ScalarValueRef::Duration(decoded))) if decoded == duration,
         ));
 
@@ -618,7 +588,6 @@ mod tests {
         let encoded_timestamp = encode_scalar_slot_value(
             ScalarSlotValueRef::Value(ScalarValueRef::Timestamp(timestamp)),
             ScalarCodec::Timestamp,
-            "created_at",
         )
         .unwrap();
         assert_eq!(
@@ -626,7 +595,7 @@ mod tests {
             &timestamp.as_millis().to_le_bytes()
         );
         assert!(matches!(
-            decode_scalar_slot_value(&encoded_timestamp, ScalarCodec::Timestamp, "created_at"),
+            decode_scalar_slot_value(&encoded_timestamp, ScalarCodec::Timestamp),
             Ok(ScalarSlotValueRef::Value(ScalarValueRef::Timestamp(decoded))) if decoded == timestamp,
         ));
     }
@@ -637,7 +606,6 @@ mod tests {
             let encoded = encode_scalar_slot_value(
                 ScalarSlotValueRef::Value(ScalarValueRef::U256(value)),
                 ScalarCodec::U256,
-                "amount",
             )
             .unwrap();
 
@@ -645,7 +613,7 @@ mod tests {
             assert_eq!(&encoded[..2], &[SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_VALUE]);
             assert_eq!(&encoded[2..], value.to_be_bytes());
             assert!(matches!(
-                decode_scalar_slot_value(&encoded, ScalarCodec::U256, "amount"),
+                decode_scalar_slot_value(&encoded, ScalarCodec::U256),
                 Ok(ScalarSlotValueRef::Value(ScalarValueRef::U256(decoded))) if decoded == value,
             ));
         }
@@ -657,7 +625,7 @@ mod tests {
             let mut encoded = vec![SCALAR_SLOT_PREFIX, SCALAR_SLOT_TAG_VALUE];
             encoded.resize(2 + payload_len, 0);
 
-            assert!(decode_scalar_slot_value(&encoded, ScalarCodec::U256, "amount").is_err());
+            assert!(decode_scalar_slot_value(&encoded, ScalarCodec::U256).is_err());
         }
     }
 }
