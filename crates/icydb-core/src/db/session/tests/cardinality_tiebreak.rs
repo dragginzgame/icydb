@@ -5,6 +5,7 @@ mod index_metadata;
 mod order_metadata;
 mod prefix_accounting;
 mod prepared_explain;
+mod primary_key_ranges;
 mod projection_metadata;
 mod residual_bounds;
 mod scalar_page_limits;

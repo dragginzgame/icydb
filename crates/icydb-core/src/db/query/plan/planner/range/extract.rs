@@ -32,7 +32,7 @@ use crate::{
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::cmp::Ordering;
 
-// Build one deterministic primary-key half-open range candidate from the
+// Build one deterministic primary-key inclusive range candidate from the
 // primary-key subset of one canonical AND-group.
 //
 // Phase 1 intentionally keeps the same safe lower/upper-bound contract as the

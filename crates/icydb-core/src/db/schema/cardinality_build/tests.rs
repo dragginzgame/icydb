@@ -360,7 +360,7 @@ fn accepted_present_indexes_count_every_prefix_and_exclude_other_domains() {
         ),
     ] {
         index
-            .fold_recovered_journal_entry(raw, Some(value))
+            .apply_canonical_entry(raw, Some(value))
             .expect("canonical index entry should seed");
     }
 
@@ -432,7 +432,7 @@ fn maximum_fanout_index_pages_resume_exclusively_at_the_prefix_gate() {
             value,
         );
         index
-            .fold_recovered_journal_entry(raw, Some(IndexEntryValue::presence_only()))
+            .apply_canonical_entry(raw, Some(IndexEntryValue::presence_only()))
             .expect("canonical maximum-fanout entry should seed");
     }
     let mut schema = SchemaStore::init_journaled(schema_memory.clone());
@@ -531,7 +531,7 @@ fn malformed_row_and_index_keys_fail_without_advancing_the_durable_cursor() {
 
     let (data, _, mut schema) = initialized_stores();
     index
-        .fold_recovered_journal_entry(
+        .apply_canonical_entry(
             RawIndexStoreKey::from_persisted_bytes(vec![0]),
             Some(IndexEntryValue::presence_only()),
         )
@@ -699,7 +699,7 @@ fn source_drift_discards_rows_indexes_and_ready_evidence_into_alternate_slots() 
     )
     .expect("canonical row should seed");
     index
-        .fold_recovered_journal_entry(
+        .apply_canonical_entry(
             index_key(accepted, IndexKeyKind::User, &[vec![1]], 1),
             Some(IndexEntryValue::presence_only()),
         )

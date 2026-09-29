@@ -297,6 +297,10 @@ Fully consistent point:
   unchanged until that marker publishes, so interruption repeats the exact page
   and raw-key set idempotently. A finding page stages nothing, and no validation
   page changes accepted rows, accepted schema, lineage, or visible generations.
+  Staging and pre-rewrite abort update only bounded candidate-generation keys
+  in canonical index storage. Ordinary live entries, tombstones, journal
+  positions, fold watermarks and accepted prefix-count deltas retain their
+  existing journal authority; candidate maintenance never folds the live store.
 * One offline rewrite page publishes its complete candidate rows, candidate
   index/reverse effects, and next durable cursor through one marker. Recovery
   completes the exact page at marker-persisted, journal-published, and

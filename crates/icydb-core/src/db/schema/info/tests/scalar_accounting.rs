@@ -42,16 +42,17 @@ fn scalar_construction_charges_exact_work_and_actual_specialized_backing() {
     let literal = || Expr::Literal(Value::Bool(true));
     let cases = [
         (Expr::Literal(Value::Text("abc".into())), 4, 1, 3),
-        (field(), 7, 0, 2),
+        // A field charges one node and its lookup; the compiled slot owns no label.
+        (field(), 4, 0, 0),
         (
             Expr::Binary {
                 op: BinaryOp::Eq,
                 left: Box::new(field()),
                 right: Box::new(field()),
             },
-            15,
+            9,
             0,
-            4,
+            0,
         ),
         (
             Expr::Binary {
@@ -101,9 +102,10 @@ fn scalar_construction_charges_exact_work_and_actual_specialized_backing() {
         ),
         (
             Expr::FieldPath(FieldPath::new("profile", vec!["name".into()])),
-            31,
+            // One node, root lookup, segment copy and encoded segment bytes.
+            18,
             0,
-            7 + size_of::<String>() as u64 + size_of::<Box<[u8]>>() as u64 + 4 + 4 + 14,
+            size_of::<String>() as u64 + size_of::<Box<[u8]>>() as u64 + 4 + 4,
         ),
     ];
     for (expr, steps, values, bytes) in cases {

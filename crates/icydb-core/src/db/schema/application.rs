@@ -3150,6 +3150,9 @@ mod tests {
     #[cfg(feature = "migration")]
     mod entity_rename;
 
+    #[cfg(all(feature = "migration", feature = "sql"))]
+    mod migration_staging;
+
     #[cfg(feature = "migration")]
     mod nested_migration;
 

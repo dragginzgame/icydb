@@ -1585,8 +1585,9 @@ fn apply_journal_record(
                     store.insert(key.clone(), IndexEntryValue::presence());
                     Ok(())
                 }
-                JournalRecordApplyMode::Fold => store
-                    .fold_recovered_journal_entry(key.clone(), Some(IndexEntryValue::presence())),
+                JournalRecordApplyMode::Fold => {
+                    store.apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
+                }
             })
         }
         JournalRecord::IdentityRangeAdvance { range } => {
@@ -1653,8 +1654,9 @@ fn apply_journal_record(
                     Some(value) if value == IndexEntryValue::presence() => Ok(()),
                     Some(_) => Err(InternalError::store_corruption()),
                 },
-                JournalRecordApplyMode::Fold => store
-                    .fold_recovered_journal_entry(key.clone(), Some(IndexEntryValue::presence())),
+                JournalRecordApplyMode::Fold => {
+                    store.apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
+                }
             })
         }
     }
@@ -1674,10 +1676,7 @@ fn apply_recovered_accepted_schema_index_chunk(
     }
     handle.with_index_mut(|store| {
         for key in keys {
-            store.fold_recovered_journal_entry(
-                key.clone(),
-                insert.then(IndexEntryValue::presence),
-            )?;
+            store.apply_canonical_entry(key.clone(), insert.then(IndexEntryValue::presence))?;
         }
         Ok::<(), InternalError>(())
     })

@@ -29,11 +29,6 @@ use std::ops::Bound;
 
 #[cfg(test)]
 thread_local! {
-    static JOURNALED_SNAPSHOT_CALL_COUNT: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(test)]
-thread_local! {
     static INDEX_STORE_ENTRY_READ_COUNT: Cell<u64> = const { Cell::new(0) };
 }
 
@@ -53,23 +48,6 @@ fn visit_index_store_entry<E>(
     record_index_store_entry_read();
 
     visit(key, value)
-}
-
-#[cfg(test)]
-fn record_journaled_snapshot_call() {
-    JOURNALED_SNAPSHOT_CALL_COUNT.with(|count| {
-        count.set(count.get().saturating_add(1));
-    });
-}
-
-#[cfg(test)]
-fn reset_journaled_snapshot_call_count_for_tests() {
-    JOURNALED_SNAPSHOT_CALL_COUNT.with(|count| count.set(0));
-}
-
-#[cfg(test)]
-fn journaled_snapshot_call_count_for_tests() -> u64 {
-    JOURNALED_SNAPSHOT_CALL_COUNT.with(Cell::get)
 }
 
 //
@@ -739,8 +717,12 @@ impl IndexStore {
         Ok(retirement)
     }
 
-    /// Apply one recovered index entry directly to canonical stable storage.
-    pub(in crate::db) fn fold_recovered_journal_entry(
+    /// Apply one exact index entry directly to canonical stable storage.
+    ///
+    /// Journal folding and planner-invisible migration staging share this
+    /// primitive. Callers own key authority, journal watermarks and position
+    /// retirement; unrelated live entries and their prefix deltas stay intact.
+    pub(in crate::db) fn apply_canonical_entry(
         &mut self,
         key: RawIndexStoreKey,
         value: Option<IndexEntryValue>,
@@ -810,42 +792,6 @@ impl IndexStore {
         self.bump_generation();
     }
 
-    /// Fold the current journaled materialized index view into the canonical
-    /// stable base and clear volatile projection state.
-    #[cfg(any(test, feature = "migration"))]
-    pub(in crate::db) fn fold_journaled_materialized_view(
-        &mut self,
-    ) -> Result<(), crate::error::InternalError> {
-        let entries = Self::journaled_entries_snapshot_for_fold(&self.backend);
-        let IndexStoreBackend::Journaled {
-            canonical,
-            live,
-            tombstones,
-            prefix_cardinality_delta,
-            ..
-        } = &mut self.backend
-        else {
-            return Err(crate::error::InternalError::store_invariant());
-        };
-
-        canonical.clear_new();
-        for (key, value) in entries {
-            canonical.insert(key, value);
-        }
-        live.clear();
-        tombstones.clear();
-        if let Some(watermark) = prefix_cardinality_delta.base_watermark() {
-            prefix_cardinality_delta.reset(watermark);
-        } else {
-            **prefix_cardinality_delta = IndexPrefixCardinalityDelta::unbound_empty();
-        }
-        let data_generation = self.prefix_cardinality.synchronized_generation();
-        self.rebuild_prefix_cardinality_from_entries(data_generation);
-        self.bump_generation();
-
-        Ok(())
-    }
-
     /// Sum of bytes used by all stored index entries.
     pub fn memory_bytes(&self) -> u64 {
         let mut bytes = 0u64;
@@ -882,30 +828,6 @@ impl IndexStore {
         prefix_cardinality_delta.apply_transition(key, previous, next);
     }
 
-    #[cfg(any(test, feature = "migration"))]
-    fn rebuild_prefix_cardinality_from_entries(&mut self, data_generation: Option<u64>) {
-        self.prefix_cardinality.clear_unsynchronized();
-        let entries = Self::entries_snapshot_for_cardinality(&self.backend);
-        for (key, value) in &entries {
-            self.prefix_cardinality.apply_insert(key, None, value);
-        }
-        if let Some(data_generation) = data_generation {
-            self.prefix_cardinality.mark_synchronized(data_generation);
-        }
-    }
-
-    #[cfg(any(test, feature = "migration"))]
-    fn entries_snapshot_for_cardinality(
-        backend: &IndexStoreBackend,
-    ) -> HeapBTreeMap<RawIndexStoreKey, IndexEntryValue> {
-        match backend {
-            IndexStoreBackend::Heap(map) => map.clone(),
-            IndexStoreBackend::Journaled { .. } => {
-                Self::journaled_entries_snapshot_for_fold(backend)
-            }
-        }
-    }
-
     fn journaled_get(
         backend: &IndexStoreBackend,
         key: &RawIndexStoreKey,
@@ -924,39 +846,6 @@ impl IndexStore {
             return None;
         }
         live.get(key).cloned().or_else(|| canonical.get(key))
-    }
-
-    #[cfg(any(test, feature = "migration"))]
-    pub(super) fn journaled_entries_snapshot_for_fold(
-        backend: &IndexStoreBackend,
-    ) -> HeapBTreeMap<RawIndexStoreKey, IndexEntryValue> {
-        #[cfg(test)]
-        record_journaled_snapshot_call();
-
-        let IndexStoreBackend::Journaled {
-            canonical,
-            live,
-            tombstones,
-            ..
-        } = backend
-        else {
-            return HeapBTreeMap::new();
-        };
-
-        let mut entries = HeapBTreeMap::new();
-        for entry in canonical.iter() {
-            let key = entry.key().clone();
-            if !tombstones.contains(&key) {
-                entries.insert(key, entry.value());
-            }
-        }
-        for (key, value) in live {
-            if !tombstones.contains(key) {
-                entries.insert(key.clone(), value.clone());
-            }
-        }
-
-        entries
     }
 
     pub(super) fn visit_journaled_entries_in_range<E>(
@@ -1550,14 +1439,13 @@ mod tests {
     }
 
     #[test]
-    fn journaled_mixed_index_range_traversal_streams_without_snapshot() {
+    fn journaled_mixed_index_range_traversal_preserves_order_and_early_stop() {
         let mut store = IndexStore::init_journaled(test_memory(93));
         for value in [1_u8, 3, 5] {
-            store.insert(raw_key(value), IndexEntryValue::presence());
+            store
+                .apply_canonical_entry(raw_key(value), Some(IndexEntryValue::presence()))
+                .expect("canonical index seed should apply");
         }
-        store
-            .fold_journaled_materialized_view()
-            .expect("canonical index seed should fold");
 
         store.insert(raw_key(0), IndexEntryValue::presence());
         store.insert(raw_key(4), IndexEntryValue::presence());
@@ -1567,7 +1455,6 @@ mod tests {
         let lower = Bound::Included(raw_key(0));
         let upper = Bound::Included(raw_key(5));
 
-        reset_journaled_snapshot_call_count_for_tests();
         let mut asc = Vec::new();
         store
             .visit_journaled_entries_in_range((&lower, &upper), Direction::Asc, |key, _value| {
@@ -1576,13 +1463,7 @@ mod tests {
             })
             .expect("asc journaled index range traversal should succeed");
         assert_eq!(asc, vec![0, 3]);
-        assert_eq!(
-            journaled_snapshot_call_count_for_tests(),
-            0,
-            "mixed journaled index range traversal should preserve early stop without materializing a snapshot",
-        );
 
-        reset_journaled_snapshot_call_count_for_tests();
         let mut desc = Vec::new();
         store
             .visit_journaled_entries_in_range((&lower, &upper), Direction::Desc, |key, _value| {
@@ -1591,11 +1472,6 @@ mod tests {
             })
             .expect("desc journaled index range traversal should succeed");
         assert_eq!(desc, vec![5, 4]);
-        assert_eq!(
-            journaled_snapshot_call_count_for_tests(),
-            0,
-            "mixed reverse journaled index range traversal should preserve early stop without materializing a snapshot",
-        );
     }
 
     #[test]
@@ -1605,10 +1481,9 @@ mod tests {
         let collection = b"collection-a".to_vec();
         let mut store = IndexStore::init_journaled(memory.clone());
         let key = indexed_raw_key(&index_id, vec![collection.clone()], 1);
-        store.insert(key.clone(), IndexEntryValue::presence());
         store
-            .fold_journaled_materialized_view()
-            .expect("canonical index seed should fold");
+            .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
+            .expect("canonical index seed should apply");
         drop(store);
 
         let mut reopened = IndexStore::init_journaled(memory);
@@ -1650,7 +1525,7 @@ mod tests {
             Some(1),
         );
         reopened
-            .fold_recovered_journal_entry(second, Some(IndexEntryValue::presence()))
+            .apply_canonical_entry(second, Some(IndexEntryValue::presence()))
             .expect("matching canonical index entry should fold");
         assert_eq!(
             reopened.exact_prefix_cardinality_delta(
@@ -1741,7 +1616,7 @@ mod tests {
         let mut store = IndexStore::init_journaled(test_memory(96));
 
         store
-            .fold_recovered_journal_entry(key.clone(), Some(IndexEntryValue::presence()))
+            .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
             .expect("recovered index put should fold");
         store.mark_prefix_cardinality_data_generation(1);
         assert_eq!(
@@ -1755,7 +1630,7 @@ mod tests {
         );
 
         store
-            .fold_recovered_journal_entry(key, None)
+            .apply_canonical_entry(key, None)
             .expect("recovered index delete should fold");
         store.mark_prefix_cardinality_data_generation(2);
         assert_eq!(
@@ -1774,7 +1649,7 @@ mod tests {
         let key = raw_key(7);
         let mut store = IndexStore::init_journaled(test_memory(97));
         store
-            .fold_recovered_journal_entry(key.clone(), Some(IndexEntryValue::presence()))
+            .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
             .expect("canonical membership should seed");
 
         store
@@ -1788,7 +1663,7 @@ mod tests {
             )
             .expect("later membership should supersede the tombstone");
         store
-            .fold_recovered_journal_entry(key.clone(), None)
+            .apply_canonical_entry(key.clone(), None)
             .expect("tombstone batch should become canonical");
         assert_eq!(
             store
@@ -1799,7 +1674,7 @@ mod tests {
         assert_eq!(store.get(&key), Some(IndexEntryValue::presence()));
 
         store
-            .fold_recovered_journal_entry(key.clone(), Some(IndexEntryValue::presence()))
+            .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
             .expect("membership batch should become canonical");
         assert_eq!(
             store
@@ -1836,7 +1711,7 @@ mod tests {
             .publish_positioned_journal_entry(key.clone(), None, position)
             .expect("final same-batch effect should coalesce by logical target");
         store
-            .fold_recovered_journal_entry(key.clone(), None)
+            .apply_canonical_entry(key.clone(), None)
             .expect("coalesced final effect should become canonical");
         assert_eq!(
             store

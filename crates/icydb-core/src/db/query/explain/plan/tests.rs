@@ -283,7 +283,7 @@ fn explain_preserves_scalar_and_grouped_continuation_identity() {
             scalar_query(),
         ),
         (
-            "bf2a010f1bca6f7cfd85658aa26c2fd2c680deca4caea914a200603afb2752d3",
+            "74e2ef90fb89dfacb65751d8f04a405dc682b2d5edbed491fdf3896fd38375d7",
             predicate_only,
         ),
         (

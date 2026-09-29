@@ -132,16 +132,6 @@ impl IndexPrefixCardinality {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
-    pub(super) const fn synchronized_generation(&self) -> Option<u64> {
-        if self.decodable {
-            self.data_generation
-        } else {
-            None
-        }
-    }
-
-    #[must_use]
     pub(super) fn exact_count(
         &self,
         data_generation: u64,

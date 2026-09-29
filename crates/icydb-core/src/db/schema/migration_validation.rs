@@ -574,11 +574,16 @@ pub(in crate::db::schema) fn stage_migration_index_entries(
         }
         store.with_index_mut(|index| {
             for key in keys {
-                if index.get(&key).is_none() {
-                    index.insert(key, IndexEntryValue::presence());
+                // Candidate generations are private to this validation. Write
+                // only their exact keys; ordinary live entries belong to the
+                // journal and must not move ahead of its fold watermark.
+                match index.get_canonical(&key) {
+                    None => index.apply_canonical_entry(key, Some(IndexEntryValue::presence()))?,
+                    Some(value) if value == IndexEntryValue::presence() => {}
+                    Some(_) => return Err(InternalError::store_corruption()),
                 }
             }
-            index.fold_journaled_materialized_view()
+            Ok(())
         })?;
     }
     Ok(())

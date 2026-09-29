@@ -5,6 +5,7 @@ use crate::{
             IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexStore, IndexStoreVisit,
             RawIndexStoreKey, key::EncodedValue, resume_bounds_for_continuation,
         },
+        journal::FoldWatermark,
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
     },
     testing::test_memory,
@@ -18,6 +19,16 @@ fn raw_key(value: u8) -> RawIndexStoreKey {
     <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))
 }
 
+fn seed_entry(store: &mut IndexStore, key: RawIndexStoreKey, canonical: bool) {
+    if canonical {
+        store
+            .apply_canonical_entry(key, Some(IndexEntryValue::presence()))
+            .unwrap();
+    } else {
+        store.insert(key, IndexEntryValue::presence());
+    }
+}
+
 #[test]
 fn empty_envelopes_skip_populated_store_traversal() {
     for (mut store, journaled) in [
@@ -26,10 +37,7 @@ fn empty_envelopes_skip_populated_store_traversal() {
     ] {
         // Populate canonical storage, then retain a live overlay as well.
         for value in 1..=3 {
-            store.insert(bigint_scan_key(value, 1), IndexEntryValue::presence());
-        }
-        if journaled {
-            store.fold_journaled_materialized_view().unwrap();
+            seed_entry(&mut store, bigint_scan_key(value, 1), journaled);
         }
         store.insert(bigint_scan_key(4, 1), IndexEntryValue::presence());
 
@@ -134,17 +142,19 @@ fn other_key_probe_preserves_replay_exclusion_and_effective_overlay() {
                 .unwrap()
         };
         assert!(!probe(&store));
-        store.insert(outside.clone(), IndexEntryValue::presence());
+        seed_entry(&mut store, outside.clone(), journaled);
         assert!(!probe(&store));
-        store.insert(candidate.clone(), IndexEntryValue::presence());
-        if journaled {
-            store.fold_journaled_materialized_view().unwrap();
-        }
+        seed_entry(&mut store, candidate.clone(), journaled);
         assert!(!probe(&store));
         store.insert(conflicting.clone(), IndexEntryValue::presence());
         assert!(probe(&store));
         if journaled {
-            store.fold_journaled_materialized_view().unwrap();
+            store
+                .apply_canonical_entry(conflicting.clone(), Some(IndexEntryValue::presence()))
+                .unwrap();
+            store
+                .reset_journaled_live_projection(0, FoldWatermark::initial())
+                .unwrap();
         }
         assert!(probe(&store));
         store.remove(&conflicting);
@@ -272,12 +282,7 @@ fn merged_ranges_preserve_logical_order_direction_and_early_stop() {
         (IndexStore::init_journaled(test_memory(96)), true),
     ] {
         for value in [10_u8, 11, 12, 20, 21, 22] {
-            index_store.insert(raw_key(value), IndexEntryValue::presence());
-        }
-        if fold {
-            index_store
-                .fold_journaled_materialized_view()
-                .expect("canonical index seed should fold");
+            seed_entry(&mut index_store, raw_key(value), fold);
         }
 
         let bounds = [
@@ -333,11 +338,8 @@ fn merged_ranges_preserve_logical_order_direction_and_early_stop() {
 fn merged_ranges_admit_complete_structural_state_before_reading() {
     let mut index_store = IndexStore::init_journaled(test_memory(95));
     for value in [10_u8, 11, 20, 21] {
-        index_store.insert(raw_key(value), IndexEntryValue::presence());
+        seed_entry(&mut index_store, raw_key(value), true);
     }
-    index_store
-        .fold_journaled_materialized_view()
-        .expect("canonical index seed should fold");
 
     let bounds = [
         (Bound::Included(raw_key(10)), Bound::Included(raw_key(11))),
@@ -412,16 +414,15 @@ fn bigint_scan_page(
 }
 
 #[test]
-fn binary_bigint_index_ranges_resume_after_fold_and_reopen() {
+fn binary_bigint_index_ranges_resume_from_canonical_after_reopen() {
     let memory = test_memory(96);
     let mut store = IndexStore::init_journaled(memory.clone());
     let values = [-65536, -257, -256, -255, -1, 0, 1, 255, 256, 257, 65536];
     for value in values.into_iter().rev() {
         for suffix in [2, 1] {
-            store.insert(bigint_scan_key(value, suffix), IndexEntryValue::presence());
+            seed_entry(&mut store, bigint_scan_key(value, suffix), true);
         }
     }
-    store.fold_journaled_materialized_view().unwrap();
     drop(store);
     let store = IndexStore::init_journaled(memory);
     let prefix = [EncodedValue::try_new(&Value::Text("tenant".into()))

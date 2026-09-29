@@ -1071,10 +1071,12 @@ pub(in crate::db::schema) fn cleanup_migration_staging_page<C: CanisterKind>(
             })
         })?;
         store.with_index_mut(|index| {
+            // Abort owns only these planner-invisible candidate generations.
+            // Accepted entries, overlays and fold accounting stay untouched.
             for key in removals {
-                index.remove(&key);
+                index.apply_canonical_entry(key, None)?;
             }
-            index.fold_journaled_materialized_view()
+            Ok::<(), InternalError>(())
         })?;
         if !store_exhausted {
             exhausted = false;

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)
 
-- `0.261.17` removes unused runtime state, redundant preparation and copying, discarded diagnostics, dead error variants and obsolete fixtures, tooling, documentation and assets (breaking: update low-level coercion callers and restart affected continuations; stored data unchanged).
+- `0.261.17` fixes query range endpoints and migration staging isolation, repairs validation fixtures, and removes unused code and tooling (breaking: update low-level coercion callers and restart affected continuations; stored data unchanged).
 - `0.261.16` simplifies progress and cardinality decoding and unique-index conflict checks while preserving stored formats and error reporting.
 - `0.261.15` simplifies integrity-job decoding and ordering bookkeeping while preserving stored bytes, bounds and resource enforcement.
 - `0.261.14` simplifies ordering and schema maintenance while preserving validation and stored representations.
