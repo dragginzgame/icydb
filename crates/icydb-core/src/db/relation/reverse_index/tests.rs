@@ -86,7 +86,6 @@ fn relation(field_index: usize, key_kind: AcceptedFieldKind) -> AcceptedRelation
             RelationId::new(1).expect("test relation identity should be non-zero"),
             0,
         ),
-        relation_name: "target_id".to_string(),
         source_field_index: field_index,
         source: AcceptedRelationSource::Direct(
             AcceptedRelationLocalComponents::scalar(
@@ -351,7 +350,6 @@ fn relation_validation_rejects_local_target_component_arity_mismatch() {
             RelationId::new(1).expect("test relation identity should be non-zero"),
             0,
         ),
-        relation_name: "target_id".to_string(),
         source_field_index: 3,
         source: AcceptedRelationSource::Direct(
             AcceptedRelationLocalComponents::scalar(

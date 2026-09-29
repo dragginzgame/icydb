@@ -300,9 +300,7 @@ fn validate_relation_primary_key_component_kind(
     if classify_accepted_field_kind(key_kind).is_relation_key_eligible() {
         Ok(())
     } else {
-        Err(InternalError::relation_source_row_unsupported_key_kind(
-            key_kind,
-        ))
+        Err(InternalError::persisted_row_decode_corruption())
     }
 }
 

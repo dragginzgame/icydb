@@ -252,7 +252,6 @@ impl ReverseRelationSourceInfo {
 pub(in crate::db::relation) struct AcceptedRelationInfo {
     constraint: AcceptedConstraintIdentity,
     reverse_identity: AcceptedRelationReverseIdentity,
-    relation_name: String,
     source_field_index: usize,
     source: AcceptedRelationSource,
     target: AcceptedRelationTargetIdentity,
@@ -276,7 +275,6 @@ enum AcceptedRelationBindingSource<'a> {
 struct AcceptedRelationBinding<'a> {
     constraint: AcceptedConstraintIdentity,
     reverse_identity: AcceptedRelationReverseIdentity,
-    name: &'a str,
     target_path: &'a str,
     source: AcceptedRelationBindingSource<'a>,
 }
@@ -333,7 +331,6 @@ impl AcceptedRelationInfo {
     fn new(
         constraint: AcceptedConstraintIdentity,
         reverse_identity: AcceptedRelationReverseIdentity,
-        relation_name: impl Into<String>,
         source_field_index: usize,
         local_components: AcceptedRelationLocalComponents,
         target_contract: AcceptedRelationTargetContract,
@@ -342,7 +339,6 @@ impl AcceptedRelationInfo {
         Ok(Self {
             constraint,
             reverse_identity,
-            relation_name: relation_name.into(),
             source_field_index,
             source: AcceptedRelationSource::Direct(local_components),
             target: AcceptedRelationTargetIdentity::from_target_contract(target_contract)?,
@@ -353,24 +349,17 @@ impl AcceptedRelationInfo {
     fn new_nested(
         constraint: AcceptedConstraintIdentity,
         reverse_identity: AcceptedRelationReverseIdentity,
-        relation_name: impl Into<String>,
         nested: AcceptedNestedRelationSource,
         target_contract: AcceptedRelationTargetContract,
     ) -> Result<Self, InternalError> {
         Ok(Self {
             constraint,
             reverse_identity,
-            relation_name: relation_name.into(),
             source_field_index: nested.root_slot,
             source: AcceptedRelationSource::Nested(nested),
             target: AcceptedRelationTargetIdentity::from_target_contract(target_contract)?,
             cardinality: AcceptedRelationCardinality::Single,
         })
-    }
-
-    #[must_use]
-    pub(in crate::db::relation) const fn field_name(&self) -> &str {
-        self.relation_name.as_str()
     }
 
     #[must_use]
@@ -625,7 +614,6 @@ impl RelationConstraintProjection {
     ) -> Result<RelationConstraintRowProjection, InternalError> {
         let target_keys = relation_target_raw_keys_for_source_slots(
             row,
-            &self.source,
             &self.relation,
             projection_budget,
             commit_budget,
@@ -867,9 +855,7 @@ impl AcceptedRelationLocalComponents {
         components: &[AcceptedRelationLocalComponentSpec<'_>],
     ) -> Result<Self, InternalError> {
         if components.is_empty() {
-            return Err(InternalError::relation_source_row_unsupported_key_kind(
-                components,
-            ));
+            return Err(InternalError::persisted_row_decode_corruption());
         }
 
         Ok(Self {
@@ -1014,9 +1000,7 @@ impl AcceptedRelationTargetPrimaryKey {
         component_kinds: &[AcceptedFieldKind],
     ) -> Result<Self, InternalError> {
         if component_kinds.is_empty() {
-            return Err(InternalError::relation_source_row_unsupported_key_kind(
-                component_kinds,
-            ));
+            return Err(InternalError::persisted_row_decode_corruption());
         }
 
         Ok(Self {
@@ -1105,7 +1089,6 @@ where
                 edge.relation_id(),
                 edge.physical_generation(),
             ),
-            name: edge.name(),
             target_path: edge.target_path(),
             source,
         },
@@ -1148,7 +1131,6 @@ where
     let AcceptedRelationBinding {
         constraint,
         reverse_identity,
-        name,
         target_path,
         source,
     } = binding;
@@ -1162,7 +1144,6 @@ where
         return AcceptedRelationInfo::new_nested(
             constraint,
             reverse_identity,
-            name,
             nested,
             descriptor.into_target_contract(),
         );
@@ -1187,7 +1168,6 @@ where
         return AcceptedRelationInfo::new(
             constraint,
             reverse_identity,
-            field.field_name(),
             *slot,
             AcceptedRelationLocalComponents::scalar(*slot, *field)?,
             descriptor.into_target_contract(),
@@ -1215,7 +1195,6 @@ where
     AcceptedRelationInfo::new(
         constraint,
         reverse_identity,
-        name,
         source_field_index,
         AcceptedRelationLocalComponents::try_from_component_specs(component_specs.as_slice())?,
         tuple_descriptor.into_target_contract(),
@@ -1258,7 +1237,6 @@ where
                 AcceptedRelationBinding {
                     constraint,
                     reverse_identity,
-                    name: edge.name(),
                     target_path: edge.target_path(),
                     source: AcceptedRelationBindingSource::Direct(&slots),
                 },
@@ -1281,7 +1259,6 @@ where
                 AcceptedRelationBinding {
                     constraint,
                     reverse_identity,
-                    name: edge.name(),
                     target_path: edge.target_path(),
                     source: AcceptedRelationBindingSource::Nested { root_slot, steps },
                 },
@@ -1416,8 +1393,7 @@ pub(super) fn reverse_index_key_bounds_for_target_primary_key_value(
     relation: &AcceptedRelationInfo,
     target_key_value: &PrimaryKeyValue,
 ) -> Result<Option<(RawIndexStoreKey, RawIndexStoreKey)>, InternalError> {
-    let encoded_value =
-        encode_reverse_relation_target_identity_component(source, relation, target_key_value)?;
+    let encoded_value = encode_reverse_relation_target_identity_component(target_key_value)?;
     let relation_id = relation_id_component(relation);
 
     let index_id = reverse_index_id_for_relation(source, relation);
@@ -1439,8 +1415,7 @@ fn reverse_index_key_for_target_and_source_primary_key_value(
     target_key_value: &PrimaryKeyValue,
     source_key_value: &PrimaryKeyValue,
 ) -> Result<Option<RawIndexStoreKey>, InternalError> {
-    let encoded_value =
-        encode_reverse_relation_target_identity_component(source, relation, target_key_value)?;
+    let encoded_value = encode_reverse_relation_target_identity_component(target_key_value)?;
     let relation_id = relation_id_component(relation);
 
     let index_id = reverse_index_id_for_relation(source, relation);
@@ -1458,20 +1433,11 @@ fn reverse_index_key_for_target_and_source_primary_key_value(
 // component. This keeps scalar and composite targets on one key-owned path and
 // prevents first-component projection from entering reverse-index storage.
 fn encode_reverse_relation_target_identity_component(
-    source: &ReverseRelationSourceInfo,
-    relation: &AcceptedRelationInfo,
     target_key_value: &PrimaryKeyValue,
 ) -> Result<Vec<u8>, InternalError> {
     EncodedPrimaryKey::encode(*target_key_value)
         .map(|encoded| encoded.as_bytes().to_vec())
-        .map_err(|err| {
-            InternalError::relation_source_row_decode_failed(
-                source.path(),
-                relation.field_name(),
-                relation.target().path(),
-                err,
-            )
-        })
+        .map_err(|_| InternalError::persisted_row_decode_corruption())
 }
 
 // Read relation-target raw keys directly from one already-decoded structural
@@ -1479,20 +1445,18 @@ fn encode_reverse_relation_target_identity_component(
 // validated for forward-index planning.
 fn relation_target_raw_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
-    source_info: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     projection_budget: &mut RelationProjectionBudget,
     commit_budget: &mut RelationCommitBudget,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
     let keys = relation_target_keys_for_source_slots(
         row_fields,
-        source_info,
         relation,
         projection_budget,
         commit_budget,
     )?;
 
-    relation_target_raw_keys_from_relation_target_keys(source_info, relation, keys)
+    relation_target_raw_keys_from_relation_target_keys(relation, keys)
 }
 
 /// Check whether one persisted source row still references one complete target
@@ -1500,7 +1464,6 @@ fn relation_target_raw_keys_for_source_slots(
 pub(in crate::db::relation) fn source_row_references_relation_target_primary_key_value(
     raw_row: &RawRow,
     source_row_contract: StructuralRowContract,
-    source_info: ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     target_key: &PrimaryKeyValue,
     commit_budget: &mut RelationCommitBudget,
@@ -1511,7 +1474,6 @@ pub(in crate::db::relation) fn source_row_references_relation_target_primary_key
     let mut projection_budget = RelationProjectionBudget::default();
     source_slots_reference_relation_target(
         &row_fields,
-        &source_info,
         relation,
         target_key,
         &mut projection_budget,
@@ -1523,7 +1485,6 @@ pub(in crate::db::relation) fn source_row_references_relation_target_primary_key
 // key without rebuilding the full canonical target-key vector.
 fn source_slots_reference_relation_target(
     row_fields: &StructuralSlotReader<'_>,
-    source_info: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     target_key: &PrimaryKeyValue,
     projection_budget: &mut RelationProjectionBudget,
@@ -1531,7 +1492,6 @@ fn source_slots_reference_relation_target(
 ) -> Result<bool, InternalError> {
     let keys = relation_target_keys_for_source_slots(
         row_fields,
-        source_info,
         relation,
         projection_budget,
         commit_budget,
@@ -1548,20 +1508,12 @@ fn canonicalize_relation_target_keys(keys: &mut Vec<RawDataStoreKey>) {
 
 /// Decode a reverse-index entry into source-key membership for validation.
 pub(super) fn decode_reverse_entry(
-    source: &ReverseRelationSourceInfo,
-    relation: &AcceptedRelationInfo,
     index_key: &RawIndexStoreKey,
     raw_entry: &IndexEntryValue,
 ) -> Result<IndexRowIdentity, InternalError> {
-    raw_entry.decode_row_identity(index_key).map_err(|err| {
-        InternalError::reverse_index_entry_corrupted(
-            source.path(),
-            relation.field_name(),
-            relation.target().path(),
-            index_key,
-            err,
-        )
-    })
+    raw_entry
+        .decode_row_identity(index_key)
+        .map_err(|_| InternalError::index_corruption())
 }
 
 /// Resolve target store handle for one relation edge.
@@ -1591,15 +1543,7 @@ where
         registry
             .iter()
             .find(|(path, _)| *path == target.store_path())
-            .ok_or_else(|| {
-                InternalError::relation_target_store_missing(
-                    source.path(),
-                    relation.field_name(),
-                    target.path(),
-                    target.store_path(),
-                    "accepted relation target store is not registered",
-                )
-            })
+            .ok_or_else(InternalError::executor_internal)
     })?;
     let source_runtime = db.accepted_runtime_entity_for_tag(source.entity_tag())?;
     let source_store = db.store_handle(source_runtime.store_path())?;
@@ -1645,7 +1589,6 @@ pub(in crate::db::relation) fn decode_relation_target_data_key(
 
 // Convert decoded relation target keys into canonical sorted raw keys.
 fn relation_target_raw_keys_from_relation_target_keys(
-    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     keys: RelationTargetKeys,
 ) -> Result<Vec<RawDataStoreKey>, InternalError> {
@@ -1653,7 +1596,7 @@ fn relation_target_raw_keys_from_relation_target_keys(
     let mut keys = Vec::with_capacity(values.len());
     for value in values {
         keys.push(raw_relation_target_key_from_primary_key_value(
-            source, relation, &value,
+            relation, &value,
         )?);
     }
     canonicalize_relation_target_keys(&mut keys);
@@ -1666,7 +1609,6 @@ fn relation_target_raw_keys_from_relation_target_keys(
 // reverse-index mutation preparation.
 fn relation_target_keys_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
-    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     projection_budget: &mut RelationProjectionBudget,
     commit_budget: &mut RelationCommitBudget,
@@ -1674,8 +1616,6 @@ fn relation_target_keys_for_source_slots(
     if let Some(nested) = relation.nested_source() {
         return relation_target_keys_from_nested_source(
             row_fields,
-            source,
-            relation,
             nested,
             projection_budget,
             commit_budget,
@@ -1686,16 +1626,15 @@ fn relation_target_keys_for_source_slots(
         .and_then(accepted_relation_target_metadata_from_kind)
         .is_none()
     {
-        relation_target_keys_from_component_slots(row_fields, source, relation)?
-    } else if let Some(keys) = relation_target_keys_from_scalar_slot(row_fields, source, relation)?
-    {
+        relation_target_keys_from_component_slots(row_fields, relation)?
+    } else if let Some(keys) = relation_target_keys_from_scalar_slot(row_fields, relation)? {
         // Keep single relation slots on the scalar fast path when the persisted
         // field already uses a primary-key-compatible leaf codec.
         keys
     } else {
         // Decode the declared relation field payload directly into target keys
         // without rebuilding a runtime `Value` container.
-        relation_target_keys_from_field_bytes(row_fields, source, relation)?
+        relation_target_keys_from_field_bytes(row_fields, relation)?
     };
     commit_budget.charge_raw_references(keys.len())?;
     Ok(keys)
@@ -1703,8 +1642,6 @@ fn relation_target_keys_for_source_slots(
 
 fn relation_target_keys_from_nested_source(
     row_fields: &StructuralSlotReader<'_>,
-    source: &ReverseRelationSourceInfo,
-    relation: &AcceptedRelationInfo,
     nested: &AcceptedNestedRelationSource,
     projection_budget: &mut RelationProjectionBudget,
     commit_budget: &mut RelationCommitBudget,
@@ -1737,7 +1674,7 @@ fn relation_target_keys_from_nested_source(
                 let mut members = Vec::with_capacity(values.len());
                 for value in values {
                     let crate::value::Value::Map(entries) = value else {
-                        return Err(nested_relation_value_mismatch(source, relation));
+                        return Err(InternalError::persisted_row_decode_corruption());
                     };
                     members.push(
                         entries
@@ -1746,7 +1683,7 @@ fn relation_target_keys_from_nested_source(
                                 matches!(key, crate::value::Value::Text(name) if name == member_name)
                                     .then_some(value)
                             })
-                            .ok_or_else(|| nested_relation_value_mismatch(source, relation))?,
+                            .ok_or_else(InternalError::persisted_row_decode_corruption)?,
                     );
                 }
                 values = members;
@@ -1759,17 +1696,17 @@ fn relation_target_keys_from_nested_source(
                 let mut payloads = Vec::with_capacity(values.len());
                 for value in values {
                     let crate::value::Value::Enum(enum_value) = value else {
-                        return Err(nested_relation_value_mismatch(source, relation));
+                        return Err(InternalError::persisted_row_decode_corruption());
                     };
                     if enum_value.type_id() != *enum_type_id {
-                        return Err(nested_relation_value_mismatch(source, relation));
+                        return Err(InternalError::persisted_row_decode_corruption());
                     }
                     if enum_value.variant_id() != *variant_id {
                         continue;
                     }
                     let crate::value::CanonicalEnumBody::Payload(payload) = enum_value.body()
                     else {
-                        return Err(nested_relation_value_mismatch(source, relation));
+                        return Err(InternalError::persisted_row_decode_corruption());
                     };
                     payloads.push(payload.as_ref());
                 }
@@ -1780,7 +1717,7 @@ fn relation_target_keys_from_nested_source(
                 let mut items = Vec::new();
                 for value in values {
                     let crate::value::Value::List(nested_items) = value else {
-                        return Err(nested_relation_value_mismatch(source, relation));
+                        return Err(InternalError::persisted_row_decode_corruption());
                     };
                     items.extend(nested_items);
                 }
@@ -1790,7 +1727,7 @@ fn relation_target_keys_from_nested_source(
                 let mut map_values = Vec::new();
                 for value in values {
                     let crate::value::Value::Map(entries) = value else {
-                        return Err(nested_relation_value_mismatch(source, relation));
+                        return Err(InternalError::persisted_row_decode_corruption());
                     };
                     for (_, value) in entries {
                         map_values.push(value);
@@ -1805,27 +1742,14 @@ fn relation_target_keys_from_nested_source(
     for value in values {
         components.push(
             PrimaryKeyComponent::from_runtime_value(value)
-                .ok_or_else(|| nested_relation_value_mismatch(source, relation))?,
+                .ok_or_else(InternalError::persisted_row_decode_corruption)?,
         );
     }
     Ok(RelationTargetKeys::from_scalar_components(components))
 }
 
-fn nested_relation_value_mismatch(
-    source: &ReverseRelationSourceInfo,
-    relation: &AcceptedRelationInfo,
-) -> InternalError {
-    InternalError::relation_source_row_decode_failed(
-        source.path(),
-        relation.field_name(),
-        relation.target().path(),
-        "nested relation value does not match its accepted path",
-    )
-}
-
 fn relation_target_keys_from_component_slots(
     row_fields: &StructuralSlotReader<'_>,
-    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> Result<RelationTargetKeys, InternalError> {
     let local_components = relation
@@ -1840,25 +1764,13 @@ fn relation_target_keys_from_component_slots(
             local_component.decode_contract(),
             bytes,
         )
-        .map_err(|err| {
-            InternalError::relation_source_row_decode_failed(
-                source.path(),
-                relation.field_name(),
-                relation.target().path(),
-                err,
-            )
-        })?;
+        .map_err(|_| InternalError::persisted_row_decode_corruption())?;
         if matches!(value, crate::value::Value::Null) {
             null_count = null_count.saturating_add(1);
             continue;
         }
         let Some(component) = PrimaryKeyComponent::from_runtime_value(&value) else {
-            return Err(InternalError::relation_source_row_decode_failed(
-                source.path(),
-                relation.field_name(),
-                relation.target().path(),
-                "unsupported composite relation target component",
-            ));
+            return Err(InternalError::persisted_row_decode_corruption());
         };
         components.push(component);
     }
@@ -1867,12 +1779,7 @@ fn relation_target_keys_from_component_slots(
         return Ok(RelationTargetKeys::none());
     }
     if null_count != 0 {
-        return Err(InternalError::relation_source_row_decode_failed(
-            source.path(),
-            relation.field_name(),
-            relation.target().path(),
-            "partial composite relation target tuple",
-        ));
+        return Err(InternalError::persisted_row_decode_corruption());
     }
 
     let key = relation_target_primary_key_value_from_components(components.as_slice())?;
@@ -1887,7 +1794,7 @@ fn relation_target_primary_key_value_from_components(
         [component] => Ok(PrimaryKeyValue::Scalar(*component)),
         _ => Ok(PrimaryKeyValue::Composite(
             crate::db::key_taxonomy::CompositePrimaryKeyValue::try_from_components(components)
-                .map_err(InternalError::relation_source_row_unsupported_key_kind)?,
+                .map_err(|_| InternalError::persisted_row_decode_corruption())?,
         )),
     }
 }
@@ -1896,27 +1803,17 @@ fn relation_target_primary_key_value_from_components(
 // validation directly into relation target keys from the encoded field bytes.
 fn relation_target_keys_from_field_bytes(
     row_fields: &StructuralSlotReader<'_>,
-    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> Result<RelationTargetKeys, InternalError> {
     validate_relation_field_kind(relation)?;
 
-    let component = relation.scalar_local_component().ok_or_else(|| {
-        InternalError::relation_source_row_unsupported_key_kind(
-            relation.target().primary_key().component_kinds(),
-        )
-    })?;
+    let component = relation
+        .scalar_local_component()
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
     let bytes = row_fields.required_field_bytes(component.field_index())?;
     let keys =
         decode_accepted_relation_target_primary_key_components_bytes(bytes, component.field_kind())
-            .map_err(|err| {
-                InternalError::relation_source_row_decode_failed(
-                    source.path(),
-                    relation.field_name(),
-                    relation.target().path(),
-                    err,
-                )
-            })?;
+            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
 
     Ok(RelationTargetKeys::from_scalar_components(keys))
 }
@@ -1925,7 +1822,6 @@ fn relation_target_keys_from_field_bytes(
 // the relation key kind is already primary-key-compatible on the persisted row.
 fn relation_target_keys_from_scalar_slot(
     row_fields: &StructuralSlotReader<'_>,
-    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
 ) -> Result<Option<RelationTargetKeys>, InternalError> {
     let Some(field_kind) = relation.scalar_relation_field_kind() else {
@@ -1952,14 +1848,8 @@ fn relation_target_keys_from_scalar_slot(
         return match row_fields.required_value_by_contract(relation.field_index())? {
             crate::value::Value::Null => Ok(Some(RelationTargetKeys::none())),
             value => {
-                let component =
-                    PrimaryKeyComponent::from_runtime_value(&value).ok_or_else(|| {
-                        InternalError::relation_source_row_unsupported_scalar_relation_key(
-                            source.path(),
-                            relation.field_name(),
-                            relation.target().path(),
-                        )
-                    })?;
+                let component = PrimaryKeyComponent::from_runtime_value(&value)
+                    .ok_or_else(InternalError::persisted_row_decode_corruption)?;
                 let key = PrimaryKeyValue::Scalar(component);
 
                 Ok(Some(RelationTargetKeys::one(&key)))
@@ -1970,13 +1860,9 @@ fn relation_target_keys_from_scalar_slot(
     match row_fields.required_scalar(relation.field_index())? {
         ScalarSlotValueRef::Null => Ok(Some(RelationTargetKeys::none())),
         ScalarSlotValueRef::Value(value) => {
-            let primary_key_value = value.into_primary_key_component().ok_or_else(|| {
-                InternalError::relation_source_row_unsupported_scalar_relation_key(
-                    source.path(),
-                    relation.field_name(),
-                    relation.target().path(),
-                )
-            })?;
+            let primary_key_value = value
+                .into_primary_key_component()
+                .ok_or_else(InternalError::persisted_row_decode_corruption)?;
 
             let key = PrimaryKeyValue::Scalar(primary_key_value);
 
@@ -2012,20 +1898,12 @@ fn relation_scalar_slot_fast_path_key_kind_supported(kind: &AcceptedFieldKind) -
 // Encode one decoded relation primary-key value directly into the target raw-key
 // shape without materializing an intermediate runtime `Value`.
 fn raw_relation_target_key_from_primary_key_value(
-    source: &ReverseRelationSourceInfo,
     relation: &AcceptedRelationInfo,
     value: &PrimaryKeyValue,
 ) -> Result<RawDataStoreKey, InternalError> {
     DecodedDataStoreKey::new(relation.target().entity_tag(), value)
         .to_raw()
-        .map_err(|err| {
-            InternalError::relation_source_row_decode_failed(
-                source.path(),
-                relation.field_name(),
-                relation.target().path(),
-                err,
-            )
-        })
+        .map_err(|_| InternalError::persisted_row_decode_corruption())
 }
 
 // Enforce the narrow relation-field shapes that relation structural
@@ -2050,15 +1928,11 @@ fn validate_scalar_relation_target_primary_key_kind(
         .ok_or_else(InternalError::store_invariant)?;
     if local_components.component_count() != relation.target().primary_key().component_kinds().len()
     {
-        return Err(InternalError::relation_source_row_unsupported_key_kind(
-            relation.target().primary_key().component_kinds(),
-        ));
+        return Err(InternalError::persisted_row_decode_corruption());
     }
 
     let Some(key_kind) = relation.target().primary_key().single_component_kind() else {
-        return Err(InternalError::relation_source_row_unsupported_key_kind(
-            relation.target().primary_key().component_kinds(),
-        ));
+        return Err(InternalError::persisted_row_decode_corruption());
     };
 
     validate_relation_primary_key_component_kind(key_kind)

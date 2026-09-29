@@ -466,12 +466,6 @@ impl OwnedAcceptedRelationEdgeContract {
         self.relation_id
     }
 
-    /// Borrow the accepted relation-edge name.
-    #[must_use]
-    pub(in crate::db) const fn name(&self) -> &str {
-        self.name.as_str()
-    }
-
     /// Return the accepted reverse-index generation for this relation edge.
     #[must_use]
     pub(in crate::db) const fn physical_generation(&self) -> u64 {
@@ -621,21 +615,18 @@ impl AcceptedRowDecodeContract {
     /// erroring when the selected accepted row contract does not own that slot.
     pub(in crate::db) fn required_field_for_slot(
         &self,
-        entity_path: &str,
         slot: usize,
     ) -> Result<&OwnedAcceptedFieldDecodeContract, InternalError> {
-        self.field_for_slot(slot).ok_or_else(|| {
-            InternalError::persisted_row_slot_lookup_out_of_bounds(entity_path, slot)
-        })
+        self.field_for_slot(slot)
+            .ok_or_else(InternalError::index_invariant)
     }
 
     /// Borrow one required field with its immutable catalog authority.
     pub(in crate::db) fn required_field_persistence_contract(
         &self,
-        entity_path: &str,
         slot: usize,
     ) -> Result<AcceptedFieldPersistenceContract<'_>, InternalError> {
-        let field = self.required_field_for_slot(entity_path, slot)?;
+        let field = self.required_field_for_slot(slot)?;
         AcceptedFieldPersistenceContract::new(self.value_catalog_handle(), field.decode_contract())
             .map_err(|_| InternalError::persisted_row_encode_internal())
     }

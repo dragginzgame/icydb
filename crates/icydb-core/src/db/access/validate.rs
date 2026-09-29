@@ -39,9 +39,6 @@ pub enum AccessPlanError {
     /// Index branch set values must already be canonicalized.
     IndexBranchSetNotCanonical,
 
-    /// Index prefix literal does not match indexed field type.
-    IndexPrefixValueMismatch { field: String },
-
     /// Primary key field exists but is not key-compatible.
     PrimaryKeyNotKeyable { field: String },
 

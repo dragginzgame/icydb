@@ -1407,57 +1407,9 @@ impl InternalError {
         )
     }
 
-    /// Construct the canonical persisted-row structural slot-lookup invariant.
-    pub(crate) fn persisted_row_slot_lookup_out_of_bounds(_model_path: &str, _slot: usize) -> Self {
-        Self::index_invariant()
-    }
-
-    /// Construct the canonical persisted-row structural slot-cache invariant.
-    pub(crate) fn persisted_row_slot_cache_lookup_out_of_bounds(
-        _model_path: &str,
-        _slot: usize,
-    ) -> Self {
-        Self::index_invariant()
-    }
-
-    /// Construct the canonical persisted-row primary-key decode corruption error.
-    pub(crate) fn persisted_row_primary_key_not_primary_key_encodable(
-        _data_key: impl fmt::Debug,
-        _detail: impl Sized,
-    ) -> Self {
-        Self::persisted_row_decode_corruption()
-    }
-
-    /// Construct the canonical persisted-row missing primary-key slot corruption error.
-    pub(crate) fn persisted_row_primary_key_slot_missing(_data_key: impl fmt::Debug) -> Self {
-        Self::persisted_row_decode_corruption()
-    }
-
     /// Construct the canonical persisted-row key mismatch corruption error.
     pub(crate) fn persisted_row_key_mismatch() -> Self {
         Self::store_corruption()
-    }
-
-    /// Construct the canonical reverse-index entry corruption error.
-    pub(crate) fn reverse_index_entry_corrupted(
-        _source_path: &str,
-        _field_name: &str,
-        _target_path: &str,
-        _index_key: impl fmt::Debug,
-        _detail: impl Sized,
-    ) -> Self {
-        Self::index_corruption()
-    }
-
-    /// Construct the canonical relation-target store missing internal error.
-    pub(crate) fn relation_target_store_missing(
-        _source_path: &str,
-        _field_name: &str,
-        _target_path: &str,
-        _store_path: &str,
-        _detail: impl Sized,
-    ) -> Self {
-        Self::executor_internal()
     }
 
     /// Identify the accepted source and relation when runtime contract compilation fails.
@@ -1519,30 +1471,6 @@ impl InternalError {
                 ),
             ],
         )
-    }
-
-    /// Construct the canonical relation-source row decode corruption error.
-    pub(crate) fn relation_source_row_decode_failed(
-        _source_path: &str,
-        _field_name: &str,
-        _target_path: &str,
-        _detail: impl Sized,
-    ) -> Self {
-        Self::persisted_row_decode_corruption()
-    }
-
-    /// Construct the canonical relation-source unsupported scalar relation-key corruption error.
-    pub(crate) fn relation_source_row_unsupported_scalar_relation_key(
-        _source_path: &str,
-        _field_name: &str,
-        _target_path: &str,
-    ) -> Self {
-        Self::persisted_row_decode_corruption()
-    }
-
-    /// Construct the canonical unsupported relation key-kind corruption error.
-    pub(crate) fn relation_source_row_unsupported_key_kind(_field_kind: impl fmt::Debug) -> Self {
-        Self::persisted_row_decode_corruption()
     }
 
     /// Construct the canonical covering-component empty-payload corruption error.

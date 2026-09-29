@@ -71,7 +71,6 @@ where
     validate_delete_relations_structural(
         db,
         source_info,
-        source.entity_path(),
         source_row_contract,
         accepted_schema_fingerprint,
         relations,
@@ -120,7 +119,6 @@ pub(in crate::db) fn validate_candidate_relation_target_delete_barrier<C: Canist
 fn validate_delete_relations_structural<C>(
     db: &Db<C>,
     source_info: ReverseRelationSourceInfo,
-    source_path: &str,
     source_row_contract: StructuralRowContract,
     accepted_schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
     relations: Vec<AcceptedRelationInfo>,
@@ -162,42 +160,30 @@ where
                     (&bounds.0, &bounds.1),
                     Direction::Asc,
                     |reverse_key, raw_entry| {
-                        let entry =
-                            decode_reverse_entry(&source_info, &relation, reverse_key, raw_entry)?;
+                        let entry = decode_reverse_entry(reverse_key, raw_entry)?;
 
                         // Phase 2: verify the key-owned source row before rejecting delete.
                         let source_key = *entry.primary_key_value();
                         {
                             let source_data_key =
                                 DecodedDataStoreKey::new(source_info.entity_tag(), &source_key);
-                            let source_raw_row = source_reader.read_primary_row(&source_data_key)?;
+                            let source_raw_row =
+                                source_reader.read_primary_row(&source_data_key)?;
 
                             let Some(source_raw_row) = source_raw_row else {
-                                if source_reader
-                                    .has_primary_row_override(&source_data_key)?
-                                {
+                                if source_reader.has_primary_row_override(&source_data_key)? {
                                     // The canonical final overlay explicitly removed this
                                     // source, so its committed reverse-index witness cannot
                                     // block a target deleted by the same batch.
                                     return Ok(false);
                                 }
-                                let target = relation.target();
-                                return Err(InternalError::reverse_index_entry_corrupted(
-                                    source_path,
-                                    relation.field_name(),
-                                    target.path(),
-                                    reverse_key,
-                                    format!(
-                                        "reverse index points at missing source row: source_id={source_key:?} key={target_primary_key:?}"
-                                    ),
-                                ));
+                                return Err(InternalError::index_corruption());
                             };
 
                             let still_references_target =
                                 source_row_references_relation_target_primary_key_value(
                                     &source_raw_row,
                                     source_row_contract.clone(),
-                                    source_info.clone(),
                                     &relation,
                                     &target_primary_key,
                                     relation_budget,

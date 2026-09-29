@@ -203,7 +203,7 @@ impl StructuralRowContract {
     ) -> Result<AcceptedFieldDecodeContract<'_>, InternalError> {
         Ok(self
             .accepted_decode_contract
-            .required_field_for_slot(self.entity_path(), slot)?
+            .required_field_for_slot(slot)?
             .decode_contract())
     }
 
@@ -212,8 +212,7 @@ impl StructuralRowContract {
         &self,
         slot: usize,
     ) -> Result<&OwnedAcceptedFieldDecodeContract, InternalError> {
-        self.accepted_decode_contract
-            .required_field_for_slot(self.entity_path(), slot)
+        self.accepted_decode_contract.required_field_for_slot(slot)
     }
 
     /// Borrow one accepted field with the catalog authority that admitted it.
@@ -222,7 +221,7 @@ impl StructuralRowContract {
         slot: usize,
     ) -> Result<AcceptedFieldPersistenceContract<'_>, InternalError> {
         self.accepted_decode_contract
-            .required_field_persistence_contract(self.entity_path(), slot)
+            .required_field_persistence_contract(slot)
     }
 
     /// Borrow the catalog authority carried by this accepted row contract.
@@ -300,7 +299,7 @@ impl StructuralRowContract {
     ) -> Result<FieldMaterialization<'_>, InternalError> {
         let field = self
             .accepted_decode_contract
-            .required_field_for_slot(self.entity_path(), slot)?;
+            .required_field_for_slot(slot)?;
         match field.insert_omission_policy() {
             AcceptedInsertOmissionPolicy::NullIfMissing => Ok(FieldMaterialization::Null),
             AcceptedInsertOmissionPolicy::DefaultIfMissing => field
@@ -322,7 +321,7 @@ impl StructuralRowContract {
     ) -> Result<Value, InternalError> {
         let field = self
             .accepted_decode_contract
-            .required_field_for_slot(self.entity_path(), slot)?;
+            .required_field_for_slot(slot)?;
         if field.introduced_in_layout() <= row_layout_version {
             return Err(InternalError::persisted_row_decode_corruption());
         }

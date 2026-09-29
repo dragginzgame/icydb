@@ -138,12 +138,9 @@ impl<'a> StructuralSlotReader<'a> {
         let mut values = vec![None; self.contract.field_count()];
         for &slot in required_slots {
             let value = Cow::Borrowed(self.required_cached_value(slot)?);
-            let target = values.get_mut(slot).ok_or_else(|| {
-                InternalError::persisted_row_slot_cache_lookup_out_of_bounds(
-                    self.contract.entity_path(),
-                    slot,
-                )
-            })?;
+            let target = values
+                .get_mut(slot)
+                .ok_or_else(InternalError::index_invariant)?;
             *target = Some(value);
         }
 
@@ -285,12 +282,10 @@ impl<'a> StructuralSlotReader<'a> {
         &self,
         slot: usize,
     ) -> Result<&Value, InternalError> {
-        let cached = self.cached_values.get(slot).ok_or_else(|| {
-            InternalError::persisted_row_slot_cache_lookup_out_of_bounds(
-                self.contract.entity_path(),
-                slot,
-            )
-        })?;
+        let cached = self
+            .cached_values
+            .get(slot)
+            .ok_or_else(InternalError::index_invariant)?;
 
         match cached {
             CachedSlotValue::Scalar {
@@ -571,12 +566,7 @@ impl SlotReader for StructuralSlotReader<'_> {
                 Some(CachedSlotValue::Deferred { .. }) => {
                     Err(InternalError::persisted_row_decode_corruption())
                 }
-                None => Err(
-                    InternalError::persisted_row_slot_cache_lookup_out_of_bounds(
-                        self.contract.entity_path(),
-                        slot,
-                    ),
-                ),
+                None => Err(InternalError::index_invariant()),
             },
             LeafCodec::Structural => Ok(None),
         }
