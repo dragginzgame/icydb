@@ -113,8 +113,6 @@ fn collapse_membership_bool_expr(
         | Expr::FunctionCall { .. }
         | Expr::Case { .. }
         | Expr::Binary { .. } => Err(PredicateCompileError::Unsupported),
-        #[cfg(test)]
-        Expr::Alias { .. } => Err(PredicateCompileError::Unsupported),
     }
 }
 
@@ -173,8 +171,6 @@ fn collect_compare_chain<'a>(
         | Expr::Aggregate(_)
         | Expr::FunctionCall { .. }
         | Expr::Case { .. } => Err(PredicateCompileError::Unsupported),
-        #[cfg(test)]
-        Expr::Alias { .. } => Err(PredicateCompileError::Unsupported),
     }
 }
 
@@ -272,7 +268,6 @@ fn compile_bool_truth_predicate(
             }
         }
         Expr::Literal(Value::Null) => Predicate::False,
-        Expr::Literal(_) | Expr::FieldPath(_) => return Err(PredicateCompileError::Unsupported),
         Expr::Unary {
             op: UnaryOp::Not,
             expr,
@@ -307,9 +302,9 @@ fn compile_bool_truth_predicate(
         Expr::FunctionCall { function, args } => {
             return compile_bool_function_truth_predicate(*function, args, truth, work);
         }
-        Expr::Case { .. } | Expr::Aggregate(_) => return Err(PredicateCompileError::Unsupported),
-        #[cfg(test)]
-        Expr::Alias { .. } => return Err(PredicateCompileError::Unsupported),
+        Expr::Literal(_) | Expr::FieldPath(_) | Expr::Case { .. } | Expr::Aggregate(_) => {
+            return Err(PredicateCompileError::Unsupported);
+        }
     })
 }
 
@@ -881,8 +876,7 @@ impl RuntimePredicateAdmission {
     // predicate shell can represent without reopening semantic branching.
     fn is_admissible(expr: &Expr) -> bool {
         match expr {
-            Expr::Field(_) => true,
-            Expr::Literal(Value::Bool(_) | Value::Null) => true,
+            Expr::Field(_) | Expr::Literal(Value::Bool(_) | Value::Null) => true,
             Expr::Unary {
                 op: UnaryOp::Not,
                 expr,
@@ -906,10 +900,7 @@ impl RuntimePredicateAdmission {
             }
             // CASE expansion belongs to canonicalization. A retained CASE must
             // stay expression-backed rather than bypass its rewrite budget here.
-            Expr::Case { .. } => false,
-            Expr::FieldPath(_) | Expr::Aggregate(_) | Expr::Literal(_) => false,
-            #[cfg(test)]
-            Expr::Alias { .. } => false,
+            Expr::Case { .. } | Expr::FieldPath(_) | Expr::Aggregate(_) | Expr::Literal(_) => false,
         }
     }
 

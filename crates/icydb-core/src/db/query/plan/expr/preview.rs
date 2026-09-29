@@ -70,8 +70,6 @@ pub(in crate::db) fn eval_literal_only_expr_value(expr: &Expr) -> Option<Value> 
 
             eval_literal_only_unary_expr(*op, &value)
         }
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => eval_literal_only_expr_value(expr.as_ref()),
     }
 }
 

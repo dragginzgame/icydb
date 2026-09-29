@@ -1,7 +1,10 @@
 //! Populated same-store entity rename through the maintained migration boundary.
 
 mod admission;
+mod journal_relations;
+mod journal_routing;
 mod recovery;
+mod store_path;
 
 use super::*;
 use crate::{
@@ -350,7 +353,7 @@ fn assert_lineage(db: &Db<MigrationExecutionCanister>, proposal: &SchemaProposal
         let entry = lineage
             .get(head.stores()[0].identity(), runtime.entity_tag())
             .unwrap();
-        assert_eq!(entry.accepted_head(), head.accepted_head());
+        assert_eq!(entry.publication_head(), head.accepted_head());
         let AcceptedEntitySourceLineageState::Adopted {
             version,
             source_digest,

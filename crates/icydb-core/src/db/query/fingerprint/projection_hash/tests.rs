@@ -40,10 +40,7 @@ fn alias_is_excluded_from_projection_semantic_hash_identity() {
         alias: None,
     }]);
     let aliased = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
-        expr: Expr::Alias {
-            expr: Box::new(Expr::Field(FieldId::new("rank"))),
-            name: Alias::new("rank_expr"),
-        },
+        expr: Expr::Field(FieldId::new("rank")),
         alias: Some(Alias::new("rank_column")),
     }]);
 

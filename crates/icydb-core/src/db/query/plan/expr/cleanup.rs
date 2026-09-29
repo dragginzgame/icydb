@@ -62,7 +62,5 @@ fn detach_children(expr: &mut Expr, pending: &mut Vec<Expr>) {
             }
         }
         Expr::Field(_) | Expr::FieldPath(_) => {}
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => detach_child(expr, pending),
     }
 }

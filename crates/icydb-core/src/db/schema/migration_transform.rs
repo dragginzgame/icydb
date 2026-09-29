@@ -4,10 +4,13 @@
 //! predecessor and candidate catalogs. Runtime evaluation retains accepted
 //! entity, field, and slot identities and cannot call application code.
 
+mod record;
+
 use std::borrow::Cow;
 
 use icydb_schema::{
-    EntityMigration, ScalarLiteral, SchemaMigrationTransform, SchemaProposal, TargetStoreIdentity,
+    EntityMigration, ScalarLiteral, SchemaMigrationRename, SchemaMigrationTransform,
+    SchemaProposal, TargetStoreIdentity,
 };
 
 use crate::{
@@ -20,7 +23,8 @@ use crate::{
             AcceptedCatalogSnapshotSelection, AcceptedFieldKind, AcceptedSchemaSnapshot,
             CandidateSchemaRevision, ExistingProposalStore, FieldId,
             PersistedSchemaMigrationTransformReason, SchemaFieldSlot, ValueAdmissionBudget,
-            lower_scalar_type, source_literal_input,
+            lower_scalar_type, migration_planner::inverse_field_source,
+            migration_transform::record::migrated_source_value, source_literal_input,
         },
     },
     error::InternalError,
@@ -146,21 +150,19 @@ impl CompiledMigrationEntityProgram {
     ) -> Result<CanonicalRow, MigrationTransformFinding> {
         let mut values = vec![None; candidate_contract.field_count()];
         for (target, source) in &self.preserved_slots {
-            let value = before
-                .required_value_by_contract_cow(usize::from(source.get()))
-                .map_err(|_| {
+            let value =
+                migrated_source_value(before, candidate_contract, *source).map_err(|_| {
                     self.finding(
                         None,
                         *target,
                         PersistedSchemaMigrationTransformReason::ValueContract,
                     )
-                })?
-                .into_owned();
+                })?;
             set_candidate_value(&mut values, *target, value)
                 .map_err(|reason| self.finding(None, *target, reason))?;
         }
         for transform in &self.transforms {
-            Self::evaluate_transform(before, &mut values, transform)?;
+            Self::evaluate_transform(before, candidate_contract, &mut values, transform)?;
         }
         let row = canonical_row_from_runtime_value_source_with_accepted_contract(
             candidate_contract,
@@ -202,6 +204,7 @@ impl CompiledMigrationEntityProgram {
 
     fn evaluate_transform(
         before: &StructuralSlotReader<'_>,
+        candidate_contract: &StructuralRowContract,
         values: &mut [Option<Value>],
         transform: &CompiledMigrationTransform,
     ) -> Result<(), MigrationTransformFinding> {
@@ -223,14 +226,12 @@ impl CompiledMigrationEntityProgram {
                 target,
                 target_slot,
             } => {
-                let value = before
-                    .required_value_by_contract_cow(usize::from(source_slot.get()))
+                let value = migrated_source_value(before, candidate_contract, *source_slot)
                     .map_err(|_| MigrationTransformFinding {
                         source_field: Some(*source),
                         target_field: *target,
                         reason: PersistedSchemaMigrationTransformReason::ValueContract,
-                    })?
-                    .into_owned();
+                    })?;
                 set_candidate_value(values, *target_slot, value).map_err(|reason| {
                     MigrationTransformFinding {
                         source_field: Some(*source),
@@ -275,17 +276,16 @@ impl CompiledMigrationEntityProgram {
                 target_slot,
                 literal,
             } => {
-                let source_value = before
-                    .required_value_by_contract_cow(usize::from(source_slot.get()))
+                let source_value = migrated_source_value(before, candidate_contract, *source_slot)
                     .map_err(|_| MigrationTransformFinding {
                         source_field: Some(*source),
                         target_field: *target,
                         reason: PersistedSchemaMigrationTransformReason::ValueContract,
                     })?;
-                let value = if matches!(source_value.as_ref(), Value::Null) {
+                let value = if matches!(source_value, Value::Null) {
                     literal.clone()
                 } else {
-                    source_value.into_owned()
+                    source_value
                 };
                 set_candidate_value(values, *target_slot, value).map_err(|reason| {
                     MigrationTransformFinding {
@@ -330,6 +330,17 @@ impl CompiledMigrationEntityProgram {
     }
 }
 
+/// Record-member names are stored keys, so their rename needs the same bounded
+/// row rewrite as an explicit value transform. Proposal validation requires all
+/// entities sharing the renamed record to declare that rename.
+pub(in crate::db::schema) fn transition_requires_row_rewrite(transition: &EntityMigration) -> bool {
+    !transition.transforms().is_empty()
+        || transition
+            .renames()
+            .iter()
+            .any(|rename| matches!(rename, SchemaMigrationRename::RecordField { .. }))
+}
+
 /// Compile every physical transition against predecessor and exact candidate
 /// catalogs. Metadata-only transitions deliberately produce no program.
 pub(in crate::db::schema) fn compile_migration_programs(
@@ -342,7 +353,7 @@ pub(in crate::db::schema) fn compile_migration_programs(
         .ok_or_else(InternalError::store_invariant)?;
     let mut programs = Vec::new();
     for transition in plan.transitions() {
-        if transition.transforms().is_empty() {
+        if !transition_requires_row_rewrite(transition) {
             continue;
         }
         let predecessor = transition
@@ -432,11 +443,33 @@ fn compile_entity_program(
         if target_slots.contains(&target.slot()) {
             continue;
         }
-        let source = before_snapshot
-            .fields()
-            .iter()
-            .find(|source| source.id() == target.id())
-            .ok_or_else(InternalError::store_invariant)?;
+        // Dense removals reassign IDs and slots. Generated fields retain their
+        // accepted source lineage; SQL-owned fields retain their catalog names
+        // and cannot be renamed by a source migration.
+        let source = if target.generated() {
+            let current = candidate
+                .bundle()
+                .source_bindings()
+                .field_source(entity, target.id())
+                .ok_or_else(InternalError::store_invariant)?;
+            let predecessor = inverse_field_source(transition, current);
+            let source_id = store
+                .bundle
+                .source_bindings()
+                .field(entity, &predecessor)
+                .ok_or_else(InternalError::store_invariant)?;
+            before_snapshot
+                .fields()
+                .iter()
+                .find(|source| source.generated() && source.id() == source_id)
+                .ok_or_else(InternalError::store_invariant)?
+        } else {
+            before_snapshot
+                .fields()
+                .iter()
+                .find(|source| !source.generated() && source.name() == target.name())
+                .ok_or_else(InternalError::store_invariant)?
+        };
         preserved_slots.push((target.slot(), source.slot()));
     }
     icydb_schema::compact_sort_unstable_by(&mut preserved_slots, Ord::cmp);

@@ -8,10 +8,7 @@ use super::*;
 use crate::db::{
     access::AccessPlanError,
     cursor::{CursorPlanError, CursorSignaturePrefix},
-    query::plan::{
-        PlanError, PolicyPlanError,
-        validate::{GroupPlanError, OrderPlanError, PlanErrorKind, PlanPolicyError, PlanUserError},
-    },
+    query::plan::PlanError,
 };
 
 #[test]
@@ -20,25 +17,6 @@ fn internal_error_taxonomy_axes_remain_one_byte() {
     assert_eq!(size_of::<ErrorOrigin>(), 1);
     assert_eq!(format!("{:?}", ErrorClass::Corruption), "0");
     assert_eq!(format!("{:?}", ErrorOrigin::Serialize), "0");
-}
-
-fn from_group_plan_error(err: PlanError) -> InternalError {
-    match err.into_kind() {
-        PlanErrorKind::User(inner) => match *inner {
-            PlanUserError::Group(_) => InternalError::query_invalid_logical_plan(),
-            _ => InternalError::planner_executor_invariant(),
-        },
-        PlanErrorKind::Policy(inner) => match *inner {
-            PlanPolicyError::Group(_) => InternalError::query_invalid_logical_plan(),
-            PlanPolicyError::Policy(_) => InternalError::planner_executor_invariant(),
-        },
-        PlanErrorKind::Cursor(_) => InternalError::planner_executor_invariant(),
-    }
-}
-
-fn plan_invariant_violation(err: PolicyPlanError) -> InternalError {
-    let _ = err;
-    InternalError::planner_executor_invariant()
 }
 
 fn assert_runtime_invariant(err: &InternalError, origin: ErrorOrigin) {
@@ -624,50 +602,6 @@ fn executor_access_plan_error_mapping_stays_invariant_violation() {
     let err = AccessPlanError::IndexPrefixEmpty.into_internal_error();
     assert_eq!(err.class, ErrorClass::InvariantViolation);
     assert_eq!(err.origin, ErrorOrigin::Query);
-}
-
-#[test]
-fn plan_policy_error_mapping_uses_runtime_invariant_code() {
-    let err = plan_invariant_violation(PolicyPlanError::DeleteWindowRequiresOrder);
-    assert_runtime_invariant(&err, ErrorOrigin::Planner);
-}
-
-#[test]
-fn group_plan_error_mapping_uses_runtime_invariant_code() {
-    let err = from_group_plan_error(PlanError::from(GroupPlanError::UnknownGroupField {
-        group_index: None,
-        field: "tenant".to_string(),
-    }));
-
-    assert_runtime_invariant(&err, ErrorOrigin::Planner);
-}
-
-#[test]
-fn group_plan_error_mapping_rejects_non_group_user_variant() {
-    let err = from_group_plan_error(PlanError::from(PlanUserError::Order(Box::new(
-        OrderPlanError::UnknownField {
-            term_index: 0,
-            field: "tenant".to_string(),
-        },
-    ))));
-
-    assert_runtime_invariant(&err, ErrorOrigin::Planner);
-}
-
-#[test]
-fn group_plan_error_mapping_rejects_non_group_policy_variant() {
-    let err = from_group_plan_error(PlanError::from(PlanPolicyError::Policy(Box::new(
-        PolicyPlanError::UnorderedPagination,
-    ))));
-
-    assert_runtime_invariant(&err, ErrorOrigin::Planner);
-}
-
-#[test]
-fn group_plan_error_mapping_rejects_cursor_variant() {
-    let err = from_group_plan_error(PlanError::from(cursor_window_error()));
-
-    assert_runtime_invariant(&err, ErrorOrigin::Planner);
 }
 
 #[test]

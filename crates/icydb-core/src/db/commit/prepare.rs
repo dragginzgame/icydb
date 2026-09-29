@@ -21,9 +21,10 @@ use crate::{
             plan_index_mutation_for_slot_reader_structural,
         },
         key_taxonomy::PrimaryKeyValue,
+        registry::StoreRecoveryCapability,
         relation::{
-            RelationCommitBudget, RelationConstraintProjection, RelationProjectionBudget,
-            ReverseRelationSourceInfo,
+            AcceptedRelationTargetContract, RelationCommitBudget, RelationConstraintProjection,
+            RelationProjectionBudget, ReverseRelationSourceInfo, accepted_relation_target_contract,
         },
         schema::{
             AcceptedCatalogSnapshotSelection, ConstraintActivationKind, ConstraintId, SchemaInfo,
@@ -466,7 +467,7 @@ where
     };
     let (old_slots, new_slots) = decoded.as_refs();
 
-    match plan_index_mutation_for_slot_reader_structural(
+    plan_index_mutation_for_slot_reader_structural(
         authority.entity_tag,
         authority.schema_fingerprint,
         mutation,
@@ -477,10 +478,7 @@ where
         old_slots.map(|slots| slots as &dyn CanonicalSlotReader),
         new_slots.map(|_| &primary_key),
         new_slots.map(|slots| slots as &dyn CanonicalSlotReader),
-    ) {
-        Ok(index_plan) => Ok(index_plan),
-        Err(err) => Err(err.into_internal_error()),
-    }
+    )
 }
 
 // Decode one commit-marker row into one validated slot reader so both
@@ -536,10 +534,10 @@ where
     )?;
     let relations = mutation_relation_constraint_schedule(
         db,
-        authority.relation_source.clone(),
+        authority,
         accepted.persisted_snapshot(),
         &row_contract,
-        mode.include_candidate_relation_effects(),
+        mode,
     )?;
     Ok(AcceptedStorageConstraintSchedule {
         row_contract,
@@ -552,11 +550,41 @@ where
 
 fn mutation_relation_constraint_schedule<C: CanisterKind>(
     db: &Db<C>,
-    source: ReverseRelationSourceInfo,
+    authority: &CommitPrepareAuthority,
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
     row_contract: &StructuralRowContract,
-    include_candidate_relation: bool,
+    mode: CommitPrepareMode,
 ) -> Result<Vec<RelationConstraintProjection>, InternalError> {
+    if snapshot.relations().is_empty() && snapshot.candidate_relations().is_empty() {
+        return Ok(Vec::new());
+    }
+    let include_candidate_relation = mode.include_candidate_relation_effects();
+    // Match source selection: durable replay binds both sides to the canonical
+    // fold boundary; normal writes and volatile sources use live authority.
+    let canonical = matches!(mode, CommitPrepareMode::RecoveryReplay)
+        && db
+            .store_handle(authority.data_store_path)?
+            .storage_capabilities()
+            .recovery()
+            == StoreRecoveryCapability::StableBasePlusJournalReplay;
+    let target_contract = |path: &str| {
+        if !canonical {
+            return accepted_relation_target_contract(db, path);
+        }
+        let target =
+            crate::db::runtime_entity_catalog::canonical_runtime_entity_for_path(db, path)?;
+        let selection = target
+            .store(db)?
+            .with_schema(|schema| {
+                schema.current_canonical_accepted_catalog_selection(
+                    target.entity_tag(),
+                    target.entity_path(),
+                    target.store_path(),
+                )
+            })?
+            .ok_or_else(InternalError::store_corruption)?;
+        AcceptedRelationTargetContract::from_catalog_selection(&selection)
+    };
     let mut projections = Vec::with_capacity(
         snapshot
             .relations()
@@ -566,10 +594,11 @@ fn mutation_relation_constraint_schedule<C: CanisterKind>(
     for relation in snapshot.relations() {
         projections.push(RelationConstraintProjection::new_active(
             db,
-            source.clone(),
+            authority.relation_source.clone(),
             snapshot,
             row_contract,
             relation,
+            target_contract(relation.target_path())?,
         )?);
     }
     if !include_candidate_relation {
@@ -598,10 +627,11 @@ fn mutation_relation_constraint_schedule<C: CanisterKind>(
     }
     projections.push(RelationConstraintProjection::new(
         db,
-        source,
+        authority.relation_source.clone(),
         snapshot,
         row_contract,
         candidate,
+        target_contract(candidate.target_path())?,
     )?);
     Ok(projections)
 }

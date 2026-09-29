@@ -169,14 +169,21 @@ fn query_hash_admission_uses_canonical_count_operands_and_ignores_alias_bytes() 
     }
     let field = Expr::Field(FieldId::new("账户"));
     let root = request(Resource::TemporaryBytes, 0);
-    let alias = Expr::Alias {
-        expr: Box::new(field.clone()),
-        name: Alias::new("x".repeat(8192)),
-    };
-    assert_eq!(
-        query_hash(&field, true, &root, Lane::Diagnostic).unwrap(),
-        query_hash(&alias, true, &root, Lane::Diagnostic).unwrap(),
-    );
+    let expected = query_hash(&field, true, &root, Lane::Diagnostic).unwrap();
+    let plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
+    for alias in [None, Some(Alias::new("x".repeat(8192)))] {
+        let spec = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: field.clone(),
+            alias,
+        }]);
+        PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+            let mut hasher = new_hash_sha256();
+            hash_projection_spec(&mut hasher, &spec, &plan, work).map_err(QueryError::execute)?;
+            assert_eq!(finalize_sha256_digest(hasher), expected);
+            Ok(())
+        })
+        .unwrap();
+    }
     assert_eq!(root.observed(Resource::TemporaryBytes), 0);
 }
 

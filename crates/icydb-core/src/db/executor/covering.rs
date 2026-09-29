@@ -10,9 +10,9 @@ use crate::{
         data::{DataStore, DecodedDataStoreKey},
         direction::Direction,
         executor::{
-            ACCESS_SCAN_CHUNK_ENTRIES, ExecutorError, FlatMergeOrderedChild, FlatMergeSiblingSet,
-            FlatMergeStream, IndexComponentRow, IndexComponentRows, IndexComponentValues,
-            IndexScan, KeyOrderComparator, PrefixSetExecutionShape, PrefixSetMergeSafety,
+            ACCESS_SCAN_CHUNK_ENTRIES, FlatMergeOrderedChild, FlatMergeSiblingSet, FlatMergeStream,
+            IndexComponentRow, IndexComponentRows, IndexComponentValues, IndexScan,
+            KeyOrderComparator, PrefixSetExecutionShape, PrefixSetMergeSafety,
             active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
             branch_stream_chunk_entries,
             budget::{ExecutionConstructionBudget, charge_current_execution_budget},
@@ -54,7 +54,7 @@ fn read_row_presence_with_consistency_from_data_store(
     let row_exists = data.contains(&raw);
 
     match consistency {
-        MissingRowPolicy::Error if !row_exists => Err(ExecutorError::store_corruption().into()),
+        MissingRowPolicy::Error if !row_exists => Err(InternalError::store_corruption()),
         MissingRowPolicy::Error | MissingRowPolicy::Ignore => Ok(row_exists),
     }
 }

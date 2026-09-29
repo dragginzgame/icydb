@@ -279,6 +279,18 @@ impl AcceptedSourceBindingCatalog {
         self.fields.get(&(entity, source.clone())).copied()
     }
 
+    /// Resolve the source owner of one accepted field before a dense remap.
+    #[must_use]
+    pub(in crate::db::schema) fn field_source(
+        &self,
+        entity: EntityTag,
+        field: FieldId,
+    ) -> Option<&FieldSourceKey> {
+        self.fields.iter().find_map(|((bound_entity, source), id)| {
+            (*bound_entity == entity && *id == field).then_some(source)
+        })
+    }
+
     /// Add one exact generated-field binding allocated by a physical source
     /// migration. Ordinary reconciliation never calls this path.
     #[cfg(any(test, feature = "migration"))]

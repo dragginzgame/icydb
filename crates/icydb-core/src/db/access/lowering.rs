@@ -28,8 +28,6 @@ use std::{ops::Bound, sync::Arc, sync::OnceLock};
 
 use crate::db::index::UserIndexPrefixCardinalityKey;
 
-const fn record_deferred_index_prefix_raw_bound_materialization() {}
-
 pub(in crate::db) type LoweredKey = RawIndexStoreKey;
 
 type LoweredIndexRangeEnvelope = (Bound<LoweredKey>, Bound<LoweredKey>, Vec<Vec<u8>>);
@@ -268,7 +266,6 @@ impl LoweredIndexPrefixRawBounds {
                     prefix_components,
                 )
                 .map_err(IndexRangeBoundEncodeError::into_internal_error)?;
-                record_deferred_index_prefix_raw_bound_materialization();
                 let _ = raw_bounds.set((Bound::Included(lower), Bound::Included(upper)));
                 raw_bounds
                     .get()

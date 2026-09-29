@@ -200,10 +200,6 @@ fn canonicalize_grouped_having_expr(
             canonicalize_grouped_having_compare_literals(schema, right, left, work)?;
         }
         Expr::Field(_) | Expr::FieldPath(_) | Expr::Aggregate(_) | Expr::Literal(_) => {}
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => {
-            **expr = canonicalize_grouped_having_expr(schema, expr.take(), work)?;
-        }
     }
 
     Ok(expr)

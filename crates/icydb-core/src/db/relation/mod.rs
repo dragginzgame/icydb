@@ -10,8 +10,9 @@ use crate::{
     db::{
         Db,
         identity::EntityName,
-        runtime_entity_catalog::AcceptedRuntimeEntity,
-        schema::{AcceptedFieldKind, classify_accepted_field_kind},
+        schema::{
+            AcceptedCatalogSnapshotSelection, AcceptedFieldKind, classify_accepted_field_kind,
+        },
     },
     error::InternalError,
     traits::CanisterKind,
@@ -66,12 +67,33 @@ struct AcceptedRelationTargetMetadata<'a> {
 }
 
 #[derive(Clone, Debug)]
-struct AcceptedRelationTargetContract {
+pub(in crate::db) struct AcceptedRelationTargetContract {
     target: AcceptedRelationTargetAuthority,
     primary_key_kinds: Vec<AcceptedFieldKind>,
 }
 
 impl AcceptedRelationTargetContract {
+    /// Bind target identity and key kinds from one explicitly selected catalog.
+    pub(in crate::db) fn from_catalog_selection(
+        selection: &AcceptedCatalogSnapshotSelection,
+    ) -> Result<Self, InternalError> {
+        let identity = selection.identity();
+        let accepted = selection.snapshot();
+        Ok(Self {
+            target: AcceptedRelationTargetAuthority::try_new(
+                identity.entity_path(),
+                accepted.entity_name(),
+                identity.entity_tag(),
+                identity.store_path(),
+            )?,
+            primary_key_kinds: accepted
+                .primary_key_field_kinds()
+                .into_iter()
+                .cloned()
+                .collect(),
+        })
+    }
+
     #[must_use]
     const fn primary_key_kinds(&self) -> &[AcceptedFieldKind] {
         self.primary_key_kinds.as_slice()
@@ -103,15 +125,10 @@ impl AcceptedRelationTupleEdgeDescriptor {
     }
 }
 
-fn accepted_relation_tuple_edge_descriptor<C>(
-    db: &Db<C>,
-    target_path: &str,
+fn accepted_relation_tuple_edge_descriptor(
+    target_contract: AcceptedRelationTargetContract,
     local_components: &[AcceptedRelationTupleEdgeLocalComponent<'_>],
-) -> Result<AcceptedRelationTupleEdgeDescriptor, InternalError>
-where
-    C: CanisterKind,
-{
-    let target_contract = accepted_relation_target_contract(db, target_path)?;
+) -> Result<AcceptedRelationTupleEdgeDescriptor, InternalError> {
     let target_kinds = target_contract.primary_key_kinds();
     if local_components.len() != target_kinds.len() {
         return Err(InternalError::relation_target_primary_key_arity_mismatch(
@@ -131,59 +148,34 @@ where
     Ok(AcceptedRelationTupleEdgeDescriptor { target_contract })
 }
 
-struct AcceptedRelationScalarTargetDescriptor {
-    target_contract: AcceptedRelationTargetContract,
-    cardinality: AcceptedRelationCardinality,
-}
-
-impl AcceptedRelationScalarTargetDescriptor {
-    const fn cardinality(&self) -> AcceptedRelationCardinality {
-        self.cardinality
-    }
-
-    fn into_target_contract(self) -> AcceptedRelationTargetContract {
-        self.target_contract
-    }
-}
-
-fn accepted_scalar_relation_target_descriptor<C>(
-    db: &Db<C>,
+fn accepted_scalar_relation_cardinality(
     kind: &AcceptedFieldKind,
-    expected_edge_target_path: Option<&str>,
-) -> Result<Option<AcceptedRelationScalarTargetDescriptor>, InternalError>
-where
-    C: CanisterKind,
-{
+    target_contract: &AcceptedRelationTargetContract,
+) -> Result<Option<AcceptedRelationCardinality>, InternalError> {
     let Some(target) = accepted_relation_target_metadata_from_kind(kind) else {
         return Ok(None);
     };
-    if let Some(edge_target_path) = expected_edge_target_path
-        && target.target_path != edge_target_path
-    {
+    let accepted = &target_contract.target;
+    if target.target_path != accepted.path() {
         return Err(InternalError::store_invariant());
     }
+    if target.target_entity_name != accepted.entity_name.as_str()
+        || target.target_entity_tag != accepted.entity_tag()
+        || target.target_store_path != accepted.store_path()
+    {
+        return Err(InternalError::executor_internal());
+    }
     validate_relation_primary_key_component_kind(target.scalar_target_key_kind)?;
-    let declared_target = AcceptedRelationTargetAuthority::try_new(
-        target.target_path,
-        target.target_entity_name,
-        target.target_entity_tag,
-        target.target_store_path,
-    )?;
-    let target_registration = declared_target.validate_against_db(db)?;
-    let target_contract =
-        accepted_relation_target_contract_for_runtime_entity(db, target_registration)?;
     validate_accepted_relation_primary_key_kinds(
         std::slice::from_ref(target.scalar_target_key_kind),
         target_contract.primary_key_kinds(),
     )?;
 
-    Ok(Some(AcceptedRelationScalarTargetDescriptor {
-        target_contract,
-        cardinality: target.cardinality,
-    }))
+    Ok(Some(target.cardinality))
 }
 
-fn accepted_relation_target_contract<C>(
+/// Resolve the live target contract for ordinary writes and schema work.
+pub(in crate::db) fn accepted_relation_target_contract<C>(
     db: &Db<C>,
     target_path: &str,
 ) -> Result<AcceptedRelationTargetContract, InternalError>
@@ -191,16 +183,6 @@ where
     C: CanisterKind,
 {
     let target = db.accepted_runtime_entity_for_path(target_path)?;
-    accepted_relation_target_contract_for_runtime_entity(db, target)
-}
-
-fn accepted_relation_target_contract_for_runtime_entity<C>(
-    db: &Db<C>,
-    target: AcceptedRuntimeEntity,
-) -> Result<AcceptedRelationTargetContract, InternalError>
-where
-    C: CanisterKind,
-{
     let target_store = db.store_handle(target.store_path())?;
     let selection = target_store
         .with_schema(|schema_store| {
@@ -211,23 +193,7 @@ where
             )
         })?
         .ok_or_else(InternalError::store_corruption)?;
-    let accepted = selection.snapshot();
-    let primary_key_kinds = accepted
-        .primary_key_field_kinds()
-        .into_iter()
-        .cloned()
-        .collect();
-    let target = AcceptedRelationTargetAuthority::try_new(
-        target.entity_path(),
-        accepted.entity_name(),
-        target.entity_tag(),
-        target.store_path(),
-    )?;
-
-    Ok(AcceptedRelationTargetContract {
-        target,
-        primary_key_kinds,
-    })
+    AcceptedRelationTargetContract::from_catalog_selection(&selection)
 }
 
 fn validate_accepted_relation_primary_key_kinds(
@@ -351,45 +317,13 @@ impl AcceptedRelationTargetAuthority {
     const fn store_path(&self) -> &str {
         self.store_path.as_str()
     }
-
-    fn validate_against_db<C>(&self, db: &Db<C>) -> Result<AcceptedRuntimeEntity, InternalError>
-    where
-        C: CanisterKind,
-    {
-        let runtime = db
-            .accepted_runtime_entity_for_tag(self.entity_tag)
-            .map_err(|_| InternalError::executor_internal())?;
-
-        if runtime.entity_path() != self.path {
-            return Err(InternalError::executor_internal());
-        }
-
-        if runtime.store_path() != self.store_path {
-            return Err(InternalError::executor_internal());
-        }
-
-        let store = db.store_handle(runtime.store_path())?;
-        let selection = store
-            .with_schema(|schema_store| {
-                schema_store.current_accepted_catalog_selection(
-                    runtime.entity_tag(),
-                    runtime.entity_path(),
-                    runtime.store_path(),
-                )
-            })?
-            .ok_or_else(InternalError::store_corruption)?;
-        let accepted = selection.snapshot();
-        if accepted.entity_name() != self.entity_name.as_str() {
-            return Err(InternalError::executor_internal());
-        }
-
-        Ok(runtime)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
+        AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
+        AcceptedRelationTargetContract, accepted_scalar_relation_cardinality,
         validate_accepted_relation_primary_key_kinds, validate_relation_primary_key_component_kind,
     };
     use crate::{db::schema::AcceptedFieldKind, error::ErrorClass, types::EntityTag};
@@ -402,6 +336,48 @@ mod tests {
             target_store_path: "TargetStore".to_string(),
             key_kind: Box::new(key_kind),
         }
+    }
+
+    #[test]
+    fn scalar_relation_contract_checks_selected_identity_and_key_kind() {
+        let kind = relation_key_kind(AcceptedFieldKind::Nat64);
+        let contract = AcceptedRelationTargetContract {
+            target: AcceptedRelationTargetAuthority::try_new(
+                "Target",
+                "Target",
+                EntityTag::new(11),
+                "TargetStore",
+            )
+            .unwrap(),
+            primary_key_kinds: vec![AcceptedFieldKind::Nat64],
+        };
+        assert_eq!(
+            accepted_scalar_relation_cardinality(&kind, &contract).unwrap(),
+            Some(AcceptedRelationCardinality::Single)
+        );
+        for (path, name, tag, store) in [
+            ("Other", "Target", 11, "TargetStore"),
+            ("Target", "Other", 11, "TargetStore"),
+            ("Target", "Target", 12, "TargetStore"),
+            ("Target", "Target", 11, "OtherStore"),
+        ] {
+            let changed = AcceptedRelationTargetContract {
+                target: AcceptedRelationTargetAuthority::try_new(
+                    path,
+                    name,
+                    EntityTag::new(tag),
+                    store,
+                )
+                .unwrap(),
+                primary_key_kinds: contract.primary_key_kinds.clone(),
+            };
+            assert!(accepted_scalar_relation_cardinality(&kind, &changed).is_err());
+        }
+        let changed_key = AcceptedRelationTargetContract {
+            primary_key_kinds: vec![AcceptedFieldKind::Nat128],
+            ..contract
+        };
+        assert!(accepted_scalar_relation_cardinality(&kind, &changed_key).is_err());
     }
 
     #[test]

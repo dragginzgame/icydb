@@ -2,7 +2,6 @@ use crate::{
     db::{
         data::{DataRow, DecodedDataStoreKey, RawRow},
         executor::{
-            ExecutorError,
             budget::{charge_current_execution_budget, charge_materialized_data_row},
             projection::eval_effective_runtime_filter_program_with_slot_reader,
             terminal::{RowDecoder, RowLayout},
@@ -58,9 +57,7 @@ impl ScalarRowRuntimeState {
         }
 
         match consistency {
-            MissingRowPolicy::Error => row
-                .map(Some)
-                .ok_or_else(|| InternalError::from(ExecutorError::store_corruption())),
+            MissingRowPolicy::Error => row.map(Some).ok_or_else(InternalError::store_corruption),
             MissingRowPolicy::Ignore => Ok(row),
         }
     }
@@ -93,9 +90,7 @@ impl ScalarRowRuntimeState {
         })?;
 
         match consistency {
-            MissingRowPolicy::Error => result
-                .map(Some)
-                .ok_or_else(|| InternalError::from(ExecutorError::store_corruption())),
+            MissingRowPolicy::Error => result.map(Some).ok_or_else(InternalError::store_corruption),
             MissingRowPolicy::Ignore => Ok(result),
         }
     }

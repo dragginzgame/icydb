@@ -151,105 +151,10 @@ pub(in crate::db::executor) fn validate_executor_plan_for_authority(
 // - Corruption indicates invalid persisted bytes or store mismatches; invariant violations
 //   indicate executor/planner contract breaches.
 
-use crate::db::{cursor::CursorPlanError, query::plan::AccessPlannedQuery};
+use crate::db::query::plan::AccessPlannedQuery;
 use crate::error::{ErrorClass, ErrorOrigin, InternalError};
-
-///
-/// ExecutorPlanError
-///
-/// Executor-owned plan-surface failures produced during runtime cursor validation.
-/// Mapped to query-owned plan errors only at query/session boundaries.
-///
-
-#[derive(Debug)]
-pub(in crate::db) enum ExecutorPlanError {
-    Cursor(Box<CursorPlanError>),
-}
-
-impl ExecutorPlanError {
-    /// Construct one executor plan error from one cursor invariant violation.
-    pub(in crate::db::executor) fn continuation_cursor_invariant() -> Self {
-        Self::from(CursorPlanError::continuation_cursor_invariant())
-    }
-
-    /// Construct one executor plan error for grouped cursor preparation
-    /// attempted against non-grouped logical plans.
-    pub(in crate::db::executor) fn grouped_cursor_preparation_requires_grouped_plan() -> Self {
-        Self::continuation_cursor_invariant()
-    }
-
-    /// Construct one executor plan error for grouped boundary-arity access
-    /// attempted against non-grouped logical plans.
-    pub(in crate::db::executor) fn grouped_cursor_boundary_arity_requires_grouped_plan() -> Self {
-        Self::continuation_cursor_invariant()
-    }
-
-    /// Construct one executor plan error for load-only continuation contracts.
-    pub(in crate::db::executor) fn continuation_contract_requires_load_plan() -> Self {
-        Self::continuation_cursor_invariant()
-    }
-
-    /// Lift one executor plan error into the runtime internal taxonomy.
-    pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
-        match self {
-            Self::Cursor(err) => err.into_internal_error(),
-        }
-    }
-}
-
-impl From<CursorPlanError> for ExecutorPlanError {
-    fn from(err: CursorPlanError) -> Self {
-        Self::Cursor(Box::new(err))
-    }
-}
-
-///
-/// ExecutorError
-///
-/// Executor-owned runtime failure taxonomy for execution boundaries.
-/// Keeps conflict vs corruption classification explicit for internal mapping.
-/// User-shape validation failures remain plan-layer errors.
-///
-
-#[derive(Debug)]
-pub(in crate::db::executor) enum ExecutorError {
-    Corruption { origin: ErrorOrigin },
-
-    KeyExists,
-}
-
-impl ExecutorError {
-    pub(in crate::db::executor) const fn class(&self) -> ErrorClass {
-        match self {
-            Self::KeyExists => ErrorClass::Conflict,
-            Self::Corruption { .. } => ErrorClass::Corruption,
-        }
-    }
-
-    pub(in crate::db::executor) const fn origin(&self) -> ErrorOrigin {
-        match self {
-            Self::KeyExists => ErrorOrigin::Store,
-            Self::Corruption { origin } => *origin,
-        }
-    }
-
-    pub(in crate::db::executor) const fn corruption(origin: ErrorOrigin) -> Self {
-        Self::Corruption { origin }
-    }
-
-    // Construct a store-origin corruption error with canonical taxonomy.
-    pub(in crate::db::executor) const fn store_corruption() -> Self {
-        Self::corruption(ErrorOrigin::Store)
-    }
-}
 
 /// Construct the canonical executor conflict for an occupied mutation key.
 pub(in crate::db) fn mutation_key_exists_error() -> InternalError {
-    ExecutorError::KeyExists.into()
-}
-
-impl From<ExecutorError> for InternalError {
-    fn from(err: ExecutorError) -> Self {
-        Self::classified(err.class(), err.origin())
-    }
+    InternalError::classified(ErrorClass::Conflict, ErrorOrigin::Store)
 }

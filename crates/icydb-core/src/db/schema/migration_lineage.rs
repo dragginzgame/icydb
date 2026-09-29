@@ -59,7 +59,9 @@ pub(in crate::db::schema) enum AcceptedEntitySourceLineageState {
 /// One exact accepted entity-source lineage fact.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct AcceptedEntitySourceLineage {
-    accepted_head: ExpectedAcceptedHead,
+    // Exact catalog head when this lineage record was published. SQL-owned
+    // catalog changes do not change generated-source meaning or this provenance.
+    publication_head: ExpectedAcceptedHead,
     state: AcceptedEntitySourceLineageState,
 }
 
@@ -69,7 +71,7 @@ impl AcceptedEntitySourceLineage {
     ) -> Result<Self, InternalError> {
         validate_lineage_head(&accepted_head)?;
         Ok(Self {
-            accepted_head,
+            publication_head: accepted_head,
             state: AcceptedEntitySourceLineageState::Unadopted,
         })
     }
@@ -84,7 +86,7 @@ impl AcceptedEntitySourceLineage {
             return Err(InternalError::store_invariant());
         }
         Ok(Self {
-            accepted_head,
+            publication_head: accepted_head,
             state: AcceptedEntitySourceLineageState::Adopted {
                 version,
                 source_digest,
@@ -93,8 +95,8 @@ impl AcceptedEntitySourceLineage {
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn accepted_head(&self) -> &ExpectedAcceptedHead {
-        &self.accepted_head
+    pub(in crate::db::schema) const fn publication_head(&self) -> &ExpectedAcceptedHead {
+        &self.publication_head
     }
 
     #[must_use]
@@ -237,7 +239,7 @@ pub(in crate::db::schema) fn encode_entity_source_lineage_catalog(
     for ((store, entity), lineage) in catalog.entries() {
         writer.push_bytes(&store.to_bytes());
         writer.push_u64(entity.value());
-        encode_lineage_head(&mut writer, lineage.accepted_head())?;
+        encode_lineage_head(&mut writer, lineage.publication_head())?;
         match lineage.state() {
             AcceptedEntitySourceLineageState::Unadopted => writer.push_u8(0),
             AcceptedEntitySourceLineageState::Adopted {

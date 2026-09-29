@@ -942,14 +942,6 @@ impl InternalError {
         )
     }
 
-    /// Construct an executor-origin mutation invariant for index-store generation drift.
-    pub(crate) fn mutation_index_store_generation_changed(
-        _expected_generation: u64,
-        _observed_generation: u64,
-    ) -> Self {
-        Self::executor_invariant()
-    }
-
     /// Construct a planner-origin invariant violation.
     #[cold]
     #[inline(never)]
@@ -1042,12 +1034,6 @@ impl InternalError {
 
     /// Construct a commit control-memory growth failure.
     pub(crate) fn commit_control_memory_growth_failed() -> Self {
-        Self::store_internal()
-    }
-
-    /// Construct a store-format memory registration failure.
-    #[cfg(not(test))]
-    pub(crate) fn database_format_memory_registration_failed(_err: impl Sized) -> Self {
         Self::store_internal()
     }
 
@@ -1618,18 +1604,6 @@ impl InternalError {
                 StoreError::SchemaTransitionBudgetExceeded { resource },
             )),
         }
-    }
-
-    /// Construct the canonical unsupported persisted entity-tag store error.
-    pub(crate) fn unsupported_entity_tag_in_data_store(
-        _entity_tag: crate::types::EntityTag,
-    ) -> Self {
-        Self::store_unsupported()
-    }
-
-    /// Construct the canonical commit-memory id registration failure.
-    pub(crate) fn commit_memory_id_registration_failed(_err: impl Sized) -> Self {
-        Self::store_internal()
     }
 
     /// Construct an index-origin unsupported error.

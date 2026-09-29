@@ -65,8 +65,7 @@ pub(in crate::db::query::plan::expr::canonicalize) fn normalize_bool_expr_impl(
 #[must_use]
 pub(in crate::db) fn is_normalized_bool_expr(expr: &Expr) -> bool {
     match expr {
-        Expr::Field(_) | Expr::FieldPath(_) => true,
-        Expr::Literal(Value::Bool(_) | Value::Null) => true,
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(Value::Bool(_) | Value::Null) => true,
         Expr::Unary {
             op: UnaryOp::Not,
             expr,
@@ -96,8 +95,6 @@ pub(in crate::db) fn is_normalized_bool_expr(expr: &Expr) -> bool {
             }) && is_normalized_bool_expr(else_expr.as_ref())
         }
         Expr::Aggregate(_) | Expr::Literal(_) => false,
-        #[cfg(test)]
-        Expr::Alias { .. } => false,
     }
 }
 
@@ -414,8 +411,6 @@ fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
             }) && is_normalized_bool_compare_operand(else_expr.as_ref())
         }
         Expr::Unary { .. } | Expr::Binary { .. } | Expr::FunctionCall { .. } => false,
-        #[cfg(test)]
-        Expr::Alias { .. } => false,
     }
 }
 

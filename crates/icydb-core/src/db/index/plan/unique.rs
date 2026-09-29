@@ -9,9 +9,15 @@ use crate::{
         commit::CommitSchemaFingerprint,
         data::{DecodedDataStoreKey, StructuralRowContract, StructuralSlotReader},
         index::{
-            IndexId, IndexKey, IndexPlanReadView, IndexReadContract, plan::error::IndexPlanError,
+            IndexId, IndexKey, IndexPlanReadView, IndexReadContract,
+            plan::{
+                accepted_expression_index_key_for_slot_reader_with_membership_structural,
+                accepted_field_path_index_key_for_slot_reader_with_membership_structural,
+                error::unique_violation,
+            },
         },
         key_taxonomy::PrimaryKeyValue,
+        predicate::PredicateProgram,
         schema::{SchemaExpressionIndexInfo, SchemaIndexInfo},
     },
     error::{InternalError, MutationDiagnosticContext},
@@ -20,8 +26,8 @@ use crate::{
 use std::ops::Bound;
 
 enum UniqueKeyAuthority<'a> {
-    AcceptedFieldPath(&'a SchemaIndexInfo),
-    AcceptedExpression(&'a SchemaExpressionIndexInfo),
+    AcceptedFieldPath(&'a SchemaIndexInfo, Option<&'a PredicateProgram>),
+    AcceptedExpression(&'a SchemaExpressionIndexInfo, Option<&'a PredicateProgram>),
 }
 
 const fn batch_override_releases_unique_membership(
@@ -34,12 +40,12 @@ const fn batch_override_releases_unique_membership(
 impl UniqueKeyAuthority<'_> {
     const fn index_id(&self, entity_tag: EntityTag) -> IndexId {
         match self {
-            Self::AcceptedFieldPath(index) => IndexId::new_with_generation(
+            Self::AcceptedFieldPath(index, _) => IndexId::new_with_generation(
                 entity_tag,
                 index.ordinal(),
                 index.physical_generation(),
             ),
-            Self::AcceptedExpression(index) => IndexId::new_with_generation(
+            Self::AcceptedExpression(index, _) => IndexId::new_with_generation(
                 entity_tag,
                 index.ordinal(),
                 index.physical_generation(),
@@ -54,19 +60,21 @@ impl UniqueKeyAuthority<'_> {
         row_fields: &StructuralSlotReader<'_>,
     ) -> Result<Option<IndexKey>, InternalError> {
         match self {
-            Self::AcceptedFieldPath(index) => {
-                IndexKey::new_from_slots_with_accepted_field_path_index_primary_key_value(
+            Self::AcceptedFieldPath(index, predicate_program) => {
+                accepted_field_path_index_key_for_slot_reader_with_membership_structural(
                     entity_tag,
-                    primary_key,
                     index,
+                    *predicate_program,
+                    primary_key,
                     row_fields,
                 )
             }
-            Self::AcceptedExpression(index) => {
-                IndexKey::new_from_slots_with_accepted_expression_index_primary_key_value(
+            Self::AcceptedExpression(index, predicate_program) => {
+                accepted_expression_index_key_for_slot_reader_with_membership_structural(
                     entity_tag,
-                    primary_key,
                     index,
+                    *predicate_program,
+                    primary_key,
                     row_fields,
                 )
             }
@@ -78,18 +86,20 @@ impl UniqueKeyAuthority<'_> {
         accepted_schema_fingerprint: CommitSchemaFingerprint,
         mutation: Option<MutationDiagnosticContext>,
         entity_tag: EntityTag,
-    ) -> Result<IndexPlanError, InternalError> {
+    ) -> InternalError {
         let identity = match self {
-            Self::AcceptedFieldPath(index) => index.unique_constraint(),
-            Self::AcceptedExpression(index) => index.unique_constraint(),
+            Self::AcceptedFieldPath(index, _) => index.unique_constraint(),
+            Self::AcceptedExpression(index, _) => index.unique_constraint(),
         };
-        let identity = identity.ok_or_else(InternalError::index_unique_validation_corruption)?;
-        Ok(IndexPlanError::unique_violation(
+        let Some(identity) = identity else {
+            return InternalError::index_unique_validation_corruption();
+        };
+        unique_violation(
             accepted_schema_fingerprint,
             mutation,
             identity.id().get(),
             entity_tag.value(),
-        ))
+        )
     }
 }
 
@@ -102,17 +112,18 @@ pub(super) fn validate_unique_constraint_accepted_field_path_structural(
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
     accepted_index: &SchemaIndexInfo,
+    predicate_program: Option<&PredicateProgram>,
     read_contract: IndexReadContract<'_>,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_index_key: Option<&IndexKey>,
-) -> Result<(), IndexPlanError> {
+) -> Result<(), InternalError> {
     validate_unique_constraint_structural_impl(
         accepted_schema_fingerprint,
         mutation,
         entity_tag,
         read_view,
         row_contract,
-        UniqueKeyAuthority::AcceptedFieldPath(accepted_index),
+        UniqueKeyAuthority::AcceptedFieldPath(accepted_index, predicate_program),
         read_contract,
         new_primary_key,
         new_index_key,
@@ -128,17 +139,18 @@ pub(super) fn validate_unique_constraint_accepted_expression_structural(
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
     accepted_index: &SchemaExpressionIndexInfo,
+    predicate_program: Option<&PredicateProgram>,
     read_contract: IndexReadContract<'_>,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_index_key: Option<&IndexKey>,
-) -> Result<(), IndexPlanError> {
+) -> Result<(), InternalError> {
     validate_unique_constraint_structural_impl(
         accepted_schema_fingerprint,
         mutation,
         entity_tag,
         read_view,
         row_contract,
-        UniqueKeyAuthority::AcceptedExpression(accepted_index),
+        UniqueKeyAuthority::AcceptedExpression(accepted_index, predicate_program),
         read_contract,
         new_primary_key,
         new_index_key,
@@ -156,7 +168,7 @@ fn validate_unique_constraint_structural_impl(
     read_contract: IndexReadContract<'_>,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_index_key: Option<&IndexKey>,
-) -> Result<(), IndexPlanError> {
+) -> Result<(), InternalError> {
     // Phase 1: fast exits for non-unique or non-insert/update paths.
     if !read_contract.unique() {
         return Ok(());
@@ -168,12 +180,12 @@ fn validate_unique_constraint_structural_impl(
     };
 
     let Some(new_primary_key) = new_primary_key else {
-        return Err(InternalError::index_unique_validation_entity_key_required().into());
+        return Err(InternalError::index_unique_validation_entity_key_required());
     };
 
     let index_id = key_authority.index_id(entity_tag);
     if new_index_key.index_id() != &index_id {
-        return Err(InternalError::index_unique_validation_corruption().into());
+        return Err(InternalError::index_unique_validation_corruption());
     }
     let (lower, upper) = new_index_key
         .raw_bounds_for_all_components()
@@ -195,7 +207,7 @@ fn validate_unique_constraint_structural_impl(
     }
 
     if matching_primary_keys.len() > 1 {
-        return Err(InternalError::index_unique_validation_corruption().into());
+        return Err(InternalError::index_unique_validation_corruption());
     }
 
     let existing_key = matching_primary_keys[0];
@@ -205,15 +217,16 @@ fn validate_unique_constraint_structural_impl(
 
     // Phase 3: prove that the stored row still belongs to this key and value
     // through the structural persisted-row decode path only. A complete batch
-    // overlay may intentionally move or delete that row; in that case the
-    // committed index membership does not conflict with the final batch.
+    // overlay may move/delete that row or change its predicate membership;
+    // use the same accepted predicate and key builder as index mutation so
+    // preflight, replay and fold agree on ownership of the final batch.
     let data_key = DecodedDataStoreKey::new_primary_key_value(entity_tag, &existing_key);
     let batch_overrides_existing = read_view.has_primary_row_override(&data_key)?;
     let Some(row) = read_view.read_primary_row(&data_key)? else {
         if batch_override_releases_unique_membership(batch_overrides_existing, false) {
             return Ok(());
         }
-        return Err(InternalError::index_unique_validation_row_required().into());
+        return Err(InternalError::index_unique_validation_row_required());
     };
     let row_fields = decode_unique_row_slots(&data_key, &row, row_contract)?;
 
@@ -227,16 +240,16 @@ fn validate_unique_constraint_structural_impl(
         if batch_override_releases_unique_membership(batch_overrides_existing, false) {
             return Ok(());
         }
-        return Err(InternalError::index_unique_validation_corruption().into());
+        return Err(InternalError::index_unique_validation_corruption());
     };
     if !current_index_key.has_same_components(new_index_key) {
         if batch_override_releases_unique_membership(batch_overrides_existing, false) {
             return Ok(());
         }
-        return Err(InternalError::index_unique_validation_corruption().into());
+        return Err(InternalError::index_unique_validation_corruption());
     }
 
-    Err(key_authority.unique_violation(accepted_schema_fingerprint, mutation, entity_tag)?)
+    Err(key_authority.unique_violation(accepted_schema_fingerprint, mutation, entity_tag))
 }
 
 // Decode one stored row through the canonical structural persisted-row scanner

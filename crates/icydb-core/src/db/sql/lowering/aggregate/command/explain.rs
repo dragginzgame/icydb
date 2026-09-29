@@ -21,19 +21,13 @@ pub(in crate::db) fn bind_lowered_sql_explain_global_aggregate_with_schema(
     consistency: MissingRowPolicy,
     schema: &SchemaInfo,
     work: &PreparationWork<'_>,
-) -> Result<Option<(SqlExplainMode, bool, SqlGlobalAggregateCommand)>, SqlLoweringError> {
-    let LoweredSqlCommandInner::ExplainGlobalAggregate {
-        mode,
-        verbose,
-        command,
-    } = &lowered.0
-    else {
+) -> Result<Option<(SqlExplainMode, SqlGlobalAggregateCommand)>, SqlLoweringError> {
+    let LoweredSqlCommandInner::ExplainGlobalAggregate { mode, command } = &lowered.0 else {
         return Ok(None);
     };
 
     Ok(Some((
         *mode,
-        *verbose,
         bind_lowered_sql_global_aggregate_command_with_schema(
             command.as_ref().clone(),
             consistency,

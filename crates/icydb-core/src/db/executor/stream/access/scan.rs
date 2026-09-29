@@ -10,7 +10,7 @@ use crate::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
         direction::Direction,
         executor::{
-            ExecutorError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
             budget::{
                 ExecutionConstructionBudget, charge_current_execution_budget,
                 charge_current_execution_budget_pair,
@@ -437,10 +437,10 @@ impl IndexScan {
                     .decode_existence_witness()
                     .map_err(|_| InternalError::index_entry_decode_failed())?;
                 if matches!(existence_witness, IndexEntryExistenceWitness::Missing) {
-                    return Err(ExecutorError::store_corruption().into());
+                    return Err(InternalError::store_corruption());
                 }
                 if exceeds_cardinality_proof {
-                    return Err(ExecutorError::store_corruption().into());
+                    return Err(InternalError::store_corruption());
                 }
                 keys.push(ExactIntersectionPrimaryKey { value: primary_key });
 
@@ -461,7 +461,7 @@ impl IndexScan {
         )?;
         scan_result?;
         if keys.len() != expected {
-            return Err(ExecutorError::store_corruption().into());
+            return Err(InternalError::store_corruption());
         }
 
         Ok(keys)

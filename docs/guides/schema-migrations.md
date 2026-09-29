@@ -30,6 +30,27 @@ state only after the migration is terminal and startup reports `Ready`; do not
 infer readiness from a delay or a generic conflict. See
 [startup-readiness.md](startup-readiness.md) for the composed lifecycle form.
 
+Removing another field preserves a retained generated Identity field's counter,
+including when dense field numbering changes its accepted ID. Committed values
+remain consumed after row deletion and restart; the removal does not reseed the
+allocator or restore exhausted capacity. Existing field-removal admission rules
+still apply. This does not repair allocator resets already published by older
+code.
+
+Physical migrations preserve retained row values through accepted field lineage,
+including declared field renames, when removals change numeric field IDs.
+Validation and the normal pre-rewrite abort boundary still apply. Structural
+not-null names follow the renumbered field IDs, allowing later non-null column
+addition without name collisions. Retained constraint IDs and authored check
+names remain unchanged. This does not retroactively rewrite names from removals
+published before this correction.
+
+SQL-owned catalog edits do not change the accepted generated-source version or
+digest. After SQL DDL, bind the proposal and migration command to the current
+accepted head. The older publication head stored in source lineage is provenance,
+not a freshness requirement. Stale requests and mismatched proposal/command heads
+still reject with `StaleAcceptedHead`; source-version and digest checks remain.
+
 ## Declare The Current Version
 
 Every entity has its own positive source version. Start a new entity at
@@ -80,6 +101,14 @@ maintained fixture below is not a production-data migration tool.
 
 ## Declare One Adjacent Migration
 
+Record-member renames require physical rewriting because stored records carry
+member names. Every entity sharing the record must declare the member rename;
+each such transition runs through validation, rewriting and final validation
+before publication, including records nested inside collections or named types.
+Use the ordinary `Advance` workflow until `Applied`; no explicit copy transform
+is needed just to rename a member. The existing pre-rewrite abort boundary and
+startup recovery behavior apply. Stored formats are unchanged.
+
 The canister owns one coordinated migration plan. This example renames
 `rank` to `score` while preserving its accepted field identity, and rewrites
 `age` from `Int32` to `Nat16` with checked exact conversion:
@@ -125,6 +154,15 @@ application callback, SQL migration language, or compatibility alias.
 ## Deploy And Run
 
 ### Entity rename with inbound relations
+
+Same-store entity renames preserve journal routing through the entity's accepted
+tag. Writes retained before the rename fold before its schema publication; later
+writes use the renamed catalog. Startup can route a post-rename commit marker
+even after its volatile catalog projection is lost. No source-name alias is
+required for routing. Retained self-relation and inbound-relation writes resolve
+both source and target contracts at the canonical fold boundary; ordinary writes
+continue to validate the live renamed target. Pending writes do not need to be
+drained before these same-store renames.
 
 For a same-store `Item` to `CatalogItem` rename, keep all fields, indexes and
 durable namespace/store keys unchanged. Rename the declaration and update its

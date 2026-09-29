@@ -426,11 +426,6 @@ pub(in crate::db) enum Expr {
         else_expr: Box<Self>,
     },
     Aggregate(AggregateExpr),
-    #[cfg(test)]
-    Alias {
-        expr: Box<Self>,
-        name: Alias,
-    },
 }
 
 /// Collect accepted top-level field roots referenced by one scalar expression.
@@ -470,8 +465,6 @@ pub(in crate::db) fn collect_scalar_expr_field_roots(
             }) && collect_scalar_expr_field_roots(else_expr, roots)
         }
         Expr::Aggregate(_) => false,
-        #[cfg(test)]
-        Expr::Alias { .. } => false,
     }
 }
 
@@ -501,8 +494,6 @@ impl Expr {
                 **else_expr = map(else_expr.take());
             }
             Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => {}
-            #[cfg(test)]
-            Self::Alias { expr, .. } => **expr = map(expr.take()),
         }
     }
 
@@ -549,8 +540,6 @@ impl Expr {
                     arm.condition().contains_field_path() || arm.result().contains_field_path()
                 }) || else_expr.contains_field_path()
             }
-            #[cfg(test)]
-            Self::Alias { expr, .. } => expr.contains_field_path(),
         }
     }
 
@@ -616,8 +605,6 @@ impl Expr {
                 }
                 else_expr.try_all_tree_expr(predicate)
             }
-            #[cfg(test)]
-            Self::Alias { expr, .. } => expr.try_all_tree_expr(predicate),
         }
     }
 
@@ -667,11 +654,6 @@ impl Expr {
                 }
                 else_expr.for_each_tree_expr(visit);
             }
-            #[cfg(test)]
-            Self::Alias { expr, .. } => {
-                visit(self);
-                expr.for_each_tree_expr(visit);
-            }
         }
     }
 
@@ -720,10 +702,6 @@ impl Expr {
                 }
 
                 else_expr.try_for_each_tree_expr_with_compare_index(next_compare_index, visit)?;
-            }
-            #[cfg(test)]
-            Self::Alias { expr, .. } => {
-                expr.try_for_each_tree_expr_with_compare_index(next_compare_index, visit)?;
             }
         }
 
@@ -811,8 +789,6 @@ Self::Unary{op,expr} => [op,expr],
 Self::Binary{op,left,right} => [op,left,right],
 Self::Case{when_then_arms,else_expr} => [when_then_arms,else_expr],
 Self::Aggregate(field_0) => [field_0],
-# [cfg (test)]
-Self::Alias{expr,name} => [expr,name],
 });
 crate::retained::retained_fields!(FieldId {
 Self(field_0) => [field_0],

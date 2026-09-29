@@ -420,3 +420,19 @@ fn decimal_text_transports_preserve_values_and_measured_sizes() {
         );
     }
 }
+
+#[test]
+fn decimal_division_signed_overflow_is_checked_and_saturating() {
+    let divisor = Decimal::new(-1, 0);
+    let saturated = Decimal::from_i128_with_scale(i128::MAX, DEFAULT_DIVISION_SCALE);
+    for scale in [0, DEFAULT_DIVISION_SCALE] {
+        let minimum = Decimal::from_i128_with_scale(i128::MIN, scale);
+        assert_eq!(minimum.checked_div(divisor), None);
+        assert_eq!(minimum / divisor, saturated);
+        let mut assigned = minimum;
+        assigned /= divisor;
+        assert_eq!(assigned, saturated);
+        assert_eq!(minimum.checked_div(Decimal::new(1, 0)), Some(minimum));
+        assert_eq!(minimum.checked_div(Decimal::ZERO), None);
+    }
+}

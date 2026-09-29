@@ -67,8 +67,7 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for CanonicalCommitReader<'_, C
             // requested final row; a tombstone must not fall through to storage.
             return final_row
                 .map(|bytes| RawRow::from_untrusted_bytes(bytes.to_vec()))
-                .transpose()
-                .map_err(InternalError::from);
+                .transpose();
         }
         let runtime_entity = canonical_runtime_entity_for_tag(self.db, key.entity_tag())?;
         let store = runtime_entity.store(self.db)?;
@@ -258,7 +257,7 @@ pub(in crate::db) fn accepted_runtime_entity_for_tag<C: CanisterKind>(
         })?;
         merge_unique_entity_match(&mut matched, entity)?;
     }
-    matched.ok_or_else(|| InternalError::unsupported_entity_tag_in_data_store(entity_tag))
+    matched.ok_or_else(InternalError::store_unsupported)
 }
 
 pub(in crate::db) fn canonical_runtime_entity_for_tag<C: CanisterKind>(

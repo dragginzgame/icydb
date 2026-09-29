@@ -27,7 +27,7 @@ pub(super) fn observe<C: CanisterKind>(
     submission_key: &str,
 ) -> Result<DatabaseStartupState, StartupFailure> {
     C::commit_memory_id()
-        .map_err(InternalError::commit_memory_id_registration_failed)
+        .map_err(|_| InternalError::store_internal())
         .map(|id| select_commit_memory_allocation(id, C::COMMIT_STABLE_KEY))
         .map_err(database_control_failure)?;
     let receipt = super::receipt::load::<C>().map_err(database_control_failure)?;

@@ -99,6 +99,13 @@ For example, `E274` reports a memory bucket-size conflict with requested
 correction or explicit recreation, not another recovery poll. See
 [canister memory profiles](schema-authoring.md#canister-memory-profiles).
 
+A journaled store whose registered Rust path differs from its verified accepted
+catalog is a deployment mismatch. The recovery driver returns
+`RUNTIME_UNSUPPORTED` before replay, without a durable terminal failure receipt;
+startup observation remains `Recovering`. Restore the original store path to
+resume recovery. Repeated polling cannot correct that configuration. This guard
+does not clear failure receipts already recorded by an older deployment.
+
 Do not match `RUNTIME_CONFLICT`, error text, or a guessed delay. Ordinary
 database calls return the dedicated retryable
 `RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING` diagnostic while recovery

@@ -25,11 +25,12 @@ pub(in crate::db) fn explain_projection_field_name(field: &ProjectionField) -> S
 fn explain_projection_expr_name(expr: &Expr) -> String {
     match expr {
         Expr::Field(field) => field.as_str().to_string(),
-        Expr::FieldPath(_) | Expr::Literal(_) | Expr::FunctionCall { .. } => "expr".to_string(),
         Expr::Aggregate(_) => "aggregate".to_string(),
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => explain_projection_expr_name(expr),
         Expr::Unary { expr, .. } => explain_projection_expr_name(expr),
-        Expr::Case { .. } | Expr::Binary { .. } => "expr".to_string(),
+        Expr::FieldPath(_)
+        | Expr::Literal(_)
+        | Expr::FunctionCall { .. }
+        | Expr::Case { .. }
+        | Expr::Binary { .. } => "expr".to_string(),
     }
 }

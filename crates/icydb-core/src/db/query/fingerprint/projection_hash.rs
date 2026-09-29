@@ -158,11 +158,6 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr) -> Result<(), InternalError> {
             write_tag(hasher, EXPR_AGGREGATE_TAG);
             hash_aggregate_expr(hasher, aggregate)?;
         }
-        #[cfg(test)]
-        Expr::Alias { expr, name: _ } => {
-            // Expression alias wrappers are presentation metadata only.
-            hash_expr(hasher, expr.as_ref())?;
-        }
     }
     Ok(())
 }

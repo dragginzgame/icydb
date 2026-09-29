@@ -11,8 +11,8 @@ use crate::{
         commit::CommitSchemaFingerprint,
         cursor::{ContinuationSignature, CursorPlanError, ValidatedGroupedCursor},
         executor::{
-            EntityAuthority, ExecutionPreparation, ExecutionRoutePlan, ExecutorPlanError,
-            GroupedPaginationWindow, ScalarContinuationContext,
+            EntityAuthority, ExecutionPreparation, ExecutionRoutePlan, GroupedPaginationWindow,
+            ScalarContinuationContext,
             budget::{ExecutionConstructionBudget, read_shape_fingerprint_prefix},
             pipeline::{
                 contracts::{CursorEmissionMode, ProjectionMaterializationMode},
@@ -518,10 +518,7 @@ impl PreparedExecutionPlanCore {
     ) -> Result<usize, InternalError> {
         let contract = self.continuation_contract()?;
         if !contract.is_grouped() {
-            return Err(
-                ExecutorPlanError::grouped_cursor_boundary_arity_requires_grouped_plan()
-                    .into_internal_error(),
-            );
+            return Err(CursorPlanError::continuation_cursor_invariant().into_internal_error());
         }
 
         Ok(contract.boundary_arity())
@@ -541,9 +538,10 @@ impl PreparedExecutionPlanCore {
     pub(in crate::db::executor::prepared_execution_plan) fn continuation_contract(
         &self,
     ) -> Result<&PlannedContinuationContract, InternalError> {
-        self.residents.continuation.as_ref().ok_or_else(|| {
-            ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
-        })
+        self.residents
+            .continuation
+            .as_ref()
+            .ok_or_else(|| CursorPlanError::continuation_cursor_invariant().into_internal_error())
     }
 }
 
@@ -570,11 +568,12 @@ fn retain_lazy<T: Retained + Clone>(
 #[cfg(test)]
 mod retention_tests {
     use super::{
-        AcceptedContinuationIdentity, ExecutionFamily, ExecutionPreparation, ExecutorPlanError,
+        AcceptedContinuationIdentity, ExecutionFamily, ExecutionPreparation,
         PreparedExecutionPlanCore, PreparedExecutionPlanResidents, retain_lazy,
     };
     use crate::db::{
         QueryError, RequestExecutionRoot,
+        cursor::CursorPlanError,
         executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         index::{IndexCompilePolicy, compile_index_program},
         predicate::{
@@ -671,8 +670,7 @@ mod retention_tests {
                 Arc::default(),
             );
             let error = missing.execution_family().unwrap_err();
-            let expected =
-                ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error();
+            let expected = CursorPlanError::continuation_cursor_invariant().into_internal_error();
             assert_eq!(error.diagnostic(), expected.diagnostic());
             assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
         }

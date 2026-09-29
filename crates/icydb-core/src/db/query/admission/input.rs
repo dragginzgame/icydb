@@ -167,11 +167,6 @@ impl QueryInputBudget {
                 self.expr(else_expr, depth + 1)
             }
             Expr::Aggregate(aggregate) => self.aggregate_children(aggregate, depth + 1),
-            #[cfg(test)]
-            Expr::Alias { expr, name } => {
-                self.payload(name.as_str().len())?;
-                self.expr(expr, depth + 1)
-            }
         }
     }
 

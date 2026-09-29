@@ -91,17 +91,14 @@ fn expression_copy_preserves_all_raw_shapes_and_nested_value_identity() {
         )],
         else_expr: Box::new(Expr::FunctionCall {
             function: Function::Coalesce,
-            args: vec![Expr::Alias {
-                expr: Box::new(Expr::Literal(Value::Enum(ValueEnum::test_payload(
-                    3,
-                    4,
-                    Value::Map(vec![
-                        (Value::Nat64(2), Value::Text("b".into())),
-                        (Value::Nat64(2), Value::Blob(vec![1, 2, 3])),
-                    ]),
-                )))),
-                name: "label".into(),
-            }],
+            args: vec![Expr::Literal(Value::Enum(ValueEnum::test_payload(
+                3,
+                4,
+                Value::Map(vec![
+                    (Value::Nat64(2), Value::Text("b".into())),
+                    (Value::Nat64(2), Value::Blob(vec![1, 2, 3])),
+                ]),
+            )))],
         }),
     };
     let request = root(Resource::TemporaryBytes, 16_000_000);

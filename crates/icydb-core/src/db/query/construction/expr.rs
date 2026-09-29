@@ -66,11 +66,6 @@ impl dyn ConstructionBudget + '_ {
                 else_expr: self.copy_boxed_expr(else_expr)?,
             },
             Expr::Aggregate(aggregate) => Expr::Aggregate(aggregate.copy_for_preparation(self)?),
-            #[cfg(test)]
-            Expr::Alias { expr, name } => Expr::Alias {
-                expr: self.copy_boxed_expr(expr)?,
-                name: self.copy_text(name.as_str())?.into(),
-            },
         })
     }
 

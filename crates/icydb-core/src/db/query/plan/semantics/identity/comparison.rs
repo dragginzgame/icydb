@@ -82,11 +82,6 @@ fn admit_expr(expr: &Expr, budget: &dyn ConstructionBudget) -> Result<(), Intern
             | Expr::Unary { .. }
             | Expr::Binary { .. }
             | Expr::Case { .. } => Ok(()),
-            #[cfg(test)]
-            Expr::Alias { name, .. } => budget.charge(
-                Resource::PredicateExpressionSteps,
-                name.as_str().len() as u64,
-            ),
         }
     })
 }

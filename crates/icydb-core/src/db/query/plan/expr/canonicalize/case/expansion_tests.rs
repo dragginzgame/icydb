@@ -153,10 +153,6 @@ fn condition_copy_allowance_covers_owned_shapes_and_fails_before_clone() {
         Expr::Aggregate(
             crate::db::query::builder::sum("amount").with_filter_expr(field("condition")),
         ),
-        Expr::Alias {
-            expr: Box::new(field("aliased")),
-            name: "label".into(),
-        },
         Expr::Literal(Value::List(vec![
             Value::Map(vec![(Value::Text("key".into()), Value::Blob(vec![1; 257]))]),
             Value::Enum(ValueEnum::test_payload(

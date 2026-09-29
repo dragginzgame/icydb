@@ -10,10 +10,6 @@ use crate::{
 /// reduce onto the existing field-vs-literal predicate lane.
 #[must_use]
 pub(in crate::db) fn rewrite_affine_numeric_compare_expr(mut expr: Expr) -> Expr {
-    #[cfg(test)]
-    if matches!(expr, Expr::Alias { .. }) {
-        return expr;
-    }
     expr.map_scalar_children(rewrite_affine_numeric_compare_expr);
     if let Expr::Binary { op, left, right } = &mut expr
         && !matches!(op, BinaryOp::And | BinaryOp::Or)

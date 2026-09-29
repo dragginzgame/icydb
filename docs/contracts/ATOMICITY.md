@@ -80,6 +80,25 @@ Debt-free startup may complete directly; ordinary online convergence still folds
 one complete batch per call. These stage boundaries do not themselves establish
 instruction or allocation bounds for every construction operation within a stage.
 
+Row-journal routing resolves the stable entity tag in the persisted primary key
+through accepted catalog authority. When an entity rename publishes while
+earlier writes remain retained, their old names do not determine the store route.
+Row preparation still verifies the record's entity path, schema fingerprint and
+key against the accepted authority at its fold boundary. Marker publication and
+online folding use the same routing rule; no rename alias is retained.
+
+Durable row replay binds relation targets from the canonical accepted catalog
+at that fold boundary, matching its source-row authority. Ordinary writes and
+volatile-source preparation bind live targets. Both paths pass an explicit
+accepted target contract through the same relation compiler, preserving target
+identity and ordered primary-key-kind checks without a name fallback.
+
+Before replay, recovery verifies that each journaled store's registered path
+matches its accepted catalog. A mismatch is an unsupported deployment binding,
+not evidence of corrupt persisted bytes: it rejects without replay effects or a
+durable terminal receipt. Restoring the accepted path allows recovery to resume.
+Malformed catalog authority retains its corruption classification.
+
 ### Commit boundary
 
 The explicit boundary after which durable state mutation occurs.
@@ -127,6 +146,12 @@ All fallible work **must complete before any durable mutation**, including:
 * mutation planning
 
 If any step fails, **no durable state is mutated**.
+
+Filtered unique-index conflict checks use the accepted predicate as well as
+the key expression. A row's complete batch after-image releases its previous
+unique membership when it no longer matches that predicate. Preflight,
+journal replay and folding use this same membership rule; a final-image
+collision still fails before publication.
 
 `docs/contracts/WRITE_ADMISSION.md` defines the exact field, absence, key,
 relation, and supported-ingress guarantees included in write admission.

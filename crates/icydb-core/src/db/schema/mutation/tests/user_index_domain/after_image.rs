@@ -137,7 +137,7 @@ fn plan_name_update(
     new: &ObservedNameRow,
 ) -> Result<IndexMutationPlan, InternalError> {
     let primary_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Ulid(crate::types::Ulid::MIN));
-    match plan_index_mutation_for_slot_reader_structural(
+    plan_index_mutation_for_slot_reader_structural(
         EntityTag::new(7),
         [0; 16],
         None,
@@ -148,10 +148,7 @@ fn plan_name_update(
         Some(old),
         Some(&primary_key),
         Some(new),
-    ) {
-        Ok(plan) => Ok(plan),
-        Err(error) => Err(error.into_internal_error()),
-    }
+    )
 }
 
 #[test]

@@ -198,8 +198,6 @@ impl CompiledExpr {
                 let right = Self::compile_expr(right, leaf, budget, budget_error)?;
                 Self::compile_binary(*op, left, right, budget).map_err(budget_error)?
             }
-            #[cfg(test)]
-            Expr::Alias { expr, .. } => Self::compile_expr(expr, leaf, budget, budget_error)?,
         })
     }
 

@@ -79,7 +79,6 @@ impl TruthAdmission {
                 Self::is_scalar_compare_operand(left.as_ref())
                     && Self::is_scalar_compare_operand(right.as_ref())
             }
-            Expr::Binary { .. } => false,
             Expr::FunctionCall { function, args } => {
                 scalar_truth_function_call_is_admitted(*function, args.as_slice())
             }
@@ -92,9 +91,7 @@ impl TruthAdmission {
                         && Self::is_scalar_condition(arm.result())
                 }) && Self::is_scalar_condition(else_expr.as_ref())
             }
-            Expr::Aggregate(_) | Expr::Literal(_) => false,
-            #[cfg(test)]
-            Expr::Alias { expr, .. } => Self::is_scalar_condition(expr.as_ref()),
+            Expr::Binary { .. } | Expr::Aggregate(_) | Expr::Literal(_) => false,
         }
     }
 
@@ -126,8 +123,6 @@ impl TruthAdmission {
             | Expr::Unary { .. }
             | Expr::FunctionCall { .. }
             | Expr::Binary { .. } => false,
-            #[cfg(test)]
-            Expr::Alias { expr, .. } => Self::is_scalar_compare_operand(expr.as_ref()),
         }
     }
 
@@ -153,7 +148,6 @@ impl TruthAdmission {
                     || Self::is_grouped_condition(right.as_ref())
             }
             Expr::Binary { op, .. } if truth_condition_binary_compare_op(*op).is_some() => true,
-            Expr::Binary { .. } => false,
             Expr::Case {
                 when_then_arms,
                 else_expr,
@@ -175,9 +169,7 @@ impl TruthAdmission {
                 ) => true,
                 Some(BooleanFunctionShape::CollectionContains) | None => false,
             },
-            Expr::Aggregate(_) | Expr::Literal(_) => false,
-            #[cfg(test)]
-            Expr::Alias { expr, .. } => Self::is_grouped_condition(expr.as_ref()),
+            Expr::Binary { .. } | Expr::Aggregate(_) | Expr::Literal(_) => false,
         }
     }
 }

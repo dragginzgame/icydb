@@ -243,8 +243,8 @@ fn allocation_registry_generation() -> Result<u64, InternalError> {
 
 #[cfg(not(test))]
 fn allocation_registry_generation() -> Result<u64, InternalError> {
-    let allocations = ic_memory::committed_allocations()
-        .map_err(InternalError::database_format_memory_registration_failed)?;
+    let allocations =
+        ic_memory::committed_allocations().map_err(|_| InternalError::store_internal())?;
     validate_committed_allocation_declarations(allocations.declarations())?;
     Ok(allocations.generation())
 }
@@ -260,8 +260,8 @@ pub(super) const fn validate_integrity_allocation_registry() -> Result<(), Inter
 
 #[cfg(not(test))]
 pub(super) fn validate_integrity_allocation_registry() -> Result<(), InternalError> {
-    let allocations = ic_memory::committed_allocations()
-        .map_err(InternalError::database_format_memory_registration_failed)?;
+    let allocations =
+        ic_memory::committed_allocations().map_err(|_| InternalError::store_internal())?;
     validate_committed_allocation_declarations(allocations.declarations())
 }
 

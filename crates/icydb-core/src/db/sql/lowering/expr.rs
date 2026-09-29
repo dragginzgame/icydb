@@ -63,10 +63,9 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
             Ok(Expr::Aggregate(lower_aggregate_call(aggregate, work)?))
         }
         SqlExpr::Literal(literal) => Ok(Expr::Literal(work.copy_value(literal)?)),
-        SqlExpr::Param { index } => Err(SqlLoweringError::unsupported_parameter_placement(
-            Some(*index),
-            super::SqlParameterPlacementReason::UnboundExpressionLowering,
-        )),
+        SqlExpr::Param { index } => Err(SqlLoweringError::unsupported_parameter_placement(Some(
+            *index,
+        ))),
         SqlExpr::Membership {
             expr,
             values,
@@ -173,10 +172,9 @@ fn lower_sql_membership_expr(
         copied.push(match value {
             SqlMembershipValue::Literal(value) => work.copy_value(value)?,
             SqlMembershipValue::Param { index } => {
-                return Err(SqlLoweringError::unsupported_parameter_placement(
-                    Some(*index),
-                    super::SqlParameterPlacementReason::UnboundExpressionLowering,
-                ));
+                return Err(SqlLoweringError::unsupported_parameter_placement(Some(
+                    *index,
+                )));
             }
         });
     }

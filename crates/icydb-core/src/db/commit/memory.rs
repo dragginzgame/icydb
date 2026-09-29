@@ -85,7 +85,7 @@ pub(in crate::db) fn commit_memory_handle(
     allocation: CommitMemoryAllocation,
 ) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory(allocation.stable_key, allocation.memory_id)
-        .map_err(InternalError::commit_memory_id_registration_failed)
+        .map_err(|_| InternalError::store_internal())
 }
 
 ///

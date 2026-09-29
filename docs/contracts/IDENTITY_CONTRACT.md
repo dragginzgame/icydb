@@ -179,6 +179,11 @@ expression, or authorization mechanism.
   structural and SQL inserts may omit it or use `DEFAULT`.
 - Rejected work consumes no value. A committed value is never reused after
   deletion, so visible values need not be dense.
+- Removing another field may renumber the retained Identity field. Accepted
+  source bindings carry its complete allocator state to the new field ID in the
+  same schema publication. High-water, exhaustion and replay identity survive;
+  the old key is removed without retiring the retained owner. Unproven lineage
+  or an occupied destination rejects before publication.
 - Capacity is lifetime committed allocation: `255`, `65,535`,
   `4,294,967,295`, `18,446,744,073,709,551,615`, or `2^128 - 1` respectively.
 - `Nat64` is the normal general-purpose choice. Narrower kinds do not imply a

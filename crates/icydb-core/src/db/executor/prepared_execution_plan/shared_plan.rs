@@ -98,15 +98,12 @@ impl SharedPreparedExecutionPlan {
     pub(in crate::db) fn prepare_grouped_cursor_token(
         &self,
         cursor: Option<crate::db::cursor::GroupedContinuationToken>,
-    ) -> Result<crate::db::cursor::ValidatedGroupedCursor, crate::db::executor::ExecutorPlanError>
-    {
+    ) -> Result<crate::db::cursor::ValidatedGroupedCursor, CursorPlanError> {
         let Some(contract) = self.core.residents.continuation.as_ref() else {
-            return Err(crate::db::executor::ExecutorPlanError::grouped_cursor_preparation_requires_grouped_plan());
+            return Err(CursorPlanError::continuation_cursor_invariant());
         };
 
-        let cursor = contract
-            .prepare_grouped_cursor_token(cursor)
-            .map_err(crate::db::executor::ExecutorPlanError::from)?;
+        let cursor = contract.prepare_grouped_cursor_token(cursor)?;
         self.validate_grouped_cursor_boundary(&cursor)?;
 
         Ok(cursor)
@@ -117,16 +114,18 @@ impl SharedPreparedExecutionPlan {
     fn validate_grouped_cursor_boundary(
         &self,
         cursor: &ValidatedGroupedCursor,
-    ) -> Result<(), crate::db::executor::ExecutorPlanError> {
+    ) -> Result<(), CursorPlanError> {
         let Some(values) = cursor.last_group_key() else {
             return Ok(());
         };
-        let grouped = self.core.plan().grouped_plan().ok_or_else(
-            crate::db::executor::ExecutorPlanError::grouped_cursor_preparation_requires_grouped_plan,
-        )?;
+        let grouped = self
+            .core
+            .plan()
+            .grouped_plan()
+            .ok_or_else(CursorPlanError::continuation_cursor_invariant)?;
         let invalid = || CursorPlanError::from_token_wire_error(TokenWireError::Decode);
         if values.len() != grouped.group.group_fields.len() {
-            return Err(invalid().into());
+            return Err(invalid());
         }
         let schema = self.authority.accepted_schema_info();
         let mut budget = ValueAdmissionBudget::standard();
@@ -145,7 +144,7 @@ impl SharedPreparedExecutionPlan {
                     .accepted_query_field_type(field.field())
                     .ok_or_else(CursorPlanError::continuation_cursor_invariant)?;
                 if !matches!(value, Value::Null) && !literal_matches_type(value, &ty) {
-                    return Err(invalid().into());
+                    return Err(invalid());
                 }
             }
         }

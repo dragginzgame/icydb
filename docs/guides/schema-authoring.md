@@ -375,8 +375,13 @@ preparation hook. Standalone IcyDB bootstrap calls that same hook automatically.
 
 Canister controls use `icydb.app.{commit.control,startup.control,integrity.progress}.v1`.
 The store uses `icydb.app.store.transfers.{data,index,schema,journal}.v1`.
-Rust renames and declaration order do not change these keys. Heap stores have
-no stable key. Changing a store key removes one identity and adds another: it
+Rust renames and declaration order do not change these allocation keys. Accepted
+catalogs still bind a store's Rust path, so renaming or moving a populated
+journaled store type is unsupported. Startup rejects a changed accepted path
+before replay with `RUNTIME_UNSUPPORTED`, without persisting a terminal failure
+receipt; restore the original path to resume recovery. Keeping the allocation
+key alone does not make a store rename supported. Heap stores have no stable
+key. Changing a store key removes one identity and adds another: it
 does not rename the store or transfer its rows. Existing retirement checks still
 require an empty journal and reject registry changes with a pending marker;
 an empty journal does not mean the old store has no data. Retired identities

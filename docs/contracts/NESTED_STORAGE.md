@@ -46,6 +46,14 @@ Only named record members produce accepted dotted nested-leaf metadata.
 Cardinality and shape are therefore part of path admission; “nested” alone is
 not a capability.
 
+Stored records encode member names as map keys. A source migration that renames
+a record member therefore uses the bounded physical migration flow, even when
+it declares no explicit value transform. Predecessor and candidate catalogs map
+each member by its stable accepted ID; rows and nested containers are rewritten
+and validated before the new catalog becomes visible. Abort before rewriting
+preserves the predecessor rows and catalog. This does not change the current
+record encoding or introduce a second readable representation.
+
 ## Scalar Record Paths
 
 An admitted scalar path through named records supports exactly these cells,

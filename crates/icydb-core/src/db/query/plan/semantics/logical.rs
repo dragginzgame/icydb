@@ -793,8 +793,7 @@ fn resolve_grouped_static_planning_semantics(
         return Ok((None, None));
     };
 
-    let mut aggregate_specs =
-        grouped_aggregate_specs_from_projection_spec(projection_spec, &grouped.group.group_fields)?;
+    let mut aggregate_specs = grouped_aggregate_specs_from_projection_spec(projection_spec)?;
     extend_grouped_having_aggregate_specs(&mut aggregate_specs, grouped)?;
 
     let grouped_aggregate_execution_specs = Some(grouped_aggregate_execution_specs(
@@ -889,10 +888,6 @@ fn validate_resolved_order_scalar_seam(
         work.charge(Resource::PredicateExpressionSteps, 1)?;
         match node {
             Expr::Aggregate(_) | Expr::Unary { .. } => Err(QueryError::execute(
-                InternalError::query_invalid_logical_plan(),
-            )),
-            #[cfg(test)]
-            Expr::Alias { .. } => Err(QueryError::execute(
                 InternalError::query_invalid_logical_plan(),
             )),
             _ => Ok(()),

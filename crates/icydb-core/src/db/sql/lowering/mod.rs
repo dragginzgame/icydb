@@ -26,18 +26,6 @@ use crate::db::{
 };
 use icydb_diagnostic_code::{DiagnosticFactTag, QueryFieldRole, SqlLoweringCode};
 
-///
-/// SqlParameterPlacementReason
-///
-/// Compact reason for unsupported SQL parameter placement diagnostics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SqlParameterPlacementReason {
-    BindingUnsupported,
-    UnboundExpressionLowering,
-}
-
 #[cfg(feature = "sql")]
 pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand;
 pub(crate) use aggregate::SqlGlobalAggregateCommand;
@@ -95,7 +83,6 @@ pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
     #[cfg(feature = "sql")]
     ExplainGlobalAggregate {
         mode: SqlExplainMode,
-        verbose: bool,
         command: Box<LoweredSqlGlobalAggregateCommand>,
     },
 }
@@ -149,10 +136,7 @@ pub(crate) enum SqlLoweringError {
 
     Query(Box<QueryError>),
 
-    EntityMismatch {
-        sql_entity: String,
-        expected_entity: String,
-    },
+    EntityMismatch,
 
     UnsupportedSelectProjection,
 
@@ -193,7 +177,6 @@ pub(crate) enum SqlLoweringError {
 
     UnsupportedParameterPlacement {
         index: Option<usize>,
-        reason: SqlParameterPlacementReason,
     },
 
     UnsupportedSqlDdl,
@@ -210,12 +193,12 @@ impl SqlLoweringError {
             | Self::GroupedProjectionScalarAfterAggregate { index } => {
                 vec![(DiagnosticFactTag::ProjectionIndex, *index as u64)]
             }
-            Self::UnsupportedParameterPlacement {
-                index: Some(index), ..
-            } => vec![(DiagnosticFactTag::ParameterIndex, *index as u64)],
+            Self::UnsupportedParameterPlacement { index: Some(index) } => {
+                vec![(DiagnosticFactTag::ParameterIndex, *index as u64)]
+            }
             Self::Parse(_)
             | Self::Query(_)
-            | Self::EntityMismatch { .. }
+            | Self::EntityMismatch
             | Self::UnsupportedSelectProjection
             | Self::UnsupportedSelectDistinct
             | Self::DistinctOrderByRequiresProjectedTuple
@@ -229,7 +212,7 @@ impl SqlLoweringError {
             | Self::UnsupportedAggregateInputExpressions
             | Self::UnsupportedWhereExpression
             | Self::UnknownField { .. }
-            | Self::UnsupportedParameterPlacement { index: None, .. }
+            | Self::UnsupportedParameterPlacement { index: None }
             | Self::UnsupportedSqlDdl => Vec::new(),
             #[cfg(feature = "sql")]
             Self::UnexpectedQueryLaneStatement => Vec::new(),
@@ -237,11 +220,8 @@ impl SqlLoweringError {
     }
 
     /// Construct one entity-mismatch SQL lowering error.
-    fn entity_mismatch(sql_entity: impl Into<String>, expected_entity: impl Into<String>) -> Self {
-        Self::EntityMismatch {
-            sql_entity: sql_entity.into(),
-            expected_entity: expected_entity.into(),
-        }
+    const fn entity_mismatch() -> Self {
+        Self::EntityMismatch
     }
 
     /// Construct one unsupported SELECT projection SQL lowering error.
@@ -329,11 +309,8 @@ impl SqlLoweringError {
     }
 
     /// Construct one unsupported parameter placement SQL lowering error.
-    pub(crate) const fn unsupported_parameter_placement(
-        index: Option<usize>,
-        reason: SqlParameterPlacementReason,
-    ) -> Self {
-        Self::UnsupportedParameterPlacement { index, reason }
+    pub(crate) const fn unsupported_parameter_placement(index: Option<usize>) -> Self {
+        Self::UnsupportedParameterPlacement { index }
     }
 
     /// Construct one unsupported SQL DDL lowering error.
@@ -345,13 +322,7 @@ impl SqlLoweringError {
     /// do not need dynamic message payloads at the public boundary.
     pub(crate) const fn compact_diagnostic_code(&self) -> Option<SqlLoweringCode> {
         match self {
-            Self::EntityMismatch {
-                sql_entity,
-                expected_entity,
-            } => {
-                let _ = (sql_entity, expected_entity);
-                Some(SqlLoweringCode::EntityMismatch)
-            }
+            Self::EntityMismatch => Some(SqlLoweringCode::EntityMismatch),
             Self::UnsupportedSelectProjection => Some(SqlLoweringCode::SelectProjectionShape),
             Self::UnsupportedSelectDistinct => Some(SqlLoweringCode::SelectDistinct),
             Self::DistinctOrderByRequiresProjectedTuple => {
@@ -384,10 +355,7 @@ impl SqlLoweringError {
                 Some(SqlLoweringCode::AggregateInputExpressions)
             }
             Self::UnsupportedWhereExpression => Some(SqlLoweringCode::WhereExpressionShape),
-            Self::UnsupportedParameterPlacement { index, reason } => {
-                let _ = (index, reason);
-                Some(SqlLoweringCode::ParameterPlacement)
-            }
+            Self::UnsupportedParameterPlacement { .. } => Some(SqlLoweringCode::ParameterPlacement),
             Self::UnsupportedSqlDdl => Some(SqlLoweringCode::SqlDdlExecutionUnsupported),
             Self::Parse(_) | Self::Query(_) | Self::UnknownField { .. } => None,
             #[cfg(feature = "sql")]
@@ -438,7 +406,7 @@ impl PreparedSqlStatement {
 
 #[cfg(all(test, feature = "sql"))]
 mod tests {
-    use super::{SqlLoweringError, SqlParameterPlacementReason};
+    use super::SqlLoweringError;
     use crate::db::QueryError;
     use icydb_diagnostic_code::DiagnosticFactTag;
 
@@ -459,19 +427,13 @@ mod tests {
 
     #[test]
     fn lowering_parameter_error_retains_parameter_index_only_when_known() {
-        let known = SqlLoweringError::unsupported_parameter_placement(
-            Some(3),
-            SqlParameterPlacementReason::BindingUnsupported,
-        );
+        let known = SqlLoweringError::unsupported_parameter_placement(Some(3));
         assert_eq!(
             known.diagnostic_facts(),
             vec![(DiagnosticFactTag::ParameterIndex, 3)],
         );
 
-        let unknown = SqlLoweringError::unsupported_parameter_placement(
-            None,
-            SqlParameterPlacementReason::UnboundExpressionLowering,
-        );
+        let unknown = SqlLoweringError::unsupported_parameter_placement(None);
         assert!(unknown.diagnostic_facts().is_empty());
     }
 }

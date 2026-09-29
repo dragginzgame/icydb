@@ -26,7 +26,10 @@ use crate::{
             AcceptedEntitySourceLineageCatalog, AcceptedEntitySourceLineageState,
             AcceptedEntitySourceVersion,
         },
-        migration_transform::{CompiledMigrationEntityProgram, compile_migration_programs},
+        migration_transform::{
+            CompiledMigrationEntityProgram, compile_migration_programs,
+            transition_requires_row_rewrite,
+        },
         relation_edge_from_source,
     },
     error::{ErrorOrigin, InternalError},
@@ -43,7 +46,6 @@ pub(in crate::db::schema) enum SchemaMigrationPlanningError {
     VersionGap,
     Downgrade,
     EmptyEntityVersionBump,
-    StaleAcceptedHead,
     UnknownFromObject,
     UnknownToObject,
     KindMismatch,
@@ -231,13 +233,10 @@ pub(in crate::db::schema) fn plan_entity_source_adoption(
     for (source, entity) in entities {
         let (store, entity_tag) = resolve_entity(stores, source)
             .ok_or(SchemaMigrationPlanningError::UnknownFromObject)?;
-        if let Some(lineage) = current_lineage.get(store.identity, entity_tag) {
-            if lineage.accepted_head() != proposal.expected_head() {
-                return Err(SchemaMigrationPlanningError::StaleAcceptedHead);
-            }
-            if !matches!(lineage.state(), AcceptedEntitySourceLineageState::Unadopted) {
-                return Err(SchemaMigrationPlanningError::IdentityConflict);
-            }
+        if let Some(lineage) = current_lineage.get(store.identity, entity_tag)
+            && !matches!(lineage.state(), AcceptedEntitySourceLineageState::Unadopted)
+        {
+            return Err(SchemaMigrationPlanningError::IdentityConflict);
         }
         planned.push(PlannedEntitySourceLineage {
             store: store.identity,
@@ -301,7 +300,9 @@ pub(in crate::db::schema) fn plan_initial_entity_source_lineage(
 }
 
 /// Bind one coordinated current plan to accepted IDs and derive exact
-/// metadata candidates. No durable state changes in this function.
+/// metadata candidates. The command boundary has already checked the live head;
+/// lineage publication heads may predate SQL-owned catalog edits.
+/// No durable state changes in this function.
 pub(in crate::db::schema) fn plan_schema_migration(
     proposal: &SchemaProposal,
     stores: &[ExistingProposalStore<'_>],
@@ -313,7 +314,7 @@ pub(in crate::db::schema) fn plan_schema_migration(
     let physical = plan
         .transitions()
         .iter()
-        .any(|transition| !transition.transforms().is_empty());
+        .any(transition_requires_row_rewrite);
     let entities = proposal_entities(proposal);
     let assignments = proposal_assignments(proposal);
     let resolved = resolve_transitions(
@@ -428,9 +429,6 @@ fn resolve_transitions<'a>(
         let lineage = current_lineage
             .get(store.identity, entity_tag)
             .ok_or(SchemaMigrationPlanningError::Unadopted)?;
-        if lineage.accepted_head() != proposal.expected_head() {
-            return Err(SchemaMigrationPlanningError::StaleAcceptedHead);
-        }
         let AcceptedEntitySourceLineageState::Adopted {
             version,
             source_digest,
@@ -492,9 +490,6 @@ fn validate_unchanged_lineage(
         let lineage = current_lineage
             .get(store.identity, entity_tag)
             .ok_or(SchemaMigrationPlanningError::Unadopted)?;
-        if lineage.accepted_head() != proposal.expected_head() {
-            return Err(SchemaMigrationPlanningError::StaleAcceptedHead);
-        }
         let AcceptedEntitySourceLineageState::Adopted {
             version,
             source_digest,
@@ -773,7 +768,11 @@ fn rekey_rule_constraint(
         .map_err(|_| SchemaMigrationPlanningError::IdentityConflict)
 }
 
-fn inverse_field_source(transition: &EntityMigration, current: &FieldSourceKey) -> FieldSourceKey {
+/// Resolve a current source key in the predecessor namespace using declared renames.
+pub(in crate::db::schema) fn inverse_field_source(
+    transition: &EntityMigration,
+    current: &FieldSourceKey,
+) -> FieldSourceKey {
     transition
         .renames()
         .iter()
@@ -924,7 +923,7 @@ fn rebuild_fields(
         .map(SchemaMigrationTransform::target)
         .cloned()
         .collect::<BTreeSet<_>>();
-    let physical = !transform_targets.is_empty();
+    let physical = transition_requires_row_rewrite(binding.transition);
     let layout_version = if physical {
         before
             .row_layout()
@@ -971,15 +970,10 @@ fn rebuild_fields(
                     let nested_leaves =
                         lower_migration_nested_leaves(fields[position].kind(), &store.composites)
                             .map_err(|_| SchemaMigrationPlanningError::RekeyedCatalogInvalid)?;
-                    let renamed = fields[position].clone_with_migration_metadata(
+                    fields[position].clone_with_migration_metadata(
                         proposed.name().as_str().to_string(),
                         nested_leaves,
-                    );
-                    if physical {
-                        renamed.clone_for_full_layout_rewrite(id, renamed.slot())
-                    } else {
-                        renamed
-                    }
+                    )
                 };
             }
             None if target => {
@@ -1014,6 +1008,11 @@ fn rebuild_fields(
         }
     }
     let layout = if physical {
+        // Every retained field is materialized in the new layout, including
+        // SQL-owned fields. Historical absence fills no longer apply there.
+        for field in &mut fields {
+            *field = field.clone_for_full_layout_rewrite(field.id(), field.slot());
+        }
         SchemaRowLayout::single_version(layout_version, layout)
     } else {
         before.row_layout().clone()
@@ -1124,7 +1123,7 @@ fn rebuild_indexes(
 ) -> Result<Vec<PersistedIndexSnapshot>, SchemaMigrationPlanningError> {
     let mut indexes = before.indexes().to_vec();
     let mut claimed = BTreeSet::new();
-    let physical = !binding.transition.transforms().is_empty();
+    let physical = transition_requires_row_rewrite(binding.transition);
     let generation = store
         .before
         .revision()
@@ -1334,7 +1333,7 @@ fn rebuild_relations(
         .get(&binding.entity_tag)
         .ok_or(SchemaMigrationPlanningError::UnknownFromObject)?;
     let mut relations = before.relations().to_vec();
-    let physical = !binding.transition.transforms().is_empty();
+    let physical = transition_requires_row_rewrite(binding.transition);
     let generation = store
         .before
         .revision()
@@ -1422,7 +1421,7 @@ fn reserve_new_migration_relations(
     snapshot: &PersistedSchemaSnapshot,
 ) -> Result<crate::db::schema::RelationIdAllocator, SchemaMigrationPlanningError> {
     let mut allocator = snapshot.relation_id_allocator();
-    if binding.transition.transforms().is_empty() {
+    if !transition_requires_row_rewrite(binding.transition) {
         return Ok(allocator);
     }
     for proposed in binding.entity.relations() {
@@ -1485,7 +1484,7 @@ fn rebuild_constraints(
     store: &mut WorkingStore<'_>,
     target: &PersistedSchemaSnapshot,
 ) -> Result<AcceptedConstraintCatalog, SchemaMigrationPlanningError> {
-    if binding.transition.transforms().is_empty() {
+    if !transition_requires_row_rewrite(binding.transition) {
         return rebuild_metadata_constraints(binding, store, target);
     }
     let mut proposed_by_id = BTreeMap::new();
@@ -2483,8 +2482,8 @@ mod tests {
             .source_bindings()
             .entity(&EntitySourceKey::try_new("User").expect("key should admit"))
             .expect("entity should bind");
-        let mut stale = AcceptedEntitySourceLineageCatalog::default();
-        stale
+        let mut prior_publication = AcceptedEntitySourceLineageCatalog::default();
+        prior_publication
             .insert(
                 TargetStoreIdentity::from_bytes([2; 32]),
                 entity,
@@ -2495,15 +2494,14 @@ mod tests {
                 .expect("lineage should admit"),
             )
             .expect("lineage should insert");
-        assert!(matches!(
+        assert!(
             plan_entity_source_adoption(
                 &proposal(1, "User", "email", head(), None),
                 std::slice::from_ref(&existing),
-                &stale,
+                &prior_publication,
             )
-            .err(),
-            Some(SchemaMigrationPlanningError::StaleAcceptedHead),
-        ));
+            .is_ok()
+        );
 
         let mut already_adopted = AcceptedEntitySourceLineageCatalog::default();
         already_adopted
@@ -2613,7 +2611,7 @@ mod tests {
         clippy::too_many_lines,
         reason = "one matrix test proves every renamed source key and accepted ID together"
     )]
-    fn complete_metadata_rename_set_preserves_every_accepted_identity_without_aliases() {
+    fn complete_rename_set_preserves_accepted_identities_through_physical_rewrite() {
         let initial = complete_rename_proposal(false, ExpectedAcceptedHead::Empty, None);
         let candidate = lower_initial_schema_proposal(
             &initial,
@@ -2710,7 +2708,8 @@ mod tests {
             }],
             &lineage,
         )
-        .expect("complete metadata rename should plan");
+        .expect("complete rename should plan");
+        assert!(planned.requires_physical_validation());
         let target = planned.candidates()[0].bundle();
         let bindings = target.source_bindings();
         let new_entity = EntitySourceKey::try_new("Entry").expect("entity should admit");
@@ -2771,7 +2770,7 @@ mod tests {
             .iter()
             .find(|index| index.schema_id() == index_id)
             .expect("index should remain");
-        assert_eq!(
+        assert_ne!(
             target_index.physical_generation(),
             old_index.physical_generation()
         );
@@ -2782,8 +2781,8 @@ mod tests {
             target_snapshot
                 .constraint_catalog()
                 .activation(rule_id)
-                .is_some(),
-            "the ordinary accepted-rule mutation must remain classified beside the renames",
+                .is_none(),
+            "the physical migration validates the candidate rule before publication",
         );
     }
 
@@ -2926,7 +2925,7 @@ mod tests {
         clippy::too_many_lines,
         reason = "one rejection matrix compares the four version and head classifications"
     )]
-    fn stale_head_version_gap_downgrade_and_empty_bump_are_distinct() {
+    fn publication_head_does_not_replace_source_version_and_digest_checks() {
         let (initial, candidate) = accepted_fixture();
         let entity_source = EntitySourceKey::try_new("User").expect("entity should admit");
         let entity_id = candidate
@@ -2960,8 +2959,8 @@ mod tests {
             .expect("plan should admit")
         };
 
-        let mut stale = AcceptedEntitySourceLineageCatalog::default();
-        stale
+        let mut prior_publication = AcceptedEntitySourceLineageCatalog::default();
+        prior_publication
             .insert(
                 store,
                 entity_id,
@@ -2976,15 +2975,14 @@ mod tests {
                 .expect("lineage should admit"),
             )
             .expect("lineage should insert");
-        assert!(matches!(
+        assert!(
             plan_schema_migration(
                 &proposal(2, "User", "primary_email", head(), Some(rename(1))),
                 &[existing()],
-                &stale,
+                &prior_publication,
             )
-            .err(),
-            Some(SchemaMigrationPlanningError::StaleAcceptedHead),
-        ));
+            .is_ok()
+        );
 
         for (accepted_version, target_version, from_version, expected) in [
             (1, 3, 2, SchemaMigrationPlanningError::VersionGap),
@@ -3268,7 +3266,10 @@ mod tests {
                 TargetStoreIdentity::from_bytes([2; 32]),
                 entity_id,
                 AcceptedEntitySourceLineage::adopted(
-                    head(),
+                    ExpectedAcceptedHead::Exact {
+                        revision: 7,
+                        fingerprint: ExpectedSchemaFingerprint::from_bytes([9; 32]),
+                    },
                     AcceptedEntitySourceVersion::try_new(1).expect("version should admit"),
                     initial
                         .entity_source_digest(&entity_source)
@@ -3289,7 +3290,10 @@ mod tests {
                 TargetStoreIdentity::from_bytes([2; 32]),
                 control_id,
                 AcceptedEntitySourceLineage::adopted(
-                    head(),
+                    ExpectedAcceptedHead::Exact {
+                        revision: 7,
+                        fingerprint: ExpectedSchemaFingerprint::from_bytes([9; 32]),
+                    },
                     AcceptedEntitySourceVersion::try_new(1).expect("version should admit"),
                     initial
                         .entity_source_digest(&control_source)

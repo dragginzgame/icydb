@@ -28,7 +28,7 @@ static RECOVERY_READER_REGISTRY: LocalKey<StoreRegistry> = MIGRATION_EXECUTION_R
 // Construct the same candidate, receipt and lineage operations as Advance, then
 // retain the compound marker at its durable boundary. No recovery-specific
 // schema derivation or alternate encoding participates in this fixture.
-fn interrupt_publication(
+pub(super) fn interrupt_publication(
     db: &Db<MigrationExecutionCanister>,
     proposal: &SchemaProposal,
     receipt_first: bool,

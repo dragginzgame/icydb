@@ -166,13 +166,6 @@ fn write_scalar_projection_expr_plan_label_with_parent(
             }
             Ok(())
         }
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => write_scalar_projection_expr_plan_label_with_parent(
-            expr.as_ref(),
-            parent_op,
-            is_right_child,
-            output,
-        ),
         Expr::Unary { op, expr } => {
             match op {
                 crate::db::query::plan::expr::UnaryOp::Not => output.write_str("NOT ")?,

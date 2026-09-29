@@ -175,7 +175,7 @@ pub(in crate::db) fn emit_raw_row_from_slot_payloads(
         }
         Ok(())
     })?;
-    let raw_row = RawRow::from_untrusted_bytes(encoded).map_err(InternalError::from)?;
+    let raw_row = RawRow::from_untrusted_bytes(encoded)?;
     Ok(CanonicalRow::from_canonical_raw_row(raw_row))
 }
 

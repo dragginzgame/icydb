@@ -65,7 +65,6 @@ thread_local! {
 
 /// Start one idempotent Deep job after an exact A/B capture handshake.
 pub(in crate::db) fn start_deep_integrity_job<C: CanisterKind>(
-    _db: &Db<C>,
     plan: &AcceptedInspectionPlan,
     owner: IntegrityJobOwner,
     submission_key: IntegritySubmissionKey,

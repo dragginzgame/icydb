@@ -239,10 +239,9 @@ fn validate_allocation_set<C: CanisterKind>(
     proposals: &[GeneratedStoreProposal],
 ) -> Result<(), InternalError> {
     let mut memory_ids = vec![
-        C::commit_memory_id().map_err(InternalError::commit_memory_id_registration_failed)?,
-        C::startup_memory_id().map_err(InternalError::commit_memory_id_registration_failed)?,
-        C::integrity_progress_memory_id()
-            .map_err(InternalError::commit_memory_id_registration_failed)?,
+        C::commit_memory_id().map_err(|_| InternalError::store_internal())?,
+        C::startup_memory_id().map_err(|_| InternalError::store_internal())?,
+        C::integrity_progress_memory_id().map_err(|_| InternalError::store_internal())?,
     ];
     let mut stable_keys = vec![
         C::COMMIT_STABLE_KEY,
@@ -268,10 +267,9 @@ fn validate_persisted_allocation_set<C: CanisterKind>(
     registry: &[PersistedStoreAllocation],
 ) -> Result<(), InternalError> {
     let mut memory_ids = vec![
-        C::commit_memory_id().map_err(InternalError::commit_memory_id_registration_failed)?,
-        C::startup_memory_id().map_err(InternalError::commit_memory_id_registration_failed)?,
-        C::integrity_progress_memory_id()
-            .map_err(InternalError::commit_memory_id_registration_failed)?,
+        C::commit_memory_id().map_err(|_| InternalError::store_internal())?,
+        C::startup_memory_id().map_err(|_| InternalError::store_internal())?,
+        C::integrity_progress_memory_id().map_err(|_| InternalError::store_internal())?,
     ];
     let mut stable_keys = vec![
         C::COMMIT_STABLE_KEY,
@@ -405,7 +403,7 @@ fn store_memory_owned(
     stable_key: &str,
 ) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory(stable_key, memory_id)
-        .map_err(InternalError::database_format_memory_registration_failed)
+        .map_err(|_| InternalError::store_internal())
 }
 
 #[cfg(test)]

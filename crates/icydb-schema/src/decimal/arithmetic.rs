@@ -348,12 +348,10 @@ impl Decimal {
 
     // Divide with round-half-away-from-zero semantics.
     fn div_round_half_away_from_zero(numerator: i128, denominator: i128) -> Option<i128> {
-        if denominator == 0 {
-            return None;
-        }
-
-        let quotient = numerator / denominator;
-        let remainder = numerator % denominator;
+        // Signed MIN / -1 overflows even with a nonzero divisor. Both checked
+        // and saturating Decimal APIs must reach their normal overflow result.
+        let quotient = numerator.checked_div(denominator)?;
+        let remainder = numerator.checked_rem(denominator)?;
 
         if remainder == 0 {
             return Some(quotient);

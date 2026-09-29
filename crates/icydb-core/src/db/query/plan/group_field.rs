@@ -414,8 +414,6 @@ impl GroupFieldSet {
                 | Expr::Unary { .. }
                 | Expr::Binary { .. }
                 | Expr::Case { .. } => true,
-                #[cfg(test)]
-                Expr::Alias { .. } => true,
             })
         })
     }

@@ -156,8 +156,6 @@ fn validate_grouped_having_expr_structure(
             | Expr::Unary { .. }
             | Expr::Case { .. }
             | Expr::Binary { .. } => Ok(()),
-            #[cfg(test)]
-            Expr::Alias { .. } => Ok(()),
         }
     })
 }

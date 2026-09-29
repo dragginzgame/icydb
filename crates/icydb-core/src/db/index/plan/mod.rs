@@ -24,7 +24,6 @@ use crate::{
     error::{InternalError, MutationDiagnosticContext},
     types::EntityTag,
 };
-use error::IndexPlanError;
 
 pub(in crate::db) use delta::{
     IndexDelta, IndexDeltaGroup, IndexMembershipDelta, IndexMutationPlan,
@@ -186,36 +185,7 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
     old_slots: Option<&dyn CanonicalSlotReader>,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&dyn CanonicalSlotReader>,
-) -> Result<IndexMutationPlan, IndexPlanError> {
-    plan_index_mutation_for_slot_reader_structural_impl(
-        entity_tag,
-        accepted_schema_fingerprint,
-        mutation,
-        schema_info,
-        read_view,
-        row_contract,
-        old_primary_key,
-        old_slots,
-        new_primary_key,
-        new_slots,
-    )
-}
-
-// Keep the structural planner loop nongeneric once store lookup has already
-// been lowered onto one index-store callback.
-#[expect(clippy::too_many_arguments)]
-fn plan_index_mutation_for_slot_reader_structural_impl(
-    entity_tag: EntityTag,
-    accepted_schema_fingerprint: CommitSchemaFingerprint,
-    mutation: Option<MutationDiagnosticContext>,
-    schema_info: &SchemaInfo,
-    read_view: &dyn IndexPlanReadView,
-    row_contract: &StructuralRowContract,
-    old_primary_key: Option<&PrimaryKeyValue>,
-    old_slots: Option<&dyn CanonicalSlotReader>,
-    new_primary_key: Option<&PrimaryKeyValue>,
-    new_slots: Option<&dyn CanonicalSlotReader>,
-) -> Result<IndexMutationPlan, IndexPlanError> {
+) -> Result<IndexMutationPlan, InternalError> {
     let accepted_expression_indexes = schema_info.expression_indexes();
     let mut groups = Vec::with_capacity(
         schema_info.field_path_indexes().len() + accepted_expression_indexes.len(),
@@ -280,7 +250,7 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
     old_slots: Option<&dyn CanonicalSlotReader>,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&dyn CanonicalSlotReader>,
-) -> Result<(), IndexPlanError> {
+) -> Result<(), InternalError> {
     let mut referenced_slots = vec![false; row_contract.field_count()];
     for field in accepted_index.fields() {
         if let Some(referenced) = referenced_slots.get_mut(field.slot()) {
@@ -346,6 +316,7 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
         read_view,
         row_contract,
         accepted_index,
+        predicate_program,
         read_contract,
         new_key.as_ref().and(new_primary_key),
         new_key.as_ref(),
@@ -377,7 +348,7 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
     old_slots: Option<&dyn CanonicalSlotReader>,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&dyn CanonicalSlotReader>,
-) -> Result<(), IndexPlanError> {
+) -> Result<(), InternalError> {
     let mut referenced_slots = vec![false; row_contract.field_count()];
     for item in accepted_index.key_items() {
         let field = match item {
@@ -445,6 +416,7 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
         read_view,
         row_contract,
         accepted_index,
+        predicate_program,
         read_contract,
         new_key.as_ref().and(new_primary_key),
         new_key.as_ref(),

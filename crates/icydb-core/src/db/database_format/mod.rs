@@ -175,6 +175,12 @@ pub(in crate::db) fn ensure_database_format_admitted<C: crate::traits::CanisterK
     })
 }
 
+/// Model the volatile format-admission reset performed by an upgrade.
+#[cfg(test)]
+pub(in crate::db) fn forget_database_format_admission_for_tests() {
+    ADMITTED_DATABASE_FORMATS.with_borrow_mut(Vec::clear);
+}
+
 /// Inspect the current boot prefix and registered durable-role sizes without mutation.
 pub(in crate::db) fn observe_database_format(
     stores: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
@@ -449,7 +455,7 @@ pub(in crate::db) fn store_memory_handle(
     allocation: StoreAllocationIdentity,
 ) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory(allocation.stable_key(), allocation.memory_id())
-        .map_err(InternalError::database_format_memory_registration_failed)
+        .map_err(|_| InternalError::store_internal())
 }
 
 #[cfg(not(test))]
@@ -458,7 +464,7 @@ pub(in crate::db) fn open_registered_store_memory(
     stable_key: &str,
 ) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory(stable_key, memory_id)
-        .map_err(InternalError::database_format_memory_registration_failed)
+        .map_err(|_| InternalError::store_internal())
 }
 
 ///

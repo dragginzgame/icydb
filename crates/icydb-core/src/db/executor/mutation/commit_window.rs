@@ -159,10 +159,7 @@ impl IndexStoreGenerationGuard {
     fn verify(&self) -> Result<(), InternalError> {
         let observed_generation = self.index_store.with_borrow(IndexStore::generation);
         if observed_generation != self.expected_generation {
-            return Err(InternalError::mutation_index_store_generation_changed(
-                self.expected_generation,
-                observed_generation,
-            ));
+            return Err(InternalError::executor_invariant());
         }
 
         Ok(())

@@ -43,27 +43,6 @@ impl CanonicalRow {
 }
 
 ///
-/// RawRowError
-/// Construction / storage-boundary errors.
-///
-
-#[derive(Debug)]
-pub(in crate::db) enum RawRowError {
-    TooLarge { len: usize },
-}
-
-impl From<RawRowError> for InternalError {
-    fn from(err: RawRowError) -> Self {
-        match err {
-            RawRowError::TooLarge { len } => {
-                let _ = len;
-                Self::store_unsupported()
-            }
-        }
-    }
-}
-
-///
 /// RawRow
 ///
 
@@ -72,23 +51,23 @@ pub(in crate::db) struct RawRow(Vec<u8>);
 
 impl RawRow {
     /// Validate serialized row size against protocol bounds.
-    pub(in crate::db) const fn ensure_size(bytes: &[u8]) -> Result<(), RawRowError> {
+    pub(in crate::db) fn ensure_size(bytes: &[u8]) -> Result<(), InternalError> {
         if bytes.len() > MAX_ROW_BYTES as usize {
-            return Err(RawRowError::TooLarge { len: bytes.len() });
+            return Err(InternalError::store_unsupported());
         }
 
         Ok(())
     }
 
     /// Construct one bounded raw row for internal decode/read boundaries.
-    pub(in crate::db) fn from_untrusted_bytes(bytes: Vec<u8>) -> Result<Self, RawRowError> {
+    pub(in crate::db) fn from_untrusted_bytes(bytes: Vec<u8>) -> Result<Self, InternalError> {
         Self::ensure_size(&bytes)?;
         Ok(Self(bytes))
     }
 
     /// Construct a raw row from serialized bytes.
     #[cfg(test)]
-    pub(in crate::db) fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
+    pub(in crate::db) fn try_new(bytes: Vec<u8>) -> Result<Self, InternalError> {
         Self::from_untrusted_bytes(bytes)
     }
 
@@ -110,7 +89,7 @@ impl Storable for RawRow {
     }
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        // Trusted store boundary: bounded by BOUND
+        // Trusted store boundary: row-size admission happens before persistence.
         Self(bytes.into_owned())
     }
 
@@ -134,7 +113,8 @@ mod tests {
     fn raw_row_rejects_oversized_payload() {
         let bytes = vec![0u8; MAX_ROW_BYTES as usize + 1];
         let err = RawRow::try_new(bytes).unwrap_err();
-        std::assert_matches!(err, RawRowError::TooLarge { .. });
+        assert_eq!(err.class, ErrorClass::Unsupported);
+        assert_eq!(err.origin, ErrorOrigin::Store);
     }
 
     #[test]
@@ -143,12 +123,9 @@ mod tests {
     }
 
     #[test]
-    fn raw_row_error_maps_to_store_unsupported() {
-        let err: InternalError = RawRowError::TooLarge {
-            len: MAX_ROW_BYTES as usize + 1,
-        }
-        .into();
-        assert_eq!(err.class, ErrorClass::Unsupported);
-        assert_eq!(err.origin, ErrorOrigin::Store);
+    fn raw_row_accepts_protocol_limit() {
+        let row = RawRow::try_new(vec![0; MAX_ROW_BYTES as usize])
+            .expect("row at the protocol limit should admit");
+        assert_eq!(row.len(), MAX_ROW_BYTES as usize);
     }
 }

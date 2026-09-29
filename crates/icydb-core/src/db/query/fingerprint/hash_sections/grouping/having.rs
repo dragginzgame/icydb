@@ -214,10 +214,6 @@ fn hash_group_having_value_expr(
             hash_group_having_value_expr(hasher, left, context, budget)?;
             hash_group_having_value_expr(hasher, right, context, budget)?;
         }
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => {
-            hash_group_having_value_expr(hasher, expr, context, budget)?;
-        }
     }
     Ok(())
 }

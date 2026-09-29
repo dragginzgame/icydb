@@ -194,14 +194,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(|error| Self::deep_start_plan_load_error(entity, error))?;
         Self::validate_integrity_plan_identity(entity, &second_plan)?;
         let proof_b = capture_integrity_proof_vector(&self.db, &second_plan)?;
-        start_deep_integrity_job(
-            &self.db,
-            &second_plan,
-            owner,
-            submission_key,
-            proof_a,
-            proof_b,
-        )
+        start_deep_integrity_job::<C>(&second_plan, owner, submission_key, proof_a, proof_b)
     }
 
     fn deep_start_plan_load_error(

@@ -478,8 +478,6 @@ fn encode_expr(
             encode_expr(writer, else_expr, depth + 1, nodes)?;
         }
         Expr::Aggregate(_) => return Err(MutationJobError::IneligibleIntent),
-        #[cfg(test)]
-        Expr::Alias { .. } => return Err(MutationJobError::IneligibleIntent),
     }
     Ok(())
 }

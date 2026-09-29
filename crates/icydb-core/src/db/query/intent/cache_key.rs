@@ -386,8 +386,6 @@ impl ProjectionExprCacheKey {
             Expr::Aggregate(aggregate) => {
                 Self::Aggregate(AggregateCacheKey::from_aggregate_expr(aggregate, work)?)
             }
-            #[cfg(test)]
-            Expr::Alias { expr, name: _ } => Self::from_expr(expr.as_ref(), work)?,
         })
     }
 

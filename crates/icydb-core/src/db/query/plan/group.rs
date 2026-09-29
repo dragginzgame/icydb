@@ -531,13 +531,7 @@ pub(in crate::db) fn grouped_aggregate_execution_specs(
 /// projection semantics without requiring a frozen grouped executor handoff.
 pub(in crate::db) fn grouped_aggregate_specs_from_projection_spec(
     projection_spec: &ProjectionSpec,
-    group_fields: &crate::db::query::plan::GroupFieldSet,
 ) -> Result<Vec<GroupedAggregateExecutionSpec>, InternalError> {
-    // Group-reference strictness is test-only; production admission already ran.
-    #[cfg(not(test))]
-    let _ = group_fields;
-    #[cfg(test)]
-    validate_grouped_projection_references(projection_spec, group_fields)?;
     let mut aggregate_specs = Vec::new();
     for field in projection_spec.fields() {
         extend_unique_grouped_aggregate_specs_from_expr(&mut aggregate_specs, field.expr())?;
@@ -689,8 +683,6 @@ fn planned_projection_layout_from_spec(
     aggregates: &[GroupAggregateSpec],
     aggregate_specs: &[GroupedAggregateExecutionSpec],
 ) -> Result<(PlannedProjectionLayout, bool), InternalError> {
-    #[cfg(test)]
-    validate_grouped_projection_references(projection_spec, group_fields)?;
     let mut group_field_positions = Vec::new();
     let mut aggregate_positions = Vec::new();
     // HAVING-only slots may follow projection slots. Only first encounters in
@@ -702,7 +694,7 @@ fn planned_projection_layout_from_spec(
     let mut next_aggregate_index = 0usize;
 
     for (index, field) in projection_spec.fields().enumerate() {
-        let root_expr = expression_without_alias(field.expr());
+        let root_expr = field.expr();
         let mut contains_aggregate = false;
         let mut introduced_aggregate_count = 0usize;
         root_expr.try_for_each_tree_aggregate(&mut |aggregate| {
@@ -765,30 +757,6 @@ fn planned_projection_layout_from_spec(
     ))
 }
 
-#[cfg(test)]
-fn validate_grouped_projection_references(
-    projection_spec: &ProjectionSpec,
-    group_fields: &crate::db::query::plan::GroupFieldSet,
-) -> Result<(), InternalError> {
-    // Test builds keep one extra strictness pass so grouped layout regressions
-    // fail at the planner boundary instead of only in downstream assertions.
-    crate::db::query::preparation::with_preparation_work(|work| {
-        for field in projection_spec.fields() {
-            let root_expr = expression_without_alias(field.expr());
-            if !group_fields.try_contains_all_expr_references(root_expr, &mut |steps| {
-                crate::db::query::construction::ConstructionBudget::charge(
-                    work,
-                    Resource::PredicateExpressionSteps,
-                    steps,
-                )
-            })? {
-                return Err(InternalError::planner_executor_invariant());
-            }
-        }
-        Ok(())
-    })
-}
-
 pub(in crate::db::query::plan) fn extend_unique_grouped_aggregate_specs_from_expr(
     aggregate_specs: &mut Vec<GroupedAggregateExecutionSpec>,
     expr: &Expr,
@@ -817,29 +785,6 @@ fn push_unique_grouped_aggregate_spec(
             aggregate_expr,
         ));
     }
-}
-
-// Strip alias wrappers so layout classification uses semantic expression roots.
-#[cfg_attr(
-    not(test),
-    expect(
-        clippy::missing_const_for_fn,
-        reason = "test-only alias stripping keeps the shared helper non-const across the full target matrix"
-    )
-)]
-fn expression_without_alias(expr: &Expr) -> &Expr {
-    #[cfg(test)]
-    {
-        let mut current = expr;
-        while let Expr::Alias { expr: inner, .. } = current {
-            current = inner.as_ref();
-        }
-
-        current
-    }
-
-    #[cfg(not(test))]
-    expr
 }
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.

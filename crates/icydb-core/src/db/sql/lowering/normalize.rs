@@ -537,10 +537,7 @@ pub(in crate::db::sql::lowering) fn ensure_entity_matches_expected(
         return Ok(());
     }
 
-    Err(SqlLoweringError::entity_mismatch(
-        sql_entity,
-        expected_entity,
-    ))
+    Err(SqlLoweringError::entity_mismatch())
 }
 
 ///

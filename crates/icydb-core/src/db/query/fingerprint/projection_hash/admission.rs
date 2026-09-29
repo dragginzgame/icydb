@@ -68,8 +68,6 @@ pub(in crate::db::query::fingerprint) fn admit_expr_hash(
                 Ok(())
             }
             Expr::Unary { .. } | Expr::Binary { .. } | Expr::Case { .. } => Ok(()),
-            #[cfg(test)]
-            Expr::Alias { .. } => Ok(()),
         }
     })
 }

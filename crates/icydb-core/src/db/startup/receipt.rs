@@ -593,7 +593,7 @@ thread_local! {
 #[cfg(test)]
 pub(in crate::db) fn startup_memory<C: CanisterKind>()
 -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    let id = C::startup_memory_id().map_err(InternalError::commit_memory_id_registration_failed)?;
+    let id = C::startup_memory_id().map_err(|_| InternalError::store_internal())?;
     TEST_STARTUP_MEMORIES.with(|memories| {
         let mut memories = memories.borrow_mut();
         if let Some((_, _, memory)) = memories.iter().find(|(memory_id, stable_key, _)| {
@@ -810,5 +810,5 @@ mod tests {
 pub(in crate::db) fn startup_memory<C: CanisterKind>()
 -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
     open_default_memory_manager_memory_by_key(C::STARTUP_STABLE_KEY)
-        .map_err(InternalError::database_format_memory_registration_failed)
+        .map_err(|_| InternalError::store_internal())
 }

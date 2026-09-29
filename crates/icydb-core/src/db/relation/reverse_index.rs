@@ -26,9 +26,9 @@ use crate::{
         relation::{
             AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
             AcceptedRelationTargetContract, AcceptedRelationTupleEdgeLocalComponent,
-            RelationTargetMismatchPolicy, accepted_relation_target_metadata_from_kind,
-            accepted_relation_tuple_edge_descriptor, accepted_scalar_relation_target_descriptor,
-            validate_relation_primary_key_component_kind,
+            RelationTargetMismatchPolicy, accepted_relation_target_contract,
+            accepted_relation_target_metadata_from_kind, accepted_relation_tuple_edge_descriptor,
+            accepted_scalar_relation_cardinality, validate_relation_primary_key_component_kind,
         },
         schema::AcceptedFieldKind,
         schema::{
@@ -447,11 +447,12 @@ impl RelationConstraintProjection {
         snapshot: &crate::db::schema::PersistedSchemaSnapshot,
         row_contract: &StructuralRowContract,
         edge: &crate::db::schema::PersistedRelationEdgeSnapshot,
+        target_contract: AcceptedRelationTargetContract,
     ) -> Result<Self, InternalError> {
         if edge.physical_generation() == 0 {
             return Err(InternalError::store_corruption());
         }
-        Self::bind(db, source, snapshot, row_contract, edge)
+        Self::bind(db, source, snapshot, row_contract, edge, target_contract)
     }
 
     /// Bind one active accepted relation to row and target-store authority.
@@ -465,8 +466,9 @@ impl RelationConstraintProjection {
         snapshot: &crate::db::schema::PersistedSchemaSnapshot,
         row_contract: &StructuralRowContract,
         edge: &crate::db::schema::PersistedRelationEdgeSnapshot,
+        target_contract: AcceptedRelationTargetContract,
     ) -> Result<Self, InternalError> {
-        Self::bind(db, source, snapshot, row_contract, edge)
+        Self::bind(db, source, snapshot, row_contract, edge, target_contract)
     }
 
     fn bind<C: CanisterKind>(
@@ -475,9 +477,16 @@ impl RelationConstraintProjection {
         snapshot: &crate::db::schema::PersistedSchemaSnapshot,
         row_contract: &StructuralRowContract,
         edge: &crate::db::schema::PersistedRelationEdgeSnapshot,
+        target_contract: AcceptedRelationTargetContract,
     ) -> Result<Self, InternalError> {
-        let relation =
-            relation_info_from_snapshot_edge(db, source.path(), snapshot, row_contract, edge)?;
+        let relation = relation_info_from_snapshot_edge(
+            db,
+            source.path(),
+            snapshot,
+            row_contract,
+            edge,
+            target_contract,
+        )?;
         let (target_store_path, target_store) =
             relation_target_store_binding(db, &source, &relation)?;
         Ok(Self {
@@ -1083,6 +1092,7 @@ where
         db,
         source_path,
         source_row_contract,
+        accepted_relation_target_contract(db, edge.target_path())?,
         AcceptedRelationBinding {
             constraint: edge.constraint().clone(),
             reverse_identity: AcceptedRelationReverseIdentity::new(
@@ -1099,13 +1109,14 @@ fn accepted_relation_from_binding<C>(
     db: &Db<C>,
     source_path: &str,
     source_row_contract: &StructuralRowContract,
+    target_contract: AcceptedRelationTargetContract,
     binding: AcceptedRelationBinding<'_>,
 ) -> Result<AcceptedRelationInfo, InternalError>
 where
     C: CanisterKind,
 {
     let relation_id = binding.reverse_identity.relation_id;
-    match compile_accepted_relation_binding(db, source_row_contract, binding) {
+    match compile_accepted_relation_binding(source_row_contract, target_contract, binding) {
         Ok(relation) => Ok(relation),
         Err(error) => {
             // Resolve diagnostic identity only on failure; successful planning
@@ -1120,25 +1131,24 @@ where
     }
 }
 
-fn compile_accepted_relation_binding<C>(
-    db: &Db<C>,
+fn compile_accepted_relation_binding(
     source_row_contract: &StructuralRowContract,
+    target_contract: AcceptedRelationTargetContract,
     binding: AcceptedRelationBinding<'_>,
-) -> Result<AcceptedRelationInfo, InternalError>
-where
-    C: CanisterKind,
-{
+) -> Result<AcceptedRelationInfo, InternalError> {
     let AcceptedRelationBinding {
         constraint,
         reverse_identity,
         target_path,
         source,
     } = binding;
+    if target_contract.target.path() != target_path {
+        return Err(InternalError::store_invariant());
+    }
     if let Some((nested, terminal)) = accepted_relation_traversal(&source, source_row_contract)? {
         let local_component = AcceptedRelationTupleEdgeLocalComponent::new(terminal.kind());
         let descriptor = accepted_relation_tuple_edge_descriptor(
-            db,
-            target_path,
+            target_contract,
             std::slice::from_ref(&local_component),
         )?;
         return AcceptedRelationInfo::new_nested(
@@ -1161,16 +1171,15 @@ where
         .collect::<Result<Vec<_>, _>>()?;
 
     if let [(slot, field)] = local_fields.as_slice()
-        && let Some(descriptor) =
-            accepted_scalar_relation_target_descriptor(db, field.kind(), Some(target_path))?
+        && let Some(cardinality) =
+            accepted_scalar_relation_cardinality(field.kind(), &target_contract)?
     {
-        let cardinality = descriptor.cardinality();
         return AcceptedRelationInfo::new(
             constraint,
             reverse_identity,
             *slot,
             AcceptedRelationLocalComponents::scalar(*slot, *field)?,
-            descriptor.into_target_contract(),
+            target_contract,
             cardinality,
         );
     }
@@ -1180,7 +1189,7 @@ where
         .map(|(_, field)| AcceptedRelationTupleEdgeLocalComponent::new(field.kind()))
         .collect::<Vec<_>>();
     let tuple_descriptor =
-        accepted_relation_tuple_edge_descriptor(db, target_path, local_component_facts.as_slice())?;
+        accepted_relation_tuple_edge_descriptor(target_contract, local_component_facts.as_slice())?;
     let component_specs = local_fields
         .iter()
         .map(|(slot, field)| AcceptedRelationLocalComponentSpec {
@@ -1208,6 +1217,7 @@ fn relation_info_from_snapshot_edge<C>(
     snapshot: &crate::db::schema::PersistedSchemaSnapshot,
     row_contract: &StructuralRowContract,
     edge: &crate::db::schema::PersistedRelationEdgeSnapshot,
+    target_contract: AcceptedRelationTargetContract,
 ) -> Result<AcceptedRelationInfo, InternalError>
 where
     C: CanisterKind,
@@ -1234,6 +1244,7 @@ where
                 db,
                 source_path,
                 row_contract,
+                target_contract,
                 AcceptedRelationBinding {
                     constraint,
                     reverse_identity,
@@ -1256,6 +1267,7 @@ where
                 db,
                 source_path,
                 row_contract,
+                target_contract,
                 AcceptedRelationBinding {
                     constraint,
                     reverse_identity,

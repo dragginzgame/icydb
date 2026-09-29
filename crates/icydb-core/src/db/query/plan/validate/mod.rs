@@ -25,7 +25,7 @@ pub(in crate::db) use errors::CursorOrderPlanShapeError;
 pub use errors::PlanError;
 pub(crate) use errors::{ExprPlanError, GroupPlanError, OrderPlanError, PolicyPlanError};
 #[cfg(test)]
-pub(crate) use errors::{PlanErrorKind, PlanPolicyError, PlanUserError};
+pub(crate) use errors::{PlanErrorKind, PlanPolicyError};
 pub(in crate::db::query) use intent_policy::validate_intent_plan_shape;
 pub(in crate::db::query) use plan_shape::validate_plan_shape;
 pub(in crate::db::query) use semantic_gates::{

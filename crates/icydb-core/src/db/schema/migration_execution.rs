@@ -33,7 +33,10 @@ use crate::{
         key_taxonomy::RawDataStoreKeyRange,
         positioned_overlay::JournalOverlayPosition,
         registry::{StoreHandle, StoreRecoveryCapability},
-        relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
+        relation::{
+            RelationConstraintProjection, ReverseRelationSourceInfo,
+            accepted_relation_target_contract,
+        },
         schema::{
             AcceptedCatalogSnapshotSelection, CompiledAcceptedRowConstraints,
             MigrationIndexProjection, PersistedSchemaMigrationIndexCursor,
@@ -589,8 +592,7 @@ fn apply_migration_effect(
             row_bytes,
             ..
         } if record_store_path == store_path => {
-            let row =
-                RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
+            let row = RawRow::from_untrusted_bytes(row_bytes.clone())?;
             store.with_data_mut(|data| {
                 data.apply_recovered_journal_put(primary_key.clone(), row)
                     .map(drop)
@@ -859,6 +861,7 @@ fn prepare_candidate_entity<C: CanisterKind>(
     )?
     .ok_or_else(InternalError::store_invariant)?;
     let candidate_schema = candidate_selection.snapshot();
+    let candidate_snapshot = candidate_schema.persisted_snapshot();
     let candidate_contract =
         crate::db::data::AcceptedStructuralRowAuthority::from_catalog_selection(
             program.candidate_path(),
@@ -876,8 +879,7 @@ fn prepare_candidate_entity<C: CanisterKind>(
         })?
         .ok_or_else(InternalError::store_corruption)?
         .snapshot();
-    let indexes = candidate_schema
-        .persisted_snapshot()
+    let indexes = candidate_snapshot
         .indexes()
         .iter()
         .filter(|index| {
@@ -888,12 +890,11 @@ fn prepare_candidate_entity<C: CanisterKind>(
                 .find(|before| before.schema_id() == index.schema_id())
                 .is_none_or(|before| before.physical_generation() != index.physical_generation())
         })
-        .chain(candidate_schema.persisted_snapshot().candidate_indexes())
+        .chain(candidate_snapshot.candidate_indexes())
         .map(|index| MigrationIndexProjection::new(program.entity(), index, &candidate_contract))
         .collect::<Result<Vec<_>, _>>()?;
     let source = ReverseRelationSourceInfo::new(program.candidate_path(), program.entity());
-    let relations = candidate_schema
-        .persisted_snapshot()
+    let relations = candidate_snapshot
         .relations()
         .iter()
         .filter(|edge| {
@@ -908,26 +909,22 @@ fn prepare_candidate_entity<C: CanisterKind>(
             RelationConstraintProjection::new_active(
                 db,
                 source.clone(),
-                candidate_schema.persisted_snapshot(),
+                candidate_snapshot,
                 &candidate_contract,
                 edge,
+                accepted_relation_target_contract(db, edge.target_path())?,
             )
         })
-        .chain(
-            candidate_schema
-                .persisted_snapshot()
-                .candidate_relations()
-                .iter()
-                .map(|edge| {
-                    RelationConstraintProjection::new(
-                        db,
-                        source.clone(),
-                        candidate_schema.persisted_snapshot(),
-                        &candidate_contract,
-                        edge,
-                    )
-                }),
-        )
+        .chain(candidate_snapshot.candidate_relations().iter().map(|edge| {
+            RelationConstraintProjection::new(
+                db,
+                source.clone(),
+                candidate_snapshot,
+                &candidate_contract,
+                edge,
+                accepted_relation_target_contract(db, edge.target_path())?,
+            )
+        }))
         .collect::<Result<Vec<_>, _>>()?;
     if relations.iter().any(|relation| {
         relation.target_store().storage_capabilities().recovery()

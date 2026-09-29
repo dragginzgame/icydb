@@ -92,7 +92,7 @@ fn assert_layout(
             })
             .collect(),
     );
-    let aggregates = grouped_aggregate_specs_from_projection_spec(&projection, keys).unwrap();
+    let aggregates = grouped_aggregate_specs_from_projection_spec(&projection).unwrap();
     let (layout, actual_identity) = planned_projection_layout_from_spec(
         &projection,
         keys,
@@ -180,7 +180,7 @@ fn grouped_layout_reuses_semantic_slots_across_repeated_filtered_and_distinct_ou
         .map(|expr| ProjectionField::Scalar { expr, alias: None })
         .collect(),
     );
-    let mut specs = grouped_aggregate_specs_from_projection_spec(&projection, &keys).unwrap();
+    let mut specs = grouped_aggregate_specs_from_projection_spec(&projection).unwrap();
     let expected = [filtered, sum("amount").distinct(), sum("amount")];
     assert_eq!(specs.len(), expected.len());
     for (spec, aggregate) in specs.iter().zip(&expected) {
@@ -209,7 +209,7 @@ fn grouped_layout_preserves_identity_with_having_only_slots_and_requires_frozen_
         expr: Expr::Aggregate(count()),
         alias: None,
     }]);
-    let mut specs = grouped_aggregate_specs_from_projection_spec(&projection, &keys).unwrap();
+    let mut specs = grouped_aggregate_specs_from_projection_spec(&projection).unwrap();
     extend_unique_grouped_aggregate_specs_from_expr(&mut specs, &Expr::Aggregate(sum("amount")))
         .unwrap();
     let declared = [GroupAggregateSpec::from_aggregate_expr(count())];

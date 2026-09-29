@@ -74,16 +74,15 @@ fn validate_composite_pk_literal(
     primary_key_names: &[String],
     key: &Value,
 ) -> Result<(), AccessPlanError> {
-    let field = composite_primary_key_field_label(primary_key_names);
     let Value::List(values) = key else {
         return Err(AccessPlanError::PrimaryKeyMismatch {
-            field,
+            field: composite_primary_key_field_label(primary_key_names),
             key: key.clone(),
         });
     };
     if values.len() != primary_key_names.len() {
         return Err(AccessPlanError::PrimaryKeyMismatch {
-            field,
+            field: composite_primary_key_field_label(primary_key_names),
             key: key.clone(),
         });
     }

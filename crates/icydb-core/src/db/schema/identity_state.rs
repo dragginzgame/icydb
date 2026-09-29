@@ -35,7 +35,8 @@ const IDENTITY_STATE_BODY_BYTES: usize =
 pub(in crate::db::schema) const IDENTITY_STATE_RECORD_BYTES: usize =
     IDENTITY_STATE_BODY_BYTES + size_of::<u32>();
 
-/// Immutable accepted owner of one identity allocation domain.
+/// Accepted schema key for one identity allocation domain.
+/// Schema publication may rebind the field ID through accepted source lineage.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IdentityStateOwner {
     database_incarnation_id: DatabaseIncarnationId,
@@ -180,7 +181,7 @@ impl IdentityRangeAdvance {
     }
 }
 
-/// Current-form operational state for one immutable identity owner.
+/// Current-form operational state for one accepted identity allocation domain.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct IdentityState {
     owner: IdentityStateOwner,
@@ -536,17 +537,20 @@ pub(in crate::db::schema) type IdentityStateInventory =
 
 pub(in crate::db::schema) struct IdentityStateTransition {
     updates: Vec<IdentityState>,
+    removals: Vec<IdentityStateOwner>,
     projected_inventory: IdentityStateInventory,
 }
 
 impl IdentityStateTransition {
     #[must_use]
     pub(in crate::db::schema) const fn is_empty(&self) -> bool {
-        self.updates.is_empty()
+        self.updates.is_empty() && self.removals.is_empty()
     }
 
-    pub(in crate::db::schema) fn into_updates(self) -> Vec<IdentityState> {
-        self.updates
+    pub(in crate::db::schema) fn into_effects(
+        self,
+    ) -> (Vec<IdentityState>, Vec<IdentityStateOwner>) {
+        (self.updates, self.removals)
     }
 
     #[must_use]
@@ -565,38 +569,46 @@ pub(in crate::db::schema) fn prepare_identity_state_transition(
     candidate: &crate::db::schema::AcceptedSchemaRevisionBundle,
     inventory: IdentityStateInventory,
 ) -> Result<IdentityStateTransition, InternalError> {
-    let current_declarations = current
+    let mut current_declarations = current
         .map(identity_declarations)
         .transpose()?
         .unwrap_or_default();
     let candidate_declarations = identity_declarations(candidate)?;
 
-    for (key, state) in &inventory {
-        if state.owner().database_incarnation_id() != incarnation
+    if inventory.iter().any(|(key, state)| {
+        state.owner().database_incarnation_id() != incarnation
             || state.owner().entity_tag() != key.0
             || state.owner().field_id() != key.1
-        {
-            return Err(InternalError::identity_state_corruption());
-        }
-        match state.lifecycle() {
-            IdentityStateLifecycle::Active => {
-                let Some(kind) = current_declarations.get(key) else {
-                    return Err(InternalError::identity_state_corruption());
-                };
-                if kind != state.accepted_kind() {
-                    return Err(InternalError::identity_state_corruption());
-                }
-            }
-            IdentityStateLifecycle::Retired => {
-                if current_declarations.contains_key(key) {
-                    return Err(InternalError::identity_state_corruption());
-                }
-            }
-        }
+    }) {
+        return Err(InternalError::identity_state_corruption());
     }
-
-    let mut updates = Vec::new();
-    let mut projected_inventory = inventory;
+    if let Some(current) = current {
+        validate_identity_state_closure(current, &inventory)?;
+    } else if inventory
+        .values()
+        .any(|state| state.lifecycle() == IdentityStateLifecycle::Active)
+    {
+        return Err(InternalError::identity_state_corruption());
+    }
+    let mut transition = IdentityStateTransition {
+        updates: Vec::new(),
+        removals: Vec::new(),
+        projected_inventory: inventory,
+    };
+    if let Some(current) = current {
+        rebind_retained_identity_states(
+            current,
+            candidate,
+            &mut current_declarations,
+            &candidate_declarations,
+            &mut transition,
+        )?;
+    }
+    let IdentityStateTransition {
+        updates,
+        projected_inventory,
+        ..
+    } = &mut transition;
     for (key, current_kind) in &current_declarations {
         let state = projected_inventory
             .get(key)
@@ -633,10 +645,51 @@ pub(in crate::db::schema) fn prepare_identity_state_transition(
         updates.push(state);
     }
 
-    Ok(IdentityStateTransition {
-        updates,
-        projected_inventory,
-    })
+    Ok(transition)
+}
+
+// Source bindings prove that a changed numeric field ID is the same logical
+// allocator. Move its complete state, including replay identity and exhaustion;
+// retirement is reserved for an actually removed owner.
+fn rebind_retained_identity_states(
+    current: &crate::db::schema::AcceptedSchemaRevisionBundle,
+    candidate: &crate::db::schema::AcceptedSchemaRevisionBundle,
+    current_declarations: &mut BTreeMap<(EntityTag, FieldId), AcceptedFieldKind>,
+    candidate_declarations: &BTreeMap<(EntityTag, FieldId), AcceptedFieldKind>,
+    transition: &mut IdentityStateTransition,
+) -> Result<(), InternalError> {
+    for (key, kind) in std::mem::take(current_declarations) {
+        if candidate_declarations.contains_key(&key)
+            || candidate_declarations
+                .range((key.0, FieldId::new(1))..)
+                .next()
+                .is_none_or(|((entity, _), _)| *entity != key.0)
+        {
+            current_declarations.insert(key, kind);
+            continue;
+        }
+        let after = current
+            .source_bindings()
+            .field_source(key.0, key.1)
+            .and_then(|source| candidate.source_bindings().field(key.0, source))
+            .ok_or_else(InternalError::store_unsupported)?;
+        let after_key = (key.0, after);
+        if candidate_declarations.get(&after_key) != Some(&kind)
+            || transition.projected_inventory.contains_key(&after_key)
+        {
+            return Err(InternalError::identity_state_corruption());
+        }
+        let mut state = transition
+            .projected_inventory
+            .remove(&key)
+            .ok_or_else(InternalError::identity_state_corruption)?;
+        transition.removals.push(state.owner());
+        state.owner.field_id = after;
+        transition.updates.push(state.clone());
+        transition.projected_inventory.insert(after_key, state);
+        current_declarations.insert(after_key, kind);
+    }
+    Ok(())
 }
 
 pub(in crate::db::schema) fn validate_identity_state_closure(

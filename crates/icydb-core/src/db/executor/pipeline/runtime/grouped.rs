@@ -517,9 +517,7 @@ impl StructuralGroupedRowRuntime {
         match (consistency, row) {
             (MissingRowPolicy::Ignore, None) => Ok(None),
             (MissingRowPolicy::Ignore | MissingRowPolicy::Error, Some(row)) => Ok(Some(row)),
-            (MissingRowPolicy::Error, None) => {
-                Err(crate::db::executor::ExecutorError::store_corruption().into())
-            }
+            (MissingRowPolicy::Error, None) => Err(InternalError::store_corruption()),
         }
     }
 

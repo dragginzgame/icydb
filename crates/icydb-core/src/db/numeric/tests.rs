@@ -240,3 +240,16 @@ fn average_decimal_terms_uses_canonical_division_and_count_coercion() {
         Decimal::from_i128_with_scale(21_666_666_666_666_666_667, 18)
     );
 }
+
+#[test]
+fn decimal_division_signed_overflow_returns_typed_numeric_error() {
+    for scale in [0, 18] {
+        assert_eq!(
+            divide_decimal_terms_checked(
+                Decimal::from_i128_with_scale(i128::MIN, scale),
+                Decimal::new(-1, 0),
+            ),
+            Err(NumericEvalError::Overflow),
+        );
+    }
+}

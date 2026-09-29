@@ -190,10 +190,9 @@ impl ProjectionField {
         }
     }
 
-    /// Return one direct projected field name when this output stays on one
-    /// field leaf under optional alias wrappers.
+    /// Return the source field name when this output is a direct field leaf.
     #[must_use]
-    pub(in crate::db) fn direct_field_name(&self) -> Option<&str> {
+    pub(in crate::db) const fn direct_field_name(&self) -> Option<&str> {
         direct_projection_expr_field_name(self.expr())
     }
 }
@@ -251,23 +250,13 @@ fn insert_projection_slot(
     Ok(())
 }
 
-/// Return one direct field name when the expression is only a field leaf plus
-/// optional alias wrappers.
+/// Return the source field name when the expression is a direct field leaf.
 #[must_use]
-#[cfg_attr(
-    not(test),
-    expect(
-        clippy::missing_const_for_fn,
-        reason = "test-only alias traversal keeps the shared helper non-const across the full target matrix"
-    )
-)]
-pub(in crate::db) fn direct_projection_expr_field_name(expr: &Expr) -> Option<&str> {
+pub(in crate::db) const fn direct_projection_expr_field_name(expr: &Expr) -> Option<&str> {
     match expr {
         Expr::Field(field) => Some(field.as_str()),
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => direct_projection_expr_field_name(expr.as_ref()),
-        Expr::Unary { .. } => None,
-        Expr::FieldPath(_)
+        Expr::Unary { .. }
+        | Expr::FieldPath(_)
         | Expr::Literal(_)
         | Expr::FunctionCall { .. }
         | Expr::Aggregate(_)
@@ -400,8 +389,6 @@ pub(in crate::db) fn try_classify_grouped_top_k_order_term<E>(
                 true
             }
             Expr::Literal(_) | Expr::Binary { .. } | Expr::Unary { .. } | Expr::Case { .. } => true,
-            #[cfg(test)]
-            Expr::Alias { .. } => true,
         })
     })?;
 

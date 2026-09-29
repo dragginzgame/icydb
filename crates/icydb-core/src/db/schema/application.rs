@@ -770,7 +770,7 @@ fn preflight_ordinary_source_application<C: CanisterKind>(
     }
     #[cfg(feature = "migration")]
     {
-        if current_proposal_lineage_is_applied(db, proposal, target.accepted_head())? {
+        if current_proposal_lineage_is_applied(db, proposal)? {
             return Ok(());
         }
         preflight_unpublished_schema_migration(target, proposal, db)?;
@@ -798,6 +798,18 @@ pub(in crate::db) fn migrate_schema<C: CanisterKind>(
     command: SchemaMigrationCommand,
 ) -> Result<SchemaMigrationStatusPage, InternalError> {
     ensure_recovery_admitted(db)?;
+    // Commands and proposals must name the same predecessor, including retries.
+    // Live freshness is checked at admission; lineage retains publication provenance.
+    let expected_head = match &command {
+        SchemaMigrationCommand::Adopt { expected_head, .. }
+        | SchemaMigrationCommand::Advance { expected_head, .. }
+        | SchemaMigrationCommand::Abort { expected_head, .. } => expected_head,
+    };
+    if proposal.expected_head() != expected_head {
+        return Err(InternalError::schema_migration(
+            SchemaMigrationCode::StaleAcceptedHead,
+        ));
+    }
     match command {
         SchemaMigrationCommand::Adopt {
             expected_database,
@@ -1613,7 +1625,7 @@ fn schema_migration_status_for_target<C: CanisterKind>(
             .entries()
             .values()
             .any(|entry| matches!(entry.state(), AcceptedEntitySourceLineageState::Unadopted));
-    let applied = current_proposal_lineage_is_applied(db, proposal, target.accepted_head())?;
+    let applied = current_proposal_lineage_is_applied(db, proposal)?;
     let phase = if unadopted {
         SchemaMigrationPhase::Unadopted
     } else if proposal.migration().is_none() {
@@ -1882,7 +1894,6 @@ fn schema_migration_planning_error(error: SchemaMigrationPlanningError) -> Inter
         SchemaMigrationPlanningError::EmptyEntityVersionBump => {
             SchemaMigrationCode::EmptyEntityVersionBump
         }
-        SchemaMigrationPlanningError::StaleAcceptedHead => SchemaMigrationCode::StaleAcceptedHead,
         SchemaMigrationPlanningError::UnknownFromObject => SchemaMigrationCode::UnknownFromObject,
         SchemaMigrationPlanningError::UnknownToObject => SchemaMigrationCode::UnknownToObject,
         SchemaMigrationPlanningError::KindMismatch => SchemaMigrationCode::KindMismatch,
@@ -2041,7 +2052,6 @@ fn proposal_entity<'a>(
 fn current_proposal_lineage_is_applied<C: CanisterKind>(
     db: &Db<C>,
     proposal: &SchemaProposal,
-    accepted_head: &ExpectedAcceptedHead,
 ) -> Result<bool, InternalError> {
     let Some(lineage) = load_entity_source_lineage_catalog()? else {
         return Ok(false);
@@ -2074,12 +2084,11 @@ fn current_proposal_lineage_is_applied<C: CanisterKind>(
             let Some(entry) = lineage.get(store_identity, entity_tag) else {
                 return Ok(false);
             };
-            matched = entry.accepted_head() == accepted_head
-                && matches!(
-                    entry.state(),
-                    AcceptedEntitySourceLineageState::Adopted { version, source_digest }
-                        if version.get() == entity.version().get() && *source_digest == digest
-                );
+            matched = matches!(
+                entry.state(),
+                AcceptedEntitySourceLineageState::Adopted { version, source_digest }
+                    if version.get() == entity.version().get() && *source_digest == digest
+            );
             break;
         }
         if !matched {
@@ -3148,6 +3157,12 @@ mod tests {
     mod collection_relations;
 
     #[cfg(feature = "migration")]
+    mod identity_field_removal;
+
+    #[cfg(feature = "migration")]
+    mod populated_field_removal;
+
+    #[cfg(feature = "migration")]
     mod entity_rename;
 
     #[cfg(all(feature = "migration", feature = "sql"))]
@@ -3155,6 +3170,9 @@ mod tests {
 
     #[cfg(feature = "migration")]
     mod nested_migration;
+
+    #[cfg(feature = "migration")]
+    mod record_member_rename;
 
     use super::{
         AcceptedSchemaPublication, AcceptedStoreHead, DirectGeneratedRowLocalProof,
@@ -4868,10 +4886,6 @@ mod tests {
             (
                 SchemaMigrationPlanningError::EmptyEntityVersionBump,
                 SchemaMigrationCode::EmptyEntityVersionBump,
-            ),
-            (
-                SchemaMigrationPlanningError::StaleAcceptedHead,
-                SchemaMigrationCode::StaleAcceptedHead,
             ),
             (
                 SchemaMigrationPlanningError::UnknownFromObject,

@@ -104,8 +104,6 @@ pub(in crate::db) fn infer_expr_type(
             case::infer_case_expr_type(when_then_arms.as_slice(), else_expr.as_ref(), schema, work)
         }
         Expr::Aggregate(aggregate) => aggregate::infer_aggregate_expr_type(aggregate, schema, work),
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => infer_expr_type(expr.as_ref(), schema, work),
         Expr::Unary { op, expr } => {
             let inner = infer_expr_type(expr.as_ref(), schema, work)?;
 

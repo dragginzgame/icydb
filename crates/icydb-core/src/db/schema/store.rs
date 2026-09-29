@@ -855,6 +855,7 @@ pub(in crate::db) struct PreparedAcceptedSchemaFold {
     expected_revision: AcceptedSchemaRevision,
     snapshots: Vec<PreparedSchemaSnapshot>,
     identity_updates: Vec<(RawSchemaKey, Vec<u8>)>,
+    identity_removals: Vec<RawSchemaKey>,
     retained: BTreeSet<RawSchemaKey>,
     root_slot: usize,
 }
@@ -1726,7 +1727,14 @@ impl SchemaStore {
         transition: IdentityStateTransition,
         target: IdentityStateWriteTarget,
     ) -> Result<(), InternalError> {
-        for state in transition.into_updates() {
+        let (updates, removals) = transition.into_effects();
+        for owner in removals {
+            self.remove_identity_state_key(
+                RawSchemaKey::from_identity_state(owner.entity_tag(), owner.field_id()),
+                target,
+            )?;
+        }
+        for state in updates {
             let key = RawSchemaKey::from_identity_state(
                 state.owner().entity_tag(),
                 state.owner().field_id(),
@@ -1745,6 +1753,56 @@ impl SchemaStore {
                 IdentityStateWriteTarget::Canonical => {
                     self.insert_canonical_raw_value(key, bytes)?;
                 }
+            }
+        }
+        Ok(())
+    }
+
+    // A retained allocator moves keys with its accepted field. These deletes
+    // follow the same destination authority as schema publication; canonical
+    // folding must not erase a newer positioned live state.
+    fn remove_identity_state_key(
+        &mut self,
+        key: RawSchemaKey,
+        target: IdentityStateWriteTarget,
+    ) -> Result<(), InternalError> {
+        match (&mut self.backend, target) {
+            (
+                SchemaStoreBackend::Heap(map),
+                IdentityStateWriteTarget::Durable | IdentityStateWriteTarget::Materialized,
+            ) => {
+                map.remove(&key);
+            }
+            (
+                SchemaStoreBackend::Journaled {
+                    live, tombstones, ..
+                },
+                IdentityStateWriteTarget::Materialized,
+            ) => {
+                live.remove(&key);
+                tombstones.insert(key);
+            }
+            (
+                SchemaStoreBackend::Journaled {
+                    canonical,
+                    live,
+                    tombstones,
+                    ..
+                },
+                IdentityStateWriteTarget::Durable,
+            ) => {
+                live.remove(&key);
+                tombstones.remove(&key);
+                canonical.remove(&key);
+            }
+            (
+                SchemaStoreBackend::Journaled { canonical, .. },
+                IdentityStateWriteTarget::Canonical,
+            ) => {
+                canonical.remove(&key);
+            }
+            (SchemaStoreBackend::Heap(_), IdentityStateWriteTarget::Canonical) => {
+                return Err(InternalError::store_invariant());
             }
         }
         Ok(())
@@ -2977,8 +3035,12 @@ impl SchemaStore {
         if candidate_is_current && !identity_transition.is_empty() {
             return Err(InternalError::identity_state_corruption());
         }
-        let identity_updates = identity_transition
-            .into_updates()
+        let (updates, removals) = identity_transition.into_effects();
+        let identity_removals = removals
+            .into_iter()
+            .map(|owner| RawSchemaKey::from_identity_state(owner.entity_tag(), owner.field_id()))
+            .collect();
+        let identity_updates = updates
             .into_iter()
             .map(|state| {
                 Ok((
@@ -3018,6 +3080,7 @@ impl SchemaStore {
             expected_revision,
             snapshots,
             identity_updates,
+            identity_removals,
             retained,
             root_slot,
         })
@@ -3127,11 +3190,12 @@ impl SchemaStore {
             expected_revision,
             snapshots,
             identity_updates,
+            identity_removals,
             retained,
             root_slot,
         } = prepared;
         if self.canonical_root_matches_candidate(&candidate)? {
-            if !identity_updates.is_empty() {
+            if !identity_updates.is_empty() || !identity_removals.is_empty() {
                 return Err(InternalError::identity_state_corruption());
             }
             let first = self.canonical_root_slot_bytes(0)?;
@@ -3170,6 +3234,9 @@ impl SchemaStore {
             candidate.root(),
             persisted_bundle.as_bytes(),
         )?;
+        for key in identity_removals {
+            self.remove_identity_state_key(key, IdentityStateWriteTarget::Canonical)?;
+        }
         for (key, bytes) in identity_updates {
             self.insert_canonical_raw_value(key, bytes)?;
         }
@@ -3604,7 +3671,14 @@ impl SchemaStore {
             .target_slot()
         };
         let mut keys = Self::candidate_entry_keys(candidate, root_slot)?;
-        for state in identity_transition.into_updates() {
+        let (updates, removals) = identity_transition.into_effects();
+        for owner in removals {
+            keys.insert(RawSchemaKey::from_identity_state(
+                owner.entity_tag(),
+                owner.field_id(),
+            ));
+        }
+        for state in updates {
             keys.insert(RawSchemaKey::from_identity_state(
                 state.owner().entity_tag(),
                 state.owner().field_id(),
@@ -3792,7 +3866,12 @@ impl SchemaStore {
             .map(|entry| *entry.key())
             .collect::<Vec<_>>();
         for key in canonical_keys {
-            if keep.contains(&key) || key.is_identity_state() {
+            // Identity moves and retirements own their exact live effects;
+            // generic catalog cleanup must preserve a moved owner's tombstone.
+            if key.is_identity_state() {
+                continue;
+            }
+            if keep.contains(&key) {
                 tombstones.remove(&key);
             } else {
                 tombstones.insert(key);

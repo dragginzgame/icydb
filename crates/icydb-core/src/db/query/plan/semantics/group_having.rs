@@ -79,15 +79,18 @@ pub(in crate::db::query::plan::semantics) fn grouped_having_streaming_compatible
     expr.try_all_tree_expr(&mut |node| {
         observe(1)?;
         Ok(match node {
-            Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) | Expr::Aggregate(_) => true,
-            Expr::FunctionCall { .. } | Expr::Unary { .. } | Expr::Case { .. } => true,
+            Expr::Field(_)
+            | Expr::FieldPath(_)
+            | Expr::Literal(_)
+            | Expr::Aggregate(_)
+            | Expr::FunctionCall { .. }
+            | Expr::Unary { .. }
+            | Expr::Case { .. } => true,
             Expr::Binary { op, .. } => {
                 // Streaming supports comparisons joined by AND. Other binary
                 // expressions remain executable through non-streaming routes.
                 truth_condition_binary_compare_op(*op).is_some() || matches!(op, BinaryOp::And)
             }
-            #[cfg(test)]
-            Expr::Alias { .. } => true,
         })
     })
 }

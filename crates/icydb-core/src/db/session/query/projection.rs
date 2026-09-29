@@ -140,8 +140,6 @@ pub(in crate::db::session) fn projection_labels_from_projection_spec(
                             format!("{kind}({distinct}*)")
                         }
                     }
-                    #[cfg(test)]
-                    Expr::Alias { name, .. } => name.as_str().to_string(),
                     Expr::FieldPath(_)
                     | Expr::Literal(_)
                     | Expr::FunctionCall { .. }

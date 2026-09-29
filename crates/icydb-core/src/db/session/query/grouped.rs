@@ -18,7 +18,7 @@ use crate::{
         },
         session::{
             AcceptedSchemaCatalogContext, finalize_structural_grouped_projection_result,
-            grouped_cursor_from_bytes, query::query_error_from_executor_plan_error,
+            grouped_cursor_from_bytes,
         },
     },
     traits::CanisterKind,
@@ -97,7 +97,7 @@ impl<C: CanisterKind> DbSession<C> {
         };
         let cursor = plan
             .prepare_grouped_cursor_token(cursor)
-            .map_err(query_error_from_executor_plan_error)?;
+            .map_err(QueryError::from_cursor_plan_error)?;
 
         Ok((plan, cursor))
     }

@@ -38,10 +38,7 @@ pub enum CursorPlanError {
     InvalidContinuationCursor { reason: CursorDecodeError },
 
     /// Cursor token payload/semantics are invalid after token decode.
-    InvalidContinuationCursorPayload {
-        reason: DiagnosticDecodeReason,
-        index: Option<usize>,
-    },
+    InvalidContinuationCursorPayload { reason: DiagnosticDecodeReason },
 
     /// Cursor plan/runtime contract invariants were violated.
     ContinuationCursorInvariantViolation,
@@ -81,10 +78,7 @@ impl CursorPlanError {
     pub(in crate::db) const fn invalid_continuation_cursor_payload(
         reason: DiagnosticDecodeReason,
     ) -> Self {
-        Self::InvalidContinuationCursorPayload {
-            reason,
-            index: None,
-        }
+        Self::InvalidContinuationCursorPayload { reason }
     }
 
     /// Construct one grouped-cursor direction mismatch payload error.
@@ -167,13 +161,8 @@ impl CursorPlanError {
                     ),
                 ],
             },
-            Self::InvalidContinuationCursorPayload { reason, index } => {
-                let mut facts = Vec::with_capacity(usize::from(index.is_some()) + 1);
-                if let Some(index) = index {
-                    facts.push((DiagnosticFactTag::ComponentIndex, *index as u64));
-                }
-                facts.push((DiagnosticFactTag::DecodeReason, reason.raw()));
-                facts
+            Self::InvalidContinuationCursorPayload { reason } => {
+                vec![(DiagnosticFactTag::DecodeReason, reason.raw())]
             }
             Self::ContinuationCursorInvariantViolation => Vec::new(),
             Self::ContinuationCursorSignatureMismatch { expected, actual } => vec![

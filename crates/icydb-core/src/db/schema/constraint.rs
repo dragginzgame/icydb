@@ -27,7 +27,7 @@ pub(in crate::db) const fn primary_key_constraint_name() -> &'static str {
     PRIMARY_KEY_CONSTRAINT_NAME
 }
 
-/// Build the deterministic first-publication not-null constraint name.
+/// Build the deterministic not-null constraint name for its current field owner.
 #[must_use]
 pub(in crate::db) fn not_null_constraint_name(field_id: FieldId) -> String {
     format!("__icydb_not_null_{}", field_id.get())
@@ -1308,7 +1308,14 @@ impl AcceptedConstraintCatalog {
             .map(|constraint| match constraint.kind() {
                 AcceptedConstraintKind::NotNull { field_id } => map(*field_id)
                     .map(|field_id| {
-                        constraint.clone_with_kind(AcceptedConstraintKind::NotNull { field_id })
+                        // Structural names follow dense field IDs; retaining an
+                        // old name would block a later field that reuses that ID.
+                        AcceptedConstraintSnapshot::new(
+                            constraint.id(),
+                            not_null_constraint_name(field_id),
+                            constraint.origin(),
+                            AcceptedConstraintKind::NotNull { field_id },
+                        )
                     })
                     .ok_or(AcceptedConstraintCatalogError::OwnerMismatch),
                 AcceptedConstraintKind::Check { expression } => expression
@@ -1565,15 +1572,88 @@ mod tests {
     use super::{
         AcceptedConstraintCatalog, AcceptedConstraintCatalogError, AcceptedConstraintKind,
         AcceptedRuleOperation, ConstraintActivationState, ConstraintOrigin,
+        not_null_constraint_name,
     };
     use crate::db::{
         codec::{finalize_hash_sha256, new_hash_sha256},
         schema::{
             AcceptedCheckExprV1, AcceptedCheckLiteralV1, AcceptedFieldKind,
-            AcceptedSchemaFingerprint, FieldStorageDecode, LeafCodec, ScalarCodec,
+            AcceptedSchemaFingerprint, FieldId, FieldStorageDecode, LeafCodec, ScalarCodec,
         },
     };
     use sha2::Digest;
+
+    #[test]
+    fn dense_field_remapping_preserves_constraint_identity_and_allows_new_not_null_owners() {
+        let mut catalog = AcceptedConstraintCatalog::default();
+        for (id, origin) in [
+            (1, ConstraintOrigin::Generated),
+            (2, ConstraintOrigin::SqlDdl),
+            (3, ConstraintOrigin::Generated),
+        ] {
+            let field_id = FieldId::new(id);
+            catalog
+                .push(
+                    not_null_constraint_name(field_id),
+                    origin,
+                    AcceptedConstraintKind::NotNull { field_id },
+                )
+                .unwrap();
+        }
+        catalog = catalog
+            .with_added_check(
+                "authored_check".into(),
+                ConstraintOrigin::SqlDdl,
+                AcceptedCheckExprV1::True,
+            )
+            .unwrap();
+        let authored = catalog.constraints().last().unwrap().clone();
+        for _ in 0..2 {
+            let before = catalog.clone();
+            catalog = catalog
+                .with_removed_not_null(FieldId::new(1))
+                .unwrap()
+                .with_mapped_field_ids(|id| {
+                    id.get()
+                        .checked_sub(1)
+                        .filter(|id| *id > 0)
+                        .map(FieldId::new)
+                })
+                .unwrap();
+            assert_eq!(catalog.allocator(), before.allocator());
+            for constraint in catalog.constraints() {
+                let previous = before
+                    .constraints()
+                    .iter()
+                    .find(|entry| entry.id() == constraint.id())
+                    .unwrap();
+                assert_eq!(constraint.origin(), previous.origin());
+                if let AcceptedConstraintKind::NotNull { field_id } = constraint.kind() {
+                    assert_eq!(constraint.name(), not_null_constraint_name(*field_id));
+                    assert_eq!(
+                        previous.kind(),
+                        &AcceptedConstraintKind::NotNull {
+                            field_id: FieldId::new(field_id.get() + 1)
+                        }
+                    );
+                } else {
+                    assert_eq!(constraint, &authored);
+                }
+            }
+            let field_id = FieldId::new(3);
+            catalog
+                .push(
+                    not_null_constraint_name(field_id),
+                    ConstraintOrigin::SqlDdl,
+                    AcceptedConstraintKind::NotNull { field_id },
+                )
+                .unwrap();
+            assert_eq!(
+                catalog.allocator().high_water(),
+                before.allocator().high_water() + 1
+            );
+        }
+    }
 
     #[test]
     fn appended_targeted_rule_fingerprint_tags_are_four_and_five() {

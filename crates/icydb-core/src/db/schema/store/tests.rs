@@ -1,3 +1,5 @@
+mod identity_remap;
+
 use super::{
     ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_BOOL, ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_LIST,
     ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_SET, AcceptedStoreCatalogScope, IdentityStateStorageView,

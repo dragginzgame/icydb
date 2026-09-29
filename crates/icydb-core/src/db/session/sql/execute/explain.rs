@@ -148,7 +148,7 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(rendered);
         }
 
-        if let Some((mode, verbose, command)) = PreparationWork::run(
+        if let Some((mode, command)) = PreparationWork::run(
             self.db.request_execution_scope(),
             DiagnosticExecutionLane::Diagnostic,
             |work| {
@@ -163,7 +163,6 @@ impl<C: CanisterKind> DbSession<C> {
         )? {
             return self.explain_sql_global_aggregate_structural_for_authority(
                 mode,
-                verbose,
                 command,
                 authority,
                 catalog,
@@ -374,7 +373,6 @@ impl<C: CanisterKind> DbSession<C> {
     fn explain_sql_global_aggregate_structural_for_authority(
         &self,
         mode: SqlExplainMode,
-        verbose: bool,
         command: SqlGlobalAggregateCommand,
         authority: EntityAuthority,
         catalog: &AcceptedSchemaCatalogContext,
@@ -397,10 +395,8 @@ impl<C: CanisterKind> DbSession<C> {
                         .render_text_canonical()
                     },
                 ),
-            SqlExplainMode::Execution => {
-                let _ = verbose;
-
-                self.try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
+            SqlExplainMode::Execution => self
+                .try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority.clone(),
                     catalog,
                     &command,
@@ -413,12 +409,9 @@ impl<C: CanisterKind> DbSession<C> {
                             schema_info,
                         )
                     },
-                )
-            }
-            SqlExplainMode::ExecutionJson => {
-                let _ = verbose;
-
-                self.try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
+                ),
+            SqlExplainMode::ExecutionJson => self
+                .try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority.clone(),
                     catalog,
                     &command,
@@ -431,8 +424,7 @@ impl<C: CanisterKind> DbSession<C> {
                             schema_info,
                         )
                     },
-                )
-            }
+                ),
             SqlExplainMode::Json => self
                 .try_map_cached_sql_global_aggregate_explain_plan_for_accepted_authority(
                     authority,

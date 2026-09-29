@@ -6,8 +6,8 @@ use crate::{
         query::{
             builder::aggregate::count,
             plan::expr::{
-                Alias, BinaryOp, CaseWhenArm, Expr, FieldId as ExprFieldId, FieldPath, Function,
-                UnaryOp, compile_scalar_projection_expr_with_schema,
+                BinaryOp, CaseWhenArm, Expr, FieldId as ExprFieldId, FieldPath, Function, UnaryOp,
+                compile_scalar_projection_expr_with_schema,
             },
         },
         schema::{
@@ -133,10 +133,6 @@ fn analyzed_scalar_admission_matches_compiler_across_expression_shapes() {
                 path("profile"),
             )],
             else_expr: Box::new(Expr::Literal(Value::Text("fallback".into()))),
-        },
-        Expr::Alias {
-            expr: Box::new(field("id")),
-            name: Alias::new("display"),
         },
         field("missing"),
         path("missing"),

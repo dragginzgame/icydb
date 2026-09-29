@@ -58,10 +58,9 @@ fn validate_prepared_statement_parameters(
         return Ok(());
     };
 
-    Err(SqlLoweringError::unsupported_parameter_placement(
-        Some(index),
-        super::SqlParameterPlacementReason::BindingUnsupported,
-    ))
+    Err(SqlLoweringError::unsupported_parameter_placement(Some(
+        index,
+    )))
 }
 
 // Find the first placeholder index in one normalized statement so prepare can
@@ -481,7 +480,6 @@ fn lower_explain_select_prepared_with_schema(
         return Ok(LoweredSqlCommand(
             LoweredSqlCommandInner::ExplainGlobalAggregate {
                 mode,
-                verbose,
                 command: Box::new(command),
             },
         ));
@@ -499,7 +497,6 @@ fn lower_explain_select_prepared_with_schema(
             Ok(LoweredSqlCommand(
                 LoweredSqlCommandInner::ExplainGlobalAggregate {
                     mode,
-                    verbose,
                     command: Box::new(command),
                 },
             ))

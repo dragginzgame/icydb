@@ -68,7 +68,5 @@ fn where_expr_is_literal_only(expr: &Expr) -> bool {
             where_expr_is_literal_only(left.as_ref()) && where_expr_is_literal_only(right.as_ref())
         }
         Expr::Unary { expr, .. } => where_expr_is_literal_only(expr.as_ref()),
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => where_expr_is_literal_only(expr.as_ref()),
     }
 }

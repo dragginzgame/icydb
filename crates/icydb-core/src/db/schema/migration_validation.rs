@@ -269,6 +269,7 @@ fn validate_entity_page<C: CanisterKind>(
                 candidate_schema.persisted_snapshot(),
                 &candidate_contract,
                 edge,
+                crate::db::relation::accepted_relation_target_contract(db, edge.target_path())?,
             )
             .map(|projection| (projection, staged))
         })
@@ -284,6 +285,10 @@ fn validate_entity_page<C: CanisterKind>(
                         candidate_schema.persisted_snapshot(),
                         &candidate_contract,
                         edge,
+                        crate::db::relation::accepted_relation_target_contract(
+                            db,
+                            edge.target_path(),
+                        )?,
                     )
                     .map(|projection| (projection, true))
                 }),

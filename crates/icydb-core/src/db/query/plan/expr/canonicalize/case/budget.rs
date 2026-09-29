@@ -147,13 +147,6 @@ impl ExpansionBudget<'_, '_> {
                 }
                 Ok(true)
             }
-            #[cfg(test)]
-            Expr::Alias { expr, name } => {
-                if !self.payload(name.as_str().len(), copies)? {
-                    return Ok(false);
-                }
-                self.expr(expr, copies)
-            }
         }
     }
 

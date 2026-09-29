@@ -119,6 +119,10 @@ impl AcceptedInspectionPlan {
                             snapshot.persisted_snapshot(),
                             row,
                             edge,
+                            crate::db::relation::accepted_relation_target_contract(
+                                db,
+                                edge.target_path(),
+                            )?,
                         )
                     })
                     .collect()

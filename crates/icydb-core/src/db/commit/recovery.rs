@@ -130,7 +130,7 @@ struct RecoveryContinuation {
 pub(crate) fn ensure_recovery_admitted<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     select_commit_memory_allocation(
         C::commit_memory_id()
-            .map_err(InternalError::commit_memory_id_registration_failed)
+            .map_err(|_| InternalError::store_internal())
             .map_err(|error| error.with_origin(ErrorOrigin::Recovery))?,
         C::COMMIT_STABLE_KEY,
     );
@@ -210,7 +210,7 @@ pub(in crate::db) fn continue_recovery_with_failure_authority<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<RecoveryProgress, StartupRecoveryFailure> {
     C::commit_memory_id()
-        .map_err(InternalError::commit_memory_id_registration_failed)
+        .map_err(|_| InternalError::store_internal())
         .map(|id| select_commit_memory_allocation(id, C::COMMIT_STABLE_KEY))
         .map_err(|error| {
             StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
@@ -266,6 +266,9 @@ fn recover_domain<C: CanisterKind>(
     db: &Db<C>,
     recovery_key: RecoveryDomainKey,
 ) -> Result<RecoveryProgress, StartupRecoveryFailure> {
+    if !recovery_domain_in_progress(recovery_key) {
+        validate_registered_accepted_store_paths(db)?;
+    }
     mark_recovery_domain_in_progress(recovery_key);
     let marker = with_commit_store(super::store::CommitStore::load).map_err(|error| {
         StartupRecoveryFailure::database_control(error.with_origin(ErrorOrigin::Recovery))
@@ -298,6 +301,28 @@ fn recover_domain<C: CanisterKind>(
         clear_recovery_domain_in_progress(recovery_key);
     }
     Ok(progress)
+}
+
+// Allocation convergence cannot prove executable path compatibility. Check the
+// verified catalog before any replay effect: a changed deployment binding must
+// remain reversible, while malformed persisted authority still fails closed.
+fn validate_registered_accepted_store_paths<C: CanisterKind>(
+    db: &Db<C>,
+) -> Result<(), StartupRecoveryFailure> {
+    for (path, handle) in sorted_journaled_store_handles(db) {
+        handle
+            .with_schema(|schema| {
+                if schema
+                    .current_canonical_accepted_schema_bundle()?
+                    .is_some_and(|bundle| bundle.store_path() != path)
+                {
+                    return Err(InternalError::store_unsupported());
+                }
+                Ok(())
+            })
+            .map_err(|error| StartupRecoveryFailure::journal_store(path, error))?;
+    }
+    Ok(())
 }
 
 fn journaled_tails_are_empty<C: CanisterKind>(db: &Db<C>) -> Result<bool, StartupRecoveryFailure> {
@@ -1624,8 +1649,7 @@ fn apply_journal_record(
                 return Err(InternalError::store_corruption());
             }
             validate_schema_migration_journal_plan(*plan_digest)?;
-            let row =
-                RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
+            let row = RawRow::from_untrusted_bytes(row_bytes.clone())?;
             expected_handle.with_data_mut(|store| match mode {
                 JournalRecordApplyMode::Replay => store
                     .apply_recovered_journal_put(primary_key.clone(), row)
@@ -1968,7 +1992,7 @@ fn validate_journal_batch_record<C: CanisterKind>(
             validate_schema_migration_journal_plan(*plan_digest)?;
             DecodedDataStoreKey::try_from_raw(primary_key)
                 .map_err(|_| InternalError::store_corruption())?;
-            RawRow::from_untrusted_bytes(row_bytes.clone()).map_err(InternalError::from)?;
+            RawRow::from_untrusted_bytes(row_bytes.clone())?;
             if mode == JournalRecordApplyMode::Fold {
                 expected_handle.with_data(DataStore::preflight_fold_recovered_journal)?;
             }
@@ -2295,9 +2319,11 @@ fn journal_record_store_handle<C: CanisterKind>(
     record: &JournalRecord,
 ) -> Result<(&'static str, StoreHandle), InternalError> {
     match record {
-        JournalRecord::RowPut { entity_path, .. }
-        | JournalRecord::RowDelete { entity_path, .. } => {
-            journal_row_record_store_handle(db, entity_path.as_str(), record)
+        JournalRecord::RowPut { primary_key, .. }
+        | JournalRecord::RowDelete { primary_key, .. } => {
+            let key = DecodedDataStoreKey::try_from_raw(primary_key)
+                .map_err(|_| InternalError::store_corruption())?;
+            journal_entity_store_handle(db, key.entity_tag())
         }
         JournalRecord::SchemaPut { store_path, .. }
         | JournalRecord::AcceptedSchemaPublish { store_path, .. }
@@ -2309,10 +2335,7 @@ fn journal_record_store_handle<C: CanisterKind>(
             registry_store_handle_for_path(db, store_path)
         }
         JournalRecord::IdentityRangeAdvance { range } => {
-            let runtime_entity = db
-                .accepted_runtime_entity_for_tag(range.owner().entity_tag())
-                .map_err(|_| InternalError::store_corruption())?;
-            registry_store_handle_for_path(db, runtime_entity.store_path())
+            journal_entity_store_handle(db, range.owner().entity_tag())
         }
         #[cfg(any(test, feature = "migration"))]
         JournalRecord::SchemaMigrationRowPut { store_path, .. }
@@ -2334,12 +2357,16 @@ fn registry_store_handle_for_path<C: CanisterKind>(
     })
 }
 
-fn journal_row_record_store_handle<C: CanisterKind>(
+// Names can differ between a retained record, the canonical predecessor and
+// the live projection. Only the accepted tag determines store routing; row
+// preparation separately validates the recorded path, fingerprint and key.
+fn journal_entity_store_handle<C: CanisterKind>(
     db: &Db<C>,
-    entity_path: &str,
-    _record: &JournalRecord,
+    entity_tag: EntityTag,
 ) -> Result<(&'static str, StoreHandle), InternalError> {
-    let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
+    let runtime_entity = db
+        .accepted_runtime_entity_for_tag(entity_tag)
+        .map_err(|_| InternalError::store_corruption())?;
     registry_store_handle_for_path(db, runtime_entity.store_path())
 }
 
