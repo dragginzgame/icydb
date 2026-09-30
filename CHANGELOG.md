@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)
 
+- `0.261.21` fixes primary seeks that lose buffered rows and removes obsolete seek and grouped test scaffolding.
 - `0.261.20` simplifies row storage and test fixtures and removes obsolete code and documentation; invalid relation source tags consistently report corruption.
 - `0.261.19` fixes SQL reads and resumable updates, secures cursor keys, aligns startup tests with asynchronous readiness and simplifies query execution (breaking: saved cursors expire across upgrades; restart pagination).
 - `0.261.18` fixes journal recovery, schema evolution and Decimal overflow, and simplifies execution, planning, validation and cursor diagnostics (breaking: record-member renames now use physical migration).

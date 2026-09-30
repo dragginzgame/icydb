@@ -1,10 +1,8 @@
 //! Module: executor::stream::key::seek
-//! Responsibility: monotonic held-head positioning and its repeated-pull reference adapter.
+//! Responsibility: held-head positioning contracts and logical work accounting.
 //! Does not own: physical range jumps, page cursor encoding, or planner eligibility.
 //! Boundary: defines the protocol physical ordered streams must implement before seek use.
 
-#[cfg(test)]
-use crate::db::executor::stream::key::{KeyOrderComparator, OrderedKeyStream};
 use crate::{db::data::DecodedDataStoreKey, error::InternalError};
 
 /// Result of ensuring or seeking one ordered stream head.
@@ -21,8 +19,8 @@ pub(in crate::db::executor) enum HeldHeadSeekOutcome<'a> {
 /// Page-local logical work performed by held-head positioning.
 ///
 /// Pull attempts include the final exhaustion probe. Physical streams add
-/// their own path, storage, decode, and hard-budget charges; this reference
-/// authority must never claim those operations were skipped.
+/// their own path, storage, decode, and hard-budget charges; logical counters
+/// must never claim those operations were skipped.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct HeldHeadSeekWork {
     pull_attempt_limit: u64,
@@ -49,7 +47,7 @@ impl HeldHeadSeekWork {
         }
     }
 
-    /// Construct work whose reference-adapter pull count is effectively unbounded.
+    /// Construct work whose logical pull count is effectively unbounded.
     #[must_use]
     pub(in crate::db::executor) const fn unbounded() -> Self {
         Self::with_pull_attempt_limit(u64::MAX)
@@ -193,154 +191,4 @@ pub(in crate::db::executor) trait HeldHeadKeyStream {
         &mut self,
         work: &mut HeldHeadSeekWork,
     ) -> Result<Option<DecodedDataStoreKey>, InternalError>;
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[cfg(test)]
-enum EnsureHeadState {
-    Held,
-    Exhausted,
-    PageStop,
-}
-
-/// Repeated-pull reference implementation for the held-head protocol.
-///
-/// This adapter is the semantic oracle for later physical seek implementations.
-/// It intentionally performs no range jump and therefore claims no storage-work
-/// reduction.
-#[cfg(test)]
-pub(in crate::db::executor) struct RepeatedPullHeldHeadKeyStream<S> {
-    inner: S,
-    comparator: KeyOrderComparator,
-    held: Option<DecodedDataStoreKey>,
-    exhausted: bool,
-    last_pulled: Option<DecodedDataStoreKey>,
-}
-
-#[cfg(test)]
-impl<S> RepeatedPullHeldHeadKeyStream<S>
-where
-    S: OrderedKeyStream,
-{
-    /// Construct a reference adapter over one stream with fixed traversal order.
-    #[must_use]
-    pub(in crate::db::executor) const fn new(inner: S, comparator: KeyOrderComparator) -> Self {
-        Self {
-            inner,
-            comparator,
-            held: None,
-            exhausted: false,
-            last_pulled: None,
-        }
-    }
-
-    /// Ensure one unconsumed head for reference-oracle tests.
-    pub(in crate::db::executor) fn ensure_head(
-        &mut self,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-        let state = self.ensure_head_state(work)?;
-        self.outcome(state)
-    }
-
-    fn ensure_head_state(
-        &mut self,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<EnsureHeadState, InternalError> {
-        if self.held.is_some() {
-            return Ok(EnsureHeadState::Held);
-        }
-        if self.exhausted {
-            return Ok(EnsureHeadState::Exhausted);
-        }
-
-        if !work.admits_pull() {
-            return Ok(EnsureHeadState::PageStop);
-        }
-        work.record_pull_attempt()?;
-
-        let Some(next) = self.inner.next_key()? else {
-            self.exhausted = true;
-            return Ok(EnsureHeadState::Exhausted);
-        };
-
-        if let Some(previous) = self.last_pulled.as_ref() {
-            if previous.entity_tag() != next.entity_tag() {
-                return Err(InternalError::executor_invariant());
-            }
-            work.record_comparison()?;
-            if self.comparator.compare_data_keys(previous, &next).is_gt() {
-                return Err(InternalError::executor_invariant());
-            }
-        }
-
-        self.last_pulled = Some(next.clone());
-        self.held = Some(next);
-        Ok(EnsureHeadState::Held)
-    }
-
-    fn outcome(&self, state: EnsureHeadState) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-        match state {
-            EnsureHeadState::Held => self
-                .held
-                .as_ref()
-                .map(HeldHeadSeekOutcome::Held)
-                .ok_or_else(InternalError::executor_invariant),
-            EnsureHeadState::Exhausted => Ok(HeldHeadSeekOutcome::Exhausted),
-            EnsureHeadState::PageStop => Ok(HeldHeadSeekOutcome::PageStop),
-        }
-    }
-
-    fn discard_head_for_seek(&mut self, work: &mut HeldHeadSeekWork) -> Result<(), InternalError> {
-        if self.held.is_none() {
-            return Err(InternalError::executor_invariant());
-        }
-        work.record_skipped_consumptions(1)?;
-        self.held = None;
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-impl<S> HeldHeadKeyStream for RepeatedPullHeldHeadKeyStream<S>
-where
-    S: OrderedKeyStream,
-{
-    fn seek_head_at_or_after(
-        &mut self,
-        target: &DecodedDataStoreKey,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-        loop {
-            let state = self.ensure_head_state(work)?;
-            if state != EnsureHeadState::Held {
-                return self.outcome(state);
-            }
-
-            let key = self
-                .held
-                .as_ref()
-                .ok_or_else(InternalError::executor_invariant)?;
-            work.record_comparison()?;
-            let held_is_before_target = self.comparator.compare_data_keys(key, target).is_lt();
-            if !held_is_before_target {
-                return self.outcome(EnsureHeadState::Held);
-            }
-            self.discard_head_for_seek(work)?;
-        }
-    }
-
-    fn consume_head(
-        &mut self,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-        if self.held.is_none() {
-            return Ok(None);
-        }
-        work.record_consumed()?;
-        self.held
-            .take()
-            .map(Some)
-            .ok_or_else(InternalError::executor_invariant)
-    }
 }

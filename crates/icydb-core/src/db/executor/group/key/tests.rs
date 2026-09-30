@@ -1,4 +1,3 @@
-use super::canonical_group_key_equals;
 use crate::{
     db::executor::group::{CanonicalKey, GroupKey, GroupKeySet},
     types::{Decimal, U256},
@@ -30,7 +29,7 @@ fn canonical_key_normalizes_decimal_scale() {
         .canonical_key()
         .expect("canonical key");
 
-    let Value::Decimal(normalized) = key.raw() else {
+    let Value::Decimal(normalized) = key.canonical_value() else {
         panic!("canonical decimal value expected");
     };
     assert_eq!(normalized.scale(), 0);
@@ -164,8 +163,8 @@ fn canonical_equal_keys_always_share_stable_hash() {
     for (left_value, right_value) in equivalent_pairs {
         let left_key = left_value.canonical_key().expect("left canonical key");
         let right_key = right_value.canonical_key().expect("right canonical key");
-        assert!(
-            canonical_group_key_equals(&left_key, &right_key),
+        assert_eq!(
+            left_key, right_key,
             "pair should be canonical-equal under group key contract",
         );
         assert_eq!(
@@ -192,8 +191,8 @@ fn group_key_set_handles_hash_collisions_with_equality_check() {
             second.hash(),
             "test setup requires an artificial hash collision",
         );
-        assert!(
-            !canonical_group_key_equals(&first, &second),
+        assert_ne!(
+            first, second,
             "collision pair must remain distinct by canonical equality",
         );
         assert!(

@@ -51,42 +51,21 @@ fn grouped_execution_context_starts_empty_with_planner_defaults() {
 
 #[test]
 fn grouped_budget_observability_projects_budget_and_limits() {
-    let context = grouped_execution_context_from_planner_config(
-        GroupedExecutionConfig::with_hard_limits(11, 2048),
-    );
-    let budget = grouped_budget_observability(&context);
-
-    assert_eq!(budget.groups(), 0);
-    assert_eq!(budget.aggregate_states(), 0);
-    assert_eq!(budget.estimated_bytes(), 0);
-    assert_eq!(budget.max_groups(), 11);
-    assert_eq!(budget.max_group_bytes(), 2048);
-}
-
-#[test]
-fn grouped_budget_observability_contract_vectors_are_frozen() {
-    let default_context = grouped_execution_context_from_planner_config(
-        GroupedExecutionConfig::planner_default_bounded(),
-    );
-    let constrained_context = grouped_execution_context_from_planner_config(
-        GroupedExecutionConfig::with_hard_limits(11, 2048),
-    );
-    let actual_vectors = vec![
-        grouped_budget_observability(&default_context),
-        grouped_budget_observability(&constrained_context),
-    ]
-    .into_iter()
-    .map(|budget| {
+    for (config, max_groups, max_group_bytes) in [
         (
-            budget.groups(),
-            budget.aggregate_states(),
-            budget.estimated_bytes(),
-            budget.max_groups(),
-            budget.max_group_bytes(),
-        )
-    })
-    .collect::<Vec<_>>();
-    let expected_vectors = vec![(0, 0, 0, 10_000, 16 * 1024 * 1024), (0, 0, 0, 11, 2048)];
+            GroupedExecutionConfig::planner_default_bounded(),
+            10_000,
+            16 * 1024 * 1024,
+        ),
+        (GroupedExecutionConfig::with_hard_limits(11, 2048), 11, 2048),
+    ] {
+        let context = grouped_execution_context_from_planner_config(config);
+        let budget = grouped_budget_observability(&context);
 
-    assert_eq!(actual_vectors, expected_vectors);
+        assert_eq!(budget.groups(), 0);
+        assert_eq!(budget.aggregate_states(), 0);
+        assert_eq!(budget.estimated_bytes(), 0);
+        assert_eq!(budget.max_groups(), max_groups);
+        assert_eq!(budget.max_group_bytes(), max_group_bytes);
+    }
 }

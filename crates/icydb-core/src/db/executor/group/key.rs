@@ -44,13 +44,6 @@ impl Hash for GroupKey {
     }
 }
 
-/// Compare two grouped keys with canonical grouped-equality semantics.
-#[cfg(test)]
-#[must_use]
-fn canonical_group_key_equals(left: &GroupKey, right: &GroupKey) -> bool {
-    left == right
-}
-
 impl GroupKey {
     fn from_raw(raw: Value) -> Result<Self, InternalError> {
         let hash = stable_hash_value(&raw)?;
@@ -145,12 +138,6 @@ impl GroupKey {
         hash: StableHash,
     ) -> Self {
         Self::from_raw_with_hash(Value::List(vec![group_value]), hash)
-    }
-
-    #[cfg(test)]
-    #[must_use]
-    const fn raw(&self) -> &Value {
-        &self.raw.0
     }
 }
 
