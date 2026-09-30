@@ -453,23 +453,6 @@ impl DataStore {
         }
     }
 
-    #[cfg(test)]
-    fn retire_positioned_journal_effect(
-        &mut self,
-        key: &RawDataStoreKey,
-        position: JournalOverlayPosition,
-    ) -> Result<PositionedOverlayRetirement, crate::error::InternalError> {
-        let DataStoreBackend::Journaled { positions, .. } = &self.backend else {
-            return Err(crate::error::InternalError::store_invariant());
-        };
-        let retirement = positions.preflight_retirement(key, position)?;
-        let prepared = PreparedDataPositionRetirement {
-            entries: vec![(key.clone(), retirement)],
-        };
-        self.apply_prepared_position_retirement(prepared);
-        Ok(retirement)
-    }
-
     /// Apply one folded journal row put into the canonical stable base.
     pub(in crate::db) fn fold_recovered_journal_put(
         &mut self,

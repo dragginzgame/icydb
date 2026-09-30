@@ -146,29 +146,6 @@ impl IndexPrefixCardinality {
         Some(self.exact_count_synchronized(key_kind, index_id, components))
     }
 
-    /// Count distinct non-empty leading components for one accepted user
-    /// index while retaining a bounded physical metadata-work observation.
-    #[cfg(test)]
-    pub(super) fn exact_first_component_distinct_count(
-        &self,
-        data_generation: u64,
-        index_id: IndexId,
-        stop_after: u64,
-    ) -> Result<Option<(u64, u64)>, InternalError> {
-        self.exact_first_component_range_count(
-            data_generation,
-            index_id,
-            &Bound::Unbounded,
-            &Bound::Unbounded,
-            stop_after,
-        )
-        .map(|result| {
-            result.map(|(_total, examined, complete)| {
-                (if complete { examined } else { stop_after }, examined)
-            })
-        })
-    }
-
     fn try_fold_exact_first_components<T>(
         &self,
         data_generation: u64,
@@ -934,7 +911,13 @@ mod tests {
 
         assert!(
             cardinality
-                .exact_first_component_distinct_count(0, index_id, 2)
+                .exact_first_component_range_count(
+                    0,
+                    index_id,
+                    &Bound::Unbounded,
+                    &Bound::Unbounded,
+                    2,
+                )
                 .is_err(),
         );
     }

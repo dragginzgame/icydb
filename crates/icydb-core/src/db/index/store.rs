@@ -281,19 +281,6 @@ impl IndexStore {
             .exact_count(data_generation, key_kind, index_id, components)
     }
 
-    /// Return the exact number of distinct non-empty leading components for
-    /// one user index, bounded by `stop_after`, when metadata is synchronized.
-    #[cfg(test)]
-    pub(in crate::db) fn exact_first_component_distinct_cardinality(
-        &self,
-        data_generation: u64,
-        index_id: IndexId,
-        stop_after: u64,
-    ) -> Result<Option<(u64, u64)>, crate::error::InternalError> {
-        self.prefix_cardinality
-            .exact_first_component_distinct_count(data_generation, index_id, stop_after)
-    }
-
     /// Sum exact first-component multiplicities within the caller's bounded range and work cap.
     pub(in crate::db) fn exact_first_component_range_cardinality(
         &self,
@@ -700,23 +687,6 @@ impl IndexStore {
         }
     }
 
-    #[cfg(test)]
-    fn retire_positioned_journal_effect(
-        &mut self,
-        key: &RawIndexStoreKey,
-        position: JournalOverlayPosition,
-    ) -> Result<PositionedOverlayRetirement, crate::error::InternalError> {
-        let IndexStoreBackend::Journaled { positions, .. } = &self.backend else {
-            return Err(crate::error::InternalError::store_invariant());
-        };
-        let retirement = positions.preflight_retirement(key, position)?;
-        let prepared = PreparedIndexPositionRetirement {
-            entries: vec![(key.clone(), retirement)],
-        };
-        self.apply_prepared_position_retirement(prepared);
-        Ok(retirement)
-    }
-
     /// Apply one exact index entry directly to canonical stable storage.
     ///
     /// Journal folding and planner-invisible migration staging share this
@@ -1071,7 +1041,7 @@ mod tests {
     }
 
     #[test]
-    fn first_component_distinct_cardinality_is_exact_bounded_and_generation_matched() {
+    fn first_component_range_cardinality_is_exact_bounded_and_generation_matched() {
         let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
         let alpha = b"alpha".to_vec();
         let beta = b"beta".to_vec();
@@ -1079,12 +1049,13 @@ mod tests {
         let alpha_two = indexed_raw_key(&index_id, vec![alpha], 2);
         let beta_one = indexed_raw_key(&index_id, vec![beta], 3);
         let mut store = IndexStore::init_heap();
+        let bound = Bound::Unbounded;
 
         assert_eq!(
             store
-                .exact_first_component_distinct_cardinality(0, index_id, 1)
+                .exact_first_component_range_cardinality(0, index_id, &bound, &bound, 1)
                 .expect("initialized metadata should be structurally valid"),
-            Some((0, 0)),
+            Some((0, 0, true)),
             "initialized empty metadata must positively prove exact zero",
         );
         store.insert(alpha_one.clone(), IndexEntryValue::presence());
@@ -1092,7 +1063,7 @@ mod tests {
         store.insert(beta_one.clone(), IndexEntryValue::presence());
         assert_eq!(
             store
-                .exact_first_component_distinct_cardinality(0, index_id, 3)
+                .exact_first_component_range_cardinality(0, index_id, &bound, &bound, 3)
                 .expect("invalidated metadata should remain structurally valid"),
             None,
             "an unstamped mutation must make optional metadata unavailable",
@@ -1101,21 +1072,21 @@ mod tests {
         store.mark_prefix_cardinality_data_generation(7);
         assert_eq!(
             store
-                .exact_first_component_distinct_cardinality(7, index_id, 3)
+                .exact_first_component_range_cardinality(7, index_id, &bound, &bound, 3)
                 .expect("synchronized metadata should be structurally valid"),
-            Some((2, 2)),
-            "duplicate physical entries must contribute one leading component",
+            Some((3, 2, true)),
+            "duplicate physical entries contribute multiplicity but one leading-component visit",
         );
         assert_eq!(
             store
-                .exact_first_component_distinct_cardinality(7, index_id, 1)
+                .exact_first_component_range_cardinality(7, index_id, &bound, &bound, 1)
                 .expect("bounded metadata should be structurally valid"),
-            Some((1, 1)),
-            "stop-after must bound both result evidence and metadata work",
+            Some((2, 1, false)),
+            "stop-after bounds leading-component visits while retaining their multiplicities",
         );
         assert_eq!(
             store
-                .exact_first_component_distinct_cardinality(8, index_id, 3)
+                .exact_first_component_range_cardinality(8, index_id, &bound, &bound, 3)
                 .expect("stale metadata should remain structurally valid"),
             None,
             "row-generation drift must fail closed",
@@ -1127,9 +1098,9 @@ mod tests {
         store.mark_prefix_cardinality_data_generation(8);
         assert_eq!(
             store
-                .exact_first_component_distinct_cardinality(8, index_id, 1)
+                .exact_first_component_range_cardinality(8, index_id, &bound, &bound, 1)
                 .expect("empty metadata should be structurally valid"),
-            Some((0, 0)),
+            Some((0, 0, true)),
             "deleting every value must restore a positive exact-zero proof",
         );
     }
@@ -1487,6 +1458,7 @@ mod tests {
         drop(store);
 
         let mut reopened = IndexStore::init_journaled(memory);
+        let bound = Bound::Unbounded;
 
         assert_eq!(reopened.get(&key), Some(IndexEntryValue::presence()));
         assert_eq!(
@@ -1501,7 +1473,7 @@ mod tests {
         );
         assert_eq!(
             reopened
-                .exact_first_component_distinct_cardinality(0, index_id, 2)
+                .exact_first_component_range_cardinality(0, index_id, &bound, &bound, 2)
                 .expect("unmaterialized metadata should remain structurally valid"),
             None,
             "startup must not treat an absent materialized leading-component map as exact evidence",
@@ -1662,26 +1634,30 @@ mod tests {
                 overlay_position(2),
             )
             .expect("later membership should supersede the tombstone");
+        let prepared = store
+            .prepare_position_retirement([key.clone()], overlay_position(1))
+            .expect("older retirement should preserve later membership");
+        assert_eq!(
+            prepared.entries,
+            [(key.clone(), PositionedOverlayRetirement::Superseded)]
+        );
         store
             .apply_canonical_entry(key.clone(), None)
             .expect("tombstone batch should become canonical");
-        assert_eq!(
-            store
-                .retire_positioned_journal_effect(&key, overlay_position(1))
-                .expect("older retirement should preserve later membership"),
-            PositionedOverlayRetirement::Superseded,
-        );
+        store.apply_prepared_position_retirement(prepared);
         assert_eq!(store.get(&key), Some(IndexEntryValue::presence()));
 
+        let prepared = store
+            .prepare_position_retirement([key.clone()], overlay_position(2))
+            .expect("latest retirement should be exact");
+        assert_eq!(
+            prepared.entries,
+            [(key.clone(), PositionedOverlayRetirement::Exact)]
+        );
         store
             .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
             .expect("membership batch should become canonical");
-        assert_eq!(
-            store
-                .retire_positioned_journal_effect(&key, overlay_position(2))
-                .expect("latest retirement should be exact"),
-            PositionedOverlayRetirement::Exact,
-        );
+        store.apply_prepared_position_retirement(prepared);
         assert_eq!(store.get(&key), Some(IndexEntryValue::presence()));
 
         let mut visible = Vec::new();
@@ -1710,15 +1686,17 @@ mod tests {
         store
             .publish_positioned_journal_entry(key.clone(), None, position)
             .expect("final same-batch effect should coalesce by logical target");
+        let prepared = store
+            .prepare_position_retirement([key.clone()], position)
+            .expect("coalesced target should retire once");
+        assert_eq!(
+            prepared.entries,
+            [(key.clone(), PositionedOverlayRetirement::Exact)]
+        );
         store
             .apply_canonical_entry(key.clone(), None)
             .expect("coalesced final effect should become canonical");
-        assert_eq!(
-            store
-                .retire_positioned_journal_effect(&key, position)
-                .expect("coalesced target should retire once"),
-            PositionedOverlayRetirement::Exact,
-        );
+        store.apply_prepared_position_retirement(prepared);
         assert!(store.get(&key).is_none());
     }
 }

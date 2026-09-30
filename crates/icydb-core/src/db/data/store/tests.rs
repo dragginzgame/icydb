@@ -91,15 +91,17 @@ fn positioned_data_overlay_retires_exactly_across_delete_and_reinsert() {
     store
         .publish_positioned_journal_entry(key.clone(), None, overlay_position(2))
         .expect("later positioned delete should publish");
+    let prepared = store
+        .prepare_position_retirement([key.clone()], overlay_position(1))
+        .expect("older batch retirement should preflight");
+    assert_eq!(
+        prepared.entries,
+        [(key.clone(), PositionedOverlayRetirement::Superseded)]
+    );
     store
         .fold_recovered_journal_put(key.clone(), raw_row(22))
         .expect("first batch should become canonical");
-    assert_eq!(
-        store
-            .retire_positioned_journal_effect(&key, overlay_position(1))
-            .expect("older batch retirement should preflight"),
-        PositionedOverlayRetirement::Superseded,
-    );
+    store.apply_prepared_position_retirement(prepared);
     assert!(
         store.get(&key).is_none(),
         "newer tombstone must remain visible"
@@ -108,15 +110,17 @@ fn positioned_data_overlay_retires_exactly_across_delete_and_reinsert() {
     store
         .publish_positioned_journal_entry(key.clone(), Some(raw_row(33)), overlay_position(3))
         .expect("reinsert should supersede the tombstone");
+    let prepared = store
+        .prepare_position_retirement([key.clone()], overlay_position(2))
+        .expect("delete retirement should preserve the reinsert");
+    assert_eq!(
+        prepared.entries,
+        [(key.clone(), PositionedOverlayRetirement::Superseded)]
+    );
     store
         .fold_recovered_journal_delete(&key)
         .expect("delete batch should become canonical");
-    assert_eq!(
-        store
-            .retire_positioned_journal_effect(&key, overlay_position(2))
-            .expect("delete retirement should preserve the reinsert"),
-        PositionedOverlayRetirement::Superseded,
-    );
+    store.apply_prepared_position_retirement(prepared);
     assert_eq!(
         store
             .get(&key)
@@ -125,15 +129,17 @@ fn positioned_data_overlay_retires_exactly_across_delete_and_reinsert() {
         [33],
     );
 
+    let prepared = store
+        .prepare_position_retirement([key.clone()], overlay_position(3))
+        .expect("newest batch should retire exactly");
+    assert_eq!(
+        prepared.entries,
+        [(key.clone(), PositionedOverlayRetirement::Exact)]
+    );
     store
         .fold_recovered_journal_put(key.clone(), raw_row(33))
         .expect("reinsert batch should become canonical");
-    assert_eq!(
-        store
-            .retire_positioned_journal_effect(&key, overlay_position(3))
-            .expect("newest batch should retire exactly"),
-        PositionedOverlayRetirement::Exact,
-    );
+    store.apply_prepared_position_retirement(prepared);
     assert_eq!(
         store
             .get(&key)

@@ -2681,16 +2681,18 @@ fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
     store
         .publish_positioned_journal_entry(key, Some(snapshot(33)), overlay_position(2))
         .expect("later schema value should supersede the tombstone");
+    let prepared = store
+        .prepare_positioned_key_retirements([key], overlay_position(1))
+        .expect("older retirement should preserve the later value");
+    assert_eq!(
+        prepared.entries,
+        [(key, PositionedOverlayRetirement::Superseded)]
+    );
     let SchemaStoreBackend::Journaled { canonical, .. } = &mut store.backend else {
         panic!("positioned schema test requires a journaled store");
     };
     canonical.remove(&key);
-    assert_eq!(
-        store
-            .retire_positioned_journal_effect(key, overlay_position(1))
-            .expect("older retirement should preserve the later value"),
-        PositionedOverlayRetirement::Superseded,
-    );
+    store.apply_prepared_journal_batch_retirement(prepared);
     assert_eq!(
         store
             .get_raw_snapshot_for_backend(&key)
@@ -2699,16 +2701,18 @@ fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
         [33],
     );
 
+    let prepared = store
+        .prepare_positioned_key_retirements([key], overlay_position(2))
+        .expect("latest schema value should retire exactly");
+    assert_eq!(
+        prepared.entries,
+        [(key, PositionedOverlayRetirement::Exact)]
+    );
     let SchemaStoreBackend::Journaled { canonical, .. } = &mut store.backend else {
         panic!("positioned schema test requires a journaled store");
     };
     canonical.insert(key, snapshot(33));
-    assert_eq!(
-        store
-            .retire_positioned_journal_effect(key, overlay_position(2))
-            .expect("latest schema value should retire exactly"),
-        PositionedOverlayRetirement::Exact,
-    );
+    store.apply_prepared_journal_batch_retirement(prepared);
     assert_eq!(
         store
             .get_raw_snapshot_for_backend(&key)

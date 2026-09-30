@@ -2211,23 +2211,6 @@ impl SchemaStore {
         Ok(previous)
     }
 
-    #[cfg(test)]
-    fn retire_positioned_journal_effect(
-        &mut self,
-        key: RawSchemaKey,
-        position: JournalOverlayPosition,
-    ) -> Result<PositionedOverlayRetirement, InternalError> {
-        let SchemaStoreBackend::Journaled { positions, .. } = &self.backend else {
-            return Err(InternalError::store_invariant());
-        };
-        let retirement = positions.preflight_retirement(&key, position)?;
-        let prepared = PreparedSchemaPositionRetirement {
-            entries: vec![(key, retirement)],
-        };
-        self.apply_prepared_journal_batch_retirement(prepared);
-        Ok(retirement)
-    }
-
     /// Seed a test's canonical snapshot through the maintained prepared handoff.
     #[cfg(test)]
     pub(in crate::db) fn fold_persisted_snapshot(
