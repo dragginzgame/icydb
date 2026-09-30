@@ -103,6 +103,7 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
     assert_eq!(initialized.first_create, 0);
     assert_eq!(initialized.exact_match, 1);
     reset_icydb_fixtures(&fixture);
+    deliver_fixture_startup_watchdog(&fixture);
     let before_upgrade_rows = query_user(&fixture);
     let before_upgrade_exact = schema_application_query(&fixture);
     let before_upgrade_query = query_user_instructions(&fixture);
@@ -114,6 +115,8 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
     assert_eq!(optimized_initialized.first_create, 0);
     assert_eq!(optimized_initialized.exact_match, 1);
     reset_icydb_fixtures(&optimized_fixture);
+    deliver_fixture_startup_watchdog(&optimized_fixture);
+    assert_eq!(query_user(&optimized_fixture), before_upgrade_rows);
     let optimized_exact = schema_application_query(&optimized_fixture);
     let optimized_query = query_user_instructions(&optimized_fixture);
     assert_eq!(optimized_query.result, before_upgrade_query.result);

@@ -12,6 +12,7 @@ use icydb_testing_integration::{
     startup_watchdog_perf_snapshot,
 };
 use serde::Deserialize;
+use std::time::Duration;
 
 const CONVERGENCE_CALLBACK_INSTRUCTION_LIMIT: u64 = 30_000_000_000;
 const CONVERGENCE_CALLBACK_WASM_MEMORY_LIMIT: u64 = 768 * 1_024 * 1_024;
@@ -275,6 +276,16 @@ fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
             None,
         )
         .expect("current sql-perf Wasm should upgrade");
+
+    // Finish the first entropy request while the retry is still in the future.
+    // Keep the complete recovery backlog available to the next measured driver
+    // callback, or to the rollback probe that intentionally runs before it.
+    deliver_startup_watchdog_message(fixture);
+    let entropy_wait = startup_watchdog_perf_snapshot(fixture);
+    assert_eq!(entropy_wait.work_samples, 1);
+    assert_eq!(entropy_wait.retryable_failures, 1);
+    assert_eq!(entropy_wait.succeeded, 0);
+    assert_eq!(entropy_wait.invariant_failures, 0);
 }
 
 fn stable_memory_fingerprint(fixture: &StandaloneCanisterFixture) -> ([u8; 32], usize) {
@@ -476,6 +487,7 @@ fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly(
         DatabaseStartupState::Recovering,
         "the existing generated-schema handoff should remain the upgrade gate",
     );
+    fixture.pocket_ic().advance_time(Duration::from_secs(1));
     report_convergence_observation(
         "cardinality-mid-build-upgrade",
         run_bounded_convergence_watchdog(&fixture),
@@ -618,6 +630,7 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         startup_observation(&fixture).state,
         DatabaseStartupState::Recovering,
     );
+    fixture.pocket_ic().advance_time(Duration::from_secs(1));
     report_convergence_observation(
         "cardinality-tiebreak-ready-publication",
         run_bounded_convergence_watchdog(&fixture),
@@ -627,24 +640,43 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         DatabaseStartupState::Ready,
     );
 
+    let expired: Result<LiveQueryPagePerfOutput, Error> = fixture
+        .query_candid(
+            "query_cardinality_tiebreak_live_page_with_perf",
+            (continuation.take(),),
+        )
+        .expect("expired cursor result should decode");
+    assert_eq!(
+        expired.expect_err("upgrade rotates the cursor key").code(),
+        ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR,
+    );
+    let restarted: Result<LiveQueryPagePerfOutput, Error> = fixture
+        .query_candid(
+            "query_cardinality_tiebreak_live_page_with_perf",
+            (None::<String>,),
+        )
+        .expect("fresh first page should decode");
+    let restarted = restarted.expect("pagination restarts after upgrade");
+    assert_eq!(restarted.page.rows, first.page.rows);
+    assert_eq!(restarted.page.row_count, first.page.row_count);
     let after_ready: Result<LiveQueryPagePerfOutput, Error> = fixture
         .query_candid(
             "query_cardinality_tiebreak_live_page_with_perf",
             (Some(
-                continuation
-                    .take()
-                    .expect("the post-Ready pinned page must have a cursor"),
+                restarted
+                    .page
+                    .continuation
+                    .expect("fresh first-page cursor"),
             ),),
         )
-        .expect("post-Ready pinned cursor page should decode");
-    let after_ready = after_ready.expect("post-Ready pinned cursor page should execute");
+        .expect("fresh continuation page should decode");
+    let after_ready = after_ready.expect("fresh continuation should execute");
     assert_eq!(after_ready.page, before_ready.page);
     assert!(
         after_ready.instructions <= PINNED_POST_UPGRADE_INSTRUCTION_CEILING,
-        "post-upgrade pinned continuation used {} instructions; ceiling is {}; pre-upgrade used {}",
+        "post-upgrade continuation used {} instructions; ceiling is {}",
         after_ready.instructions,
         PINNED_POST_UPGRADE_INSTRUCTION_CEILING,
-        before_ready.instructions,
     );
     cursor_rows = cursor_rows.saturating_add(after_ready.page.row_count);
     assert_eq!(cursor_rows, 2);
@@ -926,6 +958,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
         ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING,
     );
 
+    populated.pocket_ic().advance_time(Duration::from_secs(1));
     let upgrade_convergence = run_bounded_convergence_watchdog(&populated);
     // Unlike debt-free startup, this upgrade must cross replay, retained
     // batch folds and final verification before admitting ordinary reads.
@@ -1051,8 +1084,17 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
     let watchdog: StartupWatchdogPerfSnapshot = fixture
         .query_candid("startup_watchdog_perf_snapshot", ())
         .expect("watchdog closeout snapshot should decode");
-    assert_eq!(watchdog.work_samples, 1);
-    assert_eq!(watchdog.succeeded, 1);
+    // Recovery may separate required replay from the schema handoff. Check
+    // completed, classified callbacks and the bounded retry outcome rather
+    // than requiring both responsibilities to fit one scheduler callback.
+    assert_eq!(watchdog.work_started, watchdog.work_completed);
+    assert_eq!(
+        watchdog.work_samples,
+        watchdog.succeeded + watchdog.retryable_failures,
+    );
+    assert_eq!(watchdog.retryable_failures, 1);
+    assert_eq!(watchdog.invariant_failures, 0);
+    assert!((1..=CONVERGENCE_RESIDUAL_MESSAGE_LIMIT).contains(&watchdog.succeeded));
     assert!(
         watchdog
             .work_maximum_instructions
@@ -1116,7 +1158,7 @@ AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', \
     let stable_before_upgrade = canister_memory_bytes(&fixture).1;
     upgrade_with_wasm(&fixture, current_sql_perf_wasm());
     assert!(canister_memory_bytes(&fixture).1 >= stable_before_upgrade);
-    deliver_startup_watchdog_message(&fixture);
+    advance_startup_watchdog_until_ready(&fixture);
     assert_eq!(
         startup_observation(&fixture).state,
         DatabaseStartupState::Ready,

@@ -32,7 +32,19 @@ fn install() -> StandaloneCanisterFixture {
 }
 
 fn step(fixture: &StandaloneCanisterFixture) -> Result<bool, Error> {
-    fixture.update_candid("step", ()).unwrap()
+    // This fixture drives startup explicitly. Drain entropy replies without
+    // advancing the watchdog cadence, retaining direct observation of registry
+    // rejection and control-frame conservation on the next driver attempt.
+    for _ in 0..32 {
+        let result: Result<bool, Error> = fixture.update_candid("step", ()).unwrap();
+        if !matches!(&result, Err(error) if error.code()
+            == ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING)
+        {
+            return result;
+        }
+        icydb_testing_integration::deliver_startup_watchdog_message(fixture);
+    }
+    panic!("entropy should arrive within the bounded startup delivery budget");
 }
 
 fn settle(fixture: &StandaloneCanisterFixture) {

@@ -144,6 +144,9 @@ pub fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture)
                     break;
                 }
                 deliver_startup_watchdog_message(fixture);
+                // A new boot first waits for raw_rand; completed replies do
+                // not make the cadence-backed retry immediately due.
+                fixture.pocket_ic().advance_time(Duration::from_secs(1));
             }
             Err(error) => panic!("startup driver returned terminal error: {error}"),
         }
@@ -1046,11 +1049,12 @@ fn start_fixture_pocket_ic() -> PocketIc {
 /// ordinary-work-ready canister but does not inspect the startup control
 /// surface itself.
 pub fn deliver_fixture_startup_watchdog(fixture: &StandaloneCanisterFixture) {
-    // A generated schema application may need several bounded watchdog
-    // messages, and PocketIC may need several deterministic-time slices to
-    // finish each message. Keep ordinary fixture setup bounded while allowing
-    // every maintained fresh-install schema to reach `Ready`.
+    // Drain asynchronous entropy replies before admitting the next one-second
+    // watchdog retry. Ticks alone advance only deterministic execution slices,
+    // so they cannot finish startup after its first entropy-pending result.
+    // Keep setup bounded for both install and upgrade.
     for _ in 0..8 {
+        fixture.pocket_ic().advance_time(Duration::from_secs(1));
         for _ in 0..FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS {
             fixture.pocket_ic().tick();
         }

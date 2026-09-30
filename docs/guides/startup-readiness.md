@@ -12,6 +12,11 @@ Admission replaces the persisted cursor key on each new boot while preserving
 database identity, rows and pending recovery work. Saved scalar and grouped
 cursors expire on upgrade: restart pagination after startup becomes ready.
 
+PocketIC setup must deliver the asynchronous entropy reply and advance virtual
+time through the watchdog's one-second retry cadence. Execution ticks alone do
+not make that retry due. Use the shared fixture startup helper for ordinary
+tests; tests that inspect lifecycle transitions must drive readiness explicitly.
+
 ## Declare One Lifecycle Owner
 
 Canisters without application lifecycle hooks use the default declaration:

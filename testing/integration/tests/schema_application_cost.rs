@@ -182,6 +182,7 @@ fn application_readiness_restores_only_after_ready_and_stops_on_typed_failure() 
     let observations = failed.observations;
 
     advance_watchdog_by(&fixture, Duration::from_mins(5));
+    advance_watchdog(&fixture);
     let after_failure = application_startup_contract(&fixture);
     assert_eq!(after_failure.observations, observations);
     assert_eq!(after_failure.restorations, 0);
@@ -227,6 +228,7 @@ fn lifecycle_driver_is_private_and_reconstructable_after_upgrade() {
         icydb::db::DatabaseStartupState::Recovering,
     );
     advance_watchdog_by(&fixture, Duration::from_mins(5));
+    advance_watchdog(&fixture);
     assert_eq!(
         startup_observation(&fixture).state,
         icydb::db::DatabaseStartupState::Ready,

@@ -677,10 +677,9 @@ fn drive_populated_startup_recovery(
     let application_recovering = application_startup_contract(fixture);
     assert_application_deferred(&application_recovering);
 
-    // Healthy recovery now chains bounded callbacks at the same IC timestamp.
-    // Observe the completed post-upgrade state instead of preserving the old
-    // one-second gap between pages as a test contract.
-    deliver_startup_watchdog_message(fixture);
+    // Boot entropy needs its reply and cadence-backed retry before healthy
+    // recovery can chain immediate successor callbacks.
+    icydb_testing_integration::advance_startup_watchdog_until_ready(fixture);
     let observation: Result<MutationScaleRecoveryEvidence, Error> = fixture
         .update_candid("recover_collection_mutation_scale_store", ())
         .expect("scale recovery observation should decode");

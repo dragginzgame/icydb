@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)
 
-- `0.261.19` fixes SQL reads and resumable updates, secures cursor keys and simplifies query execution, ownership and pagination (breaking: saved cursors expire across upgrades; restart pagination).
+- `0.261.19` fixes SQL reads and resumable updates, secures cursor keys, aligns startup tests with asynchronous readiness and simplifies query execution (breaking: saved cursors expire across upgrades; restart pagination).
 - `0.261.18` fixes journal recovery, schema evolution and Decimal overflow, and simplifies execution, planning, validation and cursor diagnostics (breaking: record-member renames now use physical migration).
 - `0.261.17` fixes query range endpoints and migration staging isolation, repairs validation fixtures, and removes unused code and tooling (breaking: update low-level coercion callers and restart affected continuations; stored data unchanged).
 - `0.261.16` simplifies progress and cardinality decoding and unique-index conflict checks while preserving stored formats and error reporting.
