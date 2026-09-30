@@ -703,6 +703,36 @@ pub fn build_entity_rename_fixture_wasms() -> Result<(Vec<u8>, Vec<u8>), String>
     ))
 }
 
+/// Build populated source, additive, metadata and physical creation actors.
+/// Every actor uses current formats and the same durable namespace/store keys.
+///
+/// # Errors
+/// Returns a build, post-link or retained-artifact read failure.
+pub fn build_entity_creation_fixture_wasms() -> Result<[Vec<u8>; 4], String> {
+    Ok([
+        build_fixture_variant_wasm(
+            "canister_test_sql",
+            "test-admin-api,local-sql-query,entity-rename",
+            "entity-creation-source",
+        )?,
+        build_fixture_variant_wasm(
+            "canister_test_sql",
+            "test-admin-api,local-sql-query,entity-creation",
+            "entity-creation-additive",
+        )?,
+        build_fixture_variant_wasm(
+            "canister_test_sql",
+            "test-admin-api,local-sql-query,entity-creation,entity-rename-successor",
+            "entity-creation-metadata",
+        )?,
+        build_fixture_variant_wasm(
+            "canister_test_sql",
+            "test-admin-api,local-sql-query,entity-creation-physical",
+            "entity-creation-physical",
+        )?,
+    ])
+}
+
 // Read while the retained Cargo/post-link owner is alive. Variant-specific
 // features must not borrow a mutable artifact path from another build.
 fn build_fixture_variant_wasm(

@@ -221,7 +221,8 @@ impl AcceptedValueCatalogHandle {
 
 pub(in crate::db::schema) type InitialEnumVariantDefinitions =
     BTreeMap<EnumVariantId, (String, Option<(AcceptedFieldKind, FieldStorageDecode)>)>;
-type InitialEnumDefinitions = BTreeMap<EnumTypeId, (String, InitialEnumVariantDefinitions)>;
+pub(in crate::db::schema) type InitialEnumDefinitions =
+    BTreeMap<EnumTypeId, (String, InitialEnumVariantDefinitions)>;
 
 fn variant_payload_matches(
     accepted: &AcceptedEnumVariantBody,
@@ -295,12 +296,24 @@ impl AcceptedEnumCatalog {
     pub(in crate::db::schema) fn from_initial_definitions(
         definitions: InitialEnumDefinitions,
     ) -> Result<Self, EnumCatalogBuildError> {
-        let mut by_id = BTreeMap::new();
-        let mut id_by_path = BTreeMap::new();
+        Self {
+            by_id: BTreeMap::new(),
+            id_by_path: BTreeMap::new(),
+        }
+        .with_added_definitions(definitions)
+    }
+
+    /// Append fresh definitions without replacing accepted identities or paths.
+    /// Validate after the complete addition so recursive enum references close.
+    pub(in crate::db::schema) fn with_added_definitions(
+        mut self,
+        definitions: InitialEnumDefinitions,
+    ) -> Result<Self, EnumCatalogBuildError> {
         for (type_id, (path, variants)) in definitions {
             if path.is_empty()
                 || variants.is_empty()
-                || id_by_path.insert(path.clone(), type_id).is_some()
+                || self.by_id.contains_key(&type_id)
+                || self.id_by_path.insert(path.clone(), type_id).is_some()
             {
                 return Err(EnumCatalogBuildError::LookupMapInvariant);
             }
@@ -330,7 +343,7 @@ impl AcceptedEnumCatalog {
                     },
                 );
             }
-            by_id.insert(
+            self.by_id.insert(
                 type_id,
                 AcceptedEnumType::new(
                     path,
@@ -340,11 +353,15 @@ impl AcceptedEnumCatalog {
                 ),
             );
         }
-        let catalog = Self { by_id, id_by_path };
-        if !catalog.validate() {
+        if !self.validate() {
             return Err(EnumCatalogBuildError::LookupMapInvariant);
         }
-        Ok(catalog)
+        Ok(self)
+    }
+
+    /// Iterate every accepted type identity, including definitions without source bindings.
+    pub(in crate::db::schema) fn type_ids(&self) -> impl Iterator<Item = EnumTypeId> + '_ {
+        self.by_id.keys().copied()
     }
 
     /// Remove an exact set of accepted enum definitions.

@@ -17,6 +17,8 @@ schema-migration-api = ["icydb/migration"]
 schema-migration-v2 = ["schema-migration-api", "icydb-testing-test-sql-fixtures/migration-v2"]
 entity-rename = ["schema-migration-api", "icydb-testing-test-sql-fixtures/entity-rename"]
 entity-rename-successor = ["entity-rename", "icydb-testing-test-sql-fixtures/entity-rename-successor"]
+entity-creation = ["entity-rename", "icydb-testing-test-sql-fixtures/entity-creation"]
+entity-creation-physical = ["entity-creation", "icydb-testing-test-sql-fixtures/entity-creation-physical"]
 test-admin-api = ["sql"]
 
 [dependencies]

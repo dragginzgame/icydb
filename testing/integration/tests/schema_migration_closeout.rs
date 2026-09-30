@@ -1,6 +1,7 @@
 //! Rehearse the maintained adjacent schema transition using current-format actors.
 //! Owns disposable seeds and outcome assertions, not migration semantics.
 
+mod entity_creation;
 mod entity_rename;
 
 use std::{sync::OnceLock, time::Duration};

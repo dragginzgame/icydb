@@ -35,6 +35,21 @@ fn seed_entity_rename() -> Result<(), icydb::Error> {
     })
 }
 
+/// Seed an independent relation target for the entity-creation rehearsal.
+#[update]
+fn seed_entity_creation_target() -> Result<(), icydb::Error> {
+    with_request_execution(|| {
+        let session = icydb::db!()?;
+        let patch = StructuralPatch::new()
+            .field("id", WriteCell::Value(InputValue::nat64(3)))
+            .field("key", WriteCell::Value(InputValue::nat64(103)))
+            .field("label", WriteCell::Value(InputValue::nat64(303)))
+            .field("parent_id", WriteCell::Value(InputValue::null()));
+        session.execute_trusted_structural_insert_batch(RenameItem::ENTITY, vec![patch])?;
+        Ok(())
+    })
+}
+
 /// Exercise both reverse-relation delete restrictions without caller-owned SQL.
 #[update]
 fn check_entity_rename_deletes() -> Result<Vec<icydb::Error>, icydb::Error> {

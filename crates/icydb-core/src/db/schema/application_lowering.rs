@@ -42,8 +42,9 @@ use crate::{
                 AcceptedCompositeShape, CompositeFieldId, CompositeTypeId,
             },
             derive_dense_field_removal_candidate, derive_dense_index_removal_candidate,
-            derive_relation_removal_candidate, render_accepted_check_expr_sql,
-            source_literal_input,
+            derive_relation_removal_candidate,
+            enum_catalog::InitialEnumDefinitions,
+            render_accepted_check_expr_sql, source_literal_input,
         },
     },
     error::InternalError,
@@ -183,6 +184,7 @@ impl AcceptedDefaultLowering<'_> {
 
 type InitialEnumVariantBindings = BTreeMap<(EnumTypeId, TypeSourceKey), EnumVariantId>;
 type InitialCompositeFieldBindings = BTreeMap<(CompositeTypeId, FieldSourceKey), CompositeFieldId>;
+type InitialCompositeDefinitions = BTreeMap<CompositeTypeId, (String, AcceptedCompositeShape)>;
 
 /// Composite catalog and member bindings allocated from one source closure.
 struct InitialCompositeTypes {
@@ -322,9 +324,21 @@ fn lower_initial_enum_catalog(
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
     bindings: &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
 ) -> Result<(AcceptedEnumCatalog, InitialEnumVariantBindings), InternalError> {
+    let (definitions, variant_bindings) = lower_new_enum_definitions(types, bindings, bindings)?;
+    let catalog = AcceptedEnumCatalog::from_initial_definitions(definitions)
+        .map_err(|_| InternalError::store_unsupported())?;
+    Ok((catalog, variant_bindings))
+}
+
+/// Construct fresh definitions using the full accepted/proposed identity closure.
+fn lower_new_enum_definitions(
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    allocated: &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+    bindings: &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+) -> Result<(InitialEnumDefinitions, InitialEnumVariantBindings), InternalError> {
     let mut definitions = BTreeMap::new();
     let mut variant_bindings = BTreeMap::new();
-    for (source, identity) in bindings {
+    for (source, identity) in allocated {
         let AcceptedNamedTypeIdentity::Enum(type_id) = identity else {
             continue;
         };
@@ -353,9 +367,7 @@ fn lower_initial_enum_catalog(
         }
         definitions.insert(*type_id, (definition.name().as_str().to_string(), variants));
     }
-    let catalog = AcceptedEnumCatalog::from_initial_definitions(definitions)
-        .map_err(|_| InternalError::store_unsupported())?;
-    Ok((catalog, variant_bindings))
+    Ok((definitions, variant_bindings))
 }
 
 fn lower_initial_composite_catalog(
@@ -363,9 +375,24 @@ fn lower_initial_composite_catalog(
     bindings: &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
     enum_catalog: &AcceptedEnumCatalog,
 ) -> Result<InitialCompositeTypes, InternalError> {
+    let (definitions, field_bindings) = lower_new_composite_definitions(types, bindings, bindings)?;
+    let catalog = AcceptedCompositeCatalog::from_initial_definitions(definitions, enum_catalog)
+        .map_err(|_| InternalError::store_unsupported())?;
+    Ok(InitialCompositeTypes {
+        catalog,
+        field_bindings,
+    })
+}
+
+/// Allocate record members once; all cross-type references use pinned identities.
+fn lower_new_composite_definitions(
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    allocated: &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+    bindings: &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+) -> Result<(InitialCompositeDefinitions, InitialCompositeFieldBindings), InternalError> {
     let mut definitions = BTreeMap::new();
     let mut field_bindings = BTreeMap::new();
-    for (source, identity) in bindings {
+    for (source, identity) in allocated {
         let AcceptedNamedTypeIdentity::Composite(type_id) = identity else {
             continue;
         };
@@ -377,12 +404,7 @@ fn lower_initial_composite_catalog(
             lower_initial_composite_shape(*type_id, definition, bindings, &mut field_bindings)?;
         definitions.insert(*type_id, (definition.name().as_str().to_string(), shape));
     }
-    let catalog = AcceptedCompositeCatalog::from_initial_definitions(definitions, enum_catalog)
-        .map_err(|_| InternalError::store_unsupported())?;
-    Ok(InitialCompositeTypes {
-        catalog,
-        field_bindings,
-    })
+    Ok((definitions, field_bindings))
 }
 
 fn lower_initial_composite_shape(
@@ -522,11 +544,12 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
 /// Lower an exact proposal against a non-empty accepted head.
 ///
 /// This existing-head lane owns future insert-default and source-keyed display
-/// metadata reconciliation, plus explicit removal of accepted generated
-/// entities, checks, fields, indexes, and unreferenced named types and addition
-/// of generated checks whose complete historical domain is proven empty at the
-/// application boundary. Every structural fact must resolve through immutable
-/// source bindings and match accepted authority exactly. Other additions,
+/// metadata reconciliation, creation of empty entities, explicit removal of
+/// accepted generated entities, checks, fields, indexes and unreferenced named
+/// types, and generated checks whose complete historical domain is proven empty at the
+/// application boundary. Existing structural facts must resolve through immutable
+/// source bindings and match accepted authority exactly. New entity fields use
+/// scalar, newly declared or already accepted named types. Other additions,
 /// activation work, and physical changes therefore fail before candidate
 /// construction instead of falling back to generated-model reconciliation.
 pub(in crate::db::schema) fn lower_existing_schema_proposal(
@@ -573,6 +596,7 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
         if let Some(candidate) = lower_existing_store_candidate(
             store,
             stores,
+            proposal,
             store_entities,
             removals,
             &types,
@@ -603,6 +627,7 @@ pub(in crate::db::schema) fn lower_generated_existing_schema_proposal(
         if let Some(candidate) = lower_generated_existing_store_candidate(
             store,
             stores,
+            proposal,
             store_entities,
             &types,
             &mut used_types,
@@ -645,7 +670,7 @@ fn existing_proposal_entities_by_store<'store, 'bundle, 'proposal>(
             .get(assignment.entity())
             .copied()
             .ok_or_else(InternalError::store_unsupported)?;
-        verify_unique_entity_binding(stores, assignment.entity(), store)?;
+        verify_entity_binding_owner(stores, assignment.entity(), store)?;
         entities_by_store
             .entry(store.path)
             .or_insert_with(|| (store, Vec::new()))
@@ -759,10 +784,15 @@ impl ExistingStoreCandidateState {
         types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
         used_types: &mut BTreeSet<TypeSourceKey>,
     ) -> Result<Self, InternalError> {
+        let additions = collect_added_named_types(store.bundle, entities, types)?;
+        let mut catalogs =
+            lower_existing_named_catalogs(store.bundle, entities, types, &additions, used_types)?;
+        let mut source_bindings = store.bundle.source_bindings().clone();
+        append_added_named_types(&mut catalogs, &mut source_bindings, types, &additions)?;
         Ok(Self {
-            catalogs: lower_existing_named_catalogs(store.bundle, entities, types, used_types)?,
+            catalogs,
             snapshots: store.bundle.entity_snapshots().clone(),
-            source_bindings: store.bundle.source_bindings().clone(),
+            source_bindings,
             changed: false,
         })
     }
@@ -818,15 +848,16 @@ impl ExistingStoreCandidateState {
         mut self,
         store: &ExistingProposalStore<'_>,
         stores: &[ExistingProposalStore<'_>],
+        proposal: &SchemaProposal,
         entities: Vec<&EntityFragment>,
         version_advanced: Option<&BTreeSet<EntityTag>>,
     ) -> Result<Option<CandidateSchemaRevision>, InternalError> {
+        self.add_new_entities(store, stores, proposal, &entities)?;
         for entity in entities {
-            let entity_tag = store
-                .bundle
-                .source_bindings()
-                .entity(entity.source_key())
-                .ok_or_else(InternalError::store_unsupported)?;
+            let Some(entity_tag) = store.bundle.source_bindings().entity(entity.source_key())
+            else {
+                continue;
+            };
             let current = self
                 .snapshots
                 .get(&entity_tag)
@@ -862,11 +893,70 @@ impl ExistingStoreCandidateState {
         )?;
         CandidateSchemaRevision::new(bundle).map(Some)
     }
+
+    /// Construct new empty entity scopes using the same field/index/constraint
+    /// lowering as installation, while retaining current accepted value IDs.
+    fn add_new_entities(
+        &mut self,
+        store: &ExistingProposalStore<'_>,
+        stores: &[ExistingProposalStore<'_>],
+        proposal: &SchemaProposal,
+        entities: &[&EntityFragment],
+    ) -> Result<(), InternalError> {
+        let added = entities
+            .iter()
+            .copied()
+            .filter(|entity| {
+                store
+                    .bundle
+                    .source_bindings()
+                    .entity(entity.source_key())
+                    .is_none()
+            })
+            .collect::<Vec<_>>();
+        if added.is_empty() {
+            return Ok(());
+        }
+        let (all_entities, _) = proposal_definitions(proposal);
+        let accepted_entities = allocate_added_entity_identities(proposal, stores)?;
+        let mut assignments = BTreeMap::new();
+        for assignment in proposal.assignments() {
+            let owner = stores
+                .iter()
+                .find(|owner| owner.identity == assignment.store())
+                .ok_or_else(InternalError::store_unsupported)?;
+            assignments.insert(assignment.entity().clone(), owner.path);
+        }
+        let context = InitialStoreContext {
+            store_path: store.path,
+            assignments: &assignments,
+            all_entities: &all_entities,
+            accepted_entities: &accepted_entities,
+            enum_catalog: self.catalogs.enum_catalog.clone(),
+            composite_catalog: self.catalogs.composite_catalog.clone(),
+            named_type_bindings: self.source_bindings.clone(),
+            value_catalog: AcceptedValueCatalogHandle::new(
+                self.catalogs.enum_catalog.clone(),
+                self.catalogs.composite_catalog.clone(),
+                AcceptedStoreCatalogScope::new(),
+                store.bundle.revision(),
+                AcceptedSchemaFingerprint::new([1; 32]),
+            ),
+        };
+        self.snapshots.extend(lower_new_entity_snapshots(
+            &context,
+            &added,
+            &mut self.source_bindings,
+        )?);
+        self.changed = true;
+        Ok(())
+    }
 }
 
 fn lower_existing_store_candidate(
     store: &ExistingProposalStore<'_>,
     stores: &[ExistingProposalStore<'_>],
+    proposal: &SchemaProposal,
     mut entities: Vec<&EntityFragment>,
     removals: ExistingStoreRemovals,
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
@@ -877,12 +967,13 @@ fn lower_existing_store_candidate(
     });
     let mut state = ExistingStoreCandidateState::new(store, &entities, types, used_types)?;
     let version_advanced = state.apply_removals(removals)?;
-    state.finish(store, stores, entities, Some(&version_advanced))
+    state.finish(store, stores, proposal, entities, Some(&version_advanced))
 }
 
 fn lower_generated_existing_store_candidate(
     store: &ExistingProposalStore<'_>,
     stores: &[ExistingProposalStore<'_>],
+    proposal: &SchemaProposal,
     mut entities: Vec<&EntityFragment>,
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
     used_types: &mut BTreeSet<TypeSourceKey>,
@@ -891,7 +982,7 @@ fn lower_generated_existing_store_candidate(
         left.source_key().cmp(right.source_key())
     });
     ExistingStoreCandidateState::new(store, &entities, types, used_types)?
-        .finish(store, stores, entities, None)
+        .finish(store, stores, proposal, entities, None)
 }
 
 /// Resolve one explicit removal to its unique accepted store and structural
@@ -1384,7 +1475,7 @@ struct ExistingCatalogCandidate {
     changed: bool,
 }
 
-fn verify_unique_entity_binding(
+fn verify_entity_binding_owner(
     stores: &[ExistingProposalStore<'_>],
     source: &EntitySourceKey,
     expected: &ExistingProposalStore<'_>,
@@ -1393,9 +1484,170 @@ fn verify_unique_entity_binding(
         .iter()
         .filter(|store| store.bundle.source_bindings().entity(source).is_some())
         .collect::<Vec<_>>();
-    if !matches!(owners.as_slice(), [owner] if owner.path == expected.path) {
-        return Err(InternalError::store_unsupported());
+    match owners.as_slice() {
+        [] => Ok(()),
+        [owner] if owner.path == expected.path => Ok(()),
+        _ => Err(InternalError::store_unsupported()),
     }
+}
+
+/// Allocate all proposed additions together, so canonical store/source ordering
+/// is independent of which store-local candidate is currently being lowered.
+fn allocate_added_entity_identities(
+    proposal: &SchemaProposal,
+    stores: &[ExistingProposalStore<'_>],
+) -> Result<BTreeMap<EntitySourceKey, EntityTag>, InternalError> {
+    let mut next = stores
+        .iter()
+        .flat_map(|store| store.bundle.entity_snapshots().keys())
+        .map(|tag| tag.value())
+        .max()
+        .unwrap_or(0);
+    let (entities, _) = proposal_definitions(proposal);
+    let mut ordered = BTreeMap::new();
+    for assignment in proposal.assignments() {
+        let store = stores
+            .iter()
+            .find(|store| store.identity == assignment.store())
+            .ok_or_else(InternalError::store_unsupported)?;
+        ordered.insert((store.path, assignment.entity()), store);
+    }
+    let mut accepted = BTreeMap::new();
+    for ((_, source), store) in ordered {
+        let tag = if let Some(tag) = store.bundle.source_bindings().entity(source) {
+            tag
+        } else {
+            let entity = entities
+                .get(source)
+                .ok_or_else(InternalError::store_invariant)?;
+            if entity.version().get() != 1 {
+                return Err(InternalError::store_unsupported());
+            }
+            next = next
+                .checked_add(1)
+                .ok_or_else(InternalError::store_unsupported)?;
+            EntityTag::new(next)
+        };
+        accepted.insert(source.clone(), tag);
+    }
+    Ok(accepted)
+}
+
+/// Discover only absent definitions reachable from newly declared entities.
+/// An omitted existing definition is already closed by accepted catalogs.
+fn collect_added_named_types(
+    bundle: &AcceptedSchemaRevisionBundle,
+    entities: &[&EntityFragment],
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+) -> Result<BTreeSet<TypeSourceKey>, InternalError> {
+    let mut pending = Vec::new();
+    for entity in entities {
+        if bundle
+            .source_bindings()
+            .entity(entity.source_key())
+            .is_none()
+        {
+            for field in entity.fields() {
+                collect_field_type_dependency(field.field_type(), &mut pending);
+            }
+        }
+    }
+    let mut visited = BTreeSet::new();
+    let mut added = BTreeSet::new();
+    while let Some(source) = pending.pop() {
+        if !visited.insert(source.clone()) {
+            continue;
+        }
+        let existing = bundle.source_bindings().named_type(&source).is_some();
+        if !existing {
+            added.insert(source.clone());
+        }
+        if let Some(definition) = types.get(&source).copied() {
+            collect_named_type_dependencies(definition, &mut pending);
+        } else if !existing {
+            return Err(InternalError::store_unsupported());
+        }
+    }
+    Ok(added)
+}
+
+/// Extend one candidate's accepted catalogs and identity bindings together.
+/// Old definitions are copied from accepted authority, never regenerated from
+/// declarations. Fresh enums and composites are merged before closure checking.
+fn append_added_named_types(
+    catalogs: &mut ExistingCatalogCandidate,
+    source_bindings: &mut AcceptedSourceBindingCatalog,
+    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    additions: &BTreeSet<TypeSourceKey>,
+) -> Result<(), InternalError> {
+    if additions.is_empty() {
+        return Ok(());
+    }
+    let mut enum_id = catalogs
+        .enum_catalog
+        .type_ids()
+        .map(EnumTypeId::get)
+        .max()
+        .unwrap_or(0);
+    let mut composite_id = catalogs
+        .composite_catalog
+        .id_by_path()
+        .values()
+        .map(|id| id.get())
+        .max()
+        .unwrap_or(0);
+    let mut allocated = BTreeMap::new();
+    for source in additions {
+        let definition = types
+            .get(source)
+            .copied()
+            .ok_or_else(InternalError::store_unsupported)?;
+        if catalogs
+            .enum_catalog
+            .type_id(definition.name().as_str())
+            .is_some()
+            || catalogs
+                .composite_catalog
+                .id_by_path()
+                .contains_key(definition.name().as_str())
+        {
+            return Err(InternalError::store_unsupported());
+        }
+        let identity = if matches!(definition, NamedTypeFragment::Enum(_)) {
+            enum_id = enum_id
+                .checked_add(1)
+                .ok_or_else(InternalError::store_unsupported)?;
+            AcceptedNamedTypeIdentity::Enum(
+                EnumTypeId::new(enum_id).ok_or_else(InternalError::store_unsupported)?,
+            )
+        } else {
+            composite_id = composite_id
+                .checked_add(1)
+                .ok_or_else(InternalError::store_unsupported)?;
+            AcceptedNamedTypeIdentity::Composite(
+                CompositeTypeId::new(composite_id).ok_or_else(InternalError::store_unsupported)?,
+            )
+        };
+        allocated.insert(source.clone(), identity);
+    }
+    let mut all = source_bindings.named_types().clone();
+    all.extend(allocated.clone());
+    let (enums, variants) = lower_new_enum_definitions(types, &allocated, &all)?;
+    let (composites, fields) = lower_new_composite_definitions(types, &allocated, &all)?;
+    let enum_catalog = catalogs
+        .enum_catalog
+        .clone()
+        .with_added_definitions(enums)
+        .map_err(|_| InternalError::store_unsupported())?;
+    let composite_catalog = catalogs
+        .composite_catalog
+        .clone()
+        .with_added_definitions(composites, &enum_catalog)
+        .map_err(|_| InternalError::store_unsupported())?;
+    source_bindings.append_new_named_types(allocated, variants, fields)?;
+    catalogs.enum_catalog = enum_catalog;
+    catalogs.composite_catalog = composite_catalog;
+    catalogs.changed = true;
     Ok(())
 }
 
@@ -1403,6 +1655,7 @@ fn lower_existing_named_catalogs(
     bundle: &AcceptedSchemaRevisionBundle,
     entities: &[&EntityFragment],
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    additions: &BTreeSet<TypeSourceKey>,
     used_types: &mut BTreeSet<TypeSourceKey>,
 ) -> Result<ExistingCatalogCandidate, InternalError> {
     let mut pending = entities
@@ -1415,18 +1668,27 @@ fn lower_existing_named_catalogs(
         if !visited.insert(source.clone()) {
             continue;
         }
-        let identity = bundle
-            .source_bindings()
-            .named_type(&source)
-            .ok_or_else(InternalError::store_unsupported)?;
+        let identity = bundle.source_bindings().named_type(&source);
+        if identity.is_none() {
+            if !additions.contains(&source) {
+                return Err(InternalError::store_unsupported());
+            }
+            let definition = types
+                .get(&source)
+                .copied()
+                .ok_or_else(InternalError::store_unsupported)?;
+            collect_named_type_dependencies(definition, &mut pending);
+            used_types.insert(source);
+            continue;
+        }
         if let Some(definition) = types.get(&source).copied() {
             if matches!(
                 (identity, definition),
                 (
-                    AcceptedNamedTypeIdentity::Enum(_),
+                    Some(AcceptedNamedTypeIdentity::Enum(_)),
                     NamedTypeFragment::Enum(_)
                 ) | (
-                    AcceptedNamedTypeIdentity::Composite(_),
+                    Some(AcceptedNamedTypeIdentity::Composite(_)),
                     NamedTypeFragment::Record(_)
                         | NamedTypeFragment::Newtype { .. }
                         | NamedTypeFragment::List { .. }
@@ -1443,6 +1705,7 @@ fn lower_existing_named_catalogs(
         }
     }
 
+    visited.retain(|source| !additions.contains(source));
     for source in &visited {
         let Some(NamedTypeFragment::Enum(proposed)) = types.get(source).copied() else {
             continue;
@@ -2546,58 +2809,8 @@ fn lower_initial_store(
         entities,
         types,
     )?;
-    let mut entity_bindings = BTreeMap::new();
-    let mut field_bindings = BTreeMap::new();
-    let mut provisional = BTreeMap::new();
-
-    for entity in entities {
-        let entity_tag = accepted_entities
-            .get(entity.source_key())
-            .copied()
-            .ok_or_else(InternalError::store_invariant)?;
-        entity_bindings.insert(entity.source_key().clone(), entity_tag);
-        let snapshot =
-            lower_initial_entity_fields(&context, entity, entity_tag, &mut field_bindings)?;
-        provisional.insert(entity_tag, snapshot);
-    }
-
-    let partial_bindings = AcceptedSourceBindingCatalog::initial(
-        entity_bindings.clone(),
-        field_bindings.clone(),
-        BTreeMap::new(),
-        BTreeMap::new(),
-        BTreeMap::new(),
-    )
-    .with_initial_named_types_from(&context.named_type_bindings);
-    let mut object_bindings = InitialObjectBindings::default();
-    let mut snapshots = BTreeMap::new();
-
-    for entity in entities {
-        let entity_tag = partial_bindings
-            .entity(entity.source_key())
-            .ok_or_else(InternalError::store_invariant)?;
-        let initial = provisional
-            .get(&entity_tag)
-            .ok_or_else(InternalError::store_invariant)?;
-        let snapshot = lower_initial_complete_snapshot(
-            &context,
-            entity,
-            entity_tag,
-            initial,
-            &partial_bindings,
-            &mut object_bindings,
-        )?;
-        snapshots.insert(entity_tag, snapshot);
-    }
-
-    let bindings = AcceptedSourceBindingCatalog::initial(
-        entity_bindings,
-        field_bindings,
-        object_bindings.constraints,
-        object_bindings.indexes,
-        object_bindings.relations,
-    )
-    .with_initial_named_types_from(&context.named_type_bindings);
+    let mut bindings = context.named_type_bindings.clone();
+    let snapshots = lower_new_entity_snapshots(&context, entities, &mut bindings)?;
     let bundle = AcceptedSchemaRevisionBundle::new_with_source_bindings(
         AcceptedSchemaRevision::INITIAL,
         store_path,
@@ -2607,6 +2820,68 @@ fn lower_initial_store(
         snapshots,
     )?;
     CandidateSchemaRevision::new(bundle)
+}
+
+/// Installation and additive reconciliation share one empty-entity constructor.
+/// Allocate all fields before lowering relations, so same-proposal entities can
+/// reference one another without depending on declaration order.
+fn lower_new_entity_snapshots(
+    context: &InitialStoreContext<'_>,
+    entities: &[&EntityFragment],
+    bindings: &mut AcceptedSourceBindingCatalog,
+) -> Result<BTreeMap<EntityTag, PersistedSchemaSnapshot>, InternalError> {
+    let mut entity_bindings = BTreeMap::new();
+    let mut field_bindings = BTreeMap::new();
+    let mut provisional = BTreeMap::new();
+    for entity in entities {
+        let tag = context
+            .accepted_entities
+            .get(entity.source_key())
+            .copied()
+            .ok_or_else(InternalError::store_invariant)?;
+        entity_bindings.insert(entity.source_key().clone(), tag);
+        provisional.insert(
+            tag,
+            lower_initial_entity_fields(context, entity, tag, &mut field_bindings)?,
+        );
+    }
+    let mut partial_bindings = bindings.clone();
+    partial_bindings.append_new_entities(AcceptedSourceBindingCatalog::initial(
+        entity_bindings.clone(),
+        field_bindings.clone(),
+        BTreeMap::new(),
+        BTreeMap::new(),
+        BTreeMap::new(),
+    ))?;
+    let mut objects = InitialObjectBindings::default();
+    let mut snapshots = BTreeMap::new();
+    for entity in entities {
+        let tag = partial_bindings
+            .entity(entity.source_key())
+            .ok_or_else(InternalError::store_invariant)?;
+        let initial = provisional
+            .get(&tag)
+            .ok_or_else(InternalError::store_invariant)?;
+        snapshots.insert(
+            tag,
+            lower_initial_complete_snapshot(
+                context,
+                entity,
+                tag,
+                initial,
+                &partial_bindings,
+                &mut objects,
+            )?,
+        );
+    }
+    bindings.append_new_entities(AcceptedSourceBindingCatalog::initial(
+        entity_bindings,
+        field_bindings,
+        objects.constraints,
+        objects.indexes,
+        objects.relations,
+    ))?;
+    Ok(snapshots)
 }
 
 fn lower_initial_complete_snapshot(
@@ -5902,7 +6177,7 @@ mod tests {
     }
 
     #[test]
-    fn existing_named_type_redeclaration_accepts_exact_current_definitions() {
+    fn existing_named_type_redeclaration_and_creation_preserve_current_catalogs() {
         let (keys, active, named_types) = named_type_fragments();
         let (entity_source, entity) = named_holder_entity(&keys, active);
         let store = TargetStoreIdentity::from_bytes([0x35; 32]);
@@ -5971,6 +6246,41 @@ mod tests {
             candidates.is_empty(),
             "an exact named-type redeclaration must remain a no-op"
         );
+
+        let (keys, _, _) = named_type_fragments();
+        let (other_source, other) = named_other_entity(&keys.status);
+        let mut entities = exact.fragments()[0].entities().to_vec();
+        entities.push(other);
+        let mut assignments = exact.assignments().to_vec();
+        assignments.push(EntityStoreAssignment::new(other_source.clone(), store));
+        let addition = SchemaProposal::try_compose(
+            exact.capabilities().to_vec(),
+            exact.target_database(),
+            SchemaSubmissionKey::try_new("create-named-other").unwrap(),
+            exact.expected_head().clone(),
+            vec![SchemaFragment::try_new(entities, exact.fragments()[0].types().to_vec()).unwrap()],
+            assignments,
+            Vec::new(),
+            None,
+        )
+        .unwrap();
+        let created = lower_existing_schema_proposal(
+            &addition,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: store,
+                bundle: initial_candidates[0].bundle(),
+            }],
+        )
+        .unwrap();
+        let before = initial_candidates[0].bundle();
+        let after = created[0].bundle();
+        assert_eq!(after.enum_catalog(), before.enum_catalog());
+        assert_eq!(after.composite_catalog(), before.composite_catalog());
+        for (tag, snapshot) in before.entity_snapshots() {
+            assert_eq!(after.entity_snapshots().get(tag), Some(snapshot));
+        }
+        assert!(after.source_bindings().entity(&other_source).is_some());
     }
 
     fn recursive_type_removal_proposal(

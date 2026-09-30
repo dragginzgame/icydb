@@ -16,9 +16,10 @@ use crate::{
             publish_accepted_schema_candidates_with_database_control,
             publish_generated_row_local_abort_with_application_record,
         },
-        data::DataStore,
+        data::{DataStore, RawDataStoreKey},
         index::{IndexState, IndexStore},
         integrity::DatabaseIncarnationId,
+        key_taxonomy::RawDataStoreKeyRange,
         registry::{
             StoreAllocationIdentity, StoreAllocationIdentityCapability, StoreCommitParticipation,
             StoreDurability, StoreHandle, StoreRecoveryCapability, StoreRelationSourceCapability,
@@ -53,9 +54,9 @@ use icydb_schema::{
 };
 use serde::Deserialize;
 use sha2::Digest;
-use std::cell::Cell;
 #[cfg(feature = "migration")]
 use std::collections::BTreeMap;
+use std::{cell::Cell, ops::Bound};
 
 #[cfg(feature = "migration")]
 use crate::db::commit::{
@@ -81,7 +82,7 @@ use crate::db::schema::{
     },
     migration_planner::{
         PlannedEntitySourceLineage, SchemaMigrationPlanningError, plan_entity_source_adoption,
-        plan_initial_entity_source_lineage, plan_schema_migration,
+        plan_new_entity_source_lineage, plan_schema_migration,
     },
     migration_validation::{stage_migration_index_entries, validate_migration_page},
 };
@@ -747,6 +748,8 @@ fn apply_schema_with_contract<C: CanisterKind, const ALLOW_REMOVALS: bool>(
         proposal,
         target.accepted_head(),
         &accepted_head,
+        authorities.as_slice(),
+        &current_bundles,
         candidates.as_slice(),
         operation,
     )?;
@@ -1076,6 +1079,11 @@ fn advance_metadata_schema_migration<C: CanisterKind>(
         // removal and direct index-generation replacement. The offline
         // migration validator owns those same historical proofs against its
         // unpublished candidate instead.
+        preflight_new_entity_domains(
+            authorities.as_slice(),
+            current_bundles.as_slice(),
+            &candidates,
+        )?;
         None
     } else {
         preflight_existing_application(
@@ -1235,18 +1243,19 @@ fn prepared_physical_schema_migration(
             .find(|store| store.path == candidate.store_path())
             .ok_or_else(InternalError::store_invariant)?;
         for (entity, snapshot) in candidate.bundle().entity_snapshots() {
-            let before = store.bundle.entity_snapshots().get(entity);
+            // Fresh entities have empty initial index generations, not
+            // historical domains to stage, rebuild or clean up on abort.
+            let Some(before) = store.bundle.entity_snapshots().get(entity) else {
+                continue;
+            };
             for index in snapshot
                 .indexes()
                 .iter()
                 .filter(|index| {
                     before
-                        .and_then(|before| {
-                            before
-                                .indexes()
-                                .iter()
-                                .find(|old| old.schema_id() == index.schema_id())
-                        })
+                        .indexes()
+                        .iter()
+                        .find(|old| old.schema_id() == index.schema_id())
                         .is_none_or(|old| old.physical_generation() != index.physical_generation())
                 })
                 .chain(snapshot.candidate_indexes())
@@ -1537,17 +1546,41 @@ fn attach_ordinary_lineage_publication(
     proposal: &SchemaProposal,
     prior_head: &ExpectedAcceptedHead,
     accepted_head: &ExpectedAcceptedHead,
+    authorities: &[StoreApplicationAuthority],
+    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
     candidates: &[CandidateSchemaRevision],
     operation: SchemaApplicationRecordOp,
 ) -> Result<Vec<DatabaseControlOp>, InternalError> {
     let mut operations = vec![DatabaseControlOp::SchemaApplication(operation)];
     let stored_before = load_entity_source_lineage_catalog()?;
-    let planned = if matches!(prior_head, ExpectedAcceptedHead::Empty) {
-        plan_initial_entity_source_lineage(proposal, candidates)
-            .map_err(schema_migration_planning_error)?
-    } else {
-        Vec::new()
-    };
+    let planned = plan_new_entity_source_lineage(proposal, current_bundles, candidates)
+        .map_err(schema_migration_planning_error)?;
+    if !planned.is_empty() && !matches!(prior_head, ExpectedAcceptedHead::Empty) {
+        // Creation may initialise its own lineage, never implicitly adopt an
+        // existing entity from a feature-less database or a partial adoption.
+        let before = stored_before
+            .as_ref()
+            .ok_or_else(|| InternalError::schema_migration(SchemaMigrationCode::Unadopted))?;
+        for bundle in current_bundles.iter().flatten() {
+            let authority = authorities
+                .iter()
+                .find(|authority| authority.path == bundle.store_path())
+                .ok_or_else(InternalError::store_invariant)?;
+            let store = derive_store_identity(proposal.target_database(), authority);
+            for tag in bundle.entity_snapshots().keys() {
+                if !before.get(store, *tag).is_some_and(|entry| {
+                    matches!(
+                        entry.state(),
+                        AcceptedEntitySourceLineageState::Adopted { .. }
+                    )
+                }) {
+                    return Err(InternalError::schema_migration(
+                        SchemaMigrationCode::Unadopted,
+                    ));
+                }
+            }
+        }
+    }
     if planned.is_empty() && (stored_before.is_none() || prior_head == accepted_head) {
         return Ok(operations);
     }
@@ -2131,9 +2164,19 @@ fn preflight_unpublished_schema_migration<C: CanisterKind>(
         return Err(InternalError::store_invariant());
     }
     for next in planned.lineage() {
-        let current = lineage
-            .get(next.store(), next.entity())
-            .ok_or_else(InternalError::store_invariant)?;
+        let Some(current) = lineage.get(next.store(), next.entity()) else {
+            // Fresh entity lineage starts at version 1. An accepted entity
+            // with missing lineage still requires adoption, never creation.
+            if next.version().get() != 1
+                || stores.iter().any(|store| {
+                    store.identity == next.store()
+                        && store.bundle.entity_snapshots().contains_key(&next.entity())
+                })
+            {
+                return Err(InternalError::store_invariant());
+            }
+            continue;
+        };
         let AcceptedEntitySourceLineageState::Adopted {
             version,
             source_digest,
@@ -2178,7 +2221,7 @@ fn lower_application_candidates<const ALLOW_REMOVALS: bool>(
             let candidates = lower_initial_schema_proposal(proposal, stores.as_slice())?;
             #[cfg(feature = "migration")]
             {
-                let planned = plan_initial_entity_source_lineage(proposal, &candidates)
+                let planned = plan_new_entity_source_lineage(proposal, &[], &candidates)
                     .map_err(schema_migration_planning_error)?;
                 if planned.len()
                     != proposal
@@ -2293,6 +2336,7 @@ fn preflight_existing_application(
     current_bundles: &[Option<crate::db::schema::AcceptedSchemaRevisionBundle>],
     candidates: &mut [CandidateSchemaRevision],
 ) -> Result<Option<PendingGeneratedRowLocalConstraint>, InternalError> {
+    preflight_new_entity_domains(authorities, current_bundles, candidates)?;
     require_empty_physical_entity_removal(authorities, current_bundles, candidates)?;
     require_empty_physical_field_removals(authorities, current_bundles, candidates)?;
     require_empty_physical_index_removals(authorities, current_bundles, candidates)?;
@@ -2373,6 +2417,67 @@ fn preflight_existing_application(
         candidates[candidate_index] = CandidateSchemaRevision::new(bundle)?;
     }
     Ok(pending)
+}
+
+/// New accepted tags must name empty physical domains before any publication.
+/// Use candidate catalogs only to resolve target store placement; current rows,
+/// user indexes and target-owned reverse indexes supply the emptiness proof.
+fn preflight_new_entity_domains(
+    authorities: &[StoreApplicationAuthority],
+    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
+    candidates: &[CandidateSchemaRevision],
+) -> Result<(), InternalError> {
+    let mut after = current_bundles.to_vec();
+    for candidate in candidates {
+        let position = authorities
+            .iter()
+            .position(|authority| authority.path == candidate.store_path())
+            .ok_or_else(InternalError::store_invariant)?;
+        let bundle = after
+            .get_mut(position)
+            .ok_or_else(InternalError::store_invariant)?;
+        *bundle = Some(candidate.bundle().clone());
+    }
+    for candidate in candidates {
+        let (position, authority) = authorities
+            .iter()
+            .enumerate()
+            .find(|(_, authority)| authority.path == candidate.store_path())
+            .ok_or_else(InternalError::store_invariant)?;
+        let current = current_bundles
+            .get(position)
+            .and_then(Option::as_ref)
+            .ok_or_else(InternalError::store_invariant)?;
+        for (tag, snapshot) in candidate.bundle().entity_snapshots() {
+            if current.entity_snapshots().contains_key(tag) {
+                continue;
+            }
+            // Cardinality authority deliberately covers only accepted tags.
+            // Seek the fresh physical prefix and stop at its first visible key;
+            // this also checks journal overlays without reading row payloads.
+            authority.handle.with_data(|store| {
+                let range = RawDataStoreKeyRange::entity_prefix(*tag);
+                let lower = Bound::Included(RawDataStoreKey::store_range_lower_key(&range));
+                let upper = range
+                    .upper_exclusive()
+                    .map(RawDataStoreKey::from_store_range_bound)
+                    .map_or(Bound::Unbounded, Bound::Excluded);
+                store.visit_key_range((lower, upper), |_| Err(InternalError::store_unsupported()))
+            })?;
+            authority
+                .handle
+                .with_index(|store| prove_empty_user_index_domain(store, *tag))
+                .map_err(StagedUserIndexDomainError::into_internal_error)?;
+            for relation in snapshot.relations() {
+                let target =
+                    accepted_entity_store_for_path(authorities, &after, relation.target_path())?;
+                target.with_index(|store| {
+                    prove_empty_reverse_relation_domain(store, *tag, snapshot, relation)
+                })?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Prove one exact generated entity removal has no retained logical or
@@ -2485,10 +2590,9 @@ fn require_empty_physical_relation_removals(
             .and_then(Option::as_ref)
             .ok_or_else(InternalError::store_invariant)?;
         for (entity_tag, after) in candidate.bundle().entity_snapshots() {
-            let before = current
-                .entity_snapshots()
-                .get(entity_tag)
-                .ok_or_else(InternalError::store_invariant)?;
+            let Some(before) = current.entity_snapshots().get(entity_tag) else {
+                continue;
+            };
             let removed = before
                 .relations()
                 .iter()
@@ -2572,10 +2676,9 @@ fn require_empty_physical_index_removals(
             .and_then(Option::as_ref)
             .ok_or_else(InternalError::store_invariant)?;
         for (entity_tag, after) in candidate.bundle().entity_snapshots() {
-            let before = current
-                .entity_snapshots()
-                .get(entity_tag)
-                .ok_or_else(InternalError::store_invariant)?;
+            let Some(before) = current.entity_snapshots().get(entity_tag) else {
+                continue;
+            };
             if before.indexes().len() == after.indexes().len() {
                 continue;
             }
@@ -2610,10 +2713,9 @@ fn require_empty_physical_field_removals(
             .and_then(Option::as_ref)
             .ok_or_else(InternalError::store_invariant)?;
         for (entity_tag, after) in candidate.bundle().entity_snapshots() {
-            let before = current
-                .entity_snapshots()
-                .get(entity_tag)
-                .ok_or_else(InternalError::store_invariant)?;
+            let Some(before) = current.entity_snapshots().get(entity_tag) else {
+                continue;
+            };
             if before.row_layout() == after.row_layout() {
                 continue;
             }
@@ -2662,10 +2764,9 @@ fn generated_row_local_constraint_proofs(
             .and_then(Option::as_ref)
             .ok_or_else(InternalError::store_invariant)?;
         for (entity_tag, after) in candidate.bundle().entity_snapshots() {
-            let before = current
-                .entity_snapshots()
-                .get(entity_tag)
-                .ok_or_else(InternalError::store_invariant)?;
+            let Some(before) = current.entity_snapshots().get(entity_tag) else {
+                continue;
+            };
             for constraint_id in added_generated_row_local_activations(before, after) {
                 let historical_rows = authority
                     .handle
@@ -3154,6 +3255,8 @@ fn write_allocation_identity(
 
 #[cfg(test)]
 mod tests {
+    mod entity_creation;
+
     mod collection_relations;
 
     #[cfg(feature = "migration")]

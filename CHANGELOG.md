@@ -5,6 +5,13 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.262.x] - 2026-09-30 - Entity Creation
+
+Detailed notes: [docs/changelog/0.262.md](docs/changelog/0.262.md)
+
+- `0.262.1` adds declared entities and named value types to populated existing stores, including alongside explicit migrations, with generated upgrade and restart qualification.
+- `0.262.0` publishes maintenance updates and adopts Cargo dependency resolver version 3.
+
 ## [0.261.x] - 2026-09-20 - Entity Rename Qualification
 
 Detailed notes: [docs/changelog/0.261.md](docs/changelog/0.261.md)

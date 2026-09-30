@@ -219,24 +219,88 @@ impl AcceptedSourceBindingCatalog {
         self.with_initial_named_types(types, enum_variants, composite_fields)
     }
 
-    /// Copy the named-type identity closure from the same staged initial
-    /// candidate while adding entity-scoped structural bindings.
-    #[must_use]
-    pub(in crate::db::schema) fn with_initial_named_types_from(
-        mut self,
-        named_types: &Self,
-    ) -> Self {
-        self.types.clone_from(&named_types.types);
-        self.enum_variants.clone_from(&named_types.enum_variants);
-        self.composite_fields
-            .clone_from(&named_types.composite_fields);
-        self
-    }
-
     /// Resolve one immutable entity source identity.
     #[must_use]
     pub(in crate::db) fn entity(&self, source: &EntitySourceKey) -> Option<EntityTag> {
         self.entities.get(source).copied()
+    }
+
+    /// Borrow accepted named identities for proposal-local allocation and references.
+    pub(in crate::db::schema) const fn named_types(
+        &self,
+    ) -> &BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity> {
+        &self.types
+    }
+
+    /// Append bindings only within fresh named-type scopes.
+    pub(in crate::db::schema) fn append_new_named_types(
+        &mut self,
+        mut types: BTreeMap<TypeSourceKey, AcceptedNamedTypeIdentity>,
+        mut variants: BTreeMap<(EnumTypeId, TypeSourceKey), EnumVariantId>,
+        mut fields: BTreeMap<(CompositeTypeId, FieldSourceKey), CompositeFieldId>,
+    ) -> Result<(), InternalError> {
+        let identities = types.values().copied().collect::<BTreeSet<_>>();
+        if identities.len() != types.len()
+            || types.iter().any(|(source, id)| {
+                self.types.contains_key(source) || self.types.values().any(|old| old == id)
+            })
+            || variants
+                .keys()
+                .any(|(id, _)| !identities.contains(&AcceptedNamedTypeIdentity::Enum(*id)))
+            || fields
+                .keys()
+                .any(|(id, _)| !identities.contains(&AcceptedNamedTypeIdentity::Composite(*id)))
+        {
+            return Err(InternalError::store_invariant());
+        }
+        self.types.append(&mut types);
+        self.enum_variants.append(&mut variants);
+        self.composite_fields.append(&mut fields);
+        Ok(())
+    }
+
+    /// Attach complete entity-scoped bindings for newly allocated empty entities.
+    /// Named-type identities remain owned by the current accepted value catalogs.
+    pub(in crate::db::schema) fn append_new_entities(
+        &mut self,
+        mut additions: Self,
+    ) -> Result<(), InternalError> {
+        if !additions.types.is_empty()
+            || !additions.enum_variants.is_empty()
+            || !additions.composite_fields.is_empty()
+            || additions.entities.iter().any(|(source, tag)| {
+                self.entities.contains_key(source) || self.entities.values().any(|old| old == tag)
+            })
+        {
+            return Err(InternalError::store_invariant());
+        }
+        // Fresh entity scopes make every child key disjoint. Validate closure
+        // here rather than letting map append overwrite an existing binding.
+        let tags = additions
+            .entities
+            .values()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        if tags.len() != additions.entities.len()
+            || additions.fields.keys().any(|(tag, _)| !tags.contains(tag))
+            || additions
+                .constraints
+                .keys()
+                .any(|(tag, _)| !tags.contains(tag))
+            || additions.indexes.keys().any(|(tag, _)| !tags.contains(tag))
+            || additions
+                .relations
+                .keys()
+                .any(|(tag, _)| !tags.contains(tag))
+        {
+            return Err(InternalError::store_invariant());
+        }
+        self.entities.append(&mut additions.entities);
+        self.fields.append(&mut additions.fields);
+        self.constraints.append(&mut additions.constraints);
+        self.indexes.append(&mut additions.indexes);
+        self.relations.append(&mut additions.relations);
+        Ok(())
     }
 
     /// Replace one entity source key while preserving its exact accepted ID.

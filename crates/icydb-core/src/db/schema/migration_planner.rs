@@ -254,16 +254,24 @@ pub(in crate::db::schema) fn plan_entity_source_adoption(
     Ok(planned)
 }
 
-/// Derive current-version lineage for a fresh initial candidate without
-/// writing the database-control record.
-pub(in crate::db::schema) fn plan_initial_entity_source_lineage(
+/// Derive source lineage only for entities absent from current accepted catalogs.
+/// Installation and ordinary creation share this owner; old lineage is untouched.
+pub(in crate::db::schema) fn plan_new_entity_source_lineage(
     proposal: &SchemaProposal,
+    current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
     candidates: &[CandidateSchemaRevision],
 ) -> Result<Vec<PlannedEntitySourceLineage>, SchemaMigrationPlanningError> {
     let entities = proposal_entities(proposal);
     let assignments = proposal_assignments(proposal);
     let mut planned = Vec::with_capacity(entities.len());
     for (source, entity) in entities {
+        if current_bundles
+            .iter()
+            .flatten()
+            .any(|bundle| bundle.source_bindings().entity(source).is_some())
+        {
+            continue;
+        }
         let store_identity = assignments
             .get(source)
             .copied()
@@ -336,7 +344,7 @@ pub(in crate::db::schema) fn plan_schema_migration(
     // The ordinary lowerer is the remaining-change authority. Its returned
     // candidate may deliberately contain staged activation state, which is
     // already the exact accepted plan and must not be lowered a second time.
-    let reconciled = reconcile_rekeyed_view(proposal, &working)?;
+    let (reconciled, mut lineage) = reconcile_rekeyed_view(proposal, &working)?;
     let mut reconciled_by_store = BTreeMap::new();
     for candidate in reconciled {
         reconciled_by_store.insert(candidate.store_path().to_string(), candidate);
@@ -357,7 +365,7 @@ pub(in crate::db::schema) fn plan_schema_migration(
     if physical == programs.is_empty() {
         return Err(SchemaMigrationPlanningError::CandidateMismatch);
     }
-    let mut lineage = resolved
+    let transitioned = resolved
         .iter()
         .map(|binding| {
             Ok(PlannedEntitySourceLineage {
@@ -371,6 +379,7 @@ pub(in crate::db::schema) fn plan_schema_migration(
             })
         })
         .collect::<Result<Vec<_>, SchemaMigrationPlanningError>>()?;
+    lineage.extend(transitioned);
     icydb_schema::compact_sort_unstable_by(&mut lineage, |left, right| {
         (left.store, left.entity).cmp(&(right.store, right.entity))
     });
@@ -485,8 +494,18 @@ fn validate_unchanged_lineage(
         {
             continue;
         }
-        let (store, entity_tag) =
-            resolve_entity(stores, source).ok_or(SchemaMigrationPlanningError::MissingMigration)?;
+        // A renamed predecessor source may be reused by a fresh declaration.
+        // Its old tag belongs to the resolved transition, not the addition.
+        let Some((store, entity_tag)) = resolve_entity(stores, source).filter(|(store, tag)| {
+            !resolved.iter().any(|binding| {
+                binding.store_identity == store.identity && binding.entity_tag == *tag
+            })
+        }) else {
+            if entity.version().get() != 1 {
+                return Err(SchemaMigrationPlanningError::VersionGap);
+            }
+            continue;
+        };
         let lineage = current_lineage
             .get(store.identity, entity_tag)
             .ok_or(SchemaMigrationPlanningError::Unadopted)?;
@@ -1689,7 +1708,13 @@ fn compile_migration_constraint_kind(
 fn reconcile_rekeyed_view(
     proposal: &SchemaProposal,
     stores: &BTreeMap<&'static str, WorkingStore<'_>>,
-) -> Result<Vec<CandidateSchemaRevision>, SchemaMigrationPlanningError> {
+) -> Result<
+    (
+        Vec<CandidateSchemaRevision>,
+        Vec<PlannedEntitySourceLineage>,
+    ),
+    SchemaMigrationPlanningError,
+> {
     let bundles = stores
         .values()
         .map(WorkingStore::exact_bundle)
@@ -1703,12 +1728,17 @@ fn reconcile_rekeyed_view(
             bundle,
         })
         .collect::<Vec<_>>();
-    lower_existing_schema_proposal(proposal, &exact_stores).map_err(|error| {
+    let candidates = lower_existing_schema_proposal(proposal, &exact_stores).map_err(|error| {
         SchemaMigrationPlanningError::candidate_failure(
             error,
             SchemaMigrationPlanningError::UnexplainedSchemaDifference,
         )
-    })
+    })?;
+    // Use the rekeyed accepted view so renamed entities retain their tag and
+    // lineage, even when an addition reuses the predecessor's source name.
+    let current = bundles.into_iter().map(Some).collect::<Vec<_>>();
+    let lineage = plan_new_entity_source_lineage(proposal, &current, &candidates)?;
+    Ok((candidates, lineage))
 }
 
 #[cfg(test)]

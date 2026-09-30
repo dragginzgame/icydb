@@ -3,6 +3,7 @@ use icydb_testing_wasm_helpers::{define_fixture_canister, define_fixture_store};
 
 #[cfg(all(
     not(feature = "entity-rename-successor"),
+    not(feature = "entity-creation-physical"),
     any(not(feature = "migration-v2"), feature = "entity-rename")
 ))]
 define_fixture_canister!(SqlTestCanister = "SqlTestCanister", namespace = "test_sql",);
@@ -31,6 +32,20 @@ define_fixture_canister!(
         entity_migration(entity = "CatalogItem", from = 1, from_name = "Item"),
         entity_migration(entity = "Holder", from = 1)
     ),
+);
+
+#[cfg(all(
+    feature = "entity-creation-physical",
+    not(feature = "entity-rename-successor")
+))]
+define_fixture_canister!(
+    SqlTestCanister = "SqlTestCanister",
+    namespace = "test_sql",
+    migrations(entity_migration(
+        entity = "Item",
+        from = 1,
+        transforms(fill(to = "coins", literal(nat = 5)))
+    )),
 );
 
 define_fixture_store!(

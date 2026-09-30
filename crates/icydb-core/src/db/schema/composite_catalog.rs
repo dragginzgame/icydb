@@ -158,13 +158,28 @@ impl AcceptedCompositeCatalog {
         definitions: BTreeMap<CompositeTypeId, (String, AcceptedCompositeShape)>,
         enum_catalog: &AcceptedEnumCatalog,
     ) -> Result<Self, CompositeCatalogBuildError> {
-        let mut by_id = BTreeMap::new();
-        let mut id_by_path = BTreeMap::new();
+        Self {
+            by_id: BTreeMap::new(),
+            id_by_path: BTreeMap::new(),
+        }
+        .with_added_definitions(definitions, enum_catalog)
+    }
+
+    /// Append fresh definitions while preserving accepted shapes and identities.
+    /// Resolve the complete enum/composite closure only after all additions exist.
+    pub(in crate::db::schema) fn with_added_definitions(
+        mut self,
+        definitions: BTreeMap<CompositeTypeId, (String, AcceptedCompositeShape)>,
+        enum_catalog: &AcceptedEnumCatalog,
+    ) -> Result<Self, CompositeCatalogBuildError> {
         for (type_id, (path, shape)) in definitions {
-            if path.is_empty() || id_by_path.insert(path.clone(), type_id).is_some() {
+            if path.is_empty()
+                || self.by_id.contains_key(&type_id)
+                || self.id_by_path.insert(path.clone(), type_id).is_some()
+            {
                 return Err(CompositeCatalogBuildError::FieldKindResolution);
             }
-            by_id.insert(
+            self.by_id.insert(
                 type_id,
                 AcceptedCompositeType {
                     path,
@@ -173,11 +188,10 @@ impl AcceptedCompositeCatalog {
                 },
             );
         }
-        let catalog = Self { by_id, id_by_path };
-        if !catalog.validate(enum_catalog) {
+        if !self.validate(enum_catalog) {
             return Err(CompositeCatalogBuildError::FieldKindResolution);
         }
-        Ok(catalog)
+        Ok(self)
     }
 
     /// Remove an exact set of accepted composite definitions.

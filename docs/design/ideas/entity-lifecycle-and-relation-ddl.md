@@ -1,9 +1,10 @@
 # Entity Lifecycle And Relation DDL
 
 Status: entity rename promoted to [0.261 qualification](../0.261-entity-rename/0.261-design.md);
-other lifecycle questions remain unpromoted
+declaration-based creation promoted to [0.262](../0.262-entity-creation/0.262-design.md).
+Other lifecycle questions remain unpromoted.
 
-Reviewed: 2026-09-20
+Reviewed: 2026-09-30
 
 ## Maintained Starting Point
 
@@ -42,6 +43,10 @@ preserve accepted IDs across entity rename. The user authorised 0.261 to qualify
 the populated same-store transition, including relationships and recovery,
 before proposing any additional runtime capability. Other rows above remain
 independent workload questions, not implied implementation scope.
+
+Declaration-based creation now has a separate 0.262 owner. It reuses proposal
+lowering and compound publication for empty entities in existing stores; it does
+not select dynamic creation, store creation or SQL CREATE TABLE semantics.
 
 ## Ownership And Boundaries
 

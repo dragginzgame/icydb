@@ -74,6 +74,49 @@ pub struct User {}
 Versions are not database-wide release numbers. Increment only an entity that
 participates in the next plan, and increment it by exactly one.
 
+## Add An Entity To An Existing Store
+
+Declare the added entity at source version 1 alongside the retained entities,
+using a store that already has an accepted catalog. Ordinary schema
+reconciliation creates the entity empty, including its initial indexes, checks
+and restrictive relations. Existing accepted identities and populated rows are
+preserved; a placeholder and a migration transition for the new entity are
+unnecessary.
+
+Added entities may use new named enum, record, wrapper and collection types,
+including supported recursive definitions and references to accepted types.
+The new definitions publish with the new entities. Existing type identities,
+record-member and enum-variant IDs, and accepted definitions are preserved;
+redeclaring an existing type requires an exact match. Missing references, orphan
+definitions, occupied type paths and identity exhaustion reject the proposal.
+Creation may accompany explicit adjacent migrations of existing entities.
+Include transitions only for the existing entities and keep new declarations
+at source version 1. Use the normal `Advance` workflow: metadata migrations
+publish together immediately, while physical migrations keep additions
+unavailable until final publication. An abort before rewriting publishes no
+added entity. New named definitions, new lineage, migrated lineage and the
+receipt share the existing compound publication and recovery boundary.
+A renamed predecessor retains its identity; a new declaration may reuse its
+former source name with a fresh identity. Adding a store remains outside this
+contract.
+
+With `migration` enabled, existing entities must already have adopted lineage.
+For a database created without the feature, first deploy the unchanged schema
+with the feature and adopt it, then deploy the added declaration. New lineage,
+the accepted catalog and the application receipt publish together. Without the
+feature, ordinary entity creation does not record migration lineage.
+
+The maintained generated-actor rehearsal covers populated ordinary creation
+and additions accompanying metadata and physical migrations, using current
+storage formats on both sides. New enum/record values and indexed writes remain
+usable after restarting the successor; pending migrations still require explicit
+controller advancement. PocketIC evidence qualifies these deployment flows;
+it does not establish mainnet throughput or a deployed-release format bridge.
+
+Continue observing normal startup readiness after a generated upgrade. Native
+publication and recovery tests and generated PocketIC upgrade rehearsals qualify
+the maintained entity-creation flow.
+
 ## Adoption Is Not A Format Upgrade
 
 Current IcyDB databases record initial source lineage at creation. They do not

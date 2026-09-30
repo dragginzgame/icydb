@@ -14,6 +14,8 @@ default = []
 migration-v2 = []
 entity-rename = []
 entity-rename-successor = ["entity-rename"]
+entity-creation = ["entity-rename"]
+entity-creation-physical = ["entity-creation"]
 
 [dependencies]
 candid = { workspace = true }

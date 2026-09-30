@@ -8,6 +8,8 @@ mod batch_workload;
 mod catalog_workload;
 #[cfg(feature = "test-admin-api")]
 mod collection_workload;
+#[cfg(all(feature = "entity-creation", feature = "test-admin-api"))]
+mod entity_creation;
 #[cfg(all(feature = "entity-rename", feature = "test-admin-api"))]
 mod entity_rename;
 
@@ -18,6 +20,12 @@ use crate::batch_workload::BatchWorkloadSample;
 use crate::catalog_workload::{CatalogLabelSample, CatalogWorkloadSample};
 #[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
 use crate::collection_workload::CollectionWorkloadSample;
+#[cfg(all(
+    feature = "entity-creation",
+    feature = "test-admin-api",
+    feature = "candid-export"
+))]
+use crate::entity_creation::EntityCreationMeasurement;
 use candid::CandidType;
 use ic_cdk::{query, update};
 #[cfg(feature = "sql")]
