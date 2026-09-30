@@ -1658,42 +1658,27 @@ fn persisted_schema_snapshot_round_trips_nested_relation_path_identities() {
 }
 
 #[test]
-fn relation_decoder_rejects_immutable_predecessor_source_bytes_as_incompatible() {
-    const PREDECESSOR_DIRECT_RELATION: &[u8] = &[
-        0, 0, 0, 1, // relation ID
-        0, 0, 0, 0, 0, 0, 0, 0, // physical generation
-        0, 0, 0, 1, b'a', // name
-        0, 0, 0, 1, b'b', // target path
-        0, 0, 0, 1, // predecessor untagged local-field count
-        0, 0, 0, 2, // local field ID
-    ];
-    let mut reader = super::SnapshotReader::new(PREDECESSOR_DIRECT_RELATION);
-
-    let error = super::index::decode_relation(&mut reader)
-        .expect_err("predecessor untagged relation source must fail closed");
-
-    assert_eq!(error.class(), ErrorClass::IncompatiblePersistedFormat);
-    assert_eq!(error.origin(), ErrorOrigin::Serialize);
-}
-
-#[test]
 fn relation_decoder_rejects_unknown_current_source_tag_as_corruption() {
-    const UNKNOWN_SOURCE_RELATION: &[u8] = &[
+    const RELATION_HEADER: &[u8] = &[
         0, 0, 0, 1, // relation ID
         0, 0, 0, 0, 0, 0, 0, 0, // physical generation
         0, 0, 0, 1, b'a', // name
         0, 0, 0, 1, b'b', // target path
-        3,    // unknown current source tag
-        0, 0, 0, 1, // field count
-        0, 0, 0, 2, // field ID
     ];
-    let mut reader = super::SnapshotReader::new(UNKNOWN_SOURCE_RELATION);
+    for tag in [0, 3, u8::MAX] {
+        let mut encoded = RELATION_HEADER.to_vec();
+        encoded.push(tag);
+        // Keep a complete direct-source payload so rejection is not merely
+        // caused by missing field bytes after the invalid tag.
+        encoded.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 2]);
+        let mut reader = super::SnapshotReader::new(&encoded);
 
-    let error = super::index::decode_relation(&mut reader)
-        .expect_err("unknown relation source tag must fail closed");
+        let error = super::index::decode_relation(&mut reader)
+            .expect_err("unknown relation source tag must fail closed");
 
-    assert_eq!(error.class(), ErrorClass::Corruption);
-    assert_eq!(error.origin(), ErrorOrigin::Store);
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+    }
 }
 
 #[test]

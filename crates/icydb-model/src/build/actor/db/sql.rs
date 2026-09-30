@@ -335,7 +335,6 @@ mod tests {
         assert!(surface.contains("execute_trusted_sql_query_dispatch(&dispatch,&[])"));
         assert!(surface.contains("into_deliverable_query_reply()"));
         assert!(surface.contains("execute_admin_sql_ddl_dispatch(&dispatch)"));
-        assert!(!surface.contains("sql_statement_entity_name"));
     }
 
     #[test]

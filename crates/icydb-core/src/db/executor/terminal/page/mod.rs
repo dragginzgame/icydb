@@ -3,13 +3,6 @@
 //! Does not own: access-path selection, route precedence, or query planning.
 //! Boundary: shared row materialization helper used by scalar execution paths.
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the live page uses the frozen envelope; route-owned physical unit integration remains staged beside it"
-    )
-)]
 mod coordinator;
 mod direct_path;
 mod plan;

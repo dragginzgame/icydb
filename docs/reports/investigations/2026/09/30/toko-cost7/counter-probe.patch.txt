@@ -1,0 +1,181 @@
+--- a/apps/toko_miner/user_hub/src/qualification/opening/costs.rs
++++ b/apps/toko_miner/user_hub/src/qualification/opening/costs.rs
+@@ -37,7 +37,7 @@
+     let report = json!({
+         "schema_version": 1, "release_build_id": release,
+         "environment": "PocketIC managed application subnet",
+-        "cycle_measurement": "replica balance deltas, not instruction-price estimates",
++        "cycle_measurement": "replica monotonic consumed nominal cycles; includes background work settled in each interval",
+         "latency_measurement": "collection waits and local execution; not live network latency",
+         "trials": trials,
+     });
+@@ -254,9 +254,9 @@
+     let metrics_before = sampled_application(fixture, shard);
+     // Equal-duration neighbouring idle windows expose baseline variation; subtraction
+     // is an estimate and never presented as an exact per-message invoice.
+-    let idle_before = fixture.pic().cycle_balance(shard);
++    let idle_before = consumed_cycles(fixture, shard);
+     advance(fixture, ACTIONS as u64 + 10);
+-    let start = fixture.pic().cycle_balance(shard);
++    let start = consumed_cycles(fixture, shard);
+     let start_at = fixture.pic().get_time().as_nanos_since_unix_epoch();
+     let mut ack = Some("cost-position".into());
+     let mut queued = Vec::new();
+@@ -281,9 +281,9 @@
+         ack = Some(id);
+         last = Some(req);
+     }
+-    let after_updates = fixture.pic().cycle_balance(shard);
++    let after_updates = consumed_cycles(fixture, shard);
+     advance(fixture, 10);
+-    let end = fixture.pic().cycle_balance(shard);
++    let end = consumed_cycles(fixture, shard);
+     let end_at = fixture.pic().get_time().as_nanos_since_unix_epoch();
+     let metrics_after = sampled_application(fixture, shard);
+     let observations = measured_observations(&metrics_before, &metrics_after, size);
+@@ -295,18 +295,18 @@
+     );
+     let (retry_cycles, rejection_cycles) =
+         recovery_costs(fixture, shard, caller, last.expect("last batch"));
+-    let idle_start = fixture.pic().cycle_balance(shard);
++    let idle_start = consumed_cycles(fixture, shard);
+     advance(fixture, ACTIONS as u64 + 10);
+-    let idle_end = fixture.pic().cycle_balance(shard);
++    let idle_end = consumed_cycles(fixture, shard);
+     json!({
+         "workload": if walking { "inventory_with_walking" } else { "inventory_stationary" },
+         "batch_size": size, "actions": ACTIONS, "batches": batches,
+         "simulated_elapsed_ns": end_at - start_at,
+-        "gross_cycles": start.checked_sub(end).expect("no funding").to_string(),
++        "gross_cycles": end.checked_sub(start).expect("consumed cycles remain monotonic").to_string(),
+         "observations": observations, "position_only_setup": positioning,
+-        "checkpoint_tail_cycles": after_updates.checked_sub(end).expect("no funding").to_string(),
+-        "idle_before_cycles": idle_before.checked_sub(start).expect("no funding").to_string(),
+-        "idle_after_cycles": idle_start.checked_sub(idle_end).expect("no funding").to_string(),
++        "checkpoint_tail_cycles": end.checked_sub(after_updates).expect("consumed cycles remain monotonic").to_string(),
++        "idle_before_cycles": start.checked_sub(idle_before).expect("consumed cycles remain monotonic").to_string(),
++        "idle_after_cycles": idle_end.checked_sub(idle_start).expect("consumed cycles remain monotonic").to_string(),
+         "exact_retry_cycles": retry_cycles.to_string(),
+         "rejection_cycles": rejection_cycles.to_string(),
+         "inventory_conserved": true,
+@@ -370,22 +370,30 @@
+     req: &OpeningRequest,
+ ) -> (Receipt, Value) {
+     let bytes = candid::encode_args((&req,)).expect("request").len();
+-    let before = fixture.pic().cycle_balance(shard);
+-    let wall = std::time::Instant::now();
++    let balance_before = fixture.pic().cycle_balance(shard);
++    let before = consumed_cycles(fixture, shard);
+     let receipt = execute(fixture, shard, caller, req.clone());
+     assert!(!receipt.replayed);
+-    let after = fixture.pic().cycle_balance(shard);
+-    let charged = before.checked_sub(after).unwrap_or_else(|| {
++    let after = consumed_cycles(fixture, shard);
++    eprintln!(
++        "COST7_PROBE operation={} before={before} after={after}",
++        req.operation_id
++    );
++    eprintln!(
++        "COST7_ACCOUNT operation={} balance_before={balance_before} balance_after={} consumed_before={before} consumed_after={after}",
++        req.operation_id,
++        fixture.pic().cycle_balance(shard)
++    );
++    let charged = after.checked_sub(before).unwrap_or_else(|| {
+         panic!(
+-            "cost interval gained cycles: operation={}, before={before}, after={after}",
++            "consumed cycle counter decreased: operation={}, before={before}, after={after}",
+             req.operation_id
+         )
+     });
+     let measured = json!({
+         "actions": req.actions.len(), "candid_argument_bytes": bytes,
+-        "balance_before": before.to_string(), "balance_after": after.to_string(),
+-        "net_cycles": charged.to_string(),
+-        "host_elapsed_ms": wall.elapsed().as_secs_f64() * 1000.0,
++        "consumed_nominal_cycles_before": before.to_string(), "consumed_nominal_cycles_after": after.to_string(),
++        "consumed_nominal_cycles": charged.to_string(),
+         "oldest_action_queue_ms": req.actions.len().saturating_sub(1) * 1000,
+     });
+     (receipt, measured)
+@@ -397,22 +405,73 @@
+     caller: Principal,
+     retry: OpeningRequest,
+ ) -> (u128, u128) {
+-    let before_retry = fixture.pic().cycle_balance(shard);
++    let before_retry = consumed_cycles(fixture, shard);
+     assert!(execute(fixture, shard, caller, retry.clone()).replayed);
+-    let after_retry = fixture.pic().cycle_balance(shard);
++    let after_retry = consumed_cycles(fixture, shard);
+     let mut conflict = retry;
+     conflict.actions.clear();
+-    let before_rejection = fixture.pic().cycle_balance(shard);
++    let before_rejection = consumed_cycles(fixture, shard);
+     let rejected: Result<Receipt, candid::Reserved> =
+         fixture
+             .pic()
+             .update_candid_as_or_panic(shard, caller, "execute_actions", (conflict,));
+     assert!(rejected.is_err());
+-    let after_rejection = fixture.pic().cycle_balance(shard);
++    let after_rejection = consumed_cycles(fixture, shard);
+     (
+-        before_retry.checked_sub(after_retry).expect("no funding"),
+-        before_rejection
+-            .checked_sub(after_rejection)
+-            .expect("no funding"),
++        after_retry
++            .checked_sub(before_retry)
++            .expect("consumed cycles remain monotonic"),
++        after_rejection
++            .checked_sub(before_rejection)
++            .expect("consumed cycles remain monotonic"),
+     )
+ }
++#[derive(CandidType, Deserialize, Debug)]
++struct CycleProbeResult {
++    cycles_consumed: CycleProbeConsumed,
++}
++#[derive(CandidType, Deserialize, Debug)]
++struct CycleProbeConsumed {
++    memory: candid::Nat,
++    compute_allocation: candid::Nat,
++    ingress_induction: candid::Nat,
++    instructions: candid::Nat,
++    request_and_response_transmission: candid::Nat,
++    canister_creation: candid::Nat,
++    http_outcalls: candid::Nat,
++    burned_cycles: candid::Nat,
++    uninstall: candid::Nat,
++}
++#[derive(CandidType)]
++struct CycleProbeArgs {
++    canister_id: Principal,
++}
++fn consumed_cycles(fixture: &ManagedComponentGroupFixture, shard: Principal) -> u128 {
++    let reply = fixture
++        .pic()
++        .query_call_with_effective_principal(
++            Principal::management_canister(),
++            serde_json::from_value(json!("None")).expect("effective principal"),
++            fixture.pic().get_controllers(shard)[0],
++            "canister_metrics",
++            candid::encode_one(CycleProbeArgs { canister_id: shard }).expect("metrics args"),
++        )
++        .expect("read-only replica metrics");
++    let metrics: CycleProbeResult = candid::decode_one(&reply).expect("metrics result");
++    let c = metrics.cycles_consumed;
++    [
++        c.memory,
++        c.compute_allocation,
++        c.ingress_induction,
++        c.instructions,
++        c.request_and_response_transmission,
++        c.canister_creation,
++        c.http_outcalls,
++        c.burned_cycles,
++        c.uninstall,
++    ]
++    .into_iter()
++    .map(|n| u128::try_from(n.0).expect("cycle counter fits u128"))
++    .try_fold(0u128, u128::checked_add)
++    .expect("cycle sum fits u128")
++}

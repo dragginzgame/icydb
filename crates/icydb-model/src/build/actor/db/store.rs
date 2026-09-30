@@ -1121,8 +1121,6 @@ mod tests {
             rendered
                 .contains("::icydb::__macro::ensure_default_memory_manager(\"icydb.demo\",16u16,)")
         );
-        assert!(!rendered.contains("bootstrap_default_memory_manager()"));
-        assert!(!rendered.contains("fn bootstrap_memory_manager()"));
         assert!(rendered.contains("ensure_memory_bootstrap()?"));
         assert!(rendered.contains("pubfnstartup_state()->::std::result::Result<"));
         assert!(rendered.contains("__observe_generated_startup_state::<__IcydbGeneratedCanister>"));

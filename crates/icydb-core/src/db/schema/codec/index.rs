@@ -142,7 +142,6 @@ pub(super) fn decode_relation(
                 decode_relation_path_step(reader)?
             }),
         ),
-        0 => return Err(InternalError::serialize_incompatible_persisted_format()),
         _ => return Err(InternalError::store_corruption()),
     };
     Ok(relation.clone_with_physical_generation(physical_generation))
