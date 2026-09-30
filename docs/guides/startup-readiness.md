@@ -5,6 +5,13 @@ installation and upgrade. Applications must treat database-dependent timer,
 cache, and scheduler restoration as readiness work rather than assuming the
 database is immediately available.
 
+Startup obtains IC `raw_rand` entropy before initializing database controls.
+While the request is pending or needs retrying, readiness remains `Recovering`
+and the existing watchdog retries; applications need no entropy hook or seed.
+Admission replaces the persisted cursor key on each new boot while preserving
+database identity, rows and pending recovery work. Saved scalar and grouped
+cursors expire on upgrade: restart pagination after startup becomes ready.
+
 ## Declare One Lifecycle Owner
 
 Canisters without application lifecycle hooks use the default declaration:

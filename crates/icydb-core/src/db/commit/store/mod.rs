@@ -605,6 +605,19 @@ pub(in crate::db) fn prepare_commit_control_replacement(
     })
 }
 
+/// Replace the key within an already validated current control frame.
+pub(in crate::db) fn replace_persisted_cursor_authentication_key(
+    memory: RuntimeMemory<DefaultMemoryImpl>,
+    key: [u8; 32],
+) -> Result<(), InternalError> {
+    let store = CommitStore { memory };
+    let mut bytes = store.read_control_slot()?;
+    if control_slot::replace_cursor_key(&mut bytes, key)? {
+        store.write_control_slot(&bytes)?;
+    }
+    Ok(())
+}
+
 pub(in crate::db) fn apply_prepared_commit_control_replacement(
     replacement: PreparedCommitControlReplacement,
 ) {
@@ -758,8 +771,9 @@ pub(in crate::db) fn database_incarnation_id() -> Result<DatabaseIncarnationId, 
     with_commit_store(CommitStore::database_incarnation_id)
 }
 
-/// Load the durable database-lifecycle scalar-cursor authentication key.
+/// Load the admitted boot key used by scalar and grouped cursor authentication.
 pub(in crate::db) fn cursor_authentication_key() -> Result<[u8; 32], InternalError> {
+    crate::db::database_format::require_cursor_key_admitted()?;
     with_commit_store(CommitStore::cursor_authentication_key)
 }
 

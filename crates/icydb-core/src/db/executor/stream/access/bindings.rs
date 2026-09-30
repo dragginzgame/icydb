@@ -93,19 +93,10 @@ impl<'a> AccessSpecCursor<'a> {
         if self.prefix_offset < self.prefixes.len() {
             return Err(InternalError::query_executor_invariant());
         }
-        validate_index_range_specs_consumed(self.range_offset, self.ranges.len())?;
+        IndexRangeTraversalContract::validate_specs_consumed(self.range_offset, self.ranges.len())?;
 
         Ok(())
     }
-}
-
-// Keep the historical bindings-layer invariant name stable for CI checks while
-// routing the actual contract enforcement through the traversal owner.
-fn validate_index_range_specs_consumed(
-    consumed: usize,
-    available: usize,
-) -> Result<(), InternalError> {
-    IndexRangeTraversalContract::validate_specs_consumed(consumed, available)
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]

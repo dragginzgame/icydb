@@ -4,6 +4,7 @@
 //! Boundary: database control memory + registered durable allocations -> recovery gate.
 
 mod convergence;
+mod entropy;
 
 use crate::{
     db::{
@@ -17,6 +18,9 @@ use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
 #[cfg(not(test))]
 use ic_memory::open_default_memory_manager_memory;
 use std::cell::RefCell;
+
+#[cfg(test)]
+pub(in crate::db) use entropy::set_boot_entropy_for_tests;
 
 pub(in crate::db) const DATABASE_BOOT_RECORD_BYTES: usize = 15;
 const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDBCTL";
@@ -165,14 +169,31 @@ pub(in crate::db) fn ensure_database_format_admitted<C: crate::traits::CanisterK
             return Ok(());
         }
 
+        let boot_entropy = entropy::require_boot_entropy()?;
         let control_memory = commit_memory_handle(allocation)?;
         let store_roles = open_registered_store_roles(db)?;
         let fresh = admit_or_initialize_database_format(&control_memory, &store_roles)
             .map_err(map_admission_error)?;
-        convergence::ensure_current_convergence_format::<C>(db, &control_memory, fresh)?;
+        convergence::ensure_current_convergence_format::<C>(
+            db,
+            &control_memory,
+            fresh,
+            boot_entropy,
+        )?;
         admitted.push(allocation);
         Ok(())
     })
+}
+
+// Cursor signing and verification must not consume a persisted key before
+// this boot's admission has replaced it with an entropy-backed key.
+pub(in crate::db) fn require_cursor_key_admitted() -> Result<(), InternalError> {
+    let allocation = current_commit_memory_allocation()?;
+    if ADMITTED_DATABASE_FORMATS.with_borrow(|admitted| admitted.contains(&allocation)) {
+        Ok(())
+    } else {
+        Err(InternalError::recovery_pending())
+    }
 }
 
 /// Model the volatile format-admission reset performed by an upgrade.

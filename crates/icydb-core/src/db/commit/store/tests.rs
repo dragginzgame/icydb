@@ -483,6 +483,37 @@ fn commit_slot_writes_and_clears_preserve_database_boot_record() {
 }
 
 #[test]
+fn cursor_key_replacement_preserves_pending_marker_and_reopens() {
+    let memory = test_memory(231);
+    let store = super::CommitStore::init(memory.clone());
+    let marker = CommitMarker {
+        id: [0xB7; 16],
+        journal_batches: Vec::new(),
+        database_control: Vec::new(),
+    };
+    store.set_if_empty(&marker).unwrap();
+    let before = store.raw_control_slot_bytes_for_tests();
+    super::replace_persisted_cursor_authentication_key(memory.clone(), [0x66; 32]).unwrap();
+    let reopened = super::CommitStore::open(memory).unwrap();
+    assert_eq!(reopened.cursor_authentication_key().unwrap(), [0x66; 32]);
+    let after = reopened.raw_control_slot_bytes_for_tests();
+    let before = super::control_slot::inspect_commit_control_slot(&before).unwrap();
+    let after = super::control_slot::inspect_commit_control_slot(&after).unwrap();
+    assert_eq!(
+        after.database_incarnation_id,
+        before.database_incarnation_id
+    );
+    assert_eq!(
+        after.database_commit_sequence,
+        before.database_commit_sequence
+    );
+    assert_eq!(after.to_owned_registry(), before.to_owned_registry());
+    assert_eq!(after.marker_bytes, before.marker_bytes);
+    reopened.clear_verified().unwrap();
+    assert_eq!(reopened.cursor_authentication_key().unwrap(), [0x66; 32]);
+}
+
+#[test]
 fn commit_marker_transitions_preserve_database_incarnation() {
     let store = super::CommitStore::init(test_memory(227));
     let incarnation_before = store

@@ -261,11 +261,7 @@ fn derive_grouped_plan_strategy<E>(
             aggregate_family,
         ));
     }
-    if !matches!(
-        order_strategy_projection,
-        GroupedOrderStrategyProjection::TopK
-    ) && !grouped_aggregates_streaming_compatible(grouped.group.aggregates.as_slice(), observe)?
-    {
+    if !grouped_aggregates_streaming_compatible(grouped.group.aggregates.as_slice(), observe)? {
         return Ok(hash_group_fallback_strategy(
             GroupedPlanFallbackReason::AggregateStreamingNotSupported,
             aggregate_family,
@@ -282,16 +278,8 @@ fn derive_grouped_plan_strategy<E>(
     }
 
     // Phase 2: require logical ORDER BY alignment and physical access-order proof for ordered grouping.
-    match order_strategy_projection {
-        GroupedOrderStrategyProjection::Canonical => {}
-        GroupedOrderStrategyProjection::TopK => {
-            return Ok(GroupedPlanStrategy::top_k_group_with_aggregate_family(
-                aggregate_family,
-            ));
-        }
-        GroupedOrderStrategyProjection::HashFallback(reason) => {
-            return Ok(hash_group_fallback_strategy(reason, aggregate_family));
-        }
+    if let GroupedOrderStrategyProjection::HashFallback(reason) = order_strategy_projection {
+        return Ok(hash_group_fallback_strategy(reason, aggregate_family));
     }
     if grouped_access_path_proves_group_order(&grouped.group.group_fields, &plan.access, observe)? {
         return Ok(GroupedPlanStrategy::ordered_group_with_aggregate_family(

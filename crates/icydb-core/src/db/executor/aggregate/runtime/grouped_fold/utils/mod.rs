@@ -9,8 +9,7 @@ mod hashing;
 mod path_key;
 
 pub(super) use boundary::{
-    compare_grouped_boundary_values, grouped_next_cursor_boundary,
-    grouped_resume_boundary_allows_candidate,
+    compare_grouped_boundary_values, grouped_resume_boundary_allows_candidate,
 };
 pub(super) use bucket::GroupIndexBucket;
 pub(super) use equality::{

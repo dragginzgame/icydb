@@ -5,12 +5,13 @@
 //! reader core.
 
 use crate::{
-    db::schema::{FieldStorageDecode, LeafCodec},
+    db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
     db::{
         data::{
             DecodedDataStoreKey, RawRow, StructuralRowContract, StructuralRowFieldBytes,
             ValueStorageView,
             persisted_row::{
+                canonical::scalar_slot_value_ref_from_accepted_value,
                 codec::{ScalarSlotValueRef, ScalarValueRef},
                 contract::{
                     decode_runtime_value_from_row_contract,
@@ -463,13 +464,15 @@ impl<'a> StructuralSlotReader<'a> {
             return Ok(None);
         }
         if self.field_bytes.field(slot).is_none() {
-            return match self
-                .contract
-                .historical_slot_value(slot, self.field_bytes.layout_version())?
-            {
-                Value::Null => Ok(Some(ScalarSlotValueRef::Null)),
-                _ => Err(InternalError::persisted_row_decode_corruption()),
+            // The accepted kind selects a scalar view even when persisted
+            // values use the recursive catalog wire.
+            let LeafCodec::Scalar(codec) = field
+                .kind()
+                .leaf_codec_for_storage(FieldStorageDecode::ByKind)
+            else {
+                return Err(InternalError::persisted_row_decode_corruption());
             };
+            return self.required_historical_scalar(slot, codec).map(Some);
         }
 
         let raw_value = self.required_field_bytes(slot)?;
@@ -483,6 +486,23 @@ impl<'a> StructuralSlotReader<'a> {
         };
 
         Ok(value)
+    }
+
+    // Historical absence is a semantic value, not missing/corrupt data. Reuse
+    // accepted materialization so layout admission and catalog validation have
+    // one owner; text/blob views borrow the existing cache across scalar reads.
+    fn required_historical_scalar(
+        &self,
+        slot: usize,
+        codec: ScalarCodec,
+    ) -> Result<ScalarSlotValueRef<'_>, InternalError> {
+        let value = self.required_cached_value(slot)?;
+        if matches!(value, Value::Null) {
+            return Ok(ScalarSlotValueRef::Null);
+        }
+
+        scalar_slot_value_ref_from_accepted_value(value, codec)
+            .ok_or_else(InternalError::persisted_row_decode_corruption)
     }
 
     // Borrow one declared slot payload, treating absence as a persisted-row
@@ -540,16 +560,10 @@ impl SlotReader for StructuralSlotReader<'_> {
 
     fn get_scalar(&self, slot: usize) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
         match self.contract.field_leaf_codec(slot)? {
-            LeafCodec::Scalar(_) => match self.cached_values.get(slot) {
+            LeafCodec::Scalar(codec) => match self.cached_values.get(slot) {
                 Some(CachedSlotValue::Scalar { validated, .. }) => {
                     if self.field_bytes.field(slot).is_none() {
-                        return match self
-                            .contract
-                            .historical_slot_value(slot, self.field_bytes.layout_version())?
-                        {
-                            Value::Null => Ok(Some(ScalarSlotValueRef::Null)),
-                            _ => Err(InternalError::persisted_row_decode_corruption()),
-                        };
+                        return self.required_historical_scalar(slot, codec).map(Some);
                     }
 
                     let validated =
@@ -630,6 +644,7 @@ mod tests {
     mod canonical_materialization;
     mod direct_projection;
     mod full_row;
+    mod historical_scalar;
 
     use super::{CachedSlotValue, StructuralSlotReader};
     use crate::{

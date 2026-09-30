@@ -1,9 +1,7 @@
 //! Module: executor::aggregate::contracts::state::control
 //! Responsibility: shared aggregate fold-control enums.
 //! Does not own: aggregate reducer storage or stream traversal.
-//! Boundary: carries reducer continuation and extrema direction decisions.
-
-use crate::db::direction::Direction;
+//! Boundary: carries reducer continuation and extrema selection decisions.
 
 ///
 /// FoldControl
@@ -23,28 +21,13 @@ pub(in crate::db::executor) enum FoldControl {
 ///
 /// ExtremumKind identifies the MIN/MAX reducer being applied by shared extrema
 /// terminal update helpers.
-/// It carries the labels needed to preserve existing invariant errors while
-/// keeping the ordering decision explicit at the call site.
+/// It keeps the comparison and update choice explicit at the call site.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor::aggregate::contracts::state) enum ExtremumKind {
     Min,
     Max,
-}
-
-impl ExtremumKind {
-    // Return the extrema early-termination decision for one ordered input
-    // direction.
-    pub(in crate::db::executor::aggregate::contracts::state) const fn fold_control_for_direction(
-        self,
-        direction: Direction,
-    ) -> FoldControl {
-        match (self, direction) {
-            (Self::Min, Direction::Asc) | (Self::Max, Direction::Desc) => FoldControl::Break,
-            _ => FoldControl::Continue,
-        }
-    }
 }
 
 ///

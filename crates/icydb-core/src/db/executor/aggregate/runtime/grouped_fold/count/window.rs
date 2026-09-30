@@ -14,8 +14,7 @@ use crate::{
                 runtime::{
                     group_matches_having_expr,
                     grouped_fold::{
-                        compile_grouped_having_expr,
-                        utils::{compare_grouped_boundary_values, grouped_next_cursor_boundary},
+                        compile_grouped_having_expr, utils::compare_grouped_boundary_values,
                     },
                     grouped_output::project_grouped_rows_from_projection,
                 },
@@ -332,11 +331,7 @@ impl GroupedCountPageRows {
     ) -> Result<(Vec<RuntimeGroupedRow>, Option<GroupedContinuationToken>), InternalError> {
         let next_cursor_boundary = self
             .has_more
-            .then(|| {
-                self.rows
-                    .last()
-                    .map(|row| grouped_next_cursor_boundary(row.group_key()))
-            })
+            .then(|| self.rows.last().map(|row| row.group_key().to_vec()))
             .flatten();
         let page_rows = project_grouped_rows_from_projection(
             grouped_projection_spec,

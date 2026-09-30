@@ -16,6 +16,13 @@ wrong-database, and unsupported-version tokens fail closed before execution.
 Binary tokens are capped at 8 KiB; external text is capped at 10,923 bytes.
 Applications must regenerate saved continuations after a representation hard cut.
 
+Cursor keys use secure boot entropy: IC `raw_rand` in canisters and OS entropy
+in native execution. Format admission derives each database key from that seed
+and its incarnation, and replaces the persisted key on every new boot. Signing
+and verification remain unavailable until admission completes. Saved scalar
+and grouped cursors therefore expire across canister upgrades; restart pagination
+without a cursor. Database rows and the current version-1 encoding are unchanged.
+
 ## Current Wires
 
 Grouped continuation and scalar live/exhaustive pages retain their sole current

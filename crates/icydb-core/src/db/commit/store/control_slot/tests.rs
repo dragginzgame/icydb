@@ -54,6 +54,28 @@ fn assert_corrupt_control(bytes: &[u8]) {
 }
 
 #[test]
+fn cursor_key_replacement_preserves_current_control_and_marker_bytes() {
+    for marker in [&[][..], &[1, 2, 3, 4][..]] {
+        let mut bytes = wire_registry(&registry(MAX_PERSISTED_STORE_ALLOCATIONS), marker);
+        let before = bytes.clone();
+        assert!(replace_cursor_key(&mut bytes, [0x77; 32]).unwrap());
+        let slot = inspect_commit_control_slot(&bytes).unwrap();
+        assert_eq!(slot.cursor_authentication_key, [0x77; 32]);
+        assert_eq!(slot.database_commit_sequence, 7);
+        assert_eq!(slot.marker_bytes, marker);
+        assert_eq!(
+            slot.to_owned_registry(),
+            registry(MAX_PERSISTED_STORE_ALLOCATIONS)
+        );
+        assert!(!replace_cursor_key(&mut bytes, [0x77; 32]).unwrap());
+        replace_cursor_key(&mut bytes, [0x42; 32]).unwrap();
+        assert_eq!(bytes, before);
+        assert!(replace_cursor_key(&mut bytes, [0; 32]).is_err());
+        assert_eq!(bytes, before);
+    }
+}
+
+#[test]
 fn borrowed_control_preserves_empty_and_maximal_registry_bytes_and_owned_output() {
     for count in [0, MAX_PERSISTED_STORE_ALLOCATIONS] {
         let expected = registry(count);

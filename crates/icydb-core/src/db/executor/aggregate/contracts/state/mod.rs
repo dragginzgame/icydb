@@ -5,7 +5,6 @@
 
 mod control;
 mod distinct;
-mod factory;
 mod grouped;
 mod reducer;
 
@@ -14,7 +13,5 @@ pub(in crate::db::executor) use control::AggregateFoldMode;
 pub(in crate::db::executor::aggregate::contracts::state) use control::ExtremumKind;
 pub(in crate::db::executor) use control::FoldControl;
 pub(in crate::db::executor) use distinct::GroupedDistinctExecutionMode;
-pub(in crate::db::executor::aggregate::contracts::state) use distinct::canonical_key_from_data_key;
-pub(in crate::db::executor) use factory::AggregateStateFactory;
 pub(in crate::db::executor) use grouped::GroupedTerminalAggregateState;
 pub(in crate::db::executor::aggregate::contracts::state) use reducer::GroupedAggregateReducerState;

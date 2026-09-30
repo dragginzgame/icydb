@@ -141,8 +141,8 @@ fn encode_accepted_null_slot_value(
     }
 }
 
-// Convert one accepted scalar into the borrowed scalar-slot view used by the codec.
-const fn scalar_slot_value_ref_from_accepted_value(
+/// Convert one accepted scalar into the borrowed view shared by readers and codecs.
+pub(in crate::db::data::persisted_row) const fn scalar_slot_value_ref_from_accepted_value(
     value: &Value,
     codec: ScalarCodec,
 ) -> Option<ScalarSlotValueRef<'_>> {

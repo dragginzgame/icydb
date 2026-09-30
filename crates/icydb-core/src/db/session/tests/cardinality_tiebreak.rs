@@ -1,6 +1,7 @@
 //! End-to-end proof for the bounded exact-cardinality planner tie-break.
 
 mod access_projection;
+mod cursor_entropy;
 mod index_metadata;
 mod order_metadata;
 mod prefix_accounting;
@@ -11,6 +12,7 @@ mod residual_bounds;
 mod scalar_page_limits;
 mod secondary_order;
 mod sparse_indexes;
+mod sql_not_null;
 mod typed_explain;
 
 use crate::{

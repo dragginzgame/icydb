@@ -136,3 +136,40 @@ fn membership_and_truth_shells_share_cumulative_construction_admission() {
         );
     }
 }
+
+#[test]
+fn nullable_false_truth_guards_obey_cumulative_construction_admission() {
+    for leaf in [
+        compare(Value::Text("archived".into())),
+        Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("peer"))),
+            right: Box::new(Expr::Field(FieldId::new("label"))),
+        },
+        Expr::FunctionCall {
+            function: Function::Contains,
+            args: vec![
+                Expr::Field(FieldId::new("label")),
+                Expr::Literal(Value::Text("a".into())),
+            ],
+        },
+    ] {
+        let expr = Expr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(leaf),
+        };
+        let generous = request(Resource::TemporaryBytes, 16_000_000);
+        let expected = extract(&generous, &expr).unwrap().unwrap();
+        let bytes = generous.observed(Resource::TemporaryBytes);
+        let exact = request(Resource::TemporaryBytes, bytes);
+        assert_eq!(extract(&exact, &expr).unwrap(), Some(expected));
+        assert_resource(
+            extract(&request(Resource::TemporaryBytes, bytes - 1), &expr).unwrap_err(),
+            Resource::TemporaryBytes,
+        );
+        assert_resource(
+            extract(&exact, &expr).unwrap_err(),
+            Resource::TemporaryBytes,
+        );
+    }
+}

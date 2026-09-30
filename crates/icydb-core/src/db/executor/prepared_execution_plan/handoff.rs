@@ -42,14 +42,15 @@ impl PreparedScalarRuntimeHandoff {
             retained_slot_layout,
             plan_core,
         } = self;
-        let residents = plan_core.core.into_residents();
+        // Rebuild from the access inputs without copying unused cached preparation.
+        let residents = &plan_core.core.residents;
         let execution_plan = residents.plan.clone_without_scalar_page();
         let core = build_prepared_execution_plan_core_with_lowered_access(
             &authority,
             execution_plan,
             residents.continuation_identity,
-            residents.index_prefix_specs,
-            residents.index_range_specs,
+            Arc::clone(&residents.index_prefix_specs),
+            Arc::clone(&residents.index_range_specs),
             &crate::db::executor::budget::ExecutionConstructionBudget,
         )?;
 
@@ -66,8 +67,8 @@ impl PreparedScalarRuntimeHandoff {
 ///
 /// PreparedAccessPlanHandoff
 ///
-/// Structural prepared-plan payload consumed by delete and grouped/scalar
-/// structural entrypoints. It keeps the logical plan and lowered access specs
+/// Structural prepared-plan payload consumed by grouped route assembly.
+/// It keeps the logical plan and lowered access specs
 /// together so consumers do not peel the same immutable residents back out
 /// through parallel wrappers.
 ///

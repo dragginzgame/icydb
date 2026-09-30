@@ -1,15 +1,7 @@
 //! Module: executor::aggregate::contracts::state::distinct
-//! Responsibility: aggregate DISTINCT admission state helpers.
+//! Responsibility: prepared grouped DISTINCT execution facts.
 //! Does not own: grouped hash table policy or aggregate reducer payloads.
-//! Boundary: canonicalizes key/value markers before reducer admission.
-
-use crate::{
-    db::{
-        data::DecodedDataStoreKey,
-        executor::group::{CanonicalKey, GroupKey},
-    },
-    error::InternalError,
-};
+//! Boundary: carries DISTINCT enablement and value-deduplication policy.
 
 ///
 /// GroupedDistinctExecutionMode
@@ -49,13 +41,4 @@ impl GroupedDistinctExecutionMode {
     ) -> bool {
         self.uses_value_dedup
     }
-}
-
-// Record one distinct data-key marker for one aggregate state.
-
-// Convert one data key into the canonical grouped DISTINCT key surface.
-pub(in crate::db::executor::aggregate::contracts::state) fn canonical_key_from_data_key(
-    key: &DecodedDataStoreKey,
-) -> Result<GroupKey, InternalError> {
-    key.primary_key_runtime_value().canonical_key()
 }

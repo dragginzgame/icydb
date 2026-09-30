@@ -147,15 +147,6 @@ impl<'a> TraversalInputs<'a> {
     }
 }
 
-// Keep the historical traversal-layer invariant name stable for CI checks while
-// routing the actual contract enforcement through the traversal owner.
-fn validate_index_range_spec_alignment(
-    path: &ExecutionPathPayload<'_, Value>,
-    index_range_spec: Option<&LoweredIndexRangeSpec>,
-) -> Result<(), InternalError> {
-    IndexRangeTraversalContract::validate_spec_alignment(path, index_range_spec)
-}
-
 ///
 /// TraversalRuntime
 ///
@@ -614,7 +605,7 @@ impl AccessPlanStreamResolver {
                     None
                 };
                 Self::validate_index_prefix_spec_alignment(path, index_prefix_specs)?;
-                validate_index_range_spec_alignment(path, index_range_spec)?;
+                IndexRangeTraversalContract::validate_spec_alignment(path, index_range_spec)?;
 
                 runtime.lower_path_access(path, inputs, index_prefix_specs, index_range_spec)
             }

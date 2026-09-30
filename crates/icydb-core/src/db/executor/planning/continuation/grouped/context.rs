@@ -45,18 +45,6 @@ impl GroupedContinuationContext {
         }
     }
 
-    /// Return whether grouped resume-boundary filtering is active.
-    #[must_use]
-    pub(in crate::db::executor) const fn resume_boundary_applied(&self) -> bool {
-        self.grouped_pagination_window.resume_boundary().is_some()
-    }
-
-    /// Return whether grouped candidate selection bound is active.
-    #[must_use]
-    pub(in crate::db::executor) const fn selection_bound_applied(&self) -> bool {
-        self.grouped_pagination_window.selection_bound().is_some()
-    }
-
     /// Borrow grouped runtime pagination projection.
     #[must_use]
     pub(in crate::db::executor) const fn grouped_pagination_window(
@@ -80,49 +68,5 @@ impl GroupedContinuationContext {
             self.direction,
             self.grouped_pagination_window.resume_initial_offset(),
         ))
-    }
-}
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests {
-    use crate::{
-        db::{
-            cursor::ContinuationSignature,
-            executor::{GroupedContinuationContext, GroupedPaginationWindow},
-        },
-        value::Value,
-    };
-
-    #[test]
-    fn grouped_continuation_context_marks_initial_window_as_unapplied() {
-        let window = GroupedPaginationWindow::new(Some(3), 2, Some(6), 2, None);
-        let continuation = GroupedContinuationContext::new(
-            ContinuationSignature::from_bytes([1; 32]),
-            1,
-            window,
-            crate::db::direction::Direction::Asc,
-        );
-
-        assert!(!continuation.resume_boundary_applied());
-        assert!(continuation.selection_bound_applied());
-    }
-
-    #[test]
-    fn grouped_continuation_context_marks_resume_window_as_applied() {
-        let window =
-            GroupedPaginationWindow::new(Some(3), 0, Some(4), 2, Some(Value::List(Vec::new())));
-        let continuation = GroupedContinuationContext::new(
-            ContinuationSignature::from_bytes([2; 32]),
-            1,
-            window,
-            crate::db::direction::Direction::Asc,
-        );
-
-        assert!(continuation.resume_boundary_applied());
-        assert!(continuation.selection_bound_applied());
     }
 }

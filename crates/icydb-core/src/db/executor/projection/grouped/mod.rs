@@ -83,7 +83,6 @@ impl CompiledExprValueReader for GroupedRowView<'_> {
 /// shared compiled evaluator contract instead of open-coding it.
 ///
 
-#[derive(Clone)]
 pub(in crate::db::executor) struct CompiledGroupedProjectionPlan<'a> {
     compiled_projection: Vec<CompiledExpr>,
     projection_layout: &'a PlannedProjectionLayout,

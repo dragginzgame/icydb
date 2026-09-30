@@ -101,7 +101,7 @@ pub(in crate::db) use store::{
     apply_prepared_commit_control_replacement, cursor_authentication_key,
     database_control_proof_identity, database_incarnation_id, inspect_persisted_commit_control,
     next_database_commit_sequence, observe_commit_control, observe_commit_control_without_proof,
-    prepare_commit_control_replacement,
+    prepare_commit_control_replacement, replace_persisted_cursor_authentication_key,
 };
 pub(in crate::db) use store::{
     MAX_PERSISTED_STORE_ALLOCATIONS, PersistedStoreAllocation, PersistedStoreAllocationState,

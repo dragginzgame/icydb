@@ -11,8 +11,9 @@ use crate::{
             PersistedStoreAllocation, PersistedStoreAllocationState,
             apply_prepared_commit_control_replacement, canonicalize_store_registry,
             inspect_persisted_commit_control, prepare_commit_control_replacement,
+            replace_persisted_cursor_authentication_key,
         },
-        integrity::{generate_cursor_authentication_key, generate_database_incarnation_id},
+        integrity::generate_database_incarnation_id,
         journal::JournalTailStore,
         registry::{StoreAllocationIdentities, StoreAllocationIdentity, StoreHandle},
     },
@@ -45,12 +46,14 @@ pub(super) fn ensure_current_convergence_format<C: CanisterKind>(
     db: &Db<C>,
     control_memory: &RuntimeMemory<DefaultMemoryImpl>,
     fresh_database_boot: bool,
+    boot_entropy: [u8; 32],
 ) -> Result<(), InternalError> {
     let proposals = generated_store_proposals::<C>(db)?;
     let result = if fresh_database_boot {
         require_fresh_proposal_roots(&proposals)?;
         let incarnation = generate_database_incarnation_id()?;
-        let cursor_authentication_key = generate_cursor_authentication_key()?;
+        let cursor_authentication_key =
+            crate::db::database_format::entropy::cursor_key(boot_entropy, incarnation);
         let registry = proposals
             .iter()
             .map(|proposal| proposal.persisted.clone())
@@ -84,6 +87,10 @@ pub(super) fn ensure_current_convergence_format<C: CanisterKind>(
                     registry,
                     marker_present,
                     &proposals,
+                )?;
+                replace_persisted_cursor_authentication_key(
+                    control_memory.clone(),
+                    crate::db::database_format::entropy::cursor_key(boot_entropy, incarnation),
                 )
             }
         }
@@ -701,7 +708,7 @@ mod tests {
     fn fresh_initialization_publishes_exact_current_controls() {
         let fresh_control = test_memory(123);
         let (_root, fresh) = database(&FRESH_REGISTRY);
-        ensure_current_convergence_format(&fresh, &fresh_control, true).unwrap();
+        ensure_current_convergence_format(&fresh, &fresh_control, true, [0x17; 32]).unwrap();
         let PersistedCommitControlObservation::Current {
             database_commit_sequence,
             registry,
@@ -722,7 +729,7 @@ mod tests {
     fn current_registry_rejects_debt_retirement_and_never_reuses_retired_quartets() {
         let control = test_memory(126);
         let (_root, life_a) = database(&LIFE_A_REGISTRY);
-        ensure_current_convergence_format(&life_a, &control, true).unwrap();
+        ensure_current_convergence_format(&life_a, &control, true, [0x17; 32]).unwrap();
         let retained = JournalBatch::new_with_database_commit_sequence(
             [0x71; 16],
             [0x72; 16],
@@ -732,21 +739,21 @@ mod tests {
         )
         .unwrap();
         LIFE_A_JOURNAL.with_borrow_mut(|tail| tail.append_batch(&retained).unwrap());
-        ensure_current_convergence_format(&life_a, &control, false)
+        ensure_current_convergence_format(&life_a, &control, false, [0x17; 32])
             .expect("current startup must admit a bounded nonempty tail");
 
         let (_root, empty) = database(&LIFE_EMPTY_REGISTRY);
-        assert!(ensure_current_convergence_format(&empty, &control, false).is_err());
+        assert!(ensure_current_convergence_format(&empty, &control, false, [0x17; 32]).is_err());
         LIFE_A_JOURNAL.with_borrow_mut(|tail| {
             let retirement = tail
                 .prepare_batch_retirement(&retained, FoldWatermark::new(JournalSequence::new(1), 1))
                 .unwrap();
             tail.apply_prepared_batch_retirement(retirement);
         });
-        ensure_current_convergence_format(&empty, &control, false).unwrap();
+        ensure_current_convergence_format(&empty, &control, false, [0x17; 32]).unwrap();
 
         let (_root, life_b) = database(&LIFE_B_REGISTRY);
-        ensure_current_convergence_format(&life_b, &control, false).unwrap();
+        ensure_current_convergence_format(&life_b, &control, false, [0x17; 32]).unwrap();
         let PersistedCommitControlObservation::Current { registry, .. } =
             inspect_persisted_commit_control(control.clone()).unwrap()
         else {
@@ -757,7 +764,10 @@ mod tests {
         assert_eq!(registry[1].state(), PersistedStoreAllocationState::Active);
 
         let (_root, combined_database) = database(&LIFE_AB_REGISTRY);
-        assert!(ensure_current_convergence_format(&combined_database, &control, false).is_err());
+        assert!(
+            ensure_current_convergence_format(&combined_database, &control, false, [0x17; 32])
+                .is_err()
+        );
         let PersistedCommitControlObservation::Current {
             registry: unchanged,
             ..

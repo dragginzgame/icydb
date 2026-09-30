@@ -3,8 +3,6 @@ use crate::db::codec::{
     finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_len_u32, write_hash_u32,
 };
 #[cfg(feature = "sql")]
-use crate::db::data::CanonicalSlotReader;
-#[cfg(feature = "sql")]
 use crate::db::data::persisted_row::types::FieldSlot;
 use crate::{
     db::schema::{FieldInsertGeneration, FieldWriteManagement},
@@ -264,10 +262,22 @@ impl AcceptedFixedUpdatePatch {
     /// Return whether every fixed authored target already matches one accepted row.
     pub(in crate::db) fn is_satisfied_by(
         &self,
-        row: &dyn CanonicalSlotReader,
+        row: &StructuralSlotReader<'_>,
     ) -> Result<bool, InternalError> {
         for field in &self.fields {
-            if row.required_bytes(field.slot.index())? != field.payload.as_slice() {
+            let slot = field.slot.index();
+            let payload = match row.get_bytes(slot) {
+                Some(bytes) => Cow::Borrowed(bytes),
+                // Metadata-only field additions leave older rows physically
+                // shorter. Compare their frozen accepted fill in the same
+                // canonical encoding as the retained assignment.
+                None => Cow::Owned(encode_canonical_value_for_accepted_field_contract(
+                    row.contract()
+                        .required_accepted_field_persistence_contract(slot)?,
+                    row.required_cached_value(slot)?,
+                )?),
+            };
+            if payload.as_ref() != field.payload.as_slice() {
                 return Ok(false);
             }
         }

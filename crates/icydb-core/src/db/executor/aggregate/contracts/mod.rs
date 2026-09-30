@@ -25,5 +25,5 @@ pub(in crate::db::executor) use plan::{
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use state::AggregateFoldMode;
 pub(in crate::db::executor) use state::{
-    AggregateStateFactory, FoldControl, GroupedDistinctExecutionMode, GroupedTerminalAggregateState,
+    FoldControl, GroupedDistinctExecutionMode, GroupedTerminalAggregateState,
 };

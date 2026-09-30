@@ -126,21 +126,13 @@ impl GroupedRouteStage {
     /// Return the active grouped resume boundary when continuation filtering
     /// is enabled for this execution window.
     pub(in crate::db::executor) const fn grouped_resume_boundary(&self) -> Option<&Value> {
-        if self.continuation.resume_boundary_applied() {
-            self.grouped_pagination_window().resume_boundary()
-        } else {
-            None
-        }
+        self.grouped_pagination_window().resume_boundary()
     }
 
     /// Return the active grouped candidate selection bound when this execution
     /// window still needs bounded candidate retention.
     pub(in crate::db::executor) const fn grouped_selection_bound(&self) -> Option<usize> {
-        if self.continuation.selection_bound_applied() {
-            self.grouped_pagination_window().selection_bound()
-        } else {
-            None
-        }
+        self.grouped_pagination_window().selection_bound()
     }
 
     /// Build grouped next cursor after grouped boundary validation.

@@ -99,44 +99,6 @@ impl std::fmt::Debug for PreparedExecutionPlanResidents {
     }
 }
 
-impl Clone for PreparedExecutionPlanResidents {
-    fn clone(&self) -> Self {
-        Self {
-            // A detached resident clone is owned by execution, not the cache entry.
-            cache_retention: RefCell::new(Weak::new()),
-            plan: Rc::clone(&self.plan),
-            execution_shape_fingerprint_prefix: self.execution_shape_fingerprint_prefix,
-            continuation_identity: self.continuation_identity,
-            prepared_projection_contract: clone_once_lock(&self.prepared_projection_contract),
-            projection_covering_read_execution_plan: clone_once_lock(
-                &self.projection_covering_read_execution_plan,
-            ),
-            hybrid_covering_read_plan: clone_once_lock(&self.hybrid_covering_read_plan),
-            prepared_grouped_runtime_residents: clone_once_lock(
-                &self.prepared_grouped_runtime_residents,
-            ),
-            aggregate_execution_preparation: clone_once_lock(&self.aggregate_execution_preparation),
-            scalar_execution_preparation: clone_once_lock(&self.scalar_execution_preparation),
-            initial_scalar_route_plan: clone_once_lock(&self.initial_scalar_route_plan),
-            cursorless_retained_slot_layout: clone_once_lock(&self.cursorless_retained_slot_layout),
-            continuation: self.continuation.clone(),
-            index_prefix_specs: Arc::clone(&self.index_prefix_specs),
-            index_range_specs: Arc::clone(&self.index_range_specs),
-        }
-    }
-}
-
-// Clone initialized lazy residents when the prepared core has to be cloned out
-// of a shared resident; uninitialized residents intentionally stay lazy.
-fn clone_once_lock<T: Clone>(source: &OnceLock<T>) -> OnceLock<T> {
-    let cloned = OnceLock::new();
-    if let Some(value) = source.get() {
-        let _ = cloned.set(value.clone());
-    }
-
-    cloned
-}
-
 ///
 /// PreparedExecutionPlanCore
 ///
@@ -496,16 +458,6 @@ impl PreparedExecutionPlanCore {
         self.residents.execution_shape_fingerprint_prefix
     }
 
-    // Recover the prepared-plan resident payload by move when this core is
-    // uniquely owned, and fall back to cloning only when another wrapper still
-    // holds the resident Rc.
-    #[must_use]
-    pub(in crate::db::executor::prepared_execution_plan) fn into_residents(
-        self,
-    ) -> PreparedExecutionPlanResidents {
-        Rc::try_unwrap(self.residents).unwrap_or_else(|residents| residents.as_ref().clone())
-    }
-
     pub(in crate::db::executor::prepared_execution_plan) fn continuation_signature_for_runtime(
         &self,
     ) -> Result<ContinuationSignature, InternalError> {
@@ -768,8 +720,6 @@ mod retention_tests {
             assert_eq!(cell.get().is_some(), retain);
             if retain {
                 assert!(Rc::ptr_eq(&first, cell.get().unwrap()));
-                let detached = core.residents.as_ref().clone();
-                assert!(Rc::ptr_eq(&first, resident(&detached).get().unwrap()));
             }
 
             drop(entry);

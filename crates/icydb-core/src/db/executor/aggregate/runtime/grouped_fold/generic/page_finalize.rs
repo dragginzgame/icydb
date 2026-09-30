@@ -17,7 +17,7 @@ use crate::{
                         bundle::GroupedAggregateBundle,
                         compile_grouped_having_expr,
                         utils::{
-                            compare_grouped_boundary_values, grouped_next_cursor_boundary,
+                            compare_grouped_boundary_values,
                             grouped_resume_boundary_allows_candidate,
                         },
                     },
@@ -156,7 +156,7 @@ impl<'a> OrderedGroupedPageSelection<'a> {
         let next_cursor = if self.has_more {
             self.page_rows
                 .last()
-                .map(|row| grouped_next_cursor_boundary(row.group_key()))
+                .map(|row| row.group_key().to_vec())
                 .map(|last_group_key| route.grouped_next_cursor(last_group_key))
                 .transpose()?
         } else {
@@ -790,9 +790,7 @@ where
     }
 
     let next_cursor_boundary = if has_more {
-        page_rows
-            .last()
-            .map(|row| grouped_next_cursor_boundary(row.group_key()))
+        page_rows.last().map(|row| row.group_key().to_vec())
     } else {
         None
     };

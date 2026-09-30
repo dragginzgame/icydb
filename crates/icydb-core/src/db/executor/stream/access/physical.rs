@@ -173,14 +173,6 @@ struct PhysicalStreamBindings<'a> {
     index_prefix_child_expansion: Option<IndexPrefixChildExpansionHint>,
 }
 
-// Keep the historical physical-path invariant name stable for CI checks while
-// routing the actual contract enforcement through the traversal owner.
-fn require_index_range_spec(
-    index_range_spec: Option<&LoweredIndexRangeSpec>,
-) -> Result<&LoweredIndexRangeSpec, InternalError> {
-    IndexRangeTraversalContract::require_spec(index_range_spec)
-}
-
 ///
 /// KeyAccessRuntime
 ///
@@ -625,7 +617,7 @@ impl KeyAccessRuntime {
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
-        let spec = require_index_range_spec(index_range_spec)?;
+        let spec = IndexRangeTraversalContract::require_spec(index_range_spec)?;
         let fetch_limit = index_fetch_hint.unwrap_or(usize::MAX);
         let key_order_state = if index_fetch_hint.is_some() {
             KeyOrderState::FinalOrder
@@ -653,7 +645,7 @@ impl KeyAccessRuntime {
         continuation: IndexScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let spec = require_index_range_spec(index_range_spec)?;
+        let spec = IndexRangeTraversalContract::require_spec(index_range_spec)?;
         let chunk_entries = index_leaf_chunk_entries_for_active_page(ACCESS_SCAN_CHUNK_ENTRIES, 1)?;
 
         Ok(OrderedKeyStreamBox::index_range(

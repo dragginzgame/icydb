@@ -483,12 +483,6 @@ impl AggregateKind {
         )
     }
 
-    /// Return whether reducer updates for this kind require a decoded id payload.
-    #[must_use]
-    pub(in crate::db) const fn requires_decoded_id(self) -> bool {
-        !matches!(self, Self::Count | Self::Sum | Self::Avg | Self::Exists)
-    }
-
     /// Return whether grouped aggregate DISTINCT is supported for this kind.
     #[must_use]
     pub(in crate::db) const fn supports_grouped_distinct(self) -> bool {
@@ -562,21 +556,6 @@ impl AggregateKind {
             Self::Min => Some(Direction::Asc),
             Self::Max => Some(Direction::Desc),
             Self::Count | Self::Sum | Self::Avg | Self::Exists | Self::First | Self::Last => None,
-        }
-    }
-
-    /// Return the canonical materialized fold direction for this kind.
-    #[must_use]
-    pub(in crate::db) const fn materialized_fold_direction(self) -> Direction {
-        match self {
-            Self::Min => Direction::Desc,
-            Self::Count
-            | Self::Sum
-            | Self::Avg
-            | Self::Exists
-            | Self::Max
-            | Self::First
-            | Self::Last => Direction::Asc,
         }
     }
 

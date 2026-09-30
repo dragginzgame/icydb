@@ -10,10 +10,7 @@ use crate::{
         executor::{
             aggregate::{
                 AggregateKind, CompiledExpr, ExecutionContext, FieldSlot, FoldControl, GroupError,
-                contracts::{
-                    AggregateStateFactory, GroupedDistinctExecutionMode,
-                    GroupedTerminalAggregateState,
-                },
+                contracts::{GroupedDistinctExecutionMode, GroupedTerminalAggregateState},
                 field::{
                     AggregateFieldValueError, FieldSlot as AggregateFieldSlot,
                     resolve_aggregate_target_slot_from_planner_slot,
@@ -94,9 +91,8 @@ impl GroupedAggregateBundleSpec {
     // Share the immutable expressions; reducers and distinct sets are created
     // independently for each group and may outlive this blueprint.
     fn build_state(&self) -> GroupedTerminalAggregateState {
-        AggregateStateFactory::create_grouped_terminal(
+        GroupedTerminalAggregateState::new(
             self.kind,
-            self.kind.materialized_fold_direction(),
             self.distinct_mode,
             self.target_field,
             self.grouped_input_expr.clone(),
@@ -801,13 +797,21 @@ mod tests {
     use std::rc::Rc;
 
     #[test]
-    fn grouped_bundle_extrema_preserve_materialized_results() {
-        for (kind, expected) in [(AggregateKind::Min, 1), (AggregateKind::Max, 9)] {
+    fn grouped_bundle_extrema_and_key_terminals_preserve_results() {
+        for (kind, input_expr, expected) in [
+            (AggregateKind::Min, Some(CompiledExpr::Slot { slot: 0 }), 1),
+            (AggregateKind::Max, Some(CompiledExpr::Slot { slot: 0 }), 9),
+            (AggregateKind::Min, None, 1),
+            (AggregateKind::Max, None, 9),
+            (AggregateKind::First, None, 4),
+            (AggregateKind::Last, None, 6),
+        ] {
+            let needs_row = input_expr.is_some();
             let spec = GroupedAggregateBundleSpec::new(
                 kind,
                 GroupedDistinctExecutionMode::new(false, false),
                 None,
-                Some(CompiledExpr::Slot { slot: 0 }),
+                input_expr,
                 None,
                 u64::MAX,
             )
@@ -816,9 +820,14 @@ mod tests {
             let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
             for value in [4, 9, 1, 6] {
                 let row = RowView::new(vec![Some(Value::Nat64(value))]);
-                state
-                    .apply_with_row_view(&data_key(value), Some(&row), &mut context)
+                let control = state
+                    .apply_with_row_view(&data_key(value), needs_row.then_some(&row), &mut context)
                     .unwrap();
+                let stopped = matches!(control, crate::db::executor::aggregate::FoldControl::Break);
+                assert_eq!(stopped, matches!(kind, AggregateKind::First));
+                if stopped {
+                    break;
+                }
             }
             assert_eq!(state.finalize().unwrap(), Value::Nat64(expected));
         }

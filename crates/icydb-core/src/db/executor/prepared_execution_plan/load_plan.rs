@@ -11,7 +11,7 @@ use crate::{
     },
     error::InternalError,
 };
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
 #[cfg(feature = "sql")]
 use crate::db::{
@@ -124,12 +124,13 @@ impl PreparedLoadPlan {
 
     pub(in crate::db::executor) fn into_access_plan_handoff(self) -> PreparedAccessPlanHandoff {
         let Self { authority: _, core } = self;
-        let residents = core.into_residents();
+        // Share only the access inputs; cached runtime residents stay with the core.
+        let residents = &core.residents;
 
         PreparedAccessPlanHandoff {
-            plan: residents.plan,
-            index_prefix_specs: residents.index_prefix_specs,
-            index_range_specs: residents.index_range_specs,
+            plan: Rc::clone(&residents.plan),
+            index_prefix_specs: Arc::clone(&residents.index_prefix_specs),
+            index_range_specs: Arc::clone(&residents.index_range_specs),
         }
     }
 }

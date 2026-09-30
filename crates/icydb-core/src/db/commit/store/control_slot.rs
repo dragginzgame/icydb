@@ -282,6 +282,25 @@ pub(super) fn encode_empty_commit_control_slot(
     Ok(encoded)
 }
 
+// Replace only the current key bytes. The marker envelope, sequence, registry
+// and incarnation stay byte-identical, including an interrupted commit.
+pub(super) fn replace_cursor_key(
+    bytes: &mut [u8],
+    key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES],
+) -> Result<bool, InternalError> {
+    validate_cursor_key(key)?;
+    let slot = inspect_commit_control_slot(bytes)?;
+    if slot.cursor_authentication_key == key {
+        return Ok(false);
+    }
+    let offset = COMMIT_CONTROL_MAGIC.len() + 1 + DATABASE_INCARNATION_BYTES;
+    let destination = bytes
+        .get_mut(offset..offset + CURSOR_AUTHENTICATION_KEY_BYTES)
+        .ok_or_else(InternalError::commit_corruption)?;
+    destination.copy_from_slice(&key);
+    Ok(true)
+}
+
 #[cfg(test)]
 pub(super) fn encode_commit_control_slot(
     database_incarnation_id: DatabaseIncarnationId,
