@@ -474,13 +474,8 @@ impl InspectionProgressStore {
         Ok(InsertMutationJobResult::Inserted)
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "mutation-job advancement owns sequence-checked replacement"
-        )
-    )]
+    // Install fixture states outside the production before/after replacement proof.
+    #[cfg(test)]
     pub(in crate::db) fn replace_mutation(
         &mut self,
         record: &MutationJobRecord,

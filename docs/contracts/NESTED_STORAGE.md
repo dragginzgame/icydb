@@ -217,16 +217,12 @@ matching messages. SQL, dynamic queries, DDL, and `EXPLAIN` already reject an
 unaccepted path before execution or catalog mutation. Generated fluent queries
 do not expose rooted repeated-member references.
 
-Structural mutation accepts root field names, not paths. The 0.252 entry audit
-found that a dotted or otherwise unknown structural field reached an executor
-invariant. The 0.252 hard cut now routes that failed accepted-root lookup to
-the existing executor-origin `RuntimeUnsupported` diagnostic. It adds no field
-payload, diagnostic variant, or subpath mutation route.
-
-The 0.253 database-format hard cut requires recreation from 0.252 state. It
-changes accepted relation identity and reverse storage and admits the bounded
-nested strong-relation sources above, without widening query, index, or
-partial-mutation behavior.
+Structural mutation accepts root field names. A dotted or otherwise unknown
+structural field fails accepted-root lookup with the executor-origin
+`RuntimeUnsupported` diagnostic. Nested strong-relation sources follow the
+accepted relation and reverse-storage contracts described above. Noncurrent
+persisted data requires recreation under the
+[persisted format policy](PERSISTED_FORMAT_POLICY.md#current-compatibility-posture).
 
 ## Explicit Non-Goals
 

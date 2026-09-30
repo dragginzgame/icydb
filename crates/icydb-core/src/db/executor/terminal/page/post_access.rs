@@ -119,31 +119,6 @@ pub(super) fn apply_data_row_page_window(plan: &AccessPlannedQuery, rows: &mut V
     rows.truncate(kept);
 }
 
-// Keep the test-only compaction helper around so the page module can pin the
-// straight-line row compaction behavior independently.
-#[cfg(test)]
-pub(super) fn compact_kernel_rows_in_place(
-    rows: &mut Vec<KernelRow>,
-    mut keep_row: impl FnMut(&KernelRow) -> bool,
-) -> usize {
-    let mut kept = 0usize;
-
-    for read_index in 0..rows.len() {
-        if !keep_row(&rows[read_index]) {
-            continue;
-        }
-
-        if kept != read_index {
-            rows.swap(kept, read_index);
-        }
-        kept = kept.saturating_add(1);
-    }
-
-    rows.truncate(kept);
-
-    kept
-}
-
 // Apply the ordered-load continuation boundary and page window in one in-place
 // compaction pass so rows do not go through separate retain, drain, and
 // truncate passes after materialization.

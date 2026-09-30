@@ -108,32 +108,32 @@ pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_inputs(
     )
 }
 
-// Grouped row views either keep one dense field-width slot image for tests,
-// one compact single-slot value for the common grouped-count path, or one
-// retained slot row for production grouped ingest. The retained row shape
-// decodes each required field once at the row-runtime boundary so filter,
-// grouping, and aggregate evaluation can reuse borrowed slot values.
+// Grouped row views keep one compact single-slot value, one predecoded scalar
+// path leaf, or one retained slot row. The retained row shape decodes each
+// required field once at the row-runtime boundary so filter, grouping, and
+// aggregate evaluation can reuse borrowed slot values.
 enum RowViewStorage {
-    #[cfg(test)]
-    Dense(Vec<Option<Value>>),
-    Single {
-        slot: usize,
-        value: Value,
-    },
-    SinglePath {
-        value: Value,
-    },
+    Single { slot: usize, value: Value },
+    SinglePath { value: Value },
     Retained(RetainedSlotRow),
 }
 
 impl RowView {
-    /// Build one structural row view from slot-indexed values.
+    /// Build one retained row fixture from slot-indexed values.
     #[must_use]
     #[cfg(test)]
-    pub(in crate::db::executor) const fn new(slots: Vec<Option<Value>>) -> Self {
-        Self {
-            storage: RowViewStorage::Dense(slots),
-        }
+    pub(in crate::db::executor) fn new(slots: Vec<Option<Value>>) -> Self {
+        // Keep fixture field indices while storing only populated values under
+        // the same layout used by grouped ingest.
+        let required_slots = slots
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, value)| value.as_ref().map(|_| slot))
+            .collect();
+        let layout = RetainedSlotLayout::compile(slots.len(), required_slots);
+        let values = slots.into_iter().flatten().map(Some).collect();
+
+        Self::from_retained_slots(RetainedSlotRow::from_indexed_values(&layout, values))
     }
 
     /// Build one grouped row view over already decoded retained slot values.
@@ -154,23 +154,9 @@ impl RowView {
         }
     }
 
-    /// Borrow one slot by index when the row view already owns decoded values.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db::executor) fn borrow_slot_for_test(&self, index: usize) -> Option<&Value> {
-        match &self.storage {
-            RowViewStorage::Dense(slots) => slots.get(index).and_then(Option::as_ref),
-            RowViewStorage::Single { slot, value } => (*slot == index).then_some(value),
-            RowViewStorage::SinglePath { .. } => None,
-            RowViewStorage::Retained(row) => row.slot_ref(index),
-        }
-    }
-
     /// Borrow one slot by index without cloning decoded grouped row values.
     pub(in crate::db::executor) fn slot_value_ref(&self, index: usize) -> Option<&Value> {
         match &self.storage {
-            #[cfg(test)]
-            RowViewStorage::Dense(slots) => slots.get(index).and_then(Option::as_ref),
             RowViewStorage::Single { slot, value } => (*slot == index).then_some(value),
             RowViewStorage::SinglePath { .. } => None,
             RowViewStorage::Retained(row) => row.slot_ref(index),
@@ -194,11 +180,6 @@ impl RowView {
         index: usize,
     ) -> Result<Value, InternalError> {
         match self.storage {
-            #[cfg(test)]
-            RowViewStorage::Dense(mut slots) => slots
-                .get_mut(index)
-                .and_then(Option::take)
-                .ok_or_else(InternalError::query_executor_invariant),
             RowViewStorage::Single { slot, value } => {
                 if slot == index {
                     return Ok(value);
@@ -237,8 +218,6 @@ impl RowView {
     ) -> Option<&Value> {
         match &self.storage {
             RowViewStorage::SinglePath { value } => Some(value),
-            #[cfg(test)]
-            RowViewStorage::Dense(_) => None,
             RowViewStorage::Single { .. } | RowViewStorage::Retained(_) => None,
         }
     }
@@ -633,7 +612,7 @@ mod tests {
     };
 
     #[test]
-    fn dense_test_row_view_resolves_sparse_slots() {
+    fn retained_row_view_resolves_noncontiguous_slots() {
         let row_view = RowView::new(vec![
             None,
             Some(Value::Nat64(7)),
@@ -643,12 +622,18 @@ mod tests {
             None,
         ]);
 
-        assert_eq!(row_view.borrow_slot_for_test(1), Some(&Value::Nat64(7)));
+        assert_eq!(row_view.slot_value_ref(1), Some(&Value::Nat64(7)));
         assert_eq!(
-            row_view.borrow_slot_for_test(4),
+            row_view.slot_value_ref(4),
             Some(&Value::Text("group".to_string()))
         );
-        assert_eq!(row_view.borrow_slot_for_test(0), None);
+        assert_eq!(row_view.slot_value_ref(0), None);
+        assert_eq!(row_view.slot_value_ref(5), None);
+        assert_eq!(row_view.slot_value_ref(6), None);
+        assert_eq!(
+            row_view.into_required_slot_value(4).unwrap(),
+            Value::Text("group".to_string())
+        );
     }
 
     #[test]
@@ -656,10 +641,10 @@ mod tests {
         let row_view = RowView::from_single_value(4, Value::Text("group".to_string()));
 
         assert_eq!(
-            row_view.borrow_slot_for_test(4),
+            row_view.slot_value_ref(4),
             Some(&Value::Text("group".to_string()))
         );
-        assert_eq!(row_view.borrow_slot_for_test(1), None);
+        assert_eq!(row_view.slot_value_ref(1), None);
     }
 
     #[test]

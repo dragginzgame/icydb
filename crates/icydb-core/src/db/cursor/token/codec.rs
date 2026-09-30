@@ -580,16 +580,6 @@ mod tests {
     }
 
     #[test]
-    fn authenticated_predecessor_scalar_layout_is_a_hard_cut() {
-        let key = [0x66; 32];
-        let mut predecessor = authenticated_without_mac(&key);
-        predecessor.drain(ROUTE_LAYOUT_OFFSET..=ROUTE_ARITY_OFFSET);
-        let predecessor = resign(predecessor, &key);
-
-        assert!(ScalarPageToken::decode(predecessor.as_slice(), &key).is_err());
-    }
-
-    #[test]
     fn authenticated_route_pin_corruption_fails_closed() {
         let key = [0x66; 32];
         let mut foreign_entity = authenticated_without_mac(&key);

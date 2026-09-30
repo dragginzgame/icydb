@@ -39,10 +39,9 @@ icydb::start! {
 The callback functions must be reachable from the crate root; callbacks in a
 child module therefore normally use `pub(crate)`. IcyDB registers or
 reconstructs its watchdog before calling them. The application callback runs
-in the lifecycle message, never inside a recovery-page callback. The old
-combination of `icydb::start!()` with separate `#[ic_cdk::init]` or
-`#[ic_cdk::post_upgrade]` exports is removed by the pre-1.0 hard cut because it
-creates duplicate lifecycle exports.
+in the lifecycle message, never inside a recovery-page callback. The default
+and composed declarations own both lifecycle exports. Application-owned
+lifecycle exports require participant mode.
 
 If the application or an independent framework must own the complete IC
 lifecycle root, select participant mode instead:

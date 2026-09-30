@@ -20,8 +20,7 @@ pub struct Store {
 /// Storage configuration owned by one schema store declaration.
 ///
 /// Store storage has two public modes: volatile heap storage and journaled
-/// cached-stable durable storage. Direct stable-map stores were hard-cut after
-/// the journaled mode became the durable path.
+/// cached-stable durable storage.
 ///
 /// Use `Journaled` for user data that must survive upgrade/reinitialization.
 /// `Heap` is live-only process state: it has no stable-memory allocation

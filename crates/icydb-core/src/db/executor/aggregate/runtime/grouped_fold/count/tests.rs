@@ -15,7 +15,6 @@ use crate::{
         },
         query::plan::FieldSlot,
     },
-    error::InternalError,
     types::Decimal,
     value::{Value, with_test_hash_override},
 };
@@ -29,42 +28,11 @@ fn group_fields(indices: &[usize]) -> Vec<FieldSlot> {
 
 #[test]
 fn grouped_count_fast_path_hash_matches_owned_group_key_hash() {
-    fn supports_group_probe(
-        row_view: &RowView,
-        group_fields: &[FieldSlot],
-    ) -> Result<bool, InternalError> {
-        fn group_value_supports_group_probe(value: &Value) -> bool {
-            match value {
-                Value::List(_) | Value::Map(_) | Value::Unit => false,
-                Value::Enum(value_enum) => value_enum
-                    .payload()
-                    .is_none_or(group_value_supports_group_probe),
-                _ => true,
-            }
-        }
-
-        for field in group_fields {
-            let supports = row_view.with_required_slot(field.index(), |value| {
-                Ok(group_value_supports_group_probe(value))
-            })?;
-            if !supports {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
-    }
-
     let row_view = RowView::new(vec![
         Some(Value::Decimal(Decimal::new(100, 2))),
         Some(Value::Text("alpha".to_string())),
     ]);
     let group_fields = group_fields(&[0, 1]);
-
-    assert!(
-        supports_group_probe(&row_view, &group_fields).expect("borrowed probe"),
-        "scalar grouped values should stay on the borrowed grouped-count fast path",
-    );
 
     let borrowed_hash =
         stable_hash_group_values_from_row_view(&row_view, &group_fields).expect("hash");
@@ -77,43 +45,6 @@ fn grouped_count_fast_path_hash_matches_owned_group_key_hash() {
         borrowed_hash,
         owned_group_key.hash(),
         "borrowed grouped-count hashing must stay aligned with owned canonical group-key hashing",
-    );
-}
-
-#[test]
-fn grouped_count_fast_path_rejects_structured_group_values() {
-    fn supports_group_probe(
-        row_view: &RowView,
-        group_fields: &[FieldSlot],
-    ) -> Result<bool, InternalError> {
-        fn group_value_supports_group_probe(value: &Value) -> bool {
-            match value {
-                Value::List(_) | Value::Map(_) | Value::Unit => false,
-                Value::Enum(value_enum) => value_enum
-                    .payload()
-                    .is_none_or(group_value_supports_group_probe),
-                _ => true,
-            }
-        }
-
-        for field in group_fields {
-            let supports = row_view.with_required_slot(field.index(), |value| {
-                Ok(group_value_supports_group_probe(value))
-            })?;
-            if !supports {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
-    }
-
-    let row_view = RowView::new(vec![Some(Value::List(vec![Value::Nat64(7)]))]);
-    let group_fields = group_fields(&[0]);
-
-    assert!(
-        !supports_group_probe(&row_view, &group_fields).expect("borrowed probe"),
-        "structured grouped values must fall back to owned canonical key materialization",
     );
 }
 

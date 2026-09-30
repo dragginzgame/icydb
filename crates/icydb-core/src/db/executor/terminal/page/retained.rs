@@ -126,73 +126,17 @@ impl RetainedSlotLayout {
 ///
 /// RetainedSlotRow keeps only the caller-declared decoded slot values for one
 /// retained-slot structural row.
-/// The slot-only execution path stores those retained values in one compact
-/// slot-sorted entry list so sparse outer projections do not allocate a
-/// field-count-sized `Vec<Option<Value>>` for every row.
+/// Each row stores compact values in shared layout order. The layout resolves
+/// global slot indices without allocating a field-count-sized value vector
+/// for every row.
 ///
 
 pub(in crate::db) struct RetainedSlotRow {
-    storage: RetainedSlotRowStorage,
-}
-
-///
-/// RetainedSlotEntry
-///
-/// RetainedSlotEntry stores one retained slot index plus its optional value.
-/// Entries stay sorted by slot so retained rows can binary-search sparse slot
-/// lookups without rebuilding a dense per-row slot image.
-///
-
-#[cfg(test)]
-struct RetainedSlotEntry {
-    slot: usize,
-    value: Option<Value>,
-}
-
-// Retained rows either reuse one shared indexed layout for O(1) slot access
-// or keep one compact sparse fallback shape when no prepared retained-slot
-// layout exists for the producer.
-enum RetainedSlotRowStorage {
-    Indexed {
-        layout: RetainedSlotLayout,
-        values: Vec<Option<Value>>,
-    },
-    #[cfg(test)]
-    Sparse { entries: Vec<RetainedSlotEntry> },
+    layout: RetainedSlotLayout,
+    values: Vec<Option<Value>>,
 }
 
 impl RetainedSlotRow {
-    /// Build one retained slot row from sparse decoded `(slot, value)` pairs.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn new(slot_count: usize, entries: Vec<(usize, Value)>) -> Self {
-        let mut compact_entries = entries
-            .into_iter()
-            .filter(|(slot, _)| *slot < slot_count)
-            .collect::<Vec<_>>();
-        compact_entries.sort_by_key(|(slot, _)| *slot);
-
-        let mut deduped_entries: Vec<RetainedSlotEntry> = Vec::with_capacity(compact_entries.len());
-        for (slot, value) in compact_entries {
-            if let Some(entry) = deduped_entries.last_mut()
-                && entry.slot == slot
-            {
-                entry.value = Some(value);
-            } else {
-                deduped_entries.push(RetainedSlotEntry {
-                    slot,
-                    value: Some(value),
-                });
-            }
-        }
-
-        Self {
-            storage: RetainedSlotRowStorage::Sparse {
-                entries: deduped_entries,
-            },
-        }
-    }
-
     /// Build one retained slot row from compact retained values under one
     /// shared retained-slot layout.
     #[must_use]
@@ -203,80 +147,33 @@ impl RetainedSlotRow {
         debug_assert_eq!(values.len(), layout.retained_value_count());
 
         Self {
-            storage: RetainedSlotRowStorage::Indexed {
-                layout: layout.clone(),
-                values,
-            },
+            layout: layout.clone(),
+            values,
         }
     }
 
     /// Borrow one retained slot value without cloning it back out of the row.
     #[must_use]
     pub(in crate::db) fn slot_ref(&self, slot: usize) -> Option<&Value> {
-        match &self.storage {
-            RetainedSlotRowStorage::Indexed { layout, values } => {
-                let index = layout.value_index_for_slot(slot)?;
+        let index = self.layout.value_index_for_slot(slot)?;
 
-                values.get(index).and_then(Option::as_ref)
-            }
-            #[cfg(test)]
-            RetainedSlotRowStorage::Sparse { entries, .. } => {
-                Self::find_sparse_entry(entries.as_slice(), slot)
-                    .and_then(|entry| entry.value.as_ref())
-            }
-        }
+        self.values.get(index).and_then(Option::as_ref)
     }
 
     /// Remove one retained slot value by slot index while consuming the row in
     /// direct field-projection paths.
     pub(in crate::db) fn take_slot(&mut self, slot: usize) -> Option<Value> {
-        match &mut self.storage {
-            RetainedSlotRowStorage::Indexed { layout, values } => {
-                let index = layout.value_index_for_slot(slot)?;
+        let index = self.layout.value_index_for_slot(slot)?;
 
-                values.get_mut(index)?.take()
-            }
-            #[cfg(test)]
-            RetainedSlotRowStorage::Sparse { entries, .. } => {
-                let index = Self::find_sparse_entry_index(entries.as_slice(), slot)?;
-
-                entries.get_mut(index)?.value.take()
-            }
-        }
+        self.values.get_mut(index)?.take()
     }
 
     /// Estimate complete value backing retained by this compact slot row.
     #[must_use]
     pub(in crate::db::executor) fn estimated_backing_bytes(&self) -> u64 {
-        match &self.storage {
-            RetainedSlotRowStorage::Indexed { values, .. } => {
-                values.iter().flatten().fold(0_u64, |total, value| {
-                    total.saturating_add(runtime_value_work(value).0)
-                })
-            }
-            #[cfg(test)]
-            RetainedSlotRowStorage::Sparse { entries } => {
-                entries.iter().fold(0_u64, |total, entry| {
-                    entry.value.as_ref().map_or(total, |value| {
-                        total.saturating_add(runtime_value_work(value).0)
-                    })
-                })
-            }
-        }
-    }
-
-    // Resolve one retained sparse entry by slot index inside the slot-sorted compact row.
-    #[cfg(test)]
-    fn find_sparse_entry(entries: &[RetainedSlotEntry], slot: usize) -> Option<&RetainedSlotEntry> {
-        let index = Self::find_sparse_entry_index(entries, slot)?;
-
-        entries.get(index)
-    }
-
-    // Binary-search one compact sparse retained-slot entry list by stable slot index.
-    #[cfg(test)]
-    fn find_sparse_entry_index(entries: &[RetainedSlotEntry], slot: usize) -> Option<usize> {
-        entries.binary_search_by_key(&slot, |entry| entry.slot).ok()
+        self.values.iter().flatten().fold(0_u64, |total, value| {
+            total.saturating_add(runtime_value_work(value).0)
+        })
     }
 }
 

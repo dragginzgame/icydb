@@ -1,6 +1,6 @@
 # Read Admission
 
-This contract defines IcyDB's maintained read lanes after the 0.213 hard cut.
+This contract defines IcyDB's maintained read lanes.
 Accepted schema, the planner result, and the built-in admission policy are the
 only query-shape admission authorities. Generated models and application
 callbacks never replace that admission decision. A generated SQL or schema

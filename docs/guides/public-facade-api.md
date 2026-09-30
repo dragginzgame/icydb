@@ -1,7 +1,7 @@
 # Public Facade API
 
-This guide describes the maintained application-facing surface after the
-0.213 hard cut. Runtime authority always comes from accepted schema. Generated
+This guide describes the maintained application-facing surface.
+Runtime authority always comes from accepted schema. Generated
 Rust types are optional adapters at the boundary; they are not planner,
 admission, storage, or recovery inputs.
 

@@ -1,14 +1,16 @@
 use super::*;
 use crate::db::{
     cursor::{CursorBoundary, CursorBoundarySlot},
-    executor::terminal::page::post_access::{
-        apply_load_cursor_and_pagination_window, compact_kernel_rows_in_place,
-    },
+    executor::terminal::page::post_access::apply_load_cursor_and_pagination_window,
     query::plan::{OrderDirection, ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource},
 };
 
 fn kernel_row_u64(value: u64) -> KernelRow {
-    KernelRow::new_slot_only(RetainedSlotRow::new(1, vec![(0, Value::Nat64(value))]))
+    let layout = RetainedSlotLayout::compile(1, vec![0]);
+    KernelRow::new_slot_only(RetainedSlotRow::from_indexed_values(
+        &layout,
+        vec![Some(Value::Nat64(value))],
+    ))
 }
 
 fn direct_field_order(slot: usize) -> ResolvedOrder {
@@ -16,44 +18,6 @@ fn direct_field_order(slot: usize) -> ResolvedOrder {
         ResolvedOrderValueSource::direct_field(slot),
         OrderDirection::Asc,
     )])
-}
-
-#[test]
-fn retained_slot_row_slot_ref_and_take_slot_use_indexed_lookup() {
-    let mut row = RetainedSlotRow::new(
-        8,
-        vec![
-            (1, Value::Text("alpha".to_string())),
-            (5, Value::Nat64(7)),
-            (3, Value::Bool(true)),
-        ],
-    );
-
-    assert_eq!(row.slot_ref(5), Some(&Value::Nat64(7)));
-    assert_eq!(row.take_slot(1), Some(Value::Text("alpha".to_string())));
-    assert_eq!(row.slot_ref(1), None);
-    assert_eq!(row.slot_ref(3), Some(&Value::Bool(true)));
-    assert_eq!(row.take_slot(5), Some(Value::Nat64(7)));
-    assert_eq!(row.slot_ref(5), None);
-    assert_eq!(row.slot_ref(3), Some(&Value::Bool(true)));
-}
-
-#[test]
-fn retained_slot_row_sparse_constructor_preserves_dense_overwrite_semantics() {
-    let row = RetainedSlotRow::new(
-        4,
-        vec![
-            (3, Value::Bool(false)),
-            (1, Value::Text("first".to_string())),
-            (7, Value::Nat64(99)),
-            (1, Value::Text("last".to_string())),
-        ],
-    );
-
-    assert_eq!(row.slot_ref(1), Some(&Value::Text("last".to_string())),);
-    assert_eq!(row.slot_ref(3), Some(&Value::Bool(false)));
-    assert_eq!(row.slot_ref(0), None);
-    assert_eq!(row.slot_ref(7), None);
 }
 
 #[test]
@@ -99,6 +63,12 @@ fn retained_slot_row_indexed_layout_uses_shared_slot_lookup() {
     assert_eq!(row.slot_ref(1), None);
     assert_eq!(row.slot_ref(3), Some(&Value::Bool(true)));
     assert_eq!(row.take_slot(5), Some(Value::Nat64(7)));
+    assert_eq!(row.take_slot(5), None);
+    assert_eq!(row.slot_ref(5), None);
+    assert_eq!(row.slot_ref(3), Some(&Value::Bool(true)));
+    assert_eq!(row.slot_ref(0), None);
+    assert_eq!(row.slot_ref(8), None);
+    assert_eq!(row.take_slot(8), None);
 }
 
 #[test]
@@ -146,26 +116,5 @@ fn load_pagination_window_without_cursor_skips_offset_then_limits() {
     assert_eq!(
         rows.into_iter().map(|row| row.slot(0)).collect::<Vec<_>>(),
         vec![Some(Value::Nat64(30))]
-    );
-}
-
-#[test]
-fn compact_kernel_rows_in_place_preserves_kept_order() {
-    let mut rows = vec![
-        kernel_row_u64(1),
-        kernel_row_u64(2),
-        kernel_row_u64(3),
-        kernel_row_u64(4),
-    ];
-
-    let kept = compact_kernel_rows_in_place(
-        &mut rows,
-        |row| matches!(row.slot(0), Some(Value::Nat64(value)) if value % 2 == 0),
-    );
-
-    assert_eq!(kept, 2);
-    assert_eq!(
-        rows.into_iter().map(|row| row.slot(0)).collect::<Vec<_>>(),
-        vec![Some(Value::Nat64(2)), Some(Value::Nat64(4))]
     );
 }

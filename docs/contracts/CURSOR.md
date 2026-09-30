@@ -32,15 +32,16 @@ Both token variants share the authenticated envelope: magic, version, variant,
 payload length, payload, and a 32-byte HMAC-SHA256. The existing durable cursor
 key seals framing and payload; verification precedes value decoding. Grouped
 tokens bind their accepted-schema/query signature, direction, initial offset,
-and every group-key value. This grouped hard cut requires restarting saved
-grouped pagination; scalar token bytes and stored database formats are unchanged.
+and every group-key value.
 
 Big-integer values carry a u32 byte count and minimal little-endian magnitude;
 signed integers prefix sign 0/1/2 for zero/positive/negative. Zero has no
 magnitude bytes. Redundant high zero bytes and inconsistent signs reject.
 Account retains its fixed 62-byte payload directly after the value tag; Decimal
 retains its full i128 mantissa and one scale byte (0–28). The same value codec
-owns stored mutation-job literals, so affected job records require recreation.
+owns stored mutation-job literals. Noncurrent continuations must be regenerated
+and noncurrent job records recreated under the
+[persisted format policy](PERSISTED_FORMAT_POLICY.md#current-compatibility-posture).
 
 Value nesting is limited to 128 edges on both encode and decode. Each root
 value starts at depth zero; a list item, map key/value or enum payload adds
@@ -49,8 +50,8 @@ at the limit remain valid, and this limit does not restrict the width of a
 shallow list beyond existing byte/size limits. Excessive nesting fails with
 the existing token encode/decode error before further value recursion. The
 same guard applies to stored mutation-job literals, independently of their
-expression-depth limit. Depth admission itself does not change value encoding;
-over-depth saved continuations must be discarded and affected jobs recreated.
+expression-depth limit. Over-depth saved continuations must be discarded and
+affected jobs recreated.
 
 The scalar MAC covers the current payload before semantic fields are used. Its
 contract binds:

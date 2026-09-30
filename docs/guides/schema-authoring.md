@@ -388,9 +388,9 @@ an empty journal does not mean the old store has no data. Retired identities
 cannot be reintroduced. Removing an existing database namespace rejects before
 allocation commitment, even when a new namespace has a valid grant.
 
-The 0.258 logical-memory hard cut requires recreation/reinstall of databases
-created with the earlier physical-ID declarations; no automatic migration is
-provided.
+Persisted databases must use the current logical-memory identity contract.
+Noncurrent databases require recreation or reinstall under the
+[persisted format policy](../contracts/PERSISTED_FORMAT_POLICY.md#current-compatibility-posture).
 
 ### Canister memory profiles
 
