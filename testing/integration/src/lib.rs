@@ -76,6 +76,8 @@ pub struct StartupWatchdogPerfSnapshot {
     pub work_completed: u64,
     /// Successful IcyDB work callbacks.
     pub succeeded: u64,
+    /// Callbacks that completed normally while startup dependencies were pending.
+    pub no_work: u64,
     /// Retryable IcyDB work callback failures.
     pub retryable_failures: u64,
     /// Invariant-failing IcyDB work callbacks.

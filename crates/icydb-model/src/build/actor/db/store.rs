@@ -281,6 +281,17 @@ fn startup_driver_tokens() -> TokenStream {
                     ::icydb::__reexports::ic_timers::TimerCompletion::success(1),
                     ::icydb::__reexports::ic_timers::WatchdogDecision::ContinueImmediately,
                 ),
+                // Asynchronous startup dependencies can be pending on a healthy
+                // fresh install or upgrade. Wait at the normal cadence without
+                // reporting a failure or spinning immediate successor callbacks.
+                Err(error) if error.code()
+                    == ::icydb::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING =>
+                {
+                    ::icydb::__reexports::ic_timers::WatchdogRunResult::new(
+                        ::icydb::__reexports::ic_timers::TimerCompletion::no_work(),
+                        ::icydb::__reexports::ic_timers::WatchdogDecision::Continue,
+                    )
+                }
                 Err(error) => {
                     ::icydb::__reexports::ic_cdk::println!(
                         "IcyDB startup driver retryable failure (E{})",
@@ -914,6 +925,7 @@ mod tests {
             "WatchdogReconcileState::ScheduledImmediately",
             "reconcile_startup_watchdog_from_durable_state()",
             "TimerCompletion::retryable_failure(0)",
+            "TimerCompletion::no_work()",
             "TimerCompletion::success(1)",
             "TimerCompletion::invariant_failure(0)",
             "WatchdogDecision::Continue",
@@ -939,7 +951,6 @@ mod tests {
             "#[update]",
             "#[query]",
             "ic_timers::timer_snapshot(",
-            "TimerCompletion::no_work()",
         ] {
             assert!(
                 !rendered.contains(forbidden),

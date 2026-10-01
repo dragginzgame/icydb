@@ -283,9 +283,11 @@ fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
     deliver_startup_watchdog_message(fixture);
     let entropy_wait = startup_watchdog_perf_snapshot(fixture);
     assert_eq!(entropy_wait.work_samples, 1);
-    assert_eq!(entropy_wait.retryable_failures, 1);
+    assert_eq!(entropy_wait.no_work, 1);
+    assert_eq!(entropy_wait.retryable_failures, 0);
     assert_eq!(entropy_wait.succeeded, 0);
     assert_eq!(entropy_wait.invariant_failures, 0);
+    assert!(startup_watchdog_armed(fixture));
 }
 
 fn stable_memory_fingerprint(fixture: &StandaloneCanisterFixture) -> ([u8; 32], usize) {
@@ -1107,9 +1109,10 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
     assert_eq!(watchdog.work_started, watchdog.work_completed);
     assert_eq!(
         watchdog.work_samples,
-        watchdog.succeeded + watchdog.retryable_failures,
+        watchdog.succeeded + watchdog.no_work + watchdog.retryable_failures,
     );
-    assert_eq!(watchdog.retryable_failures, 1);
+    assert_eq!(watchdog.no_work, 1);
+    assert_eq!(watchdog.retryable_failures, 0);
     assert_eq!(watchdog.invariant_failures, 0);
     assert!((1..=CONVERGENCE_RESIDUAL_MESSAGE_LIMIT).contains(&watchdog.succeeded));
     assert!(

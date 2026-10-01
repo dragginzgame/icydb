@@ -169,6 +169,7 @@ struct StartupWatchdogPerfSnapshot {
     work_started: u64,
     work_completed: u64,
     succeeded: u64,
+    no_work: u64,
     retryable_failures: u64,
     invariant_failures: u64,
 }
@@ -433,6 +434,7 @@ fn engine_startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
         work_started: counters.work_started(),
         work_completed: counters.work_completed(),
         succeeded: counters.succeeded(),
+        no_work: counters.no_work(),
         retryable_failures: counters.retryable_failure(),
         invariant_failures: counters.invariant_failure(),
     }
