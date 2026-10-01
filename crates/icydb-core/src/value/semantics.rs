@@ -6,39 +6,25 @@
 
 use crate::value::{CoercionFamily, Value};
 
-/// Returns true if the value is one of the numeric-like variants supported by
-/// numeric comparison/ordering.
-#[must_use]
-const fn is_numeric(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::Decimal(_)
-            | Value::Duration(_)
-            | Value::Float32(_)
-            | Value::Float64(_)
-            | Value::Int64(_)
-            | Value::Int128(_)
-            | Value::Timestamp(_)
-            | Value::Nat64(_)
-            | Value::Nat128(_)
-    )
+// Preserve independent capability flags through const matches generated from
+// the canonical registry. Collections and null have no scalar capability.
+macro_rules! numeric_capabilities_from_registry {
+    ( @args $value:expr; @entries $( ($scalar:ident, $coercion_family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_primary_key_component_encodable = $is_primary_key_component_encodable:expr) ),* $(,)? ) => {
+        match $value {
+            $( $value_pat => ($is_numeric, $supports_numeric_coercion), )*
+            Value::List(_) | Value::Map(_) | Value::Null => (false, false),
+        }
+    };
 }
 
-/// Returns true when numeric coercion/comparison is explicitly allowed.
+#[must_use]
+const fn is_numeric(value: &Value) -> bool {
+    scalar_registry!(numeric_capabilities_from_registry, value).0
+}
+
 #[must_use]
 pub(crate) const fn supports_numeric_coercion(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::Decimal(_)
-            | Value::Duration(_)
-            | Value::Float32(_)
-            | Value::Float64(_)
-            | Value::Int64(_)
-            | Value::Int128(_)
-            | Value::Timestamp(_)
-            | Value::Nat64(_)
-            | Value::Nat128(_)
-    )
+    scalar_registry!(numeric_capabilities_from_registry, value).1
 }
 
 /// Returns the coercion-routing family for this value.

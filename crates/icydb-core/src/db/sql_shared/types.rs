@@ -29,6 +29,34 @@ impl SqlParseError {
         Self::UnsupportedFeature { feature }
     }
 
+    // Project a diagnostic only after a parser rejects this trailing token.
+    // Grammar admission and clause ordering remain with each parser.
+    pub(in crate::db) const fn trailing_unsupported_feature(
+        kind: Option<&TokenKind>,
+    ) -> Option<SqlFeatureCode> {
+        match kind {
+            Some(TokenKind::Keyword(Keyword::As)) => Some(SqlFeatureCode::ColumnAlias),
+            Some(TokenKind::Keyword(Keyword::Describe)) => Some(SqlFeatureCode::DescribeModifier),
+            Some(TokenKind::Keyword(Keyword::Having)) => Some(SqlFeatureCode::Having),
+            Some(TokenKind::Keyword(Keyword::Insert)) => Some(SqlFeatureCode::Insert),
+            Some(TokenKind::Keyword(Keyword::Join)) => Some(SqlFeatureCode::Join),
+            Some(TokenKind::Keyword(Keyword::Filter)) => {
+                Some(SqlFeatureCode::AggregateFilterClause)
+            }
+            Some(TokenKind::Keyword(Keyword::Over)) => Some(SqlFeatureCode::WindowFunction),
+            Some(TokenKind::Keyword(Keyword::Returning)) => {
+                Some(SqlFeatureCode::ReturningUnsupportedShape)
+            }
+            Some(TokenKind::Keyword(Keyword::Show)) => Some(SqlFeatureCode::ShowUnsupportedCommand),
+            Some(TokenKind::Keyword(Keyword::With)) => Some(SqlFeatureCode::With),
+            Some(TokenKind::Keyword(Keyword::Union | Keyword::Intersect | Keyword::Except)) => {
+                Some(SqlFeatureCode::UnionIntersectExcept)
+            }
+            Some(TokenKind::Keyword(Keyword::Update)) => Some(SqlFeatureCode::Update),
+            _ => None,
+        }
+    }
+
     pub(in crate::db) const fn invalid_syntax(kind: SqlSyntaxErrorKind) -> Self {
         Self::InvalidSyntax { kind }
     }

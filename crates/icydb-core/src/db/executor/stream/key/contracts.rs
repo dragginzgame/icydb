@@ -10,7 +10,7 @@ use crate::{
             budget::charge_current_execution_budget,
             stream::{
                 FlatMergeSiblingSet,
-                access::{IndexRangeKeyStream, PrimaryRangeKeyStream, SeekableIndexRangeKeyStream},
+                access::{IndexRangeKeyStream, PrimaryRangeKeyStream},
                 key::{
                     ConcatOrderedKeyStream, DistinctOrderedKeyStream, FlatMergeOrderedKeyStream,
                     IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
@@ -76,7 +76,6 @@ pub(in crate::db::executor) enum OrderedKeyStreamBox {
     Materialized(VecOrderedKeyStream),
     PrimaryRange(PrimaryRangeKeyStream),
     IndexRange(IndexRangeKeyStream),
-    SeekableIndexRange(SeekableIndexRangeKeyStream),
     Budgeted(BudgetedOrderedKeyStream<Box<Self>>),
     Observed(ObservedOrderedKeyStream<Box<Self>>),
     Distinct(DistinctOrderedKeyStream<Box<Self>>),
@@ -187,14 +186,6 @@ impl OrderedKeyStreamBox {
     #[must_use]
     pub(in crate::db::executor) const fn index_range(stream: IndexRangeKeyStream) -> Self {
         Self::IndexRange(stream)
-    }
-
-    /// Construct one physically seekable index-range stream.
-    #[must_use]
-    pub(in crate::db::executor) const fn seekable_index_range(
-        stream: SeekableIndexRangeKeyStream,
-    ) -> Self {
-        Self::SeekableIndexRange(stream)
     }
 
     /// Construct one owned budgeted ordered key stream.
@@ -351,7 +342,6 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Materialized(stream) => stream.next_key(),
             Self::PrimaryRange(stream) => stream.next_key(),
             Self::IndexRange(stream) => stream.next_key(),
-            Self::SeekableIndexRange(stream) => stream.next_key(),
             Self::Budgeted(stream) => stream.next_key(),
             Self::Observed(stream) => stream.next_key(),
             Self::Distinct(stream) => stream.next_key(),
@@ -369,7 +359,6 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Materialized(stream) => stream.exact_key_count_hint(),
             Self::PrimaryRange(stream) => stream.exact_key_count_hint(),
             Self::IndexRange(stream) => stream.exact_key_count_hint(),
-            Self::SeekableIndexRange(stream) => stream.exact_key_count_hint(),
             Self::Budgeted(stream) => stream.exact_key_count_hint(),
             Self::Observed(stream) => stream.exact_key_count_hint(),
             Self::Distinct(stream) => stream.exact_key_count_hint(),
@@ -387,7 +376,6 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Materialized(stream) => stream.cheap_access_candidate_count_hint(),
             Self::PrimaryRange(stream) => stream.cheap_access_candidate_count_hint(),
             Self::IndexRange(stream) => stream.cheap_access_candidate_count_hint(),
-            Self::SeekableIndexRange(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Budgeted(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Observed(stream) => stream.cheap_access_candidate_count_hint(),
             Self::Distinct(stream) => stream.cheap_access_candidate_count_hint(),
@@ -405,7 +393,6 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Materialized(stream) => stream.page_access_entry_bound(),
             Self::PrimaryRange(stream) => stream.page_access_entry_bound(),
             Self::IndexRange(stream) => stream.page_access_entry_bound(),
-            Self::SeekableIndexRange(stream) => stream.page_access_entry_bound(),
             Self::Budgeted(stream) => stream.page_access_entry_bound(),
             Self::Observed(stream) => stream.page_access_entry_bound(),
             Self::Distinct(stream) => stream.page_access_entry_bound(),

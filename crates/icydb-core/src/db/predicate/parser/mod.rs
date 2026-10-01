@@ -12,9 +12,7 @@ mod tests;
 
 use crate::db::{
     predicate::{CompareOp, Predicate},
-    sql_shared::{
-        Keyword, SqlExpectedToken, SqlParseError, SqlTokenCursor, TokenKind, tokenize_sql,
-    },
+    sql_shared::{SqlExpectedToken, SqlParseError, SqlTokenCursor, TokenKind, tokenize_sql},
 };
 use icydb_diagnostic_code::SqlFeatureCode;
 
@@ -34,7 +32,7 @@ pub(in crate::db) fn parse_sql_predicate(sql: &str) -> Result<Predicate, SqlPars
     }
 
     if !cursor.is_eof() {
-        if let Some(feature) = predicate_unsupported_feature(cursor.peek_kind()) {
+        if let Some(feature) = SqlParseError::trailing_unsupported_feature(cursor.peek_kind()) {
             return Err(SqlParseError::unsupported_feature(feature));
         }
 
@@ -67,28 +65,4 @@ pub(in crate::db::predicate::parser) fn parse_compare_operator(
     cursor.advance();
 
     Ok(op)
-}
-
-// Map trailing reduced-SQL tokens to the same unsupported feature codes as the
-// statement parser while keeping feature policy out of sql_shared.
-const fn predicate_unsupported_feature(kind: Option<&TokenKind>) -> Option<SqlFeatureCode> {
-    match kind {
-        Some(TokenKind::Keyword(Keyword::As)) => Some(SqlFeatureCode::ColumnAlias),
-        Some(TokenKind::Keyword(Keyword::Describe)) => Some(SqlFeatureCode::DescribeModifier),
-        Some(TokenKind::Keyword(Keyword::Having)) => Some(SqlFeatureCode::Having),
-        Some(TokenKind::Keyword(Keyword::Insert)) => Some(SqlFeatureCode::Insert),
-        Some(TokenKind::Keyword(Keyword::Join)) => Some(SqlFeatureCode::Join),
-        Some(TokenKind::Keyword(Keyword::Filter)) => Some(SqlFeatureCode::AggregateFilterClause),
-        Some(TokenKind::Keyword(Keyword::Over)) => Some(SqlFeatureCode::WindowFunction),
-        Some(TokenKind::Keyword(Keyword::Returning)) => {
-            Some(SqlFeatureCode::ReturningUnsupportedShape)
-        }
-        Some(TokenKind::Keyword(Keyword::Show)) => Some(SqlFeatureCode::ShowUnsupportedCommand),
-        Some(TokenKind::Keyword(Keyword::With)) => Some(SqlFeatureCode::With),
-        Some(TokenKind::Keyword(Keyword::Union | Keyword::Intersect | Keyword::Except)) => {
-            Some(SqlFeatureCode::UnionIntersectExcept)
-        }
-        Some(TokenKind::Keyword(Keyword::Update)) => Some(SqlFeatureCode::Update),
-        _ => None,
-    }
 }

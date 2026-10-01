@@ -5,11 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.263.x] - 2026-10-01 - Seek Integration Qualification
+
+Detailed notes: [docs/changelog/0.263.md](docs/changelog/0.263.md)
+
+- `0.263.0` retires the unused seek prototype and completes matched query-cost and cursor qualification for maintained ordered reads.
+
 ## [0.262.x] - 2026-09-30 - Entity Creation
 
 Detailed notes: [docs/changelog/0.262.md](docs/changelog/0.262.md)
 
-- `0.262.3` simplifies shared schema and query-stream processing, test setup and schema-fixture dependencies.
+- `0.262.3` simplifies shared processing and test setup and removes redundant schema-fixture dependencies.
 - `0.262.2` adds schema-lifecycle cost reporting, reduces startup work, removes obsolete scaffolding and updates source-counting tooling.
 - `0.262.1` adds declared entities and named value types to populated existing stores, including alongside explicit migrations, with upgrade and restart qualification that reports optimization costs.
 - `0.262.0` publishes maintenance updates and adopts Cargo dependency resolver version 3.

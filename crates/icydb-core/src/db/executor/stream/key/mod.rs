@@ -7,7 +7,6 @@ mod composite;
 mod contracts;
 mod distinct;
 mod order;
-mod seek;
 #[cfg(test)]
 mod tests;
 
@@ -25,4 +24,3 @@ pub(in crate::db::executor) use contracts::{
 };
 pub(in crate::db::executor) use distinct::DistinctOrderedKeyStream;
 pub(in crate::db::executor) use order::KeyOrderComparator;
-pub(in crate::db::executor) use seek::{HeldHeadKeyStream, HeldHeadSeekOutcome, HeldHeadSeekWork};

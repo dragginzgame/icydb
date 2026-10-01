@@ -443,6 +443,21 @@ fn value_supports_numeric_coercion_matches_registry_flag() {
 }
 
 #[test]
+fn non_scalar_values_have_no_numeric_capabilities() {
+    const NULL_NUMERIC: bool = Value::Null.is_numeric();
+    const NULL_COERCION: bool = Value::Null.supports_numeric_coercion();
+    const INTEGER_NUMERIC: bool = Value::Int64(1).is_numeric();
+    const INTEGER_COERCION: bool = Value::Int64(1).supports_numeric_coercion();
+
+    assert_eq!((NULL_NUMERIC, NULL_COERCION), (false, false));
+    assert_eq!((INTEGER_NUMERIC, INTEGER_COERCION), (true, true));
+    for value in [Value::Null, Value::List(Vec::new()), Value::Map(Vec::new())] {
+        assert!(!value.is_numeric());
+        assert!(!value.supports_numeric_coercion());
+    }
+}
+
+#[test]
 fn value_coercion_family_matches_registry_flag() {
     for (value, expected_coercion_family) in registry_coercion_family_cases() {
         assert_eq!(

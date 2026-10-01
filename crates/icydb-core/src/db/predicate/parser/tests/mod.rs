@@ -155,6 +155,36 @@ fn parse_sql_predicate_rejects_trailing_unsupported_clause() {
 }
 
 #[test]
+fn rejected_trailing_tokens_preserve_feature_codes_in_each_parser() {
+    for (token, feature) in [
+        ("AS", SqlFeatureCode::ColumnAlias),
+        ("DESCRIBE", SqlFeatureCode::DescribeModifier),
+        ("HAVING", SqlFeatureCode::Having),
+        ("INSERT", SqlFeatureCode::Insert),
+        ("JOIN", SqlFeatureCode::Join),
+        ("FILTER", SqlFeatureCode::AggregateFilterClause),
+        ("OVER", SqlFeatureCode::WindowFunction),
+        ("RETURNING", SqlFeatureCode::ReturningUnsupportedShape),
+        ("SHOW", SqlFeatureCode::ShowUnsupportedCommand),
+        ("WITH", SqlFeatureCode::With),
+        ("UNION", SqlFeatureCode::UnionIntersectExcept),
+        ("INTERSECT", SqlFeatureCode::UnionIntersectExcept),
+        ("EXCEPT", SqlFeatureCode::UnionIntersectExcept),
+        ("UPDATE", SqlFeatureCode::Update),
+    ] {
+        let expected = SqlParseError::UnsupportedFeature { feature };
+        let predicate = format!("active = true {token}");
+        assert_eq!(parse_sql_predicate(&predicate), Err(expected.clone()));
+
+        #[cfg(feature = "sql")]
+        {
+            let statement = format!("SELECT * FROM users WHERE active = true LIMIT 1 {token}");
+            assert_eq!(crate::db::sql::parser::parse_sql(&statement), Err(expected));
+        }
+    }
+}
+
+#[test]
 fn parse_sql_predicate_like_prefix_lowering_respects_operand_text_mode() {
     assert_prefix_text_predicate("name LIKE 'Al%'", "Al", CoercionId::Strict, false);
     assert_prefix_text_predicate(

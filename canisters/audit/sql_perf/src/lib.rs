@@ -5,9 +5,13 @@
 
 #[cfg(feature = "test-admin-api")]
 mod indexed_big_integer;
+#[cfg(feature = "test-admin-api")]
+mod seek_intersection;
 
 #[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
 use crate::indexed_big_integer::IndexedBigIntegerAttempt;
+#[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
+use crate::seek_intersection::IntersectionPageSample;
 
 #[cfg(feature = "sql")]
 use candid::{CandidType, Deserialize};

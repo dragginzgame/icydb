@@ -29,9 +29,7 @@ use crate::{
             production_scalar_page_access_entry_limit,
             route::primary_scan_fetch_hint_shape_supported,
             route::{IndexPrefixChildExpansionBudget, IndexPrefixChildExpansionHint},
-            stream::key::{
-                HeldHeadKeyStream, HeldHeadSeekOutcome, HeldHeadSeekWork, KeyOrderComparator,
-            },
+            stream::key::KeyOrderComparator,
             traversal::IndexRangeTraversalContract,
         },
         index::{IndexKey, RawIndexStoreKey, predicate::IndexPredicateExecution},
@@ -586,27 +584,17 @@ impl KeyAccessRuntime {
         )?;
         let resume_anchor = request.resume_anchor_for(spec)?;
 
-        let primary_key_ordered = matches!(
-            request.resume_policy,
-            PrefixMergeResumePolicy::PrimaryKeySuffix
-        );
         let stream = IndexRangeKeyStream::from_prefix(
             self.store,
             self.entity_tag,
-            request.index,
             spec,
             request.continuation.direction(),
             resume_anchor,
             request.index_fetch_hint,
             branch_chunk_entries,
-            primary_key_ordered,
         )?;
 
-        Ok(if primary_key_ordered && active_branch_count > 1 {
-            OrderedKeyStreamBox::seekable_index_range(SeekableIndexRangeKeyStream::new(stream))
-        } else {
-            OrderedKeyStreamBox::index_range(stream)
-        })
+        Ok(OrderedKeyStreamBox::index_range(stream))
     }
 
     // Resolve one secondary-index range scan.
@@ -804,104 +792,13 @@ fn primary_key_boundary_data_key(
     ))
 }
 
-fn raw_key_within_bounds<K: Ord>(key: &K, lower: &Bound<K>, upper: &Bound<K>) -> bool {
-    let above_lower = match lower {
-        Bound::Included(lower) => key >= lower,
-        Bound::Excluded(lower) => key > lower,
-        Bound::Unbounded => true,
-    };
-    let below_upper = match upper {
-        Bound::Included(upper) => key <= upper,
-        Bound::Excluded(upper) => key < upper,
-        Bound::Unbounded => true,
-    };
-    above_lower && below_upper
-}
-
-fn held_head_outcome(
-    held: Option<&DecodedDataStoreKey>,
-) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-    held.map(HeldHeadSeekOutcome::Held)
-        .map_or(Ok(HeldHeadSeekOutcome::Exhausted), Ok)
-}
-
-// These physical leaves share one held-head and polling contract. Keep the
-// storage-specific pull/refill and physical-seek methods on each backend;
-// every logical charge must succeed before consuming or replacing a held key.
-// A module-local template preserves their concrete dispatch and existing state.
-macro_rules! impl_physical_key_stream {
+// Both physical leaves expose the same polling contract. Storage-specific
+// refill and cursor binding remain on the concrete backend; page owners admit
+// the next indivisible refill using its entry bound before polling.
+macro_rules! impl_ordered_physical_stream {
     ($stream:ident) => {
-        impl $stream {
-            fn ensure_physical_head(
-                &mut self,
-                work: &mut HeldHeadSeekWork,
-            ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-                if self.held.is_some() {
-                    return held_head_outcome(self.held.as_ref());
-                }
-                if self.exhausted && self.buffer_pos == self.buffer.len() {
-                    return Ok(HeldHeadSeekOutcome::Exhausted);
-                }
-                if !work.admits_pull() {
-                    return Ok(HeldHeadSeekOutcome::PageStop);
-                }
-                work.record_pull_attempt()?;
-                self.held = self.pull_next_key()?;
-                held_head_outcome(self.held.as_ref())
-            }
-        }
-
-        impl HeldHeadKeyStream for $stream {
-            fn seek_head_at_or_after(
-                &mut self,
-                target: &DecodedDataStoreKey,
-                work: &mut HeldHeadSeekWork,
-            ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-                if target.entity_tag() != self.entity_tag {
-                    return Err(InternalError::executor_invariant());
-                }
-
-                loop {
-                    let direction = self.direction;
-                    let held_before_target = match self.ensure_physical_head(work)? {
-                        HeldHeadSeekOutcome::Held(held) => {
-                            work.record_comparison()?;
-                            KeyOrderComparator::from_direction(direction)
-                                .compare_data_keys(held, target)
-                                .is_lt()
-                        }
-                        HeldHeadSeekOutcome::Exhausted => {
-                            return Ok(HeldHeadSeekOutcome::Exhausted);
-                        }
-                        HeldHeadSeekOutcome::PageStop => return Ok(HeldHeadSeekOutcome::PageStop),
-                    };
-                    if !held_before_target {
-                        return held_head_outcome(self.held.as_ref());
-                    }
-
-                    work.record_skipped_consumptions(1)?;
-                    self.held = None;
-                    self.configure_physical_seek(target, work)?;
-                }
-            }
-
-            fn consume_head(
-                &mut self,
-                work: &mut HeldHeadSeekWork,
-            ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-                if self.held.is_none() {
-                    return Ok(None);
-                }
-                work.record_consumed()?;
-                Ok(self.held.take())
-            }
-        }
-
         impl OrderedKeyStream for $stream {
             fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-                if self.held.is_some() {
-                    return Ok(self.held.take());
-                }
                 self.pull_next_key()
             }
 
@@ -931,7 +828,6 @@ pub(in crate::db::executor) struct PrimaryRangeKeyStream {
     chunk_entries: usize,
     buffer: Vec<DecodedDataStoreKey>,
     buffer_pos: usize,
-    held: Option<DecodedDataStoreKey>,
     exhausted: bool,
 }
 
@@ -986,7 +882,6 @@ impl PrimaryRangeKeyStream {
             chunk_entries: primary_range_chunk_entries_for_active_page()?,
             buffer: Vec::new(),
             buffer_pos: 0,
-            held: None,
             exhausted: false,
         })
     }
@@ -1016,7 +911,6 @@ impl PrimaryRangeKeyStream {
             chunk_entries: primary_range_chunk_entries_for_active_page()?,
             buffer: Vec::new(),
             buffer_pos: 0,
-            held: None,
             exhausted: false,
         })
     }
@@ -1034,7 +928,6 @@ impl PrimaryRangeKeyStream {
         if !matches!(self.direction, Direction::Asc)
             || self.buffer_pos != 0
             || !self.buffer.is_empty()
-            || self.held.is_some()
         {
             return Ok(None);
         }
@@ -1095,7 +988,6 @@ impl PrimaryRangeKeyStream {
         if boundary.entity_tag() != self.entity_tag
             || self.buffer_pos != 0
             || !self.buffer.is_empty()
-            || self.held.is_some()
         {
             return Err(InternalError::query_executor_invariant());
         }
@@ -1119,7 +1011,6 @@ impl PrimaryRangeKeyStream {
                 }
             }
         }
-        self.held = None;
         self.exhausted = !raw_bounds_may_contain_key(&self.lower_bound, &self.upper_bound);
 
         Ok(())
@@ -1133,13 +1024,12 @@ impl PrimaryRangeKeyStream {
         }
     }
 
-    // Return the complete physical-entry bound for the next pull. Buffered or
-    // held keys require no new storage traversal; an empty buffer may refill
+    // Return the complete physical-entry bound for the next pull. Buffered
+    // keys require no new storage traversal; an empty buffer may refill
     // one already-bounded chunk. The page owner reserves this amount before
     // polling, so batching does not advance unadmitted storage work.
     const fn next_pull_entry_bound(&self) -> usize {
-        if self.held.is_some()
-            || self.buffer_pos < self.buffer.len()
+        if self.buffer_pos < self.buffer.len()
             || self.exhausted
             || matches!(self.remaining, Some(0))
         {
@@ -1244,52 +1134,6 @@ impl PrimaryRangeKeyStream {
         self.buffer_pos += 1;
         Ok(Some(key))
     }
-
-    fn configure_physical_seek(
-        &mut self,
-        target: &DecodedDataStoreKey,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<bool, InternalError> {
-        if self.remaining.is_some() {
-            return Ok(false);
-        }
-
-        let raw_target = target.to_raw()?;
-        // Refills advance the bound in traversal direction past buffered rows.
-        // Only the opposite bound still represents the query's terminal edge;
-        // the caller already proved that the target is ahead of the held key.
-        let within_terminal_bound = match self.direction {
-            Direction::Asc => {
-                raw_key_within_bounds(&raw_target, &Bound::Unbounded, &self.upper_bound)
-            }
-            Direction::Desc => {
-                raw_key_within_bounds(&raw_target, &self.lower_bound, &Bound::Unbounded)
-            }
-        };
-        if !within_terminal_bound {
-            self.buffer.clear();
-            self.buffer_pos = 0;
-            self.exhausted = true;
-            return Ok(true);
-        }
-
-        let bound_bytes = u64::try_from(raw_target.as_bytes().len()).unwrap_or(u64::MAX);
-        charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::TemporaryBytes,
-            bound_bytes,
-        )?;
-        work.record_physical_seek(bound_bytes)?;
-
-        match self.direction {
-            Direction::Asc => self.lower_bound = Bound::Included(raw_target),
-            Direction::Desc => self.upper_bound = Bound::Included(raw_target),
-        }
-        self.buffer.clear();
-        self.buffer_pos = 0;
-        self.exhausted = false;
-        Ok(true)
-    }
 }
 
 fn primary_range_chunk_entries_for_active_page() -> Result<usize, InternalError> {
@@ -1344,7 +1188,7 @@ fn raw_bounds_may_contain_key(
     }
 }
 
-impl_physical_key_stream!(PrimaryRangeKeyStream);
+impl_ordered_physical_stream!(PrimaryRangeKeyStream);
 
 ///
 /// IndexRangeKeyStream
@@ -1366,127 +1210,21 @@ pub(in crate::db::executor) struct IndexRangeKeyStream {
     chunk_entries: usize,
     buffer: Vec<DecodedDataStoreKey>,
     buffer_pos: usize,
-    held: Option<DecodedDataStoreKey>,
-    primary_key_seek: Option<IndexPrimaryKeySeek>,
     exhausted: bool,
-}
-
-/// Ordered polling adapter for an index leaf that retains held-head work state.
-///
-/// Prefix-family merges use this concrete shape so they no longer materialize
-/// sibling candidate vectors and so later seek-aware owners can position the
-/// same physical leaf without changing its consumption semantics.
-pub(in crate::db::executor) struct SeekableIndexRangeKeyStream {
-    inner: IndexRangeKeyStream,
-    work: HeldHeadSeekWork,
-    pending_target: Option<DecodedDataStoreKey>,
-}
-
-impl SeekableIndexRangeKeyStream {
-    #[must_use]
-    const fn new(inner: IndexRangeKeyStream) -> Self {
-        Self {
-            inner,
-            work: HeldHeadSeekWork::unbounded(),
-            pending_target: None,
-        }
-    }
-}
-
-impl OrderedKeyStream for SeekableIndexRangeKeyStream {
-    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-        let Some(target) = self.pending_target.take() else {
-            return self.inner.next_key();
-        };
-        let outcome = self.inner.seek_head_at_or_after(&target, &mut self.work)?;
-        let next = match outcome {
-            HeldHeadSeekOutcome::Held(key) => Some(key.clone()),
-            HeldHeadSeekOutcome::Exhausted => None,
-            HeldHeadSeekOutcome::PageStop => return Err(InternalError::executor_invariant()),
-        };
-        if next.is_none() {
-            return Ok(None);
-        }
-
-        let consumed = self.inner.consume_head(&mut self.work)?;
-        if consumed != next {
-            return Err(InternalError::executor_invariant());
-        }
-        Ok(consumed)
-    }
-
-    fn page_access_entry_bound(&self) -> Option<usize> {
-        self.inner.page_access_entry_bound()
-    }
-}
-
-struct IndexPrimaryKeySeek {
-    prefix_start: IndexKey,
-    prefix_len: usize,
-    suffix_len: usize,
-}
-
-impl IndexPrimaryKeySeek {
-    fn new(
-        index: &IndexShapeDetails,
-        spec: &LoweredIndexPrefixSpec,
-    ) -> Result<Self, InternalError> {
-        let prefix_len = index.slot_arity();
-        let key_arity = index.key_arity();
-        if prefix_len > key_arity || spec.prefix_components().len() != prefix_len {
-            return Err(InternalError::query_executor_invariant());
-        }
-        let prefix_start = lowered_prefix_start_key(spec)?;
-        if prefix_start.component_count() != key_arity {
-            return Err(InternalError::query_executor_invariant());
-        }
-
-        Ok(Self {
-            prefix_start,
-            prefix_len,
-            suffix_len: key_arity.saturating_sub(prefix_len),
-        })
-    }
-
-    fn raw_target(&self, target: &DecodedDataStoreKey) -> Result<RawIndexStoreKey, InternalError> {
-        let mut suffix_values = Vec::with_capacity(self.suffix_len);
-        for component_index in 0..self.suffix_len {
-            suffix_values.push(target.primary_key_component_runtime_value(component_index)?);
-        }
-
-        Ok(
-            IndexKey::new_from_existing_prefix_and_suffix_values_with_primary_key_value(
-                &self.prefix_start,
-                self.prefix_len,
-                suffix_values.as_slice(),
-                &target.primary_key_value(),
-            )?
-            .to_raw()?,
-        )
-    }
 }
 
 impl IndexRangeKeyStream {
     // Build one index stream from a lowered prefix envelope.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "one physical leaf freezes store, index, bounds, continuation, window, and seek authority together"
-    )]
     fn from_prefix(
         store: StoreHandle,
         entity_tag: EntityTag,
-        index: &IndexShapeDetails,
         spec: &LoweredIndexPrefixSpec,
         direction: Direction,
         anchor: Option<RawIndexStoreKey>,
         limit: Option<usize>,
         chunk_entries: usize,
-        primary_key_ordered: bool,
     ) -> Result<Self, InternalError> {
         let (lower, upper) = spec.raw_bounds(&ExecutionConstructionBudget)?;
-        let primary_key_seek = primary_key_ordered
-            .then(|| IndexPrimaryKeySeek::new(index, spec))
-            .transpose()?;
         Ok(Self::new(
             store,
             entity_tag,
@@ -1495,7 +1233,6 @@ impl IndexRangeKeyStream {
             anchor,
             limit,
             chunk_entries,
-            primary_key_seek,
         ))
     }
 
@@ -1516,14 +1253,9 @@ impl IndexRangeKeyStream {
             continuation.anchor().cloned(),
             limit,
             chunk_entries,
-            None,
         )
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "one physical leaf freezes its complete bounded traversal state"
-    )]
     fn new(
         store: StoreHandle,
         entity_tag: EntityTag,
@@ -1532,7 +1264,6 @@ impl IndexRangeKeyStream {
         anchor: Option<RawIndexStoreKey>,
         limit: Option<usize>,
         chunk_entries: usize,
-        primary_key_seek: Option<IndexPrimaryKeySeek>,
     ) -> Self {
         let (lower, upper) = bounds;
         Self {
@@ -1546,8 +1277,6 @@ impl IndexRangeKeyStream {
             chunk_entries,
             buffer: Vec::new(),
             buffer_pos: 0,
-            held: None,
-            primary_key_seek,
             exhausted: false,
         }
     }
@@ -1562,8 +1291,7 @@ impl IndexRangeKeyStream {
     // admission to preserve chunked store traversal without over-reserving
     // every candidate.
     const fn next_pull_entry_bound(&self) -> usize {
-        if self.held.is_some()
-            || self.buffer_pos < self.buffer.len()
+        if self.buffer_pos < self.buffer.len()
             || self.exhausted
             || matches!(self.remaining, Some(0))
         {
@@ -1619,47 +1347,9 @@ impl IndexRangeKeyStream {
         self.buffer_pos += 1;
         Ok(Some(key))
     }
-
-    fn configure_physical_seek(
-        &mut self,
-        target: &DecodedDataStoreKey,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<bool, InternalError> {
-        if self.remaining.is_some() {
-            return Ok(false);
-        }
-        let Some(seek) = self.primary_key_seek.as_ref() else {
-            return Ok(false);
-        };
-        let raw_target = seek.raw_target(target)?;
-        if !raw_key_within_bounds(&raw_target, &self.lower, &self.upper) {
-            self.buffer.clear();
-            self.buffer_pos = 0;
-            self.exhausted = true;
-            return Ok(true);
-        }
-
-        let bound_bytes = u64::try_from(raw_target.as_bytes().len()).unwrap_or(u64::MAX);
-        charge_current_execution_budget(DiagnosticExecutionBudgetResource::CursorSteps, 1)?;
-        charge_current_execution_budget(
-            DiagnosticExecutionBudgetResource::TemporaryBytes,
-            bound_bytes,
-        )?;
-        work.record_physical_seek(bound_bytes)?;
-
-        match self.direction {
-            Direction::Asc => self.lower = Bound::Included(raw_target),
-            Direction::Desc => self.upper = Bound::Included(raw_target),
-        }
-        self.anchor = None;
-        self.buffer.clear();
-        self.buffer_pos = 0;
-        self.exhausted = false;
-        Ok(true)
-    }
 }
 
-impl_physical_key_stream!(IndexRangeKeyStream);
+impl_ordered_physical_stream!(IndexRangeKeyStream);
 
 // Normalize key ordering according to explicit resolver output state.
 fn normalize_ordered_keys(
@@ -2043,7 +1733,7 @@ impl ExecutionPathPayload<'_, Value> {
 }
 
 #[cfg(test)]
-mod physical_seek_tests {
+mod physical_polling_tests {
     use super::*;
     use crate::{
         db::{
@@ -2126,315 +1816,106 @@ mod physical_seek_tests {
         });
     }
 
-    fn ordered_index_stream(direction: Direction, remaining: Option<usize>) -> IndexRangeKeyStream {
+    fn ordered_index_stream(
+        direction: Direction,
+        limit: Option<usize>,
+        anchor: Option<RawIndexStoreKey>,
+    ) -> IndexRangeKeyStream {
         let index_id = IndexId::new(ENTITY, 1);
-        let component = b"lane";
-        let lower = index_key(&index_id, component, 1);
-        let upper = index_key(&index_id, component, 100);
-
         IndexRangeKeyStream::new(
             STORE,
             ENTITY,
             (
-                Bound::Included(lower.to_raw().unwrap()),
-                Bound::Included(upper.to_raw().unwrap()),
+                Bound::Included(index_key(&index_id, b"lane", 0).to_raw().unwrap()),
+                Bound::Included(index_key(&index_id, b"lane", 101).to_raw().unwrap()),
             ),
             direction,
-            None,
-            remaining,
+            anchor,
+            limit,
             ACCESS_SCAN_CHUNK_ENTRIES,
-            Some(IndexPrimaryKeySeek {
-                prefix_start: lower,
-                prefix_len: 1,
-                suffix_len: 0,
-            }),
         )
     }
 
-    fn assert_held_head_progress(stream: &mut impl HeldHeadKeyStream, direction: Direction) {
-        let (first, behind, target, next) = match direction {
-            Direction::Asc => (1, 0, 80, 81),
-            Direction::Desc => (100, 101, 20, 19),
-        };
-        let mut page = HeldHeadSeekWork::with_pull_attempt_limit(1);
-        for value in [first, behind, first] {
-            assert_eq!(
-                stream
-                    .seek_head_at_or_after(&data_key(value), &mut page)
-                    .unwrap(),
-                HeldHeadSeekOutcome::Held(&data_key(first)),
-            );
+    fn collect_keys(stream: &mut impl OrderedKeyStream) -> Vec<DecodedDataStoreKey> {
+        let mut keys = Vec::new();
+        while let Some(key) = stream.next_key().unwrap() {
+            keys.push(key);
         }
-        assert_eq!(page.pull_attempts(), 1);
-        assert_eq!(
-            stream
-                .seek_head_at_or_after(&data_key(target), &mut page)
-                .unwrap(),
-            HeldHeadSeekOutcome::PageStop,
-        );
-        assert_eq!(page.pull_attempts(), 1);
-        assert_eq!(page.skipped_occurrences(), 1);
-        assert_eq!(page.consumed_occurrences(), 1);
-
-        let mut resumed = HeldHeadSeekWork::unbounded();
-        assert_eq!(
-            stream
-                .seek_head_at_or_after(&data_key(target), &mut resumed)
-                .unwrap(),
-            HeldHeadSeekOutcome::Held(&data_key(target)),
-        );
-        let mut interrupted = HeldHeadSeekWork::with_pull_attempt_limit(0);
-        assert_eq!(
-            stream
-                .seek_head_at_or_after(&data_key(target), &mut interrupted)
-                .unwrap(),
-            HeldHeadSeekOutcome::Held(&data_key(target)),
-        );
-        assert_eq!(interrupted.pull_attempts(), 0);
-        assert_eq!(
-            stream.consume_head(&mut interrupted).unwrap(),
-            Some(data_key(target))
-        );
-        assert_eq!(stream.consume_head(&mut interrupted).unwrap(), None);
-        assert_eq!(interrupted.consumed_occurrences(), 1);
-        assert_eq!(
-            stream
-                .seek_head_at_or_after(&data_key(next), &mut resumed)
-                .unwrap(),
-            HeldHeadSeekOutcome::Held(&data_key(next)),
-        );
+        assert_eq!(stream.next_key().unwrap(), None);
+        keys
     }
 
     #[test]
-    fn physical_heads_survive_page_stop_and_consume_exactly_once() {
-        reset_heap_stores();
-        load_primary_keys();
-        load_index_keys(&IndexId::new(ENTITY, 1), b"lane");
-        for direction in [Direction::Asc, Direction::Desc] {
-            for remaining in [None, Some(100)] {
-                let mut primary = PrimaryRangeKeyStream::new(
-                    STORE,
-                    data_key(1),
-                    data_key(100),
-                    direction,
-                    remaining,
-                )
-                .unwrap();
-                assert_held_head_progress(&mut primary, direction);
-                assert_held_head_progress(
-                    &mut ordered_index_stream(direction, remaining),
-                    direction,
-                );
-            }
-        }
-    }
-
-    fn assert_failed_accounting_keeps_head(stream: &mut impl HeldHeadKeyStream) {
-        let mut work = HeldHeadSeekWork::unbounded();
-        assert_eq!(
-            stream
-                .seek_head_at_or_after(&data_key(1), &mut work)
-                .unwrap(),
-            HeldHeadSeekOutcome::Held(&data_key(1)),
-        );
-        let foreign = DecodedDataStoreKey::new(
-            EntityTag::new(0x223),
-            &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(1)),
-        );
-        let error = stream
-            .seek_head_at_or_after(&foreign, &mut work)
-            .unwrap_err();
-        assert_eq!(
-            error.diagnostic(),
-            InternalError::executor_invariant().diagnostic()
-        );
-
-        let mut overflow = HeldHeadSeekWork::with_observed_for_tests(u64::MAX, 0, u64::MAX, 0, 0);
-        let error = stream
-            .seek_head_at_or_after(&data_key(1), &mut overflow)
-            .unwrap_err();
-        assert_eq!(
-            error.diagnostic(),
-            InternalError::executor_invariant().diagnostic()
-        );
-        assert_eq!(overflow.comparisons(), u64::MAX);
-
-        let mut overflow = HeldHeadSeekWork::with_observed_for_tests(u64::MAX, 0, 0, 0, u64::MAX);
-        let error = stream.consume_head(&mut overflow).unwrap_err();
-        assert_eq!(
-            error.diagnostic(),
-            InternalError::executor_invariant().diagnostic()
-        );
-        assert_eq!(overflow.consumed_occurrences(), u64::MAX);
-        assert_eq!(stream.consume_head(&mut work).unwrap(), Some(data_key(1)));
-        assert_eq!(stream.consume_head(&mut work).unwrap(), None);
-    }
-
-    #[test]
-    fn physical_heads_reject_entity_drift_and_preserve_head_on_accounting_failure() {
-        reset_heap_stores();
-        load_primary_keys();
-        load_index_keys(&IndexId::new(ENTITY, 1), b"lane");
-        let mut primary =
-            PrimaryRangeKeyStream::new(STORE, data_key(1), data_key(100), Direction::Asc, None)
-                .unwrap();
-        assert_failed_accounting_keeps_head(&mut primary);
-        assert_failed_accounting_keeps_head(&mut ordered_index_stream(Direction::Asc, None));
-    }
-
-    fn assert_seek_budget_failure(stream: &mut impl HeldHeadKeyStream) {
-        let mut work = HeldHeadSeekWork::unbounded();
-        assert_eq!(
-            stream
-                .seek_head_at_or_after(&data_key(1), &mut work)
-                .unwrap(),
-            HeldHeadSeekOutcome::Held(&data_key(1)),
-        );
-        let budget = HardExecutionBudget::uniform_for_tests(
-            u64::MAX,
-            HardExecutionFailureHeadroom::new(500, 256),
-        )
-        .with_limit_for_tests(DiagnosticExecutionBudgetResource::TemporaryBytes, 0);
-        let context = HardExecutionContext::new(
-            DiagnosticExecutionBudgetScope::Execution,
-            DiagnosticExecutionLane::TrustedRead,
-            0x7365_656b,
-        );
-        let error = with_query_execution_budget_for_tests(budget, context, || {
-            stream
-                .seek_head_at_or_after(&data_key(80), &mut work)
-                .map(|_| ())
-                .map_err(QueryError::execute)
-        })
-        .expect_err("physical repositioning must obey the hard budget");
-        assert!(matches!(
-            error.diagnostic().detail(),
-            Some(DiagnosticDetail::RuntimeBoundary {
-                boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
-            })
-        ));
-        assert_eq!(work.pull_attempts(), 1);
-        assert_eq!(work.skipped_occurrences(), 1);
-        assert_eq!(work.consumed_occurrences(), 1);
-        assert_eq!(work.physical_seeks(), 0);
-    }
-
-    #[test]
-    fn physical_seek_hard_budget_failure_preserves_completed_work() {
-        reset_heap_stores();
-        load_primary_keys();
-        load_index_keys(&IndexId::new(ENTITY, 1), b"lane");
-        let mut primary =
-            PrimaryRangeKeyStream::new(STORE, data_key(1), data_key(100), Direction::Asc, None)
-                .unwrap();
-        assert_seek_budget_failure(&mut primary);
-        assert_seek_budget_failure(&mut ordered_index_stream(Direction::Asc, None));
-    }
-
-    fn assert_seek_suffix(
-        stream: &mut impl HeldHeadKeyStream,
-        direction: Direction,
-        seed: u64,
-        values: &[u64],
-    ) {
-        let first = if direction == Direction::Asc { 1 } else { 100 };
-        let mut work = HeldHeadSeekWork::unbounded();
-        for _ in 0..seed % 12 {
-            assert!(matches!(
-                stream
-                    .seek_head_at_or_after(&data_key(first), &mut work)
-                    .unwrap(),
-                HeldHeadSeekOutcome::Held(_),
-            ));
-            stream.consume_head(&mut work).unwrap().unwrap();
-        }
-
-        let target = seed.wrapping_mul(17).wrapping_add(5) % 103;
-        let mut actual = Vec::new();
-        loop {
-            match stream
-                .seek_head_at_or_after(&data_key(target), &mut work)
-                .unwrap()
-            {
-                HeldHeadSeekOutcome::Held(_) => {
-                    actual.push(stream.consume_head(&mut work).unwrap().unwrap());
-                }
-                HeldHeadSeekOutcome::Exhausted => break,
-                HeldHeadSeekOutcome::PageStop => panic!("unbounded suffix should not stop"),
-            }
-        }
-        let mut ordered = values.to_vec();
-        if direction == Direction::Desc {
-            ordered.reverse();
-        }
-        let expected = ordered
-            .into_iter()
-            .skip(usize::try_from(seed % 12).unwrap())
-            .filter(|value| match direction {
-                Direction::Asc => *value >= target,
-                Direction::Desc => *value <= target,
-            })
-            .map(data_key)
-            .collect::<Vec<_>>();
-        assert_eq!(actual, expected, "seed={seed} direction={direction:?}");
-        assert!(work.comparisons() >= work.skipped_occurrences());
-    }
-
-    #[test]
-    fn physical_seek_matches_filtered_suffixes_in_both_directions() {
-        for direction in [Direction::Asc, Direction::Desc] {
-            for remaining in [None, Some(100)] {
-                for seed in 1_u64..=64 {
-                    reset_heap_stores();
-                    let mut state = seed;
-                    let mut values = (0..48)
-                        .map(|_| {
-                            state = state
-                                .wrapping_mul(6_364_136_223_846_793_005)
-                                .wrapping_add(1);
-                            (state >> 32) % 100 + 1
-                        })
-                        .collect::<Vec<_>>();
-                    values.sort_unstable();
-                    values.dedup();
-                    for &value in &values {
-                        DATA.with_borrow_mut(|store| {
-                            store.insert_raw_for_test(
-                                data_key(value).to_raw().unwrap(),
-                                RawRow::try_new(vec![0]).unwrap(),
-                            );
-                        });
-                        INDEX.with_borrow_mut(|store| {
-                            store.insert(
-                                index_key(&IndexId::new(ENTITY, 1), b"lane", value)
-                                    .to_raw()
-                                    .unwrap(),
-                                IndexEntryValue::presence(),
-                            );
-                        });
-                    }
-                    let mut primary = PrimaryRangeKeyStream::new(
-                        STORE,
-                        data_key(1),
-                        data_key(100),
-                        direction,
-                        remaining,
-                    )
-                    .unwrap();
-                    assert_seek_suffix(&mut primary, direction, seed, &values);
-                    assert_seek_suffix(
-                        &mut ordered_index_stream(direction, remaining),
-                        direction,
-                        seed,
-                        &values,
+    fn physical_polling_preserves_sparse_cursor_suffixes_and_limits() {
+        // The oracle orders physical membership independently of chunk/refill
+        // state, including cursor targets absent from the stored population.
+        for seed in 1_u64..=8 {
+            reset_heap_stores();
+            let mut state = seed;
+            let mut values = (0..48)
+                .map(|_| {
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1);
+                    (state >> 32) % 100 + 1
+                })
+                .collect::<Vec<_>>();
+            values.sort_unstable();
+            values.dedup();
+            let index_id = IndexId::new(ENTITY, 1);
+            for &value in &values {
+                DATA.with_borrow_mut(|store| {
+                    store.insert_raw_for_test(
+                        data_key(value).to_raw().unwrap(),
+                        RawRow::try_new(vec![0]).unwrap(),
                     );
+                });
+                INDEX.with_borrow_mut(|store| {
+                    store.insert(
+                        index_key(&index_id, b"lane", value).to_raw().unwrap(),
+                        IndexEntryValue::presence(),
+                    );
+                });
+            }
+            for direction in [Direction::Asc, Direction::Desc] {
+                for limit in [None, Some(3)] {
+                    for boundary in [0, seed.wrapping_mul(17) % 100, 101] {
+                        let mut expected = values
+                            .iter()
+                            .copied()
+                            .filter(|value| match direction {
+                                Direction::Asc => *value > boundary,
+                                Direction::Desc => *value < boundary,
+                            })
+                            .map(data_key)
+                            .collect::<Vec<_>>();
+                        if direction == Direction::Desc {
+                            expected.reverse();
+                        }
+                        if let Some(limit) = limit {
+                            expected.truncate(limit);
+                        }
+                        let mut primary = PrimaryRangeKeyStream::new(
+                            STORE,
+                            data_key(1),
+                            data_key(100),
+                            direction,
+                            limit,
+                        )
+                        .unwrap();
+                        primary.resume_strictly_after(data_key(boundary)).unwrap();
+                        let anchor = index_key(&index_id, b"lane", boundary).to_raw().unwrap();
+                        let mut index = ordered_index_stream(direction, limit, Some(anchor));
+                        assert_eq!(collect_keys(&mut primary), expected);
+                        assert_eq!(collect_keys(&mut index), expected);
+                    }
                 }
             }
         }
     }
 
     #[test]
-    fn index_seek_consumes_duplicate_primary_key_occurrences_separately() {
+    fn index_polling_preserves_duplicate_physical_occurrences() {
         reset_heap_stores();
         let index_id = IndexId::new(ENTITY, 1);
         for (component, value) in [(b"a", 1), (b"b", 1), (b"c", 2)] {
@@ -2445,124 +1926,86 @@ mod physical_seek_tests {
                 );
             });
         }
-        let mut stream = IndexRangeKeyStream::new(
-            STORE,
-            ENTITY,
-            (
-                Bound::Included(index_key(&index_id, b"a", 1).to_raw().unwrap()),
-                Bound::Included(index_key(&index_id, b"c", 2).to_raw().unwrap()),
-            ),
-            Direction::Asc,
-            None,
-            None,
-            ACCESS_SCAN_CHUNK_ENTRIES,
-            None,
-        );
-        let mut work = HeldHeadSeekWork::unbounded();
-        for value in [1, 1, 2] {
-            assert_eq!(
-                stream
-                    .seek_head_at_or_after(&data_key(value), &mut work)
-                    .unwrap(),
-                HeldHeadSeekOutcome::Held(&data_key(value))
+        for direction in [Direction::Asc, Direction::Desc] {
+            let mut stream = IndexRangeKeyStream::new(
+                STORE,
+                ENTITY,
+                (
+                    Bound::Included(index_key(&index_id, b"a", 1).to_raw().unwrap()),
+                    Bound::Included(index_key(&index_id, b"c", 2).to_raw().unwrap()),
+                ),
+                direction,
+                None,
+                None,
+                1,
             );
-            assert_eq!(
-                stream.consume_head(&mut work).unwrap(),
-                Some(data_key(value))
-            );
-        }
-        assert_eq!(
-            stream
-                .seek_head_at_or_after(&data_key(2), &mut work)
-                .unwrap(),
-            HeldHeadSeekOutcome::Exhausted
-        );
-        assert_eq!(work.consumed_occurrences(), 3);
-        assert_eq!(work.skipped_occurrences(), 0);
-    }
-
-    #[test]
-    fn primary_leaf_physically_repositions_in_both_directions() {
-        reset_heap_stores();
-        load_primary_keys();
-
-        for (direction, first, target, next) in
-            [(Direction::Asc, 1, 80, 81), (Direction::Desc, 100, 20, 19)]
-        {
-            let mut stream =
-                PrimaryRangeKeyStream::new(STORE, data_key(1), data_key(100), direction, None)
-                    .expect("primary stream should build");
-            let mut work = HeldHeadSeekWork::unbounded();
-
-            assert_eq!(
-                stream
-                    .ensure_physical_head(&mut work)
-                    .expect("first head should load"),
-                HeldHeadSeekOutcome::Held(&data_key(first)),
-            );
-            assert_eq!(
-                stream
-                    .seek_head_at_or_after(&data_key(target), &mut work)
-                    .expect("physical seek should position"),
-                HeldHeadSeekOutcome::Held(&data_key(target)),
-            );
-            assert_eq!(work.physical_seeks(), 1);
-            assert!(work.reposition_bound_bytes() > 0);
-            assert_eq!(
-                stream
-                    .consume_head(&mut work)
-                    .expect("target should consume"),
-                Some(data_key(target)),
-            );
-            assert_eq!(
-                stream
-                    .ensure_physical_head(&mut work)
-                    .expect("successor should load"),
-                HeldHeadSeekOutcome::Held(&data_key(next)),
-            );
+            let mut expected = vec![data_key(1), data_key(1), data_key(2)];
+            if direction == Direction::Desc {
+                expected.reverse();
+            }
+            assert_eq!(collect_keys(&mut stream), expected);
         }
     }
 
     #[test]
-    fn primary_leaf_one_sided_bounds_seek_in_both_directions() {
+    fn primary_polling_preserves_one_sided_bounds() {
         reset_heap_stores();
         load_primary_keys();
-
-        for (start, end, direction, first) in [
-            (Some(data_key(40)), None, Direction::Asc, data_key(40)),
-            (Some(data_key(40)), None, Direction::Desc, data_key(100)),
-            (None, Some(data_key(60)), Direction::Asc, data_key(1)),
-            (None, Some(data_key(60)), Direction::Desc, data_key(60)),
+        for (start, end, direction, range) in [
+            (Some(data_key(40)), None, Direction::Asc, 40..=100),
+            (Some(data_key(40)), None, Direction::Desc, 40..=100),
+            (None, Some(data_key(60)), Direction::Asc, 1..=60),
+            (None, Some(data_key(60)), Direction::Desc, 1..=60),
         ] {
             let mut stream =
                 PrimaryRangeKeyStream::new_bounds(STORE, ENTITY, start, end, direction, None)
-                    .expect("one-sided primary stream should build");
-            let mut work = HeldHeadSeekWork::unbounded();
-            assert_eq!(
-                stream.ensure_physical_head(&mut work).unwrap(),
-                HeldHeadSeekOutcome::Held(&first),
-            );
+                    .unwrap();
+            let mut expected = range.map(data_key).collect::<Vec<_>>();
+            if direction == Direction::Desc {
+                expected.reverse();
+            }
+            assert_eq!(collect_keys(&mut stream), expected);
         }
     }
 
     #[test]
-    fn limited_primary_leaf_uses_equivalent_repeated_progress() {
+    fn physical_polling_hard_budget_rejects_refill_before_progress() {
         reset_heap_stores();
         load_primary_keys();
-
-        let mut stream =
-            PrimaryRangeKeyStream::new(STORE, data_key(1), data_key(100), Direction::Asc, Some(10))
-                .expect("limited primary stream should build");
-        let mut work = HeldHeadSeekWork::unbounded();
-
-        assert_eq!(
-            stream
-                .seek_head_at_or_after(&data_key(8), &mut work)
-                .expect("limited seek should progress"),
-            HeldHeadSeekOutcome::Held(&data_key(8)),
-        );
-        assert_eq!(work.physical_seeks(), 0);
-        assert_eq!(work.skipped_occurrences(), 7);
+        load_index_keys(&IndexId::new(ENTITY, 1), b"lane");
+        for direction in [Direction::Asc, Direction::Desc] {
+            let primary =
+                PrimaryRangeKeyStream::new(STORE, data_key(1), data_key(100), direction, None)
+                    .unwrap();
+            let index = ordered_index_stream(direction, None, None);
+            for mut stream in [
+                OrderedKeyStreamBox::primary_range(primary),
+                OrderedKeyStreamBox::index_range(index),
+            ] {
+                let budget = HardExecutionBudget::uniform_for_tests(
+                    u64::MAX,
+                    HardExecutionFailureHeadroom::new(500, 256),
+                )
+                .with_limit_for_tests(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited, 0);
+                let context = HardExecutionContext::new(
+                    DiagnosticExecutionBudgetScope::Execution,
+                    DiagnosticExecutionLane::TrustedRead,
+                    0x706f_6c6c,
+                );
+                let error = with_query_execution_budget_for_tests(budget, context, || {
+                    stream.next_key().map_err(QueryError::execute)
+                })
+                .expect_err("physical refill must obey the hard budget");
+                assert!(matches!(
+                    error.diagnostic().detail(),
+                    Some(DiagnosticDetail::RuntimeBoundary {
+                        boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded
+                    })
+                ));
+                let first = if direction == Direction::Asc { 1 } else { 100 };
+                assert_eq!(stream.next_key().unwrap(), Some(data_key(first)));
+            }
+        }
     }
 
     #[test]
@@ -2636,72 +2079,6 @@ mod physical_seek_tests {
                 None,
             );
         }
-    }
-
-    #[test]
-    fn primary_key_ordered_index_leaf_repositions_without_visiting_the_gap() {
-        reset_heap_stores();
-        let index_id = IndexId::new(ENTITY, 1);
-        let component = b"lane";
-        load_index_keys(&index_id, component);
-
-        let lower = index_key(&index_id, component, 1)
-            .to_raw()
-            .expect("lower index key should encode");
-        let upper = index_key(&index_id, component, 100)
-            .to_raw()
-            .expect("upper index key should encode");
-        let seek = IndexPrimaryKeySeek {
-            prefix_start: index_key(&index_id, component, 1),
-            prefix_len: 1,
-            suffix_len: 0,
-        };
-        let mut stream = IndexRangeKeyStream::new(
-            STORE,
-            ENTITY,
-            (Bound::Included(lower), Bound::Included(upper)),
-            Direction::Asc,
-            None,
-            None,
-            ACCESS_SCAN_CHUNK_ENTRIES,
-            Some(seek),
-        );
-        let mut work = HeldHeadSeekWork::unbounded();
-
-        assert_eq!(
-            stream
-                .ensure_physical_head(&mut work)
-                .expect("first index head should load"),
-            HeldHeadSeekOutcome::Held(&data_key(1)),
-        );
-        assert_eq!(
-            stream
-                .seek_head_at_or_after(&data_key(80), &mut work)
-                .expect("index seek should position"),
-            HeldHeadSeekOutcome::Held(&data_key(80)),
-        );
-        assert_eq!(work.physical_seeks(), 1);
-        assert_eq!(work.skipped_occurrences(), 1);
-        assert_eq!(work.pull_attempts(), 2);
-    }
-
-    #[test]
-    fn physical_leaf_page_stop_does_not_start_a_store_pull() {
-        reset_heap_stores();
-        load_primary_keys();
-        let mut stream =
-            PrimaryRangeKeyStream::new(STORE, data_key(1), data_key(100), Direction::Asc, None)
-                .expect("primary stream should build");
-        let mut work = HeldHeadSeekWork::with_pull_attempt_limit(0);
-
-        assert_eq!(
-            stream
-                .ensure_physical_head(&mut work)
-                .expect("page stop is success"),
-            HeldHeadSeekOutcome::PageStop,
-        );
-        assert_eq!(work.pull_attempts(), 0);
-        assert_eq!(work.physical_seeks(), 0);
     }
 
     #[test]
@@ -2796,11 +2173,10 @@ mod physical_seek_tests {
             None,
             None,
             ACCESS_SCAN_CHUNK_ENTRIES,
-            None,
         );
-        let mut work = HeldHeadSeekWork::unbounded();
-
-        assert!(stream.ensure_physical_head(&mut work).is_err());
-        assert_eq!(work.pull_attempts(), 1);
+        let error = stream
+            .next_key()
+            .expect_err("malformed index entries must fail");
+        assert_eq!(error.class(), crate::error::ErrorClass::Corruption);
     }
 }

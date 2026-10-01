@@ -35,7 +35,7 @@ fn initialize_payload_store() {
     );
 }
 
-fn initialize_payload_schema(
+pub(super) fn initialize_payload_schema(
     fields: Vec<PersistedFieldSnapshot>,
     indexes: Vec<PersistedIndexSnapshot>,
 ) {

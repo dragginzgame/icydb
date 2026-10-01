@@ -1,6 +1,7 @@
 //! Total-only instruction coverage for the SQL performance actor.
 
 mod indexed_recovery;
+mod seek_intersection;
 
 use candid::CandidType;
 use icydb::{Error, db::sql::SqlQueryResult};

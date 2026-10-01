@@ -11,6 +11,7 @@ mod projection_metadata;
 mod residual_bounds;
 mod scalar_page_limits;
 mod secondary_order;
+mod seek_intersection;
 mod sparse_indexes;
 mod sql_not_null;
 mod typed_explain;

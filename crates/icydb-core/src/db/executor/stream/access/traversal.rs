@@ -517,7 +517,7 @@ impl AccessPlanStreamResolver {
     }
 
     // Resolve one bounded exact-prefix intersection without allocating the
-    // general held-head stream tree. This route is limited to a cursorless
+    // general ordered stream tree. This route is limited to a cursorless
     // atomic probe; resumed traversal retains the ordinary stream contract.
     fn collect_direct_exact_intersection_overlap(
         runtime: &TraversalRuntime,
