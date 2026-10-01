@@ -1,14 +1,14 @@
 use super::{residual_burden_for_candidate, residual_burden_for_plan};
 use crate::db::{
-    QueryError, RequestExecutionRoot,
+    QueryError,
     access::AccessPlan,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     predicate::{MissingRowPolicy, Predicate},
     query::plan::{
         AccessPlannedQuery, LogicalPlan, VisibleIndexes, exact_metadata_schema,
         expr::{Expr, FieldId, FieldPath, ProjectionSelection, ProjectionSpec},
     },
     query::preparation::{PreparationWork, with_preparation_work},
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
@@ -155,23 +155,13 @@ fn candidate_residual_preserves_predicate_and_expression_categories() {
     });
 }
 
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
-
 #[test]
 fn residual_construction_rejects_before_returning_a_profile_and_is_cumulative() {
     let plan = candidate_fixture(8);
     let before = plan.clone();
     let access = AccessPlan::full_scan();
     for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
-        let baseline = request(resource, 16_000_000);
+        let baseline = request_with_limit(resource, 16_000_000);
         PreparationWork::run(&baseline.scope(), Lane::Diagnostic, |work| {
             residual_burden_for_candidate(&plan, &access, work).map_err(QueryError::execute)
         })
@@ -179,7 +169,7 @@ fn residual_construction_rejects_before_returning_a_profile_and_is_cumulative() 
         let required = baseline.observed(resource);
         assert!(required > 0);
         for limit in [0, required - 1, required] {
-            let root = request(resource, limit);
+            let root = request_with_limit(resource, limit);
             PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
                 let result = residual_burden_for_candidate(&plan, &access, work);
                 let error = if limit == required {
@@ -205,7 +195,7 @@ fn residual_construction_rejects_before_returning_a_profile_and_is_cumulative() 
 #[test]
 fn empty_residual_needs_no_predicate_construction() {
     let plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Error);
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         assert!(residual_burden_for_plan(&plan, work).unwrap().is_empty());
         Ok(())
@@ -232,7 +222,7 @@ fn finalized_residual_borrows_frozen_predicate_but_counts_current_work() {
         )
         .unwrap();
     });
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         for _ in 0..2 {
             let burden = residual_burden_for_plan(&plan, work).unwrap();
@@ -244,7 +234,7 @@ fn finalized_residual_borrows_frozen_predicate_but_counts_current_work() {
     assert_eq!(root.observed(Resource::TemporaryBytes), 0);
     assert_eq!(root.observed(Resource::PredicateExpressionSteps), 2);
 
-    let root = request(Resource::PredicateExpressionSteps, 0);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 0);
     let error = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         residual_burden_for_plan(&plan, work).map_err(QueryError::execute)
     })
@@ -259,7 +249,7 @@ fn finalized_residual_borrows_frozen_predicate_but_counts_current_work() {
 fn residual_budget_failure_is_not_an_absent_reranking_candidate() {
     let schema = exact_metadata_schema(&[], &[]);
     let plan = candidate_fixture(8);
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     let error = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
         super::rerank_access_plan_by_residual_burden_from_authority(&[], &schema, &plan, work)
             .map_err(QueryError::execute)

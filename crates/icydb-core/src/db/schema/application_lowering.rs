@@ -260,7 +260,9 @@ fn collect_reachable_named_types(
     let mut pending = entities.iter().flat_map(|entity| entity.fields()).fold(
         Vec::new(),
         |mut pending, field| {
-            collect_field_type_dependency(field.field_type(), &mut pending);
+            field
+                .field_type()
+                .append_named_type_dependencies(&mut pending);
             pending
         },
     );
@@ -273,51 +275,9 @@ fn collect_reachable_named_types(
             .get(&source)
             .copied()
             .ok_or_else(InternalError::store_unsupported)?;
-        collect_named_type_dependencies(definition, &mut pending);
+        definition.append_named_type_dependencies(&mut pending);
     }
     Ok(reachable)
-}
-
-fn collect_named_type_dependencies(
-    definition: &NamedTypeFragment,
-    pending: &mut Vec<TypeSourceKey>,
-) {
-    match definition {
-        NamedTypeFragment::Record(record) => {
-            for field in record.fields() {
-                collect_field_type_dependency(field.field_type(), pending);
-            }
-        }
-        NamedTypeFragment::Enum(r#enum) => {
-            for variant in r#enum.variants() {
-                if let Some(payload) = variant.payload() {
-                    collect_field_type_dependency(payload, pending);
-                }
-            }
-        }
-        NamedTypeFragment::Newtype { inner, .. }
-        | NamedTypeFragment::List { item: inner, .. }
-        | NamedTypeFragment::Set { item: inner, .. } => {
-            collect_field_type_dependency(inner, pending);
-        }
-        NamedTypeFragment::Map { key, value, .. } => {
-            collect_field_type_dependency(key, pending);
-            collect_field_type_dependency(value, pending);
-        }
-        NamedTypeFragment::Tuple { members, .. } => {
-            for member in members {
-                collect_field_type_dependency(member.field_type(), pending);
-            }
-        }
-    }
-}
-
-fn collect_field_type_dependency(field_type: &FieldType, pending: &mut Vec<TypeSourceKey>) {
-    match field_type {
-        FieldType::List(item) => collect_field_type_dependency(item, pending),
-        FieldType::Named(source) => pending.push(source.clone()),
-        FieldType::Scalar(_) => {}
-    }
 }
 
 fn lower_initial_enum_catalog(
@@ -1548,7 +1508,9 @@ fn collect_added_named_types(
             .is_none()
         {
             for field in entity.fields() {
-                collect_field_type_dependency(field.field_type(), &mut pending);
+                field
+                    .field_type()
+                    .append_named_type_dependencies(&mut pending);
             }
         }
     }
@@ -1563,7 +1525,7 @@ fn collect_added_named_types(
             added.insert(source.clone());
         }
         if let Some(definition) = types.get(&source).copied() {
-            collect_named_type_dependencies(definition, &mut pending);
+            definition.append_named_type_dependencies(&mut pending);
         } else if !existing {
             return Err(InternalError::store_unsupported());
         }
@@ -1677,7 +1639,7 @@ fn lower_existing_named_catalogs(
                 .get(&source)
                 .copied()
                 .ok_or_else(InternalError::store_unsupported)?;
-            collect_named_type_dependencies(definition, &mut pending);
+            definition.append_named_type_dependencies(&mut pending);
             used_types.insert(source);
             continue;
         }
@@ -1697,7 +1659,7 @@ fn lower_existing_named_catalogs(
                         | NamedTypeFragment::Tuple { .. }
                 )
             ) {
-                collect_named_type_dependencies(definition, &mut pending);
+                definition.append_named_type_dependencies(&mut pending);
                 used_types.insert(source);
             } else {
                 return Err(InternalError::store_unsupported());

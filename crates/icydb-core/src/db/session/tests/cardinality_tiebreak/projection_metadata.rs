@@ -2,8 +2,7 @@
 
 use super::*;
 use crate::db::{
-    QueryError, RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+    QueryError,
     query::{
         plan::{
             AccessPlannedQuery, LogicalPlan,
@@ -13,18 +12,9 @@ use crate::db::{
         preparation::PreparationWork,
     },
     schema::SchemaInfo,
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn scalar_logical(setup: &DbSession<TestCanister>) -> LogicalPlan {
     let catalog = setup
@@ -80,7 +70,7 @@ fn direct_layout_boundaries_preserve_field_order_and_duplicate_policy() {
                 (Resource::PredicateExpressionSteps, steps),
             ] {
                 for limit in [exact - 1, exact] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     let result = PreparationWork::run(&root.scope(), lane, |work| {
                         lower_direct_projection_layouts_with_schema(schema, &logical, &spec, work)
                     });
@@ -119,7 +109,7 @@ fn non_direct_or_unresolved_layout_is_unavailable_not_a_budget_error() {
             expr,
             alias: None,
         }]);
-        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let result =
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
                 lower_direct_projection_layouts_with_schema(
@@ -137,7 +127,7 @@ fn non_direct_or_unresolved_layout_is_unavailable_not_a_budget_error() {
 // Other finalization tests isolate their owner while including this owner's
 // current charges. Exact slot-construction units are pinned below.
 pub(super) fn cost(plan: &AccessPlannedQuery, schema: &SchemaInfo) -> (u64, u64) {
-    let root = request(Resource::TemporaryBytes, 16_000_000);
+    let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
         let projection = plan.prepare_projection(schema, work)?;
         if plan.grouped_plan().is_none() {
@@ -195,7 +185,7 @@ fn projection_slot_boundaries_preserve_sorted_unique_output() {
             (Resource::PredicateExpressionSteps, steps),
         ] {
             for limit in [exact - 1, exact] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 let result = PreparationWork::run(&root.scope(), lane, |work| {
                     spec.referenced_slots_for_schema(schema, work)
                 });

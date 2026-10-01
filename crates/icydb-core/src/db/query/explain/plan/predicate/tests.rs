@@ -2,25 +2,15 @@ use super::*;
 use crate::{
     db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::{
             CoercionId, CoercionSpec, CompareFieldsPredicate, CompareOp, ComparePredicate,
         },
         query::admission::input::MAX_QUERY_INPUT_DEPTH,
+        test_support::request_with_limit,
     },
     value::{Value, ValueEnum},
 };
 use icydb_diagnostic_code::{DiagnosticExecutionLane as Lane, DiagnosticFactTag};
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn project(
     source: &Predicate,
@@ -133,7 +123,7 @@ fn predicate_projection_preserves_every_family() {
         ExplainPredicate::And(vec![]),
         ExplainPredicate::Or(vec![]),
     ]);
-    let root = request(Resource::TemporaryBytes, 16_000_000);
+    let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let explain = project(&source, &root).unwrap();
     assert_eq!(explain, expected);
     assert!(root.observed(Resource::NestedValueSteps) > 0);
@@ -149,10 +139,10 @@ fn predicate_projection_charges_field_and_payload_backing_exactly() {
         coercion: CoercionSpec::new(CoercionId::Strict),
     });
     let bytes = 10;
-    let root = request(Resource::TemporaryBytes, bytes);
+    let root = request_with_limit(Resource::TemporaryBytes, bytes);
     assert!(project(&source, &root).is_ok());
     assert_eq!(root.observed(Resource::TemporaryBytes), bytes);
-    let short = request(Resource::TemporaryBytes, bytes - 1);
+    let short = request_with_limit(Resource::TemporaryBytes, bytes - 1);
     let error = project(&source, &short).unwrap_err();
     assert!(error.diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
@@ -166,13 +156,13 @@ fn predicate_projection_admits_container_backing_before_child_visits() {
     let children = vec![Predicate::True; 8];
     let bytes = 8 * size_of::<ExplainPredicate>() as u64;
     for source in [Predicate::And(children.clone()), Predicate::Or(children)] {
-        let short = request(
+        let short = request_with_limit(
             Resource::TemporaryBytes,
             8 * size_of::<ExplainPredicate>() as u64 - 1,
         );
         assert!(project(&source, &short).is_err());
         assert_eq!(short.observed(Resource::PredicateExpressionSteps), 1);
-        let exact = request(Resource::TemporaryBytes, bytes);
+        let exact = request_with_limit(Resource::TemporaryBytes, bytes);
         assert!(project(&source, &exact).is_ok());
         assert_eq!(exact.observed(Resource::TemporaryBytes), bytes);
         assert_eq!(exact.observed(Resource::PredicateExpressionSteps), 9);
@@ -185,7 +175,7 @@ fn predicate_projection_retains_admitted_depth_and_stops_at_exhausted_visit() {
     for _ in 1..MAX_QUERY_INPUT_DEPTH {
         source = Predicate::Not(Box::new(source));
     }
-    let exact = request(
+    let exact = request_with_limit(
         Resource::PredicateExpressionSteps,
         MAX_QUERY_INPUT_DEPTH as u64,
     );
@@ -202,7 +192,7 @@ fn predicate_projection_retains_admitted_depth_and_stops_at_exhausted_visit() {
         exact.observed(Resource::PredicateExpressionSteps),
         MAX_QUERY_INPUT_DEPTH as u64
     );
-    let short = request(
+    let short = request_with_limit(
         Resource::PredicateExpressionSteps,
         MAX_QUERY_INPUT_DEPTH as u64 - 1,
     );

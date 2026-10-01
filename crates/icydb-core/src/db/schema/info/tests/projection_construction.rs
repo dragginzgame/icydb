@@ -3,8 +3,7 @@
 use super::{newtype_query_schema, resolve_group_field};
 use crate::{
     db::{
-        MissingRowPolicy, QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        MissingRowPolicy, QueryError,
         query::{
             builder::{count, min_by},
             plan::{
@@ -17,6 +16,7 @@ use crate::{
             preparation::{PreparationWork, with_preparation_work},
         },
         schema::{AcceptedFieldKind, PersistedNestedLeafSnapshot, SchemaInfo},
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -24,16 +24,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn plan() -> AccessPlannedQuery {
     AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore)
@@ -124,7 +114,7 @@ fn projection_copies_reject_at_exact_payload_boundaries_and_accumulate() {
             (Resource::PredicateExpressionSteps, steps),
         ] {
             for limit in [exact - 1, exact] {
-                let request = root(resource, limit);
+                let request = request_with_limit(resource, limit);
                 let result = PreparationWork::run(&request.scope(), lane, |work| {
                     plan.prepare_projection(&schema, work)
                 });
@@ -150,7 +140,7 @@ fn projection_copies_reject_at_exact_payload_boundaries_and_accumulate() {
 #[test]
 fn all_projection_admits_shared_sort_scratch_before_construction() {
     let schema = newtype_query_schema();
-    let generous = root(Resource::TemporaryBytes, 16_000_000);
+    let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     PreparationWork::run(&generous.scope(), Lane::Diagnostic, |work| {
         plan().prepare_projection(&schema, work)
     })
@@ -163,7 +153,7 @@ fn all_projection_admits_shared_sort_scratch_before_construction() {
         let exact = generous.observed(resource);
         assert!(exact > 0);
         for limit in [0, exact - 1, exact] {
-            let request = root(resource, limit);
+            let request = request_with_limit(resource, limit);
             let result = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
                 plan().prepare_projection(&schema, work)
             });

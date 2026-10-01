@@ -3,35 +3,24 @@ use super::{
     cardinality_probe_keys_equal, prepare_cardinality_candidates,
 };
 use crate::db::{
-    RequestExecutionRoot,
     access::LoweredIndexPrefixSpec,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     index::UserIndexPrefixCardinalityKey,
     query::preparation::{PreparationWork, with_preparation_work},
     session::tests::cardinality_tiebreak::{
         probe_candidates_for_tests, ranking_candidates_for_tests,
     },
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
 
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
-
 #[test]
 fn excessive_probes_fall_back_before_output_allocation() {
     for width in [17, 128] {
         let (session, authority, candidates) = probe_candidates_for_tests(width);
-        let root = request(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         let result = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
             session.cardinality_tiebreak_attempt(&authority, candidates, work)
         })
@@ -48,7 +37,7 @@ fn probe_lowering_exhaustion_is_not_a_policy_fallback() {
     let (session, authority, candidates) = ranking_candidates_for_tests();
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
         // Shape admission and candidate visit succeed; the lowering visit fails.
-        let root = request(Resource::PredicateExpressionSteps, 2);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, 2);
         let result = PreparationWork::run(&root.scope(), lane, |work| {
             session.cardinality_tiebreak_attempt(&authority, vec![candidates[0].clone()], work)
         });
@@ -135,7 +124,7 @@ fn probe_preparation_charges_exact_backing_and_bookkeeping() {
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
         for (resource, exact) in costs {
             for limit in [exact - 1, exact] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 let result = PreparationWork::run(&root.scope(), lane, |work| {
                     prepare_cardinality_candidates(
                         authority.entity_tag(),
@@ -202,7 +191,7 @@ fn duplicate_probe_comparison_preserves_identity_and_budget_errors() {
         );
     });
     for limit in [6, 7] {
-        let root = request(Resource::PredicateExpressionSteps, limit);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
         let result = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
             cardinality_probe_keys_equal(&left, &left, work)
         });

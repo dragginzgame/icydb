@@ -4,7 +4,6 @@ use crate::{
     db::{
         QueryError, RequestExecutionRoot,
         codec::{new_hash_sha256, write_hash_str_u32, write_hash_tag_u8, write_hash_u32},
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::MissingRowPolicy,
         query::{
             builder::sum,
@@ -15,6 +14,7 @@ use crate::{
             },
             preparation::{PreparationWork, with_preparation_work},
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -39,16 +39,6 @@ fn expected_hash(labels: &[(&str, OrderDirection)]) -> [u8; 32] {
         );
     }
     finalize_sha256_digest(hasher)
-}
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
 }
 
 fn admitted_hash(
@@ -95,7 +85,7 @@ fn direct_order_labels_need_no_temporary_backing() {
     let order = OrderSpec {
         fields: vec![OrderTerm::field("账户", OrderDirection::Desc)],
     };
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     assert_eq!(
         admitted_hash(&order, &root, Lane::PublicRead).unwrap(),
         expected_hash(&[("账户", OrderDirection::Desc)])
@@ -139,13 +129,13 @@ fn expression_order_hashing_preserves_bytes_under_exact_and_cumulative_admission
         ),
     ]);
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let measured = request(Resource::TemporaryBytes, 16_000_000);
+        let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         assert_eq!(admitted_hash(&order, &measured, lane).unwrap(), expected);
         for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
             let exact = measured.observed(resource);
             assert!(exact > 0);
             for limit in [exact - 1, exact, 2 * exact] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 for attempt in 1..=3 {
                     let result = admitted_hash(&order, &root, lane);
                     if attempt * exact <= limit {
@@ -163,7 +153,7 @@ fn expression_order_hashing_preserves_bytes_under_exact_and_cumulative_admission
                 assert_eq!(root.observed(Resource::QueryExecutions), 0);
             }
             assert_eq!(
-                admitted_hash(&order, &request(resource, exact), lane).unwrap(),
+                admitted_hash(&order, &request_with_limit(resource, exact), lane).unwrap(),
                 expected
             );
         }
@@ -189,7 +179,7 @@ fn order_format_failure_cannot_publish_a_continuation() {
                 .map_err(QueryError::execute)
         })
     };
-    let root = request(Resource::TemporaryBytes, 27);
+    let root = request_with_limit(Resource::TemporaryBytes, 27);
     let error = build(&root).unwrap_err();
     assert!(error.diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
@@ -197,7 +187,7 @@ fn order_format_failure_cannot_publish_a_continuation() {
     )));
     // Bigint conversion rejects its 28-byte scratch before output or order copying.
     assert_eq!(root.observed(Resource::TemporaryBytes), 28);
-    let root = request(Resource::TemporaryBytes, 16_000_000);
+    let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let expected =
         with_preparation_work(|work| plan.continuation_signature("tests::Entity", work)).unwrap();
     assert_eq!(

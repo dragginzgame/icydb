@@ -2,22 +2,11 @@
 
 use super::*;
 use crate::db::{
-    RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     predicate::{IndexCompileTarget, IndexCompileTargetKind, Predicate},
     query::{plan::ResolvedOrderField, preparation::PreparationWork},
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn indexed_query() -> StructuralQuery {
     StructuralQuery::new(MissingRowPolicy::Ignore)
@@ -65,7 +54,7 @@ fn static_index_metadata_preserves_layout_at_exact_construction_limits() {
             + 5 * size_of::<usize>()
             + size_of::<IndexCompileTarget>()) as u64;
     // Include shared residual proof work; its owner qualifies inner boundaries.
-    let baseline = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let baseline = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
     PreparationWork::run(
         &baseline.scope(),
         DiagnosticExecutionLane::PublicRead,
@@ -91,7 +80,7 @@ fn static_index_metadata_preserves_layout_at_exact_construction_limits() {
             (Resource::PredicateExpressionSteps, steps),
         ] {
             for limit in [exact - 1, exact] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 let mut candidate = plan.clone();
                 let old_slots = candidate.slot_map().unwrap().as_ptr();
                 let result = PreparationWork::run(&root.scope(), lane, |work| {
@@ -138,7 +127,7 @@ fn exhausted_index_metadata_does_not_publish_a_plan() {
         DiagnosticExecutionLane::TrustedRead,
     ] {
         setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
-        let root = request(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         let session = new_request_session(&root);
         for _ in 0..2 {
             let error = session
@@ -190,7 +179,7 @@ fn exhausted_index_metadata_does_not_publish_a_plan() {
         assert_eq!(root.observed(Resource::RowsVisited), 0);
         assert_eq!(root.observed(Resource::QueryExecutions), 0);
 
-        let fresh = request(Resource::TemporaryBytes, 16_000_000);
+        let fresh = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         assert!(
             new_request_session(&fresh)
                 .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(

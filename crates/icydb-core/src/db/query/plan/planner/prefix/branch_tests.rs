@@ -5,12 +5,12 @@ use super::{
 };
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
+        QueryError,
         access::{SemanticIndexExpression, SemanticIndexKeyItem},
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::CoercionId,
         query::preparation::PreparationWork,
         schema::PersistedIndexExpressionOp,
+        test_support::request_with_limit,
     },
     value::{Value, lower_text_construction_allowance},
 };
@@ -18,16 +18,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn literal(values: &[Value], coercion: CoercionId) -> CachedSetLiteral<'_> {
     CachedSetLiteral {
@@ -137,7 +127,7 @@ fn branch_values_admit_backing_and_conversion_before_canonicalization() {
                 (Resource::NestedValueSteps, visits),
             ] {
                 for limit in [0, exact.saturating_sub(1), exact * 2] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     PreparationWork::run(&root.scope(), lane, |work| {
                         for attempt in 1..=3 {
                             let result = build_index_branch_values(key.as_ref(), &literals, work);
@@ -212,7 +202,7 @@ fn exclusion_normalizes_once_and_borrows_raw_values_for_all_branches() {
                     (Resource::NestedValueSteps, 2 * width),
                 ] {
                     for limit in [exact.saturating_sub(1), exact * 2] {
-                        let root = request(resource, limit);
+                        let root = request_with_limit(resource, limit);
                         PreparationWork::run(&root.scope(), lane, |work| {
                             for attempt in 1..=3 {
                                 let mut branches = input.clone();
@@ -257,7 +247,7 @@ fn exclusion_sets_admit_visits_before_pruning() {
     // One outer set plus three exclusions, each allowed two branch visits and
     // one literal visit. Removing both branches early does not refund admission.
     for limit in [9, 10] {
-        let root = request(Resource::PredicateExpressionSteps, limit);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             let mut branches = values[..2].to_vec();
             let result =
@@ -293,7 +283,7 @@ fn exclusion_failure_stops_payload_comparisons_after_partial_compaction() {
     let key = SemanticIndexKeyItem::Field("name".into());
     let values = [Value::Text("drop".into())];
     let literals = [literal(&values, CoercionId::Strict)];
-    let root = request(Resource::NestedValueSteps, 2);
+    let root = request_with_limit(Resource::NestedValueSteps, 2);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         let mut branches = vec![
             values[0].clone(),
@@ -330,7 +320,7 @@ fn branch_lists_require_equal_sets_and_ignore_ineligible_exclusions() {
         (&different[..], None),
         (&[][..], None),
     ] {
-        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             let literals = [
                 literal(&values, CoercionId::Strict),

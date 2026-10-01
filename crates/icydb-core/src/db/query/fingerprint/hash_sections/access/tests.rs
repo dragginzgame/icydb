@@ -4,22 +4,12 @@ use crate::db::query::{
 };
 use crate::db::{
     QueryError, RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     predicate::MissingRowPolicy,
     query::{plan::AccessPlannedQuery, preparation::PreparationWork},
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionLane as Lane, DiagnosticFactTag};
 use sha2::Digest;
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn admitted_hash(
     access: &AccessPlan<Value>,
@@ -45,7 +35,7 @@ fn access_hash_admission_is_cumulative_and_preserves_identity_on_retry() {
     ]);
     let before = access.clone();
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let measured = request(Resource::PredicateExpressionSteps, 16_000_000);
+        let measured = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
         let expected = admitted_hash(&access, &measured, lane).unwrap();
         for resource in [
             Resource::PredicateExpressionSteps,
@@ -55,7 +45,7 @@ fn access_hash_admission_is_cumulative_and_preserves_identity_on_retry() {
             let exact = measured.observed(resource);
             assert!(exact > 0);
             for limit in [exact - 1, exact, 2 * exact] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 for attempt in 1..=3 {
                     let result = admitted_hash(&access, &root, lane);
                     if attempt * exact <= limit {
@@ -83,13 +73,13 @@ fn branch_shells_reject_before_descending_or_writing_partial_hash_bytes() {
         vec![AccessPlan::full_scan()],
     )]);
     for limit in [0, 3] {
-        let root = request(Resource::PredicateExpressionSteps, limit);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
         let result = admitted_hash(&access, &root, Lane::Diagnostic);
         assert_eq!(result.is_ok(), limit == 3);
         assert_eq!(root.observed(Resource::NestedValueSteps), 0);
         assert_eq!(root.observed(Resource::TemporaryBytes), 0);
     }
-    let root = request(Resource::PredicateExpressionSteps, 0);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 0);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         let mut hasher = Sha256::new();
         let before = hasher.clone().finalize();
@@ -112,12 +102,12 @@ fn access_hash_exhaustion_prevents_a_continuation_contract() {
                 .map_err(QueryError::execute)
         })
     };
-    let denied = request(Resource::NestedValueSteps, 0);
+    let denied = request_with_limit(Resource::NestedValueSteps, 0);
     assert!(build(&denied).unwrap_err().diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
         Resource::NestedValueSteps.raw(),
     )));
-    let admitted = request(Resource::NestedValueSteps, 2);
+    let admitted = request_with_limit(Resource::NestedValueSteps, 2);
     let first = build(&admitted).unwrap().unwrap().continuation_signature();
     assert_eq!(
         build(&admitted).unwrap().unwrap().continuation_signature(),
@@ -125,7 +115,7 @@ fn access_hash_exhaustion_prevents_a_continuation_contract() {
     );
     assert!(build(&admitted).is_err());
     assert_eq!(
-        build(&request(Resource::NestedValueSteps, 1))
+        build(&request_with_limit(Resource::NestedValueSteps, 1))
             .unwrap()
             .unwrap()
             .continuation_signature(),
@@ -180,7 +170,7 @@ fn indexed_access_hash_admits_labels_and_bounds_without_changing_framing() {
             as u64
             + value_count * 128;
         for limit in [exact - 1, exact] {
-            let root = request(Resource::PredicateExpressionSteps, limit);
+            let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
             let result = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
                 let mut hasher = Sha256::new();
                 let mut visitor = AccessFingerprintVisitor {
@@ -297,7 +287,7 @@ fn open_primary_key_range_hashes_frame_the_present_endpoint() {
     let lower = AccessPlan::key_range_bounds(Some(value.clone()), None);
     let upper = AccessPlan::key_range_bounds(None, Some(value.clone()));
     let two_sided = AccessPlan::key_range(value.clone(), value);
-    let root = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
     let lower_hash = admitted_hash(&lower, &root, Lane::Diagnostic).unwrap();
     let upper_hash = admitted_hash(&upper, &root, Lane::Diagnostic).unwrap();
     let two_sided_hash = admitted_hash(&two_sided, &root, Lane::Diagnostic).unwrap();

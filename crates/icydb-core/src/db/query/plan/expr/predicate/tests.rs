@@ -4,28 +4,18 @@ use super::derive_normalized_bool_expr_predicate_subset as derive;
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::{CompareOp, Predicate},
         query::{
             plan::expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn extract(root: &RequestExecutionRoot, expr: &Expr) -> Result<Option<Predicate>, QueryError> {
     PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
@@ -53,19 +43,23 @@ fn assert_resource(error: QueryError, resource: Resource) {
 fn extraction_admits_owned_leaf_once_without_copying_the_source_expression() {
     let expr = compare(Value::Text("x".repeat(1024)));
     let expected = Predicate::eq("label".into(), Value::Text("x".repeat(1024)));
-    let generous = request(Resource::TemporaryBytes, 16_000_000);
+    let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     assert_eq!(extract(&generous, &expr).unwrap(), Some(expected.clone()));
     // One field and one payload, with no temporary copied CanonicalExpr.
     let bytes = generous.observed(Resource::TemporaryBytes);
     assert_eq!(bytes, 5 + 1024);
-    let exact = request(Resource::TemporaryBytes, bytes);
+    let exact = request_with_limit(Resource::TemporaryBytes, bytes);
     assert_eq!(extract(&exact, &expr).unwrap(), Some(expected));
     assert_resource(
         extract(&exact, &expr).unwrap_err(),
         Resource::TemporaryBytes,
     );
     assert_resource(
-        extract(&request(Resource::TemporaryBytes, bytes - 1), &expr).unwrap_err(),
+        extract(
+            &request_with_limit(Resource::TemporaryBytes, bytes - 1),
+            &expr,
+        )
+        .unwrap_err(),
         Resource::TemporaryBytes,
     );
 }
@@ -78,7 +72,10 @@ fn extraction_exhaustion_never_becomes_an_unsupported_predicate() {
         Resource::PredicateExpressionSteps,
         Resource::NestedValueSteps,
     ] {
-        assert_resource(extract(&request(resource, 0), &expr).unwrap_err(), resource);
+        assert_resource(
+            extract(&request_with_limit(resource, 0), &expr).unwrap_err(),
+            resource,
+        );
     }
     let unsupported = Expr::Binary {
         op: BinaryOp::Eq,
@@ -89,12 +86,16 @@ fn extraction_exhaustion_never_becomes_an_unsupported_predicate() {
         right: Box::new(Expr::Literal(Value::Text("X".into()))),
     };
     assert_eq!(
-        extract(&request(Resource::TemporaryBytes, 0), &unsupported).unwrap(),
+        extract(
+            &request_with_limit(Resource::TemporaryBytes, 0),
+            &unsupported
+        )
+        .unwrap(),
         None
     );
     assert_eq!(
         extract(
-            &request(Resource::TemporaryBytes, 0),
+            &request_with_limit(Resource::TemporaryBytes, 0),
             &Expr::Literal(Value::Bool(true))
         )
         .unwrap(),
@@ -116,7 +117,7 @@ fn membership_and_truth_shells_share_cumulative_construction_admission() {
             expr: Box::new(chain),
         },
     ] {
-        let generous = request(Resource::TemporaryBytes, 16_000_000);
+        let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = extract(&generous, &expr)
             .unwrap()
             .expect("membership extraction");
@@ -124,10 +125,14 @@ fn membership_and_truth_shells_share_cumulative_construction_admission() {
             matches!(&expected, Predicate::Compare(compare) if matches!(compare.op(), CompareOp::In | CompareOp::NotIn))
         );
         let bytes = generous.observed(Resource::TemporaryBytes);
-        let exact = request(Resource::TemporaryBytes, bytes);
+        let exact = request_with_limit(Resource::TemporaryBytes, bytes);
         assert_eq!(extract(&exact, &expr).unwrap(), Some(expected));
         assert_resource(
-            extract(&request(Resource::TemporaryBytes, bytes - 1), &expr).unwrap_err(),
+            extract(
+                &request_with_limit(Resource::TemporaryBytes, bytes - 1),
+                &expr,
+            )
+            .unwrap_err(),
             Resource::TemporaryBytes,
         );
         assert_resource(
@@ -158,13 +163,17 @@ fn nullable_false_truth_guards_obey_cumulative_construction_admission() {
             op: UnaryOp::Not,
             expr: Box::new(leaf),
         };
-        let generous = request(Resource::TemporaryBytes, 16_000_000);
+        let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = extract(&generous, &expr).unwrap().unwrap();
         let bytes = generous.observed(Resource::TemporaryBytes);
-        let exact = request(Resource::TemporaryBytes, bytes);
+        let exact = request_with_limit(Resource::TemporaryBytes, bytes);
         assert_eq!(extract(&exact, &expr).unwrap(), Some(expected));
         assert_resource(
-            extract(&request(Resource::TemporaryBytes, bytes - 1), &expr).unwrap_err(),
+            extract(
+                &request_with_limit(Resource::TemporaryBytes, bytes - 1),
+                &expr,
+            )
+            .unwrap_err(),
             Resource::TemporaryBytes,
         );
         assert_resource(

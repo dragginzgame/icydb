@@ -6,7 +6,6 @@ use crate::{
         QueryError, RequestExecutionRoot,
         executor::{
             SharedPreparedExecutionPlan, assemble_load_execution_node_descriptor_from_route_facts,
-            budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             freeze_load_execution_route_facts_for_authority,
         },
         predicate::Predicate,
@@ -20,6 +19,7 @@ use crate::{
             },
             preparation::{PreparationWork, with_preparation_work as with_work},
         },
+        test_support::request_with_limit,
     },
     error::InternalError,
     value::Value,
@@ -28,16 +28,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn explain(
     plan: &SharedPreparedExecutionPlan,
@@ -52,7 +42,7 @@ fn assert_projection_rejections(plan: &SharedPreparedExecutionPlan, resource: Re
     // A prepared plan retains neither a diagnostic allowance nor a partial
     // result after failing partway through projection.
     for limit in [0, cost / 2, cost - 1] {
-        let short = request(resource, limit);
+        let short = request_with_limit(resource, limit);
         let error = explain(plan, &short).unwrap_err();
         assert!(
             error
@@ -85,7 +75,7 @@ fn assert_execution_diagnostics(
         let plan = prepared.logical_plan();
         let facts = freeze_load_execution_route_facts_for_authority(prepared.authority_ref(), plan)
             .unwrap();
-        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let descriptor = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assemble_load_execution_node_descriptor_from_route_facts(plan, &facts, work)
         })
@@ -123,7 +113,7 @@ fn assert_execution_diagnostics(
         }
         expected = Some(descriptor);
 
-        let exhausted = request(Resource::TemporaryBytes, 0);
+        let exhausted = request_with_limit(Resource::TemporaryBytes, 0);
         let error = PreparationWork::run(&exhausted.scope(), Lane::Diagnostic, |work| {
             assemble_load_execution_node_descriptor_from_route_facts(plan, &facts, work)
         })
@@ -195,7 +185,7 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
         let original = warm.logical_plan().clone();
         let signature =
             with_work(|work| original.continuation_signature(ENTITY_NAME, work)).unwrap();
-        let generous = request(Resource::TemporaryBytes, 16_000_000);
+        let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = explain(&cold, &generous).unwrap();
         assert_eq!(
             matches!(expected.grouping(), ExplainGrouping::Grouped { .. }),
@@ -213,7 +203,7 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
             for plan in [&cold, &warm] {
                 assert_projection_rejections(plan, resource, cost);
             }
-            let root = request(resource, 2 * cost);
+            let root = request_with_limit(resource, 2 * cost);
             for _ in 0..2 {
                 let projected = explain(&warm, &root).unwrap();
                 assert_eq!(projected, expected);
@@ -246,10 +236,8 @@ fn prepared_explain_preserves_cold_warm_residual_plans_and_cumulative_admission(
         let (again, reuse) = prepare();
         assert!(reuse.is_hit());
         assert_eq!(again.logical_plan(), &original);
-        assert_eq!(
-            explain(&again, &request(Resource::TemporaryBytes, 16_000_000)).unwrap(),
-            expected,
-        );
+        let final_request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
+        assert_eq!(explain(&again, &final_request).unwrap(), expected);
     }
 }
 
@@ -260,7 +248,7 @@ fn prepared_explain_handoff_requires_finalized_execution_facts() {
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap();
     let authority = catalog.accepted_entity_authority();
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     let error = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         SharedPreparedExecutionPlan::from_plan(
             authority.clone(),

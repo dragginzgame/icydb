@@ -5,26 +5,12 @@ use crate::{
         canonicalize::canonicalize_scalar_where_bool_expr_artifact,
         derive_normalized_bool_expr_predicate_subset, eval_builder_expr_for_value_preview,
     },
-    db::{
-        RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
-        query::preparation::PreparationWork,
-    },
+    db::{query::preparation::PreparationWork, test_support::request_with_limit},
     value::{Value, ValueEnum},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 #[test]
 fn expansion_admission_charges_exact_work_without_allocating_or_changing_policy() {
@@ -33,7 +19,7 @@ fn expansion_admission_charges_exact_work_without_allocating_or_changing_policy(
     // Arm-count and wrapper-count operations, then three expr/payload pairs. The
     // hypothetical condition copies affect fixed units, not visits performed.
     for limit in [7, 8, 100] {
-        let root = root(Resource::PredicateExpressionSteps, limit);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
         let result =
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
                 admit_expansion(&arms, &otherwise, work)
@@ -61,7 +47,7 @@ fn declined_expansion_short_circuits_and_retries_keep_request_charges() {
     )];
     let otherwise = field("no");
     let original = arms.clone();
-    let root = root(Resource::PredicateExpressionSteps, 12);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 12);
     for expected_work in [6, 12] {
         assert!(
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
@@ -91,7 +77,7 @@ fn declined_expansion_short_circuits_and_retries_keep_request_charges() {
 
 #[test]
 fn expansion_nested_value_exhaustion_propagates_through_normalization() {
-    let root = root(Resource::NestedValueSteps, 1);
+    let root = request_with_limit(Resource::NestedValueSteps, 1);
     for expected_visits in [2, 3] {
         let error =
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {

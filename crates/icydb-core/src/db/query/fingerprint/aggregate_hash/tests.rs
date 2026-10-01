@@ -5,13 +5,13 @@ use crate::{
     db::{
         QueryError, RequestExecutionRoot,
         codec::{new_hash_sha256, write_hash_str_u32, write_hash_tag_u8},
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             builder::{AggregateExpr, count, count_by, min_by, sum},
             fingerprint::finalize_sha256_digest,
             plan::{AggregateKind, GroupAggregateSpec, expr::Expr},
             preparation::{PreparationWork, with_preparation_work},
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -26,16 +26,6 @@ fn formatted_aggregate() -> AggregateExpr {
         Expr::Literal(Value::NatBig("18446744073709551616".parse().unwrap())),
     )
     .with_filter_expr(Expr::Literal(Value::Text("quote's λ".into())))
-}
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
 }
 
 fn admitted_hash(
@@ -105,7 +95,7 @@ fn planned_aggregates_preserve_target_input_filter_and_distinct_framing() {
         assert_eq!(
             admitted_hash(
                 &aggregate,
-                &request(Resource::TemporaryBytes, 16_000_000),
+                &request_with_limit(Resource::TemporaryBytes, 16_000_000),
                 Lane::Diagnostic
             )
             .unwrap(),
@@ -152,7 +142,7 @@ fn semantic_modifiers_operands_and_projection_order_keep_their_identity_rules() 
 #[test]
 fn aggregate_label_admission_is_exact_cumulative_and_allocation_free_for_fields() {
     let direct = GroupAggregateSpec::from_aggregate_expr(sum("账户"));
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     admitted_hash(&direct, &root, Lane::PublicRead).unwrap();
     assert_eq!(root.observed(Resource::TemporaryBytes), 0);
     assert_eq!(
@@ -163,13 +153,13 @@ fn aggregate_label_admission_is_exact_cumulative_and_allocation_free_for_fields(
     let aggregate = GroupAggregateSpec::from_aggregate_expr(formatted_aggregate());
     let before = aggregate.clone();
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let measured = request(Resource::TemporaryBytes, 16_000_000);
+        let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = admitted_hash(&aggregate, &measured, lane).unwrap();
         for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
             let exact = measured.observed(resource);
             assert!(exact > 0);
             for limit in [exact - 1, exact, 2 * exact] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 for attempt in 1..=3 {
                     let result = admitted_hash(&aggregate, &root, lane);
                     if attempt * exact <= limit {
@@ -187,7 +177,7 @@ fn aggregate_label_admission_is_exact_cumulative_and_allocation_free_for_fields(
                 assert_eq!(root.observed(Resource::QueryExecutions), 0);
             }
             assert_eq!(
-                admitted_hash(&aggregate, &request(resource, exact), lane).unwrap(),
+                admitted_hash(&aggregate, &request_with_limit(resource, exact), lane).unwrap(),
                 expected
             );
         }
@@ -238,17 +228,17 @@ fn aggregate_label_failure_prevents_grouped_continuation_publication() {
                 .map_err(QueryError::execute)
             })
         };
-        let rejected = request(Resource::TemporaryBytes, 27);
+        let rejected = request_with_limit(Resource::TemporaryBytes, 27);
         assert!(build(&rejected).unwrap_err().diagnostic_facts().contains(&(
             DiagnosticFactTag::BudgetResource,
             Resource::TemporaryBytes.raw(),
         )));
         assert_eq!(rejected.observed(Resource::TemporaryBytes), 28);
-        let measured = request(Resource::TemporaryBytes, 16_000_000);
+        let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = build(&measured).unwrap().unwrap().continuation_signature();
         let exact = measured.observed(Resource::TemporaryBytes);
-        assert!(build(&request(Resource::TemporaryBytes, exact - 1)).is_err());
-        let root = request(Resource::TemporaryBytes, 2 * exact);
+        assert!(build(&request_with_limit(Resource::TemporaryBytes, exact - 1)).is_err());
+        let root = request_with_limit(Resource::TemporaryBytes, 2 * exact);
         for _ in 0..2 {
             assert_eq!(
                 build(&root).unwrap().unwrap().continuation_signature(),
@@ -257,7 +247,7 @@ fn aggregate_label_failure_prevents_grouped_continuation_publication() {
         }
         assert!(build(&root).is_err());
         assert_eq!(
-            build(&request(Resource::TemporaryBytes, exact))
+            build(&request_with_limit(Resource::TemporaryBytes, exact))
                 .unwrap()
                 .unwrap()
                 .continuation_signature(),
@@ -302,17 +292,17 @@ fn aggregate_comparison_failure_prevents_grouped_continuation_publication() {
     };
     // These direct labels do not visit literal values. The matched slot's
     // filter comparison is the nested-value admission boundary in this plan.
-    let rejected = request(Resource::NestedValueSteps, 0);
+    let rejected = request_with_limit(Resource::NestedValueSteps, 0);
     assert!(build(&rejected).unwrap_err().diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
         Resource::NestedValueSteps.raw(),
     )));
-    let measured = request(Resource::NestedValueSteps, 16_000_000);
+    let measured = request_with_limit(Resource::NestedValueSteps, 16_000_000);
     let expected = build(&measured).unwrap().unwrap().continuation_signature();
     let exact = measured.observed(Resource::NestedValueSteps);
     assert!(exact > 0);
-    assert!(build(&request(Resource::NestedValueSteps, exact - 1)).is_err());
-    let root = request(Resource::NestedValueSteps, 2 * exact);
+    assert!(build(&request_with_limit(Resource::NestedValueSteps, exact - 1)).is_err());
+    let root = request_with_limit(Resource::NestedValueSteps, 2 * exact);
     for _ in 0..2 {
         assert_eq!(
             build(&root).unwrap().unwrap().continuation_signature(),
@@ -321,7 +311,7 @@ fn aggregate_comparison_failure_prevents_grouped_continuation_publication() {
     }
     assert!(build(&root).is_err());
     assert_eq!(
-        build(&request(Resource::NestedValueSteps, exact))
+        build(&request_with_limit(Resource::NestedValueSteps, exact))
             .unwrap()
             .unwrap()
             .continuation_signature(),

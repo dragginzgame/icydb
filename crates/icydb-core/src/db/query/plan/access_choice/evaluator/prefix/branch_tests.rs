@@ -3,8 +3,7 @@
 use super::{evaluate_branch_set_candidate_from_contract, evaluate_branch_values};
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        QueryError,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
             plan::{
@@ -15,6 +14,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::{Value, lower_text_construction_allowance},
 };
@@ -23,16 +23,6 @@ use icydb_diagnostic_code::{
     DiagnosticFactTag,
 };
 use std::borrow::Cow;
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn membership(field: &str, values: &[i64]) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
@@ -123,7 +113,7 @@ fn branch_scores_preserve_set_equality_caps_and_rejection_order() {
         ),
     ] {
         let before = children.clone();
-        let root = request(Resource::NestedValueSteps, 16_000_000);
+        let root = request_with_limit(Resource::NestedValueSteps, 16_000_000);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             let evaluation = evaluate_branch_values(index, 1, &schema, &children, work).unwrap();
             if let CandidateEvaluation::Eligible(score) = &evaluation {
@@ -189,7 +179,7 @@ fn branch_views_and_expression_conversion_obey_cumulative_admission() {
                 (Resource::NestedValueSteps, 4),
             ] {
                 for limit in [0, exact.saturating_sub(1), exact * 2] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     PreparationWork::run(&root.scope(), lane, |work| {
                         for attempt in 1..=3 {
                             let result = evaluate_branch_values(index, 0, &schema, &children, work);
@@ -258,7 +248,7 @@ fn branch_scores_compare_normalized_sets_and_count_distinct_values() {
                 ))
             })
             .collect();
-        let root = request(Resource::NestedValueSteps, 16_000_000);
+        let root = request_with_limit(Resource::NestedValueSteps, 16_000_000);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assert_eq!(
                 prefix_len(evaluate_branch_values(index, 0, &schema, &children, work).unwrap()),
@@ -284,7 +274,7 @@ fn branch_candidate_propagates_exhaustion_after_equality_prefix_admission() {
     let branch_bytes = (2 * size_of::<Cow<'_, Value>>()) as u64;
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
         for limit in [prefix_bytes, prefix_bytes + branch_bytes] {
-            let root = request(Resource::TemporaryBytes, limit);
+            let root = request_with_limit(Resource::TemporaryBytes, limit);
             PreparationWork::run(&root.scope(), lane, |work| {
                 let result =
                     evaluate_branch_set_candidate_from_contract(index, &schema, &predicate, work);

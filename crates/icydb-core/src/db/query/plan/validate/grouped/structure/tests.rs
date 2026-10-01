@@ -7,7 +7,6 @@ use super::{
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             builder::{AggregateExpr, count, min_by, sum},
             plan::{
@@ -19,6 +18,7 @@ use crate::{
             preparation::PreparationWork,
         },
         schema::AcceptedFieldKind,
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -26,16 +26,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag, QueryFieldRole,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn group(aggregates: Vec<AggregateExpr>) -> GroupSpec {
     GroupSpec {
@@ -77,7 +67,7 @@ fn having_lookup_keeps_first_match_and_canonical_count_distinct_rules() {
         target.clone(),
         target.clone(),
     ]);
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         assert_eq!(
             resolve_group_having_aggregate_index(&candidates, &target, work)?,
@@ -98,7 +88,7 @@ fn having_lookup_keeps_first_match_and_canonical_count_distinct_rules() {
         ),
         (min_by("age"), min_by("age").distinct()),
     ] {
-        let root = request(Resource::NestedValueSteps, 0);
+        let root = request_with_limit(Resource::NestedValueSteps, 0);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assert_eq!(
                 resolve_group_having_aggregate_index(&group(vec![candidate]), &target, work)?,
@@ -113,7 +103,7 @@ fn having_lookup_keeps_first_match_and_canonical_count_distinct_rules() {
         AggregateKind::Sum,
         Expr::Literal(Value::List(vec![Value::Bool(true); 1000])),
     );
-    let root = request(Resource::NestedValueSteps, 0);
+    let root = request_with_limit(Resource::NestedValueSteps, 0);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         assert_eq!(
             resolve_group_having_aggregate_index(&group(vec![count()]), &target, work)?,
@@ -141,7 +131,7 @@ fn having_validation_enforces_exact_and_cumulative_request_limits() {
         right: Box::new(Expr::Literal(Value::Int64(0))),
     };
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let measured = request(Resource::TemporaryBytes, 0);
+        let measured = request_with_limit(Resource::TemporaryBytes, 0);
         validate(&group, Some(&having), &measured, lane).unwrap();
         for resource in [
             Resource::PredicateExpressionSteps,
@@ -150,7 +140,7 @@ fn having_validation_enforces_exact_and_cumulative_request_limits() {
             let exact = measured.observed(resource);
             assert!(exact > 0);
             for limit in [exact - 1, exact, 2 * exact] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 for attempt in 1..=3 {
                     let result = validate(&group, Some(&having), &root, lane);
                     if attempt * exact <= limit {
@@ -168,7 +158,13 @@ fn having_validation_enforces_exact_and_cumulative_request_limits() {
                 assert_eq!(root.observed(Resource::RowsVisited), 0);
                 assert_eq!(root.observed(Resource::QueryExecutions), 0);
             }
-            validate(&group, Some(&having), &request(resource, exact), lane).unwrap();
+            validate(
+                &group,
+                Some(&having),
+                &request_with_limit(resource, exact),
+                lane,
+            )
+            .unwrap();
         }
     }
     assert_eq!(group, before);
@@ -185,7 +181,7 @@ fn having_exhaustion_is_not_a_missing_aggregate_error() {
     let error = validate(
         &group,
         Some(&having),
-        &request(Resource::NestedValueSteps, 0),
+        &request_with_limit(Resource::NestedValueSteps, 0),
         Lane::Diagnostic,
     )
     .unwrap_err();
@@ -196,7 +192,7 @@ fn having_exhaustion_is_not_a_missing_aggregate_error() {
     let error = validate(
         &group,
         Some(&having),
-        &request(Resource::TemporaryBytes, 0),
+        &request_with_limit(Resource::TemporaryBytes, 0),
         Lane::Diagnostic,
     )
     .unwrap_err();
@@ -209,7 +205,7 @@ fn having_exhaustion_is_not_a_missing_aggregate_error() {
 
 #[test]
 fn absent_having_needs_no_lookup_budget() {
-    let root = request(Resource::PredicateExpressionSteps, 0);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 0);
     validate(&group(vec![count()]), None, &root, Lane::Diagnostic).unwrap();
     assert_eq!(root.observed(Resource::PredicateExpressionSteps), 0);
 }
@@ -258,7 +254,7 @@ fn grouped_field_membership_admits_exact_and_cumulative_work() {
                         }
                     })
                 };
-                let baseline = request(Resource::TemporaryBytes, 0);
+                let baseline = request_with_limit(Resource::TemporaryBytes, 0);
                 run(&baseline).unwrap();
                 let exact = baseline.observed(Resource::PredicateExpressionSteps);
                 // One leaf visit plus each candidate's existing comparison charge.
@@ -270,10 +266,14 @@ fn grouped_field_membership_admits_exact_and_cumulative_work() {
                         .map(|f| 1 + f.field().len() as u64)
                         .sum::<u64>()
                 );
-                let root = request(Resource::PredicateExpressionSteps, exact);
+                let root = request_with_limit(Resource::PredicateExpressionSteps, exact);
                 run(&root).unwrap();
                 for error in [
-                    run(&request(Resource::PredicateExpressionSteps, exact - 1)).unwrap_err(),
+                    run(&request_with_limit(
+                        Resource::PredicateExpressionSteps,
+                        exact - 1,
+                    ))
+                    .unwrap_err(),
                     run(&root).unwrap_err(),
                 ] {
                     assert!(matches!(error, QueryError::Execute(_)));
@@ -282,7 +282,11 @@ fn grouped_field_membership_admits_exact_and_cumulative_work() {
                         Resource::PredicateExpressionSteps.raw(),
                     )));
                 }
-                run(&request(Resource::PredicateExpressionSteps, exact)).unwrap();
+                run(&request_with_limit(
+                    Resource::PredicateExpressionSteps,
+                    exact,
+                ))
+                .unwrap();
                 assert_eq!(baseline.observed(Resource::TemporaryBytes), 0);
             }
         }
@@ -302,7 +306,7 @@ fn projection_membership_skips_aggregate_operands_and_keeps_first_error() {
     // The aggregate's row-level filter mentions rank, which is not a group key.
     run(
         &projection(vec![aggregate.clone()]),
-        &request(Resource::PredicateExpressionSteps, 1),
+        &request_with_limit(Resource::PredicateExpressionSteps, 1),
     )
     .unwrap();
     let fields = projection(vec![
@@ -311,7 +315,11 @@ fn projection_membership_skips_aggregate_operands_and_keeps_first_error() {
         Expr::Field("later".into()),
     ]);
     // Just enough work to reach the first invalid projection, not the later field.
-    let error = run(&fields, &request(Resource::PredicateExpressionSteps, 6)).unwrap_err();
+    let error = run(
+        &fields,
+        &request_with_limit(Resource::PredicateExpressionSteps, 6),
+    )
+    .unwrap_err();
     let expected = QueryError::from(PlanError::from(
         ExprPlanError::grouped_projection_references_non_group_field(1),
     ));
@@ -319,7 +327,7 @@ fn projection_membership_skips_aggregate_operands_and_keeps_first_error() {
     assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
     group.group_fields = GroupFieldSet::default();
     PreparationWork::run(
-        &request(Resource::PredicateExpressionSteps, 0).scope(),
+        &request_with_limit(Resource::PredicateExpressionSteps, 0).scope(),
         Lane::Diagnostic,
         |work| validate_group_projection_expr_compatibility(&group, &fields, work),
     )
@@ -351,13 +359,13 @@ fn having_field_rejections_preserve_compare_index_and_bound_labels() {
             validate_grouped_having_structure(&group, Some(&expr), work)
         })
     };
-    let error = run(&request(Resource::TemporaryBytes, 0)).unwrap_err();
+    let error = run(&request_with_limit(Resource::TemporaryBytes, 0)).unwrap_err();
     assert!(matches!(error, QueryError::Execute(_)));
     assert!(error.diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
         Resource::TemporaryBytes.raw(),
     )));
-    let error = run(&request(Resource::TemporaryBytes, 16_000_000)).unwrap_err();
+    let error = run(&request_with_limit(Resource::TemporaryBytes, 16_000_000)).unwrap_err();
     let expected = QueryError::from(
         PlanError::from(GroupPlanError::having_non_group_field_reference(
             1,

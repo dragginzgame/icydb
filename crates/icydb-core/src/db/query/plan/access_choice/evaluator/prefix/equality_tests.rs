@@ -3,8 +3,7 @@
 use super::{evaluate_branch_set_candidate_from_contract, evaluate_prefix_candidate};
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        QueryError,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
             plan::{
@@ -21,6 +20,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::{Value, lower_text_construction_allowance},
 };
@@ -28,16 +28,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn equal(field: &str, value: i64) -> Predicate {
     Predicate::eq(field.into(), Value::Int64(value))
@@ -88,7 +78,7 @@ fn equality_prefix_scores_preserve_gaps_conflicts_and_rejection_precedence() {
     ] {
         let predicate = Predicate::And(children);
         let before = predicate.clone();
-        let root = request(Resource::NestedValueSteps, 16_000_000);
+        let root = request_with_limit(Resource::NestedValueSteps, 16_000_000);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             let evaluation = evaluate_prefix_candidate(index, &schema, &predicate, work).unwrap();
             if let CandidateEvaluation::Eligible(score) = &evaluation {
@@ -153,7 +143,7 @@ fn equality_prefix_conversion_and_constraint_backing_share_cumulative_admission(
                     (Resource::NestedValueSteps, 2),
                 ] {
                     for limit in [0, exact.saturating_sub(1), exact * 2] {
-                        let root = request(resource, limit);
+                        let root = request_with_limit(resource, limit);
                         PreparationWork::run(&root.scope(), lane, |work| {
                             for attempt in 1..=3 {
                                 let result = if branch {
@@ -213,7 +203,7 @@ fn equality_score_hint_never_hides_exhausted_evaluation() {
         Predicate::And(vec![equal("age", 1)]),
         Predicate::And(vec![Predicate::True]),
     ] {
-        let root = request(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             let result = chosen_score_for_visible_indexes(
                 AccessChoiceFamily::Prefix,
@@ -238,7 +228,7 @@ fn equality_score_hint_never_hides_exhausted_evaluation() {
         })
         .unwrap();
     }
-    let root = request(Resource::TemporaryBytes, 16_000_000);
+    let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         assert_eq!(
             chosen_score_for_visible_indexes(
@@ -287,7 +277,7 @@ fn equality_prefix_expression_duplicates_compare_lowered_values() {
                 })
                 .into(),
         );
-        let root = request(Resource::NestedValueSteps, 2);
+        let root = request_with_limit(Resource::NestedValueSteps, 2);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assert_eq!(
                 prefix_len(evaluate_prefix_candidate(index, &schema, &predicate, work).unwrap()),
@@ -316,7 +306,7 @@ fn equality_payload_exhaustion_cannot_become_a_conflict_or_score_hint() {
     };
     for second in [1, 2] {
         let predicate = Predicate::And(vec![equal("age", 1), equal("age", second)]);
-        let root = request(Resource::NestedValueSteps, 0);
+        let root = request_with_limit(Resource::NestedValueSteps, 0);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             let error = chosen_score_for_visible_indexes(
                 AccessChoiceFamily::Prefix,

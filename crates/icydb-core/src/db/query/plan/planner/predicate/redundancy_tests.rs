@@ -3,9 +3,8 @@
 use super::{child_is_redundant_under_selected_index_access, key_item_guarantees_compare};
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
+        QueryError,
         access::{AccessPath, AccessPlan, SemanticIndexKeyItemRef, SemanticIndexRangeSpec},
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
             plan::{
@@ -14,6 +13,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::{Value, lower_text_construction_allowance},
 };
@@ -22,16 +22,6 @@ use icydb_diagnostic_code::{
     DiagnosticFactTag,
 };
 use std::{borrow::Cow, ops::Bound};
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 #[test]
 fn redundancy_membership_preserves_duplicates_empty_sets_and_incompatible_literals() {
@@ -76,7 +66,7 @@ fn redundancy_membership_preserves_duplicates_empty_sets_and_incompatible_litera
     ] {
         let cmp = ComparePredicate::with_coercion("name", op, value, CoercionId::Strict);
         let before = cmp.clone();
-        let root = request(Resource::NestedValueSteps, 0);
+        let root = request_with_limit(Resource::NestedValueSteps, 0);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assert_eq!(
                 key_item_guarantees_compare(
@@ -147,7 +137,7 @@ fn redundancy_lookup_admits_conversion_and_list_backing_cumulatively() {
                     (Resource::NestedValueSteps, 0),
                 ] {
                     for limit in [0, exact.saturating_sub(1), exact * 2] {
-                        let root = request(resource, limit);
+                        let root = request_with_limit(resource, limit);
                         PreparationWork::run(&root.scope(), lane, |work| {
                             for attempt in 1..=3 {
                                 let result = key_item_guarantees_compare(
@@ -218,7 +208,7 @@ fn redundancy_dispatch_preserves_fixed_prefix_range_and_branch_proofs() {
             ),
         ] {
             let before = child.clone();
-            let root = request(Resource::NestedValueSteps, 0);
+            let root = request_with_limit(Resource::NestedValueSteps, 0);
             PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
                 assert_eq!(
                     child_is_redundant_under_selected_index_access(

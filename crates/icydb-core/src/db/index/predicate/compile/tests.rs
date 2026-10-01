@@ -2,11 +2,11 @@
 
 use super::*;
 use crate::db::{
-    QueryError, RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+    QueryError,
     predicate::{CoercionId, CoercionSpec, IndexCompileTargetKind},
     query::preparation::{PreparationWork, with_preparation_work},
     schema::PersistedIndexExpressionOp,
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
@@ -30,16 +30,6 @@ fn compare(op: CompareOp, value: Value) -> ExecutablePredicate {
         value,
         CoercionSpec::new(CoercionId::Strict),
     ))
-}
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
 }
 
 #[test]
@@ -72,7 +62,7 @@ fn expression_conversion_admission_preserves_programs_and_cumulative_limits() {
             let canonical = compare(op, literal(text.to_lowercase()));
             let operands = if op == CompareOp::In { 2 } else { 1 };
             for policy in POLICIES {
-                let measured = root(Resource::TemporaryBytes, 16_000_000);
+                let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
                 let expected = PreparationWork::run(&measured.scope(), Lane::Diagnostic, |work| {
                     compile_index_program(&canonical, &[0], policy, work)
                         .map_err(QueryError::execute)
@@ -88,7 +78,7 @@ fn expression_conversion_admission_preserves_programs_and_cumulative_limits() {
                             compile_index_program_for_targets(&predicate, &targets, policy, work)
                                 .map_err(QueryError::execute)
                         };
-                        let rejected = root(resource, conversion - 1);
+                        let rejected = request_with_limit(resource, conversion - 1);
                         let error =
                             PreparationWork::run(&rejected.scope(), lane, build).unwrap_err();
                         assert!(
@@ -102,7 +92,7 @@ fn expression_conversion_admission_preserves_programs_and_cumulative_limits() {
                             assert_eq!(rejected.observed(Resource::TemporaryBytes), bytes);
                         }
                         let allowance = measured.observed(resource) + operands * conversion;
-                        let request = root(resource, allowance);
+                        let request = request_with_limit(resource, allowance);
                         assert_eq!(
                             PreparationWork::run(&request.scope(), lane, build).unwrap(),
                             expected
@@ -127,7 +117,7 @@ fn prefix_compilation_rejects_semantic_output_before_scalar_encoding() {
                     (Resource::TemporaryBytes, 6),
                     (Resource::PredicateExpressionSteps, 9),
                 ] {
-                    let request = root(resource, limit);
+                    let request = request_with_limit(resource, limit);
                     let result = PreparationWork::run(&request.scope(), lane, |work| {
                         if targets {
                             compile_index_program_for_targets(&predicate, &TARGETS, policy, work)
@@ -199,7 +189,7 @@ fn both_compilers_admit_each_encoded_scalar_in_every_read_lane() {
                         (Resource::TemporaryBytes, bytes),
                         (Resource::PredicateExpressionSteps, steps),
                     ] {
-                        let request = root(resource, allowance * 2 - 1);
+                        let request = request_with_limit(resource, allowance * 2 - 1);
                         for invocation in 0..2 {
                             let result = PreparationWork::run(&request.scope(), lane, |work| {
                                 if targets {
@@ -281,7 +271,7 @@ fn subset_only_drops_unsupported_conjunctions_never_budget_errors() {
             ));
             assert!(compile(&nested, POLICIES[1], work).unwrap().is_none());
         });
-        let request = root(Resource::TemporaryBytes, 8);
+        let request = request_with_limit(Resource::TemporaryBytes, 8);
         let result = PreparationWork::run(&request.scope(), Lane::PublicRead, |work| {
             compile(&subset, IndexCompilePolicy::ConservativeSubset, work)
                 .map_err(QueryError::execute)
@@ -291,7 +281,7 @@ fn subset_only_drops_unsupported_conjunctions_never_budget_errors() {
             Resource::TemporaryBytes.raw()
         ),));
         // Strict classification rejects the unsupported tree without encoding.
-        let request = root(Resource::TemporaryBytes, 0);
+        let request = request_with_limit(Resource::TemporaryBytes, 0);
         let result = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
             compile(&subset, IndexCompilePolicy::StrictAllOrNone, work).map_err(QueryError::execute)
         });

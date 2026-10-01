@@ -3,7 +3,6 @@
 use super::validate_group_cursor_constraints;
 use crate::db::{
     QueryError, RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     predicate::MissingRowPolicy,
     query::{
         builder::count,
@@ -15,22 +14,13 @@ use crate::db::{
         },
         preparation::PreparationWork,
     },
+    test_support::request_with_limit,
 };
 use crate::value::Value;
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn fixture(exprs: Vec<Expr>, limit: Option<u32>) -> (ScalarPlan, GroupSpec) {
     let mut logical = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore)
@@ -88,7 +78,7 @@ fn assert_resource(error: QueryError, resource: Resource) {
 fn absent_order_is_free_and_canonical_order_keeps_finite_limit_policy() {
     let (mut logical, mut group) = fixture(vec![Expr::Field("key".into())], None);
     validate(
-        &request(Resource::TemporaryBytes, 0),
+        &request_with_limit(Resource::TemporaryBytes, 0),
         Lane::PublicRead,
         &logical,
         &group,
@@ -97,7 +87,7 @@ fn absent_order_is_free_and_canonical_order_keeps_finite_limit_policy() {
     group.execution.max_groups = 0;
     assert_policy(
         validate(
-            &request(Resource::TemporaryBytes, 0),
+            &request_with_limit(Resource::TemporaryBytes, 0),
             Lane::PublicRead,
             &logical,
             &group,
@@ -106,7 +96,7 @@ fn absent_order_is_free_and_canonical_order_keeps_finite_limit_policy() {
         GroupPlanError::OrderRequiresLimit,
     );
     logical.order = None;
-    let root = request(Resource::PredicateExpressionSteps, 0);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 0);
     validate(&root, Lane::Diagnostic, &logical, &group).unwrap();
     assert_eq!(root.observed(Resource::PredicateExpressionSteps), 0);
     assert_eq!(root.observed(Resource::TemporaryBytes), 0);
@@ -121,7 +111,7 @@ fn later_heap_trigger_changes_earlier_term_admission_before_limit_policy() {
     };
     let (mut logical, group) = fixture(vec![computed, Expr::Aggregate(count())], Some(3));
     validate(
-        &request(Resource::TemporaryBytes, 0),
+        &request_with_limit(Resource::TemporaryBytes, 0),
         Lane::PublicRead,
         &logical,
         &group,
@@ -130,7 +120,7 @@ fn later_heap_trigger_changes_earlier_term_admission_before_limit_policy() {
     logical.page = None;
     assert_policy(
         validate(
-            &request(Resource::TemporaryBytes, 0),
+            &request_with_limit(Resource::TemporaryBytes, 0),
             Lane::PublicRead,
             &logical,
             &group,
@@ -147,7 +137,7 @@ fn later_heap_trigger_changes_earlier_term_admission_before_limit_policy() {
         .push(OrderTerm::field("other", OrderDirection::Asc));
     assert_policy(
         validate(
-            &request(Resource::TemporaryBytes, 0),
+            &request_with_limit(Resource::TemporaryBytes, 0),
             Lane::PublicRead,
             &logical,
             &group,
@@ -164,7 +154,7 @@ fn grouped_order_steps_are_exact_cumulative_and_preserve_resource_errors() {
         vec![Expr::Aggregate(count()), Expr::Field("key".into())],
     ] {
         let (logical, group) = fixture(terms, Some(3));
-        let baseline = request(Resource::PredicateExpressionSteps, 16_000_000);
+        let baseline = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
         validate(&baseline, Lane::PublicRead, &logical, &group).unwrap();
         let exact = baseline.observed(Resource::PredicateExpressionSteps);
         assert!(exact > 0);
@@ -172,7 +162,7 @@ fn grouped_order_steps_are_exact_cumulative_and_preserve_resource_errors() {
         for lane in [Lane::PublicRead, Lane::Diagnostic] {
             assert_resource(
                 validate(
-                    &request(Resource::PredicateExpressionSteps, exact - 1),
+                    &request_with_limit(Resource::PredicateExpressionSteps, exact - 1),
                     lane,
                     &logical,
                     &group,
@@ -180,14 +170,14 @@ fn grouped_order_steps_are_exact_cumulative_and_preserve_resource_errors() {
                 .unwrap_err(),
                 Resource::PredicateExpressionSteps,
             );
-            let root = request(Resource::PredicateExpressionSteps, exact);
+            let root = request_with_limit(Resource::PredicateExpressionSteps, exact);
             validate(&root, lane, &logical, &group).unwrap();
             assert_resource(
                 validate(&root, lane, &logical, &group).unwrap_err(),
                 Resource::PredicateExpressionSteps,
             );
             validate(
-                &request(Resource::PredicateExpressionSteps, exact),
+                &request_with_limit(Resource::PredicateExpressionSteps, exact),
                 lane,
                 &logical,
                 &group,
@@ -213,7 +203,7 @@ fn unsupported_labels_are_bounded_and_first_term_errors_are_preserved() {
         let label = logical.order.as_ref().unwrap().fields[0].rendered_label();
         assert_resource(
             validate(
-                &request(Resource::TemporaryBytes, 0),
+                &request_with_limit(Resource::TemporaryBytes, 0),
                 Lane::Diagnostic,
                 &logical,
                 &group,
@@ -223,7 +213,7 @@ fn unsupported_labels_are_bounded_and_first_term_errors_are_preserved() {
         );
         assert_policy(
             validate(
-                &request(Resource::TemporaryBytes, 16_000_000),
+                &request_with_limit(Resource::TemporaryBytes, 16_000_000),
                 Lane::Diagnostic,
                 &logical,
                 &group,

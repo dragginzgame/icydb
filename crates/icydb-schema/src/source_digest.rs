@@ -6,8 +6,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     DeclaredEntityVersion, EntityFragment, EntitySourceDigest, EntitySourceKey, FieldFragment,
-    FieldSourceKey, FieldType, NamedTypeFragment, RelationFragment, SchemaContractError,
-    SchemaMigrationPlan, SchemaProposal, TypeSourceKey,
+    FieldSourceKey, NamedTypeFragment, RelationFragment, SchemaContractError, SchemaMigrationPlan,
+    SchemaProposal, TypeSourceKey,
 };
 
 const ENTITY_SOURCE_DIGEST_PROFILE: &[u8] = b"icydb.entity-source-meaning.v1";
@@ -83,7 +83,9 @@ impl SchemaProposal {
 
         let mut pending_types = Vec::new();
         for field in entity.fields() {
-            collect_field_type_sources(field.field_type(), &mut pending_types);
+            field
+                .field_type()
+                .append_named_type_dependencies(&mut pending_types);
         }
         let mut relation_targets = relation_target_meanings(entity, &entities, &mut pending_types)?;
         if !target_names.is_empty() {
@@ -184,7 +186,9 @@ fn relation_target_meanings(
                         .find(|field| field.source_key() == &field_source)
                         .cloned()
                         .ok_or(SchemaContractError::InvalidMigrationReference)?;
-                    collect_field_type_sources(field.field_type(), pending_types);
+                    field
+                        .field_type()
+                        .append_named_type_dependencies(pending_types);
                     Ok((field_source, field))
                 })
                 .collect::<Result<Vec<_>, SchemaContractError>>()?;
@@ -206,7 +210,7 @@ fn reachable_type_meanings(
             .get(&source)
             .copied()
             .ok_or(SchemaContractError::InvalidMigrationReference)?;
-        collect_named_type_sources(definition, &mut pending);
+        definition.append_named_type_dependencies(&mut pending);
     }
     reachable
         .into_iter()
@@ -218,45 +222,6 @@ fn reachable_type_meanings(
                 .ok_or(SchemaContractError::InvalidMigrationReference)
         })
         .collect()
-}
-
-fn collect_named_type_sources(definition: &NamedTypeFragment, pending: &mut Vec<TypeSourceKey>) {
-    match definition {
-        NamedTypeFragment::Record(record) => {
-            for field in record.fields() {
-                collect_field_type_sources(field.field_type(), pending);
-            }
-        }
-        NamedTypeFragment::Enum(r#enum) => {
-            for variant in r#enum.variants() {
-                if let Some(payload) = variant.payload() {
-                    collect_field_type_sources(payload, pending);
-                }
-            }
-        }
-        NamedTypeFragment::Newtype { inner, .. }
-        | NamedTypeFragment::List { item: inner, .. }
-        | NamedTypeFragment::Set { item: inner, .. } => {
-            collect_field_type_sources(inner, pending);
-        }
-        NamedTypeFragment::Map { key, value, .. } => {
-            collect_field_type_sources(key, pending);
-            collect_field_type_sources(value, pending);
-        }
-        NamedTypeFragment::Tuple { members, .. } => {
-            for member in members {
-                collect_field_type_sources(member.field_type(), pending);
-            }
-        }
-    }
-}
-
-fn collect_field_type_sources(field_type: &FieldType, pending: &mut Vec<TypeSourceKey>) {
-    match field_type {
-        FieldType::List(inner) => collect_field_type_sources(inner, pending),
-        FieldType::Named(source) => pending.push(source.clone()),
-        FieldType::Scalar(_) => {}
-    }
 }
 
 #[cfg(test)]

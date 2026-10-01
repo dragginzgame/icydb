@@ -7,10 +7,9 @@ publish = false
 description = "Dedicated SQL perf audit schema fixture crate"
 
 [package.metadata.cargo-machete]
-ignored = ["candid", "icydb"]
+ignored = ["icydb"]
 
 [dependencies]
-candid = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-model = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }

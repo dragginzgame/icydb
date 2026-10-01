@@ -3,12 +3,12 @@
 use super::{CachedEqLiteral, build_index_eq_prefix};
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
+        QueryError,
         access::{SemanticIndexExpression, SemanticIndexKeyItem},
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::CoercionId,
         query::preparation::PreparationWork,
         schema::PersistedIndexExpressionOp,
+        test_support::request_with_limit,
     },
     value::{Value, lower_text_construction_allowance},
 };
@@ -16,16 +16,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 #[test]
 fn equality_prefix_duplicates_borrow_identity_and_admit_normalized_values() {
@@ -78,7 +68,7 @@ fn equality_prefix_duplicates_borrow_identity_and_admit_normalized_values() {
                     (Resource::NestedValueSteps, copied + 2 * comparisons),
                 ] {
                     for limit in [0, exact.saturating_sub(1), exact * 2] {
-                        let root = request(resource, limit);
+                        let root = request_with_limit(resource, limit);
                         PreparationWork::run(&root.scope(), lane, |work| {
                             for attempt in 0..3 {
                                 let result = build_index_eq_prefix(&keys, &literals, work);
@@ -157,7 +147,7 @@ fn equality_prefix_matching_preserves_mixed_keys_gaps_and_conflicts() {
                 compatible: true,
             })
             .collect();
-        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assert_eq!(
                 build_index_eq_prefix(&keys, &literals, work).unwrap(),
@@ -183,7 +173,7 @@ fn incompatible_equality_literals_leave_an_empty_prefix_without_copying() {
             coercion,
             compatible,
         }];
-        let root = request(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assert_eq!(
                 build_index_eq_prefix(&keys, &literals, work).unwrap(),

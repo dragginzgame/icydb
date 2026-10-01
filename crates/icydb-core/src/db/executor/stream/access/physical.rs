@@ -825,6 +825,93 @@ fn held_head_outcome(
         .map_or(Ok(HeldHeadSeekOutcome::Exhausted), Ok)
 }
 
+// These physical leaves share one held-head and polling contract. Keep the
+// storage-specific pull/refill and physical-seek methods on each backend;
+// every logical charge must succeed before consuming or replacing a held key.
+// A module-local template preserves their concrete dispatch and existing state.
+macro_rules! impl_physical_key_stream {
+    ($stream:ident) => {
+        impl $stream {
+            fn ensure_physical_head(
+                &mut self,
+                work: &mut HeldHeadSeekWork,
+            ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
+                if self.held.is_some() {
+                    return held_head_outcome(self.held.as_ref());
+                }
+                if self.exhausted && self.buffer_pos == self.buffer.len() {
+                    return Ok(HeldHeadSeekOutcome::Exhausted);
+                }
+                if !work.admits_pull() {
+                    return Ok(HeldHeadSeekOutcome::PageStop);
+                }
+                work.record_pull_attempt()?;
+                self.held = self.pull_next_key()?;
+                held_head_outcome(self.held.as_ref())
+            }
+        }
+
+        impl HeldHeadKeyStream for $stream {
+            fn seek_head_at_or_after(
+                &mut self,
+                target: &DecodedDataStoreKey,
+                work: &mut HeldHeadSeekWork,
+            ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
+                if target.entity_tag() != self.entity_tag {
+                    return Err(InternalError::executor_invariant());
+                }
+
+                loop {
+                    let direction = self.direction;
+                    let held_before_target = match self.ensure_physical_head(work)? {
+                        HeldHeadSeekOutcome::Held(held) => {
+                            work.record_comparison()?;
+                            KeyOrderComparator::from_direction(direction)
+                                .compare_data_keys(held, target)
+                                .is_lt()
+                        }
+                        HeldHeadSeekOutcome::Exhausted => {
+                            return Ok(HeldHeadSeekOutcome::Exhausted);
+                        }
+                        HeldHeadSeekOutcome::PageStop => return Ok(HeldHeadSeekOutcome::PageStop),
+                    };
+                    if !held_before_target {
+                        return held_head_outcome(self.held.as_ref());
+                    }
+
+                    work.record_skipped_consumptions(1)?;
+                    self.held = None;
+                    self.configure_physical_seek(target, work)?;
+                }
+            }
+
+            fn consume_head(
+                &mut self,
+                work: &mut HeldHeadSeekWork,
+            ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+                if self.held.is_none() {
+                    return Ok(None);
+                }
+                work.record_consumed()?;
+                Ok(self.held.take())
+            }
+        }
+
+        impl OrderedKeyStream for $stream {
+            fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
+                if self.held.is_some() {
+                    return Ok(self.held.take());
+                }
+                self.pull_next_key()
+            }
+
+            fn page_access_entry_bound(&self) -> Option<usize> {
+                Some(self.next_pull_entry_bound())
+            }
+        }
+    };
+}
+
 ///
 /// PrimaryRangeKeyStream
 ///
@@ -1203,24 +1290,6 @@ impl PrimaryRangeKeyStream {
         self.exhausted = false;
         Ok(true)
     }
-
-    fn ensure_physical_head(
-        &mut self,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-        if self.held.is_some() {
-            return held_head_outcome(self.held.as_ref());
-        }
-        if self.exhausted && self.buffer_pos == self.buffer.len() {
-            return Ok(HeldHeadSeekOutcome::Exhausted);
-        }
-        if !work.admits_pull() {
-            return Ok(HeldHeadSeekOutcome::PageStop);
-        }
-        work.record_pull_attempt()?;
-        self.held = self.pull_next_key()?;
-        held_head_outcome(self.held.as_ref())
-    }
 }
 
 fn primary_range_chunk_entries_for_active_page() -> Result<usize, InternalError> {
@@ -1275,70 +1344,7 @@ fn raw_bounds_may_contain_key(
     }
 }
 
-impl OrderedKeyStream for PrimaryRangeKeyStream {
-    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-        if self.held.is_some() {
-            return Ok(self.held.take());
-        }
-        self.pull_next_key()
-    }
-
-    fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
-        if self.remaining.is_some() {
-            return None;
-        }
-
-        None
-    }
-
-    fn page_access_entry_bound(&self) -> Option<usize> {
-        Some(self.next_pull_entry_bound())
-    }
-}
-
-impl HeldHeadKeyStream for PrimaryRangeKeyStream {
-    fn seek_head_at_or_after(
-        &mut self,
-        target: &DecodedDataStoreKey,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-        if target.entity_tag() != self.entity_tag {
-            return Err(InternalError::executor_invariant());
-        }
-
-        loop {
-            let direction = self.direction;
-            let held_before_target = match self.ensure_physical_head(work)? {
-                HeldHeadSeekOutcome::Held(held) => {
-                    work.record_comparison()?;
-                    KeyOrderComparator::from_direction(direction)
-                        .compare_data_keys(held, target)
-                        .is_lt()
-                }
-                HeldHeadSeekOutcome::Exhausted => return Ok(HeldHeadSeekOutcome::Exhausted),
-                HeldHeadSeekOutcome::PageStop => return Ok(HeldHeadSeekOutcome::PageStop),
-            };
-            if !held_before_target {
-                return held_head_outcome(self.held.as_ref());
-            }
-
-            work.record_skipped_consumptions(1)?;
-            self.held = None;
-            self.configure_physical_seek(target, work)?;
-        }
-    }
-
-    fn consume_head(
-        &mut self,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-        if self.held.is_none() {
-            return Ok(None);
-        }
-        work.record_consumed()?;
-        Ok(self.held.take())
-    }
-}
+impl_physical_key_stream!(PrimaryRangeKeyStream);
 
 ///
 /// IndexRangeKeyStream
@@ -1651,82 +1657,9 @@ impl IndexRangeKeyStream {
         self.exhausted = false;
         Ok(true)
     }
-
-    fn ensure_physical_head(
-        &mut self,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-        if self.held.is_some() {
-            return held_head_outcome(self.held.as_ref());
-        }
-        if self.exhausted && self.buffer_pos == self.buffer.len() {
-            return Ok(HeldHeadSeekOutcome::Exhausted);
-        }
-        if !work.admits_pull() {
-            return Ok(HeldHeadSeekOutcome::PageStop);
-        }
-        work.record_pull_attempt()?;
-        self.held = self.pull_next_key()?;
-        held_head_outcome(self.held.as_ref())
-    }
 }
 
-impl OrderedKeyStream for IndexRangeKeyStream {
-    fn next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-        if self.held.is_some() {
-            return Ok(self.held.take());
-        }
-        self.pull_next_key()
-    }
-
-    fn page_access_entry_bound(&self) -> Option<usize> {
-        Some(self.next_pull_entry_bound())
-    }
-}
-
-impl HeldHeadKeyStream for IndexRangeKeyStream {
-    fn seek_head_at_or_after(
-        &mut self,
-        target: &DecodedDataStoreKey,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<HeldHeadSeekOutcome<'_>, InternalError> {
-        if target.entity_tag() != self.entity_tag {
-            return Err(InternalError::executor_invariant());
-        }
-
-        loop {
-            let direction = self.direction;
-            let held_before_target = match self.ensure_physical_head(work)? {
-                HeldHeadSeekOutcome::Held(held) => {
-                    work.record_comparison()?;
-                    KeyOrderComparator::from_direction(direction)
-                        .compare_data_keys(held, target)
-                        .is_lt()
-                }
-                HeldHeadSeekOutcome::Exhausted => return Ok(HeldHeadSeekOutcome::Exhausted),
-                HeldHeadSeekOutcome::PageStop => return Ok(HeldHeadSeekOutcome::PageStop),
-            };
-            if !held_before_target {
-                return held_head_outcome(self.held.as_ref());
-            }
-
-            work.record_skipped_consumptions(1)?;
-            self.held = None;
-            self.configure_physical_seek(target, work)?;
-        }
-    }
-
-    fn consume_head(
-        &mut self,
-        work: &mut HeldHeadSeekWork,
-    ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-        if self.held.is_none() {
-            return Ok(None);
-        }
-        work.record_consumed()?;
-        Ok(self.held.take())
-    }
-}
+impl_physical_key_stream!(IndexRangeKeyStream);
 
 // Normalize key ordering according to explicit resolver output state.
 fn normalize_ordered_keys(

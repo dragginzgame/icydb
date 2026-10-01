@@ -3,8 +3,7 @@ use super::{
 };
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        QueryError,
         query::{
             plan::{
                 OrderDirection, OrderSpec, OrderTerm,
@@ -13,6 +12,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -21,16 +21,6 @@ use icydb_diagnostic_code::{
     DiagnosticFactTag,
 };
 use std::borrow::Cow;
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn order(names: &[&str]) -> OrderSpec {
     OrderSpec {
@@ -61,7 +51,7 @@ fn order_type_gate_keeps_direct_fast_path_and_resource_errors() {
             OrderDirection::Asc,
         )],
     };
-    let request = root(Resource::TemporaryBytes, 0);
+    let request = request_with_limit(Resource::TemporaryBytes, 0);
     PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         validate_order(&schema, &order(&["age"]), work)
     })
@@ -78,7 +68,7 @@ fn order_type_gate_keeps_direct_fast_path_and_resource_errors() {
         )));
         assert_eq!(error.query_field_context(), None);
     }
-    let request = root(Resource::TemporaryBytes, 16_000_000);
+    let request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let error = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         validate_order(&schema, &order(&["missing"]), work)
     })
@@ -93,7 +83,7 @@ fn order_type_gate_keeps_direct_fast_path_and_resource_errors() {
 fn primary_key_duplicates_need_no_scratch_or_label_copies() {
     let keys = ["id".into()];
     let order = order(&["id", "id"]);
-    let request = root(Resource::TemporaryBytes, 0);
+    let request = request_with_limit(Resource::TemporaryBytes, 0);
     PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         validate_no_duplicate_non_pk_order_fields(&keys, &order, work)?;
         validate_primary_key_tie_break(&keys, &order, work)
@@ -108,14 +98,14 @@ fn direct_names_borrow_payloads_and_reserve_only_seen_slots() {
     let keys = ["id".into()];
     let order = order(&["rank", "label"]);
     let bytes = 4 * size_of::<(usize, Cow<'_, str>)>() as u64;
-    let request = root(Resource::TemporaryBytes, bytes);
+    let request = request_with_limit(Resource::TemporaryBytes, bytes);
     PreparationWork::run(&request.scope(), Lane::PublicRead, |work| {
         validate_no_duplicate_non_pk_order_fields(&keys, &order, work)
     })
     .unwrap();
     assert_eq!(request.observed(Resource::TemporaryBytes), bytes);
     assert_eq!(request.observed(Resource::PredicateExpressionSteps), 5);
-    let rejected = root(Resource::TemporaryBytes, bytes - 1);
+    let rejected = request_with_limit(Resource::TemporaryBytes, bytes - 1);
     let error = PreparationWork::run(&rejected.scope(), Lane::PublicRead, |work| {
         validate_no_duplicate_non_pk_order_fields(&keys, &order, work)
     })
@@ -140,7 +130,7 @@ fn duplicate_positions_and_label_equivalence_are_preserved() {
         (order(&["id", "rank", "id", "rank"]), 1, 3),
         (computed, 0, 1),
     ] {
-        let request = root(Resource::TemporaryBytes, 16_000_000);
+        let request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let error = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
             validate_no_duplicate_non_pk_order_fields(&keys, &order, work)
         })
@@ -155,13 +145,13 @@ fn duplicate_positions_and_label_equivalence_are_preserved() {
 #[test]
 fn missing_composite_key_keeps_its_component_index_and_empty_order_exit() {
     let keys = ["tenant".into(), "id".into()];
-    let request = root(Resource::TemporaryBytes, 0);
+    let request = request_with_limit(Resource::TemporaryBytes, 0);
     let error = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         validate_primary_key_tie_break(&keys, &order(&["tenant", "ID"]), work)
     })
     .unwrap_err();
     assert_order_error(error, OrderPlanError::missing_primary_key_tie_break(1));
-    let empty = root(Resource::PredicateExpressionSteps, 0);
+    let empty = request_with_limit(Resource::PredicateExpressionSteps, 0);
     PreparationWork::run(&empty.scope(), Lane::Diagnostic, |work| {
         validate_primary_key_tie_break(&keys, &order(&[]), work)
     })
@@ -174,7 +164,7 @@ fn exhausted_checks_keep_current_request_charges_in_every_lane() {
     let keys = ["id".into()];
     let order = order(&["id"]);
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let request = root(Resource::PredicateExpressionSteps, 7);
+        let request = request_with_limit(Resource::PredicateExpressionSteps, 7);
         let validate = || {
             PreparationWork::run(&request.scope(), lane, |work| {
                 validate_no_duplicate_non_pk_order_fields(&keys, &order, work)?;
@@ -209,7 +199,7 @@ fn computed_label_exhaustion_rejects_before_seen_storage() {
             OrderDirection::Asc,
         )],
     };
-    let request = root(Resource::TemporaryBytes, 0);
+    let request = request_with_limit(Resource::TemporaryBytes, 0);
     let before = order.clone();
     let error = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         validate_no_duplicate_non_pk_order_fields(&keys, &order, work)

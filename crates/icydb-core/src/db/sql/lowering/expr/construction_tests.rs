@@ -1,7 +1,6 @@
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             plan::expr::{CaseWhenArm, Expr},
             preparation::PreparationWork,
@@ -16,22 +15,13 @@ use crate::{
                 SqlExprUnaryOp, SqlMembershipValue, SqlScalarFunction,
             },
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn lower(input: &SqlExpr, root: &RequestExecutionRoot) -> Result<Expr, QueryError> {
     PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
@@ -87,15 +77,15 @@ fn aggregate_operands_are_borrowed_and_retained_backing_is_charged() {
                 },
             )
         };
-        let exact = root(Resource::TemporaryBytes, bytes);
+        let exact = request_with_limit(Resource::TemporaryBytes, bytes);
         let expected = run(&exact).unwrap();
         assert_eq!(exact.observed(Resource::TemporaryBytes), bytes);
         if bytes != 0 {
-            assert!(run(&root(Resource::TemporaryBytes, bytes - 1)).is_err());
+            assert!(run(&request_with_limit(Resource::TemporaryBytes, bytes - 1)).is_err());
         }
         assert_eq!(syntax, original);
         assert_eq!(
-            run(&root(Resource::TemporaryBytes, bytes)).unwrap(),
+            run(&request_with_limit(Resource::TemporaryBytes, bytes)).unwrap(),
             expected
         );
     }
@@ -116,10 +106,16 @@ fn literals_and_membership_charge_nested_payload_not_only_slots() {
             4 + size_of::<Value>() as u64 + bytes + 2 * size_of::<Expr>() as u64,
         ),
     ] {
-        let exact = root(Resource::TemporaryBytes, required);
+        let exact = request_with_limit(Resource::TemporaryBytes, required);
         assert!(lower(&input, &exact).is_ok());
         assert_eq!(exact.observed(Resource::TemporaryBytes), required);
-        assert!(lower(&input, &root(Resource::TemporaryBytes, required - 1)).is_err());
+        assert!(
+            lower(
+                &input,
+                &request_with_limit(Resource::TemporaryBytes, required - 1)
+            )
+            .is_err()
+        );
     }
 }
 
@@ -210,10 +206,10 @@ fn scalar_construction_charges_exact_requested_backing() {
         ),
     ];
     for (input, bytes) in cases {
-        let exact = root(Resource::TemporaryBytes, bytes);
+        let exact = request_with_limit(Resource::TemporaryBytes, bytes);
         assert!(lower(&input, &exact).is_ok(), "{input:?}");
         assert_eq!(exact.observed(Resource::TemporaryBytes), bytes, "{input:?}");
-        let short = root(Resource::TemporaryBytes, bytes - 1);
+        let short = request_with_limit(Resource::TemporaryBytes, bytes - 1);
         let error = lower(&input, &short).expect_err("must reject before last backing allocation");
         assert!(error.diagnostic_facts().contains(&(
             DiagnosticFactTag::BudgetResource,
@@ -229,11 +225,23 @@ fn expression_visits_and_identifier_copy_work_have_exact_limits() {
         segments: vec!["a".to_string(), "bb".to_string()],
     };
     // One root visit, two path-segment visits and seven copied bytes.
-    let exact = root(Resource::PredicateExpressionSteps, 10);
+    let exact = request_with_limit(Resource::PredicateExpressionSteps, 10);
     lower(&input, &exact).unwrap();
     assert_eq!(exact.observed(Resource::PredicateExpressionSteps), 10);
-    assert!(lower(&input, &root(Resource::PredicateExpressionSteps, 9)).is_err());
-    assert!(lower(&literal(), &root(Resource::PredicateExpressionSteps, 0)).is_err());
+    assert!(
+        lower(
+            &input,
+            &request_with_limit(Resource::PredicateExpressionSteps, 9)
+        )
+        .is_err()
+    );
+    assert!(
+        lower(
+            &literal(),
+            &request_with_limit(Resource::PredicateExpressionSteps, 0)
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -245,7 +253,7 @@ fn failed_construction_preserves_syntax_and_accumulates_retry_work() {
     };
     let original = input.clone();
     // Permit the first field and box, but reject the second field copy.
-    let request = root(Resource::TemporaryBytes, 4 + size_of::<Expr>() as u64);
+    let request = request_with_limit(Resource::TemporaryBytes, 4 + size_of::<Expr>() as u64);
     let mut observed = 0;
     for _ in 0..2 {
         assert!(lower(&input, &request).is_err());
@@ -256,7 +264,7 @@ fn failed_construction_preserves_syntax_and_accumulates_retry_work() {
     assert!(
         lower(
             &input,
-            &root(Resource::TemporaryBytes, 8 + 2 * size_of::<Expr>() as u64)
+            &request_with_limit(Resource::TemporaryBytes, 8 + 2 * size_of::<Expr>() as u64)
         )
         .is_ok()
     );

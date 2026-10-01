@@ -3,27 +3,17 @@
 
 use super::*;
 use crate::db::{
-    MissingRowPolicy, RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+    MissingRowPolicy,
     query::{
         intent::StructuralQuery,
         plan::{OrderSpec, VisibleIndexes},
         preparation::PreparationWork,
     },
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 #[test]
 fn filterless_misses_require_compilation_but_warm_plans_do_not() {
@@ -45,7 +35,7 @@ fn filterless_misses_require_compilation_but_warm_plans_do_not() {
             DiagnosticExecutionLane::Diagnostic,
         ] {
             setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
-            let rejected = request(Resource::PlanCompilations, 0);
+            let rejected = request_with_limit(Resource::PlanCompilations, 0);
             let reader = new_request_session_with_root(&rejected);
             let error = reader
                 .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
@@ -61,7 +51,7 @@ fn filterless_misses_require_compilation_but_warm_plans_do_not() {
             )));
             assert_eq!(setup.shared_query_cache_usage_for_tests(), (0, 0));
 
-            let cold = request(Resource::PlanCompilations, 1);
+            let cold = request_with_limit(Resource::PlanCompilations, 1);
             let reader = new_request_session_with_root(&cold);
             let (expected, reuse) = reader
                 .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
@@ -76,7 +66,7 @@ fn filterless_misses_require_compilation_but_warm_plans_do_not() {
             let retained = setup.shared_query_cache_usage_for_tests();
             assert_eq!(retained.0, 1);
 
-            let warm = request(Resource::PlanCompilations, 0);
+            let warm = request_with_limit(Resource::PlanCompilations, 0);
             let reader = new_request_session_with_root(&warm);
             let (actual, reuse) = reader
                 .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
@@ -120,7 +110,7 @@ fn cache_preparation_failure_does_not_publish_or_replace_cached_plans() {
             setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
             for warm in [false, true] {
                 let before = setup.shared_query_cache_usage_for_tests();
-                let root = request(resource, 0);
+                let root = request_with_limit(resource, 0);
                 let session = new_request_session_with_root(&root);
                 for query in &queries {
                     let error = session
@@ -143,7 +133,7 @@ fn cache_preparation_failure_does_not_publish_or_replace_cached_plans() {
 
                 // A fresh request may construct the contract. Failed B must
                 // leave the previously retained A reusable, never replace it.
-                let admitted = request(resource, 16_000_000);
+                let admitted = request_with_limit(resource, 16_000_000);
                 let session = new_request_session_with_root(&admitted);
                 let (_, reuse) = session
                     .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
@@ -199,7 +189,7 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
             ),
         ] {
             setup.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
-            let rejected = request(resource, exact - 1);
+            let rejected = request_with_limit(resource, exact - 1);
             let session = new_request_session_with_root(&rejected);
             let mut previous = 0;
             for _ in 0..2 {
@@ -232,7 +222,7 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
                 assert_eq!(rejected.observed(Resource::QueryExecutions), 0);
                 assert_eq!(setup.shared_query_cache_usage_for_tests(), (0, 0));
             }
-            let admitted = request(resource, exact);
+            let admitted = request_with_limit(resource, exact);
             let session = new_request_session_with_root(&admitted);
             let (_, reuse) = session
                 .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
@@ -247,7 +237,7 @@ fn template_candidate_construction_rejects_before_publication_and_shares_warm_au
             assert_eq!(setup.shared_query_cache_usage_for_tests().0, 1);
             // A bound-plan hit still constructs its template key, but skips
             // plan construction. Rebinding retains the candidate array.
-            let warm = request(resource, memo + rebound.iter().sum::<u64>());
+            let warm = request_with_limit(resource, memo + rebound.iter().sum::<u64>());
             let session = new_request_session_with_root(&warm);
             let charges = [memo, rebound[0], rebound[1]];
             let mut expected = 0;
@@ -284,7 +274,7 @@ fn construction_costs(
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap();
     std::array::from_fn(|position| {
-        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let session = new_request_session_with_root(&root);
         let (_, reuse) = session
             .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(

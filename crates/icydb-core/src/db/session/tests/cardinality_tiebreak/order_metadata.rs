@@ -4,8 +4,7 @@ use super::*;
 use crate::db::query::preparation::with_preparation_work;
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        QueryError,
         query::{
             plan::{
                 AccessPlannedQuery, LogicalPlan, OrderDirection, OrderTerm, ResolvedOrder,
@@ -17,20 +16,11 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     error::InternalError,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn order_plan(setup: &DbSession<TestCanister>, fields: Vec<OrderTerm>) -> AccessPlannedQuery {
     let catalog = setup
@@ -85,7 +75,7 @@ fn direct_order_construction_limits_preserve_directions_and_duplicate_slots() {
             (Resource::PredicateExpressionSteps, projection_steps + 11),
         ] {
             for limit in [exact - 1, exact] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 let mut candidate = plan.clone();
                 let before = candidate.clone();
                 let result = PreparationWork::run(&root.scope(), lane, |work| {
@@ -141,7 +131,7 @@ fn expression_order_seam_is_budgeted_and_preserves_compiled_output() {
     // Three seam nodes, nine compiler steps (three nodes and two field lookups),
     // then one order field, one compiled node, two slots and a duplicate comparison.
     for limit in [16, 17] {
-        let root = request(Resource::PredicateExpressionSteps, projection_steps + limit);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, projection_steps + limit);
         let mut candidate = plan.clone();
         let result =
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
@@ -240,7 +230,7 @@ fn order_slot_construction_preserves_first_reference_order_at_exact_limits() {
             (Resource::TemporaryBytes, 4 * size_of::<usize>() as u64),
         ] {
             for limit in [exact - 1, exact] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 let result =
                     PreparationWork::run(&root.scope(), lane, |work| order.referenced_slots(work));
                 if limit == exact {
@@ -268,7 +258,7 @@ fn order_slot_rejection_preserves_prior_entries_and_duplicates_need_no_backing()
     ] {
         let mut slots = vec![8];
         let capacity = slots.capacity();
-        let root = request(resource, limit);
+        let root = request_with_limit(resource, limit);
         let error =
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
                 ResolvedOrderValueSource::direct_field(3).extend_referenced_slots(&mut slots, work)
@@ -282,7 +272,7 @@ fn order_slot_rejection_preserves_prior_entries_and_duplicates_need_no_backing()
         assert_eq!(slots, [8]);
         assert_eq!(slots.capacity(), capacity);
     }
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     let mut slots = vec![8];
     PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
         ResolvedOrderValueSource::direct_field(8).extend_referenced_slots(&mut slots, work)
@@ -303,7 +293,7 @@ fn slot_free_order_expressions_still_charge_node_visits() {
         OrderDirection::Asc,
     )]);
     for limit in [2, 3] {
-        let root = request(Resource::PredicateExpressionSteps, limit);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
         let result =
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
                 order.referenced_slots(work)

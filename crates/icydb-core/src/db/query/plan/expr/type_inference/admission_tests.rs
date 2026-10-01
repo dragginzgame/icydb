@@ -4,7 +4,6 @@ use super::{ExprType, infer_expr_type};
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             builder::{AggregateExpr, count},
             plan::{
@@ -14,6 +13,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -21,16 +21,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag, QueryFieldRole,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn infer(expr: &Expr, root: &RequestExecutionRoot, lane: Lane) -> Result<ExprType, QueryError> {
     let schema = exact_metadata_schema(&[], &[]);
@@ -66,20 +56,20 @@ fn inference_admits_argument_storage_and_cumulative_visits_without_rewriting() {
     };
     let before = expr.clone();
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let baseline = root(Resource::TemporaryBytes, 16_000_000);
+        let baseline = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = infer(&expr, &baseline, lane).unwrap();
         for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
             let exact = baseline.observed(resource);
             assert!(exact > 0);
-            let request = root(resource, exact);
+            let request = request_with_limit(resource, exact);
             assert_eq!(infer(&expr, &request, lane).unwrap(), expected);
             assert_resource(infer(&expr, &request, lane).unwrap_err(), resource);
             assert_resource(
-                infer(&expr, &root(resource, exact - 1), lane).unwrap_err(),
+                infer(&expr, &request_with_limit(resource, exact - 1), lane).unwrap_err(),
                 resource,
             );
             assert_eq!(
-                infer(&expr, &root(resource, exact), lane).unwrap(),
+                infer(&expr, &request_with_limit(resource, exact), lane).unwrap(),
                 expected
             );
         }
@@ -122,7 +112,7 @@ fn inference_preserves_case_function_and_binary_first_errors() {
         assert_missing(
             infer(
                 &expr,
-                &root(Resource::TemporaryBytes, 16_000_000),
+                &request_with_limit(Resource::TemporaryBytes, 16_000_000),
                 Lane::Diagnostic,
             )
             .unwrap_err(),
@@ -138,13 +128,18 @@ fn inference_labels_are_admitted_and_literal_payloads_stay_unvisited() {
         Expr::FieldPath(FieldPath::new("missing", vec!["child".into()])),
     ] {
         assert_resource(
-            infer(&expr, &root(Resource::TemporaryBytes, 0), Lane::PublicRead).unwrap_err(),
+            infer(
+                &expr,
+                &request_with_limit(Resource::TemporaryBytes, 0),
+                Lane::PublicRead,
+            )
+            .unwrap_err(),
             Resource::TemporaryBytes,
         );
         assert_missing(
             infer(
                 &expr,
-                &root(Resource::TemporaryBytes, 16_000_000),
+                &request_with_limit(Resource::TemporaryBytes, 16_000_000),
                 Lane::PublicRead,
             )
             .unwrap_err(),
@@ -162,7 +157,7 @@ fn inference_labels_are_admitted_and_literal_payloads_stay_unvisited() {
         ),
         Expr::Aggregate(count()),
     ] {
-        let request = root(Resource::TemporaryBytes, 0);
+        let request = request_with_limit(Resource::TemporaryBytes, 0);
         infer(&expr, &request, Lane::Diagnostic).unwrap();
         assert_eq!(request.observed(Resource::PredicateExpressionSteps), 1);
         assert_eq!(request.observed(Resource::NestedValueSteps), 0);
@@ -171,7 +166,7 @@ fn inference_labels_are_admitted_and_literal_payloads_stay_unvisited() {
     assert_eq!(
         infer(
             &Expr::FieldPath(FieldPath::new("age", vec!["child".into()])),
-            &root(Resource::TemporaryBytes, 0),
+            &request_with_limit(Resource::TemporaryBytes, 0),
             Lane::Diagnostic
         )
         .unwrap(),
@@ -190,7 +185,7 @@ fn projection_type_gate_preserves_resource_failures_and_field_context() {
         alias: None,
     }]);
     for limit in [0, 16_000_000] {
-        let root = root(Resource::TemporaryBytes, limit);
+        let root = request_with_limit(Resource::TemporaryBytes, limit);
         let schema = exact_metadata_schema(&[], &[]);
         let error = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             validate_projection_expr_types(&schema, &projection, work)

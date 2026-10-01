@@ -3,10 +3,10 @@
 use super::{intersect_canonical_value_sets, primary_key_child_access_candidate};
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
+        QueryError,
         access::{AccessPath, AccessPlan},
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{plan::PlannedNonIndexAccessReason as Reason, preparation::PreparationWork},
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -14,16 +14,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn check_admission(
     children: &[AccessPlan<Value>],
@@ -40,7 +30,7 @@ fn check_admission(
             (Resource::NestedValueSteps, copies),
         ] {
             for limit in [0, exact.saturating_sub(1), exact * 2] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 PreparationWork::run(&root.scope(), lane, |work| {
                     for attempt in 1..=3 {
                         let result = primary_key_child_access_candidate(children, work);

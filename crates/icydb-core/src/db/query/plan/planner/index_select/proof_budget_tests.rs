@@ -9,13 +9,13 @@ use super::{
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
             construction::ConstructionBudget,
             plan::{AccessPlannedQuery, LogicalPlan, VisibleIndexes, exact_metadata_schema},
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     error::InternalError,
     value::Value,
@@ -24,16 +24,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn run<T>(
     root: &RequestExecutionRoot,
@@ -55,19 +45,19 @@ fn assert_resource(error: &QueryError, resource: Resource) {
 fn assert_step_bound<T: PartialEq + std::fmt::Debug>(
     proof: impl Fn(&dyn ConstructionBudget) -> Result<T, InternalError>,
 ) {
-    let generous = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let generous = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
     let expected = run(&generous, &proof).unwrap();
     let used = generous.observed(Resource::PredicateExpressionSteps);
     assert!(used > 0);
     // Failure at any point must not turn into false, true or an absent residual.
     for limit in 0..used {
-        let root = request(Resource::PredicateExpressionSteps, limit);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
         assert_resource(
             &run(&root, &proof).unwrap_err(),
             Resource::PredicateExpressionSteps,
         );
     }
-    let exact = request(Resource::PredicateExpressionSteps, used * 2);
+    let exact = request_with_limit(Resource::PredicateExpressionSteps, used * 2);
     assert_eq!(run(&exact, &proof).unwrap(), expected);
     assert_eq!(run(&exact, &proof).unwrap(), expected);
     assert_resource(
@@ -170,18 +160,18 @@ fn prefix_successor_admission_is_cumulative_and_follows_lower_proof() {
         access_bound_text_prefix_range_implies_required(&ranges, &cmp, budget)
     };
     assert_step_bound(proof);
-    let generous = request(Resource::TemporaryBytes, 16_000_000);
+    let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     assert!(run(&generous, proof).unwrap());
     let used = generous.observed(Resource::TemporaryBytes);
     assert_eq!(used, "λ".len() as u64 + 1);
-    let exact = request(Resource::TemporaryBytes, used * 2);
+    let exact = request_with_limit(Resource::TemporaryBytes, used * 2);
     assert!(run(&exact, proof).unwrap());
     assert!(run(&exact, proof).unwrap());
     assert_resource(&run(&exact, proof).unwrap_err(), Resource::TemporaryBytes);
-    let none = request(Resource::TemporaryBytes, 0);
+    let none = request_with_limit(Resource::TemporaryBytes, 0);
     assert_resource(&run(&none, proof).unwrap_err(), Resource::TemporaryBytes);
     let unrelated = [Some(ComparisonRef::strict("other", CompareOp::Gte, &lower))];
-    let none = request(Resource::TemporaryBytes, 0);
+    let none = request_with_limit(Resource::TemporaryBytes, 0);
     assert!(
         !run(&none, |budget| {
             access_bound_text_prefix_range_implies_required(&unrelated, &cmp, budget)
@@ -216,7 +206,7 @@ fn payload_comparison_keeps_numeric_strict_semantics_and_admits_repeated_work() 
     ];
     for left in &values {
         for right in &values {
-            let baseline = request(Resource::PredicateExpressionSteps, 16_000_000);
+            let baseline = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
             let expected = crate::db::numeric::compare_numeric_or_strict_order(left, right);
             assert_eq!(
                 run(&baseline, |budget| compare_values(left, right, budget)).unwrap(),
@@ -230,7 +220,7 @@ fn payload_comparison_keeps_numeric_strict_semantics_and_admits_repeated_work() 
                 if used == 0 {
                     continue;
                 }
-                let exact = request(resource, used * 2);
+                let exact = request_with_limit(resource, used * 2);
                 for _ in 0..2 {
                     assert_eq!(
                         run(&exact, |budget| compare_values(left, right, budget)).unwrap(),
@@ -244,7 +234,7 @@ fn payload_comparison_keeps_numeric_strict_semantics_and_admits_repeated_work() 
             }
         }
     }
-    let mismatch = request(Resource::PredicateExpressionSteps, 1);
+    let mismatch = request_with_limit(Resource::PredicateExpressionSteps, 1);
     assert_eq!(
         run(&mismatch, |budget| compare_values(
             &values[0],
@@ -262,7 +252,7 @@ fn structural_membership_shortcut_admits_nested_payloads_before_equality() {
     let value = Value::List(vec![Value::Blob(vec![1, 2, 3]), Value::Null]);
     let list = Value::List(vec![value.clone()]);
     let required = [value];
-    let baseline = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let baseline = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
     assert!(
         run(&baseline, |budget| list_contains_all_values(
             &list, &required, budget
@@ -275,7 +265,7 @@ fn structural_membership_shortcut_admits_nested_payloads_before_equality() {
     ] {
         let used = baseline.observed(resource);
         assert!(used > 0);
-        let short = request(resource, used - 1);
+        let short = request_with_limit(resource, used - 1);
         assert_resource(
             &run(&short, |budget| {
                 list_contains_all_values(&list, &required, budget)

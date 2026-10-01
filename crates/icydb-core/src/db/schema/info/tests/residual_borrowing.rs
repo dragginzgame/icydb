@@ -4,13 +4,13 @@ use super::newtype_query_schema;
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::{MissingRowPolicy, Predicate},
         query::{
             explain::ExplainPredicate,
             plan::{AccessPlannedQuery, LogicalPlan},
             preparation::{PreparationWork, with_preparation_work},
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -18,16 +18,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn plan(predicate: Option<Predicate>) -> AccessPlannedQuery {
     let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
@@ -93,7 +83,7 @@ fn finalized_residual_inspection_borrows_the_frozen_predicate() {
         }
         if frozen.is_none() {
             assert_eq!(
-                project(&plan, &request(Resource::TemporaryBytes, 0)).unwrap(),
+                project(&plan, &request_with_limit(Resource::TemporaryBytes, 0)).unwrap(),
                 None
             );
         }
@@ -113,7 +103,7 @@ fn residual_inspection_requires_frozen_metadata_even_for_empty_filters() {
         ] {
             assert_eq!(error.class(), crate::error::ErrorClass::InvariantViolation);
         }
-        assert!(project(&plan, &request(Resource::TemporaryBytes, 0)).is_err());
+        assert!(project(&plan, &request_with_limit(Resource::TemporaryBytes, 0)).is_err());
         let expected =
             with_preparation_work(|work| plan.prepare_residual_filter_shape(work)).unwrap();
         finalize(&mut plan);
@@ -135,12 +125,12 @@ fn explicit_residual_shape_preparation_admits_copies_and_reuses_frozen_facts() {
                 .map_err(QueryError::execute)
         })
     };
-    let generous = request(Resource::TemporaryBytes, 16_000_000);
+    let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let expected = prepare(&plan, &generous).unwrap();
     for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
         let used = generous.observed(resource);
         assert!(used > 0);
-        let exact = request(resource, used * 2);
+        let exact = request_with_limit(resource, used * 2);
         assert_eq!(prepare(&plan, &exact).unwrap(), expected);
         assert_eq!(prepare(&plan, &exact).unwrap(), expected);
         let error = prepare(&plan, &exact).unwrap_err();
@@ -153,7 +143,7 @@ fn explicit_residual_shape_preparation_admits_copies_and_reuses_frozen_facts() {
     }
     finalize(&mut plan);
     for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
-        let empty = request(resource, 0);
+        let empty = request_with_limit(resource, 0);
         assert_eq!(prepare(&plan, &empty).unwrap(), expected);
         assert_eq!(empty.observed(resource), 0);
         assert_eq!(empty.observed(Resource::RowsVisited), 0);
@@ -167,21 +157,21 @@ fn borrowed_residual_projection_keeps_cumulative_admission_and_identity() {
     let before = plan.clone();
     let signature =
         with_preparation_work(|work| plan.continuation_signature("tests::Token", work)).unwrap();
-    let generous = request(Resource::TemporaryBytes, 16_000_000);
+    let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let expected = project(&plan, &generous).unwrap();
     assert!(expected.is_some());
 
     for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
         let used = generous.observed(resource);
         assert!(used > 0);
-        let short = request(resource, used - 1);
+        let short = request_with_limit(resource, used - 1);
         let error = project(&plan, &short).unwrap_err();
         assert!(
             error
                 .diagnostic_facts()
                 .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
         );
-        let exact = request(resource, 2 * used);
+        let exact = request_with_limit(resource, 2 * used);
         for _ in 0..2 {
             assert_eq!(project(&plan, &exact).unwrap(), expected);
         }
@@ -215,12 +205,12 @@ fn residual_preparation_copy_admission_precedes_backing_and_is_cumulative() {
                     plan.execution_preparation_predicate(work)
                 })
             };
-            let generous = request(Resource::TemporaryBytes, 16_000_000);
+            let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
             let expected = copy(&generous).unwrap();
             assert_eq!(expected, Some(predicate()));
             for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
                 let used = generous.observed(resource);
-                let exact = request(resource, 2 * used);
+                let exact = request_with_limit(resource, 2 * used);
                 assert_eq!(copy(&exact).unwrap(), expected);
                 assert_eq!(copy(&exact).unwrap(), expected);
                 assert_eq!(exact.observed(resource), 2 * used);
@@ -232,7 +222,7 @@ fn residual_preparation_copy_admission_precedes_backing_and_is_cumulative() {
                 );
                 assert_eq!(exact.observed(Resource::RowsVisited), 0);
             }
-            let short = request(
+            let short = request_with_limit(
                 Resource::TemporaryBytes,
                 (2 * size_of::<Predicate>() - 1) as u64,
             );
@@ -268,13 +258,13 @@ fn residual_finalization_exhaustion_does_not_install_partial_contract() {
     let signature =
         with_preparation_work(|work| original.continuation_signature("tests::Token", work))
             .unwrap();
-    let generous = request(Resource::TemporaryBytes, 16_000_000);
+    let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let mut successful = original.clone();
     freeze(&mut successful, &generous).unwrap();
     assert!(successful.static_execution_planning_contract.is_some());
     for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
         let used = generous.observed(resource);
-        let short = request(resource, used - 1);
+        let short = request_with_limit(resource, used - 1);
         let mut rejected = original.clone();
         assert!(freeze(&mut rejected, &short).is_err());
         assert_eq!(rejected, original);
@@ -283,7 +273,7 @@ fn residual_finalization_exhaustion_does_not_install_partial_contract() {
                 .unwrap(),
             signature
         );
-        let exact = request(resource, used * 2);
+        let exact = request_with_limit(resource, used * 2);
         for _ in 0..2 {
             let mut accepted = original.clone();
             freeze(&mut accepted, &exact).unwrap();

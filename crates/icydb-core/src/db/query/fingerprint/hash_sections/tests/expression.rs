@@ -1,6 +1,5 @@
 //! Shared query hashing admission, semantic parity and continuation propagation.
 
-use super::request;
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
@@ -25,6 +24,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::{Value, test_hash_budget_error, with_test_hash_override},
 };
@@ -112,7 +112,7 @@ fn query_expression_hashes_preserve_bytes_under_exact_and_cumulative_admission()
     for as_projection in [false, true] {
         let expected = reference_hash(&expr, as_projection);
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-            let measured = request(Resource::TemporaryBytes, 16_000_000);
+            let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
             assert_eq!(
                 query_hash(&expr, as_projection, &measured, lane).unwrap(),
                 expected
@@ -125,7 +125,7 @@ fn query_expression_hashes_preserve_bytes_under_exact_and_cumulative_admission()
                 let exact = measured.observed(resource);
                 assert!(exact > 0);
                 for limit in [exact - 1, exact, 2 * exact] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     for attempt in 1..=3 {
                         let result = query_hash(&expr, as_projection, &root, lane);
                         if attempt * exact <= limit {
@@ -159,7 +159,7 @@ fn query_hash_admission_uses_canonical_count_operands_and_ignores_alias_bytes() 
         Expr::Literal(Value::Text("x".repeat(8192))),
     ));
     for as_projection in [false, true] {
-        let root = request(Resource::NestedValueSteps, 0);
+        let root = request_with_limit(Resource::NestedValueSteps, 0);
         assert_eq!(
             query_hash(&count_rows, as_projection, &root, Lane::Diagnostic).unwrap(),
             query_hash(&count_literal, as_projection, &root, Lane::Diagnostic).unwrap(),
@@ -168,7 +168,7 @@ fn query_hash_admission_uses_canonical_count_operands_and_ignores_alias_bytes() 
         assert_eq!(root.observed(Resource::TemporaryBytes), 0);
     }
     let field = Expr::Field(FieldId::new("账户"));
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     let expected = query_hash(&field, true, &root, Lane::Diagnostic).unwrap();
     let plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
     for alias in [None, Some(Alias::new("x".repeat(8192)))] {
@@ -190,7 +190,7 @@ fn query_hash_admission_uses_canonical_count_operands_and_ignores_alias_bytes() 
 #[test]
 fn admission_finishes_before_encoding_and_does_not_hash_literals_twice() {
     let expr = Expr::Literal(Value::Map(vec![(Value::Bool(true), Value::Bool(false))]));
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         let mut hasher = new_hash_sha256();
         let before = finalize_sha256_digest(hasher.clone());
@@ -200,7 +200,7 @@ fn admission_finishes_before_encoding_and_does_not_hash_literals_twice() {
     })
     .unwrap();
     with_test_hash_override(Err(test_hash_budget_error), || {
-        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             admit_expr_hash(&expr, work).map_err(QueryError::execute)
         })
@@ -227,16 +227,22 @@ fn filter_hash_failure_prevents_continuation_return_and_fresh_retry_succeeds() {
                 .map_err(QueryError::execute)
         })
     };
-    let error = build(&request(Resource::NestedValueSteps, 0)).unwrap_err();
+    let error = build(&request_with_limit(Resource::NestedValueSteps, 0)).unwrap_err();
     assert!(error.diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
         Resource::NestedValueSteps.raw()
     )));
-    let measured = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let measured = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
     let expected = build(&measured).unwrap().unwrap().continuation_signature();
     let exact = measured.observed(Resource::PredicateExpressionSteps);
-    assert!(build(&request(Resource::PredicateExpressionSteps, exact - 1)).is_err());
-    let root = request(Resource::PredicateExpressionSteps, 2 * exact);
+    assert!(
+        build(&request_with_limit(
+            Resource::PredicateExpressionSteps,
+            exact - 1
+        ))
+        .is_err()
+    );
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 2 * exact);
     for _ in 0..2 {
         assert_eq!(
             build(&root).unwrap().unwrap().continuation_signature(),
@@ -245,10 +251,13 @@ fn filter_hash_failure_prevents_continuation_return_and_fresh_retry_succeeds() {
     }
     assert!(build(&root).is_err());
     assert_eq!(
-        build(&request(Resource::PredicateExpressionSteps, exact))
-            .unwrap()
-            .unwrap()
-            .continuation_signature(),
+        build(&request_with_limit(
+            Resource::PredicateExpressionSteps,
+            exact
+        ))
+        .unwrap()
+        .unwrap()
+        .continuation_signature(),
         expected
     );
     assert_eq!(root.observed(Resource::RowsVisited), 0);

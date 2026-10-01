@@ -3,8 +3,7 @@
 use super::newtype_query_schema;
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        QueryError,
         query::{
             plan::{
                 AggregateKind, GroupedAggregateExecutionSpec, expr::Expr,
@@ -12,6 +11,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -19,16 +19,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn count_rows() -> GroupedAggregateExecutionSpec {
     GroupedAggregateExecutionSpec::from_uncompiled_inputs(
@@ -65,7 +55,7 @@ fn count_attachments_reuse_list_capacity_without_new_backing() {
     specs.extend([count_rows(), count_rows()]);
     let pointer = specs.as_ptr();
     let capacity = specs.capacity();
-    let request = root(Resource::TemporaryBytes, 0);
+    let request = request_with_limit(Resource::TemporaryBytes, 0);
     let resolved = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         grouped_aggregate_execution_specs(&schema, specs, work).map_err(QueryError::execute)
     })
@@ -87,7 +77,7 @@ fn attachment_compilation_keeps_owned_syntax_and_charges_only_compiled_payloads(
     };
     let pointer = text.as_ptr();
     let specs = vec![spec];
-    let request = root(Resource::TemporaryBytes, 3);
+    let request = request_with_limit(Resource::TemporaryBytes, 3);
     let resolved = PreparationWork::run(&request.scope(), Lane::PublicRead, |work| {
         grouped_aggregate_execution_specs(&schema, specs, work).map_err(QueryError::execute)
     })
@@ -105,7 +95,7 @@ fn attachment_compilation_keeps_owned_syntax_and_charges_only_compiled_payloads(
     assert_eq!(request.observed(Resource::TemporaryBytes), 3);
 
     let specs = vec![filtered_min()];
-    let rejected = root(Resource::TemporaryBytes, 2);
+    let rejected = request_with_limit(Resource::TemporaryBytes, 2);
     let error = PreparationWork::run(&rejected.scope(), Lane::PublicRead, |work| {
         grouped_aggregate_execution_specs(&schema, specs, work).map_err(QueryError::execute)
     })
@@ -119,7 +109,7 @@ fn failed_filter_compilation_does_not_publish_partial_attachments() {
     let mut spec = filtered_min();
     let original = spec.clone();
     // One spec visit plus the text input's four steps fits; its filter does not.
-    let request = root(Resource::PredicateExpressionSteps, 5);
+    let request = request_with_limit(Resource::PredicateExpressionSteps, 5);
     let error = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         spec.resolve_with_schema_info(&schema, work)
             .map_err(QueryError::execute)
@@ -134,7 +124,7 @@ fn failed_filter_compilation_does_not_publish_partial_attachments() {
 fn attachment_visits_are_cumulative_and_empty_lists_are_free() {
     let schema = newtype_query_schema();
     for lane in [Lane::PublicRead, Lane::Diagnostic] {
-        let request = root(Resource::PredicateExpressionSteps, 1);
+        let request = request_with_limit(Resource::PredicateExpressionSteps, 1);
         let error = PreparationWork::run(&request.scope(), lane, |work| {
             assert!(
                 grouped_aggregate_execution_specs(&schema, Vec::new(), work)

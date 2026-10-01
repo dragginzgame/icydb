@@ -1,6 +1,5 @@
 use crate::db::{
     QueryError, RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     query::preparation::PreparationWork,
     sql::{
         lowering::{
@@ -12,20 +11,11 @@ use crate::db::{
         },
         parser::{SqlExpr, SqlExprBinaryOp},
     },
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn run<T>(
     request: &RequestExecutionRoot,
@@ -69,7 +59,7 @@ fn owned_path_matching_keeps_longest_tail_policy_without_new_backing() {
     ] {
         let scopes: Vec<_> = scopes.into_iter().map(str::to_string).collect();
         let tail = tail.into_iter().map(str::to_string).collect();
-        let request = root(Resource::TemporaryBytes, 0);
+        let request = request_with_limit(Resource::TemporaryBytes, 0);
         let result = run(&request, |work| {
             normalize_field_path_to_scope(head.into(), tail, &scopes, work)
         })
@@ -90,7 +80,7 @@ fn owned_path_matching_keeps_longest_tail_policy_without_new_backing() {
 #[test]
 fn dotted_field_construction_charges_exact_requested_backing() {
     let bytes = size_of::<String>() as u64 + 11;
-    let request = root(Resource::TemporaryBytes, bytes);
+    let request = request_with_limit(Resource::TemporaryBytes, bytes);
     let result = run(&request, |work| {
         normalize_field_identifier_expr_to_scope("profile.city".into(), &[], work)
     })
@@ -104,9 +94,10 @@ fn dotted_field_construction_charges_exact_requested_backing() {
     );
     assert_eq!(request.observed(Resource::TemporaryBytes), bytes);
     assert!(
-        run(&root(Resource::TemporaryBytes, bytes - 1), |work| {
-            normalize_field_identifier_expr_to_scope("profile.city".into(), &[], work)
-        })
+        run(
+            &request_with_limit(Resource::TemporaryBytes, bytes - 1),
+            |work| { normalize_field_identifier_expr_to_scope("profile.city".into(), &[], work) }
+        )
         .is_err()
     );
 }
@@ -119,10 +110,10 @@ fn scope_reduction_has_a_charged_matching_allowance_and_cumulative_rejection() {
             normalize_identifier("u.name".into(), &scopes, work)
         })
     };
-    let exact = root(Resource::PredicateExpressionSteps, 35);
+    let exact = request_with_limit(Resource::PredicateExpressionSteps, 35);
     assert_eq!(invoke(&exact).unwrap(), "name");
     assert_eq!(exact.observed(Resource::PredicateExpressionSteps), 35);
-    let short = root(Resource::PredicateExpressionSteps, 34);
+    let short = request_with_limit(Resource::PredicateExpressionSteps, 34);
     let error = invoke(&short).unwrap_err();
     assert!(error.diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
@@ -140,7 +131,7 @@ fn rejected_identifier_walk_stops_before_later_siblings() {
         left: Box::new(SqlExpr::Field("left".into())),
         right: Box::new(SqlExpr::Field("right".into())),
     };
-    let request = root(Resource::PredicateExpressionSteps, 1);
+    let request = request_with_limit(Resource::PredicateExpressionSteps, 1);
     assert!(
         run(&request, |work| normalize_sql_expr_to_scope(
             expr,

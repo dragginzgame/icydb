@@ -7,7 +7,6 @@ use icydb_diagnostic_code::DiagnosticFactTag;
 
 use crate::db::{
     RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     predicate::Predicate,
     query::{
         builder::{count, min_by},
@@ -18,13 +17,14 @@ use crate::db::{
         },
     },
     schema::AcceptedFieldKind,
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::DiagnosticExecutionLane as Lane;
 
 fn plan() -> ExplainPlan {
     project(
         &AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore),
-        &request(Resource::TemporaryBytes, 16_000_000),
+        &request_with_limit(Resource::TemporaryBytes, 16_000_000),
     )
     .unwrap()
 }
@@ -146,7 +146,7 @@ fn logical_summaries_depend_on_plan_shape_not_operand_payload_size() {
     for (small_access, large_access) in paths(Value::Null).into_iter().zip(paths(large.clone())) {
         let mut small = project(
             &grouped_query(),
-            &request(Resource::TemporaryBytes, 16_000_000),
+            &request_with_limit(Resource::TemporaryBytes, 16_000_000),
         )
         .unwrap();
         let mut large_plan = small.clone();
@@ -184,16 +184,6 @@ fn logical_summaries_depend_on_plan_shape_not_operand_payload_size() {
             assert!(json.contains(expected), "missing {expected} in {json}");
         }
     }
-}
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
 }
 
 fn scalar_query() -> AccessPlannedQuery {
@@ -295,7 +285,7 @@ fn explain_preserves_scalar_and_grouped_continuation_identity() {
             grouped_having,
         ),
     ] {
-        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let plan = project(&query, &root).unwrap();
         assert_eq!(
             with_preparation_work(|work| query.continuation_signature("tests::Entity", work))
@@ -316,7 +306,7 @@ fn explain_preserves_scalar_and_grouped_continuation_identity() {
 #[test]
 fn scalar_diagnostic_construction_needs_only_the_retained_operand_allowance() {
     let query = scalar_query();
-    let root = request(Resource::NestedValueSteps, 1);
+    let root = request_with_limit(Resource::NestedValueSteps, 1);
     let projected = project(&query, &root).unwrap();
     assert!(projected.filter_expr().is_some());
     assert!(matches!(
@@ -341,7 +331,7 @@ fn explain_projection_charges_repeated_borrowed_calls_without_changing_identity(
         let signature =
             with_preparation_work(|work| query.continuation_signature("tests::Entity", work))
                 .unwrap();
-        let generous = request(Resource::TemporaryBytes, 16_000_000);
+        let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = project(&query, &generous).unwrap();
         assert_eq!(
             expected.filter_expr,
@@ -362,7 +352,7 @@ fn explain_projection_charges_repeated_borrowed_calls_without_changing_identity(
             // Check early, intermediate and final admission failures without
             // pinning the number or ordering of internal construction charges.
             for limit in [0, used / 2, used - 1] {
-                let short = request(resource, limit);
+                let short = request_with_limit(resource, limit);
                 for _ in 0..2 {
                     let error = project(&query, &short).unwrap_err();
                     assert!(
@@ -382,7 +372,7 @@ fn explain_projection_charges_repeated_borrowed_calls_without_changing_identity(
                     assert_eq!(short.observed(Resource::PlanCompilations), 0);
                 }
             }
-            let exact = request(resource, 2 * used);
+            let exact = request_with_limit(resource, 2 * used);
             for _ in 0..2 {
                 assert_eq!(project(&query, &exact).unwrap(), expected);
             }
@@ -407,7 +397,11 @@ fn explain_projection_charges_repeated_borrowed_calls_without_changing_identity(
             assert_eq!(exact.observed(resource), exhausted);
         }
         // A fresh request projects the complete same DTO after a rejected diagnostic.
-        let next = project(&query, &request(Resource::TemporaryBytes, 16_000_000)).unwrap();
+        let next = project(
+            &query,
+            &request_with_limit(Resource::TemporaryBytes, 16_000_000),
+        )
+        .unwrap();
         assert_eq!(next, expected);
     }
 }
@@ -424,7 +418,7 @@ fn explain_access_depth_bounds_detached_rendering_without_changing_query_identit
             AccessPlan::Intersection(vec![query.access])
         };
     }
-    let root = request(Resource::TemporaryBytes, 16_000_000);
+    let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let admitted = project(&query, &root).unwrap();
     let observed = root.observed(Resource::PredicateExpressionSteps);
     for render in [
@@ -457,7 +451,7 @@ fn explain_access_depth_bounds_detached_rendering_without_changing_query_identit
 fn explain_projection_rejects_order_backing_before_rendering_operands() {
     let query = scalar_query();
     let order = query.scalar_plan().order.as_ref();
-    let root = request(
+    let root = request_with_limit(
         Resource::TemporaryBytes,
         size_of::<ExplainOrder>() as u64 - 1,
     );
@@ -487,7 +481,7 @@ fn decision_projection_counts_composite_constraints_with_cumulative_visits() {
             upper: Bound::Unbounded,
         },
     ]);
-    let exact = request(Resource::PredicateExpressionSteps, 10);
+    let exact = request_with_limit(Resource::PredicateExpressionSteps, 10);
     let count = || {
         PreparationWork::run(&exact.scope(), Lane::Diagnostic, |work| {
             access_bound_predicate_count(&access, work)
@@ -518,7 +512,7 @@ fn decision_projection_rejects_selected_label_before_copying_index_payload() {
         prefix_len: 0,
         values: vec![],
     };
-    let short = request(Resource::TemporaryBytes, 0);
+    let short = request_with_limit(Resource::TemporaryBytes, 0);
     let error = PreparationWork::run(&short.scope(), Lane::Diagnostic, |work| {
         ExplainAccessDecision::from_snapshot(
             &access,
@@ -541,7 +535,7 @@ fn decision_projection_rejects_selected_label_before_copying_index_payload() {
 #[test]
 fn explain_projection_grouped_metadata_preserves_paths_aggregates_and_having() {
     let query = grouped_query();
-    let root = request(Resource::TemporaryBytes, 16_000_000);
+    let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let projected = project(&query, &root).unwrap();
     let ExplainGrouping::Grouped {
         group_fields,

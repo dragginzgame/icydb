@@ -3,8 +3,7 @@
 use super::evaluate_range_candidate_from_contract;
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        QueryError,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
             plan::{
@@ -15,6 +14,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::{Value, lower_text_construction_allowance},
 };
@@ -22,16 +22,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn compare(field: &str, op: CompareOp, value: i64) -> Predicate {
     Predicate::Compare(ComparePredicate::with_coercion(
@@ -129,7 +119,7 @@ fn range_scores_keep_gaps_conflicts_and_full_input_rejection_precedence() {
     ] {
         let predicate = Predicate::And(children);
         let before = predicate.clone();
-        let root = request(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assert_eq!(
                 score(
@@ -189,7 +179,7 @@ fn range_equality_matching_borrows_raw_values_and_admits_conversion_cumulatively
                 (Resource::NestedValueSteps, 2),
             ] {
                 for limit in [0, exact.saturating_sub(1), exact * 2] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     PreparationWork::run(&root.scope(), lane, |work| {
                         for attempt in 1..=3 {
                             let result = evaluate_range_candidate_from_contract(
@@ -294,7 +284,7 @@ fn range_expression_equality_uses_canonical_values_and_retains_prefix_bound_stre
             } else {
                 0
             };
-            let root = request(Resource::NestedValueSteps, compared_nodes);
+            let root = request_with_limit(Resource::NestedValueSteps, compared_nodes);
             PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
                 assert_eq!(
                     score(

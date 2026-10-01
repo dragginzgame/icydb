@@ -1,22 +1,12 @@
 use crate::db::{
     QueryError, RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     query::preparation::PreparationWork,
     sql::lowering::{SqlLoweringError, normalize::sql_statement_scope_candidates},
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn candidates(root: &RequestExecutionRoot) -> Result<Vec<String>, QueryError> {
     PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
@@ -38,13 +28,13 @@ fn scope_construction_preserves_order_with_exact_backing_and_work_limits() {
         ),
         (Resource::PredicateExpressionSteps, 47),
     ] {
-        let exact = root(resource, required);
+        let exact = request_with_limit(resource, required);
         assert_eq!(
             candidates(&exact).unwrap(),
             ["app.users", "users", "u", "users", "users", "u"]
         );
         assert_eq!(exact.observed(resource), required);
-        let short = root(resource, required - 1);
+        let short = request_with_limit(resource, required - 1);
         let error = candidates(&short).unwrap_err();
         assert!(
             error
@@ -70,7 +60,7 @@ fn preparation_variants_share_scope_admission_before_lowering() {
         "EXPLAIN SELECT u.id FROM E u",
     ] {
         let syntax = parse_sql(sql).expect("supported statement");
-        let request = root(Resource::TemporaryBytes, 0);
+        let request = request_with_limit(Resource::TemporaryBytes, 0);
         let result = PreparationWork::run(
             &request.scope(),
             DiagnosticExecutionLane::PublicRead,

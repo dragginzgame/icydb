@@ -1,7 +1,5 @@
 use crate::{
     db::{
-        RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::{
             CoercionId, CoercionSpec, CompareOp,
             normalize::{
@@ -10,6 +8,7 @@ use crate::{
         },
         query::preparation::PreparationWork,
         schema::AcceptedFieldKind,
+        test_support::request_with_limit,
     },
     types::{IntBig, NatBig},
     value::{Value, ValueEnum},
@@ -18,16 +17,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 #[test]
 fn bigint_numeric_output_is_admitted_before_conversion() {
@@ -42,7 +31,7 @@ fn bigint_numeric_output_is_admitted_before_conversion() {
         ),
     ] {
         for limit in [0, 63, 64] {
-            let root = request(Resource::TemporaryBytes, limit);
+            let root = request_with_limit(Resource::TemporaryBytes, limit);
             let result = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
                 normalize_value_for_accepted_kind(
                     "number",
@@ -102,7 +91,7 @@ fn enum_input_preflight_covers_nested_payloads_and_preserves_canonical_detection
             Resource::NestedValueSteps,
             Resource::PredicateExpressionSteps,
         ] {
-            let root = request(resource, 16_000_000);
+            let root = request_with_limit(resource, 16_000_000);
             let admitted = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
                 admit_enum_input_construction(&value, work)
             })
@@ -112,7 +101,7 @@ fn enum_input_preflight_covers_nested_payloads_and_preserves_canonical_detection
             if exact == 0 {
                 continue;
             }
-            let root = request(resource, exact - 1);
+            let root = request_with_limit(resource, exact - 1);
             let error = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
                 admit_enum_input_construction(&value, work)
             })

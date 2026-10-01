@@ -1,10 +1,7 @@
 //! Pin planner-owned HAVING identity bytes.
 
 use super::*;
-use crate::db::{
-    QueryError, RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
-};
+use crate::db::{QueryError, RequestExecutionRoot, test_support::request_with_limit};
 use crate::{
     db::{
         codec::{hex::encode_hex_lower, new_hash_sha256},
@@ -131,16 +128,6 @@ fn having_hash_preserves_planner_expression_grammar() {
     );
 }
 
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
-
 fn admitted_hash(
     expr: &Expr,
     root: &RequestExecutionRoot,
@@ -182,7 +169,7 @@ fn having_hash_admission_is_cumulative_across_read_lanes() {
     };
     let before = expr.clone();
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let measured = request(Resource::PredicateExpressionSteps, 16_000_000);
+        let measured = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
         let expected = admitted_hash(&expr, &measured, lane).unwrap();
         for resource in [
             Resource::PredicateExpressionSteps,
@@ -192,7 +179,7 @@ fn having_hash_admission_is_cumulative_across_read_lanes() {
             let exact = measured.observed(resource);
             assert!(exact > 0);
             for limit in [exact - 1, exact, 2 * exact] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 for attempt in 1..=3 {
                     let result = admitted_hash(&expr, &root, lane);
                     if attempt * exact <= limit {
@@ -220,7 +207,7 @@ fn having_literal_rejects_before_entering_the_value_writer() {
 
     with_test_hash_override(Err(test_hash_budget_error), || {
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-            let root = request(Resource::NestedValueSteps, 0);
+            let root = request_with_limit(Resource::NestedValueSteps, 0);
             let error = admitted_hash(&Expr::Literal(Value::Bool(true)), &root, lane).unwrap_err();
             let facts = error.diagnostic_facts();
             assert!(facts.contains(&(
@@ -269,13 +256,13 @@ fn having_exhaustion_prevents_a_grouped_continuation_contract() {
     // The existing profile hashes grouping twice. Both occurrences must use the
     // same allowance, and neither may publish a partial contract on exhaustion.
     for limit in [0, 1] {
-        let error = build(&request(Resource::NestedValueSteps, limit)).unwrap_err();
+        let error = build(&request_with_limit(Resource::NestedValueSteps, limit)).unwrap_err();
         assert!(error.diagnostic_facts().contains(&(
             DiagnosticFactTag::BudgetResource,
             Resource::NestedValueSteps.raw(),
         )));
     }
-    let root = request(Resource::NestedValueSteps, 4);
+    let root = request_with_limit(Resource::NestedValueSteps, 4);
     let first = build(&root).unwrap().unwrap().continuation_signature();
     assert_eq!(
         build(&root).unwrap().unwrap().continuation_signature(),
@@ -283,7 +270,7 @@ fn having_exhaustion_prevents_a_grouped_continuation_contract() {
     );
     assert!(build(&root).is_err());
     assert_eq!(
-        build(&request(Resource::NestedValueSteps, 2))
+        build(&request_with_limit(Resource::NestedValueSteps, 2))
             .unwrap()
             .unwrap()
             .continuation_signature(),
@@ -299,7 +286,7 @@ fn having_borrowed_labels_and_absence_need_no_value_or_allocation_budget() {
     // Two expression dispatches, root bytes, segment visits and segment bytes.
     let exact = 2 + 7 + 2 + 3;
     for limit in [exact - 1, exact] {
-        let root = request(Resource::PredicateExpressionSteps, limit);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
         assert_eq!(
             admitted_hash(&expr, &root, Lane::Diagnostic).is_ok(),
             limit == exact
@@ -307,7 +294,7 @@ fn having_borrowed_labels_and_absence_need_no_value_or_allocation_budget() {
         assert_eq!(root.observed(Resource::NestedValueSteps), 0);
         assert_eq!(root.observed(Resource::TemporaryBytes), 0);
     }
-    let root = request(Resource::PredicateExpressionSteps, 0);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 0);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         hash_group_having_projection(&mut new_hash_sha256(), None, work)
             .map_err(QueryError::execute)
@@ -326,7 +313,7 @@ fn missing_aggregate_labels_are_admitted_but_matched_slots_need_no_rendering() {
     .with_filter_expr(Expr::Literal(Value::Text("quote's λ".into())));
     let expr = Expr::Aggregate(aggregate.clone());
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let matched = request(Resource::TemporaryBytes, 0);
+        let matched = request_with_limit(Resource::TemporaryBytes, 0);
         PreparationWork::run(&matched.scope(), lane, |work| {
             let mut hasher = new_hash_sha256();
             hash_group_having_projection(
@@ -342,7 +329,7 @@ fn missing_aggregate_labels_are_admitted_but_matched_slots_need_no_rendering() {
         })
         .unwrap();
         assert_eq!(matched.observed(Resource::TemporaryBytes), 0);
-        let rejected = request(Resource::TemporaryBytes, 27);
+        let rejected = request_with_limit(Resource::TemporaryBytes, 27);
         assert!(
             admitted_hash(&expr, &rejected, lane)
                 .unwrap_err()
@@ -354,11 +341,11 @@ fn missing_aggregate_labels_are_admitted_but_matched_slots_need_no_rendering() {
         );
         assert_eq!(rejected.observed(Resource::TemporaryBytes), 28);
 
-        let measured = request(Resource::TemporaryBytes, 16_000_000);
+        let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = admitted_hash(&expr, &measured, lane).unwrap();
         for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
             let exact = measured.observed(resource);
-            let root = request(resource, 2 * exact);
+            let root = request_with_limit(resource, 2 * exact);
             for _ in 0..2 {
                 assert_eq!(admitted_hash(&expr, &root, lane).unwrap(), expected);
             }
@@ -369,7 +356,7 @@ fn missing_aggregate_labels_are_admitted_but_matched_slots_need_no_rendering() {
                     .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
             );
             assert_eq!(
-                admitted_hash(&expr, &request(resource, exact), lane).unwrap(),
+                admitted_hash(&expr, &request_with_limit(resource, exact), lane).unwrap(),
                 expected
             );
             assert_eq!(root.observed(Resource::RowsVisited), 0);
@@ -422,7 +409,7 @@ fn aggregate_slot_comparison_admits_payloads_without_rendering_or_changing_ident
                     Ok(finalize_sha256_digest(hasher))
                 })
             };
-            let measured = request(Resource::TemporaryBytes, 0);
+            let measured = request_with_limit(Resource::TemporaryBytes, 0);
             assert_eq!(hash(&measured).unwrap(), expected);
             assert_eq!(measured.observed(Resource::TemporaryBytes), 0);
             for resource in [
@@ -432,7 +419,7 @@ fn aggregate_slot_comparison_admits_payloads_without_rendering_or_changing_ident
                 let exact = measured.observed(resource);
                 assert!(exact > 0);
                 for limit in [exact - 1, exact, 2 * exact] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     for attempt in 1..=3 {
                         let result = hash(&root);
                         if attempt * exact <= limit {
@@ -452,7 +439,10 @@ fn aggregate_slot_comparison_admits_payloads_without_rendering_or_changing_ident
                     assert_eq!(root.observed(Resource::RowsVisited), 0);
                     assert_eq!(root.observed(Resource::QueryExecutions), 0);
                 }
-                assert_eq!(hash(&request(resource, exact)).unwrap(), expected);
+                assert_eq!(
+                    hash(&request_with_limit(resource, exact)).unwrap(),
+                    expected
+                );
             }
         }
     }
@@ -475,7 +465,7 @@ fn aggregate_slot_lookup_skips_scalar_mismatches_and_stops_at_first_match() {
     };
     // Three candidate visits, one field's admission/equality visits and bytes.
     let exact = 3 + 2 + "amount".len() as u64;
-    let root = request(Resource::PredicateExpressionSteps, exact);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, exact);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         source
             .hash_aggregate_expr(&mut new_hash_sha256(), &aggregate, work)
@@ -492,7 +482,7 @@ fn aggregate_slot_lookup_skips_scalar_mismatches_and_stops_at_first_match() {
         crate::db::query::plan::AggregateKind::Count,
         Expr::Literal(Value::Text("x".repeat(1024))),
     );
-    let root = request(Resource::PredicateExpressionSteps, 1);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 1);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         source
             .hash_aggregate_expr(&mut new_hash_sha256(), &count_literal, work)
@@ -550,19 +540,33 @@ fn group_field_lookup_admits_candidates_and_preserves_first_match_and_missing_id
                 })
             };
             // Reject during lookup, before either the matched or missing encoding.
-            let error = hash(&request(Resource::PredicateExpressionSteps, visits)).unwrap_err();
+            let error = hash(&request_with_limit(
+                Resource::PredicateExpressionSteps,
+                visits,
+            ))
+            .unwrap_err();
             assert!(error.diagnostic_facts().contains(&(
                 DiagnosticFactTag::BudgetResource,
                 Resource::PredicateExpressionSteps.raw()
             )));
-            assert!(hash(&request(Resource::PredicateExpressionSteps, exact - 1)).is_err());
-            let root = request(Resource::PredicateExpressionSteps, 2 * exact);
+            assert!(
+                hash(&request_with_limit(
+                    Resource::PredicateExpressionSteps,
+                    exact - 1
+                ))
+                .is_err()
+            );
+            let root = request_with_limit(Resource::PredicateExpressionSteps, 2 * exact);
             for _ in 0..2 {
                 assert_eq!(hash(&root).unwrap(), expected);
             }
             assert!(hash(&root).is_err());
             assert_eq!(
-                hash(&request(Resource::PredicateExpressionSteps, exact)).unwrap(),
+                hash(&request_with_limit(
+                    Resource::PredicateExpressionSteps,
+                    exact
+                ))
+                .unwrap(),
                 expected
             );
             assert_eq!(root.observed(Resource::TemporaryBytes), 0);

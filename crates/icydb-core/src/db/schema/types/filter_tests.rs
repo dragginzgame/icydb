@@ -2,10 +2,9 @@
 
 use crate::{
     db::{
-        RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::preparation::PreparationWork,
         schema::{AcceptedFieldKind, canonicalize_filter_literal_for_persisted_kind},
+        test_support::request_with_limit,
     },
     types::{IntBig, NatBig},
     value::Value,
@@ -16,16 +15,6 @@ use icydb_diagnostic_code::{
 use std::borrow::Cow;
 
 use super::materialize_filter_literal;
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 #[test]
 fn exact_big_filter_literals_borrow_storage_and_check_encoded_limits() {
@@ -40,7 +29,7 @@ fn exact_big_filter_literals_borrow_storage_and_check_encoded_limits() {
         ),
     ];
     for (kind, input) in cases {
-        let root = root(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
             let result = canonicalize_filter_literal_for_persisted_kind(&kind, &input, work)?;
             assert!(matches!(result, Some(Cow::Borrowed(value)) if std::ptr::eq(value, &raw const input)));
@@ -62,7 +51,7 @@ fn exact_big_filter_literals_borrow_storage_and_check_encoded_limits() {
             Value::NatBig(NatBig::from(128_u64)),
         ),
     ] {
-        let root = root(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         assert!(
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
                 canonicalize_filter_literal_for_persisted_kind(&kind, &input, work)
@@ -89,7 +78,7 @@ fn big_filter_text_conversion_preserves_its_narrow_admission_family() {
             Value::NatBig(NatBig::from(127_u64)),
         ),
     ] {
-        let root = root(Resource::PredicateExpressionSteps, 1_000);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, 1_000);
         PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
             assert_eq!(
                 canonicalize_filter_literal_for_persisted_kind(
@@ -128,7 +117,7 @@ fn necessary_big_literal_copies_charge_before_materialization() {
         Value::NatBig(NatBig::from(127_u64)),
     ] {
         for limit in [7, 8] {
-            let root = root(Resource::TemporaryBytes, limit);
+            let root = request_with_limit(Resource::TemporaryBytes, limit);
             let result =
                 PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
                     materialize_filter_literal(Cow::Borrowed(&input), work)
@@ -177,7 +166,7 @@ fn unchanged_filter_storage_is_borrowed_without_allocating() {
         ),
     ];
     for (kind, input) in cases {
-        let root = root(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
             let canonical = canonicalize_filter_literal_for_persisted_kind(&kind, &input, work)?;
             assert!(matches!(canonical, Some(Cow::Borrowed(value)) if std::ptr::eq(value, &raw const input)));
@@ -204,7 +193,7 @@ fn converted_lists_charge_storage_and_preserve_the_source_on_failure() {
     ]);
     let bytes = 3 * size_of::<Value>() as u64 + 2 + 2 + 1;
     for limit in [bytes, bytes - 1] {
-        let root = root(Resource::TemporaryBytes, limit);
+        let root = request_with_limit(Resource::TemporaryBytes, limit);
         let result =
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
                 canonicalize_filter_literal_for_persisted_kind(&kind, &input, work)
@@ -232,7 +221,7 @@ fn converted_lists_charge_storage_and_preserve_the_source_on_failure() {
         );
     }
     let invalid = Value::List(vec![Value::Text("abcd".into()), Value::Bool(true)]);
-    let root = root(Resource::TemporaryBytes, 1_000);
+    let root = request_with_limit(Resource::TemporaryBytes, 1_000);
     let result = PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
         canonicalize_filter_literal_for_persisted_kind(&kind, &invalid, work)
     })
@@ -257,7 +246,7 @@ fn nested_borrowed_prefixes_are_copied_only_after_a_conversion() {
         Value::List(vec![Value::Blob(vec![1])]),
         Value::List(vec![Value::Text("02".into())]),
     ]);
-    let root = root(Resource::TemporaryBytes, 4 * size_of::<Value>() as u64 + 2);
+    let root = request_with_limit(Resource::TemporaryBytes, 4 * size_of::<Value>() as u64 + 2);
     let result = PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
         canonicalize_filter_literal_for_persisted_kind(&kind, &input, work)
     })
@@ -285,7 +274,7 @@ fn hex_conversion_charges_even_when_digits_are_rejected() {
     ] {
         let kind = AcceptedFieldKind::Blob { max_len: Some(2) };
         let input = Value::Text(text.into());
-        let root = root(Resource::TemporaryBytes, bytes);
+        let root = request_with_limit(Resource::TemporaryBytes, bytes);
         let result =
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
                 canonicalize_filter_literal_for_persisted_kind(&kind, &input, work)
@@ -303,7 +292,7 @@ fn hex_conversion_charges_even_when_digits_are_rejected() {
 #[test]
 fn scalar_parse_work_rejects_before_conversion_and_accumulates_retries() {
     let input = Value::Text("18446744073709551615".into());
-    let root = root(Resource::PredicateExpressionSteps, 19);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 19);
     for attempt in 1..=2 {
         let error =
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {

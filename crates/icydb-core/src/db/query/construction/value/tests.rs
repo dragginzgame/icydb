@@ -1,8 +1,7 @@
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
-        query::preparation::PreparationWork,
+        QueryError, RequestExecutionRoot, query::preparation::PreparationWork,
+        test_support::request_with_limit,
     },
     types::{IntBig, NatBig},
     value::{Value, ValueEnum},
@@ -10,16 +9,6 @@ use crate::{
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn copy(value: &Value, root: &RequestExecutionRoot) -> Result<Value, QueryError> {
     PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
@@ -59,11 +48,11 @@ fn owned_payload_families_charge_before_each_allocation() {
         ),
     ];
     for (value, bytes, visits) in cases {
-        let exact = root(Resource::TemporaryBytes, bytes);
+        let exact = request_with_limit(Resource::TemporaryBytes, bytes);
         assert_eq!(copy(&value, &exact).unwrap(), value);
         assert_eq!(exact.observed(Resource::TemporaryBytes), bytes);
         assert_eq!(exact.observed(Resource::NestedValueSteps), visits);
-        let short = root(Resource::TemporaryBytes, bytes - 1);
+        let short = request_with_limit(Resource::TemporaryBytes, bytes - 1);
         let error = copy(&value, &short).expect_err("last allocation must reject");
         assert!(error.diagnostic_facts().contains(&(
             DiagnosticFactTag::BudgetResource,
@@ -84,7 +73,11 @@ fn nested_copy_preserves_enum_identity_collection_order_and_duplicate_entries() 
         9,
         Value::List(vec![Value::Map(entries.clone())]),
     ));
-    let result = copy(&value, &root(Resource::TemporaryBytes, 10_000)).unwrap();
+    let result = copy(
+        &value,
+        &request_with_limit(Resource::TemporaryBytes, 10_000),
+    )
+    .unwrap();
     let Value::Enum(result) = result else {
         panic!("enum tag");
     };
@@ -115,11 +108,11 @@ fn zero_backing_values_still_charge_a_visit() {
         Value::IntBig(IntBig::from(0)),
         Value::NatBig(NatBig::from(0_u64)),
     ] {
-        let exact = root(Resource::TemporaryBytes, 0);
+        let exact = request_with_limit(Resource::TemporaryBytes, 0);
         assert_eq!(copy(&value, &exact).unwrap(), value);
         assert_eq!(exact.observed(Resource::TemporaryBytes), 0);
         assert_eq!(exact.observed(Resource::NestedValueSteps), 1);
-        assert!(copy(&value, &root(Resource::NestedValueSteps, 0)).is_err());
+        assert!(copy(&value, &request_with_limit(Resource::NestedValueSteps, 0)).is_err());
     }
 }
 
@@ -130,7 +123,7 @@ fn failed_nested_copy_keeps_source_and_request_charges() {
         Value::Text("last".to_string()),
     ]);
     let original = value.clone();
-    let request = root(Resource::TemporaryBytes, 2 * size_of::<Value>() as u64 + 5);
+    let request = request_with_limit(Resource::TemporaryBytes, 2 * size_of::<Value>() as u64 + 5);
     let mut observed = 0;
     for _ in 0..2 {
         assert!(copy(&value, &request).is_err());
@@ -138,14 +131,14 @@ fn failed_nested_copy_keeps_source_and_request_charges() {
         assert!(request.observed(Resource::TemporaryBytes) > observed);
         observed = request.observed(Resource::TemporaryBytes);
     }
-    let request = root(Resource::NestedValueSteps, 2);
+    let request = request_with_limit(Resource::NestedValueSteps, 2);
     assert!(copy(&value, &request).is_err());
     assert_eq!(request.observed(Resource::NestedValueSteps), 3);
 }
 
 #[test]
 fn byte_copy_work_exhaustion_precedes_scalar_allocation() {
-    let request = root(Resource::PredicateExpressionSteps, 3);
+    let request = request_with_limit(Resource::PredicateExpressionSteps, 3);
     let value = Value::Text("four".to_string());
     let error = copy(&value, &request).unwrap_err();
     assert!(error.diagnostic_facts().contains(&(

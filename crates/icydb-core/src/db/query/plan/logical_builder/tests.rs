@@ -2,8 +2,7 @@ mod order;
 
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        QueryError,
         predicate::{MissingRowPolicy, Predicate},
         query::{
             builder::min_by,
@@ -17,6 +16,7 @@ use crate::{
             preparation::PreparationWork,
         },
         schema::AcceptedFieldKind,
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -24,16 +24,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn assert_budget_error(error: QueryError, resource: Resource) {
     assert!(
@@ -49,7 +39,7 @@ fn canonical_order_moves_into_the_logical_plan_without_more_construction() {
     let order = OrderSpec {
         fields: vec![OrderTerm::field("rank", OrderDirection::Desc)],
     };
-    let request = root(Resource::TemporaryBytes, 16_000_000);
+    let request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         let canonical = AccessPlanningInputs::new(None, Some(&order))
             .canonical_order(&schema, false, work)?
@@ -121,7 +111,7 @@ fn logical_clauses_preserve_scalar_grouped_and_shared_slot_identity() {
             execution: GroupedExecutionConfig::planner_default_bounded(),
         };
         for grouped in [false, true] {
-            let request = root(Resource::TemporaryBytes, 16_000_000);
+            let request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
             let copied = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
                 logical_query_from_logical_inputs(
                     LogicalPlanningInputs::new(
@@ -160,7 +150,7 @@ fn logical_copy_charges_exact_backing_cumulatively_in_every_lane() {
     };
     let bytes = (size_of::<OrderTerm>() + "rank".len()) as u64;
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let request = root(Resource::TemporaryBytes, bytes);
+        let request = request_with_limit(Resource::TemporaryBytes, bytes);
         let copy = || {
             PreparationWork::run(&request.scope(), lane, |work| {
                 logical_query_from_logical_inputs(
@@ -193,7 +183,7 @@ fn rejected_order_backing_does_not_visit_operands_or_change_source() {
         fields: vec![OrderTerm::field("rank", OrderDirection::Desc)],
     };
     let before = order.clone();
-    let request = root(Resource::TemporaryBytes, size_of::<OrderTerm>() as u64 - 1);
+    let request = request_with_limit(Resource::TemporaryBytes, size_of::<OrderTerm>() as u64 - 1);
     let error = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         logical_query_from_logical_inputs(
             LogicalPlanningInputs::new(
@@ -219,7 +209,7 @@ fn rejected_order_backing_does_not_visit_operands_or_change_source() {
 #[test]
 fn stripped_filter_never_copies_its_payload() {
     let filter = Expr::Literal(Value::Text("not retained".into()));
-    let request = root(Resource::TemporaryBytes, 0);
+    let request = request_with_limit(Resource::TemporaryBytes, 0);
     let query = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         logical_query_from_logical_inputs(
             LogicalPlanningInputs::new(
@@ -254,7 +244,7 @@ fn projection_copy_preserves_duplicates_aliases_and_typed_rejection() {
             alias: Some("label".into()),
         }]),
     ] {
-        let request = root(Resource::TemporaryBytes, 16_000_000);
+        let request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let copied = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
             source.copy_for_preparation(work)
         })
@@ -262,7 +252,7 @@ fn projection_copy_preserves_duplicates_aliases_and_typed_rejection() {
         assert_eq!(copied, source);
         let bytes = request.observed(Resource::TemporaryBytes);
         if bytes > 0 {
-            let short = root(Resource::TemporaryBytes, bytes - 1);
+            let short = request_with_limit(Resource::TemporaryBytes, bytes - 1);
             let error = PreparationWork::run(&short.scope(), Lane::Diagnostic, |work| {
                 source.copy_for_preparation(work)
             })

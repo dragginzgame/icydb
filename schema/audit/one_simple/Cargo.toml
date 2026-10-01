@@ -7,14 +7,13 @@ publish = false
 description = "One-entity simple schema fixture crate for wasm SQL auditing"
 
 [package.metadata.cargo-machete]
-ignored = ["candid", "icydb"]
+ignored = ["icydb"]
 
 [features]
 default = []
 u256-audit = []
 
 [dependencies]
-candid = { workspace = true }
 icydb = { path = "../../../crates/icydb", default-features = false }
 icydb-model = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }

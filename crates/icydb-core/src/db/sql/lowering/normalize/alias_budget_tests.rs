@@ -1,7 +1,6 @@
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::preparation::PreparationWork,
         sql::{
             lowering::{
@@ -9,22 +8,13 @@ use crate::{
             },
             parser::{SqlExpr, SqlProjection, SqlSelectItem, SqlStatement, parse_sql},
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn run<T>(
     request: &RequestExecutionRoot,
@@ -60,10 +50,10 @@ fn alias_walk_lookup_and_copy_have_exact_limits_and_accumulate_retries() {
                 )
             })
         };
-        let exact = root(resource, required);
+        let exact = request_with_limit(resource, required);
         assert_eq!(invoke(&exact).unwrap(), SqlExpr::Field("value".into()));
         assert_eq!(exact.observed(resource), required);
-        let short = root(resource, required - 1);
+        let short = request_with_limit(resource, required - 1);
         let error = invoke(&short).unwrap_err();
         assert!(
             error
@@ -103,7 +93,7 @@ fn copied_projection_families_preserve_sql_shape_and_source_on_failure() {
         let item = &items[0];
         let expected = SqlExpr::from_select_item(item);
         let original = item.clone();
-        let request = root(Resource::TemporaryBytes, 16_000_000);
+        let request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         assert_eq!(
             run(&request, |work| copy_select_item_expr(item, work)).unwrap(),
             expected
@@ -111,9 +101,10 @@ fn copied_projection_families_preserve_sql_shape_and_source_on_failure() {
         let retained = request.observed(Resource::TemporaryBytes);
         if retained > 0 {
             assert!(
-                run(&root(Resource::TemporaryBytes, retained - 1), |work| {
-                    copy_select_item_expr(item, work)
-                })
+                run(
+                    &request_with_limit(Resource::TemporaryBytes, retained - 1),
+                    |work| { copy_select_item_expr(item, work) }
+                )
                 .is_err()
             );
         }
@@ -127,7 +118,7 @@ fn alias_operand_copies_charge_nested_payload_and_requested_container_backing() 
         "abc".into(),
     )])));
     let bytes = size_of::<Value>() as u64 + 3;
-    let request = root(Resource::TemporaryBytes, bytes);
+    let request = request_with_limit(Resource::TemporaryBytes, bytes);
     assert_eq!(
         run(&request, |work| copy_select_item_expr(&item, work)).unwrap(),
         SqlExpr::from_select_item(&item)
@@ -135,9 +126,10 @@ fn alias_operand_copies_charge_nested_payload_and_requested_container_backing() 
     assert_eq!(request.observed(Resource::TemporaryBytes), bytes);
     assert_eq!(request.observed(Resource::NestedValueSteps), 2);
     assert!(
-        run(&root(Resource::TemporaryBytes, bytes - 1), |work| {
-            copy_select_item_expr(&item, work)
-        })
+        run(
+            &request_with_limit(Resource::TemporaryBytes, bytes - 1),
+            |work| { copy_select_item_expr(&item, work) }
+        )
         .is_err()
     );
 }
@@ -149,7 +141,7 @@ fn rejected_alias_child_stops_before_later_siblings() {
         left: Box::new(SqlExpr::Field("left".into())),
         right: Box::new(SqlExpr::Field("right".into())),
     };
-    let request = root(Resource::PredicateExpressionSteps, 1);
+    let request = request_with_limit(Resource::PredicateExpressionSteps, 1);
     assert!(
         run(&request, |work| normalize_scalar_aliases(
             expr,

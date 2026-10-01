@@ -6,10 +6,8 @@ use super::{
 };
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
-        predicate::Predicate,
-        query::preparation::PreparationWork,
+        QueryError, RequestExecutionRoot, predicate::Predicate,
+        query::preparation::PreparationWork, test_support::request_with_limit,
     },
     value::{Value, ValueEnum},
 };
@@ -17,16 +15,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn contract(
     predicate: &Predicate,
@@ -46,7 +34,7 @@ fn parameter_slot_cap_stops_nested_construction_before_later_metadata() {
             .map(|index| Predicate::eq(format!("field_{index}"), Value::Nat64(index as u64)))
             .collect(),
     )]);
-    let root = request(Resource::TemporaryBytes, 16_000_000);
+    let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     assert!(
         contract(&accepted, &root, Lane::PublicRead)
             .unwrap()
@@ -63,7 +51,7 @@ fn parameter_slot_cap_stops_nested_construction_before_later_metadata() {
             (0..count).map(|_| Predicate::eq("oversized_metadata".repeat(1024), Value::Nat64(1))),
         );
         let oversized = Predicate::And(children);
-        let root = request(Resource::TemporaryBytes, bytes);
+        let root = request_with_limit(Resource::TemporaryBytes, bytes);
         assert!(
             contract(&oversized, &root, Lane::PublicRead)
                 .unwrap()
@@ -117,7 +105,7 @@ fn parameter_payload_and_list_caps_preserve_eligibility_without_operand_copies()
     ] {
         // Only the field name is retained: neither large scalar nor IN payloads
         // become part of a value-independent template contract.
-        let root = request(Resource::TemporaryBytes, u64::from(eligible));
+        let root = request_with_limit(Resource::TemporaryBytes, u64::from(eligible));
         assert_eq!(
             contract(&predicate, &root, Lane::Diagnostic)
                 .unwrap()
@@ -133,7 +121,7 @@ fn parameter_payload_and_list_caps_preserve_eligibility_without_operand_copies()
         Predicate::eq("x".into(), half.clone()),
         Predicate::And(vec![Predicate::eq("y".into(), half)]),
     ]);
-    let root = request(Resource::TemporaryBytes, 16_000_000);
+    let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     assert!(
         contract(&predicate, &root, Lane::Diagnostic)
             .unwrap()
@@ -144,7 +132,7 @@ fn parameter_payload_and_list_caps_preserve_eligibility_without_operand_copies()
         unreachable!()
     };
     children.push(Predicate::eq("z".into(), Value::Bool(true)));
-    let root = request(
+    let root = request_with_limit(
         Resource::TemporaryBytes,
         root.observed(Resource::TemporaryBytes),
     );
@@ -159,14 +147,14 @@ fn parameter_payload_and_list_caps_preserve_eligibility_without_operand_copies()
 fn parameter_field_metadata_is_admitted_before_copying() {
     let predicate = Predicate::eq("field".into(), Value::Nat64(1));
     let bytes = "field".len() as u64;
-    let admitted = request(Resource::TemporaryBytes, bytes);
+    let admitted = request_with_limit(Resource::TemporaryBytes, bytes);
     assert!(
         contract(&predicate, &admitted, Lane::PublicRead)
             .unwrap()
             .is_some()
     );
     assert_eq!(admitted.observed(Resource::TemporaryBytes), bytes);
-    let rejected = request(Resource::TemporaryBytes, bytes - 1);
+    let rejected = request_with_limit(Resource::TemporaryBytes, bytes - 1);
     let error = contract(&predicate, &rejected, Lane::PublicRead).unwrap_err();
     assert!(error.diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
@@ -183,12 +171,12 @@ fn parameter_construction_exhaustion_is_cumulative_in_every_read_lane() {
     ]);
     let before = predicate.clone();
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let measured = request(Resource::TemporaryBytes, 16_000_000);
+        let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = contract(&predicate, &measured, lane).unwrap().unwrap();
         for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
             let exact = measured.observed(resource);
             for limit in [0, exact - 1, exact * 2] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 for attempt in 1..=3 {
                     let result = contract(&predicate, &root, lane);
                     if attempt * exact <= limit {
@@ -224,7 +212,7 @@ fn nested_parameter_payload_exhaustion_is_not_template_ineligibility() {
     // The predicate and enum visits fit; traversal of its payload must reject
     // before metadata copying, not turn exhaustion into a literal-cache fallback.
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let root = request(Resource::PredicateExpressionSteps, 2);
+        let root = request_with_limit(Resource::PredicateExpressionSteps, 2);
         let error = contract(&predicate, &root, lane).unwrap_err();
         assert!(error.diagnostic_facts().contains(&(
             DiagnosticFactTag::BudgetResource,

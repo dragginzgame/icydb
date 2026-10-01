@@ -3,17 +3,17 @@
 use super::*;
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
+        QueryError,
         access::{
             AccessPlan, LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             SemanticIndexAccessContract, SemanticIndexRangeSpec, lower_access_with_schema_info,
         },
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         index::{
             EncodedValue, UserIndexPrefixCardinalityKey, encode_accepted_index_literal_component,
         },
         predicate::Predicate,
         query::{plan::VisibleIndexes, preparation::PreparationWork},
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -22,16 +22,6 @@ use icydb_diagnostic_code::{
     DiagnosticFactTag,
 };
 use std::ops::Bound;
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 #[test]
 fn component_admission_precedes_invalid_encoding_in_every_index_shape() {
@@ -105,7 +95,7 @@ fn component_admission_precedes_invalid_encoding_in_every_index_shape() {
                 ),
             ] {
                 for limit in [exact - 1, exact] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     PreparationWork::run(&root.scope(), lane, |work| {
                         let error = lower_access_with_schema_info(
                             authority.entity_tag(),
@@ -184,7 +174,7 @@ fn exact_count_prefix_construction_is_cumulative_and_row_free_in_every_lane() {
     for (predicate, values) in cases {
         let query =
             StructuralQuery::new(MissingRowPolicy::Ignore).filter_normalized_predicate(predicate);
-        let proof_root = request(Resource::TemporaryBytes, 16_000_000);
+        let proof_root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let access = PreparationWork::run(&proof_root.scope(), Lane::Diagnostic, |work| {
             query.try_build_count_cardinality_prefix_access_with_schema_info(&visible, schema, work)
         })
@@ -242,7 +232,7 @@ fn exact_count_prefix_construction_is_cumulative_and_row_free_in_every_lane() {
                 ),
             ] {
                 for limit in [exact - 1, exact, 2 * exact] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     let session = new_request_session(&root);
                     for invocation in 1..=2 {
                         let result = session

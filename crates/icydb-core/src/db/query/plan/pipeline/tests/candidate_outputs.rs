@@ -2,9 +2,8 @@
 
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
+        QueryError,
         access::{AccessPath, AccessPlan, SemanticIndexAccessContract},
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::{MissingRowPolicy, Predicate},
         query::{
             plan::{
@@ -18,6 +17,7 @@ use crate::{
             preparation::PreparationWork,
         },
         schema::SchemaInfo,
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -47,16 +47,6 @@ fn fixture() -> (SchemaInfo, VisibleIndexes, AccessPlannedQuery) {
     };
     scalar.predicate = Some(Predicate::eq("age".into(), Value::Int64(1)));
     (schema, visible, plan)
-}
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
 }
 
 fn assert_resource(error: crate::error::InternalError, resource: Resource) {
@@ -127,7 +117,7 @@ fn ordered_range_selection_admits_one_operand_slots_and_path() {
                 (Resource::NestedValueSteps, 1),
             ] {
                 for limit in [0, exact - 1, exact * 2] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     PreparationWork::run(&root.scope(), lane, |work| {
                         for attempt in 0..3 {
                             let result = plan_access_selection_with_order_and_semantic_indexes(
@@ -214,7 +204,7 @@ fn secondary_lookup_selection_admits_only_one_output_list_and_path() {
                 (Resource::NestedValueSteps, count as u64),
             ] {
                 for limit in [0, exact - 1, exact * 2] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     PreparationWork::run(&root.scope(), lane, |work| {
                         for attempt in 0..3 {
                             let result = plan_access_selection_with_order_and_semantic_indexes(
@@ -284,7 +274,7 @@ fn primary_key_candidate_exhaustion_propagates_without_fallback() {
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             for resource in [Resource::TemporaryBytes, Resource::NestedValueSteps] {
                 for limit in [0, 16_000_000] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     PreparationWork::run(&root.scope(), lane, |work| {
                         let result = plan_access_selection_with_order_and_semantic_indexes(
                             &[],
@@ -339,7 +329,7 @@ fn and_range_construction_admission_precedes_child_recursion() {
     ]);
     let bytes = (std::mem::size_of_val(indexes) + 2 * size_of::<AccessPlan<Value>>()) as u64;
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let root = request(Resource::TemporaryBytes, bytes);
+        let root = request_with_limit(Resource::TemporaryBytes, bytes);
         PreparationWork::run(&root.scope(), lane, |work| {
             let result = plan_access_selection_with_order_and_semantic_indexes(
                 indexes,
@@ -393,7 +383,7 @@ fn recursive_candidate_lists_and_dispatch_obey_request_admission() {
                     (Resource::PredicateExpressionSteps, steps as u64),
                 ] {
                     for limit in [0, exact.saturating_sub(1), exact * 2] {
-                        let root = request(resource, limit);
+                        let root = request_with_limit(resource, limit);
                         PreparationWork::run(&root.scope(), lane, |work| {
                             for attempt in 0..3 {
                                 let result = plan_access_selection_with_order_and_semantic_indexes(
@@ -462,7 +452,7 @@ fn and_branch_lists_propagate_cumulative_admission_and_preserve_selection() {
                 },
             ),
         ]);
-        let baseline = request(Resource::TemporaryBytes, 16_000_000);
+        let baseline = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = PreparationWork::run(&baseline.scope(), Lane::Diagnostic, |work| {
             Ok(plan_access_selection_with_order_and_semantic_indexes(
                 visible.accepted_semantic_index_contracts(),
@@ -504,7 +494,7 @@ fn and_branch_lists_propagate_cumulative_admission_and_preserve_selection() {
                 let exact = baseline.observed(resource);
                 assert!(exact > 0);
                 for limit in [0, exact - 1, exact * 2] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     PreparationWork::run(&root.scope(), lane, |work| {
                         for attempt in 1..=3 {
                             let result = plan_access_selection_with_order_and_semantic_indexes(
@@ -556,7 +546,7 @@ fn candidate_snapshot_lists_and_names_obey_exact_and_cumulative_admission() {
         + size_of::<AccessPath<Value>>()) as u64;
     // Proof-owner tests pin traversal admission. This integration check includes
     // that work without duplicating the proof's internal visit formula.
-    let baseline = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let baseline = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
     PreparationWork::run(&baseline.scope(), Lane::Diagnostic, |work| {
         plan.clone()
             .finalize_access_choice_with_semantic_indexes_and_schema(indexes, &schema, work)
@@ -570,7 +560,7 @@ fn candidate_snapshot_lists_and_names_obey_exact_and_cumulative_admission() {
             (Resource::PredicateExpressionSteps, total_steps),
         ] {
             for limit in [0, total - 1, total * 2] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 let mut current = plan.clone();
                 PreparationWork::run(&root.scope(), lane, |work| {
                     for attempt in 0..3 {
@@ -631,7 +621,7 @@ fn cardinality_candidate_list_is_admitted_before_route_copies() {
         // The chosen residual precedes list admission; the alternative's
         // route and residual cannot be copied until that list is admitted.
         for limit in [residual_bytes + list_bytes - 1, total] {
-            let root = request(Resource::TemporaryBytes, limit);
+            let root = request_with_limit(Resource::TemporaryBytes, limit);
             PreparationWork::run(&root.scope(), lane, |work| {
                 let result = exact_cardinality_tiebreak_candidates(indexes, &schema, &plan, work);
                 if limit < residual_bytes + list_bytes {

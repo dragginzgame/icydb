@@ -2,13 +2,12 @@ use super::{
     CardinalityTiebreakAttempt, PreparedCardinalityCandidate, rank_prepared_cardinality_candidates,
 };
 use crate::db::{
-    RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     query::{
         plan::{CardinalityTiebreakCandidate, CardinalityTiebreakCandidateEvidence},
         preparation::{PreparationWork, with_preparation_work},
     },
     session::tests::cardinality_tiebreak::ranking_candidates_for_tests,
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
@@ -27,16 +26,6 @@ fn prepared<'a>(
             probe_end: index + 1,
         })
         .collect()
-}
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
 }
 
 // One visit, prefix addition, name-copy visit and comparison per candidate;
@@ -142,7 +131,7 @@ fn exact_evidence_charges_exact_limits_and_cumulative_retries() {
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
         for (resource, exact) in exact_costs(&candidates) {
             for limit in [exact - 1, exact] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 let result = PreparationWork::run(&root.scope(), lane, |work| {
                     rank_prepared_cardinality_candidates(
                         authority.entity_tag(),
@@ -164,7 +153,7 @@ fn exact_evidence_charges_exact_limits_and_cumulative_retries() {
                 assert_eq!(root.observed(resource), exact);
                 assert_eq!(root.observed(Resource::RowsVisited), 0);
             }
-            let root = request(resource, 2 * exact - 1);
+            let root = request_with_limit(resource, 2 * exact - 1);
             for attempt in 0..2 {
                 let result = PreparationWork::run(&root.scope(), lane, |work| {
                     rank_prepared_cardinality_candidates(
@@ -224,7 +213,7 @@ fn exact_cardinality_attempt_propagates_budget_failure_instead_of_policy_fallbac
         };
         let exact = exact + preparation + raw_bytes;
         for limit in [exact - 1, exact] {
-            let root = request(resource, limit);
+            let root = request_with_limit(resource, limit);
             let result = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
                 session.cardinality_tiebreak_attempt(&authority, candidates.clone(), work)
             });

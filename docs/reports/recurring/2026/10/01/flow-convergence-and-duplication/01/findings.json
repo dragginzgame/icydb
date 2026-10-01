@@ -1,0 +1,224 @@
+{
+  "audit": {
+    "date": "2026-10-01",
+    "scope": "flow-convergence-and-duplication",
+    "method": "FCD-1.0",
+    "run": "01",
+    "code_snapshot": "45ff7e8270514a505260460a8db1f7f0ed96c1a6",
+    "tree": "3cbc0202d8dad27a2e477893a14db918c0b5d951",
+    "includes_current_worktree": true,
+    "tracked_diff_sha256": "2e6e35137238eb56176b16ef9a8b40878f5e0c127e068f554e5034369025b0f5",
+    "cargo_lock_sha256": "6abd52233d9de42eed2740b6eb1d5b4ccd7e69a80ed1247ba9b75ba7ed2a2e5f",
+    "preexisting_dirty_files": [
+      " M CHANGELOG.md",
+      " M Cargo.lock",
+      " M docs/changelog/0.262.md",
+      " M docs/design/0.262-entity-creation/0.262-status.md",
+      " M schema/audit/default_empty/Cargo.toml",
+      " M schema/audit/group_path/Cargo.toml",
+      " M schema/audit/one_simple/Cargo.toml",
+      " M schema/audit/sql_perf/Cargo.toml",
+      " M schema/audit/ten_simple/Cargo.toml",
+      " M schema/demo/rpg/Cargo.toml",
+      " M schema/test/fixtures/Cargo.toml",
+      " M schema/test/sql/Cargo.toml"
+    ],
+    "compared_baseline": "docs/reports/recurring/2026/08/26/flow-convergence-and-duplication/01/report.md",
+    "comparability": "N/A: broad baseline versus prior affected-owner scope; named stable anchors only",
+    "verdict": "PASS WITH FINDINGS",
+    "implementation_authorized_by_report": false
+  },
+  "inventory": {
+    "workspace_packages": 49,
+    "workspace_targets": 120,
+    "rust_files": 1659,
+    "lexical_function_candidates": 21809,
+    "exact_body_groups_at_60_tokens": 23,
+    "test_helper_groups_at_15_tokens": 32
+  },
+  "findings": [
+    {
+      "id": "FCD-004",
+      "risk": "MEDIUM",
+      "disposition": "CONSOLIDATE",
+      "title": "Primary and secondary-index streams repeat the held-head control state machine",
+      "owners": [
+        "crates/icydb-core/src/db/executor/stream/access/physical.rs"
+      ],
+      "evidence": [
+        {
+          "path": "crates/icydb-core/src/db/executor/stream/access/physical.rs",
+          "lines": [
+            1207,
+            1300,
+            1655,
+            1688
+          ]
+        }
+      ],
+      "friction": "Two implementations must preserve identical pull admission, comparison charging, held-head retention and page-stop rules.",
+      "canonical_owner": "Existing physical-stream owner, sharing only held-head control with static dispatch.",
+      "action_trigger": "Before another held-head backend or a change to its accounting/resume contract.",
+      "boundary": "Retain backend-specific key encoding, physical seek configuration, refill bounds and prefix-merge state.",
+      "state_space_delta": "No new public or persisted state; one control contract replaces two handwritten implementations.",
+      "class": "DuplicateFlow"
+    },
+    {
+      "id": "FCD-005",
+      "risk": "MEDIUM",
+      "disposition": "CONSOLIDATE",
+      "title": "Named-type direct dependency enumeration is implemented in schema digest and runtime lowering",
+      "owners": [
+        "crates/icydb-schema/src/source_digest.rs",
+        "crates/icydb-core/src/db/schema/application_lowering.rs"
+      ],
+      "evidence": [
+        {
+          "path": "crates/icydb-schema/src/source_digest.rs",
+          "lines": [
+            223,
+            254
+          ]
+        },
+        {
+          "path": "crates/icydb-core/src/db/schema/application_lowering.rs",
+          "lines": [
+            281,
+            315
+          ]
+        }
+      ],
+      "friction": "Each named-type shape change requires maintaining two equivalent variant walkers and nested field-type walkers.",
+      "canonical_owner": "Schema NamedTypeFragment/FieldType representation, enumerating direct dependencies only.",
+      "action_trigger": "The next authorized named-type/schema-creation cleanup, before extending fragment shapes.",
+      "boundary": "Retain digest reachability/canonicalization and catalog-native validation/allocation as separate callers; never rebuild accepted definitions from generated models.",
+      "state_space_delta": "No new public mode or persisted form; one direct-dependency traversal replaces two.",
+      "class": "DuplicateFlow"
+    },
+    {
+      "id": "FCD-006",
+      "risk": "LOW",
+      "disposition": "LOCALIZE",
+      "title": "Standalone predicate and SQL statement parsers duplicate the trailing-token diagnostic map",
+      "owners": [
+        "crates/icydb-core/src/db/predicate/parser/mod.rs",
+        "crates/icydb-core/src/db/sql/parser/mod.rs"
+      ],
+      "evidence": [
+        {
+          "path": "crates/icydb-core/src/db/predicate/parser/mod.rs",
+          "lines": [
+            74
+          ]
+        },
+        {
+          "path": "crates/icydb-core/src/db/sql/parser/mod.rs",
+          "lines": [
+            307
+          ]
+        }
+      ],
+      "friction": "A diagnostic-code mapping change must update two exact copies.",
+      "canonical_owner": "Existing ungated parse-error boundary, sharing only token-to-diagnostic projection.",
+      "action_trigger": "The next authorized parser diagnostic edit; qualify SQL-enabled and SQL-disabled builds.",
+      "boundary": "Keep statement/predicate grammars, feature admission and trailing-clause ordering at their current parser owners; do not move statement policy into the lexer.",
+      "state_space_delta": "No added grammar, feature flag or runtime route; one diagnostic projection replaces two.",
+      "class": "DuplicateFlow"
+    },
+    {
+      "id": "FCD-007",
+      "risk": "LOW",
+      "disposition": "LOCALIZE",
+      "title": "Dynamic numeric capability classifiers repeat tables already owned by the scalar registry",
+      "owners": [
+        "crates/icydb-core/src/value/semantics.rs",
+        "crates/icydb-schema/src/scalar_macros.rs"
+      ],
+      "evidence": [
+        {
+          "path": "crates/icydb-core/src/value/semantics.rs",
+          "lines": [
+            12,
+            29
+          ]
+        },
+        {
+          "path": "crates/icydb-core/src/value/tests.rs",
+          "lines": [
+            428,
+            435
+          ]
+        }
+      ],
+      "friction": "Two handwritten Value variant lists require synchronization with separate authoritative registry flags.",
+      "canonical_owner": "Existing scalar registry, projected into const Value capability classifiers.",
+      "action_trigger": "The next authorized scalar capability edit, if direct registry projection preserves the lightweight execution shape.",
+      "boundary": "Keep is_numeric_value and supports_numeric_coercion as distinct capabilities; coercion_family has a different truth table.",
+      "state_space_delta": "No merged capabilities or added mode; remove independently maintained variant lists.",
+      "class": "PolicyRediscovery"
+    },
+    {
+      "id": "FCD-008",
+      "risk": "MEDIUM",
+      "disposition": "CONSOLIDATE",
+      "title": "Fifty-nine test files independently construct the same budgeted request profile",
+      "owners": [
+        "crates/icydb-core/src/db/session/request.rs"
+      ],
+      "evidence": [
+        {
+          "path": "crates/icydb-core/src/db/query/construction/comparison/tests.rs",
+          "lines": [
+            17
+          ]
+        },
+        {
+          "path": "crates/icydb-core/src/db/session/tests/cardinality_tiebreak/index_metadata.rs",
+          "lines": [
+            12
+          ]
+        },
+        {
+          "path": "crates/icydb-core/src/db/sql/lowering/normalize/identifier_budget_tests.rs",
+          "lines": [
+            20
+          ]
+        }
+      ],
+      "identical_factories": 59,
+      "distinct_files": 59,
+      "friction": "Changing the shared test profile requires changing 59 helper definitions and their budget-construction imports.",
+      "canonical_owner": "Existing cfg(test) RequestExecutionRoot constructor/test support, retaining the current uniform profile.",
+      "action_trigger": "A bounded shared-test-setup cleanup; preserve every behavioral assertion and custom budget profile.",
+      "boundary": "Keep 16,000,000 uniform test limits and 500,000,000/64 KiB failure headroom; production request/read/mutation budgets remain independent.",
+      "state_space_delta": "No production state or API; one test factory replaces 59 equivalent constructions.",
+      "class": "DuplicateFlow"
+    }
+  ],
+  "retained_separations": [
+    "Accepted-catalog and recovery boundary validation",
+    "Distinct InputValue/OutputValue authoring and accepted contracts",
+    "Query-only SQL rejection with shared read execution",
+    "Different request/read/mutation budget ceilings",
+    "Separate generated catalog consumers and property-test input domains",
+    "Independent fixture schema and replay evidence roles"
+  ],
+  "verification": {
+    "focused_tests_passed": 40,
+    "focused_tests_failed": 0,
+    "static_invariant_gates_passed": 7,
+    "full_workspace_suite": "BLOCKED: user-owned; not run",
+    "raw_wasm_cycles_instructions": "BLOCKED: unmeasured",
+    "source_snapshot_preserved": "PASS",
+    "report_references_json_whitespace": "PASS"
+  },
+  "complexity_delta": {
+    "output_files": 2,
+    "approximate_lines_added": 480,
+    "production_files_changed": 0,
+    "test_files_changed": 0,
+    "new_behavior_axes": 0,
+    "shape": "neutral; evidence only",
+    "permitted_cost_deltas": "unmeasured"
+  }
+}

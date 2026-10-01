@@ -4,13 +4,13 @@ use super::{enum_newtype_query_schema, newtype_query_schema};
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::{
             CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate,
             normalize_enum_literals,
         },
         query::preparation::PreparationWork,
         schema::SchemaInfo,
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -18,16 +18,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn run(
     schema: &SchemaInfo,
@@ -118,12 +108,12 @@ fn schema_normalization_admits_shapes_before_copying_and_shares_request_limits()
             Resource::NestedValueSteps,
             Resource::PredicateExpressionSteps,
         ] {
-            let measured = request(resource, 16_000_000);
+            let measured = request_with_limit(resource, 16_000_000);
             assert_eq!(run(&schema, &input, &measured, lane).unwrap(), expected);
             let exact = measured.observed(resource);
             assert!(exact > 0);
             for limit in [exact - 1, exact, 2 * exact] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 for _ in 0..limit / exact {
                     assert_eq!(run(&schema, &input, &root, lane).unwrap(), expected);
                 }
@@ -159,7 +149,7 @@ fn enum_normalization_admits_loose_canonical_and_collection_operands() {
             Value::Text("Active".into()),
             CoercionId::Strict,
         ));
-        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let canonical = run(&schema, &loose, &root, Lane::Diagnostic).unwrap();
         assert!(
             matches!(&canonical, Predicate::Compare(cmp) if matches!(cmp.value(), Value::Enum(_)))
@@ -170,13 +160,13 @@ fn enum_normalization_admits_loose_canonical_and_collection_operands() {
                 Resource::NestedValueSteps,
                 Resource::PredicateExpressionSteps,
             ] {
-                let measured = request(resource, 16_000_000);
+                let measured = request_with_limit(resource, 16_000_000);
                 assert_eq!(
                     run(&schema, input, &measured, Lane::Diagnostic).unwrap(),
                     canonical
                 );
                 let exact = measured.observed(resource);
-                let root = request(resource, exact - 1);
+                let root = request_with_limit(resource, exact - 1);
                 let error = run(&schema, input, &root, Lane::Diagnostic).unwrap_err();
                 assert!(
                     error
@@ -196,12 +186,12 @@ fn discarded_boolean_branches_still_validate_and_admit() {
             first,
             Predicate::eq("stage".into(), Value::Text("not_a_variant".into())),
         ]);
-        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         assert!(matches!(
             run(&schema, &input, &root, Lane::PublicRead),
             Err(QueryError::Validate(_))
         ));
-        let root = request(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         let error = run(&schema, &input, &root, Lane::PublicRead).unwrap_err();
         assert!(error.diagnostic_facts().contains(&(
             DiagnosticFactTag::BudgetResource,

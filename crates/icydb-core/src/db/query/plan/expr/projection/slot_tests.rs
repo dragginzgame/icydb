@@ -1,21 +1,8 @@
 //! Local insertion checks distinguish budget rejection from duplicate slots.
 
 use super::*;
-use crate::db::{
-    RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
-};
+use crate::db::test_support::request_with_limit;
 use icydb_diagnostic_code::{DiagnosticExecutionLane, DiagnosticFactTag};
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 #[test]
 fn rejected_slot_insertion_preserves_existing_entries_and_capacity() {
@@ -23,7 +10,7 @@ fn rejected_slot_insertion_preserves_existing_entries_and_capacity() {
         (Resource::PredicateExpressionSteps, 2),
         (Resource::TemporaryBytes, 0),
     ] {
-        let root = request(resource, limit);
+        let root = request_with_limit(resource, limit);
         let mut slots = vec![2, 4];
         let (pointer, capacity) = (slots.as_ptr(), slots.capacity());
         let error =
@@ -43,7 +30,7 @@ fn rejected_slot_insertion_preserves_existing_entries_and_capacity() {
 
 #[test]
 fn duplicate_slots_need_comparisons_but_no_new_backing() {
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     let mut slots = vec![2, 4];
     PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
         insert_projection_slot(&mut slots, 2, work)

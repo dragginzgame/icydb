@@ -10,22 +10,13 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn compile(expr: &Expr, root: &RequestExecutionRoot) -> Result<Option<CompiledExpr>, QueryError> {
     let schema = newtype_query_schema();
@@ -115,12 +106,12 @@ fn scalar_construction_charges_exact_work_and_actual_specialized_backing() {
             (Resource::NestedValueSteps, values),
             (Resource::TemporaryBytes, bytes),
         ] {
-            let request = root(resource, exact);
+            let request = request_with_limit(resource, exact);
             assert!(compile(&expr, &request).unwrap().is_some(), "{expr:?}");
             assert_eq!(request.observed(resource), exact, "{expr:?}");
             assert_eq!(request.observed(Resource::RowsVisited), 0);
             if exact > 0 {
-                let request = root(resource, exact - 1);
+                let request = request_with_limit(resource, exact - 1);
                 let error = compile(&expr, &request).unwrap_err();
                 assert!(
                     error
@@ -138,19 +129,28 @@ fn scalar_construction_charges_exact_work_and_actual_specialized_backing() {
 fn scalar_budget_failure_is_not_unsupported_syntax_and_is_cumulative() {
     let expr = Expr::Field(FieldId::new("missing"));
     assert!(
-        compile(&expr, &root(Resource::PredicateExpressionSteps, 9))
-            .unwrap()
-            .is_none()
+        compile(
+            &expr,
+            &request_with_limit(Resource::PredicateExpressionSteps, 9)
+        )
+        .unwrap()
+        .is_none()
     );
-    assert!(compile(&expr, &root(Resource::PredicateExpressionSteps, 8)).is_err());
+    assert!(
+        compile(
+            &expr,
+            &request_with_limit(Resource::PredicateExpressionSteps, 8)
+        )
+        .is_err()
+    );
 
     let expr = Expr::Literal(Value::Text("abc".into()));
-    let request = root(Resource::TemporaryBytes, 5);
+    let request = request_with_limit(Resource::TemporaryBytes, 5);
     let first = compile(&expr, &request).unwrap().unwrap();
     assert!(compile(&expr, &request).is_err());
     assert_eq!(first, CompiledExpr::Literal(Value::Text("abc".into())));
     assert!(
-        compile(&expr, &root(Resource::TemporaryBytes, 3))
+        compile(&expr, &request_with_limit(Resource::TemporaryBytes, 3))
             .unwrap()
             .is_some()
     );
@@ -166,9 +166,15 @@ fn scalar_discarded_case_payloads_are_charged_before_specialization() {
         else_expr: Box::new(Expr::Literal(Value::Text("discarded".into()))),
     };
     let exact = size_of::<CompiledExprCaseArm>() as u64 + 9;
-    assert!(compile(&expr, &root(Resource::TemporaryBytes, exact - 1)).is_err());
+    assert!(
+        compile(
+            &expr,
+            &request_with_limit(Resource::TemporaryBytes, exact - 1)
+        )
+        .is_err()
+    );
     assert_eq!(
-        compile(&expr, &root(Resource::TemporaryBytes, exact)).unwrap(),
+        compile(&expr, &request_with_limit(Resource::TemporaryBytes, exact)).unwrap(),
         Some(CompiledExpr::Literal(Value::Nat64(1)))
     );
 }

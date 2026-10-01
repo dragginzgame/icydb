@@ -3,12 +3,12 @@
 use super::{copy_lookup_value_for_key_item, eq_lookup_value_for_key_item};
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
+        QueryError,
         access::{SemanticIndexExpression, SemanticIndexKeyItemRef},
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::CoercionId,
         query::preparation::PreparationWork,
         schema::PersistedIndexExpressionOp,
+        test_support::request_with_limit,
     },
     value::{Value, lower_text_construction_allowance},
 };
@@ -16,16 +16,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 #[test]
 fn selected_lookup_conversion_obeys_exact_and_cumulative_admission() {
@@ -63,7 +53,7 @@ fn selected_lookup_conversion_obeys_exact_and_cumulative_admission() {
                     (Resource::NestedValueSteps, visits),
                 ] {
                     for limit in [0, exact.saturating_sub(1), exact * 2] {
-                        let root = request(resource, limit);
+                        let root = request_with_limit(resource, limit);
                         PreparationWork::run(&root.scope(), lane, |work| {
                             for attempt in 0..3 {
                                 let result = copy_lookup_value_for_key_item(
@@ -143,7 +133,7 @@ fn unsupported_selected_lookup_pairs_do_not_start_conversion() {
             true,
         ),
     ] {
-        let root = request(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
             assert!(
                 copy_lookup_value_for_key_item(key, field, value, coercion, compatible, work)

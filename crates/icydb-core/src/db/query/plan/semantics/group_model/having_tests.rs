@@ -3,10 +3,8 @@
 use super::canonicalize_grouped_having_numeric_literal_for_accepted_kind as normalize;
 use crate::{
     db::{
-        RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
-        query::preparation::PreparationWork,
-        schema::AcceptedFieldKind,
+        query::preparation::PreparationWork, schema::AcceptedFieldKind,
+        test_support::request_with_limit,
     },
     types::{IntBig, NatBig},
     value::Value,
@@ -14,16 +12,6 @@ use crate::{
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 #[test]
 fn unchanged_nested_lists_keep_every_backing_allocation() {
@@ -44,7 +32,7 @@ fn unchanged_nested_lists_keep_every_backing_allocation() {
         (outer.as_ptr(), inner.as_ptr(), text.as_ptr())
     };
     let before = backing(&value);
-    let root = root(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
         normalize(&kind, &mut value, work)
     })
@@ -85,7 +73,7 @@ fn partial_numeric_conversion_keeps_unconverted_recursive_payloads() {
         )
     };
     let before = backing(&value);
-    let root = root(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
         normalize(&kind, &mut value, work)
     })
@@ -121,7 +109,7 @@ fn exact_big_atoms_and_nonconverting_kinds_need_no_copy_budget() {
         ),
     ] {
         let before = value.clone();
-        let root = root(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
             normalize(&kind, &mut value, work)
         })
@@ -135,7 +123,7 @@ fn exact_big_atoms_and_nonconverting_kinds_need_no_copy_budget() {
 fn introduced_decode_storage_still_charges_before_conversion() {
     for limit in [1, 2] {
         let mut value = Value::Text("abcd".into());
-        let root = root(Resource::TemporaryBytes, limit);
+        let root = request_with_limit(Resource::TemporaryBytes, limit);
         let result =
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
                 normalize(
@@ -163,7 +151,7 @@ fn introduced_decode_storage_still_charges_before_conversion() {
 fn failed_traversal_charges_accumulate_on_the_current_request() {
     let mut value = Value::List(vec![Value::Null]);
     let kind = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Ulid));
-    let root = root(Resource::NestedValueSteps, 1);
+    let root = request_with_limit(Resource::NestedValueSteps, 1);
     for attempt in 0..2 {
         let error =
             PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {

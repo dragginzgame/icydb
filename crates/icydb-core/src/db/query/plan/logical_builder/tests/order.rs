@@ -1,10 +1,14 @@
-use super::{assert_budget_error, root};
+use super::assert_budget_error;
 use crate::{
-    db::query::{
-        plan::{
-            OrderDirection, OrderSpec, OrderTerm, canonicalize_order_spec_for_grouping, expr::Expr,
+    db::{
+        query::{
+            plan::{
+                OrderDirection, OrderSpec, OrderTerm, canonicalize_order_spec_for_grouping,
+                expr::Expr,
+            },
+            preparation::PreparationWork,
         },
-        preparation::PreparationWork,
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -21,7 +25,7 @@ fn absent_and_grouped_orders_skip_primary_key_work() {
     };
     for (order, is_grouped) in [(None, false), (Some(grouped), true)] {
         let expected = order.clone();
-        let request = root(Resource::PredicateExpressionSteps, 0);
+        let request = request_with_limit(Resource::PredicateExpressionSteps, 0);
         let result = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
             canonicalize_order_spec_for_grouping(&keys, order, is_grouped, work)
         })
@@ -39,7 +43,7 @@ fn composite_tie_break_preserves_authored_terms_and_last_direction() {
         OrderTerm::field("rank", OrderDirection::Asc),
         OrderTerm::field("tenant", OrderDirection::Desc),
     ];
-    let request = root(Resource::TemporaryBytes, 16_000_000);
+    let request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
         let result = canonicalize_order_spec_for_grouping(
             &keys,
@@ -76,7 +80,7 @@ fn only_exact_direct_field_matches_suppress_tie_breaks() {
             OrderDirection::Desc,
         ),
     ] {
-        let request = root(Resource::TemporaryBytes, 16_000_000);
+        let request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let result = PreparationWork::run(&request.scope(), Lane::PublicRead, |work| {
             canonicalize_order_spec_for_grouping(
                 &keys,
@@ -99,7 +103,7 @@ fn only_exact_direct_field_matches_suppress_tie_breaks() {
 #[test]
 fn empty_explicit_order_uses_ascending_primary_key_order() {
     let keys = ["tenant".into(), "id".into()];
-    let request = root(Resource::TemporaryBytes, 16_000_000);
+    let request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let result = PreparationWork::run(&request.scope(), Lane::PublicRead, |work| {
         canonicalize_order_spec_for_grouping(
             &keys,
@@ -123,7 +127,7 @@ fn empty_explicit_order_uses_ascending_primary_key_order() {
 fn comparisons_charge_cumulatively_without_allocating_in_every_lane() {
     let keys = ["id".into()];
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let request = root(Resource::PredicateExpressionSteps, 7);
+        let request = request_with_limit(Resource::PredicateExpressionSteps, 7);
         let copy = || {
             PreparationWork::run(&request.scope(), lane, |work| {
                 canonicalize_order_spec_for_grouping(
@@ -158,7 +162,7 @@ fn missing_key_rejects_at_backing_or_payload_before_installation() {
     };
     let backing = 4 * size_of::<OrderTerm>() as u64;
     for (limit, expected_steps) in [(backing - 1, 2), (backing + 1, 5), (backing + 2, 5)] {
-        let request = root(Resource::TemporaryBytes, limit);
+        let request = request_with_limit(Resource::TemporaryBytes, limit);
         let result = PreparationWork::run(&request.scope(), Lane::Diagnostic, |work| {
             canonicalize_order_spec_for_grouping(&keys, Some(source.clone()), false, work)
         });

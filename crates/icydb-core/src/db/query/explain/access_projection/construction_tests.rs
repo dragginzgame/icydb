@@ -2,21 +2,10 @@
 
 use super::*;
 use crate::db::{
-    RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
-    query::plan::project_explain_access_path,
+    RequestExecutionRoot, query::plan::project_explain_access_path,
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionLane as Lane, DiagnosticFactTag};
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn project(
     access: &AccessPlan<Value>,
@@ -34,7 +23,7 @@ fn access_projection_admits_composite_backing_before_visiting_children() {
         AccessPlan::Intersection(vec![AccessPlan::by_keys(vec![]); 4]),
     ] {
         let bytes = 4 * size_of::<ExplainAccessPath>() as u64;
-        let short = request(Resource::TemporaryBytes, bytes - 1);
+        let short = request_with_limit(Resource::TemporaryBytes, bytes - 1);
         let error = project(&access, &short).unwrap_err();
         assert!(error.diagnostic_facts().contains(&(
             DiagnosticFactTag::BudgetResource,
@@ -42,7 +31,7 @@ fn access_projection_admits_composite_backing_before_visiting_children() {
         )));
         assert_eq!(short.observed(Resource::PredicateExpressionSteps), 1);
         assert_eq!(short.observed(Resource::NestedValueSteps), 0);
-        let exact = request(Resource::TemporaryBytes, bytes);
+        let exact = request_with_limit(Resource::TemporaryBytes, bytes);
         assert!(project(&access, &exact).is_ok());
         assert_eq!(exact.observed(Resource::TemporaryBytes), bytes);
         assert_eq!(exact.observed(Resource::PredicateExpressionSteps), 5);
@@ -56,7 +45,7 @@ fn access_projection_stops_at_failed_child_without_visiting_later_siblings() {
         AccessPlan::by_keys(vec![Value::Text("a".into())]),
         AccessPlan::by_keys(vec![Value::Text("unvisited".into())]),
     ]);
-    let short = request(
+    let short = request_with_limit(
         Resource::TemporaryBytes,
         3 * size_of::<ExplainAccessPath>() as u64,
     );
@@ -71,10 +60,10 @@ fn access_projection_repeated_calls_preserve_values_and_depth() {
     for _ in 1..MAX_EXPLAIN_ACCESS_DEPTH {
         access = AccessPlan::Union(vec![access]);
     }
-    let generous = request(Resource::TemporaryBytes, 16_000_000);
+    let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let expected = project(&access, &generous).unwrap();
     let bytes = generous.observed(Resource::TemporaryBytes);
-    let exact = request(Resource::TemporaryBytes, bytes * 2);
+    let exact = request_with_limit(Resource::TemporaryBytes, bytes * 2);
     assert_eq!(project(&access, &exact).unwrap(), expected);
     assert_eq!(project(&access, &exact).unwrap(), expected);
     assert!(project(&access, &exact).is_err());
@@ -95,7 +84,7 @@ fn access_projection_rejects_depth_before_child_backing_and_payload() {
             AccessPlan::Intersection(vec![access])
         };
     }
-    let root = request(Resource::TemporaryBytes, 16_000_000);
+    let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     for attempt in 1..=2 {
         let error = project(&access, &root).unwrap_err();
         assert_eq!(
@@ -141,7 +130,7 @@ fn access_projection_depth_is_per_branch_and_allows_empty_terminal_composites() 
             branch = AccessPlan::Union(vec![branch]);
         }
         let access = AccessPlan::Intersection(vec![branch.clone(), branch]);
-        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         assert!(project(&access, &root).is_ok());
         assert_eq!(root.observed(Resource::PredicateExpressionSteps), 255);
     }
@@ -207,7 +196,7 @@ fn access_projection_preserves_every_dto_shape_and_charges_branch_field_copy() {
         },
     ];
     for source in cases {
-        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let actual = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             project_explain_access_path(&source, &mut ExplainAccessProjection { work, depth: 1 })
         })

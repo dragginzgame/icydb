@@ -1,12 +1,12 @@
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         numeric::compare_numeric_or_strict_order,
         query::{
             construction::ConstructionBudget,
             plan::planner::range::bounds::compare_range_bound_values, preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     error::InternalError,
     value::Value,
@@ -16,16 +16,6 @@ use icydb_diagnostic_code::{
     DiagnosticFactTag,
 };
 use std::cmp::Ordering;
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn run<T>(
     root: &RequestExecutionRoot,
@@ -68,7 +58,7 @@ fn range_comparisons_admit_payload_and_canonical_retry_cumulatively() {
                 (Resource::NestedValueSteps, nodes),
             ] {
                 for limit in [0, exact - 1, exact * 2] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     for attempt in 1..=3 {
                         let result = run(&root, lane, |budget| {
                             compare_range_bound_values(&value, &value, budget)
@@ -102,7 +92,7 @@ fn range_merge_exhaustion_stops_before_later_bounds() {
         lower: range.lower.clone(),
         upper: range.upper.clone(),
     };
-    let root = request(Resource::PredicateExpressionSteps, 1);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 1);
     let result = run(&root, Lane::Diagnostic, |budget| {
         merge_range_constraint_bounds(
             &mut range,
@@ -160,15 +150,15 @@ fn range_extraction_propagates_comparison_exhaustion_without_publishing_candidat
                     Resource::PredicateExpressionSteps,
                     Resource::NestedValueSteps,
                 ] {
-                    let baseline = request(resource, 16_000_000);
+                    let baseline = request_with_limit(resource, 16_000_000);
                     let expected = run(&baseline, lane, action).unwrap();
                     let used = baseline.observed(resource);
                     assert!(used > 0);
                     for limit in 0..used {
-                        let short = request(resource, limit);
+                        let short = request_with_limit(resource, limit);
                         assert_resource(run(&short, lane, action).unwrap_err(), resource);
                     }
-                    let exact = request(resource, used * 2);
+                    let exact = request_with_limit(resource, used * 2);
                     assert_eq!(run(&exact, lane, action).unwrap(), expected);
                     assert_eq!(run(&exact, lane, action).unwrap(), expected);
                     assert_resource(run(&exact, lane, action).unwrap_err(), resource);
@@ -194,7 +184,7 @@ fn range_extraction_propagates_comparison_exhaustion_without_publishing_candidat
         )),
     ];
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let short = request(Resource::NestedValueSteps, 1);
+        let short = request_with_limit(Resource::NestedValueSteps, 1);
         assert_resource(
             run(&short, lane, |budget| {
                 primary_key_range_from_and(&schema, &children, budget)
@@ -203,7 +193,7 @@ fn range_extraction_propagates_comparison_exhaustion_without_publishing_candidat
             Resource::NestedValueSteps,
         );
         assert_eq!(short.observed(Resource::TemporaryBytes), 0);
-        let exact = request(Resource::NestedValueSteps, 4);
+        let exact = request_with_limit(Resource::NestedValueSteps, 4);
         assert!(
             run(&exact, lane, |budget| primary_key_range_from_and(
                 &schema, &children, budget
@@ -216,7 +206,7 @@ fn range_extraction_propagates_comparison_exhaustion_without_publishing_candidat
 
 #[test]
 fn range_merges_move_text_bounds_and_keep_strict_ties() {
-    let root = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
     run(&root, Lane::PublicRead, |budget| {
         use super::{
             RangeConstraint,
@@ -278,7 +268,7 @@ fn range_merges_move_text_bounds_and_keep_strict_ties() {
 
 #[test]
 fn range_merges_preserve_singleton_empty_and_incomparable_intervals() {
-    let root = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
     run(&root, Lane::PublicRead, |budget| {
         use super::{RangeConstraint, bounds::merge_range_constraint};
         use crate::db::predicate::CompareOp;
@@ -310,7 +300,7 @@ fn range_merges_preserve_singleton_empty_and_incomparable_intervals() {
 
 #[test]
 fn range_bound_numeric_compare_reuses_shared_numeric_authority() {
-    let root = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
     run(&root, Lane::PublicRead, |budget| {
         let left = Value::Int64(10);
         let right = Value::Nat64(10);
@@ -327,7 +317,7 @@ fn range_bound_numeric_compare_reuses_shared_numeric_authority() {
 
 #[test]
 fn range_bound_mixed_non_numeric_values_are_incomparable() {
-    let root = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
     run(&root, Lane::PublicRead, |budget| {
         assert_eq!(
             compare_range_bound_values(&Value::Text("x".to_string()), &Value::Nat64(1), budget)
@@ -342,7 +332,7 @@ fn range_bound_mixed_non_numeric_values_are_incomparable() {
 
 #[test]
 fn range_bound_same_variant_non_numeric_uses_strict_ordering() {
-    let root = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
     run(&root, Lane::PublicRead, |budget| {
         assert_eq!(
             compare_range_bound_values(

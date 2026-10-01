@@ -3,13 +3,13 @@
 use super::exact_index_intersection_candidate;
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
+        QueryError,
         access::{AccessPath, AccessPlan, SemanticIndexAccessContract},
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             plan::{OrderDirection, OrderSpec, OrderTerm, VisibleIndexes, exact_metadata_schema},
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -17,16 +17,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn prefix(index: &SemanticIndexAccessContract, values: &[i64]) -> AccessPlan<Value> {
     AccessPlan::index_prefix_from_contract(
@@ -93,7 +83,7 @@ fn exact_intersection_admits_only_retained_prefixes_and_preserves_order_and_cap(
                 (Resource::NestedValueSteps, operands as u64),
             ] {
                 for limit in [0, exact - 1, exact * 2] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     PreparationWork::run(&root.scope(), lane, |work| {
                         for attempt in 1..=3 {
                             let result = exact_index_intersection_candidate(
@@ -156,7 +146,7 @@ fn absent_exact_intersections_do_not_copy_selected_or_rejected_operands() {
         (Some(&fully_bound), vec![selected.clone()]),
         (Some(&full_scan), vec![selected.clone()]),
     ] {
-        let root = request(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assert!(
                 exact_index_intersection_candidate(&schema, None, false, selected, &children, work)
@@ -185,7 +175,7 @@ fn exact_intersection_keeps_order_and_grouping_admission() {
                     fields: vec![OrderTerm::field(field, direction)],
                 };
                 let eligible = field == "id" && !grouped;
-                let root = request(
+                let root = request_with_limit(
                     Resource::TemporaryBytes,
                     if eligible { 16_000_000 } else { 0 },
                 );

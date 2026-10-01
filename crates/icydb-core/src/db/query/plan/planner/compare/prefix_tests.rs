@@ -2,9 +2,8 @@
 
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
+        QueryError,
         access::AccessPath,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         index::{TextPrefixBoundMode, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
@@ -23,6 +22,7 @@ use crate::{
             SchemaFieldSlot, SchemaIndexId, SchemaInfo, SchemaInsertDefault, SchemaRowLayout,
             SchemaVersion, empty_accepted_enum_catalog_for_tests,
         },
+        test_support::request_with_limit,
     },
     value::{Value, lower_text_construction_allowance},
 };
@@ -112,16 +112,6 @@ pub(in crate::db::query::plan) fn schema() -> SchemaInfo {
     SchemaInfo::from_accepted_snapshot_and_catalog(&snapshot, catalog)
 }
 
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
-
 #[test]
 #[expect(
     clippy::too_many_lines,
@@ -191,7 +181,7 @@ fn prefix_selection_shares_bounds_and_propagates_cumulative_exhaustion() {
                     (Resource::NestedValueSteps, visits),
                 ] {
                     for limit in [0, exact.saturating_sub(1), exact * 2] {
-                        let root = request(resource, limit);
+                        let root = request_with_limit(resource, limit);
                         PreparationWork::run(&root.scope(), lane, |work| {
                             for attempt in 0..3 {
                                 let result = plan_access_selection_with_order_and_semantic_indexes(
@@ -256,7 +246,7 @@ fn unsupported_prefixes_do_not_construct_operands() {
             value,
             coercion,
         ));
-        let root = request(
+        let root = request_with_limit(
             Resource::TemporaryBytes,
             std::mem::size_of_val(indexes) as u64,
         );
@@ -304,7 +294,7 @@ fn and_prefix_ranges_merge_unicode_bounds_with_cumulative_admission() {
             ))
         })
         .collect();
-        let baseline = request(Resource::TemporaryBytes, 16_000_000);
+        let baseline = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = PreparationWork::run(&baseline.scope(), Lane::Diagnostic, |work| {
             Ok(
                 index_range_from_and(indexes, &schema, &children, None, false, work)
@@ -342,7 +332,7 @@ fn and_prefix_ranges_merge_unicode_bounds_with_cumulative_admission() {
             ] {
                 let exact = baseline.observed(resource);
                 for limit in [0, exact.saturating_sub(1), exact * 2] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     PreparationWork::run(&root.scope(), lane, |work| {
                         for attempt in 1..=3 {
                             let result = index_range_from_and(
@@ -392,7 +382,7 @@ fn and_primary_range_copies_valid_interval_endpoints() {
             (Resource::NestedValueSteps, 4),
         ] {
             for limit in [0, exact - 1, exact * 2] {
-                let root = request(resource, limit);
+                let root = request_with_limit(resource, limit);
                 PreparationWork::run(&root.scope(), lane, |work| {
                     for attempt in 1..=3 {
                         let result = primary_key_range_from_and(&schema, &children, work);
@@ -445,7 +435,7 @@ fn and_primary_range_copies_valid_interval_endpoints() {
             0,
         ),
     ] {
-        let root = request(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assert!(
                 primary_key_range_from_and(&schema, &invalid, work)
@@ -488,7 +478,7 @@ fn scalar_primary_key_one_sided_comparisons_select_bounded_access() {
         ),
     ] {
         let cmp = ComparePredicate::with_coercion("id", op, Value::Nat64(40), CoercionId::Strict);
-        let root = request(Resource::TemporaryBytes, 16_000_000);
+        let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
             assert_eq!(
                 plan_compare(indexes, &schema, &cmp, None, false, work).unwrap(),

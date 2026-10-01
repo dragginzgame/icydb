@@ -3,8 +3,8 @@
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{construction::ConstructionBudget, preparation::PreparationWork},
+        test_support::request_with_limit,
     },
     types::{IntBig, NatBig},
     value::{Value, ValueEnum},
@@ -13,16 +13,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn admit(value: &Value, root: &RequestExecutionRoot) -> Result<(), QueryError> {
     PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
@@ -69,7 +59,7 @@ fn comparison_extent_covers_bytes_limbs_and_nested_nodes_without_backing() {
             (Resource::PredicateExpressionSteps, bytes),
             (Resource::NestedValueSteps, visits),
         ] {
-            let exact = request(resource, cost * 2);
+            let exact = request_with_limit(resource, cost * 2);
             admit(&value, &exact).unwrap();
             admit(&value, &exact).unwrap();
             assert_eq!(exact.observed(resource), cost * 2);
@@ -80,7 +70,7 @@ fn comparison_extent_covers_bytes_limbs_and_nested_nodes_without_backing() {
                     .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
             );
             for limit in 0..cost {
-                let short = request(resource, limit);
+                let short = request_with_limit(resource, limit);
                 assert!(admit(&value, &short).is_err());
             }
             assert_eq!(exact.observed(Resource::TemporaryBytes), 0);
@@ -97,7 +87,7 @@ fn comparison_extent_stops_at_rejected_parent_before_visiting_payload() {
         2,
         Value::List(vec![Value::Text("payload".into())]),
     ));
-    let root = request(Resource::NestedValueSteps, 1);
+    let root = request_with_limit(Resource::NestedValueSteps, 1);
     assert!(admit(&value, &root).is_err());
     assert_eq!(root.observed(Resource::NestedValueSteps), 2);
     assert_eq!(root.observed(Resource::PredicateExpressionSteps), 0);
@@ -134,7 +124,7 @@ fn admitted_equality_preserves_structural_semantics_and_short_circuits() {
         });
     }
 
-    let root = request(Resource::NestedValueSteps, 0);
+    let root = request_with_limit(Resource::NestedValueSteps, 0);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         let budget: &dyn ConstructionBudget = work;
         assert!(budget.value_slices_equal::<Value>(&[], &[]).unwrap());
@@ -154,7 +144,7 @@ fn slice_equality_admits_each_payload_and_stops_after_a_mismatch() {
             (Resource::PredicateExpressionSteps, 6),
             (Resource::NestedValueSteps, 4),
         ] {
-            let root = request(resource, cost * 2);
+            let root = request_with_limit(resource, cost * 2);
             for attempt in 0..3 {
                 let result = PreparationWork::run(&root.scope(), lane, |work| {
                     let budget: &dyn ConstructionBudget = work;
@@ -177,7 +167,7 @@ fn slice_equality_admits_each_payload_and_stops_after_a_mismatch() {
             assert_eq!(root.observed(Resource::TemporaryBytes), 0);
         }
     }
-    let root = request(Resource::NestedValueSteps, 2);
+    let root = request_with_limit(Resource::NestedValueSteps, 2);
     PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         let budget: &dyn ConstructionBudget = work;
         assert!(

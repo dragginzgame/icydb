@@ -4,7 +4,6 @@ use super::*;
 use crate::db::query::preparation::with_preparation_work;
 use crate::db::{
     QueryError, RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     predicate::MissingRowPolicy,
     query::{
         explain::{
@@ -13,21 +12,12 @@ use crate::db::{
         plan::AccessPlannedQuery,
         preparation::PreparationWork,
     },
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn project(
     query: &AccessPlannedQuery,
@@ -74,7 +64,11 @@ fn fixture() -> AccessPlannedQuery {
 #[test]
 fn decision_projection_preserves_candidate_facts_labels_and_list_order() {
     let query = fixture();
-    let plan = project(&query, &root(Resource::TemporaryBytes, 16_000_000)).unwrap();
+    let plan = project(
+        &query,
+        &request_with_limit(Resource::TemporaryBytes, 16_000_000),
+    )
+    .unwrap();
     let decision = plan.access_decision();
     let labels = [
         "IndexPrefix(quoted'λ)",
@@ -123,13 +117,13 @@ fn decision_projection_repeated_calls_exhaust_without_mutating_identity() {
     let before = query.clone();
     let signature =
         with_preparation_work(|work| query.continuation_signature("tests::Entity", work)).unwrap();
-    let generous = root(Resource::TemporaryBytes, 16_000_000);
+    let generous = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let expected = project(&query, &generous).unwrap();
     for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
         let used = generous.observed(resource);
         assert!(used > 0);
         for limit in [0, used / 2, used - 1] {
-            let short = root(resource, limit);
+            let short = request_with_limit(resource, limit);
             let error = project(&query, &short).unwrap_err();
             assert!(
                 error
@@ -144,7 +138,7 @@ fn decision_projection_repeated_calls_exhaust_without_mutating_identity() {
             );
             assert_eq!(short.observed(Resource::RowsVisited), 0);
         }
-        let exact = root(resource, 2 * used);
+        let exact = request_with_limit(resource, 2 * used);
         assert_eq!(project(&query, &exact).unwrap(), expected);
         assert_eq!(project(&query, &exact).unwrap(), expected);
         let error = project(&query, &exact).unwrap_err();
@@ -165,14 +159,18 @@ fn decision_projection_repeated_calls_exhaust_without_mutating_identity() {
         assert!(expected.render_text_canonical().is_ok());
         assert_eq!(exact.observed(resource), exhausted);
     }
-    let next = project(&query, &root(Resource::TemporaryBytes, 16_000_000)).unwrap();
+    let next = project(
+        &query,
+        &request_with_limit(Resource::TemporaryBytes, 16_000_000),
+    )
+    .unwrap();
     assert_eq!(next, expected);
 }
 
 #[test]
 fn decision_projection_admits_each_list_backing_before_its_first_payload() {
     let empty = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
-    let baseline = root(Resource::TemporaryBytes, 16_000_000);
+    let baseline = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     project(&empty, &baseline).unwrap();
     let mut candidates = empty.clone();
     candidates.access_choice.candidates = vec![candidate(AccessChoiceCandidateKind::Prefix); 8];
@@ -191,7 +189,7 @@ fn decision_projection_admits_each_list_backing_before_its_first_payload() {
         (alternatives, size_of::<ExplainEligibleAlternative>()),
         (rejected, size_of::<ExplainRejectedIndex>()),
     ] {
-        let short = root(
+        let short = request_with_limit(
             Resource::TemporaryBytes,
             baseline.observed(Resource::TemporaryBytes) + 8 * item_size as u64 - 1,
         );

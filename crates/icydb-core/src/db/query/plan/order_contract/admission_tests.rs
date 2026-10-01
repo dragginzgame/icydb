@@ -4,7 +4,6 @@ use super::*;
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::MissingRowPolicy,
         query::{
             builder::sum,
@@ -14,6 +13,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
@@ -21,16 +21,6 @@ use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 #[test]
 fn initial_order_contracts_share_bounded_labels_and_cumulative_authority() {
@@ -56,7 +46,7 @@ fn initial_order_contracts_share_bounded_labels_and_cumulative_authority() {
             .collect();
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
-                let baseline = request(resource, 16_000_000);
+                let baseline = request_with_limit(resource, 16_000_000);
                 PreparationWork::run(&baseline.scope(), lane, |budget| {
                     let contract =
                         CandidateOrderContract::prepare(&schema, Some(&order), grouped, budget)
@@ -78,7 +68,7 @@ fn initial_order_contracts_share_bounded_labels_and_cumulative_authority() {
                 let exact = baseline.observed(resource);
                 assert!(exact > 0);
                 for limit in [0, exact - 1, exact * 2] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     PreparationWork::run(&root.scope(), lane, |budget| {
                         for attempt in 1..=3 {
                             let result = CandidateOrderContract::prepare(
@@ -118,7 +108,7 @@ fn initial_order_rejection_does_not_materialize_labels() {
 
     let schema = exact_metadata_schema(&[], &[]);
     for grouped in [false, true] {
-        let root = request(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         PreparationWork::run(&root.scope(), Lane::Diagnostic, |budget| {
             assert!(
                 CandidateOrderContract::prepare(&schema, None, grouped, budget)
@@ -164,7 +154,7 @@ fn route_profile_publication_rejects_unadmitted_order_construction() {
         ],
     });
     let before = plan.planner_route_profile().clone();
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     let result = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
         plan.finalize_planner_route_profile_for_model_with_schema(&schema, work)
             .map_err(QueryError::execute)
@@ -212,7 +202,7 @@ fn retained_order_shares_exact_and_cumulative_expression_copy_admission() {
     };
     let before = order.clone();
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
-        let measured = request(Resource::TemporaryBytes, 16_000_000);
+        let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let copied =
             PreparationWork::run(&measured.scope(), lane, |work| work.copy_order_spec(&order))
                 .unwrap();
@@ -226,7 +216,7 @@ fn retained_order_shares_exact_and_cumulative_expression_copy_admission() {
                 let exact = measured.observed(resource);
                 assert!(exact > 0);
                 for limit in [exact - 1, exact, 2 * exact] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     for attempt in 1..=3 {
                         let result = build(Some(&order), grouped, &root, lane);
                         if attempt * exact <= limit {
@@ -261,7 +251,7 @@ fn absent_and_empty_order_preserve_distinct_contracts_without_backing() {
     let empty = OrderSpec { fields: vec![] };
     for order in [None, Some(&empty)] {
         for grouped in [false, true] {
-            let root = request(Resource::TemporaryBytes, 0);
+            let root = request_with_limit(Resource::TemporaryBytes, 0);
             let contract = build(order, grouped, &root, Lane::Diagnostic).unwrap();
             assert_eq!(contract.order_spec(), order);
             assert_eq!(contract.supports_cursor, grouped || order.is_some());
@@ -284,7 +274,7 @@ fn retained_order_rejection_prevents_a_continuation_after_hashing() {
         fields: vec![OrderTerm::field("label", OrderDirection::Desc)],
     });
     let signature = PreparationWork::run(
-        &request(Resource::TemporaryBytes, 0).scope(),
+        &request_with_limit(Resource::TemporaryBytes, 0).scope(),
         Lane::PublicRead,
         |work| {
             plan.continuation_signature("tests::Entity", work)
@@ -298,18 +288,18 @@ fn retained_order_rejection_prevents_a_continuation_after_hashing() {
                 .map_err(QueryError::execute)
         })
     };
-    let error = make(&request(Resource::TemporaryBytes, 0)).unwrap_err();
+    let error = make(&request_with_limit(Resource::TemporaryBytes, 0)).unwrap_err();
     assert!(error.diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
         Resource::TemporaryBytes.raw()
     )));
-    let measured = request(Resource::TemporaryBytes, 16_000_000);
+    let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     assert_eq!(
         make(&measured).unwrap().unwrap().continuation_signature(),
         signature
     );
     let exact = measured.observed(Resource::TemporaryBytes);
-    let root = request(Resource::TemporaryBytes, 2 * exact);
+    let root = request_with_limit(Resource::TemporaryBytes, 2 * exact);
     for _ in 0..2 {
         assert_eq!(
             make(&root).unwrap().unwrap().continuation_signature(),
@@ -318,7 +308,7 @@ fn retained_order_rejection_prevents_a_continuation_after_hashing() {
     }
     assert!(make(&root).is_err());
     assert_eq!(
-        make(&request(Resource::TemporaryBytes, exact))
+        make(&request_with_limit(Resource::TemporaryBytes, exact))
             .unwrap()
             .unwrap()
             .continuation_signature(),

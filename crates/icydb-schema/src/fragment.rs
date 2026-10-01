@@ -181,6 +181,20 @@ impl ScalarType {
 }
 
 impl FieldType {
+    /// Append named-type references through inline list layers.
+    ///
+    /// This preserves the caller's existing entries and does not resolve the
+    /// referenced definition or compute its transitive dependency closure.
+    pub fn append_named_type_dependencies(&self, pending: &mut Vec<TypeSourceKey>) {
+        let mut field_type = self;
+        while let Self::List(item) = field_type {
+            field_type = item;
+        }
+        if let Self::Named(source) = field_type {
+            pending.push(source.clone());
+        }
+    }
+
     pub(crate) const fn validate(&self) -> Result<(), SchemaContractError> {
         self.validate_at_depth(0)
     }
@@ -1308,6 +1322,42 @@ pub enum NamedTypeFragment {
 }
 
 impl NamedTypeFragment {
+    /// Append direct named-type dependencies in fragment order.
+    ///
+    /// Inline list layers are traversed, but referenced definitions are not.
+    /// Existing entries and duplicate references are preserved so callers own
+    /// reachability, canonicalization and accepted-catalog validation.
+    pub fn append_named_type_dependencies(&self, pending: &mut Vec<TypeSourceKey>) {
+        match self {
+            Self::Record(record) => {
+                for field in record.fields() {
+                    field.field_type().append_named_type_dependencies(pending);
+                }
+            }
+            Self::Enum(r#enum) => {
+                for variant in r#enum.variants() {
+                    if let Some(payload) = variant.payload() {
+                        payload.append_named_type_dependencies(pending);
+                    }
+                }
+            }
+            Self::Newtype { inner, .. }
+            | Self::List { item: inner, .. }
+            | Self::Set { item: inner, .. } => {
+                inner.append_named_type_dependencies(pending);
+            }
+            Self::Map { key, value, .. } => {
+                key.append_named_type_dependencies(pending);
+                value.append_named_type_dependencies(pending);
+            }
+            Self::Tuple { members, .. } => {
+                for member in members {
+                    member.field_type().append_named_type_dependencies(pending);
+                }
+            }
+        }
+    }
+
     /// Construct one transparent named wrapper from its current name.
     #[must_use]
     pub fn newtype(name: SchemaName, inner: FieldType) -> Self {

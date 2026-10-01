@@ -1,29 +1,19 @@
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             admission::input::{MAX_QUERY_INPUT_DEPTH, QueryInputBudget},
             builder::min_by,
             plan::expr::{BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, UnaryOp},
             preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::{Value, ValueEnum},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
 };
-
-fn root(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn copy(expr: &Expr, root: &RequestExecutionRoot) -> Result<Expr, QueryError> {
     QueryInputBudget::new()
@@ -38,7 +28,7 @@ fn copy(expr: &Expr, root: &RequestExecutionRoot) -> Result<Expr, QueryError> {
 fn field_clause_copy_reserves_exact_backing_and_preserves_duplicates() {
     let names = ["z", "a", "z"];
     let bytes = (names.len() * size_of::<FieldId>() + 3) as u64;
-    let request = root(Resource::TemporaryBytes, bytes);
+    let request = request_with_limit(Resource::TemporaryBytes, bytes);
     let copied = PreparationWork::run(
         &request.scope(),
         DiagnosticExecutionLane::PublicRead,
@@ -57,7 +47,7 @@ fn field_clause_copy_reserves_exact_backing_and_preserves_duplicates() {
 fn rejected_clause_backing_does_not_visit_any_fields() {
     let names = ["z", "a", "z"];
     let bytes = (names.len() * size_of::<FieldId>()) as u64;
-    let request = root(Resource::TemporaryBytes, bytes - 1);
+    let request = request_with_limit(Resource::TemporaryBytes, bytes - 1);
     let result = PreparationWork::run(
         &request.scope(),
         DiagnosticExecutionLane::PublicRead,
@@ -101,7 +91,7 @@ fn expression_copy_preserves_all_raw_shapes_and_nested_value_identity() {
             )))],
         }),
     };
-    let request = root(Resource::TemporaryBytes, 16_000_000);
+    let request = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     assert_eq!(copy(&expr, &request).unwrap(), expr);
     assert!(request.observed(Resource::TemporaryBytes) > 0);
     assert!(request.observed(Resource::NestedValueSteps) > 0);
@@ -115,17 +105,17 @@ fn exact_copy_backing_and_exhaustion_preserve_the_source() {
         right: Box::new(Expr::Literal(Value::Text("payload".into()))),
     };
     let bytes = 2 * size_of::<Expr>() as u64 + 3 + 7;
-    let exact = root(Resource::TemporaryBytes, bytes);
+    let exact = request_with_limit(Resource::TemporaryBytes, bytes);
     assert_eq!(copy(&expr, &exact).unwrap(), expr);
     assert_eq!(exact.observed(Resource::TemporaryBytes), bytes);
-    let short = root(Resource::TemporaryBytes, bytes - 1);
+    let short = request_with_limit(Resource::TemporaryBytes, bytes - 1);
     let error = copy(&expr, &short).expect_err("last payload allocation rejects");
     assert!(error.diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
         Resource::TemporaryBytes.raw()
     )));
     assert_eq!(
-        copy(&expr, &root(Resource::TemporaryBytes, bytes)).unwrap(),
+        copy(&expr, &request_with_limit(Resource::TemporaryBytes, bytes)).unwrap(),
         expr
     );
 }
@@ -139,7 +129,7 @@ fn failed_expression_visit_stops_before_siblings_and_retries_keep_charges() {
             Expr::Literal(Value::Text("later".into())),
         ],
     };
-    let request = root(Resource::PredicateExpressionSteps, 1);
+    let request = request_with_limit(Resource::PredicateExpressionSteps, 1);
     for expected in [2, 3] {
         let error = copy(&expr, &request).expect_err("copy visit exhausts current request");
         assert!(error.diagnostic_facts().contains(&(
@@ -169,8 +159,18 @@ fn admitted_depth_copy_and_failure_cleanup_fit_the_input_boundary() {
         };
     }
     assert_eq!(
-        copy(&expr, &root(Resource::TemporaryBytes, 16_000_000)).unwrap(),
+        copy(
+            &expr,
+            &request_with_limit(Resource::TemporaryBytes, 16_000_000)
+        )
+        .unwrap(),
         expr
     );
-    assert!(copy(&expr, &root(Resource::PredicateExpressionSteps, 64)).is_err());
+    assert!(
+        copy(
+            &expr,
+            &request_with_limit(Resource::PredicateExpressionSteps, 64)
+        )
+        .is_err()
+    );
 }

@@ -4,7 +4,6 @@ use super::hash_group_field_slots;
 use crate::db::{
     QueryError, RequestExecutionRoot,
     codec::{new_hash_sha256, write_hash_str_u32, write_hash_tag_u8, write_hash_u32},
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     predicate::MissingRowPolicy,
     query::{
         builder::count,
@@ -16,21 +15,12 @@ use crate::db::{
         preparation::PreparationWork,
     },
     schema::AcceptedFieldKind,
+    test_support::request_with_limit,
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 fn hash_fields(
     fields: &GroupFieldSet,
@@ -83,7 +73,7 @@ fn group_field_hash_preserves_direct_and_segmented_path_framing() {
     let exact = 3 + "owner".len() as u64 + "meta.国家".len() as u64 + "meta.a.b".len() as u64;
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
         for limit in [exact - 1, exact, 2 * exact] {
-            let root = request(Resource::PredicateExpressionSteps, limit);
+            let root = request_with_limit(Resource::PredicateExpressionSteps, limit);
             for attempt in 1..=3 {
                 let result = hash_fields(&fields, &root, lane);
                 if attempt * exact <= limit {
@@ -105,14 +95,14 @@ fn group_field_hash_preserves_direct_and_segmented_path_framing() {
         assert_eq!(
             hash_fields(
                 &fields,
-                &request(Resource::PredicateExpressionSteps, exact),
+                &request_with_limit(Resource::PredicateExpressionSteps, exact),
                 lane
             )
             .unwrap(),
             expected
         );
     }
-    let root = request(Resource::TemporaryBytes, 0);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     assert_eq!(
         hash_fields(
             &GroupFieldSet::Direct(vec![owner.clone()]),
@@ -146,7 +136,7 @@ fn group_field_hash_preserves_direct_and_segmented_path_framing() {
 
 #[test]
 fn empty_group_field_sets_need_no_work_or_backing() {
-    let root = request(Resource::PredicateExpressionSteps, 0);
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 0);
     let mut expected = new_hash_sha256();
     write_hash_u32(&mut expected, 0);
     let expected = finalize_sha256_digest(expected);
@@ -185,18 +175,24 @@ fn group_field_failure_prevents_continuation_publication_and_retry_preserves_ide
                 .map_err(QueryError::execute)
         })
     };
-    let rejected = request(Resource::PredicateExpressionSteps, 3);
+    let rejected = request_with_limit(Resource::PredicateExpressionSteps, 3);
     assert!(build(&rejected).unwrap_err().diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
         Resource::PredicateExpressionSteps.raw(),
     )));
     // The access-plan visit precedes the group-field visit and its three bytes.
     assert_eq!(rejected.observed(Resource::PredicateExpressionSteps), 5);
-    let measured = request(Resource::PredicateExpressionSteps, 16_000_000);
+    let measured = request_with_limit(Resource::PredicateExpressionSteps, 16_000_000);
     let expected = build(&measured).unwrap().unwrap().continuation_signature();
     let exact = measured.observed(Resource::PredicateExpressionSteps);
-    assert!(build(&request(Resource::PredicateExpressionSteps, exact - 1)).is_err());
-    let root = request(Resource::PredicateExpressionSteps, 2 * exact);
+    assert!(
+        build(&request_with_limit(
+            Resource::PredicateExpressionSteps,
+            exact - 1
+        ))
+        .is_err()
+    );
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 2 * exact);
     for _ in 0..2 {
         assert_eq!(
             build(&root).unwrap().unwrap().continuation_signature(),
@@ -205,10 +201,13 @@ fn group_field_failure_prevents_continuation_publication_and_retry_preserves_ide
     }
     assert!(build(&root).is_err());
     assert_eq!(
-        build(&request(Resource::PredicateExpressionSteps, exact))
-            .unwrap()
-            .unwrap()
-            .continuation_signature(),
+        build(&request_with_limit(
+            Resource::PredicateExpressionSteps,
+            exact
+        ))
+        .unwrap()
+        .unwrap()
+        .continuation_signature(),
         expected
     );
     assert_eq!(root.observed(Resource::RowsVisited), 0);

@@ -3,12 +3,8 @@
 use super::plan_pk_compare;
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
-        access::AccessPath,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
-        predicate::CompareOp,
-        query::preparation::PreparationWork,
-        schema::FieldType,
+        QueryError, access::AccessPath, predicate::CompareOp, query::preparation::PreparationWork,
+        schema::FieldType, test_support::request_with_limit,
     },
     value::Value,
 };
@@ -17,16 +13,6 @@ use icydb_diagnostic_code::{
     DiagnosticFactTag,
 };
 use icydb_schema::ScalarKind;
-
-fn request(resource: Resource, limit: u64) -> RequestExecutionRoot {
-    RequestExecutionRoot::new_for_tests(
-        HardExecutionBudget::uniform_for_tests(
-            16_000_000,
-            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
-        )
-        .with_limit_for_tests(resource, limit),
-    )
-}
 
 #[test]
 fn primary_key_copies_admit_payload_list_and_path_before_publication() {
@@ -52,7 +38,7 @@ fn primary_key_copies_admit_payload_list_and_path_before_publication() {
                 (Resource::NestedValueSteps, visits as u64),
             ] {
                 for limit in [0, exact.saturating_sub(1), exact * 2] {
-                    let root = request(resource, limit);
+                    let root = request_with_limit(resource, limit);
                     PreparationWork::run(&root.scope(), lane, |work| {
                         for attempt in 0..3 {
                             let result = plan_pk_compare(&field_type, &value, op, work);
@@ -111,7 +97,7 @@ fn unsupported_primary_key_literals_remain_absent_before_copying() {
         ),
     ];
     for (field_type, op, value) in cases {
-        let root = request(Resource::TemporaryBytes, 0);
+        let root = request_with_limit(Resource::TemporaryBytes, 0);
         PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
             assert!(
                 plan_pk_compare(&field_type, &value, op, work)
