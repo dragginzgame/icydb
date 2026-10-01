@@ -2058,7 +2058,7 @@ fn lower_existing_fields(
 /// This seam deliberately does not accept historical fill. A physical
 /// migration validates and later rewrites every predecessor row into the new
 /// layout, so the target layout admits no absent legacy slot.
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 pub(in crate::db::schema) fn lower_migration_field(
     proposed: &icydb_schema::FieldFragment,
     id: FieldId,
@@ -2177,7 +2177,7 @@ struct ExistingIndexLowering<'a> {
 
 /// Lower one migration-bound current index through the ordinary accepted
 /// index constructor while retaining the supplied accepted identity.
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 #[expect(
     clippy::too_many_arguments,
     reason = "migration index proof keeps every accepted catalog and identity input explicit"
@@ -2205,7 +2205,7 @@ pub(in crate::db::schema) fn lower_migration_index(
 
 /// Lower one new generated index directly into an unpublished migration
 /// candidate under already-reserved accepted identities.
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 #[expect(
     clippy::too_many_arguments,
     reason = "new migration indexes bind every catalog and physical identity explicitly"

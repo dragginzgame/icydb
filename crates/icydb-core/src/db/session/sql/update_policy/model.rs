@@ -4,6 +4,7 @@
 #[cfg(test)]
 use crate::db::session::sql::write_policy::SqlWriteReturningBounds;
 use crate::db::{
+    QueryError,
     session::sql::write_policy::{
         DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
         SqlWriteExecutionBounds, SqlWritePlanCore, SqlWritePolicyBounds,
@@ -11,6 +12,7 @@ use crate::db::{
     },
     sql::parser::SqlUpdateStatement,
 };
+use icydb_diagnostic_code::SqlWriteBoundaryCode;
 use std::num::NonZeroU32;
 
 /// Maximum rows one exact SQL update may assert can fit one atomic call.
@@ -305,6 +307,31 @@ pub(in crate::db) enum SqlUpdatePolicyRejection {
     ResumableWindowUnsupported,
     /// Resumable updates do not return per-row projections.
     ResumableReturningUnsupported,
+}
+
+impl SqlUpdatePolicyRejection {
+    /// Project the policy-owned rejection into its stable query diagnostic.
+    /// Execution adapters retain their own checks for incompatible plan kinds.
+    pub(in crate::db::session::sql) fn into_query_error(self) -> QueryError {
+        let boundary = match self {
+            Self::WriteShape(SqlWriteShapePolicyRejection::MissingWhere) => {
+                SqlWriteBoundaryCode::UpdateMissingWherePredicate
+            }
+            Self::PrimaryKeyMutation => SqlWriteBoundaryCode::UpdatePrimaryKeyMutation,
+            Self::GeneratedFieldMutation => SqlWriteBoundaryCode::ExplicitGeneratedField,
+            Self::ManagedFieldMutation => SqlWriteBoundaryCode::ExplicitManagedField,
+            Self::ExactWindowUnsupported => SqlWriteBoundaryCode::ExactUpdateWindowUnsupported,
+            Self::ResumableWindowUnsupported => {
+                SqlWriteBoundaryCode::ResumableUpdateWindowUnsupported
+            }
+            Self::ResumableReturningUnsupported => {
+                SqlWriteBoundaryCode::ResumableUpdateReturningUnsupported
+            }
+            Self::NotUpdate | Self::WriteShape(_) => return QueryError::unsupported_query(),
+        };
+
+        QueryError::sql_write_boundary(boundary)
+    }
 }
 
 /// Mutually exclusive validated plan or stable rejection for one SQL `UPDATE` policy.

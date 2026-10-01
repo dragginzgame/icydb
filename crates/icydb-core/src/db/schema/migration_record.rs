@@ -156,19 +156,19 @@ impl PersistedSchemaMigrationTransition {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn entity(&self) -> &EntitySourceKey {
         &self.entity
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn predecessor_version(&self) -> u32 {
         self.from_version
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn target_version(&self) -> u32 {
         self.to_version
     }
@@ -209,7 +209,7 @@ pub(in crate::db::schema) struct PersistedSchemaMigrationIndex {
 }
 
 impl PersistedSchemaMigrationIndex {
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn try_new(
         store: TargetStoreIdentity,
         entity: EntityTag,
@@ -258,19 +258,19 @@ impl PersistedSchemaMigrationRowCursor {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn store(&self) -> TargetStoreIdentity {
         self.store
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn entity(&self) -> EntityTag {
         self.entity
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn primary_key(&self) -> &[u8] {
         self.primary_key.as_slice()
     }
@@ -286,7 +286,7 @@ pub(in crate::db::schema) struct PersistedSchemaMigrationIndexCursor {
 }
 
 impl PersistedSchemaMigrationIndexCursor {
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn try_new(
         store: TargetStoreIdentity,
         entity: EntityTag,
@@ -310,13 +310,13 @@ impl PersistedSchemaMigrationIndexCursor {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn store(&self) -> TargetStoreIdentity {
         self.store
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn key(&self) -> &[u8] {
         self.key.as_slice()
     }
@@ -354,7 +354,7 @@ pub(in crate::db::schema) struct PersistedSchemaMigrationFinding {
 }
 
 impl PersistedSchemaMigrationFinding {
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn try_new(
         kind: PersistedSchemaMigrationFindingKind,
         store: TargetStoreIdentity,
@@ -424,19 +424,19 @@ impl PersistedSchemaMigrationFinding {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn kind(&self) -> PersistedSchemaMigrationFindingKind {
         self.kind
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn entity(&self) -> EntityTag {
         self.entity
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn primary_key(&self) -> &[u8] {
         self.primary_key.as_slice()
     }
@@ -475,7 +475,7 @@ pub(in crate::db::schema) struct PersistedSchemaMigrationProgress {
 }
 
 impl PersistedSchemaMigrationProgress {
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn begin_row_phase(&self) -> Result<Self, InternalError> {
         let progress = Self {
             row_cursor: None,
@@ -490,7 +490,7 @@ impl PersistedSchemaMigrationProgress {
         Ok(progress)
     }
 
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn with_rewrite_page(
         &self,
         row_cursor: Option<PersistedSchemaMigrationRowCursor>,
@@ -512,7 +512,7 @@ impl PersistedSchemaMigrationProgress {
         Ok(progress)
     }
 
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn with_index_progress(
         &self,
         index_cursor: Option<PersistedSchemaMigrationIndexCursor>,
@@ -571,7 +571,7 @@ impl PersistedSchemaMigrationProgress {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn row_cursor(
         &self,
     ) -> Option<&PersistedSchemaMigrationRowCursor> {
@@ -579,7 +579,7 @@ impl PersistedSchemaMigrationProgress {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn index_cursor(
         &self,
     ) -> Option<&PersistedSchemaMigrationIndexCursor> {
@@ -587,24 +587,24 @@ impl PersistedSchemaMigrationProgress {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn finding_page(&self) -> Option<u64> {
         self.finding_page
     }
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn rows_validated(&self) -> u64 {
         self.rows_validated
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn rows_rewritten(&self) -> u64 {
         self.rows_rewritten
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn indexes_rebuilt(&self) -> u32 {
         self.indexes_rebuilt
     }
@@ -712,31 +712,31 @@ impl SchemaMigrationRecord {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn database_identity(&self) -> TargetDatabaseIdentity {
         self.database_identity
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn accepted_before(&self) -> &ExpectedAcceptedHead {
         &self.accepted_before
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn candidate_head(&self) -> &ExpectedAcceptedHead {
         &self.candidate_head
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn submission_digest(&self) -> SchemaProposalDigest {
         self.submission_digest
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn plan_digest(&self) -> SchemaMigrationPlanDigest {
         self.plan_digest
     }
@@ -747,7 +747,7 @@ impl SchemaMigrationRecord {
     }
 
     #[must_use]
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) const fn transitions(&self) -> &[PersistedSchemaMigrationTransition] {
         self.transitions.as_slice()
     }

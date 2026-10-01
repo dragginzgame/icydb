@@ -231,7 +231,8 @@ impl<C: CanisterKind> DbSession<C> {
         self.describe_accepted_catalog(&catalog)
     }
 
-    fn describe_accepted_catalog(
+    /// Assemble one complete description from captured accepted authority and live metadata.
+    pub(in crate::db::session) fn describe_accepted_catalog(
         &self,
         catalog: &crate::db::session::AcceptedSchemaCatalogContext,
     ) -> Result<EntitySchemaDescription, InternalError> {
@@ -252,7 +253,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    pub(in crate::db::session) fn identity_description_for_accepted_catalog(
+    fn identity_description_for_accepted_catalog(
         &self,
         catalog: &crate::db::session::AcceptedSchemaCatalogContext,
     ) -> Result<Option<EntityIdentityDescription>, InternalError> {

@@ -87,7 +87,7 @@ pub(in crate::db) struct AcceptedCompositeCatalog {
 impl AcceptedCompositeCatalog {
     /// Rename one accepted composite path without changing its identity or
     /// structural contract.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn with_renamed_type(
         mut self,
         type_id: CompositeTypeId,
@@ -110,7 +110,7 @@ impl AcceptedCompositeCatalog {
 
     /// Rename one accepted record member without changing its ID, ordering
     /// semantics, or value contract.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn with_renamed_record_field(
         mut self,
         type_id: CompositeTypeId,

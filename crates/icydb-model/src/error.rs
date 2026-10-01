@@ -22,44 +22,14 @@ impl ErrorTree {
         Self::default()
     }
 
-    /// Merge a sequence of `Result` values, collecting every `ErrorTree` into one.
-    pub fn collect<I>(iter: I) -> Result<(), Self>
-    where
-        I: IntoIterator<Item = Result<(), Self>>,
-    {
-        let mut errs = Self::new();
-        for res in iter {
-            if let Err(e) = res {
-                errs.merge(e);
-            }
-        }
-
-        errs.result()
-    }
-
     /// Add an error message to the current level.
     pub fn add<M: ToString>(&mut self, message: M) {
         self.messages.push(message.to_string());
     }
 
-    /// Push an error message only when the supplied result is `Err`.
-    pub fn add_result<M: ToString>(&mut self, error: Result<(), M>) {
-        if let Err(e) = error {
-            self.messages.push(e.to_string());
-        }
-    }
-
     /// Format and append an error message.
     pub fn addf(&mut self, args: fmt::Arguments) {
         self.messages.push(format!("{args}"));
-    }
-
-    /// Add an error message under a specific child key, creating nodes as needed.
-    pub fn add_for<K: ToString, M: ToString>(&mut self, key: K, message: M) {
-        self.children
-            .entry(key.to_string())
-            .or_default()
-            .add(message);
     }
 
     /// Merge another `ErrorTree` into this one, combining children recursively.
@@ -188,12 +158,13 @@ mod tests {
         let mut child_errs = ErrorTree::new();
         child_errs.add("child error 1");
         child_errs.add("child error 2");
-        errs.add_for("field", "field error");
+        errs.merge_for("field", ErrorTree::from("field error"));
         errs.merge_for("nested", child_errs);
 
         // Check hierarchical structure.
         assert_eq!(errs.messages().len(), 1);
-        assert!(errs.children().contains_key("field") || errs.children().contains_key("nested"));
+        assert!(errs.children().contains_key("field"));
+        assert!(errs.children().contains_key("nested"));
 
         // Flatten and check that errors include keys.
         let flat = errs.flatten_ref();

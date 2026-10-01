@@ -1,0 +1,58 @@
+{
+  "method": "CTD-1.0",
+  "run": "2026-10-01/01",
+  "scope": "cleanup owners and adjacent metadata introspection",
+  "verdict": "PASS WITH FINDINGS",
+  "snapshot": {
+    "head": "bdec3835dc0d9b775413999cab4715ebcedcd150",
+    "tracked_diff_sha256": "5c12e797ba6909447bec83d444db5a2b50301088d571864c1817c8fd0ac40363",
+    "sources": {
+      "crates/icydb-core/src/db/data/structural_field/accepted.rs": "0f9511d7a52c6dd49b51730d95f9ad4ac81c7669124afc1d9028dea08d496b17",
+      "crates/icydb-core/src/db/data/structural_field/binary.rs": "5a377b121c1d0c50743785c769bcf71441b5bcb9ff6615e6c0060c23370823e3",
+      "crates/icydb-core/src/db/data/structural_field/leaf.rs": "59638c4099cca49caebf6eeda832145c1efc7d0744e4c7ed0c749632df72914f",
+      "crates/icydb-model-macros/src/crate_path.rs": "9dcdd92ec6cd56e70af5e12a4e6f69179f7bc703da25e78f36d768ff391eb17a",
+      "crates/icydb-core/src/db/session/sql/execute/exact_aggregate.rs": "9417d955fdfc27126bd24d7298200565c46f9ad91f2ec1b8710634fee428bf2d",
+      "crates/icydb-core/src/db/session/sql/update_policy/model.rs": "c1f2c95056575452e3c9f1e9004ae362200cf58b0daa2fcaf484086c194eb2c4",
+      "crates/icydb-core/src/db/session/sql/execute/write/update.rs": "35e5a406df55d2fa4e0d0c0479551d82312b36913fb4773f22c315688d91fac3",
+      "crates/icydb-core/src/db/session/sql/resumable_update.rs": "b31327045a766e618e671015bff9b0f93ce0a8fa4d53d9a02056a20508f64056",
+      "crates/icydb-core/src/db/session/catalog.rs": "bf3748ce09f2b4f0985d88f4eb173698ef7df8189f469a48e14acf8992922eba",
+      "crates/icydb-core/src/db/session/sql/execute/metadata.rs": "06ea62420b7ca9387e77045db1db65755112aebc43ce75931da1a905aa9bdd07",
+      "crates/icydb-core/src/db/schema/describe.rs": "3069d76ea7dde7f4f27b96a33b7421dde9d9a8baca9280399b022491196bc3d3",
+      "crates/icydb-core/src/db/session/request.rs": "880f6a33e4b6c6828aadb481d8220891e3ca3cf8a07beb6c61ea0004dc254227",
+      "crates/icydb-core/src/db/executor/budget.rs": "6127c29d4c9e5acc70bd098eb346f5577b279189e130e6608a50e199bfb3bee9",
+      "crates/icydb-core/src/db/index/cardinality.rs": "ae12e0b541e51d512ec3c4c871a4a2ca136e509a3025099c826778babd65018c"
+    }
+  },
+  "fresh_focused_tests": 89,
+  "production_changes": false,
+  "findings": [
+    {
+      "id": "CTD-003",
+      "family": "DuplicatedFlowDebt",
+      "risk": "LOW",
+      "owner": "db::session::catalog",
+      "evidence": [
+        "crates/icydb-core/src/db/session/catalog.rs:234",
+        "crates/icydb-core/src/db/session/sql/execute/metadata.rs:42"
+      ],
+      "friction": "Verbose SQL duplicates accepted description adapter assembly already owned by the session catalog.",
+      "disposition": "FIX WHEN TOUCHED",
+      "trigger": "Next authorized metadata cleanup.",
+      "simplest_action": "Reuse the existing catalog assembler; preserve compact output and SQL error wrapping."
+    },
+    {
+      "id": "CTD-004",
+      "family": "OwnershipDebt",
+      "risk": "LOW",
+      "owner": "db::schema::describe",
+      "evidence": [
+        "crates/icydb-core/src/db/session/sql/execute/metadata.rs:82",
+        "crates/icydb-core/src/db/schema/describe.rs:1129"
+      ],
+      "friction": "SHOW CONSTRAINTS builds fields, indexes and relations and then copies only constraints.",
+      "disposition": "FIX WHEN TOUCHED",
+      "trigger": "Next authorized metadata cleanup after admission/corruption boundary qualification.",
+      "simplest_action": "Reuse accepted constraint projection including live validation jobs, keeping current ordering and rejection contracts."
+    }
+  ]
+}

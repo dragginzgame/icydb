@@ -660,14 +660,14 @@ impl UniqueConstraintProjection {
 ///
 /// Unlike `UniqueConstraintProjection`, this does not classify collisions;
 /// validation already owns uniqueness and rewrite owns exact key materialization.
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 pub(in crate::db) struct MigrationIndexProjection {
     entity_tag: EntityTag,
     index_id: crate::db::index::IndexId,
     prepared: PreparedUserIndex,
 }
 
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 impl MigrationIndexProjection {
     pub(in crate::db) fn new(
         entity_tag: EntityTag,

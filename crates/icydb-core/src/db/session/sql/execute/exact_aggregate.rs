@@ -418,19 +418,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    fn build_exact_target(
-        &self,
-        command: &SqlGlobalAggregateCommand,
-        catalog: &AcceptedSchemaCatalogContext,
-    ) -> Result<ExactTarget, QueryError> {
-        if !exact_metadata_candidate(command) {
-            return Ok(ExactTarget::Fallback);
-        }
-
-        let authority = catalog.accepted_entity_authority();
-        self.exact_target_for_authority(command, catalog, authority)
-    }
-
     pub(super) fn resolve_compiled_exact_target(
         &self,
         compiled: &CompiledSqlCommand,
@@ -444,7 +431,8 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(ExactTarget::Fallback);
         }
 
-        let target = self.build_exact_target(command, catalog)?;
+        let target =
+            self.exact_target_for_authority(command, catalog, catalog.accepted_entity_authority())?;
         cache_compiled_exact_target(compiled, &target);
 
         Ok(target)

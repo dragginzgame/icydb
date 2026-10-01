@@ -262,18 +262,20 @@ fn read_hybrid_projection_row_fields_from_store(
         return Ok(Some(Vec::new()));
     }
 
-    // Phase 2: fetch the persisted row once. The store boundary still returns
-    // one owned `RawRow`, so hybrid selective reads reduce decode work here
-    // but do not yet avoid the full row fetch itself.
+    // Phase 2: borrow heap/live row backing; stable storage retains its owned
+    // read boundary. Only selected decoded values escape the store guard.
     let raw_key = data_key.to_raw()?;
 
     // Phase 3: fetch the raw row from storage and keep sparse slot decode in
     // executor ownership. The one-slot and indexed decode paths stay explicit so
     // storage never decides an execution decode strategy.
     charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
-    let Some(raw_row) = data_store.get(&raw_key) else {
+    let stored_row = data_store.read(&raw_key);
+    let Some(raw_row) = stored_row.as_row() else {
         return Ok(None);
     };
+    // Keep the existing conservative whole-row budget admission across both
+    // borrowed and owned backends while reducing transient payload ownership.
     let raw_bytes = u64::try_from(raw_row.len()).unwrap_or(u64::MAX);
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::StoredBytesRead,
@@ -290,7 +292,7 @@ fn read_hybrid_projection_row_fields_from_store(
     )?;
     if let [required_slot] = row_field_slots {
         let Some(value) =
-            row_layout.decode_required_value_from_data_key(&raw_row, data_key, *required_slot)?
+            row_layout.decode_required_value_from_data_key(raw_row, data_key, *required_slot)?
         else {
             return Err(InternalError::query_executor_invariant());
         };
@@ -300,7 +302,7 @@ fn read_hybrid_projection_row_fields_from_store(
     }
 
     let decoded =
-        row_layout.decode_indexed_values_from_data_key(&raw_row, data_key, row_field_slots)?;
+        row_layout.decode_indexed_values_from_data_key(raw_row, data_key, row_field_slots)?;
 
     // Phase 4: rebuild the field-slot map expected by the hybrid projection
     // row shaper from the compact executor-owned selective decode result.

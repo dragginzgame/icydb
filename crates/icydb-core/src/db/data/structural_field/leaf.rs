@@ -7,9 +7,9 @@ use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{
         decode_binary_decimal_payload, decode_binary_int_big_payload,
-        decode_binary_nat_big_payload, decode_binary_required_i64, decode_binary_required_null,
-        decode_binary_required_u64, push_binary_decimal_payload, push_binary_int_big_payload,
-        push_binary_int64, push_binary_nat_big_payload, push_binary_nat64, push_binary_null,
+        decode_binary_nat_big_payload, decode_binary_required_i64, decode_binary_required_u64,
+        push_binary_decimal_payload, push_binary_int_big_payload, push_binary_int64,
+        push_binary_nat_big_payload, push_binary_nat64,
     },
     primary_key_component::{
         decode_primary_key_component_binary_value_bytes,
@@ -52,7 +52,6 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
         AcceptedFieldKind::IntBig { max_bytes } => {
             decode_int_big_value_bytes(raw_bytes, *max_bytes)?
         }
-        AcceptedFieldKind::Composite { .. } => decode_structured_leaf_null_value_bytes(raw_bytes)?,
         AcceptedFieldKind::NatBig { max_bytes } => {
             decode_nat_big_value_bytes(raw_bytes, *max_bytes)?
         }
@@ -74,7 +73,8 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
         | AcceptedFieldKind::Ulid => {
             return Err(FieldDecodeError::new());
         }
-        AcceptedFieldKind::Enum { .. }
+        AcceptedFieldKind::Composite { .. }
+        | AcceptedFieldKind::Enum { .. }
         | AcceptedFieldKind::List(_)
         | AcceptedFieldKind::Map { .. }
         | AcceptedFieldKind::Relation { .. }
@@ -106,9 +106,6 @@ pub(super) fn push_leaf_field_binary_bytes(
         AcceptedFieldKind::IntBig { max_bytes } => {
             push_int_big_value_bytes(out, value, *max_bytes)?;
         }
-        AcceptedFieldKind::Composite { .. } => {
-            push_structured_leaf_null_bytes(out, value)?;
-        }
         AcceptedFieldKind::NatBig { max_bytes } => {
             push_nat_big_value_bytes(out, value, *max_bytes)?;
         }
@@ -128,6 +125,7 @@ pub(super) fn push_leaf_field_binary_bytes(
         | AcceptedFieldKind::Nat64
         | AcceptedFieldKind::Nat128
         | AcceptedFieldKind::Ulid
+        | AcceptedFieldKind::Composite { .. }
         | AcceptedFieldKind::Enum { .. }
         | AcceptedFieldKind::List(_)
         | AcceptedFieldKind::Map { .. }
@@ -136,24 +134,6 @@ pub(super) fn push_leaf_field_binary_bytes(
     }
 
     Ok(true)
-}
-
-// Decode the only supported structured leaf `ByKind` case: explicit null.
-fn decode_structured_leaf_null_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    decode_binary_required_null(raw_bytes)?;
-
-    Ok(Value::Null)
-}
-
-// Encode the only supported structured leaf `ByKind` case: explicit null.
-fn push_structured_leaf_null_bytes(out: &mut Vec<u8>, value: &Value) -> Result<(), InternalError> {
-    let Value::Null = value else {
-        return Err(InternalError::persisted_row_encode_internal());
-    };
-
-    push_binary_null(out);
-
-    Ok(())
 }
 
 // Decode one date payload from its canonical signed day-count form.

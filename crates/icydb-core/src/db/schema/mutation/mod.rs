@@ -103,7 +103,7 @@ mod relation_removal;
 pub(in crate::db::schema) use relation_removal::derive_relation_removal_candidate;
 
 mod user_index_domain;
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 pub(in crate::db) use user_index_domain::MigrationIndexProjection;
 pub(in crate::db::schema) use user_index_domain::prove_empty_user_index_domain;
 #[cfg(feature = "sql")]

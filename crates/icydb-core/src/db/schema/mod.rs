@@ -36,16 +36,16 @@ mod layout;
 mod live_schema_checkpoint;
 #[cfg(feature = "migration")]
 mod migration_api;
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 mod migration_execution;
 #[cfg(any(test, feature = "migration"))]
 mod migration_lineage;
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 mod migration_planner;
 mod migration_record;
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 mod migration_transform;
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 mod migration_validation;
 mod mutation;
 mod runtime;
@@ -100,18 +100,18 @@ pub(in crate::db) use application::{
     ensure_generated_schema_application_admitted, migrate_schema, schema_migration_status,
 };
 pub(in crate::db) use application_lowering::lower_field_type;
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 pub(in crate::db) use application_lowering::lower_scalar_type;
 pub(in crate::db::schema) use application_lowering::{
     ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
     lower_generated_existing_schema_proposal, lower_initial_schema_proposal,
 };
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 pub(in crate::db::schema) use application_lowering::{
     lower_migration_field, lower_migration_index, lower_migration_nested_leaves,
     lower_new_migration_index,
 };
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 pub(in crate::db::schema) use application_lowering::{
     lower_relation_source, relation_edge_from_source,
 };
@@ -195,8 +195,9 @@ pub(in crate::db) use describe::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use describe::{
-    describe_compact_columns_with_persisted_schema, describe_entity_fields_with_persisted_schema,
-    describe_entity_relations_with_persisted_schema,
+    describe_compact_columns_with_persisted_schema,
+    describe_entity_constraints_with_persisted_schema,
+    describe_entity_fields_with_persisted_schema, describe_entity_relations_with_persisted_schema,
 };
 pub(in crate::db) use enum_catalog::AcceptedSchemaAuthority;
 pub(in crate::db::schema) use enum_catalog::AcceptedStoreCatalogScope;
@@ -218,7 +219,7 @@ pub(in crate::db) use field_kind_semantics::AcceptedFieldKindSemantics;
 pub(in crate::db) use field_kind_semantics::{
     AcceptedFieldKindCategory, classify_accepted_field_kind,
 };
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 pub(in crate::db) use fingerprint::accepted_commit_schema_fingerprint;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) use fingerprint::{
@@ -295,7 +296,7 @@ pub(in crate::db::schema) use migration_record::{
     PersistedSchemaMigrationEntity, PersistedSchemaMigrationIndex, PersistedSchemaMigrationPhase,
     PersistedSchemaMigrationTransition, SchemaMigrationRecord,
 };
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 pub(in crate::db::schema) use migration_record::{
     PersistedSchemaMigrationFinding, PersistedSchemaMigrationFindingKind,
     PersistedSchemaMigrationIndexCursor, PersistedSchemaMigrationProgress,
@@ -305,7 +306,7 @@ pub(in crate::db::schema) use migration_record::{
 pub(in crate::db) use migration_record::{
     prepared_schema_migration_record_op_for_tests, schema_migration_record_lifecycle_ops_for_tests,
 };
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 pub(in crate::db) use mutation::MigrationIndexProjection;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) use mutation::{

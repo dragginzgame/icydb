@@ -376,6 +376,36 @@ impl AccessPlanStreamResolver {
         Ok(streams)
     }
 
+    // The selected fallback is already the planner-preferred first prefix.
+    // Consume and validate every lowered binding, but do not construct physical
+    // streams for rejected siblings. Overlap probes still visit every child.
+    fn produce_exact_intersection_fallback(
+        runtime: &TraversalRuntime,
+        children: &[ExecutableAccessPlan<'_, Value>],
+        inputs: TraversalInputs<'_>,
+        spec_cursor: &mut AccessSpecCursor<'_>,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        let (first, rejected) = children
+            .split_first()
+            .ok_or_else(InternalError::executor_invariant)?;
+        let stream = Self::produce_key_stream(
+            runtime,
+            first,
+            inputs
+                .with_physical_fetch_hint(None)
+                .with_physical_leaf_order(),
+            spec_cursor,
+        )?;
+        for child in rejected {
+            let ExecutableAccessNode::Path(path) = child.node() else {
+                return Err(InternalError::executor_invariant());
+            };
+            let specs = spec_cursor.require_next_index_prefix_specs(1)?;
+            Self::validate_index_prefix_spec_alignment(path, specs)?;
+        }
+        Ok(stream)
+    }
+
     fn exact_intersection_admission(
         runtime: &TraversalRuntime,
         children: &[ExecutableAccessPlan<'_, Value>],
@@ -575,13 +605,6 @@ impl AccessPlanStreamResolver {
         Ok(Some(overlap))
     }
 
-    fn first_stream_or_empty(streams: Vec<OrderedKeyStreamBox>) -> OrderedKeyStreamBox {
-        streams
-            .into_iter()
-            .next()
-            .unwrap_or_else(OrderedKeyStreamBox::empty)
-    }
-
     // Build an ordered key stream for this access plan.
     /// Produce one ordered key stream for an access plan while consuming lowered specs.
     fn produce_key_stream(
@@ -768,13 +791,7 @@ impl AccessPlanStreamResolver {
                 OrderedKeyStreamBox::intersect_all(streams, key_comparator)
             }
             ExactIntersectionAdmission::ConservativeFallback => {
-                let streams = Self::collect_exact_intersection_child_streams(
-                    runtime,
-                    children,
-                    inputs,
-                    spec_cursor,
-                )?;
-                Ok(Self::first_stream_or_empty(streams))
+                Self::produce_exact_intersection_fallback(runtime, children, inputs, spec_cursor)
             }
             ExactIntersectionAdmission::ProvenEmpty => {
                 let _consumed_streams = Self::collect_exact_intersection_child_streams(
@@ -787,13 +804,12 @@ impl AccessPlanStreamResolver {
             }
             ExactIntersectionAdmission::Probe(preflight) => {
                 if !Self::exact_intersection_probe_can_beat_single(&preflight) {
-                    let streams = Self::collect_exact_intersection_child_streams(
+                    return Self::produce_exact_intersection_fallback(
                         runtime,
                         children,
                         inputs,
                         spec_cursor,
-                    )?;
-                    return Ok(Self::first_stream_or_empty(streams));
+                    );
                 }
 
                 let mut direct_cursor = *spec_cursor;

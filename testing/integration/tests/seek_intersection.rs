@@ -34,8 +34,17 @@ fn expected_ids(
         (1, _) => Vec::new(),
         (2 | 4, 2) => (112..128).collect(),
         (2, 3) | (5, _) => (120..128).collect(),
-        (3, _) => (0..128).collect(),
+        (3 | 10 | 13, _) => (0..128).collect(),
         (4, 3) | (6, _) => (116..128).collect(),
+        (7 | 15, _) => (0..16).collect(),
+        (8, _) => (0..80).collect(),
+        (9, _) => (0..112).collect(),
+        (11, _) => (0..144).collect(),
+        (12 | 14, _) => (0..160).collect(),
+        (16, _) => (0..20).collect(),
+        (17, _) => (0..512).collect(),
+        (18, _) => (32..160).collect(),
+        (19, _) => (0..160).filter(|id| id % 5 < 4).collect(),
         _ => panic!("unknown frozen workload"),
     };
     if residual {
@@ -97,9 +106,10 @@ fn assert_explain(
 
 fn assert_resume_suffixes(
     fixture: &ic_testkit::pic::StandaloneCanisterFixture,
-    case: u8,
     children: u8,
     descending: bool,
+    wide: bool,
+    limit: Option<u32>,
     tokens: Vec<(String, usize)>,
     expected: &[i32],
 ) {
@@ -107,15 +117,8 @@ fn assert_resume_suffixes(
         let mut cursor = Some(token);
         let mut suffix = Vec::new();
         for _ in 0..32 {
-            let (sample, _) = sample_page(
-                fixture,
-                children,
-                descending,
-                false,
-                [4, 6].contains(&case),
-                None,
-                cursor,
-            );
+            let (sample, _) =
+                sample_page(fixture, children, descending, false, wide, limit, cursor);
             suffix.extend(sample.ids);
             cursor = sample.continuation;
             if cursor.is_none() {
@@ -182,6 +185,114 @@ fn polling_wasm_cost_controls() {
     run_wasm_cost_cases(&[0, 5]);
 }
 
+/// Manual crossover evidence. Fixed controls avoid multiplying every density,
+/// width, placement and population into an unrelated benchmark subsystem.
+#[test]
+#[ignore = "manual wasm-release dense selection crossover qualification"]
+fn dense_selection_wasm_cost_matrix() {
+    let module = preparation_measurement_wasm();
+    println!(
+        "seek_wasm sha256={:x} raw_bytes={}",
+        Sha256::digest(&module),
+        module.len()
+    );
+    for case in 7..=19_u8 {
+        let fixture = install_prebuilt_fixture_canister("sql_perf", module.clone());
+        let rows: u16 = match case {
+            15 | 16 => 20,
+            17 => 640,
+            _ => 160,
+        };
+        for start in (0..rows).step_by(4) {
+            let loaded: Result<u32, Error> = fixture
+                .update_candid("load_seek_intersection_fixture", (case, start))
+                .expect("crossover loader should decode");
+            assert_eq!(loaded.expect("bounded batch should load"), 4);
+            // Keep setup journal debt bounded in large and wide controls.
+            if [15, 16].contains(&case) || start % 64 == 60 {
+                settle_measurement_rounds(&fixture);
+            }
+        }
+        settle_measurement_rounds(&fixture);
+        let child_counts: &[u8] = if case == 12 { &[2, 3] } else { &[2] };
+        for &children in child_counts {
+            for descending in [false, true] {
+                assert_explain(&fixture, case, children, descending);
+                for limit in [None, Some(1), Some(5)] {
+                    measure_dynamic_pages(
+                        &fixture,
+                        case,
+                        children,
+                        descending,
+                        (13..=16).contains(&case),
+                        limit,
+                    );
+                }
+            }
+        }
+    }
+}
+
+// One page/suffix protocol serves both manual matrices. Cost intervals exclude
+// independent suffix replay and setup, and repeat the identical page input.
+fn measure_dynamic_pages(
+    fixture: &ic_testkit::pic::StandaloneCanisterFixture,
+    case: u8,
+    children: u8,
+    descending: bool,
+    wide: bool,
+    limit: Option<u32>,
+) {
+    let expected = expected_ids(case, children, descending, false, limit);
+    let mut continuation = None;
+    let mut actual = Vec::new();
+    let mut tokens = Vec::new();
+    let mut pages = 0;
+    for page in 0..32 {
+        let input = continuation.clone();
+        let (sample, cycles) = sample_page(
+            fixture,
+            children,
+            descending,
+            false,
+            wide,
+            limit,
+            input.clone(),
+        );
+        let (repeat, repeat_cycles) =
+            sample_page(fixture, children, descending, false, wide, limit, input);
+        assert_eq!(repeat.ids, sample.ids);
+        assert_eq!(repeat.continuation, sample.continuation);
+        assert_eq!(repeat.work, sample.work);
+        println!(
+            "seek_sample case={case} children={children} descending={descending} limit={} page={page} rows={} entries={} instructions={} cycles={cycles} repeat_instructions={} repeat_cycles={repeat_cycles}",
+            limit.unwrap_or(0),
+            sample.ids.len(),
+            sample.work.entries_visited,
+            sample.instructions,
+            repeat.instructions
+        );
+        assert_eq!(sample.work.result_rows as usize, sample.ids.len());
+        assert!(sample.instructions > 0 && cycles > 0);
+        actual.extend(sample.ids);
+        pages += 1;
+        continuation = sample.continuation;
+        if let Some(token) = &continuation {
+            tokens.push((token.clone(), actual.len()));
+        } else {
+            break;
+        }
+    }
+    assert!(continuation.is_none(), "page traversal must terminate");
+    assert_eq!(actual, expected);
+    if [4, 6, 15, 16].contains(&case) && limit.is_none() {
+        assert!(pages > 1, "wide rows must exercise real resume");
+    }
+    assert_resume_suffixes(
+        fixture, children, descending, wide, limit, tokens, &expected,
+    );
+}
+
 fn run_wasm_cost_cases(cases: &[u8]) {
     let module = preparation_measurement_wasm();
     println!(
@@ -207,60 +318,14 @@ fn run_wasm_cost_cases(cases: &[u8]) {
                 if ![4, 6].contains(&case) {
                     measure_sql(&fixture, case, children, descending);
                 }
-                let expected = expected_ids(case, children, descending, false, None);
-                let mut continuation = None;
-                let mut actual = Vec::new();
-                let mut tokens = Vec::new();
-                let mut pages = 0;
-                for page in 0..32 {
-                    let input = continuation.clone();
-                    let (sample, cycles) = sample_page(
-                        &fixture,
-                        children,
-                        descending,
-                        false,
-                        [4, 6].contains(&case),
-                        None,
-                        input.clone(),
-                    );
-                    // A repeated identical page must preserve rows, terminal state
-                    // and charged physical work; costs are recorded independently.
-                    let (repeat, repeat_cycles) = sample_page(
-                        &fixture,
-                        children,
-                        descending,
-                        false,
-                        [4, 6].contains(&case),
-                        None,
-                        input,
-                    );
-                    assert_eq!(repeat.ids, sample.ids);
-                    assert_eq!(repeat.continuation, sample.continuation);
-                    assert_eq!(repeat.work, sample.work);
-                    println!(
-                        "seek_sample case={case} children={children} descending={descending} page={page} rows={} entries={} instructions={} cycles={cycles} repeat_instructions={} repeat_cycles={repeat_cycles}",
-                        sample.ids.len(),
-                        sample.work.entries_visited,
-                        sample.instructions,
-                        repeat.instructions
-                    );
-                    assert_eq!(sample.work.result_rows as usize, sample.ids.len());
-                    assert!(sample.instructions > 0 && cycles > 0);
-                    actual.extend(sample.ids);
-                    pages += 1;
-                    continuation = sample.continuation;
-                    if let Some(token) = &continuation {
-                        tokens.push((token.clone(), actual.len()));
-                    } else {
-                        break;
-                    }
-                }
-                assert!(continuation.is_none(), "page traversal must terminate");
-                assert_eq!(actual, expected);
-                if [4, 6].contains(&case) {
-                    assert!(pages > 1, "wide rows must exercise real resume");
-                }
-                assert_resume_suffixes(&fixture, case, children, descending, tokens, &expected);
+                measure_dynamic_pages(
+                    &fixture,
+                    case,
+                    children,
+                    descending,
+                    [4, 6].contains(&case),
+                    None,
+                );
                 // Small total limits are not page-size controls. Residual
                 // filtering remains owned by the ordinary live query pipeline.
                 for (residual, limit) in [(true, None), (false, Some(1)), (true, Some(5))] {

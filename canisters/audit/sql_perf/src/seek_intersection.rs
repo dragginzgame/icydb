@@ -24,12 +24,43 @@ pub(crate) struct IntersectionPageSample {
     instructions: u64,
 }
 
-/// Cases: spaced sparse, disjoint, late overlap, dense, payload pagination,
-/// and rotated prefixes that retain a large first child in three-way plans.
-/// All populations have 160 rows. Loading is outside query cost intervals.
+// Fixed audit inputs bound allocation and journal loading independently of the
+// query engine. Crossover cases vary density, width, population and placement.
+const fn fixture_shape(case: u8) -> Option<(u16, usize)> {
+    match case {
+        0..=12 | 18 | 19 => Some((160, 16)),
+        13 | 14 => Some((160, 32 * 1024)),
+        15 | 16 => Some((20, 1024 * 1024)),
+        17 => Some((640, 16)),
+        _ => None,
+    }
+}
+
+const fn dense_case_contains(case: u8, id: i32) -> bool {
+    match case {
+        7 | 15 => id < 16,
+        8 => id < 80,
+        9 => id < 112,
+        10 | 13 => id < 128,
+        11 => id < 144,
+        12 | 14 => id < 160,
+        16 => id < 20,
+        17 => id < 512,
+        18 => id >= 32,
+        19 => id % 5 != 4,
+        _ => false,
+    }
+}
+
+/// Load one four-row batch for bounded intersection and crossover workloads.
+/// Cases 0–6 retain the original sparse/dense populations. Cases 7–19 vary
+/// density, row width, population and placement. Setup is outside cost windows.
 #[update]
 fn load_seek_intersection_fixture(case: u8, start: u16) -> Result<u32, Error> {
-    if case > 6 || start >= 160 || !start.is_multiple_of(4) {
+    let Some((rows, payload_bytes)) = fixture_shape(case) else {
+        return Err(query_validate_error());
+    };
+    if start >= rows || !start.is_multiple_of(4) {
         return Err(query_validate_error());
     }
     icydb::db::with_request_execution(|| {
@@ -48,7 +79,11 @@ fn load_seek_intersection_fixture(case: u8, start: u16) -> Result<u32, Error> {
                         3 => (id < 128, id < 128, id < 128),
                         4 => (id < 128, (112..128).contains(&id), (116..128).contains(&id)),
                         5 => ((112..128).contains(&id), (120..128).contains(&id), id < 128),
-                        _ => ((112..128).contains(&id), (116..128).contains(&id), id < 128),
+                        6 => ((112..128).contains(&id), (116..128).contains(&id), id < 128),
+                        _ => {
+                            let matched = dense_case_contains(case, id);
+                            (matched, matched, matched)
+                        }
                     };
                     PerfAuditStreamingRow {
                         id,
@@ -62,7 +97,7 @@ fn load_seek_intersection_fixture(case: u8, start: u16) -> Result<u32, Error> {
                             if [4, 6].contains(&case) && (112..128).contains(&id) {
                                 1024 * 1024
                             } else {
-                                16
+                                payload_bytes
                             }
                         ]),
                         created_at: Timestamp::default(),

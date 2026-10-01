@@ -36,8 +36,7 @@ fn data_key(value: u64) -> DecodedDataStoreKey {
 /// StaticOrderedKeyStream
 ///
 /// Test-only ordered key stream fixture with optional forced failure points.
-/// This keeps stream combinator coverage owner-local without depending on
-/// executor-root fixtures or deleted compatibility seams.
+/// This keeps stream combinator coverage local to the stream owner.
 ///
 
 struct StaticOrderedKeyStream {

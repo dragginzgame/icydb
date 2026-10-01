@@ -46,7 +46,7 @@ use crate::{
         session::sql::{
             SqlResumableUpdatePolicyReport, SqlStatementDispatch, SqlUpdatePolicyRejection,
             classify_sql_resumable_update_policy, sql_statement_dispatch,
-            with_accepted_sql_update_policy_context, write_policy::SqlWriteShapePolicyRejection,
+            with_accepted_sql_update_policy_context,
         },
         session::{
             AcceptedSchemaCatalogContext, AcceptedStructuralMutation,
@@ -1648,33 +1648,11 @@ fn require_resumable_update_plan(
         Err(rejection) => rejection,
     };
 
-    let boundary = match rejection {
-        SqlUpdatePolicyRejection::WriteShape(SqlWriteShapePolicyRejection::MissingWhere) => {
-            SqlWriteBoundaryCode::UpdateMissingWherePredicate
-        }
-        SqlUpdatePolicyRejection::PrimaryKeyMutation => {
-            SqlWriteBoundaryCode::UpdatePrimaryKeyMutation
-        }
-        SqlUpdatePolicyRejection::GeneratedFieldMutation => {
-            SqlWriteBoundaryCode::ExplicitGeneratedField
-        }
-        SqlUpdatePolicyRejection::ManagedFieldMutation => {
-            SqlWriteBoundaryCode::ExplicitManagedField
-        }
-        SqlUpdatePolicyRejection::ResumableWindowUnsupported => {
-            SqlWriteBoundaryCode::ResumableUpdateWindowUnsupported
-        }
-        SqlUpdatePolicyRejection::ResumableReturningUnsupported => {
-            SqlWriteBoundaryCode::ResumableUpdateReturningUnsupported
-        }
-        SqlUpdatePolicyRejection::NotUpdate
-        | SqlUpdatePolicyRejection::WriteShape(_)
-        | SqlUpdatePolicyRejection::ExactWindowUnsupported => {
-            return Err(QueryError::unsupported_query());
-        }
-    };
-
-    Err(QueryError::sql_write_boundary(boundary))
+    // Keep route-specific rejection boundaries before projecting shared diagnostics.
+    match rejection {
+        SqlUpdatePolicyRejection::ExactWindowUnsupported => Err(QueryError::unsupported_query()),
+        rejection => Err(rejection.into_query_error()),
+    }
 }
 
 fn prove_resumable_update_eligibility(

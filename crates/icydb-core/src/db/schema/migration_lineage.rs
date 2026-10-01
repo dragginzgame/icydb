@@ -185,6 +185,7 @@ impl AcceptedEntitySourceLineageCatalog {
     }
 
     #[must_use]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn get(
         &self,
         store: TargetStoreIdentity,

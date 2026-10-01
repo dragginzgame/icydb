@@ -61,7 +61,7 @@ enum DataStoreBackend {
 }
 
 /// Preflighted provenance publication for direct journal record families.
-#[cfg(any(test, feature = "migration"))]
+#[cfg(feature = "migration")]
 pub(in crate::db) struct PreparedDataPositionPublication {
     keys: Vec<RawDataStoreKey>,
     position: JournalOverlayPosition,
@@ -370,7 +370,7 @@ impl DataStore {
     }
 
     /// Preflight direct row provenance before marker publication.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db) fn prepare_position_publication(
         &self,
         keys: impl IntoIterator<Item = RawDataStoreKey>,
@@ -390,7 +390,7 @@ impl DataStore {
     }
 
     /// Publish direct row provenance after its values have been applied.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db) fn publish_prepared_positions(
         &mut self,
         prepared: PreparedDataPositionPublication,

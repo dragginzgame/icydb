@@ -1034,7 +1034,7 @@ impl PersistedRelationEdgeSnapshot {
 
     /// Clone this relation with current display/target metadata while
     /// preserving accepted identity and physical generation.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     #[must_use]
     pub(in crate::db::schema) fn clone_with_metadata(
         &self,
@@ -2052,7 +2052,7 @@ impl PersistedFieldSnapshot {
 
     /// Return a copy with current display and nested-path metadata while
     /// preserving the accepted field identity and physical contract.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     #[must_use]
     pub(in crate::db::schema) fn clone_with_migration_metadata(
         &self,

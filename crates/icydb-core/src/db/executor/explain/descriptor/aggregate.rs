@@ -113,10 +113,7 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
     );
 
     // Phase 3: emit one stable descriptor payload consumed by explain surfaces.
-    // Aggregate routes intentionally stay off the removed secondary-read label
-    // surface. COUNT/EXISTS/extrema use their own planner-visible route
-    // contracts, so aggregate EXPLAIN should not reintroduce load-side
-    // correctness vocabulary here.
+    // COUNT/EXISTS/extrema expose their planner-owned aggregate route contracts.
     Ok(ExplainExecutionDescriptor {
         access_strategy: explain_access_plan(&plan.access, work)?,
         // Covering flag reflects index-only aggregate fast-path eligibility for

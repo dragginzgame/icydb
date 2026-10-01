@@ -1,6 +1,7 @@
 //! End-to-end proof for the bounded exact-cardinality planner tie-break.
 
 mod access_projection;
+mod aggregate_composition;
 mod cursor_entropy;
 mod index_metadata;
 mod order_metadata;

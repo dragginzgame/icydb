@@ -285,9 +285,8 @@ fn decode_value_storage_binary_list_bytes(
     raw_bytes: &[u8],
     depth: usize,
 ) -> Result<Value, FieldDecodeError> {
-    // TODO(value-storage zero-copy): recursive decode must allocate the final
-    // runtime Vec<Value>, but a future projection-only path can use the walker
-    // directly and avoid materializing each item.
+    // Owned Value output requires materialized items. Borrowed projection and
+    // validation use the adjacent view/skip owners without building this list.
     let (items, _) = decode_value_storage_binary_list_items_single_pass(
         raw_bytes,
         0,
@@ -305,9 +304,8 @@ fn decode_value_storage_binary_map_bytes(
     raw_bytes: &[u8],
     depth: usize,
 ) -> Result<Value, FieldDecodeError> {
-    // TODO(value-storage zero-copy): recursive map decode allocates the final
-    // runtime Vec<(Value, Value)>. Projection and validation paths should use a
-    // streaming visitor before constructing owned runtime pairs.
+    // Owned Value output requires entry pairs. Nested map projection already
+    // traverses borrowed views; validation skips bytes without constructing pairs.
     let (entries, _) = decode_value_storage_binary_map_entries_single_pass(
         raw_bytes,
         0,

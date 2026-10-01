@@ -436,7 +436,7 @@ impl AcceptedRelationInfo {
 
 impl RelationConstraintProjection {
     /// Return the exact planner-invisible reverse-index generation.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db) const fn index_id(&self) -> IndexId {
         reverse_index_id_for_relation(&self.source, &self.relation)
     }

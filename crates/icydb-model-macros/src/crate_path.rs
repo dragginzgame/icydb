@@ -14,7 +14,7 @@ const ICYDB_PACKAGE: &str = "icydb";
 const MODEL_PACKAGE: &str = "icydb-model";
 
 pub(crate) fn icydb_runtime_path() -> Result<TokenStream, darling::Error> {
-    resolve_path(ICYDB_PACKAGE, None, None)
+    resolve_path(ICYDB_PACKAGE)
 }
 
 /// Optional dependency paths consumed before node-specific argument parsing.
@@ -90,7 +90,7 @@ pub(crate) fn rewrite_generated_paths(
         .then(|| resolve_model_path(overrides.model.as_ref()))
         .transpose()?;
     let icydb = contains_ident(&tokens, "icydb")
-        .then(|| resolve_path(ICYDB_PACKAGE, None, None))
+        .then(|| resolve_path(ICYDB_PACKAGE))
         .transpose()?;
 
     Ok(rewrite_stream(tokens, model.as_ref(), icydb.as_ref()))
@@ -114,21 +114,10 @@ fn resolve_model_path(explicit: Option<&Path>) -> Result<TokenStream, darling::E
     Ok(quote!(#facade::model))
 }
 
-fn resolve_path(
-    package: &str,
-    explicit: Option<&Path>,
-    override_name: Option<&str>,
-) -> Result<TokenStream, darling::Error> {
-    if let Some(path) = explicit {
-        return Ok(quote!(#path));
-    }
-
+fn resolve_path(package: &str) -> Result<TokenStream, darling::Error> {
     crate_name(package).map(found_crate_path).map_err(|error| {
-        let override_hint = override_name.map_or_else(String::new, |name| {
-            format!(" or an explicit `{name} = \"...\"` override")
-        });
         darling::Error::custom(format!(
-            "generated output requires a direct `{package}` dependency{override_hint}: {error}"
+            "generated output requires a direct `{package}` dependency: {error}"
         ))
     })
 }

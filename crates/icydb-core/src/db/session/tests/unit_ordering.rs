@@ -1005,6 +1005,18 @@ fn accepted_entity_display_name_lookup_is_case_insensitive() {
         panic!("DESCRIBE should return accepted schema metadata");
     };
     assert_eq!(description.entity_name(), ENTITY_NAME);
+    assert_eq!(
+        description,
+        session.try_describe_entity_by_name("sInGlEtOn").unwrap(),
+    );
+    let SqlStatementResult::ShowConstraints(constraints) = session
+        .execute_trusted_sql_query("SHOW CONSTRAINTS FROM public.singleton")
+        .expect("SHOW CONSTRAINTS should resolve accepted authority")
+    else {
+        panic!("SHOW CONSTRAINTS should return constraint metadata");
+    };
+    assert!(!constraints.is_empty());
+    assert_eq!(constraints, description.constraints());
 
     assert!(
         session
@@ -1021,20 +1033,26 @@ fn accepted_entity_display_name_lookup_is_case_insensitive() {
 fn missing_describe_entity_reports_accepted_schema_not_found() {
     let session = initialize();
 
-    let error = session
-        .execute_trusted_sql_query("DESCRIBE Card")
-        .expect_err("a missing DESCRIBE target should fail");
+    for sql in [
+        "DESCRIBE Card",
+        "DESCRIBE Card VERBOSE",
+        "SHOW CONSTRAINTS FROM Card",
+    ] {
+        let error = session
+            .execute_trusted_sql_query(sql)
+            .expect_err("a missing metadata target should fail");
 
-    assert_eq!(
-        error.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::RuntimeNotFound,
-    );
-    assert_eq!(
-        error.diagnostic().detail(),
-        Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
-            boundary: icydb_diagnostic_code::RuntimeBoundaryCode::SqlQueryEntityNotFound,
-        },),
-    );
+        assert_eq!(
+            error.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::RuntimeNotFound,
+        );
+        assert_eq!(
+            error.diagnostic().detail(),
+            Some(&icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                boundary: icydb_diagnostic_code::RuntimeBoundaryCode::SqlQueryEntityNotFound,
+            },),
+        );
+    }
 }
 
 fn assert_unit_exact_key_batch(

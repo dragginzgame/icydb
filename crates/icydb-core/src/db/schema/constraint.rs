@@ -678,7 +678,7 @@ impl AcceptedConstraintSnapshot {
     }
 
     /// Clone this accepted constraint with display metadata only changed.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     #[must_use]
     pub(in crate::db::schema) fn clone_with_name(&self, name: String) -> Self {
         Self {

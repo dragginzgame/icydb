@@ -20,8 +20,7 @@ use crate::{
                 SqlTrustedExactUpdatePlan, SqlUpdateExposurePolicy, SqlUpdatePolicyRejection,
                 SqlUpdatePolicyResult, SqlValidatedUpdatePlan,
                 classify_sql_update_policy_for_entity, sql_statement_dispatch,
-                with_accepted_sql_update_policy_context,
-                write_policy::{SqlWriteExecutionBounds, SqlWriteShapePolicyRejection},
+                with_accepted_sql_update_policy_context, write_policy::SqlWriteExecutionBounds,
             },
         },
         sql::{
@@ -75,31 +74,14 @@ fn require_sql_exact_update_plan(
             | SqlValidatedUpdatePlan::PublicBoundedDeterministic(_),
         ) => return Err(QueryError::unsupported_query()),
     };
-    let boundary = match rejection {
-        SqlUpdatePolicyRejection::WriteShape(SqlWriteShapePolicyRejection::MissingWhere) => {
-            SqlWriteBoundaryCode::UpdateMissingWherePredicate
-        }
-        SqlUpdatePolicyRejection::PrimaryKeyMutation => {
-            SqlWriteBoundaryCode::UpdatePrimaryKeyMutation
-        }
-        SqlUpdatePolicyRejection::GeneratedFieldMutation => {
-            SqlWriteBoundaryCode::ExplicitGeneratedField
-        }
-        SqlUpdatePolicyRejection::ManagedFieldMutation => {
-            SqlWriteBoundaryCode::ExplicitManagedField
-        }
-        SqlUpdatePolicyRejection::ExactWindowUnsupported => {
-            SqlWriteBoundaryCode::ExactUpdateWindowUnsupported
-        }
-        SqlUpdatePolicyRejection::NotUpdate
-        | SqlUpdatePolicyRejection::WriteShape(_)
-        | SqlUpdatePolicyRejection::ResumableWindowUnsupported
+    // Keep route-specific rejection boundaries before projecting shared diagnostics.
+    match rejection {
+        SqlUpdatePolicyRejection::ResumableWindowUnsupported
         | SqlUpdatePolicyRejection::ResumableReturningUnsupported => {
-            return Err(QueryError::unsupported_query());
+            Err(QueryError::unsupported_query())
         }
-    };
-
-    Err(QueryError::sql_write_boundary(boundary))
+        rejection => Err(rejection.into_query_error()),
+    }
 }
 
 /// Frozen execution contract selected before candidate collection begins.

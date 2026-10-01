@@ -190,10 +190,14 @@ Invalid exact-key-looking shapes fail closed instead of falling back to a scan.
 That includes wrong literal types, malformed `IN` lists, over-budget key-list
 inputs, and invalid residual predicates.
 
-SQL placeholder parameters are not part of the current public SQL subset. A
-shape such as `WHERE pk = ?` is rejected before primary-key canonicalization.
-If SQL parameters are added later, parameter binding must preserve the same
-accepted-schema key encoding, cache-safety, and fail-closed contracts.
+Ordinary public SQL does not accept unresolved placeholders such as `WHERE pk = ?`.
+The explicitly authorized trusted `execute_trusted_sql_query_dispatch` lane
+accepts typed scalar bindings in SELECT WHERE expressions: at most 64 operands
+and 64 KiB of total logical payload. Containers and parameters in projection,
+ORDER BY, HAVING, EXPLAIN or mutation statements reject. Each invocation checks
+accepted-schema operand semantics before boolean simplification and substitutes
+into an execution-owned AST; the retained dispatch remains reusable. Bound calls
+bypass the concrete SQL-command cache while retaining eligible shared-plan reuse.
 
 ### `EXPLAIN`
 
@@ -723,6 +727,10 @@ Supported aggregate projection forms are:
 - aggregate terminals with `FILTER (WHERE predicate)`
 - grouped projection where grouped key items come first and aggregate or
   post-aggregate computed items come after them
+
+DISTINCT and FILTER compose on the same aggregate in global and grouped queries.
+FILTER selects rows before DISTINCT deduplicates admitted input values; the
+aggregate's current NULL and empty-input rules still apply.
 
 Numeric aggregate results use the shared reducer contract. Admitted non-U256
 `SUM` and `AVG` return Decimal, not the input field's integer or floating subtype.

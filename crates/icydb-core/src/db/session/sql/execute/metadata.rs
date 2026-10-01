@@ -8,8 +8,8 @@ use crate::db::sql::parser::SqlDescribeMode;
 use crate::db::{
     SqlDescribeOutput, SqlShowColumnsOutput, SqlShowRelationsOutput,
     schema::{
-        AcceptedEntityDescriptionMetadata, describe_accepted_entity_with_persisted_schema,
         describe_compact_columns_with_persisted_schema,
+        describe_entity_constraints_with_persisted_schema,
         describe_entity_fields_with_persisted_schema,
         describe_entity_relations_with_persisted_schema,
     },
@@ -57,26 +57,11 @@ impl<C: CanisterKind> DbSession<C> {
             })
             .map_err(QueryError::execute);
         }
-        let validation_jobs = self
-            .constraint_validation_jobs_for_accepted_catalog(catalog)
-            .map_err(QueryError::execute)?;
-        let identity = self
-            .identity_description_for_accepted_catalog(catalog)
-            .map_err(QueryError::execute)?;
-        describe_accepted_entity_with_persisted_schema(
-            catalog.snapshot(),
-            catalog.value_catalog_handle(),
-            validation_jobs.as_slice(),
-            AcceptedEntityDescriptionMetadata::new(
-                identity,
-                catalog.identity().entity_tag().value(),
-                catalog.fingerprint_method_version(),
-                catalog.fingerprint(),
-            ),
-            |target_path| catalog.relation_target_description(target_path),
-        )
-        .map(|description| SqlStatementResult::Describe(SqlDescribeOutput::Verbose { description }))
-        .map_err(QueryError::execute)
+        self.describe_accepted_catalog(catalog)
+            .map(|description| {
+                SqlStatementResult::Describe(SqlDescribeOutput::Verbose { description })
+            })
+            .map_err(QueryError::execute)
     }
 
     fn show_constraints_sql_statement_result_with_catalog(
@@ -86,19 +71,12 @@ impl<C: CanisterKind> DbSession<C> {
         let validation_jobs = self
             .constraint_validation_jobs_for_accepted_catalog(catalog)
             .map_err(QueryError::execute)?;
-        describe_accepted_entity_with_persisted_schema(
+        describe_entity_constraints_with_persisted_schema(
             catalog.snapshot(),
             catalog.value_catalog_handle(),
             validation_jobs.as_slice(),
-            AcceptedEntityDescriptionMetadata::new(
-                None,
-                catalog.identity().entity_tag().value(),
-                catalog.fingerprint_method_version(),
-                catalog.fingerprint(),
-            ),
-            |target_path| catalog.relation_target_description(target_path),
         )
-        .map(|description| SqlStatementResult::ShowConstraints(description.constraints().to_vec()))
+        .map(SqlStatementResult::ShowConstraints)
         .map_err(QueryError::execute)
     }
 

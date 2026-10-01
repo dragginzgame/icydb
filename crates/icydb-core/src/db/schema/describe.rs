@@ -1126,7 +1126,8 @@ fn describe_entity_model_from_description_rows(
     )
 }
 
-fn describe_entity_constraints_with_persisted_schema(
+/// Project ordered accepted and activating constraints, validating their live progress.
+pub(in crate::db) fn describe_entity_constraints_with_persisted_schema(
     schema: &AcceptedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,
     validation_jobs: &[ConstraintValidationJob],
@@ -2281,8 +2282,8 @@ mod tests {
         SqlColumnKey, SqlColumnSummary, SqlDescribeOutput, SqlShowRelationsOutput,
         classify_compact_column_key, compact_column_capacity_from_counts, compact_column_extras,
         describe_accepted_constraint, describe_compact_columns_with_persisted_schema,
-        describe_constraint_activation, describe_entity_fields_with_persisted_schema,
-        nested_path_nullable,
+        describe_constraint_activation, describe_entity_constraints_with_persisted_schema,
+        describe_entity_fields_with_persisted_schema, nested_path_nullable,
     };
     use crate::db::schema::{
         AcceptedCheckExprV1, AcceptedCheckValueExprV1, AcceptedCompositeCatalog,
@@ -2390,6 +2391,67 @@ mod tests {
         assert_eq!(description.index(), Some("account_email"));
         assert_eq!(description.predicate_sql(), Some("email IS NOT NULL"));
         assert_eq!(description.semantics(), "partial_unique_index_v1");
+    }
+
+    #[test]
+    fn constraint_descriptions_preserve_live_progress_and_reject_unbound_jobs() {
+        let (snapshot, values) = constraint_description_fixture();
+        let catalog = snapshot
+            .constraint_catalog()
+            .clone()
+            .with_added_check_activation(
+                "pending_check".into(),
+                ConstraintOrigin::SqlDdl,
+                AcceptedCheckExprV1::True,
+                AcceptedSchemaFingerprint::new([1; 32]),
+                7,
+            )
+            .unwrap();
+        let id = catalog.activations()[0].id();
+        let catalog = catalog.with_validation_started(id).unwrap();
+        let job = ConstraintValidationJob::start(
+            crate::types::EntityTag::new(1),
+            snapshot.entity_path().into(),
+            &catalog.activations()[0],
+            None,
+        )
+        .unwrap();
+        let schema = AcceptedSchemaSnapshot::new(snapshot.clone().with_constraint_catalog(catalog));
+        let descriptions = describe_entity_constraints_with_persisted_schema(
+            &schema,
+            &values,
+            std::slice::from_ref(&job),
+        )
+        .unwrap();
+        assert!(
+            descriptions
+                .windows(2)
+                .all(|pair| pair[0].id() < pair[1].id())
+        );
+        let active = descriptions
+            .iter()
+            .find(|row| row.id() == id.get())
+            .unwrap();
+        assert_eq!(active.validation_state(), "validating");
+        assert_eq!(active.validation_progress().unwrap().phase(), "forward");
+        assert_eq!(active.validation_progress().unwrap().rows_scanned(), 0);
+
+        let missing_job =
+            describe_entity_constraints_with_persisted_schema(&schema, &values, &[]).unwrap_err();
+        assert_eq!(
+            missing_job.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+        );
+        let unbound_job = describe_entity_constraints_with_persisted_schema(
+            &AcceptedSchemaSnapshot::new(snapshot),
+            &values,
+            &[job],
+        )
+        .unwrap_err();
+        assert_eq!(
+            unbound_job.diagnostic_code(),
+            icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+        );
     }
 
     #[test]

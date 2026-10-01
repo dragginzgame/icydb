@@ -32,11 +32,7 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
     if let Some(value) = decode_scalar_fast_path_bytes(raw_bytes, kind)? {
         return Ok(value);
     }
-    if !matches!(
-        kind,
-        AcceptedFieldKind::Composite { .. } | AcceptedFieldKind::Enum { .. }
-    ) && let Some(value) = decode_leaf_field_by_kind_bytes(raw_bytes, kind)?
-    {
+    if let Some(value) = decode_leaf_field_by_kind_bytes(raw_bytes, kind)? {
         return Ok(value);
     }
 
@@ -104,11 +100,7 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
     if validate_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
         return Ok(());
     }
-    if !matches!(
-        kind,
-        AcceptedFieldKind::Composite { .. } | AcceptedFieldKind::Enum { .. }
-    ) && decode_leaf_field_by_kind_bytes(raw_bytes, kind)?.is_some()
-    {
+    if decode_leaf_field_by_kind_bytes(raw_bytes, kind)?.is_some() {
         return Ok(());
     }
 
@@ -173,11 +165,7 @@ fn encode_accepted_binary_field_into(
     if push_scalar_fast_path_binary_bytes(out, kind, value)? {
         return Ok(());
     }
-    if !matches!(
-        kind,
-        AcceptedFieldKind::Composite { .. } | AcceptedFieldKind::Enum { .. }
-    ) && push_leaf_field_binary_bytes(out, kind, value)?
-    {
+    if push_leaf_field_binary_bytes(out, kind, value)? {
         return Ok(());
     }
 

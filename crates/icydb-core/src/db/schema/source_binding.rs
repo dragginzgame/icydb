@@ -357,7 +357,7 @@ impl AcceptedSourceBindingCatalog {
 
     /// Add one exact generated-field binding allocated by a physical source
     /// migration. Ordinary reconciliation never calls this path.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn insert_migration_field(
         &mut self,
         entity: EntityTag,
@@ -485,7 +485,7 @@ impl AcceptedSourceBindingCatalog {
     }
 
     /// Replace one named-type source key while preserving its catalog ID.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn rekey_named_type(
         &mut self,
         from: &TypeSourceKey,
@@ -531,7 +531,7 @@ impl AcceptedSourceBindingCatalog {
     }
 
     /// Replace one enum-variant source key while preserving its accepted ID.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn rekey_enum_variant(
         &mut self,
         enum_type: EnumTypeId,
@@ -555,7 +555,7 @@ impl AcceptedSourceBindingCatalog {
     }
 
     /// Replace one record-member source key while preserving its accepted ID.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn rekey_composite_field(
         &mut self,
         composite_type: CompositeTypeId,
@@ -583,7 +583,7 @@ impl AcceptedSourceBindingCatalog {
     }
 
     /// Replace one entity-local constraint source key while preserving its ID.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn rekey_constraint(
         &mut self,
         entity: EntityTag,
@@ -662,7 +662,7 @@ impl AcceptedSourceBindingCatalog {
     }
 
     /// Replace one entity-local index source key while preserving its ID.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn rekey_index(
         &mut self,
         entity: EntityTag,
@@ -675,7 +675,7 @@ impl AcceptedSourceBindingCatalog {
 
     /// Add one exact generated-index binding reserved by a physical source
     /// migration. The candidate catalog remains unpublished until completion.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn insert_migration_index(
         &mut self,
         entity: EntityTag,
@@ -696,7 +696,7 @@ impl AcceptedSourceBindingCatalog {
     }
 
     /// Return canonical index bindings for planner-local rename inference.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn index_bindings(
         &self,
         entity: EntityTag,
@@ -730,7 +730,7 @@ impl AcceptedSourceBindingCatalog {
     }
 
     /// Replace one entity-local relation source key while preserving its ID.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn rekey_relation(
         &mut self,
         entity: EntityTag,
@@ -743,7 +743,7 @@ impl AcceptedSourceBindingCatalog {
 
     /// Add one exact generated-relation binding reserved by a physical source
     /// migration. The candidate catalog remains unpublished until completion.
-    #[cfg(any(test, feature = "migration"))]
+    #[cfg(feature = "migration")]
     pub(in crate::db::schema) fn insert_migration_relation(
         &mut self,
         entity: EntityTag,

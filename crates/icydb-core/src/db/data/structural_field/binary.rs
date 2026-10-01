@@ -255,11 +255,6 @@ impl<'a> CompleteBinaryValue<'a> {
     }
 }
 
-/// Decode one complete Structural Binary `null` payload.
-pub(super) fn decode_binary_required_null(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
-    parse_required_binary_payload(raw_bytes, TAG_NULL, Some(0)).map(|_| ())
-}
-
 /// Decode one complete Structural Binary byte-string payload.
 pub(super) fn decode_binary_required_bytes(raw_bytes: &[u8]) -> Result<&[u8], FieldDecodeError> {
     parse_required_binary_payload(raw_bytes, TAG_BYTES, None)?.scalar_payload()

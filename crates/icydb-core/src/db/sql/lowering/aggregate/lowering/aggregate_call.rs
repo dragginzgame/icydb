@@ -12,7 +12,7 @@ use crate::db::{
         lowering::{
             AnalyzedLoweredExpr, SqlLoweringError,
             aggregate::{
-                distinct::{apply_distinct_marker, reject_distinct_filter_pairing},
+                distinct::apply_distinct_marker,
                 grouped::validate_grouped_aggregate_scalar_subexpressions,
                 lowering::{
                     aggregate_shape::LoweredSqlAggregateShape, apply_aggregate_filter_expr,
@@ -41,11 +41,6 @@ fn lower_sql_aggregate_shape(
         .map(|expr| lower_sql_pre_aggregate_bool_expr(expr.as_ref(), work))
         .map(|expr| expr.map(AnalyzedLoweredExpr::new))
         .transpose()?;
-
-    reject_distinct_filter_pairing(
-        distinct,
-        filter_expr.as_ref().map(AnalyzedLoweredExpr::expr),
-    )?;
 
     // Borrow syntax throughout; only the retained planner operands are copied.
     // Aggregate builders allocate one box for each present input/filter.
