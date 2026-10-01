@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 pub const MUTATION_REPLAY_FORMAT_VERSION: u32 = 1;
 
 /// Domain separator for canonical mutation row-set fingerprints.
-const MUTATION_ROWS_FINGERPRINT_DOMAIN: &[u8] = b"icydb-sql-mutation-rows/v2";
+const MUTATION_ROWS_FINGERPRINT_DOMAIN: &[u8] = b"icydb-sql-mutation-rows/v1";
 
 ///
 /// MutationFeature

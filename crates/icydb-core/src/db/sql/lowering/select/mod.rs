@@ -786,7 +786,7 @@ fn lower_delete_query_modifiers(
 // Lower the executable UPDATE selector into the shared base-query shape while
 // preserving the current UPDATE-only policy gates: a WHERE predicate is
 // required, ORDER BY terms must be direct fields, and windowed updates without
-// an explicit primary-key tie-breaker keep the historical primary-key fallback.
+// an explicit primary-key tie-breaker append the accepted primary-key components.
 fn lower_update_selector_shape(
     statement: &SqlUpdateStatement,
     primary_key_names: &[String],
@@ -819,9 +819,8 @@ fn lower_update_selector_shape(
     })
 }
 
-// Keep UPDATE target selection deterministic by preserving the previous
-// session-write fallback: append every missing accepted primary-key component
-// after caller-supplied terms.
+// Keep UPDATE target selection deterministic by appending every missing
+// accepted primary-key component after caller-supplied terms.
 fn append_primary_key_order_fallback(
     order_by: &mut Vec<SqlOrderTerm>,
     primary_key_names: &[String],

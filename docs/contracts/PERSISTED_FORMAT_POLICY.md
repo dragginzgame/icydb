@@ -114,8 +114,6 @@ checksums requires one of the classifications above. The checksum design must
 state whether the checksum is meant to detect accidental corruption, hostile
 imports, incompatible versions, or all of those cases.
 
-The current line does not add checksum bytes.
-
 ## Backup, Restore, And Import
 
 Raw stable-memory backup, restore, or import is not a supported product surface

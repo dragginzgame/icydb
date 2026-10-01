@@ -86,7 +86,7 @@ impl ActorBuilder {
             encode_schema_migration_plan(plan).expect("sealed migration plan must encode")
         });
         let mut hasher = Sha256::new();
-        hasher.update(b"icydb.generated-schema-submission.v2");
+        hasher.update(b"icydb.generated-schema-submission.v1");
         hasher.update((schema_fragment_bytes.len() as u64).to_be_bytes());
         hasher.update(schema_fragment_bytes.as_slice());
         if let Some(bytes) = &schema_migration_plan_bytes {

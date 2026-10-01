@@ -636,7 +636,7 @@ mod tests {
     }
 
     #[test]
-    fn obsolete_programs_and_oversized_transport_fail_closed() {
+    fn unsupported_program_versions_and_oversized_transport_fail_closed() {
         let plan = SchemaMigrationPlan::try_new(vec![transition("Account", "User")])
             .expect("plan should admit");
         let mut bytes = encode_schema_migration_plan(&plan).expect("plan should encode");

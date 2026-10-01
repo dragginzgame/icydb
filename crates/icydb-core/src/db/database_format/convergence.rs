@@ -722,6 +722,8 @@ mod tests {
         assert_eq!(registry[0].state(), PersistedStoreAllocationState::Active);
         FRESH_JOURNAL.with_borrow(|tail| {
             assert!(tail.validate_current_tail_authority().unwrap().is_empty());
+            tail.validate_current_entity_mutation_revisions(&[])
+                .expect("fresh journal must retain the exact empty entity authority");
         });
     }
 

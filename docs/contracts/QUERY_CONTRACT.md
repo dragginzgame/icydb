@@ -56,6 +56,14 @@ The facade does NOT guarantee:
 
 This now matches the builder `FieldRef` surface.
 
+Accepted-schema normalization can narrow positive signed equality and membership
+from `NumericWiden` to `Strict` when the accepted query kind is
+`Int8`/`Int16`/`Int32`/`Int64` and every normalized operand is an `Int64` atom.
+Accepted newtype projection and relation key metadata may establish the same
+contract. Membership inspection uses the preparation budget. This proof lets
+existing index planning consume the predicate; it does not guarantee index
+selection. Unproved operands and ordering comparisons keep their coercion.
+
 ## What Intent Must NOT Encode
 
 Intent must not encode or imply any of the following:

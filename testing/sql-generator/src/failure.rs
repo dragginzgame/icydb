@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 pub const TIER_C_FAILURE_ARTIFACT_FORMAT_VERSION: u32 = 1;
 
 /// Domain separator for deterministic Tier C failure-artifact identities.
-const TIER_C_FAILURE_ARTIFACT_ID_DOMAIN: &[u8] = b"icydb-sql-tier-c-failure-artifact/v3";
+const TIER_C_FAILURE_ARTIFACT_ID_DOMAIN: &[u8] = b"icydb-sql-tier-c-failure-artifact/v1";
 
 /// Canonical prefix for content-addressed Tier C failure-artifact identities.
 const TIER_C_FAILURE_ARTIFACT_ID_PREFIX: &str = "failure.";

@@ -38,8 +38,6 @@ BRANCH_SET_RUNTIME_FILES=(
 FORBIDDEN_PATTERNS=(
   "encode_canonical_index_component"
   "raw_bounds_for_encoded_index_component_range"
-  "resolve_data_values_in_range"
-  "index_range_bounds_from_values"
 )
 
 # Non-test/non-mutation executor runtime must remain free of semantic

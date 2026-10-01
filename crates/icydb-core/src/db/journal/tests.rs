@@ -956,7 +956,7 @@ fn validation_job_appends_do_not_change_the_durable_data_revision() {
         .initialize_current_tail_control()
         .expect("current tail control should initialize");
     store
-        .initialize_missing_entity_mutation_revisions(&[EntityTag::new(1)])
+        .publish_accepted_entity_mutation_revisions(&[EntityTag::new(1)])
         .expect("accepted entity revision should initialize");
 
     let job = validation_job();
@@ -1049,39 +1049,6 @@ fn validation_job_appends_do_not_change_the_durable_data_revision() {
 }
 
 #[test]
-fn predecessor_entity_revisions_initialize_conservatively_and_reenter_exactly() {
-    let mut store = JournalTailStore::init(test_memory(229));
-    store
-        .append_batch(
-            &JournalBatch::new(
-                [0x31; 16],
-                [0x41; 16],
-                JournalSequence::new(1),
-                vec![row_put_record(1)],
-            )
-            .expect("predecessor row batch should build"),
-        )
-        .expect("predecessor row batch should append");
-    store.clear_entity_mutation_revisions_for_tests();
-
-    let tags = [EntityTag::new(1), EntityTag::new(2)];
-    store
-        .initialize_missing_entity_mutation_revisions(&tags)
-        .expect("missing predecessor metadata should initialize");
-    assert_entity_revision(&store, tags[0], 2);
-    assert_entity_revision(&store, tags[1], 2);
-    store
-        .validate_current_entity_mutation_revisions(&tags)
-        .expect("initialized authority should match accepted tags");
-
-    store
-        .initialize_missing_entity_mutation_revisions(&tags)
-        .expect("current authority should admit exact reentry");
-    assert_entity_revision(&store, tags[0], 2);
-    assert_entity_revision(&store, tags[1], 2);
-}
-
-#[test]
 fn entity_revisions_advance_only_affected_tags_and_survive_replay_and_fold() {
     let mut store = JournalTailStore::init(test_memory(230));
     store
@@ -1090,7 +1057,7 @@ fn entity_revisions_advance_only_affected_tags_and_survive_replay_and_fold() {
     let first_tag = EntityTag::new(1);
     let second_tag = EntityTag::new(2);
     store
-        .initialize_missing_entity_mutation_revisions(&[first_tag, second_tag])
+        .publish_accepted_entity_mutation_revisions(&[first_tag, second_tag])
         .expect("current entity authority should initialize");
 
     let first = JournalBatch::new(
@@ -1154,7 +1121,7 @@ fn completed_entity_revision_authority_fails_closed_on_missing_or_drifted_tags()
         .expect("current tail control should initialize");
     let tags = [EntityTag::new(1), EntityTag::new(2)];
     store
-        .initialize_missing_entity_mutation_revisions(&tags)
+        .publish_accepted_entity_mutation_revisions(&tags)
         .expect("current entity authority should initialize");
     assert!(
         store
@@ -1973,9 +1940,6 @@ fn entity_revision_metadata_stays_bounded_at_the_accepted_entity_limit() {
         store
             .initialize_current_tail_control()
             .expect("current tail control should initialize");
-        store
-            .initialize_missing_entity_mutation_revisions(&[])
-            .expect("empty accepted entity authority should initialize");
         let baseline_pages = observation.size();
         let tags = (1..=entity_count)
             .map(|value| {

@@ -19,7 +19,7 @@ use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
 use ic_memory::open_default_memory_manager_memory;
 use std::cell::RefCell;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "sql"))]
 pub(in crate::db) use entropy::set_boot_entropy_for_tests;
 
 pub(in crate::db) const DATABASE_BOOT_RECORD_BYTES: usize = 15;
@@ -29,8 +29,7 @@ const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDBCTL";
 const PRE_BOOT_STABLE_CELL_MAGIC: &[u8; 3] = b"SCL";
 const DATABASE_BOOT_CHECKSUM_OFFSET: usize = 11;
 const DATABASE_BOOT_INITIALIZED_STATE: u8 = 0x01;
-// Before 1.0, incompatible development formats receive a new magic identity
-// and restart at version 1 rather than implying a supported migration ladder.
+// The sole current pre-1.0 database boot format uses version 1.
 const DATABASE_FORMAT_VERSION_CURRENT: DatabaseFormatVersion = DatabaseFormatVersion(1);
 const CRC32C_REVERSED_POLYNOMIAL: u32 = 0x82f6_3b78;
 const CRC32C_TABLE: [u32; 256] = crc32c_table();

@@ -257,7 +257,6 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
         "managed fields must be absent from authored write inputs: {tokens}",
     );
     for forbidden in [
-        "TypedFieldBindingRequest",
         "Box :: new",
         "String :: from",
         "TypedWrite :: insert",

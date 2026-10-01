@@ -1,5 +1,6 @@
 mod admission;
 mod owned_membership;
+mod signed_lookup;
 
 use crate::{
     db::predicate::{

@@ -7870,40 +7870,6 @@ mod identity_pre_key_tests {
     }
 
     #[test]
-    fn startup_recovery_initializes_missing_entity_revisions_from_the_store_revision() {
-        let session = initialize_journaled();
-        let catalog = session
-            .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
-            .expect("journaled predecessor catalog should resolve");
-        session
-            .execute_accepted_structural_save_batch(
-                &catalog,
-                true,
-                batch(&[901]),
-                Timestamp::from_millis(21),
-                Ok,
-            )
-            .expect("predecessor row should advance the store-wide revision");
-        let baseline = JOURNALED_TAIL_STORE.with(|tail| {
-            let mut tail = tail.borrow_mut();
-            let baseline = tail
-                .data_mutation_revision()
-                .expect("predecessor store-wide revision should load");
-            tail.clear_entity_mutation_revisions_for_tests();
-            baseline
-        });
-
-        forget_recovered_domain_for_tests(&session.db)
-            .expect("upgrade should reset volatile recovery ownership");
-        drive_journaled_recovery_to_completion(&session);
-
-        let recovered = JOURNALED_TAIL_STORE
-            .with(|tail| tail.borrow().entity_mutation_revision(ENTITY_TAG))
-            .expect("recovery should publish the current entity authority");
-        assert_eq!(recovered, baseline);
-    }
-
-    #[test]
     fn mutation_progress_neither_side_mismatch_blocks_recovery() {
         let session = initialize_journaled();
         let catalog = session

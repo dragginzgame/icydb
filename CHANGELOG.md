@@ -5,6 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.264.x] - 2026-10-01 - Signed Filter Index Admission
+
+Detailed notes: [docs/changelog/0.264.md](docs/changelog/0.264.md)
+
+- `0.264.0` qualifies indexed signed equality and membership and enforces current-format authority (breaking; regeneration/reinstall required).
+
 ## [0.263.x] - 2026-10-01 - Seek Integration Qualification
 
 Detailed notes: [docs/changelog/0.263.md](docs/changelog/0.263.md)

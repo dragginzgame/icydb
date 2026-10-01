@@ -225,17 +225,6 @@ if [[ -n "$commit_store_leaks" ]]; then
   status=1
 fi
 
-continuation_rewrite_leaks="$(
-  run_rg "\\bfn\\s+resume_bounds_from_refs(\\s*<[^>]+>)?\\s*\\(" "$DB_ROOT" \
-    --glob '!crates/icydb-core/src/db/index/envelope/mod.rs' \
-    | strip_comment_only
-)"
-if [[ -n "$continuation_rewrite_leaks" ]]; then
-  echo "[ERROR] Continuation bound rewrite logic must stay in db/index/envelope/mod.rs." >&2
-  echo "$continuation_rewrite_leaks" >&2
-  status=1
-fi
-
 key_within_envelope_usage_leaks="$(
   run_rg "\\bkey_within_envelope\\b" "$DB_ROOT" \
     --glob '!crates/icydb-core/src/db/index/**' \

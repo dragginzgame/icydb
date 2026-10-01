@@ -97,6 +97,7 @@ pub(in crate::db) fn normalize_enum_literals(
             )?)))
         }
         Predicate::Compare(cmp) => {
+            let mut coercion = cmp.coercion.id;
             let value = if let Some(contract) = schema.accepted_field_contract(&cmp.field)
                 && let Some(kind) = schema.accepted_query_field_kind(&cmp.field)
             {
@@ -105,14 +106,17 @@ pub(in crate::db) fn normalize_enum_literals(
                         &cmp.field, cmp.op, &cmp.value, &contract, kind, work,
                     )?
                 } else {
-                    normalize_compare_value_for_accepted_kind(
+                    let value = normalize_compare_value_for_accepted_kind(
                         &cmp.field,
                         cmp.op,
                         &cmp.value,
                         kind,
                         cmp.coercion(),
                         work,
-                    )?
+                    )?;
+                    coercion =
+                        normalize_signed_lookup_coercion(kind, cmp.op, &value, coercion, work)?;
+                    value
                 }
             } else {
                 work.copy_value(&cmp.value)?
@@ -121,7 +125,7 @@ pub(in crate::db) fn normalize_enum_literals(
                 field: work.copy_text(&cmp.field)?,
                 op: cmp.op,
                 value,
-                coercion: cmp.coercion.clone(),
+                coercion: CoercionSpec::new(coercion),
             }))
         }
         Predicate::CompareFields(cmp) => Ok(Predicate::CompareFields(
@@ -131,6 +135,50 @@ pub(in crate::db) fn normalize_enum_literals(
         // visit charge; the structural dispatch charge above is separate.
         _ => work.copy_predicate(predicate),
     }
+}
+
+// Signed 8–64-bit fields expose Int64 query atoms. Decimal widening is exact
+// across that entire domain, so positive equality/membership can carry the
+// strict contract consumed by every existing secondary-index owner. Prove
+// this only after accepted-kind operand normalization; ranges and unproved
+// kinds retain their coercion rather than changing numeric runtime semantics.
+fn normalize_signed_lookup_coercion(
+    mut kind: &AcceptedFieldKind,
+    op: CompareOp,
+    value: &Value,
+    current: CoercionId,
+    work: &PreparationWork<'_>,
+) -> Result<CoercionId, QueryError> {
+    if current != CoercionId::NumericWiden || !matches!(op, CompareOp::Eq | CompareOp::In) {
+        return Ok(current);
+    }
+    while let AcceptedFieldKind::Relation { key_kind, .. } = kind {
+        work.charge(Resource::NestedValueSteps, 1)?;
+        kind = key_kind;
+    }
+    if !matches!(
+        kind,
+        AcceptedFieldKind::Int8
+            | AcceptedFieldKind::Int16
+            | AcceptedFieldKind::Int32
+            | AcceptedFieldKind::Int64
+    ) {
+        return Ok(current);
+    }
+    let exact = match (op, value) {
+        (CompareOp::Eq, Value::Int64(_)) => true,
+        (CompareOp::In, Value::List(values)) => {
+            for value in values {
+                work.charge(Resource::NestedValueSteps, 1)?;
+                if !matches!(value, Value::Int64(_)) {
+                    return Ok(current);
+                }
+            }
+            true
+        }
+        _ => false,
+    };
+    Ok(if exact { CoercionId::Strict } else { current })
 }
 
 fn normalize_compare_value_for_accepted_contract(

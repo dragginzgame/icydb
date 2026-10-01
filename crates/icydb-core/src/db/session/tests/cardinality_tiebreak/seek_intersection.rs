@@ -150,13 +150,7 @@ fn collect_pages(
     (rows, tokens)
 }
 
-fn assert_planned_access(
-    query: &DynamicQuery,
-    case: u8,
-    children: u8,
-    descending: bool,
-    signed: bool,
-) {
+fn assert_planned_access(query: &DynamicQuery, case: u8, children: u8, descending: bool) {
     let root = RequestExecutionRoot::__new_runtime_root();
     let session = new_request_session(&root);
     let catalog = session
@@ -186,12 +180,6 @@ fn assert_planned_access(
             DiagnosticExecutionLane::TrustedRead,
         )
         .unwrap();
-    if signed {
-        // Preserve the observed signed dynamic admission boundary separately
-        // from SQL's strict-literal intersection and unsigned dynamic admission.
-        assert!(prepared.logical_plan().access.is_single_full_scan());
-        return;
-    }
     let crate::db::access::AccessPlan::Intersection(selected) = &prepared.logical_plan().access
     else {
         panic!("live workload must select an intersection");
@@ -247,7 +235,7 @@ fn qualify_live_pages(signed: bool) {
                     if let Some(limit) = limit {
                         query = query.limit(limit);
                     }
-                    assert_planned_access(&query, case, children, descending, signed);
+                    assert_planned_access(&query, case, children, descending);
                     let expected = expected(case, children, descending, residual, limit, signed);
                     let (rows, tokens) = collect_pages(&query, None);
                     assert_eq!(
@@ -273,4 +261,174 @@ fn unsigned_live_intersections_preserve_order_limits_residuals_and_every_resume_
 #[test]
 fn signed_dynamic_filters_preserve_order_limits_residuals_and_every_resume_suffix() {
     qualify_live_pages(true);
+}
+
+// Each accepted primitive kind gets a separate database incarnation. The
+// maintained dynamic frontend must expose the same exact index contract for
+// every signed width, including values near its persisted boundaries.
+fn qualify_signed_lookups(kind: AcceptedFieldKind, values: &[i64]) {
+    scalar_page_limits::initialize_payload_schema(
+        vec![
+            field(1, "id", 0, AcceptedFieldKind::Nat64),
+            field(2, "value", 1, kind.clone()),
+        ],
+        vec![PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).unwrap(),
+            1,
+            "value_idx".into(),
+            STORE_PATH.into(),
+            false,
+            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                FieldId::new(2),
+                SchemaFieldSlot::new(1),
+                vec!["value".into()],
+                kind,
+                false,
+            )]),
+            None,
+        )],
+    );
+    let root = RequestExecutionRoot::__new_runtime_root();
+    let session = new_request_session(&root);
+    session
+        .execute_trusted_dynamic_insert_batch(
+            ENTITY_NAME,
+            values
+                .iter()
+                .enumerate()
+                .map(|(id, value)| {
+                    DynamicStructuralPatch::new(vec![
+                        (
+                            "id".into(),
+                            DynamicWriteCell::Value(InputValue::nat64(id as u64)),
+                        ),
+                        (
+                            "value".into(),
+                            DynamicWriteCell::Value(InputValue::int64(*value)),
+                        ),
+                    ])
+                })
+                .collect(),
+        )
+        .unwrap();
+    for descending in [false, true] {
+        for (filter, selected, membership) in [
+            (
+                FieldRef::new("value").eq(InputValue::int64(values[0])),
+                vec![0],
+                false,
+            ),
+            (
+                FieldRef::new("value").eq(InputValue::int64(values[values.len() - 1])),
+                vec![values.len() - 1],
+                false,
+            ),
+            (
+                FieldRef::new("value").in_list([
+                    InputValue::int64(values[0]),
+                    InputValue::int64(values[values.len() - 1]),
+                    InputValue::int64(values[0]),
+                ]),
+                vec![0, values.len() - 1],
+                true,
+            ),
+            (
+                FilterExpr::or(vec![
+                    FieldRef::new("value").eq(InputValue::int64(values[0])),
+                    FieldRef::new("value").eq(InputValue::int64(values[values.len() - 1])),
+                ]),
+                vec![0, values.len() - 1],
+                true,
+            ),
+        ] {
+            assert_signed_scalar_access(&session, &filter, descending, membership);
+            let query = DynamicQuery::new(ENTITY_NAME)
+                .select(["id"])
+                .filter(filter)
+                .order_by(if descending { desc("id") } else { asc("id") });
+            let mut selected = selected;
+            if descending {
+                selected.reverse();
+            }
+            let expected = selected
+                .into_iter()
+                .map(|id| vec![OutputValue::nat64(id as u64)])
+                .collect::<Vec<_>>();
+            let (rows, tokens) = collect_pages(&query, None);
+            assert_eq!(rows, expected);
+            for (token, offset) in tokens {
+                assert_eq!(collect_pages(&query, Some(token)).0, expected[offset..]);
+            }
+        }
+    }
+}
+
+fn assert_signed_scalar_access(
+    session: &DbSession<TestCanister>,
+    filter: &FilterExpr,
+    descending: bool,
+    membership: bool,
+) {
+    let catalog = session
+        .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
+        .unwrap();
+    let structural = crate::db::query::preparation::with_preparation_work(|work| {
+        StructuralQuery::new(MissingRowPolicy::Ignore).filter_for_schema(
+            catalog.accepted_schema_info(),
+            filter,
+            work,
+        )
+    })
+    .unwrap()
+    .select_fields(["id"])
+    .order_spec(OrderSpec {
+        fields: vec![if descending {
+            desc("id").lower()
+        } else {
+            asc("id").lower()
+        }],
+    });
+    let (prepared, _) = session
+        .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+            catalog.accepted_entity_authority(),
+            &catalog,
+            &structural,
+            DiagnosticExecutionLane::TrustedRead,
+        )
+        .unwrap();
+    let path = prepared.logical_plan().access.as_path().unwrap();
+    if membership {
+        assert!(matches!(
+            path,
+            crate::db::access::AccessPath::IndexMultiLookup { .. }
+        ));
+    } else {
+        assert!(matches!(
+            path,
+            crate::db::access::AccessPath::IndexPrefix { .. }
+        ));
+    }
+}
+
+#[test]
+fn signed_int8_secondary_equality_and_membership_use_exact_indexes() {
+    qualify_signed_lookups(AcceptedFieldKind::Int8, &[-128, -1, 0, 1, 127]);
+}
+
+#[test]
+fn signed_int16_secondary_equality_and_membership_use_exact_indexes() {
+    qualify_signed_lookups(AcceptedFieldKind::Int16, &[-32768, -1, 0, 1, 32767]);
+}
+
+#[test]
+fn signed_int32_secondary_equality_and_membership_use_exact_indexes() {
+    qualify_signed_lookups(
+        AcceptedFieldKind::Int32,
+        &[i64::from(i32::MIN), -1, 0, 1, i64::from(i32::MAX)],
+    );
+}
+
+#[test]
+fn signed_int64_secondary_equality_and_membership_use_exact_indexes() {
+    qualify_signed_lookups(AcceptedFieldKind::Int64, &[i64::MIN, -1, 0, 1, i64::MAX]);
 }

@@ -30,10 +30,10 @@ pub const TIER_C_SQL_COVERAGE_MANIFEST_REVISION: &str =
 pub const TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES: usize = 1_048_576;
 
 /// Domain separator for the complete Tier C correctness scenario-set identity.
-const TIER_C_SCENARIO_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-scenarios/v3";
+const TIER_C_SCENARIO_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-scenarios/v1";
 
 /// Domain separator for one Tier C correctness shard membership identity.
-const TIER_C_SHARD_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-shard-scenarios/v3";
+const TIER_C_SHARD_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-shard-scenarios/v1";
 
 ///
 /// TierCScenarioOutcome
@@ -1181,7 +1181,7 @@ mod tests {
         assert_eq!(forward, reversed);
         assert_eq!(
             forward,
-            "a98ba4d054eca179ea9c5d21ec305e9a91a96cc6014bc16cdbab8872c65c12ef",
+            "eb8df215669ca3f5f36225a8a54910f26e3e1c44590e4b0a5ac65c98365bdc23",
         );
     }
 

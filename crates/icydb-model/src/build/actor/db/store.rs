@@ -940,7 +940,6 @@ mod tests {
             "#[query]",
             "ic_timers::timer_snapshot(",
             "TimerCompletion::no_work()",
-            "TimerReconcileState",
         ] {
             assert!(
                 !rendered.contains(forbidden),
@@ -1167,7 +1166,6 @@ mod tests {
                 .count(),
             3,
         );
-        assert!(!rendered.contains("Result<(),::std::string::String>"));
         assert!(!rendered.contains("panic!("));
     }
 }

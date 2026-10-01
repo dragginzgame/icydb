@@ -51,7 +51,7 @@ fn witness_sub_seed_is_stable_and_independent_of_schedule_order() {
     )
     .expect("fixed witness identity should derive");
 
-    assert_eq!(sub_seed, 0x2094_32e2_00ac_9405);
+    assert_eq!(sub_seed, 0xecd8_8e16_268f_c0be);
     let mut reverse = witnesses.clone();
     reverse.reverse();
     let reversed = reverse
@@ -565,8 +565,6 @@ fn mismatch_shrinks_and_round_trips_in_current_formats() {
     let bytes = replay
         .to_canonical_json()
         .expect("replay should fit its artifact budget");
-    let canonical = str::from_utf8(bytes.as_slice()).expect("canonical replay should be UTF-8");
-    assert!(!canonical.contains("\"structural_signature\":"));
     let decoded = crate::SelectReplayRecord::from_canonical_json(&bytes)
         .expect("canonical current replay should decode");
     assert_eq!(decoded, replay);

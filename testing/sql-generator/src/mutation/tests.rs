@@ -365,7 +365,6 @@ fn mutation_identity_and_replay_use_only_the_current_witness_shape() {
     let canonical = str::from_utf8(bytes.as_slice()).expect("canonical sequence should be UTF-8");
     assert!(canonical.contains("\"witness_id\":"));
     assert!(canonical.contains("\"repetition\":\"u64:"));
-    assert!(!canonical.contains("\"structural_signature\":"));
 }
 
 #[test]

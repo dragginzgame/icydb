@@ -545,6 +545,7 @@ impl JournalTailStore {
             .contains_key(&JournalTailKey::tail_convergence_control())
         {
             let control = self.current_tail_control()?;
+            self.entity_mutation_revision_count()?;
             if !control.is_empty() || self.has_stored_batch() {
                 return Err(journal_tail_corruption());
             }
@@ -556,11 +557,15 @@ impl JournalTailStore {
         Ok(true)
     }
 
-    /// Mechanically publish an already-preflighted empty current tail control.
+    /// Publish preflighted empty tail and entity-revision authority together.
     pub(in crate::db) fn apply_current_tail_control_initialization(&mut self) {
         self.map.insert(
             JournalTailKey::tail_convergence_control(),
             RawJournalChunk::from_bytes(encode_tail_control(JournalTailControl::empty())),
+        );
+        self.map.insert(
+            JournalTailKey::entity_mutation_revision_control(),
+            RawJournalChunk::from_bytes(encode_entity_mutation_revision_control(0)),
         );
     }
 
@@ -577,40 +582,6 @@ impl JournalTailStore {
             .get(&JournalTailKey::tail_convergence_control())
             .ok_or_else(journal_tail_corruption)
             .and_then(|raw| decode_tail_control(raw.as_bytes()))
-    }
-
-    /// Return whether the current entity-revision authority has been published.
-    #[must_use]
-    pub(in crate::db) fn has_current_entity_mutation_revisions(&self) -> bool {
-        self.map
-            .contains_key(&JournalTailKey::entity_mutation_revision_control())
-    }
-
-    /// Initialize missing current-form entity revisions from one accepted tag set.
-    ///
-    /// A present authority is validated structurally but is not compared with
-    /// `accepted_entity_tags` here: marker recovery may already have appended a
-    /// newer accepted-schema publication whose canonical schema fold is still
-    /// pending. The recovery completion gate performs the exact set comparison.
-    pub(in crate::db) fn initialize_missing_entity_mutation_revisions(
-        &mut self,
-        accepted_entity_tags: &[EntityTag],
-    ) -> Result<(), InternalError> {
-        validate_entity_mutation_revision_tags(accepted_entity_tags)?;
-        if self.has_current_entity_mutation_revisions() {
-            self.entity_mutation_revision_authority().map(drop)
-        } else {
-            let baseline = self.data_mutation_revision()?;
-            let entries = accepted_entity_tags
-                .iter()
-                .copied()
-                .map(|entity_tag| EntityMutationRevisionEntry {
-                    entity_tag,
-                    revision: baseline,
-                })
-                .collect();
-            self.apply_entity_mutation_revision_replacement(entries)
-        }
     }
 
     /// Publish the entity-revision shape of one accepted schema.
@@ -686,6 +657,7 @@ impl JournalTailStore {
         &self,
     ) -> Result<JournalTailControl, InternalError> {
         let control = self.current_tail_control()?;
+        self.entity_mutation_revision_count()?;
         let watermark = self.fold_watermark()?;
         let expected_head = watermark
             .highest_folded_journal_sequence()
@@ -767,9 +739,9 @@ impl JournalTailStore {
             }
         }
         #[cfg(test)]
-        if !self.has_current_entity_mutation_revisions() {
+        if self.entity_mutation_revision_count()? == 0 {
             let tags = current_entity_tags_for_test_batch(batch)?;
-            self.initialize_missing_entity_mutation_revisions(tags.as_slice())?;
+            self.publish_accepted_entity_mutation_revisions(tags.as_slice())?;
         }
         let affected_entity_tags = batch_row_mutation_entity_tags(batch)?;
         let entity_revision_update =
@@ -1211,25 +1183,6 @@ impl JournalTailStore {
         self.len() == 0
     }
 
-    /// Remove only entity-revision controls to model a valid predecessor tail.
-    #[cfg(test)]
-    pub(in crate::db) fn clear_entity_mutation_revisions_for_tests(&mut self) {
-        let keys = self
-            .map
-            .range((
-                Included(JournalTailKey::entity_mutation_revision_control()),
-                Included(JournalTailKey::new(
-                    FOLD_WATERMARK_CONTROL_SEQUENCE,
-                    u32::MAX,
-                )),
-            ))
-            .map(|entry| *entry.key())
-            .collect::<Vec<_>>();
-        for key in keys {
-            let _removed = self.map.remove(&key);
-        }
-    }
-
     /// Remove one retained entity entry while leaving its completion marker.
     #[cfg(test)]
     pub(in crate::db) fn remove_entity_mutation_revision_for_tests(
@@ -1524,6 +1477,7 @@ impl JournalTailStore {
         entries: Vec<EntityMutationRevisionEntry>,
     ) -> Result<(), InternalError> {
         validate_entity_mutation_revision_entries(entries.as_slice())?;
+        let count = u32::try_from(entries.len()).map_err(|_| journal_tail_corruption())?;
         let existing_keys = self
             .map
             .range((
@@ -1554,7 +1508,7 @@ impl JournalTailStore {
         }
         self.map.insert(
             JournalTailKey::entity_mutation_revision_control(),
-            RawJournalChunk::from_bytes(encode_entity_mutation_revision_control(entries.len())?),
+            RawJournalChunk::from_bytes(encode_entity_mutation_revision_control(count)),
         );
         Ok(())
     }
@@ -2092,16 +2046,14 @@ fn decode_data_mutation_revision(bytes: &[u8]) -> Result<JournalSequence, Intern
     Ok(sequence)
 }
 
-fn encode_entity_mutation_revision_control(count: usize) -> Result<Vec<u8>, InternalError> {
-    if count > MAX_ENTITY_MUTATION_REVISIONS {
-        return Err(journal_tail_corruption());
-    }
-    let count = u32::try_from(count).map_err(|_| journal_tail_corruption())?;
+// Callers validate the accepted entity bound before encoding; initialization
+// emits the same current control with its exact empty count.
+fn encode_entity_mutation_revision_control(count: u32) -> Vec<u8> {
     let mut bytes = Vec::with_capacity(ENTITY_MUTATION_REVISION_CONTROL_BYTES);
     bytes.extend_from_slice(ENTITY_MUTATION_REVISION_CONTROL_MAGIC);
     bytes.push(ENTITY_MUTATION_REVISION_VERSION);
     bytes.extend_from_slice(&count.to_be_bytes());
-    Ok(bytes)
+    bytes
 }
 
 fn decode_entity_mutation_revision_control(bytes: &[u8]) -> Result<usize, InternalError> {
@@ -2654,6 +2606,22 @@ mod convergence_control_tests {
             RawJournalChunk::from_bytes(vec![0xFF; TAIL_CONVERGENCE_BYTES]),
         );
         assert!(store.current_tail_control().is_err());
+
+        let mut entity_authority = JournalTailStore::init(test_memory(181));
+        entity_authority.initialize_current_tail_control().unwrap();
+        entity_authority
+            .map
+            .remove(&JournalTailKey::entity_mutation_revision_control());
+        let error = entity_authority
+            .validate_current_tail_authority()
+            .expect_err("current tail authority requires its entity-revision control");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+        entity_authority.map.insert(
+            JournalTailKey::entity_mutation_revision_control(),
+            RawJournalChunk::from_bytes(vec![0xFF; ENTITY_MUTATION_REVISION_CONTROL_BYTES]),
+        );
+        assert!(entity_authority.validate_current_tail_authority().is_err());
 
         let mut mismatch = JournalTailStore::init(test_memory(175));
         mismatch.initialize_current_tail_control().unwrap();
